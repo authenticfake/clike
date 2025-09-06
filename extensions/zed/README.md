@@ -1,0 +1,1 @@
+# Zed Extension (placeholder)

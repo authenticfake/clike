@@ -1,0 +1,58 @@
+version: "3.8"
+services:
+  gateway:
+    build: ../gateway
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      - MODELS_CONFIG=/workspace/configs/models.yaml
+    volumes:
+      - ..:/workspace
+    ports: ["8000:8000"]
+
+  orchestrator:
+    build: ../orchestrator
+    command: uvicorn app:app --host 0.0.0.0 --port 8080 --reload
+    environment:
+      - GATEWAY_URL=http://gateway:8000
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      # toggle strumenti:
+      - CLIKE_TOOLS_PY_BLACK=true
+      - CLIKE_TOOLS_PY_ISORT=true
+      - CLIKE_TOOLS_PY_RUFF=true
+      - CLIKE_TOOLS_TS_PRETTIER=true
+      - CLIKE_TOOLS_TS_ESLINT=false
+      - CLIKE_TOOLS_JAVA_GJF=true
+      - CLIKE_TOOLS_GO_FMT=true
+      - CLIKE_TOOLS_GO_IMPORTS=true
+    volumes:
+        - ..:/workspace
+        - ../configs:/workspace/configs:ro
+    ports: ["8080:8080"]
+    depends_on:
+      - gateway
+      - qdrant
+      - ollama
+
+  ollama:
+    image: ollama/ollama:latest
+    ports: ["11434:11434"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 5s
+      timeout: 2s
+      retries: 20
+   
+  #ollama-init:
+  #  image: curlimages/curl:latest
+  #  depends_on:
+  #    ollama:
+  #       condition: service_healthy
+  #  entrypoint: ["/bin/sh", "-c"]
+  #  command: >
+  #      "curl -X POST http://ollama:11434/api/pull -d '{\"name\":\"nomic-embed-text\"}' && tail -f /dev/null"
+
+  
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports: ["6333:6333"]
