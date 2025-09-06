@@ -15,9 +15,6 @@
 - 🛡️ **Enterprise‑ready** — eval‑driven gates, governance, reproducibility, TRiSM aligned.  
 
 ---
-> **From intent to impact.** CLike keeps developers in flow, augments delivery with agentic workflows, and bakes in governance, eval‑driven quality, and a safe paved road for enterprises.
-
----
 
 ## ✨ What is CLike?
 
