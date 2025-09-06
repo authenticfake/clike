@@ -1,6 +1,3 @@
-# clike
-Clike is an AI-native developer experience layer inspired by Cursor and from some visionar on interne in line w/ AI Native Pipeline principles
-=======
 # 🚀 CLike — AI‑Native Platform for Product Engineers
 
 > **From intent to impact.** CLike keeps developers in flow, augments delivery with agentic workflows, and bakes in governance, eval‑driven quality, and a safe paved road for enterprises.
