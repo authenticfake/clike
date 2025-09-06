@@ -11,3 +11,14 @@ black>=24.3
 ruff>=0.4
 mypy>=1.9
 types-requests>=2.32
+
+python-multipart==0.0.9
+watchfiles==0.22.0
+PyYAML==6.0.2
+
+# (Se usi diff/patch lato py per utilità varie)
+unidiff==0.7.5
+
+# Embedded tools (usati via subprocess, ma li teniamo anche come dipendenze python-side dove utile)
+isort==5.13.2
+

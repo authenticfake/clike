@@ -8,11 +8,19 @@
   "engines": {
     "vscode": "^1.85.0"
   },
+  "author": {
+    "name": "authenticfake"
+  },
   "main": "./extension.js",
   "categories": [
     "AI",
     "Programming Languages"
   ],
+   "repository": {
+    "type": "git",
+    "url": "https://github.com/authenticfake/clike.git"
+  },
+  "homepage": "https://github.com/authenticfake/clike/tree/main",
   "activationEvents": [
     "onCommand:clike.ping",
     "onCommand:clike.codeAction",
