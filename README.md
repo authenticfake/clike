@@ -1,5 +1,20 @@
 # 🚀 CLike — AI‑Native Platform for Product Engineers
 
+[![Made with Python](https://img.shields.io/badge/Made%20with-Python-3776AB?logo=python)](https://www.python.org/)  
+[![VS Code Extension](https://img.shields.io/badge/VS%20Code-Extension-007ACC?logo=visualstudiocode)](extensions/vscode)  
+[![Dockerized](https://img.shields.io/badge/Run%20with-Docker-2496ED?logo=docker)](docker)  
+
+> **From intent to impact.**  
+> CLike keeps developers in flow, augments delivery with agentic workflows, and bakes in governance, eval‑driven quality, and a safe paved road for enterprises.
+
+---
+
+## ✨ Highlights
+- 🌀 **Flow state by default** — no context switching, full VS Code integration.  
+- 🤖 **Agentic & self‑healing** — AI assistants that act, test, and fix.  
+- 🛡️ **Enterprise‑ready** — eval‑driven gates, governance, reproducibility, TRiSM aligned.  
+
+---
 > **From intent to impact.** CLike keeps developers in flow, augments delivery with agentic workflows, and bakes in governance, eval‑driven quality, and a safe paved road for enterprises.
 
 ---
