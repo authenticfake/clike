@@ -1,0 +1,10 @@
+**/.git/**
+**/.github/**
+**/.vscode/**
+**/.history/**
+node_modules/**
+src/**
+test/**
+**/*.map
+tsconfig.json
+!out/**

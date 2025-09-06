@@ -1,0 +1,213 @@
+{
+  "name": "clike",
+  "displayName": "Clike",
+  "description": "From intent to impact. CLike keeps developers in flow, augments delivery with agentic workflows, and bakes in governance, eval‑driven quality, and a safe paved road for enterprises w/ an AI native pipeline.",
+  "version": "0.5.3",
+  "publisher": "AFUC",
+  "icon": "images/clike_64x64.png",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "main": "./extension.js",
+  "categories": [
+    "AI",
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onCommand:clike.ping",
+    "onCommand:clike.codeAction",
+    "onCommand:clike.addDocstring",
+    "onCommand:clike.refactor",
+    "onCommand:clike.generateTests",
+    "onCommand:clike.fixErrors",
+    "onCommand:clike.applyUnifiedDiffHardened",
+    "onCommand:clike.applyUnifiedDiff",
+    "onCommand:clike.applyNewContent",
+    "onCommand:clike.applyLastPatch",
+    "onCommand:clike.listModels",
+    "onCommand:clike.checkServices",
+    "onCommand:clike.ragReindex",
+    "onCommand:clike.ragSearch",
+    "onCommand:clike.gitCreateBranch",
+    "onCommand:clike.gitCommitPatch",
+    "onCommand:clike.gitOpenPR",
+    "onCommand:clike.gitSmartPR"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "clike.ping",
+        "title": "Clike: Ping Service"
+      },
+      {
+        "command": "clike.codeAction",
+        "title": "Clike: Code Action\u2026"
+      },
+      {
+        "command": "clike.addDocstring",
+        "title": "Clike: Add Docstring (AI via Orchestrator)"
+      },
+      {
+        "command": "clike.refactor",
+        "title": "Clike: Refactor (AI via Orchestrator)"
+      },
+      {
+        "command": "clike.generateTests",
+        "title": "Clike: Generate Tests (AI via Orchestrator)"
+      },
+      {
+        "command": "clike.fixErrors",
+        "title": "Clike: Fix Errors (AI via Orchestrator)"
+      },
+      {
+        "command": "clike.applyUnifiedDiffHardened",
+        "title": "Clike: Apply Unified Diff (Hardened)"
+      },
+      {
+        "command": "clike.applyUnifiedDiff",
+        "title": "Clike: Apply Unified Diff"
+      },
+      {
+        "command": "clike.applyNewContent",
+        "title": "Clike: Apply New Content"
+      },
+      {
+        "command": "clike.applyLastPatch",
+        "title": "Clike: Apply Last Patch"
+      },
+      {
+        "command": "clike.listModels",
+        "title": "Clike: List Models (via Gateway)"
+      },
+      {
+        "command": "clike.checkServices",
+        "title": "Clike: Check Services"
+      },
+      {
+        "command": "clike.ragReindex",
+        "title": "Clike: RAG Reindex (via Orchestrator)"
+      },
+      {
+        "command": "clike.ragSearch",
+        "title": "Clike: RAG Search (via Orchestrator)"
+      },
+      {
+        "command": "clike.gitCreateBranch",
+        "title": "Clike: Git Create Branch"
+      },
+      {
+        "command": "clike.gitCommitPatch",
+        "title": "Clike: Git Commit Patch"
+      },
+      {
+        "command": "clike.gitOpenPR",
+        "title": "Clike: Git Open PR"
+      },
+      {
+        "command": "clike.gitSmartPR",
+        "title": "Clike: Git Smart PR"
+      }
+    ],
+    "configuration": {
+      "title": "Clike",
+      "properties": {
+        "clike.verboseLogging": {
+          "type": "boolean",
+          "default": false,
+          "description": "Log verbose messages."
+        },
+        "clike.useAi.docstring": {
+          "type": "boolean",
+          "default": true,
+          "description": "Abilita la generazione docstring via AI (invia use.ai.docstring all’orchestrator)."
+        },
+        "clike.useAi.refactor": {
+          "type": "boolean",
+          "default": true,
+          "description": "Abilita il refactor via AI (invia use.ai.refactor all’orchestrator)."
+        },
+        "clike.useAi.tests": {
+          "type": "boolean",
+          "default": false,
+          "description": "Abilita la generazione test via AI (invia use.ai.tests all’orchestrator)."
+        },
+        "clike.useAi.fixErrors": {
+          "type": "boolean",
+          "default": false,
+          "description": "Abilita il fix errori via AI (invia use.ai.fix_errors all’orchestrator)."
+        },
+        "clike.orchestratorUrl": {
+          "type": "string",
+          "default": "http://localhost:8080",
+          "description": "Base URL for the Clike orchestrator API (e.g. http://localhost:8080)."
+        },
+        "clike.gatewayUrl": {
+          "type": "string",
+          "default": "http://localhost:8000",
+          "description": "Base URL for the Clike gateway API (e.g. http://localhost:8000)."
+        },
+        "clike.optimizeFor": {
+          "type": "string",
+          "default": "capability",
+          "enum": [
+            "latency",
+            "cost",
+            "capability"
+          ],
+          "description": "Optimization mode sent to the orchestrator."
+        },
+        "clike.apply.backup": {
+          "type": "boolean",
+          "default": true,
+          "description": "If true, create a ~clike.bak backup before applying patches."
+        },
+        "clike.apply.requireCleanGit": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, require a clean Git working tree before applying patches."
+        },
+        "clike.apply.dryRunPreview": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, run a dry-run and show preview before applying the patch."
+        },
+        "clike.git.autoCommit": {
+          "type": "boolean",
+          "default": true,
+          "description": "If true, auto-commit changes after apply."
+        },
+        "clike.git.commitMessage": {
+          "type": "string",
+          "default": "clike: apply patch (AI)",
+          "description": "Default commit message used for auto-commit."
+        },
+        "clike.git.openPR": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, open PR flow after auto-commit (requires GitHub extension)."
+        },
+        "clike.routes": {
+          "type": "object",
+          "default": {
+            "orchestrator": {
+              "code": "/agent/code",
+              "ragSearch": "/rag/search",
+              "ragReindex": "/rag/reindex",
+              "health": "/health"
+            },
+            "gateway": {
+              "models": "/v1/models",
+              "chatCompletions": "/v1/chat/completions",
+              "health": "/health"
+            }
+          },
+          "description": "Override default relative routes for orchestrator and gateway."
+        }
+      }
+    }
+  },
+
+  "dependencies": {
+    "diff": "^5.2.0"
+  }
+}

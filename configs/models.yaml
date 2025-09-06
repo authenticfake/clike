@@ -1,0 +1,85 @@
+defaults:
+  chat_model: llama3
+  embedding_model: nomic-embed-text
+
+models:
+  - name: llama3
+    provider: ollama
+    base_url: http://ollama:11434
+    remote_name: llama3
+    modality: chat
+    capability: medium
+    latency: low
+    cost: low
+    privacy: high
+    enabled: true
+
+  - name: nomic-embed-text
+    provider: ollama
+    base_url: http://ollama:11434
+    remote_name: nomic-embed-text
+    modality: embeddings
+    capability: medium
+    latency: low
+    cost: low
+    privacy: high
+    enabled: true
+
+  - name: deepseek-coder-v2
+    provider: vllm
+    base_url: http://vllm:8000/v1
+    remote_name: deepseek-coder-v2
+    modality: chat
+    capability: high
+    latency: medium
+    cost: low
+    privacy: high
+    enabled: false
+
+  - name: deepseek-chat
+    provider: deepseek
+    base_url: https://api.deepseek.com/v1
+    remote_name: deepseek-chat
+    api_key_env: DEEPSEEK_API_KEY
+    modality: chat
+    capability: high
+    latency: medium
+    cost: medium
+    privacy: low
+    enabled: false
+
+  - name: gpt-4o-mini
+    provider: openai
+    base_url: https://api.openai.com/v1
+    remote_name: gpt-4o-mini
+    api_key_env: OPENAI_API_KEY
+    modality: chat
+    capability: high
+    latency: medium
+    cost: medium
+    privacy: low
+    enabled: false
+
+  - name: text-embedding-3-small
+    provider: openai
+    base_url: https://api.openai.com/v1
+    remote_name: text-embedding-3-small
+    api_key_env: OPENAI_API_KEY
+    modality: embeddings
+    capability: high
+    latency: medium
+    cost: medium
+    privacy: low
+    enabled: false
+
+  - name: claude-3-5-sonnet
+    provider: anthropic
+    base_url: https://api.anthropic.com/v1
+    remote_name: claude-3-5-sonnet-20240620
+    api_key_env: ANTHROPIC_API_KEY
+    modality: chat
+    capability: high
+    latency: medium
+    cost: medium
+    privacy: low
+    enabled: false

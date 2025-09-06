@@ -1,0 +1,316 @@
+{
+  "info": {
+    "name": "Clike \u2014 Orchestrator & Gateway (replicated)",
+    "_postman_id": "clike-col-20250903143935",
+    "description": "Replicated API surface from clike_mvp.zip for Gateway and Orchestrator. Includes embedded vs AI docstring scenarios.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Gateway",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{GATEWAY_BASE}}/health",
+              "host": [
+                "{{GATEWAY_BASE}}"
+              ],
+              "path": [
+                "health"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', ()=>pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Models",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{GATEWAY_BASE}}/v1/models",
+              "host": [
+                "{{GATEWAY_BASE}}"
+              ],
+              "path": [
+                "v1",
+                "models"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Chat Completions (sanity)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"{{MODEL_NAME}}\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are a helpful assistant.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Reply with OK\"\n    }\n  ],\n  \"temperature\": 0\n}"
+            },
+            "url": {
+              "raw": "{{GATEWAY_BASE}}/v1/chat/completions",
+              "host": [
+                "{{GATEWAY_BASE}}"
+              ],
+              "path": [
+                "v1",
+                "chat",
+                "completions"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Orchestrator",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{ORCH_BASE}}/health",
+              "host": [
+                "{{ORCH_BASE}}"
+              ],
+              "path": [
+                "health"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Docstring \u2014 Embedded",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"intent\": \"docstring\",\n  \"path\": \"{{TEST_FILE}}\",\n  \"language\": \"{{LANG}}\",\n  \"prompt\": \"Describe purpose, params and return value.\",\n  \"selection\": \"{{SELECTION}}\",\n  \"use.ai.docstring\": false\n}"
+            },
+            "url": {
+              "raw": "{{ORCH_BASE}}/agent/code",
+              "host": [
+                "{{ORCH_BASE}}"
+              ],
+              "path": [
+                "agent",
+                "code"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Docstring \u2014 AI",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"intent\": \"docstring\",\n  \"path\": \"{{TEST_FILE}}\",\n  \"language\": \"{{LANG}}\",\n  \"prompt\": \"Describe purpose, params and return value in detail.\",\n  \"selection\": \"{{SELECTION}}\",\n  \"use.ai.docstring\": true\n}"
+            },
+            "url": {
+              "raw": "{{ORCH_BASE}}/agent/code",
+              "host": [
+                "{{ORCH_BASE}}"
+              ],
+              "path": [
+                "agent",
+                "code"
+              ]
+            }
+          }
+        },
+        {
+          "name": "RAG \u2014 Reindex",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"path\": \"{{RAG_FILE}}\"\n}"
+            },
+            "url": {
+              "raw": "{{ORCH_BASE}}/rag/reindex",
+              "host": [
+                "{{ORCH_BASE}}"
+              ],
+              "path": [
+                "rag",
+                "reindex"
+              ]
+            }
+          }
+        },
+        {
+          "name": "RAG \u2014 Search",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"q\": \"What is Clike?\"\n}"
+            },
+            "url": {
+              "raw": "{{ORCH_BASE}}/rag/search",
+              "host": [
+                "{{ORCH_BASE}}"
+              ],
+              "path": [
+                "rag",
+                "search"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Git \u2014 Branch",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"clike/patch\"\n}"
+            },
+            "url": {
+              "raw": "{{ORCH_BASE}}/git/branch",
+              "host": [
+                "{{ORCH_BASE}}"
+              ],
+              "path": [
+                "git",
+                "branch"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Git \u2014 Commit",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"clike: patch\"\n}"
+            },
+            "url": {
+              "raw": "{{ORCH_BASE}}/git/commit",
+              "host": [
+                "{{ORCH_BASE}}"
+              ],
+              "path": [
+                "git",
+                "commit"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Git \u2014 PR",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"clike: PR\"\n}"
+            },
+            "url": {
+              "raw": "{{ORCH_BASE}}/git/pr",
+              "host": [
+                "{{ORCH_BASE}}"
+              ],
+              "path": [
+                "git",
+                "pr"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "GATEWAY_BASE",
+      "value": "http://localhost:8000"
+    },
+    {
+      "key": "ORCH_BASE",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "MODEL_NAME",
+      "value": "llama3"
+    },
+    {
+      "key": "TEST_FILE",
+      "value": "apps/demo-rag/src/hello.py"
+    },
+    {
+      "key": "LANG",
+      "value": "python"
+    },
+    {
+      "key": "SELECTION",
+      "value": ""
+    },
+    {
+      "key": "RAG_FILE",
+      "value": "README.md"
+    }
+  ]
+}
