@@ -1,6 +1,6 @@
 import httpx
 
-ANTHROPIC_VERSION = "2023-06-01"
+ANTHROPIC_VERSION = "2023-06-01" #too old
 
 def _merge_messages(messages: list) -> str:
     parts = []
