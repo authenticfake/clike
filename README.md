@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # clike
 Clike is an AI-native developer experience layer inspired by Cursor, AI Native Pipeline principles and from some visionar on internet
 =======
@@ -177,4 +176,3 @@ Issues and PRs are welcome. Please include repro steps, logs (with secrets redac
 ## 📝 License
 
 TBD — see `LICENSE` when available.
->>>>>>> ef15915 (Initial commit)
