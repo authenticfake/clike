@@ -1,2 +1,13 @@
 node_modules/
 .DS_Store
+.env
+.env.*
+.project
+.classpath
+.settings/
+build/
+dist/
+out/
+*.log
+*.swp
+*.swo
