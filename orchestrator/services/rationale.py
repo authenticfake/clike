@@ -2,6 +2,7 @@
 import re, os
 from typing import Optional
 from .llm_client import call_gateway_chat  # tua funzione già esistente
+from config import settings
 
 def _diff_stats(diff_text: Optional[str]) -> str:
     if not diff_text:
@@ -56,7 +57,8 @@ async def rationale(
         msg = await call_gateway_chat(
             messages=[{"role":"system","content":system},{"role":"user","content":user}],
             model=model or "auto",
-            gateway_url=gateway_url or os.getenv("GATEWAY_URL","http://gateway:8000"),
+            gateway_url = gateway_url or str(settings.GATEWAY_URL)
+,
             temperature=0.0,
             max_tokens=200,
         )

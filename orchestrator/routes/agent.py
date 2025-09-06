@@ -1,10 +1,8 @@
 # routes/agent.py
-import os
 import re
 import json
 import logging
 from typing import Any, Dict, Tuple, List, Optional
-
 from fastapi import APIRouter, Request, HTTPException
 
 from services.utils import read_file, write_file, to_diff, detect_lang
@@ -12,12 +10,14 @@ from services.docstrings import (
     make_docstring as _make_docstring,
     insert_docstring as _insert_docstring,
 )
+from config import settings
+
 from services.embedded_ops import deterministic_refactor, mechanical_fixes, make_test_stub
 from services.rationale import rationale
 from services.llm_client import call_gateway_chat  # compat gestita sotto
 
 router = APIRouter()
-gateway_url = os.getenv("GATEWAY_URL", "http://gateway:8000")
+gateway_url = str(settings.GATEWAY_URL)
 
 def _normalize_selection(sel: Any) -> str:
     """Rende sempre 'sel' una stringa utilizzabile per la dedup.
@@ -320,7 +320,7 @@ async def agent_code(req: Request):
                         gateway=gateway_url,
                         temperature=0.1,
                         max_tokens=256,
-                        timeout_s=float(os.getenv("LLM_TIMEOUT_S", "60")),
+                        timeout_s=float(settings.REQUEST_TIMEOUT_S),
                     )
                     # Gestione eventuale JSON OpenAI-like
                     if isinstance(ai_text, str) and ai_text.strip().startswith("{"):
