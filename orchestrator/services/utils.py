@@ -1,10 +1,10 @@
 import os, difflib, hashlib, subprocess, re
 from typing import List, Optional
-
+from config import settings
 RAG_COLL = "clike_rag"
-GATEWAY_URL = os.getenv("GATEWAY_URL", "http://gateway:8000")
-QDRANT_HOST = os.getenv("QDRANT_HOST", "qdrant")
-QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
+GATEWAY_URL = settings.GATEWAY_URL
+QDRANT_HOST = settings.QDRANT_HOST
+QDRANT_PORT = settings.QDRANT_PORT
 
 from pathlib import Path
 

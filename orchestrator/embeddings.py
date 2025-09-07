@@ -1,10 +1,10 @@
-import os, httpx
-
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
+import httpx
+from orchestrator.config import settings
+OLLAMA_URL = settings.OLLAMA_URL
 
 async def embed_text(text: str, model: str = "nomic-embed-text") -> list[float]:
     payload = {"model": model, "prompt": text}
-    async with httpx.AsyncClient(timeout=60) as client:
+    async with httpx.AsyncClient(timeout=settings.REQUEST_TIMEOUT_S) as client:
         # 1) prova la rotta ufficiale
         r = await client.post(f"{OLLAMA_URL}/api/embeddings", json=payload)
         if r.status_code == 200:

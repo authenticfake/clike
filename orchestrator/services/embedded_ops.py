@@ -1,6 +1,6 @@
 # services/embedded_ops.py
 # ---------------------------------------------------
-# Clike – Embedded (no-AI) implementations + optional external tools
+# CLike – Embedded (no-AI) implementations + optional external tools
 #   - deterministic_refactor(lang, orig, selection, prompt) -> str
 #   - make_test_stub(lang, path, code) -> (test_content, test_path)
 #   - mechanical_fixes(lang, orig) -> str
@@ -8,7 +8,7 @@
 #
 # Supported langs: python, javascript, typescript, react, node, java, go, mendix
 # External tools (optional): black, isort, ruff, prettier, eslint, google-java-format, gofmt, goimports
-# Toggle via env (default: enabled if present), e.g.:
+# Toggle via config (settings.tool_flag), retro-compat fallback to env:
 #   CLIKE_TOOLS_PY_BLACK=true|false
 #   CLIKE_TOOLS_PY_ISORT=true|false
 #   CLIKE_TOOLS_PY_RUFF=true|false
@@ -26,6 +26,8 @@ import shutil
 import tempfile
 import subprocess
 from typing import Tuple, Optional
+
+from config import settings  # single source of truth for configuration
 
 # ---------------------------
 # Generic helpers
@@ -57,11 +59,17 @@ def _extract_basename_no_ext(path: str) -> str:
         return ".".join(base.split(".")[:-1]) or base
     return base
 
-def _bool_env(name: str, default: bool = True) -> bool:
-    v = os.getenv(name)
-    if v is None:
-        return default
-    return str(v).lower() in ("1", "true", "yes", "on")
+# ---------------------------
+# Config-driven tool toggles (centralized via settings)
+# ---------------------------
+
+def _bool_from_settings_or_env(name: str, default: bool = True) -> bool:
+    """
+    Primary: read from centralized configuration (settings.tool_flag).
+    Retro-compat: if settings lacks tool_flag(), fall back to os.getenv(name).
+    NOTE: Once config.py exposes tool_flag(), the env fallback is unused and can be removed.
+    """
+    return bool(settings.tool_flag(name, default))
 
 def _has_cmd(cmd: str) -> bool:
     return shutil.which(cmd) is not None
@@ -80,8 +88,8 @@ def _run_cmd(argv, cwd=None, input_str: Optional[str] = None, timeout: int = 60)
 
 def _run_on_tempfile(content: str, suffix: str, argv_builder, read_path: bool = True) -> Optional[str]:
     """
-    Scrive content su temp file, esegue il tool (argv_builder(temp_path) -> argv),
-    poi rilegge temp_path (se read_path True) e ritorna il contenuto. Ritorna None se fallisce.
+    Writes content to a temp file, runs the tool (argv_builder(temp_path) -> argv),
+    then reads temp_path (if read_path True) and returns the content. Returns None on failure.
     """
     tmpdir = tempfile.mkdtemp(prefix="clike_")
     try:
@@ -154,44 +162,41 @@ def _java_add_file_header(src: str, prompt: str) -> str:
     return header + src
 
 def _maybe_python_tools(src: str) -> str:
-    # isort (stdin ok) – preferiamo temp-file per compat massima
-    if _bool_env("CLIKE_TOOLS_PY_ISORT", True) and _has_cmd("isort"):
+    # isort (stdin ok) – prefer temp-file for max compatibility
+    if _bool_from_settings_or_env("CLIKE_TOOLS_PY_ISORT", True) and _has_cmd("isort"):
         res = _run_on_tempfile(src, ".py", lambda p: ["isort", p])
         if res is not None:
             src = res
 
-    # black – usa temp-file (scrive in place)
-    if _bool_env("CLIKE_TOOLS_PY_BLACK", True) and _has_cmd("black"):
+    # black – uses temp-file (in-place)
+    if _bool_from_settings_or_env("CLIKE_TOOLS_PY_BLACK", True) and _has_cmd("black"):
         res = _run_on_tempfile(src, ".py", lambda p: ["black", "-q", p])
         if res is not None:
-            # black non restituisce contenuto su stdout; rileggiamo dal path
             src = res
 
     return src
 
 def _maybe_ts_js_tools(src: str, is_ts: bool) -> str:
-    # prettier – stdin ok, ma usiamo temp-file per infer parser da estensione
-    if _bool_env("CLIKE_TOOLS_TS_PRETTIER", True) and _has_cmd("prettier"):
+    # prettier — use temp-file so parser infers from extension
+    if _bool_from_settings_or_env("CLIKE_TOOLS_TS_PRETTIER", True) and _has_cmd("prettier"):
         res = _run_on_tempfile(src, ".ts" if is_ts else ".js",
                                lambda p: ["prettier", "--write", p, "--loglevel", "silent"])
         if res is not None:
             src = res
 
-    # eslint --fix – richiede spesso config; usiamo temp-file e --fix
-    if _bool_env("CLIKE_TOOLS_TS_ESLINT", False) and _has_cmd("eslint"):
+    # eslint --fix — many setups require config; run on temp-file
+    if _bool_from_settings_or_env("CLIKE_TOOLS_TS_ESLINT", False) and _has_cmd("eslint"):
         res = _run_on_tempfile(src, ".ts" if is_ts else ".js",
                                lambda p: ["eslint", "--fix", p])
         if res is not None and res.strip():
-            # molti setup eslint non stampano il contenuto; rileggiamo file già fatto da _run_on_tempfile
             src = res
     return src
 
 def _maybe_java_tools(src: str) -> str:
-    # google-java-format via jar; richiede 'java'
-    if _bool_env("CLIKE_TOOLS_JAVA_GJF", True) and _has_cmd("java"):
+    # google-java-format via jar; requires 'java'
+    if _bool_from_settings_or_env("CLIKE_TOOLS_JAVA_GJF", True) and _has_cmd("java"):
         gjf = "/usr/local/bin/google-java-format.jar"
         if os.path.exists(gjf):
-            # legge da stdin / scrive su stdout
             rc, out, err = _run_cmd(["java", "-jar", gjf, "--aosp", "-"], input_str=src)
             if rc == 0 and out.strip():
                 return out
@@ -199,12 +204,12 @@ def _maybe_java_tools(src: str) -> str:
 
 def _maybe_go_tools(src: str) -> str:
     # gofmt
-    if _bool_env("CLIKE_TOOLS_GO_FMT", True) and _has_cmd("gofmt"):
+    if _bool_from_settings_or_env("CLIKE_TOOLS_GO_FMT", True) and _has_cmd("gofmt"):
         rc, out, err = _run_cmd(["gofmt"], input_str=src)
         if rc == 0 and out.strip():
             src = out
     # goimports
-    if _bool_env("CLIKE_TOOLS_GO_IMPORTS", True) and _has_cmd("goimports"):
+    if _bool_from_settings_or_env("CLIKE_TOOLS_GO_IMPORTS", True) and _has_cmd("goimports"):
         rc, out, err = _run_cmd(["goimports"], input_str=src)
         if rc == 0 and out.strip():
             src = out
@@ -223,7 +228,6 @@ def deterministic_refactor(lang: str, orig: str, selection: str, prompt: str) ->
 
     if lang == "python":
         src = _maybe_python_tools(src)
-        # fallback import sort (non distruttivo)
         src = _sort_import_blocks_python(src)
 
     elif lang in ("javascript", "typescript", "react", "node"):
@@ -239,7 +243,7 @@ def deterministic_refactor(lang: str, orig: str, selection: str, prompt: str) ->
         src = _maybe_go_tools(src)
 
     elif lang == "mendix":
-        # Mendix: non codificato; lasciamo housekeeping base
+        # Not implemented; keep housekeeping only
         pass
 
     return src
@@ -273,20 +277,12 @@ def _ts_js_test_stub(path: str, code: str, ts: bool) -> Tuple[str, str]:
     base = _extract_basename_no_ext(path)
     ext = "test.ts" if ts else "test.js"
     test_path = os.path.join(os.path.dirname(path) or ".", f"{base}.{ext}")
-    
-    
     content = f"""{"// @ts-nocheck" if ts else ""}
 import {{ /*target*/ }} from './{base}';
 
 test('basic', () => {{
   expect(1).toBe(1);
 }});"""
-#     content = f"""{"// @ts-nocheck\n" if ts else ""}import {{ /*target*/ }} from './{base}';
-
-# test('basic', () => {{
-#   expect(1).toBe(1);
-# }});
-# """
     return content, test_path
 
 def _java_test_stub(path: str, code: str) -> Tuple[str, str]:
@@ -360,31 +356,30 @@ def mechanical_fixes(lang: str, orig: str) -> str:
       - normalize EOLs, strip trailing spaces
       - remove ';;'
       - remove trailing commas before )/]/}
-      - optional: ruff/eslint/golangci (solo se configurati) → usiamo tmpfile
+      - optional: ruff/eslint/golangci (only if configured) via temp-file
     """
     lang = (lang or "").lower()
     s = _nl_normalize(orig)
     s = _strip_trailing_spaces(s)
 
-    # Optional external “auto-fix” per linguaggio
-    if lang == "python" and _bool_env("CLIKE_TOOLS_PY_RUFF", True) and _has_cmd("ruff"):
-        # ruff lavora meglio su file; tmpfile + --fix
+    # Optional external “auto-fix” per language
+    if lang == "python" and _bool_from_settings_or_env("CLIKE_TOOLS_PY_RUFF", True) and _has_cmd("ruff"):
         res = _run_on_tempfile(s, ".py", lambda p: ["ruff", "--fix", p])
         if res is not None:
             s = res
 
-    elif lang in ("javascript", "typescript", "react", "node") and _bool_env("CLIKE_TOOLS_TS_ESLINT", False) and _has_cmd("eslint"):
+    elif lang in ("javascript", "typescript", "react", "node") and _bool_from_settings_or_env("CLIKE_TOOLS_TS_ESLINT", False) and _has_cmd("eslint"):
         res = _run_on_tempfile(s, ".ts" if lang == "typescript" else ".js",
                                lambda p: ["eslint", "--fix", p])
         if res is not None:
             s = res
 
-    elif lang == "go" and _bool_env("CLIKE_TOOLS_GO_FMT", True) and _has_cmd("gofmt"):
+    elif lang == "go" and _bool_from_settings_or_env("CLIKE_TOOLS_GO_FMT", True) and _has_cmd("gofmt"):
         rc, out, err = _run_cmd(["gofmt"], input_str=s)
         if rc == 0 and out.strip():
             s = out
 
-    # Fallback neutrali e sicuri
+    # Neutral, safe fallbacks
     s = s.replace(";;", ";")
     s = re.sub(r",\s*([\)\]\}])", r"\1", s)
     return _ensure_trailing_nl(s)
