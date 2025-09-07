@@ -1,9 +1,6 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-# from .routes.agent import router as agent_router
-# from .routes.rag import router as rag_router
-# from .routes.git import router as git_router
-# from .routes.health import router as health_router
+
 import logging
 from routes.agent import router as agent_router
 from routes.rag import router as rag_router
