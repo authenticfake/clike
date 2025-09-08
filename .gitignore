@@ -11,3 +11,51 @@ out/
 *.log
 *.swp
 *.swo
+*.backup
+*.backup.py
+*.bak
+docker/runs/*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+# Virtual env
+.venv/
+venv/
+
+# Node / VSCode Extension
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.vsix
+extensions/vscode/jsconfig.js
+
+# Docker / runtime
+docker/runs/
+*.pid
+
+# Editor / IDE
+.vscode/
+.idea/
+.DS_Store
+
+# Backup / temp
+*.local.backup.py
+*.bak
+*.swp
+*.tmp
+
+# Test / coverage
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+pytest_cache/
+
+# Docs drafts (opzionale: tieni solo quelli "ufficiali")
+docs/*draft*.md
