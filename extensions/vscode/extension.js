@@ -7,6 +7,7 @@ const http = require('http');
 const { URL } = require('url');
 
 let __clike_lastTargetUriCache = null;
+let selectedPaths = new Set();
 
 const out = vscode.window.createOutputChannel('Clike');
 
@@ -256,6 +257,9 @@ async function writeBackupIfNeeded(doc, content) {
   const { backup } = cfg();
   if (!backup) return;
   const uri = doc.uri.with({ path: doc.uri.path + '~clike.bak' });
+  if (typeof content !== 'string') {
+    throw new Error('No new_content provided by orchestrator for writeBackupIfNeeded.');
+  }
   await vscode.workspace.fs.writeFile(uri, Buffer.from(content, 'utf8'));
   out.appendLine(`[backup] scritto ${uri.fsPath}`);
 }
@@ -604,6 +608,9 @@ async function applyOrchestratorResult(context, respJson, applyCtx) {
       const targetPathUri = resolveToWorkspaceUri(apply.path);
       const currentFs = targetUri.fsPath;
       if (targetPathUri && targetPathUri.fsPath !== currentFs && typeof newContent === 'string') {
+        if (typeof newContent !== 'string') {
+          throw new Error('No new_content provided by orchestrator for file write.');
+        }
         await vscode.workspace.fs.writeFile(targetPathUri, Buffer.from(newContent, 'utf8'));
         await vscode.window.showTextDocument(targetPathUri, { preview: false });
         vscode.window.showInformationMessage(`Clike: scritto file ${targetPathUri.fsPath}`);
@@ -692,7 +699,7 @@ async function cmdListModels() {
   await vscode.window.showQuickPick(items.length ? items : [{ label: 'No models' }], { placeHolder: 'Modelli (gateway)' });
 }
 
-async function cmdCheckServices() {
+async function cmdCheckServices(context) {
   const editor = getActiveEditorOrThrow();
   const docInfo = documentInfoFromEditor(editor);
   await context.workspaceState.update('clike.lastTargetUri', docInfo.uriStr);
@@ -761,6 +768,7 @@ async function cmdPing() { vscode.window.showInformationMessage('Clike: extensio
 function activate(context) {
   const reg = (id, fn) => context.subscriptions.push(vscode.commands.registerCommand(id, () => fn(context)));
 
+  
   reg('clike.ping', () => cmdPing());
   reg('clike.codeAction', () => cmdCodeAction());
 
@@ -774,8 +782,10 @@ function activate(context) {
   reg('clike.generateTests', cmdGenerateTests);
   reg('clike.fixErrors', cmdFixErrors);
 
+  reg('clike.openChat', cmdOpenChat);
+
   reg('clike.listModels', () => cmdListModels());
-  reg('clike.checkServices', () => cmdCheckServices());
+  reg('clike.checkServices', cmdCheckServices);
   reg('clike.ragReindex', () => cmdRagReindex());
   reg('clike.ragSearch', () => cmdRagSearch());
 
@@ -785,6 +795,398 @@ function activate(context) {
   reg('clike.gitSmartPR', async () => { await vscode.commands.executeCommand('git.commit'); await vscode.commands.executeCommand('github.createPullRequest'); });
 
   vscode.window.setStatusBarMessage('Clike: orchestrator+gateway integration ready', 2000);
+}
+function getWebviewHtml(orchestratorUrl) {
+  const nonce = String(Math.random()).slice(2);
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: data:; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CLike Chat</title>
+<style>
+  body { font-family: system-ui, sans-serif; padding: 10px; }
+  .row { display:flex; gap:8px; align-items:center; margin-bottom:8px; }
+  select, input, textarea, button { font-size: 13px; }
+  textarea { width: 100%; height: 100px; }
+  .tabs { margin-top:8px; display:flex; gap:6px; }
+  .tab { padding:6px 10px; border:1px solid #ccc; border-bottom:none; cursor:pointer; }
+  .tab.active { background:#eee; }
+  .panel { border:1px solid #ccc; padding:8px; min-height: 150px; }
+  pre { white-space: pre-wrap; word-wrap: break-word; }
+  .cols { display:grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .spinner { display:none; margin-left:8px; }
+  .spinner.active { display:inline-block; animation: spin 1s linear infinite; }
+  @keyframes spin { from {transform:rotate(0)} to {transform:rotate(360deg)} }
+</style>
+</head>
+<body>
+  <div class="row">
+    <label>Mode</label>
+    <select id="mode">
+      <option value="free">free (Q&A)</option>
+      <option value="harper">harper</option>
+      <option value="coding">coding</option>
+    </select>
+    <label>Model</label>
+    <select id="model"></select>
+    <button id="refresh">↻ Models</button>
+    <span style="margin-left:auto;opacity:.7">Orchestrator: ${orchestratorUrl}</span>
+  </div>
+  <div class="row">
+    <textarea id="prompt" placeholder="Type your prompt..."></textarea>
+  </div>
+  <div class="row">
+    <button id="sendChat">Send (free)</button>
+    <button id="sendGen">Generate (harper/coding)</button>
+    <button id="apply" disabled>Apply</button>
+    <span id="status">Ready</span>
+    <span id="sp" class="spinner">⏳</span>
+    <button id="cancel" disabled>Cancel</button>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="text">Text</div>
+    <div class="tab" data-tab="diffs">Diffs</div>
+    <div class="tab" data-tab="files">Files</div>
+  </div>
+
+  <div class="panel" id="panel-text"><pre id="text"></pre></div>
+  <div class="panel" id="panel-diffs" style="display:none;"><pre id="diffs"></pre></div>
+  <div class="panel" id="panel-files" style="display:none;"><pre id="files"></pre></div>
+
+<script nonce="${nonce}">
+const vscode = acquireVsCodeApi();
+
+const el = (id) => document.getElementById(id);
+const mode = el('mode');
+const model = el('model');
+const prompt = el('prompt');
+const btnRefresh = el('refresh');
+const btnChat = el('sendChat');
+const btnGen = el('sendGen');
+const btnApply = el('apply');
+const btnCancel = el('cancel');
+const statusEl = el('status');
+const sp = el('sp');
+const preText = el('text');
+const preDiffs = el('diffs');
+const preFiles = el('files');
+
+let selectedPaths = new Set();
+let lastRun = null;
+
+mode.addEventListener('change', ()=>{
+  vscode.postMessage({ type: 'uiChanged', mode: mode.value, model: model.value });
+});
+model.addEventListener('change', ()=>{
+  vscode.postMessage({ type: 'uiChanged', mode: mode.value, model: model.value });
+});
+
+function post(type, payload={}) { vscode.postMessage({type, ...payload}); }
+
+function setBusy(on) {
+  [btnChat, btnGen, btnApply, btnRefresh].forEach(b => b.disabled = !!on);
+  btnCancel.disabled = !on;
+  sp.classList.toggle('active', !!on);
+  statusEl.textContent = on ? 'Waiting response…' : 'Ready';
+}
+
+function setTab(name) {
+  document.querySelectorAll('.tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.tab === name);
+  });
+  document.getElementById('panel-text').style.display = name==='text' ? 'block':'none';
+  document.getElementById('panel-diffs').style.display = name==='diffs' ? 'block':'none';
+  document.getElementById('panel-files').style.display = name==='files' ? 'block':'none';
+}
+
+document.querySelectorAll('.tab').forEach(t=>{
+  t.addEventListener('click', ()=> setTab(t.dataset.tab));
+});
+
+btnRefresh.addEventListener('click', ()=> post('fetchModels'));
+btnChat.addEventListener('click', ()=>{
+  setBusy(true);
+  post('sendChat', { mode: 'free', model: model.value, prompt: prompt.value });
+});
+btnGen.addEventListener('click', ()=>{
+  setBusy(true);
+  const m = mode.value === 'free' ? 'coding' : mode.value;
+  post('sendGenerate', { mode: m, model: model.value, prompt: prompt.value });
+});
+btnApply.addEventListener('click', ()=>{
+  if (!lastRun) return;
+  const paths = Array.from(selectedPaths);
+  const selection = paths.length > 0 ? { paths } : { apply_all: true };
+  setBusy(true);
+  post('apply', { run_dir: lastRun.run_dir, audit_id: lastRun.audit_id, selection });
+});
+btnCancel.addEventListener('click', ()=> post('cancel'));
+
+window.addEventListener('message', (event) => {
+  const msg = event.data;
+
+  if (msg.type === 'busy') {
+    setBusy(!!msg.on);
+    return;
+  }
+
+  if (msg.type === 'initState' && msg.state) {
+    if (msg.state.mode)  mode.value  = msg.state.mode;
+    if (msg.state.model) model.value = msg.state.model;
+  }
+
+  if (msg.type === 'lastRun' && msg.data) {
+    lastRun = msg.data;
+    btnApply.disabled = !lastRun?.run_dir && !lastRun?.audit_id;
+  }
+
+  if (msg.type === 'models') {
+    model.innerHTML = '';
+    (msg.models||[]).forEach(m=>{
+      const o = document.createElement('option');
+      o.value = m; o.textContent = m; model.appendChild(o);
+    });
+  }
+
+  if (msg.type === 'chatResult') {
+    setBusy(false);
+    setTab('text');
+    preText.textContent = (msg.data && msg.data.text) ? msg.data.text : JSON.stringify(msg.data, null, 2);
+    lastRun = { run_dir: msg.data?.run_dir, audit_id: msg.data?.audit_id };
+    btnApply.disabled = !lastRun?.run_dir && !lastRun?.audit_id;
+  }
+
+  if (msg.type === 'generateResult') {
+    setBusy(false);
+    const data = msg.data || {};
+    setTab('diffs');
+    preDiffs.textContent = JSON.stringify(data.diffs || [], null, 2);
+    selectedPaths = new Set();
+    const files = Array.isArray(data.files) ? data.files : [];
+    const lines = files.map(f => {
+      const path = f.path;
+      const safeId = 'f_' + btoa(path).replace(/=/g,'');
+      return '<div class="row">'
+        + '<input type="checkbox" class="file-chk" id="' + safeId + '" data-path="' + path + '">'
+        + '<label for="' + safeId + '" class="file-open" data-path="' + path + '" style="cursor:pointer;text-decoration:underline;">' + path + '</label>'
+        + '</div>';
+    });
+    preFiles.innerHTML = lines.join('\\n');
+    document.querySelectorAll('.file-chk').forEach(chk => {
+      chk.addEventListener('change', (e) => {
+        const p = e.target.dataset.path;
+        if (e.target.checked) selectedPaths.add(p); else selectedPaths.delete(p);
+      });
+    });
+    document.querySelectorAll('.file-open').forEach(lbl => {
+      lbl.addEventListener('click', () => {
+        const p = lbl.dataset.path;
+        vscode.postMessage({ type: 'openFile', path: p });
+      });
+    });
+    lastRun = { run_dir: data.run_dir, audit_id: data.audit_id };
+    btnApply.disabled = !lastRun?.run_dir && !lastRun?.audit_id;
+  }
+
+  if (msg.type === 'applyResult') {
+    setBusy(false);
+    setTab('text');
+    preText.textContent = "Applied files:\\n" + JSON.stringify(msg.data?.applied || [], null, 2);
+  }
+
+  if (msg.type === 'error') {
+    setBusy(false);
+    setTab('text');
+    preText.textContent = 'Error: ' + msg.message;
+  }
+});
+
+// init
+post('fetchModels');
+</script>
+</body>
+</html>`;
+}
+
+
+
+
+async function cmdOpenChat(context) {
+  
+    const panel = vscode.window.createWebviewPanel(
+      'clikeChat',
+      'CLike Chat',
+      vscode.ViewColumn.Beside,
+      { enableScripts: true, retainContextWhenHidden: true }
+    );
+
+    const cfg = vscode.workspace.getConfiguration();
+    const orchestratorUrl = cfg.get('clike.orchestratorUrl') || 'http://localhost:8080';
+
+    // HTML UI
+    panel.webview.html = getWebviewHtml(orchestratorUrl);
+
+    // Stato iniziale salvato (mode/model) → webview
+    const savedState = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto' };
+    panel.webview.postMessage({ type: 'initState', state: savedState });
+
+    // Ultimo run (se presente) → webview
+    const lastRun = context.workspaceState.get('clike.lastRun');
+    if (lastRun) panel.webview.postMessage({ type: 'lastRun', data: lastRun });
+
+    // Messaggi dalla webview
+    panel.webview.onDidReceiveMessage(async (msg) => {
+      try {
+        if (msg.type === 'fetchModels') {
+          const res = await fetchJson(`${orchestratorUrl}/v1/models`);
+          let models = [];
+          if (Array.isArray(res?.models)) {
+            // nostro formato { name, ... }
+            let raw = res.models.map(m => m.name || m.id || m.model || 'unknown');
+            // filtra embedding noti
+            const filtered = raw.filter(n => !/embed|embedding|nomic-embed/i.test(n));
+            panel.webview.postMessage({ type: 'models', models: filtered.length ? filtered : raw });
+          } else if (Array.isArray(res?.data)) {
+            // OpenAI-style { data: [ {id} ] }
+            let raw = res.data.map(m => m.id || 'unknown');
+            const filtered = raw.filter(n => !/embed|embedding|nomic-embed/i.test(n));
+            panel.webview.postMessage({ type: 'models', models: filtered.length ? filtered : raw });
+          } else {
+            panel.webview.postMessage({ type: 'models', models: [] });
+          }
+          return;
+        }
+
+        if (msg.type === 'uiChanged') {
+          const newState = { mode: msg.mode, model: msg.model };
+          await context.workspaceState.update('clike.uiState', newState);
+          return;
+        }
+
+        if (msg.type === 'openFile' && msg.path) {
+          const uri = vscode.Uri.file(msg.path);
+          const doc = await vscode.workspace.openTextDocument(uri);
+          await vscode.window.showTextDocument(doc, { preview: false });
+          return;
+        }
+
+        // --- SEND CHAT / GENERATE ---
+        if (msg.type === 'sendChat' || msg.type === 'sendGenerate') {
+          // abort eventuale precedente
+          if (inflightController) { inflightController.abort(); inflightController = null; }
+          inflightController = new AbortController();
+          panel.webview.postMessage({ type: 'busy', on: true });
+
+          const payload = (msg.type === 'sendChat')
+            ? {
+                mode: msg.mode || 'free',
+                model: msg.model || 'auto',
+                messages: [{ role: 'user', content: msg.prompt }]
+              }
+            : {
+                mode: msg.mode || 'coding',
+                model: msg.model || 'auto',
+                messages: [{ role: 'user', content: msg.prompt }],
+                max_tokens: 1024
+              };
+
+          const url = (msg.type === 'sendChat')
+            ? `${orchestratorUrl}/v1/chat`
+            : `${orchestratorUrl}/v1/generate`;
+
+          try {
+            const res = await withTimeout(
+              postJson(url, payload, { signal: inflightController.signal }),
+              120000 // 60s timeout soft UI
+            );
+
+            // persisti ultimo run
+            if (res?.run_dir || res?.audit_id) {
+              await context.workspaceState.update('clike.lastRun', { run_dir: res.run_dir, audit_id: res.audit_id });
+            }
+
+            panel.webview.postMessage({
+              type: (msg.type === 'sendChat') ? 'chatResult' : 'generateResult',
+              data: res
+            });
+          } catch (err) {
+            if (String(err).includes('AbortError')) {
+              panel.webview.postMessage({ type: 'error', message: 'Request canceled' });
+            } else {
+              panel.webview.postMessage({ type: 'error', message: String(err) });
+            }
+          } finally {
+            panel.webview.postMessage({ type: 'busy', on: false });
+            inflightController = null;
+          }
+          return;
+        }
+
+        if (msg.type === 'apply') {
+          const payload = {
+            run_dir: msg.run_dir || null,
+            audit_id: msg.audit_id || null,
+            selection: msg.selection || { apply_all: true }
+          };
+
+
+          const res = await postJson(`${orchestratorUrl}/v1/apply`, payload);
+          panel.webview.postMessage({ type: 'applyResult', data: res });
+          return;
+        }
+      } catch (err) {
+        panel.webview.postMessage({ type: 'error', message: String(err) });
+      }
+    });
+
+  }
+
+
+
+// --- Stato richiesta in corso (per Cancel) ---
+let inflightController = null;
+
+// --- Helpers HTTP con supporto AbortController + timeout ---
+async function fetchJson(url, { signal } = {}) {
+  const f = (typeof fetch === 'function')
+    ? fetch
+    : ((...args) => import('node-fetch').then(({ default: ff }) => ff(...args)));
+  const res = await f(url, { signal });
+  if (!res.ok) throw new Error(`GET ${url} -> ${res.status}`);
+  return await res.json();
+}
+
+async function postJson(url, body, { signal } = {}) {
+  const f = (typeof fetch === 'function')
+    ? fetch
+    : ((...args) => import('node-fetch').then(({ default: ff }) => ff(...args)));
+  const res = await f(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+    signal
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    throw new Error(`POST ${url} -> ${res.status} ${txt}`);
+  }
+  return await res.json();
+}
+
+// Timeout soft lato estensione
+async function withTimeout(promise, ms) {
+  let to;
+  const t = new Promise((_, rej) => {
+    to = setTimeout(() => rej(new Error(`Timeout after ${ms}ms`)), ms);
+  });
+  try {
+    return await Promise.race([promise, t]);
+  } finally {
+    clearTimeout(to);
+  }
 }
 
 function deactivate() {}

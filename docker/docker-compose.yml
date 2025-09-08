@@ -25,9 +25,11 @@ services:
       - CLIKE_TOOLS_JAVA_GJF=true
       - CLIKE_TOOLS_GO_FMT=true
       - CLIKE_TOOLS_GO_IMPORTS=true
+      - RUNS_DIR=/app/runs
     volumes:
         - ..:/workspace
         - ../configs:/workspace/configs:ro
+        - ./runs:/app/runs
     ports: ["8080:8080"]
     depends_on:
       - gateway

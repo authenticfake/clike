@@ -3,7 +3,7 @@
   "displayName": "Clike",
   "description": "From intent to impact. CLike keeps developers in flow, augments delivery with agentic workflows, and bakes in governance, eval‑driven quality, and a safe paved road for enterprises w/ an AI native pipeline.",
   "version": "0.5.3",
-  "publisher": "AFUC",
+  "publisher": "authenticfake",
   "icon": "images/clike_64x64.png",
   "engines": {
     "vscode": "^1.85.0"
@@ -21,28 +21,12 @@
     "url": "https://github.com/authenticfake/clike.git"
   },
   "homepage": "https://github.com/authenticfake/clike/tree/main",
-  "activationEvents": [
-    "onCommand:clike.ping",
-    "onCommand:clike.codeAction",
-    "onCommand:clike.addDocstring",
-    "onCommand:clike.refactor",
-    "onCommand:clike.generateTests",
-    "onCommand:clike.fixErrors",
-    "onCommand:clike.applyUnifiedDiffHardened",
-    "onCommand:clike.applyUnifiedDiff",
-    "onCommand:clike.applyNewContent",
-    "onCommand:clike.applyLastPatch",
-    "onCommand:clike.listModels",
-    "onCommand:clike.checkServices",
-    "onCommand:clike.ragReindex",
-    "onCommand:clike.ragSearch",
-    "onCommand:clike.gitCreateBranch",
-    "onCommand:clike.gitCommitPatch",
-    "onCommand:clike.gitOpenPR",
-    "onCommand:clike.gitSmartPR"
-  ],
   "contributes": {
     "commands": [
+      {
+        "command": "clike.openChat",
+        "title": "CLike: Open Chat (Q&A / Harper / Coding)"
+      },
       {
         "command": "clike.ping",
         "title": "Clike: Ping Service"

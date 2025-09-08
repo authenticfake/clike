@@ -13,6 +13,7 @@ def _default_models_cfg_path() -> str:
 class Settings(BaseSettings):
     # Upstream Gateway
     GATEWAY_URL: HttpUrl = "http://localhost:8000"
+    EMBED_MODEL: str = os.getenv("EMBED_MODEL", "nomic-embed-text")
 
 
     # Workspace & runs
@@ -20,7 +21,7 @@ class Settings(BaseSettings):
     RUNS_DIR: str = os.getenv("RUNS_DIR", os.path.join(os.getcwd(), "runs"))
 
     # Timeouts & retries (LLM_TIMEOUT_S retro-compat)
-    REQUEST_TIMEOUT_S: int = int(os.getenv("REQUEST_TIMEOUT_S", os.getenv("LLM_TIMEOUT_S", "60")))
+    REQUEST_TIMEOUT_S: int = int(os.getenv("REQUEST_TIMEOUT_S", os.getenv("LLM_TIMEOUT_S", "120")))
     RETRY_MAX_ATTEMPTS: int = int(os.getenv("RETRY_MAX_ATTEMPTS", "3"))
     RETRY_BACKOFF_S: float = float(os.getenv("RETRY_BACKOFF_S", "0.5"))
 
