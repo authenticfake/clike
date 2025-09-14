@@ -1,4 +1,4 @@
-# 🚀 CLike — AI‑Native Platform for Product Engineers
+# 🚀 CLike — AI‑Native Platform for Product Creator
 
 [![Made with Python](https://img.shields.io/badge/Made%20with-Python-3776AB?logo=python)](https://www.python.org/)  
 [![VS Code Extension](https://img.shields.io/badge/VS%20Code-Extension-007ACC?logo=visualstudiocode)](extensions/vscode)  

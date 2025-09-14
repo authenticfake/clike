@@ -8,6 +8,8 @@ from starlette.responses import JSONResponse
 from routes.chat import router as chat_router
 from routes.embeddings import router as embed_router
 from routes.health import router as health_router
+from routes.models import router as models_router
+
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(level=LOG_LEVEL, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -51,3 +53,4 @@ async def unhandled_ex_handler(request: Request, exc: Exception):
 app.include_router(health_router)
 app.include_router(chat_router)
 app.include_router(embed_router)
+app.include_router(models_router)

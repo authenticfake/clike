@@ -10,6 +10,7 @@ async def git_branch(req: Request):
     out = sh(["git", "checkout", "-b", name])
     return {"ok": True, "output": out}
 
+
 @router.post("/git/commit")
 async def git_commit(req: Request):
     b = await req.json()
@@ -27,3 +28,4 @@ async def git_pr(req: Request):
         return {"ok": True, "output": out}
     except RuntimeError as e:
         return {"ok": False, "error": str(e)}
+

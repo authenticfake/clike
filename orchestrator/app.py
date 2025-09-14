@@ -1,17 +1,20 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-import logging
+import os, logging
 from routes.agent import router as agent_router
 from routes.rag import router as rag_router
 from routes.git import router as git_router
 from routes.health import router as health_router
 from starlette.middleware.base import BaseHTTPMiddleware
+from routes.v1 import router as v1_router
+from config import settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 app = FastAPI(title="Clike Orchestrator (AI Layer enabling Vibe Code)")
-
+os.makedirs(getattr(settings, "RUNS_DIR", "./runs"), exist_ok=True)
+logging.getLogger("orchestrator").info("RUNS_DIR=%s", getattr(settings, "RUNS_DIR", "./runs"))
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -36,3 +39,5 @@ app.include_router(health_router)
 app.include_router(agent_router)
 app.include_router(rag_router)
 app.include_router(git_router)
+app.include_router(v1_router)
+

@@ -1,0 +1,72 @@
+{"ts":1757493772134,"mode":"coding","role":"user","content":"mi crei un funzionaa in pythn che genera un numenro causaule","model":"llama3"}
+{"ts":1757493818578,"mode":"coding","role":"assistant","content":"Generated files:\n- src/generated_1757493818.txt","model":"llama3"}
+{"ts":1757493940036,"mode":"coding","role":"user","content":"mi crei un funzionaa in java e in go che genera un numenro causaule\n","model":"llama3"}
+{"ts":1757494021193,"mode":"coding","role":"assistant","content":"Generated files:\n- src/generated_1757494021.txt","model":"llama3"}
+{"ts":1757497926462,"mode":"coding","role":"user","content":"mi crei un funzionaa in pythn che genera un numenro causaule\n","model":"llama3"}
+{"ts":1757498046484,"mode":"coding","role":"assistant","content":"Error: Error: Timeout after 120000ms","model":"llama3"}
+{"ts":1757498071653,"mode":"coding","role":"user","content":"mi crei un funzionaa in pythn che genera un numenro causaule\n","model":"llama3"}
+{"ts":1757498191725,"mode":"coding","role":"assistant","content":"Error: Error: Timeout after 120000ms","model":"llama3"}
+{"ts":1757498905110,"mode":"coding","role":"user","content":"mi crei un funzionaa in pythn che genera un numenro causaule\n","model":"llama3"}
+{"ts":1757498951999,"mode":"coding","role":"assistant","content":"Error: Error: POST http://localhost:8080/v1/generate -> 422 {\"detail\":\"no files produced by model (neither JSON nor code fences)\"}","model":"llama3"}
+{"ts":1757499940640,"mode":"coding","role":"user","content":"mi crei un funzionaa in pythn che genera un numenro causaule","model":"llama3"}
+{"ts":1757499987512,"mode":"coding","role":"assistant","content":"Error: Error: POST http://localhost:8080/v1/generate -> 500 Internal Server Error","model":"llama3"}
+{"ts":1757501447266,"mode":"coding","role":"user","content":"mi crei un funzionaa in pythn che genera un numenro causaule\n","model":"llama3"}
+{"ts":1757501481821,"mode":"coding","role":"assistant","content":"Error: Error: POST http://localhost:8080/v1/generate -> 422 {\"detail\":\"no files produced by model (neither JSON nor code fences)\"}","model":"llama3"}
+{"ts":1757502281634,"mode":"coding","role":"user","content":"mi crei un funzionaa in pythn che genera un numenro causaule\n","model":"llama3"}
+{"ts":1757502339113,"mode":"coding","role":"assistant","content":"Error: Error: POST http://localhost:8080/v1/generate -> 500 Internal Server Error","model":"llama3"}
+{"ts":1757503248602,"mode":"coding","role":"user","content":"mi crei un funzionaa in pythn che genera un numenro causaule\n","model":"llama3"}
+{"ts":1757503309931,"mode":"coding","role":"assistant","content":"Generated files:\n- src/generated_3b4ad760/generated.py","model":"llama3"}
+{"ts":1757503908656,"mode":"coding","role":"user","content":"mi crei un funzionaa in pythn che genera un numenro causaule","model":"llama3"}
+{"ts":1757503943966,"mode":"coding","role":"assistant","content":"Generated files:\n- src/generated.py","model":"llama3"}
+{"ts":1757505597015,"mode":"coding","role":"user","content":"mi crei un funzionaa in pythn che genera un numenro causaule\n","model":"llama3"}
+{"ts":1757505673249,"mode":"coding","role":"assistant","content":"Generated files:\n- src/generated_6809bc02/generated.py\n- tests/generated_6809bc02/test_generated.py","model":"llama3"}
+{"ts":1757506720226,"mode":"coding","role":"user","content":"mi crei un funzionaa in pythn che genera un numenro causaule\n","model":"llama3"}
+{"ts":1757506777855,"mode":"coding","role":"assistant","content":"Generated files:\n- src/generated_11968ffb/generate_causale.py\n- tests/generated_11968ffb/test_generate_causale.py","model":"llama3"}
+{"ts":1757506908993,"mode":"coding","role":"user","content":"mi crei un funzionaa in pythn che genera un numero random tra 1 a 593\n","model":"llama3"}
+{"ts":1757506930903,"mode":"coding","role":"assistant","content":"Generated files:\n- src/generated_436c54a8/generate_random_number.py\n- tests/generated_436c54a8/test_generate_random_number.py","model":"llama3"}
+{"ts":1757511894353,"mode":"coding","role":"user","content":"mi crei un funzionaa in pythn che genera un numero random tra 1 a 593\n","model":"llama3"}
+{"ts":1757511926168,"mode":"coding","role":"assistant","content":"Error: Error: POST http://localhost:8080/v1/generate -> 500 Internal Server Error","model":"llama3"}
+{"ts":1757512551555,"mode":"coding","role":"user","content":"mi crei un funzionaa in pythn che genera un numero random tra 1 a 593\n","model":"llama3"}
+{"ts":1757512598081,"mode":"coding","role":"assistant","content":"Generated files:\n- src/generated_063f47c0/generate_random_number.py\n- tests/generated_063f47c0/test_generate_random_number.py","model":"llama3"}
+{"ts":1757514122032,"mode":"coding","role":"user","content":"mi crei un funzionaa in pythn che genera un numero random tra 1 a 593","model":"llama3"}
+{"ts":1757514159189,"mode":"coding","role":"assistant","content":"Error: Error: POST http://localhost:8080/v1/generate -> 500 Internal Server Error","model":"llama3"}
+{"ts":1757515319525,"mode":"coding","role":"user","content":"mi crei un funzionaa in pythn che genera un numenro causaule\n","model":"llama3"}
+{"ts":1757515358943,"mode":"coding","role":"assistant","content":"Generated files:\n- src/generated_b7d9516f/generate_causale.py\n- tests/generated_b7d9516f/test_generate_causale.py","model":"llama3"}
+{"ts":1757519900897,"mode":"coding","role":"user","content":"mi crei un funzionaa in pythn che genera un numero random tra 1 a 593\n","model":"llama3"}
+{"ts":1757519952273,"mode":"coding","role":"assistant","content":"Generated files:\n- src/generated_341900b2/generate_random_number.py\n- tests/generated_341900b2/test_generate_random_number.py","model":"llama3"}
+{"ts":1757520212497,"mode":"coding","role":"user","content":"mi generi la funzione per java e go che calcola il numero casuale tra 10 a 10909. Il numenro casuale deve essere solo dispari se è pari rigenera il numenro causuale\n","model":"llama3"}
+{"ts":1757520332884,"mode":"coding","role":"assistant","content":"Error: Error: Timeout after 120000ms","model":"llama3"}
+{"ts":1757520496844,"mode":"coding","role":"user","content":"mi generi la funzione per java e go che calcola il numero casuale tra 10 a 10909. Il numenro casuale deve essere solo dispari se è pari rigenera il numenro causuale\n","model":"llama3"}
+{"ts":1757520601541,"mode":"coding","role":"assistant","content":"Generated files:\n- src/generated_c70cc7f3/generated.txt","model":"llama3"}
+{"ts":1757520694272,"mode":"coding","role":"user","content":"mi generi una funziona python per sapere qunado un anno è bisenstile?","model":"llama3"}
+{"ts":1757520725169,"mode":"coding","role":"assistant","content":"Generated files:\n- src/generated_813a8ee9/is_leap_year.py\n- tests/generated_813a8ee9/test_is_leap_year.py","model":"llama3"}
+{"ts":1757522379914,"mode":"coding","role":"user","content":"mi generi una funzione go per verificare se un anno è bisenstile?","model":"llama3"}
+{"ts":1757522423247,"mode":"coding","role":"assistant","content":"Generated files:\n- src/generated_f15e084c/generated.txt","model":"llama3"}
+{"ts":1757522499543,"mode":"coding","role":"user","content":"mi generi una funzione java per verificare se un anno è bisenstile?\n","model":"llama3"}
+{"ts":1757522522252,"mode":"coding","role":"assistant","content":"Generated files:\n- src/generated_4f824562/generated.txt","model":"llama3"}
+{"ts":1757524248620,"mode":"coding","role":"user","content":"mi generi una funzione go per verificare se un anno è bisenstile?\n","model":"llama3"}
+{"ts":1757524287565,"mode":"coding","role":"assistant","content":"Generated files:\n- src/generated_218c8df3/generated.txt","model":"llama3"}
+{"ts":1757524319318,"mode":"coding","role":"user","content":"mi generi una funzione go per verificare se un anno è bisenstile?\n","model":"llama3"}
+{"ts":1757524347270,"mode":"coding","role":"assistant","content":"Generated files:\n- src/generated_253d5dbe/generated.txt","model":"llama3"}
+{"ts":1757524466209,"mode":"coding","role":"user","content":"mi generi una funzione java per verificare se un anno è bisenstile?\n","model":"llama3"}
+{"ts":1757524496180,"mode":"coding","role":"assistant","content":"Generated files:\n- src/generated_59581255/generated.txt","model":"llama3"}
+{"ts":1757524539744,"mode":"coding","role":"user","content":"mi generi una funzione python per verificare se un anno è bisenstile?\n","model":"llama3"}
+{"ts":1757524586351,"mode":"coding","role":"assistant","content":"Generated files:\n- src/generated_1996c985/is_leap_year.py\n- tests/generated_1996c985/test_is_leap_year.py","model":"llama3"}
+{"ts":1757524726958,"mode":"coding","role":"user","content":"volgio una classe pyhton che esponsa API per una crud per ora da stubbare sui campi di un json con le seguneti entità: nome, cognome, eta, denari, club, diamand","model":"llama3"}
+{"ts":1757524846982,"mode":"coding","role":"assistant","content":"Error: Error: Timeout after 120000ms","model":"llama3"}
+{"ts":1757524864838,"mode":"coding","role":"user","content":"volgio una classe pyhton che esponsa API per una crud per ora da stubbare sui campi di un json con le seguneti entità: nome, cognome, eta, denari, club, diamand\n","model":"llama3"}
+{"ts":1757524986401,"mode":"coding","role":"assistant","content":"Error: Error: Timeout after 120000ms","model":"llama3"}
+{"ts":1757525844547,"mode":"coding","role":"user","content":"mi generi una funzione java per verificare se un anno è bisenstile?\n","model":"llama3"}
+{"ts":1757525964566,"mode":"coding","role":"assistant","content":"Error: Error: Timeout after 120000ms","model":"llama3"}
+{"ts":1757525987404,"mode":"coding","role":"user","content":"mi generi una funzione go per verificare se un anno è bisenstile?\n","model":"llama3"}
+{"ts":1757526107445,"mode":"coding","role":"assistant","content":"Error: Error: Timeout after 120000ms","model":"llama3"}
+{"ts":1757527258884,"mode":"coding","role":"user","content":"mi generi una funziona pythin che fa la somma di due numenri?","model":"llama3"}
+{"ts":1757527348918,"mode":"coding","role":"assistant","content":"Generated files:\n- src/generated_83681e69/sum_numbers.py\n- tests/generated_83681e69/test_sum_numbers.py","model":"llama3"}
+{"ts":1757528444767,"mode":"coding","role":"user","content":"mi generi una funziona java che fa la somma di due numenri?\n","model":"llama3"}
+{"ts":1757528521985,"mode":"coding","role":"assistant","content":"Generated files:\n- src/generated_b0bfe79b/Sum.java\n- tests/generated_b0bfe79b/SumTest.java","model":"llama3"}
+{"ts":1757528908310,"mode":"coding","role":"user","content":"mi generi una funziona go che fa la somma di due numenri?\n","model":"llama3"}
+{"ts":1757528962828,"mode":"coding","role":"assistant","content":"Generated files:\n- src/generated_f255d838/sum.go\n- tests/generated_f255d838/test_sum.go","model":"llama3"}
+{"ts":1757578971514,"mode":"coding","role":"user","content":"mi generi una funziona go che fa la somma di due numenri?\n","model":"llama3"}
+{"ts":1757579091552,"mode":"coding","role":"assistant","content":"Error: Error: Timeout after 120000ms","model":"llama3"}
+{"ts":1757599102044,"mode":"coding","role":"user","content":"mi generi una funziona in mode che fa la somma di due numeri reali ?","model":"llama3"}
+{"ts":1757599222087,"mode":"coding","role":"assistant","content":"Error: Error: Timeout after 120000ms","model":"llama3"}
