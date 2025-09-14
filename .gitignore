@@ -15,14 +15,18 @@ out/
 *.backup.py
 *.bak
 docker/runs/*
+./src/
+./tests/
 
+src/
+tests/
 # Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 *.log
-
+package-lock.json
 # Virtual env
 .venv/
 venv/
@@ -37,6 +41,8 @@ extensions/vscode/jsconfig.js
 
 # Docker / runtime
 docker/runs/
+docker/ollama/*
+docker/*/model
 *.pid
 
 # Editor / IDE

@@ -5,6 +5,7 @@ import logging
 from typing import Any, Dict, Tuple, List, Optional
 from fastapi import APIRouter, Request, HTTPException
 
+from routes.v1 import _extract_json
 from services.utils import read_file, write_file, to_diff, detect_lang
 from services.docstrings import (
     make_docstring as _make_docstring,
@@ -12,12 +13,27 @@ from services.docstrings import (
 )
 from config import settings
 
-from services.embedded_ops import deterministic_refactor, mechanical_fixes, make_test_stub
 from services.rationale import rationale
 from services.llm_client import call_gateway_chat  # compat gestita sotto
 
 router = APIRouter()
 gateway_url = str(settings.GATEWAY_URL)
+# --- JSON schema guard per risposte del modello (riusabile) ---
+MODEL_OUTPUT_SCHEMA = """
+Devi rispondere in **solo JSON**, senza testo extra né blocchi di codice.
+Schema consentito (uno dei due):
+
+1) {"files":[{"path":"<relative/path/with/extension>", "content":"<full file content>"} , ...]}
+   - 'path' deve essere relativo al workspace, con estensione corretta (.py, .go, .java, .ts, .js, .css, .html, etc.).
+   - 'content' è il contenuto completo del file (non un diff).
+
+OPPURE
+
+2) {"replace_selection":"<nuovo testo da sostituire alla selezione originale>"}
+   - Usalo quando vuoi **riscrivere** direttamente la selezione nel file originale.
+
+NON usare altri campi. NON restituire testo fuori dal JSON.
+"""
 
 def _normalize_selection(sel: Any) -> str:
     """Rende sempre 'sel' una stringa utilizzabile per la dedup.
@@ -281,11 +297,14 @@ async def agent_code(req: Request):
     prompt = b.get("prompt", "") or ""
     lang = (b.get("language") or detect_lang(path) or "text").lower()
 
-    use_ai_doc = _flag(b, "use.ai.docstring", "use_ai", "docstring", False)
-    use_ai_ref = _flag(b, "use.ai.refactor", "use_ai", "refactor", False)
-    use_ai_tst = _flag(b, "use.ai.tests", "use_ai", "tests", False)
-    use_ai_fix = _flag(b, "use.ai.fix_errors", "use_ai", "fix_errors", False)
-    fallback_allowed = bool(b.get("fallback", False))
+    temperature = b.get("temperature", 0.1)
+    max_tokens = b.get("max_tokens", 1024)
+    
+    use_ai_doc = True
+    use_ai_ref = True
+    use_ai_tst = True
+    use_ai_fix = True
+    fallback_allowed = False
     model = b.get("model") or "auto"
 
     logging.info(
@@ -296,50 +315,44 @@ async def agent_code(req: Request):
     try:
         # ---------------- DOCSTRING ----------------
         if intent == "docstring":
-            source = "embedded"
+            source = "ai"
             doc = None
 
-            if use_ai_doc:
-                sys = {
+            sys = {
                     "role": "system",
                     "content": (
                         "You generate concise, idiomatic docstrings only. "
                         "Do not rewrite code. Output just the docstring text."
                     ),
-                }
-                usr = {
-                    "role": "user",
-                    "content": (
-                        f"Language: {lang}\nSelection (if any):\n{selection or orig}\nPrompt: {prompt}"
-                    ),
-                }
-                try:
-                    ai_text = await _call_gateway_chat_compat(
-                        model=model,
-                        messages=[sys, usr],
-                        gateway=gateway_url,
-                        temperature=0.1,
-                        max_tokens=256,
-                        timeout_s=float(settings.REQUEST_TIMEOUT_S),
-                    )
-                    # Gestione eventuale JSON OpenAI-like
-                    if isinstance(ai_text, str) and ai_text.strip().startswith("{"):
-                        try:
-                            jr = json.loads(ai_text)
-                            ai_text = (jr["choices"][0]["message"]["content"] or "").strip()
-                        except Exception:
-                            pass
-                    ai_text = ai_text or ""
-                    doc = _extract_docstring_from_ai(ai_text, lang)
-                    source = "ai"
-                except Exception as e:
-                    logging.error("[agent] docstring AI failed: %s", e)
-                    if not fallback_allowed:
-                        raise HTTPException(502, f"docstring via AI failed: {type(e).__name__}: {e}")
-                    doc = _make_docstring_compat(lang, orig, selection, prompt)
-                    source = "embedded_fallback"
-            else:
-                doc = _make_docstring_compat(lang, orig, selection, prompt)
+            }
+            usr = {
+                "role": "user",
+                "content": (
+                    f"Language: {lang}\nSelection (if any):\n{selection or orig}\nPrompt: {prompt}"
+                ),
+            }
+            try:
+                ai_text = await _call_gateway_chat_compat(
+                    model=model,
+                    messages=[sys, usr],
+                    gateway=gateway_url,
+                    temperature=0.1,
+                    max_tokens=256,
+                    timeout_s=float(settings.REQUEST_TIMEOUT_S),
+                )
+                # Gestione eventuale JSON OpenAI-like
+                if isinstance(ai_text, str) and ai_text.strip().startswith("{"):
+                    try:
+                        jr = json.loads(ai_text)
+                        ai_text = (jr["choices"][0]["message"]["content"] or "").strip()
+                    except Exception:
+                        pass
+                ai_text = ai_text or ""
+                doc = _extract_docstring_from_ai(ai_text, lang)
+                source = "ai"
+            except Exception as e:
+               raise HTTPException(502, f"docstring via AI failed: {type(e).__name__}: {e}")
+                
 
             # Inserisce la docstring e poi deduplica la selection se è stata duplicata
             new_content = _insert_docstring_compat(lang, orig, selection, doc or "")
@@ -349,127 +362,176 @@ async def agent_code(req: Request):
             new_content = _normalize_module_doc_spacing(lang, new_content)
             new_content = _squeeze_blank_lines(new_content)
 
-
             diff = to_diff(path, orig, new_content)
-            rat = f"Inserted/updated Python docstring for `{'selection' if selection else 'module'}` in `{path}`."
-            try:
-                rat_ai = await rationale("docstring", lang, path, orig, prompt)
-                if rat_ai:
-                    rat = rat_ai
-            except Exception:
-                pass
-
+            rat = await rationale("docstring", lang, path, orig, prompt)
+            apply_type = "replace_selection" if selection else "replace_whole"
+    
             return {
                 "status": "ok",
-                "message": "Docstring applicata",
-                "diff": diff,
+                "message": "Docstring applied successfully",
                 "new_content": new_content,
                 "rationale": rat,
-                "apply": {"type": "unified_diff", "path": path},
-                "source": source,
+                "apply": {"type": apply_type, "path": path},
+                "source": "ai",
             }
-
-    
         # ---------------- REFACTOR ----------------
         if intent == "refactor":
-            source = "embedded"
-            if use_ai_ref:
-                sys = {"role": "system", "content": "You are a senior software engineer and an expert developer. Return only the updated code."}
-                usr = {"role": "user", "content": json.dumps({"language": lang, "prompt": prompt, "code": orig}, ensure_ascii=False)}
-                try:
-                    ai_code = await _call_gateway_chat_compat(
-                        model=model, messages=[sys, usr], gateway=gateway_url, temperature=0.2, max_tokens=2048
-                    )
-                    if isinstance(ai_code, str) and ai_code.strip().startswith("{"):
-                        try:
-                            jr = json.loads(ai_code)
-                            ai_code = (jr["choices"][0]["message"]["content"] or "")
-                        except Exception:
-                            pass
-                    new = _extract_code_from_ai(ai_code or "")
-                    source = "ai"
-                except Exception as e:
-                    if not fallback_allowed:
-                        raise HTTPException(502, f"refactor via AI failed: {type(e).__name__}: {e}")
-                    new = deterministic_refactor(lang, orig, selection or "", prompt or "")
-                    source = "embedded_fallback"
-            else:
-                new = deterministic_refactor(lang, orig, selection or "", prompt or "")
-
+            source = "ai"
+            sys = {"role": "system", "content": "You are a senior software engineer and an expert developer. Return only the updated code."}
+            usr = {"role": "user", "content": json.dumps({"language": lang, "prompt": prompt, "code": orig}, ensure_ascii=False)}
+            try:
+                ai_code = await _call_gateway_chat_compat(
+                    model=model, messages=[sys, usr], gateway=gateway_url, temperature=0.2, max_tokens=2048
+                )
+                if isinstance(ai_code, str) and ai_code.strip().startswith("{"):
+                    try:
+                        jr = json.loads(ai_code)
+                        ai_code = (jr["choices"][0]["message"]["content"] or "")
+                    except Exception:
+                        pass
+                new = _extract_code_from_ai(ai_code or "")
+                source = "ai"
+            except Exception as e:
+               raise HTTPException(502, f"refactor via AI failed: {type(e).__name__}: {e}")
+            
+            apply_type = "replace_selection" if selection else "replace_whole"
             diff = to_diff(path, orig, new)
             rat = await rationale("refactor", lang, path, orig, prompt)
-            return {"diff": diff, "new_content": new, "rationale": rat, "apply": {"type": "unified_diff", "path": path}, "source": source}
-
+            return {
+                "diff": diff, 
+                "new_content": new, 
+                "rationale": rat, 
+                "apply": {"type":apply_type, "path": path}, 
+                "source": source}
         # ---------------- TESTS ----------------
+        # INPUT dal payload
+            lang = (body.get("language") or "").strip().lower()
+            path = (body.get("path") or "").strip()  # file attivo in editor (opzionale ma consigliato)
+            selection = body.get("selection") or ""
+            orig = body.get("content") or ""         # contenuto completo del file corrente
+        # ---------------- TEST ----------------
         if intent == "tests":
-            source = "embedded"
-            if use_ai_tst:
-                sys = {"role": "system", "content": "Generate  unit tests. Return only test code."}
-                usr = {"role": "user", "content": json.dumps({"language": lang, "prompt": prompt, "code": orig}, ensure_ascii=False)}
-                try:
-                    ai_test = await _call_gateway_chat_compat(
-                        model=model, messages=[sys, usr], gateway=gateway_url, temperature=0.2, max_tokens=1024
-                    )
-                    if isinstance(ai_test, str) and ai_test.strip().startswith("{"):
-                        try:
-                            jr = json.loads(ai_test)
-                            ai_test = (jr["choices"][0]["message"]["content"] or "")
-                        except Exception:
-                            pass
-                    tcontent = _strip_md_fences(_strip_leading_preamble(ai_test or ""))
-                    source = "ai"
-                except Exception as e:
-                    if not fallback_allowed:
-                        raise HTTPException(502, f"tests via AI failed: {type(e).__name__}: {e}")
-                    tcontent = make_test_stub(lang, path, orig)
-                    source = "embedded_fallback"
-            else:
-                tcontent = make_test_stub(lang, path, orig)
+            # INPUT dal payload
+            
+            if not selection and not orig:
+                raise HTTPException(400, "tests: serve almeno 'selection' o 'content'")
 
-            # calcolo test_path
-            if lang.startswith("ts"):
-                test_path = path.replace(".ts", ".test.ts")
-            elif lang.startswith("py"):
-                import os as _os
-                base = _os.path.basename(path).replace(".py", "")
-                test_path = _os.path.join(_os.path.dirname(path) or ".", f"test_{base}.py")
-            else:
-                test_path = path + ".test"
+            # --- Messaggi per il modello: minimal & schema-locked ---
+            sys = (
+                "You are a code generation assistant that writes **tests** only.\n"
+                "Given a snippet (selection) or a full file (content), you will generate test code.\n"
+                "Prefer creating test files, but if the user context implies a tiny inline adaptation, you can return replace_selection.\n"
+                "Language: " + (lang or "unknown") + "\n\n" + MODEL_OUTPUT_SCHEMA
+            )
 
-            before = read_file(test_path) or ""
-            diff = to_diff(test_path, before, tcontent or "")
-            rat = await rationale("tests", lang, test_path, before, prompt or "tests")
-            return {"diff": diff, "new_content": tcontent, "rationale": rat, "apply": {"type": "unified_diff", "path": test_path}, "source": source}
+            user_parts = []
+            if path:
+                user_parts.append(f"Current file path: {path}")
+            if selection:
+                user_parts.append("Selection (test this unit):\n```\n" + selection + "\n```")
+            elif orig:
+                user_parts.append("File content (derive test units from it):\n```\n" + orig + "\n```")
+
+            # Puoi opzionalmente includere una richiesta dell'utente (prompt extra) se l'estensione la invia
+            user_hint = prompt
+            if user_hint:
+                user_parts.append(f"User request:\n{user_hint}")
+
+            messages = [
+                {"role": "system", "content": sys},
+                {"role": "user", "content": "\n\n".join(user_parts)}
+            ]
+
+            # --- Call LLM via gateway (come fai già per gli altri intent) ---
+            try:
+                raw = await llm_client.call_gateway_chat(
+                    model,
+                    messages,
+                    base_url=str(getattr(settings, "GATEWAY_URL", "http://localhost:8000")),
+                    timeout=float(getattr(settings, "REQUEST_TIMEOUT_S", 60)),
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+            except Exception as e:
+                raise HTTPException(502, f"gateway chat failed: {type(e).__name__}: {e}")
+
+            # --- Parse robusto: files[] oppure replace_selection ---
+            # NB: Niente euristiche sui path: lasciamo decidere al modello e normalizziamo soltanto
+            try:
+                pj = _extract_json(raw)
+            except Exception as e:
+                raise HTTPException(502, f"model did not return JSON: {type(e).__name__}: {e}")
+
+            files_out: list[dict] = []
+            diffs: list[dict] = []
+
+            if isinstance(pj, dict) and "replace_selection" in pj:
+                if not path or not orig or not selection:
+                    raise HTTPException(422, "replace_selection richiede path, content e selection nel payload")
+                repl = str(pj["replace_selection"])
+                # sostituzione singola occorrenza della selection
+                new_text = orig.replace(selection, repl, 1)
+                files_out = [{"path": path, "content": new_text}]
+
+            elif isinstance(pj, dict) and isinstance(pj.get("files"), list) and pj["files"]:
+                # Manteniamo i path forniti dal modello; solo normalizzazione minima (slash)
+                for f in pj["files"]:
+                    p = (f.get("path") or "").replace("\\", "/")
+                    c = f.get("content") or ""
+                    if not p:
+                        raise HTTPException(422, "each file in files[] must have a non-empty 'path'")
+                    files_out.append({"path": p, "content": c})
+
+            else:
+                raise HTTPException(422, "tests: empty or invalid model output (expect files[] or replace_selection)")
+
+            # --- Calcolo diff come nel resto del flusso (senza euristiche dei nomi) ---
+            for fobj in files_out:
+                p = fobj["path"]
+                c = fobj["content"]
+                prev = su.read_file(p) or ""
+                patch = su.to_diff(prev, c, p)
+                diffs.append({"path": p, "diff": patch})
+
+            resp = {
+                "version": "1.0",
+                "files": files_out,
+                "diffs": diffs,
+                "eval_report": {"status": "skipped"},
+            }
+            return resp
+
 
         # ---------------- FIX_ERRORS ----------------
         if intent == "fix_errors":
-            source = "embedded"
-            if use_ai_fix:
-                sys = {"role": "system", "content": "Fix syntax and simple issues. Return only fixed code."}
-                usr = {"role": "user", "content": json.dumps({"language": lang, "prompt": prompt, "code": orig}, ensure_ascii=False)}
-                try:
-                    ai_code = await _call_gateway_chat_compat(
-                        model=model, messages=[sys, usr], gateway=gateway_url, temperature=0.0, max_tokens=2048
-                    )
-                    if isinstance(ai_code, str) and ai_code.strip().startswith("{"):
-                        try:
-                            jr = json.loads(ai_code)
-                            ai_code = (jr["choices"][0]["message"]["content"] or "")
-                        except Exception:
-                            pass
-                    new = _extract_code_from_ai(ai_code or "")
-                    source = "ai"
-                except Exception as e:
-                    if not fallback_allowed:
-                        raise HTTPException(502, f"fix_errors via AI failed: {type(e).__name__}: {e}")
-                    new = mechanical_fixes(lang, orig)
-                    source = "embedded_fallback"
-            else:
-                new = mechanical_fixes(lang, orig)
+            source = "ai"
+            sys = {"role": "system", "content": "Fix syntax and all issues. Return only fixed code."}
+            usr = {"role": "user", "content": json.dumps({"language": lang, "prompt": prompt, "code": orig}, ensure_ascii=False)}
+            try:
+                ai_code = await _call_gateway_chat_compat(
+                    model=model, messages=[sys, usr], gateway=gateway_url, temperature=0.0, max_tokens=2048
+                )
+                if isinstance(ai_code, str) and ai_code.strip().startswith("{"):
+                    try:
+                        jr = json.loads(ai_code)
+                        ai_code = (jr["choices"][0]["message"]["content"] or "")
+                    except Exception:
+                        pass
+                new = _extract_code_from_ai(ai_code or "")
+                source = "ai"
+            except Exception as e:
+                raise HTTPException(502, f"fix_errors via AI failed: {type(e).__name__}: {e}")
 
+            apply_type = "replace_selection" if selection else "replace_whole"
             diff = to_diff(path, orig, new)
             rat = await rationale("fix_errors", lang, path, orig, prompt)
-            return {"diff": diff, "new_content": new, "rationale": rat, "apply": {"type": "unified_diff", "path": path}, "source": source}
+            return {
+                "diff": diff, 
+                "new_content": new,
+                "rationale": rat, 
+                "apply": {"type": apply_type, "path": path}, 
+                "source": source
+                }
 
         # ---------------- fallback generico ----------------
         rat = await rationale(intent, lang, path, orig, prompt)

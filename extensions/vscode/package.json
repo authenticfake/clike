@@ -12,6 +12,27 @@
     "name": "authenticfake"
   },
   "main": "./extension.js",
+  "activationEvents": [
+    "onCommand:clike.openChat",
+    "onCommand:clike.ping",
+    "onCommand:clike.codeAction",
+    "onCommand:clike.addDocstring",
+    "onCommand:clike.refactor",
+    "onCommand:clike.generateTests",
+    "onCommand:clike.fixErrors",
+    "onCommand:clike.applyUnifiedDiffHardened",
+    "onCommand:clike.applyUnifiedDiff",
+    "onCommand:clike.applyNewContent",
+    "onCommand:clike.applyLastPatch",
+    "onCommand:clike.listModels",
+    "onCommand:clike.checkServices",
+    "onCommand:clike.ragReindex",
+    "onCommand:clike.ragSearch",
+    "onCommand:clike.gitCreateBranch",
+    "onCommand:clike.gitCommitPatch",
+    "onCommand:clike.gitOpenPR",
+    "onCommand:clike.gitSmartPR"
+  ],
   "categories": [
     "AI",
     "Programming Languages"
@@ -26,6 +47,14 @@
       {
         "command": "clike.openChat",
         "title": "CLike: Open Chat (Q&A / Harper / Coding)"
+      },
+      {
+        "command": "clike.chat.clearSession",
+        "title": "CLike: Clear Chat Session (current model)"
+      },
+      {
+        "command": "clike.chat.openSessionFile",
+        "title": "CLike: Open Chat Session File (current model)"
       },
       {
         "command": "clike.ping",
@@ -108,25 +137,20 @@
           "default": false,
           "description": "Log verbose messages."
         },
-        "clike.useAi.docstring": {
+        "clike.chat.persistDir": {
+          "type": "string",
+          "default": ".clike/sessions",
+          "description": "Directory (relativa alla workspace) dove salvare le chat per modello (formato JSONL)."
+        },
+        "clike.chat.maxInMemoryMessages": {
+          "type": "number",
+          "default": 50,
+          "description": "Numero massimo di messaggi tenuti in memoria nella webview per non sforare RAM."
+        },
+        "clike.chat.autoWriteGeneratedFiles": {
           "type": "boolean",
           "default": true,
-          "description": "Abilita la generazione docstring via AI (invia use.ai.docstring all’orchestrator)."
-        },
-        "clike.useAi.refactor": {
-          "type": "boolean",
-          "default": true,
-          "description": "Abilita il refactor via AI (invia use.ai.refactor all’orchestrator)."
-        },
-        "clike.useAi.tests": {
-          "type": "boolean",
-          "default": false,
-          "description": "Abilita la generazione test via AI (invia use.ai.tests all’orchestrator)."
-        },
-        "clike.useAi.fixErrors": {
-          "type": "boolean",
-          "default": false,
-          "description": "Abilita il fix errori via AI (invia use.ai.fix_errors all’orchestrator)."
+          "description": "Se true, i file generati in mode=coding vengono scritti subito su FS."
         },
         "clike.orchestratorUrl": {
           "type": "string",
@@ -178,6 +202,12 @@
           "default": false,
           "description": "If true, open PR flow after auto-commit (requires GitHub extension)."
         },
+        "clike.chat.historyScope": {
+          "type": "string",
+          "enum": ["singleModel", "allModels"],
+          "default": "singleModel",
+          "description": "Chat history scope: singleModel = history base don model selection; allModels = history based cross models."
+        },
         "clike.routes": {
           "type": "object",
           "default": {
@@ -185,7 +215,10 @@
               "code": "/agent/code",
               "ragSearch": "/rag/search",
               "ragReindex": "/rag/reindex",
-              "health": "/health"
+              "health": "/health",
+              "chat": "/v1/chat",
+              "generate": "/v1/generate"
+
             },
             "gateway": {
               "models": "/v1/models",

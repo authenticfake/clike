@@ -1,10 +1,11 @@
-version: "3.8"
 services:
   gateway:
     build: ../gateway
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     environment:
       - MODELS_CONFIG=/workspace/configs/models.yaml
+    env_file:
+      - path: ../.env
     volumes:
       - ..:/workspace
     ports: ["8000:8000"]
@@ -26,6 +27,18 @@ services:
       - CLIKE_TOOLS_GO_FMT=true
       - CLIKE_TOOLS_GO_IMPORTS=true
       - RUNS_DIR=/app/runs
+      - CODE_ROOT_BASE=src
+      - TEST_ROOT_BASE=tests
+      - GEN_ID_PREFIX=generated
+      - ENSURE_MIN_TESTS=true
+      - SPLIT_ENABLE_PY=true
+      - SPLIT_ENABLE_TS=true
+      - SPLIT_ENABLE_GO=true
+      - SPLIT_ENABLE_JAVA=true
+      - SPLIT_ENABLE_REACT=true
+      - SPLIT_ENABLE_MENDIX=false
+    env_file:
+      - path: ../.env
     volumes:
         - ..:/workspace
         - ../configs:/workspace/configs:ro
@@ -44,6 +57,9 @@ services:
       interval: 5s
       timeout: 2s
       retries: 20
+    volumes:
+      - ./ollama:/root/.ollama
+    
    
   #ollama-init:
   #  image: curlimages/curl:latest

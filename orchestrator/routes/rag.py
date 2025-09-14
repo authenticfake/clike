@@ -5,6 +5,7 @@ from qdrant_client import QdrantClient
 from config import settings
 from typing import Any, Dict, List
 
+
 import os
 # fallback robusto: prova prima embed_texts, poi embed_text
 try:
@@ -18,6 +19,7 @@ except Exception:
 
 
 router = APIRouter()
+
 async def _ensure_vectors(texts: List[str], embed_model: str) -> List[List[float]]:
     if not texts:
         return []
@@ -54,8 +56,9 @@ async def index_path(client, path: str, pid_start: int, dims: int = 768) -> int:
         chunks.append("\n".join(buf))
 
     points, pid = [], pid_start
+    
     for chunk in chunks:
-        vec = await embed_text(chunk)   # chiama Ollama embeddings
+        vec = await _embed_one(chunk)   # chiama Ollama embeddings
         if len(vec) != dims:
             # safety: se cambia modello a runtime, falliamo esplicitamente
             raise HTTPException(500, f"Embedding dims mismatch: expected {dims}, got {len(vec)}")
@@ -65,6 +68,8 @@ async def index_path(client, path: str, pid_start: int, dims: int = 768) -> int:
     if points:
         client.upsert(collection_name="clike_rag", points=points)
     return len(points)
+
+
 def embed(text):
     dims=128; import numpy as np, hashlib
     v = np.zeros(dims, dtype=np.float32)
@@ -86,8 +91,8 @@ async def reindex(body: Dict[str, Any]):
     embed_model = body.get("embed_model") or getattr(settings, "EMBED_MODEL", "nomic-embed-text")
     if "embed" not in embed_model.lower():
         raise HTTPException(400, f"embed_model '{embed_model}' does not look like an embedding model")
-    
-    client = qdr()
+
+    client = maybe_qdrant()
     vectors = await _ensure_vectors(docs, embed_model)
     # 1) Rileva la dimensione direttamente dal modello embedding
     DIMS = len(vectors) if isinstance(vectors, list) else 768
