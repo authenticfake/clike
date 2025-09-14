@@ -21,4 +21,6 @@ unidiff==0.7.5
 
 # Embedded tools (usati via subprocess, ma li teniamo anche come dipendenze python-side dove utile)
 isort==5.13.2
+tree_sitter>=0.21.0
+tree_sitter_languages>=1.10.2
 

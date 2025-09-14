@@ -15,7 +15,7 @@ models:
     enabled: true
 
   - name: nomic-embed-text
-    provider: ollama
+    provider: llama3
     base_url: http://ollama:11434
     remote_name: nomic-embed-text
     modality: embeddings
@@ -58,7 +58,7 @@ models:
     latency: medium
     cost: medium
     privacy: low
-    enabled: false
+    enabled: true
 
   - name: text-embedding-3-small
     provider: openai

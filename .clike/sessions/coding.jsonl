@@ -1,0 +1,4 @@
+{"ts":1757858795643,"mode":"coding","role":"user","content":"mi puoi generare una gioco stupido a piacer ein go?","model":"gpt-4o-mini","attachments":[]}
+{"ts":1757858801049,"mode":"coding","role":"assistant","content":"Generated files:\n- src/generated_337819ef/src/main.go","model":"gpt-4o-mini"}
+{"ts":1757858849675,"mode":"coding","role":"user","content":"mi generi un gioco stupido in js?","model":"llama3","attachments":[]}
+{"ts":1757859089708,"mode":"coding","role":"assistant","content":"Error: Error: Timeout after 240000ms","model":"llama3"}

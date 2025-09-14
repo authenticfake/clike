@@ -1,4 +1,4 @@
-// extension.js — Clike Orchestrator+Gateway integration, Hardened Apply, Diff Preview, Auto-Commit+PR
+// extension.js — Clike Orchestrator+Gateway integration GOOGDDDD
 const vscode = require('vscode');
 const { applyPatch } = require('diff');
 const { exec } = require('child_process');
@@ -7,8 +7,139 @@ const http = require('http');
 const { URL } = require('url');
 
 let __clike_lastTargetUriCache = null;
+let selectedPaths = new Set();
+// --- Stato richiesta in corso (per Cancel) ---
+let inflightController = null;
+// Stato chat: per mode -> array di bolle. Ogni bolla: { role: 'user'|'assistant', text, model, ts }
+const chatByMode = {
+  free: [],
+  coding: [],
+  harper: [],
+};
 
+// Helper: mode corrente e modello corrente
+const currentMode = () => document.getElementById('mode').value;   // 'free'|'coding'|'harper'
+const currentModel = () => document.getElementById('model').value; // es. 'llama3'
 const out = vscode.window.createOutputChannel('Clike');
+
+// ---------- Session & FS helpers ----------
+function wsRoot() {
+  const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+  if (!ws) throw new Error('Apri una workspace per usare CLike chat.');
+  return ws.uri;
+}
+
+function cfgChat() {
+  const c = vscode.workspace.getConfiguration();
+  return {
+    dir: c.get('clike.chat.persistDir', '.clike/sessions'),
+    maxMem: c.get('clike.chat.maxInMemoryMessages', 50),
+    autoWrite: c.get('clike.chat.autoWriteGeneratedFiles', true),
+    historyScope: c.get('clike.chat.historyScope', 'singleModel') // <-- NEW
+  };
+}
+
+function effectiveHistoryScope(context) {
+  const cfg = vscode.workspace.getConfiguration();
+  const def = cfg.get('clike.chat.historyScope', 'singleModel');   // default da settings VS
+  const ui = context.workspaceState.get('clike.uiState') || {};
+  // Se l'utente ha scelto runtime un override, usalo; altrimenti usa default
+  return ui.historyScopeOverride || def;
+}
+
+function sessionsDirUri() {
+  const root = wsRoot();
+  return vscode.Uri.joinPath(root, cfgChat().dir.replace(/^\.?\//,''));
+}
+
+async function ensureSessionsDir() {
+  const dir = sessionsDirUri();
+  try { await vscode.workspace.fs.createDirectory(dir); } catch {}
+  return dir;
+}
+// ---------- Session & FS helpers ----------
+function sessionFileUri(mode) {
+  const safe = String(mode || 'free').replace(/[^\w\-\.]/g, '_');
+  return vscode.Uri.joinPath(sessionsDirUri(), `${safe}.jsonl`);
+}
+
+async function appendSessionJSONL(mode, entry) {
+  await ensureSessionsDir();
+  const uri = sessionFileUri(mode);
+  const line = JSON.stringify({ ts: Date.now(), mode, ...entry }) + '\n';
+  const enc = Buffer.from(line, 'utf8');
+  try {
+    await vscode.workspace.fs.stat(uri);
+    const old = await vscode.workspace.fs.readFile(uri);
+    await vscode.workspace.fs.writeFile(uri, Buffer.concat([old, enc]));
+  } catch {
+    await vscode.workspace.fs.writeFile(uri, enc);
+  }
+}
+
+async function loadSession(mode, limit = 200) {
+  try {
+    const buf = await vscode.workspace.fs.readFile(sessionFileUri(mode));
+    const lines = buf.toString('utf8').split(/\r?\n/).filter(Boolean);
+    const last = lines.slice(-limit).map(l => JSON.parse(l));
+    return last.map(e => ({
+      role: e.role,
+      content: e.content,
+      model: e.model,
+      attachments: e.attachments || [],
+      kind: e.kind || 'text'
+    }));
+ } catch {
+    return [];  
+  }
+}async function loadSessionFiltered(mode, model, limit = 200) {
+  const all = await loadSession(mode, limit);
+  return all.filter(e => !model || (e.model || 'auto') === model);
+}
+
+async function pruneSessionByModel(mode, model) {
+  // tiene TUTTO tranne le righe del modello corrente
+  try {
+    const uri = sessionFileUri(mode);
+    const buf = await vscode.workspace.fs.readFile(uri);
+    const lines = buf.toString('utf8').split(/\r?\n/).filter(Boolean);
+    const kept = lines.filter(l => {
+      try {
+        const j = JSON.parse(l);
+        return (j.model || 'auto') !== model;
+      } catch { return true; }
+    });
+    const out = kept.length ? (kept.join('\n') + '\n') : '';
+    await vscode.workspace.fs.writeFile(uri, Buffer.from(out, 'utf8'));
+  } catch {  }
+}
+
+
+async function clearSession(mode) {
+  try { await vscode.workspace.fs.delete(sessionFileUri(mode)); } catch {}
+}
+
+async function saveGeneratedFiles(files) {
+  if (!Array.isArray(files) || !files.length) return [];
+  const root = wsRoot();
+  const written = [];
+  for (const f of files) {
+    if (!f || !f.path || typeof f.content !== 'string') continue;
+    const uri = vscode.Uri.joinPath(root, f.path.replace(/^\.?\//,''));
+    const folder = vscode.Uri.joinPath(uri, '..');
+    try { await vscode.workspace.fs.createDirectory(folder); } catch {}
+    if (typeof f.content === 'string') {
+      await vscode.workspace.fs.writeFile(uri, Buffer.from(f.content, 'utf8'));
+      written.push(uri.fsPath);
+    } else if (typeof f.content_base64 === 'string') {
+      await vscode.workspace.fs.writeFile(uri, Buffer.from(f.content_base64, 'base64'));
+      written.push(uri.fsPath);
+    }
+  }
+  return written;
+}
+
+
 
 function isSaneReplacement(originalText, patchedText) {
   try {
@@ -77,20 +208,11 @@ function rememberTargetUri(context) {
   return uriStr;
 }
 
-function mapUseAiFlagsToPayload(flags) {
-  return {
-    'use.ai.docstring': !!flags.useAiDocstring,
-    'use.ai.refactor':  !!flags.useAiRefactor,
-    'use.ai.tests':     !!flags.useAiTests,
-    'use.ai.fix_errors':!!flags.useAiFixErrors,
-  };
-}
+
 
 // Costruisce il payload rispettando le firme lato orchestrator (text = intero file, selection = selezione)
 function mapDocContextToPayload(ctx, op, useContent = false) {
-  const { useAiDocstring, useAiRefactor, useAiTests, useAiFixErrors } = cfg();
-  const aiFlags = mapUseAiFlagsToPayload({ useAiDocstring, useAiRefactor, useAiTests, useAiFixErrors });
-
+  
   const prompt = (ctx.selection && ctx.selection.trim()) ? ctx.selection.trim() : '';
   const payload = {
     op,
@@ -100,8 +222,7 @@ function mapDocContextToPayload(ctx, op, useContent = false) {
     language: ctx.language,
     selection: ctx.selection || '',  // selezione corrente (eventuale)
     prompt,
-    fallback: true,                  // richiesto
-    ...aiFlags,
+    fallback: false
   };
   if (useContent) payload.content = ctx.text;
   return payload;
@@ -201,7 +322,9 @@ function cfg() {
       code: '/agent/code',
       ragSearch: '/rag/search',
       ragReindex: '/rag/reindex',
-      health: '/health'
+      health: '/health',
+      chat: '/v1/chat',
+      generate: '/v1/generate'
     },
     gateway: {
       models: '/v1/models',
@@ -256,6 +379,9 @@ async function writeBackupIfNeeded(doc, content) {
   const { backup } = cfg();
   if (!backup) return;
   const uri = doc.uri.with({ path: doc.uri.path + '~clike.bak' });
+  if (typeof content !== 'string') {
+    throw new Error('No new_content provided by orchestrator for writeBackupIfNeeded.');
+  }
   await vscode.workspace.fs.writeFile(uri, Buffer.from(content, 'utf8'));
   out.appendLine(`[backup] scritto ${uri.fsPath}`);
 }
@@ -369,11 +495,13 @@ async function postOrchestrator(path, payload = {}) {
   const base = { optimize_for: optimizeFor, fallback: true };
   const body = { ...base, ...payload };
   const bodyStr = (() => { try { return JSON.stringify(body); } catch { return ''; } })();
-
+  console.log(`[REQ] POST ${url} ct=application/json len=${bodyStr.length} keys=${Object.keys(body).join(',')}`);
+  
   out.appendLine(`[REQ] POST ${url} ct=application/json len=${bodyStr.length} keys=${Object.keys(body).join(',')}`);
   const res = await httpPostJson(url, body);
   const keys = res && res.json ? Object.keys(res.json) : (res ? Object.keys(res) : []);
   out.appendLine(`[RES] POST ${url} -> ${res && res.status} keys=${(keys||[]).join(',')}`);
+  console.log(`[RES] POST ${url} -> ${res && res.status} keys=${(keys||[]).join(',')}`);
   if (res && res.json && (res.json.detail || res.json.message)) {
     out.appendLine(`[RES] detail: ${(res.json.detail || res.json.message)}`);
   }
@@ -604,6 +732,9 @@ async function applyOrchestratorResult(context, respJson, applyCtx) {
       const targetPathUri = resolveToWorkspaceUri(apply.path);
       const currentFs = targetUri.fsPath;
       if (targetPathUri && targetPathUri.fsPath !== currentFs && typeof newContent === 'string') {
+        if (typeof newContent !== 'string') {
+          throw new Error('No new_content provided by orchestrator for file write.');
+        }
         await vscode.workspace.fs.writeFile(targetPathUri, Buffer.from(newContent, 'utf8'));
         await vscode.window.showTextDocument(targetPathUri, { preview: false });
         vscode.window.showInformationMessage(`Clike: scritto file ${targetPathUri.fsPath}`);
@@ -692,7 +823,7 @@ async function cmdListModels() {
   await vscode.window.showQuickPick(items.length ? items : [{ label: 'No models' }], { placeHolder: 'Modelli (gateway)' });
 }
 
-async function cmdCheckServices() {
+async function cmdCheckServices(context) {
   const editor = getActiveEditorOrThrow();
   const docInfo = documentInfoFromEditor(editor);
   await context.workspaceState.update('clike.lastTargetUri', docInfo.uriStr);
@@ -745,7 +876,7 @@ async function cmdApplyLastPatch(context) {
 async function cmdCodeAction() {
   const items = [
     { label: '$(edit) Add Docstring', cmd: 'clike.addDocstring' },
-    { label: '$(wand) Refactor (AI)', cmd: 'clike.refactor' },
+    { label: '$(wand) Refactor', cmd: 'clike.refactor' },
     { label: '$(beaker) Generate Tests', cmd: 'clike.generateTests' },
     { label: '$(tools) Fix Errors', cmd: 'clike.fixErrors' },
     { label: '$(diff) Apply Unified Diff (Hardened)', cmd: 'clike.applyUnifiedDiffHardened' },
@@ -758,24 +889,56 @@ async function cmdCodeAction() {
 
 async function cmdPing() { vscode.window.showInformationMessage('Clike: extension alive and well.'); }
 
+async function cmdClearChatSession(context) {
+  const s = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto' };
+  const historyScope = effectiveHistoryScope(context);
+  if (historyScope === 'allModels') {
+    await clearSession(s.mode);
+    vscode.window.showInformationMessage(`CLike: cleared ALL messages (all models) in mode "${s.mode}"`);
+    const hist = await loadSession(s.mode, 200);
+    panel?.webview.postMessage({ type: 'hydrateSession', messages: hist });
+  } else {
+    await pruneSessionByModel(s.mode, s.model || 'auto');
+    vscode.window.showInformationMessage(`CLike: cleared messages for model "${s.model}" in mode "${s.mode}"`);
+    const hist = await loadSessionFiltered(s.mode, s.model, 200);
+    panel?.webview.postMessage({ type: 'hydrateSession', messages: hist });
+  }
+}
+
+
+
+async function cmdOpenChatSessionFile(context) {
+  const s = context.workspaceState.get('clike.uiState') || { mode: 'free' };
+  const uri = sessionFileUri(s.mode);
+  try {
+    const doc = await vscode.workspace.openTextDocument(uri);
+    await vscode.window.showTextDocument(doc, { preview: false });
+  } catch {
+    vscode.window.showWarningMessage(`CLike: no session file yet for mode ${s.mode}`);
+  }
+}
+
+
 function activate(context) {
   const reg = (id, fn) => context.subscriptions.push(vscode.commands.registerCommand(id, () => fn(context)));
-
+  out.appendLine(`activate ${context}`);
+  reg('clike.chat.openSessionFile', cmdOpenChatSessionFile);
   reg('clike.ping', () => cmdPing());
   reg('clike.codeAction', () => cmdCodeAction());
-
+  reg('clike.chat.clearSession', cmdClearChatSession);
   reg('clike.applyUnifiedDiffHardened', cmdApplyUnifiedDiffHardened);
   reg('clike.applyUnifiedDiff', cmdApplyUnifiedDiff);
   reg('clike.applyNewContent', cmdApplyNewContent);
   reg('clike.applyLastPatch', cmdApplyLastPatch);
-
   reg('clike.addDocstring', cmdAddDocstring);
   reg('clike.refactor', cmdRefactor);
   reg('clike.generateTests', cmdGenerateTests);
   reg('clike.fixErrors', cmdFixErrors);
 
+  reg('clike.openChat', cmdOpenChat);
+
   reg('clike.listModels', () => cmdListModels());
-  reg('clike.checkServices', () => cmdCheckServices());
+  reg('clike.checkServices', cmdCheckServices);
   reg('clike.ragReindex', () => cmdRagReindex());
   reg('clike.ragSearch', () => cmdRagSearch());
 
@@ -785,6 +948,998 @@ function activate(context) {
   reg('clike.gitSmartPR', async () => { await vscode.commands.executeCommand('git.commit'); await vscode.commands.executeCommand('github.createPullRequest'); });
 
   vscode.window.setStatusBarMessage('Clike: orchestrator+gateway integration ready', 2000);
+}
+
+function getWebviewHtml(orchestratorUrl) {
+  const nonce = String(Math.random()).slice(2);
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: data:; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CLike Chat</title>
+<style>
+  :root{
+    --bg:#0f1419; --fg:#e6eaf0; --fg-dim:#aeb8c4;
+    --bubble-user:#1f6feb; --bubble-ai:#2d333b;
+    --card:#161b22; --border:#30363d; --accent:#58a6ff;
+  }
+  body { background:var(--bg); color:var(--fg); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto; padding:12px; }
+  .row { display:flex; gap:8px; align-items:center; margin-bottom:8px; }
+  select, input, textarea, button {
+    font-size:13px; background:#0b0f14; color:var(--fg);
+    border:1px solid var(--border); border-radius:6px; padding:6px 8px;
+  }
+  .chip { display:inline-block; padding:2px 6px; border-radius:10px; border:1px solid #ccc; cursor:pointer; user-select:none; }
+  #attach-toolbar { position:relative; } /* per l’absolute del menu */
+  button { cursor:pointer; }
+  textarea { width:100%; min-height:80px; }
+  .toolbar { display:flex; gap:8px; align-items:center; }
+  #status { margin-left:auto; opacity:.7; }
+  .spinner { display:none; margin-left:8px; }
+  .spinner.active { display:inline-block; animation: spin 1s linear infinite; }
+  @keyframes spin { from {transform:rotate(0)} to {transform:rotate(360deg)} }
+
+  .chat { border:1px solid var(--border); border-radius:8px; padding:10px; background:var(--card); height:260px; overflow:auto; }
+  .msg { margin:8px 0; display:flex; }
+  .msg.user { justify-content:flex-end; }
+  .bubble { max-width:78%; padding:10px 12px; border-radius:14px; white-space:pre-wrap; word-break:break-word; }
+  .user .bubble { background:var(--bubble-user); color:white; border-top-right-radius:4px; }
+  .ai .bubble { background:var(--bubble-ai); color:var(--fg); border-top-left-radius:4px; }
+  .meta { font-size:11px; opacity:.7; margin-top:3px; }
+  .badge { display:inline-block; font-size:10px; padding:2px 6px; border-radius:10px; border:1px solid var(--border); margin-right:6px; background:#0b0f14; color:var(--fg-dim); }
+
+  .tabs { margin-top:10px; display:flex; gap:6px; }
+  .tab { padding:6px 10px; border:1px solid var(--border); border-bottom:none; cursor:pointer; border-top-left-radius:6px; border-top-right-radius:6px; }
+  .tab.active { background:var(--card); }
+  .panel { border:1px solid var(--border); padding:8px; min-height: 150px; background:var(--card); }
+  pre { white-space: pre-wrap; word-wrap: break-word; }
+</style>
+</head>
+<body>
+  <div class="row toolbar">
+    <label>Mode</label>
+    <select id="mode">
+      <option value="free">free (Q&A)</option>
+      <option value="harper">harper</option>
+      <option value="coding">coding</option>
+    </select>
+    <label>Model</label>
+    <select id="model"></select>
+    <button id="refresh">↻ Models</button>
+    <button id="clear">Clear Session</button>
+
+    <label class="ctl">
+      History scope
+      <select id="historyScope">
+        <option value="singleModel">Model</option>
+        <option value="allModels">All models</option>
+      </select>
+    </label>
+    <span id="status">Ready</span>
+    <span id="sp" class="spinner">⏳</span>
+  </div>
+
+  <div id="chat" class="chat" aria-label="Chat transcript"></div>
+
+  <div class="row">
+    <textarea id="prompt" placeholder="Type your prompt..."></textarea>
+  </div>
+  <!-- Toolbar allegati -->
+  <div id="attach-toolbar" style="display:flex; gap:6px; align-items:center;">
+    <button id="btnAttach" title="Allega file">📎 Attach</button>
+    <div id="attach-menu" style="display:none; position:absolute; margin-top:28px; padding:6px; border:1px solid #ccc; background:#fff; z-index:10;">
+      <button id="attach-menu-ws">+ Workspace files</button>
+      <button id="attach-menu-ext" style="margin-left:6px;">+ External files</button>
+    </div>
+    <div id="attach-chips" style="margin-left:8px; display:flex; flex-wrap:wrap; gap:6px;"></div>
+  </div>
+  <div class="row">
+    <button id="sendChat">Send (free)</button>
+    <button id="sendGen">Generate (harper/coding)</button>
+    <button id="apply" disabled>Apply</button>
+    <button id="cancel" disabled>Cancel</button>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="text">Text</div>
+    <div class="tab" data-tab="diffs">Diffs</div>
+    <div class="tab" data-tab="files">Files</div>
+  </div>
+
+  <div class="panel" id="panel-text" style="height:280px;overflow:auto;">
+    <pre id="text"></pre>
+  </div>
+  <div class="panel" id="panel-diffs" style="display:none;"><pre id="diffs"></pre></div>
+  <div class="panel" id="panel-files" style="display:none;"><pre id="files"></pre></div>
+
+<script nonce="${nonce}">
+const vscode = acquireVsCodeApi();
+// segnala all'estensione che la webview è pronta a ricevere messaggi
+try { 
+  vscode.postMessage(
+    { type: 'webview_ready',ts: Date.now() }
+  );
+} catch (e) {}
+
+const attachmentsByMode = { free: [], harper: [], coding: [] };
+function currentMode() { return document.getElementById('mode').value; }
+function ensureBucket(mode) {
+  if (!attachmentsByMode[mode]) attachmentsByMode[mode] = [];
+  return attachmentsByMode[mode];
+}
+
+function renderAttachmentChips() {
+  const wrap = document.getElementById('attach-chips');
+  if (!wrap) return;
+  const list = ensureBucket(currentMode());
+
+  wrap.innerHTML = list.map(function(a, i) {
+    const nm = a && (a.name || a.path || a.id) ? (a.name || a.path || a.id) : 'file';
+    // evito caratteri speciali non escapati in title/text
+    const safe = String(nm).replace(/"/g, '&quot;');
+    return '<span class="chip" data-i="' + i + '" title="' + safe + '">' + safe + ' ✕</span>';
+  }).join(' ');
+
+  // Event delegation (un solo listener, attaccato una sola volta)
+  if (!wrap._delegated) {
+    wrap._delegated = true;
+    wrap.addEventListener('click', (ev) => {
+      const el = ev.target.closest('.chip');
+      if (!el) return;
+      const idx = Number(el.dataset.i);
+      const bucket = ensureBucket(currentMode());
+      if (Number.isFinite(idx) && idx >= 0 && idx < bucket.length) {
+        bucket.splice(idx, 1);
+        renderAttachmentChips();
+      }
+    });
+  }
+}
+// Non-bloccante: apri un piccolo "menu" in-page
+let _attachMenuOpen = false;
+
+async function vscodeApiPick() {
+  const menu = document.getElementById('attach-menu');
+  if (!menu) return;
+  _attachMenuOpen = !_attachMenuOpen;
+  menu.style.display = _attachMenuOpen ? 'block' : 'none';
+}
+
+// Hook dei bottoni del mini-menu (una sola volta)
+(function initAttachMenuOnce(){
+  const menu = document.getElementById('attach-menu');
+  if (!menu) return; // l'HTML viene creato altrove; se non c'è, no-op
+  const btnWs  = document.getElementById('attach-menu-ws');
+  const btnExt = document.getElementById('attach-menu-ext');
+  if (btnWs && !btnWs._bound) {
+    btnWs._bound = true;
+    btnWs.addEventListener('click', ()=>{
+      _attachMenuOpen = false;
+      menu.style.display = 'none';
+      vscode.postMessage({ type:'pickWorkspaceFiles' });
+    });
+  }
+  if (btnExt && !btnExt._bound) {
+    btnExt._bound = true;
+    btnExt.addEventListener('click', ()=>{
+      _attachMenuOpen = false;
+      menu.style.display = 'none';
+      vscode.postMessage({ type:'pickExternalFiles' });
+    });
+  }
+})();
+
+function escapeHtml(s){
+  return String(s||'').replace(/[&<>"']/g, m => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[m]));
+}
+const el = (id) => document.getElementById(id);
+const mode = el('mode');
+const model = el('model');
+const prompt = el('prompt');
+const btnRefresh = el('refresh');
+const btnClear = el('clear');
+const btnChat = el('sendChat');
+const btnGen = el('sendGen');
+const btnApply = el('apply');
+const btnCancel = el('cancel');
+const statusEl = el('status');
+const sp = el('sp');
+const chat = el('chat');
+const preText = el('text');
+const preDiffs = el('diffs');
+const preFiles = el('files');
+
+let selectedPaths = new Set();
+let lastRun = null;
+
+function bubble(role, content, modelName, attachments) {
+  attachments = attachments || [];
+  const wrap = document.createElement('div');
+  wrap.className = 'msg ' + (role === 'user' ? 'user' : 'ai');
+  
+  const b = document.createElement('div');
+  b.className = 'bubble';
+  
+  const badge = (role === 'assistant' && modelName)
+    ? '<span class="badge">' + escapeHtml(modelName) + '</span>' 
+  : '';
+  b.innerHTML = badge + escapeHtml(String(content || ''));
+  
+  // se utente ha allegati → riga meta con 📎
+  if (role === 'user' && attachments.length) {
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.textContent = '📎 ' + attachments
+      .map(a => a && (a.name || a.path || a.id) ? (a.name || a.path || a.id) : 'file')
+      .join(', ');
+    b.appendChild(meta);
+  }
+      
+  wrap.appendChild(b);
+  chat.appendChild(wrap);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+
+function setBusy(on) {
+  [btnChat, btnGen, btnApply, btnRefresh, btnClear].forEach(b => b.disabled = !!on);
+  btnCancel.disabled = !on;
+  sp.classList.toggle('active', !!on);
+  statusEl.textContent = on ? 'Waiting response…' : 'Ready';
+}
+function post(type, payload={}) { vscode.postMessage({type, ...payload}); }
+function setTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.getElementById('panel-text').style.display = name==='text' ? 'block':'none';
+  document.getElementById('panel-diffs').style.display = name==='diffs' ? 'block':'none';
+  document.getElementById('panel-files').style.display = name==='files' ? 'block':'none';
+}
+function clearTextPanel() {
+  // svuota il contenuto del tab Text e selezionalo
+  preText.textContent = '';
+  setTab('text');
+}
+function clearDiffsPanel() {
+  // svuota il contenuto del tab Diffs e selezionalo
+  preDiffs.textContent = '';
+  setTab('diffs');
+}
+function clearFilesPanel() {
+  // svuota il contenuto del tab Fils e selezionalo
+  preFiles.innerHTML = '';
+}
+document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => setTab(t.dataset.tab)));
+
+mode.addEventListener('change', ()=> post('uiChanged', { mode: mode.value, model: model.value }));
+model.addEventListener('change', ()=> post('uiChanged', { mode: mode.value, model: model.value }));
+btnRefresh.addEventListener('click', ()=> post('fetchModels'));
+btnClear.addEventListener('click', () => {
+  vscode.postMessage({
+    type: 'clearSession',
+    mode: currentMode(),
+    model: document.getElementById('model').value || 'auto'
+  });
+});
+function summarizeAttachments(inlineFiles = [], ragFiles = []) {
+  const inl = (inlineFiles || []).map(f => ({
+    type: 'inline',
+    name: f.name || f.path || 'file',
+    path: f.path || null,
+    size: f.size || null
+  }));
+  const rag = (ragFiles || []).map(f => ({
+    type: 'rag',
+    name: f.name || f.path || ('doc_' + (f.id || '')),
+    id:   f.id || null,
+    size: f.size || null
+  }));
+  return [...inl, ...rag];
+}
+(function bindAttachOnce(){
+  const btn = document.getElementById('btnAttach');
+  if (btn && !btn._bound) {
+    btn._bound = true;
+    btn.addEventListener('click', ()=> { vscodeApiPick(); });
+  }
+})();
+
+
+btnChat.addEventListener('click', ()=>{
+  console.log('[webview] sendChat click');
+  const text = prompt.value;
+  if (!text.trim()) return;
+  const atts = attachmentsByMode[mode.value] ? [...attachmentsByMode[mode.value]] : [];
+
+  bubble('user', text,model.value, atts);
+  setBusy(true);
+  prompt.value = '';
+  clearTextPanel();        // <— svuota tab Text
+  clearDiffsPanel();        // <— svuota tab Diffs
+  clearFilesPanel();        // <— svuota tab Files
+  post('sendChat', { mode: mode.value, model: model.value, prompt: text, attachments: atts });
+  attachmentsByMode[currentMode()] = [];
+  renderAttachmentChips();
+  });
+
+btnGen.addEventListener('click', ()=>{
+  console.log('[webview] sendGen click');
+
+  const text = prompt.value;
+  const m = (mode.value === 'free') ? 'coding' : mode.value;   // /v1/generate vuole coding/harper
+
+  const atts = attachmentsByMode[m] ? [...attachmentsByMode[m]] : [];
+
+  if (!text.trim()) return;
+  bubble('user', text,model.value, atts);
+  setBusy(true);
+  prompt.value = '';
+  clearTextPanel();        // <— svuota tab Text
+  clearDiffsPanel();        // <— svuota tab Diffs
+  clearFilesPanel();        // <— svuota tab Files
+  setTab('diffs');
+
+  post('sendGenerate', { mode: m, model: model.value, prompt: text, attachments: atts });
+  attachmentsByMode[currentMode()] = [];
+  renderAttachmentChips();
+});
+btnApply.addEventListener('click', ()=>{
+  console.log('[webview] apply click', lastRun);
+  
+  if (!lastRun) return;
+  clearTextPanel();
+  clearDiffsPanel();
+  clearFilesPanel();
+
+  const paths = Array.from(selectedPaths);
+  const selection = paths.length > 0 ? { paths } : { apply_all: true };
+  setBusy(true);
+  post('apply', { run_dir: lastRun.run_dir, audit_id: lastRun.audit_id, selection });
+});
+btnCancel.addEventListener('click', ()=> post('cancel'));
+
+window.addEventListener('message', (event) => {
+  const msg = event.data;
+  if (msg.type === 'busy') { setBusy(!!msg.on); return; }
+  if (msg.type === 'initState' && msg.state) {
+    const hs = msg.state && msg.state.historyScope || 'singleModel';
+    const sel = document.getElementById('historyScope');
+    if (sel) {
+      sel.addEventListener('change', () => {
+        const value = sel.value === 'allModels' ? 'allModels' : 'singleModel';
+        vscode.postMessage({ type: 'setHistoryScope', value });
+      });
+      sel.value = hs;
+    }
+    
+    if (msg.state.mode)  mode.value  = msg.state.mode;
+    if (msg.state.model) model.value = msg.state.model;
+  }
+  if (msg.type === 'attachmentsCleared') {
+    const m = msg.mode || currentMode();
+    attachmentsByMode[m] = [];
+    renderAttachmentChips();
+  }
+
+  if (msg.type === 'hydrateSession' && Array.isArray(msg.messages)) {
+    chat.innerHTML = '';
+    for (const m of msg.messages) bubble(m.role, m.content, m.model, m.attachments || []);
+  }
+  if (msg.type === 'models') {
+    model.innerHTML = '';
+    (msg.models||[]).forEach(m=>{
+      const o = document.createElement('option'); o.value = m; o.textContent = m; model.appendChild(o);
+    });
+  }
+  if (msg && msg.type === 'attachmentsAdded') {
+    const bucket = ensureBucket(currentMode());
+    const incoming = Array.isArray(msg.attachments) ? msg.attachments : [];
+    for (const a of incoming) {
+      // normalizza struttura minima {name?, path?, id?, source?}
+      const norm = {
+        name: a?.name || a?.path || a?.id || 'file',
+        path: a?.path || null,
+        id: a?.id || null,
+        source: a?.source || (a?.path ? 'workspace' : 'external')
+      };
+      bucket.push(norm);
+    }
+    renderAttachmentChips();
+  }
+  
+  if (msg.type === 'chatResult') {
+    setBusy(false);
+    const modelName = msg.data?.model || model.value || 'auto';
+    const text = (msg.data && (msg.data.text || msg.data.content))
+      ? (msg.data.text || msg.data.content)
+      : JSON.stringify(msg.data, null, 2);
+    bubble('assistant', text, modelName);
+
+    const data = msg.data || {};
+    const assistantText = (data.assistant_text || '').trim();
+    // immagini (solo image/* con base64) – al massimo 3
+    const imgs = (Array.isArray(data.files) ? data.files : []).filter(function (f) {
+      return f && typeof f.mime === 'string' && f.mime.indexOf('image/') === 0 && f.content_base64;
+    });
+    if (Array.isArray(imgs) && imgs.length >0) {
+      var html = imgs.slice(0, 3).map(function (f) {
+        var src = 'data:' + f.mime + ';base64,' + f.content_base64;
+        return '<img src="' + src + '" style="max-width:160px;max-height:120px;margin:4px;border:1px solid #ddd;border-radius:6px"/>';
+      }).join('');
+       const safeText = String(assistantText || '');
+       var testo = safeText? safeText + "<br><br>":''
+
+       bubble('assistant', testo + html, model.value);
+
+    } else if (data.assistant_text && data.assistant_text.trim()) {
+      // Mostra in chat del Mode corrente con badge "free" e modelName corrente
+      bubble('assistant', data.assistant_text.trim(), /* modelName= */ model.value, /* attachments? */ []);
+      // (opzionale) se vuoi forzare la Text tab a riflettere lo stesso testo
+      preText.textContent = data.assistant_text.trim();
+    }
+    lastRun = { run_dir: msg.data?.run_dir, audit_id: msg.data?.audit_id };
+    btnApply.disabled = !lastRun?.run_dir && !lastRun?.audit_id;
+  }
+  if (msg.type === 'generateResult') {
+    setBusy(false);
+    const data = msg.data || {};
+    const summary = Array.isArray(data.files) && data.files.length
+      ? 'Generated files:\\n' + data.files.map(f => '- ' + f.path).join('\\n')
+      : JSON.stringify(data, null, 2);
+    bubble('assistant', summary, model.value);
+    
+    const assistantText = (data.assistant_text || '').trim();
+    // immagini (solo image/* con base64) – al massimo 3
+    const imgs = (Array.isArray(data.files) ? data.files : []).filter(function (f) {
+      return f && typeof f.mime === 'string' && f.mime.indexOf('image/') === 0 && f.content_base64;
+    });
+    if (Array.isArray(imgs) && imgs.length >0) {
+      var html = imgs.slice(0, 3).map(function (f) {
+        var src = 'data:' + f.mime + ';base64,' + f.content_base64;
+        return '<img src="' + src + '" style="max-width:160px;max-height:120px;margin:4px;border:1px solid #ddd;border-radius:6px"/>';
+      }).join('');
+       const safeText = String(assistantText || '');
+       var testo = safeText? safeText + "<br><br>":''
+
+       bubble('assistant', testo + html, model.value);
+
+    } else if (data.assistant_text && data.assistant_text.trim()) {
+      // Mostra in chat del Mode corrente con badge "coding" e modelName corrente
+      bubble('assistant', data.assistant_text.trim(), /* modelName= */ model.value, /* attachments? */ []);
+      // (opzionale) se vuoi forzare la Text tab a riflettere lo stesso testo
+      preText.textContent = data.assistant_text.trim();
+    }
+
+
+    setTab('diffs');
+    preDiffs.textContent = JSON.stringify(data.diffs || [], null, 2);
+
+    // 2) Tab TEXT – mostra anche il "grezzo" dal server se c'è
+    if (data.raw || data.text || data.raw_text) {
+      preText.textContent = String(data.raw || data.raw_text || data.text || '');
+      setTab('text');
+    }
+    selectedPaths = new Set();
+    const files = Array.isArray(data.files) ? data.files : [];
+    const lines = files.map(f => {
+      const path = f.path;
+      const safeId = 'f_' + btoa(path).replace(/=/g,'');
+      return '<div class="row">'
+        + '<input type="checkbox" class="file-chk" id="' + safeId + '" data-path="' + path + '">'
+        + '<label for="' + safeId + '" class="file-open" data-path="' + path + '" style="cursor:pointer;text-decoration:underline;">' + path + '</label>'
+        + '</div>';
+    });
+    preFiles.innerHTML = lines.join('\\n');
+    document.querySelectorAll('.file-chk').forEach(chk => {
+      chk.addEventListener('change', (e) => {
+        const p = e.target.dataset.path;
+        if (e.target.checked) selectedPaths.add(p); else selectedPaths.delete(p);
+      });
+    });
+    
+    document.querySelectorAll('.file-open').forEach(lbl => {
+      lbl.addEventListener('click', () => {
+        const p = lbl.dataset.path;
+        vscode.postMessage({ type: 'openFile', path: p });
+      });
+    });
+    lastRun = { run_dir: data.run_dir, audit_id: data.audit_id };
+    btnApply.disabled = !lastRun?.run_dir && !lastRun?.audit_id;
+  }
+  if (msg.type === 'applyResult') {
+    setBusy(false);
+    setTab('text');
+    preText.textContent = "Applied files:\\n" + JSON.stringify(msg.data?.applied || [], null, 2);
+  }
+  if (msg.type === 'error') {
+    setBusy(false);
+    setTab('text');
+    preText.textContent = 'Error: ' + msg.message;
+  }
+});
+
+// init
+post('fetchModels');
+</script>
+</body>
+</html>`;
+}
+
+
+
+
+async function cmdOpenChat(context) {
+  out.appendLine(`cmdOpenChat ${context}`);
+  const panel = vscode.window.createWebviewPanel(
+    'clikeChat',
+    'CLike Chat',
+    vscode.ViewColumn.Beside,
+    { enableScripts: true, retainContextWhenHidden: true }
+  );
+  out.appendLine(`cmdOpenChat panel created ${panel}`);
+  const c = vscode.workspace.getConfiguration();
+  out.appendLine(`cmdOpenChat conf read ${c}`);
+  const orchestratorUrl = c.get('clike.orchestratorUrl') || 'http://localhost:8080';
+  out.appendLine(`cmdOpenChat orchestratorUrl ${orchestratorUrl}`);
+
+  panel.webview.html = getWebviewHtml(orchestratorUrl);
+  out.appendLine(`cmdOpenChat getWebviewHtml done`);
+  panel.webview.postMessage({ type: 'busy', on: false });
+  out.appendLine(`cmdOpenChat postMessage done`);
+  // Stato iniziale (mode/model)
+  const savedState = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto' };
+
+  savedState.historyScope= effectiveHistoryScope(context),
+  panel.webview.postMessage({ type: 'initState', state: savedState });
+  out.appendLine(`cmdOpenChat savedState done`);
+
+  // HYDRATE per MODE (non per model)
+  // Hydrate chat dal FS per il modello selezionato
+  try {
+    
+    const scope = effectiveHistoryScope(context);
+    const modeCur  = (savedState?.mode ?? newState?.mode ?? 'free');
+    const modelCur = (savedState?.model ?? newState?.model ?? 'auto');
+
+    const msgs = (scope === 'allModels')
+      ? await loadSession(modeCur).catch(() => [])
+      : await loadSessionFiltered(modeCur, modelCur, 200).catch(() => []);
+
+    panel.webview.postMessage({ type: 'hydrateSession', messages: msgs });
+
+    out.appendLine(`cmdOpenChat msgs done`);
+    panel.webview.postMessage({ type: 'hydrateSession', messages: msgs });
+    out.appendLine(`cmdOpenChat postMessage done`);
+  
+  }  catch (e) {
+    out.appendLine(`cmdOpenChat: ${e.message}`);
+  }
+  
+  // Ultimo run per Apply
+  const lastRun = context.workspaceState.get('clike.lastRun');
+  if (lastRun) panel.webview.postMessage({ type: 'lastRun', data: lastRun });
+  // Ascolto eventi dalla webview
+   out.appendLine(`cmdOpenChat lastRun  ${lastRun}`);
+   if (lastRun) panel.webview.postMessage({ type: 'lastRun', data: lastRun });
+
+  function renderChat() {
+  const key = sessionKey();
+  const hist = state.history[key] || [];
+  const chatEl = document.getElementById('chat');
+  if (!chatEl) return;
+  chatEl.innerHTML = hist.map(m => {
+    const who = m.role === 'user' ? 'me' : 'bot';
+    const badge = m.role === 'assistant' ? `<span class="chip">${m.model || model.value}</span>` : '';
+    return `<div class="bubble ${who}">${badge}${escapeHtml(m.text)}</div>`;
+  }).join('');
+  chatEl.scrollTop = chatEl.scrollHeight;
+}
+function escapeHtml(s){return s.replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]))}
+
+  // Ascolto eventi dalla webview
+  panel.webview.onDidReceiveMessage(async (msg) => {
+    out.appendLine(`[webview] recv ${msg && msg?.type}`);
+
+    try {
+      if (msg.type === 'webview_ready') {
+        out.appendLine('[ext] got webview_ready');
+        const savedState = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto' };
+        savedState.historyScope= effectiveHistoryScope(context),
+        panel.webview.postMessage({ type: 'initState', state: savedState });
+
+        try {
+          const scope = effectiveHistoryScope(context);
+          const modeCur  = (savedState?.mode ?? newState?.mode ?? 'free');
+          const modelCur = (savedState?.model ?? newState?.model ?? 'auto');
+
+          const msgs = (scope === 'allModels')
+            ? await loadSession(modeCur).catch(() => [])
+            : await loadSessionFiltered(modeCur, modelCur, 200).catch(() => []);
+
+          panel.webview.postMessage({ type: 'hydrateSession', messages: msgs });
+        } catch {}
+
+        const lastRun = context.workspaceState.get('clike.lastRun');
+        if (lastRun) panel.webview.postMessage({ type: 'lastRun', data: lastRun });
+
+        // avvia anche subito la fetch dei modelli
+        try {
+          const orchestratorUrl = vscode.workspace.getConfiguration().get('clike.orchestratorUrl') || 'http://localhost:8080';
+          const res = await fetchJson(`${orchestratorUrl}/v1/models`);
+          let models = [];
+          if (Array.isArray(res?.models)) {
+            let raw = res.models.map(m => m.name || m.id || m.model || 'unknown');
+            const filtered = raw.filter(n => !/embed|embedding|nomic-embed/i.test(n));
+            models = filtered.length ? filtered : raw;
+          } else if (Array.isArray(res?.data)) {
+            let raw = res.data.map(m => m.id || 'unknown');
+            const filtered = raw.filter(n => !/embed|embedding|nomic-embed/i.test(n));
+            models = filtered.length ? filtered : raw;
+          }
+          panel.webview.postMessage({ type: 'models', models });
+        } catch (e) {
+          out.appendLine(`[ext] models fetch on ready failed: ${e.message}`);
+        }
+
+      }
+      if (msg.type === 'setHistoryScope') {
+        const value = (msg.value === 'allModels') ? 'allModels' : 'singleModel';
+        const ui = context.workspaceState.get('clike.uiState') || {};
+        ui.historyScopeOverride = value;
+        await context.workspaceState.update('clike.uiState', ui);
+        // Re-hydrate subito
+        const s = context.workspaceState.get('clike.uiState') || { mode:'free', model:'auto' };
+        const msgs = (value === 'allModels')
+          ? await loadSession(s.mode, 200)
+          : await loadSessionFiltered(s.mode, s.model, 200);
+        panel.webview.postMessage({ type: 'hydrateSession', messages: msgs });
+
+        vscode.window.setStatusBarMessage(`CLike: history scope = ${value}`, 2000);
+        return;
+      }
+
+      // 1) MODELLI
+      if (msg.type === 'fetchModels') {
+        const res = await fetchJson(`${orchestratorUrl}/v1/models`);
+        let models = [];
+        if (Array.isArray(res?.models)) {
+          let raw = res.models.map(m => m.name || m.id || m.model || 'unknown');
+          const filtered = raw.filter(n => !/embed|embedding|nomic-embed/i.test(n));
+          models = filtered.length ? filtered : raw;
+        } else if (Array.isArray(res?.data)) {
+          let raw = res.data.map(m => m.id || 'unknown');
+          const filtered = raw.filter(n => !/embed|embedding|nomic-embed/i.test(n));
+          models = filtered.length ? filtered : raw;
+        }
+        panel.webview.postMessage({ type: 'models', models });
+        return;
+      }
+
+      // 2) CAMBIO UI (Mode/Model)
+      if (msg.type === 'uiChanged') {
+        const prev = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto' };
+        const newState = { mode: msg.mode, model: msg.model };
+        await context.workspaceState.update('clike.uiState', newState);
+
+        // Se è cambiato SOLO il modello, NON re-idratare la chat
+        if (prev.mode === newState.mode && prev.model !== newState.model) {
+          return;
+        }
+
+        // Se è cambiato il mode (o entrambi), re-idrata in base allo scope
+        const scope   = effectiveHistoryScope(context);
+        const modeCur = newState.mode || 'free';
+        const modelCur= newState.model || 'auto';
+
+        const msgs = (scope === 'allModels')
+          ? await loadSession(modeCur).catch(() => [])
+          : await loadSessionFiltered(modeCur, modelCur, 200).catch(() => []);
+
+        panel.webview.postMessage({ type: 'hydrateSession', messages: msgs });
+        return;
+      }
+
+      // 3) CLEAR SESSION (solo mode corrente)
+      if (msg.type === 'clearSession') {
+        const st = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto' };
+        const modeCur   = msg.mode  || st.mode  || 'free';
+        const modelCur  = msg.model || st.model || 'auto';
+
+        const scope = effectiveHistoryScope(context); // usa l’override UI oppure il default dalle settings
+        if (scope === 'allModels') {
+          // cancella tutto il MODE (file intero)
+          await clearSession(modeCur);
+          panel.webview.postMessage({ type: 'hydrateSession', messages: [] });
+          vscode.window.setStatusBarMessage(`CLike: cleared ALL messages in mode "${modeCur}"`, 2500);
+        } else {
+         // singleModel → ripulisci SOLO le righe del modello corrente
+          await pruneSessionByModel(modeCur, modelCur);
+
+          // NEW: dopo la pulizia, mostra subito le altre conversazioni del mode
+          const allLeft = await loadSession(modeCur, 200);
+          const others  = allLeft.filter(e => (e.model || 'auto') !== modelCur);
+
+          // Se vuoi anche aggiornare il selettore in UI a "All models", puoi salvare l'override:
+          if (others.length > 0) {
+            const ui = context.workspaceState.get('clike.uiState') || {};
+            ui.historyScopeOverride = 'allModels';
+            await context.workspaceState.update('clike.uiState', ui);
+            panel.webview.postMessage({ type: 'initState', state: { ...ui, mode: modeCur, model: modelCur, historyScope: 'allModels' } });
+          }
+
+          // Idrata la webview con i messaggi rimanenti (tutti gli altri modelli)
+          panel.webview.postMessage({ type: 'hydrateSession', messages: others });
+
+          vscode.window.setStatusBarMessage(`CLike: cleared messages for model "${modelCur}" in mode "${modeCur}"`, 2500);
+
+        }
+        return;
+      }
+
+      // 4) OPEN FILE (tab Files cliccabile)
+      if (msg.type === 'openFile' && msg.path) {
+        try {
+          const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+          if (!ws) throw new Error('No workspace open');
+          const uri = vscode.Uri.joinPath(ws.uri, msg.path.replace(/^\.?\//,''));
+          const doc = await vscode.workspace.openTextDocument(uri);
+          await vscode.window.showTextDocument(doc, { preview: false });
+        } catch (e) {
+          vscode.window.showErrorMessage(`Open file failed: ${e.message}`);
+        }        
+        return;
+      }
+
+      // 5) CHAT / GENERATE
+      if (msg.type === 'sendChat' || msg.type === 'sendGenerate') {
+         // cancel eventuale richiesta precedente
+        if (inflightController) { inflightController.abort(); inflightController = null; }
+        inflightController = new AbortController();
+        panel.webview.postMessage({ type: 'busy', on: true });
+
+        const cur = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto' };
+        const activeMode  = msg.mode  || cur.mode  || 'free';
+        const activeModel = msg.model || cur.model || 'auto';
+
+        // Persisti l’input dell’utente nella sessione del MODE (e mostreremo badge del modello in render)
+        await appendSessionJSONL(activeMode, {
+          role: 'user',
+          content: String(msg.prompt || ''),
+          model: activeModel,
+          attachments: Array.isArray(msg.attachments) ? msg.attachments : []
+        });
+
+        // Partiziona allegati SOLO QUI (N.B.: niente variabili globali!)
+        const atts = Array.isArray(msg.attachments) ? msg.attachments : [];
+        const { inline_files, rag_files } = partitionAttachments(atts);
+        // History del MODE corrente
+        const historyScope  = effectiveHistoryScope(context);
+        // History per conversazione “stateless”: carico SOLO le bolle del MODE corrente
+        const history = await loadSession(activeMode).catch(() => []);
+        // Filtra eventualmente per modello se vuoi inviare solo il sotto-filo di quel model:
+        const historyForThisModel = history.filter(b => !b.model || b.model === activeModel);
+
+        const source = (historyScope === 'allModels')
+        ? history
+        : historyForThisModel;
+       
+        const messages = source.map(b => ({ role: b.role, content: b.content }));
+
+        // Costruisci payload
+        const basePayload = { mode: activeMode, model: activeModel, messages, inline_files, rag_files, attachments: atts };
+        const payload = (msg.type === 'sendChat')
+          ? basePayload
+          : { ...basePayload, max_tokens: 1024 };
+
+        const url = (msg.type === 'sendChat')
+          ? `${orchestratorUrl}/v1/chat`
+          : `${orchestratorUrl}/v1/generate`;
+
+        try {
+          const res = await withTimeout(
+            postJson(url, payload, { signal: inflightController.signal }),
+            240000
+          );
+
+          // Salva ultimo run (serve per Apply)
+          if (res?.run_dir || res?.audit_id) {
+            await context.workspaceState.update('clike.lastRun', { run_dir: res.run_dir, audit_id: res.audit_id });
+          }
+
+          if (msg.type === 'sendChat') {
+            const modelName = res?.model || activeModel;
+            const text = (res && (res.text || res.content))
+              ? (res.text || res.content)
+              : JSON.stringify(res, null, 2);
+
+            await appendSessionJSONL(activeMode, {
+              role: 'assistant',
+              content: text,
+              model: modelName
+            });
+
+            panel.webview.postMessage({ type: 'chatResult', data: res });
+          } else {
+            // generate: opzionale autowrite (se l’hai abilitato in cfgChat)
+            const { autoWrite } = cfgChat?.() || { autoWrite: false };
+            if (autoWrite && Array.isArray(res.files) && res.files.length) {
+              const paths = await saveGeneratedFiles(res.files);
+             
+            }
+
+            const summary = Array.isArray(res.files) && res.files.length
+              ? 'Generated files:\n' + res.files.map(f => '- ' + f.path).join('\n')
+              : JSON.stringify(res, null, 2);
+
+            await appendSessionJSONL(activeMode, {
+              role: 'assistant',
+              content: summary,
+              model: activeModel
+            });
+            panel.webview.postMessage({ type: 'generateResult', data: res });
+          }
+
+        } catch (err) {
+          const emsg = String(err);
+          await appendSessionJSONL(activeMode, { role: 'assistant', content: `Error: ${emsg}`, model: activeModel });
+          panel.webview.postMessage({ type: 'error', message: emsg });
+        } finally {
+          panel.webview.postMessage({ type: 'busy', on: false });
+          inflightController = null;
+        }
+        return;
+      }
+
+      // 6) APPLY
+      if (msg.type === 'apply') {
+        const payload = {
+          run_dir: msg.run_dir || null,
+          audit_id: msg.audit_id || null,
+          selection: msg.selection || { apply_all: true }
+        };
+        const res = await postJson(`${orchestratorUrl}/v1/apply`, payload);
+        panel.webview.postMessage({ type: 'applyResult', data: res });
+        return;
+      }
+
+      // 7) CANCEL
+      if (msg.type === 'cancel') {
+        if (inflightController) inflightController.abort();
+        inflightController = null;
+        panel.webview.postMessage({ type: 'busy', on: false });
+        return;
+      }
+      // --- PICK WORKSPACE FILES ----------------------------------------------------
+      if (msg.type === 'pickWorkspaceFiles') {
+        const folders = vscode.workspace.workspaceFolders || [];
+        const base = folders.length ? folders[0].uri : undefined;
+
+        const uris = await vscode.window.showOpenDialog({
+          canSelectFiles: true, canSelectFolders: false, canSelectMany: true,
+          openLabel: 'Attach', defaultUri: base
+        });
+        if (!uris) return;
+
+        const MAX_INLINE = 64 * 1024; // 64KB: sopra → RAG by path
+        const atts = [];
+        for (const uri of uris) {
+          try {
+            const stat = await vscode.workspace.fs.stat(uri);
+            const relPath = base ? vscode.workspace.asRelativePath(uri) : uri.fsPath;
+
+            if (stat.size <= MAX_INLINE) {
+              const bytes = await vscode.workspace.fs.readFile(uri);
+              atts.push({
+                origin: 'workspace',
+                name: relPath.split(/[\\/]/).pop(),
+                path: relPath,             // utile al server per referenza
+                bytes_b64: Buffer.from(bytes).toString('base64')
+              });
+            } else {
+              // grande: passa solo il path → il server farà RAG
+              atts.push({
+                origin: 'workspace',
+                name: relPath.split(/[\\/]/).pop(),
+                path: relPath
+              });
+            }
+          } catch (e) {
+            vscode.window.showWarningMessage(`Attach failed: ${e.message}`);
+          }
+        }
+        panel.webview.postMessage({ type: 'attachmentsAdded', attachments: atts });
+        return;
+      }
+
+      if (msg.type === 'pickExternalFiles') {
+        const uris = await vscode.window.showOpenDialog({
+          canSelectFiles: true, canSelectFolders: false, canSelectMany: true,
+          openLabel: 'Attach'
+        });
+        if (!uris) return;
+
+        const atts = [];
+        for (const uri of uris) {
+          try {
+            const bytes = await vscode.workspace.fs.readFile(uri);
+            atts.push({
+              origin: 'external',
+              name: uri.fsPath.split(/[\\/]/).pop(),
+              bytes_b64: Buffer.from(bytes).toString('base64')
+            });
+          } catch (e) {
+            vscode.window.showWarningMessage(`Attach failed: ${e.message}`);
+          }
+        }
+        panel.webview.postMessage({ type: 'attachmentsAdded', attachments: atts });
+        return;
+      }
+    } catch (err) {
+      panel.webview.postMessage({ type: 'error', message: String(err) });
+    }
+  });
+}
+function partitionAttachments(atts) {
+  const inline_files = [];
+  const rag_files = [];
+  for (const a of (atts || [])) {
+    // piccolo o già in memoria
+    if (a.content || a.bytes_b64) {
+      inline_files.push({
+        name: a.name || null,
+        path: a.path || null,
+        content: a.content || null,
+        bytes_b64: a.bytes_b64 || null,
+        origin: a.origin || null
+      });
+    } else if (a.path) {
+      // workspace grande → RAG by path
+      rag_files.push({ path: a.path });
+    }
+  }
+  return { inline_files, rag_files };
+}
+
+async function fetchJson(url, { signal } = {}) {
+  const f = (typeof fetch === 'function')
+    ? fetch
+    : ((...args) => import('node-fetch').then(({ default: ff }) => ff(...args)));
+  const res = await f(url, { signal });
+  if (!res.ok) throw new Error(`GET ${url} -> ${res.status}`);
+  return await res.json();
+}
+
+async function postJson(url, body, { signal } = {}) {
+  const f = (typeof fetch === 'function')
+    ? fetch
+    : ((...args) => import('node-fetch').then(({ default: ff }) => ff(...args)));
+  const res = await f(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+    signal
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    throw new Error(`POST ${url} -> ${res.status} ${txt}`);
+  }
+  return await res.json();
+}
+
+// Timeout soft lato estensione
+async function withTimeout(promise, ms) {
+  let to;
+  const t = new Promise((_, rej) => {
+    to = setTimeout(() => rej(new Error(`Timeout after ${ms}ms`)), ms);
+  });
+  try {
+    return await Promise.race([promise, t]);
+  } finally {
+    clearTimeout(to);
+  }
 }
 
 function deactivate() {}

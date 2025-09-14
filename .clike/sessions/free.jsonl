@@ -1,0 +1,12 @@
+{"ts":1757864291932,"mode":"free","role":"user","content":"Ciao mi chiamo andrea","model":"llama3","attachments":[]}
+{"ts":1757864301297,"mode":"free","role":"assistant","content":"Ciao Andrea! Sono felice di conoscerti. Come stai oggi?","model":"llama3"}
+{"ts":1757864460267,"mode":"free","role":"user","content":"come mi chiamo?\n","model":"llama3","attachments":[]}
+{"ts":1757864462514,"mode":"free","role":"assistant","content":"Andrea!","model":"llama3"}
+{"ts":1757864726653,"mode":"free","role":"user","content":"coome mi chiamo ?","model":"llama3","attachments":[]}
+{"ts":1757864731691,"mode":"free","role":"assistant","content":"Ahaha, ti ho capito! Come mi chiami? (Come si chiama?)","model":"llama3"}
+{"ts":1757864752486,"mode":"free","role":"user","content":"coome mi chiamo ?\n","model":"llama3","attachments":[]}
+{"ts":1757864789137,"mode":"free","role":"assistant","content":"Giancarlo!","model":"llama3"}
+{"ts":1757864839686,"mode":"free","role":"user","content":"coome mi chiamo ?\n","model":"gpt-4o-mini","attachments":[]}
+{"ts":1757864840388,"mode":"free","role":"assistant","content":"Ti chiami Andrea!","model":"gpt-4o-mini"}
+{"ts":1757864868070,"mode":"free","role":"user","content":"coome mi chiamo ?\n","model":"llama3","attachments":[]}
+{"ts":1757864875834,"mode":"free","role":"assistant","content":"Andrea!","model":"llama3"}

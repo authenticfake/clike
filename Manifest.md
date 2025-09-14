@@ -1,10 +1,10 @@
-# 🚀 CLike: Harper + Vibe Coding
+# 🚀 CLike: Vibe Coding for Enterprise
 
 ## 🌟 Vision
 CLike is born to reshape software development in the **AI-native era**.  
 It is not just another coding assistant, but a **differentiated platform** that merges:
 
-- **Harper-style approach** → SPEC → PLAN → KIT, short iterations, eval-driven, integrated with RAG + MCP.  
+- **Harper-style approach** → SPEC → PLAN → KIT, short iterations, eval-driven, integrated with RAG & MCP.  
 - **Vibe Coding (Gartner/Karpathy)** → outcome- and intent-focused, developer in flow state, bug fixing and refactoring handled by AI.  
 - **AI-Native Software Engineering** → agentic workflows, eval-driven governance, multimodality, and TRiSM.  
 
@@ -15,7 +15,8 @@ It is not just another coding assistant, but a **differentiated platform** that 
 ## 🔑 Core Principles
 1. **SPEC → PLAN → KIT**  
    Every project is structured into short, verifiable steps.  
-   - SPEC: a clear, shared definition of the problem.  
+   - IDEA: the idea overview with technology and business constraints.  
+   - SPEC: a clear, shared definition of the problem and for the solution.  
    - PLAN: execution roadmap with tasks, risks, and evals.  
    - KIT: executable, validated, and versionable artifacts.  
 
