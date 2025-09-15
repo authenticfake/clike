@@ -3,6 +3,14 @@ import os
 from pydantic_settings import BaseSettings
 from pydantic import HttpUrl  # oppure: from pydantic import AnyUrl as HttpUrl
 
+
+def _get_bool(name: str, default: bool) -> bool:
+    v = os.getenv(name)
+    if v is None:
+        return default
+    return v.lower() in {"1","true","yes","on"}
+
+
 def _default_models_cfg_path() -> str:
     # <repo>/configs/models.yaml (risolve a partire da questo file)
     here = os.path.dirname(__file__)
@@ -10,8 +18,12 @@ def _default_models_cfg_path() -> str:
 
 class Settings(BaseSettings):
     # Upstream Gateway
-    GATEWAY_URL: HttpUrl = "http://localhost:8000"
+    GATEWAY_URL: HttpUrl = os.getenv("GATEWAY_URL", "http://localhost:8000")
     EMBED_MODEL: str = os.getenv("EMBED_MODEL", "nomic-embed-text")
+    PREFER_LOCAL_FOR_CODEGEN: str = os.getenv("PREFER_LOCAL_FOR_CODEGEN", "true")
+    PREFER_FRONTIER_FOR_REASONING: str = os.getenv("PREFER_FRONTIER_FOR_REASONING", "true")
+    NEVER_SEND_SOURCE_TO_CLOUD: str = os.getenv("NEVER_SEND_SOURCE_TO_CLOUD", "true")
+
 
     CODE_ROOT_BASE: str = "src"
     TEST_ROOT_BASE: str = "tests"
