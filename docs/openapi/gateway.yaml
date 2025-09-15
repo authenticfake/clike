@@ -1,0 +1,100 @@
+openapi: 3.0.3
+info:
+  title: CLike Gateway (OpenAI-compatible)
+  version: 0.1.0
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses: {'200': {description: OK}}
+  /v1/models:
+    get:
+      summary: List available models (flattened from configs)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }      # remote_name or name
+                        object: { type: string, example: "model" }
+                        owned_by: { type: string }
+  /v1/chat/completions:
+    post:
+      summary: Chat completions (OpenAI-compatible)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                model: { type: string }
+                messages:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      role: { type: string }
+                      content: { type: string }
+                temperature: { type: number, default: 0.2 }
+      responses:
+        '200':
+          description: Chat response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  object: { type: string }
+                  choices:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        index: { type: integer }
+                        message:
+                          type: object
+                          properties:
+                            role: { type: string }
+                            content: { type: string }
+  /v1/embeddings:
+    post:
+      summary: Embeddings (OpenAI-compatible)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                model: { type: string }
+                input:
+                  oneOf:
+                    - type: string
+                    - type: array
+                      items: { type: string }
+      responses:
+        '200':
+          description: Embeddings response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        embedding:
+                          type: array
+                          items: { type: number }

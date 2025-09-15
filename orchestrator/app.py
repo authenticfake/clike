@@ -9,6 +9,8 @@ from routes.health import router as health_router
 from starlette.middleware.base import BaseHTTPMiddleware
 from routes.v1 import router as v1_router
 from config import settings
+from routes.harper import router as harper_router
+
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -40,4 +42,6 @@ app.include_router(agent_router)
 app.include_router(rag_router)
 app.include_router(git_router)
 app.include_router(v1_router)
+app.include_router(harper_router)
+
 

@@ -1,0 +1,245 @@
+openapi: 3.0.3
+info:
+  title: CLike Orchestrator API
+  version: 0.1.0
+tags:
+  - name: harper
+    description: Harper phases (IDEA → SPEC → PLAN → KIT)
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses: {'200': {description: OK}}
+  /version:
+    get:
+      summary: Service version
+      responses: {'200': {description: OK}}
+  /models:
+    get:
+      tags: [harper]
+      summary: List configured models
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModelsResponse' }
+  /models/defaults:
+    get:
+      tags: [harper]
+      summary: Get model defaults (chat/embedding)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DefaultsResponse' }
+  /profiles:
+    get:
+      tags: [harper]
+      summary: List available profiles
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProfilesResponse' }
+  /routing/resolve:
+    get:
+      tags: [harper]
+      summary: Resolve routing (which model will be used)
+      parameters:
+        - in: query
+          name: task
+          required: true
+          schema:
+            type: string
+            enum: [spec, plan, kit, build, chat]
+        - in: query
+          name: hint
+          required: false
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResolveResponse' }
+  /session/clear:
+    post:
+      tags: [harper]
+      summary: Clear model session state
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SessionClearRequest' }
+      responses: {'200': {description: OK}}
+  /runs/{run_id}:
+    get:
+      tags: [harper]
+      summary: Get run manifest
+      parameters:
+        - in: path
+          name: run_id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '404': { description: Not found }
+  /spec:
+    post:
+      tags: [harper]
+      summary: Generate or update SPEC.md (G0)
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SpecRequest' }
+      responses:
+        '200':
+          description: SPEC generated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SpecResponse' }
+  /plan:
+    post:
+      tags: [harper]
+      summary: Generate or update PLAN.md (G1)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PlanRequest' }
+      responses:
+        '200':
+          description: PLAN generated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlanResponse' }
+  /kit:
+    post:
+      tags: [harper]
+      summary: Generate or update KIT.md (G2)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/KitRequest' }
+      responses:
+        '200':
+          description: KIT generated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/KitResponse' }
+  /build-next:
+    post:
+      tags: [harper]
+      summary: Build next N TODOs and run global gates
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BuildNextRequest' }
+      responses:
+        '200':
+          description: Build result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BuildNextResponse' }
+components:
+  schemas:
+    SpecRequest:
+      type: object
+      properties:
+        idea_md: { type: string, nullable: true }
+        revision_note: { type: string, nullable: true }
+    SpecResponse:
+      type: object
+      properties:
+        spec_md: { type: string }
+        ok: { type: boolean }
+        violations: { type: array, items: { type: string } }
+        run_id: { type: string }
+    PlanRequest:
+      type: object
+      required: [spec_md]
+      properties:
+        spec_md: { type: string }
+        revision_note: { type: string, nullable: true }
+    PlanResponse:
+      type: object
+      properties:
+        plan_md: { type: string }
+        ok: { type: boolean }
+        violations: { type: array, items: { type: string } }
+        run_id: { type: string }
+    KitRequest:
+      type: object
+      required: [spec_md, plan_md]
+      properties:
+        spec_md: { type: string }
+        plan_md: { type: string }
+        todo_ids: { type: array, items: { type: string }, nullable: true }
+        revision_note: { type: string, nullable: true }
+    KitResponse:
+      type: object
+      properties:
+        kit_md: { type: string }
+        artifacts: { type: object, additionalProperties: true }
+        ok: { type: boolean }
+        violations: { type: array, items: { type: string } }
+        run_id: { type: string }
+    BuildNextRequest:
+      type: object
+      required: [spec_md, plan_md, batch_size]
+      properties:
+        spec_md: { type: string }
+        plan_md: { type: string }
+        batch_size: { type: integer, minimum: 1, default: 1 }
+    BuildNextResponse:
+      type: object
+      properties:
+        updated_plan_md: { type: string }
+        diffs: { type: array, items: { type: string } }
+        ok: { type: boolean }
+        gate_summary: { type: object, additionalProperties: true }
+        run_id: { type: string }
+    SessionClearRequest:
+      type: object
+      properties:
+        scope:
+          type: string
+          enum: [singleModel, allModels]
+      required: [scope]
+    ModelsResponse:
+      type: object
+      properties:
+        models:
+          type: array
+          items: { type: object, additionalProperties: true }
+    ProfilesResponse:
+      type: object
+      properties:
+        profiles:
+          type: array
+          items: { type: string }
+    DefaultsResponse:
+      type: object
+      properties:
+        defaults:
+          type: object
+          additionalProperties: true
+    ResolveResponse:
+      type: object
+      properties:
+        task: { type: string, enum: [spec, plan, kit, build, chat] }
+        hint: { type: string, nullable: true }
+        chosen: { type: object, additionalProperties: true }
+        warnings:
+          type: array
+          items: { type: string }

@@ -1,0 +1,13 @@
+profiles:
+  plan.fast:
+    provider: openai
+    model: gpt-4o-mini
+    temperature: 0.2
+  code.strict:
+    provider: openai
+    model: gpt-5-thinking
+    temperature: 0.1
+  chat.cheap:
+    provider: anthropic
+    model: claude-3.7-haiku
+    temperature: 0.4
