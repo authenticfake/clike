@@ -976,6 +976,21 @@ function getWebviewHtml(orchestratorUrl) {
     font-size:13px; background:#0b0f14; color:var(--fg);
     border:1px solid var(--border); border-radius:6px; padding:6px 8px;
   }
+  #clikeHelpOverlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.6);
+    display: none; z-index: 9999; align-items: center; justify-content: center;
+  }
+  #clikeHelpCard {
+    background: var(--vscode-editor-background);
+    color: var(--vscode-editor-foreground);
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 8px; max-width: 720px; width: 92%; max-height: 80vh; overflow: auto;
+    box-shadow: 0 10px 30px rgba(0,0,0,.35); padding: 16px; line-height: 1.4;
+  }
+  #clikeHelpCard h2 { margin: 0 0 8px 0; font-size: 18px; }
+  #clikeHelpCard code { background: var(--vscode-editorHoverWidget-background); padding: 2px 6px; border-radius: 6px; }
+  #clikeHelpClose { float: right; cursor: pointer; }
+  #clikeHelpList li { margin: 6px 0; }
   .chip { display:inline-block; padding:2px 6px; border-radius:10px; border:1px solid #ccc; cursor:pointer; user-select:none; }
   #attach-toolbar { position:relative; } /* per l’absolute del menu */
   button { cursor:pointer; }
@@ -1067,6 +1082,60 @@ try {
     { type: 'webview_ready',ts: Date.now() }
   );
 } catch (e) {}
+const HELP_COMMANDS = [
+  {cmd:'/help', desc:'Mostra questa guida rapida'},
+  {cmd:'/init <name> [--path <abs>] [--force]', desc:'Inizializza il progetto Harper nel workspace'},
+  {cmd:'/status', desc:'Mostra stato progetto/contesto'},
+  {cmd:'/where', desc:'Mostra percorso del workspace/doc-root'},
+  {cmd:'/switch <name|path>', desc:'Passa ad un altro progetto'},
+  {cmd:'/spec [file|testo]', desc:'Genera/Aggiorna SPEC.md dalla IDEA'},
+  {cmd:'/plan [spec_path]', desc:'Genera/Aggiorna PLAN.md dallo SPEC'},
+  {cmd:'/kit [spec] [plan]', desc:'Genera/Aggiorna KIT.md'},
+  {cmd:'/build [n]', desc:'Applica batch di TODO dal PLAN; produce diff & test'},
+  {cmd:'/finalize [--tag vX.Y.Z] [--archive]', desc:'Esegue i gate finali e chiude il progetto'}
+];
+function openHelpOverlay(){
+  const el = document.getElementById('clikeHelpOverlay');
+  const ul = document.getElementById('clikeHelpList');
+  ul.innerHTML = '';
+  for (const it of HELP_COMMANDS) {
+    const li = document.createElement('li');
+    li.innerHTML = '<code>' + escapeHtml(it.cmd) + '</code> — ' + escapeHtml(it.desc);
+    ul.appendChild(l"i);
+  }
+  el.style.display = 'flex';
+}
+function closeHelpOverlay(){
+  const el = document.getElementById('clikeHelpOverlay');
+  el.style.display = 'none';
+}
+document.getElementById('clikeHelpClose').onclick = closeHelpOverlay;
+/ Hook slash command
+// Nel click handler del bottone "Send" (free) o dove leggi input:
+if (text === '/help') {
+  openHelpOverlay();
+  prompt.value = '';
+  return;
+}
+
+// (Facoltativo) scorciatoia tastiera: F1-like
+document.addEventListener('keydown', (ev)=>{
+  if ((ev.ctrlKey || ev.metaKey) && ev.key === '/') {
+    openHelpOverlay();
+    ev.preventDefault();
+  }
+});
+
+// Hard guard: surface any webview errors as bubbles instead of silently freezing
+window.addEventListener('error', (ev) => {
+  const msg = (ev && ev.error && (ev.error.stack || ev.error.message)) || String(ev.message || 'Unknown error');
+  try { bubble('assistant', '⚠️ Webview error:\n' + msg, 'system'); } catch {}
+});
+
+window.addEventListener('unhandledrejection', (ev) => {
+  const msg = (ev && ev.reason && (ev.reason.stack || ev.reason.message)) || String(ev.reason || 'Unhandled rejection');
+  try { bubble('assistant', '⚠️ Promise error:\n' + msg, 'system'); } catch {}
+}); 
 
 const attachmentsByMode = { free: [], harper: [], coding: [] };
 function currentMode() { return document.getElementById('mode').value; }
@@ -1257,6 +1326,7 @@ function summarizeAttachments(inlineFiles = [], ragFiles = []) {
 
 
 btnChat.addEventListener('click', ()=>{
+  btnChat.disabled = true;
   console.log('[webview] sendChat click');
   const text = prompt.value;
   if (!text.trim()) return;
@@ -1298,6 +1368,7 @@ btnChat.addEventListener('click', ()=>{
   post('sendChat', { mode: mode.value, model: model.value, prompt: text, attachments: atts });
   attachmentsByMode[currentMode()] = [];
   renderAttachmentChips();
+  btnChat.disabled = false;
   });
 
 btnGen.addEventListener('click', ()=>{
@@ -1305,6 +1376,7 @@ btnGen.addEventListener('click', ()=>{
 
   const text = prompt.value;
   if (!text) return;
+  btnGen.disabled = true;
   // /spec|/plan|/kit → Harper mode
   const specCmd = raw.startsWith('/spec');
   const planCmd = raw.startsWith('/plan');
@@ -1341,7 +1413,9 @@ btnGen.addEventListener('click', ()=>{
   post('sendGenerate', { mode: m, model: model.value, prompt: text, attachments: atts });
   attachmentsByMode[currentMode()] = [];
   renderAttachmentChips();
+  btnGen.disabled = false;
 });
+
 btnApply.addEventListener('click', ()=>{
   console.log('[webview] apply click', lastRun);
   
@@ -1525,6 +1599,15 @@ window.addEventListener('message', (event) => {
 // init
 post('fetchModels');
 </script>
+
+<div id="clikeHelpOverlay" role="dialog" aria-modal="true" aria-label="CLike Help">
+  <div id="clikeHelpCard">
+    <span id="clikeHelpClose">✖</span>
+    <h2>CLike — Slash Commands</h2>
+    <ul id="clikeHelpList"></ul>
+    <p style="opacity:.8;margin-top:8px">Suggerimento: puoi allegare file dal workspace e usare i comandi <code>/spec</code>, <code>/plan</code>, <code>/kit</code> per il flusso Harper.</p>
+  </div>
+</div>
 </body>
 </html>`;
 }
