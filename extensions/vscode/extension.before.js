@@ -87,8 +87,7 @@ async function loadSession(mode, limit = 200) {
       content: e.content,
       model: e.model,
       attachments: e.attachments || [],
-      kind: e.kind || 'text',
-      ts: e.ts || Date.now()
+      kind: e.kind || 'text'
     }));
  } catch {
     return [];  
@@ -924,10 +923,6 @@ function activate(context) {
   const reg = (id, fn) => context.subscriptions.push(vscode.commands.registerCommand(id, () => fn(context)));
   out.appendLine(`activate ${context}`);
   reg('clike.chat.openSessionFile', cmdOpenChatSessionFile);
-    reg('clike.harper.init', async () => {
-    const panel = await cmdOpenChat(context); // riusa l’apri-chat esistente
-    try { panel.webview.postMessage({ type: 'prefill', text: '/init ' }); } catch {}
-  });
   reg('clike.ping', () => cmdPing());
   reg('clike.codeAction', () => cmdCodeAction());
   reg('clike.chat.clearSession', cmdClearChatSession);
@@ -976,21 +971,6 @@ function getWebviewHtml(orchestratorUrl) {
     font-size:13px; background:#0b0f14; color:var(--fg);
     border:1px solid var(--border); border-radius:6px; padding:6px 8px;
   }
-    #clikeHelpOverlay {
-    position: fixed; inset: 0; background: rgba(0,0,0,.6);
-    display: none; z-index: 9999; align-items: center; justify-content: center;
-  }
-  #clikeHelpCard {
-    background: var(--vscode-editor-background);
-    color: var(--vscode-editor-foreground);
-    border: 1px solid var(--vscode-panel-border);
-    border-radius: 8px; max-width: 720px; width: 92%; max-height: 80vh; overflow: auto;
-    box-shadow: 0 10px 30px rgba(0,0,0,.35); padding: 16px; line-height: 1.4;
-  }
-  #clikeHelpCard h2 { margin: 0 0 8px 0; font-size: 18px; }
-  #clikeHelpCard code { background: var(--vscode-editorHoverWidget-background); padding: 2px 6px; border-radius: 6px; }
-  #clikeHelpClose { float: right; cursor: pointer; }
-  #clikeHelpList li { margin: 6px 0; }
   .chip { display:inline-block; padding:2px 6px; border-radius:10px; border:1px solid #ccc; cursor:pointer; user-select:none; }
   #attach-toolbar { position:relative; } /* per l’absolute del menu */
   button { cursor:pointer; }
@@ -1082,74 +1062,6 @@ try {
     { type: 'webview_ready',ts: Date.now() }
   );
 } catch (e) {}
- // --- Help overlay (/help) ---
-const HELP_COMMANDS = [
-  {cmd:'/help', desc:'Mostra questa guida rapida'},
-  {cmd:'/init <name> [--path <abs>] [--force]', desc:'Inizializza il progetto Harper nel workspace'},
-  {cmd:'/status', desc:'Mostra stato progetto/contesto'},
-  {cmd:'/where', desc:'Mostra percorso del workspace/doc-root'},
-  {cmd:'/switch <name|path>', desc:'Passa ad un altro progetto'},
-  {cmd:'/spec [file|testo]', desc:'Genera/Aggiorna SPEC.md dalla IDEA'},
-  {cmd:'/plan [spec_path]', desc:'Genera/Aggiorna PLAN.md dallo SPEC'},
-  {cmd:'/kit [spec] [plan]', desc:'Genera/Aggiorna KIT.md'},
-  {cmd:'/build [n]', desc:'Applica batch di TODO dal PLAN; produce diff & test'},
-  {cmd:'/finalize [--tag vX.Y.Z] [--archive]', desc:'Gate finali e chiusura progetto'}
-];
-function ensureHelpDOM() {
-  if (document.getElementById('clikeHelpOverlay')) return; // already there
-  const wrap = document.createElement('div');
-  wrap.id = 'clikeHelpOverlay';
-  wrap.style.display = 'none';
-  wrap.innerHTML = '<div id="clikeHelpCard">' +
-    '<button id="clikeHelpClose" aria-label="Close">×</button>' +
-    '<h2>CLike — Quick help</h2>' +
-    '<ul id="clikeHelpList"></ul>' +
-  '</div>';
-  document.body.appendChild(wrap);
-}
-
-function bindHelpHandlersOnce() {
-  const btn = document.getElementById('clikeHelpClose');
-  if (!btn || btn._bound) return;
-  btn._bound = true;
-  btn.addEventListener('click', closeHelpOverlay);
-}
-
-function openHelpOverlay() {
-  ensureHelpDOM();
-  // (riempi la lista qui, come hai già fatto, usando concatenazione + escape)
-  const overlay = document.getElementById('clikeHelpOverlay');
-  const ul = document.getElementById('clikeHelpList');
-  if (!overlay || !ul) return;
-  ul.innerHTML = ''; // …popola la lista…
-  bindHelpHandlersOnce();
-  overlay.style.display = 'flex';
-}
-  
-function closeHelpOverlay() {
-  const overlay = document.getElementById('clikeHelpOverlay');
-  if (overlay) overlay.style.display = 'none';
-}
-
-// Defer fino a DOM pronto (idempotente)
-(function safeInit() {
-  const run = () => { ensureHelpDOM(); bindHelpHandlersOnce(); };
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => run(), { once: true });
-  } else {
-    run();
-  }
-})();
-// Shortcut tastiera (non blocca se overlay non esiste)
-document.addEventListener('keydown', (ev) => {
-  if ((ev.ctrlKey || ev.metaKey) && ev.key === '/') {
-    ev.preventDefault();
-    openHelpOverlay();
-  }
-});
-
-
-
 
 const attachmentsByMode = { free: [], harper: [], coding: [] };
 function currentMode() { return document.getElementById('mode').value; }
@@ -1244,20 +1156,18 @@ const preFiles = el('files');
 let selectedPaths = new Set();
 let lastRun = null;
 
-function bubble(role, content, modelName, attachments, ts) {
+function bubble(role, content, modelName, attachments) {
   attachments = attachments || [];
   const wrap = document.createElement('div');
   wrap.className = 'msg ' + (role === 'user' ? 'user' : 'ai');
   
   const b = document.createElement('div');
   b.className = 'bubble';
-  const dt = ts ? new Date(ts) : new Date();
-  const timeStr = dt.toLocaleString();
+  
   const badge = (role === 'assistant' && modelName)
     ? '<span class="badge">' + escapeHtml(modelName) + '</span>' 
   : '';
-   const meta = '<div class="meta">⏱ ' + escapeHtml(timeStr) + '</div>';
-  b.innerHTML = meta + badge + escapeHtml(String(content || ''));
+  b.innerHTML = badge + escapeHtml(String(content || ''));
   
   // se utente ha allegati → riga meta con 📎
   if (role === 'user' && attachments.length) {
@@ -1416,7 +1326,7 @@ window.addEventListener('message', (event) => {
 
   if (msg.type === 'hydrateSession' && Array.isArray(msg.messages)) {
     chat.innerHTML = '';
-    for (const m of msg.messages) bubble(m.role, m.content, m.model, m.attachments || [], m.ts);
+    for (const m of msg.messages) bubble(m.role, m.content, m.model, m.attachments || []);
   }
   if (msg.type === 'models') {
     model.innerHTML = '';
@@ -1554,14 +1464,6 @@ window.addEventListener('message', (event) => {
 // init
 post('fetchModels');
 </script>
-<div id="clikeHelpOverlay" role="dialog" aria-modal="true" aria-label="CLike Help">
-  <div id="clikeHelpCard">
-    <span id="clikeHelpClose">✖</span>
-    <h2>CLike — Slash Commands</h2>
-    <ul id="clikeHelpList"></ul>
-    <p style="opacity:.8;margin-top:8px">Suggerimento: puoi allegare file dal workspace e usare i comandi <code>/spec</code>, <code>/plan</code>, <code>/kit</code> per il flusso Harper.</p>
-  </div>
-</div>
 </body>
 </html>`;
 }
@@ -1642,70 +1544,6 @@ function escapeHtml(s){return s.replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;"
     out.appendLine(`[webview] recv ${msg && msg?.type}`);
 
     try {
-      if (msg.type === 'harperInit') {
-              try {
-                const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
-                if (!ws) { vscode.window.showErrorMessage('CLike: open a folder first.'); return; }
-                const root = vscode.Uri.joinPath(ws.uri, '.'); // base
-                const projectName = (msg.name || 'harper_project').replace(/[^\w\-\.]/g, '_');
-                const target = msg.path
-                  ? vscode.Uri.file(msg.path)
-                  : vscode.Uri.joinPath(root, 'docs', 'harper'); // cartella condivisa come da tua richiesta
-      
-                // crea cartelle base
-                const runsDir = vscode.Uri.joinPath(root, 'runs');
-                await vscode.workspace.fs.createDirectory(target);
-                await vscode.workspace.fs.createDirectory(runsDir);
-      
-                // file seed
-                const idea = vscode.Uri.joinPath(target, 'IDEA.md');
-                const spec = vscode.Uri.joinPath(target, 'SPEC.md');
-                const plan = vscode.Uri.joinPath(target, 'PLAN.md');
-                const pb   = vscode.Uri.joinPath(target, 'PLAYBOOK_PLAN.md');
-                const evalf= vscode.Uri.joinPath(target, 'EVAL.md');
-                const readme = vscode.Uri.joinPath(root, 'README.md');
-      
-                const enc = (s)=>Buffer.from(s, 'utf8');
-                const now = new Date().toISOString().slice(0,19).replace('T',' ');
-                await vscode.workspace.fs.writeFile(idea,  enc(`# IDEA (${projectName})\n\n- Created: ${now}\n- Business/Tech context:\n\n`));
-                await vscode.workspace.fs.writeFile(spec,  enc(`# SPEC (${projectName})\n\n- Constraints (business/economic/strategy):\n- Quality gates:\n\n`));
-                await vscode.workspace.fs.writeFile(plan,  enc(`# PLAN (${projectName})\n\n- Steps / milestones:\n- Risks & mitigations:\n\n`));
-                await vscode.workspace.fs.writeFile(pb,    enc(`# PLAYBOOK_PLAN\n\n(Generated/maintained by the bot per Harper approach)\n\n`));
-                await vscode.workspace.fs.writeFile(evalf, enc(`# EVAL\n\n- Phase gates and checks:\n- Passing criteria:\n\n`));
-      
-                // README (append se esiste)
-                try {
-                  const cur = await vscode.workspace.fs.readFile(readme).then(b=>b.toString('utf8')).catch(()=> '');
-                  const add = `\n\n## Harper Project Bootstrap\n- Docs: docs/harper/\n- Runs: runs/\n- Open Chat: Command Palette → "CLike: Open Chat"\n`;
-                  await vscode.workspace.fs.writeFile(readme, enc(cur + add));
-                } catch {}
-      
-                // aggiorna stato / feedback UI
-                await appendSessionJSONL('free', { role:'assistant', content:`Harper project initialized at ${target.fsPath}`, model:'system' });
-                panel.webview.postMessage({ type: 'attachmentsCleared', mode: 'harper' });
-                vscode.window.showInformationMessage(`CLike: Harper project initialized at ${target.fsPath}`);
-              } catch (e) {
-                vscode.window.showErrorMessage(`CLike: /init failed: ${e}`);
-              }
-              return;
-            }
-      
-            // opzionale utility
-            if (msg.type === 'echo') {
-              await appendSessionJSONL('free', { role:'assistant', content:String(msg.message||''), model:'system' });
-              return;
-            }
-            if (msg.type === 'where') {
-              const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
-              const p = ws ? ws.uri.fsPath : '(no workspace)';
-              await appendSessionJSONL('free', { role:'assistant', content:`Workspace: ${p}`, model:'system' });
-              return;
-            }
-            if (msg.type === 'switchProject') {
-              // Nota: per multi-progetto potremo salvare un puntatore in .clike/config.json
-              await appendSessionJSONL('free', { role:'assistant', content:`(placeholder) Switched project to: ${String(msg.name||'')}`, model:'system' });
-              return;
-            }
       if (msg.type === 'webview_ready') {
         out.appendLine('[ext] got webview_ready');
         const savedState = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto' };

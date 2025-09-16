@@ -924,7 +924,7 @@ function activate(context) {
   const reg = (id, fn) => context.subscriptions.push(vscode.commands.registerCommand(id, () => fn(context)));
   out.appendLine(`activate ${context}`);
   reg('clike.chat.openSessionFile', cmdOpenChatSessionFile);
-    reg('clike.harper.init', async () => {
+  reg('clike.harper.init', async () => {
     const panel = await cmdOpenChat(context); // riusa l’apri-chat esistente
     try { panel.webview.postMessage({ type: 'prefill', text: '/init ' }); } catch {}
   });
@@ -976,7 +976,7 @@ function getWebviewHtml(orchestratorUrl) {
     font-size:13px; background:#0b0f14; color:var(--fg);
     border:1px solid var(--border); border-radius:6px; padding:6px 8px;
   }
-    #clikeHelpOverlay {
+  #clikeHelpOverlay {
     position: fixed; inset: 0; background: rgba(0,0,0,.6);
     display: none; z-index: 9999; align-items: center; justify-content: center;
   }
@@ -1082,7 +1082,7 @@ try {
     { type: 'webview_ready',ts: Date.now() }
   );
 } catch (e) {}
- // --- Help overlay (/help) ---
+// --- Help overlay (/help) ---
 const HELP_COMMANDS = [
   {cmd:'/help', desc:'Mostra questa guida rapida'},
   {cmd:'/init <name> [--path <abs>] [--force]', desc:'Inizializza il progetto Harper nel workspace'},
@@ -1095,61 +1095,46 @@ const HELP_COMMANDS = [
   {cmd:'/build [n]', desc:'Applica batch di TODO dal PLAN; produce diff & test'},
   {cmd:'/finalize [--tag vX.Y.Z] [--archive]', desc:'Gate finali e chiusura progetto'}
 ];
-function ensureHelpDOM() {
-  if (document.getElementById('clikeHelpOverlay')) return; // already there
-  const wrap = document.createElement('div');
-  wrap.id = 'clikeHelpOverlay';
-  wrap.style.display = 'none';
-  wrap.innerHTML = '<div id="clikeHelpCard">' +
-    '<button id="clikeHelpClose" aria-label="Close">×</button>' +
-    '<h2>CLike — Quick help</h2>' +
-    '<ul id="clikeHelpList"></ul>' +
-  '</div>';
-  document.body.appendChild(wrap);
-}
 
-function bindHelpHandlersOnce() {
-  const btn = document.getElementById('clikeHelpClose');
-  if (!btn || btn._bound) return;
-  btn._bound = true;
-  btn.addEventListener('click', closeHelpOverlay);
-}
-
-function openHelpOverlay() {
-  ensureHelpDOM();
-  // (riempi la lista qui, come hai già fatto, usando concatenazione + escape)
+function openHelpOverlay(){
   const overlay = document.getElementById('clikeHelpOverlay');
   const ul = document.getElementById('clikeHelpList');
   if (!overlay || !ul) return;
-  ul.innerHTML = ''; // …popola la lista…
-  bindHelpHandlersOnce();
+  ul.innerHTML = '';
+  for (const it of HELP_COMMANDS) {
+    const li = document.createElement('li');
+    li.innerHTML = '<code>' + escapeHtml(it.cmd) + '</code> — ' + escapeHtml(it.desc);
+    ul.appendChild(li);
+  }
   overlay.style.display = 'flex';
 }
-  
-function closeHelpOverlay() {
+function closeHelpOverlay(){
   const overlay = document.getElementById('clikeHelpOverlay');
   if (overlay) overlay.style.display = 'none';
 }
-
-// Defer fino a DOM pronto (idempotente)
-(function safeInit() {
-  const run = () => { ensureHelpDOM(); bindHelpHandlersOnce(); };
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => run(), { once: true });
-  } else {
-    run();
-  }
-})();
-// Shortcut tastiera (non blocca se overlay non esiste)
-document.addEventListener('keydown', (ev) => {
+const _helpClose = document.getElementById('clikeHelpClose');
+if (_helpClose && !_helpClose._bound) {
+  _helpClose._bound = true;
+  _helpClose.addEventListener('click', closeHelpOverlay);
+}
+// Scorciatoia: Cmd/Ctrl + /
+document.addEventListener('keydown', (ev)=>{
   if ((ev.ctrlKey || ev.metaKey) && ev.key === '/') {
     ev.preventDefault();
     openHelpOverlay();
   }
 });
 
+// Hard guard: surface any webview errors as bubbles instead of silently freezing
+window.addEventListener('error', (ev) => {
+  const msg = (ev && ev.error && (ev.error.stack || ev.error.message)) || String(ev.message || 'Unknown error');
+  try { bubble('assistant', '⚠️ Webview error:\n' + msg, 'system'); } catch {}
+});
 
-
+window.addEventListener('unhandledrejection', (ev) => {
+  const msg = (ev && ev.reason && (ev.reason.stack || ev.reason.message)) || String(ev.reason || 'Unhandled rejection');
+  try { bubble('assistant', '⚠️ Promise error:\n' + msg, 'system'); } catch {}
+}); 
 
 const attachmentsByMode = { free: [], harper: [], coding: [] };
 function currentMode() { return document.getElementById('mode').value; }
@@ -1253,6 +1238,7 @@ function bubble(role, content, modelName, attachments, ts) {
   b.className = 'bubble';
   const dt = ts ? new Date(ts) : new Date();
   const timeStr = dt.toLocaleString();
+  
   const badge = (role === 'assistant' && modelName)
     ? '<span class="badge">' + escapeHtml(modelName) + '</span>' 
   : '';
@@ -1339,9 +1325,31 @@ function summarizeAttachments(inlineFiles = [], ragFiles = []) {
 
 
 btnChat.addEventListener('click', ()=>{
+  
   console.log('[webview] sendChat click');
   const text = prompt.value;
   if (!text.trim()) return;
+  // --- Slash commands: gestiti senza bloccare il bottone ---
+  if (text.trim() === '/help') {
+    openHelpOverlay();
+    prompt.value = '';
+    return;
+  }
+  // --- Slash commands (bot-mode minimal) ---
+ if (text.startsWith('/init')) {
+    const m = text.match(/^\/init\s+([^\s]+)(?:\s+--path\s+(.+?))?(?:\s+--force)?$/i);
+    const name  = (m && m[1]) || '';
+    const path  = (m && m[2]) || '';
+    const force = /--force/i.test(text);
+    post('harperInit', { name, path, force });
+    prompt.value = '';
+    return;
+  }
+  if (text === '/status') { post('echo', { message:'Status: ready. Usa /spec, /plan, /kit…' }); prompt.value=''; return; }
+  if (text === '/where')  { post('where'); prompt.value=''; return; }
+  if (text.startsWith('/switch ')) { post('switchProject', { name: text.replace('/switch','').trim() }); prompt.value=''; return; }
+
+  btnChat.disabled = true;
   const atts = attachmentsByMode[mode.value] ? [...attachmentsByMode[mode.value]] : [];
 
   bubble('user', text,model.value, atts);
@@ -1353,12 +1361,39 @@ btnChat.addEventListener('click', ()=>{
   post('sendChat', { mode: mode.value, model: model.value, prompt: text, attachments: atts });
   attachmentsByMode[currentMode()] = [];
   renderAttachmentChips();
+  btnChat.disabled = false;
   });
 
 btnGen.addEventListener('click', ()=>{
   console.log('[webview] sendGen click');
 
   const text = prompt.value;
+  if (!text) return;
+  btnGen.disabled = true;
+  if (text.trim() === '/help') {
+    openHelpOverlay();
+    prompt.value = '';
+    return;
+  }
+
+  // /spec|/plan|/kit → Harper mode
+  const specCmd = text.startsWith('/spec');
+  const planCmd = text.startsWith('/plan');
+  const kitCmd  = text.startsWith('/kit');
+
+  if (specCmd || planCmd || kitCmd) {
+    const userPrompt = text.replace(/^\/(spec|plan|kit)\s*/i, '').trim();
+    const atts = attachmentsByMode.harper ? [...attachmentsByMode.harper] : [];
+    post('sendGenerate', {
+      mode: 'harper',
+      model: model.value,
+      prompt: userPrompt || 'Follow the Harper step and emit JSON files only.',
+      attachments: atts
+    });
+    attachmentsByMode.harper = [];
+    renderAttachmentChips();
+    return;
+  }
   const m = (mode.value === 'free') ? 'coding' : mode.value;   // /v1/generate vuole coding/harper
 
   const atts = attachmentsByMode[m] ? [...attachmentsByMode[m]] : [];
@@ -1375,7 +1410,9 @@ btnGen.addEventListener('click', ()=>{
   post('sendGenerate', { mode: m, model: model.value, prompt: text, attachments: atts });
   attachmentsByMode[currentMode()] = [];
   renderAttachmentChips();
+  btnGen.disabled = false;
 });
+
 btnApply.addEventListener('click', ()=>{
   console.log('[webview] apply click', lastRun);
   
@@ -1393,6 +1430,11 @@ btnCancel.addEventListener('click', ()=> post('cancel'));
 
 window.addEventListener('message', (event) => {
   const msg = event.data;
+  if (msg.type === 'prefill') {
+    const text = (msg.text || '');
+    prompt.value = text;
+    prompt.focus();
+  }
   if (msg.type === 'busy') { setBusy(!!msg.on); return; }
   if (msg.type === 'initState' && msg.state) {
     const hs = msg.state && msg.state.historyScope || 'singleModel';
@@ -1642,70 +1684,71 @@ function escapeHtml(s){return s.replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;"
     out.appendLine(`[webview] recv ${msg && msg?.type}`);
 
     try {
+      // --- Harper Init: crea struttura progetto nel workspace corrente ---
       if (msg.type === 'harperInit') {
-              try {
-                const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
-                if (!ws) { vscode.window.showErrorMessage('CLike: open a folder first.'); return; }
-                const root = vscode.Uri.joinPath(ws.uri, '.'); // base
-                const projectName = (msg.name || 'harper_project').replace(/[^\w\-\.]/g, '_');
-                const target = msg.path
-                  ? vscode.Uri.file(msg.path)
-                  : vscode.Uri.joinPath(root, 'docs', 'harper'); // cartella condivisa come da tua richiesta
-      
-                // crea cartelle base
-                const runsDir = vscode.Uri.joinPath(root, 'runs');
-                await vscode.workspace.fs.createDirectory(target);
-                await vscode.workspace.fs.createDirectory(runsDir);
-      
-                // file seed
-                const idea = vscode.Uri.joinPath(target, 'IDEA.md');
-                const spec = vscode.Uri.joinPath(target, 'SPEC.md');
-                const plan = vscode.Uri.joinPath(target, 'PLAN.md');
-                const pb   = vscode.Uri.joinPath(target, 'PLAYBOOK_PLAN.md');
-                const evalf= vscode.Uri.joinPath(target, 'EVAL.md');
-                const readme = vscode.Uri.joinPath(root, 'README.md');
-      
-                const enc = (s)=>Buffer.from(s, 'utf8');
-                const now = new Date().toISOString().slice(0,19).replace('T',' ');
-                await vscode.workspace.fs.writeFile(idea,  enc(`# IDEA (${projectName})\n\n- Created: ${now}\n- Business/Tech context:\n\n`));
-                await vscode.workspace.fs.writeFile(spec,  enc(`# SPEC (${projectName})\n\n- Constraints (business/economic/strategy):\n- Quality gates:\n\n`));
-                await vscode.workspace.fs.writeFile(plan,  enc(`# PLAN (${projectName})\n\n- Steps / milestones:\n- Risks & mitigations:\n\n`));
-                await vscode.workspace.fs.writeFile(pb,    enc(`# PLAYBOOK_PLAN\n\n(Generated/maintained by the bot per Harper approach)\n\n`));
-                await vscode.workspace.fs.writeFile(evalf, enc(`# EVAL\n\n- Phase gates and checks:\n- Passing criteria:\n\n`));
-      
-                // README (append se esiste)
-                try {
-                  const cur = await vscode.workspace.fs.readFile(readme).then(b=>b.toString('utf8')).catch(()=> '');
-                  const add = `\n\n## Harper Project Bootstrap\n- Docs: docs/harper/\n- Runs: runs/\n- Open Chat: Command Palette → "CLike: Open Chat"\n`;
-                  await vscode.workspace.fs.writeFile(readme, enc(cur + add));
-                } catch {}
-      
-                // aggiorna stato / feedback UI
-                await appendSessionJSONL('free', { role:'assistant', content:`Harper project initialized at ${target.fsPath}`, model:'system' });
-                panel.webview.postMessage({ type: 'attachmentsCleared', mode: 'harper' });
-                vscode.window.showInformationMessage(`CLike: Harper project initialized at ${target.fsPath}`);
-              } catch (e) {
-                vscode.window.showErrorMessage(`CLike: /init failed: ${e}`);
-              }
-              return;
-            }
-      
-            // opzionale utility
-            if (msg.type === 'echo') {
-              await appendSessionJSONL('free', { role:'assistant', content:String(msg.message||''), model:'system' });
-              return;
-            }
-            if (msg.type === 'where') {
-              const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
-              const p = ws ? ws.uri.fsPath : '(no workspace)';
-              await appendSessionJSONL('free', { role:'assistant', content:`Workspace: ${p}`, model:'system' });
-              return;
-            }
-            if (msg.type === 'switchProject') {
-              // Nota: per multi-progetto potremo salvare un puntatore in .clike/config.json
-              await appendSessionJSONL('free', { role:'assistant', content:`(placeholder) Switched project to: ${String(msg.name||'')}`, model:'system' });
-              return;
-            }
+        try {
+          const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+          if (!ws) { vscode.window.showErrorMessage('CLike: open a folder first.'); return; }
+          const root = vscode.Uri.joinPath(ws.uri, '.'); // base
+          const projectName = (msg.name || 'harper_project').replace(/[^\w\-\.]/g, '_');
+          const target = msg.path
+            ? vscode.Uri.file(msg.path)
+            : vscode.Uri.joinPath(root, 'docs', 'harper'); // cartella condivisa come da tua richiesta
+
+          // crea cartelle base
+          const runsDir = vscode.Uri.joinPath(root, 'runs');
+          await vscode.workspace.fs.createDirectory(target);
+          await vscode.workspace.fs.createDirectory(runsDir);
+
+          // file seed
+          const idea = vscode.Uri.joinPath(target, 'IDEA.md');
+          const spec = vscode.Uri.joinPath(target, 'SPEC.md');
+          const plan = vscode.Uri.joinPath(target, 'PLAN.md');
+          const pb   = vscode.Uri.joinPath(target, 'PLAYBOOK_PLAN.md');
+          const evalf= vscode.Uri.joinPath(target, 'EVAL.md');
+          const readme = vscode.Uri.joinPath(root, 'README.md');
+
+          const enc = (s)=>Buffer.from(s, 'utf8');
+          const now = new Date().toISOString().slice(0,19).replace('T',' ');
+          await vscode.workspace.fs.writeFile(idea,  enc(`# IDEA (${projectName})\n\n- Created: ${now}\n- Business/Tech context:\n\n`));
+          await vscode.workspace.fs.writeFile(spec,  enc(`# SPEC (${projectName})\n\n- Constraints (business/economic/strategy):\n- Quality gates:\n\n`));
+          await vscode.workspace.fs.writeFile(plan,  enc(`# PLAN (${projectName})\n\n- Steps / milestones:\n- Risks & mitigations:\n\n`));
+          await vscode.workspace.fs.writeFile(pb,    enc(`# PLAYBOOK_PLAN\n\n(Generated/maintained by the bot per Harper approach)\n\n`));
+          await vscode.workspace.fs.writeFile(evalf, enc(`# EVAL\n\n- Phase gates and checks:\n- Passing criteria:\n\n`));
+
+          // README (append se esiste)
+          try {
+            const cur = await vscode.workspace.fs.readFile(readme).then(b=>b.toString('utf8')).catch(()=> '');
+            const add = `\n\n## Harper Project Bootstrap\n- Docs: docs/harper/\n- Runs: runs/\n- Open Chat: Command Palette → "CLike: Open Chat"\n`;
+            await vscode.workspace.fs.writeFile(readme, enc(cur + add));
+          } catch {}
+
+          // aggiorna stato / feedback UI
+          await appendSessionJSONL('free', { role:'assistant', content:`Harper project initialized at ${target.fsPath}`, model:'system' });
+          panel.webview.postMessage({ type: 'attachmentsCleared', mode: 'harper' });
+          vscode.window.showInformationMessage(`CLike: Harper project initialized at ${target.fsPath}`);
+        } catch (e) {
+          vscode.window.showErrorMessage(`CLike: /init failed: ${e}`);
+        }
+        return;
+      }
+
+      // opzionale utility
+      if (msg.type === 'echo') {
+        await appendSessionJSONL('free', { role:'assistant', content:String(msg.message||''), model:'system' });
+        return;
+      }
+      if (msg.type === 'where') {
+        const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+        const p = ws ? ws.uri.fsPath : '(no workspace)';
+        await appendSessionJSONL('free', { role:'assistant', content:`Workspace: ${p}`, model:'system' });
+        return;
+      }
+      if (msg.type === 'switchProject') {
+        // Nota: per multi-progetto potremo salvare un puntatore in .clike/config.json
+        await appendSessionJSONL('free', { role:'assistant', content:`(placeholder) Switched project to: ${String(msg.name||'')}`, model:'system' });
+        return;
+      }
       if (msg.type === 'webview_ready') {
         out.appendLine('[ext] got webview_ready');
         const savedState = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto' };
