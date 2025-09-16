@@ -87,7 +87,8 @@ async function loadSession(mode, limit = 200) {
       content: e.content,
       model: e.model,
       attachments: e.attachments || [],
-      kind: e.kind || 'text'
+      kind: e.kind || 'text',
+      ts: e.ts || Date.now()
     }));
  } catch {
     return [];  
@@ -923,6 +924,10 @@ function activate(context) {
   const reg = (id, fn) => context.subscriptions.push(vscode.commands.registerCommand(id, () => fn(context)));
   out.appendLine(`activate ${context}`);
   reg('clike.chat.openSessionFile', cmdOpenChatSessionFile);
+  reg('clike.harper.init', async () => {
+    const panel = await cmdOpenChat(context); // riusa l’apri-chat esistente
+    try { panel.webview.postMessage({ type: 'prefill', text: '/init ' }); } catch {}
+  });
   reg('clike.ping', () => cmdPing());
   reg('clike.codeAction', () => cmdCodeAction());
   reg('clike.chat.clearSession', cmdClearChatSession);
@@ -1156,18 +1161,21 @@ const preFiles = el('files');
 let selectedPaths = new Set();
 let lastRun = null;
 
-function bubble(role, content, modelName, attachments) {
+function bubble(role, content, modelName, attachments, ts) {
   attachments = attachments || [];
   const wrap = document.createElement('div');
   wrap.className = 'msg ' + (role === 'user' ? 'user' : 'ai');
   
   const b = document.createElement('div');
   b.className = 'bubble';
+  const dt = ts ? new Date(ts) : new Date();
+  const timeStr = dt.toLocaleString();
   
   const badge = (role === 'assistant' && modelName)
     ? '<span class="badge">' + escapeHtml(modelName) + '</span>' 
   : '';
-  b.innerHTML = badge + escapeHtml(String(content || ''));
+   const meta = '<div class="meta">⏱ ' + escapeHtml(timeStr) + '</div>';
+  b.innerHTML = meta + badge + escapeHtml(String(content || ''));
   
   // se utente ha allegati → riga meta con 📎
   if (role === 'user' && attachments.length) {
@@ -1252,6 +1260,33 @@ btnChat.addEventListener('click', ()=>{
   console.log('[webview] sendChat click');
   const text = prompt.value;
   if (!text.trim()) return;
+  // --- Slash commands (bot-mode minimal) ---
+  if (text.startsWith('/init')) {
+    // /init <name> [--path <abs>] [--force]
+    const m = text.match(/^\/init\s+([^\s]+)(?:\s+--path\s+(.+?))?(?:\s+--force)?$/i);
+    const name = m && m[1] || '';
+    const path = m && m[2] || '';
+    const force = /--force/i.test(text);
+    post('harperInit', { name, path, force });
+    prompt.value = '';
+    return;
+  }
+  if (text === '/status') {
+    post('echo', { message: 'Status: ready. Use /spec, /plan, /kit for Harper generation; /apply to write files.' });
+    prompt.value = '';
+    return;
+  }
+  if (text === '/where') {
+    post('where');
+    prompt.value = '';
+    return;
+  }
+  if (text.startsWith('/switch ')) {
+    const name = text.replace('/switch', '').trim();
+    post('switchProject', { name });
+    prompt.value = '';
+    return;
+  }
   const atts = attachmentsByMode[mode.value] ? [...attachmentsByMode[mode.value]] : [];
 
   bubble('user', text,model.value, atts);
@@ -1269,6 +1304,27 @@ btnGen.addEventListener('click', ()=>{
   console.log('[webview] sendGen click');
 
   const text = prompt.value;
+  if (!text) return;
+  // /spec|/plan|/kit → Harper mode
+  const specCmd = raw.startsWith('/spec');
+  const planCmd = raw.startsWith('/plan');
+  const kitCmd  = raw.startsWith('/kit');
+
+  if (specCmd || planCmd || kitCmd) {
+    const userPrompt = text.replace(/^\/(spec|plan|kit)\s*/i, '').trim();
+    const atts = attachmentsByMode.harper ? [...attachmentsByMode.harper] : [];
+
+    // rimaniamo minimali: passiamo userPrompt come content; l'orchestrator harper-mode già forza schema JSON
+    post('sendGenerate', {
+      mode: 'harper',
+      model: model.value,
+      prompt: userPrompt || 'Follow the Harper step and emit JSON files only.',
+      attachments: atts
+    });
+    attachmentsByMode.harper = [];
+    renderAttachmentChips();
+    return;
+  }
   const m = (mode.value === 'free') ? 'coding' : mode.value;   // /v1/generate vuole coding/harper
 
   const atts = attachmentsByMode[m] ? [...attachmentsByMode[m]] : [];
@@ -1303,6 +1359,11 @@ btnCancel.addEventListener('click', ()=> post('cancel'));
 
 window.addEventListener('message', (event) => {
   const msg = event.data;
+  if (msg.type === 'prefill') {
+    const text = (msg.text || '');
+    prompt.value = text;
+    prompt.focus();
+  }
   if (msg.type === 'busy') { setBusy(!!msg.on); return; }
   if (msg.type === 'initState' && msg.state) {
     const hs = msg.state && msg.state.historyScope || 'singleModel';
@@ -1326,7 +1387,7 @@ window.addEventListener('message', (event) => {
 
   if (msg.type === 'hydrateSession' && Array.isArray(msg.messages)) {
     chat.innerHTML = '';
-    for (const m of msg.messages) bubble(m.role, m.content, m.model, m.attachments || []);
+    for (const m of msg.messages) bubble(m.role, m.content, m.model, m.attachments || [], m.ts);
   }
   if (msg.type === 'models') {
     model.innerHTML = '';
@@ -1544,6 +1605,71 @@ function escapeHtml(s){return s.replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;"
     out.appendLine(`[webview] recv ${msg && msg?.type}`);
 
     try {
+      // --- Harper Init: crea struttura progetto nel workspace corrente ---
+      if (msg.type === 'harperInit') {
+        try {
+          const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+          if (!ws) { vscode.window.showErrorMessage('CLike: open a folder first.'); return; }
+          const root = vscode.Uri.joinPath(ws.uri, '.'); // base
+          const projectName = (msg.name || 'harper_project').replace(/[^\w\-\.]/g, '_');
+          const target = msg.path
+            ? vscode.Uri.file(msg.path)
+            : vscode.Uri.joinPath(root, 'docs', 'harper'); // cartella condivisa come da tua richiesta
+
+          // crea cartelle base
+          const runsDir = vscode.Uri.joinPath(root, 'runs');
+          await vscode.workspace.fs.createDirectory(target);
+          await vscode.workspace.fs.createDirectory(runsDir);
+
+          // file seed
+          const idea = vscode.Uri.joinPath(target, 'IDEA.md');
+          const spec = vscode.Uri.joinPath(target, 'SPEC.md');
+          const plan = vscode.Uri.joinPath(target, 'PLAN.md');
+          const pb   = vscode.Uri.joinPath(target, 'PLAYBOOK_PLAN.md');
+          const evalf= vscode.Uri.joinPath(target, 'EVAL.md');
+          const readme = vscode.Uri.joinPath(root, 'README.md');
+
+          const enc = (s)=>Buffer.from(s, 'utf8');
+          const now = new Date().toISOString().slice(0,19).replace('T',' ');
+          await vscode.workspace.fs.writeFile(idea,  enc(`# IDEA (${projectName})\n\n- Created: ${now}\n- Business/Tech context:\n\n`));
+          await vscode.workspace.fs.writeFile(spec,  enc(`# SPEC (${projectName})\n\n- Constraints (business/economic/strategy):\n- Quality gates:\n\n`));
+          await vscode.workspace.fs.writeFile(plan,  enc(`# PLAN (${projectName})\n\n- Steps / milestones:\n- Risks & mitigations:\n\n`));
+          await vscode.workspace.fs.writeFile(pb,    enc(`# PLAYBOOK_PLAN\n\n(Generated/maintained by the bot per Harper approach)\n\n`));
+          await vscode.workspace.fs.writeFile(evalf, enc(`# EVAL\n\n- Phase gates and checks:\n- Passing criteria:\n\n`));
+
+          // README (append se esiste)
+          try {
+            const cur = await vscode.workspace.fs.readFile(readme).then(b=>b.toString('utf8')).catch(()=> '');
+            const add = `\n\n## Harper Project Bootstrap\n- Docs: docs/harper/\n- Runs: runs/\n- Open Chat: Command Palette → "CLike: Open Chat"\n`;
+            await vscode.workspace.fs.writeFile(readme, enc(cur + add));
+          } catch {}
+
+          // aggiorna stato / feedback UI
+          await appendSessionJSONL('free', { role:'assistant', content:`Harper project initialized at ${target.fsPath}`, model:'system' });
+          panel.webview.postMessage({ type: 'attachmentsCleared', mode: 'harper' });
+          vscode.window.showInformationMessage(`CLike: Harper project initialized at ${target.fsPath}`);
+        } catch (e) {
+          vscode.window.showErrorMessage(`CLike: /init failed: ${e}`);
+        }
+        return;
+      }
+
+      // opzionale utility
+      if (msg.type === 'echo') {
+        await appendSessionJSONL('free', { role:'assistant', content:String(msg.message||''), model:'system' });
+        return;
+      }
+      if (msg.type === 'where') {
+        const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+        const p = ws ? ws.uri.fsPath : '(no workspace)';
+        await appendSessionJSONL('free', { role:'assistant', content:`Workspace: ${p}`, model:'system' });
+        return;
+      }
+      if (msg.type === 'switchProject') {
+        // Nota: per multi-progetto potremo salvare un puntatore in .clike/config.json
+        await appendSessionJSONL('free', { role:'assistant', content:`(placeholder) Switched project to: ${String(msg.name||'')}`, model:'system' });
+        return;
+      }
       if (msg.type === 'webview_ready') {
         out.appendLine('[ext] got webview_ready');
         const savedState = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto' };
