@@ -1,33 +1,11 @@
-{"ts":1757958305862,"mode":"free","role":"user","content":"ciao inizia a contare da 1 a 10","model":"llama3","attachments":[]}
-{"ts":1757958322415,"mode":"free","role":"assistant","content":"Ciao! Okay, let's count together from 1 to 10:\n\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10","model":"llama3"}
-{"ts":1757958342679,"mode":"free","role":"user","content":"cosa ti ho chiesto di fare?","model":"gpt-4o-mini","attachments":[]}
-{"ts":1757958344174,"mode":"free","role":"assistant","content":"Non ho accesso alle conversazioni precedenti, quindi non posso sapere cosa mi hai chiesto di fare. Se mi fornisci maggiori dettagli o ripeti la tua richiesta, sarò felice di aiutarti!","model":"gpt-4o-mini"}
-{"ts":1757958360813,"mode":"free","role":"user","content":"cosa ti ho chiesto di fare?\n","model":"gpt-4o-mini","attachments":[]}
-{"ts":1757958362309,"mode":"free","role":"assistant","content":"Mi hai chiesto di contare da 1 a 10. Ho risposto contando, ma se c'è qualcos'altro che desideri o se vuoi che faccia qualcosa di specifico, fammelo sapere!","model":"gpt-4o-mini"}
-{"ts":1757958383026,"mode":"free","role":"user","content":"cosa ti ho chiesto di fare?\n","model":"gpt-4o-mini","attachments":[]}
-{"ts":1757958384586,"mode":"free","role":"assistant","content":"Non ho accesso alle conversazioni precedenti, quindi non posso vedere cosa mi hai chiesto in precedenza. Se hai una richiesta specifica, per favore ripetila e sarò felice di aiutarti!","model":"gpt-4o-mini"}
-{"ts":1758028025444,"mode":"free","role":"user","content":"ciao","model":"llama3","attachments":[]}
-{"ts":1758028070614,"mode":"free","role":"assistant","content":"Ciao!","model":"llama3"}
-{"ts":1758029892443,"mode":"free","role":"user","content":"ciao","model":"llama3","attachments":[]}
-{"ts":1758029913935,"mode":"free","role":"assistant","content":"Ciao!","model":"llama3"}
-{"ts":1758031060631,"mode":"free","role":"user","content":"ciao","model":"llama3","attachments":[]}
-{"ts":1758031081371,"mode":"free","role":"assistant","content":"Ciao!","model":"llama3"}
-{"ts":1758031207052,"mode":"free","role":"user","content":"ciao","model":"llama3","attachments":[]}
-{"ts":1758031212141,"mode":"free","role":"assistant","content":"Ciao!","model":"llama3"}
-{"ts":1758031212153,"mode":"free","role":"assistant","content":"Error: Error: Webview is disposed","model":"llama3"}
-{"ts":1758032240334,"mode":"free","role":"user","content":"ciao","model":"llama3","attachments":[]}
-{"ts":1758032261416,"mode":"free","role":"assistant","content":"Ciao!","model":"llama3"}
-{"ts":1758033017344,"mode":"free","role":"user","content":"ciao","model":"llama3","attachments":[]}
-{"ts":1758033042741,"mode":"free","role":"assistant","content":"Ciao!","model":"llama3"}
-{"ts":1758033042752,"mode":"free","role":"assistant","content":"Error: Error: Webview is disposed","model":"llama3"}
-{"ts":1758033262861,"mode":"free","role":"user","content":"ciao","model":"llama3","attachments":[]}
-{"ts":1758033272140,"mode":"free","role":"assistant","content":"Ciao!","model":"llama3"}
-{"ts":1758033272152,"mode":"free","role":"assistant","content":"Error: Error: Webview is disposed","model":"llama3"}
-{"ts":1758033347264,"mode":"free","role":"user","content":"ciao","model":"llama3","attachments":[]}
-{"ts":1758033353866,"mode":"free","role":"assistant","content":"Ciao!","model":"llama3"}
-{"ts":1758033353903,"mode":"free","role":"assistant","content":"Error: Error: Webview is disposed","model":"llama3"}
-{"ts":1758033533543,"mode":"free","role":"user","content":"ciao","model":"llama3","attachments":[]}
-{"ts":1758033541525,"mode":"free","role":"assistant","content":"Ciao!","model":"llama3"}
-{"ts":1758033541542,"mode":"free","role":"assistant","content":"Error: Error: Webview is disposed","model":"llama3"}
-{"ts":1758037030637,"mode":"free","role":"user","content":"ciao","model":"gpt-4o","attachments":[]}
-{"ts":1758037032064,"mode":"free","role":"assistant","content":"Ciao! Come posso aiutarti oggi?","model":"gpt-4o"}
+{"ts":1758045157274,"mode":"free","role":"user","content":"Ciao Mi chiamo Andrea","model":"gpt-4o","attachments":[]}
+{"ts":1758045159228,"mode":"free","role":"assistant","content":"Ciao Andrea! Come posso aiutarti oggi?","model":"gpt-4o"}
+{"ts":1758045173323,"mode":"free","role":"user","content":"come mi chiamo?","model":"gpt-4o-mini","attachments":[]}
+{"ts":1758045176574,"mode":"free","role":"assistant","content":"Ti chiami Andrea! Se hai bisogno di ulteriore aiuto o hai domande, fammi sapere!","model":"gpt-4o-mini"}
+{"ts":1758045187091,"mode":"free","role":"user","content":"come mi chiamo ?\n","model":"gpt-4o-mini","attachments":[]}
+{"ts":1758045189216,"mode":"free","role":"assistant","content":"Non ho accesso a informazioni personali, quindi non posso sapere come ti chiami. Se vuoi, puoi dirmelo tu!","model":"gpt-4o-mini"}
+{"ts":1758045224021,"mode":"free","role":"user","content":"come mi chiamo ?","model":"gpt-4o","attachments":[]}
+{"ts":1758045226093,"mode":"free","role":"assistant","content":"Ti chiami Andrea. Come posso aiutarti ulteriormente?","model":"gpt-4o"}
+{"ts":1758045247572,"mode":"free","role":"user","content":"come mi chiamo ?","model":"gpt-4o-mini","attachments":[]}
+{"ts":1758045249621,"mode":"free","role":"assistant","content":"Ti chiami Andrea! Se hai altre domande o hai bisogno di aiuto, sono qui per te.","model":"gpt-4o-mini"}
+{"ts":1758046127382,"mode":"free","role":"assistant","content":"Harper project initialized at /Users/a.franco/dev/authenticfake/clike/clike_mvp/docs/harper","model":"system"}

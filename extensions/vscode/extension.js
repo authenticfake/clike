@@ -34,17 +34,17 @@ function cfgChat() {
   return {
     dir: c.get('clike.chat.persistDir', '.clike/sessions'),
     maxMem: c.get('clike.chat.maxInMemoryMessages', 50),
-    autoWrite: c.get('clike.chat.autoWriteGeneratedFiles', true),
-    historyScope: c.get('clike.chat.historyScope', 'singleModel') // <-- NEW
+    autoWrite: c.get('clike.chat.autoWriteGeneratedFiles', true),    
   };
 }
 
 function effectiveHistoryScope(context) {
-  const cfg = vscode.workspace.getConfiguration();
-  const def = cfg.get('clike.chat.historyScope', 'singleModel');   // default da settings VS
-  const ui = context.workspaceState.get('clike.uiState') || {};
-  // Se l'utente ha scelto runtime un override, usalo; altrimenti usa default
-  return ui.historyScopeOverride || def;
+  try {
+    const ui = context.workspaceState.get('clike.uiState') || {};
+    return (ui.historyScope === 'allModels') ? 'allModels' : 'singleModel';
+  } catch {
+    return 'singleModel';
+  }
 }
 
 function sessionsDirUri() {
@@ -1025,6 +1025,7 @@ function getWebviewHtml(orchestratorUrl) {
       <option value="harper">harper</option>
       <option value="coding">coding</option>
     </select>
+     <button id="helpBtn" title="Slash help" style="margin-left:4px;"><span id="botBadge" class="badge" style="display:none">🤖</span></button>
     <label>Model</label>
     <select id="model"></select>
     <button id="refresh">↻ Models</button>
@@ -1134,6 +1135,7 @@ function closeHelpOverlay() {
 // Defer fino a DOM pronto (idempotente)
 (function safeInit() {
   const run = () => { ensureHelpDOM(); bindHelpHandlersOnce(); };
+  try { updateBotBadge(); } catch {}
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => run(), { once: true });
   } else {
@@ -1244,6 +1246,83 @@ const preFiles = el('files');
 let selectedPaths = new Set();
 let lastRun = null;
 
+function updateBotBadge() {
+  const badge = document.getElementById('botBadge');
+  if (!badge) return;
+  const isHarper = mode.value === 'harper';
+ // badge.style.display = isHarper ? 'inline-block' : 'none';
+  badge.style.display = 'inline-block'
+  // Placeholder e label pulsanti coerenti
+  if (isHarper) {
+    prompt.placeholder = 'Harper bot — digita /help per i comandi…';
+  } else {
+    prompt.placeholder = 'Type your prompt...';
+  }
+  const c1 = document.getElementById('sendChat');
+  const c2 = document.getElementById('sendGen');
+  if (c1) c1.textContent = isHarper ? 'Chat (harper)' : 'Send (free)';
+  if (c2) c2.textContent = isHarper ? 'Generate (harper)' : 'Generate (coding)';
+}
+
+// --- Slash commands ---
+function parseSlash(s) {
+  const t = String(s || '').trim();
+  if (!t.startsWith('/')) return null;
+  const parts = t.split(/\s+/);
+  const cmd = parts[0].toLowerCase();   // /help, /init, /where, /status, /switch
+  const rest = parts.slice(1);
+  // parsing leggero per /init <name> [--path <abs>] [--force]
+  const args = {};
+  let i = 0;
+  while (i < rest.length) {
+    const tok = rest[i];
+    if (tok === '--path') { args.path = rest[i + 1]; i += 2; continue; }
+    if (tok === '--force') { args.force = true; i += 1; continue; }
+    if (!args.name) { args.name = tok; i += 1; continue; }
+    i += 1;
+  }
+  return { cmd, args };
+}
+
+function renderHelpList() {
+  const ul = document.getElementById('clikeHelpList');
+  if (!ul) return;
+  ul.innerHTML = HELP_COMMANDS.map(function(it) {
+    return '<li><code>' + escapeHtml(it.cmd) + '</code> — ' + escapeHtml(it.desc) + '</li>';
+  }).join('');
+}
+
+function handleSlash(slash) {
+  if (!slash) return;
+  // /help: apri overlay locale
+  if (slash.cmd === '/help') {
+    renderHelpList();
+    openHelpOverlay();
+    return;
+  }
+  if (slash.cmd === '/init') {
+    // mappa su handler host esistente (harperInit)
+    vscode.postMessage({ type: 'harperInit', name: slash.args.name || undefined, path: slash.args.path || undefined, force: !!slash.args.force });
+    return;
+  }
+  if (slash.cmd === '/where') {
+    vscode.postMessage({ type: 'where' });
+    return;
+  }
+  if (slash.cmd === '/status') {
+    const hs = (document.getElementById('historyScope') || { value: 'singleModel' }).value;
+    vscode.postMessage({ type: 'echo', message: 'Mode=' + mode.value + ' | Model=' + model.value + ' | HistoryScope=' + hs });
+    return;
+  }
+  if (slash.cmd === '/switch') {
+    vscode.postMessage({ type: 'switchProject', name: slash.args.name || '' });
+    return;
+  }
+  // FUTURO: /spec /plan /kit /build /finalize → per ora inoltra come generate in mode harper
+  vscode.postMessage({ type: 'sendGenerate', mode: (mode.value === 'free' ? 'harper' : mode.value), model: model.value, prompt: (slash.cmd + (slash.args.name ? ' ' + slash.args.name : '')) });
+}
+
+
 function bubble(role, content, modelName, attachments, ts) {
   attachments = attachments || [];
   const wrap = document.createElement('div');
@@ -1304,7 +1383,11 @@ function clearFilesPanel() {
 }
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => setTab(t.dataset.tab)));
 
-mode.addEventListener('change', ()=> post('uiChanged', { mode: mode.value, model: model.value }));
+mode.addEventListener('change', ()=>{
+  updateBotBadge();
+  post('uiChanged', { mode: mode.value, model: model.value });
+});
+
 model.addEventListener('change', ()=> post('uiChanged', { mode: mode.value, model: model.value }));
 btnRefresh.addEventListener('click', ()=> post('fetchModels'));
 btnClear.addEventListener('click', () => {
@@ -1342,6 +1425,12 @@ btnChat.addEventListener('click', ()=>{
   console.log('[webview] sendChat click');
   const text = prompt.value;
   if (!text.trim()) return;
+  const slash = parseSlash(text);
+  if (slash) {        // <-- SLASH → non è una chat normale
+    handleSlash(slash);
+    prompt.value = '';
+    return;
+  }
   const atts = attachmentsByMode[mode.value] ? [...attachmentsByMode[mode.value]] : [];
 
   bubble('user', text,model.value, atts);
@@ -1359,6 +1448,12 @@ btnGen.addEventListener('click', ()=>{
   console.log('[webview] sendGen click');
 
   const text = prompt.value;
+  const slash = parseSlash(text);
+  if (slash) {        // <-- SLASH → non è una chat normale
+    handleSlash(slash);
+    prompt.value = '';
+    return;
+  }
   const m = (mode.value === 'free') ? 'coding' : mode.value;   // /v1/generate vuole coding/harper
 
   const atts = attachmentsByMode[m] ? [...attachmentsByMode[m]] : [];
@@ -1393,20 +1488,36 @@ btnCancel.addEventListener('click', ()=> post('cancel'));
 
 window.addEventListener('message', (event) => {
   const msg = event.data;
+  if (msg.type === 'openHelpOverlay') { renderHelpList(); openHelpOverlay(); }
+
   if (msg.type === 'busy') { setBusy(!!msg.on); return; }
   if (msg.type === 'initState' && msg.state) {
-    const hs = msg.state && msg.state.historyScope || 'singleModel';
+    const hs = (msg.state && msg.state.historyScope) || 'singleModel';
     const sel = document.getElementById('historyScope');
     if (sel) {
-      sel.addEventListener('change', () => {
-        const value = sel.value === 'allModels' ? 'allModels' : 'singleModel';
-        vscode.postMessage({ type: 'setHistoryScope', value });
-      });
+      if (!sel._bound) {
+        sel._bound = true;
+        sel.addEventListener('change', () => {
+          const value = sel.value === 'allModels' ? 'allModels' : 'singleModel';
+          vscode.postMessage({ type: 'setHistoryScope', value });
+        });
+      }
       sel.value = hs;
     }
     
     if (msg.state.mode)  mode.value  = msg.state.mode;
     if (msg.state.model) model.value = msg.state.model;
+    
+    const helpBtn = document.getElementById('helpBtn');
+    if (helpBtn && !helpBtn._bound) {
+      helpBtn._bound = true;
+      helpBtn.addEventListener('click', ()=>{
+        renderHelpList();
+        openHelpOverlay();
+      });
+    }
+    try { updateBotBadge(); } catch {}
+      
   }
   if (msg.type === 'attachmentsCleared') {
     const m = msg.mode || currentMode();
@@ -1557,7 +1668,7 @@ post('fetchModels');
 <div id="clikeHelpOverlay" role="dialog" aria-modal="true" aria-label="CLike Help">
   <div id="clikeHelpCard">
     <span id="clikeHelpClose">✖</span>
-    <h2>CLike — Slash Commands</h2>
+    <h2>CLike — Slash Commands in Harper Mode</h2>
     <ul id="clikeHelpList"></ul>
     <p style="opacity:.8;margin-top:8px">Suggerimento: puoi allegare file dal workspace e usare i comandi <code>/spec</code>, <code>/plan</code>, <code>/kit</code> per il flusso Harper.</p>
   </div>
@@ -1577,19 +1688,13 @@ async function cmdOpenChat(context) {
     vscode.ViewColumn.Beside,
     { enableScripts: true, retainContextWhenHidden: true }
   );
-  out.appendLine(`cmdOpenChat panel created ${panel}`);
   const c = vscode.workspace.getConfiguration();
-  out.appendLine(`cmdOpenChat conf read ${c}`);
   const orchestratorUrl = c.get('clike.orchestratorUrl') || 'http://localhost:8080';
-  out.appendLine(`cmdOpenChat orchestratorUrl ${orchestratorUrl}`);
-
+  
   panel.webview.html = getWebviewHtml(orchestratorUrl);
-  out.appendLine(`cmdOpenChat getWebviewHtml done`);
   panel.webview.postMessage({ type: 'busy', on: false });
-  out.appendLine(`cmdOpenChat postMessage done`);
   // Stato iniziale (mode/model)
-  const savedState = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto' };
-
+  const savedState = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto', historyScope:'singleModel' };
   savedState.historyScope= effectiveHistoryScope(context),
   panel.webview.postMessage({ type: 'initState', state: savedState });
   out.appendLine(`cmdOpenChat savedState done`);
@@ -1599,8 +1704,8 @@ async function cmdOpenChat(context) {
   try {
     
     const scope = effectiveHistoryScope(context);
-    const modeCur  = (savedState?.mode ?? newState?.mode ?? 'free');
-    const modelCur = (savedState?.model ?? newState?.model ?? 'auto');
+    const modeCur  = savedState?.mode  ?? 'free';
+    const modelCur = savedState?.model ?? 'auto';
 
     const msgs = (scope === 'allModels')
       ? await loadSession(modeCur).catch(() => [])
@@ -1749,19 +1854,25 @@ function escapeHtml(s){return s.replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;"
       }
       if (msg.type === 'setHistoryScope') {
         const value = (msg.value === 'allModels') ? 'allModels' : 'singleModel';
-        const ui = context.workspaceState.get('clike.uiState') || {};
-        ui.historyScopeOverride = value;
+
+        // 🔧 salva sul campo UNICO usato ovunque: historyScope
+        const prev = context.workspaceState.get('clike.uiState') || { mode:'free', model:'auto', historyScope:'singleModel' };
+        const ui = { ...prev, historyScope: value };
         await context.workspaceState.update('clike.uiState', ui);
-        // Re-hydrate subito
-        const s = context.workspaceState.get('clike.uiState') || { mode:'free', model:'auto' };
+
+        // Re-hydrate immediato coerente con lo scope scelto
+        const modeCur  = ui.mode  || 'free';
+        const modelCur = ui.model || 'auto';
         const msgs = (value === 'allModels')
-          ? await loadSession(s.mode, 200)
-          : await loadSessionFiltered(s.mode, s.model, 200);
+          ? await loadSession(modeCur, 200).catch(()=>[])
+          : await loadSessionFiltered(modeCur, modelCur, 200).catch(()=>[]);
         panel.webview.postMessage({ type: 'hydrateSession', messages: msgs });
 
+        // NIENTE initState qui (evita rimbalzi della combo)
         vscode.window.setStatusBarMessage(`CLike: history scope = ${value}`, 2000);
         return;
       }
+
 
       // 1) MODELLI
       if (msg.type === 'fetchModels') {
@@ -1782,17 +1893,29 @@ function escapeHtml(s){return s.replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;"
 
       // 2) CAMBIO UI (Mode/Model)
       if (msg.type === 'uiChanged') {
-        const prev = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto' };
-        const newState = { mode: msg.mode, model: msg.model };
+        const prev = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto',  historyScope: 'singleModel' };
+        
+        // MERGE: non perdere historyScope (e futuri campi)
+        const newState = {
+          ...prev,
+          ...(typeof msg.mode  !== 'undefined' ? { mode:  msg.mode  } : {}),
+          ...(typeof msg.model !== 'undefined' ? { model: msg.model } : {})
+        };
         await context.workspaceState.update('clike.uiState', newState);
 
         // Se è cambiato SOLO il modello, NON re-idratare la chat
         if (prev.mode === newState.mode && prev.model !== newState.model) {
+          const scope = (newState.historyScope === 'allModels') ? 'allModels' : 'singleModel';
+          if (scope === 'singleModel') {
+            const modeCur  = newState.mode  || 'free';
+            const modelCur = newState.model || 'auto';
+            const msgs = await loadSessionFiltered(modeCur, modelCur, 200).catch(() => []);
+            panel.webview.postMessage({ type: 'hydrateSession', messages: msgs });
+          }
           return;
         }
-
         // Se è cambiato il mode (o entrambi), re-idrata in base allo scope
-        const scope   = effectiveHistoryScope(context);
+        const scope   = (newState.historyScope === 'allModels') ? 'allModels' : 'singleModel';
         const modeCur = newState.mode || 'free';
         const modelCur= newState.model || 'auto';
 
@@ -1806,11 +1929,11 @@ function escapeHtml(s){return s.replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;"
 
       // 3) CLEAR SESSION (solo mode corrente)
       if (msg.type === 'clearSession') {
-        const st = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto' };
+        const st = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto',historyScope: 'singleModel'  };
         const modeCur   = msg.mode  || st.mode  || 'free';
         const modelCur  = msg.model || st.model || 'auto';
 
-        const scope = effectiveHistoryScope(context); // usa l’override UI oppure il default dalle settings
+        const scope = effectiveHistoryScope(context);  //  SOLO UI
         if (scope === 'allModels') {
           // cancella tutto il MODE (file intero)
           await clearSession(modeCur);
@@ -1819,22 +1942,11 @@ function escapeHtml(s){return s.replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;"
         } else {
          // singleModel → ripulisci SOLO le righe del modello corrente
           await pruneSessionByModel(modeCur, modelCur);
-
           // NEW: dopo la pulizia, mostra subito le altre conversazioni del mode
-          const allLeft = await loadSession(modeCur, 200);
-          const others  = allLeft.filter(e => (e.model || 'auto') !== modelCur);
-
-          // Se vuoi anche aggiornare il selettore in UI a "All models", puoi salvare l'override:
-          if (others.length > 0) {
-            const ui = context.workspaceState.get('clike.uiState') || {};
-            ui.historyScopeOverride = 'allModels';
-            await context.workspaceState.update('clike.uiState', ui);
-            panel.webview.postMessage({ type: 'initState', state: { ...ui, mode: modeCur, model: modelCur, historyScope: 'allModels' } });
-          }
-
+          const msgs = await loadSessionFiltered(modeCur, modelCur, 200).catch(() => []);
           // Idrata la webview con i messaggi rimanenti (tutti gli altri modelli)
-          panel.webview.postMessage({ type: 'hydrateSession', messages: others });
-
+          // NON tocchiamo historyScope automaticamente: resta quello scelto in combo
+          panel.webview.postMessage({ type: 'hydrateSession', messages: msgs});
           vscode.window.setStatusBarMessage(`CLike: cleared messages for model "${modelCur}" in mode "${modeCur}"`, 2500);
 
         }
