@@ -185,3 +185,9 @@ Issues and PRs are welcome. Please include repro steps, logs (with secrets redac
 ## 📝 License
 
 TBD — see `LICENSE` when available.
+
+
+## Harper Project Bootstrap
+- Docs: docs/harper/
+- Runs: runs/
+- Open Chat: Command Palette → "CLike: Open Chat"

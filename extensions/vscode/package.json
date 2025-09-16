@@ -204,12 +204,6 @@
           "default": false,
           "description": "If true, open PR flow after auto-commit (requires GitHub extension)."
         },
-        "clike.chat.historyScope": {
-          "type": "string",
-          "enum": ["singleModel", "allModels"],
-          "default": "singleModel",
-          "description": "Chat history scope: singleModel = history base don model selection; allModels = history based cross models."
-        },
         "clike.routes": {
           "type": "object",
           "default": {
