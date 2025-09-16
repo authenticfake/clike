@@ -13,6 +13,7 @@
   },
   "main": "./extension.js",
   "activationEvents": [
+    "onCommand:clike.harper.init",
     "onCommand:clike.openChat",
     "onCommand:clike.ping",
     "onCommand:clike.codeAction",
@@ -48,6 +49,7 @@
         "command": "clike.openChat",
         "title": "CLike: Open Chat (Q&A / Harper / Coding)"
       },
+      { "command": "clike.harper.init", "title": "CLike: Harper Init…" },
       {
         "command": "clike.chat.clearSession",
         "title": "CLike: Clear Chat Session (current model)"

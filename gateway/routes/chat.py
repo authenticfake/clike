@@ -1,3 +1,4 @@
+# gateway/routes/chat.py
 import os, logging
 from fastapi import APIRouter, Request, HTTPException
 from config import load_models_cfg
@@ -15,13 +16,14 @@ logger = logging.getLogger("gateway.chat")
 async def chat_completions(req: Request):
     body = await req.json()
     model_name = body.get("model", "auto")
+    profile = body.get("profile")  # NEW (es. "plan.fast" / "code.strict")
     messages = body.get("messages", [])
     temperature = body.get("temperature", 0.2)
     max_tokens = body.get("max_tokens", 512)
 
-    _, models = load_models_cfg(os.getenv("MODELS_CONFIG", "/workspace/configs/models.yaml"))
+    cfg, models = load_models_cfg(os.getenv("MODELS_CONFIG", "/workspace/configs/models.yaml"))
     try:
-        m = resolve_model(models, model_name, want_modality="chat")
+        m = resolve_model(cfg, models, model_name, profile=profile, want_modality="chat")
     except Exception as e:
         raise HTTPException(400, f"model resolution failed: {e}")
 
@@ -31,8 +33,7 @@ async def chat_completions(req: Request):
     api_key_env = m.get("api_key_env")
     api_key = os.getenv(api_key_env) if api_key_env else None
 
-    logger.info(f"[chat] provider={provider} model={m.get('name')} remote={remote} base={base}")
-
+    logger.info(f"[chat] provider={provider} model={m.get('name')} profile={profile} remote={remote} base={base}")
     try:
         if provider == "ollama":
             content = await oll.chat(base, remote, messages, temperature, max_tokens)
