@@ -245,7 +245,3 @@ flowchart LR
 - **Enterprise**: Bandit HIGH=0, audit log hooks, perf regression ≤ X%.
 - **Consumer**: latency budget p95, i18n keys presence, content safety stubs.
 - **Integration/Data**: schema & null‑ratio gates via DQ script.
-
----
-
-*End of document.*

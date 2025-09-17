@@ -16,8 +16,9 @@ out/
 *.bak
 docker/runs/*
 ./src/
-
 src/
+./runs/
+runs/
 # Python
 __pycache__/
 *.pyc

@@ -32,17 +32,32 @@
 ## 🧱 Architecture at a Glance
 
 ```
-+-----------------+        +-----------------------+        +--------------------+
-| VS Code Client  | <----> | Orchestrator (FastAPI)| <----> | Gateway (FastAPI)  |
-| (extension)     |        |  • Agentic ops        |        |  • Multi-model API |
-| • SPEC/PLAN/KIT |        |  • RAG, diffs, tests  |        |  • Model routing   |
-| • Code actions  |        |  • Guardrails/evals   |        |  • Embeddings/Chat |
-+-----------------+        +-----------------------+        +--------------------+
-                                     |
-                                     v
-                              +--------------+
-                              |  Vector DB   |  (e.g., Qdrant)
-                              +--------------+
++-----------------+         +-----------------------+         +--------------------+
+| VS Code Client  | <-----> | Orchestrator (FastAPI)| <-----> |  Gateway (FastAPI) |
+| (extension)     |         |  • Agentic ops        |         |  • Multi-model API  |
+| • SPEC/PLAN/KIT |         |  • RAG, diffs, tests  |         |  • Model routing    |
+| • Code actions  |         |  • Guardrails/evals   |         |  • Embeddings/Chat  |
++-----------------+         +-----------+-----------+         +----------+---------+
+                                      ^                                 ^
+                                      |                                 |
+                                      |  Orchestrator API               |  Gateway API
+                                      |  (REST/WS/MCP Client)           |  (REST/WS/MCP Server)
+                                      |                                 |
+                                      |                                 |
+                                      v                                 v
+                              +--------------+                   +--------------+
+                              |  Vector DB   |  (e.g., Qdrant)   |  Provider SDK|
+                              +--------------+                   +------+-------+
+                                                                         |
+         +---------------------+-----------------------+------------------+-------------------+
+         |                     |                       |                                      |
+   [LOCAL LLMs]           [LOCAL Embeds]          [CLOUD LLMs]                          [CLOUD Embeds]
+   • Ollama (Llama,       • Ollama embeddings     • OpenAI (GPT, o1)                    • OpenAI (text-emb)
+     DeepSeek, Phi, etc.) • Sentence-Tfm (HF)     • Anthropic (Claude)                  • Cohere
+   • llama.cpp/vLLM       • GTE/Qdrant HNSW       • Google (Gemini)                     • VertexAI Embeddings
+   • LM Studio            • text-embeddings-*     • Mistral (platform)                  • Mistral embed
+                                                   • Azure OpenAI                        • AWS Bedrock (Titan, Cohere, etc.)
+
 ```
 
 **Key directories**
