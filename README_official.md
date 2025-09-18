@@ -36,7 +36,7 @@ clike_mvp/
 ## 🛠️ Core Components
 
 - **VS Code Extension** (`extensions/vscode/`)  
-  Integrated UI with **SPEC, PLAN, KIT tabs**, Eval Panel, and AI‑powered code actions.
+  Integrated UI with **SPEC, PLAN, KIT tabs**, Eval Panel, and AI‑powered code actions (docstring, refactor, fix_errors, test classes) and bot for **harper approach**
 
 - **Orchestrator** (`services/orchestrator/`)  
   Runs agentic workflows, RAG pipelines, evals, diffs, and Git integrations.
