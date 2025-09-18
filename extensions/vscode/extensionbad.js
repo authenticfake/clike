@@ -1159,7 +1159,18 @@ function activate(context) {
   reg('clike.gitOpenPR', () => vscode.commands.executeCommand('github.createPullRequest'));
   reg('clike.gitSmartPR', async () => { await vscode.commands.executeCommand('git.commit'); await vscode.commands.executeCommand('github.createPullRequest'); });
 
+  // try {
+  //   const autoOpen = vscode.workspace.getConfiguration().get('clike.chat.autoOpenOnStartup', true);
+  //   if (autoOpen) {
+  //     let opened = false;
+  //     setTimeout(() => { 
+  //       if (!opened) { opened = true; try { cmdOpenChat(context); } catch (e) { console.warn('[CLike] autoOpen failed', e); } }
+  //     }, 200);
+  //   }
+  // } catch (e) { console.warn('[CLike] autoOpen guard failed', e); }
+  
   vscode.window.setStatusBarMessage('Clike: orchestrator+gateway integration ready', 2000);
+
 }
 
 function getWebviewHtml(orchestratorUrl) {
@@ -1291,7 +1302,7 @@ try {
   );
 } catch (e) {}
  // --- Help overlay (/help) ---
-var HELP_COMMANDS = [
+const HELP_COMMANDS = [
   {cmd:'/help', desc:'Mostra questa guida rapida'},
   {cmd:'/init <name> [--path <abs>] [--force]', desc:'Inizializza il progetto Harper nel workspace'},
   {cmd:'/status', desc:'Mostra stato progetto/contesto'},
@@ -1304,82 +1315,17 @@ var HELP_COMMANDS = [
   {cmd:'/finalize [--tag vX.Y.Z] [--archive]', desc:'Gate finali e chiusura progetto'}
 ];
 function ensureHelpDOM() {
-  // overlay container
-  var overlay = document.getElementById('clikeHelpOverlay');
-  if (!overlay) {
-    overlay = document.createElement('div');
-    overlay.id = 'clikeHelpOverlay';
-    overlay.style.position = 'fixed';
-    overlay.style.inset = '0';
-    overlay.style.display = 'none';
-    overlay.style.zIndex = '99999';
-    overlay.style.background = 'rgba(0,0,0,.35)';
-    document.body.appendChild(overlay);
-  } else {
-    // se qualcuno ha messo del testo dentro, pulisci
-    overlay.innerHTML = '';
-  }
-
-  // card
-  var card = document.createElement('div');
-  card.id = 'clikeHelpCard';
-  card.style.maxWidth = '720px';
-  card.style.margin = '10vh auto';
-  card.style.background = '#111';
-  card.style.color = '#eee';
-  card.style.borderRadius = '12px';
-  card.style.padding = '16px 18px';
-  card.style.boxShadow = '0 8px 32px rgba(0,0,0,.45)';
-  card.style.fontFamily = 'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial';
-
-  // close button
-  var btn = document.createElement('button');
-  btn.id = 'clikeHelpClose';
-  btn.setAttribute('aria-label', 'Close');
-  btn.textContent = '×';
-  btn.style.float = 'right';
-  btn.style.fontSize = '18px';
-  btn.style.width = '32px';
-  btn.style.height = '32px';
-  btn.style.border = 'none';
-  btn.style.borderRadius = '6px';
-  btn.style.background = '#222';
-  btn.style.color = '#ddd';
-  btn.style.cursor = 'pointer';
-  if (!btn._bound) {
-    btn._bound = true;
-    btn.addEventListener('click', closeHelpOverlay);
-  }
-
-  var h2 = document.createElement('h2');
-  h2.textContent = 'CLike — Quick help';
-  h2.style.margin = '0 0 12px 0';
-  h2.style.fontSize = '18px';
-
-  var ul = document.createElement('ul');
-  ul.id = 'clikeHelpList';
-  ul.style.margin = '8px 0 0 0';
-  ul.style.paddingLeft = '20px';
-  ul.style.lineHeight = '1.35';
-
-  card.appendChild(btn);
-  card.appendChild(h2);
-  card.appendChild(ul);
-  overlay.appendChild(card);
+  if (document.getElementById('clikeHelpOverlay')) return; // already there
+  const wrap = document.createElement('div');
+  wrap.id = 'clikeHelpOverlay';
+  wrap.style.display = 'none';
+  wrap.innerHTML = '<div id="clikeHelpCard">' +
+    '<button id="clikeHelpClose" aria-label="Close">×</button>' +
+    '<h2>CLike — Quick help</h2>' +
+    '<ul id="clikeHelpList"></ul>' +
+  '</div>';
+  document.body.appendChild(wrap);
 }
-
-function openHelpOverlay() {
-  ensureHelpDOM();
-  try { renderHelpList(); } catch {}
-  var overlay = document.getElementById('clikeHelpOverlay');
-  if (overlay) overlay.style.display = 'block';
-}
-
-function closeHelpOverlay() {
-  var overlay = document.getElementById('clikeHelpOverlay');
-  if (overlay) overlay.style.display = 'none';
-}
-
 
 function bindHelpHandlersOnce() {
   const btn = document.getElementById('clikeHelpClose');
@@ -1388,7 +1334,21 @@ function bindHelpHandlersOnce() {
   btn.addEventListener('click', closeHelpOverlay);
 }
 
-
+function openHelpOverlay() {
+  ensureHelpDOM();
+  // (riempi la lista qui, come hai già fatto, usando concatenazione + escape)
+  const overlay = document.getElementById('clikeHelpOverlay');
+  const ul = document.getElementById('clikeHelpList');
+  if (!overlay || !ul) return;
+  ul.innerHTML = ''; // …popola la lista…
+  bindHelpHandlersOnce();
+  overlay.style.display = 'flex';
+}
+  
+function closeHelpOverlay() {
+  const overlay = document.getElementById('clikeHelpOverlay');
+  if (overlay) overlay.style.display = 'none';
+}
 
 // Defer fino a DOM pronto (idempotente)
 (function safeInit() {
@@ -1521,13 +1481,13 @@ function updateBotBadge() {
   if (c1) c1.textContent = isHarper ? 'Chat (harper)' : 'Send (free)';
   if (c2) c2.textContent = isHarper ? 'Generate (harper)' : 'Generate (coding)';
 }
-
+  
 // --- Slash commands ---
 function parseSlash(s) {
-  const t = String(s || '').trim();
+  const t = String(s || '').trim();  
   if (!t.startsWith('/')) return null;
 
-  // Tokenizza: "quoted strings" | 'single quoted' | blocchi non-spazio
+ // Tokenizza: "quoted strings" | 'single quoted' | blocchi non-spazio
   // ATTENZIONE: backslash doppio perché siamo dentro un template string dell'estensione
   const parts = t.match(/"([^"]*)"|'([^']*)'|[^\\s]+/g) || [];
   console.log('text parseSlash:', t);
@@ -1551,109 +1511,33 @@ function parseSlash(s) {
   // …altri comandi slash, se presenti
   return { cmd, args: {} };
 }
-
-
-function getHelpItems() {
-  var fallback = [
-      {cmd:'/help', desc:'Mostra questa guida rapida'},
-      {cmd:'/init <name> [--path <abs>] [--force]', desc:'Inizializza il progetto Harper nel workspace'},
-      {cmd:'/status', desc:'Mostra stato progetto/contesto'},
-      {cmd:'/where', desc:'Mostra percorso del workspace/doc-root'},
-      {cmd:'/switch <name|path>', desc:'Passa ad un altro progetto'},
-      {cmd:'/spec [file|testo]', desc:'Genera/Aggiorna SPEC.md dalla IDEA'},
-      {cmd:'/plan [spec_path]', desc:'Genera/Aggiorna PLAN.md dallo SPEC'},
-      {cmd:'/kit [spec] [plan]', desc:'Genera/Aggiorna KIT.md'},
-      {cmd:'/build [n]', desc:'Applica batch di TODO dal PLAN; produce diff & test'},
-      {cmd:'/finalize [--tag vX.Y.Z] [--archive]', desc:'Gate finali e chiusura progetto'}
-      ];
-  try {
-    var g = (typeof window !== 'undefined') ? window.HELP_COMMANDS : undefined;
-    if (Array.isArray(g) && g.length) return g;
-  } catch {}
-  return fallback;
 }
+
 
 function renderHelpList() {
-  var ul = document.getElementById('clikeHelpList');
+  const ul = document.getElementById('clikeHelpList');
   if (!ul) return;
-  var items = getHelpItems();
-  // costruiamo li via DOM (no innerHTML necessario, ma va bene anche innerHTML con escape)
-  var html = '';
-  for (var i = 0; i < items.length; i++) {
-    var it = items[i] || {};
-    var c = it && it.cmd ? String(it.cmd) : '';
-    if (!c) continue;
-    var d = it && it.desc ? String(it.desc) : '';
-    html += '<li><code>' + escapeHtml(c) + '</code> - ' + escapeHtml(d) + '</li>';
-  }
-  ul.innerHTML = html;
-}
-
-
-function getHelpListSafe() {
-  try {
-    var maybe = (typeof window !== 'undefined') ? window.HELP_COMMANDS : undefined;
-    if (Array.isArray(maybe) && maybe.length) return maybe;
-  } catch (e) { /* ignore */ }
-  return HELP_COMMANDS;
+  ul.innerHTML = HELP_COMMANDS.map(function(it) {
+    return '<li><code>' + escapeHtml(it.cmd) + '</code> — ' + escapeHtml(it.desc) + '</li>';
+  }).join('');
 }
 
 function handleSlash(slash) {
   if (!slash) return;
   // dry 'Text' and 'Diffs' panels
   try { clearTextPanel(); clearDiffsPanel(); clearFilesPanel(); } catch {}
- 
+  
   // help: open overlay local
   if (slash.cmd === '/help') {
-    var items = getHelpListSafe();
-    var listText = '';
-    try {
-      // Prendi una lista sicura: prima window.HELP_COMMANDS, altrimenti fallback locale
-      var items;
-      try {
-        items = (typeof window !== 'undefined' && Array.isArray(window.HELP_COMMANDS))
-          ? window.HELP_COMMANDS
-          :  [];
-      } catch (e0) {
-        items = (typeof HELP_COMMANDS !== 'undefined' && Array.isArray(HELP_COMMANDS)) ? HELP_COMMANDS : [];
-      }
-
-      // Normalizza in un vero array senza toccare .length di oggetti strani
-      var arr;
-      try {
-        if (Array.isArray(items)) {
-          arr = items.slice(0);
-        } else if (items && typeof items.length === 'number') {
-          // Array-like
-          arr = Array.prototype.slice.call(items);
-        } else {
-          arr = [];
-        }
-      } catch (e1) {
-        arr = [];
-      }
-
-      // Costruisci il testo in modo sicuro (no em dash, niente backtick)
-      var buf = [];
-      for (var i = 0, n = (arr && arr.length) ? arr.length : 0; i < n; i++) {
-        var it = arr[i] || {};
-        var cmd  = (it && typeof it.cmd  === 'string') ? it.cmd  : '';
-        var desc = (it && typeof it.desc === 'string') ? it.desc : '';
-        if (!cmd) continue;
-        buf.push(cmd + ' - ' + desc);
-      }
-      listText = buf.join('\\n');
-
-      // Se vuoto, fai fallback
-      if (!listText) listText = 'No commands available.';
-    } catch (e) {
-      listText = 'No commands available.';
-    }
-    try { openHelpOverlay(); } catch {}
- 
-
+     var listText = (typeof HELP_COMMANDS !== 'undefined' ? HELP_COMMANDS : [])
+       .map(function(c){ return c.cmd + ' — ' + c.desc; })
+       .join('\n');
+    try { bubble('assistant', 'Available slash commands:\n' + listText, 'system'); } catch {}
+    try { renderHelpList(); openHelpOverlay(); } catch {}
     return;
   }
+
+
   if (slash.cmd === '/init') {
     // mappa su handler host esistente (harperInit)
     vscode.postMessage({ type: 'harperInit', name: slash.args.name || '', path: slash.args.path || '', force: !!slash.args.force });
@@ -1724,12 +1608,12 @@ function setTab(name) {
 function clearTextPanel() {
   // svuota il contenuto del tab Text e selezionalo
   preText.textContent = '';
-  setTab('text');
+  //setTab('text');
 }
 function clearDiffsPanel() {
   // svuota il contenuto del tab Diffs e selezionalo
   preDiffs.textContent = '';
-  setTab('diffs');
+  //setTab('diffs');
 }
 function clearFilesPanel() {
   // svuota il contenuto del tab Fils e selezionalo
@@ -1879,7 +1763,7 @@ window.addEventListener('message', (event) => {
     if (helpBtn && !helpBtn._bound) {
       helpBtn._bound = true;
       helpBtn.addEventListener('click', ()=>{
-       // renderHelpList();
+        renderHelpList();
         openHelpOverlay();
       });
     }
@@ -2186,21 +2070,19 @@ async function cmdOpenChat(context) {
             ]
           };
           await writeJson(path.join(targetDir, '.clike', 'last_init_summary.json'), summary);
-          const msgText =
-            `✅ CLike: initialized "${name}" at ${targetDir}\n` +
-            `doc_root = docs/harper\n` +
-            `Files: ${summary.files_created.join(', ')}\n` +
-            `Next: open README.md, complete IDEA.md, then /spec`;
+
           // bubble nel workspace ORIGINE
           panel.webview.postMessage({
             type: 'echo',
-            message:msgText
+            message:
+              `✅ CLike: initialized "${name}" at ${targetDir}\n` +
+              `doc_root = docs/harper\n` +
+              `Files: ${summary.files_created.join(', ')}\n` +
+              `Next: open README.md, complete IDEA.md, then /spec`
           });
 
           // apri il nuovo workspace in una nuova window
           await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(targetDir), true);
-          await context.workspaceState.update('clike.initSummary', msgText);
-
 
         } catch (e) {
           console.error('[CLike] harperInit failed:', e);
@@ -2225,67 +2107,48 @@ async function cmdOpenChat(context) {
         return;
       }
       if (msg.type === 'webview_ready') {
+        out.appendLine('[ext] got webview_ready');
+
+        const savedState = context.workspaceState.get('clike.uiState')
+                            || { mode: 'free', model: 'auto', historyScope: 'singleModel' };
+        savedState.historyScope = effectiveHistoryScope(context);
+        panel.webview.postMessage({ type: 'initState', state: savedState });
+
         try {
-          out.appendLine('[CLike] webview_ready');
-          // 1) Stato UI salvato (nessun newState qui)
-          const saved = context.workspaceState.get('clike.uiState') || { mode:'free', model:'auto', historyScope:'singleModel' };
-          const ui = {
-            mode: saved.mode || 'free',
-            model: saved.model || 'auto',
-            historyScope: (saved.historyScope === 'allModels') ? 'allModels' : 'singleModel'
-          };
-          // 2) Invia initState alla webview
-          panel.webview.postMessage({ type: 'initState', state: ui });
-          // 3) Hydrate dei messaggi (non bloccare su errori)
-          try {
-            const msgs = (ui.historyScope === 'allModels')
-              ? await loadSession(ui.mode, 200).catch(() => [])
-              : await loadSessionFiltered(ui.mode, ui.model, 200).catch(() => []);
-            panel.webview.postMessage({ type: 'hydrateSession', messages: msgs });
-          } catch (e) {
-            out.appendLine('[CLike] hydrate failed: ' + (e?.message || String(e)));
-            panel.webview.postMessage({ type: 'hydrateSession', messages: [] });
-          }
-          // 4) Fetch modelli con timeout + fallback "auto"
-          try {
-            const orchestratorUrl = vscode.workspace.getConfiguration().get('clike.orchestratorUrl') || 'http://localhost:8080';
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 2000);
+          const scope    = savedState.historyScope;
+          const modeCur  = savedState.mode  || 'free';
+          const modelCur = savedState.model || 'auto';
 
-            const res = await fetchJson(`${orchestratorUrl}/v1/models`, { signal: controller.signal }).catch(() => ({}));
-            clearTimeout(timer);
-            let models = [];
-            if (Array.isArray(res?.models)) {
-              const raw = res.models.map(m => m.name || m.id || m.model || 'unknown');
-              models = raw.filter(n => !/embed|embedding|nomic-embed/i.test(n));
-            } else if (Array.isArray(res?.data)) {
-              const raw = res.data.map(m => m.id || m.name || 'unknown');
-              models = raw.filter(n => !/embed|embedding|nomic-embed/i.test(n));
-            }
-            if (!models.length) models = ['auto'];
-            // Ripristina il bubble persistito (se presente)
-            try {
-              const memo = context.workspaceState.get('clike.initSummary');
-              if (memo) panel.webview.postMessage({ type: 'echo', message: memo });
-            } catch {}
+          const msgs = (scope === 'allModels')
+            ? await loadSession(modeCur).catch(() => [])
+            : await loadSessionFiltered(modeCur, modelCur, 200).catch(() => []);
 
-            panel.webview.postMessage({ type: 'models', models });
-            out.appendLine('[CLike] models sent: ' + models.join(', '));
-          } catch (e) {
-            out.appendLine('[CLike] models fetch failed: ' + (e?.message || String(e)));
-            panel.webview.postMessage({ type: 'models', models: ['auto'] });
-          }
+          panel.webview.postMessage({ type: 'hydrateSession', messages: msgs });
         } catch (e) {
-          out.appendLine('[CLike] webview_ready handler crashed: ' + (e?.message || String(e)));
-          // Fallback minimo per non lasciare la webview “vuota”
-          panel.webview.postMessage({ type: 'initState', state: { mode:'free', model:'auto', historyScope:'singleModel' } });
-          panel.webview.postMessage({ type: 'hydrateSession', messages: [] });
-          panel.webview.postMessage({ type: 'models', models: ['auto'] });
+          out.appendLine('[ext] hydrate on ready failed: ' + (e.message || e));
+        }
+
+        // avvia anche subito la fetch dei modelli (come avevi già sotto)
+        try {
+          const orchestratorUrl = vscode.workspace.getConfiguration().get('clike.orchestratorUrl') || 'http://localhost:8080';
+          const res = await fetchJson(`${orchestratorUrl}/v1/models`);
+          let models = [];
+          if (Array.isArray(res?.models)) {
+            let raw = res.models.map(m => m.name || m.id || m.model || 'unknown');
+            const filtered = raw.filter(n => !/embed|embedding|nomic-embed/i.test(n));
+            models = filtered.length ? filtered : raw;
+          } else if (Array.isArray(res?.data)) {
+            let raw = res.data.map(m => m.id || 'unknown');
+            const filtered = raw.filter(n => !/embed|embedding|nomic-embed/i.test(n));
+            models = filtered.length ? filtered : raw;
+          }
+          panel.webview.postMessage({ type: 'models', models });
+        } catch (e) {
+          out.appendLine(`[ext] models fetch on ready failed: ${e.message}`);
         }
         return;
       }
 
-      
       if (msg.type === 'setHistoryScope') {
         const value = (msg.value === 'allModels') ? 'allModels' : 'singleModel';
 
@@ -2597,21 +2460,21 @@ async function cmdOpenChat(context) {
     if (!(await pathExists(p))) return;
     const raw = await fs.readFile(p, 'utf8');
     const sum = JSON.parse(raw);
-    const msgTxt =  `✅ CLike: project "${sum.project_name}" is ready\n` +
+
+    panel.webview.postMessage({
+      type: 'echo',
+      message:
+        `✅ CLike: project "${sum.project_name}" is ready\n` +
         `doc_root = ${sum.doc_root}\n` +
         `Files: ${sum.files_created.join(', ')}\n` +
         `Next: open README.md, complete IDEA.md, then /spec`
-    panel.webview.postMessage({
-      type: 'echo',
-      message:msgTxt
     });
-    // Persisti per i riavvii successivi della chat
-    await context.workspaceState.update('clike.initSummary', msgText);
+
     // opzionale: rinomina per non ripetere
     const donePath = path.join(ws, '.clike', 'last_init_summary.done.json');
     await fs.rename(p, donePath).catch(async () => {
-    // se rename fallisce (es. cross-device), fallback: delete
-    await fs.rm(p, { force: true });
+      // se rename fallisce (es. cross-device), fallback: delete
+      await fs.rm(p, { force: true });
     });
   } catch (e) {
     console.warn('[CLike] showInitSummaryIfPresent failed:', e);

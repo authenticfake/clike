@@ -144,6 +144,11 @@
           "default": ".clike/sessions",
           "description": "Directory (relativa alla workspace) dove salvare le chat per modello (formato JSONL)."
         },
+         "clike.chat.autoOpenOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "description": "Auto-open chat at startup."
+        },
         "clike.chat.maxInMemoryMessages": {
           "type": "number",
           "default": 50,
