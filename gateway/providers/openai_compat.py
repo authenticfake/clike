@@ -189,6 +189,9 @@ async def chat(
 
     # Token param differences (GPT-5 vs older/vLLM)
     # Token params (default sicuri)
+    # Token params (default sicuri)
+    
+
     budget = max(256, int(max_tokens or 0))  # se None/0 → 256
     if (model or "").startswith("gpt-5"):
         # per compat massima, invia ENTRAMBI i parametri
