@@ -47,6 +47,11 @@ async def chat_completions(req: Request):
     temperature = body.get("temperature", 0.2)
     max_tokens = body.get("max_tokens", 512)
 
+
+    response_format = body.get("response_format")
+    tools          = body.get("tools")
+    tool_choice    = body.get("tool_choice")
+
     cfg, models = load_models_cfg(os.getenv("MODELS_CONFIG", "/workspace/configs/models.yaml"))
     try:
         m = resolve_model(cfg, models, model_name, profile=profile, want_modality="chat")
@@ -80,7 +85,13 @@ async def chat_completions(req: Request):
                 elif provider == "openai":
                     if not api_key:
                         raise HTTPException(401, "missing OPENAI api key")
-                    content = await oai.chat(base, api_key, remote, messages, temperature, max_tokens)
+                    content = await oai.chat(
+                    base, api_key, remote, messages, temperature, max_tokens,
+                        response_format=response_format, 
+                        tools=tools, 
+                        tool_choice=tool_choice,
+                     )
+                    
                 elif provider == "vllm":
                     content = await oai.chat(base, api_key, remote, messages, temperature, max_tokens)
                 elif provider == "deepseek":

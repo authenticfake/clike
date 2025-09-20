@@ -117,25 +117,29 @@ async def _run_chat(
     r.raise_for_status()
     return r.json()
 
-def _first_message_content(data: Dict[str, Any]) -> str:
+def _first_message_content(data: dict) -> str:
     """
-    Estrae testo dal primo choice. Alcuni backend OpenAI-compat
-    restituiscono 'content' come lista di segmenti.
+    Estrae testo dal primo choice; alcuni backend restituiscono 'content'
+    come lista di segmenti, altri come stringa.
     """
-    msg = ((data.get("choices") or [{}])[0].get("message") or {})
-    content = msg.get("content", "")
-    if isinstance(content, list):
-        parts = []
-        for seg in content:
-            if isinstance(seg, dict):
-                if "text" in seg and isinstance(seg["text"], str):
-                    parts.append(seg["text"])
-                elif "content" in seg and isinstance(seg["content"], str):
-                    parts.append(seg["content"])
-            elif isinstance(seg, str):
-                parts.append(seg)
-        return "".join(parts).strip()
-    return (content or "").strip()
+    try:
+        msg = ((data.get("choices") or [{}])[0].get("message") or {})
+        content = msg.get("content", "")
+        if isinstance(content, list):
+            parts = []
+            for seg in content:
+                if isinstance(seg, dict):
+                    if isinstance(seg.get("text"), str):
+                        parts.append(seg["text"])
+                    elif isinstance(seg.get("content"), str):
+                        parts.append(seg["content"])
+                elif isinstance(seg, str):
+                    parts.append(seg)
+            return "".join(parts).strip()
+        return (content or "").strip()
+    except Exception:
+        return ""
+
 
 
 def _first_tool_args_as_json(data: Dict[str, Any]) -> Optional[str]:
@@ -164,131 +168,74 @@ async def chat(
     base_url: str,
     api_key: str | None,
     model: str,
-    messages: List[dict],
+    messages: list,
     temperature: float | None,
-    max_tokens: int | None
+    max_tokens: int | None,
+    *,
+    response_format=None,
+    tools=None,
+    tool_choice=None
 ) -> str:
-    """
-    Returns ALWAYS a string:
-      - plain assistant text (normal chat), OR
-      - JSON string (when file-generation scenario is detected).
-    Compatible with GPT-5/4/3.x and vLLM OpenAI-compatible backends.
-    """
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
-    # base payload
-    payload: Dict[str, Any] = {
+    # payload base
+    payload = {
         "model": model,
         "messages": messages,
     }
     if temperature is not None:
-        if not (model or "").startswith("gpt-5"):
-            payload["temperature"] = temperature
+        if not str(model).startswith("gpt-5"):
+            payload["temperature"] = float(temperature)
 
-    # Token param differences (GPT-5 vs older/vLLM)
-    # Token params (default sicuri)
-    # Token params (default sicuri)
-    
-
-    budget = max(256, int(max_tokens or 0))  # se None/0 → 256
-    if (model or "").startswith("gpt-5"):
-        # per compat massima, invia ENTRAMBI i parametri
+    # Budget di default per evitare 400/“max_tokens …”
+    budget = max(256, int(max_tokens or 0))
+    # GPT-5 preferisce anche max_completion_tokens
+    if str(model).startswith("gpt-5"):
         payload["max_completion_tokens"] = budget
-        
     else:
         payload["max_tokens"] = budget
 
-    want_files = _looks_like_files_req(messages)
-        
+    # --- NUOVO: pass-through Structured Outputs / tools (se presenti) ---
+    if response_format is not None:
+        payload["response_format"] = response_format
+    if tools is not None:
+        payload["tools"] = tools
+    if tool_choice is not None:
+        payload["tool_choice"] = tool_choice
+
     async with httpx.AsyncClient(timeout=120) as client:
-        # ---------- Attempt 1: Structured Outputs (broad models: 5.x, 4o, some backends) ----------
-        if want_files:
-            structured_payload = dict(payload)
-            structured_payload["response_format"] = {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "clike_files",
-                    "strict": True,
-                    "schema": FILES_JSON_SCHEMA
-                }
-            }
-            try:
-                data = await _run_chat(client, base_url, headers, structured_payload)
-                # content should already be valid JSON as string
-                content = _first_message_content(data)
-                if content.strip():
-                    # sanity: verify JSON to avoid 422 upstream
-                    json.loads(content)
-                    return content
-            except httpx.HTTPStatusError as e:
-                # If provider/back-end doesn't support response_format → fall through
-                err = (e.response.text if e.response is not None else str(e)).lower()
-                if "response_format" not in err and "json_schema" not in err:
-                    # other hard error → re-raise (to be mapped by gateway)
-                    raise
+        r = await client.post(f"{base_url.rstrip('/')}/chat/completions", json=payload, headers=headers)
+        r.raise_for_status()
+        data = r.json()
 
-        # ---------- Attempt 2: Tool/Function calling (widely supported, incl. many vLLM) ----------
-        if want_files:
-            tools_payload = dict(payload)
-            tools_payload["tools"] = [{
-                "type": "function",
-                "function": {
-                    "name": "emit_files",
-                    "description": "Return the generated files",
-                    "parameters": FILES_JSON_SCHEMA
-                }
-            }]
-            tools_payload["tool_choice"] = {"type": "function", "function": {"name": "emit_files"}}
-            try:
-                data = await _run_chat(client, base_url, headers, tools_payload)
-                tool_json = _first_tool_args_as_json(data)
-                if tool_json:
-                    # validate
-                    obj = json.loads(tool_json)
-                    if isinstance(obj, dict) and "files" in obj:
-                        return tool_json
-            except httpx.HTTPStatusError as e:
-                # If tools not supported → fall through
-                err = (e.response.text if e.response is not None else str(e)).lower()
-                if "tools" not in err and "tool_choice" not in err and "function" not in err:
-                    raise
+        # content può essere stringa o lista segmenti; normalizziamo a stringa
+        try:
+            msg = ((data.get("choices") or [{}])[0].get("message") or {})
+            content = msg.get("content", "")
+            if isinstance(content, list):
+                parts = []
+                for seg in content:
+                    if isinstance(seg, dict):
+                        if isinstance(seg.get("text"), str):
+                            parts.append(seg["text"])
+                        elif isinstance(seg.get("content"), str):
+                            parts.append(seg["content"])
+                    elif isinstance(seg, str):
+                        parts.append(seg)
+                return "".join(parts).strip()
+            if isinstance(content, str) and content.strip():
+                return content.strip()
+            # 2) Fallback legacy: lasciali
+            if "choices" in data:
+                return data["choices"][0]["message"]["content"]
+            if "text" in data:
+                return data["text"]
+            return (content or "").strip()
+        except Exception:
+            return ""
 
-        # ---------- Attempt 3: Plain JSON instruction (works everywhere) ----------
-        # We prepend a system instruction to emit only JSON adhering to schema.
-        if want_files:
-            json_payload = dict(payload)
-            json_payload["messages"] = [
-                {"role": "system",
-                 "content": (
-                    "You must answer ONLY as strict JSON matching this schema: "
-                    + json.dumps(FILES_JSON_SCHEMA, ensure_ascii=False)
-                    + ". Do not add prose. No code fences. No comments."
-                 )},
-            ] + (payload.get("messages") or [])
-
-            data = await _run_chat(client, base_url, headers, json_payload)
-            content = _first_message_content(data)
-            # some backends may return a dict/list as content with structured outputs
-            if not isinstance(content, str):
-                try:
-                    content = json.dumps(content, ensure_ascii=False)
-                except Exception:
-                    content = ""
-
-            if content.strip():
-                # sanity: verify JSON to avoid 422 upstream
-                json.loads(content)
-                return content
-
-            # As very last resort, wrap text
-            return json.dumps({"files": [], "messages": [{"role": "assistant", "content": content}]}, ensure_ascii=False)
-
-        # ---------- Normal chat (no files scenario) ----------
-        data = await _run_chat(client, base_url, headers, payload)
-        content = _first_message_content(data)
-        return content
 
 
 async def embeddings(base_url: str, api_key: str | None, model: str, input_text: str):
