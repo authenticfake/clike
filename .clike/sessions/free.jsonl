@@ -5,23 +5,19 @@
 {"ts":1758216190542,"mode":"free","role":"assistant","content":"Mode=harper | Model=llama3 | HistoryScope=allModels","model":"system"}
 {"ts":1758216347799,"mode":"free","role":"assistant","content":"Workspace: /Users/a.franco/dev/authenticfake/clike/clike_mvp","model":"system"}
 {"ts":1758216363183,"mode":"free","role":"assistant","content":"Mode=harper | Model=llama3 | HistoryScope=allModels","model":"system"}
-{"ts":1758301118097,"mode":"free","role":"user","content":"ciao","model":"gpt-5-mini","attachments":[]}
-{"ts":1758301120814,"mode":"free","role":"assistant","content":"Ciao! Come posso aiutarti oggi?","model":"gpt-5-mini"}
 {"ts":1758301129024,"mode":"free","role":"user","content":"ciao","model":"gpt-5-nano","attachments":[]}
 {"ts":1758301131720,"mode":"free","role":"assistant","content":"Ciao! Come posso aiutarti oggi? Se vuoi, possiamo:\n- fare una chiacchierata in italiano;\n- tradurre o spiegare qualcosa;\n- rispondere a domande su un tema specifico;\n- darti una guida passo-passo su un compito o progetto.\n\nDimmi cosa preferisci.","model":"gpt-5-nano"}
-{"ts":1758313481569,"mode":"free","role":"user","content":"ehi hai il payload di risposta e di richiesta per le api del modello gpt 5.0. vorrei integrarle in python con alcuniesmepi per ricevere anche file. se hai  modo parti dalla definizone e documentaazioni delle API","model":"gpt-5-mini","attachments":[]}
-{"ts":1758313493134,"mode":"free","role":"assistant","content":"{\n  \"version\": \"1.0\",\n  \"text\": \"\",\n  \"usage\": {},\n  \"sources\": [],\n  \"audit_id\": \"20250919-202441_chat_96b6cf7a\",\n  \"run_dir\": \"/app/runs/20250919-202441_chat_96b6cf7a\"\n}","model":"gpt-5-mini"}
-{"ts":1758313522906,"mode":"free","role":"user","content":"ehi cosa mi hai inviato\n","model":"gpt-5-mini","attachments":[]}
-{"ts":1758313531458,"mode":"free","role":"assistant","content":"{\n  \"version\": \"1.0\",\n  \"text\": \"\",\n  \"usage\": {},\n  \"sources\": [],\n  \"audit_id\": \"20250919-202522_chat_cca3283f\",\n  \"run_dir\": \"/app/runs/20250919-202522_chat_cca3283f\"\n}","model":"gpt-5-mini"}
 {"ts":1758313696506,"mode":"free","role":"user","content":"ciao","model":"gpt-4o-mini","attachments":[]}
 {"ts":1758313697691,"mode":"free","role":"assistant","content":"Ciao! Come posso aiutarti oggi?","model":"gpt-4o-mini"}
 {"ts":1758314774286,"mode":"free","role":"user","content":"ciao","model":"auto","attachments":[]}
 {"ts":1758314774422,"mode":"free","role":"assistant","content":"Error: Error: POST http://localhost:8080/v1/chat -> 502 {\"detail\":\"gateway chat failed: HTTPStatusError: Server error '500 Internal Server Error' for url 'http://gateway:8000/v1/chat/completions'\\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/500\"}","model":"auto"}
 {"ts":1758314790690,"mode":"free","role":"user","content":"ciao","model":"gpt-5-nano","attachments":[]}
 {"ts":1758314795450,"mode":"free","role":"assistant","content":"Error: Error: POST http://localhost:8080/v1/chat -> 502 {\"detail\":\"gateway chat failed: HTTPStatusError: Client error '400 Bad Request' for url 'http://gateway:8000/v1/chat/completions'\\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400\"}","model":"gpt-5-nano"}
-{"ts":1758315850823,"mode":"free","role":"user","content":"ehi","model":"gpt-5-mini","attachments":[]}
-{"ts":1758315861076,"mode":"free","role":"assistant","content":"{\n  \"version\": \"1.0\",\n  \"text\": \"\",\n  \"usage\": {},\n  \"sources\": [],\n  \"audit_id\": \"20250919-210410_chat_39674b68\",\n  \"run_dir\": \"/app/runs/20250919-210410_chat_39674b68\"\n}","model":"gpt-5-mini"}
 {"ts":1758357220055,"mode":"free","role":"user","content":"ciao","model":"gpt-4o","attachments":[]}
 {"ts":1758357223285,"mode":"free","role":"assistant","content":"Ciao! Come posso aiutarti oggi? Hai bisogno di assistenza con qualcosa in particolare?","model":"gpt-4o"}
 {"ts":1758357241233,"mode":"free","role":"user","content":"ciao","model":"gpt-5","attachments":[]}
 {"ts":1758357245089,"mode":"free","role":"assistant","content":"Ciao! Come posso aiutarti oggi? Posso darti una mano con codice, debug, architettura, API, database, test o DevOps.","model":"gpt-5"}
+{"ts":1758367085334,"mode":"free","role":"user","content":"ciao","model":"gpt-5-mini","attachments":[]}
+{"ts":1758367089772,"mode":"free","role":"assistant","content":"Ciao! Come posso aiutarti oggi?","model":"gpt-5-mini"}
+{"ts":1758372217080,"mode":"free","role":"user","content":"dimmi ciao","model":"gpt-5-mini","attachments":[]}
+{"ts":1758372221020,"mode":"free","role":"assistant","content":"Ciao!","model":"gpt-5-mini"}
