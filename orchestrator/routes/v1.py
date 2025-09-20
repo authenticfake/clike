@@ -72,19 +72,19 @@ def _bucketize_path(root_rel: str, rel_or_name: str) -> str:
 
 def _coerce_to_schema(raw_text: str, lang_hint: str = "") -> tuple[list[dict], list[dict]]:
     """
-    Restituisce (files, messages) secondo lo schema unico:
+    Restituisce (files, messages) secondo schema CLike:
       files: [{path, content, language?}]
-      messages: [{"role":"assistant","content": "..."}] (facoltativo)
+      messages: [{"role":"assistant","content": "..."}]
     Strategia:
-      1) Prova JSON; considera valido SOLO se contiene files[] NON vuoto
-      2) In caso contrario, prova code fences
-      3) Normalizza i record
-      4) Se ancora vuoto, esponi il testo come message (ma NON creare .txt da JSON eco)
+      1) Prova JSON; valido SOLO se files[] non vuoto
+      2) Se niente, prova code fences
+      3) Normalizza per il writer
+      4) Se ancora vuoto ma c'è testo → messages (non creare .txt da JSON eco)
     """
     files: list[dict] = []
     messages: list[dict] = []
 
-    # 1) JSON (valido solo con files non vuoto)
+    # 1) JSON
     try:
         pj = _extract_json(raw_text)
         jf = pj.get("files") if isinstance(pj, dict) else None
@@ -98,19 +98,34 @@ def _coerce_to_schema(raw_text: str, lang_hint: str = "") -> tuple[list[dict], l
     except Exception:
         pass
 
-    # 2) Code fences se ancora niente
+    # 2) Code fences
     if not files:
         files = _extract_files_from_fences(raw_text)
 
     # 3) Normalizza
     files = _normalize_files_for_write(files)
 
-    # 4) Se ancora vuoto → NON serializzare il JSON eco come file .txt.
-    #    Mettiamo un messaggio di cortesia; i layer superiori decideranno se 422.
-    if not files and raw_text.strip():
+    # 4) Se ancora niente, ma c’è testo → restituisci come message (no .txt con eco JSON)
+    if not files and raw_text and raw_text.strip():
         messages = messages or [{"role": "assistant", "content": raw_text.strip()}]
 
     return files, messages
+
+def _read_text_file(p: str, max_bytes: int = 200_000) -> str:
+    try:
+        with open(p, "r", encoding="utf-8", errors="ignore") as f:
+            s = f.read(max_bytes)
+            return s.strip()
+    except Exception:
+        return ""
+
+def _gather_rag_context(paths: list[str], max_docs: int = 8, max_bytes: int = 200_000) -> list[str]:
+    out = []
+    for p in (paths or [])[:max_docs]:
+        t = _read_text_file(p, max_bytes=max_bytes)
+        if t:
+            out.append(f"# Context: {p}\n{t}")
+    return out
 
 def _kb(n_bytes: int) -> int:
     try: return int(n_bytes) // 1024
@@ -763,16 +778,30 @@ async def chat(req: Request):
     #     if not fallback:
     #         raise HTTPException(400, "no chat-capable models available")
     #     model = fallback
+    #RAG 
+    rag_paths = (body.get("rag_paths") or []) + (body.get("rag_files") or [])
+    rag_inline = body.get("rag_inline") or []
+    rag_blobs  = []
+    if rag_paths:
+        rag_blobs.extend(_gather_rag_context(rag_paths))
+    if rag_inline:
+        rag_blobs.extend([str(x) for x in rag_inline if x])
+
+    if rag_blobs:
+        # Iniettiamo 1 msg di contesto “consolidato” per non esplodere i tokens
+        ctx = "\n\n".join(rag_blobs[:8])
+        msgs = [{"role": "system", "content": "Use the following context if relevant:\n" + ctx}] + msgs
 
     try:
         # usa i messaggi arricchiti (sys + inline + RAG)
         text = await llm_client.call_gateway_chat(
-            model, msgs,
+            model, msgs,  # <— messaggi arricchiti (system + RAG + inline files)
             base_url=str(getattr(settings, "GATEWAY_URL", "http://localhost:8000")),
             timeout=float(getattr(settings, "REQUEST_TIMEOUT_S", 60)),
             temperature=body.get("temperature", 0.2),
             max_tokens=body.get("max_tokens", 512),
         )
+
         # dump del provider text (sintetico) e, se serve, raw
         try:
             _dump_artifact(run_dir, "gateway_text.txt", text)
@@ -889,6 +918,20 @@ async def generate(req: Request):
     requested_modality = next((m.get("modality") for m in all_models if (m.get("name")==requested)), None)
     if requested_modality == "embed":
         raise HTTPException(400, f"model '{requested}' is an embedding model and cannot be used for code generation. Pick a chat model.")
+    
+    #RAG 
+    rag_paths = (body.get("rag_paths") or []) + (body.get("rag_files") or [])
+    rag_inline = body.get("rag_inline") or []
+    rag_blobs  = []
+    if rag_paths:
+        rag_blobs.extend(_gather_rag_context(rag_paths))
+    if rag_inline:
+        rag_blobs.extend([str(x) for x in rag_inline if x])
+
+    if rag_blobs:
+        # Iniettiamo 1 msg di contesto “consolidato” per non esplodere i tokens
+        ctx = "\n\n".join(rag_blobs[:8])
+        msgs = [{"role": "system", "content": "Use the following context if relevant:\n" + ctx}] + msgs
 
     # Chiamata gateway
     try:
@@ -935,20 +978,21 @@ async def generate(req: Request):
     if extra_imgs:
         files.extend(extra_imgs)
 
-    # --- NEW: robust fallback to avoid 422 across GPT-5/4/3/vLLM ---
+    # Fallback robusti: fences → file; altrimenti doc pulito (solo se c'è testo vero)
     if not files:
-        # 1) prova a “ripulire” e a costruire 1 file dal testo grezzo
+        files = _extract_files_from_fences(raw)
+    if not files:
         cleaned = _strip_markdown_and_noise(raw)
-        fallback_lang = (body.get("language") or "")
-        files = _fallback_single_file_from_text(cleaned, fallback_lang)
+        if cleaned:
+            base_dir = f"src/generated_{gen_id[:8]}/doc"
+            files = [{
+                "path": f"{base_dir}/module_1.txt",
+                "content": cleaned
+            }]
 
-        # 2) ultima chance: se ancora nulla, prova a estrarre code-fences una volta in più
-        if not files:
-            files = _extract_files_from_fences(raw)
+    if not files:
+        raise HTTPException(422, "model did not produce 'files' with path+content")
 
-        # 3) se ancora vuoto → allora 422 (caso effettivo di mancato output file)
-        if not files:
-            raise HTTPException(422, "model did not produce 'files' with path+content")
 
     # Bucketizza in src/ o doc/ dentro generated_<id>
     files_planned: list[dict] = []

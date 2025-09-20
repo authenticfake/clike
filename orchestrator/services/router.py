@@ -271,6 +271,10 @@ def resolve(task: Task, hint: Optional[str] = None) -> Tuple[Dict[str,Any], List
 
     # 5) Policy overrides (soft)
     chosen = _apply_policy(task, chosen, m_all)
+    chosen["profile"] = profile_name  # es. "plan.fast" / "code.strict" / ...
+    # policy semplice: se il modello è cloud (privacy low) attiva redaction
+    if chosen.get("privacy") == "low":
+        chosen["redact_source"] = True
 
     # 6) Redaction/flags
     is_cloud = chosen.get("provider") in {"openai","anthropic","azure","google","deepseek"}
