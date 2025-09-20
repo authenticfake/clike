@@ -98,3 +98,23 @@ paths:
                         embedding:
                           type: array
                           items: { type: number }
+
+components:
+  schemas:
+    HarperRunRequest:
+      type: object
+      properties:
+        phase: { type: string, enum: ["spec","plan","kit","build"] }
+        mode: { type: string }
+        model: { type: string }
+        profile: { type: string, nullable: true, example: "plan.fast" }  # NEW
+        docRoot: { type: string }
+        core: { type: array, items: { type: string } }
+        attachments: { type: array, items: { type: object } }
+        flags: { type: object }
+        runId: { type: string, nullable: true }
+        idea_md: { type: string, nullable: true }
+        spec_md: { type: string, nullable: true }
+        plan_md: { type: string, nullable: true }
+        todo_ids: { type: array, items: { type: string }, nullable: true }
+

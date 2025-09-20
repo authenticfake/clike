@@ -1,32 +1,75 @@
-# Pydantic schemas with iteration fields. Comments in English.
-from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any, Literal
+# Pydantic schemas with iteration fields and execution context.
+# Comments in English.
 
-class SpecRequest(BaseModel):
-    idea_md: Optional[str] = Field(None, description="Optional IDEA.md to guide SPEC.")
+from typing import Optional, List, Dict, Any, Literal
+from pydantic import BaseModel, Field,ConfigDict
+
+# ---------------------------
+# Shared execution context
+# ---------------------------
+class ExecContext(BaseModel):
+    """Common execution context propagated from UI → orchestrator → gateway."""
+    mode: Optional[str] = Field("harper", description="UI mode: 'harper'|'coding'|'free'.")
+    model: Optional[str] = Field("auto", description="Explicit model id or 'auto' to use router.")
+    profile_hint: Optional[str] = Field(
+        None, alias="profileHint",
+        description="Routing hint (e.g., 'plan.fast'|'code.strict') used only when model=='auto'."
+    )
+    doc_root: Optional[str] = Field("docs/harper", alias="docRoot", description="Docs root.")
+    core: List[str] = Field(default_factory=list, description="Core docs for this phase.")
+    attachments: List[Dict[str, Any]] = Field(default_factory=list, description="User attachments.")
+    flags: Dict[str, Any] = Field(default_factory=dict, description="Exec flags (privacy, redaction...).")
+    run_id: Optional[str] = Field(None, alias="runId", description="Correlation id.")
+    history_scope: Optional[Literal["singleModel", "allModels"]] = Field(
+        None, alias="historyScope", description="Chat history scope."
+    )
+
+    # Pydantic v2 config
+    model_config = ConfigDict(
+        populate_by_name=True,   # (ex allow_population_by_field_name)
+        extra="ignore")
+    
+
+
+# ---------------------------
+# Requests
+# ---------------------------
+class SpecRequest(ExecContext):
+    idea_md: Optional[str] = Field(None, description="Optional IDEA.md inline content.")
     revision_note: Optional[str] = None
 
+class PlanRequest(ExecContext):
+    spec_md: str = Field(..., description="SPEC.md inline content.")
+    revision_note: Optional[str] = None
+
+class KitRequest(ExecContext):
+    spec_md: str = Field(..., description="SPEC.md inline content.")
+    plan_md: str = Field(..., description="PLAN.md inline content.")
+    todo_ids: Optional[List[str]] = None
+    revision_note: Optional[str] = None
+
+class BuildNextRequest(ExecContext):
+    spec_md: str = Field(..., description="SPEC.md inline content.")
+    plan_md: str = Field(..., description="PLAN.md inline content.")
+    batch_size: int = Field(1, ge=1, le=50)
+
+class SessionClearRequest(BaseModel):
+    scope: Literal["singleModel","allModels"] = "singleModel"
+
+# ---------------------------
+# Responses (unchanged)
+# ---------------------------
 class SpecResponse(BaseModel):
     spec_md: str
     ok: bool
     violations: List[str] = []
     run_id: str
 
-class PlanRequest(BaseModel):
-    spec_md: str
-    revision_note: Optional[str] = None
-
 class PlanResponse(BaseModel):
     plan_md: str
     ok: bool
     violations: List[str] = []
     run_id: str
-
-class KitRequest(BaseModel):
-    spec_md: str
-    plan_md: str
-    todo_ids: Optional[List[str]] = None
-    revision_note: Optional[str] = None
 
 class KitResponse(BaseModel):
     kit_md: str
@@ -35,20 +78,12 @@ class KitResponse(BaseModel):
     violations: List[str] = []
     run_id: str
 
-class BuildNextRequest(BaseModel):
-    plan_md: str
-    spec_md: str
-    batch_size: int = 1
-
 class BuildNextResponse(BaseModel):
     updated_plan_md: str
     diffs: List[str] = []
     ok: bool = True
     gate_summary: Dict[str, Any] = {}
     run_id: str
-
-class SessionClearRequest(BaseModel):
-    scope: Literal["singleModel","allModels"] = "singleModel"
 
 class ModelsResponse(BaseModel):
     models: List[Dict[str, Any]]
@@ -64,3 +99,4 @@ class ResolveResponse(BaseModel):
     hint: Optional[str] = None
     chosen: Dict[str, Any]
     warnings: List[str] = []
+    profile: Optional[str] = None

@@ -4,6 +4,7 @@ services:
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     environment:
       - MODELS_CONFIG=/workspace/configs/models.yaml
+      - GATEWAY_DUMP_DIR=/app/runs/gateway_dumps
     env_file:
       - path: ../.env
     volumes:
@@ -13,6 +14,7 @@ services:
   orchestrator:
     build: ../orchestrator
     command: uvicorn app:app --host 0.0.0.0 --port 8080 --reload
+    
     environment:
       - GATEWAY_URL=http://gateway:8000
       - QDRANT_HOST=qdrant
@@ -37,6 +39,9 @@ services:
       - SPLIT_ENABLE_JAVA=true
       - SPLIT_ENABLE_REACT=true
       - SPLIT_ENABLE_MENDIX=false
+      - PREFER_FRONTIER_FOR_REASONING=true
+      - MODELS_PATH=/workspace/configs/models.yaml
+      - OPTIMIZE_FOR=capability
     env_file:
       - path: ../.env
     volumes:

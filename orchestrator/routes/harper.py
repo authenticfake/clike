@@ -1,5 +1,7 @@
 # FastAPI routes for Harper phases + utility endpoints.
 from fastapi import APIRouter, HTTPException, Query
+from services import harper as svc
+
 import os, json
 
 from schemas.harper import (
@@ -11,7 +13,8 @@ from schemas.harper import (
 from services import harper as svc
 from services.router import _load_cfg, resolve
 
-router = APIRouter(tags=["harper"])
+router = APIRouter(prefix="/v1/harper", tags=["harper"])
+
 
 @router.get("/health")
 def health():
@@ -57,29 +60,53 @@ def get_run(run_id: str):
         raise HTTPException(status_code=404, detail="Run not found")
     return json.loads(open(path, "r", encoding="utf-8").read())
 
+
+
+# ... imports in testa restano uguali ...
+from services import harper as svc
+
+# --- SOSTITUISCI i 4 endpoint sottostanti ---
+
 @router.post("/spec", response_model=SpecResponse)
-def post_spec(req: SpecRequest):
-    out = svc.generate_spec(req.idea_md)
-    return SpecResponse(spec_md=out["spec_md"], ok=out["phase_ok"],
-                        violations=out.get("phase_summary", {}).get("violations", []),
-                        run_id=out["run_id"])
+async def post_spec(req: SpecRequest):
+    out = await svc.run_phase("spec", req)
+    # SPEC.md atteso in out.files/diffs a regime; qui esponiamo ok/run_id + echo
+    return SpecResponse(
+        spec_md=out.get("files", [{}])[0].get("content", "") if out.get("files") else req.idea_md or "# SPEC\n",
+        ok=bool(out.get("ok", True)),
+        violations=[],
+        run_id=out.get("runId") or "n/a"
+    )
 
 @router.post("/plan", response_model=PlanResponse)
-def post_plan(req: PlanRequest):
-    out = svc.generate_plan(req.spec_md)
-    return PlanResponse(plan_md=out["plan_md"], ok=out["phase_ok"],
-                        violations=out.get("phase_summary", {}).get("violations", []),
-                        run_id=out["run_id"])
+async def post_plan(req: PlanRequest):
+    out = await svc.run_phase("plan", req)
+    return PlanResponse(
+        plan_md=out.get("files", [{}])[0].get("content", "") if out.get("files") else "# PLAN\n",
+        ok=bool(out.get("ok", True)),
+        violations=[],
+        run_id=out.get("runId") or "n/a"
+    )
 
 @router.post("/kit", response_model=KitResponse)
-def post_kit(req: KitRequest):
-    out = svc.generate_kit(req.spec_md, req.plan_md, req.todo_ids)
-    return KitResponse(kit_md=out["kit_md"], ok=out["phase_ok"],
-                       violations=out.get("phase_summary", {}).get("violations", []),
-                       run_id=out["run_id"])
+async def post_kit(req: KitRequest):
+    out = await svc.run_phase("kit", req)
+    return KitResponse(
+        kit_md=out.get("files", [{}])[0].get("content", "") if out.get("files") else "# KIT\n",
+        artifacts={},
+        ok=bool(out.get("ok", True)),
+        violations=[],
+        run_id=out.get("runId") or "n/a"
+    )
 
 @router.post("/build-next", response_model=BuildNextResponse)
-def post_build_next(req: BuildNextRequest):
-    out = svc.build_next(req.spec_md, req.plan_md, req.batch_size)
-    return BuildNextResponse(updated_plan_md=out["updated_plan_md"], diffs=out["diffs"],
-                             ok=out["ok"], gate_summary=out["gate_summary"], run_id=out["run_id"])
+async def post_build_next(req: BuildNextRequest):
+    out = await svc.run_phase("build", req)
+    return BuildNextResponse(
+        updated_plan_md=req.plan_md,  # a regime puoi far ritornare il nuovo PLAN.md
+        diffs=out.get("diffs", []),
+        ok=bool(out.get("ok", True)),
+        gate_summary=out.get("tests", {}),
+        run_id=out.get("runId") or "n/a"
+    )
+

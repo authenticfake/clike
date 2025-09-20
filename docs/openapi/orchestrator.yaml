@@ -243,3 +243,16 @@ components:
         warnings:
           type: array
           items: { type: string }
+    HarperRequest:
+      type: object
+      properties:
+        mode: { type: string, example: "harper" }
+        model: { type: string, example: "auto" }
+        profileHint: { type: string, nullable: true, example: "plan.fast" }  # NEW
+        docRoot: { type: string, example: "docs/harper" }
+        core: { type: array, items: { type: string } }
+        attachments: { type: array, items: { type: object } }
+        flags: { type: object }
+        runId: { type: string, nullable: true }
+        historyScope: { type: string, enum: ["singleModel","allModels"], nullable: true }
+        # plus phase-specific fields: idea_md/spec_md/plan_md/todo_ids...

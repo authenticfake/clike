@@ -2,7 +2,7 @@ import os, difflib, hashlib, subprocess, re
 from typing import List, Optional
 from config import settings
 RAG_COLL = "clike_rag"
-GATEWAY_URL = str(getattr(settings, "GATEWAY_URL", "http://gateway:8000"))
+GATEWAY_URL = str(getattr(settings, "GATEWAY_URL", "http://localhost:8000"))
 QDRANT_HOST = getattr(settings, "QDRANT_HOST", "qdrant")
 QDRANT_PORT = int(getattr(settings, "QDRANT_PORT", 6333))
 

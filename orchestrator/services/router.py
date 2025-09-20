@@ -9,6 +9,8 @@
 from __future__ import annotations
 from typing import Dict, Any, List, Optional, Literal, Tuple
 import yaml
+import os
+import logging
 
 from config import settings
 
@@ -18,9 +20,105 @@ _CAP_ORD = {"tiny":0,"small":1,"medium":2,"large":3,"frontier":4}
 _LAT_ORD = {"ultra-low":3,"low":2,"medium":1,"high":0}
 _COST_ORD = {"ultra-low":3,"low":2,"medium":1,"high":0}
 
-def _load_cfg() -> Dict[str, Any]:
-    with open(settings.models_config, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
+def _as_bool(v) -> bool:
+    return str(v).lower() in ("1", "true", "yes", "on")
+
+
+def _resolve_models_path() -> str:
+    """
+    Decide il path effettivo di configs/models.yaml:
+
+    Priorità:
+    1) MODELS_PATH (ENV diretta) se assoluta/esistente
+    2) settings.MODELS_CONFIG_PATH (dal tuo config.py) — accetta anche relativo (normalizzato su WORKSPACE_ROOT)
+    3) fallback: <WORKSPACE_ROOT>/configs/models.yaml
+    4) fallback: /workspace/configs/models.yaml
+    """
+    candidates = []
+
+    # 1) ENV esplicita (comoda in docker-compose)
+    envp = os.getenv("MODELS_PATH")
+    if envp:
+        p = envp if os.path.isabs(envp) else os.path.abspath(os.path.join(settings.WORKSPACE_ROOT, envp))
+        candidates.append(p)
+
+    # 2) Valore dal tuo Settings (MODELS_CONFIG_PATH già calcolato)
+    if getattr(settings, "MODELS_CONFIG_PATH", None):
+        p = settings.MODELS_CONFIG_PATH
+        logging.getLogger("router").info("settings.MODELS_CONFIG_PATH: %s", p)
+
+        p = p if os.path.isabs(p) else os.path.abspath(os.path.join(settings.WORKSPACE_ROOT, p))
+        logging.getLogger("router").info("yo be candidate: %s", p)
+
+        candidates.append(p)
+
+    # 3) Fallback ragionevoli
+    candidates.append(os.path.join(settings.WORKSPACE_ROOT, "configs", "models.yaml"))
+    candidates.append("/workspace/configs/models.yaml")
+
+    logging.getLogger("router").info("models.yaml candidates: %s", candidates)
+
+    for p in candidates:
+        if p and os.path.isfile(p):
+            return p
+
+    raise FileNotFoundError(
+        "models.yaml not found. Checked: " + ", ".join(candidates) +
+        ". Set CL_MODELS_PATH=/app/configs/models.yaml (and mount configs/)."
+    )
+
+
+def _load_cfg() -> dict:
+    #p = _resolve_models_path()
+    p = os.getenv("MODELS_CONFIG_", "/workspace/configs/models.yaml")
+
+    with open(p, "r", encoding="utf-8") as f:
+          data = yaml.safe_load(f) or {}
+    #logging.getLogger("router").info("Loaded models.yaml: %s", data)
+    return data
+
+
+def _apply_policy(task: str, chosen: dict, m_all: dict) -> dict:
+    """
+    Applica toggles/policy ai modelli (es. preferenze frontier/local, privacy).
+    'chosen' è il modello già selezionato per profilo; puoi sovrascriverlo se necessario.
+    """
+    # Leggi i flag dal tuo Settings (UPPERCASE)
+    prefer_frontier = _as_bool(getattr(settings, "PREFER_FRONTIER_FOR_REASONING", "false"))
+    prefer_local    = _as_bool(getattr(settings, "PREFER_LOCAL_FOR_CODEGEN", "false"))
+    never_cloud     = _as_bool(getattr(settings, "NEVER_SEND_SOURCE_TO_CLOUD", "false"))
+
+    # Esempi di policy (NON cambiano la tua logica se non l'avevi):
+    if prefer_frontier and task in {"spec", "plan", "chat"}:
+        # puoi qui sostituire 'chosen' con un frontier se disponibile in m_all
+        pass
+
+    if prefer_local and task in {"kit", "build"}:
+        # puoi preferire un modello con tag [local] se presente
+        pass
+
+    if never_cloud:
+        # assicurati che 'chosen' non sia cloud; in caso seleziona fallback 'local'
+        pass
+
+    return chosen
+
+def select_model_for_phase(task: str,
+                           profile_hint: Optional[str],
+                           model_override: Optional[str]) -> Tuple[str, str]:
+    """
+    Ritorna (model_id, profile_used).
+    - se model_override è impostato e != 'auto' → ('quello', 'manual')
+    - altrimenti, risolve tramite il tuo 'resolve(task, hint=...)' che legge da models.yaml
+    """
+    # 1) Modello fissato dall'utente
+    if model_override and str(model_override).lower() != "auto":
+        return model_override, "manual"
+
+    # 2) Profilo/hint → usa la tua 'resolve'
+    chosen, _warn = resolve(task=task, hint=profile_hint)   # <-- usa la tua funzione esistente
+    return chosen.get("id"), (chosen.get("profile") or "default")
+
 
 def _norm_provider(m: Dict[str,Any]) -> str:
     p = (m.get("provider") or "").lower()
@@ -93,13 +191,13 @@ def _filter_by_selector(models: List[Dict[str,Any]], select: Dict[str,Any]) -> L
 
 def _apply_policy(task: Task, model: Dict[str,Any], candidates: List[Dict[str,Any]]) -> Dict[str,Any]:
     # Prefer frontier for reasoning tasks
-    if settings.prefer_frontier_for_reasoning and task in {"spec","plan","chat"}:
+    if settings.PREFER_FRONTIER_FOR_REASONING and task in {"spec","plan","chat"}:
         frontier = [m for m in candidates if "frontier" in (m.get("tags") or [])]
         if frontier and _model_id(model) not in {_model_id(x) for x in frontier}:
             # choose highest capability among frontier
             model = max(frontier, key=lambda m: _CAP_ORD.get(m.get("capability","small"),1))
     # Prefer local for codegen tasks
-    if settings.prefer_local_for_codegen and task in {"kit","build"}:
+    if settings.PREFER_LOCAL_FOR_CODEGEN and task in {"kit","build"}:
         local = [m for m in candidates if (m.get("provider") in {"ollama","vllm"} or "local" in (m.get("tags") or []))]
         if local and _model_id(model) not in {_model_id(x) for x in local}:
             model = max(local, key=lambda m: _CAP_ORD.get(m.get("capability","small"),1))
@@ -118,12 +216,18 @@ def _normalize_profile(profile: Dict[str,Any]) -> Dict[str,Any]:
 
 def resolve(task: Task, hint: Optional[str] = None) -> Tuple[Dict[str,Any], List[str]]:
     cfg = _load_cfg()
+    logging.info(f"Resolving task={task} with hint={hint}")
     models = cfg.get("models") or []
     profiles = cfg.get("profiles") or {}
     routing = cfg.get("routing") or {}
     weights = (cfg.get("scoring") or {}).get("weights", {})
     defaults = cfg.get("defaults") or {}
 
+    logging.info(f"Resolving models={models}")
+
+
+    logging.info(f"Resolving profiles={profiles} ")
+    logging.info(f"Resolving routing={routing} with weights={weights}")
     m_index = _index_models(models)
     m_all = list(m_index.values())
 
@@ -179,11 +283,12 @@ def resolve(task: Task, hint: Optional[str] = None) -> Tuple[Dict[str,Any], List
         "temperature": chosen.get("temperature", 0.2),
         "tags": chosen.get("tags", []),
         "modality": chosen.get("modality", "chat"),
-        "redact_source": bool(settings.never_send_source_to_cloud and is_cloud),
-        "optimize_for": settings.optimize_for,
+        "redact_source": bool(settings.NEVER_SEND_SOURCE_TO_CLOUD and is_cloud),
+        "optimize_for": settings.OPTIMIZE_FOR,
         "profile": profile_name or "default",
         "defaults": defaults,
     }
+    logging.info(f"Resolving payload={payload}")
     return payload, warnings
 
 # Back-compat helper used by services

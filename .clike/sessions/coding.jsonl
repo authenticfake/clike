@@ -4,3 +4,23 @@
 {"ts":1757859089708,"mode":"coding","role":"assistant","content":"Error: Error: Timeout after 240000ms","model":"llama3"}
 {"ts":1757957835086,"mode":"coding","role":"user","content":"generami la fucnaione della radice quadrata di un numero senza utilizzare primitive in go","model":"gpt-4o-mini","attachments":[]}
 {"ts":1757957841293,"mode":"coding","role":"assistant","content":"Generated files:\n- src/generated_4656ef83/src/sqrt.go","model":"gpt-4o-mini"}
+{"ts":1758302188165,"mode":"coding","role":"user","content":"generami la fucnaione della radice quadrata di un numero senza utilizzare primitive in go\n","model":"gpt-4o-mini","attachments":[]}
+{"ts":1758302192761,"mode":"coding","role":"assistant","content":"Generated files:\n- src/generated_03f9a322/src/sqrt.go","model":"gpt-4o-mini"}
+{"ts":1758302217902,"mode":"coding","role":"user","content":"generami la fucnaione della radice quadrata di un numero senza utilizzare primitive in go\n","model":"gpt-5-nano","attachments":[]}
+{"ts":1758302225456,"mode":"coding","role":"assistant","content":"Error: Error: POST http://localhost:8080/v1/generate -> 422 {\"detail\":\"model did not produce 'files' with path+content\"}","model":"gpt-5-nano"}
+{"ts":1758304980814,"mode":"coding","role":"user","content":"mi generi una api rest in post con i seguenti metodi  put, delete, post, get patch  in go per esporre un enetita con il campo lillo. Se manca qualcosa fallo te\n","model":"gpt-5","attachments":[]}
+{"ts":1758304980871,"mode":"coding","role":"assistant","content":"Error: Error: POST http://localhost:8080/v1/chat -> 400 {\"detail\":\"mode must be 'free' for /v1/chat\"}","model":"gpt-5"}
+{"ts":1758304996224,"mode":"coding","role":"user","content":"mi generi una api rest in post con i seguenti metodi  put, delete, post, get patch  in go per esporre un enetita con il campo lillo. Se manca qualcosa fallo te\n","model":"gpt-5","attachments":[]}
+{"ts":1758305019378,"mode":"coding","role":"assistant","content":"Error: Error: POST http://localhost:8080/v1/generate -> 422 {\"detail\":\"model did not produce 'files' with path+content\"}","model":"gpt-5"}
+{"ts":1758305056305,"mode":"coding","role":"user","content":"mi generi una api rest in post con i seguenti metodi  put, delete, post, get patch  in go per esporre un enetita con il campo lillo. Se manca qualcosa fallo te\n","model":"gpt-5","attachments":[]}
+{"ts":1758305056330,"mode":"coding","role":"assistant","content":"Error: Error: POST http://localhost:8080/v1/chat -> 400 {\"detail\":\"mode must be 'free' for /v1/chat\"}","model":"gpt-5"}
+{"ts":1758305062247,"mode":"coding","role":"user","content":"mi generi una api rest in post con i seguenti metodi  put, delete, post, get patch  in go per esporre un enetita con il campo lillo. Se manca qualcosa fallo te\n","model":"gpt-5","attachments":[]}
+{"ts":1758305088931,"mode":"coding","role":"assistant","content":"Error: Error: POST http://localhost:8080/v1/generate -> 422 {\"detail\":\"model did not produce 'files' with path+content\"}","model":"gpt-5"}
+{"ts":1758306910939,"mode":"coding","role":"user","content":"mi generi una api rest in post con i seguenti metodi  put, delete, post, get patch  in go per esporre un enetita con il campo lillo. Se manca qualcosa fallo te\n","model":"gpt-4o","attachments":[]}
+{"ts":1758306920477,"mode":"coding","role":"assistant","content":"Generated files:\n- src/generated_6dc4c9cd/src/main.go","model":"gpt-4o"}
+{"ts":1758314929195,"mode":"coding","role":"user","content":"scrivi una funzione go per dire se unnuomero è unnuomero primo","model":"gpt-5-nano","attachments":[]}
+{"ts":1758314946074,"mode":"coding","role":"assistant","content":"Generated files:\n- src/generated_7810a8db/doc/module_1.txt","model":"gpt-5-nano"}
+{"ts":1758315774548,"mode":"coding","role":"user","content":"mi generi un funazione che mi verifica se un nuomero èèun nueero primo in ts?\n","model":"gpt-5-mini","attachments":[]}
+{"ts":1758315776180,"mode":"coding","role":"assistant","content":"Error: Error: POST http://localhost:8080/v1/generate -> 502 {\"detail\":\"gateway chat failed: HTTPStatusError: Client error '400 Bad Request' for url 'http://gateway:8000/v1/chat/completions'\\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400\"}","model":"gpt-5-mini"}
+{"ts":1758315839133,"mode":"coding","role":"user","content":"ehi","model":"gpt-5-mini","attachments":[]}
+{"ts":1758315839189,"mode":"coding","role":"assistant","content":"Error: Error: POST http://localhost:8080/v1/chat -> 400 {\"detail\":\"mode must be 'free' for /v1/chat\"}","model":"gpt-5-mini"}
