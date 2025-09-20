@@ -149,6 +149,11 @@
           "default": true,
           "description": "Auto-open chat at startup."
         },
+        "clike.chat.never_send_source_to_cloud": {
+          "type": "boolean",
+          "default": true,
+          "description": "Never send code to Cloud"
+        },
         "clike.chat.maxInMemoryMessages": {
           "type": "number",
           "default": 50,

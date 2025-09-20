@@ -227,7 +227,29 @@ function tplConfigJson(project) {
     }
   };
 }
+// --- profile hint for routing (used when model === 'auto') ---
+function computeProfileHint(mode, model) {
+  try {
+    const m = String(mode || 'free').toLowerCase();
+    const fixed = String(model || 'auto').toLowerCase() !== 'auto';
+    if (fixed) return null; // explicit model → no hint
+    if (m === 'harper') return 'plan.fast';
+    if (m === 'coding') return 'code.strict';
+    return null;
+  } catch { return null; }
+}
 
+// --- generic Harper runner (spec/plan/kit/build) ---
+async function callHarper(cmd, payload) {
+  const base = vscode.workspace.getConfiguration().get('clike.orchestratorUrl') || 'http://localhost:8080';
+  const url  = `${base}/v1/harper/${cmd}`;
+  const res  = await fetch(url, { method: 'POST', headers: { 'content-type':'application/json' }, body: JSON.stringify(payload) });
+  if (!res.ok) {
+    const txt = await res.text().catch(()=> '');
+    throw new Error(`orchestrator ${cmd} ${res.status}: ${txt || 'error'}`);
+  }
+  return res.json();
+}
 
 // ---------- Session & FS helpers ----------
 function wsRoot() {
@@ -241,7 +263,8 @@ function cfgChat() {
   return {
     dir: c.get('clike.chat.persistDir', '.clike/sessions'),
     maxMem: c.get('clike.chat.maxInMemoryMessages', 50),
-    autoWrite: c.get('clike.chat.autoWriteGeneratedFiles', true),    
+    autoWrite: c.get('clike.chat.autoWriteGeneratedFiles', true), 
+    neverSendSourceToCloud: c.get('clike.chat.never_send_source_to_cloud', true)   
   };
 }
 
@@ -1602,7 +1625,7 @@ function handleSlash(slash) {
   if (!slash) return;
   // dry 'Text' and 'Diffs' panels
   try { clearTextPanel(); clearDiffsPanel(); clearFilesPanel(); } catch {}
- 
+  
   // help: open overlay local
   if (slash.cmd === '/help') {
     var items = getHelpListSafe();
@@ -1617,7 +1640,6 @@ function handleSlash(slash) {
       } catch (e0) {
         items = (typeof HELP_COMMANDS !== 'undefined' && Array.isArray(HELP_COMMANDS)) ? HELP_COMMANDS : [];
       }
-
       // Normalizza in un vero array senza toccare .length di oggetti strani
       var arr;
       try {
@@ -1632,7 +1654,6 @@ function handleSlash(slash) {
       } catch (e1) {
         arr = [];
       }
-
       // Costruisci il testo in modo sicuro (no em dash, niente backtick)
       var buf = [];
       for (var i = 0, n = (arr && arr.length) ? arr.length : 0; i < n; i++) {
@@ -1643,15 +1664,12 @@ function handleSlash(slash) {
         buf.push(cmd + ' - ' + desc);
       }
       listText = buf.join('\\n');
-
       // Se vuoto, fai fallback
       if (!listText) listText = 'No commands available.';
     } catch (e) {
       listText = 'No commands available.';
     }
     try { openHelpOverlay(); } catch {}
- 
-
     return;
   }
   if (slash.cmd === '/init') {
@@ -1672,8 +1690,33 @@ function handleSlash(slash) {
     vscode.postMessage({ type: 'switchProject', name: slash.args.name || '' });
     return;
   }
-  // FUTURO: /spec /plan /kit /build /finalize → per ora inoltra come generate in mode harper
-  vscode.postMessage({ type: 'sendGenerate', mode: (mode.value === 'free' ? 'harper' : mode.value), model: model.value, prompt: (slash.cmd + (slash.args.name ? ' ' + slash.args.name : '')) });
+  if (slash.cmd === '/spec' || slash.cmd === '/plan' || slash.cmd === '/kit' || slash.cmd === '/build') {
+    // attachments della mode corrente (se li usi)
+    var modeVal  = (mode  && mode.value)  ? mode.value  : 'harper';
+    var key      = modeVal;
+    var atts = [];
+    try {
+      if (typeof attachmentsByMode !== 'undefined' && attachmentsByMode && attachmentsByMode[key]) {
+        atts = attachmentsByMode[key].slice(0);
+      }
+    } catch {}
+
+    vscode.postMessage({ type: 'harperRun', cmd: slash.cmd.slice(1), attachments: atts });
+
+    // UX: bubble utente e pulizia prompt
+    try { bubble('user', slash.cmd, (model && model.value) ? model.value : 'auto', atts); } catch {}
+    try { prompt.value = ''; } catch {}
+    return true;
+  }
+  // Fallback: slash non riconosciuto → non invio al modello, mostro help
+  try {
+    bubble('assistant',
+      'Unknown command: ' + slash.cmd + '\\nType /help to see the available commands.',
+      'system'
+    );
+  } catch {}
+  try { prompt.focus(); } catch {}
+  return;
 }
 
 
@@ -2105,6 +2148,7 @@ async function cmdOpenChat(context) {
     out.appendLine(`[webview] recv ${msg && msg?.type}`);
 
     try {
+      const state = context.workspaceState.get('clike.uiState') || { mode:'free', model:'auto', historyScope:'singleModel' };
       if (msg.type === 'harperInit') {
         try {
           const name = (msg.name || '').trim();
@@ -2151,13 +2195,13 @@ async function cmdOpenChat(context) {
           await writeFileUtf8(path.join(docRoot, 'IDEA.md'), tplIdea(name));
           await writeFileUtf8(path.join(docRoot, 'SPEC.md'), tplSpec(name));
           await writeFileUtf8(path.join(targetDir, '.gitignore'),
-      `node_modules/
-      dist/
-      .vscode/
-      .env
-      runs/
-      *.log
-      `);
+              `node_modules/
+              dist/
+              .vscode/
+              .env
+              runs/
+              *.log
+              `);
 
           await writeJson(path.join(targetDir, '.clike', 'config.json'), tplConfigJson(name));
           await writeFileUtf8(path.join(targetDir, '.clike', 'policy.yaml'), tplPolicyYaml());
@@ -2208,20 +2252,96 @@ async function cmdOpenChat(context) {
         }
         return;
       }
+      // Run Harper phase from webview (slash: /spec | /plan | /kit | /build)
+      if (msg.type === 'harperRun') {
+        try {
+          const { cmd, attachments = [] } = msg;
+          
+          const docRoot = 'docs/harper'; // default; se usi config runtime, leggila qui
+          const profileHint = computeProfileHint(state.mode, state.model);
+
+          // Core docs per fase
+          let core = [];
+          if (cmd === 'spec') core = ['IDEA.md'];
+          else if (cmd === 'plan') core = ['SPEC.md'];
+          else if (cmd === 'kit' || cmd === 'build') core = ['SPEC.md','PLAN.md'];
+
+          // Flags privacy (se già presenti altrove, riusale)
+          const flags = {
+            neverSendSourceToCloud: !!cfgChat().neverSendSourceToCloud || false,
+            redaction: true
+          };
+
+          const runId = (Math.random().toString(16).slice(2) + Date.now().toString(16));
+
+          const payload = {
+            cmd,
+            mode: state.mode,
+            model: state.model,             // 'auto' o esplicito
+            profileHint,                    // ← chiave di A3
+            docRoot,
+            core,
+            attachments,
+            flags,
+            runId,
+            historyScope: state.historyScope
+          };
+
+          // Echo pre-run
+          panel.webview.postMessage({
+            type: 'echo',
+            message: `▶ ${cmd.toUpperCase()} | mode=${state.mode} model=${state.model} profile=${profileHint || '—'} core=${JSON.stringify(core)} attachments=${attachments.length}`
+          });
+
+          const out = await callHarper(cmd, payload);
+
+          // Echo post-run (router & modello effettivo se ritornati)
+          if (out?.echo) {
+            panel.webview.postMessage({ type: 'echo', message: out.echo });
+          }
+
+          // Diffs
+          if (Array.isArray(out?.diffs) && out.diffs.length) {
+            panel.webview.postMessage({ type: 'diffs', diffs: out.diffs });
+          }
+
+          // Files (report / artifacts)
+          if (Array.isArray(out?.files) && out.files.length) {
+            panel.webview.postMessage({ type: 'files', files: out.files });
+          }
+
+          // Tests summary
+          if (out?.tests?.summary) {
+            panel.webview.postMessage({ type: 'echo', message: `✅ Tests: ${out.tests.summary}` });
+          }
+
+          // Warnings / Errors
+          if (Array.isArray(out?.warnings) && out.warnings.length) {
+            panel.webview.postMessage({ type: 'echo', message: `⚠ Warnings: ${out.warnings.join(' | ')}` });
+          }
+          if (Array.isArray(out?.errors) && out.errors.length) {
+            panel.webview.postMessage({ type: 'error', message: out.errors.join(' | ') });
+          }
+        } catch (e) {
+          panel.webview.postMessage({ type: 'error', message: (e?.message || String(e)) });
+        }
+        return;
+      }
       // opzionale utility
       if (msg.type === 'echo') {
-        await appendSessionJSONL('free', { role:'assistant', content:String(msg.message||''), model:'system' });
+        await appendSessionJSONL(state.mode, { role:'assistant', content:String(msg.message||''), model:'system' });
         return;
       }
       if (msg.type === 'where') {
+        out.appendLine('[CLike] where state ' + state.mode);
         const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
         const p = ws ? ws.uri.fsPath : '(no workspace)';
-        await appendSessionJSONL('free', { role:'assistant', content:`Workspace: ${p}`, model:'system' });
+        await appendSessionJSONL(state.mode, { role:'assistant', content:`Workspace: ${p}`, model:'system' });
         return;
       }
       if (msg.type === 'switchProject') {
         // Nota: per multi-progetto potremo salvare un puntatore in .clike/config.json
-        await appendSessionJSONL('free', { role:'assistant', content:`(placeholder) Switched project to: ${String(msg.name||'')}`, model:'system' });
+        await appendSessionJSONL(state.mode, { role:'assistant', content:`(placeholder) Switched project to: ${String(msg.name||'')}`, model:'system' });
         return;
       }
       if (msg.type === 'webview_ready') {
@@ -2283,9 +2403,7 @@ async function cmdOpenChat(context) {
           panel.webview.postMessage({ type: 'models', models: ['auto'] });
         }
         return;
-      }
-
-      
+      }      
       if (msg.type === 'setHistoryScope') {
         const value = (msg.value === 'allModels') ? 'allModels' : 'singleModel';
 
@@ -2306,8 +2424,6 @@ async function cmdOpenChat(context) {
         vscode.window.setStatusBarMessage(`CLike: history scope = ${value}`, 2000);
         return;
       }
-
-
       // 1) MODELLI
       if (msg.type === 'fetchModels') {
         const res = await fetchJson(`${orchestratorUrl}/v1/models`);
@@ -2324,7 +2440,6 @@ async function cmdOpenChat(context) {
         panel.webview.postMessage({ type: 'models', models });
         return;
       }
-
       // 2) CAMBIO UI (Mode/Model)
       if (msg.type === 'uiChanged') {
         const prev = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto',  historyScope: 'singleModel' };
@@ -2360,7 +2475,6 @@ async function cmdOpenChat(context) {
         panel.webview.postMessage({ type: 'hydrateSession', messages: msgs });
         return;
       }
-
       // 3) CLEAR SESSION (solo mode corrente)
       if (msg.type === 'clearSession') {
         const st = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto',historyScope: 'singleModel'  };
@@ -2386,7 +2500,6 @@ async function cmdOpenChat(context) {
         }
         return;
       }
-
       // 4) OPEN FILE (tab Files cliccabile)
       if (msg.type === 'openFile' && msg.path) {
         try {
@@ -2400,7 +2513,6 @@ async function cmdOpenChat(context) {
         }        
         return;
       }
-
       // 5) CHAT / GENERATE
       if (msg.type === 'sendChat' || msg.type === 'sendGenerate') {
          // cancel eventuale richiesta precedente
@@ -2500,7 +2612,6 @@ async function cmdOpenChat(context) {
         }
         return;
       }
-
       // 6) APPLY
       if (msg.type === 'apply') {
         const payload = {
@@ -2512,7 +2623,6 @@ async function cmdOpenChat(context) {
         panel.webview.postMessage({ type: 'applyResult', data: res });
         return;
       }
-
       // 7) CANCEL
       if (msg.type === 'cancel') {
         if (inflightController) inflightController.abort();
@@ -2561,7 +2671,6 @@ async function cmdOpenChat(context) {
         panel.webview.postMessage({ type: 'attachmentsAdded', attachments: atts });
         return;
       }
-
       if (msg.type === 'pickExternalFiles') {
         const uris = await vscode.window.showOpenDialog({
           canSelectFiles: true, canSelectFolders: false, canSelectMany: true,

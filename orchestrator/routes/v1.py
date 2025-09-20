@@ -75,33 +75,38 @@ def _coerce_to_schema(raw_text: str, lang_hint: str = "") -> tuple[list[dict], l
     Restituisce (files, messages) secondo lo schema unico:
       files: [{path, content, language?}]
       messages: [{"role":"assistant","content": "..."}] (facoltativo)
-    Se non trova JSON valido con .files, prova code fences. NON crea placeholder, NON genera test.
+    Strategia:
+      1) Prova JSON; considera valido SOLO se contiene files[] NON vuoto
+      2) In caso contrario, prova code fences
+      3) Normalizza i record
+      4) Se ancora vuoto, esponi il testo come message (ma NON creare .txt da JSON eco)
     """
     files: list[dict] = []
     messages: list[dict] = []
 
-    # 1) Prova JSON
+    # 1) JSON (valido solo con files non vuoto)
     try:
         pj = _extract_json(raw_text)
-        jf = pj.get("files") or []
-        if isinstance(jf, list) and jf:
+        jf = pj.get("files") if isinstance(pj, dict) else None
+        if isinstance(jf, list) and len(jf) > 0:
             files = jf
-        jm = pj.get("messages") or pj.get("message") or []
-        if isinstance(jm, list):
-            messages = jm
-        elif isinstance(jm, dict) and jm.get("content"):
-            messages = [jm]
+            jm = pj.get("messages") or pj.get("message") or []
+            if isinstance(jm, list):
+                messages = jm
+            elif isinstance(jm, dict) and jm.get("content"):
+                messages = [jm]
     except Exception:
         pass
 
-    # 2) Fallback code-fences se non ho files
+    # 2) Code fences se ancora niente
     if not files:
         files = _extract_files_from_fences(raw_text)
 
-    # 3) Normalizza per write
+    # 3) Normalizza
     files = _normalize_files_for_write(files)
 
-    # 4) Se ancora vuoto → nessun file; prova a esporre il testo come message
+    # 4) Se ancora vuoto → NON serializzare il JSON eco come file .txt.
+    #    Mettiamo un messaggio di cortesia; i layer superiori decideranno se 422.
     if not files and raw_text.strip():
         messages = messages or [{"role": "assistant", "content": raw_text.strip()}]
 
@@ -760,13 +765,20 @@ async def chat(req: Request):
     #     model = fallback
 
     try:
+        # usa i messaggi arricchiti (sys + inline + RAG)
         text = await llm_client.call_gateway_chat(
-            model, messages,
+            model, msgs,
             base_url=str(getattr(settings, "GATEWAY_URL", "http://localhost:8000")),
             timeout=float(getattr(settings, "REQUEST_TIMEOUT_S", 60)),
             temperature=body.get("temperature", 0.2),
             max_tokens=body.get("max_tokens", 512),
-        )       
+        )
+        # dump del provider text (sintetico) e, se serve, raw
+        try:
+            _dump_artifact(run_dir, "gateway_text.txt", text)
+        except Exception:
+            pass
+      
     except Exception as e:
         raise HTTPException(502, f"gateway chat failed: {type(e).__name__}: {e}")
 
@@ -923,8 +935,20 @@ async def generate(req: Request):
     if extra_imgs:
         files.extend(extra_imgs)
 
+    # --- NEW: robust fallback to avoid 422 across GPT-5/4/3/vLLM ---
     if not files:
-        raise HTTPException(422, "model did not produce 'files' with path+content")
+        # 1) prova a “ripulire” e a costruire 1 file dal testo grezzo
+        cleaned = _strip_markdown_and_noise(raw)
+        fallback_lang = (body.get("language") or "")
+        files = _fallback_single_file_from_text(cleaned, fallback_lang)
+
+        # 2) ultima chance: se ancora nulla, prova a estrarre code-fences una volta in più
+        if not files:
+            files = _extract_files_from_fences(raw)
+
+        # 3) se ancora vuoto → allora 422 (caso effettivo di mancato output file)
+        if not files:
+            raise HTTPException(422, "model did not produce 'files' with path+content")
 
     # Bucketizza in src/ o doc/ dentro generated_<id>
     files_planned: list[dict] = []
@@ -958,6 +982,13 @@ async def generate(req: Request):
     }
     with open(os.path.join(run_dir, "response.json"), "w", encoding="utf-8") as f:
         json.dump(resp, f, ensure_ascii=False, indent=2)
+        # Salva un files.json che /apply si aspetta
+    try:
+        with open(os.path.join(run_dir, "files.json"), "w", encoding="utf-8") as ff:
+            json.dump(files_planned, ff, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
     return resp
 
 def _strip_markdown_and_noise(text: str) -> str:
@@ -1055,14 +1086,15 @@ async def apply(req: Request):
         # Scrittura sul filesystem
         try:
             os.makedirs(os.path.dirname(path), exist_ok=True)
-            with _write_file_any(path, fobj) as wf:
-                wf.write(content)
+            # _write_file_any scrive lui sul FS (non è un context manager)
+            _write_file_any(path, fobj)
             applied.append(path)
 
             audit_apply.append({
                 "path": path,
                 "content_preview": (content[:120] if isinstance(content, str) else str(type(content)))
             })
+
         except Exception as e:
             failures.append({"path": path, "error": f"{type(e).__name__}: {e}"})
 

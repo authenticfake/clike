@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     PREFER_LOCAL_FOR_CODEGEN: str = os.getenv("PREFER_LOCAL_FOR_CODEGEN", "true")
     PREFER_FRONTIER_FOR_REASONING: str = os.getenv("PREFER_FRONTIER_FOR_REASONING", "true")
     NEVER_SEND_SOURCE_TO_CLOUD: str = os.getenv("NEVER_SEND_SOURCE_TO_CLOUD", "true")
-
+    OPTIMIZE_FOR: str = os.getenv("OPTIMIZE_FOR", "capability")
 
     CODE_ROOT_BASE: str = "src"
     TEST_ROOT_BASE: str = "tests"
@@ -49,6 +49,8 @@ class Settings(BaseSettings):
 
     # Models config (fallback legacy, usato SOLO in fallback dal model_router)
     MODELS_CONFIG_PATH: str = os.getenv("MODELS_CONFIG", _default_models_cfg_path())
+    MODELS_CONFIG: str = os.getenv("MODELS_CONFIG", _default_models_cfg_path())
+
 
     # --- Feature flags split multi-lingua (fase 1: anche solo segnaposto) ---
     SPLIT_ENABLE_PY: bool = True
@@ -71,6 +73,8 @@ class Settings(BaseSettings):
     # --- Paths di progetto (usati per mapping file e test) ---
     CODE_ROOT: str = "src"
     TEST_ROOT: str = "tests"
+
+
     # Tooling flags — unico posto per leggerli (retro-compat con ENV)
     def tool_flag(self, name: str, default: bool = True) -> bool:
         v = os.getenv(name, None)
@@ -80,5 +84,6 @@ class Settings(BaseSettings):
 
     class Config:
         env_file = ".env"
+
 
 settings = Settings()

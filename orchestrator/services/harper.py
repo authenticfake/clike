@@ -1,77 +1,71 @@
 # Phase services (SPEC/PLAN/KIT) orchestrating prompts, evals and runs.
 # Iterations: each call may update documents and re-run gates.
 # Branching (future): for KIT change-requests, create feature branches per request.
-
+# Phase services (SPEC/PLAN/KIT/BUILD) orchestrating routing and gateway calls.
 from __future__ import annotations
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional, List
+import os
 from datetime import datetime
-import os, json
 
-from services.gateway import GatewayClient
-from services.router import select_profile
-from services.evals import run_phase_gates, run_global_gates
+import httpx  # ensure available in requirements
+from services.router import select_model_for_phase, Task
 
-RUNS_DIR = "runs"
+GATEWAY_URL = os.environ.get("CL_GATEWAY_URL", "http://gateway:8000")
 
 def _new_run_id(phase: str) -> str:
     ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
     return f"{ts}-{phase}"
 
-def _ensure_run_dir(run_id: str) -> str:
-    path = os.path.join(RUNS_DIR, run_id)
-    os.makedirs(path, exist_ok=True)
-    return path
+async def _post_json(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    url = f"{GATEWAY_URL.rstrip('/')}{path}"
+    async with httpx.AsyncClient(timeout=20) as client:
+        r = await client.post(url, json=payload)
+        r.raise_for_status()
+        return r.json()
 
-def generate_spec(idea_md: Optional[str]) -> Dict[str, Any]:
-    run_id = _new_run_id("spec")
-    rdir = _ensure_run_dir(run_id)
-    profile = select_profile("spec", None)
-    client = GatewayClient(); _ = (client, profile)  # TODO: wire actual prompt/messages
+async def run_phase(phase: Task, req) -> Dict[str, Any]:
+    """Resolve model/profile and run phase via gateway."""
+    # 1) Resolve model with hint (only when model=='auto')
+    model_id, profile_used = select_model_for_phase(
+        task=phase,
+        profile_hint=getattr(req, "profile_hint", None),
+        model_override=getattr(req, "model", None),
+    )
+    is_manual = (str(getattr(req, "model", "auto")).lower() != "auto")
+    route_msg = f"router={'manual' if is_manual else (getattr(req,'profile_hint',None) or 'auto')} → {model_id}"
 
-    spec_md = "# SPEC\n\n## 1) Business Context\n...\n## 2) Goals & Outcomes\n...\n## 3) Constraints\n...\n## 4) Non-Goals\n...\n## 5) Success Metrics\n...\n## 6) Assumptions & Risks\n...\n"
-    open(os.path.join(rdir, "SPEC.md"), "w", encoding="utf-8").write(spec_md)
+    # 2) Build payload for gateway (propagate profile)
+    payload = {
+        "phase": phase,
+        "mode": getattr(req, "mode", None),
+        "model": model_id,
+        "profile": getattr(req, "profile_hint", None),
+        "docRoot": getattr(req, "doc_root", "docs/harper"),
+        "core": getattr(req, "core", []) or [],
+        "attachments": getattr(req, "attachments", []) or [],
+        "flags": getattr(req, "flags", {}) or {},
+        "runId": getattr(req, "run_id", None) or _new_run_id(phase),
+    }
 
-    pg = run_phase_gates()
-    manifest = {"phase":"spec","run_id":run_id,"ok":pg.get("ok",True),"summary":pg.get("summary",{}),"profile":profile}
-    open(os.path.join(rdir, "manifest.json"), "w", encoding="utf-8").write(json.dumps(manifest, indent=2))
-    return {"spec_md": spec_md, "phase_ok": manifest["ok"], "phase_summary": manifest["summary"], "run_id": run_id}
+    # 3) Inline docs (for early MVP; gateway may ignore/consume)
+    #    Keep field names as you already defined in request models
+    if phase == "spec":
+        payload["idea_md"] = getattr(req, "idea_md", None)
+    elif phase == "plan":
+        payload["spec_md"] = getattr(req, "spec_md")
+    elif phase == "kit":
+        payload["spec_md"] = getattr(req, "spec_md")
+        payload["plan_md"] = getattr(req, "plan_md")
+        payload["todo_ids"] = getattr(req, "todo_ids", None)
+    elif phase == "build":
+        payload["spec_md"] = getattr(req, "spec_md")
+        payload["plan_md"] = getattr(req, "plan_md")
 
-def generate_plan(spec_md: str) -> Dict[str, Any]:
-    run_id = _new_run_id("plan")
-    rdir = _ensure_run_dir(run_id)
-    profile = select_profile("plan", None)
-    client = GatewayClient(); _ = (client, profile)
+    # 4) Call gateway
+    out = await _post_json("/v1/harper/run", payload)
 
-    plan_md = "| ID | Desc | Priority | Status | Deps | Notes |\n|---|---|---|---|---|---|\n"
-    open(os.path.join(rdir, "PLAN.md"), "w", encoding="utf-8").write(plan_md)
-
-    pg = run_phase_gates()
-    manifest = {"phase":"plan","run_id":run_id,"ok":pg.get("ok",True),"summary":pg.get("summary",{}),"profile":profile}
-    open(os.path.join(rdir, "manifest.json"), "w", encoding="utf-8").write(json.dumps(manifest, indent=2))
-    return {"plan_md": plan_md, "phase_ok": manifest["ok"], "phase_summary": manifest["summary"], "run_id": run_id}
-
-def generate_kit(spec_md: str, plan_md: str, todo_ids: Optional[List[str]]) -> Dict[str, Any]:
-    run_id = _new_run_id("kit")
-    rdir = _ensure_run_dir(run_id)
-    profile = select_profile("kit", None)
-    client = GatewayClient(); _ = (client, profile)
-
-    kit_md = "# KIT\n\n## Deliverables\n...\n## How to Run\n...\n## How to Test & Validate\n...\n"
-    open(os.path.join(rdir, "KIT.md"), "w", encoding="utf-8").write(kit_md)
-
-    pg = run_phase_gates()
-    manifest = {"phase":"kit","run_id":run_id,"ok":pg.get("ok",True),"summary":pg.get("summary",{}),"profile":profile,"todo_ids":todo_ids or []}
-    open(os.path.join(rdir, "manifest.json"), "w", encoding="utf-8").write(json.dumps(manifest, indent=2))
-    return {"kit_md": kit_md, "phase_ok": manifest["ok"], "phase_summary": manifest["summary"], "run_id": run_id}
-
-def build_next(spec_md: str, plan_md: str, batch_size: int) -> Dict[str, Any]:
-    run_id = _new_run_id("build")
-    rdir = _ensure_run_dir(run_id)
-    profile = select_profile("build", None)
-    client = GatewayClient(); _ = (client, profile)
-
-    # TODO: select next N TODOs, generate diffs and tests via prompts, apply patches (dry-run first)
-    gg = run_global_gates()
-    manifest = {"phase":"build","run_id":run_id,"ok":gg.get("ok",True),"summary":gg.get("summary",{}),"profile":profile,"batch_size":batch_size}
-    open(os.path.join(rdir, "manifest.json"), "w", encoding="utf-8").write(json.dumps(manifest, indent=2))
-    return {"updated_plan_md": plan_md, "diffs": [], "ok": manifest["ok"], "gate_summary": manifest["summary"], "run_id": run_id}
+    # 5) Enrich echo for transparency
+    if isinstance(out, dict):
+        prev = out.get("echo", "")
+        out["echo"] = (prev + " | " if prev else "") + route_msg
+    return out

@@ -9,6 +9,8 @@ from routes.chat import router as chat_router
 from routes.embeddings import router as embed_router
 from routes.health import router as health_router
 from routes.models import router as models_router
+from routes.harper import router as harper_router   # ⬅️ AGGIUNGI
+
 
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -54,3 +56,4 @@ app.include_router(health_router)
 app.include_router(chat_router)
 app.include_router(embed_router)
 app.include_router(models_router)
+app.include_router(harper_router)   
