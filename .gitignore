@@ -19,6 +19,8 @@ docker/runs/*
 src/
 ./runs/
 runs/
+generated/
+./generated/
 # Python
 __pycache__/
 *.pyc

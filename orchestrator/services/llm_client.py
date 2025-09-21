@@ -72,7 +72,7 @@ async def call_gateway_chat(
     max_tokens: int = 512,
     base_url: str | None = None,
     timeout: float | None = None,
-    response_format=None, tools=None, tool_choice=None, profile=None
+    response_format=None, tools=None, tool_choice=None, profile=None, provider=None
 ) -> str:
     import httpx
     base = (base_url or str(getattr(settings, "GATEWAY_URL", "http://localhost:8000"))).rstrip("/")
@@ -86,15 +86,22 @@ async def call_gateway_chat(
         body["tool_choice"] = tool_choice
     if profile is not None:
         body["profile"] = profile  # facoltativo, utile per osservabilità/routing coerente
+    if provider is not None:
+        body["provider"] = provider
    
     log.info("generate request: %s", json.dumps({
         "model": body.get("model"),
         "messages_len": len(messages),
         "has_response_format": bool(response_format),
-        "has_tools": bool(tools)
+        "has_tools": bool(tools),
+        "provider": body.get("provider")
     }))
+    headers = {"Content-Type": "application/json"}
+    if provider is not None:
+        headers["X-CLike-Provider"] = provider
+        
     async with httpx.AsyncClient(timeout=to) as client:
-        r = await client.post(f"{base}/v1/chat/completions", json=body)
+        r = await client.post(f"{base}/v1/chat/completions", json=body, headers=headers)
         r.raise_for_status()
         data = r.json() or {}
         msg = ((data.get("choices") or [{}])[0].get("message") or {})

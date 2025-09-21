@@ -46,6 +46,65 @@ DATA_URL_RE = re.compile(r'data:(image/[\w\-\+\.]+);base64,([A-Za-z0-9+/=]+)')
 import time as _time
 from copy import deepcopy as _deepcopy
 
+# --- Generated root selection -------------------------------------------------
+import uuid
+
+def _pick_generated_root() -> str:
+    """
+    Root di output per i file generati.
+    Ordine preferenze:
+    - env 'GENERATED_ROOT' (fallback al typo citato)
+    - default: 'generated_<shortuuid>'
+    """
+    env = os.getenv("GENERATED_ROOT")
+    if env:
+        return env.rstrip("/")
+
+    short = str(uuid.uuid4()).split("-")[0]
+    return f"generated_{short}"
+
+def _bucket_subdir(path: str) -> str:
+    ext = (os.path.splitext(path)[1] or "").lower()
+    path= "docs"
+    if ext in CODE_EXTS:
+        path = "src"
+    if ext in IMAGE_EXTS:
+        path = "images"
+    if ext in DOC_EXTS:
+        path = "docs"
+    # default: documentazione
+    return path
+
+def _retarget_files_under_generated(files: list[dict], prefix_path: str) -> list[dict]:
+    """
+    Riallincia i path dei file in base a GENERATED_ROOT e ai bucket {src, docs, images}.
+    """
+    log.info("_retarget_files_under_generated")
+    base = _pick_generated_root()
+    
+    log.info("_retarget_files_under_generated --> Generated root:  %s", base)
+    out: list[dict] = []
+    temp_path =""
+    for f in files or []:
+        p = str(f.get("path") or "").lstrip("/").strip()
+        
+        c = f.get("content")
+        if not p or c is None:
+            continue
+       
+        sub = _bucket_subdir(p)
+        
+        intermediate_path = os.path.join(base, prefix_path)
+        log.info(f"Retargeting 1 {p} to {intermediate_path} (subdir={sub})")
+        # preserva solo il basename per evitare annidamenti sporchi
+        bn = os.path.basename(p)
+        log.info(f"Retargeting 2 bn to {bn} (subdir={sub})") 
+        new_path = os.path.join(intermediate_path, sub, bn)
+        out.append({"path": new_path, "content": c})
+        log.info(f"Retargeting 3 {p} to {new_path}")
+    return out
+
+
 def _json_safe(obj):
     """Trasforma ricorsivamente set() -> list per garantire JSON serializzabile."""
     if isinstance(obj, dict):
@@ -76,124 +135,6 @@ def _inject_coding_system(msgs: list) -> list:
         ),
     }
     return [sys] + msgs
-def _extract_files_from_tool_calls(data: dict) -> list:
-    """Cerca choices[0].message.tool_calls[].function{name='emit_files'}.arguments e ne estrae files[]."""
-    try:
-        choice = (data.get("choices") or [{}])[0]
-        msg = choice.get("message") or {}
-        tcs = msg.get("tool_calls") or []
-        for tc in tcs:
-            fn = ((tc.get("function") or {}).get("name") or "").strip()
-            if fn != "emit_files":
-                continue
-            args = (tc.get("function") or {}).get("arguments")
-            # args può essere già dict o stringa JSON / fenced
-            if isinstance(args, dict):
-                obj = args
-            else:
-                s = str(args or "")
-                s = s.strip().strip("`")
-                if s.lower().startswith("json"):
-                    s = s[4:].strip()
-                try:
-                    obj = json.loads(s)
-                except json.JSONDecodeError:
-                    # prova a prendere il blocco {...} più grande
-                    m = re.search(r"\{[\s\S]*\}", s)
-                    if m:
-                        try:
-                            obj = json.loads(m.group(0))
-                        except Exception:
-                            obj = {}
-                    else:
-                        obj = {}
-            files = obj.get("files") if isinstance(obj, dict) else None
-            if isinstance(files, list):
-                out = []
-                for f in files:
-                    p = (f or {}).get("path")
-                    c = (f or {}).get("content")
-                    if isinstance(p, str) and isinstance(c, str):
-                        out.append({"path": p, "content": c})
-                if out:
-                    return out
-    except Exception as e:
-        log.error("parse tool_calls error: %s", e)
-    return []
-
-def _fallback_files_from_content(data: dict) -> list:
-    """Se non c'è tool-call, prova a estrarre ```...``` e mappa a file di ripiego."""
-    try:
-        choice = (data.get("choices") or [{}])[0]
-        msg = choice.get("message") or {}
-        content = msg.get("content", "")
-        if not isinstance(content, str) or not content.strip():
-            return []
-        blocks = re.findall(r"```([^\n]*)\n([\s\S]*?)```", content)
-        if not blocks:
-            return []
-        base = f"src/generated_{uuid.uuid4().hex[:8]}"
-        out, idx = [], 1
-        for lang, code in blocks:
-            # se nel fence c'è un nome-file tipo "python:path/to/file.py", prova a separarlo
-            lang = (lang or "").strip()
-            if ":" in lang:
-                maybe_lang, maybe_path = lang.split(":", 1)
-                path = maybe_path.strip() or f"{base}/snippet_{idx}.txt"
-            else:
-                path = f"{base}/snippet_{idx}.txt"
-            out.append({"path": path, "content": code})
-            idx += 1
-        return out
-    except Exception:
-        return []
-
-def _extract_files_from_tool_calls(data: dict) -> list:
-    """Cerca choices[0].message.tool_calls[].function{name='emit_files'}.arguments e ne estrae files[]."""
-    try:
-        choice = (data.get("choices") or [{}])[0]
-        msg = choice.get("message") or {}
-        tcs = msg.get("tool_calls") or []
-        for tc in tcs:
-            fn = ((tc.get("function") or {}).get("name") or "").strip()
-            if fn != "emit_files":
-                continue
-            args = (tc.get("function") or {}).get("arguments")
-            # args può essere già dict o stringa JSON / fenced
-            if isinstance(args, dict):
-                obj = args
-            else:
-                s = str(args or "")
-                s = s.strip().strip("`")
-                if s.lower().startswith("json"):
-                    s = s[4:].strip()
-                try:
-                    obj = json.loads(s)
-                except json.JSONDecodeError:
-                    # prova a prendere il blocco {...} più grande
-                    m = re.search(r"\{[\s\S]*\}", s)
-                    if m:
-                        try:
-                            obj = json.loads(m.group(0))
-                        except Exception:
-                            obj = {}
-                    else:
-                        obj = {}
-            files = obj.get("files") if isinstance(obj, dict) else None
-            if isinstance(files, list):
-                out = []
-                for f in files:
-                    p = (f or {}).get("path")
-                    c = (f or {}).get("content")
-                    if isinstance(p, str) and isinstance(c, str):
-                        out.append({"path": p, "content": c})
-                if out:
-                    return out
-    except Exception as e:
-        log.error("parse tool_calls error: %s", e)
-    return []
-
-
 
 _CODE_FENCE_RE = re.compile(r"```(?P<lang>[a-zA-Z0-9+\-._]*)\s*\n(?P<code>.*?)(?:\r?\n)?```", re.DOTALL)
 
@@ -406,6 +347,7 @@ async def chat(req: Request):
     if mode not in ("free",):
         raise HTTPException(400, "mode must be 'free' for /v1/chat")
 
+    provider = (body.get("provider") or "").lower().strip()
     model = body.get("model") or "auto"
     messages = body.get("messages") or []
     if not isinstance(messages, list) or not messages:
@@ -414,7 +356,7 @@ async def chat(req: Request):
     # Attachments → inline vs rag
     attachments = body.get("attachments") or []
     inline_files, rag_files = await _decide_inline_or_rag(attachments)
-
+    
     # query per RAG
     user_query = ""
     for m in reversed(messages):
@@ -447,11 +389,12 @@ async def chat(req: Request):
         raise HTTPException(400, f"model '{model}' is an embedding model and cannot be used for chat.")
 
        # log input (già presente, lascialo pure)
-    log.info("chat request: %s", json.dumps({"model": model, "messages_len": len(messages)}, ensure_ascii=False))
+    log.info("chat request: %s", json.dumps({"model": model, "provider": provider, "messages_len": len(messages)}, ensure_ascii=False))
 
     # Prepara meta per log
     _t0 = _time.time()
     _gw = str(getattr(settings, "GATEWAY_URL", "http://localhost:8000")).rstrip("/")
+ 
 
     try:
         text = await llm_client.call_gateway_chat(
@@ -460,6 +403,7 @@ async def chat(req: Request):
             timeout=float(getattr(settings, "REQUEST_TIMEOUT_S", 60)),
             temperature=body.get("temperature", 0.2),
             max_tokens=body.get("max_tokens", 512),
+            provider=provider or None,
         )
         _ms = int((_time.time() - _t0) * 1000)
         log.info("chat response: %s", json.dumps({"text_len": len(text or ""), "latency_ms": _ms}, ensure_ascii=False))
@@ -545,6 +489,8 @@ async def generate(req: Request):
         raise HTTPException(400, "mode must be 'harper' or 'coding'")
 
     model = body.get("model") or "auto"
+    provider = (body.get("provider") or "").lower().strip()  # <---
+
     messages = body.get("messages") or []
     # Enforce tool-call in coding mode
     messages = _inject_coding_system(messages)
@@ -630,7 +576,9 @@ async def generate(req: Request):
     }
     payload["tools"] = [emit_files_tool]
     payload["tool_choice"] = {"type": "function", "function": {"name": "emit_files"}}
-    
+    if provider is not None:
+        payload["provider"] = provider
+        
     if temperature is not None:
         if not model.startswith("gpt-5"):
             payload["temperature"] = temperature
@@ -652,10 +600,11 @@ async def generate(req: Request):
     payload = _json_safe(payload)
 
 
-
         # --- LOG rich: request/response gateway ---
     _t0 = _time.time()
     _headers = {"Content-Type": "application/json", "X-CLike-Profile": "code.strict"}
+    if provider:
+        _headers["X-CLike-Provider"] = provider
    
     log.info("gateway.request %s", json.dumps({
         "url": f"{base_url}/v1/chat/completions",
@@ -664,6 +613,7 @@ async def generate(req: Request):
         "tools": bool(payload.get("tools")),
         "tool_choice": bool(payload.get("tool_choice")),
         "max_tokens": payload.get("max_tokens"),
+        "provider": payload.get("provider"),
         "max_completion_tokens": payload.get("max_completion_tokens"),
     }, ensure_ascii=False))
    
@@ -705,11 +655,13 @@ async def generate(req: Request):
                                 args = json.loads(args_raw) if isinstance(args_raw, str) else (args_raw or {})
                             except Exception:
                                 args = {}
-                            files = (args.get("files") or [])
-                            out = _normalize_files_for_write(files)  # tua utility già presente
-                            log.info("generate tool_calls->files %s", json.dumps({"count": len(out)}, ensure_ascii=False))
-                            if out:
-                                return {"files": out}
+                            parsed = (args.get("files") or [])
+                            
+                            files = _normalize_files_for_write(parsed)  # tua utility già presente
+
+                            log.info("generate tool_calls->files %s", json.dumps({"count": len(files)}, ensure_ascii=False))
+                            break;
+                            
 
                 # 2) fallback: JSON puro in content
                 text = msg.get("content") or ""
@@ -717,18 +669,39 @@ async def generate(req: Request):
                     try:
                         obj = json.loads(text)
                         files = (obj.get("files") or [])
-                        out = _normalize_files_for_write(files)
-                        log.info("generate content-json->files %s", json.dumps({"count": len(out)}, ensure_ascii=False))
-                        if out:
-                            return {"files": out}
+                        files = _normalize_files_for_write(files)
+                        log.info("generate content-json->files %s", json.dumps({"count": len(files)}, ensure_ascii=False))
+                        
                     except Exception:
                         pass
 
-                # 3) nessun file → 422
-                log.info("generate no-files: message_preview=%s", json.dumps({"role": msg.get("role"), "len": len(text)}, ensure_ascii=False))
-                raise HTTPException(status_code=422, detail="model did not produce 'files' with path+content")
-
-
+                log.info("Estrai dai tool_calls files=%s", json.dumps({"count": len(files)}, ensure_ascii=False))
+                # se ancora vuoto → 422 coerente
+                if not files:
+                    log.info("generate no-files (nothing from tool_calls/json/fences)")
+                    raise HTTPException(status_code=422, detail="model did not produce 'files' with path+content")
+                temp_path = str(uuid.uuid4()).split("-")[0]
+                # 4) retarget sotto generated_<uuid> (o GENERATED_ROOT)
+                files = _retarget_files_under_generated(files, temp_path)   # <— prima dei diff!
+                diffs: List[Dict[str, Any]] = []
+                for fobj in files:
+                    path = fobj["path"]
+                    content = fobj.get("content", "")
+                    prev = su.read_file(path) or ""
+                    patch = su.to_diff(prev, content, path)
+                    diffs.append({"path": path, "diff": patch})
+                # 6) risultato completo (text + diffs)
+                result = {
+                    "version": "1.0",
+                    "files": files,
+                    "usage": data.get("usage") or {},
+                    "sources": [],
+                    "text": "Generated files:\n" + "\n".join(f"- {f['path']}" for f in files),
+                    "diffs": diffs or ["(No diffs computed: new files)"],
+                    "audit_id": "coding-toolcalls",
+                }
+                
+                return result
 
             else:
                 log.error("gateway.response %s", json.dumps({
@@ -737,6 +710,7 @@ async def generate(req: Request):
                     "error_text": _shrink_text(txt, 2000)
                 }, ensure_ascii=False))
                 r.raise_for_status()
+
     except httpx.HTTPStatusError as e:
         # Propaga il vero body (niente 502 generici)
         raise HTTPException(e.response.status_code, detail=f"gateway chat failed: {e.response.text}")
@@ -744,80 +718,7 @@ async def generate(req: Request):
         raise HTTPException(502, f"gateway chat failed: {type(e).__name__}: {e}")
 
     
-    log.info("Estrai dai tool_calls files=%s", json.dumps({"count": len(files)}, ensure_ascii=False))
-
-    # 1) Estrai dai tool_calls
-    files: List[Dict[str, Any]] = []
-    try:
-        ch = (data.get("choices") or [])[0]
-        msg = ch.get("message") or {}
-        tc  = msg.get("tool_calls") or []
-        if tc:
-            fn  = (tc[0] or {}).get("function") or {}
-            args = fn.get("arguments") or "{}"
-            obj = json.loads(args)
-            if isinstance(obj.get("files"), list):
-                files = obj["files"]
-    except Exception:
-        files = []
-
-    log.info("Estrai dai tool_calls files=%s", json.dumps({"count": len(files)}, ensure_ascii=False))
-
-
-    # 2) Se vuoto, prova JSON "plain"
-    content_str: Optional[str] = None
-    if not files:
-        try:
-            content_str = (data.get("choices") or [{}])[0].get("message", {}).get("content")
-        except Exception:
-            content_str = None
-        if not content_str and "text" in data:
-            content_str = data.get("text")
-        if isinstance(content_str, str) and content_str.strip():
-            try:
-                pj = _extract_json(content_str)
-                jf = pj.get("files") if isinstance(pj, dict) else None
-                if isinstance(jf, list) and jf:
-                    files = jf
-            except Exception:
-                pass
-    
-    log.info("Se vuoto, prova JSON files=%s", json.dumps({"count": len(files)}, ensure_ascii=False))
-
-
-    # 3) Ultimo fallback: code fences
-    if not files and isinstance(content_str, str):
-        files = _extract_files_from_fences(content_str or "")
-    
-    log.info("Ultimo fallback: code fences files=%s", json.dumps({"count": len(files)}, ensure_ascii=False))
-
-
-    # normalizza
-    files = _normalize_files_for_write(files)
-    log.info("normalizza files=%s", json.dumps({"count": len(files)}, ensure_ascii=False))
-
-
-    if not files:
-        log.info("HTTPException PP")
-
-        # segnala in modo chiaro
-        raise HTTPException(status_code=422, detail="model did not produce 'files' with path+content")
-
-    # (Opzionale) bucketize sotto cartella generated_<id> — se vuoi pianificare i path
-    # Qui restituiamo i path così come prodotti dal modello per massima trasparenza UI.
-    # Se preferisci organizzarli:
-    # mapped = []
-    # for f in files:
-    #     mapped.append({**f, "path": _bucketize_path(f"src/generated_{gen_id}", f.get("path") or "file.txt")})
-    # files = mapped
-
-    return {
-        "version": "1.0",
-        "files": files,
-        "usage": data.get("usage") or {},
-        "sources": [],
-        "audit_id": "coding-toolcalls",
-    }
+   
 
 # -------------------------------- Apply -------------------------------------
 
