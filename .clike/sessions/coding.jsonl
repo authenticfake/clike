@@ -1,0 +1,4 @@
+{"ts":1758446088494,"mode":"coding","role":"user","content":"mi generi una funzione che calcola se un numenro è un numenro primo in go\n","model":"gpt-5-mini","attachments":[]}
+{"ts":1758446115298,"mode":"coding","role":"assistant","content":"Generated files:\n- isprime.go","model":"gpt-5-mini"}
+{"ts":1758446162027,"mode":"coding","role":"user","content":"mi generi una funzione che calcola se un numenro è un numenro primo in go\n","model":"gpt-5-nano","attachments":[]}
+{"ts":1758446181789,"mode":"coding","role":"assistant","content":"Generated files:\n- prime/is_prime.go","model":"gpt-5-nano"}
