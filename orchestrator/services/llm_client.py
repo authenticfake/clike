@@ -7,6 +7,59 @@ import  json, logging
 
 
 log = logging.getLogger("llm")
+# orchestrator/services/llm_client.py
+
+import os, json, httpx, asyncio
+from typing import Any, Dict, List, Optional
+
+# ... i tuoi import/utility già presenti ...
+
+async def call_gateway_chat_json(
+    model: str,
+    messages: List[Dict[str, Any]],
+    base_url: str = "http://localhost:8000",
+    timeout: float = 60.0,
+    temperature: Optional[float] = None,
+    max_tokens: Optional[int] = None,
+    response_format: Optional[Dict[str, Any]] = None,
+    tools: Optional[List[Dict[str, Any]]] = None,
+    tool_choice: Optional[Dict[str, Any]] = None,
+    profile: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Variante che ritorna direttamente il JSON del gateway.
+    Non tocca la call esistente (che torna stringa).
+    """
+    payload: Dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+    }
+    if temperature is not None:
+        payload["temperature"] = temperature
+    if max_tokens is not None:
+        # allineo sia max_tokens che max_completion_tokens per GPT-5
+        payload["max_tokens"] = int(max_tokens)
+        if str(model).startswith("gpt-5"):
+            payload["max_completion_tokens"] = int(max_tokens)
+
+    if response_format is not None:
+        payload["response_format"] = response_format
+    if tools is not None:
+        payload["tools"] = tools
+    if tool_choice is not None:
+        payload["tool_choice"] = tool_choice
+    if profile is not None:
+        payload["profile"] = profile
+
+    url = base_url.rstrip("/") + "/v1/chat/completions"
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        r = await client.post(url, json=payload)
+        # Se il provider risponde 400/500, riporto il body per diagnosi chiare
+        try:
+            r.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            raise RuntimeError(f"gateway HTTP {r.status_code}: {r.text}") from e
+        return r.json()
 
 # Timeout più alto per cold-start: 120s di read/write/pool
 _DEFAULT_TIMEOUT = httpx.Timeout(connect=5.0, read=120.0, write=120.0, pool=120.0)
