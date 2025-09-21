@@ -4,7 +4,6 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 from fastapi import APIRouter, HTTPException, Request, Query
 import httpx
-
 from config import settings
 from services import utils as su
 from services import llm_client
@@ -43,64 +42,158 @@ DOC_EXTS = {
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".tif", ".tiff"}
 DATA_URL_RE = re.compile(r'data:(image/[\w\-\+\.]+);base64,([A-Za-z0-9+/=]+)')
 
-# --- add imports se non ci sono già ---
-import json
-from typing import Any, Dict, List, Optional
+# --- LOGGING UTILS (aggiunta) ---
+import time as _time
+from copy import deepcopy as _deepcopy
 
-# --- helper Structured Outputs per i file generati ---
-def _clike_files_response_format() -> Dict[str, Any]:
-    """
-    response_format compatibile con OpenAI Structured Outputs.
-    Richiede un oggetto: { "files": [ { "path": str, "content": str, "mime_type"?: str } ] }
-    """
-    return {
-        "type": "json_schema",
-        "json_schema": {
-            "name": "clike_files",
-            "strict": True,
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "files": {
-                        "type": "array",
-                        "minItems": 1,
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "path":    {"type": "string"},
-                                "content": {"type": "string"},
-                                "mime_type": {"type": "string"}
-                            },
-                            "required": ["path", "content"],
-                            "additionalProperties": False
-                        }
-                    }
-                },
-                "required": ["files"],
-                "additionalProperties": False
-            }
-        }
+def _json_safe(obj):
+    """Trasforma ricorsivamente set() -> list per garantire JSON serializzabile."""
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_json_safe(x) for x in obj]
+    if isinstance(obj, set):
+        return [_json_safe(x) for x in obj]  # list() di set
+    return obj
+
+def _shrink_text(s: str, limit: int = 1200) -> str:
+    if not isinstance(s, str):
+        return str(s)
+    if len(s) <= limit:
+        return s
+    return s[:limit] + f"... <+{len(s)-limit} chars>"
+
+def _inject_coding_system(msgs: list) -> list:
+    """Garantisce un messaggio system che vieta prosa e impone il tool-call emit_files."""
+    if msgs and isinstance(msgs[0], dict) and msgs[0].get("role") == "system" and "emit_files" in (msgs[0].get("content") or ""):
+        return msgs
+    sys = {
+        "role": "system",
+        "content": (
+            "You are CLike code generator. You must produce output ONLY by CALLING the tool function "
+            "'emit_files' with a JSON object: {\"files\":[{\"path\":\"<relative_path>\",\"content\":\"<file content>\"}]}. "
+            "Never write normal assistant content. Do not include prose. If the user asks for code, return files via the tool call."
+        ),
     }
+    return [sys] + msgs
+def _extract_files_from_tool_calls(data: dict) -> list:
+    """Cerca choices[0].message.tool_calls[].function{name='emit_files'}.arguments e ne estrae files[]."""
+    try:
+        choice = (data.get("choices") or [{}])[0]
+        msg = choice.get("message") or {}
+        tcs = msg.get("tool_calls") or []
+        for tc in tcs:
+            fn = ((tc.get("function") or {}).get("name") or "").strip()
+            if fn != "emit_files":
+                continue
+            args = (tc.get("function") or {}).get("arguments")
+            # args può essere già dict o stringa JSON / fenced
+            if isinstance(args, dict):
+                obj = args
+            else:
+                s = str(args or "")
+                s = s.strip().strip("`")
+                if s.lower().startswith("json"):
+                    s = s[4:].strip()
+                try:
+                    obj = json.loads(s)
+                except json.JSONDecodeError:
+                    # prova a prendere il blocco {...} più grande
+                    m = re.search(r"\{[\s\S]*\}", s)
+                    if m:
+                        try:
+                            obj = json.loads(m.group(0))
+                        except Exception:
+                            obj = {}
+                    else:
+                        obj = {}
+            files = obj.get("files") if isinstance(obj, dict) else None
+            if isinstance(files, list):
+                out = []
+                for f in files:
+                    p = (f or {}).get("path")
+                    c = (f or {}).get("content")
+                    if isinstance(p, str) and isinstance(c, str):
+                        out.append({"path": p, "content": c})
+                if out:
+                    return out
+    except Exception as e:
+        log.error("parse tool_calls error: %s", e)
+    return []
+
+def _fallback_files_from_content(data: dict) -> list:
+    """Se non c'è tool-call, prova a estrarre ```...``` e mappa a file di ripiego."""
+    try:
+        choice = (data.get("choices") or [{}])[0]
+        msg = choice.get("message") or {}
+        content = msg.get("content", "")
+        if not isinstance(content, str) or not content.strip():
+            return []
+        blocks = re.findall(r"```([^\n]*)\n([\s\S]*?)```", content)
+        if not blocks:
+            return []
+        base = f"src/generated_{uuid.uuid4().hex[:8]}"
+        out, idx = [], 1
+        for lang, code in blocks:
+            # se nel fence c'è un nome-file tipo "python:path/to/file.py", prova a separarlo
+            lang = (lang or "").strip()
+            if ":" in lang:
+                maybe_lang, maybe_path = lang.split(":", 1)
+                path = maybe_path.strip() or f"{base}/snippet_{idx}.txt"
+            else:
+                path = f"{base}/snippet_{idx}.txt"
+            out.append({"path": path, "content": code})
+            idx += 1
+        return out
+    except Exception:
+        return []
+
+def _extract_files_from_tool_calls(data: dict) -> list:
+    """Cerca choices[0].message.tool_calls[].function{name='emit_files'}.arguments e ne estrae files[]."""
+    try:
+        choice = (data.get("choices") or [{}])[0]
+        msg = choice.get("message") or {}
+        tcs = msg.get("tool_calls") or []
+        for tc in tcs:
+            fn = ((tc.get("function") or {}).get("name") or "").strip()
+            if fn != "emit_files":
+                continue
+            args = (tc.get("function") or {}).get("arguments")
+            # args può essere già dict o stringa JSON / fenced
+            if isinstance(args, dict):
+                obj = args
+            else:
+                s = str(args or "")
+                s = s.strip().strip("`")
+                if s.lower().startswith("json"):
+                    s = s[4:].strip()
+                try:
+                    obj = json.loads(s)
+                except json.JSONDecodeError:
+                    # prova a prendere il blocco {...} più grande
+                    m = re.search(r"\{[\s\S]*\}", s)
+                    if m:
+                        try:
+                            obj = json.loads(m.group(0))
+                        except Exception:
+                            obj = {}
+                    else:
+                        obj = {}
+            files = obj.get("files") if isinstance(obj, dict) else None
+            if isinstance(files, list):
+                out = []
+                for f in files:
+                    p = (f or {}).get("path")
+                    c = (f or {}).get("content")
+                    if isinstance(p, str) and isinstance(c, str):
+                        out.append({"path": p, "content": c})
+                if out:
+                    return out
+    except Exception as e:
+        log.error("parse tool_calls error: %s", e)
+    return []
 
 
-# -------------------- helpers: bucket & schema coercion ---------------------
-
-def _bucketize_path(root_rel: str, rel_or_name: str) -> str:
-    """
-    Mapping:
-      - code:    <root_rel>/src/<basename>
-      - docs:    <root_rel>/doc/<basename>
-      - images:  images/<generated_xxxx>/<basename>   (top-level)
-    """
-    base = os.path.basename(rel_or_name or "file.txt")
-    ext = os.path.splitext(base)[1].lower()
-
-    if ext in IMAGE_EXTS:
-        gen_dir = os.path.basename(root_rel)  # es: generated_ab12cd34
-        return os.path.join("images", gen_dir, base).replace("\\", "/")
-
-    sub = "src" if (ext in CODE_EXTS) else ("doc" if (ext in DOC_EXTS) else "doc")
-    return os.path.join(root_rel, sub, base).replace("\\", "/")
 
 _CODE_FENCE_RE = re.compile(r"```(?P<lang>[a-zA-Z0-9+\-._]*)\s*\n(?P<code>.*?)(?:\r?\n)?```", re.DOTALL)
 
@@ -149,44 +242,6 @@ def _extract_json(s: str) -> Dict[str, Any]:
         return json.loads(s[i:j+1])
     raise ValueError("no valid JSON found")
 
-def _coerce_to_schema(raw_text: str, lang_hint: str = "") -> tuple[list[dict], list[dict]]:
-    """
-    Ritorna (files, messages) secondo schema CLike.
-    1) Prova JSON; valido SOLO se files[] ha almeno 1 item
-    2) Fences
-    3) Normalizza
-    4) Se niente ma c’è testo → messages (no .txt di eco)
-    """
-    files: list[dict] = []
-    messages: list[dict] = []
-
-    # 1) JSON
-    try:
-        pj = _extract_json(raw_text or "")
-        jf = pj.get("files") if isinstance(pj, dict) else None
-        if isinstance(jf, list) and jf:
-            files = jf
-            jm = pj.get("messages") or pj.get("message") or []
-            if isinstance(jm, list):
-                messages = jm
-            elif isinstance(jm, dict) and jm.get("content"):
-                messages = [jm]
-    except Exception:
-        pass
-
-    # 2) code fences
-    if not files:
-        files = _extract_files_from_fences(raw_text or "")
-
-    # 3) normalizza
-    files = _normalize_files_for_write(files)
-
-    # 4) se ancora vuoto ma c'è testo → message
-    if not files and (raw_text or "").strip():
-        messages = messages or [{"role": "assistant", "content": (raw_text or "").strip()}]
-
-    return files, messages
-
 def _default_filename(lang: str, idx: int = 1) -> str:
     l = (lang or "").lower()
     if l in ("py","python"): return f"module_{idx}.py"
@@ -213,12 +268,6 @@ def _build_generation_roots(generation_id: str) -> Tuple[str, str, str, str]:
     os.makedirs(os.path.join(code_root_abs, "images"), exist_ok=True)
     os.makedirs(test_root_abs, exist_ok=True)
     return code_root_abs, test_root_abs, code_root_rel, test_root_rel
-
-def _strip_markdown_and_noise(text: str) -> str:
-    # rimuove blocchi ```...``` e la stringa "Generated files:"
-    s = re.sub(r'```.*?```', '', text or "", flags=re.DOTALL|re.IGNORECASE)
-    s = re.sub(r'Generated files:\s*', '', s, flags=re.IGNORECASE)
-    return (s or "").strip()[:2000]
 
 def _write_file_any(path: str, fobj: dict) -> None:
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
@@ -397,22 +446,29 @@ async def chat(req: Request):
     if requested_modality == "embed":
         raise HTTPException(400, f"model '{model}' is an embedding model and cannot be used for chat.")
 
-    # log input
+       # log input (già presente, lascialo pure)
     log.info("chat request: %s", json.dumps({"model": model, "messages_len": len(messages)}, ensure_ascii=False))
+
+    # Prepara meta per log
+    _t0 = _time.time()
+    _gw = str(getattr(settings, "GATEWAY_URL", "http://localhost:8000")).rstrip("/")
 
     try:
         text = await llm_client.call_gateway_chat(
             model, msgs,
-            base_url=str(getattr(settings, "GATEWAY_URL", "http://localhost:8000")),
+            base_url=_gw,
             timeout=float(getattr(settings, "REQUEST_TIMEOUT_S", 60)),
             temperature=body.get("temperature", 0.2),
             max_tokens=body.get("max_tokens", 512),
         )
+        _ms = int((_time.time() - _t0) * 1000)
+        log.info("chat response: %s", json.dumps({"text_len": len(text or ""), "latency_ms": _ms}, ensure_ascii=False))
+        return {"version": "1.0", "text": text, "usage": {}, "sources": []}
     except Exception as e:
+        _ms = int((_time.time() - _t0) * 1000)
+        log.error("chat error: %s", json.dumps({"error": f"{type(e).__name__}: {e}", "latency_ms": _ms}, ensure_ascii=False))
         raise HTTPException(502, f"gateway chat failed: {type(e).__name__}: {e}")
 
-    log.info("chat response: %s", json.dumps({"text_len": len(text or "")}, ensure_ascii=False))
-    return {"version": "1.0", "text": text, "usage": {}, "sources": []}
 
 def _gather_rag_context(paths: list[str], max_docs: int = 8, max_bytes: int = 200_000) -> list[str]:
     out = []
@@ -481,30 +537,6 @@ async def _augment_messages_with_context(msgs: list[dict], inline_files: list[di
             log.warning("RAG enrichment failed: %s", e)
     return out
 
-def _harvest_data_urls_to_files(text: str, gen_id: str) -> list[dict]:
-    files = []
-    for i, m in enumerate(DATA_URL_RE.finditer(text or "")):
-        mime = m.group(1)     # es: image/png
-        b64  = m.group(2)
-        ext  = {
-            "image/png": ".png",
-            "image/jpeg": ".jpg",
-            "image/gif": ".gif",
-            "image/svg+xml": ".svg",
-        }.get(mime, ".bin")
-        path = f"images/generated_{gen_id}/asset_{i}{ext}"
-        files.append({"path": path, "content_base64": b64, "mime": mime})
-    return files
-
-# ------------------------------- Generate -----------------------------------
-
-def _system_for_generate(mode: str) -> str:
-    base = ("You are CLike, a super expert software and product-engineering copilot. "
-            "Output strictly JSON, no prose.")
-    if mode == "harper":
-        return base + ' Return: {"files":[{"path":"...","content":"..."}], "messages":[{"role":"assistant","content":"..."}]}'
-    return base + ' Return: {"files":[{"path":"...","content":"..."}]}'
-
 @router.post("/generate")
 async def generate(req: Request):
     body = await req.json()
@@ -514,16 +546,17 @@ async def generate(req: Request):
 
     model = body.get("model") or "auto"
     messages = body.get("messages") or []
+    # Enforce tool-call in coding mode
+    messages = _inject_coding_system(messages)
+
     if not isinstance(messages, list) or not messages:
         raise HTTPException(422, "messages (list) is required")
+
     # generation id + roots (path pianificati; nessuna scrittura ancora)
     gen_id = _short_id(8)
     _code_abs, _test_abs, code_root_rel, _test_rel = _build_generation_roots(gen_id)
-    rf = _clike_files_response_format()
-    # Impone Structured Outputs per ottenere files[] dal provider
-    
 
-    # System che “inchioda” lo schema di uscita
+    # System che “inchioda” lo schema di uscita (usato come contesto, ma non forziamo più response_format qui)
     sys_schema = {
         "role": "system",
         "content": (
@@ -558,74 +591,232 @@ async def generate(req: Request):
 
     log.info("generate request: %s", json.dumps({"model": model, "messages_len": len(messages)}, ensure_ascii=False))
 
-    # Chiamata gateway
+    # ======== Chiamata gateway (prima scelta: TOOL CALLING) ========
+    base_url = str(getattr(settings, "GATEWAY_URL", "http://localhost:8000")).rstrip("/")
+    emit_files_tool = {
+        "type": "function",
+        "function": {
+            "name": "emit_files",
+            "description": "Return source files to be written by the caller.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "files": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "path":      {"type": "string"},
+                                "content":   {"type": "string"},
+                                "language":  {"type": "string"},
+                                "executable":{"type": "boolean"}
+                            },
+                            "required": ["path", "content"],
+                            "additionalProperties": False
+                        }
+                    }
+                },
+                "required": ["files"],
+                "additionalProperties": False
+            }
+        }
+    }
+
+    temperature =body.get("temperature", 0.1)
+    max_tokens = body.get("max_tokens", 2048)
+    payload = {
+        "model": model,
+        "messages": msgs,
+    }
+    payload["tools"] = [emit_files_tool]
+    payload["tool_choice"] = {"type": "function", "function": {"name": "emit_files"}}
+    
+    if temperature is not None:
+        if not model.startswith("gpt-5"):
+            payload["temperature"] = temperature
+
+    # GPT-5 usa max_completion_tokens sulla Chat Completions API; le altre famiglie restano su max_tokens
+    if model.startswith("gpt-5"):
+        if max_tokens is not None:
+            payload["max_completion_tokens"] = max_tokens
+    else:
+        if max_tokens is not None:
+            payload["max_tokens"] = max_tokens
+
+    if str(model).startswith("gpt-5"):
+        payload["max_completion_tokens"] = body.get("max_tokens", 2048)
+    
+    if str(model).startswith("gpt-5"):
+        payload["max_completion_tokens"] = body.get("max_tokens", 2048)
+    # Sanitizer finale: elimina ogni set residuo che romperebbe json=
+    payload = _json_safe(payload)
+
+
+
+        # --- LOG rich: request/response gateway ---
+    _t0 = _time.time()
+    _headers = {"Content-Type": "application/json", "X-CLike-Profile": "code.strict"}
+   
+    log.info("gateway.request %s", json.dumps({
+        "url": f"{base_url}/v1/chat/completions",
+        "model": model,
+        "profile": payload.get("profile"),
+        "tools": bool(payload.get("tools")),
+        "tool_choice": bool(payload.get("tool_choice")),
+        "max_tokens": payload.get("max_tokens"),
+        "max_completion_tokens": payload.get("max_completion_tokens"),
+    }, ensure_ascii=False))
+   
     try:
-        raw = await llm_client.call_gateway_chat(
-            model, msgs,
-            base_url=str(getattr(settings, "GATEWAY_URL", "http://localhost:8000")),
-            timeout=float(getattr(settings, "REQUEST_TIMEOUT_S", 60)),
-            temperature=body.get("temperature", 0.1),
-            max_tokens=body.get("max_tokens", 2048),
-            response_format=rf,
-            profile="code.strict"
-        )
+        async with httpx.AsyncClient(timeout=float(getattr(settings, "REQUEST_TIMEOUT_S", 60))) as client:
+            r = await client.post(f"{base_url}/v1/chat/completions", json=payload, headers=_headers)
+            txt = r.text
+            _ms = int((_time.time() - _t0) * 1000)
+            if r.is_success:
+                log.info("gateway.response %s", json.dumps({
+                    "status": r.status_code,
+                    "latency_ms": _ms
+                }, ensure_ascii=False))
+                # log body (ridotto) a livello DEBUG
+                try:
+                    data = r.json()
+                    
+                    log.debug("gateway.response.body %s", _shrink_text(json.dumps(data, ensure_ascii=False), 4000))
+                except Exception:
+                    log.debug("gateway.response.text %s", _shrink_text(txt, 4000))
+                
+                # Log sintetico di risposta
+                try:
+                    log.info("gateway.response %s", json.dumps({"status": 200, "latency_ms": _ms}, ensure_ascii=False))
+                    log.debug("gateway.response.body %s", _shrink_text(json.dumps(data, ensure_ascii=False), 4000))
+                except Exception:
+                    pass
+
+                # 1) preferisci tool_calls
+                choices = (data.get("choices") or [])
+                msg = (choices[0].get("message") if choices else {}) or {}
+                tool_calls = msg.get("tool_calls") or []
+
+                if tool_calls:
+                    for tc in tool_calls:
+                        if (tc.get("type") == "function") and (tc.get("function", {}).get("name") == "emit_files"):
+                            args_raw = tc.get("function", {}).get("arguments")
+                            try:
+                                args = json.loads(args_raw) if isinstance(args_raw, str) else (args_raw or {})
+                            except Exception:
+                                args = {}
+                            files = (args.get("files") or [])
+                            out = _normalize_files_for_write(files)  # tua utility già presente
+                            log.info("generate tool_calls->files %s", json.dumps({"count": len(out)}, ensure_ascii=False))
+                            if out:
+                                return {"files": out}
+
+                # 2) fallback: JSON puro in content
+                text = msg.get("content") or ""
+                if text:
+                    try:
+                        obj = json.loads(text)
+                        files = (obj.get("files") or [])
+                        out = _normalize_files_for_write(files)
+                        log.info("generate content-json->files %s", json.dumps({"count": len(out)}, ensure_ascii=False))
+                        if out:
+                            return {"files": out}
+                    except Exception:
+                        pass
+
+                # 3) nessun file → 422
+                log.info("generate no-files: message_preview=%s", json.dumps({"role": msg.get("role"), "len": len(text)}, ensure_ascii=False))
+                raise HTTPException(status_code=422, detail="model did not produce 'files' with path+content")
+
+
+
+            else:
+                log.error("gateway.response %s", json.dumps({
+                    "status": r.status_code,
+                    "latency_ms": _ms,
+                    "error_text": _shrink_text(txt, 2000)
+                }, ensure_ascii=False))
+                r.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        # Propaga il vero body (niente 502 generici)
+        raise HTTPException(e.response.status_code, detail=f"gateway chat failed: {e.response.text}")
     except Exception as e:
         raise HTTPException(502, f"gateway chat failed: {type(e).__name__}: {e}")
 
-    # --- parsing standard Chat Completions ---
-    content_str: Optional[str] = None
+    
+    log.info("Estrai dai tool_calls files=%s", json.dumps({"count": len(files)}, ensure_ascii=False))
+
+    # 1) Estrai dai tool_calls
+    files: List[Dict[str, Any]] = []
     try:
-        if "choices" in data and data["choices"]:
-            msg = data["choices"][0].get("message", {})
-            # Se Structured Outputs, il JSON arriva in message.content (stringa)
-            content_str = msg.get("content") if isinstance(msg, dict) else None
-            # Supporto (raro) ad alte varianti: se "text" è presente
-            if not content_str and "text" in data:
-                content_str = data["text"]
+        ch = (data.get("choices") or [])[0]
+        msg = ch.get("message") or {}
+        tc  = msg.get("tool_calls") or []
+        if tc:
+            fn  = (tc[0] or {}).get("function") or {}
+            args = fn.get("arguments") or "{}"
+            obj = json.loads(args)
+            if isinstance(obj.get("files"), list):
+                files = obj["files"]
     except Exception:
-        content_str = None
+        files = []
 
-    if not content_str:
-        # Se il provider restituisce refusal strutturata (vedi cookbook),
-        # mostra un errore esplicito
+    log.info("Estrai dai tool_calls files=%s", json.dumps({"count": len(files)}, ensure_ascii=False))
+
+
+    # 2) Se vuoto, prova JSON "plain"
+    content_str: Optional[str] = None
+    if not files:
         try:
-            refusal = data["choices"][0]["message"].get("refusal")
-            if refusal:
-                raise HTTPException(status_code=422, detail=f"model refusal: {refusal}")
+            content_str = (data.get("choices") or [{}])[0].get("message", {}).get("content")
         except Exception:
-            pass
-        raise HTTPException(status_code=422, detail="model did not return content for structured files")
+            content_str = None
+        if not content_str and "text" in data:
+            content_str = data.get("text")
+        if isinstance(content_str, str) and content_str.strip():
+            try:
+                pj = _extract_json(content_str)
+                jf = pj.get("files") if isinstance(pj, dict) else None
+                if isinstance(jf, list) and jf:
+                    files = jf
+            except Exception:
+                pass
+    
+    log.info("Se vuoto, prova JSON files=%s", json.dumps({"count": len(files)}, ensure_ascii=False))
 
-    # Decodifica JSON strutturato
-    try:
-        parsed = json.loads(content_str)
-    except Exception as e:
-        # utile in caso di provider legacy che non garantisce JSON valido
-        raise HTTPException(status_code=422, detail=f"invalid JSON from model: {e}")
 
-    files = parsed.get("files") or []
-    norm_files: List[Dict[str, Any]] = []
-    for f in files:
-        path = (f or {}).get("path")
-        content = (f or {}).get("content")
-        if path and content:
-            norm_files.append({
-                "path": str(path),
-                "content": str(content),
-                "mime_type": (f or {}).get("mime_type") or "text/plain"
-            })
+    # 3) Ultimo fallback: code fences
+    if not files and isinstance(content_str, str):
+        files = _extract_files_from_fences(content_str or "")
+    
+    log.info("Ultimo fallback: code fences files=%s", json.dumps({"count": len(files)}, ensure_ascii=False))
 
-    if not norm_files:
-        # Forziamo l’invariante che ti serve a valle
+
+    # normalizza
+    files = _normalize_files_for_write(files)
+    log.info("normalizza files=%s", json.dumps({"count": len(files)}, ensure_ascii=False))
+
+
+    if not files:
+        log.info("HTTPException PP")
+
+        # segnala in modo chiaro
         raise HTTPException(status_code=422, detail="model did not produce 'files' with path+content")
 
-    # Risposta normalizzata Clike
+    # (Opzionale) bucketize sotto cartella generated_<id> — se vuoi pianificare i path
+    # Qui restituiamo i path così come prodotti dal modello per massima trasparenza UI.
+    # Se preferisci organizzarli:
+    # mapped = []
+    # for f in files:
+    #     mapped.append({**f, "path": _bucketize_path(f"src/generated_{gen_id}", f.get("path") or "file.txt")})
+    # files = mapped
+
     return {
         "version": "1.0",
-        "files": norm_files,
+        "files": files,
         "usage": data.get("usage") or {},
         "sources": [],
-        "audit_id": "coding-structured",
+        "audit_id": "coding-toolcalls",
     }
 
 # -------------------------------- Apply -------------------------------------
