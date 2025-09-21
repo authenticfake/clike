@@ -42,6 +42,7 @@ services:
       - PREFER_FRONTIER_FOR_REASONING=true
       - MODELS_PATH=/workspace/configs/models.yaml
       - OPTIMIZE_FOR=capability
+      - GENERATED_ROOT=/generated
     env_file:
       - path: ../.env
     volumes:

@@ -1423,6 +1423,7 @@ function bindHelpHandlersOnce() {
     run();
   }
 })();
+
 // Shortcut tastiera (non blocca se overlay non esiste)
 document.addEventListener('keydown', (ev) => {
   if ((ev.ctrlKey || ev.metaKey) && ev.key === '/') {
@@ -1526,6 +1527,15 @@ const preFiles = el('files');
 
 let selectedPaths = new Set();
 let lastRun = null;
+
+function isInitBubble(b) {
+  try {
+    if (!b) return false;
+    const role = (b.role || '').toLowerCase();
+    const text = String(b.text || b.content || '');
+    return role === 'system' && /CLike: initialized/i.test(text);
+  } catch { return false; }
+}
 
 function updateBotBadge() {
   const badge = document.getElementById('botBadge');
@@ -1817,6 +1827,15 @@ function summarizeAttachments(inlineFiles = [], ragFiles = []) {
   }
 })();
 
+function inferProvider(modelName) {
+  const n = String(modelName||'').toLowerCase();
+  if (n.startsWith('gpt')) return 'openai';
+  if (/(llama|ollama|codellama|mistral|mixtral|phi|qwen|deepseek|granite|yi|gemma|llava)/.test(n)) return 'ollama';
+  if(n.startsWith('anthropic')) return 'anthropic';
+  if(n.startsWith('vllm')) return 'vllm';
+  return 'openai'; // fallback conservativo
+}
+
 
 btnChat.addEventListener('click', ()=>{
   console.log('[webview] sendChat click');
@@ -1832,7 +1851,7 @@ btnChat.addEventListener('click', ()=>{
     prompt.value = '';
     return;
   }
-    console.log('slash out');
+  console.log('slash out');
   const atts = attachmentsByMode[mode.value] ? [...attachmentsByMode[mode.value]] : [];
 
   bubble('user', text,model.value, atts);
@@ -1841,7 +1860,9 @@ btnChat.addEventListener('click', ()=>{
   clearTextPanel();        // <— svuota tab Text
   clearDiffsPanel();        // <— svuota tab Diffs
   clearFilesPanel();        // <— svuota tab Files
-  post('sendChat', { mode: mode.value, model: model.value, prompt: text, attachments: atts });
+  const selectedOpt = model.options[model.selectedIndex];
+  const _provider = (selectedOpt && selectedOpt.dataset && selectedOpt.dataset.provider) || inferProvider(model.value);
+  post('sendChat', { mode: mode.value, model: model.value, provider:_provider, prompt: text, attachments: atts });
   attachmentsByMode[currentMode()] = [];
   renderAttachmentChips();
   });
@@ -1859,7 +1880,9 @@ btnGen.addEventListener('click', ()=>{
   const m = (mode.value === 'free') ? 'coding' : mode.value;   // /v1/generate vuole coding/harper
 
   const atts = attachmentsByMode[m] ? [...attachmentsByMode[m]] : [];
-
+  const selectedOpt = model.options[model.selectedIndex];
+  const _provider = (selectedOpt && selectedOpt.dataset && selectedOpt.dataset.provider) || inferProvider(model.value);
+  
   if (!text.trim()) return;
   bubble('user', text,model.value, atts);
   setBusy(true);
@@ -1869,7 +1892,7 @@ btnGen.addEventListener('click', ()=>{
   clearFilesPanel();        // <— svuota tab Files
   setTab('diffs');
 
-  post('sendGenerate', { mode: m, model: model.value, prompt: text, attachments: atts });
+  post('sendGenerate', { mode: m, model: model.value, provider:_provider, prompt: text, attachments: atts });
   attachmentsByMode[currentMode()] = [];
   renderAttachmentChips();
 });
@@ -1893,6 +1916,7 @@ window.addEventListener('message', (event) => {
   if (msg.type === 'openHelpOverlay') { renderHelpList(); openHelpOverlay(); }
   // Echo → mostra un bubble "assistant" (anche per i riepiloghi post-init)
   if (msg.type === 'echo') {
+    console.log('[webview] echo', msg);
     const text = String(msg.message || '');
     try { bubble('assistant', text, 'system'); } catch (e) { console.warn('[webview] bubble echo failed', e); }
     const pre = document.getElementById('text');
@@ -1942,7 +1966,16 @@ window.addEventListener('message', (event) => {
   if (msg.type === 'models') {
     model.innerHTML = '';
     (msg.models||[]).forEach(m=>{
-      const o = document.createElement('option'); o.value = m; o.textContent = m; model.appendChild(o);
+      const name = (typeof m === 'string') ? m : (m.name || m.id || m.model || 'unknown');
+      const provider = (typeof m === 'string')
+        ? inferProvider(name)
+        : (m.provider || 'unknown');
+      const o = document.createElement('option');
+      o.value = name; // il value resta il nome modello
+      o.textContent = (provider && provider !== 'unknown') ? (provider + ':' + name) : name;
+
+      o.dataset.provider = provider; // <-- portiamo il provider nella option
+      model.appendChild(o);
     });
   }
   if (msg && msg.type === 'attachmentsAdded') {
@@ -2241,9 +2274,10 @@ async function cmdOpenChat(context) {
             message:msgText
           });
 
+
           // apri il nuovo workspace in una nuova window
           await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(targetDir), true);
-          await context.workspaceState.update('clike.initSummary', msgText);
+          //await context.workspaceState.update('clike.initSummary', msgText);
 
 
         } catch (e) {
@@ -2384,10 +2418,12 @@ async function cmdOpenChat(context) {
             }
             if (!models.length) models = ['auto'];
             // Ripristina il bubble persistito (se presente)
-            try {
-              const memo = context.workspaceState.get('clike.initSummary');
-              if (memo) panel.webview.postMessage({ type: 'echo', message: memo });
-            } catch {}
+            // try {
+            //   const memo = context.workspaceState.get('clike.initSummary');
+            //   if (memo) panel.webview.postMessage({ type: 'echo', message: memo });
+            // } catch {
+
+            // }
 
             panel.webview.postMessage({ type: 'models', models });
             out.appendLine('[CLike] models sent: ' + models.join(', '));
@@ -2523,12 +2559,16 @@ async function cmdOpenChat(context) {
         const cur = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto' };
         const activeMode  = msg.mode  || cur.mode  || 'free';
         const activeModel = msg.model || cur.model || 'auto';
+        const activeProvider = msg.provider || inferProvider(activeModel);
+        out.appendLine(`CLike: ${msg.type} (${activeMode} ${activeModel} ${activeProvider})`);
+
 
         // Persisti l’input dell’utente nella sessione del MODE (e mostreremo badge del modello in render)
         await appendSessionJSONL(activeMode, {
           role: 'user',
           content: String(msg.prompt || ''),
           model: activeModel,
+          provider:activeProvider,
           attachments: Array.isArray(msg.attachments) ? msg.attachments : []
         });
 
@@ -2549,7 +2589,7 @@ async function cmdOpenChat(context) {
         const messages = source.map(b => ({ role: b.role, content: b.content }));
 
         // Costruisci payload
-        const basePayload = { mode: activeMode, model: activeModel, messages, inline_files, rag_files, attachments: atts };
+        const basePayload = { mode: activeMode, model: activeModel,  provider: activeProvider, messages, inline_files, rag_files, attachments: atts };
         const payload = (msg.type === 'sendChat')
           ? basePayload
           : { ...basePayload, max_tokens: 1024 };
@@ -2698,12 +2738,16 @@ async function cmdOpenChat(context) {
       panel.webview.postMessage({ type: 'error', message: String(err) });
     }
   });
+
   async function showInitSummaryIfPresent(panel) {
   try {
     const ws = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
     if (!ws) return;
     const p = path.join(ws, '.clike', 'last_init_summary.json');
+    out.appendLine (`[CLike] showInitSummaryIfPresent: ${p}`);
     if (!(await pathExists(p))) return;
+     out.appendLine (`[CLike] showInitSummaryIfPresent file exites`);
+
     const raw = await fs.readFile(p, 'utf8');
     const sum = JSON.parse(raw);
     const msgTxt =  `✅ CLike: project "${sum.project_name}" is ready\n` +
@@ -2715,7 +2759,7 @@ async function cmdOpenChat(context) {
       message:msgTxt
     });
     // Persisti per i riavvii successivi della chat
-    await context.workspaceState.update('clike.initSummary', msgText);
+    await context.workspaceState.update('clike.initSummary', msgTxt);
     // opzionale: rinomina per non ripetere
     const donePath = path.join(ws, '.clike', 'last_init_summary.done.json');
     await fs.rename(p, donePath).catch(async () => {
@@ -2724,6 +2768,7 @@ async function cmdOpenChat(context) {
     });
   } catch (e) {
     console.warn('[CLike] showInitSummaryIfPresent failed:', e);
+    out.appendLine(`[error] ${e.stack || e.message}`);
   }
 }
 }
