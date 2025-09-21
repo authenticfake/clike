@@ -67,7 +67,8 @@ async def chat(
         "messages": messages,
     }
     if temperature is not None:
-        payload["temperature"] = temperature
+        if not model.startswith("gpt-5"):
+            payload["temperature"] = temperature
 
     # GPT-5 usa max_completion_tokens sulla Chat Completions API; le altre famiglie restano su max_tokens
     if model.startswith("gpt-5"):
@@ -89,7 +90,8 @@ async def chat(
         "has_response_format": bool(response_format),
         "has_tools": bool(tools),
         "has_tool_choice": tool_choice is not None,
-        "budget": max_tokens
+        "budget": max_tokens,
+        "payload": payload
     }))
 
     t0 = _time.time()
