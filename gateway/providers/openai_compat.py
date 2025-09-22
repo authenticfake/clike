@@ -7,7 +7,7 @@
 # Works with GPT-5/4/3.x and vLLM OpenAI-compatible backends.
 from __future__ import annotations
 import httpx, json
-from typing import Any, List, Dict, Tuple, Optional
+from typing import Any, List, Dict, Tuple, Optional, Union
 import logging, time as _time
 from copy import deepcopy as _deepcopy
 
