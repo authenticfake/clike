@@ -5,13 +5,16 @@ from pydantic import BaseModel
 from typing import List, Dict, Any, Optional, Union
 
 from providers import openai_compat as oai
+from providers import anthropic as anth
+
 
 OPENAI_BASE = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 
 VLLM_BASE = os.getenv("VLLM_BASE_URL", "http://vllm:8000/v1").rstrip("/")
 OLLAMA_BASE = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434").rstrip("/")
-
+ANTHROPIC_BASE= os.getenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1").rstrip("/")
 router = APIRouter()
 log = logging.getLogger("gateway.chat")
 
@@ -148,7 +151,6 @@ async def chat_completions(req: ChatRequest):
 
     # Routing per provider
     if provider == "openai":
-
         if not OPENAI_API_KEY:
             raise HTTPException(500, "OPENAI_API_KEY missing in gateway")
 
@@ -192,6 +194,19 @@ async def chat_completions(req: ChatRequest):
         data = await _ollama_chat(name, [m.dict() for m in req.messages], req.temperature, req.max_tokens)
         return data
 
-    # Provider sconosciuto
-    raise HTTPException(400, detail=f"Unknown provider '{prov}' for model '{req.model}'")
+    elif provider == "anthropic":
+        if not ANTHROPIC_API_KEY:
+            raise HTTPException(401, "missing ANTHROPIC api key")
+            
+        try:
+            data = await anth.chat(ANTHROPIC_BASE, ANTHROPIC_API_KEY, req.model, req.messages, req.temperature,req.max_tokens)
+            return data
+        except httpx.HTTPStatusError as e:
+            txt = e.response.text if e.response is not None else str(e)
+            code = e.response.status_code if e.response is not None else 502
+            raise HTTPException(code, detail=f"provider error for model={remote}: {txt}")
+        except httpx.HTTPError as e:
+            raise HTTPException(502, detail=f"provider connection error: {e}")
+    else:
+        raise HTTPException(400, f"unsupported provider for chat: {provider} for model '{req.model}")
 
