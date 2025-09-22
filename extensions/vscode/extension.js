@@ -1981,7 +1981,7 @@ window.addEventListener('message', (event) => {
   if (msg.type === 'echo') {
     console.log('[webview] echo', msg);
     const text = String(msg.message || '');
-    try { bubble('assistant', text, 'system'); } catch (e) { console.warn('[webview] bubble echo failed', e); }
+    //try { bubble('assistant', text, 'system'); } catch (e) { console.warn('[webview] bubble echo failed', e); }
     const pre = document.getElementById('text');
     if (pre) pre.textContent = text;
     return;
