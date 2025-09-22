@@ -25,13 +25,6 @@ def _normalize_model(model: str) -> str:
             m = name.strip()
     return m
 
-def _split_provider_model(m: str) -> tuple[str, str]:
-    """Ritorna (provider, name). Se non c'è prefisso, assume openai."""
-    s = (m or "").strip()
-    if ":" in s:
-        prov, name = s.split(":", 1)
-        return prov.strip().lower(), name.strip()
-    return "openai", s
 
 # Snapshot preferiti per OpenAI (se disponibili)
 SNAPSHOT_ALIAS = {
@@ -143,7 +136,6 @@ async def _ollama_chat(model: str, messages: list[dict], temperature: float|None
 @router.post("/v1/chat/completions")
 async def chat_completions(req: ChatRequest):
     log.info("chat route model %s" , req.model)
-   # prov, name = _split_provider_model(req.model)
     prov =provider = (req.provider or req.headers.get("X-CLike-Provider") or "").lower().strip()
 
     name = req.model

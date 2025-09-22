@@ -1,20 +1,8 @@
-{"ts":1758447440991,"mode":"free","role":"user","content":"ciao","model":"gpt-4o-mini","attachments":[]}
-{"ts":1758447442662,"mode":"free","role":"assistant","content":"Ciao! Come posso aiutarti oggi?","model":"gpt-4o-mini"}
-{"ts":1758447525283,"mode":"free","role":"user","content":"ciao","model":"gpt-5-nano","attachments":[]}
-{"ts":1758447529808,"mode":"free","role":"assistant","content":"{\n  \"version\": \"1.0\",\n  \"text\": \"\",\n  \"usage\": {},\n  \"sources\": []\n}","model":"gpt-5-nano"}
-{"ts":1758447620575,"mode":"free","role":"user","content":"ciao","model":"gpt-5-mini","attachments":[]}
-{"ts":1758447624493,"mode":"free","role":"assistant","content":"Ciao! Come posso aiutarti oggi? Posso assisterti con programmazione (frontend/backend), debugging, design di architetture, o altro.","model":"gpt-5-mini"}
-{"ts":1758447645090,"mode":"free","role":"user","content":"ciao","model":"gpt-5","attachments":[]}
-{"ts":1758447648180,"mode":"free","role":"assistant","content":"Ciao! Come posso aiutarti oggi? Preferisci continuare in italiano o in inglese?","model":"gpt-5"}
-{"ts":1758447657363,"mode":"free","role":"user","content":"sono ANdrea\n","model":"gpt-5","attachments":[]}
-{"ts":1758447661043,"mode":"free","role":"assistant","content":"Piacere, Andrea! Come posso aiutarti oggi? Hai bisogno di una mano su un progetto, debug, architettura, DevOps o qualcos’altro?","model":"gpt-5"}
-{"ts":1758447666149,"mode":"free","role":"user","content":"come mi chiamo?","model":"gpt-5","attachments":[]}
-{"ts":1758447668443,"mode":"free","role":"assistant","content":"Ti chiami Andrea.","model":"gpt-5"}
-{"ts":1758465324571,"mode":"free","role":"user","content":"mi puoi generare una immagine di orologio","model":"gpt-5","attachments":[]}
-{"ts":1758465335251,"mode":"free","role":"assistant","content":"{\n  \"version\": \"1.0\",\n  \"text\": \"\",\n  \"usage\": {},\n  \"sources\": []\n}","model":"gpt-5"}
-{"ts":1758473481264,"mode":"free","role":"user","content":"ciao","model":"auto","provider":"openai","attachments":[]}
-{"ts":1758473481341,"mode":"free","role":"assistant","content":"Error: Error: POST http://localhost:8080/v1/chat -> 502 {\"detail\":\"gateway chat failed: HTTPStatusError: Server error '500 Internal Server Error' for url 'http://gateway:8000/v1/chat/completions'\\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/500\"}","model":"auto"}
-{"ts":1758474935030,"mode":"free","role":"user","content":"ciao","model":"llama3","provider":"ollama","attachments":[]}
-{"ts":1758474976422,"mode":"free","role":"assistant","content":"Ciao! I'm CLike, your friendly full-stack software engineering copilot. What can I help you with today? Do you have a project in mind or need some guidance on a specific topic? Let me know and I'll do my best to assist you!","model":"llama3"}
-{"ts":1758475001689,"mode":"free","role":"user","content":"ciao","model":"gpt-4o","provider":"openai","attachments":[]}
-{"ts":1758475004010,"mode":"free","role":"assistant","content":"Ciao! Come posso aiutarti oggi?","model":"gpt-4o"}
+{"ts":1758527248482,"mode":"free","role":"user","content":"ciao","model":"llama3","provider":"ollama","attachments":[]}
+{"ts":1758527284295,"mode":"free","role":"assistant","content":"Ciao! I'm CLike, your go-to copilot for all things coding. What's on your mind? Need help with a project, debugging an issue, or just looking for some code inspiration? Let me know and I'll do my best to assist you!","model":"llama3"}
+{"ts":1758530268696,"mode":"free","role":"user","content":"ciao mini\n","model":"gpt-4o-mini","provider":"openai","attachments":[]}
+{"ts":1758530271077,"mode":"free","role":"assistant","content":"Ciao! Come posso aiutarti oggi?","model":"gpt-4o-mini"}
+{"ts":1758530288336,"mode":"free","role":"user","content":"mi chiamo andrea","model":"gpt-4o-mini","provider":"openai","attachments":[]}
+{"ts":1758530289843,"mode":"free","role":"assistant","content":"Ciao Andrea! È un piacere conoscerti. Come posso assisterti oggi?","model":"gpt-4o-mini"}
+{"ts":1758530300611,"mode":"free","role":"user","content":"come mi chiamo?","model":"gpt-4o-mini","provider":"openai","attachments":[]}
+{"ts":1758530301887,"mode":"free","role":"assistant","content":"Ti chiami Andrea! Come posso aiutarti oggi?","model":"gpt-4o-mini"}

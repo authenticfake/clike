@@ -1,10 +1,10 @@
 {"ts":1758462546309,"mode":"coding","role":"user","content":"mi generi una funzione che calcola se un numenro è un numenro primo in go\n","model":"gpt-5-nano","attachments":[]}
 {"ts":1758462558704,"mode":"coding","role":"assistant","content":"Error: Error: POST http://localhost:8080/v1/generate -> 502 {\"detail\":\"gateway chat failed: HTTPException: 422: model did not produce 'files' with path+content\"}","model":"gpt-5-nano"}
-{"ts":1758463016793,"mode":"coding","role":"user","content":"mi generi una funzione che calcola se un numenro è un numenro primo in go\n","model":"gpt-5-mini","attachments":[]}
-{"ts":1758463035454,"mode":"coding","role":"assistant","content":"Generated files:\n- /workspace/generated/prime/src/prime.go","model":"gpt-5-mini"}
 {"ts":1758464636222,"mode":"coding","role":"user","content":"mi generi una funzione che calcola se un numenro è un numenro primo in go e un file readme\n","model":"gpt-4o-mini","attachments":[]}
 {"ts":1758464640239,"mode":"coding","role":"assistant","content":"Generated files:\n- /workspace/generated/f792483c/src/is_prime.go","model":"gpt-4o-mini"}
 {"ts":1758475026317,"mode":"coding","role":"user","content":"mi generi una funzione in ts che mi da un numenro casuale pari","model":"gpt-4o","provider":"openai","attachments":[]}
 {"ts":1758475028911,"mode":"coding","role":"assistant","content":"Generated files:\n- /generated/675eac37/src/randomEvenNumber.ts","model":"gpt-4o"}
 {"ts":1758475059375,"mode":"coding","role":"user","content":"mi generi un funzione in go che genera un numenro casuale dispari\n","model":"llama3","provider":"ollama","attachments":[]}
 {"ts":1758475096712,"mode":"coding","role":"assistant","content":"Generated files:\n- /generated/2c51e4d1/src/random.go","model":"llama3"}
+{"ts":1758484426231,"mode":"coding","role":"user","content":"generami unaapi rest su json in go","model":"gpt-5-mini","provider":"openai","attachments":[]}
+{"ts":1758484467663,"mode":"coding","role":"assistant","content":"Generated files:\n- /generated/8612a095/src/main.go\n- /generated/8612a095/docs/go.mod\n- /generated/8612a095/docs/README.md","model":"gpt-5-mini"}

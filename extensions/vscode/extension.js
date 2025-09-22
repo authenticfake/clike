@@ -227,6 +227,7 @@ function tplConfigJson(project) {
     }
   };
 }
+
 // --- profile hint for routing (used when model === 'auto') ---
 function computeProfileHint(mode, model) {
   try {
@@ -1326,6 +1327,68 @@ var HELP_COMMANDS = [
   {cmd:'/build [n]', desc:'Applica batch di TODO dal PLAN; produce diff & test'},
   {cmd:'/finalize [--tag vX.Y.Z] [--archive]', desc:'Gate finali e chiusura progetto'}
 ];
+
+// function finalizeBootIfReady() {
+//   if (boot.done) return;
+//   if (!(boot.gotModels && boot.gotHydrate)) return;
+
+//   // elenco modelli disponibili nella combo
+//   const names = Array.from(model.options).map(o => o.value);
+//   // preferenze: savedModel (da initState) → 'llama3' → 'auto' → primo
+//   let pick = (boot.savedModel && names.includes(boot.savedModel)) ? boot.savedModel
+//            : (names.includes('llama3') ? 'llama3'
+//            : (names.includes('auto')   ? 'auto'
+//            : (names[0] || '')));
+
+//   if (pick && model.value !== pick) {
+//     model.value = pick;
+//     updateBotBadge();
+//     // Allinea estensione host e chiedi re-hydrate coerente
+//     vscode.postMessage({ type: 'uiChanged', mode: mode.value, model: pick });
+//   }
+
+//   boot.done = true;
+// }
+// --- bootstrap sync: seleziona modello SOLO quando tutto è pronto ---
+const boot = { gotInit:false, gotModels:false, gotHydrate:false, done:false, savedModel:null };
+
+function finalizeBootIfReady() {
+  if (boot.done) return;
+  // Aspetta TUTTO: stato iniziale + modelli + prima hydrate
+  if (!(boot.gotInit && boot.gotModels && boot.gotHydrate)) return;
+
+  // Elenco modelli disponibili nella combo
+  const names = Array.from(model.options).map(o => o.value);
+
+  // Scelta definitiva:
+  // 1) savedModel se esiste e non è 'auto'
+  // 2) 'llama3' se disponibile
+  // 3) 'auto' se disponibile
+  // 4) primo della lista
+  let pick = null;
+  if (boot.savedModel && boot.savedModel !== 'auto' && names.includes(boot.savedModel)) {
+    pick = boot.savedModel;
+  } else if (names.includes('llama3')) {
+    pick = 'llama3';
+  } else if (names.includes('auto')) {
+    pick = 'auto';
+  } else {
+    pick = names[0] || '';
+  }
+
+  if (pick && model.value !== pick) {
+    model.value = pick;
+    updateBotBadge();
+  }
+
+  // 🔁 Rehydrate FINALE coerente con ciò che vede l’utente (mode+model correnti)
+  // Non affidiamoci al timing degli eventi precedenti: chiediamo noi stessi l’idratazione coerente.
+  vscode.postMessage({ type: 'uiChanged', mode: mode.value, model: model.value });
+
+  boot.done = true;
+}
+
+
 function ensureHelpDOM() {
   // overlay container
   var overlay = document.getElementById('clikeHelpOverlay');
@@ -1951,6 +2014,9 @@ window.addEventListener('message', (event) => {
       });
     }
     try { updateBotBadge(); } catch {}
+    boot.gotInit = true;
+    boot.savedModel = (msg.state && msg.state.model) || null;
+    finalizeBootIfReady();
       
   }
   if (msg.type === 'attachmentsCleared') {
@@ -1961,23 +2027,37 @@ window.addEventListener('message', (event) => {
 
   if (msg.type === 'hydrateSession' && Array.isArray(msg.messages)) {
     chat.innerHTML = '';
-    for (const m of msg.messages) bubble(m.role, m.content, m.model, m.attachments || [], m.ts);
+    for (const m of msg.messages) 
+      bubble(m.role, m.content, m.model, m.attachments || [], m.ts);
+    boot.gotHydrate = true;
+    finalizeBootIfReady();
+
   }
+
   if (msg.type === 'models') {
+    const prev = model.value || '';
+    console.log("models-->prev", prev);
     model.innerHTML = '';
     (msg.models||[]).forEach(m=>{
       const name = (typeof m === 'string') ? m : (m.name || m.id || m.model || 'unknown');
+      console.log("models-->name", name);
       const provider = (typeof m === 'string')
         ? inferProvider(name)
         : (m.provider || 'unknown');
       const o = document.createElement('option');
       o.value = name; // il value resta il nome modello
       o.textContent = (provider && provider !== 'unknown') ? (provider + ':' + name) : name;
-
       o.dataset.provider = provider; // <-- portiamo il provider nella option
+      // LA NUOVA CONDIZIONE QUI:
+      if (name === prev) {
+        o.selected = true;
+      }
       model.appendChild(o);
     });
+    boot.gotModels = true;
+    finalizeBootIfReady();
   }
+  
   if (msg && msg.type === 'attachmentsAdded') {
     const bucket = ensureBucket(currentMode());
     const incoming = Array.isArray(msg.attachments) ? msg.attachments : [];
