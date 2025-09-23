@@ -20,9 +20,51 @@ _CAP_ORD = {"tiny":0,"small":1,"medium":2,"large":3,"frontier":4}
 _LAT_ORD = {"ultra-low":3,"low":2,"medium":1,"high":0}
 _COST_ORD = {"ultra-low":3,"low":2,"medium":1,"high":0}
 
+log = logging.getLogger("router")
+
 def _as_bool(v) -> bool:
     return str(v).lower() in ("1", "true", "yes", "on")
 
+def resolve_explain(task: str, hint: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Wrapper di resolve(...) che restituisce una vista 'spiegabile':
+    - chosen: modello scelto (id, provider, base_url, remote_name, tags)
+    - profile: profilo usato (da routing[...] o hint)
+    - policy: flag/ambienti (optimize_for, redaction, prefer_local, etc.)
+    - candidates: ids (best-effort) considerati
+    - warnings: eventuali warning
+    """
+    chosen, warnings = resolve(task=task, hint=hint)  # usa la funzione esistente
+    # best-effort: estrai alcune info standard dal chosen
+    info = {
+        "task": task,
+        "hint": hint,
+        "chosen": {
+            "id": chosen.get("id"),
+            "name": chosen.get("name"),
+            "provider": chosen.get("provider"),
+            "base_url": chosen.get("base_url"),
+            "remote_name": chosen.get("remote_name") or chosen.get("model") or chosen.get("name"),
+            "tags": chosen.get("tags", []),
+            "profile": chosen.get("profile"),  # se la resolve la mette, altrimenti None
+        },
+        "profile": chosen.get("profile"),
+        "policy": {
+            # questi campi sono opzionali: se li gestite già in Settings/config, popolateli lì
+            "redact_source": chosen.get("redact_source"),
+            "optimize_for": chosen.get("optimize_for"),
+            "privacy": chosen.get("privacy"),
+        },
+        # candidate ids best-effort (se la vostra resolve le estrae, altrimenti vuoto)
+        "candidates": chosen.get("_candidates", []),
+        "warnings": warnings or [],
+    }
+    # log strutturato per telemetria
+    try:
+        log.info("router.decision %s", info)
+    except Exception:
+        pass
+    return info
 
 def _resolve_models_path() -> str:
     """
@@ -45,10 +87,10 @@ def _resolve_models_path() -> str:
     # 2) Valore dal tuo Settings (MODELS_CONFIG_PATH già calcolato)
     if getattr(settings, "MODELS_CONFIG_PATH", None):
         p = settings.MODELS_CONFIG_PATH
-        logging.getLogger("router").info("settings.MODELS_CONFIG_PATH: %s", p)
+        log.info("settings.MODELS_CONFIG_PATH: %s", p)
 
         p = p if os.path.isabs(p) else os.path.abspath(os.path.join(settings.WORKSPACE_ROOT, p))
-        logging.getLogger("router").info("yo be candidate: %s", p)
+        log.info("yo be candidate: %s", p)
 
         candidates.append(p)
 
@@ -56,7 +98,7 @@ def _resolve_models_path() -> str:
     candidates.append(os.path.join(settings.WORKSPACE_ROOT, "configs", "models.yaml"))
     candidates.append("/workspace/configs/models.yaml")
 
-    logging.getLogger("router").info("models.yaml candidates: %s", candidates)
+    log.info("models.yaml candidates: %s", candidates)
 
     for p in candidates:
         if p and os.path.isfile(p):
@@ -223,11 +265,9 @@ def resolve(task: Task, hint: Optional[str] = None) -> Tuple[Dict[str,Any], List
     weights = (cfg.get("scoring") or {}).get("weights", {})
     defaults = cfg.get("defaults") or {}
 
-    logging.info(f"Resolving models={models}")
-
-
-    logging.info(f"Resolving profiles={profiles} ")
-    logging.info(f"Resolving routing={routing} with weights={weights}")
+    
+    log.info(f"Resolving profiles={profiles} ")
+    log.info(f"Resolving routing={routing} with weights={weights}")
     m_index = _index_models(models)
     m_all = list(m_index.values())
 

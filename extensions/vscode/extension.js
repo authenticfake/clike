@@ -1981,7 +1981,7 @@ window.addEventListener('message', (event) => {
   if (msg.type === 'echo') {
     console.log('[webview] echo', msg);
     const text = String(msg.message || '');
-    //try { bubble('assistant', text, 'system'); } catch (e) { console.warn('[webview] bubble echo failed', e); }
+    try { bubble('assistant', text, 'system'); } catch (e) { console.warn('[webview] bubble echo failed', e); }
     const pre = document.getElementById('text');
     if (pre) pre.textContent = text;
     return;
@@ -2179,7 +2179,7 @@ window.addEventListener('message', (event) => {
   if (msg.type === 'error') {
     setBusy(false);
     const text = 'Error: ' + String(msg.message || 'unknown');
-    try { bubble('assistant', text, 'system'); } catch {}
+    //try { bubble('assistant', text, 'system'); } catch {}
     const pre = document.getElementById('text');
     if (pre) pre.textContent = text;
     setTab('text');
@@ -2724,7 +2724,7 @@ async function cmdOpenChat(context) {
 
         } catch (err) {
           const emsg = String(err);
-          await appendSessionJSONL(activeMode, { role: 'assistant', content: `Error: ${emsg}`, model: activeModel });
+          //await appendSessionJSONL(activeMode, { role: 'assistant', content: `Error: ${emsg}`, model: activeModel });
           panel.webview.postMessage({ type: 'error', message: emsg });
         } finally {
           panel.webview.postMessage({ type: 'busy', on: false });

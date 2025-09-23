@@ -1,4 +1,4 @@
-# 🚀 CLike — AI‑Native Platform for Product Creator
+# 🚀 CLike — AI‑Native Platform for Product Engineers
 
 [![Made with Python](https://img.shields.io/badge/Made%20with-Python-3776AB?logo=python)](https://www.python.org/)  
 [![VS Code Extension](https://img.shields.io/badge/VS%20Code-Extension-007ACC?logo=visualstudiocode)](extensions/vscode)  
@@ -26,6 +26,15 @@
 - **Enterprise paved road** — governance, auditability, and reproducibility are built‑in, not bolted on.
 
 > Inspired by the project’s official Manifest and aligned with AI‑Native SWE best practices.
+
+### ✨ Where the Idea Comes From
+
+- **Harper (blog "Codegen Hero's Journey")**  → talks about a narrative workflow in which the LLM is a co-hero: starting with an idea, it generates a SPEC specification file, a PLAN, then a KIT, and iterating with short feedback cycles. This is the methodological and operational backbone of the solution definition phase.
+
+- **Vibe Coding (Karpathy + Gartner)** → emphasizes flow, intent, rapid prototyping, and cognitive offloading: the developer becomes a "composer" who works at the outcome level, not the code level. This has been incorporated by leaving the developer only with the design/intent steps and automating the build, testing, and security.
+
+- **AI-Native Software Engineering (Gartner)** → introduces agentic workflows, autonomous improvement loops, human-in-the-loop, and security as a guardrail. The process includes SAST, DAST, UAT/E2E, make targets for automatic cycles → process exactly in line with these recommendations.
+
 
 ---
 

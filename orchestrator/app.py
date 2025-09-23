@@ -10,11 +10,11 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from routes.v1 import router as v1_router
 from config import settings
 from routes.harper import router as harper_router
-
+from routes import router as router_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-app = FastAPI(title="Clike Orchestrator (AI Layer enabling Vibe Code)")
+app = FastAPI(title="Clike Orchestrator (AI Pipilines for enabling Vibe Code for Star tUp & Entprise Solutions)", version="1.0.0")
 os.makedirs(getattr(settings, "RUNS_DIR", "./runs"), exist_ok=True)
 logging.getLogger("orchestrator").info("RUNS_DIR=%s", getattr(settings, "RUNS_DIR", "./runs"))
 app.add_middleware(
@@ -43,6 +43,7 @@ app.include_router(rag_router)
 app.include_router(git_router)
 app.include_router(v1_router)
 app.include_router(harper_router)
+app.include_router(router_router.router)
 
 
 
