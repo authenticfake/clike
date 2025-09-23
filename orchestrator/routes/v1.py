@@ -4,9 +4,16 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 from fastapi import APIRouter, HTTPException, Request, Query
 import httpx
+from pydantic import BaseModel
 from config import settings
 from services import utils as su
-from services import llm_client
+from services.llm_client import call_gateway_chat
+# --- LOGGING UTILS (aggiunta) ---
+import time as _time
+from copy import deepcopy as _deepcopy
+
+# --- Generated root selection -------------------------------------------------
+import uuid
 # compat: alcuni repo usano services.router, altri services.model_router
 try:
     from services import model_router
@@ -29,6 +36,7 @@ INLINE_MAX_TOTAL_KB  = int(os.getenv("INLINE_MAX_TOTAL_KB", "256"))
 RAG_SIZE_THRESHOLD_KB = int(os.getenv("RAG_SIZE_THRESHOLD_KB", "64"))
 RAG_TOP_K            = int(os.getenv("RAG_TOP_K", "12"))
 
+
 # --- Classification for src/doc buckets ---
 CODE_EXTS = {
     ".py",".ts",".tsx",".js",".jsx",".go",".java",".c",".h",".cpp",".hpp",".cs",".rs",".kt",".swift",
@@ -42,13 +50,8 @@ DOC_EXTS = {
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".tif", ".tiff"}
 DATA_URL_RE = re.compile(r'data:(image/[\w\-\+\.]+);base64,([A-Za-z0-9+/=]+)')
 
-# --- LOGGING UTILS (aggiunta) ---
-import time as _time
-from copy import deepcopy as _deepcopy
 
-# --- Generated root selection -------------------------------------------------
-import uuid
-
+# se vuoi forzare un base diverso
 def _pick_generated_root() -> str:
     """
     Root di output per i file generati.
@@ -65,15 +68,15 @@ def _pick_generated_root() -> str:
 
 def _bucket_subdir(path: str) -> str:
     ext = (os.path.splitext(path)[1] or "").lower()
-    path= "docs"
     if ext in CODE_EXTS:
-        path = "src"
+        return "src"
     if ext in IMAGE_EXTS:
-        path = "images"
+        return "images"
     if ext in DOC_EXTS:
-        path = "docs"
-    # default: documentazione
-    return path
+        return "docs"
+    return "docs"
+
+
 
 def _retarget_files_under_generated(files: list[dict], prefix_path: str) -> list[dict]:
     """
@@ -341,7 +344,7 @@ async def list_models(
 # --------------------------------- Chat -------------------------------------
 
 @router.post("/chat")
-async def chat(req: Request):
+async def chat( req: Request):
     body = await req.json()
     mode = (body.get("mode") or "free").lower()
     if mode not in ("free",):
@@ -392,18 +395,37 @@ async def chat(req: Request):
     log.info("chat request: %s", json.dumps({"model": model, "provider": provider, "messages_len": len(messages)}, ensure_ascii=False))
 
     # Prepara meta per log
-    _t0 = _time.time()
     _gw = str(getattr(settings, "GATEWAY_URL", "http://localhost:8000")).rstrip("/")
  
-
+    payload = {
+        "model": body.get("model") or req.get("id"),
+        "messages": msgs,
+        "temperature": body.get("temperature"),
+        "max_tokens": body.get("max_tokens"),
+        # --- AGGIUNGI: provider-awareness end-to-end ---
+        "provider": body.get("provider"),
+        "base_url": str(getattr(settings, "GATEWAY_URL", "http://localhost:8000")), 
+        "remote_name": body.get("remote_name") or body.get("model") or body.get("name"),
+        "profile": None,  # utile per osservabilità
+    }
+    log.info("chat request --> paylod: %s", json.dumps(payload))
+    provider = body.get("provider")
+    _t0 = _time.time()
     try:
-        text = await llm_client.call_gateway_chat(
-            model, msgs,
-            base_url=_gw,
-            timeout=float(getattr(settings, "REQUEST_TIMEOUT_S", 60)),
-            temperature=body.get("temperature", 0.2),
-            max_tokens=body.get("max_tokens", 512),
-            provider=provider or None,
+        text = await call_gateway_chat(
+            model = body.get("model") or req.get("id"),
+            messages = msgs,
+            temperature= body.get("temperature"),
+            max_tokens= body.get("max_tokens"),
+            # --- AGGIUNGI: provider-awareness end-to-end ---
+            
+            base_url= str(getattr(settings, "GATEWAY_URL", "http://localhost:8000")), 
+            timeout=240,
+            response_format=None, 
+            tools=None, 
+            tool_choice=None, 
+            profile=None, 
+            provider= provider
         )
         _ms = int((_time.time() - _t0) * 1000)
         log.info("chat response: %s", json.dumps({"text_len": len(text or ""), "latency_ms": _ms}, ensure_ascii=False))
@@ -506,7 +528,7 @@ async def generate(req: Request):
     sys_schema = {
         "role": "system",
         "content": (
-            "You are CLike code generator. ALWAYS answer ONLY valid JSON with this schema:\n"
+            "You are CLike an expert code generator, Image and Video creator, UI/UX desinger with Cloud Skills, Application and Infrastructure Architect and more.  ALWAYS answer ONLY valid JSON with this schema:\n"
             "{\n"
             '  "files": [ { "path": "<relative/path/with/extension>", "content": "<full file content>" } ],\n'
             '  "messages": [ { "role": "assistant", "content": "<optional explanation>" } ]\n'
@@ -576,6 +598,7 @@ async def generate(req: Request):
     }
     payload["tools"] = [emit_files_tool]
     payload["tool_choice"] = {"type": "function", "function": {"name": "emit_files"}}
+    payload["base_url"] = base_url
     if provider is not None:
         payload["provider"] = provider
         
@@ -590,12 +613,8 @@ async def generate(req: Request):
     else:
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
-
-    if str(model).startswith("gpt-5"):
-        payload["max_completion_tokens"] = body.get("max_tokens", 2048)
     
-    if str(model).startswith("gpt-5"):
-        payload["max_completion_tokens"] = body.get("max_tokens", 2048)
+    
     # Sanitizer finale: elimina ogni set residuo che romperebbe json=
     payload = _json_safe(payload)
 
@@ -623,66 +642,116 @@ async def generate(req: Request):
             txt = r.text
             _ms = int((_time.time() - _t0) * 1000)
             if r.is_success:
-                log.info("gateway.response %s", json.dumps({
+                log.info("gateway.response success %s", json.dumps({
                     "status": r.status_code,
                     "latency_ms": _ms
                 }, ensure_ascii=False))
                 # log body (ridotto) a livello DEBUG
                 try:
                     data = r.json()
-                    
+                    # Alcuni provider/adapters (es. Ollama via gateway) possono restituire un JSON string (double-encoded):
+                    if isinstance(data, str):
+                        try:
+                            parsed = json.loads(data)
+                            data = parsed
+                            log.debug("gateway.response reparsed string JSON into dict")
+                        except Exception:
+                            log.warning("gateway.response is a JSON string but not parseable; proceeding with empty dict")
+                            data = {}
+                    log.info("gateway.response %s", json.dumps(data, ensure_ascii=False))
                     log.debug("gateway.response.body %s", _shrink_text(json.dumps(data, ensure_ascii=False), 4000))
                 except Exception:
                     log.debug("gateway.response.text %s", _shrink_text(txt, 4000))
-                
-                # Log sintetico di risposta
-                try:
-                    log.info("gateway.response %s", json.dumps({"status": 200, "latency_ms": _ms}, ensure_ascii=False))
-                    log.debug("gateway.response.body %s", _shrink_text(json.dumps(data, ensure_ascii=False), 4000))
-                except Exception:
-                    pass
-
-                # 1) preferisci tool_calls
-                choices = (data.get("choices") or [])
-                msg = (choices[0].get("message") if choices else {}) or {}
-                tool_calls = msg.get("tool_calls") or []
-
-                if tool_calls:
-                    for tc in tool_calls:
-                        if (tc.get("type") == "function") and (tc.get("function", {}).get("name") == "emit_files"):
-                            args_raw = tc.get("function", {}).get("arguments")
-                            try:
-                                args = json.loads(args_raw) if isinstance(args_raw, str) else (args_raw or {})
-                            except Exception:
-                                args = {}
-                            parsed = (args.get("files") or [])
-                            
-                            files = _normalize_files_for_write(parsed)  # tua utility già presente
-
-                            log.info("generate tool_calls->files %s", json.dumps({"count": len(files)}, ensure_ascii=False))
-                            break;
-                            
-
-                # 2) fallback: JSON puro in content
-                text = msg.get("content") or ""
-                if text:
                     try:
-                        obj = json.loads(text)
-                        files = (obj.get("files") or [])
-                        files = _normalize_files_for_write(files)
-                        log.info("generate content-json->files %s", json.dumps({"count": len(files)}, ensure_ascii=False))
-                        
+                        parsed = json.loads(txt)
+                        # Anche qui: se è una stringa JSON annidata, riprova a parsarla
+                        if isinstance(parsed, str):
+                            try:
+                                parsed = json.loads(parsed)
+                                log.debug("gateway.response reparsed nested string JSON into dict")
+                            except Exception:
+                                log.warning("gateway.response nested string not parseable; using empty dict")
+                                parsed = {}
+                        data = parsed
+                    except Exception:
+                        raise HTTPException(status_code=502, detail="gateway chat failed: invalid JSON from provider")
+
+                log.debug("gateway.response.type %s", type(data).__name__)
+
+                # ---- Estrazione FILES in modo robusto cross-provider ----
+                files: List[Dict[str, Any]] = []
+
+                def _first_message(d: Any) -> Dict[str, Any]:
+                    """Ritorna in sicurezza il primo message da data['choices'][0]['message'] se presente e ben formato."""
+                    try:
+                        if isinstance(d, dict):
+                            ch = d.get("choices")
+                            if isinstance(ch, list) and ch:
+                                c0 = ch[0]
+                                if isinstance(c0, dict):
+                                    m = c0.get("message")
+                                    if isinstance(m, dict):
+                                        return m
                     except Exception:
                         pass
+                    return {}
 
-                log.info("Estrai dai tool_calls files=%s", json.dumps({"count": len(files)}, ensure_ascii=False))
-                # se ancora vuoto → 422 coerente
+                msg = _first_message(data)               # dict (o {})
+                content_str = ""
+                if isinstance(msg, dict):
+                    content_str = msg.get("content") or ""
+
+                # 1) Preferisci tool_calls (OpenAI compat)
+                tool_calls = msg.get("tool_calls") if isinstance(msg, dict) else None
+                if isinstance(tool_calls, list) and tool_calls:
+                    for tc in tool_calls:
+                        try:
+                            if (tc.get("type") == "function") and (tc.get("function", {}).get("name") == "emit_files"):
+                                args_raw = tc.get("function", {}).get("arguments")
+                                args = json.loads(args_raw) if isinstance(args_raw, str) else (args_raw or {})
+                                parsed = (args.get("files") or [])
+                                files = _normalize_files_for_write(parsed)
+                                log.info("generate tool_calls->files %s", json.dumps({"count": len(files)}, ensure_ascii=False))
+                                break
+                        except Exception:
+                            # continua coi fallback
+                            pass
+
+                # 2) Fallback: top-level "files" (es. Ollama / adapter custom)
+                if not files and isinstance(data, dict) and isinstance(data.get("files"), list):
+                    files = _normalize_files_for_write(data["files"])
+                    log.info("generate top-level->files %s", json.dumps({"count": len(files)}, ensure_ascii=False))
+
+                # 3) Fallback: JSON puro dentro message.content / oppure 'text'
                 if not files:
-                    log.info("generate no-files (nothing from tool_calls/json/fences)")
+                    if not content_str and isinstance(data, dict) and "text" in data:
+                        content_str = data.get("text") or ""
+                    if isinstance(content_str, str) and content_str.strip():
+                        try:
+                            obj = _extract_json(content_str)
+                            jf = obj.get("files") if isinstance(obj, dict) else None
+                            if isinstance(jf, list) and jf:
+                                files = _normalize_files_for_write(jf)
+                                log.info("generate content-json->files %s", json.dumps({"count": len(files)}, ensure_ascii=False))
+                        except Exception:
+                            # 4) Ultimo fallback: code fences → file singoli
+                            from_fences = _extract_files_from_fences(content_str)
+                            if from_fences:
+                                files = _normalize_files_for_write(from_fences)
+                                log.info("generate fences->files %s", json.dumps({"count": len(files)}, ensure_ascii=False))
+
+                log.info("generate files (post-extract) %s", json.dumps({"count": len(files)}, ensure_ascii=False))
+
+                # 5) Se ancora vuoto → 422 coerente
+                if not files:
+                    log.info("generate no-files (nothing from tool_calls/top-level/json/fences)")
                     raise HTTPException(status_code=422, detail="model did not produce 'files' with path+content")
+
+                # 6) retarget sotto generated_<uuid>/ {src|docs|images}
                 temp_path = str(uuid.uuid4()).split("-")[0]
-                # 4) retarget sotto generated_<uuid> (o GENERATED_ROOT)
                 files = _retarget_files_under_generated(files, temp_path)   # <— prima dei diff!
+
+                # 7) diffs
                 diffs: List[Dict[str, Any]] = []
                 for fobj in files:
                     path = fobj["path"]
@@ -690,26 +759,18 @@ async def generate(req: Request):
                     prev = su.read_file(path) or ""
                     patch = su.to_diff(prev, content, path)
                     diffs.append({"path": path, "diff": patch})
-                # 6) risultato completo (text + diffs)
+
+                # 8) risposta completa (popola "text" e "diffs" per i tab)
                 result = {
                     "version": "1.0",
                     "files": files,
-                    "usage": data.get("usage") or {},
+                    "usage": (data.get("usage") if isinstance(data, dict) else {}) or {},
                     "sources": [],
                     "text": "Generated files:\n" + "\n".join(f"- {f['path']}" for f in files),
                     "diffs": diffs or ["(No diffs computed: new files)"],
                     "audit_id": "coding-toolcalls",
                 }
-                
                 return result
-
-            else:
-                log.error("gateway.response %s", json.dumps({
-                    "status": r.status_code,
-                    "latency_ms": _ms,
-                    "error_text": _shrink_text(txt, 2000)
-                }, ensure_ascii=False))
-                r.raise_for_status()
 
     except httpx.HTTPStatusError as e:
         # Propaga il vero body (niente 502 generici)

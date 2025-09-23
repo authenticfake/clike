@@ -6,7 +6,7 @@ from config import settings
 import  json, logging
 
 
-log = logging.getLogger("llm")
+log = logging.getLogger("orcehstrator:service:llm_client")
 # orchestrator/services/llm_client.py
 
 import os, json, httpx, asyncio
@@ -72,11 +72,26 @@ async def call_gateway_chat(
     max_tokens: int = 512,
     base_url: str | None = None,
     timeout: float | None = None,
-    response_format=None, tools=None, tool_choice=None, profile=None, provider=None
+    response_format=None, tools=None, tool_choice=None, profile=None, provider: str | None = None
 ) -> str:
-    import httpx
+    log.info("call_gateway_chat request: %s", json.dumps({
+        "model": model,
+        "base_url": base_url,
+        "messages_len": len(messages),
+        "has_response_format": bool(response_format),
+        "has_tools": bool(tools),
+        "provider": provider,
+        "timeout": timeout,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "profile": profile
+    }))
+    # Guardia difensiva
+    if not isinstance(messages, list):
+        raise ValueError("call_gateway_chat: 'messages' must be a list of {role, content}")
+
     base = (base_url or str(getattr(settings, "GATEWAY_URL", "http://localhost:8000"))).rstrip("/")
-    to = float(timeout or float(getattr(settings, "REQUEST_TIMEOUT_S", 60)))
+    to = float(timeout or float(getattr(settings, "REQUEST_TIMEOUT_S", 240)))
     body = {"model": model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens}
     if response_format is not None:
         body["response_format"] = response_format
