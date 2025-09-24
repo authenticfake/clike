@@ -552,8 +552,8 @@ function cfg() {
   const routes = c.get('clike.routes', {
     orchestrator: {
       code: '/agent/code',
-      ragSearch: '/rag/search',
-      ragReindex: '/rag/reindex',
+      ragSearch: '/v1/rag/search',  
+      ragIndex: '/v1/rag/ingest',
       health: '/health',
       chat: '/v1/chat',
       generate: '/v1/generate'
@@ -1066,27 +1066,63 @@ async function cmdCheckServices(context) {
   vscode.window.showInformationMessage(`Health — Orchestrator: ${o.status || 'err'} | Gateway: ${g.status || 'err'}`);
 }
 
-async function cmdRagReindex() {
-  const { routes } = cfg();
-  const confirm = await vscode.window.showWarningMessage('Rindicizzare l’intero progetto?', 'Sì', 'No');
-  if (confirm !== 'Sì') return;
-  const resp = await postOrchestrator(routes.orchestrator.ragReindex, {});
-  if (!resp.ok) return vscode.window.showErrorMessage(`Clike Reindex: HTTP ${resp.status}`);
-  vscode.window.showInformationMessage('Clike: RAG reindex avviato.');
+async function cmdRagReindex(glob) {
+  const routes = (cfg().orchestrator && cfg().orchestrator.routes) || {};
+  // preferisci route nuova, altrimenti fallback alla vecchia se l'utente ha set custom
+  const url = routes.ragIndex || routes.ragReindex || '/v1/rag/ingest';
+  let payload;
+  if (typeof glob === 'string' && glob.trim()) {
+    payload = { mode: 'glob', glob: glob.trim() };
+  } else {
+    const ok = await vscode.window.showWarningMessage(
+      'This will re-index the whole workspace into RAG. Continue?', { modal: true }, 'Reindex'
+    );
+    if (ok !== 'Reindex') return;
+    payload = { mode: 'full' };
+ }
+ // (opzionale) namespace di progetto: nome cartella root
+ try {
+    const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+    if (ws) payload.namespace = ws.name;
+ } catch {}
+ // invio
+ const res = await postOrchestrator(url, payload);
+ try {
+    vscode.window.showInformationMessage(`RAG index ok: ${res && res.stats ? JSON.stringify(res.stats) : 'submitted'}`);
+ } catch {
+    vscode.window.showInformationMessage('RAG index request submitted.');
+ }
 }
 
-async function cmdRagSearch() {
-  const { routes } = cfg();
-  const q = await vscode.window.showInputBox({ placeHolder: 'Prompt/Query RAG', ignoreFocusOut: true });
-  if (!q) return;
-  const resp = await postOrchestrator(routes.orchestrator.ragSearch, { query: q });
-  if (!resp.ok) return vscode.window.showErrorMessage(`Clike RAG Search: HTTP ${resp.status}`);
-  const hits = resp.json && (resp.json.hits || resp.json.results || []);
-  const items = (Array.isArray(hits) ? hits : [hits]).map((h, i) => ({
-    label: h.title ? `${i + 1}. ${h.title}` : `${i + 1}. result`,
-    detail: (h.score != null ? `score=${h.score} ` : '') + (h.path || h.id || '')
-  }));
-  await vscode.window.showQuickPick(items.length ? items : [{ label: 'Nessun risultato' }], { placeHolder: 'RAG Results' });
+async function cmdRagSearch(q) {
+  let query = (typeof q === 'string') ? q : '';
+  if (!query) {
+    query = await vscode.window.showInputBox({ prompt: 'RAG search query' }) || '';
+  }
+  if (!query.trim()) return;
+  const routes = (cfg().orchestrator && cfg().orchestrator.routes) || {};
+  const url = routes.ragSearch || '/v1/rag/search';
+  const payload = { q: query.trim(), k: 8 };
+  try {
+    const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+    if (ws) payload.namespace = ws.name;
+  } catch {}
+  const res = await postOrchestrator(url, payload);
+  const hits = (res && res.hits) || [];
+  vscode.window.showInformationMessage(`RAG results: ${hits.length}`);
+  // manda in webview un riassunto semplice (pannello Text)
+  try {
+    const lines = hits.slice(0, 10).map((h, i) => {
+      const p = (h && h.payload && (h.payload.path || h.payload.file || h.payload.source)) || '(unknown)';
+      const s = (h && typeof h.score === 'number') ? h.score.toFixed(3) : '';
+      return `${i+1}. ${p}  ${s ? `(score ${s})` : ''}`;
+    });
+    const summary = `RAG Search: "${query}"\n` + (lines.length ? lines.join('\n') : '(no results)');
+    if (panel && panel.webview) {
+      panel.webview.postMessage({ type: 'text', text: summary });
+    }
+  } catch {}
+  return res;
 }
 
 async function cmdApplyUnifiedDiffHardened(context) {
@@ -1263,7 +1299,7 @@ function getWebviewHtml(orchestratorUrl) {
     <button id="clear">Clear Session</button>
 
     <label class="ctl">
-      History scope
+      Scope
       <select id="historyScope">
         <option value="singleModel">Model</option>
         <option value="allModels">All models</option>
@@ -1318,39 +1354,26 @@ try {
 var HELP_COMMANDS = [
   {cmd:'/help', desc:'Mostra questa guida rapida'},
   {cmd:'/init <name> [--path <abs>] [--force]', desc:'Inizializza il progetto Harper nel workspace'},
-  {cmd:'/status', desc:'Mostra stato progetto/contesto'},
-  {cmd:'/where', desc:'Mostra percorso del workspace/doc-root'},
-  {cmd:'/switch <name|path>', desc:'Passa ad un altro progetto'},
+  {cmd:'/status', desc:'Mostra stato progetto/contesto Harper'},
+  {cmd:'/where', desc:'Mostra percorso del workspace/doc-root Harper'},
+  {cmd:'/switch <name|path>', desc:'Passa ad un altro progetto Harper'},
   {cmd:'/spec [file|testo]', desc:'Genera/Aggiorna SPEC.md dalla IDEA'},
   {cmd:'/plan [spec_path]', desc:'Genera/Aggiorna PLAN.md dallo SPEC'},
   {cmd:'/kit [spec] [plan]', desc:'Genera/Aggiorna KIT.md'},
-  {cmd:'/build [n]', desc:'Applica batch di TODO dal PLAN; produce diff & test'},
-  {cmd:'/finalize [--tag vX.Y.Z] [--archive]', desc:'Gate finali e chiusura progetto'}
+  {cmd:'/build [n]', desc:'Applica batch di TODO dal PLAN; produce diff & test (Harper)'},
+  {cmd:'/finalize [--tag vX.Y.Z] [--archive]', desc:'Gate finali e chiusura progetto (Harper)'},
+  {cmd:'/rag <query>', desc:'Cerca nel RAG (mostra i top risultati) (cross)'},
+  {cmd:'/rag +<N>', desc:'Aggiungi ai file allegati il risultato RAG #N dell’ultima ricerca (cross)'},
+  {cmd:'/rag list', desc:'Mostra gli allegati correnti (inline+RAG) (cross)'},
+  {cmd:'/rag clear', desc:'Svuota gli allegati correnti (cross)'},
+  { cmd: '/ragIndex [glob]', desc: 'Indicizza manualmente nel RAG. Esempi: /ragIndex docs/**/*.md  |  /ragIndex **/*' },
+  { cmd: '/ragSearch <query>', desc: 'Cerca nel RAG e mostra i migliori risultati nel pannello Text.' }
 ];
 
-// function finalizeBootIfReady() {
-//   if (boot.done) return;
-//   if (!(boot.gotModels && boot.gotHydrate)) return;
-
-//   // elenco modelli disponibili nella combo
-//   const names = Array.from(model.options).map(o => o.value);
-//   // preferenze: savedModel (da initState) → 'llama3' → 'auto' → primo
-//   let pick = (boot.savedModel && names.includes(boot.savedModel)) ? boot.savedModel
-//            : (names.includes('llama3') ? 'llama3'
-//            : (names.includes('auto')   ? 'auto'
-//            : (names[0] || '')));
-
-//   if (pick && model.value !== pick) {
-//     model.value = pick;
-//     updateBotBadge();
-//     // Allinea estensione host e chiedi re-hydrate coerente
-//     vscode.postMessage({ type: 'uiChanged', mode: mode.value, model: pick });
-//   }
-
-//   boot.done = true;
-// }
 // --- bootstrap sync: seleziona modello SOLO quando tutto è pronto ---
 const boot = { gotInit:false, gotModels:false, gotHydrate:false, done:false, savedModel:null };
+// Ultimi risultati di /rag per consentire /rag +N
+let lastRagHits = [];
 
 function finalizeBootIfReady() {
   if (boot.done) return;
@@ -1571,6 +1594,52 @@ function escapeHtml(s){
     '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
   }[m]));
 }
+
+function appendCitationsMeta(container, cits) {
+  try {
+    if (!Array.isArray(cits) || !cits.length) return;
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    const label = document.createElement('span');
+    label.textContent = 'Sources: ';
+    meta.appendChild(label);
+
+    for (var i = 0; i < cits.length; i++) {
+      var c = cits[i] || {};
+      var title = String(c.title || c.path || c.doc_id || c.chunk_id || c.url || 'source');
+      var scoreTxt = (typeof c.score === 'number')
+        ? ' (' + (Math.round(c.score * 100) / 100) + ')'
+        : '';
+
+      if (c.url && typeof c.url === 'string') {
+        var a = document.createElement('a');
+        a.href = c.url;
+        a.textContent = title;
+        a.target = '_blank';
+        a.rel = 'noreferrer';
+        meta.appendChild(a);
+      } else {
+        var s = document.createElement('span');
+        s.textContent = title;
+        meta.appendChild(s);
+      }
+
+      if (scoreTxt) {
+        var sm = document.createElement('small');
+        sm.textContent = scoreTxt;
+        meta.appendChild(sm);
+      }
+
+      if (i < cits.length - 1) {
+        var sep = document.createElement('span');
+        sep.textContent = ' · ';
+        meta.appendChild(sep);
+      }
+    }
+    container.appendChild(meta);
+  } catch (e) {}
+}
+
 const el = (id) => document.getElementById(id);
 const mode = el('mode');
 const model = el('model');
@@ -1643,6 +1712,30 @@ function parseSlash(s) {
     console.log('cmd init parseSlash:', name, rest,force,pth,pathTokens);
     return { cmd, args: { name, path: pth, force } };
   }
+  // /rag: 4 varianti supportate
+  if (cmd === '/rag') {
+    // esempi:
+    // /rag my query here
+    // /rag +3
+    // /rag list
+    // /rag clear
+    const tail = (parts.slice(1) || []).join(' ').trim();
+    if (!tail) return { cmd, args: { action: 'help' } };
+    // nuovo (safe, senza regex)
+    const s = (typeof tail === 'string' ? tail.trim() : '');
+    if (s && s[0] === '+') {
+      const num = parseInt(s.slice(1), 10);
+      if (Number.isFinite(num) && num > 0) {
+        return { cmd, args: { action: 'addByIndex', index: num } };
+      }
+    }
+ 
+    if (/^(list|clear)$/i.test(tail)) {
+      return { cmd, args: { action: tail.toLowerCase() } };
+    }
+    // default → search
+    return { cmd, args: { action: 'search', query: tail } };
+  }
   
   // …altri comandi slash, se presenti
   return { cmd, args: {} };
@@ -1660,7 +1753,13 @@ function getHelpItems() {
       {cmd:'/plan [spec_path]', desc:'Genera/Aggiorna PLAN.md dallo SPEC'},
       {cmd:'/kit [spec] [plan]', desc:'Genera/Aggiorna KIT.md'},
       {cmd:'/build [n]', desc:'Applica batch di TODO dal PLAN; produce diff & test'},
-      {cmd:'/finalize [--tag vX.Y.Z] [--archive]', desc:'Gate finali e chiusura progetto'}
+      {cmd:'/finalize [--tag vX.Y.Z] [--archive]', desc:'Gate finali e chiusura progetto'},
+      {cmd:'/rag <query>', desc:'Cerca nel RAG (mostra i top risultati) (cross)'},
+      {cmd:'/rag +<N>', desc:'Aggiungi ai file allegati il risultato RAG #N dell’ultima ricerca (cross)'},
+      {cmd:'/rag list', desc:'Mostra gli allegati correnti (inline+RAG) (cross)'},
+      {cmd:'/rag clear', desc:'Svuota gli allegati correnti (cross)'},
+      { cmd: '/ragIndex [glob]', desc: 'Indicizza manualmente nel RAG. Esempi: /ragIndex docs/**/*.md  |  /ragIndex **/*' },
+      { cmd: '/ragSearch <query>', desc: 'Cerca nel RAG e mostra i migliori risultati nel pannello Text.' }
       ];
   try {
     var g = (typeof window !== 'undefined') ? window.HELP_COMMANDS : undefined;
@@ -1745,11 +1844,90 @@ function handleSlash(slash) {
     try { openHelpOverlay(); } catch {}
     return;
   }
+  if (slash.cmd === '/rag') {
+    const a = slash.args || {};
+    // 1) /rag search
+    if (a.action === 'search' && a.query) {
+      // Chiedo al lato host di interrogare l’orchestrator
+      vscode.postMessage({ type: 'ragSearch', query: a.query, top_k: 8 });
+      // bubble utente
+      const userCommand = '/rag ' + a.query;
+
+      try { bubble('user', userCommand, (model && model.value) ? model.value : 'auto'); } catch {}
+      try { prompt.value = ''; } catch {}
+      return true;
+    }
+    // 2) /rag +N → aggiunge l’N-esimo hit come RAG attachment
+    if (a.action === 'addByIndex' && Number.isFinite(a.index)) {
+      const idx = a.index - 1;
+      const hit = Array.isArray(lastRagHits) ? lastRagHits[idx] : null;
+      const index = a.index || 1;
+      if (!hit) {
+        
+        bubble('assistant', "Nessun risultato #"+index+" disponibile. Esegui prima /rag <query>.", "system");
+        return true;
+      }
+      const doc_index = "doc" + index;
+      // Normalizza hit → attachment RAG by id|path
+      const id    = (hit.id || hit.doc_id || null);
+      const path = (hit.path || hit.source_path || null);
+      const name = hit.title || path || id || doc_index;  
+      const bucket = attachmentsByMode[currentMode()] || [];
+      bucket.push({ origin:'rag', id, path, name });
+      attachmentsByMode[currentMode()] = bucket;
+      renderAttachmentChips();
+      bubble('assistant', "📎 Aggiunto: "+ name, 'system');
+      return true;
+    }
+    // 3) /rag list → mostra gli allegati correnti
+    if (a.action === 'list') {
+      const list = attachmentsByMode[currentMode()] || [];
+      const lines = list.map(function(x,i){
+      const nameOrId = x.name || x.path || x.id || 'file';
+      const idSuffix = x.id ? ' (id)' : '';
+      const pathSuffix = x.path ? ' (path)' : '';
+      return (i + 1) + '. ' + nameOrId + idSuffix + pathSuffix;
+    });
+      bubble('assistant', lines.length ? "Allegati:<br/>"+ lines.join('<br/>') : 'Nessun allegato.', 'system');
+      return true;
+    }
+    // 4) /rag clear → svuota allegati
+    if (a.action === 'clear') {
+      attachmentsByMode[currentMode()] = [];
+      renderAttachmentChips();
+      bubble('assistant', 'Allegati svuotati.', 'system');
+      return true;
+    }
+    // help/fallback
+    bubble('assistant', 'Uso: /rag <query> | /rag +N | /rag list | /rag clear', 'system');
+    return true;
+  }
+
   if (slash.cmd === '/init') {
     // mappa su handler host esistente (harperInit)
     vscode.postMessage({ type: 'harperInit', name: slash.args.name || '', path: slash.args.path || '', force: !!slash.args.force });
     return;
   }
+  // --- RAG: /ragIndex [glob], /ragSearch <query>
+  try {
+    var typed = (typeof prompt !== 'undefined' && prompt && typeof prompt.value === 'string') ? prompt.value : '';
+    var cmdLower = (slash.cmd || '').toLowerCase();
+    if (cmdLower === '/ragindex') {
+      var gl = (typed || '').slice(slash.cmd.length).trim(); // tutto quello dopo /ragIndex
+      vscode.postMessage({ type: 'ragIndex', glob: gl || '' });
+      try { bubble('user', slash.cmd + (gl ? (' ' + gl) : ''), (model && model.value) ? model.value : 'auto'); } catch {}
+      try { prompt.value = ''; } catch {}
+      return;
+    }
+    if (cmdLower === '/ragsearch') {
+      var q = (typed || '').slice(slash.cmd.length).trim();   // tutto quello dopo /ragSearch
+      if (!q && slash.args && slash.args.name) q = String(slash.args.name || '');
+      vscode.postMessage({ type: 'ragSearch', q: q || '' });
+      try { bubble('user', '/ragSearch ' + (q || ''), (model && model.value) ? model.value : 'auto'); } catch {}
+      try { prompt.value = ''; } catch {}
+      return;
+    }
+  } catch (eRagSlash) { console.warn('rag slash err', eRagSlash); }
   if (slash.cmd === '/where') {
     vscode.postMessage({ type: 'where' });
     return;
@@ -1781,6 +1959,7 @@ function handleSlash(slash) {
     try { prompt.value = ''; } catch {}
     return true;
   }
+  
   // Fallback: slash non riconosciuto → non invio al modello, mostro help
   try {
     bubble('assistant',
@@ -1792,8 +1971,8 @@ function handleSlash(slash) {
   return;
 }
 
+function bubble(role, content, modelName, attachments, ts, opts) {
 
-function bubble(role, content, modelName, attachments, ts) {
   attachments = attachments || [];
   const wrap = document.createElement('div');
   wrap.className = 'msg ' + (role === 'user' ? 'user' : 'ai');
@@ -1817,7 +1996,21 @@ function bubble(role, content, modelName, attachments, ts) {
       .join(', ');
     b.appendChild(meta);
   }
-      
+
+  // RAG badge + Citations (se presenti)
+  try {
+    opts = opts || {};
+    if (opts.ragUsed) {
+      const m = document.createElement('div');
+      m.className = 'meta';
+      m.textContent = '🔎 RAG context used';
+      b.appendChild(m);
+    }
+    if (Array.isArray(opts.citations) && opts.citations.length) {
+      appendCitationsMeta(b, opts.citations);
+    }
+  } catch {}
+
   wrap.appendChild(b);
   chat.appendChild(wrap);
   chat.scrollTop = chat.scrollHeight;
@@ -2046,7 +2239,9 @@ window.addEventListener('message', (event) => {
         : (m.provider || 'unknown');
       const o = document.createElement('option');
       o.value = name; // il value resta il nome modello
-      o.textContent = (provider && provider !== 'unknown') ? (provider + ':' + name) : name;
+      //o.textContent = (provider && provider !== 'unknown') ? (provider + ':' + name) : name;
+      o.textContent = name;
+     
       o.dataset.provider = provider; // <-- portiamo il provider nella option
       // LA NUOVA CONDIZIONE QUI:
       if (name === prev) {
@@ -2057,6 +2252,7 @@ window.addEventListener('message', (event) => {
     boot.gotModels = true;
     finalizeBootIfReady();
   }
+  
   
   if (msg && msg.type === 'attachmentsAdded') {
     const bucket = ensureBucket(currentMode());
@@ -2080,7 +2276,34 @@ window.addEventListener('message', (event) => {
     const text = (msg.data && (msg.data.text || msg.data.content))
       ? (msg.data.text || msg.data.content)
       : JSON.stringify(msg.data, null, 2);
-    bubble('assistant', text, modelName);
+    // Citations & RAG flags dal backend
+    var citations = [];
+    try {
+      var d = msg.data || {};
+      if (Array.isArray(d.citations)) citations = d.citations;
+      else if (Array.isArray(d.sources)) citations = d.sources;
+    } catch {}
+
+    var ragUsed = false;
+    
+    var attachments = Array.isArray(msg.attachments) ? msg.attachments : [];
+    try {
+      var d2 = msg.data || {};
+      ragUsed = !!(d2.rag_used || (citations && citations.length));
+    } catch {}
+    if (text) bubble('assistant', text, model.value, attachments, Date.now(), { ragUsed: ragUsed, citations: citations });
+    try {
+      if (citations && citations.length) {
+        var lines = [];
+        for (var i = 0; i < citations.length; i++) {
+          var c = citations[i] || {};
+          var t = String(c.title || c.path || c.doc_id || c.chunk_id || c.url || 'source');
+          var u = (c.url && typeof c.url === 'string') ? c.url : '';
+          lines.push('- ' + t + (u ? ' <' + u + '>' : ''));
+        }
+        preText.textContent = String(preText.textContent || "") + "<br/><br/>Sources:<br/>" + lines.join("<br/>");
+      }
+    } catch {}
 
     const data = msg.data || {};
     const assistantText = (data.assistant_text || '').trim();
@@ -2110,16 +2333,38 @@ window.addEventListener('message', (event) => {
   if (msg.type === 'generateResult') {
     setBusy(false);
     const data = msg.data || {};
+    var genCitations = [];
+    var genRagUsed = false;
+    try {
+      var gd = msg.data || {};
+      if (Array.isArray(gd.citations)) genCitations = gd.citations;
+      else if (Array.isArray(gd.sources)) genCitations = gd.sources;
+      genRagUsed = !!(gd.rag_used || (genCitations && genCitations.length));
+    } catch {}
+
     const summary = Array.isArray(data.files) && data.files.length
       ? 'Generated files:\\n' + data.files.map(f => '- ' + f.path).join('\\n')
       : JSON.stringify(data, null, 2);
-    bubble('assistant', summary, model.value);
+    bubble('assistant', summary, model.value, [], Date.now(), { ragUsed: genRagUsed, citations: genCitations });
     
     const assistantText = (data.assistant_text || '').trim();
     // immagini (solo image/* con base64) – al massimo 3
     const imgs = (Array.isArray(data.files) ? data.files : []).filter(function (f) {
       return f && typeof f.mime === 'string' && f.mime.indexOf('image/') === 0 && f.content_base64;
     });
+    try {
+      if (genCitations && genCitations.length) {
+        var glines = [];
+        for (var i = 0; i < genCitations.length; i++) {
+          var c = genCitations[i] || {};
+          var t = String(c.title || c.path || c.doc_id || c.chunk_id || c.url || 'source');
+          var u = (c.url && typeof c.url === 'string') ? c.url : '';
+          glines.push('- ' + t + (u ? ' <' + u + '>' : ''));
+        }
+        preText.textContent = String(preText.textContent || '') + '\\n\\nSources:\\n' + glines.join('\\n');
+      }
+    } catch {}
+
     if (Array.isArray(imgs) && imgs.length >0) {
       var html = imgs.slice(0, 3).map(function (f) {
         var src = 'data:' + f.mime + ';base64,' + f.content_base64;
@@ -2167,8 +2412,14 @@ window.addEventListener('message', (event) => {
         vscode.postMessage({ type: 'openFile', path: p });
       });
     });
+    // salva un “ultimo run” compatto
     lastRun = { run_dir: data.run_dir, audit_id: data.audit_id };
-    btnApply.disabled = !lastRun?.run_dir && !lastRun?.audit_id;
+
+    // Abilita Apply anche se il server non ha creato un run_dir/audit_id
+    // ma ci sono file strutturati da scrivere.
+    const canApply = !!(data.run_dir || data.audit_id || (Array.isArray(data.files) && data.files.length));
+    btnApply.disabled = !canApply;
+
   }
   if (msg.type === 'applyResult') {
     setBusy(false);
@@ -2441,6 +2692,43 @@ async function cmdOpenChat(context) {
         }
         return;
       }
+      if (msg.type === 'ragIndex') {
+      // opzionale: msg.glob (stringa). Riusiamo la logica del comando palette.
+      try {
+        await cmdRagReindex(msg.glob || '');
+        panel.webview.postMessage({ type: 'echo', message: 'RAG indexing: request submitted' });
+      } catch (e) {
+        panel.webview.postMessage({ type: 'echo', message: 'RAG indexing error: ' + String(e && e.message || e) });
+      }
+      return;
+      }
+      if (msg.type === 'ragSearch') {
+      try {
+        await cmdRagSearch(msg.q || '');
+      } catch (e) {
+        panel.webview.postMessage({ type: 'echo', message: 'RAG search error: ' + String(e && e.message || e) });
+      }
+      return;
+      }
+      // RAG search chiesto dalla webview (/rag <query>)
+      if (msg.type === 'ragSearch') {
+        try {
+          const { routes } = cfg();
+          const q = String(msg.query || '').trim();
+          const top_k = Number.isFinite(msg.top_k) ? msg.top_k : 8;
+          if (!q) throw new Error('Query vuota.');
+          const resp = await postOrchestrator(routes.orchestrator.ragSearch, { query: q, top_k });
+          if (!resp.ok) {
+            panel.webview.postMessage({ type:'error', message: `RAG Search: HTTP ${resp.status}` });
+            return;
+          }
+          const results = (resp.json && (resp.json.hits || resp.json.results)) || [];
+          panel.webview.postMessage({ type:'ragResults', results });
+        } catch (e) {
+          panel.webview.postMessage({ type:'error', message: `RAG Search failed: ${e.message||String(e)}` });
+        }
+        return;
+      }
       // opzionale utility
       if (msg.type === 'echo') {
         await appendSessionJSONL(state.mode, { role:'assistant', content:String(msg.message||''), model:'system' });
@@ -2669,7 +2957,14 @@ async function cmdOpenChat(context) {
         const messages = source.map(b => ({ role: b.role, content: b.content }));
 
         // Costruisci payload
-        const basePayload = { mode: activeMode, model: activeModel,  provider: activeProvider, messages, inline_files, rag_files, attachments: atts };
+        const basePayload = { mode: activeMode, 
+            model: activeModel,  
+            provider: activeProvider, 
+            messages, 
+            inline_files, 
+            rag_files, 
+            attachments: atts 
+        };
         const payload = (msg.type === 'sendChat')
           ? basePayload
           : { ...basePayload, max_tokens: 1024 };
@@ -2709,7 +3004,13 @@ async function cmdOpenChat(context) {
               const paths = await saveGeneratedFiles(res.files);
              
             }
-
+            // Cache locale dei file dell’ultimo generate (serve per Apply fallback)
+            try {
+              await context.workspaceState.update('clike.lastFiles', Array.isArray(res?.files) ? res.files : []);
+            } catch (e) {
+                out.appendLine('[CLike] cache lastFiles failed: ' + (e?.message || String(e)));
+                throw new Error(`POST ${url} -> ${res.status} ${txt}`);
+            }
             const summary = Array.isArray(res.files) && res.files.length
               ? 'Generated files:\n' + res.files.map(f => '- ' + f.path).join('\n')
               : JSON.stringify(res, null, 2);
@@ -2719,6 +3020,8 @@ async function cmdOpenChat(context) {
               content: summary,
               model: activeModel
             });
+            
+
             panel.webview.postMessage({ type: 'generateResult', data: res });
           }
 
@@ -2734,15 +3037,47 @@ async function cmdOpenChat(context) {
       }
       // 6) APPLY
       if (msg.type === 'apply') {
-        const payload = {
-          run_dir: msg.run_dir || null,
-          audit_id: msg.audit_id || null,
-          selection: msg.selection || { apply_all: true }
-        };
-        const res = await postJson(`${orchestratorUrl}/v1/apply`, payload);
-        panel.webview.postMessage({ type: 'applyResult', data: res });
+        const run_dir  = msg.run_dir  || null;
+        const audit_id = msg.audit_id || null;
+        const selection = msg.selection || { apply_all: true };
+        const wantPaths = Array.isArray(selection?.paths) ? selection.paths : null;
+
+        // 1) Se il server ha un run_dir/audit_id → usa l'endpoint /v1/apply
+        if (run_dir || audit_id) {
+          const payload = { run_dir, audit_id, selection };
+          const res = await postJson(`${orchestratorUrl}/v1/apply`, payload);
+          panel.webview.postMessage({ type: 'applyResult', data: res });
+          return;
+        }
+
+        // 2) Fallback client-side: nessun run_dir/audit_id, ma forse abbiamo i file in cache
+        const lastFiles = context.workspaceState.get('clike.lastFiles') || [];
+        if (!Array.isArray(lastFiles) || !lastFiles.length) {
+          panel.webview.postMessage({ type: 'error', message: 'Nothing to apply: no run_dir/audit_id and no cached files.' });
+          return;
+        }
+
+        // Filtra per i path selezionati (se presenti), altrimenti applica tutto
+        const chosen = wantPaths
+          ? lastFiles.filter(f => f && f.path && wantPaths.includes(f.path))
+          : lastFiles;
+
+        if (!chosen.length) {
+          panel.webview.postMessage({ type: 'error', message: 'No files selected to apply.' });
+          return;
+        }
+
+        try {
+          const paths = await saveGeneratedFiles(chosen);
+          // Pulizia cache per non ri-applicare accidentalmente
+          try { await context.workspaceState.update('clike.lastFiles', []); } catch {}
+          panel.webview.postMessage({ type: 'applyResult', data: { applied: paths } });
+        } catch (e) {
+          panel.webview.postMessage({ type: 'error', message: 'Apply (local) failed: ' + (e?.message || String(e)) });
+        }
         return;
       }
+
       // 7) CANCEL
       if (msg.type === 'cancel') {
         if (inflightController) inflightController.abort();

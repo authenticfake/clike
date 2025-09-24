@@ -50,7 +50,6 @@ def _shrink(s: str, n: int = 2000) -> str:
 # -------------------------- Public API --------------------------------------
 async def chat(
     base: str,
-    api_key: str,
     model: str,
     messages: List[Dict[str, Any]],
     temperature: Optional[float] = None,
@@ -59,7 +58,7 @@ async def chat(
     tools: Optional[List[Dict[str, Any]]] = None,
     tool_choice: Optional[Union[str, Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
-    headers = {"Authorization": f"Bearer {api_key}"}
+    
     url = f"{base.rstrip('/')}/chat/completions"
 
     payload: Dict[str, Any] = {
@@ -96,7 +95,7 @@ async def chat(
 
     t0 = _time.time()
     async with httpx.AsyncClient(timeout=60) as client:
-        r = await client.post(url, headers=headers, json=payload)
+        r = await client.post(url, json=payload)
     ms = int((_time.time() - t0) * 1000)
 
     txt = r.text
@@ -118,8 +117,7 @@ async def chat(
 
 async def embeddings(base_url: str, api_key: str | None, model: str, input_text: str):
     headers = {"Content-Type": "application/json"}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
+   
     payload = {"model": model, "input": input_text}
     async with httpx.AsyncClient(timeout=120) as client:
         r = await client.post(f"{base_url.rstrip('/')}/s", json=payload, headers=headers)

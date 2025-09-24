@@ -1,45 +1,232 @@
+# CLike VS Code Extension (v0.5.3)
 
-# Clike VS Code Extension (v0.5.3)
+> AI-native SWE assistant for day-to-day coding and Harper-style solutioning inside VS Code.
+> Works with multi-model backends (OpenAI GPT-3/4/5, Anthropic, Ollama, vLLM) via **CLike Gateway** and **Orchestrator**.
 
-**What’s included**
+## What’s included
 
-- Full command set (CLike: Open Chat (Q&A / Harper / Coding), Code Action+, Add Docstring, Refactor, Generate Tests, Fix Errors, RAG, List Models, Hardened Apply).
+* **Chat modes**
 
-- Vibe Coding is the UX/frontier practice → developer stays in flow, but it needs AI-Native SWE to scale to enterprise.
-- Harper-Style builds on this: IDEA → SPEC → PLAN → KIT with HITL validation.
--EDD ensures governance and code quality (eval gates at every step).
--MCP + Agent Frameworks provide the technical glue for orchestration and integration.
--GenAI Model Routers are required in Clike Gateway to support multi-model configuration (GPT, Claude, Ollama, etc.).
-- Robust diff preview (fixed URIs).
-- Defaults: `clike.git.openPR = false`.
-- Multi Model and frontier routing policy.
+  * **Free**: general Q\&A.
+  * **Coding**: code generation with *tool-calls → files* (no fences), rich diffs & apply flow.
+  * **Harper**: structured flow **IDEA → SPEC → PLAN → KIT** with HITL checkpoints.
+* **Multi-model** with **provider** awareness (e.g., `openai:gpt-5-mini`, `ollama:llama3`), model dropdown, **History Scope** (`Model` vs `All models`) in the chat.
+* **Routing profile propagation** to gateway (e.g., `code.strict`, `plan.fast`) for coherent backend routing.
+* **Help overlay** (`/help`) showing all slash commands.
+* **RAG (manual)**: index on demand with `/ragIndex …` and use retrieved context in prompts.
+* **Attachments panel**: inline files & RAG files; **Files/Diffs/Text** tabs for generation results.
+* **Bubble timeline**: persistent per model/scope; timestamps for user/assistant/system events.
+* **Model list caching**: avoids spurious model reselection/reset on chat open.
+* **Hardened Apply**: preview diffs, then write.
+* **Governance hooks**: flags for redaction (e.g., `NEVER_SEND_SOURCE_TO_CLOUD` during Harper phases).
+* **Minimal UI**: few buttons, command palette first; “🤖” badge linking quick help.
 
-**Configure**
+> Existing commands & actions (Open Chat, Code Action+, Add Docstring, Refactor, Generate Tests, Fix Errors, RAG, List Models) are preserved.
 
-- `clike.orchestratorUrl`: `http://localhost:8080`
-- `clike.gatewayUrl`: `http://localhost:8000`
+---
 
-**How to run**
+## Quick start
 
-1. Extract the zip and open the folder in VS Code
-2. `npm install`
-3. Press **F5** to launch the Extension Development Host
-4. In that window: `Cmd+Shift+P` → **Clike: Code Action…**
+1. **Backend**
 
-**Smoke test (no backend needed)**
-Copy to clipboard:
+   * Orchestrator at `http://localhost:8080`
+   * Gateway at `http://localhost:8000`
+     Make sure models and profiles are configured in `configs/models.yaml`.
 
-````
-```
-new content demo
-```
-````
+2. **Extension**
 
-Then run **Clike: Apply New Content** to confirm edit flow and preview work.
+   * `npm install`
+   * Press **F5** to launch an Extension Development Host.
+   * `Cmd/Ctrl+Shift+P` → **CLike: Open Chat**.
 
-**Backend calls**
+3. **Pick a mode & model** in the chat header, set **History Scope** (Model/All models), and go.
 
-- [CLike github url](https://github.com/authenticfake/clike)
-- Orchestrator `/agent/code` with `op` = `add_docstring|refactor|generate_tests|fix_errors`
-- Orchestrator RAG `/rag/search`, `/rag/reindex`
-- Gateway models `/v1/models`
+---
+
+## Slash commands
+
+Type in the chat:
+
+* **`/help`** — shows the quick help overlay with all commands.
+* **`/init <project_name> [path] [--force]`** — create a new Harper workspace scaffold.
+
+  * Creates: `README.md`, `.clike/config.json`, `.clike/policy.yaml`, `docs/harper/PLAYBOOK.md`, `docs/harper/IDEA.md`, `docs/harper/SPEC.md`.
+  * Opens the new workspace; first action: **save** the workspace.
+  * Bubbles summarize actions both in the source and target workspace.
+* **`/where`** — print current workspace + configured doc root.
+* **`/status`** — echo current **Mode/Model/History Scope**.
+* **`/switch <project_name>`** — switch to another Harper project (if configured).
+* **Harper phases**:
+
+  * **`/spec`** → generate SPEC from IDEA & context.
+  * **`/plan`** → generate PLAN from SPEC.
+  * **`/kit`**  → initial kit/scaffold from SPEC+PLAN.
+  * **`/build`** → incremental build steps (code/diff cycles).
+* **RAG**:
+
+  * **`/ragIndex [--path <p>] [--glob "<g>"] [--tags "<t>"]`** — manual ingest/update to vector store.
+
+    * Examples:
+
+      * `/ragIndex --path docs/harper`
+      * `/ragIndex --glob "**/*.md" --tags "spec,plan"`
+    * De-dup & upsert are handled backend-side.
+
+> Notes
+> • **PLAN.md is not created by `/init`**; it’s generated by `/plan`.
+> • All commands produce **bubbles** (success/error) with timestamps and details.
+
+---
+
+## Coding generation (tool-calls → files)
+
+* Models are instructed to produce **files** via a tool function (e.g., `emit_files`), not free-form prose.
+* The extension renders results in:
+
+  * **Files**: structured list of generated files;
+  * **Diffs**: unified diffs vs current workspace;
+  * **Text**: summary (e.g., “Generated files: …”).
+* **Path targeting** (server-side): generated assets are **retargeted** to a bucket:
+
+  ```
+  generated_<uuid>/
+    src/     # code (by extension match)
+    docs/    # docs (by extension match + default)
+    images/  # images (by extension match)
+  ```
+
+  * CODE\_EXTS / DOC\_EXTS / IMAGE\_EXTS are enforced server-side;
+  * If an extension doesn’t match, it falls back to `docs/`.
+* Apply is explicit and guarded (“Hardened Apply”).
+
+---
+
+## RAG (manual, precise)
+
+* Use **`/ragIndex`** to ingest: single file, folder, or a glob.
+* The **Files** panel lets you attach **inline** (exact content) or **RAG** references.
+* The Orchestrator resolves retrieval at request time and injects relevant chunks, honoring tags and filters.
+* Best practices:
+
+  * Keep source of truth in your repo; index stable docs/specs;
+  * For large artifacts (PDFs, long MD), prefer `/ragIndex` then attach RAG refs rather than pasting huge content inline;
+  * Re-index after substantial changes.
+
+---
+
+## UI guide
+
+* **Header**: Mode selector (Free/Coding/Harper), Model+Provider combo, History Scope (“Model” / “All models”).
+* **Prompt** with **/help** overlay & file-attach button (inline or RAG).
+* **Bubble timeline**: persistent per model/scope; timestamps for both user and assistant.
+* **Tabs**:
+
+  * **Text** (summary),
+  * **Diffs** (unified diffs),
+  * **Files** (structured output with apply).
+* **Model list caching**: the extension avoids re-populating models on every open, keeping your last selection stable.
+
+---
+
+## Settings
+
+Add or check these in VS Code **Settings** (User/Workspace):
+
+* `clike.orchestratorUrl` (default: `http://localhost:8080`)
+* `clike.gatewayUrl`     (default: `http://localhost:8000`)
+* `clike.chat.autoOpenOnStartup` (default: `true`) — auto open chat view.
+* (Harper) **Redaction** flags are sent by Orchestrator when cloud models are used (e.g., `NEVER_SEND_SOURCE_TO_CLOUD=true`).
+
+> Internals
+>
+> * The “History Scope” is controlled from the UI (not from settings): `Model` vs `All models`.
+> * Model/provider are propagated to the gateway for correct routing.
+
+---
+
+## Typical flows
+
+### Free
+
+Ask questions; attach small files inline, or use `/ragIndex` then attach RAG files for context.
+
+### Coding
+
+Prompt for code; the model returns **files** via tool-calls; review **Diffs**, then **Apply**.
+
+### Harper
+
+1. `/init <name> [path] [--force]` → scaffold & open workspace.
+2. Complete `IDEA.md`.
+3. `/spec` → generate SPEC.md.
+4. `/plan` → generate PLAN.md.
+5. `/kit`  → scaffold; then `/build` increments until done.
+6. (Sprint B) `/finalize` → EVAL/PR automation gates.
+
+---
+
+## Backend endpoints (for reference)
+
+* Orchestrator:
+
+  * `POST /v1/chat` (Free)
+  * `POST /v1/generate` (Coding tool-calls → files)
+  * `POST /v1/harper/spec|plan|kit|build` (Harper phases)
+  * `POST /rag/index` `POST /rag/search` (RAG)
+* Gateway:
+
+  * `GET /v1/models`
+  * `POST /v1/chat/completions` (OpenAI-compatible & local providers behind router)
+
+> The extension stays backend-agnostic; it sends provider/model/profile to help routing.
+
+---
+
+## Troubleshooting
+
+* **No response / frozen UI**
+  Make sure the help overlay init and event bindings are inside `DOMContentLoaded` handlers; avoid global DOM access before the webview mounts.
+* **400 on GPT-5 with `response_format`**
+  Ensure the gateway uses a valid schema and passes `tools/tool_choice` only when supported by the provider.
+* **422 “model did not produce files”**
+  The model must return tool-calls (`emit_files`) or a JSON body `{ "files":[...] }`. Check that you are in **Coding** mode and the instruction prompt wasn’t altered.
+* **Ollama local models**
+  Pick `ollama:llama3`. If you pick a pure `gpt-*` model with provider `openai`, the extension will route to OpenAI.
+
+---
+
+## Roadmap (short)
+
+* **Sprint A (wrap-up)**
+
+  * A4: Routing telemetry & decision logs (done/ongoing).
+  * A5: RAG manual indexing (`/ragIndex`) + attach; end-to-end (done).
+  * A6: Base Security & Audit (request/response summaries, redaction flags) — *tighten level & docs*.
+* **Sprint B**
+
+  * `/finalize` (Harper EVAL + PR smart with CODEOWNERS + PR template).
+  * PR gates (EDD), test coverage & quality gates.
+  * UX polish (progress toasts, partial streaming in Text tab).
+  * Optional: auto-RAG thresholds & background index queue.
+
+---
+
+## License & Repo
+
+* Source: **CLike** monorepo (Gateway + Orchestrator + VS Code extension).
+* See repo for contribution guidelines and CODEOWNERS.
+
+---
+
+### Changelog (v0.5.3)
+
+* Help overlay + `/help`.
+* Model/provider-aware dropdown + History Scope UI.
+* Bubble persistence with timestamps (per model/scope).
+* Coding tool-calls stabilization (files/diffs/text).
+* RAG manual indexing via `/ragIndex`.
+* Model list caching to avoid unwanted reselection.
+
+---
+
+**Tip:** You can smoke-test the diff/apply flow without backend by using **CLike: Apply New Content** with a snippet.

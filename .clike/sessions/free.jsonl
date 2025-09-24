@@ -1,28 +1,8 @@
-{"ts":1758530268696,"mode":"free","role":"user","content":"ciao mini\n","model":"gpt-4o-mini","provider":"openai","attachments":[]}
-{"ts":1758530271077,"mode":"free","role":"assistant","content":"Ciao! Come posso aiutarti oggi?","model":"gpt-4o-mini"}
-{"ts":1758530288336,"mode":"free","role":"user","content":"mi chiamo andrea","model":"gpt-4o-mini","provider":"openai","attachments":[]}
-{"ts":1758530289843,"mode":"free","role":"assistant","content":"Ciao Andrea! È un piacere conoscerti. Come posso assisterti oggi?","model":"gpt-4o-mini"}
-{"ts":1758530300611,"mode":"free","role":"user","content":"come mi chiamo?","model":"gpt-4o-mini","provider":"openai","attachments":[]}
-{"ts":1758530301887,"mode":"free","role":"assistant","content":"Ti chiami Andrea! Come posso aiutarti oggi?","model":"gpt-4o-mini"}
-{"ts":1758547305133,"mode":"free","role":"user","content":"ciao","model":"gpt-4o","provider":"openai","attachments":[]}
-{"ts":1758547306443,"mode":"free","role":"assistant","content":"Ciao! Come posso aiutarti oggi?","model":"gpt-4o"}
-{"ts":1758547326275,"mode":"free","role":"user","content":"ciao","model":"gpt-5-mini","provider":"openai","attachments":[]}
-{"ts":1758547329576,"mode":"free","role":"assistant","content":"Ciao! Come posso aiutarti oggi? Vuoi aiuto con codice, debugging, progetto web o qualcos'altro?","model":"gpt-5-mini"}
-{"ts":1758548182383,"mode":"free","role":"user","content":"ciao","model":"gpt-4o-mini","provider":"openai","attachments":[]}
-{"ts":1758548183910,"mode":"free","role":"assistant","content":"Ciao di nuovo! Come posso aiutarti?","model":"gpt-4o-mini"}
-{"ts":1758548189283,"mode":"free","role":"user","content":"ciao","model":"gpt-4o","provider":"openai","attachments":[]}
-{"ts":1758548190608,"mode":"free","role":"assistant","content":"Ciao! Come posso assisterti oggi? Se hai domande o hai bisogno d'aiuto con qualcosa di specifico, fammi sapere!","model":"gpt-4o"}
-{"ts":1758548195249,"mode":"free","role":"user","content":"ciao","model":"gpt-5-nano","provider":"openai","attachments":[]}
-{"ts":1758548202222,"mode":"free","role":"assistant","content":"Ciao! Come posso aiutarti? Dimmi pure cosa stai cercando di fare: linguaggio/framework e l’obiettivo, se vuoi un esempio pratico oppure una spiegazione.\n\nEcco alcune idee rapide (posso fornirti codice su richiesta):\n- Avviare un progetto da zero (starter per Node/Express, FastAPI, Django, Flask, Spring Boot, Next.js, etc.)\n- Creare un semplice API REST (endpoint, request/response, gestione errori)\n- Script di automazione (Python, Bash) e utilità da linea di comando\n- Esempi di frontend (React/Next.js, Vue, Svelte)\n- Best practices/architettura, test (unit/integration), linting, CI/CD\n- Debugging: errori comuni, log, tracing, profiling\n\nSe vuoi, proponi la tua stack e l’obiettivo, oppure scelgo io una base pronta (es. una API REST base in Node/Express o in FastAPI) e te la preparo.","model":"gpt-5-nano"}
-{"ts":1758548208555,"mode":"free","role":"user","content":"ciao","model":"gpt-5-mini","provider":"openai","attachments":[]}
-{"ts":1758548211560,"mode":"free","role":"assistant","content":"Ciao! Come posso aiutarti oggi? Vuoi parlare di codice, un progetto, debugging, o altro?","model":"gpt-5-mini"}
-{"ts":1758548215120,"mode":"free","role":"user","content":"ciao","model":"gpt-5","provider":"openai","attachments":[]}
-{"ts":1758548217903,"mode":"free","role":"assistant","content":"Ciao! Come posso aiutarti oggi?","model":"gpt-5"}
-{"ts":1758551734614,"mode":"free","role":"user","content":"ciao","model":"gpt-4o-mini","provider":"openai","attachments":[]}
-{"ts":1758551735536,"mode":"free","role":"assistant","content":"Ciao! Se hai bisogno di qualcosa o se vuoi chiacchierare, sono qui per te!","model":"gpt-4o-mini"}
-{"ts":1758551746260,"mode":"free","role":"user","content":"ciao","model":"gpt-5","provider":"openai","attachments":[]}
-{"ts":1758551749692,"mode":"free","role":"assistant","content":"Ciao! Come posso aiutarti? Posso darti una mano con debug, esempi di codice, architettura, DevOps, o qualsiasi altro tema. Su cosa stai lavorando?","model":"gpt-5"}
-{"ts":1758551831673,"mode":"free","role":"user","content":"ciao","model":"llama3","provider":"ollama","attachments":[]}
-{"ts":1758551889048,"mode":"free","role":"assistant","content":"Ciao! I'm CLike, your go-to full-stack software engineering copilot. What's on your mind? Need help with a project, have questions about programming concepts, or perhaps you'd like to discuss the latest tech trends? I'm here to assist you in any way I can. Fire away, and let's get coding!","model":"llama3"}
-{"ts":1758551945073,"mode":"free","role":"user","content":"caiao\n","model":"gpt-5","provider":"openai","attachments":[]}
-{"ts":1758551958745,"mode":"free","role":"assistant","content":"Forse volevi dire “ciao”? 🙂\nCiao! Come posso aiutarti oggi? Se hai un problema di codice, incolla:\n- linguaggio/framework e versioni\n- descrizione breve del problema\n- errore/log rilevante\n\nOppure dimmi l’argomento (debug, architettura, DevOps, test, CI/CD, ecc.).","model":"gpt-5"}
+{"ts":1758664382071,"mode":"free","role":"user","content":"ciao","model":"gpt-5","provider":"openai","attachments":[]}
+{"ts":1758664385840,"mode":"free","role":"assistant","content":"Ciao! Come posso aiutarti oggi? Posso darti una mano con debug, architettura, code review, script, deploy e altro. Preferisci continuare in italiano o in inglese?","model":"gpt-5"}
+{"ts":1758664418941,"mode":"free","role":"user","content":"ciao","model":"llama3","provider":"ollama","attachments":[]}
+{"ts":1758664464371,"mode":"free","role":"user","content":"cioa","model":"gpt-4o-mini","provider":"openai","attachments":[]}
+{"ts":1758664465528,"mode":"free","role":"assistant","content":"Ciao! How can I assist you today?","model":"gpt-4o-mini"}
+{"ts":1758664760782,"mode":"free","role":"user","content":"ehi raccontami una ultim anotizia","model":"gpt-4o-mini","provider":"openai","attachments":[]}
+{"ts":1758664764574,"mode":"free","role":"assistant","content":"Certo! Anche se non posso fornire notizie in tempo reale, fino a ottobre 2023 ci sono state diverse notizie significative nel mondo della tecnologia, della politica e dell'ambiente. \n\nAd esempio, nel campo della tecnologia, molte aziende continuavano a investire nello sviluppo di intelligenza artificiale e machine learning, con una crescente attenzione sulla regolamentazione e l'etica del suo utilizzo. Molti governi stavano anche implementando nuovi legislativi per affrontare le sfide legate alla privacy e alla sicurezza dei dati.\n\nSe hai un argomento specifico in mente, fammi sapere e posso darti ulteriori dettagli o contestualizzazioni!","model":"gpt-4o-mini"}
+{"ts":1758700545154,"mode":"free","role":"user","content":"ciao","model":"llama3","provider":"ollama","attachments":[]}

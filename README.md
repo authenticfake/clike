@@ -29,7 +29,7 @@
 
 ### ✨ Where the Idea Comes From
 
-- **Harper (blog "Codegen Hero's Journey")**  → talks about a narrative workflow in which the LLM is a co-hero: starting with an idea, it generates a SPEC specification file, a PLAN, then a KIT, and iterating with short feedback cycles. This is the methodological and operational backbone of the solution definition phase.
+	- **Harper (blog "Codegen Hero's Journey")**  → talks about a narrative workflow in which the LLM is a co-hero: starting with an idea, it generates a SPEC specification file, a PLAN, then a KIT, and iterating with short feedback cycles. This is the methodological and operational backbone of the solution definition phase.
 
 - **Vibe Coding (Karpathy + Gartner)** → emphasizes flow, intent, rapid prototyping, and cognitive offloading: the developer becomes a "composer" who works at the outcome level, not the code level. This has been incorporated by leaving the developer only with the design/intent steps and automating the build, testing, and security.
 
