@@ -1,4 +1,10 @@
 {"ts":1758610777339,"mode":"coding","role":"user","content":"mi generi un funzione che mi da un numenro casuale dispari in go\n","model":"gpt-4o-mini","provider":"openai","attachments":[]}
 {"ts":1758610781996,"mode":"coding","role":"assistant","content":"Generated files:\n- /generated/94049fa2/src/random_odd.go","model":"gpt-4o-mini"}
-{"ts":1758610886977,"mode":"coding","role":"user","content":"mi generi un funzione che mi da un numenro casuale dispari in go\n","model":"gpt-5-mini","provider":"openai","attachments":[]}
-{"ts":1758610913725,"mode":"coding","role":"assistant","content":"Generated files:\n- /generated/6160b962/src/random_odd.go","model":"gpt-5-mini"}
+{"ts":1758657542898,"mode":"coding","role":"user","content":"mi generi un funzione che mi da un numenro casuale dispari in go\n","model":"gpt-5-mini","provider":"openai","attachments":[]}
+{"ts":1758657574445,"mode":"coding","role":"assistant","content":"Generated files:\n- /generated/f43f6f6a/src/random_odd.go","model":"gpt-5-mini"}
+{"ts":1758657729879,"mode":"coding","role":"user","content":"mi generi un funzione che mi da un numenro casuale dispari in go\n","model":"llama3","provider":"ollama","attachments":[]}
+{"ts":1758657796458,"mode":"coding","role":"assistant","content":"Generated files:\n- /generated/734f0fde/src/random.go","model":"llama3"}
+{"ts":1758662829046,"mode":"coding","role":"user","content":"mi generi un esempio di root project per  java springboot","model":"gpt-4o","provider":"openai","attachments":[]}
+{"ts":1758662835012,"mode":"coding","role":"assistant","content":"Generated files:\n- /generated/45c746ec/src/pom.xml\n- /generated/45c746ec/src/DemoApplication.java\n- /generated/45c746ec/docs/application.properties","model":"gpt-4o"}
+{"ts":1758662862135,"mode":"coding","role":"user","content":"mi generi un esempio di root project per  java springboot\n","model":"gpt-5-nano","provider":"openai","attachments":[]}
+{"ts":1758662888328,"mode":"coding","role":"assistant","content":"Generated files:\n- /generated/42d59df0/src/pom.xml\n- /generated/42d59df0/src/pom.xml\n- /generated/42d59df0/src/DemoApplication.java\n- /generated/42d59df0/src/HelloController.java\n- /generated/42d59df0/docs/application.properties\n- /generated/42d59df0/docs/README.md","model":"gpt-5-nano"}

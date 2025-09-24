@@ -43,6 +43,12 @@ services:
       - MODELS_PATH=/workspace/configs/models.yaml
       - OPTIMIZE_FOR=capability
       - GENERATED_ROOT=/generated
+      - RAG_BASE_URL=http://localhost:8080/v1/rag
+      - RAG_TOP_K=12
+      - INLINE_MAX_FILE_KB=64
+      - INLINE_MAX_TOTAL_KB=256
+      - RAG_SIZE_THRESHOLD_KB=64
+      
     env_file:
       - path: ../.env
     volumes:

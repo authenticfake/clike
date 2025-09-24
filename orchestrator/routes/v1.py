@@ -11,6 +11,8 @@ from services.llm_client import call_gateway_chat
 # --- LOGGING UTILS (aggiunta) ---
 import time as _time
 from copy import deepcopy as _deepcopy
+from services.rag_store import RagStore
+
 
 # --- Generated root selection -------------------------------------------------
 import uuid
@@ -49,6 +51,24 @@ DOC_EXTS = {
 }
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".tif", ".tiff"}
 DATA_URL_RE = re.compile(r'data:(image/[\w\-\+\.]+);base64,([A-Za-z0-9+/=]+)')
+
+def _get_cfg(name: str, default: str) -> str:
+    """Legge prima da os.environ, poi da settings, altrimenti default."""
+    v = os.getenv(name)
+    if v is not None and str(v).strip():
+        return str(v).strip()
+    try:
+        vv = getattr(settings, name, None)
+        if vv is not None and str(vv).strip():
+            return str(vv).strip()
+    except Exception:
+        pass
+    return default
+
+def _rag_base_url() -> str:
+    # es.: "http://localhost:8080/v1/rag"
+    base = _get_cfg("RAG_BASE_URL", "http://localhost:8080/v1/rag")
+    return base.rstrip("/")
 
 
 # se vuoi forzare un base diverso
@@ -226,28 +246,60 @@ def _write_file_any(path: str, fobj: dict) -> None:
 
 # ===== RAG hooks (best-effort; non bloccanti) =====
 async def rag_reindex_paths(paths: list[str]):
-    async with httpx.AsyncClient(timeout=60) as client:
-        try:
-            await client.post("http://localhost:8080/v1/rag/reindex", json={"paths": paths})
-        except Exception as e:
-            log.warning("rag_reindex_paths failed: %s", e)
+    if not paths:
+        return
+    base = _rag_base_url()
+    payload = {"paths": [p for p in paths if isinstance(p, str) and p.strip()]}
+    if not payload["paths"]:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            r = await client.post(f"{base}/reindex", json=payload)
+            log.info("rag.reindex_paths %s", json.dumps({
+                "base": base, "count": len(payload["paths"]), "status": r.status_code
+            }, ensure_ascii=False))
+    except Exception as e:
+        log.warning("rag_reindex_paths failed: %s", e)
 
 async def rag_reindex_uploads(uploads: list[dict]):
-    async with httpx.AsyncClient(timeout=60) as client:
-        try:
-            await client.post("http://localhost:8080/v1/rag/reindex", json={"uploads": uploads})
-        except Exception as e:
-            log.warning("rag_reindex_uploads failed: %s", e)
+    if not uploads:
+        return
+    base = _rag_base_url()
+    safe = []
+    for u in uploads:
+        if not isinstance(u, dict):
+            continue
+        name = (u.get("name") or u.get("path") or "").strip()
+        b64  = u.get("bytes_b64")
+        if name and isinstance(b64, str) and b64:
+            safe.append({"name": name, "bytes_b64": b64})
+    if not safe:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            r = await client.post(f"{base}/reindex", json={"uploads": safe})
+            log.info("rag.reindex_uploads %s", json.dumps({
+                "base": base, "count": len(safe), "status": r.status_code
+            }, ensure_ascii=False))
+    except Exception as e:
+        log.warning("rag_reindex_uploads failed: %s", e)
 
 async def rag_search(query: str, top_k: int):
-    async with httpx.AsyncClient(timeout=60) as client:
-        try:
-            r = await client.post("http://localhost:8080/v1/rag/search", json={"query": query, "top_k": top_k})
+    base = _rag_base_url()
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            r = await client.post(f"{base}/search", json={"query": query or "", "top_k": int(top_k or RAG_TOP_K)})
             r.raise_for_status()
-            return r.json().get("results") or []
-        except Exception as e:
-            log.warning("rag_search failed: %s", e)
-            return []
+            data = r.json() or {}
+            res = data.get("results") or []
+            log.info("rag.search %s", json.dumps({
+                "base": base, "q_len": len(query or ""), "top_k": top_k, "hits": len(res)
+            }, ensure_ascii=False))
+            return res
+    except Exception as e:
+        log.warning("rag_search failed: %s", e)
+        return []
+
 
 # ----------------------------- models listing -------------------------------
 
@@ -398,22 +450,22 @@ async def chat( req: Request):
     _gw = str(getattr(settings, "GATEWAY_URL", "http://localhost:8000")).rstrip("/")
  
     payload = {
-        "model": body.get("model") or req.get("id"),
+        "model": model,
         "messages": msgs,
         "temperature": body.get("temperature"),
         "max_tokens": body.get("max_tokens"),
-        # --- AGGIUNGI: provider-awareness end-to-end ---
         "provider": body.get("provider"),
-        "base_url": str(getattr(settings, "GATEWAY_URL", "http://localhost:8000")), 
-        "remote_name": body.get("remote_name") or body.get("model") or body.get("name"),
-        "profile": None,  # utile per osservabilità
+        "base_url": str(getattr(settings, "GATEWAY_URL", "http://localhost:8000")),
+        "remote_name": body.get("remote_name") or model,
+        "profile": None,
     }
+
     log.info("chat request --> paylod: %s", json.dumps(payload))
     provider = body.get("provider")
     _t0 = _time.time()
     try:
         text = await call_gateway_chat(
-            model = body.get("model") or req.get("id"),
+            model = body.get("model"),
             messages = msgs,
             temperature= body.get("temperature"),
             max_tokens= body.get("max_tokens"),
@@ -462,46 +514,81 @@ def _fence(fname: str, content: str) -> str:
     return f"```{lang}\n# {fname}\n{content}\n```"
 
 async def _decide_inline_or_rag(attachments: list[dict]) -> tuple[list[dict], list[dict]]:
+    """
+    Regole:
+      - se size_kb >= RAG_SIZE_THRESHOLD_KB => vai in RAG (a prescindere dal budget)
+      - altrimenti, se c'è 'content' e c'è budget inline => inline
+      - in tutti gli altri casi => RAG (con bytes_b64 se presente)
+    """
     inline, rag = [], []
-    if not attachments: return inline, rag
+    if not attachments:
+        return inline, rag
+
     budget = INLINE_MAX_TOTAL_KB
     for a in attachments:
+        if not isinstance(a, dict):
+            continue
         size = int(a.get("size") or 0)
+        size_kb = _kb(size)
         name = a.get("name") or a.get("path") or "file"
         content = a.get("content")
         bytes_b64 = a.get("bytes_b64")
-        if content and _kb(size) <= INLINE_MAX_FILE_KB and budget - _kb(size) >= 0:
+        origin = a.get("origin")
+        path = a.get("path")
+
+        # 1) se oltre soglia → RAG
+        if size_kb >= RAG_SIZE_THRESHOLD_KB:
+            rag.append({"name": name, "path": path, "bytes_b64": bytes_b64, "size": size, "origin": origin})
+            continue
+
+        # 2) inline se possibile
+        if isinstance(content, str) and content and size_kb <= INLINE_MAX_FILE_KB and (budget - size_kb) >= 0:
             inline.append({"name": name, "content": content})
-            budget -= _kb(size)
+            budget -= size_kb
         else:
-            rag.append({
-                "name": name,
-                "path": a.get("path"),
-                "bytes_b64": bytes_b64,
-                "size": size,
-                "origin": a.get("origin")
-            })
+            # 3) fallback → RAG
+            rag.append({"name": name, "path": path, "bytes_b64": bytes_b64, "size": size, "origin": origin})
+
+    log.info("attachments routing %s", json.dumps({
+        "inline": len(inline), "rag": len(rag),
+        "budget_left_kb": max(0, budget)
+    }, ensure_ascii=False))
     return inline, rag
+
 
 async def _augment_messages_with_context(msgs: list[dict], inline_files: list[dict], rag_files: list[dict], user_query: str) -> list[dict]:
     out = list(msgs)
-    # 1) inline
+
+    # 1) inline → blocchi fenced
     if inline_files:
         blocks = "\n\n".join(_fence(f["name"], f["content"]) for f in inline_files if f.get("content"))
         if blocks.strip():
-            out = [{"role":"system","content": f"You can use the following project files:\n\n{blocks}"}] + out
-    # 2) RAG paths / uploads (no-op qui: gli upload li indicizzerei via altri endpoint se servono)
+            out = [{"role": "system", "content": f"You can use the following project files:\n\n{blocks}"}] + out
+
+    # 2) RAG indicizzazione (paths & uploads) + retrieval sul prompt utente
     paths = [f.get("path") for f in rag_files if f.get("path")]
-    if paths:
-        try:
+    uploads = [f for f in rag_files if (f.get("bytes_b64") and not f.get("path"))]
+
+    try:
+        if paths:
             await rag_reindex_paths(paths)
-            chunks = await rag_search(user_query or "", top_k=RAG_TOP_K)
-            if chunks:
-                ctx = "\n\n".join(f"### {c['source']}:{c.get('line_start',1)}-{c.get('line_end',1)}\n{c['text']}" for c in chunks)
-                out = [{"role":"system","content": f"Relevant project context:\n\n{ctx}"}] + out
-        except Exception as e:
-            log.warning("RAG enrichment failed: %s", e)
+        if uploads:
+            await rag_reindex_uploads(uploads)
+
+        chunks = await rag_search(user_query or "", top_k=RAG_TOP_K)
+        if chunks:
+            ctx = "\n\n".join(
+                f"### {c.get('source','doc')}:{c.get('line_start',1)}-{c.get('line_end',1)}\n{c.get('text','')}"
+                for c in chunks
+                if isinstance(c, dict)
+            )
+            if ctx.strip():
+                out = [{"role": "system", "content": f"Relevant project context:\n\n{ctx}"}] + out
+    except Exception as e:
+        log.warning("RAG enrichment failed: %s", e)
+
     return out
+
 
 @router.post("/generate")
 async def generate(req: Request):

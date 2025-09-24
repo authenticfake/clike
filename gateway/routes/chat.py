@@ -8,6 +8,7 @@ from providers import openai_compat as oai
 from providers import anthropic as anth
 from providers import deepseek as dsk
 from providers import ollama as oll
+from providers import vllm as vll
 
 
 OPENAI_BASE = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
@@ -105,148 +106,6 @@ def _json(obj: Any) -> str:
     except Exception:
         return str(obj)
 
-# ---------- Provider: vLLM (OpenAI-compatible) ----------
-
-async def _call_vllm(req: ChatRequest) -> Dict[str, Any]:
-    base = (req.base_url or VLLM_BASE).rstrip("/")
-    remote = (req.remote_name or req.model)
-
-    payload: Dict[str, Any] = {
-        "model": remote,
-        "messages": [m.dict() for m in req.messages],
-    }
-    if req.temperature is not None:
-        payload["temperature"] = req.temperature
-    if req.max_tokens is not None:
-        payload["max_tokens"] = req.max_tokens
-    if req.tools is not None:
-        payload["tools"] = req.tools
-    if req.tool_choice is not None:
-        payload["tool_choice"] = req.tool_choice
-
-    t0 = time.time()
-    async with httpx.AsyncClient(timeout=60) as client:
-        r = await client.post(f"{base}/chat/completions", json=payload)
-        txt = r.text
-        ms = int((time.time() - t0)*1000)
-        log.info("vllm.request %s", _json({"url": f"{base}/chat/completions", "model": remote}))
-        if r.is_success:
-            log.info("vllm.response %s", _json({"status": r.status_code, "latency_ms": ms}))
-            return r.json()
-        else:
-            log.error("vllm.response %s", _json({"status": r.status_code, "latency_ms": ms, "error_text": txt[:2000]}))
-            try:
-                r.raise_for_status()
-            except httpx.HTTPStatusError as e:
-                raise HTTPException(e.response.status_code, detail=e.response.text)
-
-# ---------- Provider: Ollama (/api/chat) ----------
-    
-async def _call_ollama(req: ChatRequest) -> Dict[str, Any]:
-    base = (req.base_url or OLLAMA_BASE).rstrip("/")
-    remote = (req.remote_name or req.model)
-
-    # Ollama chat API è simile a OpenAI: /api/chat con messages
-    payload: Dict[str, Any] = {
-        "model": remote,
-        "messages": [m.dict() for m in req.messages],
-        "stream": False
-    }
-    options ={}
-    if req.temperature is not None:
-        options["temperature"] = req.temperature
-    if req.max_tokens is not None:
-        options["max_tokens"] = req.max_tokens
-        options["num_predict"] = req.max_tokens
-        
-    payload["options"] = options
-
-    headers = {"Content-Type": "application/json"}
-
-    t0 = time.time()
-    async with httpx.AsyncClient(timeout=60) as client:
-        r = await client.post(f"{base}/api/chat", json=payload, headers=headers)
-        txt = r.text
-        ms = int((time.time() - t0)*1000)
-        log.info("ollama.request %s", _json({"url": f"{base}/api/chat", "model": remote}))
-        if r.is_success:
-            log.info("ollama.response %s", _json({"status": r.status_code, "latency_ms": ms}))
-            data = r.json()
-            # Normalizza in OpenAI-like
-            content = ""
-            try:
-                content = (data.get("message") or {}).get("content") or ""
-            except Exception:
-                content = ""
-            return {
-                "choices": [{
-                    "index": 0,
-                    "message": {"role": "assistant", "content": content}
-                }],
-                "usage": {}
-            }
-        else:
-            log.error("ollama.response %s", _json({"status": r.status_code, "latency_ms": ms, "error_text": txt[:2000]}))
-            try:
-                r.raise_for_status()
-            except httpx.HTTPStatusError as e:
-                raise HTTPException(e.response.status_code, detail=e.response.text)
-
-# ---------- Provider: OPENAI (/api/chat) ----------
-async def _call_openai(req: ChatRequest) -> Dict[str, Any]:
-    if not OPENAI_API_KEY:
-        raise HTTPException(500, "OPENAI_API_KEY missing in gateway")
-
-    # helper per avere sempre /v1 in coda all'OPENAI_BASE
-    def _oai_base():
-        base = OPENAI_BASE.rstrip("/")
-        return base if base.endswith("/v1") else (base + "/v1")
-    base = _oai_base().rstrip("/")
-    norm_model = _normalize_model(req.model)
-
-    remote = (req.remote_name or norm_model)
-    
-    
-    payload: Dict[str, Any] = {
-        "model": remote,
-        "messages": [m.dict() for m in req.messages],
-    }
-    if req.temperature is not None:
-        payload["temperature"] = req.temperature
-    # normalizza budget token
-    if req.max_completion_tokens is not None:
-        payload["max_completion_tokens"] = req.max_completion_tokens
-    elif req.max_tokens is not None:
-        payload["max_tokens"] = req.max_tokens
-    if req.response_format is not None:
-        payload["response_format"] = req.response_format
-    if req.tools is not None:
-        payload["tools"] = req.tools
-    if req.tool_choice is not None:
-        payload["tool_choice"] = req.tool_choice
-
-    headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
-
-    t0 = time.time()
-    async with httpx.AsyncClient(timeout=60) as client:
-        r = await client.post(f"{base}/chat/completions", json=payload, headers=headers)
-        txt = r.text
-        ms = int((time.time() - t0)*1000)
-        log.info("openai.request %s", _json({"url": f"{base}/chat/completions", "model": remote, "has_response_format": req.response_format is not None, "has_tools": req.tools is not None, "has_tool_choice": req.tool_choice is not None, "budget": req.max_completion_tokens or req.max_tokens}))
-        if r.is_success:
-            log.info("openai.response %s", _json({"status": r.status_code, "latency_ms": ms}))
-            try:
-                data = r.json()
-                log.debug("openai.response.body %s", txt[:4000])
-            except Exception:
-                log.debug("openai.response.text %s", txt[:4000])
-            return r.json()
-        else:
-            log.error("openai.response %s", _json({"status": r.status_code, "latency_ms": ms, "error_text": txt[:2000]}))
-            try:
-                r.raise_for_status()
-            except httpx.HTTPStatusError as e:
-                raise HTTPException(e.response.status_code, detail=e.response.text)
 # ---------- Endpoint ----------
 
 @router.post("/v1/chat/completions")
@@ -295,7 +154,7 @@ async def chat_completions(req: ChatRequest,  request: Request):
         data = await oai.chat(OPENAI_BASE, OPENAI_API_KEY, model, messages, temperature, max_tokens, response_format, tools, tool_choice) 
         return data
     if provider == "vllm":
-        return await _call_vllm(req)
+        return await vll.chat(VLLM_BASE, model, messages, temperature, max_tokens, max_tokens, response_format, tools, tool_choice)
     if provider == "ollama":
         return await oll.chat(OLLAMA_BASE, model, messages, temperature, max_tokens)
     elif provider == "anthropic":
