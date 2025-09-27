@@ -174,9 +174,9 @@ profiles:
   plan.fast:
     select:
       any_tags: [reasoning, fast]
-      prefer_providers: [openai, anthropic]
-      model: openai:gpt-5-mini            # se presente → selezione deterministica
-      fallback: [anthropic:claude-3.7-haiku, ollama:llama3]   # opzionale
+      prefer_providers: [openai, openai]
+      model: openai:gpt-5-mini # se presente → selezione deterministica
+      fallback: [anthropenaiopic:claude-3.7-haiku, ollama:llama3]   # opzionale
       # opzionale: criteri per caso estremo in cui non troviamo i pin/fallback
       select:
         any_tags: [reasoning, fast]

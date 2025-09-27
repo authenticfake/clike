@@ -1,20 +1,32 @@
 # FastAPI routes for Harper phases + utility endpoints.
+from typing import List, Union
 from fastapi import APIRouter, HTTPException, Query
 from services import harper as svc
 
-import os, json
+import os, json, logging
 
 from schemas.harper import (
-    SpecRequest, SpecResponse, PlanRequest, PlanResponse,
+    Attachment, DiffEntry, FileArtifact, HarperEnvelope, HarperRunResponse, SpecRequest, SpecResponse, PlanRequest, PlanResponse,
     KitRequest, KitResponse, BuildNextRequest, BuildNextResponse,
     SessionClearRequest, ModelsResponse, ProfilesResponse, DefaultsResponse,
-    ResolveResponse
+    ResolveResponse, HarperPhaseRequest, HarperFlags, TestSummary
 )
 from services import harper as svc
 from services.router import _load_cfg, resolve
 
 router = APIRouter(prefix="/v1/harper", tags=["harper"])
+log = logging.getLogger("orchestrator.harper")
 
+def _normalize_attachments(atts: List[Union[str, Attachment]]) -> List[dict]:
+    """Return a list of dicts with a stable shape for the gateway."""
+    norm: List[dict] = []
+    for a in atts or []:
+        if isinstance(a, str):
+            norm.append({"name": a})
+        else:
+            # pydantic BaseModel -> dict
+            norm.append(a.model_dump())
+    return norm
 
 @router.get("/health")
 def health():
@@ -65,18 +77,58 @@ def get_run(run_id: str):
 # ... imports in testa restano uguali ...
 from services import harper as svc
 
-# --- SOSTITUISCI i 4 endpoint sottostanti ---
 
-@router.post("/spec", response_model=SpecResponse)
-async def post_spec(req: SpecRequest):
-    out = await svc.run_phase("spec", req)
+# ---- Endpoint SPEC ----------------------------------------------------------
+
+@router.post("/spec")
+async def post_spec(req: HarperPhaseRequest):
+    """
+    SPEC pass-through: preserva tutti i campi dal client, aggiunge solo 'phase' e
+    lascia che il service risolva il modello. NON azzera idea_md/core/attachments/flags.
+    """
+    payload = req.model_dump()
+    # Coerenza terminologica: manteniamo 'cmd' dal client ma imponiamo anche 'phase'
+    payload["phase"] = "spec"
+    payload.setdefault("cmd", "spec")
+
+    # Normalizza attachments in una forma stabile (list[dict])
+    payload["attachments"] = _normalize_attachments(req.attachments)
+
+    log.info("run_phase spec (route): idea_md=%s core=%d attachments=%d flags=%s",
+             bool(payload.get("idea_md")),
+             len(payload.get("core") or []),
+             len(payload.get("attachments") or []),
+             "present" if payload.get("flags") else "none")
+
+    # Delego al service che farà SOLO il merge del modello/profilo, senza perdere campi
+    out_dict = await svc.run_phase("spec", payload)
     # SPEC.md atteso in out.files/diffs a regime; qui esponiamo ok/run_id + echo
-    return SpecResponse(
-        spec_md=out.get("files", [{}])[0].get("content", "") if out.get("files") else req.idea_md or "# SPEC\n",
-        ok=bool(out.get("ok", True)),
-        violations=[],
-        run_id=out.get("runId") or "n/a"
+      
+    out = HarperRunResponse(
+        ok=bool(out_dict.get("ok", True)),
+        phase=out_dict.get("phase") or "spec",
+        echo=out_dict.get("echo"),
+        text=out_dict.get("text"),
+        files=[FileArtifact(**f) for f in (out_dict.get("files") or [])],
+        diffs=[DiffEntry(**d) for d in (out_dict.get("diffs") or [])],
+        tests=TestSummary(**(out_dict.get("tests") or {})),
+        warnings=out_dict.get("warnings") or [],
+        errors=out_dict.get("errors") or [],
+        runId=out_dict.get("runId"),
+        telemetry=out_dict.get("telemetry"),
     )
+    # Retro-compat: spec_md, se disponibile (primo file markdown) oppure None
+    spec_md = None
+    if out.files:
+        try:
+            # se il primo file è SPEC.md lo esponiamo
+            if out.files[0].path.lower().endswith("spec.md"):
+                spec_md = out.files[0].content
+        except Exception:
+            pass
+
+    return HarperEnvelope(out=out, spec_md=spec_md)
+   
 
 @router.post("/plan", response_model=PlanResponse)
 async def post_plan(req: PlanRequest):
