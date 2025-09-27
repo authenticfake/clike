@@ -1,0 +1,3 @@
+{"ts":1758906610340,"mode":"harper","model":"auto","role":"system","content":"▶ SPEC requested"}
+{"ts":1758906610439,"mode":"harper","model":"auto","role":"assistant","content":"✔ SPEC done — no artifacts"}
+{"ts":1758915371451,"mode":"harper","role":"user","content":"ciao","model":"llama3","provider":"ollama","attachments":[]}

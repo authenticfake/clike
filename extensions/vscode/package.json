@@ -32,7 +32,12 @@
     "onCommand:clike.gitCreateBranch",
     "onCommand:clike.gitCommitPatch",
     "onCommand:clike.gitOpenPR",
-    "onCommand:clike.gitSmartPR"
+    "onCommand:clike.gitSmartPR",
+    "onStartupFinished",
+    "onCommand:clike.eval.runAll",
+    "onCommand:clike.gate.checkPhase",
+    "onCommand:clike.constraints.sync",
+    "onCommand:clike.plan.updateChecklist"
   ],
   "categories": [
     "AI",
@@ -129,7 +134,11 @@
       {
         "command": "clike.gitSmartPR",
         "title": "Clike: Git Smart PR"
-      }
+      },
+      { "command": "clike.eval.runAll", "title": "CLike: Run All Evals" },
+      { "command": "clike.gate.checkPhase", "title": "CLike: Gate Check (Phase)" },
+      { "command": "clike.constraints.sync", "title": "CLike: Sync Constraints (IDEA/SPEC)" },
+      { "command": "clike.plan.updateChecklist", "title": "CLike: Update PLAN Checklist from Eval" }
     ],
     "configuration": {
       "title": "Clike",
@@ -137,6 +146,16 @@
         "clike.verboseLogging": {
           "type": "boolean",
           "default": false,
+          "description": "Log verbose messages."
+        },
+        "clike.docRoot": {
+          "type": "string",
+          "default": "docs/harper",
+          "description": "Doc root for harper scenario(relativa alla workspace)."
+        },
+         "publisher.clike": {
+          "type": "boolean",
+          "default": "${publisher}.${name}",
           "description": "Log verbose messages."
         },
         "clike.chat.persistDir": {

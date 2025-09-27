@@ -454,7 +454,7 @@ async def chat( req: Request):
         "messages": msgs,
         "temperature": body.get("temperature"),
         "max_tokens": body.get("max_tokens"),
-        "provider": body.get("provider"),
+        "provider": provider,
         "base_url": str(getattr(settings, "GATEWAY_URL", "http://localhost:8000")),
         "remote_name": body.get("remote_name") or model,
         "profile": None,
@@ -462,6 +462,8 @@ async def chat( req: Request):
 
     log.info("chat request --> paylod: %s", json.dumps(payload))
     provider = body.get("provider")
+    headers = {"Content-Type": "application/json"}
+
     _t0 = _time.time()
     try:
         text = await call_gateway_chat(

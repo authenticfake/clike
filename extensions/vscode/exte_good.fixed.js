@@ -12,7 +12,7 @@ const os = require('os');
 
 //const { activateTestController } = require('./testController');
 const { registerCommands } = require('./commands/registerCommands');
-const { handlePlanUpdate, handleSync, handleGate, handleEval } = require('./commands/slashBot');
+const { handlePlanUpdate,handleSync,handleGate,handleEval  } = require('./commands/slashBot');
 
 let __clike_lastTargetUriCache = null;  
 let selectedPaths = new Set();
@@ -176,7 +176,7 @@ async function pruneSessionByModel(mode, model) {
     });
     const out = kept.length ? (kept.join('\n') + '\n') : '';
     await vscode.workspace.fs.writeFile(uri, Buffer.from(out, 'utf8'));
-  } catch { }
+  } catch {  }
 }
 
 
@@ -901,10 +901,8 @@ async function cmdCheckServices(context) {
   await context.workspaceState.update('clike.lastTargetUri', docInfo.uriStr);
 
   const { routes } = cfg();
-  const o = await getJson(cfg().orchestratorUrl + routes.orchestrator.health);
-  const g = await getJson(cfg().gatewayUrl + routes.gateway.health);
-  console.log("g", g);
-  console.log("o", o);
+  const o = await getJson(routes.orchestrator.health);
+  const g = await getJson(routes.gateway.health);
   vscode.window.showInformationMessage(`Health — Orchestrator: ${o.status || 'err'} | Gateway: ${g.status || 'err'}`);
 }
 
@@ -1149,7 +1147,7 @@ function getWebviewHtml(orchestratorUrl) {
       </select>
     </label>
     <span id="status">Ready</span>
-    <span id="sp" class="spinner">⏳</span>
+    <span id="sp" class="spinner">�?�</span>
   </div>
 
   <div id="chat" class="chat" aria-label="Chat transcript"></div>
@@ -1251,7 +1249,7 @@ function finalizeBootIfReady() {
     updateBotBadge();
   }
 
-  // 🔁 Rehydrate FINALE coerente con ciò che vede l’utente (mode+model correnti)
+  // �? Rehydrate FINALE coerente con ciò che vede l’utente (mode+model correnti)
   // Non affidiamoci al timing degli eventi precedenti: chiediamo noi stessi l’idratazione coerente.
   vscode.postMessage({ type: 'uiChanged', mode: mode.value, model: model.value });
 
@@ -1634,11 +1632,9 @@ function handleSlash(slash) {
   if (!slash) return;
   // dry 'Text' and 'Diffs' panels
   try { clearTextPanel(); clearDiffsPanel(); clearFilesPanel(); } catch {}
-  try { prompt.value = ''; } catch {}
-  const slashCmd = slash.cmd.toLowerCase();
-
+  
   // help: open overlay local
-  if (slashCmd === '/help') {
+  if (slash.cmd === '/help') {
     var items = getHelpListSafe();
     var listText = '';
     try {
@@ -1683,7 +1679,7 @@ function handleSlash(slash) {
     try { openHelpOverlay(); } catch {}
     return;
   }
-  if (slashCmd === '/rag') {
+  if (slash.cmd === '/rag') {
     const a = slash.args || {};
     // 1) /rag search
     if (a.action === 'search' && a.query) {
@@ -1742,19 +1738,33 @@ function handleSlash(slash) {
     return true;
   }
 
-  if (slashCmd === '/init') {
+  if (slash.cmd === '/init') {
     // mappa su handler host esistente (harperInit)
     vscode.postMessage({ type: 'harperInit', name: slash.args.name || '', path: slash.args.path || '', force: !!slash.args.force });
     return;
   }
-  console.log("evals...", slash);
-   console.log("evals.cmd...", slash.cmd);  
   //EVALS
-  if (slashCmd === '/eval' || slashCmd === '/gate' || slashCmd === '/syncconstraints' || slashCmd === '/planupdate') {
+  if (slash.cmd === '/eval') {
     // mappa su handler host esistente (eval)
-    vscode.postMessage({ type: 'harperEvals', cmd: slash.cmd.slice(1), argument: slash.args.arg || '' });
+    vscode.postMessage({ type: 'eval', argument: slash.args.arg || '' });
     return;
   }
+  if (slash.cmd === '/gate') {
+    // mappa su handler host esistente (gate)
+    vscode.postMessage({ type: 'gate', argument: slash.args.arg || ''});
+    return;
+  }
+  if (slash.cmd === '/syncConstraints') {
+    // mappa su handler host esistente (syncConstraints)
+    vscode.postMessage({ type: 'syncConstraints', argument: slash.args.arg || ''});
+    return;
+  }
+  if (slash.cmd === '/planUpdate') {
+    // mappa su handler host esistente (planUpdate)
+    vscode.postMessage({ type: 'planUpdate', argument: slash.args.arg || ''});
+    return;
+  }
+  
   
   // --- RAG: /ragIndex [glob], /ragSearch <query>
   try {
@@ -1798,10 +1808,13 @@ function handleSlash(slash) {
       if (typeof attachmentsByMode !== 'undefined' && attachmentsByMode && attachmentsByMode[key]) {
         atts = attachmentsByMode[key].slice(0);
       }
-    } catch {}    
-    try { bubble('user', slash.cmd + (slash.args.arg ? (' ' + slash.args.arg) : ''), (model && model.value) ? model.value : 'auto', atts); } catch {}
+    } catch {}
+
     vscode.postMessage({ type: 'harperRun', cmd: slash.cmd.slice(1), attachments: atts });
 
+    // UX: bubble utente e pulizia prompt
+    try { bubble('user', slash.cmd, (model && model.value) ? model.value : 'auto', atts); } catch {}
+    try { prompt.value = ''; } catch {}
     return true;
   }
   
@@ -1830,7 +1843,7 @@ function bubble(role, content, modelName, attachments, ts, opts) {
   const badge = (role === 'assistant' && modelName)
     ? '<span class="badge">' + escapeHtml(modelName) + '</span>' 
   : '';
-   const meta = '<div class="meta">⏱ ' + escapeHtml(timeStr) + '</div>';
+   const meta = '<div class="meta">�?� ' + escapeHtml(timeStr) + '</div>';
   b.innerHTML = meta + badge + escapeHtml(String(content || ''));
   
   // se utente ha allegati → riga meta con 📎
@@ -1948,10 +1961,12 @@ btnChat.addEventListener('click', ()=>{
   console.log('ARG', slash?.args);
 
   if (slash) {        // <-- SLASH → non è una chat normale
+   console.log('slash in');
     handleSlash(slash);
     prompt.value = '';
     return;
   }
+  console.log('slash out');
   const atts = attachmentsByMode[mode.value] ? [...attachmentsByMode[mode.value]] : [];
 
   bubble('user', text,model.value, atts);
@@ -2192,7 +2207,10 @@ window.addEventListener('message', (event) => {
     bubble('assistant', summary, model.value, [], Date.now(), { ragUsed: genRagUsed, citations: genCitations });
     
     const assistantText = (data.assistant_text || '').trim();
-    
+    // immagini (solo image/* con base64) – al massimo 3
+    const imgs = (Array.isArray(data.files) ? data.files : []).filter(function (f) {
+      return f && typeof f.mime === 'string' && f.mime.indexOf('image/') === 0 && f.content_base64;
+    });
     try {
       if (genCitations && genCitations.length) {
         var glines = [];
@@ -2205,10 +2223,7 @@ window.addEventListener('message', (event) => {
         preText.textContent = String(preText.textContent || '') + '\\n\\nSources:\\n' + glines.join('\\n');
       }
     } catch {}
-    // immagini (solo image/* con base64) – al massimo 3
-    const imgs = (Array.isArray(data.files) ? data.files : []).filter(function (f) {
-      return f && typeof f.mime === 'string' && f.mime.indexOf('image/') === 0 && f.content_base64;
-    });
+
     if (Array.isArray(imgs) && imgs.length >0) {
       var html = imgs.slice(0, 3).map(function (f) {
         var src = 'data:' + f.mime + ';base64,' + f.content_base64;
@@ -2256,7 +2271,7 @@ window.addEventListener('message', (event) => {
         vscode.postMessage({ type: 'openFile', path: p });
       });
     });
-    // salva un ultimo run compatto
+    // salva un “ultimo run�? compatto
     lastRun = { run_dir: data.run_dir, audit_id: data.audit_id };
 
     // Abilita Apply anche se il server non ha creato un run_dir/audit_id
@@ -2357,9 +2372,6 @@ async function cmdOpenChat(context) {
 
     try {
       const state = context.workspaceState.get('clike.uiState') || { mode:'free', model:'auto', historyScope:'singleModel' };
-      const cur = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto' };
-      const activeMode  = msg.mode  || cur.mode  || 'free';
-
       if (msg.type === 'harperInit') {
         try {
           const name = (msg.name || '').trim();
@@ -2506,7 +2518,7 @@ async function cmdOpenChat(context) {
           else if (cmd === 'plan') core = ['SPEC.md'];
           else if (cmd === 'kit' || cmd === 'build') core = ['SPEC.md','PLAN.md'];
 
-          // Flags privacy (se già presenti altrove, riusale)
+          // Flags privacy (se gi�  presenti altrove, riusale)
           const flags = {
             neverSendSourceToCloud: !!cfgChat().neverSendSourceToCloud || false,
             redaction: true
@@ -2518,7 +2530,7 @@ async function cmdOpenChat(context) {
             cmd,
             mode: state.mode,
             model: state.model,             // 'auto' o esplicito
-            profileHint,                    // ← chiave di A3
+            profileHint,                    // �? chiave di A3
             docRoot,
             core,
             attachments,
@@ -2526,13 +2538,7 @@ async function cmdOpenChat(context) {
             runId,
             historyScope: state.historyScope
           };
-             // Persisti l’input dell’utente nella sessione del MODE (e mostreremo badge del modello in render)
-          await appendSessionJSONL(activeMode, {
-            role: 'user',
-            content: `▶ ${cmd.toUpperCase()} | mode=${state.mode} model=${state.model} profile=${profileHint || '—'} core=${JSON.stringify(core)}`,
-            model:  state.model || 'auto',
-            attachments: Array.isArray(msg.attachments) ? msg.attachments : []
-          });
+
           // Echo pre-run
           panel.webview.postMessage({
             type: 'echo',
@@ -2541,76 +2547,16 @@ async function cmdOpenChat(context) {
 
           const out = await callHarper(cmd, payload);
 
-          // 3) POST-RUN: persisti esito (riassunto + eventuale echo/testo)
-          const summary = [
-            out?.echo ? `[echo] ${out.echo}` : null,
-            (Array.isArray(out?.diffs) && out.diffs.length) ? `[diffs] ${out.diffs.length}` : null,
-            (Array.isArray(out?.files) && out.files.length) ? `[files] ${out.files.length}` : null,
-            out?.text ? `[text] ${Math.min(String(out.text).length, 200)} chars` : null
-          ].filter(Boolean).join(' • ') || 'no artifacts';
-
-          
-          await appendSessionJSONL(activeMode, {
-            ts: Date.now(),
-            role: 'assistant',
-            content: `✔ ${String(cmd || '').toUpperCase()} done — ${summary}`,
-            model:  state.model || 'auto',
-            attachments: Array.isArray(msg.attachments) ? msg.attachments : []
-          });
-        
-        
-
-          // --- SCRITTURA FILES (primary path) ---
-          let written = [];
-          if (Array.isArray(out?.files) && out.files.length) {
-            written = await saveGeneratedFiles(out.files);
-          }
-
-          // --- FALLBACK per SPEC/PLAN/KIT se il modello non ha usato emit_files ---
-          const root = wsRoot();
-          async function writeIfNeeded(relPath, text) {
-            if (!text) return;
-            const uri = vscode.Uri.joinPath(root, relPath);
-            const folder = vscode.Uri.joinPath(uri, '..');
-            try { await vscode.workspace.fs.createDirectory(folder); } catch {}
-            await vscode.workspace.fs.writeFile(uri, Buffer.from(String(text), 'utf8'));
-            written.push(uri.fsPath);
-          }
-
-          if ((!written || written.length === 0) && typeof out?.text === 'string') {
-            if (cmd === 'spec') await writeIfNeeded('docs/harper/SPEC.md', out.text);
-            if (cmd === 'plan') await writeIfNeeded('docs/harper/PLAN.md', out.text);
-            if (cmd === 'kit')  await writeIfNeeded('docs/harper/KIT.md',  out.text);
-          }
-
-          // --- Log su sessione + notifica UI ---
-          if (written.length) {
-            await logHarperEvent(context, {
-              ts: Date.now(),
-              mode: 'harper',
-              model: state.model || 'auto',
-              role: 'assistant',
-              content: `📝 wrote ${written.length} file(s):\n` + written.map(p => `- ${p}`).join('\n')
-            });
-
-            panel.webview.postMessage({ type: 'files', files: written });
-          } else {
-            // niente file, ma almeno un messaggio esplicito
-            panel.webview.postMessage({ type: 'echo', message: 'ℹ No files emitted by model; showing text/diffs only.' });
-          }
-
           // Echo post-run (router & modello effettivo se ritornati)
           if (out?.echo) {
             panel.webview.postMessage({ type: 'echo', message: out.echo });
           }
+
           // Diffs
           if (Array.isArray(out?.diffs) && out.diffs.length) {
             panel.webview.postMessage({ type: 'diffs', diffs: out.diffs });
           }
-          // 4) UI: inoltra i pezzi alla webview (coerente con free/coding)
-          if (out?.text) {
-            panel.webview.postMessage({ type: 'text', text: out.text });
-          }
+
           // Files (report / artifacts)
           if (Array.isArray(out?.files) && out.files.length) {
             panel.webview.postMessage({ type: 'files', files: out.files });
@@ -2623,7 +2569,7 @@ async function cmdOpenChat(context) {
 
           // Warnings / Errors
           if (Array.isArray(out?.warnings) && out.warnings.length) {
-            panel.webview.postMessage({ type: 'echo', message: `⚠ Warnings: ${out.warnings.join(' | ')}` });
+            panel.webview.postMessage({ type: 'echo', message: `�  Warnings: ${out.warnings.join(' | ')}` });
           }
           if (Array.isArray(out?.errors) && out.errors.length) {
             panel.webview.postMessage({ type: 'error', message: out.errors.join(' | ') });
@@ -2633,41 +2579,34 @@ async function cmdOpenChat(context) {
         }
         return;
       }
-      //Harper Evals
-      if (msg.type === 'harperEvals' ) {
-         await appendSessionJSONL(activeMode, {
-          role: 'user',
-          content: String(msg.cmd || '') + ' ' + String(msg.argument || ''),
-          model:  state.model || 'auto',
-        });
-        var _out
-        switch (msg.cmd) {
-          case 'eval':
-            _out = await handleEval(msg.argument, getWorkspaceRoot() ); 
-            break;
-          case 'gate': 
-            _out = await handleGate(msg.argument, getWorkspaceRoot() );  
-            break;
-          case 'syncconstraints': 
-            _out = await handleSync(msg.argument);  
-            break;
-          case 'planupdate': 
-            _out = await handlePlanUpdate(msg.argument);  
-            break;
-          // default: break;
-        }
-
-       // Persisti l’input dell’utente nella sessione del MODE (e mostreremo badge del modello in render)
-        await appendSessionJSONL(activeMode, {
-          role: 'assistant',
-          content:"🧪 "+ String(_out || ''),
-          model:  state.model || 'auto',
-        });
-        panel.webview.postMessage({ type: 'echo', message: "🧪 " + out } );
+      //Harper Evals  
+      if (msg.type === 'eval') {
+        const out = await handleEval(msg.argument, getWorkspaceRoot() ); 
+        //🧪 
+         panel.webview.postMessage({ type: 'echo', message: "🧪 " + out } );
         return ;
         
-      } 
-     
+      }
+      if (msg.type === 'gate') {
+        const out  = await handleGate(msg.argument, getWorkspaceRoot());
+        panel.webview.postMessage({ type: 'echo', message: "🧪 " + out } );
+        
+        return;
+        
+      }
+      if (msg.type === 'syncConstraints') {
+        const out = await handleSync(msg.argument); 
+        panel.webview.postMessage({ type: 'echo', message: "🧪 " + out } );
+
+        return;
+        
+      }
+      if (msg.type === 'planUpdate') {
+        const  out = await handlePlanUpdate(msg.argument);
+        panel.webview.postMessage({ type: 'echo', message: "🧪 " + out } );
+        return;
+        
+      }
       if (msg.type === 'ragIndex') {
       // opzionale: msg.glob (stringa). Riusiamo la logica del comando palette.
       try {

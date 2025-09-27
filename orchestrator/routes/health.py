@@ -3,4 +3,4 @@ router = APIRouter()
 
 @router.get("/health")
 async def health():
-    return {"ok": True}
+    return {"status": "ok"}

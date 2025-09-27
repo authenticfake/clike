@@ -118,30 +118,92 @@ async def call_gateway_chat(
     async with httpx.AsyncClient(timeout=to) as client:
         r = await client.post(f"{base}/v1/chat/completions", json=body, headers=headers)
         r.raise_for_status()
-        data = r.json() or {}
-        msg = ((data.get("choices") or [{}])[0].get("message") or {})
-        content = msg.get("content", "")
-        if isinstance(content, list):
-            parts = []
-            for seg in content:
-                if isinstance(seg, dict):
-                    if isinstance(seg.get("text"), str):
-                        parts.append(seg["text"])
-                    elif isinstance(seg.get("content"), str):
-                        parts.append(seg["content"])
-                elif isinstance(seg, str):
-                    parts.append(seg)
-            return "".join(parts).strip()
-        if isinstance(content, str) and content.strip():
-            return content.strip()
+        txt = r.text
+         # Parse robusto
+        try:
+            data = r.json()
+            if isinstance(data, str):
+                # double-encoded
+                try:
+                    data = json.loads(data)
+                except Exception:
+                    pass
+        except Exception:
+            # plain text → prova a caricare come JSON, altrimenti ritorna text raw
+            try:
+                data = json.loads(txt)
+            except Exception:
+                return {"version": "1.0", "text": txt, "usage": {}, "sources": []}
 
-        # 2) Fallback legacy: lasciali
-        if "choices" in data:
-            return data["choices"][0]["message"]["content"]
-        if "text" in data:
-            return data["text"]
+        # Estrai testo assistant
+        text_out = ""
 
-        return ""
+
+        # msg = ((data.get("choices") or [{}])[0].get("message") or {})
+        # content = msg.get("content", "")
+        # if isinstance(content, list):
+        #     parts = []
+        #     for seg in content:
+        #         if isinstance(seg, dict):
+        #             if isinstance(seg.get("text"), str):
+        #                 parts.append(seg["text"])
+        #             elif isinstance(seg.get("content"), str):
+        #                 parts.append(seg["content"])
+        #         elif isinstance(seg, str):
+        #             parts.append(seg)
+        #     return "".join(parts).strip()
+        # if isinstance(content, str) and content.strip():
+        #     return content.strip()
+
+        # # 2) Fallback legacy: lasciali
+        # if "choices" in data:
+        #     return data["choices"][0]["message"]["content"]
+        # if "text" in data:
+        #     return data["text"]
+        # 1) OpenAI-like
+        if isinstance(data, dict):
+            try:
+                msg = ((data.get("choices") or [{}])[0].get("message") or {})
+                content = msg.get("content", "")
+                if isinstance(content, list):
+                    parts = []
+                    for seg in content:
+                        if isinstance(seg, dict):
+                            if isinstance(seg.get("text"), str):
+                                parts.append(seg["text"])
+                            elif isinstance(seg.get("content"), str):
+                                parts.append(seg["content"])
+                        elif isinstance(seg, str):
+                            parts.append(seg)
+                    return "".join(parts).strip()
+                if isinstance(content, str) and content.strip():
+                    return content.strip()
+            except Exception:
+                pass
+
+            # 2) Fallback legacy: altre chiavi note
+            if "choices" in data:
+                try:
+                    return data["choices"][0]["message"]["content"]
+                except Exception:
+                    pass
+            if "text" in data and isinstance(data["text"], str):
+                return data["text"]
+            if "response" in data and isinstance(data["response"], str):
+                return data["response"]
+
+        # 3) Se data è una stringa JSON double-encoded
+        if isinstance(data, str):
+            try:
+                parsed = json.loads(data)
+                return str(parsed).strip()
+            except Exception:
+                return data.strip()
+
+        # 4) Ultimo fallback: tutto come stringa
+        return str(data or "").strip()
+
+     
     
 
 

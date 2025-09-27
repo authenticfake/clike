@@ -39,6 +39,12 @@ function getWorkspaceRoot() {
 }
 
 const out = vscode.window.createOutputChannel('Clike');
+// Safe OutputChannel: fallback su console se qualcosa va storto
+// const __out = (() => {
+//   try { return vscode.window.createOutputChannel('Clike'); }
+//   catch { return null; }
+// })();
+// const out = __out || { appendLine: (...args) => console.log('[CLike]', ...(args || [])) };
 
 async function pathExists(p) {
   try { await fs.access(p); return true; } catch { return false; }
@@ -125,6 +131,15 @@ async function ensureSessionsDir() {
 function sessionFileUri(mode) {
   const safe = String(mode || 'free').replace(/[^\w\-\.]/g, '_');
   return vscode.Uri.joinPath(sessionsDirUri(), `${safe}.jsonl`);
+}
+// === Session log appenders (riuso JSONL esistente) ===
+async function logHarperEvent(context, entry) {
+  try {
+    // NB: appendSessionJSONL è quello che già usi per free/coding
+    await appendSessionJSONL('harper', entry);
+  } catch (e) {
+    console.warn('[CLike] logHarperEvent failed:', e);
+  }
 }
 
 async function appendSessionJSONL(mode, entry) {
@@ -655,9 +670,9 @@ async function showDiffPreview(originalText, patchedText, title = 'Clike Preview
   await vscode.commands.executeCommand('vscode.diff', left, right, title, { preview: true });
 }
 
-/** ---------- APPLY “HARDENED�? ---------- */
+/** ---------- APPLY “HARDENED” ---------- */
 // FIX: cambia firma — ora accetta (targetUri, newContent, lang?, intent?)
-// in passato veniva chiamata per errore con “context�?
+// in passato veniva chiamata per errore con “context”
 async function replaceWholeSafe(targetUri, newContent, lang, intent) {
   // Safety: non sovrascrivere il file con una docstring breve
   if (intent === 'docstring' && isLikelyShortDocstring(newContent, lang)) {
@@ -788,7 +803,7 @@ async function insertAboveSelection(targetUri, docstring) {
 async function applyOrchestratorResult(context, respJson, applyCtx) {
   const data = respJson || {};
   const diff = data.diff || data.patch || '';
-  // FIX: sanifica new_content dal preambolo (“Here is the updated code:�?) o blocchi ```
+  // FIX: sanifica new_content dal preambolo (“Here is the updated code:”) o blocchi ```
   const newContentRaw = data.new_content;
   const newContent = typeof newContentRaw === 'string' ? extractCodeBlockOrPlain(newContentRaw) : undefined;
 
@@ -896,15 +911,9 @@ async function cmdListModels() {
 }
 
 async function cmdCheckServices(context) {
-  const editor = getActiveEditorOrThrow();
-  const docInfo = documentInfoFromEditor(editor);
-  await context.workspaceState.update('clike.lastTargetUri', docInfo.uriStr);
-
-  const { routes } = cfg();
-  const o = await getJson(cfg().orchestratorUrl + routes.orchestrator.health);
-  const g = await getJson(cfg().gatewayUrl + routes.gateway.health);
-  console.log("g", g);
-  console.log("o", o);
+  const { orchestratorUrl, gatewayUrl, routes } = cfg();
+  const o = await getJson(`${orchestratorUrl}${routes.orchestrator.health}`);
+  const g = await getJson(`${gatewayUrl}${routes.gateway.health}`);
   vscode.window.showInformationMessage(`Health — Orchestrator: ${o.status || 'err'} | Gateway: ${g.status || 'err'}`);
 }
 
@@ -1635,10 +1644,8 @@ function handleSlash(slash) {
   // dry 'Text' and 'Diffs' panels
   try { clearTextPanel(); clearDiffsPanel(); clearFilesPanel(); } catch {}
   try { prompt.value = ''; } catch {}
-  const slashCmd = slash.cmd.toLowerCase();
-
   // help: open overlay local
-  if (slashCmd === '/help') {
+  if (slash.cmd === '/help') {
     var items = getHelpListSafe();
     var listText = '';
     try {
@@ -1683,7 +1690,8 @@ function handleSlash(slash) {
     try { openHelpOverlay(); } catch {}
     return;
   }
-  if (slashCmd === '/rag') {
+  if (slash.cmd === '/rag') {
+    // UX: bubble utente e pulizia prompt
     const a = slash.args || {};
     // 1) /rag search
     if (a.action === 'search' && a.query) {
@@ -1693,7 +1701,6 @@ function handleSlash(slash) {
       const userCommand = '/rag ' + a.query;
 
       try { bubble('user', userCommand, (model && model.value) ? model.value : 'auto'); } catch {}
-      try { prompt.value = ''; } catch {}
       return true;
     }
     // 2) /rag +N → aggiunge l’N-esimo hit come RAG attachment
@@ -1742,19 +1749,31 @@ function handleSlash(slash) {
     return true;
   }
 
-  if (slashCmd === '/init') {
+  if (slash.cmd === '/init') {
     // mappa su handler host esistente (harperInit)
     vscode.postMessage({ type: 'harperInit', name: slash.args.name || '', path: slash.args.path || '', force: !!slash.args.force });
+
     return;
   }
-  console.log("evals...", slash);
-   console.log("evals.cmd...", slash.cmd);  
-  //EVALS
-  if (slashCmd === '/eval' || slashCmd === '/gate' || slashCmd === '/syncconstraints' || slashCmd === '/planupdate') {
+  // EVALS / GATES / SYNC CONSTRAINTS / PLAN UPDATE
+  if (slash.cmd === '/eval' || slash.cmd === '/gate' || slash.cmd === '/syncConstraints' || slash.cmd === '/planUpdate') {
+    const cmd_ = slash.cmd.slice(1);
+    var modeVal  = (mode  && mode.value)  ? mode.value  : 'harper';
+    var key      = modeVal;
+    var atts = [];
+    try {
+      if (typeof attachmentsByMode !== 'undefined' && attachmentsByMode && attachmentsByMode[key]) {
+        atts = attachmentsByMode[key].slice(0);
+      }
+    } catch {}
     // mappa su handler host esistente (eval)
-    vscode.postMessage({ type: 'harperEvals', cmd: slash.cmd.slice(1), argument: slash.args.arg || '' });
+    var atts = [];
+    try { bubble('user', slash.cmd + (slash.args.arg ? (' ' + slash.args.arg) : ''), (model && model.value) ? model.value : 'auto', atts); } catch {}
+    vscode.postMessage({ type: cmd_ , argument: slash.args.arg || '' });
     return;
   }
+  
+  
   
   // --- RAG: /ragIndex [glob], /ragSearch <query>
   try {
@@ -1798,7 +1817,7 @@ function handleSlash(slash) {
       if (typeof attachmentsByMode !== 'undefined' && attachmentsByMode && attachmentsByMode[key]) {
         atts = attachmentsByMode[key].slice(0);
       }
-    } catch {}    
+    } catch {}
     try { bubble('user', slash.cmd + (slash.args.arg ? (' ' + slash.args.arg) : ''), (model && model.value) ? model.value : 'auto', atts); } catch {}
     vscode.postMessage({ type: 'harperRun', cmd: slash.cmd.slice(1), attachments: atts });
 
@@ -2353,13 +2372,11 @@ async function cmdOpenChat(context) {
 
   // Ascolto eventi dalla webview
   panel.webview.onDidReceiveMessage(async (msg) => {
+    
     out.appendLine(`[webview] recv ${msg && msg?.type}`);
 
     try {
       const state = context.workspaceState.get('clike.uiState') || { mode:'free', model:'auto', historyScope:'singleModel' };
-      const cur = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto' };
-      const activeMode  = msg.mode  || cur.mode  || 'free';
-
       if (msg.type === 'harperInit') {
         try {
           const name = (msg.name || '').trim();
@@ -2495,6 +2512,8 @@ async function cmdOpenChat(context) {
       // Run Harper phase from webview (slash: /spec | /plan | /kit | /build)
       if (msg.type === 'harperRun') {
         try {
+          const cur = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto' };
+          const activeMode  = msg.mode  || cur.mode  || 'free';
           const { cmd, attachments = [] } = msg;
           
           const docRoot = 'docs/harper'; // default; se usi config runtime, leggila qui
@@ -2526,13 +2545,24 @@ async function cmdOpenChat(context) {
             runId,
             historyScope: state.historyScope
           };
-             // Persisti l’input dell’utente nella sessione del MODE (e mostreremo badge del modello in render)
+           // Persisti l’input dell’utente nella sessione del MODE (e mostreremo badge del modello in render)
           await appendSessionJSONL(activeMode, {
             role: 'user',
             content: `▶ ${cmd.toUpperCase()} | mode=${state.mode} model=${state.model} profile=${profileHint || '—'} core=${JSON.stringify(core)}`,
             model:  state.model || 'auto',
             attachments: Array.isArray(msg.attachments) ? msg.attachments : []
           });
+
+          
+
+          // // 1) PRE-RUN: persisti comando come "system"
+          // await logHarperEvent(context, {
+          //   ts: Date.now(),
+          //   mode: 'harper',
+          //   model: state.model || 'auto',
+          //   role: 'system',
+          //   content: `▶ ${String(cmd || '').toUpperCase()} requested`
+          // });
           // Echo pre-run
           panel.webview.postMessage({
             type: 'echo',
@@ -2549,7 +2579,7 @@ async function cmdOpenChat(context) {
             out?.text ? `[text] ${Math.min(String(out.text).length, 200)} chars` : null
           ].filter(Boolean).join(' • ') || 'no artifacts';
 
-          
+         
           await appendSessionJSONL(activeMode, {
             ts: Date.now(),
             role: 'assistant',
@@ -2607,7 +2637,7 @@ async function cmdOpenChat(context) {
           if (Array.isArray(out?.diffs) && out.diffs.length) {
             panel.webview.postMessage({ type: 'diffs', diffs: out.diffs });
           }
-          // 4) UI: inoltra i pezzi alla webview (coerente con free/coding)
+            // 4) UI: inoltra i pezzi alla webview (coerente con free/coding)
           if (out?.text) {
             panel.webview.postMessage({ type: 'text', text: out.text });
           }
@@ -2633,41 +2663,31 @@ async function cmdOpenChat(context) {
         }
         return;
       }
-      //Harper Evals
-      if (msg.type === 'harperEvals' ) {
-         await appendSessionJSONL(activeMode, {
+      //Harper Evals  
+      if (msg.type === 'eval' || msg.type === 'gate' ||  msg.type === 'syncConstraints' || msg.type === 'planUpdate' ) {
+         // Persisti l’input dell’utente nella sessione del MODE (e mostreremo badge del modello in render)
+        await appendSessionJSONL(activeMode, {
           role: 'user',
           content: String(msg.cmd || '') + ' ' + String(msg.argument || ''),
           model:  state.model || 'auto',
+          attachments: Array.isArray(msg.attachments) ? msg.attachments : []
         });
-        var _out
-        switch (msg.cmd) {
-          case 'eval':
-            _out = await handleEval(msg.argument, getWorkspaceRoot() ); 
-            break;
-          case 'gate': 
-            _out = await handleGate(msg.argument, getWorkspaceRoot() );  
-            break;
-          case 'syncconstraints': 
-            _out = await handleSync(msg.argument);  
-            break;
-          case 'planupdate': 
-            _out = await handlePlanUpdate(msg.argument);  
-            break;
-          // default: break;
-        }
-
-       // Persisti l’input dell’utente nella sessione del MODE (e mostreremo badge del modello in render)
+        var out;
+        if (msg.type === 'eval') out = await handleEval(msg.argument, getWorkspaceRoot() ); 
+        if (msg.type === 'gate') out = await handleGate(msg.argument, getWorkspaceRoot());
+        if (msg.type === 'syncConstraints') out = await handleSync(msg.argument); 
+        if (msg.type === 'planUpdate') out = await handlePlanUpdate(msg.argument);
+        // Persisti l’input dell’utente nella sessione del MODE (e mostreremo badge del modello in render)
         await appendSessionJSONL(activeMode, {
           role: 'assistant',
-          content:"🧪 "+ String(_out || ''),
+          content:"🧪 "+ String(out || ''),
           model:  state.model || 'auto',
         });
-        panel.webview.postMessage({ type: 'echo', message: "🧪 " + out } );
+       
+         panel.webview.postMessage({ type: 'echo', message: "🧪 " + out } );
         return ;
         
-      } 
-     
+      }
       if (msg.type === 'ragIndex') {
       // opzionale: msg.glob (stringa). Riusiamo la logica del comando palette.
       try {
@@ -2678,7 +2698,6 @@ async function cmdOpenChat(context) {
       }
       return;
       }
-     
       // RAG search chiesto dalla webview (/rag <query>)
       if (msg.type === 'ragSearch') {
         try {
@@ -2770,7 +2789,7 @@ async function cmdOpenChat(context) {
           }
         } catch (e) {
           out.appendLine('[CLike] webview_ready handler crashed: ' + (e?.message || String(e)));
-          // Fallback minimo per non lasciare la webview “vuota�?
+          // Fallback minimo per non lasciare la webview “vuota”
           panel.webview.postMessage({ type: 'initState', state: { mode:'free', model:'auto', historyScope:'singleModel' } });
           panel.webview.postMessage({ type: 'hydrateSession', messages: [] });
           panel.webview.postMessage({ type: 'models', models: ['auto'] });
@@ -2914,7 +2933,7 @@ async function cmdOpenChat(context) {
         const { inline_files, rag_files } = partitionAttachments(atts);
         // History del MODE corrente
         const historyScope  = effectiveHistoryScope(context);
-        // History per conversazione “stateless�?: carico SOLO le bolle del MODE corrente
+        // History per conversazione “stateless”: carico SOLO le bolle del MODE corrente
         const history = await loadSession(activeMode).catch(() => []);
         // Filtra eventualmente per modello se vuoi inviare solo il sotto-filo di quel model:
         const historyForThisModel = history.filter(b => !b.model || b.model === activeModel);
@@ -3081,7 +3100,7 @@ async function cmdOpenChat(context) {
                 bytes_b64: Buffer.from(bytes).toString('base64')
               });
             } else {
-              // grande: passa solo il path → il server far�  RAG
+              // grande: passa solo il path → il server farà RAG
               atts.push({
                 origin: 'workspace',
                 name: relPath.split(/[\\/]/).pop(),
@@ -3123,14 +3142,14 @@ async function cmdOpenChat(context) {
     }
   });
 
-  async function showInitSummaryIfPresent(panel) {
+async function showInitSummaryIfPresent(panel) {
   try {
     const ws = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
     if (!ws) return;
     const p = path.join(ws, '.clike', 'last_init_summary.json');
     out.appendLine (`[CLike] showInitSummaryIfPresent: ${p}`);
     if (!(await pathExists(p))) return;
-     out.appendLine (`[CLike] showInitSummaryIfPresent file exites`);
+    out.appendLine (`[CLike] showInitSummaryIfPresent file exites`);
 
     const raw = await fs.readFile(p, 'utf8');
     const sum = JSON.parse(raw);
@@ -3156,11 +3175,12 @@ async function cmdOpenChat(context) {
   }
 }
 }
+
 function partitionAttachments(atts) {
   const inline_files = [];
   const rag_files = [];
   for (const a of (atts || [])) {
-    // piccolo o gi�  in memoria
+    // piccolo o già in memoria
     if (a.content || a.bytes_b64) {
       inline_files.push({
         name: a.name || null,
@@ -3176,6 +3196,7 @@ function partitionAttachments(atts) {
   }
   return { inline_files, rag_files };
 }
+
 
 async function fetchJson(url, { signal } = {}) {
   const f = (typeof fetch === 'function')

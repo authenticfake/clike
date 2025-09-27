@@ -1,0 +1,28 @@
+name: CLike CI (Evals)
+on:
+  pull_request:
+    branches: [ main, feature/**, feat/** ]
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: pip install -r requirements.txt
+      - name: SPEC & PLAN gates
+        run: |
+          python -m orchestrator.app.spec_plan_gates check-spec --file SPEC.md
+          python -m orchestrator.app.spec_plan_gates check-plan --file PLAN.md
+      - name: KIT gates (lint/type/tests/security-lite)
+        run: |
+          ruff check .
+          mypy --hide-error-codes --no-color-output || true
+          pytest -q
+          bandit -q -r . || true
+      - name: Upload eval artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-artifacts
+          path: runs/**/eval/*.*

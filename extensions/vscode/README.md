@@ -62,6 +62,11 @@ Type in the chat:
   * **`/plan`** → generate PLAN from SPEC.
   * **`/kit`**  → initial kit/scaffold from SPEC+PLAN.
   * **`/build`** → incremental build steps (code/diff cycles).
+  
+  * **'/eval'**  <spec|plan|kit|finalize> — run eval profile and show PASS/FAIL summary  
+  * **'/gate'** <spec|plan|kit|finalize> — enforce gates for the selected phase  
+  * **'/syncConstraints'** [path] — sync Technology Constraints from IDEA/SPEC, regenerate canonical JSON  
+  * **'/planUpdate'** <REQ-ID> [runs/.../eval/kit.report.json] — check off the PLAN item after a passing KIT eval
 * **RAG**:
 
   * **`/ragIndex [--path <p>] [--glob "<g>"] [--tags "<t>"]`** — manual ingest/update to vector store.

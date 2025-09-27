@@ -9,9 +9,9 @@ set -euo pipefail
 MODELS=(
   "llama3"
   "nomic-embed-text"
-  "gpt-oss"
-  "codellama:34b"
-  "deepseek-coder:33b"
+#  "gpt-oss"
+#  "codellama:34b"
+#  "deepseek-coder:33b"
 )
 
 # Se stai usando docker compose, pulla DENTRO il container
