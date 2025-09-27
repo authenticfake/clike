@@ -10,22 +10,32 @@ from routes.embeddings import router as embed_router
 from routes.health import router as health_router
 from routes.models import router as models_router
 from routes.harper import router as harper_router   # ⬅️ AGGIUNGI
-
+from middleware_security import SecureHeaders
 
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(level=LOG_LEVEL, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("gateway")
 
-app = FastAPI(title="Clike Gateway an AI layer for Vibe Code", version="1.0.0")
+app = FastAPI(title="Clike Gateway (AI Pipilines for enabling Vibe Code for StartUp & Entprise Solutions)", version="1.0.0")
 
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=["*"],
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+# Strict CORS (adjust origins as needed)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:5173", "vscode-web://*"],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET","POST","OPTIONS"],
+    allow_headers=["authorization","content-type","x-request-id"],
 )
+app.add_middleware(SecureHeaders)
+
 
 class LogMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):

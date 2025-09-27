@@ -1,0 +1,17 @@
+eval:
+  profiles:
+    spec: []     # handled by spec_plan_gates
+    plan: []
+    kit:
+      - lint
+      - typecheck
+      - test:unit
+      - security:sast
+      # optional: add test:integration, security:secrets via capabilities.yaml
+    finalize:
+      - package
+      - sbom
+      - license:check
+gates:
+  kit:
+    coverage: 70

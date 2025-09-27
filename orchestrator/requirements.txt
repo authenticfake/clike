@@ -11,6 +11,7 @@ black>=24.3
 ruff>=0.4
 mypy>=1.9
 types-requests>=2.32
+bandit==1.7.9
 
 python-multipart==0.0.9
 watchfiles==0.22.0

@@ -4,14 +4,14 @@
 # Phase services (SPEC/PLAN/KIT/BUILD) orchestrating routing and gateway calls.
 from __future__ import annotations
 from typing import Dict, Any, Optional, List
-import os
+import os, logging
 from datetime import datetime
 
 import httpx  # ensure available in requirements
 from services.router import select_model_for_phase, Task
 
 GATEWAY_URL = os.environ.get("CL_GATEWAY_URL", "http://gateway:8000")
-
+log = logging.getLogger("orcehstrator:service:harper")
 def _new_run_id(phase: str) -> str:
     ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
     return f"{ts}-{phase}"
@@ -60,7 +60,9 @@ async def run_phase(phase: Task, req) -> Dict[str, Any]:
     elif phase == "build":
         payload["spec_md"] = getattr(req, "spec_md")
         payload["plan_md"] = getattr(req, "plan_md")
-
+    
+    
+    log.info("run_phase %s: %s", phase, payload)
     # 4) Call gateway
     out = await _post_json("/v1/harper/run", payload)
 
