@@ -1,8 +1,40 @@
 # Pydantic schemas with iteration fields and execution context.
 # Comments in English.
 
-from typing import Optional, List, Dict, Any, Literal
+from typing import Optional, List, Dict, Any, Literal, Union
 from pydantic import BaseModel, Field,ConfigDict
+
+class HarperFlags(BaseModel):
+    neverSendSourceToCloud: bool = True
+    redaction: bool = True
+    # NEW: rich attachment model (back-compat friendly)
+class Attachment(BaseModel):
+    name: str
+    path: Optional[str] = None
+    id: Optional[str] = None
+    source: Optional[str] = None  # e.g., "external" | "workspace" | "upload"
+    mime: Optional[str] = None
+    content_base64: Optional[str] = None  # optional payload if provided
+
+class HarperPhaseRequest(BaseModel):
+    cmd: str
+    mode: str = "harper"
+    model: Optional[str] = None
+    profileHint: Optional[str] = None
+    docRoot: Optional[str] = "docs/harper"
+    core: List[str] = []
+    attachments: List[Union[str, Attachment]] = []
+    flags: Optional[HarperFlags] = None
+    runId: Optional[str] = None
+    historyScope: Optional[str] = None
+
+    # --- NEW optional payloads ---
+    idea_md: Optional[str] = None
+    core_blobs: Optional[Dict[str, str]] = None
+
+
+
+
 
 # ---------------------------
 # Shared execution context
@@ -29,7 +61,38 @@ class ExecContext(BaseModel):
         populate_by_name=True,   # (ex allow_population_by_field_name)
         extra="ignore")
     
+class FileArtifact(BaseModel):
+    path: str
+    content: str
+    mime: Optional[str] = None
+    encoding: Optional[str] = None
 
+class DiffEntry(BaseModel):
+    path: str
+    diff: str  # unified diff or patch text
+
+class TestSummary(BaseModel):
+    passed: int = 0
+    failed: int = 0
+    summary: str = "n/a"
+
+class HarperRunResponse(BaseModel):
+    ok: bool = True
+    phase: Optional[str] = None
+    echo: Optional[str] = None
+    text: Optional[str] = None
+    files: List[FileArtifact] = []
+    diffs: List[DiffEntry] = []
+    tests: TestSummary = TestSummary()
+    warnings: List[str] = []
+    errors: List[str] = []
+    runId: Optional[str] = None
+    telemetry: Optional[Dict[str, Any]] = None  # token usage, route info, etc.
+
+class HarperEnvelope(BaseModel):
+    out: HarperRunResponse
+    # facoltativo: spec_md per retro-compat con UI che lo usa direttamente
+    spec_md: Optional[str] = None
 
 # ---------------------------
 # Requests

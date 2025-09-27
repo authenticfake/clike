@@ -10,10 +10,11 @@ const fsSync = require('fs');
 const path = require('path');
 const os = require('os');
 
+
 //const { activateTestController } = require('./testController');
 const { registerCommands } = require('./commands/registerCommands');
 const { handlePlanUpdate, handleSync, handleGate, handleEval } = require('./commands/slashBot');
-
+const { buildHarperBody } = require('./utility')
 let __clike_lastTargetUriCache = null;  
 let selectedPaths = new Set();
 // --- Stato richiesta in corso (per Cancel) ---
@@ -65,9 +66,11 @@ function log(...args) { console.log(...args); out.appendLine(args.join(' ')); }
 function computeProfileHint(mode, model) {
   try {
     const m = String(mode || 'free').toLowerCase();
-    const fixed = String(model || 'auto').toLowerCase() !== 'auto';
+
+    const fixed = String(model || 'auto').toLowerCase() !== 'auto' ;
     if (fixed) return null; // explicit model → no hint
     if (m === 'harper') return 'plan.fast';
+
     if (m === 'coding') return 'code.strict';
     return null;
   } catch { return null; }
@@ -2500,15 +2503,18 @@ async function cmdOpenChat(context) {
       }
       // Run Harper phase from webview (slash: /spec | /plan | /kit | /build)
       if (msg.type === 'harperRun') {
+        out.appendLine(`[harperRun] inside`);
         try {
+         console.log(`[harperRun] [harperRun]`);
           const { cmd, attachments = [] } = msg;
           
           const docRoot = 'docs/harper'; // default; se usi config runtime, leggila qui
           const profileHint = computeProfileHint(state.mode, state.model);
+          console.log(`[harperRun] profileHint ...`,  profileHint);
 
           // Core docs per fase
           let core = [];
-          if (cmd === 'spec') core = ['IDEA.md'];
+          if (cmd === 'spec') core = ['IDEA.md', 'SPEC.md'];
           else if (cmd === 'plan') core = ['SPEC.md'];
           else if (cmd === 'kit' || cmd === 'build') core = ['SPEC.md','PLAN.md'];
 
@@ -2532,6 +2538,7 @@ async function cmdOpenChat(context) {
             runId,
             historyScope: state.historyScope
           };
+
              // Persisti l’input dell’utente nella sessione del MODE (e mostreremo badge del modello in render)
           await appendSessionJSONL(activeMode, {
             role: 'user',
@@ -2545,14 +2552,18 @@ async function cmdOpenChat(context) {
             message: `▶ ${cmd.toUpperCase()} | mode=${state.mode} model=${state.model} profile=${profileHint || '—'} core=${JSON.stringify(core)} attachments=${attachments.length}`
           });
 
-          const out = await callHarper(cmd, payload);
+          const body = await buildHarperBody('spec', payload, wsRoot());
+          const outGateway = await callHarper(cmd, body);
+          const _out  = outGateway.out;
+
+          console.log(`[harperRun] body real out ... ${_out}`);
 
           // 3) POST-RUN: persisti esito (riassunto + eventuale echo/testo)
           const summary = [
-            out?.echo ? `[echo] ${out.echo}` : null,
-            (Array.isArray(out?.diffs) && out.diffs.length) ? `[diffs] ${out.diffs.length}` : null,
-            (Array.isArray(out?.files) && out.files.length) ? `[files] ${out.files.length}` : null,
-            out?.text ? `[text] ${Math.min(String(out.text).length, 200)} chars` : null
+            _out?.echo ? `[echo] ${_out.echo}` : null,
+            (Array.isArray(_out?.diffs) && _out.diffs.length) ? `[diffs] ${_out.diffs.length}` : null,
+            (Array.isArray(_out?.files) && _out.files.length) ? `[files] ${_out.files.length}` : null,
+            _out?.text ? `[text] ${Math.min(String(_out.text).length, 200)} chars` : null
           ].filter(Boolean).join(' • ') || 'no artifacts';
 
           
@@ -2563,76 +2574,75 @@ async function cmdOpenChat(context) {
             model:  state.model || 'auto',
             attachments: Array.isArray(msg.attachments) ? msg.attachments : []
           });
-        
+          panel.webview.postMessage({
+            type: 'echo',
+            message: `✔ ${String(cmd || '').toUpperCase()} done — ${summary}`
+          });
         
 
           // --- SCRITTURA FILES (primary path) ---
           let written = [];
-          if (Array.isArray(out?.files) && out.files.length) {
-            written = await saveGeneratedFiles(out.files);
+          if (Array.isArray(_out?.files) && _out.files.length) {
+            written = await saveGeneratedFiles(_out.files);
           }
 
-          // --- FALLBACK per SPEC/PLAN/KIT se il modello non ha usato emit_files ---
-          const root = wsRoot();
-          async function writeIfNeeded(relPath, text) {
-            if (!text) return;
-            const uri = vscode.Uri.joinPath(root, relPath);
-            const folder = vscode.Uri.joinPath(uri, '..');
-            try { await vscode.workspace.fs.createDirectory(folder); } catch {}
-            await vscode.workspace.fs.writeFile(uri, Buffer.from(String(text), 'utf8'));
-            written.push(uri.fsPath);
-          }
+          // // --- FALLBACK per SPEC/PLAN/KIT se il modello non ha usato emit_files ---
+          // const root = wsRoot();
+          // async function writeIfNeeded(relPath, text) {
+          //   if (!text) return;
+          //   const uri = vscode.Uri.joinPath(root, relPath);
+          //   const folder = vscode.Uri.joinPath(uri, '..');
+          //   try { await vscode.workspace.fs.createDirectory(folder); } catch {}
+          //   await vscode.workspace.fs.writeFile(uri, Buffer.from(String(text), 'utf8'));
+          //   written.push(uri.fsPath);
+          // }
 
-          if ((!written || written.length === 0) && typeof out?.text === 'string') {
-            if (cmd === 'spec') await writeIfNeeded('docs/harper/SPEC.md', out.text);
-            if (cmd === 'plan') await writeIfNeeded('docs/harper/PLAN.md', out.text);
-            if (cmd === 'kit')  await writeIfNeeded('docs/harper/KIT.md',  out.text);
-          }
+          // if ((!written || written.length === 0) && typeof out?.text === 'string') {
+          //   if (cmd === 'spec') await writeIfNeeded('docs/harper/SPEC.md', _out.text);
+          //   if (cmd === 'plan') await writeIfNeeded('docs/harper/PLAN.md', _out.text);
+          //   if (cmd === 'kit')  await writeIfNeeded('docs/harper/KIT.md',  _out.text);
+          // }
 
-          // --- Log su sessione + notifica UI ---
-          if (written.length) {
-            await logHarperEvent(context, {
-              ts: Date.now(),
-              mode: 'harper',
-              model: state.model || 'auto',
-              role: 'assistant',
-              content: `📝 wrote ${written.length} file(s):\n` + written.map(p => `- ${p}`).join('\n')
-            });
+          // // --- Log su sessione + notifica UI ---
+          // if (written.length) {
+          //   await appendSessionJSONL(activeMode, {
+          //     ts: Date.now(),
+          //     mode: 'harper',
+          //     model: state.model || 'auto',
+          //     role: 'assistant',
+          //     content: `📝 wrote ${written.length} file(s):\n` + written.map(p => `- ${p}`).join('\n')
+          //   });
 
-            panel.webview.postMessage({ type: 'files', files: written });
-          } else {
-            // niente file, ma almeno un messaggio esplicito
-            panel.webview.postMessage({ type: 'echo', message: 'ℹ No files emitted by model; showing text/diffs only.' });
-          }
+          //   panel.webview.postMessage({ type: 'files', files: written });
+          // } else {
+          //   // niente file, ma almeno un messaggio esplicito
+          //   panel.webview.postMessage({ type: 'echo', message: 'ℹ No files emitted by model; showing text/diffs only.' });
+          // }
 
-          // Echo post-run (router & modello effettivo se ritornati)
-          if (out?.echo) {
-            panel.webview.postMessage({ type: 'echo', message: out.echo });
-          }
           // Diffs
-          if (Array.isArray(out?.diffs) && out.diffs.length) {
-            panel.webview.postMessage({ type: 'diffs', diffs: out.diffs });
+          if (Array.isArray(_out?.diffs) && _out.diffs.length) {
+            panel.webview.postMessage({ type: 'diffs', diffs: _out.diffs });
           }
           // 4) UI: inoltra i pezzi alla webview (coerente con free/coding)
-          if (out?.text) {
-            panel.webview.postMessage({ type: 'text', text: out.text });
+          if (_out?.text) {
+            panel.webview.postMessage({ type: 'text', text: _out.text });
           }
           // Files (report / artifacts)
-          if (Array.isArray(out?.files) && out.files.length) {
-            panel.webview.postMessage({ type: 'files', files: out.files });
+          if (Array.isArray(_out?.files) && _out.files.length) {
+            panel.webview.postMessage({ type: 'files', files: _out.files });
           }
 
           // Tests summary
-          if (out?.tests?.summary) {
-            panel.webview.postMessage({ type: 'echo', message: `✅ Tests: ${out.tests.summary}` });
+          if (_out?.tests?.summary) {
+            panel.webview.postMessage({ type: 'echo', message: `✅ Tests: ${_out.tests.summary}` });
           }
 
           // Warnings / Errors
-          if (Array.isArray(out?.warnings) && out.warnings.length) {
-            panel.webview.postMessage({ type: 'echo', message: `⚠ Warnings: ${out.warnings.join(' | ')}` });
+          if (Array.isArray(_out?.warnings) && _out.warnings.length) {
+            panel.webview.postMessage({ type: 'echo', message: `⚠ Warnings: ${_out.warnings.join(' | ')}` });
           }
-          if (Array.isArray(out?.errors) && out.errors.length) {
-            panel.webview.postMessage({ type: 'error', message: out.errors.join(' | ') });
+          if (Array.isArray(_out?.errors) && _out.errors.length) {
+            panel.webview.postMessage({ type: 'error', message: _out.errors.join(' | ') });
           }
         } catch (e) {
           panel.webview.postMessage({ type: 'error', message: (e?.message || String(e)) });
@@ -2669,7 +2679,7 @@ async function cmdOpenChat(context) {
           content:"🧪 "+ String(_out || ''),
           model:  state.model || 'auto',
         });
-        panel.webview.postMessage({ type: 'echo', message: "🧪 " + out } );
+        panel.webview.postMessage({ type: 'echo', message: "🧪 " + _out } );
         return ;
         
       } 

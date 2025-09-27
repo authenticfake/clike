@@ -104,6 +104,7 @@ components:
     HarperRunRequest:
       type: object
       properties:
+        cmd: { type: string, enum: ["spec","plan","kit","build"] }
         phase: { type: string, enum: ["spec","plan","kit","build"] }
         mode: { type: string }
         model: { type: string }
