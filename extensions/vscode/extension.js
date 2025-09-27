@@ -1747,11 +1747,17 @@ function handleSlash(slash) {
     vscode.postMessage({ type: 'harperInit', name: slash.args.name || '', path: slash.args.path || '', force: !!slash.args.force });
     return;
   }
-  console.log("evals...", slash);
-   console.log("evals.cmd...", slash.cmd);  
   //EVALS
   if (slashCmd === '/eval' || slashCmd === '/gate' || slashCmd === '/syncconstraints' || slashCmd === '/planupdate') {
     // mappa su handler host esistente (eval)
+    var atts = [];
+    try {
+      if (typeof attachmentsByMode !== 'undefined' && attachmentsByMode && attachmentsByMode[key]) {
+        atts = attachmentsByMode[key].slice(0);
+      }
+    } catch {}    
+    try { bubble('user', slash.cmd + (slash.args.arg ? (' ' + slash.args.arg) : ''), (model && model.value) ? model.value : 'auto', atts); } catch {}
+
     vscode.postMessage({ type: 'harperEvals', cmd: slash.cmd.slice(1), argument: slash.args.arg || '' });
     return;
   }
