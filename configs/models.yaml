@@ -19,6 +19,8 @@ models:
     privacy: high
     enabled: true
     temperature: 0.2
+    context_window: 8192
+    max_output_tokens: 2048
     tags: [local, fast, coding]
 
   - id: llama3:nomic-embed-text
@@ -51,6 +53,8 @@ models:
     cost: low
     privacy: high
     enabled: false
+    context_window: 128000
+    max_output_tokens: 16384
     temperature: 0.2
     tags: [local, fast, coding]
 
@@ -66,7 +70,9 @@ models:
     cost: medium
     privacy: low
     enabled: false
-    temperature: 0.4
+    context_window: 128000
+    max_output_tokens: 32768
+    temperature: 0.3
     tags: [cheap]
     profiles: [local.codegen]
 
@@ -83,6 +89,8 @@ models:
     privacy: low
     enabled: true
     temperature: 0.2
+    context_window: 128000
+    max_output_tokens: 16384
     tags: [cheap, fast]
 
   - id: openai:gpt-4o
@@ -97,6 +105,8 @@ models:
     cost: medium
     privacy: low
     enabled: true
+    context_window: 128000
+    max_output_tokens: 16384
     temperature: 0.2
     tags: [cheap, fast]
 
@@ -111,6 +121,8 @@ models:
     latency: medium
     cost: high
     temperature: 0.1
+    context_window: 400000
+    max_output_tokens: 128000
     tags: [frontier, quality, reasoning]
     enabled: true
    
@@ -124,6 +136,8 @@ models:
     latency: medium
     cost: high
     temperature: 0.1
+    context_window: 400000
+    max_output_tokens: 128000
     tags: [frontier, quality, reasoning]
     enabled: true
     api_key_env: OPENAI_API_KEY
@@ -138,6 +152,8 @@ models:
     latency: medium
     cost: high
     temperature: 0.1
+    context_window: 400000
+    max_output_tokens: 128000
     tags: [frontier, quality, reasoning]
     enabled: true
     api_key_env: OPENAI_API_KEY
@@ -165,6 +181,23 @@ models:
     capability: high
     latency: medium
     cost: medium
+    context_window: 200000
+    max_output_tokens: 8192
+    privacy: low
+    enabled: false
+
+  - id: anthropic:claude-4-sonnet
+    name: claude-4-sonnet
+    provider: anthropic
+    base_url: https://api.anthropic.com/v1
+    remote_name: claude-4-sonnet-20240620
+    api_key_env: ANTHROPIC_API_KEY
+    modality: chat
+    capability: high
+    latency: medium
+    cost: medium
+    context_window: 1000000
+    max_output_tokens: 8192
     privacy: low
     enabled: false
 

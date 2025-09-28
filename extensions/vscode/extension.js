@@ -40,6 +40,23 @@ function getWorkspaceRoot() {
 }
 
 const out = vscode.window.createOutputChannel('Clike');
+/**
+ * Funzione di logging personalizzata che scrive su entrambi i canali.
+ * @param {...any} args Messaggi o oggetti da loggare.
+ */
+function log(...args) {
+    // 1. Log nella console standard per il debug.
+    console.log(...args); 
+    
+    // 2. Log nel canale di output di VS Code.
+    out.appendLine(args.map(arg => {
+        // Converte ogni argomento in stringa per l'output.
+        if (typeof arg === 'object' && arg !== null) {
+            return JSON.stringify(arg, null, 2);
+        }
+        return String(arg);
+    }).join(' ')); 
+}
 
 async function pathExists(p) {
   try { await fs.access(p); return true; } catch { return false; }
@@ -70,17 +87,16 @@ function computeProfileHint(mode, model) {
     const fixed = String(model || 'auto').toLowerCase() !== 'auto' ;
     if (fixed) return null; // explicit model → no hint
     if (m === 'harper') return 'plan.fast';
-
     if (m === 'coding') return 'code.strict';
     return null;
   } catch { return null; }
 }
 
 // --- generic Harper runner (spec/plan/kit/build) ---
-async function callHarper(cmd, payload) {
+async function callHarper(cmd, payload, headers) {
   const base = vscode.workspace.getConfiguration().get('clike.orchestratorUrl') || 'http://localhost:8080';
   const url  = `${base}/v1/harper/${cmd}`;
-  const res  = await fetch(url, { method: 'POST', headers: { 'content-type':'application/json' }, body: JSON.stringify(payload) });
+  const res  = await fetch(url, { method: 'POST', headers: headers, body: JSON.stringify(payload) });
   if (!res.ok) {
     const txt = await res.text().catch(()=> '');
     throw new Error(`orchestrator ${cmd} ${res.status}: ${txt || 'error'}`);
@@ -2363,11 +2379,13 @@ async function cmdOpenChat(context) {
   // Ascolto eventi dalla webview
   panel.webview.onDidReceiveMessage(async (msg) => {
     out.appendLine(`[webview] recv ${msg && msg?.type}`);
+    panel.webview.postMessage({ type: 'busy', on: true });
 
     try {
       const state = context.workspaceState.get('clike.uiState') || { mode:'free', model:'auto', historyScope:'singleModel' };
       const cur = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto' };
       const activeMode  = msg.mode  || cur.mode  || 'free';
+      const activeModel = msg.model || cur.model || 'auto';
 
       if (msg.type === 'harperInit') {
         try {
@@ -2380,6 +2398,7 @@ async function cmdOpenChat(context) {
 
           if (!name) {
             panel.webview.postMessage({ type: 'error', message: 'Project name is required: /init <project_name> [<path>] [--force]' });
+            panel.webview.postMessage({ type: 'busy', on: false });
             return;
           }
 
@@ -2400,6 +2419,7 @@ async function cmdOpenChat(context) {
           const exists = await pathExists(targetDir);
           if (exists && !(await isDirEmpty(targetDir)) && !force) {
             panel.webview.postMessage({ type: 'error', message: `Target not empty: ${targetDir}. Use --force to proceed.` });
+            panel.webview.postMessage({ type: 'busy', on: false });
             return;
           }
 
@@ -2499,22 +2519,23 @@ async function cmdOpenChat(context) {
           console.error('[CLike] harperInit failed:', e);
           panel.webview.postMessage({ type: 'error', message: 'Init failed: ' + String(e?.message || e) });
         }
-        return;
       }
       // Run Harper phase from webview (slash: /spec | /plan | /kit | /build)
       if (msg.type === 'harperRun') {
         out.appendLine(`[harperRun] inside`);
         try {
-         console.log(`[harperRun] [harperRun]`);
           const { cmd, attachments = [] } = msg;
           
           const docRoot = 'docs/harper'; // default; se usi config runtime, leggila qui
           const profileHint = computeProfileHint(state.mode, state.model);
-          console.log(`[harperRun] profileHint ...`,  profileHint);
+          log(`[harperRun] profileHint ...${profileHint}  ` );
+          const activeProvider = (profileHint!=null) ?inferProvider(activeModel) :'';
+          log(`[harperRun] activeProvider ....${activeProvider}  `);
+
 
           // Core docs per fase
           let core = [];
-          if (cmd === 'spec') core = ['IDEA.md', 'SPEC.md'];
+          if (cmd === 'spec') core = ['IDEA.md'];
           else if (cmd === 'plan') core = ['SPEC.md'];
           else if (cmd === 'kit' || cmd === 'build') core = ['SPEC.md','PLAN.md'];
 
@@ -2525,6 +2546,22 @@ async function cmdOpenChat(context) {
           };
 
           const runId = (Math.random().toString(16).slice(2) + Date.now().toString(16));
+          console.log(`[harperRun] runId ...`,  runId);
+
+          const _gen={
+            temperature: 0.2,
+            max_tokens: 8192,
+            top_p: 0.9,
+            stop: ["```SPEC_END```"],
+            presence_penalty: 0.0,
+            frequency_penalty: 0.2,
+            seed: 42,
+            tools:'',
+            remote:'',
+            response_format:'',
+            tool_choice:''
+          }
+          console.log(`[harperRun] payload ...`,  JSON.stringify(_gen));
 
           const payload = {
             cmd,
@@ -2533,11 +2570,15 @@ async function cmdOpenChat(context) {
             profileHint,                    // ← chiave di A3
             docRoot,
             core,
+            gen: _gen,
             attachments,
             flags,
             runId,
             historyScope: state.historyScope
           };
+          log(`[harperRun] payload ...`,  JSON.stringify(payload));
+
+
 
              // Persisti l’input dell’utente nella sessione del MODE (e mostreremo badge del modello in render)
           await appendSessionJSONL(activeMode, {
@@ -2551,12 +2592,13 @@ async function cmdOpenChat(context) {
             type: 'echo',
             message: `▶ ${cmd.toUpperCase()} | mode=${state.mode} model=${state.model} profile=${profileHint || '—'} core=${JSON.stringify(core)} attachments=${attachments.length}`
           });
-
+          
+          const _headers = {"Content-Type": "application/json", "X-CLike-Profile": "code.strict"}
           const body = await buildHarperBody('spec', payload, wsRoot());
-          const outGateway = await callHarper(cmd, body);
+          if (activeProvider) _headers["X-CLike-Provider"] = activeProvider
+          const outGateway = await callHarper(cmd, body, _headers);
           const _out  = outGateway.out;
-
-          console.log(`[harperRun] body real out ... ${_out}`);
+          log(`[harperRun] body real out ... ${_out}`);
 
           // 3) POST-RUN: persisti esito (riassunto + eventuale echo/testo)
           const summary = [
@@ -2586,38 +2628,6 @@ async function cmdOpenChat(context) {
             written = await saveGeneratedFiles(_out.files);
           }
 
-          // // --- FALLBACK per SPEC/PLAN/KIT se il modello non ha usato emit_files ---
-          // const root = wsRoot();
-          // async function writeIfNeeded(relPath, text) {
-          //   if (!text) return;
-          //   const uri = vscode.Uri.joinPath(root, relPath);
-          //   const folder = vscode.Uri.joinPath(uri, '..');
-          //   try { await vscode.workspace.fs.createDirectory(folder); } catch {}
-          //   await vscode.workspace.fs.writeFile(uri, Buffer.from(String(text), 'utf8'));
-          //   written.push(uri.fsPath);
-          // }
-
-          // if ((!written || written.length === 0) && typeof out?.text === 'string') {
-          //   if (cmd === 'spec') await writeIfNeeded('docs/harper/SPEC.md', _out.text);
-          //   if (cmd === 'plan') await writeIfNeeded('docs/harper/PLAN.md', _out.text);
-          //   if (cmd === 'kit')  await writeIfNeeded('docs/harper/KIT.md',  _out.text);
-          // }
-
-          // // --- Log su sessione + notifica UI ---
-          // if (written.length) {
-          //   await appendSessionJSONL(activeMode, {
-          //     ts: Date.now(),
-          //     mode: 'harper',
-          //     model: state.model || 'auto',
-          //     role: 'assistant',
-          //     content: `📝 wrote ${written.length} file(s):\n` + written.map(p => `- ${p}`).join('\n')
-          //   });
-
-          //   panel.webview.postMessage({ type: 'files', files: written });
-          // } else {
-          //   // niente file, ma almeno un messaggio esplicito
-          //   panel.webview.postMessage({ type: 'echo', message: 'ℹ No files emitted by model; showing text/diffs only.' });
-          // }
 
           // Diffs
           if (Array.isArray(_out?.diffs) && _out.diffs.length) {
@@ -2647,7 +2657,8 @@ async function cmdOpenChat(context) {
         } catch (e) {
           panel.webview.postMessage({ type: 'error', message: (e?.message || String(e)) });
         }
-        return;
+        
+        
       }
       //Harper Evals
       if (msg.type === 'harperEvals' ) {
@@ -2680,7 +2691,7 @@ async function cmdOpenChat(context) {
           model:  state.model || 'auto',
         });
         panel.webview.postMessage({ type: 'echo', message: "🧪 " + _out } );
-        return ;
+        
         
       } 
      
@@ -2692,7 +2703,6 @@ async function cmdOpenChat(context) {
       } catch (e) {
         panel.webview.postMessage({ type: 'echo', message: 'RAG indexing error: ' + String(e && e.message || e) });
       }
-      return;
       }
      
       // RAG search chiesto dalla webview (/rag <query>)
@@ -2712,24 +2722,24 @@ async function cmdOpenChat(context) {
         } catch (e) {
           panel.webview.postMessage({ type:'error', message: `RAG Search failed: ${e.message||String(e)}` });
         }
-        return;
+   
       }
       // opzionale utility
       if (msg.type === 'echo') {
         await appendSessionJSONL(state.mode, { role:'assistant', content:String(msg.message||''), model:'system' });
-        return;
+        
       }
       if (msg.type === 'where') {
         out.appendLine('[CLike] where state ' + state.mode);
         const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
         const p = ws ? ws.uri.fsPath : '(no workspace)';
         await appendSessionJSONL(state.mode, { role:'assistant', content:`Workspace: ${p}`, model:'system' });
-        return;
+        
       }
       if (msg.type === 'switchProject') {
         // Nota: per multi-progetto potremo salvare un puntatore in .clike/config.json
         await appendSessionJSONL(state.mode, { role:'assistant', content:`(placeholder) Switched project to: ${String(msg.name||'')}`, model:'system' });
-        return;
+       
       }
       if (msg.type === 'webview_ready') {
         try {
@@ -2791,7 +2801,7 @@ async function cmdOpenChat(context) {
           panel.webview.postMessage({ type: 'hydrateSession', messages: [] });
           panel.webview.postMessage({ type: 'models', models: ['auto'] });
         }
-        return;
+       
       }      
       if (msg.type === 'setHistoryScope') {
         const value = (msg.value === 'allModels') ? 'allModels' : 'singleModel';
@@ -2811,7 +2821,7 @@ async function cmdOpenChat(context) {
 
         // NIENTE initState qui (evita rimbalzi della combo)
         vscode.window.setStatusBarMessage(`CLike: history scope = ${value}`, 2000);
-        return;
+        
       }
       // 1) MODELLI
       if (msg.type === 'fetchModels') {
@@ -2827,7 +2837,7 @@ async function cmdOpenChat(context) {
           models = filtered.length ? filtered : raw;
         }
         panel.webview.postMessage({ type: 'models', models });
-        return;
+       
       }
       // 2) CAMBIO UI (Mode/Model)
       if (msg.type === 'uiChanged') {
@@ -2850,7 +2860,7 @@ async function cmdOpenChat(context) {
             const msgs = await loadSessionFiltered(modeCur, modelCur, 200).catch(() => []);
             panel.webview.postMessage({ type: 'hydrateSession', messages: msgs });
           }
-          return;
+         
         }
         // Se è cambiato il mode (o entrambi), re-idrata in base allo scope
         const scope   = (newState.historyScope === 'allModels') ? 'allModels' : 'singleModel';
@@ -2862,7 +2872,7 @@ async function cmdOpenChat(context) {
           : await loadSessionFiltered(modeCur, modelCur, 200).catch(() => []);
 
         panel.webview.postMessage({ type: 'hydrateSession', messages: msgs });
-        return;
+       
       }
       // 3) CLEAR SESSION (solo mode corrente)
       if (msg.type === 'clearSession') {
@@ -2887,7 +2897,7 @@ async function cmdOpenChat(context) {
           vscode.window.setStatusBarMessage(`CLike: cleared messages for model "${modelCur}" in mode "${modeCur}"`, 2500);
 
         }
-        return;
+      
       }
       // 4) OPEN FILE (tab Files cliccabile)
       if (msg.type === 'openFile' && msg.path) {
@@ -2900,7 +2910,7 @@ async function cmdOpenChat(context) {
         } catch (e) {
           vscode.window.showErrorMessage(`Open file failed: ${e.message}`);
         }        
-        return;
+       
       }
       // 5) CHAT / GENERATE
       if (msg.type === 'sendChat' || msg.type === 'sendGenerate') {
@@ -3018,7 +3028,7 @@ async function cmdOpenChat(context) {
           panel.webview.postMessage({ type: 'busy', on: false });
           inflightController = null;
         }
-        return;
+     
       }
       // 6) APPLY
       if (msg.type === 'apply') {
@@ -3032,14 +3042,16 @@ async function cmdOpenChat(context) {
           const payload = { run_dir, audit_id, selection };
           const res = await postJson(`${orchestratorUrl}/v1/apply`, payload);
           panel.webview.postMessage({ type: 'applyResult', data: res });
-          return;
+          panel.webview.postMessage({ type: 'busy', on: false });
+          
         }
 
         // 2) Fallback client-side: nessun run_dir/audit_id, ma forse abbiamo i file in cache
         const lastFiles = context.workspaceState.get('clike.lastFiles') || [];
         if (!Array.isArray(lastFiles) || !lastFiles.length) {
           panel.webview.postMessage({ type: 'error', message: 'Nothing to apply: no run_dir/audit_id and no cached files.' });
-          return;
+          panel.webview.postMessage({ type: 'busy', on: false });
+;
         }
 
         // Filtra per i path selezionati (se presenti), altrimenti applica tutto
@@ -3049,7 +3061,8 @@ async function cmdOpenChat(context) {
 
         if (!chosen.length) {
           panel.webview.postMessage({ type: 'error', message: 'No files selected to apply.' });
-          return;
+          panel.webview.postMessage({ type: 'busy', on: false });
+
         }
 
         try {
@@ -3060,7 +3073,7 @@ async function cmdOpenChat(context) {
         } catch (e) {
           panel.webview.postMessage({ type: 'error', message: 'Apply (local) failed: ' + (e?.message || String(e)) });
         }
-        return;
+       
       }
 
       // 7) CANCEL
@@ -3068,7 +3081,6 @@ async function cmdOpenChat(context) {
         if (inflightController) inflightController.abort();
         inflightController = null;
         panel.webview.postMessage({ type: 'busy', on: false });
-        return;
       }
       // --- PICK WORKSPACE FILES ----------------------------------------------------
       if (msg.type === 'pickWorkspaceFiles') {
@@ -3079,7 +3091,10 @@ async function cmdOpenChat(context) {
           canSelectFiles: true, canSelectFolders: false, canSelectMany: true,
           openLabel: 'Attach', defaultUri: base
         });
-        if (!uris) return;
+        if (!uris) {
+          panel.webview.postMessage({ type: 'busy', on: false });
+          return;
+        }
 
         const MAX_INLINE = 64 * 1024; // 64KB: sopra → RAG by path
         const atts = [];
@@ -3109,14 +3124,16 @@ async function cmdOpenChat(context) {
           }
         }
         panel.webview.postMessage({ type: 'attachmentsAdded', attachments: atts });
-        return;
       }
       if (msg.type === 'pickExternalFiles') {
         const uris = await vscode.window.showOpenDialog({
           canSelectFiles: true, canSelectFolders: false, canSelectMany: true,
           openLabel: 'Attach'
         });
-        if (!uris) return;
+        if (!uris) {
+          panel.webview.postMessage({ type: 'busy', on: false });
+          return; 
+        }
 
         const atts = [];
         for (const uri of uris) {
@@ -3132,11 +3149,12 @@ async function cmdOpenChat(context) {
           }
         }
         panel.webview.postMessage({ type: 'attachmentsAdded', attachments: atts });
-        return;
       }
     } catch (err) {
       panel.webview.postMessage({ type: 'error', message: String(err) });
+      panel.webview.postMessage({ type: 'busy', on: false });
     }
+    panel.webview.postMessage({ type: 'busy', on: false });
   });
 
   async function showInitSummaryIfPresent(panel) {

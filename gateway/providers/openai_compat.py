@@ -45,6 +45,87 @@ FILES_JSON_SCHEMA: Dict[str, Any] = {
     "additionalProperties": False
 }
 
+#used for harper cenario for homologte the oai raw reposndse to clki reposnse
+# --- normalizzazione esito LLM (allineata a Free/Coding) ---
+def coerce_text_and_usage(raw: Any) -> Tuple[str, Dict[str, Any]]:
+    """
+    Accetta: dict OpenAI, stringa JSON, stringa testo puro.
+    Restituisce sempre (text, usage).
+    Non solleva eccezioni.
+    """
+    try:
+        # Caso 1: dict già parsato (OpenAI compat)
+        if isinstance(raw, dict):
+            if "choices" in raw and raw["choices"]:
+                msg = raw["choices"][0].get("message", {}) or {}
+                content = msg.get("content") or ""
+                usage = raw.get("usage") or {}
+                return str(content or "").strip(), (usage if isinstance(usage, dict) else {})
+            # altri tipi di dict → stringify prudente
+            return str(raw).strip(), {}
+        # Caso 2: stringa
+        if isinstance(raw, str):
+            s = raw.strip()
+            # se sembra JSON, prova a fare json.loads
+            if (s.startswith("{") and s.endswith("}")) or (s.startswith("[") and s.endswith("]")):
+                try:
+                    j = json.loads(s)
+                    if isinstance(j, dict) and "choices" in j and j["choices"]:
+                        msg = j["choices"][0].get("message", {}) or {}
+                        content = msg.get("content") or ""
+                        usage = j.get("usage") or {}
+                        return str(content or "").strip(), (usage if isinstance(usage, dict) else {})
+                    return str(j).strip(), {}
+                except Exception:
+                    # non è JSON valido → trattalo come testo
+                    return s, {}
+            # plain text
+            return s, {}
+        # fallback generico
+        return str(raw or "").strip(), {}
+    except Exception:
+        # ultima rete di salvataggio
+        return "", {}
+
+#deprecated
+def extract_text_and_usage_from_openai(obj) -> tuple[str, dict]:
+    """
+    Accetta: dict OpenAI, stringa JSON, oppure stringa plain.
+    Ritorna: (text, usage_dict)
+    """
+    usage = {}
+    # dict già parsato
+    if isinstance(obj, dict):
+        try:
+            text = obj.get("choices", [{}])[0].get("message", {}).get("content", "")
+            usage = obj.get("usage", {}) or {}
+            return (text or "", usage)
+        except Exception:
+            # fallback: repr del dict se malformato
+            return (str(obj), usage)
+    # stringa: prova JSON → altrimenti plain
+    if isinstance(obj, str):
+        s = obj.strip()
+        if s.startswith("{") or s.startswith("["):
+            try:
+                data = json.loads(s)
+                return _extract_text_and_usage_from_openai(data)
+            except Exception:
+                # non è JSON valido → consideralo testo "grezzo"
+                return (s, usage)
+        # potrebbe essere repr Python di un dict (come visto nei log)
+        if s.startswith("{'") and "choices" in s and "message" in s:
+            try:
+                # tentativo prudente: sostituisci quotes singoli → doppi e parse
+                j = s.replace("'", '"')
+                data = json.loads(j)
+                return _extract_text_and_usage_from_openai(data)
+            except Exception:
+                return (s, usage)
+        return (s, usage)
+    # altri tipi (None, ecc.)
+    return ("", usage)
+
 def _shrink(s: str, n: int = 2000) -> str:
     return s if len(s) <= n else (s[:n] + "…")
 # -------------------------- Public API --------------------------------------
@@ -58,6 +139,7 @@ async def chat(
     response_format: Optional[Dict[str, Any]] = None,
     tools: Optional[List[Dict[str, Any]]] = None,
     tool_choice: Optional[Union[str, Dict[str, Any]]] = None,
+    timeout: Optional[float] = 60.0,
 ) -> Dict[str, Any]:
     headers = {"Authorization": f"Bearer {api_key}"}
     url = f"{base.rstrip('/')}/chat/completions"
@@ -95,7 +177,7 @@ async def chat(
     }))
 
     t0 = _time.time()
-    async with httpx.AsyncClient(timeout=60) as client:
+    async with httpx.AsyncClient(timeout=timeout) as client:
         r = await client.post(url, headers=headers, json=payload)
     ms = int((_time.time() - t0) * 1000)
 
