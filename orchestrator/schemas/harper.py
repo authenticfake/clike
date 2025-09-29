@@ -2,8 +2,13 @@
 # Comments in English.
 
 from typing import Optional, List, Dict, Any, Literal, Union
-from pydantic import BaseModel, Field,ConfigDict
+from pydantic import BaseModel, Field,ConfigDict, constr
 
+# Messaggio chat semplice (solo user/assistant)
+class HarperMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+    
 class HarperFlags(BaseModel):
     neverSendSourceToCloud: bool = True
     redaction: bool = True
@@ -18,6 +23,7 @@ class Attachment(BaseModel):
 
 class HarperPhaseRequest(BaseModel):
     cmd: str
+    phase: str
     mode: str = "harper"
     model: Optional[str] = None
     profileHint: Optional[str] = None
@@ -25,12 +31,15 @@ class HarperPhaseRequest(BaseModel):
     core: List[str] = []
     attachments: List[Union[str, Attachment]] = []
     flags: Optional[HarperFlags] = None
+    messages: List[HarperMessage] = Field(default_factory=list)
     runId: Optional[str] = None
     historyScope: Optional[str] = None
 
     # --- NEW optional payloads ---
     idea_md: Optional[str] = None
     core_blobs: Optional[Dict[str, str]] = None
+    workspace: Optional[dict] = None  # {root, repo, branch}
+
 
 
 

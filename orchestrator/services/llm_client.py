@@ -1,9 +1,13 @@
 # services/llm_client.py
 
+from fastapi import HTTPException
 import httpx
 import logging
 from config import settings
+import time as _time
+
 import  json, logging
+
 
 
 log = logging.getLogger("orcehstrator:service:llm_client")
@@ -12,6 +16,12 @@ log = logging.getLogger("orcehstrator:service:llm_client")
 import os, json, httpx, asyncio
 from typing import Any, Dict, List, Optional
 
+def _shrink_text(s: str, limit: int = 1200) -> str:
+    if not isinstance(s, str):
+        return str(s)
+    if len(s) <= limit:
+        return s
+    return s[:limit] + f"... <+{len(s)-limit} chars>"
 # ... i tuoi import/utility già presenti ...
 
 async def call_gateway_chat_json(
@@ -72,7 +82,8 @@ async def call_gateway_chat(
     max_tokens: int = 512,
     base_url: str | None = None,
     timeout: float | None = None,
-    response_format=None, tools=None, tool_choice=None, profile=None, provider: str | None = None
+    response_format=None, tools=None, tool_choice=None, profile=None, provider: str | None = None,  
+
 ) -> str:
     log.info("call_gateway_chat request: %s", json.dumps({
         "model": model,
@@ -84,7 +95,7 @@ async def call_gateway_chat(
         "timeout": timeout,
         "max_tokens": max_tokens,
         "temperature": temperature,
-        "profile": profile
+        "profile": profile,
     }))
     # Guardia difensiva
     if not isinstance(messages, list):
@@ -103,7 +114,7 @@ async def call_gateway_chat(
         body["profile"] = profile  # facoltativo, utile per osservabilità/routing coerente
     if provider is not None:
         body["provider"] = provider
-   
+
     log.info("generate request: %s", json.dumps({
         "model": body.get("model"),
         "messages_len": len(messages),
@@ -119,7 +130,7 @@ async def call_gateway_chat(
         r = await client.post(f"{base}/v1/chat/completions", json=body, headers=headers)
         r.raise_for_status()
         txt = r.text
-         # Parse robusto
+            # Parse robusto
         try:
             data = r.json()
             if isinstance(data, str):
@@ -135,32 +146,7 @@ async def call_gateway_chat(
             except Exception:
                 return {"version": "1.0", "text": txt, "usage": {}, "sources": []}
 
-        # Estrai testo assistant
-        text_out = ""
-
-
-        # msg = ((data.get("choices") or [{}])[0].get("message") or {})
-        # content = msg.get("content", "")
-        # if isinstance(content, list):
-        #     parts = []
-        #     for seg in content:
-        #         if isinstance(seg, dict):
-        #             if isinstance(seg.get("text"), str):
-        #                 parts.append(seg["text"])
-        #             elif isinstance(seg.get("content"), str):
-        #                 parts.append(seg["content"])
-        #         elif isinstance(seg, str):
-        #             parts.append(seg)
-        #     return "".join(parts).strip()
-        # if isinstance(content, str) and content.strip():
-        #     return content.strip()
-
-        # # 2) Fallback legacy: lasciali
-        # if "choices" in data:
-        #     return data["choices"][0]["message"]["content"]
-        # if "text" in data:
-        #     return data["text"]
-        # 1) OpenAI-like
+        
         if isinstance(data, dict):
             try:
                 msg = ((data.get("choices") or [{}])[0].get("message") or {})
@@ -203,7 +189,52 @@ async def call_gateway_chat(
         # 4) Ultimo fallback: tutto come stringa
         return str(data or "").strip()
 
-     
+async def call_gateway_generate(payload: dict, _headers: dict) -> str:
+    _t0 = _time.time()
+    timeout = payload.get("timeout", float(getattr(settings, "REQUEST_TIMEOUT_S", 240)))
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        r = await client.post(f"{payload.get('base_url') or payload.get('base_url')}/v1/chat/completions", json=payload, headers=_headers)
+        txt = r.text
+        _ms = int((_time.time() - _t0) * 1000)
+        data = {}
+        if r.is_success:
+            log.info("gateway.response success %s", json.dumps({
+                "status": r.status_code,
+                "latency_ms": _ms
+            }, ensure_ascii=False))
+            # log body (ridotto) a livello DEBUG
+            try:
+                data = r.json()
+                # Alcuni provider/adapters (es. Ollama via gateway) possono restituire un JSON string (double-encoded):
+                if isinstance(data, str):
+                    try:
+                        parsed = json.loads(data)
+                        data = parsed
+                        log.debug("gateway.response reparsed string JSON into dict")
+                    except Exception:
+                        log.warning("gateway.response is a JSON string but not parseable; proceeding with empty dict")
+                        data = {}
+                log.info("gateway.response %s", json.dumps(data, ensure_ascii=False))
+                log.debug("gateway.response.body %s", _shrink_text(json.dumps(data, ensure_ascii=False), 4000))
+            except Exception:
+                log.debug("gateway.response.text %s", _shrink_text(txt, 4000))
+                try:
+                    parsed = json.loads(txt)
+                    # Anche qui: se è una stringa JSON annidata, riprova a parsarla
+                    if isinstance(parsed, str):
+                        try:
+                            parsed = json.loads(parsed)
+                            log.debug("gateway.response reparsed nested string JSON into dict")
+                        except Exception:
+                            log.warning("gateway.response nested string not parseable; using empty dict")
+                            parsed = {}
+                    data = parsed
+                except Exception:
+                    raise HTTPException(status_code=502, detail="gateway chat failed: invalid JSON from provider")
+
+            log.debug("gateway.response.type %s", type(data).__name__)
+        return data
+
     
 
 

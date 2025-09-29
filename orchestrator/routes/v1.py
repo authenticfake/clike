@@ -7,7 +7,7 @@ import httpx
 from pydantic import BaseModel
 from config import settings
 from services import utils as su
-from services.llm_client import call_gateway_chat
+from services.llm_client import call_gateway_chat, call_gateway_generate
 # --- LOGGING UTILS (aggiunta) ---
 import time as _time
 from copy import deepcopy as _deepcopy
@@ -138,12 +138,7 @@ def _json_safe(obj):
         return [_json_safe(x) for x in obj]  # list() di set
     return obj
 
-def _shrink_text(s: str, limit: int = 1200) -> str:
-    if not isinstance(s, str):
-        return str(s)
-    if len(s) <= limit:
-        return s
-    return s[:limit] + f"... <+{len(s)-limit} chars>"
+
 
 def _inject_coding_system(msgs: list) -> list:
     """Garantisce un messaggio system che vieta prosa e impone il tool-call emit_files."""
@@ -398,8 +393,8 @@ async def list_models(
 @router.post("/chat")
 async def chat( req: Request):
     body = await req.json()
-    mode = (body.get("mode") or "free").lower()
-    if mode not in ("free",):
+    mode = (body.get("mode") or "free" or "harper").lower()
+    if mode not in ("free","harper"):
         raise HTTPException(400, "mode must be 'free' for /v1/chat")
 
     provider = (body.get("provider") or "").lower().strip()
@@ -463,23 +458,31 @@ async def chat( req: Request):
     log.info("chat request --> paylod: %s", json.dumps(payload))
     provider = body.get("provider")
     headers = {"Content-Type": "application/json"}
-
     _t0 = _time.time()
     try:
+        all_models = await _load_models_or_fallback()
+        model_entry = next((m for m in all_models if m.get("name") == model), None)
+        req_max = int(body.get("max_tokens") or 2048)
+        eff_max = su.tokens_per_model(msgs, model_entry, req_max)
+        timeout_sec = min(240.0, 60.0 + (eff_max / 1000.0) * 2.0)
+
+
+        
         text = await call_gateway_chat(
             model = body.get("model"),
             messages = msgs,
             temperature= body.get("temperature"),
-            max_tokens= body.get("max_tokens"),
+            max_tokens= eff_max,
             # --- AGGIUNGI: provider-awareness end-to-end ---
             
             base_url= str(getattr(settings, "GATEWAY_URL", "http://localhost:8000")), 
-            timeout=240,
+            timeout=timeout_sec,
             response_format=None, 
             tools=None, 
             tool_choice=None, 
             profile=None, 
             provider= provider
+
         )
         _ms = int((_time.time() - _t0) * 1000)
         log.info("chat response: %s", json.dumps({"text_len": len(text or ""), "latency_ms": _ms}, ensure_ascii=False))
@@ -709,7 +712,7 @@ async def generate(req: Request):
 
 
         # --- LOG rich: request/response gateway ---
-    _t0 = _time.time()
+   
     _headers = {"Content-Type": "application/json", "X-CLike-Profile": "code.strict"}
     if provider:
         _headers["X-CLike-Provider"] = provider
@@ -724,142 +727,110 @@ async def generate(req: Request):
         "provider": payload.get("provider"),
         "max_completion_tokens": payload.get("max_completion_tokens"),
     }, ensure_ascii=False))
-   
+    
     try:
-        async with httpx.AsyncClient(timeout=float(getattr(settings, "REQUEST_TIMEOUT_S", 60))) as client:
-            r = await client.post(f"{base_url}/v1/chat/completions", json=payload, headers=_headers)
-            txt = r.text
-            _ms = int((_time.time() - _t0) * 1000)
-            if r.is_success:
-                log.info("gateway.response success %s", json.dumps({
-                    "status": r.status_code,
-                    "latency_ms": _ms
-                }, ensure_ascii=False))
-                # log body (ridotto) a livello DEBUG
+        all_models = await _load_models_or_fallback()
+        model_entry = next((m for m in all_models if m.get("name") == model), None)
+        req_max = int(body.get("max_tokens") or 2048)
+        eff_max = su.tokens_per_model(msgs, model_entry, req_max)
+        timeout_sec = min(240.0, 60.0 + (eff_max / 1000.0) * 2.0)
+        payload["timeout"] = timeout_sec
+
+        data = await call_gateway_generate(payload, _headers)
+
+        # ---- Estrazione FILES in modo robusto cross-provider ----
+        files: List[Dict[str, Any]] = []
+
+        def _first_message(d: Any) -> Dict[str, Any]:
+            """Ritorna in sicurezza il primo message da data['choices'][0]['message'] se presente e ben formato."""
+            try:
+                if isinstance(d, dict):
+                    ch = d.get("choices")
+                    if isinstance(ch, list) and ch:
+                        c0 = ch[0]
+                        if isinstance(c0, dict):
+                            m = c0.get("message")
+                            if isinstance(m, dict):
+                                return m
+            except Exception:
+                pass
+            return {}
+
+        msg = _first_message(data)               # dict (o {})
+        content_str = ""
+        if isinstance(msg, dict):
+            content_str = msg.get("content") or ""
+
+        # 1) Preferisci tool_calls (OpenAI compat)
+        tool_calls = msg.get("tool_calls") if isinstance(msg, dict) else None
+        if isinstance(tool_calls, list) and tool_calls:
+            for tc in tool_calls:
                 try:
-                    data = r.json()
-                    # Alcuni provider/adapters (es. Ollama via gateway) possono restituire un JSON string (double-encoded):
-                    if isinstance(data, str):
-                        try:
-                            parsed = json.loads(data)
-                            data = parsed
-                            log.debug("gateway.response reparsed string JSON into dict")
-                        except Exception:
-                            log.warning("gateway.response is a JSON string but not parseable; proceeding with empty dict")
-                            data = {}
-                    log.info("gateway.response %s", json.dumps(data, ensure_ascii=False))
-                    log.debug("gateway.response.body %s", _shrink_text(json.dumps(data, ensure_ascii=False), 4000))
+                    if (tc.get("type") == "function") and (tc.get("function", {}).get("name") == "emit_files"):
+                        args_raw = tc.get("function", {}).get("arguments")
+                        args = json.loads(args_raw) if isinstance(args_raw, str) else (args_raw or {})
+                        parsed = (args.get("files") or [])
+                        files = _normalize_files_for_write(parsed)
+                        log.info("generate tool_calls->files %s", json.dumps({"count": len(files)}, ensure_ascii=False))
+                        break
                 except Exception:
-                    log.debug("gateway.response.text %s", _shrink_text(txt, 4000))
-                    try:
-                        parsed = json.loads(txt)
-                        # Anche qui: se è una stringa JSON annidata, riprova a parsarla
-                        if isinstance(parsed, str):
-                            try:
-                                parsed = json.loads(parsed)
-                                log.debug("gateway.response reparsed nested string JSON into dict")
-                            except Exception:
-                                log.warning("gateway.response nested string not parseable; using empty dict")
-                                parsed = {}
-                        data = parsed
-                    except Exception:
-                        raise HTTPException(status_code=502, detail="gateway chat failed: invalid JSON from provider")
+                    # continua coi fallback
+                    pass
 
-                log.debug("gateway.response.type %s", type(data).__name__)
+        # 2) Fallback: top-level "files" (es. Ollama / adapter custom)
+        if not files and isinstance(data, dict) and isinstance(data.get("files"), list):
+            files = _normalize_files_for_write(data["files"])
+            log.info("generate top-level->files %s", json.dumps({"count": len(files)}, ensure_ascii=False))
 
-                # ---- Estrazione FILES in modo robusto cross-provider ----
-                files: List[Dict[str, Any]] = []
+        # 3) Fallback: JSON puro dentro message.content / oppure 'text'
+        if not files:
+            if not content_str and isinstance(data, dict) and "text" in data:
+                content_str = data.get("text") or ""
+            if isinstance(content_str, str) and content_str.strip():
+                try:
+                    obj = _extract_json(content_str)
+                    jf = obj.get("files") if isinstance(obj, dict) else None
+                    if isinstance(jf, list) and jf:
+                        files = _normalize_files_for_write(jf)
+                        log.info("generate content-json->files %s", json.dumps({"count": len(files)}, ensure_ascii=False))
+                except Exception:
+                    # 4) Ultimo fallback: code fences → file singoli
+                    from_fences = _extract_files_from_fences(content_str)
+                    if from_fences:
+                        files = _normalize_files_for_write(from_fences)
+                        log.info("generate fences->files %s", json.dumps({"count": len(files)}, ensure_ascii=False))
 
-                def _first_message(d: Any) -> Dict[str, Any]:
-                    """Ritorna in sicurezza il primo message da data['choices'][0]['message'] se presente e ben formato."""
-                    try:
-                        if isinstance(d, dict):
-                            ch = d.get("choices")
-                            if isinstance(ch, list) and ch:
-                                c0 = ch[0]
-                                if isinstance(c0, dict):
-                                    m = c0.get("message")
-                                    if isinstance(m, dict):
-                                        return m
-                    except Exception:
-                        pass
-                    return {}
+        log.info("generate files (post-extract) %s", json.dumps({"count": len(files)}, ensure_ascii=False))
 
-                msg = _first_message(data)               # dict (o {})
-                content_str = ""
-                if isinstance(msg, dict):
-                    content_str = msg.get("content") or ""
+        # 5) Se ancora vuoto → 422 coerente
+        if not files:
+            log.info("generate no-files (nothing from tool_calls/top-level/json/fences)")
+            raise HTTPException(status_code=422, detail="model did not produce 'files' with path+content")
 
-                # 1) Preferisci tool_calls (OpenAI compat)
-                tool_calls = msg.get("tool_calls") if isinstance(msg, dict) else None
-                if isinstance(tool_calls, list) and tool_calls:
-                    for tc in tool_calls:
-                        try:
-                            if (tc.get("type") == "function") and (tc.get("function", {}).get("name") == "emit_files"):
-                                args_raw = tc.get("function", {}).get("arguments")
-                                args = json.loads(args_raw) if isinstance(args_raw, str) else (args_raw or {})
-                                parsed = (args.get("files") or [])
-                                files = _normalize_files_for_write(parsed)
-                                log.info("generate tool_calls->files %s", json.dumps({"count": len(files)}, ensure_ascii=False))
-                                break
-                        except Exception:
-                            # continua coi fallback
-                            pass
+        # 6) retarget sotto generated_<uuid>/ {src|docs|images}
+        temp_path = str(uuid.uuid4()).split("-")[0]
+        files = _retarget_files_under_generated(files, temp_path)   # <— prima dei diff!
 
-                # 2) Fallback: top-level "files" (es. Ollama / adapter custom)
-                if not files and isinstance(data, dict) and isinstance(data.get("files"), list):
-                    files = _normalize_files_for_write(data["files"])
-                    log.info("generate top-level->files %s", json.dumps({"count": len(files)}, ensure_ascii=False))
+        # 7) diffs
+        diffs: List[Dict[str, Any]] = []
+        for fobj in files:
+            path = fobj["path"]
+            content = fobj.get("content", "")
+            prev = su.read_file(path) or ""
+            patch = su.to_diff(prev, content, path)
+            diffs.append({"path": path, "diff": patch})
 
-                # 3) Fallback: JSON puro dentro message.content / oppure 'text'
-                if not files:
-                    if not content_str and isinstance(data, dict) and "text" in data:
-                        content_str = data.get("text") or ""
-                    if isinstance(content_str, str) and content_str.strip():
-                        try:
-                            obj = _extract_json(content_str)
-                            jf = obj.get("files") if isinstance(obj, dict) else None
-                            if isinstance(jf, list) and jf:
-                                files = _normalize_files_for_write(jf)
-                                log.info("generate content-json->files %s", json.dumps({"count": len(files)}, ensure_ascii=False))
-                        except Exception:
-                            # 4) Ultimo fallback: code fences → file singoli
-                            from_fences = _extract_files_from_fences(content_str)
-                            if from_fences:
-                                files = _normalize_files_for_write(from_fences)
-                                log.info("generate fences->files %s", json.dumps({"count": len(files)}, ensure_ascii=False))
-
-                log.info("generate files (post-extract) %s", json.dumps({"count": len(files)}, ensure_ascii=False))
-
-                # 5) Se ancora vuoto → 422 coerente
-                if not files:
-                    log.info("generate no-files (nothing from tool_calls/top-level/json/fences)")
-                    raise HTTPException(status_code=422, detail="model did not produce 'files' with path+content")
-
-                # 6) retarget sotto generated_<uuid>/ {src|docs|images}
-                temp_path = str(uuid.uuid4()).split("-")[0]
-                files = _retarget_files_under_generated(files, temp_path)   # <— prima dei diff!
-
-                # 7) diffs
-                diffs: List[Dict[str, Any]] = []
-                for fobj in files:
-                    path = fobj["path"]
-                    content = fobj.get("content", "")
-                    prev = su.read_file(path) or ""
-                    patch = su.to_diff(prev, content, path)
-                    diffs.append({"path": path, "diff": patch})
-
-                # 8) risposta completa (popola "text" e "diffs" per i tab)
-                result = {
-                    "version": "1.0",
-                    "files": files,
-                    "usage": (data.get("usage") if isinstance(data, dict) else {}) or {},
-                    "sources": [],
-                    "text": "Generated files:\n" + "\n".join(f"- {f['path']}" for f in files),
-                    "diffs": diffs or ["(No diffs computed: new files)"],
-                    "audit_id": "coding-toolcalls",
-                }
-                return result
+        # 8) risposta completa (popola "text" e "diffs" per i tab)
+        result = {
+            "version": "1.0",
+            "files": files,
+            "usage": (data.get("usage") if isinstance(data, dict) else {}) or {},
+            "sources": [],
+            "text": "Generated files:\n" + "\n".join(f"- {f['path']}" for f in files),
+            "diffs": diffs or ["(No diffs computed: new files)"],
+            "audit_id": "coding-toolcalls",
+        }
+        return result
 
     except httpx.HTTPStatusError as e:
         # Propaga il vero body (niente 502 generici)

@@ -14,7 +14,7 @@ const os = require('os');
 //const { activateTestController } = require('./testController');
 const { registerCommands } = require('./commands/registerCommands');
 const { handlePlanUpdate, handleSync, handleGate, handleEval } = require('./commands/slashBot');
-const { buildHarperBody } = require('./utility')
+const { buildHarperBody, extractUserMessages } = require('./utility')
 let __clike_lastTargetUriCache = null;  
 let selectedPaths = new Set();
 // --- Stato richiesta in corso (per Cancel) ---
@@ -25,6 +25,58 @@ const chatByMode = {
   coding: [],
   harper: [],
 };
+// --- PATCH: git auto-commit/tags/branch ---
+const cp = require('child_process');
+
+async function gitRun(args, cwd) {
+  return new Promise((resolve, reject) => {
+    cp.execFile('git', args, { cwd }, (err, stdout, stderr) => {
+      if (err) return reject(new Error(stderr || err.message));
+      resolve(stdout.trim());
+    });
+  });
+}
+
+async function harperGitAutomation(phase, runId, opts) {
+  const cwd = opts.workspaceRoot;
+  const autoCommit = opts.git?.autoCommit === true;
+  const createPR = opts.git?.createPR === true; // opzionale, gestibile in futuro
+  if (!autoCommit) return;
+
+  const branch = `harper/${phase}/${runId}`;
+  try {
+    await gitRun(['rev-parse', '--is-inside-work-tree'], cwd);
+
+    // checkout -b se non esiste
+    try { await gitRun(['checkout', branch], cwd); }
+    catch { await gitRun(['checkout', '-b', branch], cwd); }
+
+    // add file per fase
+    const phaseFiles = {
+      spec: ['docs/harper/SPEC.md'],
+      plan: ['docs/harper/PLAN.md'],
+      kit:  ['docs/harper/KIT.md'],
+      build:['docs/harper/BUILD_REPORT.md'],
+      finalize: ['docs/harper/RELEASE_NOTES.md']
+    };
+    const files = phaseFiles[phase] || [];
+    if (files.length) await gitRun(['add', ...files], cwd);
+
+    const commitMsg = `[harper:${phase}] runId=${runId} model=${opts.model || 'n/a'} profile=${opts.profile || 'n/a'}`;
+    await gitRun(['commit', '-m', commitMsg], cwd);
+
+    // tag semantico (incrementale lasciato al flusso esterno)
+    const tag = `harper/${phase}/${runId}`;
+    try { await gitRun(['tag', '-a', tag, '-m', commitMsg], cwd); } catch (e) { /* già taggato */ }
+
+    // opzionale PR (in futuro via gh/REST) — placeholder
+    if (createPR) {
+      console.log('[harper] create PR not implemented yet');
+    }
+  } catch (e) {
+    console.warn('[harper] git automation skipped:', e.message);
+  }
+}
 
 // Wire these to your existing chat system:
 function onHarperChatInput(callback) {
@@ -178,7 +230,7 @@ async function loadSession(mode, limit = 200) {
   }
 }async function loadSessionFiltered(mode, model, limit = 200) {
   const all = await loadSession(mode, limit);
-  return all.filter(e => !model || (e.model || 'auto') === model);
+  return all.filter(e => !model || (e.model || 'auto') === model)
 }
 
 async function pruneSessionByModel(mode, model) {
@@ -1987,6 +2039,8 @@ btnChat.addEventListener('click', ()=>{
   clearFilesPanel();        // <— svuota tab Files
   const selectedOpt = model.options[model.selectedIndex];
   const _provider = (selectedOpt && selectedOpt.dataset && selectedOpt.dataset.provider) || inferProvider(model.value);
+    console.log('sendChat event');
+
   post('sendChat', { mode: mode.value, model: model.value, provider:_provider, prompt: text, attachments: atts });
   attachmentsByMode[currentMode()] = [];
   renderAttachmentChips();
@@ -2100,6 +2154,10 @@ window.addEventListener('message', (event) => {
     const prev = model.value || '';
     console.log("models-->prev", prev);
     model.innerHTML = '';
+    const o = document.createElement('option');
+    o.value = 'auto';
+    o.textContent = 'auto';
+    model.appendChild(o);
     (msg.models||[]).forEach(m=>{
       const name = (typeof m === 'string') ? m : (m.name || m.id || m.model || 'unknown');
       console.log("models-->name", name);
@@ -2525,6 +2583,9 @@ async function cmdOpenChat(context) {
         out.appendLine(`[harperRun] inside`);
         try {
           const { cmd, attachments = [] } = msg;
+          const savedState = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto', historyScope:'singleModel' };
+          savedState.phase= msg.cmd
+
           
           const docRoot = 'docs/harper'; // default; se usi config runtime, leggila qui
           const profileHint = computeProfileHint(state.mode, state.model);
@@ -2546,7 +2607,28 @@ async function cmdOpenChat(context) {
           };
 
           const runId = (Math.random().toString(16).slice(2) + Date.now().toString(16));
-          console.log(`[harperRun] runId ...`,  runId);
+          log(`[harperRun] runId ...`,  runId);
+
+          // History del MODE corrente
+          const historyScope  = effectiveHistoryScope(context);
+          // History per conversazione “stateless�?: carico SOLO le bolle del MODE corrente
+          const history = await loadSession(activeMode).catch(() => []);
+          // Filtra eventualmente per modello se vuoi inviare solo il sotto-filo di quel model:
+          const historyForThisModel = history.filter(b => !b.model || b.model === activeModel);
+          //log((`CLike historyForThisModel: ${historyForThisModel}`));
+          const source = (historyScope === 'allModels')
+          ? history
+          : historyForThisModel;
+                   
+
+          const _source = source.filter(b => 
+            // Condizione 1: Il ruolo deve essere 'user' O 'assistant'
+            (b.role === 'user' || b.role === 'assistant') 
+                                              
+          );
+        
+          var _messages = _source.map(b => ({ role: b.role, content: b.content }));
+          //_messages = extractUserMessages(_messages);
 
           const _gen={
             temperature: 0.2,
@@ -2561,15 +2643,17 @@ async function cmdOpenChat(context) {
             response_format:'',
             tool_choice:''
           }
-          console.log(`[harperRun] payload ...`,  JSON.stringify(_gen));
+          
 
           const payload = {
             cmd,
+            phase: msg.cmd,
             mode: state.mode,
             model: state.model,             // 'auto' o esplicito
             profileHint,                    // ← chiave di A3
             docRoot,
             core,
+            messages: _messages,
             gen: _gen,
             attachments,
             flags,
@@ -2578,9 +2662,7 @@ async function cmdOpenChat(context) {
           };
           log(`[harperRun] payload ...`,  JSON.stringify(payload));
 
-
-
-             // Persisti l’input dell’utente nella sessione del MODE (e mostreremo badge del modello in render)
+          // Persisti l’input dell’utente nella sessione del MODE (e mostreremo badge del modello in render)
           await appendSessionJSONL(activeMode, {
             role: 'user',
             content: `▶ ${cmd.toUpperCase()} | mode=${state.mode} model=${state.model} profile=${profileHint || '—'} core=${JSON.stringify(core)}`,
@@ -2611,7 +2693,7 @@ async function cmdOpenChat(context) {
           
           await appendSessionJSONL(activeMode, {
             ts: Date.now(),
-            role: 'assistant',
+            role: 'system',
             content: `✔ ${String(cmd || '').toUpperCase()} done — ${summary}`,
             model:  state.model || 'auto',
             attachments: Array.isArray(msg.attachments) ? msg.attachments : []
@@ -2620,24 +2702,30 @@ async function cmdOpenChat(context) {
             type: 'echo',
             message: `✔ ${String(cmd || '').toUpperCase()} done — ${summary}`
           });
-        
-
           // --- SCRITTURA FILES (primary path) ---
           let written = [];
           if (Array.isArray(_out?.files) && _out.files.length) {
             written = await saveGeneratedFiles(_out.files);
+            await harperGitAutomation('spec', runId, {
+              workspaceRoot: wsRoot,
+              git: { autoCommit: true, createPR: false }, // leggi da settings utente
+              model: _out?.model || _out?.telemetry?.model_id,
+              profile: _out?.profile || _out?.telemetry?.profile
+          });
+
           }
-
-
           // Diffs
+          // TODO
           if (Array.isArray(_out?.diffs) && _out.diffs.length) {
             panel.webview.postMessage({ type: 'diffs', diffs: _out.diffs });
           }
           // 4) UI: inoltra i pezzi alla webview (coerente con free/coding)
+          // TODO
           if (_out?.text) {
             panel.webview.postMessage({ type: 'text', text: _out.text });
           }
-          // Files (report / artifacts)
+          // Files (report / artifacts) 
+          // TODO
           if (Array.isArray(_out?.files) && _out.files.length) {
             panel.webview.postMessage({ type: 'files', files: _out.files });
           }
@@ -2686,7 +2774,7 @@ async function cmdOpenChat(context) {
 
        // Persisti l’input dell’utente nella sessione del MODE (e mostreremo badge del modello in render)
         await appendSessionJSONL(activeMode, {
-          role: 'assistant',
+          role: 'system',
           content:"🧪 "+ String(_out || ''),
           model:  state.model || 'auto',
         });
@@ -2914,6 +3002,7 @@ async function cmdOpenChat(context) {
       }
       // 5) CHAT / GENERATE
       if (msg.type === 'sendChat' || msg.type === 'sendGenerate') {
+        log((`CLike: ${msg.type}`));
          // cancel eventuale richiesta precedente
         if (inflightController) { inflightController.abort(); inflightController = null; }
         inflightController = new AbortController();
@@ -2944,6 +3033,8 @@ async function cmdOpenChat(context) {
         const history = await loadSession(activeMode).catch(() => []);
         // Filtra eventualmente per modello se vuoi inviare solo il sotto-filo di quel model:
         const historyForThisModel = history.filter(b => !b.model || b.model === activeModel);
+        //log((`CLike historyForThisModel: ${historyForThisModel}`));
+
 
         const source = (historyScope === 'allModels')
         ? history
@@ -2967,6 +3058,8 @@ async function cmdOpenChat(context) {
         const url = (msg.type === 'sendChat')
           ? `${orchestratorUrl}/v1/chat`
           : `${orchestratorUrl}/v1/generate`;
+        
+        log((`CLike payload: ${JSON.stringify(payload)} url: ${url}`));
 
         try {
           const res = await withTimeout(

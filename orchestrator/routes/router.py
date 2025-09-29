@@ -9,6 +9,9 @@ log = logging.getLogger("router")
 
 router = APIRouter(prefix="/v1/router", tags=["router"])
 
+
+
+
 @router.get("/resolve")
 async def router_resolve(
     task: str = Query(..., description="Task hint: spec|plan|kit|build|chat"),

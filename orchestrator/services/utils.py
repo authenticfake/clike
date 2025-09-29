@@ -9,6 +9,10 @@ QDRANT_PORT = int(getattr(settings, "QDRANT_PORT", 6333))
 from pathlib import Path
 
 
+def approx_tokens_from_chars(text: str) -> int:
+    # euristica stabile usata nel resto del repo (≈ 4 chars/token)
+    return max(1, int(len(text) / 4))
+
 def write_file(path: str | Path, content: str, encoding: str = "utf-8") -> None:
     """
     Scrive il contenuto in un file, creando le cartelle se non esistono.
@@ -106,3 +110,19 @@ def sh(cmd: List[str]) -> str:
         return out.decode("utf-8", errors="ignore")
     except subprocess.CalledProcessError as e:
         raise RuntimeError(e.output.decode("utf-8", errors="ignore"))
+    
+def tokens_per_model(messages: list[dict], model_entry: dict | None, req_max: int) -> int:
+    """
+    Calcola il numero massimo di token di output disponibile
+    in base a context_window e max_output_tokens da models.yaml.
+    """
+
+    cw = int(model_entry.get("context_window", 16384)) if model_entry else 16384
+    mo = int(model_entry.get("max_output_tokens", 4096)) if model_entry else 4096
+
+    prompt_tokens = approx_tokens_from_chars("".join(
+        [m.get("content","") if isinstance(m.get("content"), str) else "" for m in messages]
+    ))
+    available = max(0, cw - prompt_tokens)
+    return max(1, min(req_max, available, mo))
+

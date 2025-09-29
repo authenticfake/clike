@@ -1,7 +1,6 @@
 const vscode = require('vscode');
 const path = require('path');
 
-// --- Harper payload helpers (core files / IDEA.md) ---
 
 /** Read a text file from the VS Code workspace as UTF-8 (best-effort). */
 async function readTextUtf8(uri) {
@@ -30,52 +29,80 @@ async function loadMd(projectRootUri, fileName) {
  * If request.core lists relative paths, read them and attach a map filename->content.
  * Non-blocking errors (missing files) are logged and skipped.
  */
-async function attachCoreBlobs(projectRootUri, coreList) {
-  const out = {};
-  if (!Array.isArray(coreList)) return out;
-  console.log("attachCoreBlobs coreList", coreList)
-  for (const rel of coreList) {
-    try {
-      const uri = vscode.Uri.joinPath(projectRootUri, rel);
-      const txt = await readTextUtf8(uri);
-      if (txt != null) out[rel] = txt;
-    } catch (e) {
-      console.warn('[harper] skip core file:', rel, e);
+async function attachCoreBlobs(docUri, coreList) {
+  const blobs = {};
+  const rootUri = docUri || vscode.Uri.file(path.join('docs', 'harper'));
+  
+  // Utilizza l'API di VS Code per leggere la directory
+  const entries = await vscode.workspace.fs.readDirectory(rootUri);
+
+  // Normalizza lista di 'prefix' a partire dai core (IDEA.md -> 'IDEA')
+  const wanted = (coreList || []).map(n => path.parse(n).name); // ['IDEA','SPEC',...]
+
+  for (const base of wanted) {
+    // 1) il file dichiarato (es. IDEA.md), se esiste, ha precedenza
+    const declaredEntry = entries.find(([name, type]) => 
+        type === vscode.FileType.File && name.toLowerCase() === `${base.toLowerCase()}.md`);
+
+    if (declaredEntry) {
+      const name = declaredEntry[0];
+      const fullUri = vscode.Uri.joinPath(rootUri, name);
+      const content = await vscode.workspace.fs.readFile(fullUri);
+      blobs[`${base}.md`] = Buffer.from(content).toString('utf8');
+    }
+
+    // 2) autodiscovery: tutti i file che iniziano con 'base' (stesso prefisso), esclusi già presi
+    const prefixed = entries.filter(([name, type]) => 
+      type === vscode.FileType.File
+      && name.toLowerCase().startsWith(base.toLowerCase())
+      && (name.toLowerCase().endsWith('.md') || name.toLowerCase().endsWith('.markdown') || name.toLowerCase().endsWith('.txt') || name.toLowerCase().endsWith('.1st'))
+      && name.toLowerCase() !== `${base.toLowerCase()}.md`
+    );
+
+    for (const [name, type] of prefixed) {
+      const fullUri = vscode.Uri.joinPath(rootUri, name);
+      const key = name; // manteniamo nome completo (es. IDEA_verAndrea.md)
+      try {
+        const content = await vscode.workspace.fs.readFile(fullUri);
+        blobs[key] = Buffer.from(content).toString('utf8');
+      } catch (err) {
+        console.warn('attachCoreBlobs read error:', fullUri.fsPath, err);
+      }
     }
   }
-  return out;
+
+  return blobs;
 }
 
 // projectRootUri: URI del progetto "attivo" (quello creato con /init nome)
-async function buildHarperBody(phase, {
-  mode, model, profileHint, docRoot, core, attachments, flags, runId, historyScope
-}, projectRootUri) {
-   const _docRoot =  vscode.Uri.joinPath(projectRootUri, 'docs', 'harper');
+async function buildHarperBody(phase, payload, projectRootUri) {
+  const _docRoot =  vscode.Uri.joinPath(projectRootUri, 'docs', 'harper');
 
-  // 1) Allegati/file core
+    // 1) Allegati/file core
   const idea_md = await loadMd(_docRoot, 'IDEA.md');           // null se non presente
-  const core_blobs = await attachCoreBlobs(_docRoot, core || []);
-
+  const core_blobs = await attachCoreBlobs(_docRoot, payload["core"] || []);
+  payload["idea_md"] = idea_md;
+  payload["core_blobs"] = core_blobs;
   // 2) Body retro-compatibile + nuovi campi opzionali
-  return {
-    cmd: phase,                 // e.g., "spec", "plan", ...
-    mode: mode || 'harper',
-    model,
-    profileHint: profileHint ?? null,
-    docRoot: docRoot || 'docs/harper',
-    core: Array.isArray(core) ? core : [],
-    attachments: Array.isArray(attachments) ? attachments : [],
-    flags: flags || { neverSendSourceToCloud: true, redaction: true },
-    runId: runId || crypto.randomUUID(),
-    historyScope: historyScope || 'singleModel',
+  return payload;
+}
 
-    // --- NEW (optional, safe to ignore server-side if unknown) ---
-    idea_md,        // contains IDEA.md text if available
-    core_blobs      // { "IDEA.md": "...", "path/other.txt": "..." }
-  };
+
+function extractUserMessages(sessionData) {
+    // 1. Filtra l'array per mantenere solo gli elementi con role 'user'.
+    const userMessages = sessionData.filter(log => log.role === 'user');
+
+    // 2. Mappa l'array filtrato in un nuovo array con solo i campi 'role' e 'content'.
+    const formattedMessages = userMessages.map(log => ({
+        role: log.role,
+        content: log.content
+    }));
+
+    return formattedMessages;
 }
 
 module.exports = {
 
-  buildHarperBody
+  buildHarperBody,
+  extractUserMessages
 };

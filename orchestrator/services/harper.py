@@ -27,6 +27,36 @@ async def _post_json(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         r = await client.post(url, json=payload)
         r.raise_for_status()
         return r.json()
+    
+async def _normalize_message(msg: Dict[str, Any]) -> Dict[str, Any]:
+    # --- Normalizzazione messages ---
+    raw_msgs = msg.get("messages") or []
+    norm_msgs = []
+    for m in raw_msgs:
+        if m is None:
+            continue
+        # Supporta: Pydantic model, oggetto con .dict(), o già dict
+        if hasattr(m, "model_dump"):
+            d = m.model_dump()
+        elif hasattr(m, "dict"):
+            d = m.dict()
+        elif isinstance(m, dict):
+            d = m
+        else:
+            # ignora elementi non conformi
+            continue
+
+        role = d.get("role")
+        content = d.get("content")
+        if isinstance(role, str) and isinstance(content, str):
+            norm_msgs.append({"role": role, "content": content})
+
+    if norm_msgs:
+        msg["messages"] = norm_msgs
+    else:
+        # se vuoto rimuovi per lasciare al gateway la composizione di default
+        msg.pop("messages", None)
+    return dict(msg)
 
 async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -35,10 +65,24 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
       - se 'model' esplicito e != 'auto' → lo rispetta
       - altrimenti, usa select_model_for_phase(phase, profileHint)
     """
-    merged: Dict[str, Any] = dict(req_payload or {})
+    # --- Normalizzazione in dict ---
+    if hasattr(req_payload, "model_dump"):
+        payload = req_payload.model_dump()   # pydantic -> dict
+    elif isinstance(req_payload, dict):
+        payload = dict(req_payload)          # copia difensiva
+    else:
+        # fallback estremo
+        try:
+            payload = dict(req_payload)      # tipo mapping-like
+        except Exception:
+            raise ValueError("Invalid request payload type for HarperService.run_phase")
+
+    merged: Dict[str, Any] = dict(payload or {})
     merged["phase"] = phase
     merged.setdefault("cmd", phase)
     merged.setdefault("flags", {})
+    merged = await _normalize_message(merged);
+    
 
     # --- routing modello (unica fonte di verità) ---
     model_override = merged.get("model")

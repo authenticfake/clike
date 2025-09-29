@@ -139,7 +139,7 @@ async def chat(
     response_format: Optional[Dict[str, Any]] = None,
     tools: Optional[List[Dict[str, Any]]] = None,
     tool_choice: Optional[Union[str, Dict[str, Any]]] = None,
-    timeout: Optional[float] = 60.0,
+    timeout: Optional[float] = 240.0,
 ) -> Dict[str, Any]:
     headers = {"Authorization": f"Bearer {api_key}"}
     url = f"{base.rstrip('/')}/chat/completions"
