@@ -57,6 +57,7 @@ async def chat(
     response_format: Optional[Dict[str, Any]] = None,
     tools: Optional[List[Dict[str, Any]]] = None,
     tool_choice: Optional[Union[str, Dict[str, Any]]] = None,
+    timeout: Optional[float] = 240.0,
 ) -> Dict[str, Any]:
     
     url = f"{base.rstrip('/')}/chat/completions"
@@ -94,7 +95,7 @@ async def chat(
     }))
 
     t0 = _time.time()
-    async with httpx.AsyncClient(timeout=60) as client:
+    async with httpx.AsyncClient(timeout=timeout) as client:
         r = await client.post(url, json=payload)
     ms = int((_time.time() - t0) * 1000)
 

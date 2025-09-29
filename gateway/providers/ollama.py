@@ -28,14 +28,14 @@ def _flatten_messages(messages: List[Dict[str, str]]) -> str:
 # alias backward compatibility se nel tuo codice si chiamava così
 _flatter_message = _flatten_messages
 
-async def _post_json(url: str, json: Dict[str, Any], timeout: float = 120.0) -> Dict[str, Any]:
+async def _post_json(url: str, json: Dict[str, Any], timeout: float = 240.0) -> Dict[str, Any]:
     async with httpx.AsyncClient(timeout=timeout) as client:
         r = await client.post(url, json=json)
         r.raise_for_status()
         return r.json()
 
 async def chat(base_url: str, remote_model: str, messages: List[Dict[str, str]],
-               temperature: float = 0.2, max_tokens: Optional[int] = None) -> str:
+               temperature: float = 0.2, max_tokens: Optional[int] = None,  timeout: Optional[float] = 240.0) -> str:
     """
     Chat con Ollama:
     - prova prima /api/chat (stream=false)
@@ -61,7 +61,8 @@ async def chat(base_url: str, remote_model: str, messages: List[Dict[str, str]],
                 "options": {
                     "temperature": temperature
                 }
-            }
+            },     
+            timeout
         )
         # formati possibili:
         # - {"message":{"role":"assistant","content":"..."}, ...}

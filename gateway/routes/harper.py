@@ -1,7 +1,7 @@
 # gateway/routes/harper.py
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
-from typing import List, Optional, Dict, Any, Union
+from pydantic import BaseModel, Field
+from typing import List, Literal, Optional, Dict, Any, Union
 import logging
 import os, datetime
 import httpx
@@ -23,27 +23,45 @@ SPEC_TEMPLATE_PATH = os.getenv("SPEC_TEMPLATE_PATH", "/workspace/docs/templates/
 # --- Defaults per modelli che non hanno context definito ---
 DEFAULT_CONTEXT_WINDOW = 128_000     # conservativo
 DEFAULT_MAX_OUTPUT = 16_384          # conservativo
+router = APIRouter(prefix="/v1/harper", tags=["harper"])
 
-def _approx_tokens_from_chars(s: str) -> int:
-    """Greedy approx: 1 token ≈ 4 chars."""
-    return (len(s) + 3) // 4
+# --- PATCH START (helpers) ---
+def _render_chat_context(msgs: list[dict]) -> str:
+    """Rende la chat user/assistant in testo leggibile per il prompt."""
+    if not msgs:
+        return ""
+    lines = []
+    for m in msgs:
+        role = "User" if m.get("role") == "user" else "Assistant"
+        content = str(m.get("content", "")).strip()
+        if not content:
+            continue
+        # Evita intestazioni troppo lunghe; niente markdown aggressivo
+        lines.append(f"{role}: {content}")
+    return "\n".join(lines)
+
+def _clip_text_to_tokens(text: str, max_tokens: int) -> str:
+    """Taglia per stare sotto max_tokens (approssimazione char→token già usata altrove)."""
+    if not text or max_tokens <= 0:
+        return ""
+    approx = approx_tokens_from_chars(text)
+    if approx <= max_tokens:
+        return text
+    # taglio grezzo per sicurezza (≈ 4 char/token)
+    target_chars = max(128, int(max_tokens * 4))
+    return text[-target_chars:]
+# --- PATCH END (helpers) ---
+
+def approx_tokens_from_chars(text: str) -> int:
+    # euristica stabile usata nel resto del repo (≈ 4 chars/token)
+    return max(1, int(len(text) / 4))
 
 def _messages_text_len(messages: list[dict]) -> int:
-    """Conta caratteri totali in tutti i messaggi (user/system)."""
-    total = 0
-    for m in messages or []:
-        c = m.get("content")
-        if isinstance(c, str):
-            total += len(c)
-        elif isinstance(c, list):
-            for part in c:
-                if isinstance(part, dict) and isinstance(part.get("text"), str):
-                    total += len(part["text"])
-                elif isinstance(part, str):
-                    total += len(part)
-    return total
+    return sum(len(m.get("content","")) for m in (messages or []) if isinstance(m.get("content"), str))
 
 def _resolve_ctx_caps(model_entry: dict | None) -> tuple[int, int]:
+    DEFAULT_CONTEXT_WINDOW = 8192
+    DEFAULT_MAX_OUTPUT = 4096
     if not model_entry:
         return DEFAULT_CONTEXT_WINDOW, DEFAULT_MAX_OUTPUT
     cw = int(model_entry.get("context_window") or DEFAULT_CONTEXT_WINDOW)
@@ -174,6 +192,9 @@ def _fallback_spec_from_template(idea_md: str, model_route_label: str | None, ru
     # Drop obvious "${...}" leftovers if any
     return out
 
+class HarperMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
 
 class Attachment(BaseModel):
     name: str
@@ -193,6 +214,8 @@ class HarperRunRequest(BaseModel):
     docRoot: str
     core: List[str] = []
     attachments: List[Union[str, Attachment]] = []
+    messages: List[HarperMessage] = Field(default_factory=list)
+
     flags: Dict[str, Any] = {}
     runId: Optional[str] = None
     historyScope: Optional[str] = None
@@ -203,10 +226,11 @@ class HarperRunRequest(BaseModel):
     todo_ids: Optional[List[str]] = None
     core_blobs: Optional[Dict[str, str]] = None
     gen: Optional[dict] = None  # {temperature, max_tokens, top_p, stop, presence_penalty, frequency_penalty, seed}
+    workspace: Optional[dict] = None
 
 
 
-router = APIRouter(prefix="/v1/harper", tags=["harper"])
+
 
 def _normalize_attachments(atts: List[Union[str, Attachment]]) -> List[dict]:
     out: List[dict] = []
@@ -217,15 +241,18 @@ def _normalize_attachments(atts: List[Union[str, Attachment]]) -> List[dict]:
             out.append(a.model_dump())
     return out
 
-def _tokens_per_model( messages: list[dict], model_entry: dict | None, ctx_window: int, req_max: int, max_out_cap: int) -> int:
-    # stima token prompt
-    prompt_chars = _messages_text_len(messages)
-    prompt_tokens = _approx_tokens_from_chars("".join(
-        [m.get("content","") if isinstance(m.get("content"), str) else "" for m in messages]
-    ))
 
-    available = max(0, ctx_window - prompt_tokens)
-    eff_max = max(1, min(req_max, available, max_out_cap))
+def _tokens_per_model(messages: list[dict], model_entry: dict | None, req_max: int) -> int:
+    """
+    Calcola i max tokens di completion effettivi nel rispetto di:
+      ctx_window - prompt_tokens, req_max e max_output_tokens del modello.
+    """
+    ctx_window, max_out_cap = _resolve_ctx_caps(model_entry)
+    prompt_text = "".join(m.get("content","") for m in (messages or []) if isinstance(m.get("content"), str))
+    prompt_tokens = approx_tokens_from_chars(prompt_text)
+
+    available_ctx = max(0, ctx_window - prompt_tokens)
+    eff_max = max(1, min(req_max, available_ctx, max_out_cap))
 
     return eff_max
 
@@ -260,20 +287,17 @@ async def run(req: HarperRunRequest,  request: Request):
 
     atts = _normalize_attachments(req.attachments)
     req.attachments = atts
+    # --- PATCH: RAG logging (opzionale) ---
+    rag_enabled = bool(req.attachments)
+    if rag_enabled:
+        log.info("harper.rag enabled attachments=%s", len(req.attachments))
+
     provider = ( request.headers.get("X-CLike-Provider") or resolved_entry.get("provider") or "").lower().strip()
 
     # ----- Normalizza input per provider -----
     # ATTENZIONE: niente virgola -> niente tupla!
     model = req.model  # era: req.model,
-    # Converte ChatMessage (pydantic) -> dict
-    # messages = []
-    # for m in (req.messages or []):
-    #     try:
-    #         messages.append(m.dict() if hasattr(m, "dict") else dict(m))
-    #     except Exception:
-    #         # fallback super-sicuro
-    #         messages.append({"role": getattr(m, "role", "user"), "content": getattr(m, "content", "")})
-
+   
    
     # ---- Gen params allineati a chat ----
     g = req.gen or {}
@@ -312,16 +336,57 @@ async def run(req: HarperRunRequest,  request: Request):
         messages = _compose_spec_messages(idea, core_blobs, req.profileHint, model_route_label, req.runId)
         log.info("harper.gateway normalized messages '%s' ",
                      messages)
-       
+        
+
+        # 1) normalizza req.messages -> list[dict]
+        incoming: list[dict] = []
+        for m in (req.messages or []):
+            try:
+                d = m.model_dump() if hasattr(m, "model_dump") else (m.dict() if hasattr(m, "dict") else dict(m))
+            except Exception:
+                d = {"role": getattr(m, "role", None), "content": getattr(m, "content", "")}
+            role = (d.get("role") or "").strip()
+            content = (d.get("content") or "").strip()
+            if role in ("user", "assistant") and content:
+                incoming.append({"role": role, "content": content})
+
+        # 2) calcola budget token per la chat in base a ctx_window, prompt_base e max out richiesto
+        base_prompt_tokens = approx_tokens_from_chars("".join(
+            m.get("content","") for m in messages if isinstance(m.get("content"), str)
+        ))
+        ctx_window, max_out_cap = _resolve_ctx_caps(resolved_entry)
+        requested_out = int((req.gen or {}).get("max_tokens", 8192))
+        # margine di sicurezza per header/model/tooling
+        SAFETY_PROMPT_TOKENS = 256
+        # budget per chat = ctx - base_prompt - requested_out - safety (>=0)
+        chat_budget = max(0, ctx_window - base_prompt_tokens - requested_out - SAFETY_PROMPT_TOKENS)
+
+        if incoming and chat_budget > 0:
+            raw_ctx = _render_chat_context(incoming)
+            clipped_ctx = _clip_text_to_tokens(raw_ctx, chat_budget)
+            if clipped_ctx:
+                # Ricicliamo il messaggio 'user' già costruito, aggiungendo un blocco "Recent Harper chat"
+                messages[1]["content"] += "\n\n### Recent Harper chat (trimmed)\n" + clipped_ctx
+
+        log.info("harper.gateway messages '%s' ",
+                     messages)
+
         # 0) Check token per model
         # --- Context budgeting ---
-        ctx_window, max_out_cap = _resolve_ctx_caps(resolved_entry)
-        eff_max= _tokens_per_model(messages=messages, model_entry=resolved_entry, ctx_window=ctx_window, req_max=gen_max_tokens, max_out_cap=max_out_cap)
+        eff_max = _tokens_per_model(messages, resolved_entry, gen_max_tokens)
         # timeout dinamico (60s base + 2s per 1k token, max 180s)
         timeout_sec = min(240.0, 60.0 + (eff_max / 1000.0) * 2.0)
         log.info("harper.gateway eff_max & timeout '%s' '%s'",
                      eff_max, timeout_sec)
+        log.info("harper.gateway eff_max=%s ctx_window=%s prompt_tokens≈%s cap=%s",
+         eff_max,
+         (_resolve_ctx_caps(resolved_entry)[0]),
+         approx_tokens_from_chars("".join(m.get("content","") for m in messages if isinstance(m.get("content"), str))),
+         (_resolve_ctx_caps(resolved_entry)[1]))
         
+        
+
+
         telemetry: dict[str, object] = {
             "phase": phase,
             "model": model_route_label,
@@ -330,6 +395,8 @@ async def run(req: HarperRunRequest,  request: Request):
         warnings: list[str] = []
         errors: list[str] = []
         llm_text = None
+        llm_usage = {}
+
         try:
             # 1) tenta LLM
             # Routing per provider
@@ -339,14 +406,14 @@ async def run(req: HarperRunRequest,  request: Request):
                 llm_text = await oai.chat(OPENAI_BASE, OPENAI_API_KEY, model, messages, gen_temperature, eff_max, gen_response_format, gen_tools, gen_tool_choice, timeout=timeout_sec) 
 
             if provider == "vllm":
-                llm_text =  await vll.chat(VLLM_BASE, model, messages, gen_temperature, gen_max_tokens, gen_response_format, gen_tools, gen_tool_choice)
+                llm_text =  await vll.chat(VLLM_BASE, model, messages, gen_temperature, eff_max, gen_response_format, gen_tools, gen_tool_choice)
             if provider == "ollama":
-                llm_text =  await oll.chat(OLLAMA_BASE, model, messages, gen_temperature, gen_max_tokens)   
+                llm_text =  await oll.chat(OLLAMA_BASE, model, messages, gen_temperature, eff_max)   
 
             elif provider == "anthropic":
                 if not ANTHROPIC_API_KEY:
                     raise HTTPException(401, "missing ANTHROPIC api key")
-                llm_text = await anth.chat(ANTHROPIC_BASE, ANTHROPIC_API_KEY, model, messages, gen_temperature,max_tokens)
+                llm_text = await anth.chat(ANTHROPIC_BASE, ANTHROPIC_API_KEY, model, messages, gen_temperature,eff_max)
                 
             else:
                 raise HTTPException(400, f"unsupported provider for chat: {provider} for model '{req.model}")
@@ -362,11 +429,11 @@ async def run(req: HarperRunRequest,  request: Request):
             spec_md_txt, llm_diag = ("", {})
 
 
-        log.info("harper.gateway llm_text '%s' ",llm_text)
-        # --- normalizzazione esito LLM (allineata a Free/Coding) ---
-        spec_md_txt, usage = oai.coerce_text_and_usage(llm_text)
-        text_len = len(spec_md_txt or "")
-        log.info("harper.llm.result text_len=%d diag=%s", text_len, (llm_diag or {}))
+        log.info("harper.gateway llm_text '%s' ", llm_text)
+        spec_md_txt, llm_usage = oai.coerce_text_and_usage(llm_text)
+        text_len = len((spec_md_txt or "").strip())
+        log.info("harper.llm.result text_len=%d usage=%s", text_len, (llm_usage or {}))
+
 
         # --- soft-fail & normalizzazione SPEC.md ---
         spec_md = (spec_md_txt or "").strip()
@@ -397,8 +464,11 @@ async def run(req: HarperRunRequest,  request: Request):
 
         telemetry.update({
             "text_len": text_len,
-            "usage": (llm_diag.get("usage") if isinstance(llm_diag, dict) else {}) or {},
+            "usage": llm_usage or {},
             "missing_sections": missing,
+            "budget_max_tokens": eff_max,
+            "provider": provider,    
+
         })
 
         return {

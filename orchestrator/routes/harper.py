@@ -90,6 +90,11 @@ async def post_spec(req: HarperPhaseRequest):
     # Coerenza terminologica: manteniamo 'cmd' dal client ma imponiamo anche 'phase'
     payload["phase"] = "spec"
     payload.setdefault("cmd", "spec")
+    # --- PATCH START ---
+    log.info("run_phase %s: idea_md=%s core=%s attachments=%s messages=%s",
+         req.phase, bool(req.idea_md), len(req.core), len(req.attachments), len(req.messages))
+# --- PATCH END ---
+
 
     # Normalizza attachments in una forma stabile (list[dict])
     payload["attachments"] = _normalize_attachments(req.attachments)

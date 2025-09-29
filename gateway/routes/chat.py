@@ -86,6 +86,8 @@ class ChatRequest(BaseModel):
     tools: Optional[List[Dict[str, Any]]] = None
     tool_choice: Optional[Union[str, Dict[str, Any]]] = None
     profile: Optional[str] = None  # solo per osservabilità
+    timeout: Optional[float] = None 
+
     provider: Optional[str] = Field(None, description="openai|anthropic|vllm|ollama")
     base_url: Optional[str] = None
     remote_name: Optional[str] = None
@@ -130,6 +132,7 @@ async def chat_completions(req: ChatRequest,  request: Request):
     tools = req.tools
     tool_choice = req.tool_choice
     remote = (req.remote_name or model)
+    timeout = req.timeout
 
     # Logging solo con tipi JSON-safe (evita oggetti pydantic)
     log.info(
@@ -151,18 +154,18 @@ async def chat_completions(req: ChatRequest,  request: Request):
     if provider == "openai":
         if not OPENAI_API_KEY:
             raise HTTPException(401, "missing ANTHROPIC api key")
-        data = await oai.chat(OPENAI_BASE, OPENAI_API_KEY, model, messages, temperature, max_tokens, response_format, tools, tool_choice) 
+        data = await oai.chat(OPENAI_BASE, OPENAI_API_KEY, model, messages, temperature, max_tokens, response_format, tools, tool_choice, timeout) 
         return data
     if provider == "vllm":
-        return await vll.chat(VLLM_BASE, model, messages, temperature, max_tokens, max_tokens, response_format, tools, tool_choice)
+        return await vll.chat(VLLM_BASE, model, messages, temperature, max_tokens, max_tokens, response_format, tools, tool_choice, timeout)
     if provider == "ollama":
-        return await oll.chat(OLLAMA_BASE, model, messages, temperature, max_tokens)
+        return await oll.chat(OLLAMA_BASE, model, messages, temperature, max_tokens, timeout)
     elif provider == "anthropic":
         if not ANTHROPIC_API_KEY:
             raise HTTPException(401, "missing ANTHROPIC api key")
             
         try:
-            data = await anth.chat(ANTHROPIC_BASE, ANTHROPIC_API_KEY, model, messages, temperature,max_tokens)
+            data = await anth.chat(ANTHROPIC_BASE, ANTHROPIC_API_KEY, model, messages, temperature,max_tokens, timeout)
             return data
         except httpx.HTTPStatusError as e:
             txt = e.response.text if e.response is not None else str(e)
