@@ -37,6 +37,12 @@ class HarperPhaseRequest(BaseModel):
 
     # --- NEW optional payloads ---
     idea_md: Optional[str] = None
+    spec_md: Optional[str] = None
+    plan_md: Optional[str] = None
+    kit_md: Optional[str] = None
+    build_report_md: Optional[str] = None
+    release_notes_md: Optional[str] = None
+    telemetry: Optional[Dict[str, Any]] = None 
     core_blobs: Optional[Dict[str, str]] = None
     workspace: Optional[dict] = None  # {root, repo, branch}
 
@@ -96,66 +102,28 @@ class HarperRunResponse(BaseModel):
     warnings: List[str] = []
     errors: List[str] = []
     runId: Optional[str] = None
+    idea_md: Optional[str] = None
+    spec_md: Optional[str] = None
+    plan_md: Optional[str] = None
+    kit_md: Optional[str] = None
+    build_report_md: Optional[str] = None
+    release_notes_md: Optional[str] = None
     telemetry: Optional[Dict[str, Any]] = None  # token usage, route info, etc.
 
 class HarperEnvelope(BaseModel):
     out: HarperRunResponse
     # facoltativo: spec_md per retro-compat con UI che lo usa direttamente
+    idea_md: Optional[str] = None
     spec_md: Optional[str] = None
+    plan_md: Optional[str] = None
+    kit_md: Optional[str] = None
 
-# ---------------------------
-# Requests
-# ---------------------------
-class SpecRequest(ExecContext):
-    idea_md: Optional[str] = Field(None, description="Optional IDEA.md inline content.")
-    revision_note: Optional[str] = None
 
-class PlanRequest(ExecContext):
-    spec_md: str = Field(..., description="SPEC.md inline content.")
-    revision_note: Optional[str] = None
-
-class KitRequest(ExecContext):
-    spec_md: str = Field(..., description="SPEC.md inline content.")
-    plan_md: str = Field(..., description="PLAN.md inline content.")
-    todo_ids: Optional[List[str]] = None
-    revision_note: Optional[str] = None
-
-class BuildNextRequest(ExecContext):
-    spec_md: str = Field(..., description="SPEC.md inline content.")
-    plan_md: str = Field(..., description="PLAN.md inline content.")
-    batch_size: int = Field(1, ge=1, le=50)
 
 class SessionClearRequest(BaseModel):
     scope: Literal["singleModel","allModels"] = "singleModel"
 
-# ---------------------------
-# Responses (unchanged)
-# ---------------------------
-class SpecResponse(BaseModel):
-    spec_md: str
-    ok: bool
-    violations: List[str] = []
-    run_id: str
 
-class PlanResponse(BaseModel):
-    plan_md: str
-    ok: bool
-    violations: List[str] = []
-    run_id: str
-
-class KitResponse(BaseModel):
-    kit_md: str
-    artifacts: Dict[str, Any] = {}
-    ok: bool = True
-    violations: List[str] = []
-    run_id: str
-
-class BuildNextResponse(BaseModel):
-    updated_plan_md: str
-    diffs: List[str] = []
-    ok: bool = True
-    gate_summary: Dict[str, Any] = {}
-    run_id: str
 
 class ModelsResponse(BaseModel):
     models: List[Dict[str, Any]]
