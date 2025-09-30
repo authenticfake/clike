@@ -6,10 +6,9 @@ from services import harper as svc
 import os, json, logging
 
 from schemas.harper import (
-    Attachment, DiffEntry, FileArtifact, HarperEnvelope, HarperRunResponse, SpecRequest, SpecResponse, PlanRequest, PlanResponse,
-    KitRequest, KitResponse, BuildNextRequest, BuildNextResponse,
+    Attachment, DiffEntry, FileArtifact, HarperEnvelope, HarperRunResponse, 
     SessionClearRequest, ModelsResponse, ProfilesResponse, DefaultsResponse,
-    ResolveResponse, HarperPhaseRequest, HarperFlags, TestSummary
+    ResolveResponse, HarperPhaseRequest, TestSummary
 )
 from services import harper as svc
 from services.router import _load_cfg, resolve
@@ -135,35 +134,187 @@ async def post_spec(req: HarperPhaseRequest):
     return HarperEnvelope(out=out, spec_md=spec_md)
    
 
-@router.post("/plan", response_model=PlanResponse)
-async def post_plan(req: PlanRequest):
-    out = await svc.run_phase("plan", req)
-    return PlanResponse(
-        plan_md=out.get("files", [{}])[0].get("content", "") if out.get("files") else "# PLAN\n",
-        ok=bool(out.get("ok", True)),
-        violations=[],
-        run_id=out.get("runId") or "n/a"
-    )
+@router.post("/plan", response_model=HarperEnvelope)
+async def post_plan(req: HarperPhaseRequest):
+    
+    payload = req.model_dump()
+    # Coerenza terminologica: manteniamo 'cmd' dal client ma imponiamo anche 'phase'
+    payload["phase"] = "plan"
+    payload.setdefault("cmd", "plan")
+    log.info("run_phase spec (route): idea_md=%s spec_md=%s core=%d attachments=%d flags=%s",
+            bool(payload.get("idea_md")),
+            bool(payload.get("spec_md")),
+            len(payload.get("core") or []),
+            len(payload.get("attachments") or []),
+            "present" if payload.get("flags") else "none")
 
-@router.post("/kit", response_model=KitResponse)
-async def post_kit(req: KitRequest):
-    out = await svc.run_phase("kit", req)
-    return KitResponse(
-        kit_md=out.get("files", [{}])[0].get("content", "") if out.get("files") else "# KIT\n",
-        artifacts={},
-        ok=bool(out.get("ok", True)),
-        violations=[],
-        run_id=out.get("runId") or "n/a"
-    )
+    # Delego al service che farà SOLO il merge del modello/profilo, senza perdere campi
+    out_dict = await svc.run_phase("plan", payload)
+    log.info("out_dict len=%d", len(out_dict))
+    out = None
+    try: 
+        out = HarperRunResponse(
+            ok=bool(out_dict.get("ok", True)),
+            phase=out_dict.get("phase") or "spec",
+            echo=out_dict.get("echo"),
+            text=out_dict.get("text"),
+            files=[FileArtifact(**f) for f in (out_dict.get("files") or [])],
+            diffs=[DiffEntry(**d) for d in (out_dict.get("diffs") or [])],
+            tests=TestSummary(**(out_dict.get("tests") or {})),
+            warnings=out_dict.get("warnings") or [],
+            errors=out_dict.get("errors") or [],
+            runId=out_dict.get("runId"),
+            telemetry=out_dict.get("telemetry"),
+        )
 
-@router.post("/build-next", response_model=BuildNextResponse)
-async def post_build_next(req: BuildNextRequest):
-    out = await svc.run_phase("build", req)
-    return BuildNextResponse(
-        updated_plan_md=req.plan_md,  # a regime puoi far ritornare il nuovo PLAN.md
-        diffs=out.get("diffs", []),
-        ok=bool(out.get("ok", True)),
-        gate_summary=out.get("tests", {}),
-        run_id=out.get("runId") or "n/a"
+    
+    except Exception:
+        
+        raise HTTPException(status_code=500, detail="Error in plan")    
+    
+    log.info("out text: %s len=%d",out.text,len(out.text))
+    # Retro-compat: spec_md, se disponibile (primo file markdown) oppure None
+    plan_md = None
+    if out.files:
+        try:
+            # se il primo file è SPEC.md lo esponiamo
+            if out.files[0].path.lower().endswith("plan.md"):
+                plan_md = out.files[0].content
+        except Exception:
+            pass
+
+    return HarperEnvelope(out=out, plan_md=plan_md)
+
+@router.post("/kit", response_model=HarperEnvelope)
+async def post_kit(req: HarperPhaseRequest):
+    payload = req.model_dump()
+    # Coerenza terminologica: manteniamo 'cmd' dal client ma imponiamo anche 'phase'
+    payload["phase"] = "kit"
+    payload.setdefault("cmd", payload["phase"])
+    log.info("run_phase spec (route): idea_md=%s spec_md=%s plan_md=%s kit_md=%s core=%d attachments=%d flags=%s",
+            bool(payload.get("idea_md")),
+            bool(payload.get("spec_md")),
+            bool(payload.get("plan_md")),
+            bool(payload.get("kit_md")),
+            len(payload.get("core") or []),
+            len(payload.get("attachments") or []),
+            "present" if payload.get("flags") else "none")
+
+    # Delego al service che farà SOLO il merge del modello/profilo, senza perdere campi
+    out_dict = await svc.run_phase("kit", payload)
+    
+    out = HarperRunResponse(
+        ok=bool(out_dict.get("ok", True)),
+        phase=out_dict.get("phase") or "kit",
+        echo=out_dict.get("echo"),
+        text=out_dict.get("text"),
+        files=[FileArtifact(**f) for f in (out_dict.get("files") or [])],
+        diffs=[DiffEntry(**d) for d in (out_dict.get("diffs") or [])],
+        tests=TestSummary(**(out_dict.get("tests") or {})),
+        warnings=out_dict.get("warnings") or [],
+        errors=out_dict.get("errors") or [],
+        runId=out_dict.get("runId"),
+        telemetry=out_dict.get("telemetry"),
     )
+    # Retro-compat: spec_md, se disponibile (primo file markdown) oppure None
+    kit_md = None
+    if out.files:
+        try:
+            # se il primo file è SPEC.md lo esponiamo
+            if out.files[0].path.lower().endswith("kit.md"):
+                kit_md = out.files[0].content
+        except Exception:
+            pass
+
+    return HarperEnvelope(out=out, kit_md=kit_md)
+
+@router.post("/build-next", response_model=HarperEnvelope)
+async def post_build_next(req: HarperPhaseRequest):
+    payload = req.model_dump()
+    # Coerenza terminologica: manteniamo 'cmd' dal client ma imponiamo anche 'phase'
+    payload["phase"] = "build"
+    payload.setdefault("cmd", payload["phase"])
+    log.info("run_phase spec (route): idea_md=%s spec_md=%s plan_md=%s kit_md=%s build_report_md=%s core=%d attachments=%d flags=%s",
+            bool(payload.get("idea_md")),
+            bool(payload.get("spec_md")),
+            bool(payload.get("plan_md")),
+            bool(payload.get("kit_md")),
+            bool(payload.get("build_report_md")),
+            len(payload.get("core") or []),
+            len(payload.get("attachments") or []),
+            "present" if payload.get("flags") else "none")
+
+    # Delego al service che farà SOLO il merge del modello/profilo, senza perdere campi
+    out_dict = await svc.run_phase("build", payload)
+    
+    out = HarperRunResponse(
+        ok=bool(out_dict.get("ok", True)),
+        phase=out_dict.get("phase") or "build",
+        echo=out_dict.get("echo"),
+        text=out_dict.get("text"),
+        files=[FileArtifact(**f) for f in (out_dict.get("files") or [])],
+        diffs=[DiffEntry(**d) for d in (out_dict.get("diffs") or [])],
+        tests=TestSummary(**(out_dict.get("tests") or {})),
+        warnings=out_dict.get("warnings") or [],
+        errors=out_dict.get("errors") or [],
+        runId=out_dict.get("runId"),
+        telemetry=out_dict.get("telemetry"),
+    )
+    # Retro-compat: spec_md, se disponibile (primo file markdown) oppure None
+    build_report_md = None
+    if out.files:
+        try:
+            # se il primo file è SPEC.md lo esponiamo
+            if out.files[0].path.lower().endswith("kit.md"):
+                build_report_md = out.files[0].content
+        except Exception:
+            pass
+
+    return HarperEnvelope(out=out, build_report_md=build_report_md)
+
+
+@router.post("/finalize", response_model=HarperEnvelope)
+async def post_build_next(req: HarperPhaseRequest):
+    payload = req.model_dump()
+    # Coerenza terminologica: manteniamo 'cmd' dal client ma imponiamo anche 'phase'
+    payload["phase"] = "finalize"
+    payload.setdefault("cmd", payload["phase"])
+    log.info("run_phase spec (route): idea_md=%s spec_md=%s plan_md=%s kit_md=%s build_report_md=%s release_notes_md=%s core=%d attachments=%d flags=%s",
+            bool(payload.get("idea_md")),
+            bool(payload.get("spec_md")),
+            bool(payload.get("plan_md")),
+            bool(payload.get("kit_md")),
+            bool(payload.get("build_report_md")),
+            bool(payload.get("release_notes_md")),
+            len(payload.get("core") or []),
+            len(payload.get("attachments") or []),
+            "present" if payload.get("flags") else "none")
+
+    # Delego al service che farà SOLO il merge del modello/profilo, senza perdere campi
+    out_dict = await svc.run_phase("finalize", payload)
+    
+    out = HarperRunResponse(
+        ok=bool(out_dict.get("ok", True)),
+        phase=out_dict.get("phase") or "finalize",
+        echo=out_dict.get("echo"),
+        text=out_dict.get("text"),
+        files=[FileArtifact(**f) for f in (out_dict.get("files") or [])],
+        diffs=[DiffEntry(**d) for d in (out_dict.get("diffs") or [])],
+        tests=TestSummary(**(out_dict.get("tests") or {})),
+        warnings=out_dict.get("warnings") or [],
+        errors=out_dict.get("errors") or [],
+        runId=out_dict.get("runId"),
+        telemetry=out_dict.get("telemetry"),
+    )
+    # Retro-compat: spec_md, se disponibile (primo file markdown) oppure None
+    release_notes_md = None
+    if out.files:
+        try:
+            # se il primo file è SPEC.md lo esponiamo
+            if out.files[0].path.lower().endswith("kit.md"):
+                release_notes_md = out.files[0].content
+        except Exception:
+            pass
+
+    return HarperEnvelope(out=out, release_notes_md=release_notes_md)
 

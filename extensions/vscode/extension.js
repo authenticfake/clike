@@ -14,7 +14,7 @@ const os = require('os');
 //const { activateTestController } = require('./testController');
 const { registerCommands } = require('./commands/registerCommands');
 const { handlePlanUpdate, handleSync, handleGate, handleEval } = require('./commands/slashBot');
-const { buildHarperBody, extractUserMessages } = require('./utility')
+const { buildHarperBody,  defaultCoreForPhase } = require('./utility')
 let __clike_lastTargetUriCache = null;  
 let selectedPaths = new Set();
 // --- Stato richiesta in corso (per Cancel) ---
@@ -44,13 +44,33 @@ async function harperGitAutomation(phase, runId, opts) {
   if (!autoCommit) return;
 
   const branch = `harper/${phase}/${runId}`;
+  log('[harper] git automation', cwd, branch);
   try {
     await gitRun(['rev-parse', '--is-inside-work-tree'], cwd);
+    // 2. Controllo e Creazione/Checkout del branch
+    const branchRef = `refs/heads/${branch}`;
+    let branchExists = false;
 
-    // checkout -b se non esiste
-    try { await gitRun(['checkout', branch], cwd); }
-    catch { await gitRun(['checkout', '-b', branch], cwd); }
+    try {
+        // git show-ref --verify fallisce se il branch non esiste (exit code 1)
+        await gitRun(['show-ref', '--verify', branchRef], cwd);
+        branchExists = true;
+    } catch (e) {
+        // Se show-ref fallisce, il branch non esiste (o c'è stato un altro errore, ma
+        // assumiamo per logica che sia la non-esistenza)
+        branchExists = false;
+    }
 
+    if (branchExists) {
+        // Se esiste: checkout (per sicurezza, anche se show-ref verifica solo)
+         await gitRun(['checkout', branch], cwd);
+        log(`[harper] Checkout existing branch: ${branch}`);
+    } else {
+        // Se NON esiste: crea e fa il checkout
+        await gitRun(['checkout', '-b', branch], cwd);
+        log(`[harper] Created and checked out new branch: ${branch}`);
+    }
+   
     // add file per fase
     const phaseFiles = {
       spec: ['docs/harper/SPEC.md'],
@@ -2581,6 +2601,7 @@ async function cmdOpenChat(context) {
       // Run Harper phase from webview (slash: /spec | /plan | /kit | /build)
       if (msg.type === 'harperRun') {
         out.appendLine(`[harperRun] inside`);
+        const phase = msg.cmd;
         try {
           const { cmd, attachments = [] } = msg;
           const savedState = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto', historyScope:'singleModel' };
@@ -2595,11 +2616,8 @@ async function cmdOpenChat(context) {
 
 
           // Core docs per fase
-          let core = [];
-          if (cmd === 'spec') core = ['IDEA.md'];
-          else if (cmd === 'plan') core = ['SPEC.md'];
-          else if (cmd === 'kit' || cmd === 'build') core = ['SPEC.md','PLAN.md'];
-
+          let core = defaultCoreForPhase(phase);
+         
           // Flags privacy (se già presenti altrove, riusale)
           const flags = {
             neverSendSourceToCloud: !!cfgChat().neverSendSourceToCloud || false,
@@ -2679,6 +2697,7 @@ async function cmdOpenChat(context) {
           const body = await buildHarperBody('spec', payload, wsRoot());
           if (activeProvider) _headers["X-CLike-Provider"] = activeProvider
           const outGateway = await callHarper(cmd, body, _headers);
+          log(`[harperRun] body outGateway ... ${JSON.stringify(outGateway) || outGateway}`);
           const _out  = outGateway.out;
           log(`[harperRun] body real out ... ${_out}`);
 
@@ -2706,7 +2725,8 @@ async function cmdOpenChat(context) {
           let written = [];
           if (Array.isArray(_out?.files) && _out.files.length) {
             written = await saveGeneratedFiles(_out.files);
-            await harperGitAutomation('spec', runId, {
+            log(`[harperRun] written ${written.length} files`);
+            await harperGitAutomation(phase, runId, {
               workspaceRoot: wsRoot,
               git: { autoCommit: true, createPR: false }, // leggi da settings utente
               model: _out?.model || _out?.telemetry?.model_id,
@@ -2714,22 +2734,7 @@ async function cmdOpenChat(context) {
           });
 
           }
-          // Diffs
-          // TODO
-          if (Array.isArray(_out?.diffs) && _out.diffs.length) {
-            panel.webview.postMessage({ type: 'diffs', diffs: _out.diffs });
-          }
-          // 4) UI: inoltra i pezzi alla webview (coerente con free/coding)
-          // TODO
-          if (_out?.text) {
-            panel.webview.postMessage({ type: 'text', text: _out.text });
-          }
-          // Files (report / artifacts) 
-          // TODO
-          if (Array.isArray(_out?.files) && _out.files.length) {
-            panel.webview.postMessage({ type: 'files', files: _out.files });
-          }
-
+         
           // Tests summary
           if (_out?.tests?.summary) {
             panel.webview.postMessage({ type: 'echo', message: `✅ Tests: ${_out.tests.summary}` });

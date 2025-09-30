@@ -1,4 +1,6 @@
 # gateway/routes/harper.py
+from __future__ import annotations
+
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from typing import List, Literal, Optional, Dict, Any, Union
@@ -18,6 +20,12 @@ log = logging.getLogger("gateway.harper")
 # ---- SPEC context builders ---------------------------------------------------
 PROMPT_SPEC_SYSTEM_PATH = os.getenv("PROMPT_SPEC_SYSTEM_PATH", "/workspace/gateway/prompts/harper/spec_system.md")
 SPEC_TEMPLATE_PATH = os.getenv("SPEC_TEMPLATE_PATH", "/workspace/docs/templates/SPEC_TEMPLATE.md")
+PROMPT_PLAN_SYSTEM_PATH = os.getenv("PROMPT_PLAN_SYSTEM_PATH", "/workspace/gateway/prompts/harper/plan_system.md")
+PROMPT_KIT_SYSTEM_PATH = os.getenv("PROMPT_KIT_SYSTEM_PATH", "/workspace/gateway/prompts/harper/kit_system.md")
+PROMPT_BUILD_SYSTEM_PATH = os.getenv("PROMPT_BIULD_SYSTEM_PATH", "/workspace/gateway/prompts/harper/build_system.md")
+PROMPT_FINALIZE_SYSTEM_PATH = os.getenv("PROMPT_FINALIZE_SYSTEM_PATH", "/workspace/gateway/prompts/harper/finlize_system.md")
+
+
 
 
 # --- Defaults per modelli che non hanno context definito ---
@@ -60,7 +68,7 @@ def _messages_text_len(messages: list[dict]) -> int:
     return sum(len(m.get("content","")) for m in (messages or []) if isinstance(m.get("content"), str))
 
 def _resolve_ctx_caps(model_entry: dict | None) -> tuple[int, int]:
-    DEFAULT_CONTEXT_WINDOW = 8192
+    DEFAULT_CONTEXT_WINDOW = 128000
     DEFAULT_MAX_OUTPUT = 4096
     if not model_entry:
         return DEFAULT_CONTEXT_WINDOW, DEFAULT_MAX_OUTPUT
@@ -123,6 +131,73 @@ def _compose_spec_messages(idea_md: str,
         f"{refs}\n\n"
         "### Task\nTransform the IDEA into a SPEC that strictly follows the Output contract. "
         "Return only the SPEC.md content as Markdown."
+    )
+
+    return [
+        {"role": "system", "content": system.strip()},
+        {"role": "user", "content": user.strip()},
+    ]
+
+PHASE_OUTPUT_FILE = {
+    "spec": "SPEC.md",
+    "plan": "PLAN.md",
+    "kit": "KIT.md",
+    "build": "BUILD_REPORT.md",
+    "finalize": "RELEASE_NOTES.md",
+}
+PHASE_INPUT_FILE = {
+    "spec": ["IDEA.md"],
+    "plan": ["IDEA.md", "SPEC.md"],
+    "kit": ["IDEA.md", "SPEC.md", "PLAN.md", "KIT.md"],
+    "build": ["IDEA.md", "SPEC.md", "PLAN.md", "KIT.md", "BUILD_REPORT.md"],
+    "finalize":["IDEA.md", "SPEC.md", "PLAN.md", "KIT.md", "BUILD_REPORT.md", "RELEASE_NOTES.md"],
+}
+def _compose_system_messages(phase: str,
+                            idea_md: Optional[str],
+                            core_blobs: dict | None,
+                            profile_hint: str | None,
+                            model_route_label: str | None,
+                            run_id: str | None) -> list[dict]:
+    """Build OpenAI/Anthropic style chat messages: system + user. Minimal, RAG-light."""
+    system_by_phase = {
+        "spec": PROMPT_SPEC_SYSTEM_PATH,
+        "plan": PROMPT_PLAN_SYSTEM_PATH,
+        "kit": PROMPT_KIT_SYSTEM_PATH,
+        "build": PROMPT_BUILD_SYSTEM_PATH,
+        "finalize": PROMPT_FINALIZE_SYSTEM_PATH,
+    }
+    system_path = system_by_phase.get(phase, PROMPT_SPEC_SYSTEM_PATH)
+    system = _read_text(system_path).strip() or "# Harper System Prompt\nFollow the phase contract strictly."
+
+
+    
+    # Foreground principles (tiny, inline to keep context short)
+    foreground = (
+        "## CLike Principles (short)\n"
+        "- Harper pipeline: SPEC→PLAN→KIT, eval-driven quality, outcome-first.\n"
+        "- Keep output concise but testable; Acceptance Criteria are mandatory.\n"
+        "- Maintain human-in-control tone; do not invent facts.\n"
+    )
+    # Pack minimal project context (IDEA + optional core blobs names)
+    refs = ""
+    if core_blobs:
+        refs = "### Included references:\n" + "\n".join(f"- {k} ({len(v or '')} chars)" for k, v in core_blobs.items())
+
+    suffix_parts = []
+    if idea_md:
+        suffix_parts.append(f"\n\n### IDEA.md (verbatim)\n{idea_md}")
+    if core_blobs:
+        for n, c in core_blobs.items():
+            suffix_parts.append(f"\n\n### {n} (verbatim)\n{c}")
+    suffix = "".join(suffix_parts)
+    
+    user = (
+        f"{foreground}\n\n"
+        f"### Route\n- profile: {profile_hint or '—'}\n- model: {model_route_label or '—'}\n- runId: {run_id or 'n/a'}\n\n"
+        f"### IDEA.md (verbatim)\n{idea_md}\n\n"
+        f"{refs}\n\n"
+        f"### Task\nProduce/Transform the {phase.upper()} output that strictly follows the Output contract. Return only the Markdown document for this phase.{suffix}"
+ 
     )
 
     return [
@@ -327,160 +402,159 @@ async def run(req: HarperRunRequest,  request: Request):
             "temperature": gen_temperature,
         })
     )
-
-
-    if phase == "spec":
-        idea = req.idea_md or ""
-        core_blobs = req.core_blobs or {}
-        model_route_label = _route_label(req.model, req.profileHint)
-        messages = _compose_spec_messages(idea, core_blobs, req.profileHint, model_route_label, req.runId)
-        log.info("harper.gateway normalized messages '%s' ",
-                     messages)
-        
-
-        # 1) normalizza req.messages -> list[dict]
-        incoming: list[dict] = []
-        for m in (req.messages or []):
-            try:
-                d = m.model_dump() if hasattr(m, "model_dump") else (m.dict() if hasattr(m, "dict") else dict(m))
-            except Exception:
-                d = {"role": getattr(m, "role", None), "content": getattr(m, "content", "")}
-            role = (d.get("role") or "").strip()
-            content = (d.get("content") or "").strip()
-            if role in ("user", "assistant") and content:
-                incoming.append({"role": role, "content": content})
-
-        # 2) calcola budget token per la chat in base a ctx_window, prompt_base e max out richiesto
-        base_prompt_tokens = approx_tokens_from_chars("".join(
-            m.get("content","") for m in messages if isinstance(m.get("content"), str)
-        ))
-        ctx_window, max_out_cap = _resolve_ctx_caps(resolved_entry)
-        requested_out = int((req.gen or {}).get("max_tokens", 8192))
-        # margine di sicurezza per header/model/tooling
-        SAFETY_PROMPT_TOKENS = 256
-        # budget per chat = ctx - base_prompt - requested_out - safety (>=0)
-        chat_budget = max(0, ctx_window - base_prompt_tokens - requested_out - SAFETY_PROMPT_TOKENS)
-
-        if incoming and chat_budget > 0:
-            raw_ctx = _render_chat_context(incoming)
-            clipped_ctx = _clip_text_to_tokens(raw_ctx, chat_budget)
-            if clipped_ctx:
-                # Ricicliamo il messaggio 'user' già costruito, aggiungendo un blocco "Recent Harper chat"
-                messages[1]["content"] += "\n\n### Recent Harper chat (trimmed)\n" + clipped_ctx
-
-        log.info("harper.gateway messages '%s' ",
-                     messages)
-
-        # 0) Check token per model
-        # --- Context budgeting ---
-        eff_max = _tokens_per_model(messages, resolved_entry, gen_max_tokens)
-        # timeout dinamico (60s base + 2s per 1k token, max 180s)
-        timeout_sec = min(240.0, 60.0 + (eff_max / 1000.0) * 2.0)
-        log.info("harper.gateway eff_max & timeout '%s' '%s'",
-                     eff_max, timeout_sec)
-        log.info("harper.gateway eff_max=%s ctx_window=%s prompt_tokens≈%s cap=%s",
-         eff_max,
-         (_resolve_ctx_caps(resolved_entry)[0]),
-         approx_tokens_from_chars("".join(m.get("content","") for m in messages if isinstance(m.get("content"), str))),
-         (_resolve_ctx_caps(resolved_entry)[1]))
-        
-        
-
-
-        telemetry: dict[str, object] = {
-            "phase": phase,
-            "model": model_route_label,
-            "runId": req.runId,
-        }
-        warnings: list[str] = []
-        errors: list[str] = []
-        llm_text = None
-        llm_usage = {}
-
+    idea = req.idea_md or ""
+    core_blobs = req.core_blobs or {}
+    model_route_label = _route_label(req.model, req.profileHint)
+    messages = _compose_system_messages(phase,idea, core_blobs, req.profileHint, model_route_label, req.runId)
+    log.info("harper.gateway normalized messages '%s' ", messages)
+     # 1) normalizza req.messages -> list[dict]
+    incoming: list[dict] = []
+    for m in (req.messages or []):
         try:
-            # 1) tenta LLM
-            # Routing per provider
-            if provider == "openai":
-                if not OPENAI_API_KEY:
-                    raise HTTPException(401, "missing ANTHROPIC api key")
-                llm_text = await oai.chat(OPENAI_BASE, OPENAI_API_KEY, model, messages, gen_temperature, eff_max, gen_response_format, gen_tools, gen_tool_choice, timeout=timeout_sec) 
+            d = m.model_dump() if hasattr(m, "model_dump") else (m.dict() if hasattr(m, "dict") else dict(m))
+        except Exception:
+            d = {"role": getattr(m, "role", None), "content": getattr(m, "content", "")}
+        role = (d.get("role") or "").strip()
+        content = (d.get("content") or "").strip()
+        if role in ("user", "assistant") and content:
+            incoming.append({"role": role, "content": content})
 
-            if provider == "vllm":
-                llm_text =  await vll.chat(VLLM_BASE, model, messages, gen_temperature, eff_max, gen_response_format, gen_tools, gen_tool_choice)
-            if provider == "ollama":
-                llm_text =  await oll.chat(OLLAMA_BASE, model, messages, gen_temperature, eff_max)   
+    
 
-            elif provider == "anthropic":
-                if not ANTHROPIC_API_KEY:
-                    raise HTTPException(401, "missing ANTHROPIC api key")
-                llm_text = await anth.chat(ANTHROPIC_BASE, ANTHROPIC_API_KEY, model, messages, gen_temperature,eff_max)
-                
-            else:
-                raise HTTPException(400, f"unsupported provider for chat: {provider} for model '{req.model}")
-        
-        except httpx.HTTPStatusError as e:
-                txt = e.response.text if e.response is not None else str(e)
-                code = e.response.status_code if e.response is not None else 502
-                raise HTTPException(code, detail=f"provider error for model={model}: {txt}")
-        except httpx.HTTPError as e:
-                raise HTTPException(502, detail=f"provider connection error: {e}")
-        except Exception as e:
-            errors.append(f"provider_error: {type(e).__name__}: {e}")
-            spec_md_txt, llm_diag = ("", {})
+    # 2) calcola budget token per la chat in base a ctx_window, prompt_base e max out richiesto
+    base_prompt_tokens = approx_tokens_from_chars("".join(
+        m.get("content","") for m in messages if isinstance(m.get("content"), str)
+    ))
+    ctx_window, max_out_cap = _resolve_ctx_caps(resolved_entry)
+    requested_out = int((req.gen or {}).get("max_tokens", 8192))
+    # margine di sicurezza per header/model/tooling
+    SAFETY_PROMPT_TOKENS = 256
+    # budget per chat = ctx - base_prompt - requested_out - safety (>=0)
+    chat_budget = max(0, ctx_window - base_prompt_tokens - requested_out - SAFETY_PROMPT_TOKENS)
 
+    if incoming and chat_budget > 0:
+        raw_ctx = _render_chat_context(incoming)
+        clipped_ctx = _clip_text_to_tokens(raw_ctx, chat_budget)
+        if clipped_ctx:
+            # Ricicliamo il messaggio 'user' già costruito, aggiungendo un blocco "Recent Harper chat"
+            messages[1]["content"] += "\n\n### Recent Harper chat (trimmed)\n" + clipped_ctx
 
-        log.info("harper.gateway llm_text '%s' ", llm_text)
-        spec_md_txt, llm_usage = oai.coerce_text_and_usage(llm_text)
-        text_len = len((spec_md_txt or "").strip())
-        log.info("harper.llm.result text_len=%d usage=%s", text_len, (llm_usage or {}))
+    log.info("harper.gateway messages '%s' ",
+                    messages)
 
+    # 0) Check token per model
+    # --- Context budgeting ---
+    eff_max = _tokens_per_model(messages, resolved_entry, gen_max_tokens)
+    # timeout dinamico (60s base + 2s per 1k token, max 180s)
+    timeout_sec = min(240.0, 60.0 + (eff_max / 1000.0) * 2.0)
+    log.info("harper.gateway eff_max & timeout '%s' '%s'",
+                    eff_max, timeout_sec)
+    log.info("harper.gateway eff_max=%s ctx_window=%s prompt_tokens≈%s cap=%s",
+        eff_max,
+        (_resolve_ctx_caps(resolved_entry)[0]),
+        approx_tokens_from_chars("".join(m.get("content","") for m in messages if isinstance(m.get("content"), str))),
+        (_resolve_ctx_caps(resolved_entry)[1]))
+    
+    telemetry: dict[str, object] = {
+        "phase": phase,
+        "model": model_route_label,
+        "runId": req.runId,
+    }
+    warnings: list[str] = []
+    errors: list[str] = []
+    llm_text = None
+    llm_usage = {}
+    try:
+        # Routing per provider
+        if provider == "openai":
+            if not OPENAI_API_KEY:
+                raise HTTPException(401, "missing ANTHROPIC api key")
+            llm_text = await oai.chat(OPENAI_BASE, OPENAI_API_KEY, model, messages, gen_temperature, eff_max, gen_response_format, gen_tools, gen_tool_choice, timeout=timeout_sec) 
 
-        # --- soft-fail & normalizzazione SPEC.md ---
-        spec_md = (spec_md_txt or "").strip()
+        elif provider == "vllm":
+            llm_text =  await vll.chat(VLLM_BASE, model, messages, gen_temperature, eff_max, gen_response_format, gen_tools, gen_tool_choice)
+        elif provider == "ollama":
+            llm_text =  await oll.chat(OLLAMA_BASE, model, messages, gen_temperature, eff_max)   
 
-        if not spec_md:
+        elif provider == "anthropic":
+            if not ANTHROPIC_API_KEY:
+                raise HTTPException(401, "missing ANTHROPIC api key")
+            llm_text = await anth.chat(ANTHROPIC_BASE, ANTHROPIC_API_KEY, model, messages, gen_temperature,eff_max)
+            
+        else:
+            raise HTTPException(400, f"unsupported provider for chat: {provider} for model '{req.model}")
+
+    except httpx.HTTPStatusError as e:
+            log.error("httpx error: %s", e)
+            txt = e.response.text if e.response is not None else str(e)
+            code = e.response.status_code if e.response is not None else 502
+            raise HTTPException(code, detail=f"provider error for model={model}: {txt}")
+    except httpx.HTTPError as e:
+            log.error("httpx error: %s", e)
+            raise HTTPException(502, detail=f"provider connection error: {e}")
+    except Exception as e:
+        log.error("httpx error: %s", e)
+        errors.append(f"provider_error: {type(e).__name__}: {e}")
+        spec_md_txt, llm_diag = ("", {})
+
+    text_len=0
+    log.info("harper.gateway llm_text '%s' ", llm_text)
+
+    system_md_txt, llm_usage = oai.coerce_text_and_usage(llm_text)
+    system_md_txt = (system_md_txt or "").strip()
+
+    text_len = len((system_md_txt or "").strip())
+    log.info("harper.llm.result text_len=%d usage=%s", text_len, (llm_usage or {}))
+
+    # --- soft-fail & normalizzazione i.e. SPEC.md ---
+    system_md_txt = (system_md_txt or "").strip()
+    missing = []
+    if phase == "spec":
+
+        if not system_md_txt:
             warnings.append("empty_model_output: model returned empty content, used fallback SPEC template")
-            spec_md = _fallback_spec_from_template(idea, model_route_label, req.runId)
+            system_md_txt = _fallback_spec_from_template(idea, model_route_label, req.runId)
 
         # garantiamo un H1 per consumer downstream
-        if not spec_md.lstrip().startswith("#"):
-            spec_md = "# SPEC — Generated\n\n" + spec_md
+        if not system_md_txt.lstrip().startswith("#"):
+            system_md_txt = "# SPEC — Generated\n\n" + system_md_txt
             warnings.append("normalized_heading: added H1 heading to SPEC")
 
         required_sections = [
             "Problem", "Objectives", "Scope", "Non-Goals", "Constraints",
             "KPIs", "Assumptions", "Risks", "Acceptance Criteria", "Sources"
         ]
-        missing = [s for s in required_sections if f"## {s}" not in spec_md]
+        missing = [s for s in required_sections if f"## {s}" not in system_md_txt]
         if missing:
             warnings.append(f"SPEC missing sections: {', '.join(missing)}")
 
-        files = [{
-            "path": f"{req.docRoot or 'docs/harper'}/SPEC.md",
-            "content": spec_md,
-            "mime": "text/markdown",
-            "encoding": "utf-8",
-        }]
+    # Nome file corretto per la fase
+    output_name = PHASE_OUTPUT_FILE.get(phase, f"{phase.upper()}.md")
+    files = [{
+        "path": f"{req.docRoot or 'docs/harper'}/{output_name}",
+        "content": system_md_txt,
+        "mime": "text/markdown",
+        "encoding": "utf-8",
+    }]
 
-        telemetry.update({
-            "text_len": text_len,
-            "usage": llm_usage or {},
-            "missing_sections": missing,
-            "budget_max_tokens": eff_max,
-            "provider": provider,    
+    telemetry.update({
+        "text_len": text_len,
+        "usage": llm_usage or {},
+        "missing_sections": missing,
+        "budget_max_tokens": eff_max,
+        "provider": provider,    
+    })
 
-        })
-
-        return {
-            "ok": len(errors) == 0,
-            "phase": "spec",
-            "echo": f"{model_route_label} :: SPEC generation",
-            "text": f"Generated SPEC.md ({text_len} chars).",
-            "diffs": [],
-            "files": files,
-            "tests": {"passed": 0, "failed": 0, "summary": "n/a"},
-            "warnings": warnings,
-            "errors": errors,
-            "runId": req.runId or "n/a",
-            "telemetry": telemetry,
-        }
+    return {
+        "ok": len(errors) == 0,
+        "phase": phase,
+        "echo": f"{model_route_label} :: {phase.upper()} generation",
+        "text": f"Generated {PHASE_OUTPUT_FILE.get(phase)} ({text_len} chars).",
+        "diffs": [],
+        "files": files,
+        "tests": {"passed": 0, "failed": 0, "summary": "n/a"},
+        "warnings": warnings,
+        "errors": errors,
+        "runId": req.runId or "n/a",
+        "telemetry": telemetry,
+    }

@@ -101,8 +101,26 @@ function extractUserMessages(sessionData) {
     return formattedMessages;
 }
 
+function defaultCoreForPhase(phase) {
+  switch (phase) {
+    case "spec":
+      return ["IDEA.md"];
+    case "plan":
+      return ["IDEA.md", "SPEC.md"];
+    case "kit":
+      return ["IDEA.md", "SPEC.md", "PLAN.md", "KIT.md"];
+    case "build":
+      return ["IDEA.md", "SPEC.md", "PLAN.md", "KIT.md", "BUILD_REPORT.md"];
+    case "finalize":
+      return ["IDEA.md", "SPEC.md", "PLAN.md", "KIT.md", "BUILD_REPORT.md", "RELEASE_NOTES.md"];
+    default:
+      return ["IDEA.md"];
+  }
+}
+
 module.exports = {
 
   buildHarperBody,
-  extractUserMessages
+  extractUserMessages,
+  defaultCoreForPhase
 };
