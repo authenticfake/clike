@@ -34,6 +34,7 @@ class HarperPhaseRequest(BaseModel):
     messages: List[HarperMessage] = Field(default_factory=list)
     runId: Optional[str] = None
     historyScope: Optional[str] = None
+    repoUrl: Optional[str] = None
 
     # --- NEW optional payloads ---
     idea_md: Optional[str] = None

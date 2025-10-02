@@ -51,17 +51,20 @@ This section summarizes the SPEC → PLAN → KIT workflow and the commands to r
 - `/spec` → Generate SPEC from IDEA & context. Iterate until developer validation.
 - `/plan` → Generate PLAN from SPEC. Iterate until developer validation.
 - `/kit`  → Generate initial kit/scaffold and then incremental build steps.
-- `/build` → Apply micro-diffs, run tests, iterate.
+
+### Evals & Gates
+- `/eval <spec|plan|kit|finalize>` → Run phase evaluations and show PASS/FAIL.
+- `/gate <spec|plan|kit|finalize>` → Enforce gates for the selected phase.
+
 
 ### RAG
 - `/ragIndex [--path <p>] [--glob "<g>"] [--tags "<t>"]`  
   Ingest/update the vector store with docs and attachments.
 
-### Evals & Gates
-- `/eval <spec|plan|kit|finalize>` → Run phase evaluations and show PASS/FAIL.
-- `/gate <spec|plan|kit|finalize>` → Enforce gates for the selected phase.
-- `/syncConstraints [path]` → Parse Technology Constraints YAML from IDEA/SPEC and write `.clike/tech_constraints.cjson`.
-- `/planUpdate <REQ-ID> [runs/.../eval/kit.report.json]` → Check off a PLAN item after a passing KIT eval.
+
+
+Constraints YAML from IDEA/SPEC and write `docs/harper/tech_constraints.yaml`.
+
 
 ## Workflow Expectations
 
