@@ -1,0 +1,7 @@
+version: 1.0.0
+profiles: []
+capabilities: []
+# NOTE:
+# - Keep this file as the canonical human-edited source of Technology Constraints.
+# - JSON mirror (TECH_CONSTRAINTS.json) must stay in sync.
+# - The lock file (TECH_CONSTRAINTS.lock.json) is for orchestrator/gateway to maintain.

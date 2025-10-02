@@ -12,3 +12,4 @@
 {"ts":1758904722741,"mode":"free","role":"assistant","content":"Ciao! I'm CLike, your go-to copilot for all things coding in C#. Whether you're building a new project or debugging an existing one, I'm here to help. What can I assist you with today? Do you have a specific problem or question in mind? Let me know and I'll do my best to provide you with helpful suggestions and guidance!","model":"llama3"}
 {"ts":1758904734427,"mode":"free","role":"user","content":"ciao","model":"gpt-4o","provider":"openai","attachments":[]}
 {"ts":1758904736138,"mode":"free","role":"assistant","content":"Ciao! Come posso aiutarti oggi?","model":"gpt-4o"}
+{"ts":1759331808286,"mode":"free","role":"user","content":"ciao","model":"auto","provider":"openai","attachments":[]}

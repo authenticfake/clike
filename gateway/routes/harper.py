@@ -13,7 +13,7 @@ from providers import anthropic as anth
 from providers import deepseek as dsk
 from providers import ollama as oll
 from providers import vllm as vll
-import yaml
+import yaml, re
 
 log = logging.getLogger("gateway.harper")
 
@@ -25,6 +25,7 @@ PROMPT_KIT_SYSTEM_PATH = os.getenv("PROMPT_KIT_SYSTEM_PATH", "/workspace/gateway
 PROMPT_BUILD_SYSTEM_PATH = os.getenv("PROMPT_BIULD_SYSTEM_PATH", "/workspace/gateway/prompts/harper/build_system.md")
 PROMPT_FINALIZE_SYSTEM_PATH = os.getenv("PROMPT_FINALIZE_SYSTEM_PATH", "/workspace/gateway/prompts/harper/finlize_system.md")
 
+_REPO_PLACEHOLDER = "[PROJECT_REPO_URL]"
 
 
 
@@ -47,6 +48,21 @@ def _render_chat_context(msgs: list[dict]) -> str:
         # Evita intestazioni troppo lunghe; niente markdown aggressivo
         lines.append(f"{role}: {content}")
     return "\n".join(lines)
+
+def _normalize_repo_url(url: str | None) -> str | None:
+    if not url:
+        return None
+    # git@host:org/repo(.git)? -> https://host/org/repo
+    m = re.match(r"^git@([^:]+):(.+?)(?:\.git)?$", url.strip())
+    if m:
+        host, repo = m.groups()
+        return f"https://{host}/{repo}"
+    # drop trailing .git in https
+    return re.sub(r"\.git$", "", url.strip())
+
+def _inject_repo_url_in_system(system_text: str, repo_url: str | None) -> str:
+    url = _normalize_repo_url(repo_url) or "https://example.invalid/REPO_URL_NOT_SET"
+    return system_text.replace(_REPO_PLACEHOLDER, url)
 
 def _clip_text_to_tokens(text: str, max_tokens: int) -> str:
     """Taglia per stare sotto max_tokens (approssimazione char→token già usata altrove)."""
@@ -157,7 +173,8 @@ def _compose_system_messages(phase: str,
                             core_blobs: dict | None,
                             profile_hint: str | None,
                             model_route_label: str | None,
-                            run_id: str | None) -> list[dict]:
+                            run_id: str | None,
+                            repo_url: str | None) -> list[dict]:
     """Build OpenAI/Anthropic style chat messages: system + user. Minimal, RAG-light."""
     system_by_phase = {
         "spec": PROMPT_SPEC_SYSTEM_PATH,
@@ -168,7 +185,8 @@ def _compose_system_messages(phase: str,
     }
     system_path = system_by_phase.get(phase, PROMPT_SPEC_SYSTEM_PATH)
     system = _read_text(system_path).strip() or "# Harper System Prompt\nFollow the phase contract strictly."
-
+    if phase == "kit" and repo_url:
+        system = _inject_repo_url_in_system(system, repo_url) 
 
     
     # Foreground principles (tiny, inline to keep context short)
@@ -178,24 +196,47 @@ def _compose_system_messages(phase: str,
         "- Keep output concise but testable; Acceptance Criteria are mandatory.\n"
         "- Maintain human-in-control tone; do not invent facts.\n"
     )
+    constraints_keys: list[str] = []
+    other_core: dict[str, str] = {}
+    constraints_chunks: list[str] = []
+
+    if core_blobs:
+        for name, content in core_blobs.items():
+            lname = (name or "").lower()
+            #if (lname.startswith("tech_constraints") or lname.startsWith("idea.md")) :
+            if lname.startswith("tech_constraints"):
+                    constraints_keys.append(name)
+                    if isinstance(content, str) and content.strip():
+
+                        constraints_chunks.append(content.strip())
+            else:
+                other_core[name] = content
     # Pack minimal project context (IDEA + optional core blobs names)
     refs = ""
-    if core_blobs:
-        refs = "### Included references:\n" + "\n".join(f"- {k} ({len(v or '')} chars)" for k, v in core_blobs.items())
+    if other_core:
+       refs = "### Included references:\n" + "\n".join(f"- {k} ({len(v or '')} chars)" for k, v in core_blobs.items())
 
     suffix_parts = []
-    if idea_md:
-        suffix_parts.append(f"\n\n### IDEA.md (verbatim)\n{idea_md}")
-    if core_blobs:
-        for n, c in core_blobs.items():
+     
+    if other_core:
+        for n, c in other_core.items():
             suffix_parts.append(f"\n\n### {n} (verbatim)\n{c}")
+
+    # Technology Constraints unified block (if any were found under core)
+    if constraints_chunks:
+        # Non forziamo il parsing; mostriamo come testo YAML fenced per massima compatibilità
+        constraints_text = "\n\n---\n\n".join(constraints_chunks)
+        suffix_parts.append("### Technology Constraints (YAML)\n```yaml\n" + constraints_text + "\n```")
+
     suffix = "".join(suffix_parts)
+
     
     user = (
         f"{foreground}\n\n"
         f"### Route\n- profile: {profile_hint or '—'}\n- model: {model_route_label or '—'}\n- runId: {run_id or 'n/a'}\n\n"
         f"### IDEA.md (verbatim)\n{idea_md}\n\n"
         f"{refs}\n\n"
+        f"### OUTPUT CONFORMITY CHECKLIST Before generating the output, self-check these non-negotiable format points:1. Is the first line the main `# PLAN` heading? 2. Are all major sections titled with `## Section Name`? 3. Are there ANY numbered lists (e.g., 1) Scope) used for major section titles? (If yes, FAIL and fix.) 4. Are `Mermaid` or `PlantUML` code blocks used for all required diagrams? (NO ASCII ART allowed). 5. Is the Markdown bullet list spacing clean (one space after `-` or `*`)?\n\n"
         f"### Task\nProduce/Transform the {phase.upper()} output that strictly follows the Output contract. Return only the Markdown document for this phase.{suffix}"
  
     )
@@ -387,6 +428,7 @@ async def run(req: HarperRunRequest,  request: Request):
     gen_remote = g.get("remote")
     gen_response_format = g.get("response_format")
     gen_tool_choice = g.get("tool_choice")
+    repourl = getattr(req, "repoUrl", None)
 
     # Logging solo con tipi JSON-safe (evita oggetti pydantic)
     log.info(
@@ -405,7 +447,7 @@ async def run(req: HarperRunRequest,  request: Request):
     idea = req.idea_md or ""
     core_blobs = req.core_blobs or {}
     model_route_label = _route_label(req.model, req.profileHint)
-    messages = _compose_system_messages(phase,idea, core_blobs, req.profileHint, model_route_label, req.runId)
+    messages = _compose_system_messages(phase,idea, core_blobs, req.profileHint, model_route_label, req.runId, repourl)
     log.info("harper.gateway normalized messages '%s' ", messages)
      # 1) normalizza req.messages -> list[dict]
     incoming: list[dict] = []
@@ -498,7 +540,7 @@ async def run(req: HarperRunRequest,  request: Request):
         spec_md_txt, llm_diag = ("", {})
 
     text_len=0
-    log.info("harper.gateway llm_text '%s' ", llm_text)
+    #log.info("harper.gateway llm_text '%s' ", llm_text)
 
     system_md_txt, llm_usage = oai.coerce_text_and_usage(llm_text)
     system_md_txt = (system_md_txt or "").strip()

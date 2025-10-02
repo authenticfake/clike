@@ -248,9 +248,64 @@ async function loadSession(mode, limit = 200) {
  } catch {
     return [];  
   }
-}async function loadSessionFiltered(mode, model, limit = 200) {
+}
+
+async function loadSessionFiltered(mode, model, limit = 200) {
   const all = await loadSession(mode, limit);
   return all.filter(e => !model || (e.model || 'auto') === model)
+}
+
+async function loadSessionFilteredHarper(mode, model, limit = 200) {
+  const all = await loadSession(mode, limit);
+
+  return all.filter(e => {
+    // Condizione 1 (Esistente): Filtra per modello (se specificato)
+    const modelFilter = !model || (e.model || 'auto') === model;
+
+    // Condizione 2 (Nuova): Filtro per il ruolo e il contenuto indesiderato
+
+    // 2a. Escludi tutti i messaggi 'system'
+    if (e.role === 'system') {
+      return false; 
+    }
+
+    // 2b. Accetta solo 'user' o 'assistant'
+    if (e.role !== 'user' && e.role !== 'assistant') {
+      return false;
+    }
+
+    // La logica si semplifica usando un array di prefissi
+    const EXECUTION_COMMAND_PREFIXES = [
+        '▶ SPEC | mode',
+        '▶ PLAN | mode',
+        '▶ KIT | mode',
+        '▶ EVAL | mode',
+        '▶ FINALIZE | mode',
+        '▶ GATE | mode',
+    ];
+
+    const isExecutionCommand = e.content && EXECUTION_COMMAND_PREFIXES.some(prefix => 
+        e.content.startsWith(prefix)
+    );
+
+    if (isExecutionCommand) {
+        return false; // Scarta i comandi di esecuzione
+    }
+
+    // // 2c. Escludi i comandi di esecuzione che iniziano con "▶ SPEC | mode=harper"
+    // // Usiamo .startsWith() per la verifica del contenuto.
+    // const isExecutionCommand =  e.content && (e.content.startsWith('\u2014 SPEC | mode') || 
+    //                             e.content.startsWith('\u2014 PLAN | mode') || 
+    //                             e.content.startsWith('\u2014 KIT | mode') || 
+    //                             e.content.startsWith('\u2014 EVAL | mode') || 
+    //                             e.content.startsWith('\u2014 FINALIZE | mode') || 
+    //                             e.content.startsWith('\u2014 GATE | mode'));
+    // if (isExecutionCommand) {
+    //   return false;
+    // }
+    return modelFilter;
+    });
+
 }
 
 async function pruneSessionByModel(mode, model) {
@@ -2566,6 +2621,7 @@ async function cmdOpenChat(context) {
               'docs/harper/PLAYBOOK.md',
               'docs/harper/IDEA.md',
               'docs/harper/SPEC.md',
+              'docs/harper/TECH_CONSTRAINTS.yaml',
               'runs/'
             ],
             next_steps: [
@@ -2632,7 +2688,7 @@ async function cmdOpenChat(context) {
           // History per conversazione “stateless�?: carico SOLO le bolle del MODE corrente
           const history = await loadSession(activeMode).catch(() => []);
           // Filtra eventualmente per modello se vuoi inviare solo il sotto-filo di quel model:
-          const historyForThisModel = history.filter(b => !b.model || b.model === activeModel);
+          const historyForThisModel = await loadSessionFilteredHarper (activeMode, activeModel); //history.filter(b => !b.model || b.model === activeModel);
           //log((`CLike historyForThisModel: ${historyForThisModel}`));
           const source = (historyScope === 'allModels')
           ? history
@@ -2647,6 +2703,7 @@ async function cmdOpenChat(context) {
         
           var _messages = _source.map(b => ({ role: b.role, content: b.content }));
           //_messages = extractUserMessages(_messages);
+          log(`[harperRun] session(_messages) ...`,  JSON.stringify(_messages));
 
           const _gen={
             temperature: 0.2,
@@ -2694,12 +2751,12 @@ async function cmdOpenChat(context) {
           });
           
           const _headers = {"Content-Type": "application/json", "X-CLike-Profile": "code.strict"}
-          const body = await buildHarperBody('spec', payload, wsRoot());
+          const body = await buildHarperBody(phase, payload, wsRoot());
+          log(`[harperRun] body core_blobs ...`,  JSON.stringify(body.core_blobs));
           if (activeProvider) _headers["X-CLike-Provider"] = activeProvider
           const outGateway = await callHarper(cmd, body, _headers);
-          log(`[harperRun] body outGateway ... ${JSON.stringify(outGateway) || outGateway}`);
           const _out  = outGateway.out;
-          log(`[harperRun] body real out ... ${_out}`);
+          //log(`[harperRun] body real out ... ${_out}`);
 
           // 3) POST-RUN: persisti esito (riassunto + eventuale echo/testo)
           const summary = [

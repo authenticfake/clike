@@ -150,7 +150,6 @@ async def post_plan(req: HarperPhaseRequest):
 
     # Delego al service che farà SOLO il merge del modello/profilo, senza perdere campi
     out_dict = await svc.run_phase("plan", payload)
-    log.info("out_dict len=%d", len(out_dict))
     out = None
     try: 
         out = HarperRunResponse(
