@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from typing import List, Literal, Optional, Dict, Any, Union
 import logging
 import os, datetime
-import httpx
+import httpx, random, math, asyncio
 from routes.chat import ANTHROPIC_API_KEY, ANTHROPIC_BASE, OLLAMA_BASE, OPENAI_API_KEY, OPENAI_BASE, VLLM_BASE, _json
 from providers import openai_compat as oai
 from providers import anthropic as anth
@@ -14,19 +14,24 @@ from providers import deepseek as dsk
 from providers import ollama as oll
 from providers import vllm as vll
 import yaml, re
-
+import mimetypes
+_FILE_BLOCK_RE = re.compile(
+    r"(?:^|\n)```[^\n]*\n\s*file:([^\n]+)\n(.*?)\n```",
+    re.DOTALL | re.IGNORECASE
+)
 log = logging.getLogger("gateway.harper")
+RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+
 
 # ---- SPEC context builders ---------------------------------------------------
-PROMPT_SPEC_SYSTEM_PATH = os.getenv("PROMPT_SPEC_SYSTEM_PATH", "/workspace/gateway/prompts/harper/spec_system.md")
-SPEC_TEMPLATE_PATH = os.getenv("SPEC_TEMPLATE_PATH", "/workspace/docs/templates/SPEC_TEMPLATE.md")
-PROMPT_PLAN_SYSTEM_PATH = os.getenv("PROMPT_PLAN_SYSTEM_PATH", "/workspace/gateway/prompts/harper/plan_system.md")
-PROMPT_KIT_SYSTEM_PATH = os.getenv("PROMPT_KIT_SYSTEM_PATH", "/workspace/gateway/prompts/harper/kit_system.md")
-PROMPT_BUILD_SYSTEM_PATH = os.getenv("PROMPT_BIULD_SYSTEM_PATH", "/workspace/gateway/prompts/harper/build_system.md")
-PROMPT_FINALIZE_SYSTEM_PATH = os.getenv("PROMPT_FINALIZE_SYSTEM_PATH", "/workspace/gateway/prompts/harper/finlize_system.md")
+PROMPT_SPEC_SYSTEM_PATH = os.getenv("PROMPT_SPEC_SYSTEM_PATH", "/app/prompts/harper/spec_system.md")
+SPEC_TEMPLATE_PATH = os.getenv("SPEC_TEMPLATE_PATH", "/app/templates/SPEC_TEMPLATE.md")
+PROMPT_PLAN_SYSTEM_PATH = os.getenv("PROMPT_PLAN_SYSTEM_PATH", "/app/prompts/harper/plan_system.md")
+PROMPT_KIT_SYSTEM_PATH = os.getenv("PROMPT_KIT_SYSTEM_PATH", "/app/prompts/harper/kit_system.md")
+PROMPT_BUILD_SYSTEM_PATH = os.getenv("PROMPT_BIULD_SYSTEM_PATH", "/app/prompts/harper/build_system.md")
+PROMPT_FINALIZE_SYSTEM_PATH = os.getenv("PROMPT_FINALIZE_SYSTEM_PATH", "/app/prompts/harper/finlize_system.md")
 
 _REPO_PLACEHOLDER = "[PROJECT_REPO_URL]"
-
 
 
 # --- Defaults per modelli che non hanno context definito ---
@@ -74,6 +79,50 @@ def _clip_text_to_tokens(text: str, max_tokens: int) -> str:
     # taglio grezzo per sicurezza (≈ 4 char/token)
     target_chars = max(128, int(max_tokens * 4))
     return text[-target_chars:]
+
+def _guess_mime(path: str) -> str:
+    # Usa libreria standard per dedurre il MIME; fallback binario generico.
+    mime, _ = mimetypes.guess_type(path or "", strict=False)
+    return mime or "application/octet-stream"
+
+def _extract_file_blocks(text: str) -> tuple[list[dict], str]:
+    """
+    Estrae blocchi del tipo:
+      ```file:/path/to/file.ext
+      <contenuto>
+      ```
+    Restituisce (files, remainder_text_senza_blocchi).
+    """
+    files: list[dict] = []
+    if not text:
+        return files, ""
+
+    remainder_parts: list[str] = []
+    idx = 0
+    for m in _FILE_BLOCK_RE.finditer(text):
+        start, end = m.span()
+        # append porzione di testo fuori dai blocchi precedente
+        remainder_parts.append(text[idx:start])
+        idx = end
+
+        raw_path = (m.group("path") or "").strip()
+        # normalizza path: togli leading // o /
+        norm_path = raw_path.lstrip().lstrip("/")
+        content = (m.group("content") or "")
+        files.append({
+            "path": norm_path,
+            "content": content,
+            "mime": _guess_mime(norm_path),
+            "encoding": "utf-8",
+        })
+
+    # coda finale del testo
+    remainder_parts.append(text[idx:])
+    remainder = "".join(remainder_parts).strip()
+
+    return files, remainder
+
+
 # --- PATCH END (helpers) ---
 
 def approx_tokens_from_chars(text: str) -> int:
@@ -117,42 +166,13 @@ def _gw_try_match_model(alias_or_id: str) -> Optional[dict]:
 def _read_text(path: str) -> str:
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
+            log.info("Loading %s", path)
             return f.read()
     except Exception:
+        log.error("Error reading %s", path)
         return ""
 
-def _compose_spec_messages(idea_md: str,
-                           core_blobs: dict | None,
-                           profile_hint: str | None,
-                           model_route_label: str | None,
-                           run_id: str | None) -> list[dict]:
-    """Build OpenAI/Anthropic style chat messages: system + user. Minimal, RAG-light."""
-    system = _read_text(PROMPT_SPEC_SYSTEM_PATH)
-    # Foreground principles (tiny, inline to keep context short)
-    foreground = (
-        "## CLike Principles (short)\n"
-        "- Harper pipeline: SPEC→PLAN→KIT, eval-driven quality, outcome-first.\n"
-        "- Keep SPEC concise but testable; Acceptance Criteria are mandatory.\n"
-        "- Maintain human-in-control tone; do not invent facts.\n"
-    )
-    # Pack minimal project context (IDEA + optional core blobs names)
-    refs = ""
-    if core_blobs:
-        refs = "### Included references:\n" + "\n".join(f"- {k} ({len(v or '')} chars)" for k, v in core_blobs.items())
 
-    user = (
-        f"{foreground}\n\n"
-        f"### Route\n- profile: {profile_hint or '—'}\n- model: {model_route_label or '—'}\n- runId: {run_id or 'n/a'}\n\n"
-        f"### IDEA.md (verbatim)\n{idea_md}\n\n"
-        f"{refs}\n\n"
-        "### Task\nTransform the IDEA into a SPEC that strictly follows the Output contract. "
-        "Return only the SPEC.md content as Markdown."
-    )
-
-    return [
-        {"role": "system", "content": system.strip()},
-        {"role": "user", "content": user.strip()},
-    ]
 
 PHASE_OUTPUT_FILE = {
     "spec": "SPEC.md",
@@ -168,6 +188,40 @@ PHASE_INPUT_FILE = {
     "build": ["IDEA.md", "SPEC.md", "PLAN.md", "KIT.md", "BUILD_REPORT.md"],
     "finalize":["IDEA.md", "SPEC.md", "PLAN.md", "KIT.md", "BUILD_REPORT.md", "RELEASE_NOTES.md"],
 }
+
+# --- PATCH START: phase-aware output checklist ---
+def _output_checklist_for_phase(phase: str) -> str:
+    p = (phase or "").lower()
+
+    if p in ("spec", "plan"):
+        return (
+            "### OUTPUT CONFORMITY CHECKLIST\n"
+            f"- Top-level heading is `# {p.upper()}`.\n"
+            "- All major sections use `## Section` headings (no numbered titles).\n"
+            "- Required diagrams (if any) use fenced code blocks (e.g., Mermaid). No ASCII art.\n"
+            "- Clean Markdown bullets (one space after `-` or `*`).\n"
+            "- Output is a single Markdown document (no extra prose before/after).\n"
+        )
+
+    if p == "finalize":
+        return (
+            "### OUTPUT CONFORMITY CHECKLIST\n"
+            f"- Top-level heading is `# {p.upper()}`.\n"
+            "- Produce `RELEASE_NOTES.md` as a single Markdown document or as a `file:/...` block.\n"
+            "- If additional metadata (tags/version) is included, keep it at the end in a clearly labeled section.\n"
+            "- No ASCII art; diagrams (if any) use proper fenced blocks.\n"
+            "- Clean Markdown bullets (one space after `-` or `*`).\n"
+        )
+
+    # KIT (file-based outputs)
+    return (
+        "### OUTPUT CONFORMITY CHECKLIST\n"
+        "- Emit one or more `file:/path` blocks with complete file contents.\n"
+        "- Include the phase log (`KIT.md`) as a file block if required.\n"
+        "- No trailing prose outside fenced blocks, except a short append-only iteration log if specified.\n"
+        "- Respect repository structure and composition-first design.\n"
+    )
+
 def _compose_system_messages(phase: str,
                             idea_md: Optional[str],
                             core_blobs: dict | None,
@@ -180,13 +234,14 @@ def _compose_system_messages(phase: str,
         "spec": PROMPT_SPEC_SYSTEM_PATH,
         "plan": PROMPT_PLAN_SYSTEM_PATH,
         "kit": PROMPT_KIT_SYSTEM_PATH,
-        "build": PROMPT_BUILD_SYSTEM_PATH,
         "finalize": PROMPT_FINALIZE_SYSTEM_PATH,
     }
     system_path = system_by_phase.get(phase, PROMPT_SPEC_SYSTEM_PATH)
     system = _read_text(system_path).strip() or "# Harper System Prompt\nFollow the phase contract strictly."
+    #log.info("System prdockeompt for phase %s: %s", phase, system)
     if phase == "kit" and repo_url:
         system = _inject_repo_url_in_system(system, repo_url) 
+    #log.debug("System w/ repo url prompt for phase %s: %s", phase, system)
 
     
     # Foreground principles (tiny, inline to keep context short)
@@ -236,7 +291,7 @@ def _compose_system_messages(phase: str,
         f"### Route\n- profile: {profile_hint or '—'}\n- model: {model_route_label or '—'}\n- runId: {run_id or 'n/a'}\n\n"
         f"### IDEA.md (verbatim)\n{idea_md}\n\n"
         f"{refs}\n\n"
-        f"### OUTPUT CONFORMITY CHECKLIST Before generating the output, self-check these non-negotiable format points:1. Is the first line the main `# PLAN` heading? 2. Are all major sections titled with `## Section Name`? 3. Are there ANY numbered lists (e.g., 1) Scope) used for major section titles? (If yes, FAIL and fix.) 4. Are `Mermaid` or `PlantUML` code blocks used for all required diagrams? (NO ASCII ART allowed). 5. Is the Markdown bullet list spacing clean (one space after `-` or `*`)?\n\n"
+        f"{_output_checklist_for_phase(phase)}"
         f"### Task\nProduce/Transform the {phase.upper()} output that strictly follows the Output contract. Return only the Markdown document for this phase.{suffix}"
  
     )
@@ -252,43 +307,6 @@ def _route_label(model: str | None, profile: str | None) -> str:
         return f"{profile}::{model}"
     return model or profile or "auto"
 
-async def _call_llm_chat(model: str | None, messages: list[dict], max_tokens: int = 2048, temperature: float = 0.2) -> str | None:
-    """
-    Minimal provider-agnostic attempt:
-    - If OPENAI_API_KEY is present and model looks like openai:..., call OpenAI Chat Completions.
-    - Else return None so the caller can fallback.
-    """
-    log.info("_call_llm_chat model=%s messages=%d", model, len(messages))
-    if not model:
-        return None
-    if model.startswith("openai:"):
-        api_key = os.getenv("OPENAI_API_KEY")
-        base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
-        if not api_key:
-            return None
-        # Strip "openai:" prefix if present
-        model_id = model.split(":", 1)[1]
-        payload = {
-            "model": model_id,
-            "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        }
-        log.info("_call_llm_chat model=%s messages=%d", model, len(messages))
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            r = await client.post(f"{base_url}/chat/completions",
-                                  headers={"authorization": f"Bearer {api_key}",
-                                           "content-type": "application/json"},
-                                  json=payload)
-            if r.status_code != 200:
-                return None
-            data = r.json()
-            try:
-                return data["choices"][0]["message"]["content"]
-            except Exception:
-                return None
-    # Other providers can be added here (anthropic:, mistral:, etc.)
-    return None
 
 def _fallback_spec_from_template(idea_md: str, model_route_label: str | None, run_id: str | None) -> str:
     """Deterministic SPEC using template + IDEA first paragraph(s)."""
@@ -381,9 +399,9 @@ async def run(req: HarperRunRequest,  request: Request):
     resolved_entry = None
     if req.model and not str(req.model).lower().startswith(("openai:","anthropic:","ollama:","vllm:","deepseek:","azure:","google:")):
         resolved_entry = _gw_try_match_model(str(req.model))
-        if resolved_entry:
-            log.info("harper.gateway normalized model '%s' -> id=%s (provider=%s)",
-                     req.model, resolved_entry.get("id"), resolved_entry.get("provider"))
+        # if resolved_entry:
+        #     log.info("harper.gateway normalized model '%s' -> id=%s (provider=%s)",
+        #              req.model, resolved_entry.get("id"), resolved_entry.get("provider"))
     
     # --- Context budgeting ---
     ctx_window, max_out_cap = _resolve_ctx_caps(resolved_entry)
@@ -448,6 +466,8 @@ async def run(req: HarperRunRequest,  request: Request):
     core_blobs = req.core_blobs or {}
     model_route_label = _route_label(req.model, req.profileHint)
     messages = _compose_system_messages(phase,idea, core_blobs, req.profileHint, model_route_label, req.runId, repourl)
+    
+    
     log.info("harper.gateway normalized messages '%s' ", messages)
      # 1) normalizza req.messages -> list[dict]
     incoming: list[dict] = []
@@ -481,8 +501,7 @@ async def run(req: HarperRunRequest,  request: Request):
             # Ricicliamo il messaggio 'user' già costruito, aggiungendo un blocco "Recent Harper chat"
             messages[1]["content"] += "\n\n### Recent Harper chat (trimmed)\n" + clipped_ctx
 
-    log.info("harper.gateway messages '%s' ",
-                    messages)
+    # log.info("harper.gateway messages '%s' ", messages)
 
     # 0) Check token per model
     # --- Context budgeting ---
@@ -571,13 +590,35 @@ async def run(req: HarperRunRequest,  request: Request):
             warnings.append(f"SPEC missing sections: {', '.join(missing)}")
 
     # Nome file corretto per la fase
+
+    # --- Multi-file support ---
     output_name = PHASE_OUTPUT_FILE.get(phase, f"{phase.upper()}.md")
-    files = [{
-        "path": f"{req.docRoot or 'docs/harper'}/{output_name}",
-        "content": system_md_txt,
-        "mime": "text/markdown",
-        "encoding": "utf-8",
-    }]
+    default_doc_path = f"{req.docRoot or 'docs/harper'}/{output_name}"
+
+    gen_files, remainder = _extract_file_blocks(system_md_txt)
+
+    files: list[dict] = []
+    if gen_files:
+        # I blocchi 'file:' sono path *relativi alla root repo* o assoluti '/...'
+        files.extend(gen_files)
+
+        # se rimane testo fuori dai blocchi file, lo salviamo nel documento della fase
+        if remainder:
+            files.append({
+                "path": default_doc_path,
+                "content": remainder,
+                "mime": "text/markdown",
+                "encoding": "utf-8",
+            })
+    else:
+        # fallback compatibile: singolo documento della fase
+        files.append({
+            "path": default_doc_path,
+            "content": system_md_txt,
+            "mime": "text/markdown",
+            "encoding": "utf-8",
+        })
+
 
     telemetry.update({
         "text_len": text_len,
@@ -600,3 +641,4 @@ async def run(req: HarperRunRequest,  request: Request):
         "runId": req.runId or "n/a",
         "telemetry": telemetry,
     }
+    

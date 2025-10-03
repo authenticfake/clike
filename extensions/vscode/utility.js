@@ -1,6 +1,6 @@
 const vscode = require('vscode');
+const cp = require('child_process');
 const path = require('path');
-
 // --- Helpers: estrazione/salvataggio Technology Constraints ---
 function extractTechConstraintsYaml(ideaText) {
   if (!ideaText) return null;
@@ -71,6 +71,7 @@ function removeTechConstraintsYaml(ideaText) {
       // ma dato che extractTechConstraintsYaml si ferma al primo match, dovremmo essere coerenti.
       modifiedText = modifiedText.replace(fullMatch, "").trim();
       modifiedText = modifiedText.replace(/^##\s+Technology Constraints\s*/m, "").trim();
+      console.log("removeTechConstraintsYaml done");
 
       return modifiedText; // Usciamo subito come fa extractTechConstraintsYaml
     }
@@ -163,6 +164,59 @@ async function attachCoreBlobs(docUri, coreList) {
   return blobs;
 }
 
+function execSyncSafe(cmd, cwd) {
+  try {
+    return cp.execSync(cmd, { cwd, stdio: ['ignore', 'pipe', 'ignore'] })
+      .toString('utf8')
+      .trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeRepoUrl(raw) {
+  if (!raw) return null;
+  // git@github.com:org/repo.git -> https://github.com/org/repo
+  const ssh = raw.match(/^git@([^:]+):(.+?)(\.git)?$/);
+  if (ssh) {
+    const host = ssh[1];
+    const repo = ssh[2].replace(/\.git$/, '');
+    return `https://${host}/${repo}`;
+  }
+  // https urls: drop .git
+  if (/^https?:\/\//i.test(raw)) return raw.replace(/\.git$/, '');
+  // file:// o altre -> restituisci com'è
+  return raw;
+}
+
+async function detectRepoUrl(projectRootUri) {
+  // 1) VS Code Git API
+  try {
+    const gitExt = vscode.extensions.getExtension('vscode.git');
+    if (gitExt) {
+      const git = gitExt.isActive ? gitExt.exports : await gitExt.activate();
+      const api = git.getAPI(1);
+      const repo = api.repositories.find(r =>
+        r.rootUri.fsPath === projectRootUri.fsPath ||
+        projectRootUri.fsPath.startsWith(r.rootUri.fsPath)
+      );
+      const remote = repo?.state?.remotes?.[0]?.fetchUrl || repo?.state?.remotes?.[0]?.pushUrl;
+      const n = normalizeRepoUrl(remote);
+      if (n) return n;
+    }
+  } catch {
+    // ignore
+  }
+
+  // 2) fallback: git config
+  const cwd = projectRootUri.fsPath;
+  const raw = execSyncSafe('git config --get remote.origin.url', cwd);
+  const n = normalizeRepoUrl(raw);
+  if (n) return n;
+
+  return null;
+}
+
 // projectRootUri: URI del progetto "attivo" (quello creato con /init nome)
 async function buildHarperBody(phase, payload, projectRootUri) {
   const _docRoot =  vscode.Uri.joinPath(projectRootUri, 'docs', 'harper');
@@ -186,7 +240,8 @@ async function buildHarperBody(phase, payload, projectRootUri) {
      if (idea_md)
       idea_md = removeTechConstraintsYaml(idea_md);
 
-    } else if (phase === 'kit') {
+    } 
+    else if (phase === 'kit') {
        // 0) repoUrl
       const repoUrl = await detectRepoUrl(projectRootUri);
         if (repoUrl) payload["repoUrl"] = repoUrl;
@@ -231,57 +286,7 @@ function defaultCoreForPhase(phase) {
       return ["IDEA.md"];
   }
 }
-// utils/gitRepoUrl.ts
-import * as vscode from 'vscode';
-import * as cp from 'child_process';
-import * as path from 'path';
 
-function execSyncSafe(cmd: string, cwd?: string): string | null {
-  try {
-    return cp.execSync(cmd, { cwd, stdio: ['ignore', 'pipe', 'ignore'] }).toString('utf8').trim() || null;
-  } catch {
-    return null;
-  }
-}
-
-function normalizeRepoUrl(raw?: string | null): string | null {
-  if (!raw) return null;
-  // git@github.com:org/repo.git -> https://github.com/org/repo
-  const ssh = raw.match(/^git@([^:]+):(.+?)(\.git)?$/);
-  if (ssh) {
-    const host = ssh[1];
-    const repo = ssh[2].replace(/\.git$/, '');
-    return `https://${host}/${repo}`;
-  }
-  // https urls: drop .git
-  if (/^https?:\/\//i.test(raw)) return raw.replace(/\.git$/, '');
-  // file:// o altre -> restituisci com'è
-  return raw;
-}
-
-export async function detectRepoUrl(projectRootUri: vscode.Uri): Promise<string | null> {
-  // 1) VS Code Git API
-  try {
-    const gitExt = vscode.extensions.getExtension('vscode.git');
-    if (gitExt) {
-      const git = gitExt.isActive ? gitExt.exports : await gitExt.activate();
-      const api = git.getAPI(1);
-      const repo = api.repositories.find(r => r.rootUri.fsPath === projectRootUri.fsPath
-        || projectRootUri.fsPath.startsWith(r.rootUri.fsPath));
-      const remote = repo?.state?.remotes?.[0]?.fetchUrl || repo?.state?.remotes?.[0]?.pushUrl;
-      const n = normalizeRepoUrl(remote);
-      if (n) return n;
-    }
-  } catch { /* ignore */ }
-
-  // 2) fallback: git config
-  const cwd = projectRootUri.fsPath;
-  const raw = execSyncSafe('git config --get remote.origin.url', cwd);
-  const n = normalizeRepoUrl(raw);
-  if (n) return n;
-
-  return null;
-}
 
 module.exports = {
 
