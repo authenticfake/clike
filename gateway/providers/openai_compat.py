@@ -9,7 +9,9 @@ from __future__ import annotations
 import httpx, json
 from typing import Any, List, Dict, Tuple, Optional, Union
 import logging, time as _time
-from copy import deepcopy as _deepcopy
+import asyncio
+import random
+import httpx
 
 log = logging.getLogger("gateway.openai")
 # -------- JSON schema used for file outputs (harper coding/KIT) -------------
@@ -44,6 +46,68 @@ FILES_JSON_SCHEMA: Dict[str, Any] = {
     "required": ["files"],
     "additionalProperties": False
 }
+
+
+RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+
+def _build_llm_timeout(read_s: float) -> httpx.Timeout:
+    # connect=10s, read/write adattivi, no timeout pool
+    rs = float(read_s or 120.0)
+    return httpx.Timeout(connect=10.0, read=rs, write=rs, pool=10.0)
+    
+
+async def _post_with_retries(url: str, json_payload: dict, headers: dict,
+                             read_timeout_s: float,
+                             max_attempts: int = 3) -> httpx.Response:
+    """
+    POST robusto con retry ed exponential backoff jitter sui codici 429/5xx.
+    """
+    backoff_base = 0.8
+    for attempt in range(1, max_attempts + 1):
+        try:
+            log.info("gateway._post_with_retries attempt %s", attempt)
+            async with httpx.AsyncClient(timeout=_build_llm_timeout(read_timeout_s)) as client:
+                r = await client.post(url, headers=headers, json=json_payload)
+                log.info("gateway._post_with_retries response %s", r.status_code)
+
+            if r.status_code in RETRYABLE_STATUS and attempt < max_attempts:
+                # backoff con jitter
+                sleep_s = (backoff_base ** -attempt) * (0.5 + random.random() * 0.7)
+                await asyncio.sleep(sleep_s)
+                continue
+            r.raise_for_status()
+            return r
+        except (httpx.TimeoutException, httpx.NetworkError) as e:
+            log.error("gateway._post_with_retries: %s", e)
+
+            if attempt >= max_attempts:
+                raise
+            sleep_s = (backoff_base ** -attempt) * (0.7 + random.random() * 0.7)
+            await asyncio.sleep(sleep_s)
+            # ritenta
+        except httpx.HTTPStatusError as e:
+            if e.response is not None and e.response.status_code in RETRYABLE_STATUS and attempt < max_attempts:
+                sleep_s = (backoff_base ** -attempt) * (0.7 + random.random() * 0.7)
+                await asyncio.sleep(sleep_s)
+                continue
+            raise
+
+# --- Calcolo timeout adattivo e invocazione robusta ---
+
+# Stima tokens prompt (se hai già una funzione usa la tua)
+def _approx_tokens_from_chars(s: str) -> int:
+    # euristico: ~4 char/token
+    if not s:
+        return 0
+    return max(1, int(len(s) / 4))
+
+def _messages_concat_for_estimate(msgs: list[dict]) -> str:
+    out = []
+    for m in msgs or []:
+        c = m.get("content")
+        if isinstance(c, str):
+            out.append(c)
+    return "\n".join(out)
 
 #used for harper cenario for homologte the oai raw reposndse to clki reposnse
 # --- normalizzazione esito LLM (allineata a Free/Coding) ---
@@ -87,44 +151,7 @@ def coerce_text_and_usage(raw: Any) -> Tuple[str, Dict[str, Any]]:
         # ultima rete di salvataggio
         return "", {}
 
-#deprecated
-def extract_text_and_usage_from_openai(obj) -> tuple[str, dict]:
-    """
-    Accetta: dict OpenAI, stringa JSON, oppure stringa plain.
-    Ritorna: (text, usage_dict)
-    """
-    usage = {}
-    # dict già parsato
-    if isinstance(obj, dict):
-        try:
-            text = obj.get("choices", [{}])[0].get("message", {}).get("content", "")
-            usage = obj.get("usage", {}) or {}
-            return (text or "", usage)
-        except Exception:
-            # fallback: repr del dict se malformato
-            return (str(obj), usage)
-    # stringa: prova JSON → altrimenti plain
-    if isinstance(obj, str):
-        s = obj.strip()
-        if s.startswith("{") or s.startswith("["):
-            try:
-                data = json.loads(s)
-                return _extract_text_and_usage_from_openai(data)
-            except Exception:
-                # non è JSON valido → consideralo testo "grezzo"
-                return (s, usage)
-        # potrebbe essere repr Python di un dict (come visto nei log)
-        if s.startswith("{'") and "choices" in s and "message" in s:
-            try:
-                # tentativo prudente: sostituisci quotes singoli → doppi e parse
-                j = s.replace("'", '"')
-                data = json.loads(j)
-                return _extract_text_and_usage_from_openai(data)
-            except Exception:
-                return (s, usage)
-        return (s, usage)
-    # altri tipi (None, ecc.)
-    return ("", usage)
+
 
 def _shrink(s: str, n: int = 2000) -> str:
     return s if len(s) <= n else (s[:n] + "…")
@@ -173,12 +200,39 @@ async def chat(
         "has_tools": bool(tools),
         "has_tool_choice": tool_choice is not None,
         "budget": max_tokens,
-        "payload": payload
+        "payload length": len(json.dumps(payload))
     }))
 
     t0 = _time.time()
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        r = await client.post(url, headers=headers, json=payload)
+    # 1) Timeout adattivo
+    _est_chars = _messages_concat_for_estimate(payload.get("messages", []))
+    _est_prompt_tokens = _approx_tokens_from_chars(_est_chars)
+    _requested_max = int(payload.get("max_completion_tokens") or payload.get("max_tokens") or 2048)
+
+    # Base 45s + 0.02s/token prompt + 0.03s/token output richiesto (togli/ritocca se vuoi)
+    read_timeout_s = 45.0 + (0.02 * _est_prompt_tokens) + (0.03 * _requested_max)
+    # Clamping sensato
+    read_timeout_s = float(min(240.0, max(70.0, read_timeout_s)))
+
+    try:
+        r = await _post_with_retries(url,json_payload=payload,headers=headers, read_timeout_s=read_timeout_s, max_attempts=2)
+    except Exception:
+        # tentativo 2: fallback riducendo max tokens
+        fallback_payload = dict(payload)
+        if "max_completion_tokens" in fallback_payload:
+            fallback_payload["max_completion_tokens"] = max(1024, int(_requested_max / 2))
+        elif "max_tokens" in fallback_payload:
+            fallback_payload["max_tokens"] = max(1024, int(_requested_max / 2))
+
+        r = await _post_with_retries(
+            "https://api.openai.com/v1/chat/completions",
+            json_payload=fallback_payload,
+            headers=headers,
+            read_timeout_s=min(240.0, read_timeout_s + 30.0),  # leggermente più largo
+            max_attempts=2,
+        )
+    # async with httpx.AsyncClient(timeout=timeout) as client:
+    #     r = await client.post(url, headers=headers, json=payload)
     ms = int((_time.time() - t0) * 1000)
 
     txt = r.text
