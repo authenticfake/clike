@@ -83,7 +83,11 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
     merged.setdefault("cmd", phase)
     merged.setdefault("flags", {})
     merged = await _normalize_message(merged);
-    
+    if merged.get("phase") == "kit":
+        kit = merged.get("kit") or {}
+        targets = kit.get("targets") or []
+        if not isinstance(targets, list) or len(targets) != 1 or not isinstance(targets[0], str) or not targets[0].strip():
+            raise ValueError("Harper /kit requires exactly one target REQ-ID in kit.targets, e.g. { kit: { targets: ['REQ-001'] } }")
 
     # --- routing modello (unica fonte di verità) ---
     model_override = merged.get("model")

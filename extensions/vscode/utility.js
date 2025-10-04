@@ -1,6 +1,9 @@
 const vscode = require('vscode');
 const cp = require('child_process');
 const path = require('path');
+
+const out = vscode.window.createOutputChannel('Clike.utility');
+
 // --- Helpers: estrazione/salvataggio Technology Constraints ---
 function extractTechConstraintsYaml(ideaText) {
   if (!ideaText) return null;
@@ -207,7 +210,6 @@ async function detectRepoUrl(projectRootUri) {
   } catch {
     // ignore
   }
-
   // 2) fallback: git config
   const cwd = projectRootUri.fsPath;
   const raw = execSyncSafe('git config --get remote.origin.url', cwd);
@@ -215,6 +217,251 @@ async function detectRepoUrl(projectRootUri) {
   if (n) return n;
 
   return null;
+}
+// --- PLAN.md helpers: update only the "### REQ-IDs Table" section (markdown table) ---
+
+/**
+ * Estrae la sottosezione testuale tra un'intestazione H3 specifica e la successiva H3 (o EOF).
+ */
+function _sliceSection(text, h3Title) {
+  const startRe = new RegExp(`^###\\s+${h3Title}\\s*$`, 'mi');
+  const nextH3 = /^###\s+/mi;
+  const m = text.match(startRe);
+  if (!m) return { found: false, full: text, head: text, section: '', tail: '' };
+
+  const startIdx = m.index;
+  // dal punto dopo la riga H3
+  const afterH3Idx = text.indexOf('\n', startIdx) + 1;
+  const rest = text.slice(afterH3Idx);
+  const next = rest.search(nextH3);
+  const sectionEnd = (next >= 0) ? (afterH3Idx + next) : text.length;
+
+  const head = text.slice(0, afterH3Idx);
+  const section = text.slice(afterH3Idx, sectionEnd);
+  const tail = text.slice(sectionEnd);
+  return { found: true, full: text, head, section, tail };
+}
+
+/**
+ * Parse di una tabella markdown "pipe" (header allineato con ---) e ritorno di array di oggetti.
+ * Richiede almeno una colonna "REQ-ID" (case-insensitive). Accetta colonne extra.
+ */
+function _parseMarkdownTable(sectionText) {
+  const lines = sectionText.split(/\r?\n/).map(s => s.trim());
+  // trova inizio tabella (riga header con | ... |) e riga separatori
+  let start = -1, sep = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\|.+\|$/.test(lines[i])) {
+      // la riga successiva deve essere separatore --- | --- | ...
+      if (i + 1 < lines.length && /^\|\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(lines[i + 1])) {
+        start = i; sep = i + 1; break;
+      }
+    }
+  }
+  if (start < 0) return { header: [], rows: [], start: -1, sep: -1, end: -1 };
+
+  const headerCells = lines[start].slice(1, -1).split('|').map(s => s.trim());
+  const rows = [];
+  let end = lines.length;
+  for (let i = sep + 1; i < lines.length; i++) {
+    if (!/^\|.+\|$/.test(lines[i])) { end = i; break; }
+    const cols = lines[i].slice(1, -1).split('|').map(s => s.trim());
+    rows.push(cols);
+  }
+  return { header: headerCells, rows, start, sep, end, lines };
+}
+
+/**
+ * Dato un testo di sezione tabellare e una mappa { REQ-ID -> status }, ritorna la sezione aggiornata.
+ * Se la tabella non esiste, ne crea una minima.
+ */
+function _updateReqTableSection(sectionText, statusMap) {
+  const parsed = _parseMarkdownTable(sectionText);
+  // normalizza il nome colonna REQ-ID e Status
+  const header = parsed.header.map(h => h.toLowerCase());
+  let reqIdx = header.findIndex(h => /^req-?id$/.test(h));
+  if (reqIdx < 0) reqIdx = header.findIndex(h => /req/.test(h)); // fallback
+  let statusIdx = header.findIndex(h => /^status$/.test(h));
+  if (parsed.start < 0 || reqIdx < 0) {
+    // tabella assente → creiamone una base con 3 colonne
+    const hdr = ['REQ-ID', 'Title', 'Status'];
+    const sep = ['---', '---', '---'];
+    const rows = Object.entries(statusMap).map(([id, st]) => `| ${id} |  | ${st} |`);
+    return [
+      `| ${hdr.join(' | ')} |`,
+      `| ${sep.join(' | ')} |`,
+      ...rows
+    ].join('\n') + '\n';
+  }
+
+  // Costruiamo una mappa per sostituzioni (case-insensitive su REQ)
+  const lowerKeys = Object.keys(statusMap).reduce((acc, k) => {
+    acc[k.toLowerCase()] = statusMap[k]; return acc;
+  }, {});
+  // Se manca "Status", aggiungiamo la colonna in coda
+  const addStatusCol = (statusIdx < 0);
+  const newHeader = parsed.header.slice();
+  if (addStatusCol) newHeader.push('Status');
+
+  const outRows = [];
+  for (const cols of parsed.rows) {
+    const c = cols.slice();
+    const reqVal = (c[reqIdx] || '').toString().trim();
+    const key = reqVal.toLowerCase();
+    if (lowerKeys[key]) {
+      if (statusIdx < 0) {
+        c.push(lowerKeys[key]);
+      } else {
+        c[statusIdx] = lowerKeys[key];
+      }
+    } else if (addStatusCol) {
+      c.push(c[statusIdx] || 'open'); // default per righe esistenti
+    }
+    outRows.push('| ' + c.join(' | ') + ' |');
+  }
+
+  // Aggiungi eventuali nuove righe per REQ non presenti
+  const existingReqs = new Set(parsed.rows.map(r => (r[reqIdx] || '').toString().trim().toLowerCase()));
+  for (const [id, st] of Object.entries(statusMap)) {
+    if (!existingReqs.has(id.toLowerCase())) {
+      // cerchiamo anche la colonna "Title" se esiste
+      const titleIdx = parsed.header.map(h => h.toLowerCase()).findIndex(h => /^title$/.test(h));
+      const newCols = [];
+      for (let i = 0; i < newHeader.length; i++) {
+        if (i === reqIdx) newCols[i] = id;
+        else if (i === statusIdx || (addStatusCol && i === newHeader.length - 1)) newCols[i] = st;
+        else if (i === titleIdx) newCols[i] = '';
+        else newCols[i] = '';
+      }
+      outRows.push('| ' + newCols.join(' | ') + ' |');
+    }
+  }
+
+  const sepLine = '| ' + newHeader.map(() => '---').join(' | ') + ' |';
+  const headerLine = '| ' + newHeader.join(' | ') + ' |';
+
+  const rebuilt = [headerLine, sepLine, ...outRows].join('\n') + '\n';
+  // Rimonta: rimpiazziamo l'area tabellare evitando di toccare altro testo della sezione
+  const before = parsed.lines.slice(0, parsed.start).join('\n');
+  const after  = parsed.lines.slice(parsed.end).join('\n');
+  const glueA = before ? (before + '\n') : '';
+  const glueB = after  ? ('\n' + after)  : '';
+  return glueA + rebuilt + glueB;
+}
+
+// PATCH 3 — selezione target e payload /kit (dentro handler del comando Harper)
+async function runKitCommand(context, plan, cmdArgs) {
+  out.appendLine(`[runKitCommand] ${cmdArgs}`);
+  // cmdArgs: string dopo "/kit", es. "", "REQ-001"
+  let targetReqId = (cmdArgs || '').trim() || null;
+  if (!targetReqId) {
+    targetReqId = findNextOpenReq(plan);
+    if (!targetReqId) {
+      vscode.window.showWarningMessage('No open REQ found in plan.json.');
+      return;
+    }
+  }
+
+  // (opzionale) avvisa se deps non done
+  const candidate = (plan.reqs || []).find(r => r.id === targetReqId);
+  const deps = Array.isArray(candidate?.dependsOn) ? candidate.dependsOn : [];
+  const byId = Object.fromEntries((plan.reqs||[]).map(r=>[r.id,r]));
+  const depsOk = deps.every(d => byId[d] && byId[d].status === 'done');
+  if (!depsOk) {
+    const pick = await vscode.window.showWarningMessage(
+      `Dependencies for ${targetReqId} are not all 'done'. Proceed anyway?`,
+      'Proceed', 'Cancel'
+    );
+    if (pick !== 'Proceed') return;
+  }
+  return targetReqId;
+}
+
+
+/**
+ * Aggiorna stato REQ (done) e sincronizza plan.json + PLAN.md.
+ * - Se `plan` non è passato o non valido, rilegge la versione attuale dal disco.
+ * - `targetReqId` è la REQ chiusa dal /kit corrente.
+ * - `out` è un OutputChannel (opzionale), altrimenti usa console.log.
+ */
+async function saveKitCommand(projectRootUri, plan, targetReqId, out) {
+  const log = (msg) => {
+    if (out && typeof out.appendLine === 'function') out.appendLine(msg);
+    else console.log(msg);
+  };
+
+  log(`[saveKitCommand] target=${targetReqId}`);
+
+  // 1) Carica plan se mancante
+  let effectivePlan = plan;
+  if (!effectivePlan || !Array.isArray(effectivePlan.reqs)) {
+    effectivePlan = await readPlanJson(projectRootUri);
+    if (!effectivePlan || !Array.isArray(effectivePlan.reqs)) {
+      vscode.window.showErrorMessage(`[saveKitCommand] plan.json not found or invalid; aborting update. for ${targetReqId}.`);
+      log('[saveKitCommand] plan.json not found or invalid; aborting update.');
+      return;
+    }
+  }
+
+  // 2) Aggiorna stato REQ → done
+  const ok = setReqStatus(effectivePlan, targetReqId, 'in_progress');
+  if (!ok) {
+    log(`[saveKitCommand] REQ ${targetReqId} not found in plan.json; no update performed.`);
+    // Continuiamo comunque a scrivere il plan attuale, ma senza cambiare snapshot/table
+  }
+
+  // 3) Scrivi plan.json
+  await writePlanJson(projectRootUri, effectivePlan);
+  log(`[plan.json updated] ${targetReqId}`);
+
+  // 4) Aggiorna PLAN.md in place (Snapshot + Tabella)
+  await updatePlanMdInPlace(projectRootUri, effectivePlan);
+  log(`[PLAN.md updated] ${targetReqId}`);
+
+  // 5) Notifica
+  try {
+    vscode.window.showInformationMessage(`KIT completed for ${targetReqId}.`);
+  } catch {
+    // no-op headless
+  }
+}
+/**
+ * /eval → non cambia stato (ma potresti marcare 'in_progress' se non lo è)
+ */
+async function saveEvalCommand(projectRootUri, plan, targetReqId, out) {
+  const log = (m) => (out?.appendLine ? out.appendLine(m) : console.log(m));
+  log(`[saveEvalCommand] target=${targetReqId}`);
+
+  let effectivePlan = plan || await readPlanJson(projectRootUri);
+  if (!effectivePlan || !Array.isArray(effectivePlan.reqs)) return;
+
+  // opzionale: se non è ancora in_progress → mettilo
+  const req = effectivePlan.reqs.find(r => (r.id || '').toUpperCase() === targetReqId.toUpperCase());
+  if (req && (req.status || '').toLowerCase() === 'open') {
+    setReqStatus(effectivePlan, targetReqId, 'in_progress');
+    await writePlanJson(projectRootUri, effectivePlan);
+    await updatePlanMdInPlace(projectRootUri, effectivePlan);
+    log(`[PLAN synced to in_progress] ${targetReqId}`);
+  }
+}
+
+/**
+ * /gate → porta REQ a done e sincronizza artefatti
+ */
+async function saveGateCommand(projectRootUri, plan, targetReqId, out) {
+  const log = (m) => (out?.appendLine ? out.appendLine(m) : console.log(m));
+  log(`[saveGateCommand] target=${targetReqId}`);
+
+  let effectivePlan = plan || await readPlanJson(projectRootUri);
+  if (!effectivePlan || !Array.isArray(effectivePlan.reqs)) return;
+
+  if (!setReqStatus(effectivePlan, targetReqId, 'done')) {
+    log(`[saveGateCommand] REQ ${targetReqId} not found in plan.json`);
+  }
+
+  await writePlanJson(projectRootUri, effectivePlan);
+  await updatePlanMdInPlace(projectRootUri, effectivePlan);
+  try { vscode.window.showInformationMessage(`REQ ${targetReqId} marked as done.`); } catch {}
 }
 
 // projectRootUri: URI del progetto "attivo" (quello creato con /init nome)
@@ -255,6 +502,182 @@ async function buildHarperBody(phase, payload, projectRootUri) {
   // 2) Body retro-compatibile + nuovi campi opzionali
   return payload;
 }
+// PATCH 1 — utilities per PLAN/REQ (in alto vicino ad altre utility)
+async function readTextFile(uri) {
+  try {
+    const data = await vscode.workspace.fs.readFile(uri);
+    return Buffer.from(data).toString('utf8');
+  } catch {
+    return null;
+  }
+}
+async function writeTextFile(uri, text) {
+  await vscode.workspace.fs.writeFile(uri, Buffer.from(text, 'utf8'));
+}
+
+async function readPlanJson(projectRootUri) {
+  const uri = vscode.Uri.joinPath(projectRootUri, 'docs', 'harper', 'plan.json');
+  try {
+    const raw = await readTextFile(uri);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function writePlanJson(projectRootUri, obj) {
+  const uri = vscode.Uri.joinPath(projectRootUri, 'docs', 'harper', 'plan.json');
+  await writeTextFile(uri, JSON.stringify(obj, null, 2));
+}
+
+function findNextOpenReq(plan) {
+  if (!plan || !Array.isArray(plan.reqs)) return null;
+  // dipendenze tutte done
+  const isDepsSatisfied = (req, byId) => {
+    const deps = Array.isArray(req.dependsOn) ? req.dependsOn : [];
+    return deps.every(d => (byId[d] && byId[d].status === 'done'));
+  };
+  const byId = Object.fromEntries(plan.reqs.map(r => [r.id, r]));
+  for (const req of plan.reqs) {
+    if (req.status === 'open' && isDepsSatisfied(req, byId)) return req.id;
+  }
+  // fallback: primo open anche se deps non soddisfatte
+  const anyOpen = plan.reqs.find(r => r.status === 'open');
+  return anyOpen ? anyOpen.id : null;
+}
+
+function setReqStatus(plan, reqId, status) {
+  if (!plan || !Array.isArray(plan.reqs)) return false;
+  const r = plan.reqs.find(x => (x.id || '').trim().toUpperCase() === (reqId || '').trim().toUpperCase());
+  if (!r) return false;
+  r.status = status;
+  return true;
+}
+
+
+// -- renderer di snapshot/table (usa i tuoi se già esistono) --
+function snapshotCounts(plan) {
+  const total = (plan?.reqs || []).length;
+  const done = (plan?.reqs || []).filter(r => (r.status || '').toLowerCase() === 'done').length;
+  const open = (plan?.reqs || []).filter(r => (r.status || '').toLowerCase() === 'open').length;
+  const inprog = (plan?.reqs || []).filter(r => (r.status || '').toLowerCase() === 'in_progress').length;
+  const deferred = (plan?.reqs || []).filter(r => (r.status || '').toLowerCase() === 'deferred').length;
+  const progress = total > 0 ? Math.round((done / total) * 100) : 0;
+  return { total, done, open, in_progress: inprog, deferred, progress };
+}
+
+function renderSnapshotMd(ss) {
+  // Ritorna sezione COMPLETA inclusa l’intestazione
+  return [
+    '## Plan Snapshot',
+    '',
+    `- **Counts:** total=${ss.total} / open=${ss.open} / in_progress=${ss.in_progress} / done=${ss.done} / deferred=${ss.deferred}`,
+    `- **Progress:** ${ss.progress}% complete`,
+    '- **Checklist:**',
+    '  - [x] SPEC aligned',
+    '  - [x] Prior REQ reconciled',
+    '  - [x] Dependencies mapped',
+    '  - [x] KIT-readiness per REQ confirmed',
+    ''
+  ].join('\n');
+}
+
+function renderReqTableMd(plan) {
+  // Tabella Markdown semplice, robusta
+  const rows = (plan?.reqs || []).map(r => {
+    const id = r.id || '';
+    const title = r.title || '';
+    const acc = Array.isArray(r.acceptance) ? r.acceptance.map(a => a.trim()).join('<br/>') : (r.acceptance || '');
+    const deps = Array.isArray(r.dependsOn) ? r.dependsOn.join(', ') : (r.dependsOn || '');
+    const track = (r.track || '').toString();
+    const status = (r.status || '').toString();
+    return `| ${id} | ${title} | ${acc} | ${deps} | ${track} | ${status} |`;
+  });
+
+  return [
+    '## REQ-IDs Table',
+    '',
+    '| ID | Title | Acceptance | DependsOn | Track | Status |',
+    '|---|---|---|---|---|---|',
+    ...rows,
+    ''
+  ].join('\n');
+}
+
+// Regex di sezione robuste: case-insensitive, tolleranti su spazi/varianti
+function sectionRegex(titleVariants) {
+  // Esempio: ['Plan Snapshot'] o ['REQ-IDs Table']
+  const escaped = titleVariants.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const union = escaped.join('|');
+  // Cattura l'intestazione (## <title...>) e il contenuto fino al prossimo ## o fine file
+  return new RegExp(
+    `^(##\\s*(?:${union})\\b[^\n]*\\n)([\\s\\S]*?)(?=^##\\s|\\Z)`,
+    'mi'
+  );
+}
+
+async function updatePlanMdInPlace(projectRootUri, plan) {
+  const uri = vscode.Uri.joinPath(projectRootUri, 'docs', 'harper', 'PLAN.md');
+  let md = await readTextFile(uri);
+  if (!md) return;
+
+  const ss = snapshotCounts(plan);
+  const newSnapshot = renderSnapshotMd(ss);
+  const newTable = renderReqTableMd(plan);
+
+  // Cerca le sezioni con regex robuste (accetta anche eventuali varianti di scrittura)
+  const rxSnapshot = sectionRegex(['Plan Snapshot']);
+  const rxTable = sectionRegex(['REQ-IDs Table', 'REQ IDs Table', 'REQ-IDs table']);
+
+  // Sostituisci o aggiungi Snapshot
+  if (rxSnapshot.test(md)) {
+    md = md.replace(rxSnapshot, (_, heading /*, body*/) => {
+      // Manteniamo la riga heading originale (per non cambiare maiuscole/spazi),
+      // sostituiamo solo il contenuto con quello nuovo (senza ripetere l’intestazione)
+      const contentLines = newSnapshot.split('\n');
+      contentLines.shift(); // rimuovi "## Plan Snapshot"
+      const content = contentLines.join('\n');
+      return `${heading}${content}\n`;
+    });
+  } else {
+    // Non trovata → appenderla in cima
+    md = `${newSnapshot}\n${md}`;
+  }
+
+  // Sostituisci o aggiungi Tabella
+  if (rxTable.test(md)) {
+    md = md.replace(rxTable, (_, heading /*, body*/) => {
+      const contentLines = newTable.split('\n');
+      contentLines.shift(); // rimuovi "## REQ-IDs Table"
+      const content = contentLines.join('\n');
+      return `${heading}${content}\n`;
+    });
+  } else {
+    md = `${md}\n\n${newTable}`;
+  }
+
+  await writeTextFile(uri, md);
+}
+
+
+async function updatePlanMdInPlace(projectRootUri, plan) {
+  const uri = vscode.Uri.joinPath(projectRootUri, 'docs', 'harper', 'PLAN.md');
+  const md = await readTextFile(uri);
+  if (!md) return;
+
+  const ss = snapshotCounts(plan);
+  const newSnapshot = renderSnapshotMd(ss);
+  const newTable = renderReqTableMd(plan);
+
+  const snapRx = /(##\s*Plan Snapshot)([\s\S]*?)(?=^##\s|\Z)/m;
+  const tableRx = /(##\s*REQ-IDs Table)([\s\S]*?)(?=^##\s|\Z)/m;
+
+  let out = md;
+  out = snapRx.test(out) ? out.replace(snapRx, newSnapshot) : (newSnapshot + '\n' + out);
+  out = tableRx.test(out) ? out.replace(tableRx, newTable) : (out + '\n\n' + newTable);
+
+  await writeTextFile(uri, out);
+}
 
 
 function extractUserMessages(sessionData) {
@@ -292,5 +715,11 @@ module.exports = {
 
   buildHarperBody,
   extractUserMessages,
-  defaultCoreForPhase
+  defaultCoreForPhase,
+  readPlanJson,
+  runKitCommand,
+  saveKitCommand,
+  saveGateCommand,
+  saveEvalCommand
+
 };

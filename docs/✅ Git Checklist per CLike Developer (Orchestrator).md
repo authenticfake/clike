@@ -1,4 +1,4 @@
-
+##CLike GIT life cycle
 
 # ✅ Git Checklist per CLike Developer (Orchestrator)
 
@@ -87,12 +87,4 @@
    * `/eval spec` → validazione.
    * Poi passare a PLAN.
 
----
 
-👉 Adesso siamo pronti a:
-
-* prendere il progetto **CoffeeBuddy On-Prem**,
-* partire da **IDEA.md**,
-* lanciare `/spec` e testare il ciclo SPEC → EVAL → approvazione.
-
-Vuoi che ti prepari subito la **checklist operativa per i test su CoffeeBuddy On-Prem** (comandi step-by-step dentro VS Code + cosa aspettarti)?

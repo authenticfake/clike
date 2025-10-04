@@ -1,7 +1,8 @@
 # gateway/routes/harper.py
 from __future__ import annotations
+import json
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Path, Request
 from pydantic import BaseModel, Field
 from typing import List, Literal, Optional, Dict, Any, Union
 import logging
@@ -33,6 +34,148 @@ PROMPT_FINALIZE_SYSTEM_PATH = os.getenv("PROMPT_FINALIZE_SYSTEM_PATH", "/app/pro
 
 _REPO_PLACEHOLDER = "[PROJECT_REPO_URL]"
 
+# Sostituisci queste righe in alto:
+# _FILE_BLOCK_RE = re.compile(
+#     r"(?:^|\n)```[^\n]*\n\s*file:([^\n]+)\n(.*?)\n```",
+#     re.DOTALL | re.IGNORECASE
+# )
+
+# Con queste due regex (supporto fenced + non-fenced):
+_FILE_BLOCK_FENCED_RE = re.compile(
+    r"(?:^|\n)```[^\n]*\n\s*file:([^\n]+)\n(.*?)\n```",
+    re.DOTALL | re.IGNORECASE
+)
+_FILE_BLOCK_PLAIN_RE = re.compile(
+    r"(?:^|\n)file:([^\n]+)\n(.*?)(?=(?:\nfile:[^\n]+\n)|\Z)",
+    re.DOTALL | re.IGNORECASE
+)
+# === PATCH 1A: Helpers per derivare plan.json dal PLAN.md (Markdown table) ===
+import re
+import json
+
+def _extract_req_table_md(plan_md: str) -> str | None:
+    """
+    Estrae la sezione '## REQ-IDs Table' come markdown table (header + sep + rows).
+    Ritorna la table come stringa o None.
+    """
+    if not plan_md:
+        return None
+    # Match dalla sezione fino alla prossima sezione (##) o fine testo
+    sec_rx = re.compile(r'(##\s*REQ-IDs Table)([\s\S]*?)(?=^##\s|\Z)', re.MULTILINE)
+    m = sec_rx.search(plan_md)
+    if not m:
+        return None
+    block = m.group(2).strip()
+    # cerca la tabella markdown (header | sep | rows)
+    # molto permissivo: prima riga con |, seconda riga con ---
+    lines = [ln.rstrip() for ln in block.splitlines() if ln.strip()]
+    if len(lines) < 2 or '|' not in lines[0]:
+        return None
+    return "\n".join(lines)
+
+def _parse_md_table(md_table: str) -> list[dict]:
+    """
+    Parsifica una markdown table GitHub-style in array di dict.
+    Richiede header + sep + rows. Gestisce celle con contenuto semplice (pipe-split).
+    """
+    rows = [ln.strip() for ln in md_table.splitlines() if ln.strip()]
+    if len(rows) < 2:
+        return []
+    header = [c.strip() for c in rows[0].strip('|').split('|')]
+    # salta la riga di separatori
+    data_rows = []
+    for ln in rows[2:]:
+        if '|' not in ln:
+            continue
+        cols = [c.strip() for c in ln.strip('|').split('|')]
+        # normalizza lunghezze
+        while len(cols) < len(header):
+            cols.append('')
+        item = { header[i]: cols[i] for i in range(len(header)) }
+        data_rows.append(item)
+    return data_rows
+
+def _norm_list(val: str) -> list[str]:
+    """
+    Converte una cella tipo 'REQ-001,REQ-002' -> ['REQ-001','REQ-002'].
+    Supporta <br> come separatore multiplo.
+    """
+    if not val:
+        return []
+    # sostieni eventuali <br> inseriti in Acceptance
+    parts = re.split(r'(?:<br>|,)', val)
+    return [p.strip() for p in parts if p and p.strip()]
+
+def _derive_plan_json_from_md(plan_md: str) -> dict | None:
+    """
+    Deriva un plan.json con forma:
+    {
+      "reqs":[
+        {"id":"REQ-001","title":"...","acceptance":["..."],"dependsOn":["REQ-002"],"track":"App","status":"open"},
+        ...
+      ],
+      "snapshot":{"total":N,"open":n1,"in_progress":n2,"done":n3,"deferred":n4,"progressPct":...}
+    }
+    """
+    table_md = _extract_req_table_md(plan_md)
+    if not table_md:
+        return None
+    rows = _parse_md_table(table_md)
+    if not rows:
+        return None
+
+    # mapping robusto by column names (case-insensitive)
+    def _get(row: dict, name: str) -> str:
+        for k, v in row.items():
+            if k.strip().lower() == name:
+                return v or ''
+        return ''
+
+    reqs = []
+    for r in rows:
+        rid       = _get(r, 'id')
+        title     = _get(r, 'title')
+        acc_cell  = _get(r, 'acceptance (bullets)')
+        deps_cell = _get(r, 'dependson')
+        track     = _get(r, 'track (app|infra)') or _get(r, 'track') or 'App'
+        status    = _get(r, 'status (open|done|deferred)') or _get(r, 'status') or 'open'
+
+        # acceptance: ogni bullet può essere separato da <br> o nuovi a capo già fusi
+        # Rimuovi eventuali prefissi "• " inseriti in tabella
+        acceptance = [re.sub(r'^[\-\*\u2022]\s*', '', x).strip() for x in _norm_list(acc_cell)]
+
+        depends = [x for x in _norm_list(deps_cell) if x]
+
+        if rid:
+            reqs.append({
+                "id": rid,
+                "title": title,
+                "acceptance": acceptance,
+                "dependsOn": depends,
+                "track": track if track in ("App","Infra") else "App",
+                "status": status if status in ("open","done","deferred","in_progress") else "open"
+            })
+
+    # snapshot
+    total = len(reqs)
+    cnt = {"open":0,"done":0,"deferred":0,"in_progress":0}
+    for r in reqs:
+        st = r["status"]
+        if st in cnt:
+            cnt[st] += 1
+    progress = round((cnt["done"]/total)*100) if total else 0
+
+    return {
+        "reqs": reqs,
+        "snapshot": {
+            "total": total,
+            "open": cnt["open"],
+            "in_progress": cnt["in_progress"],
+            "done": cnt["done"],
+            "deferred": cnt["deferred"],
+            "progressPct": progress
+        }
+    }
 
 # --- Defaults per modelli che non hanno context definito ---
 DEFAULT_CONTEXT_WINDOW = 128_000     # conservativo
@@ -85,30 +228,37 @@ def _guess_mime(path: str) -> str:
     mime, _ = mimetypes.guess_type(path or "", strict=False)
     return mime or "application/octet-stream"
 
+
 def _extract_file_blocks(text: str) -> tuple[list[dict], str]:
     """
-    Estrae blocchi del tipo:
-      ```file:/path/to/file.ext
+    Estrae blocchi file in due varianti:
+
+    Variante A (FENCED):
+      ```<qualcosa>
+      file:/path/to/file.ext
       <contenuto>
       ```
-    Restituisce (files, remainder_text_senza_blocchi).
+
+    Variante B (PLAIN):
+      file:/path/to/file.ext
+      <contenuto fino al prossimo "file:" o EOF>
+
+    Ritorna (files, remainder) dove:
+      - files: lista di {path, content, mime, encoding}
+      - remainder: testo rimanente senza i blocchi estratti
     """
     files: list[dict] = []
     if not text:
         return files, ""
 
-    remainder_parts: list[str] = []
-    idx = 0
-    for m in _FILE_BLOCK_RE.finditer(text):
+    # 1) Trova prima i blocchi fenced per evitare sovrapposizioni col parser plain.
+    taken: list[tuple[int, int]] = []
+    for m in _FILE_BLOCK_FENCED_RE.finditer(text):
         start, end = m.span()
-        # append porzione di testo fuori dai blocchi precedente
-        remainder_parts.append(text[idx:start])
-        idx = end
-
-        raw_path = (m.group("path") or "").strip()
-        # normalizza path: togli leading // o /
+        taken.append((start, end))
+        raw_path = (m.group(1) or "").strip()
+        content = (m.group(2) or "")
         norm_path = raw_path.lstrip().lstrip("/")
-        content = (m.group("content") or "")
         files.append({
             "path": norm_path,
             "content": content,
@@ -116,13 +266,73 @@ def _extract_file_blocks(text: str) -> tuple[list[dict], str]:
             "encoding": "utf-8",
         })
 
-    # coda finale del testo
-    remainder_parts.append(text[idx:])
+    # 2) Trova i blocchi plain non sovrapposti ai fenced
+    def _overlaps(a_start: int, a_end: int) -> bool:
+        for b_start, b_end in taken:
+            if not (a_end <= b_start or a_start >= b_end):
+                return True
+        return False
+
+    for m in _FILE_BLOCK_PLAIN_RE.finditer(text):
+        start, end = m.span()
+        if _overlaps(start, end):
+            continue
+        raw_path = (m.group(1) or "").strip()
+        content = (m.group(2) or "")
+        # Rimuovi eventuali backtick di chiusura persi (robustezza)
+        content = re.sub(r"\n```+\s*\Z", "\n", content)
+        norm_path = raw_path.lstrip().lstrip("/")
+        files.append({
+            "path": norm_path,
+            "content": content.strip("\n"),
+            "mime": _guess_mime(norm_path),
+            "encoding": "utf-8",
+        })
+
+    # 3) Calcola il remainder rimuovendo tutte le sezioni catturate
+    if not files:
+        # Nessun blocco estratto → remainder = testo originale
+        return [], text.strip()
+
+    # Costruisci il remainder togliendo gli intervalli trovati (fenced + plain)
+    intervals = taken + [m.span() for m in _FILE_BLOCK_PLAIN_RE.finditer(text)]
+    # Togli gli overlaps che avevamo scartato
+    intervals = [iv for iv in intervals if not any(
+        (iv != jv) and not (iv[1] <= jv[0] or iv[0] >= jv[1]) and _overlaps(iv[0], iv[1]) for jv in taken
+    )]
+    # Ordina e compatta
+    intervals.sort()
+    remainder_parts: list[str] = []
+    last = 0
+    for s, e in intervals:
+        if last < s:
+            remainder_parts.append(text[last:s])
+        last = max(last, e)
+    if last < len(text):
+        remainder_parts.append(text[last:])
     remainder = "".join(remainder_parts).strip()
 
     return files, remainder
 
 
+    """Very minimal PLAN.md regeneration: snapshot section only."""
+    total = len(data.get("reqs", []))
+    done = len([r for r in data["reqs"] if r.get("status") == "done"])
+    open_ = total - done
+
+    snapshot = [
+        "# PLAN",
+        "## Plan Snapshot",
+        f"- **Counts:** total={total} open={open_} done={done}",
+        "- **Checklist:**",
+        "  - [ ] SPEC aligned",
+        "  - [ ] Prior REQ reconciled",
+        "  - [ ] Dependencies mapped",
+        "  - [ ] KIT-readiness per REQ confirmed",
+    ]
+    _path = Path(doc_root, "docs/harper")
+    path = _path / "PLAN.md"
+    path.write_text("\n".join(snapshot))
 # --- PATCH END (helpers) ---
 
 def approx_tokens_from_chars(text: str) -> int:
@@ -222,13 +432,27 @@ def _output_checklist_for_phase(phase: str) -> str:
         "- Respect repository structure and composition-first design.\n"
     )
 
+def _append_kit_target_to_user(user_text: str, targets: list[str], acceptance: Optional[list[str]] = list[str]) -> str:
+    
+    if not targets:
+        return user_text
+    rid = targets[0]
+    # opzionale: acceptance passata dal client
+    acc = acceptance or []
+    section = [ "\n### KIT Target", f"- REQ: {rid}" ]
+    if isinstance(acc, list) and acc:
+        section.append("- Acceptance (from plan):")
+        section.extend([f"  - {a}" for a in acc])
+    return user_text + "\n" + "\n".join(section) + "\n"
+
 def _compose_system_messages(phase: str,
                             idea_md: Optional[str],
                             core_blobs: dict | None,
                             profile_hint: str | None,
                             model_route_label: str | None,
                             run_id: str | None,
-                            repo_url: str | None) -> list[dict]:
+                            repo_url: str | None,
+                            targets: Optional[list[str]]) -> list[dict]:
     """Build OpenAI/Anthropic style chat messages: system + user. Minimal, RAG-light."""
     system_by_phase = {
         "spec": PROMPT_SPEC_SYSTEM_PATH,
@@ -293,14 +517,14 @@ def _compose_system_messages(phase: str,
         f"{refs}\n\n"
         f"{_output_checklist_for_phase(phase)}"
         f"### Task\nProduce/Transform the {phase.upper()} output that strictly follows the Output contract. Return only the Markdown document for this phase.{suffix}"
- 
     )
-
+    # --- se fase KIT, inietta direttiva target ---
+    if (phase or "").lower() == "kit":
+        user = _append_kit_target_to_user(user, targets=targets)
     return [
         {"role": "system", "content": system.strip()},
         {"role": "user", "content": user.strip()},
     ]
-
 
 def _route_label(model: str | None, profile: str | None) -> str:
     if model and profile:
@@ -338,6 +562,12 @@ class Attachment(BaseModel):
     mime: Optional[str] = None
     content_base64: Optional[str] = None
 
+class HarperKitOptions(BaseModel):
+    targets: Optional[List[str]] = Field(default=None)
+    batch: Optional[int] = Field(default=None, ge=1)
+    req_ids: Optional[List[str]] = Field(default=None)  # backward-compat alias
+    rescope: Optional[bool] = Field(default=False)
+
 class HarperRunRequest(BaseModel):
     cmd: str
     phase: str
@@ -361,6 +591,7 @@ class HarperRunRequest(BaseModel):
     core_blobs: Optional[Dict[str, str]] = None
     gen: Optional[dict] = None  # {temperature, max_tokens, top_p, stop, presence_penalty, frequency_penalty, seed}
     workspace: Optional[dict] = None
+    kit: Optional[HarperKitOptions] = None
 
 
 
@@ -431,6 +662,10 @@ async def run(req: HarperRunRequest,  request: Request):
     # ----- Normalizza input per provider -----
     # ATTENZIONE: niente virgola -> niente tupla!
     model = req.model  # era: req.model,
+    if req.kit is not None:
+        targets = req.kit.targets or []
+    else:
+        targets = []
    
    
     # ---- Gen params allineati a chat ----
@@ -465,7 +700,7 @@ async def run(req: HarperRunRequest,  request: Request):
     idea = req.idea_md or ""
     core_blobs = req.core_blobs or {}
     model_route_label = _route_label(req.model, req.profileHint)
-    messages = _compose_system_messages(phase,idea, core_blobs, req.profileHint, model_route_label, req.runId, repourl)
+    messages = _compose_system_messages(phase,idea, core_blobs, req.profileHint, model_route_label, req.runId, repourl, targets)
     
     
     log.info("harper.gateway normalized messages '%s' ", messages)
@@ -589,7 +824,6 @@ async def run(req: HarperRunRequest,  request: Request):
         if missing:
             warnings.append(f"SPEC missing sections: {', '.join(missing)}")
 
-    # Nome file corretto per la fase
 
     # --- Multi-file support ---
     output_name = PHASE_OUTPUT_FILE.get(phase, f"{phase.upper()}.md")
@@ -619,7 +853,41 @@ async def run(req: HarperRunRequest,  request: Request):
             "encoding": "utf-8",
         })
 
+    # --- plan.json derivation from PLAN.md (only for phase=plan) ---
+    if phase == "plan":
+        # 1) Trova il contenuto del PLAN.md che stiamo restituendo
+        plan_md_text = None
+        # path atteso del documento di fase
+        plan_doc_path = f"{req.docRoot or 'docs/harper'}/PLAN.md"
 
+        # Se ci sono file-block: preferisci il file esplicito PLAN.md
+        for f in files:
+            p = (f.get("path") or "").strip()
+            if p.endswith("/PLAN.md") or p == plan_doc_path:
+                plan_md_text = f.get("content") or ""
+                break
+
+        # Se non c'è un file esplicito, e non c’erano file-block,
+        # allora il documento di fase è l’intero output di testo
+        if plan_md_text is None and not gen_files:
+            plan_md_text = system_md_txt or ""
+
+        # 2) Deriva plan.json e aggiungilo ai files
+        if plan_md_text:
+            try:
+                plan_json = _derive_plan_json_from_md(plan_md_text)
+            except Exception as e:
+                plan_json = None
+                warnings.append(f"plan_json_derivation_error: {type(e).__name__}: {e}")
+
+            if plan_json:
+                files.append({
+                    "path": f"{req.docRoot or 'docs/harper'}/plan.json",
+                    "content": json.dumps(plan_json, indent=2),
+                    "mime": "application/json",
+                    "encoding": "utf-8",
+                })
+                
     telemetry.update({
         "text_len": text_len,
         "usage": llm_usage or {},
