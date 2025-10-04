@@ -21,6 +21,20 @@ class Attachment(BaseModel):
     mime: Optional[str] = None
     content_base64: Optional[str] = None  # optional payload if provided
 
+# --- NEW/UPDATED: options in input for /kit ---
+class HarperKitOptions(BaseModel):
+    """
+    Options to drive /kit targeting behavior.
+    - targets: explicit list of REQ-IDs to implement now
+    - batch: take the next N open REQ-IDs (ignored if 'targets' given)
+    - req_ids: legacy alias (read-only for backward compat)
+    - rescope: if True, incorporate Product Owner notes into plan.json view
+    """
+    targets: Optional[List[str]] = Field(default=None)
+    batch: Optional[int] = Field(default=None, ge=1)
+    req_ids: Optional[List[str]] = Field(default=None)  # backward-compat alias
+    rescope: Optional[bool] = Field(default=False)
+
 class HarperPhaseRequest(BaseModel):
     cmd: str
     phase: str
@@ -36,7 +50,7 @@ class HarperPhaseRequest(BaseModel):
     historyScope: Optional[str] = None
     repoUrl: Optional[str] = None
 
-    # --- NEW optional payloads ---
+   
     idea_md: Optional[str] = None
     spec_md: Optional[str] = None
     plan_md: Optional[str] = None
@@ -46,6 +60,7 @@ class HarperPhaseRequest(BaseModel):
     telemetry: Optional[Dict[str, Any]] = None 
     core_blobs: Optional[Dict[str, str]] = None
     workspace: Optional[dict] = None  # {root, repo, branch}
+    kit: Optional[HarperKitOptions] = None
 
 
 
@@ -83,6 +98,7 @@ class FileArtifact(BaseModel):
     mime: Optional[str] = None
     encoding: Optional[str] = None
 
+
 class DiffEntry(BaseModel):
     path: str
     diff: str  # unified diff or patch text
@@ -91,6 +107,16 @@ class TestSummary(BaseModel):
     passed: int = 0
     failed: int = 0
     summary: str = "n/a"
+
+# --- facoltativo: risposta con echo dei target interpretati ---
+class HarperKitResult(BaseModel):
+    targets: List[str] = Field(default_factory=list)
+    req_ids: List[str] = Field(default_factory=list)  # echo legacy if sent
+    rescope:Optional[bool] = None
+    batch: Optional[int] = None
+    resolved_from: Optional[str] = Field(
+        default=None, description="one of {targets,batch,auto}"
+    )
 
 class HarperRunResponse(BaseModel):
     ok: bool = True
@@ -110,6 +136,7 @@ class HarperRunResponse(BaseModel):
     build_report_md: Optional[str] = None
     release_notes_md: Optional[str] = None
     telemetry: Optional[Dict[str, Any]] = None  # token usage, route info, etc.
+    kit: Optional[HarperKitResult] = None
 
 class HarperEnvelope(BaseModel):
     out: HarperRunResponse

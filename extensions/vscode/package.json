@@ -52,7 +52,7 @@
     "commands": [
       {
         "command": "clike.openChat",
-        "title": "CLike: Open Chat (Q&A / Harper / Coding)"
+        "title": "CLike: Chat (Q&A / Harper / Coding)"
       },
       { "command": "clike.harper.init", "title": "CLike: Harper Init…" },
       {
@@ -61,7 +61,7 @@
       },
       {
         "command": "clike.chat.openSessionFile",
-        "title": "CLike: Open Chat Session File (current model)"
+        "title": "CLike: Chat Session File (current model)"
       },
       {
         "command": "clike.ping",
