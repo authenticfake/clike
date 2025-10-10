@@ -5,6 +5,8 @@ services:
     environment:
       - MODELS_CONFIG=/workspace/configs/models.yaml
       - GATEWAY_DUMP_DIR=/app/runs/gateway_dumps
+      - RAG_TOP_K=12
+      - TIMEOUT=300.0
     env_file:
       - path: ../.env
     volumes:
@@ -48,6 +50,7 @@ services:
       - INLINE_MAX_FILE_KB=64
       - INLINE_MAX_TOTAL_KB=256
       - RAG_SIZE_THRESHOLD_KB=64
+      - TIMEOUT=300.0
       
     env_file:
       - path: ../.env

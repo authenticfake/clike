@@ -49,18 +49,26 @@ class HarperPhaseRequest(BaseModel):
     runId: Optional[str] = None
     historyScope: Optional[str] = None
     repoUrl: Optional[str] = None
-
+    rag_queries: Optional[List[str]] = None
+    gen: Optional[Dict[str, Any]] = None
    
     idea_md: Optional[str] = None
     spec_md: Optional[str] = None
     plan_md: Optional[str] = None
     kit_md: Optional[str] = None
-    build_report_md: Optional[str] = None
     release_notes_md: Optional[str] = None
     telemetry: Optional[Dict[str, Any]] = None 
     core_blobs: Optional[Dict[str, str]] = None
     workspace: Optional[dict] = None  # {root, repo, branch}
     kit: Optional[HarperKitOptions] = None
+    rag_strategy: Optional[str] = None
+    context_hard_limit: Optional[int] = None
+    rag_prefer_for: Optional[List[str]] = None
+    project_id: Optional[str] = None
+    rag_chunks: Optional[List[dict]] = None
+    rag_queries: Optional[List[str]] = None
+    rag_top_k: Optional[int] = None
+
 
 
 
@@ -133,10 +141,18 @@ class HarperRunResponse(BaseModel):
     spec_md: Optional[str] = None
     plan_md: Optional[str] = None
     kit_md: Optional[str] = None
-    build_report_md: Optional[str] = None
     release_notes_md: Optional[str] = None
     telemetry: Optional[Dict[str, Any]] = None  # token usage, route info, etc.
     kit: Optional[HarperKitResult] = None
+    rag_strategy: Optional[str] = None
+    context_hard_limit: Optional[int] = None
+    rag_prefer_for: Optional[List[str]] = None
+    project_id: Optional[str] = None
+    rag_chunks: Optional[List[dict]] = None
+    rag_queries: Optional[List[str]] = None
+    rag_top_k: Optional[int] = None
+    
+
 
 class HarperEnvelope(BaseModel):
     out: HarperRunResponse

@@ -35,7 +35,7 @@ async def _post_json(url: str, json: Dict[str, Any], timeout: float = 240.0) -> 
         return r.json()
 
 async def chat(base_url: str, remote_model: str, messages: List[Dict[str, str]],
-               temperature: float = 0.2, max_tokens: Optional[int] = None,  timeout: Optional[float] = 240.0) -> str:
+               temperature: float = 0.2, max_tokens: Optional[int] = None,  timeout: Optional[float] = 240.0, top_p: Optional[float] = None) -> str:
     """
     Chat con Ollama:
     - prova prima /api/chat (stream=false)

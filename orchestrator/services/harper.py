@@ -4,7 +4,7 @@
 # Phase services (SPEC/PLAN/KIT/BUILD) orchestrating routing and gateway calls.
 from __future__ import annotations
 from typing import Dict, Any, Optional, List
-import os, logging
+import os, logging, time
 from datetime import datetime
 
 
@@ -13,19 +13,27 @@ from services.router import select_model_for_phase, Task
 
 GATEWAY_URL = os.environ.get("CL_GATEWAY_URL", "http://gateway:8000")
 log = logging.getLogger("orcehstrator:service:harper")
+TIMEOUT =float(os.environ.get("TIMEOUT", 300.0))
 
 from services.router import select_model_for_phase  # ← esiste già nel repo
 
 async def _post_json(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     url = f"{GATEWAY_URL}{path}"
-    log.info("POST %s keys=%s idea_md=%s core=%d atts=%d",
+    start_time = time.time()
+
+    log.info("POST %s keys=%s idea_md=%s core=%d atts=%d time=%.4f",
              url,
              ",".join(sorted(payload.keys())),
              bool(payload.get("idea_md")),
              len(payload.get("core") or []),
-             len(payload.get("attachments") or []))
-    async with httpx.AsyncClient(timeout=120) as client:
+             len(payload.get("attachments") or []), start_time)
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
         r = await client.post(url, json=payload)
+        end_time = time.time()
+        elapsed_time = end_time - start_time
+        log.info(f"POST (elapsed): {elapsed_time:.4f} secondi.")
+
+
         r.raise_for_status()
         return r.json()
     

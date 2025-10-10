@@ -1,6 +1,8 @@
 const vscode = require('vscode');
 const cp = require('child_process');
 const path = require('path');
+//const { activateTestController } = require('./testController');
+const { gatherRagChunks } = require('./rag.js');
 
 const out = vscode.window.createOutputChannel('Clike.utility');
 
@@ -463,16 +465,35 @@ async function saveGateCommand(projectRootUri, plan, targetReqId, out) {
   await updatePlanMdInPlace(projectRootUri, effectivePlan);
   try { vscode.window.showInformationMessage(`REQ ${targetReqId} marked as done.`); } catch {}
 }
+/**
+ * Trova l'ultimo REQ (per mtime) sotto runs/kit, pattern "REQ-*".
+ * Ritorna es. "REQ-001" o null se non presente.
+ */
+function resolveLatestReq(rootDir) {
+  try {
+    const base = path.join(rootDir, 'runs', 'kit');
+    const entries = fs.readdirSync(base)
+      .filter(n => /^REQ-/i.test(n))
+      .map(n => ({ n, m: fs.statSync(path.join(base, n)).mtimeMs }))
+      .sort((a, b) => b.m - a.m);
+    return entries.length ? entries[0].n : null;
+  } catch {
+    return null;
+  }
+}
 
 // projectRootUri: URI del progetto "attivo" (quello creato con /init nome)
-async function buildHarperBody(phase, payload, projectRootUri) {
+async function buildHarperBody(phase, payload, projectRootUri, rag_prefer_for,rag_enabler, out) {
+  const log = (msg) => {
+    if (out && typeof out.appendLine === 'function') out.appendLine(msg);
+    else console.log(msg);
+  };
   const _docRoot =  vscode.Uri.joinPath(projectRootUri, 'docs', 'harper');
-
-    // 1) Allegati/file core
-  var idea_md = await loadMd(_docRoot, 'IDEA.md');
-
+  // 1) Allegati/file core
+  var idea_md = (phase === 'spec') ? await loadMd(_docRoot, 'IDEA.md') : null;
+  log('[buildHarperBody] gen', payload['gen']);
   try {
-    // NEW: estrai e salva TECH_CONSTRAINTS.yaml a partire da IDEA.md (sovrascrive)
+    // 2: estrai e salva TECH_CONSTRAINTS.yaml a partire da IDEA.md (sovrascrive)
     if (phase === 'spec' && idea_md) {
       const yaml = extractTechConstraintsYaml(idea_md || '');
       if (yaml) {
@@ -483,22 +504,61 @@ async function buildHarperBody(phase, payload, projectRootUri) {
           core.push('TECH_CONSTRAINTS.yaml');
         }
         payload["core"] = core;
-     }
-     if (idea_md)
+      }
       idea_md = removeTechConstraintsYaml(idea_md);
-
     } 
     else if (phase === 'kit') {
-       // 0) repoUrl
+       // 3) repoUrl
       const repoUrl = await detectRepoUrl(projectRootUri);
         if (repoUrl) payload["repoUrl"] = repoUrl;
     }
   } catch (err) {
-    console.warn('[CLike] saveTechConstraintsYaml failed:', err);
+    log('[CLike] saveTechConstraintsYaml failed:', err);
   }
+  //4) core blobs
   const core_blobs = await attachCoreBlobs(_docRoot, payload["core"] || []);
   payload["idea_md"] = idea_md;
   payload["core_blobs"] = core_blobs;
+  payload["rag_prefer_for"]= rag_prefer_for;
+  //RAG SUGGENSTIONDS
+  payload["rag_strategy"] = "prefer";                  // semantic hint
+  // --- RAG ephemeral chunks from workspace (client-first) ---
+  let rag_chunks
+  if (rag_enabler) {
+      try {
+        rag_chunks = await gatherRagChunks(projectRootUri, rag_prefer_for);
+        payload["rag_chunks"] = rag_chunks;
+        log(`[CLike] attached ${rag_chunks.length} RAG chunks`);
+        // --- RAG queries from headings (client hint) ---
+        try {
+          const qs = [];
+          for (const ch of (rag_chunks|| [])) {
+            const name = (ch.name || '').toLowerCase();
+            const nnpref_lc = rag_prefer_for.map(function(txt) {
+                return txt.toLowerCase();
+            });
+            if (nnpref_lc.includes(name) ) {
+              const lines = (ch.text || '').split(/\r?\n/);
+              const head = lines.find(l => /^#{1,3}\s/.test(l));
+              if (head) qs.push(head.replace(/^#+\s*/, '').trim());
+            }
+          }
+          if (qs.length) payload["rag_queries"] = qs.slice(0, 6);
+            log(`[CLike] attached ${payload["rag_queries"].length} RAG chunks`);
+
+        } catch (e) {
+          log('[CLike] build rag queries failed:', e);
+        }
+
+
+      } catch (e) {
+        log('[CLike] gatherRagChunks failed:', e);
+      }   
+  }
+
+  payload["context_hard_limit"] = 6500;                // per budgeting lato gateway  
+  //RAG HARPER END
+
   // 2) Body retro-compatibile + nuovi campi opzionali
   return payload;
 }
@@ -694,7 +754,7 @@ function extractUserMessages(sessionData) {
 }
 
 function defaultCoreForPhase(phase) {
-  switch (phase) {
+  switch ((phase||'').toLowerCase()) {
     case "spec":
       return [];
     case "plan":
@@ -710,6 +770,23 @@ function defaultCoreForPhase(phase) {
   }
 }
 
+function getProjectId() {
+  // --- project_id: derive from workspace folder name ---
+try {
+  
+  const ws = vscode.workspace.workspaceFolders?.[0];
+  if (ws && ws.name) {
+    return ws.name.toLowerCase().replace(/\s+/g, '-');
+    return 
+  } else {
+    return 'default';
+    
+  }
+} catch (e) {
+  console.warn('[CLike] project_id derivation failed:', e);
+  body.project_id = 'default';
+}
+}
 
 module.exports = {
 
@@ -720,6 +797,8 @@ module.exports = {
   runKitCommand,
   saveKitCommand,
   saveGateCommand,
-  saveEvalCommand
+  saveEvalCommand,
+  getProjectId,
+  resolveLatestReq
 
 };

@@ -1,4 +1,4 @@
-# 🚀 CLike — AI‑Native Platform for Product Engineers 
+# 🚀 CLike — AI‑Native Pipeline for Product Engineers 
 ![Logo di Clike](images/icons/clike_128x128.png) 
 
 [![Made with Python](https://img.shields.io/badge/Made%20with-Python-3776AB?logo=python)](https://www.python.org/)  
@@ -30,15 +30,17 @@
 
 ### ✨ Where the Idea Comes From
 
-	- **Harper (blog "Codegen Hero's Journey")**  
+- **Harper (blog "Codegen Hero's Journey")**  
 		→ talks about a narrative workflow in which the LLM is a co-hero: 
 		starting with an idea, it generates a SPEC specification file, a PLAN, then a KIT, and iterating with short feedback cycles. 
-		This is the methodological and operational backbone of the solution definition phase.
+		This is the methodological and operational backbone of the solution definition phase. -
+[Haprer](https://harper.blog/posts/) 
 
 - **Vibe Coding (Karpathy + Gartner)** → emphasizes flow, intent, rapid prototyping, and cognitive offloading: the developer becomes a "composer" who works at the outcome level, not the code level. This has been incorporated by leaving the developer only with the design/intent steps and automating the build, testing, and security.
+[Gartner Vibe](https://www.gartner.com/document-reader/document/6494971?ref=pubsite)
 
 - **AI-Native Software Engineering (Gartner)** → introduces agentic workflows, autonomous improvement loops, human-in-the-loop, and security as a guardrail. The process includes SAST, DAST, UAT/E2E, make targets for automatic cycles → process exactly in line with these recommendations.
-
+[Gartner AI](https://www.gartner.com/document-reader/document/6076795?ref=pubsite)
 
 ---
 
@@ -126,8 +128,12 @@ Open your workspace in VS Code and look for the **CLike** commands:
 ## ⚙️ Configuration
 
 ### Models and Providers
-`configs/models.yaml` declares enabled models and providers (local and/or remote). Example fields:
+
+`configs/models.yaml` declares enabled models and providers (local and/or remote). 
+
+Example fields:
 - `provider`: `ollama`, `openai`, `anthropic`, `vllm` (OpenAI‑compatible), etc.
+
 - `base_url`: provider endpoint (use service names inside Docker, e.g., `http://ollama:11434`).
 - `api_key_env`: name of env var when using remote APIs (e.g., `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`).
 - `enabled`: toggle specific models per environment.
@@ -150,7 +156,7 @@ The extension reads routes and behaviors from `Settings → Extensions → CLike
 ## 🧪 Eval‑Driven Development & Guardrails
 
 CLike encourages **eval‑driven** change (unit tests, lint, SAST/DAST, UAT) and guards promotion via Harper‑style gates:
-- Freeze **SPEC** → build **PLAN** with **required evals** → generate **KIT**.
+- Freeze **IDEA** → approve **SPEC** → build and test **PLAN** with **required evals** → generate **Release Solution**.
 - Orchestrator returns **diffs + full content** for safe application and review.
 - Integrate with your CI to run eval suites and enforce quality gates before merge.
 
