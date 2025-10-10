@@ -190,12 +190,13 @@ async def post_kit(req: HarperPhaseRequest):
     # Coerenza terminologica: manteniamo 'cmd' dal client ma imponiamo anche 'phase'
     payload["phase"] = "kit"
     payload.setdefault("cmd", payload["phase"])
-    log.info("run_phase spec (route): idea_md=%s spec_md=%s plan_md=%s kit_md=%s core=%d attachments=%d flags=%s",
+    log.info("run_phase kit (route): idea_md=%s  plan_md=%s kit_md=%s core=%d gen=%s attachments=%d flags=%s",
             bool(payload.get("idea_md")),
-            bool(payload.get("spec_md")),
             bool(payload.get("plan_md")),
             bool(payload.get("kit_md")),
             len(payload.get("core") or []),
+            bool(payload.get("geb")),
+
             len(payload.get("attachments") or []),
             "present" if payload.get("flags") else "none")
 
@@ -227,50 +228,6 @@ async def post_kit(req: HarperPhaseRequest):
 
     return HarperEnvelope(out=out, kit_md=kit_md)
 
-@router.post("/build-next", response_model=HarperEnvelope)
-async def post_build_next(req: HarperPhaseRequest):
-    payload = req.model_dump()
-    # Coerenza terminologica: manteniamo 'cmd' dal client ma imponiamo anche 'phase'
-    payload["phase"] = "build"
-    payload.setdefault("cmd", payload["phase"])
-    log.info("run_phase spec (route): idea_md=%s spec_md=%s plan_md=%s kit_md=%s build_report_md=%s core=%d attachments=%d flags=%s",
-            bool(payload.get("idea_md")),
-            bool(payload.get("spec_md")),
-            bool(payload.get("plan_md")),
-            bool(payload.get("kit_md")),
-            bool(payload.get("build_report_md")),
-            len(payload.get("core") or []),
-            len(payload.get("attachments") or []),
-            "present" if payload.get("flags") else "none")
-
-    # Delego al service che farà SOLO il merge del modello/profilo, senza perdere campi
-    out_dict = await svc.run_phase("build", payload)
-    
-    out = HarperRunResponse(
-        ok=bool(out_dict.get("ok", True)),
-        phase=out_dict.get("phase") or "build",
-        echo=out_dict.get("echo"),
-        text=out_dict.get("text"),
-        files=[FileArtifact(**f) for f in (out_dict.get("files") or [])],
-        diffs=[DiffEntry(**d) for d in (out_dict.get("diffs") or [])],
-        tests=TestSummary(**(out_dict.get("tests") or {})),
-        warnings=out_dict.get("warnings") or [],
-        errors=out_dict.get("errors") or [],
-        runId=out_dict.get("runId"),
-        telemetry=out_dict.get("telemetry"),
-    )
-    # Retro-compat: spec_md, se disponibile (primo file markdown) oppure None
-    build_report_md = None
-    if out.files:
-        try:
-            # se il primo file è SPEC.md lo esponiamo
-            if out.files[0].path.lower().endswith("kit.md"):
-                build_report_md = out.files[0].content
-        except Exception:
-            pass
-
-    return HarperEnvelope(out=out, build_report_md=build_report_md)
-
 
 @router.post("/finalize", response_model=HarperEnvelope)
 async def post_build_next(req: HarperPhaseRequest):
@@ -278,7 +235,7 @@ async def post_build_next(req: HarperPhaseRequest):
     # Coerenza terminologica: manteniamo 'cmd' dal client ma imponiamo anche 'phase'
     payload["phase"] = "finalize"
     payload.setdefault("cmd", payload["phase"])
-    log.info("run_phase spec (route): idea_md=%s spec_md=%s plan_md=%s kit_md=%s build_report_md=%s release_notes_md=%s core=%d attachments=%d flags=%s",
+    log.info("run_phase finalize (route): idea_md=%s spec_md=%s plan_md=%s kit_md=%s build_report_md=%s release_notes_md=%s core=%d attachments=%d flags=%s",
             bool(payload.get("idea_md")),
             bool(payload.get("spec_md")),
             bool(payload.get("plan_md")),

@@ -58,6 +58,7 @@ async def chat(
     tools: Optional[List[Dict[str, Any]]] = None,
     tool_choice: Optional[Union[str, Dict[str, Any]]] = None,
     timeout: Optional[float] = 240.0,
+    top_p: Optional[float] = None
 ) -> Dict[str, Any]:
     
     url = f"{base.rstrip('/')}/chat/completions"
@@ -66,6 +67,9 @@ async def chat(
         "model": model,
         "messages": messages,
     }
+    if top_p is not None:
+        payload["top_p"] = top_p
+
     if temperature is not None:
         if not model.startswith("gpt-5"):
             payload["temperature"] = temperature

@@ -28,6 +28,28 @@ Return **only** the **evaluation report** as Markdown well formed with correct m
 - Use professional tone; **all main section headings MUST use ## style and MUST NOT use numbered lists (e.g., 1) Title).**
 - **MARKDOWN CANONICAL RIGOR:** **Ensure perfect Markdown alignment.** All bullets (`-`, `*`, `1.`) must have a single space after the symbol. Lists must be consistently indented and **MUST NOT** have blank lines between items. The final output must be ready for rendering/parsing by downstream systems.
 
+---
+
+## Resolve Execution Recipe & Normalize Results
+
+Before producing the evaluation report, resolve how to run or ingest tests based on the generated artifacts.
+
+**Steps**
+- Locate `runs/kit/<REQ-ID>/ci/LTC.(json|md)` and `HOWTO.md`.
+- If missing details, complete from `docs/harper/lane-guides/<lane>.md`.
+- If `external_runner` exists in LTC:
+  - Do not run tests locally.
+  - Describe how to **ingest** reports (paths, formats).
+- Define normalization rules to produce:
+  `runs/<runId>/eval.summary.json` with keys:
+  - `checks`: `{ tests, lint, types, security, build, iac, container, model_quality }`
+  - `metrics`: coverage %, issue counts, severities
+  - `logs`: paths to raw outputs
+  - `overall`: boolean per REQ
+
+**Goal:** Provide a deterministic evaluation summary aligned with Gate expectations.
+
+
 > The system will also write/update `runs/eval.summary.json` from this.
 
 End with:

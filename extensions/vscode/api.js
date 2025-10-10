@@ -17,10 +17,4 @@ module.exports = {
   async gateCheck(profile, projectRoot) {
     return postJSON(`${baseUrl()}/v1/gate/check`, { profile, project_root: projectRoot || '.' });
   },
-  async updatePlan(planPath, runJson, itemId) {
-    return postJSON(`${baseUrl()}/v1/kit/update-plan`, { plan_path: planPath || 'PLAN.md', run_json: runJson || '', item_id: itemId || '' });
-  },
-  async syncConstraints(mdPath) {
-    return postJSON(`${baseUrl()}/v1/constraints/sync`, { md_path: mdPath, out_dir: '.clike' });
-  }
 };

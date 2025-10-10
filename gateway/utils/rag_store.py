@@ -1,4 +1,3 @@
-# orchestrator/services/rag_store.py
 # Lightweight RAG service: chunk, embed, upsert/search su Qdrant
 # Riusa models.yaml per scegliere il modello embeddings preferito
 

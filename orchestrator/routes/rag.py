@@ -49,3 +49,17 @@ async def rag_purge(req: RagPurgeRequest):
     if not out.get("ok"):
         raise HTTPException(500, detail=out.get("error","purge failed"))
     return out
+
+# --- RAG merging: client chunks + server search (Qdrant) --------------------
+
+def _chunk_map_from_client(rag_chunks: dict) -> dict:
+    """Crea un dizionario {(name, idx) -> text} dai rag_chunks client."""
+    cmap = {}
+    for ch in (rag_chunks or []):
+        name = (ch.get("name") or "").strip()
+        idx  = ch.get("idx")
+        txt  = (ch.get("text") or "").strip()
+        if not name or idx is None or not txt:
+            continue
+        cmap[(name, int(idx))] = txt
+    return cmap

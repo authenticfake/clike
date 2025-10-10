@@ -13,7 +13,7 @@ def _merge_messages(messages: list) -> str:
         parts.append(f"{role.upper()}: {content}")
     return "\n\n".join(parts)
 
-async def chat(base_url: str, api_key: str, model: str, messages: list, temperature: float, max_tokens: int, timeout: Optional[float] = 240.0,) -> str:
+async def chat(base_url: str, api_key: str, model: str, messages: list, temperature: float, max_tokens: int, timeout: Optional[float] = 240.0,  top_p: Optional[float] = None ) -> str:
     headers = {
         "Content-Type": "application/json",
         "x-api-key": api_key,
@@ -26,6 +26,9 @@ async def chat(base_url: str, api_key: str, model: str, messages: list, temperat
         "temperature": temperature,
         "messages": [{"role": "user", "content": user_prompt}],
     }
+    if top_p is not None:
+        payload["top_p"] = top_p
+        
     async with httpx.AsyncClient(timeout=timeout) as client:
         r = await client.post(f"{base_url.rstrip('/')}/messages", headers=headers, json=payload)
         r.raise_for_status()

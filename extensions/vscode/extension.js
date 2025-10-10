@@ -6,15 +6,15 @@ const https = require('https');
 const http = require('http');
 const { URL } = require('url');
 const fs = require('fs/promises');
-const fsSync = require('fs ');
+const fsSync = require('fs');
 const path = require('path');
 const os = require('os');
 
 
-//const { activateTestController } = require('./testController');
+
 const { registerCommands } = require('./commands/registerCommands');
-const { handlePlanUpdate, handleSync, handleGate, handleEval } = require('./commands/slashBot');
-const { buildHarperBody,  defaultCoreForPhase, runKitCommand, saveKitCommand, readPlanJson } = require('./utility')
+const {  handleGate, handleEval } = require('./commands/slashBot');
+const { buildHarperBody,  defaultCoreForPhase, runKitCommand, saveKitCommand, readPlanJson, getProjectId } = require('./utility')
 let __clike_lastTargetUriCache = null;  
 let selectedPaths = new Set();
 // --- Stato richiesta in corso (per Cancel) ---
@@ -267,33 +267,26 @@ async function loadSessionFilteredHarper(mode, model, limit = 200) {
 
     // La logica si semplifica usando un array di prefissi
     const EXECUTION_COMMAND_PREFIXES = [
-        '▶ SPEC | mode',
-        '▶ PLAN | mode',
-        '▶ KIT | mode',
-        '▶ EVAL | mode',
-        '▶ FINALIZE | mode',
-        '▶ GATE | mode',
+        '▶SPEC|mode',
+        '▶PLAN|mode',
+        '▶KIT|mode',
+        '▶EVAL|mode',
+        '▶FINALIZE|mode',
+        '▶GATE|mode',
+        '▶KITREQ-',
+        '▶EVAL',
+        '▶GATE',
+        '▶FINALIZE'
     ];
 
     const isExecutionCommand = e.content && EXECUTION_COMMAND_PREFIXES.some(prefix => 
-        e.content.startsWith(prefix)
+        e.content.replace(/\s/g, "").startsWith(prefix)
     );
 
     if (isExecutionCommand) {
         return false; // Scarta i comandi di esecuzione
     }
-
-    // // 2c. Escludi i comandi di esecuzione che iniziano con "▶ SPEC | mode=harper"
-    // // Usiamo .startsWith() per la verifica del contenuto.
-    // const isExecutionCommand =  e.content && (e.content.startsWith('\u2014 SPEC | mode') || 
-    //                             e.content.startsWith('\u2014 PLAN | mode') || 
-    //                             e.content.startsWith('\u2014 KIT | mode') || 
-    //                             e.content.startsWith('\u2014 EVAL | mode') || 
-    //                             e.content.startsWith('\u2014 FINALIZE | mode') || 
-    //                             e.content.startsWith('\u2014 GATE | mode'));
-    // if (isExecutionCommand) {
-    //   return false;
-    // }
+    
     return modelFilter;
     });
 
@@ -1696,8 +1689,17 @@ function parseSlash(s) {
   }
   if (cmd === '/eval' || cmd === '/gate') {
     console.log('cmd evals parsed:', parts);
-    const argId = parts[1];   
-    return { cmd, args: { arg: argId } };
+    const rest = parts.slice(1).map(x => String(x).trim()).filter(Boolean);
+    let targets = null;
+    if (!rest.length) {
+      targets = ''; //findNextOpenReq in runKitCommand
+    } else {
+      // assumiamo REQ-ID singolo (o più REQ-ID separati da spazio)
+      const isReq = (s) => /^req-\d+/i.test(s);
+      const onlyReqs = rest.every(isReq);
+      targets = onlyReqs ? rest : [rest[0]];
+    }
+    return { cmd, args: { targets } };
   }
   if (cmd === '/kit') {
     // Sintassi:
@@ -1961,9 +1963,12 @@ function handleSlash(slash) {
         atts = attachmentsByMode[key].slice(0);
       }
     } catch {}    
-    try { bubble('user', slash.cmd + (slash.args.arg ? (' ' + slash.args.arg) : ''), (model && model.value) ? model.value : 'auto', atts); } catch {}
-    vscode.postMessage({ type: 'harperEvals', cmd: slash.cmd.slice(1), argument: slash.args.arg || '' });
-    return;
+      //Eval‑Driven Development - EDD
+      try { bubble('user', slash.cmd + (slash.args.arg ? (' ' + slash.args.arg) : ''), (model && model.value) ? model.value : 'auto', atts); } catch {}
+      const msg = { type: 'harperEDD', cmd: slash.cmd.slice(1), attachments: atts, argument: slash.args.targets || ''  };
+      msg.targets = slash.args?.targets ?? null; // 'next' | ['REQ-01', ...]
+      vscode.postMessage(msg);
+      return;
   }
   // Fallback: slash non riconosciuto → non invio al modello, mostro help
   try {
@@ -2688,6 +2693,7 @@ async function cmdOpenChat(context) {
         out.appendLine(`[harperRun] inside ${JSON.stringify(msg)}`);
         const phase = msg.cmd;
         try {
+          const project_id = getProjectId();
           const { cmd, attachments = [] } = msg;
           const savedState = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto', historyScope:'singleModel' };
           savedState.phase= msg.cmd
@@ -2696,7 +2702,11 @@ async function cmdOpenChat(context) {
           log(`[harperRun] profileHint ...${profileHint}  ` );
           const activeProvider = (profileHint!=null) ?inferProvider(activeModel) :'';
           log(`[harperRun] activeProvider ....${activeProvider}  `);
-          const targets = msg?.targets[0]?.toUpperCase() ?? "";
+          let targets ='';
+          if (phase === 'kit' || phase === 'eval' || phase === 'gate' ) {
+            targets = msg?.targets[0]?.toUpperCase() ?? "";
+          }
+          
           // Core docs per fase
           let core = defaultCoreForPhase(phase);
           // Flags privacy (se già presenti altrove, riusale)
@@ -2704,10 +2714,11 @@ async function cmdOpenChat(context) {
             neverSendSourceToCloud: !!cfgChat().neverSendSourceToCloud || false,
             redaction: true
           };
-
+          //RAG Candidate text for saving and reusing improvements
+          const RAG_PREFER_FOR = ["IDEA.md","SPEC.md"];
           const runId = (Math.random().toString(16).slice(2) + Date.now().toString(16));
           log(`[harperRun] runId ...`,  runId);
-
+          //CHAT HARPEr START
           // History del MODE corrente
           const historyScope  = effectiveHistoryScope(context);
           // History per conversazione “stateless�?: carico SOLO le bolle del MODE corrente
@@ -2718,17 +2729,18 @@ async function cmdOpenChat(context) {
           const source = (historyScope === 'allModels')
           ? history
           : historyForThisModel;
-          
           const _source = source.filter(b => 
             // Condizione 1: Il ruolo deve essere 'user' O 'assistant'
             (b.role === 'user' || b.role === 'assistant') 
           );
         
           var _messages = _source.map(b => ({ role: b.role, content: b.content }));
+          //CHAT HARPEr END
+          //RAG HARPEr START
 
           const _gen={
             temperature: 0.2,
-            max_tokens: 8192,
+            max_tokens: (phase === 'plan' ? 6500 : phase === 'spec' ? 3500 : 7000),
             top_p: 0.9,
             stop: ["```.:: END ::.```"],
             presence_penalty: 0.0,
@@ -2738,6 +2750,7 @@ async function cmdOpenChat(context) {
             remote:'',
             response_format:'',
             tool_choice:''
+            
           }
           
           const payload = {
@@ -2754,8 +2767,9 @@ async function cmdOpenChat(context) {
             flags,
             runId,
             historyScope: state.historyScope,
+            project_id:project_id
           };
-          //log(`[harperRun] payload ...`,  JSON.stringify(payload));
+          log(`[harperRun] payload (gen):`,  JSON.stringify(payload.gen));
 
           // Persisti l’input dell’utente nella sessione del MODE (e mostreremo badge del modello in render)
           await appendSessionJSONL(activeMode, {
@@ -2786,9 +2800,14 @@ async function cmdOpenChat(context) {
             }
             payload["kit"]= {targets: [targetReqId] }
           }
+          const wsroot = wsRoot();
+          log("happerRun wsroot", wsroot)
 
           const _headers = {"Content-Type": "application/json", "X-CLike-Profile": "code.strict"}
-          const body = await buildHarperBody(phase, payload, wsRoot());
+          //fals is for RAG chucks - TODO: RAG management via attachments is almost oden 70%
+          const body = await buildHarperBody(phase, payload, wsroot, RAG_PREFER_FOR,false, out);
+          
+          log(`[harperRun] body (gen):`,  JSON.stringify(body.gen))
           if (activeProvider) _headers["X-CLike-Provider"] = activeProvider
           const outGateway = await callHarper(cmd, body, _headers);
 
@@ -2812,7 +2831,6 @@ async function cmdOpenChat(context) {
             type: 'echo',
             message: `✔ ${String(cmd || '').toUpperCase()} ${String(targets || '').toUpperCase()} done — ${summary}`
           });
-          log("happerRun targetReqId...kit", targetReqId)
 
           if (phase==="kit") {
             await saveKitCommand(root,plan,targetReqId,out) 
@@ -2822,7 +2840,7 @@ async function cmdOpenChat(context) {
           let written = [];
           if (Array.isArray(_out?.files) && _out.files.length) {
             written = await saveGeneratedFiles(_out.files);
-            postMessage({ type: 'files', data: _out.files });
+            panel.webview.postMessage({ type: 'files', data: _out.files });
             log(`[harperRun] written ${written.length} files`);
             await harperGitAutomation(phase, runId, {
               workspaceRoot: wsRoot,
@@ -2851,7 +2869,7 @@ async function cmdOpenChat(context) {
         
       }
       //Harper Evals
-      if (msg.type === 'harperEvals' ) {
+      if (msg.type === 'harperEDD' ) {
          await appendSessionJSONL(activeMode, {
           role: 'user',
           content: String(msg.cmd || '') + ' ' + String(msg.argument || ''),
@@ -2865,12 +2883,7 @@ async function cmdOpenChat(context) {
           case 'gate': 
             _out = await handleGate(msg.argument, getWorkspaceRoot() );  
             break;
-          case 'syncconstraints': 
-            _out = await handleSync(msg.argument);  
-            break;
-          case 'planupdate': 
-            _out = await handlePlanUpdate(msg.argument);  
-            break;
+
           // default: break;
         }
 
