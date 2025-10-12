@@ -6,9 +6,10 @@
 Harper Run is a **structured, iterative pipeline** for featurelets:
 
 ```
-/spec → /plan → (/kit → /eval → /gate)* → /finalize
+IDEA.md → /spec → /plan → (/kit → /eval → /gate)* → /finalize → Solution
 ```
 
+* **Idea** Vision, Problem Statement, Value & Outcomes and tech constraints.
 * **Spec** defines the contract (what & why).
 * **Plan** breaks down work into **REQ-IDs** with acceptance and dependencies.
 * **Kit** implements one or more REQ-IDs (code + tests + docs).
@@ -101,8 +102,6 @@ tests/… (generated and/or existing tests)
 
   * `/kit` → next open REQ
   * `/kit <REQ-ID>` → target a specific REQ
-  * `/kit --batch <n>` → take the next `n` open REQ
-  * `/kit --rescope` → incorporate “Product Owner Notes” into `plan.json` (see below)
 * **Output**:
 
   * **Source changes** (minimal scope).
@@ -198,7 +197,7 @@ Saved at: `runs/<runId>/telemetry.json`.
 
 * `/spec`
 * `/plan`
-* `/kit [<REQ-ID>] [--batch <n>] [--rescope]`
+* `/kit [<REQ-ID>]`
 * `/eval [--all]`
 * `/gate [--all] [--manual <REQ-ID> pass|fail]`
 * `/finalize`

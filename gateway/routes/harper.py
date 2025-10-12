@@ -58,12 +58,12 @@ _FILE_BLOCK_BEGIN_RE = re.compile(
 
 # --- Model parameters per phase (output budget & style) ----------------------
 PHASE_MODEL_PARAMS = {
-    "spec":     {"max_tokens": 5500, "temperature": 0.25, "top_p": 1.0},
-    "plan":     {"max_tokens": 10500, "temperature": 0.2, "top_p": 0.8},  # raise to 6500 only if many lanes
-    "kit":      {"max_tokens": 7500, "temperature": 0.25, "top_p": 1.0},
-    "eval":     {"max_tokens": 3500, "temperature": 0.15, "top_p": 1.0},
-    "gate":     {"max_tokens": 3000, "temperature": 0.15, "top_p": 1.0},
-    "finalize": {"max_tokens": 3000, "temperature": 0.20, "top_p": 1.0},
+    "spec":     {"max_tokens": 6500, "temperature": 0.25, "top_p": 1.0},
+    "plan":     {"max_tokens": 25000, "temperature": 0.2, "top_p": 0.8},  # raise to 6500 only if many lanes
+    "kit":      {"max_tokens": 10500, "temperature": 0.25, "top_p": 1.0},
+    "eval":     {"max_tokens": 6500, "temperature": 0.15, "top_p": 1.0},
+    "gate":     {"max_tokens": 6000, "temperature": 0.15, "top_p": 1.0},
+    "finalize": {"max_tokens": 7000, "temperature": 0.20, "top_p": 1.0},
 }
 
 # --- Harper: Dynamic Context Budgeting (messages builder) --------------------
@@ -1034,7 +1034,7 @@ async def run(req: HarperRunRequest,  request: Request):
     req.gen["temperature"] = default_params_reasoning.get("temperature") or req.gen.get("temperature", 0.2)
     req.gen["max_tokens"] = default_params_reasoning.get("max_tokens") or req.gen.get("max_tokens", 6500)
     #req.gen["top_p"] = default_params_reasoning.get("top_p") or req.gen.get("top_p")
-    req.gen["stop"] = req.gen.get("stop") or ("```PLAN_END```")
+    req.gen["stop"] = req.gen.get("stop") or ("`PLAN_END`")
     #    - Se gen["api"] == "responses" usa /v1/responses, altrimenti /v1/chat/completions.
     req.gen["api"] = "responses"
 
@@ -1137,7 +1137,7 @@ async def run(req: HarperRunRequest,  request: Request):
     # timeout dinamico (60s base + 2s per 1k token, max 180s)
     # tuning: timeout dinamico (90s base + 3.5s per 1k token, max 3000)
     timeout_sec = min(300.0, 110 + (eff_max / 1000.0) * 3.5)
-    #timeout_sec =300.0
+    timeout_sec =500.0
     log.info("harper.gateway eff_max & timeout '%s' '%s'",
                     eff_max, timeout_sec)
     log.info("harper.gateway eff_max=%s ctx_window=%s prompt_tokens≈%s cap=%s",

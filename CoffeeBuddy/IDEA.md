@@ -1,4 +1,4 @@
-# IDEA — CoffeeBuddy (On-Prem)
+# IDEA — CoffeeBuddy
 
 ## Vision
 CoffeeBuddy streamlines office coffee runs entirely within the corporate network: teammates submit orders via Slack, one teammate is fairly assigned as runner, reminders are sent, and preferences are remembered—without relying on public cloud.
@@ -25,7 +25,7 @@ tech_constraints:
   version: 1.0.0
   profiles:
     - name: onprem
-      runtime: java17
+      runtime: python
       platform: kubernetes
       ingress: nginx
       api:
@@ -42,11 +42,11 @@ tech_constraints:
         - grafana
   capabilities:
     - type: api.gateway
-      vendor: wso2.apim
+      vendor: Kong Gateway
       params:
         routes: internal-only
     - type: idp
-      vendor: keycloak
+      vendor: Ory Hydra, Ory Kratos
       params:
         oidc: true
     - type: db.relational

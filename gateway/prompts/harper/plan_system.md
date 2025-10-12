@@ -86,13 +86,14 @@ Adjacency list (e.g., `REQ-003 -> REQ-001, REQ-002`)
 ## Notes
 - Assumptions, risks & mitigations
 
-PLAN_END
-END_FILE
+`PLAN_END`
 
+
+END_FILE
 ---
 
-BEGIN_FILE docs/harper/plan.json
 ## plan.json — Output Schema (Mandatory)
+BEGIN_FILE docs/harper/plan.json
 Use this exact structure:
 {
   "snapshot": {
@@ -123,6 +124,9 @@ Use this exact structure:
 - `snapshot.total == len(reqs)`.
 - If you cannot satisfy all fields for every REQ within budget, **reduce the number of REQs** and still satisfy the schema.
 - **Do not emit** `plan.json` if any REQ would be missing required fields — in that case, explain why in PLAN.md Notes and emit fewer REQs next time.
+- emit a SINGLE valid JSON object. No headings/comments/markdown above it.
+- When proposing libraries/frameworks, choose CURRENT, stable APIs. Note any migration constraints (e.g., "Pydantic v2 only").
+
 
 END_FILE
 

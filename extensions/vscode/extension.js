@@ -14,7 +14,7 @@ const os = require('os');
 
 const { registerCommands } = require('./commands/registerCommands');
 const {  handleGate, handleEval } = require('./commands/slashBot');
-const { buildHarperBody,  defaultCoreForPhase, runKitCommand, saveKitCommand, readPlanJson, getProjectId } = require('./utility')
+const { buildHarperBody,  defaultCoreForPhase, runKitCommand,runEvalGateCommand, saveKitCommand,saveEvalCommand,saveGateCommand, readPlanJson, getProjectId } = require('./utility')
 let __clike_lastTargetUriCache = null;  
 let selectedPaths = new Set();
 // --- Stato richiesta in corso (per Cancel) ---
@@ -98,8 +98,17 @@ async function harperGitAutomation(phase, runId, opts) {
   }
 }
 
+
 function getWorkspaceRoot() {
-  return vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath || '.';
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+
+    if (!workspaceFolders || workspaceFolders.length === 0) {
+        // Gestisci il caso in cui non c'è una cartella aperta
+        return null; 
+    }
+    
+    // Restituisce l'URI della prima cartella aperta (la radice del workspace)
+    return workspaceFolders[0].uri; 
 }
 
 const out = vscode.window.createOutputChannel('Clike');
@@ -1334,8 +1343,8 @@ var HELP_COMMANDS = [
   {cmd:'/plan [spec_path]', desc:'Generates/Updates PLAN.md from the SPEC'},
   {cmd:'/kit [REQ-ID]', desc:'Generates/Updates KIT.md and PLAN.md'},
   {cmd:'/finalize [--tag vX.Y.Z] [--archive]', desc:'Final gates and project closure (Harper)'},
-  { cmd: '/eval <spec|plan|kit|finalize>', desc: 'Performs an eval of spec/plan/kit/finalize' },
-  { cmd: '/gate <spec|plan|kit|finalize>', desc: 'Performs a gate of spec/plan|kit|finalize' },
+  { cmd: '/eval <REQ-ID>', desc: 'Performs an eval of plan/kit/finalize' },
+  { cmd: '/gate <REQ-ID>', desc: 'Performs a gate of plan|kit|finalize' },
   {cmd:'/rag <query>', desc:'Cerca nel RAG (mostra i top risultati) (cross)'},
   {cmd:'/rag +<N>', desc:'Adds RAG result #N from the last search to the attached files (cross)'},
   {cmd:'/rag list', desc:'Shows current attached files (inline+RAG) (cross).'},
@@ -1688,20 +1697,27 @@ function parseSlash(s) {
     return { cmd, args: { name, path: pth, force } };
   }
   if (cmd === '/eval' || cmd === '/gate') {
-    console.log('cmd evals parsed:', parts);
     const rest = parts.slice(1).map(x => String(x).trim()).filter(Boolean);
+    const mode = (rest.slice(1))? rest.slice(1)[0] : 'auto';
+    const modeContent = (rest.slice(2))? rest.slice(2)[0] : 'pass';
+    console.log('cmd evals rest:', rest);
+    console.log('cmd evals mode:', mode);
+    console.log('cmd evals modeContent:', modeContent);
+
     let targets = null;
     if (!rest.length) {
-      targets = ''; //findNextOpenReq in runKitCommand
+      targets = ''; //findNextOpenReq in runCommand
     } else {
       // assumiamo REQ-ID singolo (o più REQ-ID separati da spazio)
       const isReq = (s) => /^req-\d+/i.test(s);
       const onlyReqs = rest.every(isReq);
       targets = onlyReqs ? rest : [rest[0]];
+
     }
-    return { cmd, args: { targets } };
+    console.log('cmd evals targets:', targets);
+    return { cmd, args: { targets, mode, modeContent } };
   }
-  if (cmd === '/kit') {
+  if (cmd === '/kit' ) {
     // Sintassi:
     //   /kit               → findNextOpenReq in runKitCommand open REQ (batch=1)
     //   /kit REQ-02        → target specifico
@@ -1716,6 +1732,12 @@ function parseSlash(s) {
       const onlyReqs = rest.every(isReq);
       targets = onlyReqs ? rest : [rest[0]];
     }
+    return { cmd, args: { targets } };
+  }
+  if (cmd === '/plan' || cmd === '/spec') {
+    // Sintassi:
+    //   /spec | /plan (no args)
+    let targets = '';
     return { cmd, args: { targets } };
   }
 
@@ -1944,7 +1966,7 @@ function handleSlash(slash) {
         atts = attachmentsByMode[key].slice(0);
       }
     } catch {}    
-    try { bubble('user', slash.cmd + (slash.args.arg ? (' ' + slash.args.arg) : ''), (model && model.value) ? model.value : 'auto', atts); } catch {}
+    try { bubble('user', slash.cmd + (slash.args?.targets ? (' ' + slash.args.targets) : ''), (model && model.value) ? model.value : 'auto', atts); } catch {}
     
     const msg = { type: 'harperRun', cmd: slash.cmd.slice(1), attachments: atts };
     if (slash.cmd === '/kit') {
@@ -1963,14 +1985,19 @@ function handleSlash(slash) {
         atts = attachmentsByMode[key].slice(0);
       }
     } catch {}    
-      //Eval‑Driven Development - EDD
-      try { bubble('user', slash.cmd + (slash.args.arg ? (' ' + slash.args.arg) : ''), (model && model.value) ? model.value : 'auto', atts); } catch {}
-      const msg = { type: 'harperEDD', cmd: slash.cmd.slice(1), attachments: atts, argument: slash.args.targets || ''  };
-      msg.targets = slash.args?.targets ?? null; // 'next' | ['REQ-01', ...]
-      vscode.postMessage(msg);
-      return;
+    //Eval‑Driven Development - EDD
+    const path_ltc_json = "runs/kit/" + slash.args?.targets+"/ci/LTC.json"
+    console.log("slash.args", slash.args);
+    try { bubble('user', slash.cmd + (slash.args?.targets ? (' ' + slash.args?.targets) : ''), (model && model.value) ? model.value : 'auto', atts); } catch {}
+    const msg = { type: 'harperEDD', cmd: slash.cmd.slice(1), attachments: atts, argument: slash.args.targets || ''  };
+    msg.targets = slash.args?.targets ?? null; // 'next' | ['REQ-01', ...]
+    msg.mode = slash.args?.mode ?? null;
+    msg.modeContent = slash.args?.modeContent ?? null;
+    msg.path=path_ltc_json
+    vscode.postMessage(msg);
+    return;
   }
-  // Fallback: slash non riconosciuto → non invio al modello, mostro help
+  // Fallback: slash non riconosciuto → mostro help
   try {
     bubble('assistant',
       'Unknown command: ' + slash.cmd + '\\nType /help to see the available commands.',
@@ -2538,7 +2565,7 @@ async function cmdOpenChat(context) {
   if (lastRun) panel.webview.postMessage({ type: 'lastRun', data: lastRun });
 
   // Dopo aver creato il panel e prima di restituire:
-  await showInitSummaryIfPresent(panel);
+  await showInitSummaryIfPresent(panel, context);
 
   function escapeHtml(s){return s.replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]))}
   
@@ -2578,7 +2605,10 @@ async function cmdOpenChat(context) {
               canSelectFiles: false, canSelectFolders: true, canSelectMany: false,
               openLabel: 'Select parent folder for new workspace'
             });
-            if (!pick || !pick.length) return;
+            if (!pick || !pick.length) {
+              panel.webview.postMessage({ type: 'busy', on: false });
+              return;
+            }
             parentUri = pick[0];
           }
 
@@ -2613,7 +2643,10 @@ async function cmdOpenChat(context) {
                 copyRecursive(path.join(src, entry), path.join(dest, entry), _name);
               }
             } else {
-              if (fsSync.existsSync(dest) && !force) return;
+              if (fsSync.existsSync(dest) && !force) {
+                panel.webview.postMessage({ type: 'busy', on: false });
+                return;
+              }
 
                 // 1. Leggi il contenuto del file
               let content = fsSync.readFileSync(src, 'utf-8');
@@ -2703,7 +2736,7 @@ async function cmdOpenChat(context) {
           const activeProvider = (profileHint!=null) ?inferProvider(activeModel) :'';
           log(`[harperRun] activeProvider ....${activeProvider}  `);
           let targets ='';
-          if (phase === 'kit' || phase === 'eval' || phase === 'gate' ) {
+          if (phase === 'kit') {
             targets = msg?.targets[0]?.toUpperCase() ?? "";
           }
           
@@ -2790,12 +2823,14 @@ async function cmdOpenChat(context) {
           if (phase==='kit') {
             if (!plan) {
               vscode.window.showErrorMessage('plan.json not found. Run /plan first.');
+              panel.webview.postMessage({ type: 'busy', on: false });
               return;
             }
-            targetReqId = await runKitCommand(context, plan, targets)
+            targetReqId = await runKitCommand(plan, targets)
             log("happerRun targetReqId", targetReqId)
             if (!targetReqId) {
-              vscode.window.showErrorMessage(`CLike: cmd -> /kit no plan.json available`);
+              vscode.window.showErrorMessage(`CLike: cmd -> /kit REQ ID not found orcommand aborted.`);
+              panel.webview.postMessage({ type: 'busy', on: false });
               return
             }
             payload["kit"]= {targets: [targetReqId] }
@@ -2849,7 +2884,6 @@ async function cmdOpenChat(context) {
               profile: _out?.profile || _out?.telemetry?.profile
             });
           }
-         
           // Tests summary
           if (_out?.tests?.summary) {
             panel.webview.postMessage({ type: 'echo', message: `✅ Tests: ${_out.tests.summary}` });
@@ -2870,21 +2904,83 @@ async function cmdOpenChat(context) {
       }
       //Harper Evals
       if (msg.type === 'harperEDD' ) {
-         await appendSessionJSONL(activeMode, {
+        let targets, targetReqId
+        const phase = msg.cmd;
+        const ws_root= getWorkspaceRoot()
+        log(`[harperEDD] ws_root: ${ws_root}`)
+
+        const plan = await readPlanJson(ws_root);
+       
+        if (phase === 'eval' || phase === 'gate' ) {
+          targets = msg?.targets[0]?.toUpperCase() ?? "";
+        }
+        if (!targets){
+          targetReqId = await runEvalGateCommand (plan, targets)
+          targets = targetReqId
+          msg.path =  "runs/kit/" + targets+"/ci/LTC.json"
+        }
+
+        log("harperEDD targetReqId", targetReqId)
+        
+        if (!targets && !targetReqId){
+          vscode.window.showErrorMessage('REQ-ID not found. Run /eval REQ-ID ... /gate REQ-ID');
+          panel.webview.postMessage({ type: 'busy', on: false });
+          return;
+        }
+        await appendSessionJSONL(activeMode, {
           role: 'user',
-          content: String(msg.cmd || '') + ' ' + String(msg.argument || ''),
+          content: `▶ ${phase.toUpperCase()} ${targets} | mode=${state.mode} model=${state.model}`,
           model:  state.model || 'auto',
+          attachments: Array.isArray(msg.attachments) ? msg.attachments : []
         });
+        // Echo pre-run
+        panel.webview.postMessage({
+          type: 'echo',
+          message: `▶ ${phase.toUpperCase()} ${targets} | mode=${state.mode} model=${state.model}`
+        });
+        
+        
+        
+        const path_ltc_json = msg.path
+        log(`[harperEDD] path_ltc_json: ${path_ltc_json}`)
+        const ltcUri = vscode.Uri.joinPath(ws_root, path_ltc_json);
+        log(`[harperEDD] ltcUri: ${ltcUri}`);
+        
+        
+        try {
+          const stats = fsSync.statSync(ltcUri.fsPath);
+
+          if (!stats.isFile()) {
+              vscode.window.showErrorMessage('LTC.json not found. Run /kit REQ-ID to generate source and tests and /eval REQ-ID -> /gate REQ-ID');
+              panel.webview.postMessage({ type: 'busy', on: false });
+              return;
+          }
+            // ... codice per continuare
+        } catch (error) {
+          // Gestisce il caso in cui il file non esiste affatto (fs.statSync lancerebbe un errore)
+          vscode.window.showErrorMessage(`File LTC.json not found at: ${ltcUri.fsPath}`);
+          panel.webview.postMessage({ type: 'busy', on: false });
+          return;
+        }
         var _out
+        const mode = (msg.mode) ? msg.mode : 'auto'
+        const modeContent = (msg.modeContent) ? msg.modeContent : 'pass'
+
+        log(`[harperEDD] mode: ${mode} modeContent: ${modeContent}`)
         switch (msg.cmd) {
           case 'eval':
-            _out = await handleEval(msg.argument, getWorkspaceRoot() ); 
+            _out = await handleEval(path_ltc_json, ws_root, targets,mode, modeContent ); 
             break;
           case 'gate': 
-            _out = await handleGate(msg.argument, getWorkspaceRoot() );  
+            _out = await handleGate(path_ltc_json, ws_root,targets, opts, {reqId: targets, mode: mode, modeContent: modeContent} );  
             break;
 
           // default: break;
+        }
+        if (phase==="eval") {
+            await saveEvalCommand(ws_root,plan,targetReqId,out) 
+        } else if (phase==="gate") {
+            await saveGateCommand(root,plan,targetReqId,out)
         }
 
        // Persisti l’input dell’utente nella sessione del MODE (e mostreremo badge del modello in render)
@@ -3365,7 +3461,7 @@ async function cmdOpenChat(context) {
     panel.webview.postMessage({ type: 'busy', on: false });
   });
 }
-async function showInitSummaryIfPresent(panel) {
+async function showInitSummaryIfPresent(panel, context) {
   try {
     const ws = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
     if (!ws) return;
