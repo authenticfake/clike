@@ -351,8 +351,7 @@ function _updateReqTableSection(sectionText, statusMap) {
   return glueA + rebuilt + glueB;
 }
 
-// PATCH 3 — selezione target e payload /kit (dentro handler del comando Harper)
-async function runKitCommand(context, plan, cmdArgs) {
+async function runKitCommand( plan, cmdArgs) {
   out.appendLine(`[runKitCommand] ${cmdArgs}`);
   // cmdArgs: string dopo "/kit", es. "", "REQ-001"
   let targetReqId = (cmdArgs || '').trim() || null;
@@ -363,7 +362,32 @@ async function runKitCommand(context, plan, cmdArgs) {
       return;
     }
   }
+  // (opzionale) avvisa se deps non done
+  const candidate = (plan.reqs || []).find(r => r.id === targetReqId);
+  const deps = Array.isArray(candidate?.dependsOn) ? candidate.dependsOn : [];
+  const byId = Object.fromEntries((plan.reqs||[]).map(r=>[r.id,r]));
+  const depsOk = deps.every(d => byId[d] && byId[d].status === 'done');
+  if (!depsOk) {
+    const pick = await vscode.window.showWarningMessage(
+      `Dependencies for ${targetReqId} are not all 'done'. Proceed anyway?`,
+      'Proceed', 'Cancel'
+    );
+    if (pick !== 'Proceed') return;
+  }
+  return targetReqId;
+}
 
+async function runEvalGateCommand( plan, cmdArgs) {
+  out.appendLine(`[runEvalGateCommand] ${cmdArgs}`);
+  // cmdArgs: string dopo "/kit", es. "", "REQ-001"
+  let targetReqId = (cmdArgs || '').trim() || null;
+  if (!targetReqId) {
+    targetReqId = findNextReq(plan, "in_progress");
+    if (!targetReqId) {
+      vscode.window.showWarningMessage('No pending REQ found in plan.json with status in_progress');
+      return;
+    }
+  }
   // (opzionale) avvisa se deps non done
   const candidate = (plan.reqs || []).find(r => r.id === targetReqId);
   const deps = Array.isArray(candidate?.dependsOn) ? candidate.dependsOn : [];
@@ -401,7 +425,7 @@ async function saveKitCommand(projectRootUri, plan, targetReqId, out) {
     if (!effectivePlan || !Array.isArray(effectivePlan.reqs)) {
       vscode.window.showErrorMessage(`[saveKitCommand] plan.json not found or invalid; aborting update. for ${targetReqId}.`);
       log('[saveKitCommand] plan.json not found or invalid; aborting update.');
-      return;
+      //return;
     }
   }
 
@@ -606,6 +630,22 @@ function findNextOpenReq(plan) {
   return anyOpen ? anyOpen.id : null;
 }
 
+function findNextReq(plan, status) {
+  if (!plan || !Array.isArray(plan.reqs)) return null;
+  // dipendenze tutte done
+  const isDepsSatisfied = (req, byId) => {
+    const deps = Array.isArray(req.dependsOn) ? req.dependsOn : [];
+    return deps.every(d => (byId[d] && byId[d].status === 'done'));
+  };
+  const byId = Object.fromEntries(plan.reqs.map(r => [r.id, r]));
+  for (const req of plan.reqs) {
+    if (req.status === status && isDepsSatisfied(req, byId)) return req.id;
+  }
+  // fallback: primo open anche se deps non soddisfatte
+  const anyOpen = plan.reqs.find(r => r.status === status);
+  return anyOpen ? anyOpen.id : null;
+}
+
 function setReqStatus(plan, reqId, status) {
   if (!plan || !Array.isArray(plan.reqs)) return false;
   const r = plan.reqs.find(x => (x.id || '').trim().toUpperCase() === (reqId || '').trim().toUpperCase());
@@ -719,27 +759,6 @@ async function updatePlanMdInPlace(projectRootUri, plan) {
   await writeTextFile(uri, md);
 }
 
-
-async function updatePlanMdInPlace(projectRootUri, plan) {
-  const uri = vscode.Uri.joinPath(projectRootUri, 'docs', 'harper', 'PLAN.md');
-  const md = await readTextFile(uri);
-  if (!md) return;
-
-  const ss = snapshotCounts(plan);
-  const newSnapshot = renderSnapshotMd(ss);
-  const newTable = renderReqTableMd(plan);
-
-  const snapRx = /(##\s*Plan Snapshot)([\s\S]*?)(?=^##\s|\Z)/m;
-  const tableRx = /(##\s*REQ-IDs Table)([\s\S]*?)(?=^##\s|\Z)/m;
-
-  let out = md;
-  out = snapRx.test(out) ? out.replace(snapRx, newSnapshot) : (newSnapshot + '\n' + out);
-  out = tableRx.test(out) ? out.replace(tableRx, newTable) : (out + '\n\n' + newTable);
-
-  await writeTextFile(uri, out);
-}
-
-
 function extractUserMessages(sessionData) {
     // 1. Filtra l'array per mantenere solo gli elementi con role 'user'.
     const userMessages = sessionData.filter(log => log.role === 'user');
@@ -760,32 +779,100 @@ function defaultCoreForPhase(phase) {
     case "plan":
       return ["SPEC.md", "TECH_CONSTRAINTS.yaml"];
     case "kit":
-      return ["SPEC.md", "PLAN.md", "KIT.md", "TECH_CONSTRAINTS.yaml"];
-    case "build":
-      return ["SPEC.md", "PLAN.md", "KIT.md", "BUILD_REPORT.md", "TECH_CONSTRAINTS.yaml"];
+      return ["SPEC.md", "PLAN.md", "plan.json", "TECH_CONSTRAINTS.yaml"];
     case "finalize":
-      return ["SPEC.md", "PLAN.md", "KIT.md", "BUILD_REPORT.md", "RELEASE_NOTES.md", "TECH_CONSTRAINTS.yaml"];
+      return ["SPEC.md", "PLAN.md", "plan.json", "BUILD_REPORT.md", "RELEASE_NOTES.md", "TECH_CONSTRAINTS.yaml"];
     default:
       return ["IDEA.md"];
   }
 }
 
-function getProjectId() {
-  // --- project_id: derive from workspace folder name ---
-try {
-  
-  const ws = vscode.workspace.workspaceFolders?.[0];
-  if (ws && ws.name) {
-    return ws.name.toLowerCase().replace(/\s+/g, '-');
-    return 
-  } else {
-    return 'default';
-    
+// utility.js — APPENDI IN FONDO AL FILE (o in un punto opportuno) —
+
+// Copia ricorsiva: dalla cartella src del REQ alla root (o dove preferisci).
+async function promoteReqSources(projectRootUri, reqId) {
+  const vscode = require('vscode');
+
+  const srcDir = vscode.Uri.joinPath(projectRootUri, 'runs', 'kit', reqId, 'src');
+  const destDir = projectRootUri; // cambia qui se vuoi promuovere in una subfolder
+
+  // Se non esiste, niente da promuovere
+  try { await vscode.workspace.fs.stat(srcDir); } catch { 
+    vscode.window.showWarningMessage(`[promote] Nessun src per ${reqId}`); 
+    return; 
   }
-} catch (e) {
-  console.warn('[CLike] project_id derivation failed:', e);
-  body.project_id = 'default';
+
+  await copyTree(srcDir, destDir);
 }
+
+// Copia ricorsiva di una directory
+async function copyTree(fromUri, toUri) {
+  const vscode = require('vscode');
+  const entries = await vscode.workspace.fs.readDirectory(fromUri);
+  for (const [name, fileType] of entries) {
+    const source = vscode.Uri.joinPath(fromUri, name);
+    const target = vscode.Uri.joinPath(toUri, name);
+    if (fileType === vscode.FileType.File) {
+      // crea cartella target se non esiste
+      const parent = vscode.Uri.joinPath(target, '..');
+      try { await vscode.workspace.fs.stat(parent); } catch { await vscode.workspace.fs.createDirectory(parent); }
+      await vscode.workspace.fs.copy(source, target, { overwrite: true });
+    } else if (fileType === vscode.FileType.Directory) {
+      try { await vscode.workspace.fs.stat(target); } catch { await vscode.workspace.fs.createDirectory(target); }
+      await copyTree(source, target);
+    }
+  }
+}
+
+function getProjectId() {
+    // --- project_id: derive from workspace folder name ---
+  try {
+    
+    const ws = vscode.workspace.workspaceFolders?.[0];
+    if (ws && ws.name) {
+      return ws.name.toLowerCase().replace(/\s+/g, '-'); 
+    } else {
+      return 'default';
+      
+    }
+  } catch (e) {
+    console.warn('[CLike] project_id derivation failed:', e);
+    body.project_id = 'default';
+  }
+}
+// Converte l'argomento utente in un path LTC.json
+async function resolveProfilePath(arg, workspaceRoot) {
+  const rootPath = (workspaceRoot && (workspaceRoot.fsPath || workspaceRoot.path)) || ".";
+  const wsUri = workspaceRoot || vscode.workspace.workspaceFolders?.[0]?.uri;
+
+  // Se l'utente passa direttamente un .json, usalo
+  if (typeof arg === "string" && arg.trim().toLowerCase().endsWith(".json")) {
+    return arg.trim();
+  }
+
+  // Se è un REQ-ID tipo REQ-123 → runs/kit/REQ-123/LTC.json (o .../ci/LTC.json se è lì)
+  if (typeof arg === "string" && /^REQ-\d+$/i.test(arg.trim())) {
+    const p1 = `runs/kit/${arg.trim()}/LTC.json`;
+    const p2 = `runs/kit/${arg.trim()}/ci/LTC.json`;
+    // Verifica esistenza p1 o p2 (best effort)
+    try {
+      const uri1 = vscode.Uri.joinPath(wsUri, p1);
+      await vscode.workspace.fs.stat(uri1);
+      return p1;
+    } catch (_) {
+      // p1 non esiste, prova p2
+      try {
+        const uri2 = vscode.Uri.joinPath(wsUri, p2);
+        await vscode.workspace.fs.stat(uri2);
+        return p2;
+      } catch (_) {
+        // nessuno dei due, restituisci p1 di default (orchestrator potrà fallire con errore chiaro)
+        return p1;
+      }
+    }
+  }
+  // Fallback: LTC.json in root
+  return "LTC.json";
 }
 
 module.exports = {
@@ -795,10 +882,14 @@ module.exports = {
   defaultCoreForPhase,
   readPlanJson,
   runKitCommand,
+  runEvalGateCommand,
   saveKitCommand,
   saveGateCommand,
   saveEvalCommand,
   getProjectId,
-  resolveLatestReq
+  resolveLatestReq,
+  resolveProfilePath,
+  promoteReqSources,
+  readTextFile
 
 };

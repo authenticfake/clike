@@ -84,7 +84,7 @@ def _build_chat_payload(
     #if "top_p" in gen: out["top_p"] = gen["top_p"]
     #if "stop" in gen and gen["stop"]: out["stop"] = gen["stop"]
     if "presence_penalty" in gen: out["presence_penalty"] = gen["presence_penalty"]
-    if "frequency_penalty" in gen: out["frequency_penalty"] = gen["frequency_penalty"]
+    #if "frequency_penalty" in gen: out["frequency_penalty"] = gen["frequency_penalty"]
 
     # Token budget (Chat)
     # Se arriva max_output_tokens per sbaglio, lo mappiamo → max_completion_tokens
@@ -382,7 +382,7 @@ async def openai_complete_unified(
         async with httpx.AsyncClient(timeout=timeout_s) as client:
                 r = await client.post(url, headers=headers, json=payload)
                 log.info("openai_complete_unified response %s", r.status_code)
-                #log.info("gateway._post_with_retries response text %s", r.text)
+                log.info("gateway._post_with_retries response text %s", r.text)
        
     except Exception as e:
         log.error("exception openai_complete_unified Error: %s", e, exc_info=True)

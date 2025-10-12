@@ -1,4 +1,7 @@
-const api = require('../api');
+const vscode = require('vscode');
+
+const { postEvalRun, postGateCheck } = require ("../api.js");
+const {resolveProfilePath } = require('../utility.js')
 
 function parseSlash(line) {
   const m = line.trim().match(/^\/([a-zA-Z][\w:-]*)(?:\s+(.+))?$/);
@@ -8,20 +11,38 @@ function parseSlash(line) {
   return { cmd, args };
 }
 
-async function handleEval(args, root) {
-  const profile = args[0];
-  if (!['spec','plan','kit','finalize'].includes(profile || '')) throw new Error('Usage: /eval <spec|plan|kit|finalize>');
-  const rep = await api.evalRun(profile, root);
-  const msg = rep.failed === 0 ? 'PASS' : 'FAIL';
-  return `Eval ${profile}: ${msg}\nCases: ${rep.cases.length}\nReport: ${rep.json}`;
-}
-async function handleGate(args, root) {
-  const profile = args[0];
-  if (!['spec','plan','kit','finalize'].includes(profile || '')) throw new Error('Usage: /gate <spec|plan|kit|finalize>');
-  const g = await api.gateCheck(profile, root);
-  return `Gate ${profile}: ${g.gate}`;
+
+// Handler comando /eval
+async function handleEval(argument, workspaceRoot,req_id, mode='auto', modeContent='pass') {
+  try {
+    const profile = await resolveProfilePath(argument, workspaceRoot);
+    
+    const res = await postEvalRun(profile, workspaceRoot, req_id, mode, modeContent);
+    // Mostra risultato
+    const msg = res.passed
+      ? `EVAL PASS — passed=${res.passed_count}, failed=${res.failed}`
+      : `EVAL FAIL — passed=${res.passed_count}, failed=${res.failed}`;
+    vscode.window.showInformationMessage(`${msg} | profile=${res.profile}`);
+    return `Eval ${profile}: ${msg}\nCases: ${res.cases?.length}\nReport: ${res?.json}`;
+
+    // opzionale: apri report junit/json se presenti
+    // ...
+  } catch (err) {
+    vscode.window.showErrorMessage(`EVAL error: ${String(err)}`);
+  }
 }
 
+// Handler comando /gate
+async function handleGate(argument, workspaceRoot, req_id, opts={promote: false, reqId: null, mode: 'auto', modeContent: ''}) {
+  try {
+    const profile = await resolveProfilePath(argument, workspaceRoot);
+    const res = await postGateCheck(profile, workspaceRoot,req_id, opts);
+    vscode.window.showInformationMessage(`GATE: ${res.gate} | profile=${profile}`);
+    return `Gate ${profile}: ${res.gate}`;
 
+  } catch (err) {
+    vscode.window.showErrorMessage(`GATE error: ${String(err)}`);
+  }
+}
 
 module.exports = { handleGate,handleEval };
