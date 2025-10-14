@@ -41,64 +41,21 @@ Before producing or modifying code, you **must read and analyze** the current pr
 - **You MUST avoid deprecated APIs, libraries, methods/functions**
 - The following principles ensure the **coherence, idempotency, and verifiability** of the database schema (RDBMS or NoSQL) within the development process (Kit):
 
-	* **Single source of truth**
-	   A single, engine-neutral schema spec (JSON/YAML) is the canonical model. Everything else is rendered from it.
-		
-	* **One engine per run**
-	   Each execution targets exactly one engine via a renderer/adapter. No mixed engines in the same apply.
-		
-	* **Pure rendering**
-		
-	   * RDBMS: render **pure DDL** (create/alter/drop) in versioned SQL files; no ORM/runtime models.
-	   * NoSQL: render **declarative ops** (collections/indexes/mappings) as JSON/YAML + API/SDK calls.
-	 
-	  No app code inside migrations.
-		
-	* **Idempotent by design**
-	   Every step is safe to re-run: use “existence checks” (create-if-absent / drop-if-present) and stable names for objects (tables, collections, indexes, constraints).
-		
-	* **Strict ordering & reversibility**
-	   Apply in a strict order (types → structures → relations/indexes). Provide an inverse teardown. Every upgrade has a downgrade.
-	   
-	* Each kit MAY include runs/kit/<ID>/requirements.txt listing only the minimal test/runtime dependencies (drivers, migration helpers). CI/eval MUST install it before running tests. If installation isn’t possible, tests MUST self-skip when packages are missing. Schema artifacts (SQL/JSON) remain pure and engine-portable.
-		
-	* **Deterministic artifacts**
-	   Renderers must produce deterministic files (no timestamps/random IDs) to enable diff, review, and caching.
-		
-	* **Versioned migrations**
-	   Use monotonic versions (e.g., `V001_add_user.up` / `.down` or `.ops.json`). Keep a migration ledger with version, checksum, applied_at, status.
-		
-	* **Seeds are separate**
-	   No data seeding inside schema migrations. Seeds run separately and are also idempotent, no less than 10 and no more than 20.
-		
-	* **Environment-driven config (LTC)**
-	   All connection info comes from a simple LTC (env or file): engine kind, DSN/URL, database/keyspace/namespace, schema/project name. No hardcoded credentials.
-		
-		
-	* **Least privilege & safety**
-	    Migrations use the minimum required permissions. For engines without multi-step transactions, use compensating, idempotent actions and clear failure states.
+	* **One engine per kit:** if you support multiple engines, split artifacts per engine.
+	* **Engine-specific artifacts:**
 	
-	* **Quality gates**
-	    Validate the schema spec before rendering; lint/check generated DDL or ops payloads; support `plan` (dry-run), `apply`, `downgrade`, `reset`, `seed`.
-	
-	* **For SQL LANE**   adopt the structure below as the canonical scaffold—and automatically generate all listed artifacts (DDL scripts, shell runners, and the shape test) when creating a new kit: 
-		*```
-		runs/kit/REQ-004/
-		  src/sql/
-		    V0001.up.sql
-		    V0001.down.sql
-		    # (add V0002.* if needed)
-		  src/seed/
-		    seed.sql                  # required, idempotent
-		  scripts/
-		    upgrade.sh                # runs all *.up.sql in order
-		    downgrade.sh              # runs all *.down.sql in reverse order
-		  test/
-		    test_migration_sql.py     # shape test + idempotency + round-trip
-		  config/
-		  README.md
-		  kit_syst
-		```
+	  * *SQL (RDBMS):* ship **pure DDL** (`.sql`) and a driver invocation (e.g., `psql`, `mysql`, `sqlplus`).
+	  * *NoSQL:* ship **JSON/YAML specs** (validators, mappings, templates) plus **idempotent API calls** to apply them.
+	* **Idempotent & reversible:** `upgrade` safe to re-run; `downgrade` fully cleans. Use `IF [NOT] EXISTS` or semantic checks.
+	* **Strict order:** Namespaces/Types → Structures (tables/collections) → Relations/Indexes/Aliases → Permissions; reverse on downgrade.
+	* **Stable names:** deterministic names for tables/collections, constraints, indexes; avoid auto-generated names.
+	* **Transactional safety:** use transactional DDL where available; else split into small, idempotent steps with checkpoints.
+	* **Dry-run / diff:** provide a no-op mode that logs exact actions or diffs.
+	* **Isolation in tests:** ephemeral DB per run; assert shape; run `upgrade` twice; `downgrade` must leave zero objects.
+	* **No seed in schema:** keep data seed/backfill separate and rerunnable.
+	* **DSN hygiene:** normalize **driver DSN vs ORM URL** at the boundary; strip dialect suffixes when using raw drivers.
+	* **Portability guards:** gate vendor-specific features behind flags or engine checks.
+	* **Import/file shims:** when filenames or package paths are illegal for the runtime, expose a shim module that re-exports `upgrade/downgrade` under a safe import path.
   
 ## Output Contract
 Emit all required **files** for this iteration using **fenced blocks per file**. Only these blocks (and the iteration log below) should appear in the output.

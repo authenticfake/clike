@@ -14,7 +14,7 @@ const os = require('os');
 
 const { registerCommands } = require('./commands/registerCommands');
 const {  handleGate, handleEval } = require('./commands/slashBot');
-const { buildHarperBody,  defaultCoreForPhase, runKitCommand,runEvalGateCommand, saveKitCommand,saveEvalCommand,saveGateCommand, readPlanJson, getProjectId } = require('./utility')
+const { buildHarperBody,  defaultCoreForPhase, runKitCommand,runEvalGateCommand, saveKitCommand,saveEvalCommand,saveGateCommand, readPlanJson, getProjectId, promoteReqSources, runPromotionFlow, } = require('./utility')
 let __clike_lastTargetUriCache = null;  
 let selectedPaths = new Set();
 // --- Stato richiesta in corso (per Cancel) ---
@@ -76,7 +76,6 @@ async function harperGitAutomation(phase, runId, opts) {
       spec: ['docs/harper/SPEC.md'],
       plan: ['docs/harper/PLAN.md'],
       kit:  ['docs/harper/KIT.md'],
-      build:['docs/harper/BUILD_REPORT.md'],
       finalize: ['docs/harper/RELEASE_NOTES.md']
     };
     const files = phaseFiles[phase] || [];
@@ -110,6 +109,7 @@ function getWorkspaceRoot() {
     // Restituisce l'URI della prima cartella aperta (la radice del workspace)
     return workspaceFolders[0].uri; 
 }
+
 
 const out = vscode.window.createOutputChannel('Clike');
 /**
@@ -285,7 +285,9 @@ async function loadSessionFilteredHarper(mode, model, limit = 200) {
         '▶KITREQ-',
         '▶EVAL',
         '▶GATE',
-        '▶FINALIZE'
+        '▶FINALIZE',
+        '✔',
+        '🧪'
     ];
 
     const isExecutionCommand = e.content && EXECUTION_COMMAND_PREFIXES.some(prefix => 
@@ -1199,6 +1201,26 @@ function activate(context) {
   reg('clike.gitCommitPatch', () => vscode.commands.executeCommand('git.commit'));
   reg('clike.gitOpenPR', () => vscode.commands.executeCommand('github.createPullRequest'));
   reg('clike.gitSmartPR', async () => { await vscode.commands.executeCommand('git.commit'); await vscode.commands.executeCommand('github.createPullRequest'); });
+
+
+  reg('clike.promoteReqSources', async () => {
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri;
+    if (!root) {
+      vscode.window.showErrorMessage('No workspace folder open.');
+      return;
+    }
+    await runPromotionFlow(root, null, out);
+  });
+  
+  reg('clike.promoteReqSourcesQuick', async (reqId, strategy = 'folder') => {
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri;
+    if (!root) {
+      vscode.window.showErrorMessage('No workspace folder open.');
+      return;
+    }
+    await promoteReqSources(root, reqId, strategy, out);
+  });
+  
   registerCommands(context);
 
   vscode.window.setStatusBarMessage('Clike: orchestrator+gateway integration ready', 2000);
@@ -2836,13 +2858,13 @@ async function cmdOpenChat(context) {
             payload["kit"]= {targets: [targetReqId] }
           }
           const wsroot = wsRoot();
-          log("happerRun wsroot", wsroot)
 
           const _headers = {"Content-Type": "application/json", "X-CLike-Profile": "code.strict"}
           //fals is for RAG chucks - TODO: RAG management via attachments is almost oden 70%
           const body = await buildHarperBody(phase, payload, wsroot, RAG_PREFER_FOR,false, out);
-          
-          log(`[harperRun] body (gen):`,  JSON.stringify(body.gen))
+          const keys = Object.keys(body.core_blobs); 
+          log(`[harperRun] body (keys::core_blobs):`,  keys)
+          //log(`[harperRun] body (core_blobs):`,  JSON.stringify(body.core_blobs))
           if (activeProvider) _headers["X-CLike-Provider"] = activeProvider
           const outGateway = await callHarper(cmd, body, _headers);
 
@@ -2899,8 +2921,7 @@ async function cmdOpenChat(context) {
         } catch (e) {
           panel.webview.postMessage({ type: 'error', message: (e?.message || String(e)) });
         }
-        
-        
+        panel.webview.postMessage({ type: 'busy', on: false }) 
       }
       //Harper Evals
       if (msg.type === 'harperEDD' ) {
@@ -2938,9 +2959,6 @@ async function cmdOpenChat(context) {
           type: 'echo',
           message: `▶ ${phase.toUpperCase()} ${targets} | mode=${state.mode} model=${state.model}`
         });
-        
-        
-        
         const path_ltc_json = msg.path
         log(`[harperEDD] path_ltc_json: ${path_ltc_json}`)
         const ltcUri = vscode.Uri.joinPath(ws_root, path_ltc_json);
@@ -2949,7 +2967,6 @@ async function cmdOpenChat(context) {
         
         try {
           const stats = fsSync.statSync(ltcUri.fsPath);
-
           if (!stats.isFile()) {
               vscode.window.showErrorMessage('LTC.json not found. Run /kit REQ-ID to generate source and tests and /eval REQ-ID -> /gate REQ-ID');
               panel.webview.postMessage({ type: 'busy', on: false });
@@ -2962,36 +2979,33 @@ async function cmdOpenChat(context) {
           panel.webview.postMessage({ type: 'busy', on: false });
           return;
         }
-        var _out
+        var report = {}
         const mode = (msg.mode) ? msg.mode : 'auto'
         const modeContent = (msg.modeContent) ? msg.modeContent : 'pass'
 
-        log(`[harperEDD] mode: ${mode} modeContent: ${modeContent}`)
         switch (msg.cmd) {
           case 'eval':
-            _out = await handleEval(path_ltc_json, ws_root, targets,mode, modeContent ); 
+            report = await handleEval(path_ltc_json, ws_root, targets,mode, modeContent ); 
             break;
           case 'gate': 
-            _out = await handleGate(path_ltc_json, ws_root,targets, opts, {reqId: targets, mode: mode, modeContent: modeContent} );  
+            report = await handleGate(path_ltc_json, ws_root,targets, opts={promote: false, reqId: targets, mode: mode, result: modeContent} );  
             break;
-
-          // default: break;
         }
         if (phase==="eval") {
-            await saveEvalCommand(ws_root,plan,targetReqId,out) 
+          await saveEvalCommand(ws_root,plan,targets,report,out) 
         } else if (phase==="gate") {
-            await saveGateCommand(root,plan,targetReqId,out)
+          await saveGateCommand(ws_root,plan,targets,report,out)
         }
-
+        log(`[harperEDD] after Eval/Gate report: ${JSON.stringify(report)}`)
        // Persisti l’input dell’utente nella sessione del MODE (e mostreremo badge del modello in render)
         await appendSessionJSONL(activeMode, {
           role: 'system',
-          content:"🧪 "+ String(_out || ''),
+          content:"✔ "+ String(report.summary || ''),
           model:  state.model || 'auto',
         });
-        panel.webview.postMessage({ type: 'echo', message: "🧪 " + _out } );
-        
-        
+        panel.webview.postMessage({ type: 'echo', message: "✔ " + report.summary } );
+        panel.webview.postMessage({ type: 'busy', on: false });
+
       } 
      
       if (msg.type === 'ragIndex') {
@@ -3243,8 +3257,9 @@ async function cmdOpenChat(context) {
         // History per conversazione “stateless�?: carico SOLO le bolle del MODE corrente
         const history = await loadSession(activeMode).catch(() => []);
         // Filtra eventualmente per modello se vuoi inviare solo il sotto-filo di quel model:
-        const historyForThisModel = history.filter(b => !b.model || b.model === activeModel);
+       // const historyForThisModel = history.filter(b => !b.model || b.model === activeModel);
         //log((`CLike historyForThisModel: ${historyForThisModel}`));
+        const historyForThisModel = await loadSessionFilteredHarper(activeMode, activeModel, 200);
 
 
         const source = (historyScope === 'allModels')
@@ -3260,22 +3275,23 @@ async function cmdOpenChat(context) {
             messages, 
             inline_files, 
             rag_files, 
-            attachments: atts 
+            attachments: atts ,
+            max_tokens: 2050
         };
         const payload = (msg.type === 'sendChat')
           ? basePayload
-          : { ...basePayload, max_tokens: 1024 };
+          : basePayload["max_tokens"]= 4100 };
 
         const url = (msg.type === 'sendChat')
           ? `${orchestratorUrl}/v1/chat`
           : `${orchestratorUrl}/v1/generate`;
         
-        log((`CLike payload: ${JSON.stringify(payload)} url: ${url}`));
+        //log((`CLike payload: ${JSON.stringify(payload)} url: ${url}`));
 
         try {
           const res = await withTimeout(
             postJson(url, payload, { signal: inflightController.signal }),
-            240000
+            600000
           );
 
           // Salva ultimo run (serve per Apply)

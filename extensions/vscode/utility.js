@@ -5,6 +5,266 @@ const path = require('path');
 const { gatherRagChunks } = require('./rag.js');
 
 const out = vscode.window.createOutputChannel('Clike.utility');
+const crypto = require('crypto');
+
+/** Logger that accepts N args and JSON-serializes objects. */
+function mkLog(out) {
+  return (...args) => {
+    const line = args.map(a => {
+      if (typeof a === 'string') return a;
+      try { return JSON.stringify(a, null, 2); } catch { return String(a); }
+    }).join(' ');
+    if (out?.appendLine) out.appendLine(line); else console.log(line);
+  };
+}
+
+/** sha256 of a Buffer */
+function hashBuf(buf) {
+  return crypto.createHash('sha256').update(buf).digest('hex');
+}
+
+/** Read entire tree (files only) under a Uri directory (depth-first). */
+async function readTree(dirUri) {
+  const list = [];
+  async function walk(u) {
+    const entries = await vscode.workspace.fs.readDirectory(u);
+    for (const [name, fileType] of entries) {
+      const child = vscode.Uri.joinPath(u, name);
+      if (fileType === vscode.FileType.Directory) {
+        await walk(child);
+      } else if (fileType === vscode.FileType.File) {
+        list.push(child);
+      }
+    }
+  }
+  await walk(dirUri);
+  return list;
+}
+
+/** Copy a file (read → write). */
+async function copyFile(from, to) {
+  const data = await vscode.workspace.fs.readFile(from);
+  await vscode.workspace.fs.writeFile(to, data);
+}
+
+/**
+ * Recursively copy src -> dest with conflict strategies.
+ * Returns action records and (optionally) pairs for diff previews.
+ *
+ * strategy:
+ *  - 'folder'   : copy into unique folder promoted/<REQ>_<ts> (no conflicts)
+ *  - 'suffix'   : write conflicts as <name>.incoming-<REQ>-<ts>
+ *  - 'backup'   : rename existing -> <name>.bak-<ts>, then write new
+ *  - 'skip'     : keep existing, skip new
+ *  - 'overwrite': replace existing
+ */
+async function copyTreeWithConflicts(srcRoot, destRoot, { strategy, reqId, ts, log }) {
+  const actions = [];
+  const diffs = []; // [{left: existingUri, right: incomingUri, label}]
+
+  async function ensureDir(u) {
+    try { await vscode.workspace.fs.createDirectory(u); } catch {}
+  }
+  async function isExisting(u) {
+    try { await vscode.workspace.fs.stat(u); return true; } catch { return false; }
+  }
+
+  const srcFiles = await readTree(srcRoot);
+  for (const src of srcFiles) {
+    // Dest path mirrors relative structure of src under srcRoot
+    const rel = src.path.slice(srcRoot.path.length);
+    const dst = vscode.Uri.joinPath(destRoot, rel.replace(/^\/+/, ''));
+
+    await ensureDir(vscode.Uri.joinPath(dst, '..'));
+
+    const dstExists = await isExisting(dst);
+    if (!dstExists) {
+      await copyFile(src, dst);
+      actions.push({ op: 'copy', from: src.path, to: dst.path });
+      continue;
+    }
+
+    // Conflict: compare file content
+    const [a, b] = await Promise.all([vscode.workspace.fs.readFile(src), vscode.workspace.fs.readFile(dst)]);
+    const same = hashBuf(a) === hashBuf(b);
+    if (same) {
+      actions.push({ op: 'skip_identical', to: dst.path });
+      continue;
+    }
+
+    // Conflict resolution
+    if (strategy === 'overwrite') {
+      await vscode.workspace.fs.writeFile(dst, a);
+      actions.push({ op: 'overwrite', to: dst.path });
+    } else if (strategy === 'skip') {
+      actions.push({ op: 'skip_conflict', to: dst.path });
+    } else if (strategy === 'backup') {
+      const name = dst.path.split('/').pop();
+      const parent = vscode.Uri.joinPath(dst, '..');
+      const backup = vscode.Uri.joinPath(parent, `${name}.bak-${ts}`);
+      await vscode.workspace.fs.rename(dst, backup, { overwrite: true });
+      await vscode.workspace.fs.writeFile(dst, a);
+      actions.push({ op: 'backup_then_write', old: dst.path, backup: backup.path });
+      // Diff: existing backup vs new dest
+      diffs.push({ left: backup, right: dst, label: `${name} (backup vs new)` });
+    } else if (strategy === 'suffix') {
+      const name = dst.path.split('/').pop();
+      const parent = vscode.Uri.joinPath(dst, '..');
+      const incoming = vscode.Uri.joinPath(parent, `${name}.incoming-${reqId}-${ts}`);
+      await vscode.workspace.fs.writeFile(incoming, a);
+      actions.push({ op: 'write_suffix', to: incoming.path });
+      // Diff: existing vs incoming
+      diffs.push({ left: dst, right: incoming, label: `${name} (existing vs incoming)` });
+    } else if (strategy === 'folder') {
+      // 'folder' uses a unique destRoot, so we shouldn't hit conflicts—still handle gracefully
+      await vscode.workspace.fs.writeFile(dst, a);
+      actions.push({ op: 'copy_folder_mode', to: dst.path });
+    }
+  }
+
+  log(`[promote] actions=${actions.length}, diffs=${diffs.length}`);
+  return { actions, diffs };
+}
+
+/** QuickPick strategy selector with helpful descriptions. */
+async function pickPromotionStrategy() {
+  const items = [
+    { label: 'folder',    detail: 'Copy into promoted/<REQ>_<timestamp> (safest; no conflicts in place).', picked: true },
+    { label: 'suffix',    detail: 'Keep existing; write conflicts as *.incoming-<REQ>-<timestamp> and open diffs.' },
+    { label: 'backup',    detail: 'Backup existing as *.bak-<timestamp> and write new version; open diffs.' },
+    { label: 'skip',      detail: 'Keep existing; skip conflicting incoming files.' },
+    { label: 'overwrite', detail: 'Replace existing files (destructive).' }
+  ];
+  const sel = await vscode.window.showQuickPick(items, {
+    title: 'Promotion strategy',
+    placeHolder: 'Choose how to handle destination conflicts',
+    canPickMany: false,
+    ignoreFocusOut: true
+  });
+  return sel?.label || null;
+}
+
+/** Open diff editors for conflicting files (if any). */
+async function openDiffs(diffs) {
+  for (const d of diffs) {
+    const title = d.label || 'Diff';
+    try {
+      await vscode.commands.executeCommand('vscode.diff', d.left, d.right, title, { preview: true });
+    } catch (e) {
+      console.warn('[promote] diff open failed:', e?.message || String(e));
+    }
+  }
+}
+
+/**
+ * Promote KIT sources into the workspace with conflict-safe strategies.
+ * - Writes a JSON promotion manifest under runs/kit/<REQ>/promotion_manifest_<ts>.json
+ * - Returns { manifestUri, actions, diffs }
+ */
+async function promoteReqSources(projectRootUri, reqId, strategy = 'folder', out) {
+  const log = mkLog(out);
+
+  if (!projectRootUri) {
+    vscode.window.showErrorMessage('[promote] Workspace root not provided.');
+    return null;
+  }
+
+  const srcDir = vscode.Uri.joinPath(projectRootUri, 'runs', 'kit', reqId, 'src');
+  try {
+    await vscode.workspace.fs.stat(srcDir);
+  } catch {
+    vscode.window.showWarningMessage(`[promote] No KIT src to promote for ${reqId}`);
+    return null;
+  }
+
+  // Resolve destination root
+  const ts = new Date().toISOString().replace(/[:.]/g, '-');
+  let destRoot =  vscode.Uri.joinPath(projectRootUri, 'src');
+  
+  if (strategy === 'folder') {
+    destRoot = vscode.Uri.joinPath(projectRootUri, 'promoted', `${reqId}_${ts}`);
+    await vscode.workspace.fs.createDirectory(destRoot);
+  }
+
+  const { actions, diffs } = await copyTreeWithConflicts(srcDir, destRoot, { strategy, reqId, ts, log });
+
+  // Build/write manifest
+  const manifest = {
+    req_id: reqId,
+    strategy,
+    timestamp: ts,
+    src_root: srcDir.fsPath ?? srcDir.path,
+    dest_root: destRoot.fsPath ?? destRoot.path,
+    total_actions: actions.length,
+    actions
+  };
+  const manifestDir = vscode.Uri.joinPath(projectRootUri, 'runs', 'kit', reqId);
+  try { await vscode.workspace.fs.createDirectory(manifestDir); } catch {}
+  const manifestUri = vscode.Uri.joinPath(manifestDir, `promotion_manifest_${ts}.json`);
+  await vscode.workspace.fs.writeFile(manifestUri, Buffer.from(JSON.stringify(manifest, null, 2), 'utf8'));
+
+  return { manifestUri, actions, diffs };
+}
+
+/**
+ * End-to-end flow with UI:
+ * - Ask REQ id (if not provided)
+ * - Ask promotion strategy
+ * - Show progress & run copy
+ * - Show result notification
+ * - Offer to open manifest and diffs
+ */
+async function runPromotionFlow(projectRootUri, reqId, out) {
+  const log = mkLog(out);
+  try {
+    // Step 1: REQ id
+    let target = (reqId || '').trim();
+    if (!target) {
+      target = await vscode.window.showInputBox({
+        title: 'REQ to promote',
+        placeHolder: 'e.g. REQ-009',
+        validateInput: (v) => (!v?.trim() ? 'Required' : undefined)
+      });
+      if (!target) return;
+    }
+
+    // Step 2: Strategy
+    const strategy = await pickPromotionStrategy();
+    if (!strategy) return;
+
+    // Step 3: Progress UI
+    const result = await vscode.window.withProgress({
+      location: vscode.ProgressLocation.Notification,
+      title: `Promoting ${target} (${strategy})`,
+      cancellable: false
+    }, async (progress) => {
+      progress.report({ message: 'Scanning and copying files...' });
+      const r = await promoteReqSources(projectRootUri, target, strategy, out);
+      return r;
+    });
+
+    if (!result) return;
+    const { manifestUri, actions, diffs } = result;
+
+    // Step 4: Notify & post-actions
+    const choice = await vscode.window.showInformationMessage(
+      `[promote] ${target}: ${actions.length} action(s) — strategy=${strategy}`,
+      'Open manifest',
+      diffs?.length ? `Open ${diffs.length} diffs` : undefined
+    );
+
+    if (choice === 'Open manifest') {
+      await vscode.window.showTextDocument(manifestUri);
+    } else if (choice && choice.startsWith('Open') && diffs?.length) {
+      await openDiffs(diffs);
+    }
+  } catch (e) {
+    log('[promote] ERROR:', e?.message || String(e));
+    vscode.window.showErrorMessage(`[promote] ${e?.message || e}`);
+  }
+}
+
+
 
 // --- Helpers: estrazione/salvataggio Technology Constraints ---
 function extractTechConstraintsYaml(ideaText) {
@@ -150,8 +410,10 @@ async function attachCoreBlobs(docUri, coreList) {
       && name.toLowerCase().startsWith(base.toLowerCase())
       && (name.toLowerCase().endsWith('.md') || name.toLowerCase().endsWith('.markdown') 
           || name.toLowerCase().endsWith('.txt') || name.toLowerCase().endsWith('.1st') 
-          || name.toLowerCase().endsWith('.yaml') || name.toLowerCase().endsWith('.yml'))
-      && name.toLowerCase() !== `${base.toLowerCase()}.md`
+          || name.toLowerCase().endsWith('.yaml') || name.toLowerCase().endsWith('.yml')
+          || name.toLowerCase().endsWith('.json')) //for plan.json
+     
+          && name.toLowerCase() !== `${base.toLowerCase()}.md`
     );
 
     for (const [name, type] of prefixed) {
@@ -435,6 +697,7 @@ async function saveKitCommand(projectRootUri, plan, targetReqId, out) {
     log(`[saveKitCommand] REQ ${targetReqId} not found in plan.json; no update performed.`);
     // Continuiamo comunque a scrivere il plan attuale, ma senza cambiare snapshot/table
   }
+  //updatePlanSnapshot(effectivePlan);
 
   // 3) Scrivi plan.json
   await writePlanJson(projectRootUri, effectivePlan);
@@ -451,16 +714,36 @@ async function saveKitCommand(projectRootUri, plan, targetReqId, out) {
     // no-op headless
   }
 }
+
+function setManyReqStatus(plan, updates /* [{id, status}, ...] */) {
+  if (!plan || !Array.isArray(plan.reqs) || !Array.isArray(updates)) return 0;
+  let changed = 0;
+  const index = new Map(plan.reqs.map((r, i) => [String(r?.id || '').trim().toUpperCase(), i]));
+  for (const u of updates) {
+    const key = String(u?.id || '').trim().toUpperCase();
+    const i = index.get(key);
+    if (i == null) continue;
+    const newStatus = normalizeStatus(u?.status);
+    if (plan.reqs[i].status !== newStatus) {
+      plan.reqs[i].status = newStatus;
+      changed++;
+    }
+  }
+  if (changed > 0) updatePlanSnapshot(plan);
+  return changed;
+}
 /**
  * /eval → non cambia stato (ma potresti marcare 'in_progress' se non lo è)
  */
-async function saveEvalCommand(projectRootUri, plan, targetReqId, out) {
+async function saveEvalCommand(projectRootUri, plan, targetReqId, report, out) {
   const log = (m) => (out?.appendLine ? out.appendLine(m) : console.log(m));
   log(`[saveEvalCommand] target=${targetReqId}`);
-
   let effectivePlan = plan || await readPlanJson(projectRootUri);
   if (!effectivePlan || !Array.isArray(effectivePlan.reqs)) return;
+  
 
+  await persistReports(projectRootUri, "eval", report, out)
+  log(`[saveEvalCommand] persistReports done`);
   // opzionale: se non è ancora in_progress → mettilo
   const req = effectivePlan.reqs.find(r => (r.id || '').toUpperCase() === targetReqId.toUpperCase());
   if (req && (req.status || '').toLowerCase() === 'open') {
@@ -470,11 +753,98 @@ async function saveEvalCommand(projectRootUri, plan, targetReqId, out) {
     log(`[PLAN synced to in_progress] ${targetReqId}`);
   }
 }
+// In utility.js (o dove hai definito persistReports)
+async function persistReports(projectRootUri, phase, rep, out) {
+  const vscode = require('vscode');
+  const path = require('path');
+
+  // Logger che accetta N argomenti e serializza oggetti
+  const log = (...args) => {
+    const line = args.map(a => (typeof a === 'string' ? a : (() => { try { return JSON.stringify(a, null, 2); } catch { return String(a); } })())).join(' ');
+    if (out?.appendLine) out.appendLine(line); else console.log(line);
+  };
+
+  // Normalizza root in Uri
+  const rootUri = (projectRootUri && projectRootUri.scheme)
+    ? projectRootUri
+    : vscode.Uri.file(String(projectRootUri || '.'));
+
+  // Sanity
+  if (!rep) {
+    log('[persistReports] ERROR: rep is missing');
+    vscode.window.showErrorMessage('[persistReports] rep is missing');
+    return;
+  }
+  // Normalizza naming dai possibili alias
+  const req_id = rep.req_id || rep.reqId || rep.request_id || 'REQ-UNKNOWN';
+  const profile = rep.profile || rep.profile_path || null;
+  const mode = rep.mode || 'auto';
+  const passed = rep.passed ;//Number.isInteger(rep.passed) ? rep.passed : 0;
+  const failed = rep.failed ;//Number.isInteger(rep.failed) ? rep.failed : 0;
+  const cases = Array.isArray(rep.cases) ? rep.cases : [];
+
+  // runs/<phase>/<req_id>
+  const outDirUri = vscode.Uri.joinPath(rootUri, 'runs', phase, req_id);
+  log('[persistReports] outDirUri=', outDirUri);
+
+  try { await vscode.workspace.fs.createDirectory(outDirUri); } catch (e) {
+    log('[persistReports] createDirectory warning:', e?.message || String(e));
+  }
+
+  const ts = Date.now(); // ms per uniqueness
+  const fileBase = `report_${req_id}_${ts}`;
+
+  // Costruisci JSON “persistito” (coerente con orchestrator snake_case)
+  const persisted = {
+    profile,
+    req_id,
+    mode,
+    passed,
+    failed,
+    cases: cases.map(c => ({
+      name: c.name,
+      passed: !!c.passed,
+      code: typeof c.code === 'number' ? c.code : (typeof c.rc === 'number' ? c.rc : undefined),
+      cmd: c.cmd || c.run || undefined,
+      cwd: c.cwd || undefined,
+      expect: typeof c.expect === 'number' ? c.expect : undefined,
+      stdout: c.stdout || undefined,
+      stderr: c.stderr || undefined
+    }))
+  };
+
+  // Path dei file di output (URI, non stringhe)
+  const jsonUri  = vscode.Uri.joinPath(outDirUri, `${fileBase}.json`);
+  // Se vuoi anche il JUnit, scommenta questi due (e genera xml):
+  // const junitUri = vscode.Uri.joinPath(outDirUri, `${fileBase}.junit.xml`);
+
+  // Scrivi JSON
+  try {
+    const buf = Buffer.from(JSON.stringify(persisted, null, 2), 'utf8');
+    await vscode.workspace.fs.writeFile(jsonUri, buf);
+    log('[persistReports] wrote JSON ->', jsonUri.fsPath || jsonUri.path);
+  } catch (e) {
+    log('[persistReports] ERROR writing JSON:', e?.message || String(e));
+    vscode.window.showErrorMessage(`[persistReports] cannot write JSON: ${e?.message || e}`);
+  }
+
+  // Se l’orchestrator ha già scritto dei file (rep.json_path, rep.junit_path), puoi opzionalmente copiarli qui.
+  // Esempio (facoltativo):
+  // if (rep.json_path) {
+  //   try {
+  //     const src = vscode.Uri.file(rep.json_path);
+  //     const dst = vscode.Uri.joinPath(outDirUri, path.basename(rep.json_path));
+  //     const data = await vscode.workspace.fs.readFile(src);
+  //     await vscode.workspace.fs.writeFile(dst, data);
+  //     log('[persistReports] copied orchestrator JSON ->', dst.fsPath);
+  //   } catch (e) { log('[persistReports] copy orchestrator JSON warning:', e?.message || String(e)); }
+  // }
+}
 
 /**
  * /gate → porta REQ a done e sincronizza artefatti
  */
-async function saveGateCommand(projectRootUri, plan, targetReqId, out) {
+async function saveGateCommand(projectRootUri, plan, targetReqId,report, out) {
   const log = (m) => (out?.appendLine ? out.appendLine(m) : console.log(m));
   log(`[saveGateCommand] target=${targetReqId}`);
 
@@ -487,6 +857,18 @@ async function saveGateCommand(projectRootUri, plan, targetReqId, out) {
 
   await writePlanJson(projectRootUri, effectivePlan);
   await updatePlanMdInPlace(projectRootUri, effectivePlan);
+  await persistReports(projectRootUri, "gate", report, out)
+  if (report.gate.toLowerCase()==='pass') {
+    log("[saveGateCommand] Gate passed for " + targetReqId);
+    const choice = await vscode.window.showInformationMessage(
+      `Gate passed for ${targetReqId}. Promote sources now?`,
+      'Promote',
+      'Cancel'
+    );
+    if (choice === 'Promote') {
+      await runPromotionFlow(projectRootUri, targetReqId, out);
+    }
+  }
   try { vscode.window.showInformationMessage(`REQ ${targetReqId} marked as done.`); } catch {}
 }
 /**
@@ -515,7 +897,6 @@ async function buildHarperBody(phase, payload, projectRootUri, rag_prefer_for,ra
   const _docRoot =  vscode.Uri.joinPath(projectRootUri, 'docs', 'harper');
   // 1) Allegati/file core
   var idea_md = (phase === 'spec') ? await loadMd(_docRoot, 'IDEA.md') : null;
-  log('[buildHarperBody] gen', payload['gen']);
   try {
     // 2: estrai e salva TECH_CONSTRAINTS.yaml a partire da IDEA.md (sovrascrive)
     if (phase === 'spec' && idea_md) {
@@ -608,6 +989,41 @@ async function readPlanJson(projectRootUri) {
     return null;
   }
 }
+const VALID_STATUSES = ['open', 'in_progress', 'done', 'deferred'];
+
+function normalizeStatus(s) {
+  const v = String(s || '').trim().toLowerCase();
+  return VALID_STATUSES.includes(v) ? v : 'open';
+}
+
+function updatePlanSnapshot(plan) {
+  if (!plan || !Array.isArray(plan.reqs)) {
+    if (plan) plan.snapshot = { total: 0, open: 0, in_progress: 0, done: 0, deferred: 0, progressPct: 0 };
+    return plan?.snapshot;
+  }
+
+  const total = plan.reqs.length;
+  const counts = { open: 0, in_progress: 0, done: 0, deferred: 0 };
+
+  for (const r of plan.reqs) {
+    const st = normalizeStatus(r?.status);
+    counts[st] += 1;
+  }
+
+  const progressPct = total > 0 ? Math.round((counts.done / total) * 100) : 0;
+
+  plan.snapshot = {
+    total,
+    open: counts.open,
+    in_progress: counts.in_progress,
+    done: counts.done,
+    deferred: counts.deferred,
+    progressPct
+  };
+  return plan.snapshot;
+}
+
+
 
 async function writePlanJson(projectRootUri, obj) {
   const uri = vscode.Uri.joinPath(projectRootUri, 'docs', 'harper', 'plan.json');
@@ -651,6 +1067,7 @@ function setReqStatus(plan, reqId, status) {
   const r = plan.reqs.find(x => (x.id || '').trim().toUpperCase() === (reqId || '').trim().toUpperCase());
   if (!r) return false;
   r.status = status;
+  updatePlanSnapshot(plan);
   return true;
 }
 
@@ -779,67 +1196,31 @@ function defaultCoreForPhase(phase) {
     case "plan":
       return ["SPEC.md", "TECH_CONSTRAINTS.yaml"];
     case "kit":
-      return ["SPEC.md", "PLAN.md", "plan.json", "TECH_CONSTRAINTS.yaml"];
+      return ["SPEC.md", "PLAN.md", "TECH_CONSTRAINTS.yaml"];
     case "finalize":
-      return ["SPEC.md", "PLAN.md", "plan.json", "BUILD_REPORT.md", "RELEASE_NOTES.md", "TECH_CONSTRAINTS.yaml"];
+      return ["SPEC.md", "PLAN.md", "BUILD_REPORT.md", "RELEASE_NOTES.md", "TECH_CONSTRAINTS.yaml"];
     default:
       return ["IDEA.md"];
   }
 }
 
-// utility.js — APPENDI IN FONDO AL FILE (o in un punto opportuno) —
 
-// Copia ricorsiva: dalla cartella src del REQ alla root (o dove preferisci).
-async function promoteReqSources(projectRootUri, reqId) {
-  const vscode = require('vscode');
-
-  const srcDir = vscode.Uri.joinPath(projectRootUri, 'runs', 'kit', reqId, 'src');
-  const destDir = projectRootUri; // cambia qui se vuoi promuovere in una subfolder
-
-  // Se non esiste, niente da promuovere
-  try { await vscode.workspace.fs.stat(srcDir); } catch { 
-    vscode.window.showWarningMessage(`[promote] Nessun src per ${reqId}`); 
-    return; 
-  }
-
-  await copyTree(srcDir, destDir);
-}
-
-// Copia ricorsiva di una directory
-async function copyTree(fromUri, toUri) {
-  const vscode = require('vscode');
-  const entries = await vscode.workspace.fs.readDirectory(fromUri);
-  for (const [name, fileType] of entries) {
-    const source = vscode.Uri.joinPath(fromUri, name);
-    const target = vscode.Uri.joinPath(toUri, name);
-    if (fileType === vscode.FileType.File) {
-      // crea cartella target se non esiste
-      const parent = vscode.Uri.joinPath(target, '..');
-      try { await vscode.workspace.fs.stat(parent); } catch { await vscode.workspace.fs.createDirectory(parent); }
-      await vscode.workspace.fs.copy(source, target, { overwrite: true });
-    } else if (fileType === vscode.FileType.Directory) {
-      try { await vscode.workspace.fs.stat(target); } catch { await vscode.workspace.fs.createDirectory(target); }
-      await copyTree(source, target);
-    }
-  }
-}
 
 function getProjectId() {
-    // --- project_id: derive from workspace folder name ---
+   // --- project_id: derive from workspace folder name ---
   try {
-    
     const ws = vscode.workspace.workspaceFolders?.[0];
     if (ws && ws.name) {
       return ws.name.toLowerCase().replace(/\s+/g, '-'); 
     } else {
       return 'default';
-      
     }
   } catch (e) {
     console.warn('[CLike] project_id derivation failed:', e);
     body.project_id = 'default';
   }
 }
+
 // Converte l'argomento utente in un path LTC.json
 async function resolveProfilePath(arg, workspaceRoot) {
   const rootPath = (workspaceRoot && (workspaceRoot.fsPath || workspaceRoot.path)) || ".";
@@ -874,6 +1255,22 @@ async function resolveProfilePath(arg, workspaceRoot) {
   // Fallback: LTC.json in root
   return "LTC.json";
 }
+function getWorkspaceRootUri() {
+  const folders = vscode.workspace.workspaceFolders || [];
+  if (folders.length === 1) return folders[0].uri;
+  const active = vscode.window.activeTextEditor?.document?.uri;
+  if (active) {
+    const ws = vscode.workspace.getWorkspaceFolder(active);
+    if (ws?.uri) return ws.uri;
+  }
+  return folders[0]?.uri;
+}
+function getProjectNameFromWorkspace() {
+  const uri = getWorkspaceRootUri();
+  if (!uri || uri.scheme !== 'file') return null;
+  const fsPath = uri.fsPath;
+  return path.basename(fsPath); // solo nome cartella
+}
 
 module.exports = {
 
@@ -889,7 +1286,11 @@ module.exports = {
   getProjectId,
   resolveLatestReq,
   resolveProfilePath,
+  
+  readTextFile,
   promoteReqSources,
-  readTextFile
+  runPromotionFlow,
+  copyTreeWithConflicts,
+  getProjectNameFromWorkspace
 
 };

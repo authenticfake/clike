@@ -52,5 +52,33 @@ Before producing the evaluation report, resolve how to run or ingest tests based
 
 > The system will also write/update `runs/eval.summary.json` from this.
 
+## LTC v1 — Reader Rules (INLINE)
+
+- Prefer `cases[]` as the execution contract:
+  - For each case, run `{run}` in `{cwd}` (if provided) and assert exit code equals `expect` (default `0`).
+- If `cases[]` is missing but `commands` is present, synthesize a minimal `cases[]` by mapping known keys in order:
+  1) `start_broker`  2) `ensure_topics`  3) `smoke_cli`  4) `tests`
+  (each case concatenates its command list with `&&`).
+- LTC may be provided inline or as a file; treat inline as authoritative if both appear.
+
+### Field whitelist for execution
+Use only: `version`, `req_id`, `lane`, `cases[] (name, run, cwd?, expect?, timeout?)`.  
+Optionally read: `reports`, `gate_policy`, `env`. Ignore other fields during execution.
+
+### Minimal example (same as in /kit)
+```json
+{
+  "version": "1.0",
+  "req_id": "REQ-009",
+  "lane": "kafka",
+  "cases": [
+    { "name": "start_broker",  "run": "docker compose -f runs/kit/REQ-009/src/dev/docker-compose.redpanda.yml up -d" },
+    { "name": "ensure_topics", "run": "export KAFKA_BROKERS=127.0.0.1:9092 && python -m kafkabindings.cli ensure-topics --brokers ${KAFKA_BROKERS}" },
+    { "name": "smoke_cli",     "run": "export KAFKA_BROKERS=127.0.0.1:9092 && python -m kafkabindings.cli smoke --brokers ${KAFKA_BROKERS}" },
+    { "name": "tests",         "run": "export KAFKA_BROKERS=127.0.0.1:9092 && pytest -q runs/kit/REQ-009/test" }
+  ]
+}
+```
+
 End with:
 ```EVAL_END``
