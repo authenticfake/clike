@@ -13,7 +13,7 @@ from services.router import select_model_for_phase, Task
 
 GATEWAY_URL = os.environ.get("CL_GATEWAY_URL", "http://gateway:8000")
 log = logging.getLogger("orcehstrator:service:harper")
-TIMEOUT =float(os.environ.get("TIMEOUT", 300.0))
+TIMEOUT =float(os.environ.get("TIMEOUT", 500.0))
 
 from services.router import select_model_for_phase  # ← esiste già nel repo
 

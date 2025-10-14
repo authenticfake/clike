@@ -13,35 +13,39 @@ function parseSlash(line) {
 
 
 // Handler comando /eval
-async function handleEval(argument, workspaceRoot,req_id, mode='auto', modeContent='pass') {
+async function handleEval(argument, workspaceRoot,req_id, mode='auto', result='pass') {
   try {
     const profile = await resolveProfilePath(argument, workspaceRoot);
-    
-    const res = await postEvalRun(profile, workspaceRoot, req_id, mode, modeContent);
+    const res = await postEvalRun(profile, workspaceRoot, req_id, mode, result);
     // Mostra risultato
     const msg = res.passed
       ? `EVAL PASS — passed=${res.passed_count}, failed=${res.failed}`
       : `EVAL FAIL — passed=${res.passed_count}, failed=${res.failed}`;
     vscode.window.showInformationMessage(`${msg} | profile=${res.profile}`);
-    return `Eval ${profile}: ${msg}\nCases: ${res.cases?.length}\nReport: ${res?.json}`;
-
-    // opzionale: apri report junit/json se presenti
-    // ...
+    res.summary=`Eval ${profile}: ${msg}\nCases: ${res.cases?.length}\nReport: ${res?.json}`
+    return res;
   } catch (err) {
+    var res = {passed:0}
+    res.summary=`Eval ${profile}: ${msg}\nCases: ${res.cases?.length}\nReport: ${String(err)}`
     vscode.window.showErrorMessage(`EVAL error: ${String(err)}`);
+    return res;
   }
 }
 
 // Handler comando /gate
-async function handleGate(argument, workspaceRoot, req_id, opts={promote: false, reqId: null, mode: 'auto', modeContent: ''}) {
+async function handleGate(argument, workspaceRoot, req_id, opts={promote: false, reqId: null, mode: 'auto', result: ''}) {
   try {
     const profile = await resolveProfilePath(argument, workspaceRoot);
-    const res = await postGateCheck(profile, workspaceRoot,req_id, opts);
+    var res = await postGateCheck(profile, workspaceRoot,req_id, opts);
     vscode.window.showInformationMessage(`GATE: ${res.gate} | profile=${profile}`);
-    return `Gate ${profile}: ${res.gate}`;
+    res.summary=`Gate ${profile}: ${res.gate}`;
+    return res;
 
   } catch (err) {
     vscode.window.showErrorMessage(`GATE error: ${String(err)}`);
+    var res = {gate:0}
+    res.summary=`Gate ${profile}: ${res.gate}`;
+    return res;
   }
 }
 

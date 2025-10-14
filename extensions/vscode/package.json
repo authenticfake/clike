@@ -138,7 +138,9 @@
       { "command": "clike.eval.runAll", "title": "CLike: Run All Evals" },
       { "command": "clike.gate.checkPhase", "title": "CLike: Gate Check (Phase)" },
       { "command": "clike.constraints.sync", "title": "CLike: Sync Constraints (IDEA/SPEC)" },
-      { "command": "clike.plan.updateChecklist", "title": "CLike: Update PLAN Checklist from Eval" }
+      { "command": "clike.plan.updateChecklist", "title": "CLike: Update PLAN Checklist from Eval" },
+      { "command": "clike.promoteReqSources", "title": "CLike: Promote source code" },
+      { "command": "clike.promoteReqSourcesQuick", "title": "CLike: Quick Promote source code" }
     ],
     "configuration": {
       "title": "Clike",

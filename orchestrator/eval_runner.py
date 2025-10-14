@@ -43,30 +43,22 @@ class EvalRunner:
         """
         # normalizza il path dell’LTC
         profile_path = Path(profile)
-        log.info("run_profile profile_path=%s", profile_path)
-        log.info("run_profile now is_absolute profile_path=%s", profile_path.is_absolute())
-
+        
         if not profile_path.is_absolute():
             profile_path = (self.project_root / profile_path)
 
-        log.info("run_profile now is_absolute profile_path=%s", profile_path)
-        log.info("run_profile now is_absolute self.project_root=%s", self.project_root)
-                
-
         if mode.lower() == "manual":
+            log.info("run_profile req-id form manual -->%s", req_id)
             if verdict not in ("pass", "fail"):
                 raise ValueError("manual mode requires verdict in {'pass','fail'}")
-            passed = (1 if verdict == "pass" else 0)
-            failed = (0 if verdict == "pass" else 1)
+            passed = ('all' if verdict == "pass" else 0)
+            failed = (0 if verdict == "pass" else 'all')
             cases = [EvalCase(name=f"manual::{req_id or 'REQ'}", passed=(verdict == "pass"), code=(0 if verdict == "pass" else 1), stdout="", stderr="")]
             rep = EvalReport(profile=str(profile_path), req_id=req_id, mode="manual", passed=passed, failed=failed, cases=cases)
-            self._persist_reports(rep)
+            log.info("run_profile report (manual) -->%s", rep)
             return rep
         
-        log.info("run_profile profile_path.suffix.lower()=%s", profile_path.suffix.lower())
-        log.info("run_profile profile_path.exists()=%s", profile_path.exists())
-
-
+        
         # AUTO: supporto LTC.json (nuovo 'cases[]' o legacy 'steps[]' o singolo 'run')
         if ltc is None:
             # profilo non supportato
@@ -78,13 +70,9 @@ class EvalRunner:
                 failed=1,
                 cases=[EvalCase(name="noop", passed=False, code=2, stdout="", stderr="Unsupported profile (expect .json LTC).")]
             )
-            self._persist_reports(rep)
             return rep
-
-
-
         
-        log.info("run_profile ltc=%s", ltc)
+        log.info("run_profile req-id form ltc -->%s", ltc.get("req_id"))
         # se non passato esplicitamente, prendi req_id dall’LTC
         eff_req = req_id or ltc.get("req_id")
         log.info("run_profile eff_req=%s", eff_req)
@@ -142,6 +130,7 @@ class EvalRunner:
                     text=True,
                     timeout=timeout
                 )
+                log.info("run_profile p=%s", p)
                 ok = (p.returncode == c.get("expect", 0))
                 out_cases.append(EvalCase(
                     name=c.get("name") or "case",
@@ -153,7 +142,9 @@ class EvalRunner:
                     cwd=str(workdir),
                     expect=c.get("expect", 0)
                 ))
+                log.info("run_profile ok=%s", ok)
             except subprocess.TimeoutExpired as e:
+                log.error("timeout expired: %s", e)
                 out_cases.append(EvalCase(
                     name=c.get("name") or "case",
                     passed=False, code=998,
@@ -162,6 +153,7 @@ class EvalRunner:
                     cmd=cmd, cwd=str(workdir), expect=c.get("expect", 0)
                 ))
             except Exception as e:
+                log.error("exception: %s", e)
                 out_cases.append(EvalCase(
                     name=c.get("name") or "case",
                     passed=False, code=999,
@@ -169,7 +161,8 @@ class EvalRunner:
                     stderr=str(e),
                     cmd=cmd, cwd=str(workdir), expect=c.get("expect", 0)
                 ))
-
+        log.info("run_profile out_cases=%s", out_cases)
+        
         passed = sum(1 for c in out_cases if c.passed)
         failed = len(out_cases) - passed
         rep = EvalReport(
@@ -180,47 +173,4 @@ class EvalRunner:
             failed=failed,
             cases=out_cases
         )
-        self._persist_reports(rep)
         return rep
-
-    # --------------------------- persistence (reports) ----------------------
-    def _persist_reports(self, rep: EvalReport) -> None:
-        out_dir = self.project_root / "runs" / "eval"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        ts = int(time.time())
-
-        # JSON summary
-        rep.json_path = str(out_dir / f"report_{ts}.json")
-        with open(rep.json_path, "w", encoding="utf-8") as f:
-            json.dump({
-                "profile": rep.profile,
-                "req_id": rep.req_id,
-                "mode": rep.mode,
-                "passed": rep.passed,
-                "failed": rep.failed,
-                "cases": [{
-                    "name": c.name,
-                    "passed": c.passed,
-                    "code": c.code,
-                    "cmd": c.cmd,
-                    "cwd": c.cwd,
-                    "expect": c.expect
-                } for c in rep.cases],
-            }, f, indent=2)
-
-        # JUnit minimal
-        rep.junit_path = str(out_dir / f"report_{ts}.junit.xml")
-        testsuite = ET.Element("testsuite", name="clike-eval", tests=str(len(rep.cases)), failures=str(rep.failed))
-        for c in rep.cases:
-            tc = ET.SubElement(testsuite, "testcase", name=c.name)
-            if not c.passed:
-                fail = ET.SubElement(tc, "failure", message=f"exit={c.code}")
-                fail.text = (c.stderr or "").strip()
-            if c.stdout:
-                sysout = ET.SubElement(tc, "system-out")
-                sysout.text = c.stdout
-            if c.stderr:
-                syserr = ET.SubElement(tc, "system-err")
-                syserr.text = c.stderr
-        tree = ET.ElementTree(testsuite)
-        tree.write(rep.junit_path, encoding="utf-8", xml_declaration=True)
