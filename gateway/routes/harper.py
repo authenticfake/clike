@@ -58,9 +58,9 @@ _FILE_BLOCK_BEGIN_RE = re.compile(
 
 # --- Model parameters per phase (output budget & style) ----------------------
 PHASE_MODEL_PARAMS = {
-    "spec":     {"max_tokens": 6500, "temperature": 0.25, "top_p": 1.0},
+    "spec":     {"max_tokens": 7500, "temperature": 0.25, "top_p": 1.0},
     "plan":     {"max_tokens": 25000, "temperature": 0.2, "top_p": 0.8},  # raise to 6500 only if many lanes
-    "kit":      {"max_tokens": 10500, "temperature": 0.25, "top_p": 1.0},
+    "kit":      {"max_tokens": 12500, "temperature": 0.25, "top_p": 1.0},
     "eval":     {"max_tokens": 6500, "temperature": 0.15, "top_p": 1.0},
     "gate":     {"max_tokens": 6000, "temperature": 0.15, "top_p": 1.0},
     "finalize": {"max_tokens": 7000, "temperature": 0.20, "top_p": 1.0},

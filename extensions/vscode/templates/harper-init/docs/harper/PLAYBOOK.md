@@ -4,7 +4,7 @@
 ---
 
 ## Overview
-Harper turns a high-level IDEA into a working solution via short, testable steps: IDEA → SPEC → PLAN → KIT → BUILD → FINALIZE.
+Harper turns a high-level IDEA into a working solution via short, testable steps: IDEA → SPEC → PLAN → KIT → FINALIZE.
 
 ## How to author IDEA.md
 - Problem Statement (users, pains, opportunity)
@@ -25,13 +25,13 @@ Harper turns a high-level IDEA into a working solution via short, testable steps
 ## Commands
 - \`/spec\` → Use IDEA as source-of-truth, produce/update SPEC.
 - \`/plan\` → Use SPEC to produce/update PLAN (WBS, milestones, acceptance).
-- \`/kit\` /\`/build\` → Implement in short loops with tests.
+- \`/kit\`  → Implement in short loops with tests.
 - \`/finalize\` → Final gates & report.
 
 ## Gates
 - **G0 (SPEC)**: requirements coherent, constraints explicit, acceptance clear.
 - **G1 (PLAN)**: tasks/owners/dependencies clear, testability defined.
-- **G2/EDD (KIT/BUILD)**: tests green, quality thresholds met, risks addressed.
+- **G2/EDD (KIT)**: tests green, quality thresholds met, risks addressed.
 
 ---
 ## `docs/harper/PLAYBOOK.md`
@@ -51,7 +51,6 @@ This section summarizes the SPEC → PLAN → KIT workflow and the commands to r
 - `/spec` → Generate SPEC from IDEA & context. Iterate until developer validation.
 - `/plan` → Generate PLAN from SPEC. Iterate until developer validation.
 - `/kit`  → Generate initial kit/scaffold and then incremental build steps.
-- `/build` → Apply micro-diffs, run tests, iterate.
 
 ### RAG
 - `/ragIndex [--path <p>] [--glob "<g>"] [--tags "<t>"]`  
@@ -60,8 +59,6 @@ This section summarizes the SPEC → PLAN → KIT workflow and the commands to r
 ### Evals & Gates
 - `/eval <spec|plan|kit|finalize>` → Run phase evaluations and show PASS/FAIL.
 - `/gate <spec|plan|kit|finalize>` → Enforce gates for the selected phase.
-- `/syncConstraints [path]` → Parse Technology Constraints YAML from IDEA/SPEC and write `.clike/tech_constraints.cjson`.
-- `/planUpdate <REQ-ID> [runs/.../eval/kit.report.json]` → Check off a PLAN item after a passing KIT eval.
 
 ## Workflow Expectations
 
