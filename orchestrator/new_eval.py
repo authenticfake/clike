@@ -93,10 +93,11 @@ class EvalRunner:
         if not pkgs:
             return EvalCase(name="pip::noop", passed=True, code=0, stdout="no pkgs", stderr="")
 
-        clean, bad = [], []
+        clean: List[str] = []
+        bad: List[str] = []
         for p in pkgs:
             s = (p or "").strip()
-            # scarta path o requirements file: causano l’errore "Directory '/' is not installable"
+            # escludi path o file requirements passati per errore
             if not s or s.startswith(("/", "./", "../", "~")) or os.sep in s or s.endswith(".txt"):
                 bad.append(p)
                 continue
@@ -123,7 +124,6 @@ class EvalRunner:
         """Install da requirements file, risolto rispetto a project_root."""
         if not req_file or not isinstance(req_file, str):
             return EvalCase(name="pip::file::skip", passed=True, code=0, stdout="no pip_file", stderr="")
-        
         abs_path = (self.project_root / req_file).resolve()
         if not abs_path.exists():
             return EvalCase(
@@ -135,20 +135,6 @@ class EvalRunner:
             )
         cmd = f"{shlex.quote(sys.executable)} -m pip install --disable-pip-version-check --no-input -r {shlex.quote(str(abs_path))}"
         return self._run(name=f"pip install (-r {abs_path.name})", cmd=cmd, cwd=workdir, expect=0, env=env)
-
-
-
-        # abs_path = (self.project_root / req_file).resolve()
-        # if not abs_path.exists():
-        #     return EvalCase(
-        #         name="pip::file::missing",
-        #         passed=False,
-        #         code=3,
-        #         stdout="",
-        #         stderr=f"requirements file not found: {abs_path}"
-        #     )
-        # cmd = f"{shlex.quote(sys.executable)} -m pip install --disable-pip-version-check --no-input -r {shlex.quote(str(abs_path))}"
-        # return self._run(name=f"pip install (-r {abs_path.name})", cmd=cmd, cwd=workdir, expect=0, env=env)
 
     # ------------------------ PUBLIC: run profile -------------------------
     def run_profile(self, profile: str, ltc: Dict[str, Any], mode: str = "auto", verdict: Optional[str] = None, req_id: Optional[str] = None ) -> EvalReport:

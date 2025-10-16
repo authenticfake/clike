@@ -81,18 +81,21 @@ Before producing or modifying code, you **must read and analyze** the current pr
 	* **Quality gates**
 	    Validate the schema spec before rendering; lint/check generated DDL or ops payloads; support `plan` (dry-run), `apply`, `downgrade`, `reset`, `seed`.
 	
-	* **For SQL LANE**   adopt the structure below as the canonical scaffold—and automatically generate all listed artifacts (DDL scripts, shell runners, and the shape test) when creating a new kit: 
+	* **Containerized DB tests**: run with Docker (Testcontainers) when available; otherwise fall back to a local `DATABASE_URL`, or skip with a clear reason. Never hard-fail purely due to missing Docker in CI.
+
+	
+	* **For SQL LANE Only**   adopt the structure below as the canonical scaffold—and automatically generate all listed artifacts (DDL scripts, shell runners, and the shape test) when creating a new kit: 
 		*```
 		runs/kit/REQ-004/
-		  src/sql/
+		  src/storage/sql/
 		    V0001.up.sql
 		    V0001.down.sql
 		    # (add V0002.* if needed)
-		  src/seed/
+		  src/storage/seed/
 		    seed.sql                  # required, idempotent
 		  scripts/
-		    upgrade.sh                # runs all *.up.sql in order
-		    downgrade.sh              # runs all *.down.sql in reverse order
+		    db_upgrade.sh                # runs all *.up.sql in order
+		    db_downgrade.sh              # runs all *.down.sql in reverse order
 		  test/
 		    test_migration_sql.py     # shape test + idempotency + round-trip
 		  config/
@@ -112,9 +115,11 @@ file:/runs/kit/<REQ-ID>/test/<path/inside/test.ext>
 <file contents>
 <file contents>
 
-file:/runs/kit/<REQ-ID>/KIT.md
+file:/runs/kit/<REQ-ID>/KIT_<REQ-ID>.md
 file:/runs/kit/<REQ-ID>/README.md
 ```
+
+* For only python code use httpx with explicit **ASGITransport** (no app=): AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost:8080").
 
 
 ## Append‑only Iteration Log (required)
@@ -143,7 +148,7 @@ Optionally, include a compact index mapping REQ‑IDs to artifacts for traceabil
 
 For each REQ you implement, in addition to code and tests you must emit the execution contract and operational recipe.
 
-**1. LLM Test Contract (LTC)**
+**1. LLM Test Contract (LTC) REQUIRED**
 
 - Path: `runs/kit/<REQ-ID>/ci/LTC.json`
 ### Required fields
@@ -154,10 +159,11 @@ For each REQ you implement, in addition to code and tests you must emit the exec
   - `name`: string
   - `run`: string (shell command)
   - `cwd`: string (path **relative** to the executor project root)
+  - `pip-file`: string for install dep from **requirments.txt**
   - `expect` (optional): int, default `0`
   - `timeout` (optional): seconds
 
-**Recommended fields (compact)**
+**MANDATORY fields (compact)**
 
 - `tools`: `{ tests, lint, types, security, build }`
 - `commands`: human-readable macros only (source of truth is `cases[]`)
@@ -180,12 +186,13 @@ For every `case` you MUST set `cwd` without assuming any specific tool. Use this
 5) **Never use absolute host paths.** All `cwd` must be **relative** to the executor root (container/runner workspace).
 
 **Examples (illustrative, not prescriptive):**
-- **Pytest:** `run: "pytest -q tests/unit"` → `cwd: "."` (tests live under repo).  
+- **Pytest:** `run: "pytest -p no:cacheprovider -q tests/unit"` → `cwd: "."` (tests live under repo).  
 - **Maven:** `run: "mvn -f pom.xml -q test"` → `cwd`: directory containing `pom.xml`.  
 - **NPM/Node:** `run: "npm test"` → `cwd`: app folder (where `package.json` is).  
 - **Make:** `run: "make -C src build"` → `cwd: "src"` (because of `-C`).  
 - **Terraform:** `run: "terraform -chdir=infra plan -input=false"` → `cwd: "infra"`.  
 - **Helm:** `run: "helm template charts/app -f charts/app/values.yaml"` → `cwd: "charts/app"`.  
+- **Cluod Solution** running with cloud sdk (azure, aws, gcp..)
 - **Compose (just another file anchor):** `run: "docker compose -f compose.yml up -d"` → `cwd`: folder containing `compose.yml`.
 
 **Environment variables:** Prefer in-line `VAR=value cmd` or emit an `env` map in the LTC; do not rely on implicit shell state across cases.
@@ -206,6 +213,10 @@ For every `case` you MUST set `cwd` without assuming any specific tool. Use this
   "version": "1.0",
   "req_id": "REQ-009",
   "lane": "kafka",
+  "env":"{
+    'DISABLE_TESTCONTAINERS': '1',
+    'DATABASE_URL': 'postgresql://user:password@localhost:5432/slack'
+  }"
   "cases": [
     { "name": "start_broker",  "run": "docker compose -f runs/kit/REQ-009/src/dev/docker-compose.redpanda.yml up -d", "expect": 0 },
     { "name": "ensure_topics", "run": "export KAFKA_BROKERS=127.0.0.1:9092 && python -m kafkabindings.cli ensure-topics --brokers ${KAFKA_BROKERS}", "expect": 0 },
