@@ -168,7 +168,7 @@ For each REQ you implement, in addition to code and tests you must emit the exec
 - `tools`: `{ tests, lint, types, security, build }`
 - `commands`: human-readable macros only (source of truth is `cases[]`)
 - `reports`: array of `{ kind, path, format }` (e.g., junit, coverage)
-- `env`: minimal key-values or hints
+- `env`: all key-values needed or hints
 - `normalize`: rules to produce `eval.summary.json`
 - `gate_policy`: thresholds (coverage, severities, tests_pass)
 - `external_runner`: optional integration info

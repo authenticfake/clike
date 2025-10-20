@@ -61,12 +61,9 @@ Type in the chat:
   * **`/spec`** → generate SPEC from IDEA & context.
   * **`/plan`** → generate PLAN from SPEC.
   * **`/kit`**  → initial kit/scaffold from SPEC+PLAN.
-  * **`/build`** → incremental build steps (code/diff cycles).
   
   * **'/eval'**  <spec|plan|kit|finalize> — run eval profile and show PASS/FAIL summary  
   * **'/gate'** <spec|plan|kit|finalize> — enforce gates for the selected phase  
-  * **'/syncConstraints'** [path] — sync Technology Constraints from IDEA/SPEC, regenerate canonical JSON  
-  * **'/planUpdate'** <REQ-ID> [runs/.../eval/kit.report.json] — check off the PLAN item after a passing KIT eval
 * **RAG**:
 
   * **`/ragIndex [--path <p>] [--glob "<g>"] [--tags "<t>"]`** — manual ingest/update to vector store.
@@ -165,8 +162,10 @@ Prompt for code; the model returns **files** via tool-calls; review **Diffs**, t
 2. Complete `IDEA.md`.
 3. `/spec` → generate SPEC.md.
 4. `/plan` → generate PLAN.md.
-5. `/kit`  → scaffold; then `/build` increments until done.
-6. (Sprint B) `/finalize` → EVAL/PR automation gates.
+5. `/kit`  → scaffold.
+6. `/eval`  → test the kit code.
+7. `/gate`  → promote source code if gate is succesfull reached.
+8. (Sprint B) `/finalize` → EVAL/PR automation gates.
 
 ---
 
@@ -176,7 +175,7 @@ Prompt for code; the model returns **files** via tool-calls; review **Diffs**, t
 
   * `POST /v1/chat` (Free)
   * `POST /v1/generate` (Coding tool-calls → files)
-  * `POST /v1/harper/spec|plan|kit|build` (Harper phases)
+  * `POST /v1/harper/spec|plan|kit|eval|gate|finalize` (Harper phases)
   * `POST /rag/index` `POST /rag/search` (RAG)
 * Gateway:
 
@@ -204,8 +203,8 @@ Prompt for code; the model returns **files** via tool-calls; review **Diffs**, t
 
 * **Sprint A (wrap-up)**
 
-  * A4: Routing telemetry & decision logs (done/ongoing).
-  * A5: RAG manual indexing (`/ragIndex`) + attach; end-to-end (done).
+  * A4: Routing telemetry & decision logs (done/ongoing). (done ✅)
+  * A5: RAG manual indexing (`/ragIndex`) + attach; end-to-end (done). (done ✅)
   * A6: Base Security & Audit (request/response summaries, redaction flags) — *tighten level & docs*.
 * **Sprint B**
 
