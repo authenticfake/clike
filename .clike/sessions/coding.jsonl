@@ -2,9 +2,46 @@
 {"ts":1758610781996,"mode":"coding","role":"assistant","content":"Generated files:\n- /generated/94049fa2/src/random_odd.go","model":"gpt-4o-mini"}
 {"ts":1758657542898,"mode":"coding","role":"user","content":"mi generi un funzione che mi da un numenro casuale dispari in go\n","model":"gpt-5-mini","provider":"openai","attachments":[]}
 {"ts":1758657574445,"mode":"coding","role":"assistant","content":"Generated files:\n- /generated/f43f6f6a/src/random_odd.go","model":"gpt-5-mini"}
-{"ts":1758657729879,"mode":"coding","role":"user","content":"mi generi un funzione che mi da un numenro casuale dispari in go\n","model":"llama3","provider":"ollama","attachments":[]}
-{"ts":1758657796458,"mode":"coding","role":"assistant","content":"Generated files:\n- /generated/734f0fde/src/random.go","model":"llama3"}
 {"ts":1758662829046,"mode":"coding","role":"user","content":"mi generi un esempio di root project per  java springboot","model":"gpt-4o","provider":"openai","attachments":[]}
 {"ts":1758662835012,"mode":"coding","role":"assistant","content":"Generated files:\n- /generated/45c746ec/src/pom.xml\n- /generated/45c746ec/src/DemoApplication.java\n- /generated/45c746ec/docs/application.properties","model":"gpt-4o"}
 {"ts":1758662862135,"mode":"coding","role":"user","content":"mi generi un esempio di root project per  java springboot\n","model":"gpt-5-nano","provider":"openai","attachments":[]}
 {"ts":1758662888328,"mode":"coding","role":"assistant","content":"Generated files:\n- /generated/42d59df0/src/pom.xml\n- /generated/42d59df0/src/pom.xml\n- /generated/42d59df0/src/DemoApplication.java\n- /generated/42d59df0/src/HelloController.java\n- /generated/42d59df0/docs/application.properties\n- /generated/42d59df0/docs/README.md","model":"gpt-5-nano"}
+{"ts":1761081972422,"mode":"coding","role":"user","content":"mi generi una funzione che calcola se un numero è pari o dispari\n","model":"gpt-5","provider":"openai","attachments":[]}
+{"ts":1761082245249,"mode":"coding","role":"user","content":"mi generi una funzione che calcola se un numero è pari o dispari\n","model":"gpt-4o","provider":"openai","attachments":[]}
+{"ts":1761082370067,"mode":"coding","role":"user","content":"mi generi una funzione che calcola se un numero è pari o dispari\n","model":"gpt-4o","provider":"openai","attachments":[]}
+{"ts":1761082453277,"mode":"coding","role":"user","content":"port router as chat_router\ngateway-1       |   File \"/app/routes/chat.py\", line 162","model":"gpt-4o","provider":"openai","attachments":[]}
+{"ts":1761082675355,"mode":"coding","role":"user","content":"mi generi una funzione che calcola se un numero è pari o dispari\n","model":"gpt-4o","provider":"openai","attachments":[]}
+{"ts":1761082940980,"mode":"coding","role":"user","content":"mi generi una funzione che calcola se un numero è pari o dispari\n","model":"gpt-5","provider":"openai","attachments":[]}
+{"ts":1761083210553,"mode":"coding","role":"user","content":"mi generi una funzione che calcola se un numero è pari o dispari\n","model":"gpt-5","provider":"openai","attachments":[]}
+{"ts":1761083436690,"mode":"coding","role":"user","content":"mi generi una funzione che calcola se un numero è pari o dispari\n","model":"gpt-4o","provider":"openai","attachments":[]}
+{"ts":1761083697605,"mode":"coding","role":"user","content":"mi generi una funzione che calcola se un numero è pari o dispari\n","model":"gpt-4o","provider":"openai","attachments":[]}
+{"ts":1761084047953,"mode":"coding","role":"user","content":"mi generi una funzione che calcola se un numero è pari o dispari\n","model":"gpt-4o","provider":"openai","attachments":[]}
+{"ts":1761119670699,"mode":"coding","role":"user","content":"mi generi una funzione che calcola se un numero è pari o dispari\n","model":"gpt-4o","provider":"openai","attachments":[]}
+{"ts":1761119692732,"mode":"coding","role":"user","content":"mi generi una funzione che calcola se un numero è pari o dispari\n","model":"gpt-4o","provider":"openai","attachments":[]}
+{"ts":1761119753670,"mode":"coding","role":"user","content":"mi generi una funzione che calcola se un numero è pari o dispari\n","model":"gpt-4o","provider":"openai","attachments":[]}
+{"ts":1761121625886,"mode":"coding","role":"user","content":"mi generi una funzione che calcola se un numero è pari o dispari\n","model":"gpt-4o","provider":"openai","attachments":[]}
+{"ts":1761121653486,"mode":"coding","role":"user","content":"mi generi un funzione che mi da un numenro casuale dispari in go\n","model":"gpt-5-mini","provider":"openai","attachments":[]}
+{"ts":1761121664471,"mode":"coding","role":"user","content":"mi generi un funzione che mi da un numenro casuale dispari in go\n","model":"gpt-5-mini","provider":"openai","attachments":[]}
+{"ts":1761123362587,"mode":"coding","role":"user","content":"mi generi un funzione che mi da un numenro casuale dispari in go\n","model":"gpt-5-mini","provider":"openai","attachments":[]}
+{"ts":1761123445099,"mode":"coding","role":"user","content":"mi generi un funzione che mi da un numenro casuale dispari in go\n","model":"gpt-5-mini","provider":"openai","attachments":[]}
+{"ts":1761127552083,"mode":"coding","role":"user","content":"mi generi un funzione che mi da un numenro casuale dispari in go\n","model":"gpt-5-mini","provider":"openai","attachments":[]}
+{"ts":1761127557910,"mode":"coding","role":"user","content":"mi generi un funzione che mi da un numenro casuale dispari in go\n","model":"gpt-5-mini","provider":"openai","attachments":[]}
+{"ts":1761129499647,"mode":"coding","role":"user","content":"mi generi un funzione che mi da un numenro casuale dispari in go\n","model":"gpt-5-mini","provider":"openai","attachments":[]}
+{"ts":1761129507426,"mode":"coding","role":"user","content":"mi generi un funzione che mi da un numenro casuale dispari in go\n","model":"gpt-5-mini","provider":"openai","attachments":[]}
+{"ts":1761129527426,"mode":"coding","role":"user","content":"mi generi un funzione che mi da un numenro casuale dispari in go\n","model":"gpt-5-mini","provider":"openai","attachments":[]}
+{"ts":1761148647351,"mode":"coding","role":"user","content":"mi generi una funzione che calcola se un numero è pari o dispari\n","model":"gpt-5","provider":"openai","attachments":[]}
+{"ts":1761148703190,"mode":"coding","role":"user","content":"mi generi una funzione che calcola se un numero è pari o dispari\n","model":"gpt-5","provider":"openai","attachments":[]}
+{"ts":1761153137666,"mode":"coding","role":"user","content":"mi generi una funzione che calcola se un numero è pari o dispari\n","model":"gpt-5","provider":"openai","attachments":[]}
+{"ts":1761153276330,"mode":"coding","role":"user","content":"mi generi una funzione che calcola se un numero è pari o dispari\n","model":"gpt-5","provider":"openai","attachments":[]}
+{"ts":1761155028843,"mode":"coding","role":"user","content":"mi generi una funzione che calcola se un numero è pari o dispari\n","model":"gpt-5","provider":"openai","attachments":[]}
+{"ts":1761155092661,"mode":"coding","role":"user","content":"mi generi una funzione che calcola se un numero è pari o dispari\n","model":"gpt-5","provider":"openai","attachments":[]}
+{"ts":1761155109163,"mode":"coding","role":"assistant","content":"Generated files:\n- /generated/4bd641e2/src/pari_dispari.py","model":"gpt-5"}
+{"ts":1761155311476,"mode":"coding","role":"user","content":"mi generi una classe in go per calcolare la radice quadrata senz primitive?","model":"gpt-5","provider":"openai","attachments":[]}
+{"ts":1761155357905,"mode":"coding","role":"assistant","content":"Generated files:\n- /generated/f36f08cb/docs/go.mod\n- /generated/f36f08cb/src/sqrtcalc.go","model":"gpt-5"}
+{"ts":1761155452395,"mode":"coding","role":"user","content":"mi generi una classe in go per calcolare la radice quadrata senz primitive?\n","model":"gpt-4o","provider":"openai","attachments":[]}
+{"ts":1761155467179,"mode":"coding","role":"assistant","content":"Generated files:\n- /generated/79a8aebc/src/sqrt_calculator.go","model":"gpt-4o"}
+{"ts":1761159944203,"mode":"coding","role":"user","content":"mi generi una classe in go per calcolare la radice quadrata senz primitive?\n","model":"llama3","provider":"ollama","attachments":[]}
+{"ts":1761159999542,"mode":"coding","role":"assistant","content":"Generated files:\n- /generated/8fd5c3bc/docs/module_1.txt","model":"llama3"}
+{"ts":1761160043991,"mode":"coding","role":"user","content":"mi generi una classe in c in go per calcolare la radice quadrata senz primitive?\n","model":"llama3","provider":"ollama","attachments":[]}
+{"ts":1761160054409,"mode":"coding","role":"user","content":"mi generi una classe in c in go per calcolare la radice quadrata senz primitive?\n","model":"llama3","provider":"ollama","attachments":[]}
+{"ts":1761160092732,"mode":"coding","role":"assistant","content":"Generated files:\n- /generated/29ea54cd/src/sqrt.go","model":"llama3"}

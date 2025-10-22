@@ -28,7 +28,7 @@ async def call_gateway_chat_json(
     model: str,
     messages: List[Dict[str, Any]],
     base_url: str = "http://localhost:8000",
-    timeout: float = 60.0,
+    timeout: float = 300.0,
     temperature: Optional[float] = None,
     max_tokens: Optional[int] = None,
     response_format: Optional[Dict[str, Any]] = None,

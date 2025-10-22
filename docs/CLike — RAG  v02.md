@@ -7,7 +7,7 @@ CLike uses RAG to give models trustworthy, up-to-date context without pasting hu
 - **Attach** RAG references to requests without hitting token limits.
 - **Reduce hallucinations** by grounding generations in your repository.
 
-> Current status: **Manual indexing** via the `/ragIndex …` chat command and the Orchestrator APIs `POST /rag/index` and `POST /rag/search`.
+> Current status: **Manual indexing** via the `/ragIndex …` chat command and the Orchestrator APIs `POST /v1/rag/index` and `POST /v1/rag/search`.
 
 ---
 
@@ -100,7 +100,7 @@ Index or update documents.
 }
 ```
 
-### 4.2 `POST /rag/search`
+### 4.2 `POST /v1/rag/search`
 
 Retrieve relevant chunks.
 
@@ -137,7 +137,7 @@ Retrieve relevant chunks.
 
 ---
 
-## 5) Chat slash command: `/ragIndex`
+## 5) Chat slash command: `/v1/index`
 
 **Syntax**
 

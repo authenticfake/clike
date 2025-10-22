@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
-log = logging.getLogger("gateway.chat.ollama")
+log = logging.getLogger("gateway.provider.ollama")
 
 # ---------------- Unified envelope (parity with openai_compat) ----------------
 def _mk_unified_result(
@@ -132,6 +132,8 @@ async def ollama_complete_unified(
     gen: Optional[Dict[str, Any]] = None,
     timeout: float = 240.0,
 ) -> Dict[str, Any]:
+    log.info("ollama_complete_unified: %s", messages)
+    log.info("ollama_complete_unified: %s", gen)
     """
     Try /api/chat first (non-stream), then fallback to /api/generate with flattened prompt.
     Always return the unified envelope.
@@ -161,7 +163,10 @@ async def ollama_complete_unified(
         "stream": False,
         "options": _build_options(gen),
     }
+    log.info("generate payload: %s", gen_payload)
     status, j, txt = await _post_json(gen_url, gen_payload, timeout)
+    log.info("generate response: %s", j)
+
     if status == 200 and ("response" in j):
         return _normalize_generate_resp(j, "generate", gen_payload)
 
@@ -180,24 +185,16 @@ async def ollama_complete_unified(
 # OpenAI-like convenience: same signature surface as openai_compat.chat()
 async def chat(
     base: str,
-    api_key: Optional[str],  # ignored; for signature parity only
     model: str,
     messages: List[Dict[str, Any]],
     temperature: Optional[float] = None,
     max_tokens: Optional[int] = None,
-    response_format: Optional[Dict[str, Any]] = None,  # not supported; ignored
-    reasoning: Optional[Dict[str, Any]] = None,        # not supported; ignored
-    tools: Optional[List[Dict[str, Any]]] = None,      # not supported; ignored
-    tool_choice: Optional[str] = None,                  # not supported; ignored
     timeout: float = 240.0,
-    top_p: Optional[float] = None,
-    stop: Optional[List[str]] = None,
+    
 ) -> Dict[str, Any]:
     gen = {
         "temperature": temperature,
         "max_tokens": max_tokens,
-        "top_p": top_p,
-        "stop": stop,
     }
     return await ollama_complete_unified(base, model, messages, gen, timeout)
 
@@ -211,7 +208,9 @@ async def chat_text(base_url: str, model: str, messages: List[Dict[str, Any]], *
 # Embeddings (supported by Ollama as /api/embeddings for some models)
 async def embeddings(base_url: str, model: str, input_text: str, timeout: float = 120.0) -> List[float]:
     url = f"{base_url.rstrip('/')}/api/embeddings"
+    log.info("Embeddings: %s", url + f"?model={model}&prompt={input_text}")
     payload = {"model": model, "prompt": input_text}
+    log.info("Embeddings payload: %s", payload)
     async with httpx.AsyncClient(timeout=timeout) as client:
         r = await client.post(url, json=payload)
         r.raise_for_status()

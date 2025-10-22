@@ -176,7 +176,7 @@ Prompt for code; the model returns **files** via tool-calls; review **Diffs**, t
   * `POST /v1/chat` (Free)
   * `POST /v1/generate` (Coding tool-calls → files)
   * `POST /v1/harper/spec|plan|kit|eval|gate|finalize` (Harper phases)
-  * `POST /rag/index` `POST /rag/search` (RAG)
+  * `POST /v1/rag/index` `POST /v1/rag/search` (RAG)
 * Gateway:
 
   * `GET /v1/models`

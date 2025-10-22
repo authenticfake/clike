@@ -6,6 +6,9 @@ const { gatherRagChunks } = require('./rag.js');
 
 const out = vscode.window.createOutputChannel('Clike.utility');
 const crypto = require('crypto');
+// usa Node.js fs per calcolare la size di un file
+const fs = require('fs');
+const { log } = require('console');
 
 /** Logger that accepts N args and JSON-serializes objects. */
 function mkLog(out) {
@@ -1272,6 +1275,201 @@ function getProjectNameFromWorkspace() {
   return path.basename(fsPath); // solo nome cartella
 }
 
+async function readWorkspaceFileBytes(pathInWs) {
+  try {
+    const ws = vscode.workspace.workspaceFolders?.[0];
+    if (!ws) return null;
+
+    const input = String(pathInWs || '');
+    const rel = input.replace(/^\.?[\\/]/, '');
+    const absPath = path.isAbsolute(input) ? input : path.join(ws.uri.fsPath, rel);
+    const fileUri = vscode.Uri.file(absPath);
+
+    const data = await vscode.workspace.fs.readFile(fileUri); // Uint8Array
+    return Buffer.from(data);
+  } catch {
+    return null;
+  }
+}
+
+
+// Decode base64 to UTF-8 (text-ish), returns null for binary/invalid.
+function decodeTextBase64Safe(b64) {
+  try {
+    const buf = Buffer.from(b64, 'base64');
+    const txt = buf.toString('utf8');
+    if (/\x00/.test(txt)) return null;
+    return txt;
+  } catch { return null; }
+}
+
+// Build items for /v1/rag/index from rag_files (path -> text OR bytes_b64)
+async function buildRagItemsForIndex(rag_files, out) {
+  const log = mkLog(out);
+  const items = [];
+  for (const f of (rag_files || [])) {
+    if (!f) continue;
+    const p = f.path || (f.name ? `attachments/${f.name}` : null);
+    if (!p) continue;
+
+    // 1) tenta testo
+    const t = await readWorkspaceTextFile(p, out);
+    if (t && t.trim()) {
+      items.push({ path: p, text: t });
+      log(`read ${p} -> text`);
+      continue;
+    }
+
+    // 2) fallback: bytes -> base64 (PDF/DOCX ecc.)
+    const buf = await readWorkspaceFileBytes(p);
+    if (buf && buf.length) {
+      items.push({ path: p, bytes_b64: buf.toString('base64') });
+      log(`read ${p} -> binary (${buf.length}B)`);
+    } else {
+      log(`read ${p} -> skip (empty/unreadable)`);
+    }
+  }
+  log(`items -> ${items.length}`);
+  return items;
+}
+
+async function readWorkspaceFileBytes(pathInWs) {
+  try {
+    const ws = vscode.workspace.workspaceFolders?.[0];
+    if (!ws) return null;
+
+    const input = String(pathInWs || '');
+    const rel = input.replace(/^\.?[\\/]/, '');
+    const absPath = path.isAbsolute(input) ? input : path.join(ws.uri.fsPath, rel);
+    const fileUri = vscode.Uri.file(absPath);
+
+    const data = await vscode.workspace.fs.readFile(fileUri); // Uint8Array
+    return Buffer.from(data);
+  } catch {
+    return null;
+  }
+}
+// Read a workspace-relative OR absolute text file (UTF-8). Returns null if binary/failed.
+async function readWorkspaceTextFile(pathInWs, out) {
+  try {
+    const dbg = mkLog(out);
+    const ws = vscode.workspace.workspaceFolders?.[0];
+    if (!ws) return null;
+
+    const input = String(pathInWs || '');
+    const rel = input.replace(/^\.?[\\/]/, '');
+    const absPath = path.isAbsolute(input) ? input : path.join(ws.uri.fsPath, rel);
+    const fileUri = vscode.Uri.file(absPath);
+
+    const data = await vscode.workspace.fs.readFile(fileUri); // Uint8Array
+    if (!data || data.length === 0) return '';
+
+    // binary guard (null byte in first 4KB)
+    const limit = Math.min(data.length, 4096);
+    for (let i = 0; i < limit; i++) {
+      if (data[i] === 0) return null;
+    }
+
+    return Buffer.from(data).toString('utf8');
+  } catch (e) {
+    console.warn('[readWorkspaceTextFile] failed', e);
+    return null;
+  }
+}
+
+async function postJson(url, body, { signal } = {}) {
+  const f = (typeof fetch === 'function')
+    ? fetch
+    : ((...args) => import('node-fetch').then(({ default: ff }) => ff(...args)));
+  const res = await f(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+    signal
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    throw new Error(`POST ${url} -> ${res.status} ${txt}`);
+  }
+  return await res.json();
+}
+
+// Pre-index RAG items before chat/generate. Non-blocking on failure.
+async function preIndexRag(projectId, rag_files,url ,out) {
+  const log = mkLog(out);
+  log('preIndexRag:', projectId, rag_files, url);
+  const items = await buildRagItemsForIndex(rag_files, out);
+  log('preIndexRag items:', items);
+  if (!items.length) return { ok: true, upserts: 0 };
+  
+  try {
+    return await postJson(url, { project_id: projectId, items });
+  } catch (e) {
+    console.warn('[RAG] preIndex failed', e);
+    return { ok: false, upserts: 0, error: String(e) };
+  }
+}
+
+
+
+
+
+// Approximate bytes from base64 length (good enough for thresholds)
+function bytesFromBase64Len(b64) {
+  if (!b64) return 0;
+  const len = b64.length;
+  let pad = 0;
+  if (b64.endsWith("==")) pad = 2; else if (b64.endsWith("=")) pad = 1;
+  return Math.max(0, Math.floor((len * 3) / 4) - pad);
+}
+
+// Normalization: unify name/path/origin/content/bytes_b64/sizeBytes
+function normalizeAttachment(a) {
+  const name = (a?.name || a?.filename || a?.fileName || a?.path || "file").toString();
+  const path = (a?.path || null);
+  const origin = a?.origin || null;
+  const content = (typeof a?.content === "string" && a.content.length > 0) ? a.content : null;
+  const { b64, header } = base64FromAny(a);
+  const bytes_b64 = b64;
+
+  let sizeBytes = 0;
+  if (a?.size != null) {
+    const n = Number(a.size);
+    sizeBytes = Number.isFinite(n) && n >= 0 ? n : 0;
+  }
+  if (!sizeBytes && content)  sizeBytes = Buffer.byteLength(content, "utf8");
+  if (!sizeBytes && bytes_b64) sizeBytes = bytesFromBase64Len(bytes_b64);
+
+  return { name, path, origin, content, bytes_b64, dataUrlHeader: header, sizeBytes };
+}
+// Pretty JSON logger to avoid [object Object]
+function safeLog(prefix, obj) {
+  try { console.log(prefix, JSON.stringify(obj, null, 2)); }
+  catch { console.log(prefix, obj); }
+}
+
+// Accept many base64 aliases, strip data URL header if any
+function base64FromAny(a) {
+  const raw = a?.bytes_b64 || a?.base64 || a?.b64 || a?.dataUrl || a?.data || "";
+  if (typeof raw !== "string" || !raw) return { b64: null, header: null };
+  const m = raw.match(/^data:[^;]+;base64,(.*)$/i);
+  return m ? { b64: m[1], header: raw.slice(0, raw.indexOf(",") + 1) } : { b64: raw, header: null };
+}
+
+async function getFileSizeBytes(filePath) {
+  try {
+    // se è relativo, risolvilo nel workspace
+    const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+    const absPath = path.isAbsolute(filePath)
+      ? filePath
+      : path.join(ws ? ws.uri.fsPath : process.cwd(), filePath);
+    const stats = await fs.promises.stat(absPath);
+    return stats.isFile() ? stats.size : 0;
+  } catch {
+    return 0;
+  }
+}
+
 module.exports = {
 
   buildHarperBody,
@@ -1286,11 +1484,15 @@ module.exports = {
   getProjectId,
   resolveLatestReq,
   resolveProfilePath,
-  
+  preIndexRag,
   readTextFile,
   promoteReqSources,
   runPromotionFlow,
   copyTreeWithConflicts,
-  getProjectNameFromWorkspace
+  getProjectNameFromWorkspace,
+  normalizeAttachment,
+  safeLog,
+  readWorkspaceTextFile,
+  getFileSizeBytes
 
 };

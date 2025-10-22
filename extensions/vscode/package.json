@@ -240,7 +240,7 @@
           "default": {
             "orchestrator": {
               "code": "/agent/code",
-              "ragSearch": "/rag/search",
+              "ragSearch": "/v1/rag/search",
               "ragReindex": "/rag/reindex",
               "health": "/health",
               "chat": "/v1/chat",

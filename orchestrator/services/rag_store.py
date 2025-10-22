@@ -7,7 +7,7 @@ import os, re, json, time, hashlib, logging
 from typing import List, Dict, Any, Optional, Tuple
 import httpx
 
-log = logging.getLogger("rag")
+log = logging.getLogger("rag_store")
 
 # Config base (env + default)
 QDRANT_URL  = os.getenv("QDRANT_URL", "http://qdrant:6333").rstrip("/")
@@ -119,6 +119,8 @@ class RagStore:
         """
         items: [{path, text}]  (contenuti già estratti)
         """
+        log.info("RAG indexing %d items", len(items))
+
         await self.ensure()
         points = []
         id_auto = int(time.time()*1000)
@@ -127,6 +129,7 @@ class RagStore:
         # chunk → embed
         for it in items:
             p = _norm_path(it.get("path") or "unknown")
+            log.info("RAG indexing %s", p)
             t = it.get("text") or ""
             chunks = _split_chunks(t)
             for idx, ch in enumerate(chunks):
@@ -134,6 +137,7 @@ class RagStore:
                 texts.append(ch)
                 metas.append(meta)
         if not texts:
+            log.info("RAG no texts to index")
             return {"ok": True, "upserts": 0}
 
         vecs = await self.emb.embed(texts)
@@ -165,6 +169,8 @@ class RagStore:
         except Exception as e:
             log.error("RAG upsert failed: %s", e)
             return {"ok": False, "error": str(e)}
+        
+        
 
     async def search(self, query: str, top_k:int=TOP_K) -> List[Dict[str,Any]]:
         await self.ensure()
