@@ -8,6 +8,7 @@ services:
       - RAG_TOP_K=12
       - TIMEOUT=500.0
       - DEV_FOLDER=/Users/a.franco/dev/authenticfake
+      - TZ=Europe/Rome
     env_file:
       - path: ../.env
     volumes:
@@ -20,6 +21,7 @@ services:
     command: uvicorn app:app --host 0.0.0.0 --port 8080 --reload
     
     environment:
+      - TZ=Europe/Rome
       - GATEWAY_URL=http://gateway:8000
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333

@@ -14,7 +14,9 @@ const os = require('os');
 
 const { registerCommands } = require('./commands/registerCommands');
 const {  handleGate, handleEval } = require('./commands/slashBot');
-const { buildHarperBody,  defaultCoreForPhase, runKitCommand,runEvalGateCommand, saveKitCommand,saveEvalCommand,saveGateCommand, readPlanJson, getProjectId, promoteReqSources, runPromotionFlow, } = require('./utility')
+const { readPlanJson, getProjectId, promoteReqSources, runPromotionFlow,preIndexRag, normalizeAttachment, safeLog, readWorkspaceTextFile, getFileSizeBytes } = require('./utility')
+const { buildHarperBody,  defaultCoreForPhase, runKitCommand,runEvalGateCommand, saveKitCommand,saveEvalCommand,saveGateCommand } = require('./utility')
+
 let __clike_lastTargetUriCache = null;  
 let selectedPaths = new Set();
 // --- Stato richiesta in corso (per Cancel) ---
@@ -526,8 +528,8 @@ function cfg() {
   const routes = c.get('clike.routes', {
     orchestrator: {
       code: '/agent/code',
-      ragSearch: '/v1/rag/search',  
-      ragIndex: '/v1/rag/ingest',
+      ragIndex: '/v1/rag/index',
+      ragSearch: '/v1/rag/search',
       health: '/health',
       chat: '/v1/chat',
       generate: '/v1/generate'
@@ -1050,63 +1052,90 @@ async function cmdCheckServices(context) {
 }
 
 async function cmdRagReindex(glob) {
-  const routes = (cfg().orchestrator && cfg().orchestrator.routes) || {};
-  // preferisci route nuova, altrimenti fallback alla vecchia se l'utente ha set custom
-  const url = routes.ragIndex || routes.ragReindex || '/v1/rag/ingest';
-  let payload;
+  const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+  if (!ws) return vscode.window.showWarningMessage('No workspace open.');
+  const projectId = `clike__${ws.name}`;
+
+  // Collect candidates
+  let uris = [];
   if (typeof glob === 'string' && glob.trim()) {
-    payload = { mode: 'glob', glob: glob.trim() };
+    uris = await vscode.workspace.findFiles(glob.trim(), '**/node_modules/**', 10000);
   } else {
     const ok = await vscode.window.showWarningMessage(
-      'This will re-index the whole workspace into RAG. Continue?', { modal: true }, 'Reindex'
+      'This will re-index the whole workspace into RAG (text files only, size-capped). Continue?',
+      { modal: true }, 'Reindex'
     );
     if (ok !== 'Reindex') return;
-    payload = { mode: 'full' };
- }
- // (opzionale) namespace di progetto: nome cartella root
- try {
-    const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
-    if (ws) payload.namespace = ws.name;
- } catch {}
- // invio
- const res = await postOrchestrator(url, payload);
- try {
-    vscode.window.showInformationMessage(`RAG index ok: ${res && res.stats ? JSON.stringify(res.stats) : 'submitted'}`);
- } catch {
-    vscode.window.showInformationMessage('RAG index request submitted.');
- }
+    uris = await vscode.workspace.findFiles('**/*', '**/node_modules/**', 20000);
+  }
+
+  const MAX_FILE_BYTES = 512 * 1024; // 512KB per file cap
+  const items = [];
+  for (const uri of uris) {
+    try {
+      const rel = uri.path.split(ws.uri.path + '/')[1];
+      if (!rel) continue;
+      const data = await vscode.workspace.fs.readFile(uri);
+      if (data.byteLength > MAX_FILE_BYTES) continue;
+      const txt = Buffer.from(data).toString('utf8');
+      if (!/\x00/.test(txt) && txt.trim()) {
+        items.push({ path: rel, text: txt });
+      }
+    } catch {}
+  }
+
+  if (!items.length) return vscode.window.showInformationMessage('[RAG] Nothing to index.');
+
+  const { orchestratorUrl, routes } = cfg();
+  const url = (routes?.orchestrator?.ragIndex) || '/v1/rag/index';
+  try {
+    const res = await postJson(`${orchestratorUrl}${url}`, { project_id: projectId, items });
+    vscode.window.showInformationMessage(`[RAG] Indexed ${res?.upserts ?? items.length} items.`);
+  } catch (e) {
+    vscode.window.showErrorMessage(`[RAG] Index failed: ${String(e)}`);
+  }
 }
 
 async function cmdRagSearch(q) {
+  const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+  if (!ws) return vscode.window.showWarningMessage('No workspace open.');
+  const projectId = `clike__${ws.name}`;
+
   let query = (typeof q === 'string') ? q : '';
   if (!query) {
     query = await vscode.window.showInputBox({ prompt: 'RAG search query' }) || '';
   }
   if (!query.trim()) return;
-  const routes = (cfg().orchestrator && cfg().orchestrator.routes) || {};
-  const url = routes.ragSearch || '/v1/rag/search';
-  const payload = { q: query.trim(), k: 8 };
+
+  const topkStr = await vscode.window.showInputBox({ prompt: 'Top-K', value: '8' });
+  const top_k = Number(topkStr || '8') || 8;
+
+  const { orchestratorUrl, routes } = cfg();
+  const url = (routes?.orchestrator?.ragSearch) || '/v1/rag/search';
   try {
-    const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
-    if (ws) payload.namespace = ws.name;
-  } catch {}
-  const res = await postOrchestrator(url, payload);
-  const hits = (res && res.hits) || [];
-  vscode.window.showInformationMessage(`RAG results: ${hits.length}`);
-  // manda in webview un riassunto semplice (pannello Text)
-  try {
-    const lines = hits.slice(0, 10).map((h, i) => {
-      const p = (h && h.payload && (h.payload.path || h.payload.file || h.payload.source)) || '(unknown)';
-      const s = (h && typeof h.score === 'number') ? h.score.toFixed(3) : '';
-      return `${i+1}. ${p}  ${s ? `(score ${s})` : ''}`;
-    });
-    const summary = `RAG Search: "${query}"\n` + (lines.length ? lines.join('\n') : '(no results)');
-    if (panel && panel.webview) {
-      panel.webview.postMessage({ type: 'text', text: summary });
-    }
-  } catch {}
-  return res;
+    const res = await postJson(`${orchestratorUrl}${url}`, { project_id: projectId, query: query.trim(), top_k });
+    const hits = (res?.hits || []).slice(0, top_k);
+    vscode.window.showInformationMessage(`[RAG] Results: ${hits.length}`);
+
+    // Optional: show a quick summary in the panel/webview
+    try {
+      const lines = hits.map((h, i) => {
+        const p = h?.path || h?.source || '(unknown)';
+        const s = (typeof h?.score === 'number') ? h.score.toFixed(3) : '';
+        return `${i + 1}. ${p}:${h?.chunk ?? 0}  ${s ? `(score ${s})` : ''}`;
+      });
+      const summary = `RAG Search: "${query}"\n` + (lines.length ? lines.join('\n') : '(no results)');
+      if (panel && panel.webview) {
+        panel.webview.postMessage({ type: 'text', text: summary });
+      }
+    } catch {}
+    return res;
+  } catch (e) {
+    vscode.window.showErrorMessage(`[RAG] Search failed: ${String(e)}`);
+  }
 }
+
+
 
 async function cmdApplyUnifiedDiffHardened(context) {
   try { await runApplyFromClipboard(context, 'diff (hardened)', { treatAsDiff: true }); }
@@ -3251,13 +3280,12 @@ async function cmdOpenChat(context) {
 
         // Partiziona allegati SOLO QUI (N.B.: niente variabili globali!)
         const atts = Array.isArray(msg.attachments) ? msg.attachments : [];
-        const { inline_files, rag_files } = partitionAttachments(atts);
+        const { inline_files, rag_files } =  partitionAttachments(atts);
+        log(`CLike: ${inline_files.length} inline_files, ${rag_files.length} rag_files`);
         // History del MODE corrente
         const historyScope  = effectiveHistoryScope(context);
         // History per conversazione “stateless�?: carico SOLO le bolle del MODE corrente
         const history = await loadSession(activeMode).catch(() => []);
-        // Filtra eventualmente per modello se vuoi inviare solo il sotto-filo di quel model:
-       // const historyForThisModel = history.filter(b => !b.model || b.model === activeModel);
         //log((`CLike historyForThisModel: ${historyForThisModel}`));
         const historyForThisModel = await loadSessionFilteredHarper(activeMode, activeModel, 200);
 
@@ -3267,24 +3295,42 @@ async function cmdOpenChat(context) {
         : historyForThisModel;
        
         const messages = source.map(b => ({ role: b.role, content: b.content }));
+        const projectId = getProjectId();
+        try { 
+          const { orchestratorUrl, routes } = cfg();
+          var urlOrch = (routes?.orchestrator?.ragIndex) ||  '/v1/rag/index';
+          let urlOrchestrator = orchestratorUrl + urlOrch;
+          const res = await preIndexRag(projectId, rag_files, urlOrchestrator, out); 
+          
+          
+          log((`CLike preIndexRag: ${JSON.stringify(res)} ${res}`));
+        } catch (e) { console.warn(e); }
 
-        // Costruisci payload
+       // Costruisci payload
         const basePayload = { mode: activeMode, 
+            project_id: projectId,
             model: activeModel,  
             provider: activeProvider, 
             messages, 
             inline_files, 
             rag_files, 
             attachments: atts ,
-            max_tokens: 2050
+            max_tokens: 2050,
+            gen:{api:"responses"} //ore "responses" API's openai 
         };
+
+        
+
+        // oppure, modo 2 (ternario corretto)
         const payload = (msg.type === 'sendChat')
-          ? basePayload
-          : basePayload["max_tokens"]= 4100 };
+        ? basePayload
+        : { ...basePayload, max_tokens: 4100 };
 
         const url = (msg.type === 'sendChat')
           ? `${orchestratorUrl}/v1/chat`
           : `${orchestratorUrl}/v1/generate`;
+
+        log((`CLike: ${payload.inline_files?.length} inline_files, ${payload.rag_files?.length} rag_files}`));
         
         //log((`CLike payload: ${JSON.stringify(payload)} url: ${url}`));
 
@@ -3348,8 +3394,9 @@ async function cmdOpenChat(context) {
           panel.webview.postMessage({ type: 'busy', on: false });
           inflightController = null;
         }
-     
-      }
+    }
+    
+      
       // 6) APPLY
       if (msg.type === 'apply') {
         const run_dir  = msg.run_dir  || null;
@@ -3514,7 +3561,7 @@ function partitionAttachments(atts) {
   const inline_files = [];
   const rag_files = [];
   for (const a of (atts || [])) {
-    // piccolo o gi�  in memoria
+    // piccolo o già in memoria
     if (a.content || a.bytes_b64) {
       inline_files.push({
         name: a.name || null,
@@ -3530,6 +3577,8 @@ function partitionAttachments(atts) {
   }
   return { inline_files, rag_files };
 }
+
+
 
 async function fetchJson(url, { signal } = {}) {
   const f = (typeof fetch === 'function')

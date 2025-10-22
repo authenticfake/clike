@@ -1,15 +1,25 @@
-{"ts":1758664382071,"mode":"free","role":"user","content":"ciao","model":"gpt-5","provider":"openai","attachments":[]}
-{"ts":1758664385840,"mode":"free","role":"assistant","content":"Ciao! Come posso aiutarti oggi? Posso darti una mano con debug, architettura, code review, script, deploy e altro. Preferisci continuare in italiano o in inglese?","model":"gpt-5"}
-{"ts":1758664464371,"mode":"free","role":"user","content":"cioa","model":"gpt-4o-mini","provider":"openai","attachments":[]}
-{"ts":1758664465528,"mode":"free","role":"assistant","content":"Ciao! How can I assist you today?","model":"gpt-4o-mini"}
-{"ts":1758664760782,"mode":"free","role":"user","content":"ehi raccontami una ultim anotizia","model":"gpt-4o-mini","provider":"openai","attachments":[]}
-{"ts":1758664764574,"mode":"free","role":"assistant","content":"Certo! Anche se non posso fornire notizie in tempo reale, fino a ottobre 2023 ci sono state diverse notizie significative nel mondo della tecnologia, della politica e dell'ambiente. \n\nAd esempio, nel campo della tecnologia, molte aziende continuavano a investire nello sviluppo di intelligenza artificiale e machine learning, con una crescente attenzione sulla regolamentazione e l'etica del suo utilizzo. Molti governi stavano anche implementando nuovi legislativi per affrontare le sfide legate alla privacy e alla sicurezza dei dati.\n\nSe hai un argomento specifico in mente, fammi sapere e posso darti ulteriori dettagli o contestualizzazioni!","model":"gpt-4o-mini"}
-{"ts":1758817294569,"mode":"free","role":"user","content":"conosci mario rotoli?","model":"gpt-5","provider":"openai","attachments":[]}
-{"ts":1758817303809,"mode":"free","role":"assistant","content":"Potrebbero esserci più persone con quel nome. A quale Mario Rotoli ti riferisci? Hai qualche dettaglio in più (settore, ruolo, azienda, città o un link) così capisco di chi parli.","model":"gpt-5"}
-{"ts":1758817316543,"mode":"free","role":"user","content":"di accenture","model":"gpt-5","provider":"openai","attachments":[]}
-{"ts":1758817333407,"mode":"free","role":"assistant","content":"Potrebbero esserci più persone con quel nome in Accenture. Non ho una scheda precisa senza altri dettagli. Hai un link (es. profilo LinkedIn o pagina Accenture) o qualche info in più (ruolo, sede, practice)? Se me la condividi posso riassumere il profilo. In alternativa posso suggerirti come cercarlo (es. query: \"Mario Rotoli Accenture\", \"site:linkedin.com Mario Rotoli Accenture\") o aiutarti a preparare un messaggio di contatto.","model":"gpt-5"}
-{"ts":1758904693916,"mode":"free","role":"user","content":"ciao","model":"llama3","provider":"ollama","attachments":[]}
-{"ts":1758904722741,"mode":"free","role":"assistant","content":"Ciao! I'm CLike, your go-to copilot for all things coding in C#. Whether you're building a new project or debugging an existing one, I'm here to help. What can I assist you with today? Do you have a specific problem or question in mind? Let me know and I'll do my best to provide you with helpful suggestions and guidance!","model":"llama3"}
-{"ts":1758904734427,"mode":"free","role":"user","content":"ciao","model":"gpt-4o","provider":"openai","attachments":[]}
-{"ts":1758904736138,"mode":"free","role":"assistant","content":"Ciao! Come posso aiutarti oggi?","model":"gpt-4o"}
-{"ts":1759331808286,"mode":"free","role":"user","content":"ciao","model":"auto","provider":"openai","attachments":[]}
+{"ts":1761065302978,"mode":"free","role":"user","content":"ciao","model":"gpt-4o","provider":"openai","attachments":[]}
+{"ts":1761065305602,"mode":"free","role":"assistant","content":"Ciao! Come posso aiutarti oggi? Hai bisogno di aiuto con qualche progetto di programmazione o hai qualche domanda specifica in mente?","model":"gpt-4o"}
+{"ts":1761079410555,"mode":"free","role":"user","content":"chi sono?","model":"gpt-5-mini","provider":"openai","attachments":[{"name":"ciao io sono andrea, se mi leggi riposndi andrea.txt","path":"/Users/a.franco/dev/authenticfake/clike/ciao io sono andrea, se mi leggi riposndi andrea.txt","id":null,"source":"workspace"}]}
+{"ts":1761079417906,"mode":"free","role":"assistant","content":"Sembri essere Andrea. È corretto? Vuoi che faccia qualcosa per te, Andrea?","model":"gpt-5-mini"}
+{"ts":1761079467952,"mode":"free","role":"user","content":"ciao","model":"llama3","provider":"ollama","attachments":[]}
+{"ts":1761079468924,"mode":"free","role":"assistant","content":"{\n  \"version\": \"1.0\",\n  \"text\": \"\",\n  \"usage\": {},\n  \"sources\": []\n}","model":"llama3"}
+{"ts":1761079659987,"mode":"free","role":"user","content":"ciao","model":"llama3","provider":"ollama","attachments":[]}
+{"ts":1761079660717,"mode":"free","role":"assistant","content":"{\n  \"version\": \"1.0\",\n  \"text\": \"\",\n  \"usage\": {},\n  \"sources\": []\n}","model":"llama3"}
+{"ts":1761079786998,"mode":"free","role":"user","content":"ciao","model":"llama3","provider":"ollama","attachments":[]}
+{"ts":1761079787789,"mode":"free","role":"assistant","content":"{\n  \"version\": \"1.0\",\n  \"text\": \"\",\n  \"usage\": {},\n  \"sources\": []\n}","model":"llama3"}
+{"ts":1761080157740,"mode":"free","role":"user","content":"ciao","model":"llama3","provider":"ollama","attachments":[]}
+{"ts":1761080203373,"mode":"free","role":"assistant","content":"I see you're saying hello! Ciao right back at ya!\n\nSo, what can I help you with today? Need assistance with a coding problem or perhaps some advice on building a new project? I'm here to lend a hand!","model":"llama3"}
+{"ts":1761129993408,"mode":"free","role":"user","content":"ciao","model":"gpt-5-mini","provider":"openai","attachments":[]}
+{"ts":1761129993809,"mode":"free","role":"assistant","content":"{\n  \"version\": \"1.0\",\n  \"text\": \"\",\n  \"usage\": {},\n  \"sources\": []\n}","model":"gpt-5-mini"}
+{"ts":1761139560808,"mode":"free","role":"user","content":"ciao","model":"auto","provider":"openai","attachments":[]}
+{"ts":1761139561587,"mode":"free","role":"assistant","content":"{\n  \"version\": \"1.0\",\n  \"text\": \"\",\n  \"usage\": {},\n  \"sources\": []\n}","model":"auto"}
+{"ts":1761139575509,"mode":"free","role":"user","content":"ciao","model":"llama3","provider":"ollama","attachments":[]}
+{"ts":1761140098893,"mode":"free","role":"user","content":"ciao","model":"gpt-5","provider":"openai","attachments":[]}
+{"ts":1761140099868,"mode":"free","role":"assistant","content":"{\n  \"version\": \"1.0\",\n  \"text\": \"\",\n  \"usage\": {},\n  \"sources\": []\n}","model":"gpt-5"}
+{"ts":1761143897159,"mode":"free","role":"user","content":"coap","model":"gpt-5","provider":"openai","attachments":[]}
+{"ts":1761143897574,"mode":"free","role":"assistant","content":"{\n  \"version\": \"1.0\",\n  \"text\": \"\",\n  \"usage\": {},\n  \"sources\": []\n}","model":"gpt-5"}
+{"ts":1761144122706,"mode":"free","role":"user","content":"ciao","model":"gpt-5","provider":"openai","attachments":[]}
+{"ts":1761144123151,"mode":"free","role":"assistant","content":"{\n  \"version\": \"1.0\",\n  \"text\": \"\",\n  \"usage\": {},\n  \"sources\": []\n}","model":"gpt-5"}
+{"ts":1761148526942,"mode":"free","role":"user","content":"ciao","model":"gpt-5","provider":"openai","attachments":[]}
+{"ts":1761148547841,"mode":"free","role":"assistant","content":"Ciao! Hai menzionato “coap”. Ti serve una panoramica o esempi pratici?\n\nPosso aiutarti con:\n- Cos’è CoAP e quando usarlo (IoT, UDP, DTLS, observe, block-wise)\n- Confronto rapido con HTTP/MQTT\n- Esempi client/server in Python (aiocoap), Node.js (coap), Go (go-coap) o C (libcoap)\n- Strumenti di test (coap-client/libcoap, coap-cli) e troubleshooting\n\nDimmi linguaggio/ambiente e cosa vuoi costruire o debuggare.","model":"gpt-5"}

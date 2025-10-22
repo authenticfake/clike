@@ -13,7 +13,6 @@ import time as _time
 from copy import deepcopy as _deepcopy
 from services.rag_store import RagStore
 
-
 # --- Generated root selection -------------------------------------------------
 import uuid
 # compat: alcuni repo usano services.router, altri services.model_router
@@ -29,6 +28,40 @@ from services.splitter import (
     split_ts_per_symbol,
     apply_strategy,
 )
+def build_response_format_files_bundle() -> dict:
+    """
+    OpenAI structured output schema for a bundle of files.
+    Strict schema: properties == required (no extras).
+    Minimal: path, content, mime.
+    """
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "files_bundle_v1",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "files": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "path":    {"type": "string"},
+                                "content": {"type": "string"},
+                                "mime":    {"type": "string"},
+                            },
+                            "required": ["path", "content", "mime"],
+                            "additionalProperties": False,
+                        },
+                        "minItems": 1
+                    }
+                },
+                "required": ["files"],
+                "additionalProperties": False,
+            },
+        },
+    }
 
 router = APIRouter(prefix="/v1")
 log = logging.getLogger("orchestrator.v1")
@@ -37,6 +70,7 @@ INLINE_MAX_FILE_KB   = int(os.getenv("INLINE_MAX_FILE_KB", "64"))
 INLINE_MAX_TOTAL_KB  = int(os.getenv("INLINE_MAX_TOTAL_KB", "256"))
 RAG_SIZE_THRESHOLD_KB = int(os.getenv("RAG_SIZE_THRESHOLD_KB", "64"))
 RAG_TOP_K            = int(os.getenv("RAG_TOP_K", "12"))
+
 
 
 # --- Classification for src/doc buckets ---
@@ -70,6 +104,51 @@ def _rag_base_url() -> str:
     base = _get_cfg("RAG_BASE_URL", "http://localhost:8080/v1/rag")
     return base.rstrip("/")
 
+# --- RAG / attachments normalization helper ---------------------------------
+def _normalize_context_from_body(body: dict) -> tuple[list[dict], list[dict], list[dict]]:
+    """
+    Return (inline_files, rag_files, attachments) normalized from request body.
+
+    Accepted shapes:
+      - inline_files / in_line_files: [{ "name"|"path", "content": "<text>" }]
+      - rag_files: [{ "name"|"path", "path": "<abs-or-rel>", "bytes_b64": "<b64-optional>", "size": <int-optional> }]
+      - attachments: VSCode-style attachment objects (will be auto-partitioned by _decide_inline_or_rag)
+
+    We do NOT merge the legacy rag_paths/rag_inline here. That compatibility path
+    is intentionally handled later and only if new-style inputs are empty.
+    """
+    if not isinstance(body, dict):
+        return [], [], []
+
+    inline_raw = body.get("in_line_files") or body.get("inline_files") or []
+    rag_raw    = body.get("rag_files") or []
+    atts_raw   = body.get("attachments") or []
+
+    inline_files: list[dict] = []
+    for item in inline_raw or []:
+        if not isinstance(item, dict):
+            continue
+        name = (item.get("name") or item.get("path") or "file").strip()
+        content = item.get("content")
+        if isinstance(content, str) and content:
+            inline_files.append({"name": name, "content": content})
+
+    rag_files: list[dict] = []
+    for item in rag_raw or []:
+        if not isinstance(item, dict):
+            continue
+        name = (item.get("name") or item.get("path") or "").strip()
+        path = (item.get("path") or "").strip()
+        b64  = item.get("bytes_b64")
+        size = item.get("size")
+        rag_files.append({"name": name or (path or "file"), "path": path, "bytes_b64": b64, "size": size})
+
+    attachments: list[dict] = []
+    for item in atts_raw or []:
+        if isinstance(item, dict):
+            attachments.append(item)
+
+    return inline_files, rag_files, attachments
 
 # se vuoi forzare un base diverso
 def _pick_generated_root() -> str:
@@ -240,62 +319,45 @@ def _write_file_any(path: str, fobj: dict) -> None:
             wf.write(content)
 
 # ===== RAG hooks (best-effort; non bloccanti) =====
-async def rag_reindex_paths(paths: list[str]):
-    if not paths:
-        return
-    base = _rag_base_url()
-    payload = {"paths": [p for p in paths if isinstance(p, str) and p.strip()]}
-    if not payload["paths"]:
-        return
-    try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            r = await client.post(f"{base}/reindex", json=payload)
-            log.info("rag.reindex_paths %s", json.dumps({
-                "base": base, "count": len(payload["paths"]), "status": r.status_code
-            }, ensure_ascii=False))
-    except Exception as e:
-        log.warning("rag_reindex_paths failed: %s", e)
+def _rag_project_id(body: dict) -> str:
+    pid = (body or {}).get("project_id")
+    if isinstance(pid, str) and pid.strip():
+        return pid.strip()
+    return "default"
 
-async def rag_reindex_uploads(uploads: list[dict]):
-    if not uploads:
-        return
-    base = _rag_base_url()
-    safe = []
-    for u in uploads:
-        if not isinstance(u, dict):
-            continue
-        name = (u.get("name") or u.get("path") or "").strip()
-        b64  = u.get("bytes_b64")
-        if name and isinstance(b64, str) and b64:
-            safe.append({"name": name, "bytes_b64": b64})
-    if not safe:
-        return
-    try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            r = await client.post(f"{base}/reindex", json={"uploads": safe})
-            log.info("rag.reindex_uploads %s", json.dumps({
-                "base": base, "count": len(safe), "status": r.status_code
-            }, ensure_ascii=False))
-    except Exception as e:
-        log.warning("rag_reindex_uploads failed: %s", e)
+RAG_TOP_K = int(os.getenv("RAG_TOP_K", "8"))
 
-async def rag_search(query: str, top_k: int):
-    base = _rag_base_url()
+async def rag_index_items(project_id: str, items: list[dict]):
+    # Optional server-side index; we prefer client-side, but keep for completeness.
+    if not items:
+        return
+    payload = {"project_id": project_id, "items": []}
+    for it in (items or []):
+        p = (it.get("path") or "").strip()
+        t = (it.get("text") or "").strip()
+        if p and t:
+            payload["items"].append({"path": p, "text": t})
+    if not payload["items"]:
+        return
     try:
         async with httpx.AsyncClient(timeout=60) as client:
-            r = await client.post(f"{base}/search", json={"query": query or "", "top_k": int(top_k or RAG_TOP_K)})
+            await client.post(f"{_rag_base_url()}/index", json=payload)
+    except Exception as e:
+        log.warning("rag_index_items failed: %s", e)
+
+async def rag_query(project_id: str, query: str, top_k: int = None):
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            r = await client.post(f"{_rag_base_url()}/search",
+                                  json={"project_id": project_id,
+                                        "query": query or "",
+                                        "top_k": int(top_k or RAG_TOP_K)})
             r.raise_for_status()
             data = r.json() or {}
-            res = data.get("results") or []
-            log.info("rag.search %s", json.dumps({
-                "base": base, "q_len": len(query or ""), "top_k": top_k, "hits": len(res)
-            }, ensure_ascii=False))
-            return res
+            return data.get("hits") or []
     except Exception as e:
-        log.warning("rag_search failed: %s", e)
+        log.warning("rag_query failed: %s", e)
         return []
-
-
 # ----------------------------- models listing -------------------------------
 
 def _mode_from_name(mid: str) -> str:
@@ -405,9 +467,17 @@ async def chat( req: Request):
 
     # Attachments → inline vs rag
     attachments = body.get("attachments") or []
-    inline_files, rag_files = await _decide_inline_or_rag(attachments)
+    # Normalize inputs: prefer explicit in_line_files/inline_files & rag_files.
+    inline_files, rag_files, attachments = _normalize_context_from_body(body)
+    log.info("chat extension & body fileds: %s, %s",  inline_files, rag_files)
+    # If no explicit files were provided, but we have generic attachments, partition them.
+    if not inline_files and not rag_files and attachments:
+        inline_files, rag_files = await _decide_inline_or_rag(attachments)
     
-    # query per RAG
+    inline_files, rag_files = await _decide_inline_or_rag(attachments)
+    log.info("chat attachments: %s, %s",  inline_files, rag_files)
+
+
     user_query = ""
     for m in reversed(messages):
         if (m.get("role") or "") == "user":
@@ -417,20 +487,24 @@ async def chat( req: Request):
     # system + contesto
     sysmsg = {"role":"system","content":"You are CLike, a helpful and expert full-stack software engineering copilot."}
     msgs = [sysmsg] + list(messages)
-    msgs = await _augment_messages_with_context(msgs, inline_files, rag_files, user_query)
+    project_id = _rag_project_id(body)
 
-    # RAG paths/inline opzionali (compat)
-    rag_paths  = (body.get("rag_paths") or []) + (body.get("rag_files") or [])
-    rag_inline = body.get("rag_inline") or []
-    if rag_paths or rag_inline:
-        blobs = []
-        if rag_paths:
-            blobs.extend(_gather_rag_context(rag_paths))
-        if rag_inline:
-            blobs.extend([str(x) for x in rag_inline if x])
-        if blobs:
-            ctx = "\n\n".join(blobs[:8])
-            msgs = [{"role":"system","content":"Use the following context if relevant:\n"+ctx}] + msgs
+    msgs = await _augment_messages_with_context(msgs, inline_files, rag_files, user_query, project_id)
+
+    # RAG paths/inline opzionali (compat) TODO: the following code depends on evaluation if SPEC.md, IDEA.md or other file driven by VS extension are needed.
+    # Legacy compatibility: only apply if NO new-style inline/rag files were provided
+    if not inline_files and not rag_files:
+        rag_paths  = body.get("rag_paths") or []
+        rag_inline = body.get("rag_inline") or []
+        if rag_paths or rag_inline:
+            blobs = []
+            if rag_paths:
+                blobs.extend(_gather_rag_context(rag_paths))
+            if rag_inline:
+                blobs.extend([str(x) for x in rag_inline if x])
+            if blobs:
+                ctx = "\n\n".join(blobs[:8])
+                msgs = [{"role":"system","content":"Use the following context if relevant:\n"+ctx}] + msgs
 
     # validate modality
     all_models = await _load_models_or_fallback()
@@ -464,7 +538,7 @@ async def chat( req: Request):
         model_entry = next((m for m in all_models if m.get("name") == model), None)
         req_max = int(body.get("max_tokens") or 2048)
         eff_max = su.tokens_per_model(msgs, model_entry, req_max)
-        timeout_sec = min(240.0, 60.0 + (eff_max / 1000.0) * 2.0)
+        timeout_sec = min(240.0, 110.0 + (eff_max / 1000.0) * 3.8)
 
 
         
@@ -473,8 +547,7 @@ async def chat( req: Request):
             messages = msgs,
             temperature= body.get("temperature"),
             max_tokens= eff_max,
-            # --- AGGIUNGI: provider-awareness end-to-end ---
-            
+            # --- AGGIUNGI: provider-awareness end-to-end ---        
             base_url= str(getattr(settings, "GATEWAY_URL", "http://localhost:8000")), 
             timeout=timeout_sec,
             response_format=None, 
@@ -540,7 +613,7 @@ async def _decide_inline_or_rag(attachments: list[dict]) -> tuple[list[dict], li
         bytes_b64 = a.get("bytes_b64")
         origin = a.get("origin")
         path = a.get("path")
-
+        log.info("decide inline or rag: %s", json.dumps({"name": name, "size": size, "size_kb": size_kb, "bytes_b64": bytes_b64, "origin": origin}, ensure_ascii=False))
         # 1) se oltre soglia → RAG
         if size_kb >= RAG_SIZE_THRESHOLD_KB:
             rag.append({"name": name, "path": path, "bytes_b64": bytes_b64, "size": size, "origin": origin})
@@ -561,42 +634,103 @@ async def _decide_inline_or_rag(attachments: list[dict]) -> tuple[list[dict], li
     return inline, rag
 
 
-async def _augment_messages_with_context(msgs: list[dict], inline_files: list[dict], rag_files: list[dict], user_query: str) -> list[dict]:
+# --- REPLACE: _augment_messages_with_context ---------------------------------
+async def _augment_messages_with_context(
+    msgs: list[dict],
+    inline_files: list[dict],
+    rag_files: list[dict],
+    user_query: str,
+    project_id: str
+) -> list[dict]:
+    """
+    Enrich messages with:
+      1) Inline files (fenced) as a single system message.
+      2) RAG retrieval on user_query (top-K) and prepend a 'Relevant project context' system message.
+
+    Notes:
+    - We assume large files were pre-indexed client-side.
+    - We DO NOT re-index here (no rag_reindex_* or rag_search legacy calls).
+    """
     out = list(msgs)
 
-    # 1) inline → blocchi fenced
+    # 1) Inline files → fenced block
     if inline_files:
-        blocks = "\n\n".join(_fence(f["name"], f["content"]) for f in inline_files if f.get("content"))
+        blocks = "\n\n".join(
+            _fence(f.get("name") or f.get("path") or "file", f.get("content") or "")
+            for f in inline_files
+            if isinstance(f, dict) and (f.get("content") or "").strip()
+        )
         if blocks.strip():
-            out = [{"role": "system", "content": f"You can use the following project files:\n\n{blocks}"}] + out
+            out = [{"role": "system", "content": "You can use the following project files:\n\n" + blocks}] + out
 
-    # 2) RAG indicizzazione (paths & uploads) + retrieval sul prompt utente
-    paths = [f.get("path") for f in rag_files if f.get("path")]
-    uploads = [f for f in rag_files if (f.get("bytes_b64") and not f.get("path"))]
-
+    # 2) RAG retrieval (top-K)
     try:
-        if paths:
-            await rag_reindex_paths(paths)
-        if uploads:
-            await rag_reindex_uploads(uploads)
+        q = (user_query or "").strip()
+        # (opzionale) leggero bias coi nomi dai rag_files
+        if rag_files:
+            names = []
+            for rf in rag_files:
+                n = (rf.get("path") or rf.get("name") or "").strip()
+                if n:
+                    names.append(n)
+            if names:
+                hint = " ".join(f"file:{n}" for n in names[:8])
+                q = (q + " " + hint).strip()
 
-        chunks = await rag_search(user_query or "", top_k=RAG_TOP_K)
-        if chunks:
-            ctx = "\n\n".join(
-                f"### {c.get('source','doc')}:{c.get('line_start',1)}-{c.get('line_end',1)}\n{c.get('text','')}"
-                for c in chunks
-                if isinstance(c, dict)
-            )
-            if ctx.strip():
-                out = [{"role": "system", "content": f"Relevant project context:\n\n{ctx}"}] + out
+        hits = await rag_query(project_id, q, top_k=RAG_TOP_K)
+        def _norm(p: str) -> str:
+            try:
+                return os.path.normpath((p or "").strip()).lower()
+            except Exception:
+                return (p or "").strip().lower()
+
+        allowed_full = {_norm(rf.get("path")) for rf in (rag_files or []) if isinstance(rf, dict) and rf.get("path")}
+        allowed_base = {os.path.basename(p) for p in allowed_full if p}
+        if hits and (allowed_full or allowed_base):
+            filtered = []
+            seen = set()  # (norm_path, chunk, first64)
+            for h in hits:
+                if not isinstance(h, dict):
+                    continue
+                hpath = (h.get("path") or h.get("source") or "").strip()
+                npath = _norm(hpath)
+                base  = os.path.basename(npath)
+
+                # tieni SOLO se è uno dei file del turno corrente
+                if npath not in allowed_full and base not in allowed_base:
+                    continue
+
+                text = (h.get("text") or "").strip()
+                if not text:
+                    continue
+
+                chunk = int(h.get("chunk", 0))
+                sig = (npath, chunk, text[:64])
+                if sig in seen:
+                    continue
+                seen.add(sig)
+                filtered.append({"path": hpath, "chunk": chunk, "text": text})
+
+            hits = filtered
+            if hits:
+                blocks = []
+                for h in hits[:RAG_TOP_K]:
+                    t = h["text"]
+                    if len(t) > 4000:
+                        t = t[:4000] + "\n...[truncated]..."
+                    blocks.append(f"### {h['path']}:{h['chunk']}\n{t}")
+                if blocks:
+                    out = [{"role": "system", "content": "Relevant project context:\n\n" + "\n\n".join(blocks)}] + out
     except Exception as e:
         log.warning("RAG enrichment failed: %s", e)
 
     return out
 
 
+
 @router.post("/generate")
 async def generate(req: Request):
+    log.info("generate request +++")
     body = await req.json()
     mode = (body.get("mode") or "coding").lower()
     if mode not in ("harper", "coding"):
@@ -604,6 +738,13 @@ async def generate(req: Request):
 
     model = body.get("model") or "auto"
     provider = (body.get("provider") or "").lower().strip()  # <---
+
+    PROVIDERS_RESPONSE_FORMAT = {"openai", "azure_openai"}
+    PROVIDERS_TOOL_CALL      = {"ollama", "anthropic", "deepseek", "vllm"}
+
+    prov = (provider or "").lower()
+    _use_respfmt = prov in PROVIDERS_RESPONSE_FORMAT
+    _use_tools   = prov in PROVIDERS_TOOL_CALL
 
     messages = body.get("messages") or []
     # Enforce tool-call in coding mode
@@ -629,9 +770,17 @@ async def generate(req: Request):
         )
     }
 
-    # Attachments → inline vs RAG
+    # Attachments → inline vs rag
     attachments = body.get("attachments") or []
+    # Normalize inputs: prefer explicit in_line_files/inline_files & rag_files.
+    inline_files, rag_files, attachments = _normalize_context_from_body(body)
+
+    # If no explicit files were provided, but we have generic attachments, partition them.
+    if not inline_files and not rag_files and attachments:
+        inline_files, rag_files = await _decide_inline_or_rag(attachments)
+    
     inline_files, rag_files = await _decide_inline_or_rag(attachments)
+
 
     # RAG query dall’ultimo user
     user_query = ""
@@ -641,7 +790,8 @@ async def generate(req: Request):
             break
 
     msgs = [sys_schema] + list(messages)
-    msgs = await _augment_messages_with_context(msgs, inline_files, rag_files, user_query)
+    project_id = _rag_project_id(body)
+    msgs = await _augment_messages_with_context(msgs, inline_files, rag_files, user_query, project_id)
 
     # modality check
     all_models = await _load_models_or_fallback()
@@ -652,63 +802,188 @@ async def generate(req: Request):
     log.info("generate request: %s", json.dumps({"model": model, "messages_len": len(messages)}, ensure_ascii=False))
 
     # ======== Chiamata gateway (prima scelta: TOOL CALLING) ========
+    # ======== Gateway payload builder (coding) ========
     base_url = str(getattr(settings, "GATEWAY_URL", "http://localhost:8000")).rstrip("/")
-    emit_files_tool = {
-        "type": "function",
-        "function": {
-            "name": "emit_files",
-            "description": "Return source files to be written by the caller.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "files": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "path":      {"type": "string"},
-                                "content":   {"type": "string"},
-                                "language":  {"type": "string"},
-                                "executable":{"type": "boolean"}
-                            },
-                            "required": ["path", "content"],
-                            "additionalProperties": False
-                        }
+
+   
+
+    # 2) JSON schema per response_format (OpenAI)
+    FILES_BUNDLE_SCHEMA = {
+        "name": "files_bundle_v1",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "files": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "path":      {"type": "string"},
+                            "content":   {"type": "string"},
+                            "language":  {"type": "string"},
+                            "executable":{"type": "boolean"}
+                        },
+                        "required": ["path", "content"],
+                        "additionalProperties": False
                     }
-                },
-                "required": ["files"],
-                "additionalProperties": False
-            }
-        }
+                }
+            },
+            "required": ["files"],
+            "additionalProperties": False
+        },
+        "strict": True
     }
 
-    temperature =body.get("temperature", 0.1)
-    max_tokens = body.get("max_tokens", 2048)
+    # 3) Decidi strategia in base al provider:
+    #    - openai: niente tools → response_format JSON schema (evita l'errore 'tools' type)
+    #    - altrimenti: tool-calling classico
+    _use_tools = (provider or "").lower() not in ("openai", "azure_openai")
+
+    # 4) Prompt di servizio per istruire l'output (robusto anche senza response_format)
+    emit_files_guidance = (
+        "When you propose code changes, you MUST return a bundle of files with paths and contents. "
+        "Prefer the exact JSON schema if supported; otherwise return a single top-level JSON object "
+        "with the structure {\"files\":[{\"path\":\"...\",\"content\":\"...\",\"language\":\"optional\",\"executable\":false}]} "
+        "with no extra text before or after."
+    )
+    # Inseriamo un system aggiuntivo conciso (resta compatibile con il resto del prompt Harper)
+    msgs = [{"role":"system","content": emit_files_guidance}] + msgs
+
+    # 5) Costruisci payload
+    temperature = body.get("temperature", 0.1)
+    max_tokens  = body.get("max_tokens", 4048)
+
     payload = {
         "model": model,
         "messages": msgs,
+        "base_url": base_url,
     }
-    payload["tools"] = [emit_files_tool]
-    payload["tool_choice"] = {"type": "function", "function": {"name": "emit_files"}}
-    payload["base_url"] = base_url
+
+    # Provider passato esplicitamente (utile per gateway routing)
     if provider is not None:
         payload["provider"] = provider
-        
-    if temperature is not None:
-        if not model.startswith("gpt-5"):
-            payload["temperature"] = temperature
 
-    # GPT-5 usa max_completion_tokens sulla Chat Completions API; le altre famiglie restano su max_tokens
-    if model.startswith("gpt-5"):
+    # Token fields: GPT-5 usa max_completion_tokens, altri max_tokens
+    if str(model).startswith("gpt-5"):
         if max_tokens is not None:
             payload["max_completion_tokens"] = max_tokens
     else:
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
-    
-    
-    # Sanitizer finale: elimina ogni set residuo che romperebbe json=
+
+    # Temperature: tienila bassa in coding; per GPT-5 spesso è ignorata, non la inviamo.
+    if temperature is not None and not str(model).startswith("gpt-5"):
+        payload["temperature"] = temperature
+
+    # --- Cross-provider: tools vs response_format ---
+    PROVIDERS_RESPONSE_FORMAT = {"openai", "azure_openai"}
+    PROVIDERS_TOOL_CALL      = {"ollama", "anthropic", "deepseek", "vllm"}
+
+    prov = (provider or "").lower()
+
+    if prov in PROVIDERS_TOOL_CALL:
+        # Tool-calling classico (emit_files)
+        emit_files_tool = {
+            "type": "function",
+            "function": {
+                "name": "emit_files",
+                "description": "Return source files to be written by the caller.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "files": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "path":       {"type": "string"},
+                                    "content":    {"type": "string"},
+                                    "language":   {"type": "string"},
+                                    "executable": {"type": "boolean"}
+                                },
+                                "required": ["path", "content"],
+                                "additionalProperties": False
+                            }
+                        }
+                    },
+                    "required": ["files"],
+                    "additionalProperties": False
+                }
+            }
+        }
+        payload["tools"] = [emit_files_tool]
+        payload["tool_choice"] = {"type": "function", "function": {"name": "emit_files"}}
+    else:
+        # OpenAI/Azure (o default): niente tools, usa JSON schema response_format
+        payload.pop("tools", None)
+        payload.pop("tool_choice", None)
+        payload["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "files_bundle_v1",
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "files": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "path":       {"type": "string"},
+                                    "content":    {"type": "string"},
+                                    "executable": {"type": "boolean"}
+                                },
+                                "required": ["path", "content"],
+                                "additionalProperties": False
+                            }
+                        }
+                    },
+                    "required": ["files"],
+                    "additionalProperties": False
+                },
+                "strict": True
+            }
+        }
+
+    # Safety: se per qualsiasi motivo in alto qualcuno ha messo tools/tool_choice, rimuovili per OpenAI/Azure
+    if prov in PROVIDERS_RESPONSE_FORMAT:
+        payload.pop("tools", None)
+        payload.pop("tool_choice", None)
+
+    if _use_tools:
+        # Percorso tool-calling (Ollama, altri provider)
+        payload["tools"] = [emit_files_tool]
+        payload["tool_choice"] = {"type": "function", "function": {"name": "emit_files"}}
+    else:
+        # Percorso OpenAI senza tools → JSON schema mode
+        payload["response_format"] = {
+            "type": "json_schema",
+            "json_schema": FILES_BUNDLE_SCHEMA
+        }
+        # NOTA: nessun "tools" e nessun "tool_choice" nel payload
+
+    # Sanitizza per sicurezza
     payload = _json_safe(payload)
+    payload["response_format"] = build_response_format_files_bundle()
+
+
+    # --- LOG rich: request/response gateway ---
+    _headers = {"Content-Type": "application/json", "X-CLike-Profile": "code.strict"}
+    if provider:
+        _headers["X-CLike-Provider"] = provider
+
+    log.info("gateway.request %s", json.dumps({
+        "url": f"{base_url}/v1/chat/completions",
+        "model": model,
+        "profile": payload.get("profile"),
+        "tools": bool(payload.get("tools")),
+        "tool_choice": bool(payload.get("tool_choice")),
+        "has_response_format": bool(payload.get("response_format")),
+        "max_tokens": payload.get("max_tokens"),
+        "provider": payload.get("provider"),
+        "max_completion_tokens": payload.get("max_completion_tokens"),
+    }, ensure_ascii=False))
+
 
 
         # --- LOG rich: request/response gateway ---

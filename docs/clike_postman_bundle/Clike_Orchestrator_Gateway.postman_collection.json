@@ -165,7 +165,7 @@
               "raw": "{\n  \"path\": \"{{RAG_FILE}}\"\n}"
             },
             "url": {
-              "raw": "{{ORCH_BASE}}/rag/reindex",
+              "raw": "{{ORCH_BASE}}/v1/rag/reindex",
               "host": [
                 "{{ORCH_BASE}}"
               ],
@@ -191,7 +191,7 @@
               "raw": "{\n  \"q\": \"What is Clike?\"\n}"
             },
             "url": {
-              "raw": "{{ORCH_BASE}}/rag/search",
+              "raw": "{{ORCH_BASE}}/v1/rag/search",
               "host": [
                 "{{ORCH_BASE}}"
               ],
