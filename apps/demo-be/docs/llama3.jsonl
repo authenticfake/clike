@@ -1,8 +1,0 @@
-{"ts":1757452015118,"model":"llama3","role":"user","content":"Ciao"}
-{"ts":1757452018515,"model":"llama3","role":"assistant","content":"Ciao! Come stai?"}
-{"ts":1757452053186,"model":"llama3","role":"user","content":"genera una funzione in java per fare il la radice quadraata senza utilizzare primitive "}
-{"ts":1757452094434,"model":"llama3","role":"assistant","content":"Generated files:\n- src/generated_1757452094.txt"}
-{"ts":1757452680005,"model":"llama3","role":"user","content":"genera una struttura di un repository di unprogetto next.js"}
-{"ts":1757452793249,"model":"llama3","role":"assistant","content":"Generated files:\n- /package.json\n- /public/index.html\n- /pages/_app.tsx\n- /components/Header.tsx\n- /styles/globals.css\n- /static/js/bundle.js"}
-{"ts":1757453277557,"model":"llama3","role":"user","content":"committa i file genrati su hithub"}
-{"ts":1757453307471,"model":"llama3","role":"assistant","content":"Generated files:\n- /commit.txt\n- /.gitignore"}
