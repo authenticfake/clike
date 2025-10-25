@@ -1201,7 +1201,7 @@ function defaultCoreForPhase(phase) {
     case "kit":
       return ["SPEC.md", "PLAN.md", "TECH_CONSTRAINTS.yaml"];
     case "finalize":
-      return ["SPEC.md", "PLAN.md", "BUILD_REPORT.md", "RELEASE_NOTES.md", "TECH_CONSTRAINTS.yaml"];
+      return ["SPEC.md", "PLAN.md", "TECH_CONSTRAINTS.yaml"];
     default:
       return ["IDEA.md"];
   }
@@ -1397,9 +1397,9 @@ async function postJson(url, body, { signal } = {}) {
 // Pre-index RAG items before chat/generate. Non-blocking on failure.
 async function preIndexRag(projectId, rag_files,url ,out) {
   const log = mkLog(out);
-  log('preIndexRag:', projectId, rag_files, url);
+  //log('preIndexRag:', projectId, rag_files, url);
   const items = await buildRagItemsForIndex(rag_files, out);
-  log('preIndexRag items:', items);
+  //log('preIndexRag items:', items);
   if (!items.length) return { ok: true, upserts: 0 };
   
   try {

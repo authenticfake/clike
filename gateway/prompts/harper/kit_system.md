@@ -48,8 +48,7 @@ Before producing or modifying code, you **must read and analyze** the current pr
 	   Each execution targets exactly one engine via a renderer/adapter. No mixed engines in the same apply.
 		
 	* **Pure rendering**
-		
-	   * RDBMS: render **pure DDL** (create/alter/drop) in versioned SQL files; no ORM/runtime models.
+		* RDBMS: Source of Truth DDL in **Versioned SQL** files, **ORM/Runtime Models** are derived representations for application logic. 
 	   * NoSQL: render **declarative ops** (collections/indexes/mappings) as JSON/YAML + API/SDK calls.
 	 
 	  No app code inside migrations.
@@ -61,6 +60,8 @@ Before producing or modifying code, you **must read and analyze** the current pr
 	   Apply in a strict order (types → structures → relations/indexes). Provide an inverse teardown. Every upgrade has a downgrade.
 	   
 	* Each kit MAY include runs/kit/<ID>/requirements.txt listing only the minimal test/runtime dependencies (drivers, migration helpers). CI/eval MUST install it before running tests. If installation isn’t possible, tests MUST self-skip when packages are missing. Schema artifacts (SQL/JSON) remain pure and engine-portable.
+
+	* Each kit MAY include runs/kit/<ID>/test/api/postman_collection_<ID>.json  for testing service / business APIs.
 		
 	* **Deterministic artifacts**
 	   Renderers must produce deterministic files (no timestamps/random IDs) to enable diff, review, and caching.

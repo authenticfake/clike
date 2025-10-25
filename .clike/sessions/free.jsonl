@@ -23,3 +23,4 @@
 {"ts":1761144123151,"mode":"free","role":"assistant","content":"{\n  \"version\": \"1.0\",\n  \"text\": \"\",\n  \"usage\": {},\n  \"sources\": []\n}","model":"gpt-5"}
 {"ts":1761148526942,"mode":"free","role":"user","content":"ciao","model":"gpt-5","provider":"openai","attachments":[]}
 {"ts":1761148547841,"mode":"free","role":"assistant","content":"Ciao! Hai menzionato “coap”. Ti serve una panoramica o esempi pratici?\n\nPosso aiutarti con:\n- Cos’è CoAP e quando usarlo (IoT, UDP, DTLS, observe, block-wise)\n- Confronto rapido con HTTP/MQTT\n- Esempi client/server in Python (aiocoap), Node.js (coap), Go (go-coap) o C (libcoap)\n- Strumenti di test (coap-client/libcoap, coap-cli) e troubleshooting\n\nDimmi linguaggio/ambiente e cosa vuoi costruire o debuggare.","model":"gpt-5"}
+{"ts":1761311957852,"mode":"free","role":"user","content":"cioa","model":"auto","provider":"openai","attachments":[]}
