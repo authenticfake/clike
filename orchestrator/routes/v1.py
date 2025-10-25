@@ -779,7 +779,6 @@ async def generate(req: Request):
     if not inline_files and not rag_files and attachments:
         inline_files, rag_files = await _decide_inline_or_rag(attachments)
     
-    inline_files, rag_files = await _decide_inline_or_rag(attachments)
 
 
     # RAG query dall’ultimo user

@@ -34,6 +34,9 @@ class HarperKitOptions(BaseModel):
     batch: Optional[int] = Field(default=None, ge=1)
     req_ids: Optional[List[str]] = Field(default=None)  # backward-compat alias
     rescope: Optional[bool] = Field(default=False)
+class FileItem(BaseModel):
+    path: str
+    bytes_b64: str
 
 class HarperPhaseRequest(BaseModel):
     cmd: str
@@ -68,6 +71,7 @@ class HarperPhaseRequest(BaseModel):
     rag_chunks: Optional[List[dict]] = None
     rag_queries: Optional[List[str]] = None
     rag_top_k: Optional[int] = None
+    files: Optional[List[FileItem]] = None
 
 
 

@@ -8,6 +8,7 @@ from typing import List, Literal, Optional, Dict, Any, Union
 import logging
 import os, datetime
 import httpx, random, math, asyncio
+from utils.utils import collect_rag_materials_http
 from utils.rag_store import RagStore
 from routes.chat import ANTHROPIC_API_KEY, ANTHROPIC_BASE, OLLAMA_BASE, OPENAI_API_KEY, OPENAI_BASE, VLLM_BASE, _json
 from providers import openai_compat as oai
@@ -17,6 +18,9 @@ from providers import ollama as oll
 from providers import vllm as vll
 import yaml, re
 import mimetypes
+
+
+
 _FILE_BLOCK_RE = re.compile(
     r"(?:^|\n)```[^\n]*\n\s*file:([^\n]+)\n(.*?)\n```",
     re.DOTALL | re.IGNORECASE
@@ -30,7 +34,7 @@ SPEC_TEMPLATE_PATH = os.getenv("SPEC_TEMPLATE_PATH", "/app/templates/SPEC_TEMPLA
 PROMPT_PLAN_SYSTEM_PATH = os.getenv("PROMPT_PLAN_SYSTEM_PATH", "/app/prompts/harper/plan_system.md")
 PROMPT_KIT_SYSTEM_PATH = os.getenv("PROMPT_KIT_SYSTEM_PATH", "/app/prompts/harper/kit_system.md")
 PROMPT_BUILD_SYSTEM_PATH = os.getenv("PROMPT_BIULD_SYSTEM_PATH", "/app/prompts/harper/build_system.md")
-PROMPT_FINALIZE_SYSTEM_PATH = os.getenv("PROMPT_FINALIZE_SYSTEM_PATH", "/app/prompts/harper/finlize_system.md")
+PROMPT_FINALIZE_SYSTEM_PATH = os.getenv("PROMPT_FINALIZE_SYSTEM_PATH", "/app/prompts/harper/finalize_system.md")
 
 _REPO_PLACEHOLDER = "[x]"
 
@@ -55,15 +59,37 @@ _FILE_BLOCK_BEGIN_RE = re.compile(
     re.DOTALL | re.IGNORECASE
 )
 
+# --- finalize helpers ---------------------------------------------------------
+def _extract_file_blocks_any(text: str):
+    """Estrae blocchi file sia fenced che plain o BEGIN/END_FILE."""
+    files = []
+    for rx in (_FILE_BLOCK_FENCED_RE, _FILE_BLOCK_PLAIN_RE, _FILE_BLOCK_BEGIN_RE):
+        for m in rx.finditer(text or ""):
+            path = (m.group(1) or "").strip()
+            body = (m.group(2) or "").strip()
+            if path and body:
+                files.append({"path": path, "content": body})
+    return files
+
+def _release_notes_fallback(text: str):
+    """Se il modello non ha emesso un file-block, incarta l'output come RELEASE_NOTES.md."""
+    return [{
+        "path": "docs/harper/RELEASE_NOTES.md",
+        "content": (text or "").strip(),
+        "mime": "text/markdown",
+        "language": "markdown",
+        "encoding": "utf-8",
+    }]
+
 
 # --- Model parameters per phase (output budget & style) ----------------------
 PHASE_MODEL_PARAMS = {
-    "spec":     {"max_tokens": 7500, "temperature": 0.25, "top_p": 1.0},
+    "spec":     {"max_tokens": 8500, "temperature": 0.25, "top_p": 1.0},
     "plan":     {"max_tokens": 25000, "temperature": 0.2, "top_p": 0.8},  # raise to 6500 only if many lanes
     "kit":      {"max_tokens": 12500, "temperature": 0.25, "top_p": 1.0},
     "eval":     {"max_tokens": 6500, "temperature": 0.15, "top_p": 1.0},
     "gate":     {"max_tokens": 6000, "temperature": 0.15, "top_p": 1.0},
-    "finalize": {"max_tokens": 7000, "temperature": 0.20, "top_p": 1.0},
+    "finalize": {"max_tokens": 9000, "temperature": 0.20, "top_p": 1.0},
 }
 
 # --- Harper: Dynamic Context Budgeting (messages builder) --------------------
@@ -902,7 +928,17 @@ async def gather_rag_materials(rag_chunks,rag_top_k, store, rag_queries = None) 
                     title = f"{hit.get('path','') or 'doc'}#{hit.get('chunk',0)} (score={hit.get('score',0.0):.3f})"
                     materials.append({"title": title, "text": txt, "source": "store"})
     return materials
+"""
+usage for having SPEC.mD IDEA.md as RAG: 
+materials = await _retrive_rag_chunks(messages, req.rag_chunks, req.rag_queries, req.rag_top_k,  req.project_id )
+    if materials:
+        appendix = "\n\n### RAG Context\n" + "\n\n".join(
+            f"#### {m['title']}\n{m['text']}" for m in materials[:12]
+        )
+        #log.info("materials appendix '%s' ", appendix)
 
+        messages[1]["content"] += appendix
+"""
 async def _retrive_rag_chunks(messages: list[dict], rag_chunks: list[dict] | None, rag_queries: list[str] | None, rag_top_k: int | None,  project_id: str | None ) -> list[dict]:
     # 2) RAG: client-first + server-search (Qdrant)
 
@@ -964,7 +1000,7 @@ async def run(req: HarperRunRequest,  request: Request):
     
     # --- Context budgeting ---
     ctx_window, max_out_cap = _resolve_ctx_caps(resolved_entry)
-    
+    prroject_id = resolved_entry.get("project_id") or "default"
     if not phase:
     # Non 422 “duro”: rispondiamo comunque con errore soft dentro il payload
         return {
@@ -1095,14 +1131,26 @@ async def run(req: HarperRunRequest,  request: Request):
                             repourl,
                             targets)
     
-    materials = await _retrive_rag_chunks(messages, req.rag_chunks, req.rag_queries, req.rag_top_k,  req.project_id )
-    if materials:
-        appendix = "\n\n### RAG Context\n" + "\n\n".join(
-            f"#### {m['title']}\n{m['text']}" for m in materials[:12]
-        )
-        #log.info("materials appendix '%s' ", appendix)
-
-        messages[1]["content"] += appendix
+    if (phase or "").lower() == "finalize":
+        # --- RAG: append al prompt (via utils.rag_query) -------------------------
+        log.info("RAG append phase=%s", phase)
+        try:
+            materials = await collect_rag_materials_http(
+                project_id=req.project_id,
+                queries=req.rag_queries,          # opzionale dal client
+                core_blobs=core_blobs,            # per estrarre heading SPEC/PLAN
+                top_k=req.rag_top_k,
+            )
+            if materials:
+                appendix = "\n\n### RAG Context\n" + "\n\n".join(
+                    f"#### {m['title']}\n{m['text']}" for m in materials[:12]
+                )
+                messages[1]["content"] += appendix
+                log.info("RAG context appended (%d materials)", len(materials))
+        except Exception as e:
+            log.warning("RAG append failed: %s", e)
+    
+    
     
     incoming: list[dict] = []
     for m in (req.messages or []):
@@ -1120,7 +1168,7 @@ async def run(req: HarperRunRequest,  request: Request):
         m.get("content","") for m in messages if isinstance(m.get("content"), str)
     ))
     ctx_window, max_out_cap = _resolve_ctx_caps(resolved_entry)
-    requested_out = int((req.gen or {}).get("max_tokens", 6500))
+    requested_out = int((req.gen or {}).get("max_tokens", 7500))
     # margine di sicurezza per header/model/tooling
     SAFETY_PROMPT_TOKENS = 250 #Soglia minima: se chat_budget < 200 token, non appendere “Recent Harper chat” (rumore > valore).
     # budget per chat = ctx - base_prompt - requested_out - safety (>=0)
@@ -1198,13 +1246,10 @@ async def run(req: HarperRunRequest,  request: Request):
     # system_md_txt = (system_md_txt or "").strip()
 
 
-    provider_files: list[dict] = []
     llm_usage = {}
     llm_usage = llm_text.get("usage") or {}
     system_md_txt = (llm_text.get("text") or "").strip()
     provider_files = llm_text.get("files") or []
-
-
 
     text_len = len((system_md_txt or "").strip())
     log.info("harper.llm.result text_len=%d usage=%s", text_len, (llm_usage or {}))
@@ -1232,7 +1277,8 @@ async def run(req: HarperRunRequest,  request: Request):
             warnings.append(f"SPEC missing sections: {', '.join(missing)}")
 
 
-    # --- Multi-file support ---
+    
+     # --- Multi-file support ---
     output_name = PHASE_OUTPUT_FILE.get(phase, f"{phase.upper()}.md")
     default_doc_path = f"{req.docRoot or 'docs/harper'}/{output_name}"
     
@@ -1260,7 +1306,6 @@ async def run(req: HarperRunRequest,  request: Request):
             "mime": "text/markdown",
             "encoding": "utf-8",
         })
-
     # --- plan.json derivation from PLAN.md (only for phase=plan) ---
     if phase == "plan":
         # 1) Trova il contenuto del PLAN.md che stiamo restituendo

@@ -78,7 +78,10 @@ async function harperGitAutomation(phase, runId, opts) {
       spec: ['docs/harper/SPEC.md'],
       plan: ['docs/harper/PLAN.md'],
       kit:  ['docs/harper/KIT.md'],
-      finalize: ['docs/harper/RELEASE_NOTES.md']
+      finalize: ['docs/harper/RELEASE_NOTES.md',
+                  'README.md',
+
+      ]
     };
     const files = phaseFiles[phase] || [];
     if (files.length) await gitRun(['add', ...files], cwd);
@@ -166,6 +169,79 @@ function computeProfileHint(mode, model) {
   } catch { return null; }
 }
 
+function _looksTextual(p) {
+  const exts = [
+    '.md','.txt','.json','.yml','.yaml','.ini',
+    '.js','.jsx','.ts','.tsx','.mjs','.cjs',
+    '.py','.java','.go','.rb','.rs','.cs',
+    '.cpp','.cc','.c','.h','.hpp','.kt','.swift','.php',
+    '.css','.scss','.less','.html'
+  ];
+  return exts.includes(path.extname(p).toLowerCase());
+}
+
+async function collectFinalizeRagItems(workspaceRootUri, maxFiles = 400, maxBytes = 512 * 1024) {
+  // 1) Normalizza: accetta sia vscode.Uri sia string
+  const rootPath =
+    typeof workspaceRootUri === 'string'
+      ? workspaceRootUri
+      : (workspaceRootUri && (workspaceRootUri.fsPath || workspaceRootUri.path)) || '';
+
+  if (!rootPath) {
+    throw new Error('collectFinalizeRagItems: invalid workspace root (expected vscode.Uri or string path)');
+  }
+
+  // 2) Cammina il FS usando path string (non Uri)
+  async function walk(dir) {
+    const out = [];
+    let entries = [];
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return out; // dir mancante = ok
+    }
+    for (const e of entries) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        if (['.git', 'node_modules', 'dist', 'build', 'out', '.venv', '.mypy_cache'].includes(e.name)) continue;
+        out.push(...(await walk(p)));
+      } else {
+        out.push(p);
+      }
+    }
+    return out;
+  }
+
+  const targets = [];
+  // Se vuoi includere anche docs/harper, riaggiungilo qui
+  const srcDir = path.join(rootPath, 'src');
+
+  for (const d of [srcDir]) {
+    const files = await walk(d);
+    for (const absPath of files) {
+      if (!_looksTextual(absPath)) continue;
+      if (targets.length >= maxFiles) break;
+      let buf;
+      try {
+        buf = await fs.readFile(absPath);
+      } catch {
+        continue;
+      }
+      if (buf.length > maxBytes) continue;
+
+      // 3) Invia path relativo al workspace (portabile e pulito)
+      const rel = path.relative(rootPath, absPath).replace(/\\/g, '/');
+
+      targets.push({
+        path: rel,                              // <= relativo
+        bytes_b64x: Buffer.from(buf).toString('base64'),
+      });
+    }
+  }
+  return targets;
+}
+
+
 // --- generic Harper runner (spec/plan/kit/build) ---
 async function callHarper(cmd, payload, headers) {
   const base = vscode.workspace.getConfiguration().get('clike.orchestratorUrl') || 'http://localhost:8080';
@@ -178,12 +254,7 @@ async function callHarper(cmd, payload, headers) {
   return res.json();
 }
 
-// ---------- Session & FS helpers ----------
-function wsRoot() {
-  const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
-  if (!ws) throw new Error('Apri una workspace per usare CLike chat.');
-  return ws.uri;
-}
+
 
 function cfgChat() {
   const c = vscode.workspace.getConfiguration();
@@ -205,7 +276,7 @@ function effectiveHistoryScope(context) {
 }
 
 function sessionsDirUri() {
-  const root = wsRoot();
+  const root = getWorkspaceRoot();
   return vscode.Uri.joinPath(root, cfgChat().dir.replace(/^\.?\//,''));
 }
 
@@ -329,7 +400,7 @@ async function clearSession(mode) {
 
 async function saveGeneratedFiles(files) {
   if (!Array.isArray(files) || !files.length) return [];
-  const root = wsRoot();
+  const root = getWorkspaceRoot();
   const written = [];
   for (const f of files) {
     if (!f || !f.path || typeof f.content !== 'string') continue;
@@ -1393,9 +1464,9 @@ var HELP_COMMANDS = [
   {cmd:'/spec [file|testo]', desc:'Generates/Updates SPEC.md from the IDEA'},
   {cmd:'/plan [spec_path]', desc:'Generates/Updates PLAN.md from the SPEC'},
   {cmd:'/kit [REQ-ID]', desc:'Generates/Updates KIT.md and PLAN.md'},
-  {cmd:'/finalize [--tag vX.Y.Z] [--archive]', desc:'Final gates and project closure (Harper)'},
   { cmd: '/eval <REQ-ID>', desc: 'Performs an eval of plan/kit/finalize' },
   { cmd: '/gate <REQ-ID>', desc: 'Performs a gate of plan|kit|finalize' },
+  {cmd:'/finalize', desc:'Final gates and project closure (Harper)'},
   {cmd:'/rag <query>', desc:'Cerca nel RAG (mostra i top risultati) (cross)'},
   {cmd:'/rag +<N>', desc:'Adds RAG result #N from the last search to the attached files (cross)'},
   {cmd:'/rag list', desc:'Shows current attached files (inline+RAG) (cross).'},
@@ -2007,7 +2078,7 @@ function handleSlash(slash) {
     vscode.postMessage({ type: 'switchProject', name: slash.args.name || '' });
     return;
   }
-  if (slash.cmd === '/spec' || slash.cmd === '/plan' || slash.cmd === '/kit') {
+  if (slash.cmd === '/spec' || slash.cmd === '/plan' || slash.cmd === '/kit'  || slash.cmd === '/finalize') {
     // attachments della mode corrente (se li usi)
     var modeVal  = (mode  && mode.value)  ? mode.value  : 'harper';
     var key      = modeVal;
@@ -2868,7 +2939,7 @@ async function cmdOpenChat(context) {
             message: `▶ ${cmd.toUpperCase()} ${targets} | mode=${state.mode} model=${state.model} profile=${profileHint || '—'} core=${JSON.stringify(core)} attachments=${attachments.length}`
           });
           //PATh for PLAN.md
-          const root = wsRoot()
+          const root = getWorkspaceRoot()
           const plan = await readPlanJson(root);
           let targetReqId
           if (phase==='kit') {
@@ -2886,13 +2957,36 @@ async function cmdOpenChat(context) {
             }
             payload["kit"]= {targets: [targetReqId] }
           }
-          const wsroot = wsRoot();
+          const wsroot = getWorkspaceRoot();
 
           const _headers = {"Content-Type": "application/json", "X-CLike-Profile": "code.strict"}
           //fals is for RAG chucks - TODO: RAG management via attachments is almost oden 70%
           const body = await buildHarperBody(phase, payload, wsroot, RAG_PREFER_FOR,false, out);
           const keys = Object.keys(body.core_blobs); 
           log(`[harperRun] body (keys::core_blobs):`,  keys)
+          if (phase==='finalize') {
+
+              try {
+                const items = await collectFinalizeRagItems(wsroot);
+
+                if (items.length) {
+                   const { orchestratorUrl, routes } = cfg();
+                   var urlRag = (routes?.orchestrator?.ragIndex) ||  '/v1/rag/index';
+                   let urlOrchestrator = orchestratorUrl + urlRag;
+  
+                   const res = await preIndexRag(project_id, items, urlOrchestrator, out);
+                   log((`CLike preIndexRag: ${JSON.stringify(res)} ${res}`));
+                } else {
+                  vscode.window.showErrorMessage(`[finalize] No any files found!!!`);
+                  panel.webview.postMessage({ type: 'busy', on: false });
+                  return
+                }
+              } catch (e) {
+                log(`ℹ️ RAG index skipped (${e?.message || e})`);
+                panel.webview.postMessage({ type: 'busy', on: false });
+                return
+              }
+          }
           //log(`[harperRun] body (core_blobs):`,  JSON.stringify(body.core_blobs))
           if (activeProvider) _headers["X-CLike-Provider"] = activeProvider
           const outGateway = await callHarper(cmd, body, _headers);
@@ -2921,7 +3015,7 @@ async function cmdOpenChat(context) {
           if (phase==="kit") {
             await saveKitCommand(root,plan,targetReqId,out) 
           }
-
+          var wsRoot = getWorkspaceRoot();
           // --- SCRITTURA FILES (primary path) ---
           let written = [];
           if (Array.isArray(_out?.files) && _out.files.length) {
@@ -3315,16 +3409,14 @@ async function cmdOpenChat(context) {
             inline_files, 
             rag_files, 
             attachments: atts ,
-            max_tokens: 2050,
+            max_tokens: 4000,
             gen:{api:"responses"} //ore "responses" API's openai 
         };
-
-        
 
         // oppure, modo 2 (ternario corretto)
         const payload = (msg.type === 'sendChat')
         ? basePayload
-        : { ...basePayload, max_tokens: 4100 };
+        : { ...basePayload, max_tokens: 5100 };
 
         const url = (msg.type === 'sendChat')
           ? `${orchestratorUrl}/v1/chat`
