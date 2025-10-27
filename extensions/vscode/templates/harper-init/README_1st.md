@@ -51,6 +51,7 @@ Init ${project.name} gith repository
 4. git branch -M main
 5. git remote add origin <git@github.com:org/repo.git>
 6. git push -u origin main
+
 Start ${project.name} harper approach
 7. Open \`docs/harper/IDEA.md\` and complete it.
 8. Run \`/spec\` to generate \`SPEC.md\`.

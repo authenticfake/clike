@@ -13,31 +13,7 @@
   },
   "main": "./extension.js",
   "activationEvents": [
-    "onCommand:clike.harper.init",
-    "onCommand:clike.openChat",
-    "onCommand:clike.ping",
-    "onCommand:clike.codeAction",
-    "onCommand:clike.addDocstring",
-    "onCommand:clike.refactor",
-    "onCommand:clike.generateTests",
-    "onCommand:clike.fixErrors",
-    "onCommand:clike.applyUnifiedDiffHardened",
-    "onCommand:clike.applyUnifiedDiff",
-    "onCommand:clike.applyNewContent",
-    "onCommand:clike.applyLastPatch",
-    "onCommand:clike.listModels",
-    "onCommand:clike.checkServices",
-    "onCommand:clike.ragReindex",
-    "onCommand:clike.ragSearch",
-    "onCommand:clike.gitCreateBranch",
-    "onCommand:clike.gitCommitPatch",
-    "onCommand:clike.gitOpenPR",
-    "onCommand:clike.gitSmartPR",
-    "onStartupFinished",
-    "onCommand:clike.eval.runAll",
-    "onCommand:clike.gate.checkPhase",
-    "onCommand:clike.constraints.sync",
-    "onCommand:clike.plan.updateChecklist"
+    "onStartupFinished"
   ],
   "categories": [
     "AI",
@@ -232,8 +208,53 @@
         },
         "clike.git.openPR": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "If true, open PR flow after auto-commit (requires GitHub extension)."
+        },
+        "clike.git.remote": {
+          "type": "string",
+          "default": "origin",
+          "description": "Default remote name for PR flow."
+        },
+         "clike.git.defaultBranch": {
+          "type": "string",
+          "default": "main",
+          "description": "Default branch for PR flow."
+        },
+        "clike.git.conventionalCommits": {
+          "type": "boolean",
+          "default": true,
+          "description": "If true, use conventional commits for PR flow."
+        },
+        "clike.git.pushRebase": {
+          "type": "boolean",
+          "default": true,
+          "description": "If true, push changes after PR flow."
+        },
+        "clike.git.branchPrefix": {
+          "type": "string",
+          "default": "feature",
+          "description": "Prefix for feature branch names."
+        },
+        "clike.git.tagPrefix": {
+          "type": "string",
+          "default": "harper",
+          "description": "Prefix for tag names."
+        },
+        "clike.git.prPerReqDraft.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, create a PR per request draft."
+        },
+        "clike.git.prPerReqDraft.useGhCli": {
+          "type": "boolean",
+          "default": true,
+          "description": "If true, use GitHub CLI to create PRs."
+        },
+         "clike.git.prBodyPath": {
+          "type": "string",
+          "default": "docs/PR_BODY.md",
+          "description": "Prefix for tag names."
         },
         "clike.routes": {
           "type": "object",

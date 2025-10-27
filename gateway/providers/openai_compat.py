@@ -383,7 +383,8 @@ async def openai_complete_unified(
         async with httpx.AsyncClient(timeout=timeout_s) as client:
                 r = await client.post(url, headers=headers, json=payload)
                 log.info("openai_complete_unified response %s", r.status_code)
-                log.info("gateway._post_with_retries response text %s", r.text)
+                #LOG RESPONSE OPENAI 
+                # log.info("gateway._post_with_retries response text %s", r.text)
        
     except Exception as e:
         log.error("exception openai_complete_unified Error: %s", e, exc_info=True)

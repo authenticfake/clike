@@ -126,7 +126,7 @@ async def chat_completions(req: ChatRequest,  request: Request):
             # fallback super-sicuro
             messages.append({"role": getattr(m, "role", "user"), "content": getattr(m, "content", "")})
 
-    temperature = req.temperature
+    temperature = req.temperature or 0.4
     max_tokens = req.max_tokens
     response_format = req.response_format
     tools = req.tools
@@ -170,7 +170,17 @@ async def chat_completions(req: ChatRequest,  request: Request):
             raise HTTPException(401, "missing ANTHROPIC api key")
             
         try:
-            data = await anth.chat(ANTHROPIC_BASE, ANTHROPIC_API_KEY, model, messages, temperature,max_tokens, timeout)
+            data = await anth.chat(
+                ANTHROPIC_BASE, 
+                ANTHROPIC_API_KEY, 
+                model, 
+                messages, 
+                temperature=temperature,
+                max_tokens=max_tokens,
+                tools=tools,
+                tool_choice=tool_choice,
+                response_format=response_format,
+                timeout=timeout)
             return data
         except httpx.HTTPStatusError as e:
             txt = e.response.text if e.response is not None else str(e)

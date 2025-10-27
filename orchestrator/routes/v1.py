@@ -538,9 +538,7 @@ async def chat( req: Request):
         model_entry = next((m for m in all_models if m.get("name") == model), None)
         req_max = int(body.get("max_tokens") or 2048)
         eff_max = su.tokens_per_model(msgs, model_entry, req_max)
-        timeout_sec = min(240.0, 110.0 + (eff_max / 1000.0) * 3.8)
-
-
+        timeout_sec = min(340.0, 240.0 + (eff_max / 1000.0) * 3.8)
         
         text = await call_gateway_chat(
             model = body.get("model"),
@@ -1007,7 +1005,7 @@ async def generate(req: Request):
         model_entry = next((m for m in all_models if m.get("name") == model), None)
         req_max = int(body.get("max_tokens") or 2048)
         eff_max = su.tokens_per_model(msgs, model_entry, req_max)
-        timeout_sec = min(240.0, 60.0 + (eff_max / 1000.0) * 2.0)
+        timeout_sec = min(440.0, 400.0 + (eff_max / 1000.0) * 4.0)
         payload["timeout"] = timeout_sec
 
         data = await call_gateway_generate(payload, _headers)
