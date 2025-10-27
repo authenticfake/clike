@@ -80,4 +80,4 @@ Time from first /coffee to order confirmation.
 
 Slack platform patterns (internal reference).
 
-Existing enterprise standards for Kubernetes, Keycloak, WSO2, Vault, and Kafka.
+Existing enterprise standards for Kubernetes, Ory Hydra & Ory Kratos, Kong Gateway, hashicorp as Vault, and Kafka.

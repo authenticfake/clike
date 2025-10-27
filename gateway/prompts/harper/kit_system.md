@@ -32,7 +32,7 @@ Before producing or modifying code, you **must read and analyze** the current pr
   - Example check: Search code for `class X(Y)` where Y is not ABC/Protocol → FAIL
 - **Single Responsibility (SRP)**: Each class/function has one purpose
 - **CQRS**: Commands separate from Queries
-- **Low Coupling**: Components interact through interfaces only
+- **Low Coupling**: Components interact through interfaces
 - **Single source of truth**: reuse domain models and utilities; avoid duplication.
 - **Testability**: every behavior added must have a corresponding test (unit/integration as appropriate).
 - **Determinism**: make tests deterministic (mocks/fakes); control time and external IO.
@@ -45,7 +45,7 @@ Before producing or modifying code, you **must read and analyze** the current pr
 	   A single, engine-neutral schema spec (JSON/YAML) is the canonical model. Everything else is rendered from it.
 		
 	* **One engine per run**
-	   Each execution targets exactly one engine via a renderer/adapter. No mixed engines in the same apply.
+	   Each execution targets exactly one engine via a renderer/adapter. No mixed engines in the same apply. Apply composition.
 		
 	* **Pure rendering**
 		* RDBMS: Source of Truth DDL in **Versioned SQL** files, **ORM/Runtime Models** are derived representations for application logic. 

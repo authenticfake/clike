@@ -6,7 +6,7 @@ router = APIRouter()
 
 @router.get("/health")
 async def health():
-    return {"status": "ok"}
+    return {"clike gateway status": "ok"}
 
 @router.get("/v1/models")
 async def list_models():

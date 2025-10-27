@@ -95,6 +95,28 @@ def _filter_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError(f"[payload-validation] Unknown parameter(s) for Anthropic Messages: {unknown}")
     return payload
 
+def _split_system_messages(messages: List[Dict[str, Any]]) -> tuple[str, List[Dict[str, Any]]]:
+    """
+    Extract top-level system text for Anthropic and remove system turns from messages.
+    Returns (system_text, filtered_messages).
+    """
+    systems: List[str] = []
+    rest: List[Dict[str, Any]] = []
+    for m in messages or []:
+        role = (m.get("role") or "").strip().lower()
+        content = m.get("content", "")
+        if role == "system":
+            if isinstance(content, str):
+                systems.append(content)
+            elif isinstance(content, list):
+                # Se arrivano blocchi, estrai solo il testo dove presente
+                for b in content:
+                    if isinstance(b, dict) and isinstance(b.get("text"), str):
+                        systems.append(b["text"])
+        else:
+            rest.append(m)
+    return ("\n\n".join(systems).strip() if systems else ""), rest
+
 
 def _convert_tools_for_anthropic(tools: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
@@ -152,59 +174,52 @@ def _build_messages_payload(
     """
     Build a clean /v1/messages payload from (model, messages, gen).
 
-    Notes
-    - Accepts OpenAI-like 'max_tokens' but converts to Anthropic's 'max_output_tokens'.
-    - Supports Anthropic tool use: 'tools' and optional 'tool_choice'.
-    - Supports 'thinking': {'budget_tokens': int} for Claude 3.7+ hybrid reasoning.
-    - Supports 'system' (string or list of content blocks).
-    - Leaves 'attachments' untouched (for file tools) if provided by caller.
+    - Moves any 'system' role turns to top-level 'system'
+    - Accepts OpenAI-like 'max_tokens' → maps to 'max_output_tokens'
+    - Converts tools/tool_choice where needed
     """
-    gen = gen or {}
+    gen = dict(gen or {})
+
+    # 1) Estrarre ed alzare 'system'
+    sys_text, msg_wo_system = _split_system_messages(messages or [])
+    if sys_text and not gen.get("system"):
+        gen["system"] = sys_text
+
     out: Dict[str, Any] = {
         "model": model,
-        "messages": messages or [],
+        "messages": msg_wo_system,  # niente turni 'system' qui dentro
     }
 
-    # max tokens
+    # 2) Token budget
     if "max_output_tokens" in gen:
         out["max_output_tokens"] = int(gen["max_output_tokens"])
-    elif "max_tokens" in gen:
-        out["max_output_tokens"] = int(gen["max_tokens"])
+    
+    if "max_tokens" in gen:
+        out["max_tokens"] = int(gen["max_tokens"])
     else:
-        # safe default; callers should tune this based on use case
-        out["max_output_tokens"] = int(gen.get("default_max_tokens", 1024))
+        out["max_tokens"] = int(gen.get("default_max_tokens", 1024))
+    
 
-    # sampling + decoding
-    if "temperature" in gen:
-        out["temperature"] = gen["temperature"]
-    if "top_p" in gen:
-        out["top_p"] = gen["top_p"]
-    if "top_k" in gen:
-        out["top_k"] = gen["top_k"]
-    if "stop_sequences" in gen and gen["stop_sequences"]:
-        out["stop_sequences"] = gen["stop_sequences"]
+    # 3) Sampling
+    if "temperature" in gen: out["temperature"] = gen["temperature"]
+    if "top_p" in gen: out["top_p"] = gen["top_p"]
+    if "top_k" in gen: out["top_k"] = gen["top_k"]
+    if gen.get("stop_sequences"): out["stop_sequences"] = gen["stop_sequences"]
 
-    # system
-    if "system" in gen and gen["system"]:
-        out["system"] = gen["system"]
+    # 4) System (top-level)
+    if gen.get("system"): out["system"] = gen["system"]
 
-    # tools & choice
-    if "tools" in gen and gen["tools"]:
-        out["tools"] = _convert_tools_for_anthropic(gen["tools"])
-    if "tool_choice" in gen and gen["tool_choice"]:
-        out["tool_choice"] = _convert_tool_choice_for_anthropic(gen["tool_choice"])
+    # 5) Tools & choice
+    if gen.get("tools"): out["tools"] = _convert_tools_for_anthropic(gen["tools"])
+    if gen.get("tool_choice"): out["tool_choice"] = _convert_tool_choice_for_anthropic(gen["tool_choice"])
 
-    # reasoning budget (hybrid reasoning models)
-    if "thinking" in gen and isinstance(gen["thinking"], dict):
-        out["thinking"] = gen["thinking"]
-
-    # attachments / cache control passthrough
-    if "attachments" in gen and gen["attachments"]:
-        out["attachments"] = gen["attachments"]
-    if "cache_control" in gen and gen["cache_control"]:
-        out["cache_control"] = gen["cache_control"]
+    # 6) Reasoning budget / allegati / cache
+    if isinstance(gen.get("thinking"), dict): out["thinking"] = gen["thinking"]
+    if gen.get("attachments"): out["attachments"] = gen["attachments"]
+    if gen.get("cache_control"): out["cache_control"] = gen["cache_control"]
 
     return _filter_payload(out)
+
 
 
 # ----------------------------- normalizers ----------------------------------------
@@ -290,6 +305,8 @@ async def anthropic_complete_unified(
     """
     payload = _build_messages_payload(model, messages, gen or {})
     betas = (gen or {}).get("betas") or []
+    log.info("anthropic_complete_unified betas: %s", betas)
+    log.info("anthropic_complete_unified payload: %s", payload)
     headers = {
         "Content-Type": "application/json",
         "anthropic-version": ANTHROPIC_VERSION,
@@ -298,6 +315,7 @@ async def anthropic_complete_unified(
         headers["x-api-key"] = api_key
     if betas:
         headers["anthropic-beta"] = ",".join(betas)
+    
 
     url = f"{base_url.rstrip('/')}/messages"
 
@@ -315,7 +333,19 @@ async def anthropic_complete_unified(
             raw={"exception": f"{e.__class__.__name__}: {e}"},
             errors=[f"httpx:{e}"],
         )
-
+    
+        
+    if r.status_code >= 400:
+        log.exception("anthropic complete unified Error code and text: %s", r.status_code, r.text)
+        return _mk_unified_result(
+            ok=False,
+            text="",
+            files=[],
+            usage={},
+            finish_reason="",
+            raw={"body_preview": r.text[:800]},
+            errors=[f"httpx:{r.status_code}"],
+        )
     # 200 → normalize
     if r.status_code == 200:
         try:
@@ -366,19 +396,24 @@ async def chat(
     model: str,
     messages: List[Dict[str, Any]],
     *,
-    timeout: Optional[float] = 240.0,
+    timeout: Optional[float] = 340.0,
     **gen: Any,
 ) -> str:
     """
     Convenience wrapper returning just text. Preserves backwards compatibility
     with older call-sites that expected `anthropic.chat(...)->str`.
     """
-    result = await anthropic_complete_unified(base_url, api_key, model, messages, gen or {}, timeout=timeout)
-    if result.get("ok"):
-        return result.get("text", "")
-    # propagate an informative message on error
-    errs = result.get("errors") or []
-    raise RuntimeError(errs[0] if errs else "Anthropic chat error")
+    # Costruisci le opzioni di generazione (Anthropic accetta max_output_tokens ma l'adapter converte)
+    temperature = gen.get('temperature', 0.5) # Recupera 'temperature', usa 0.5 come default se non fornito
+    max_tokens = gen.get('max_tokens')
+    log.info(f"temperature: {temperature}, max_tokens: {max_tokens}")
+    gen = {
+        'temperature': temperature,
+        'max_tokens': max_tokens,
+    }
+
+    return await anthropic_complete_unified(base_url, api_key, model, messages, gen or {}, timeout=timeout)
+    
 
 
 # Embeddings placeholder (Anthropic does not currently expose a public embeddings API)

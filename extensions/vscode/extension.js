@@ -16,6 +16,7 @@ const { registerCommands } = require('./commands/registerCommands');
 const {  handleGate, handleEval } = require('./commands/slashBot');
 const { readPlanJson, getProjectId, promoteReqSources, runPromotionFlow,preIndexRag, normalizeAttachment, safeLog, readWorkspaceTextFile, getFileSizeBytes } = require('./utility')
 const { buildHarperBody,  defaultCoreForPhase, runKitCommand,runEvalGateCommand, saveKitCommand,saveEvalCommand,saveGateCommand } = require('./utility')
+const{ toFsPath, clikeGitSync } = require('./git'); // NEW: clikeGitSync
 
 let __clike_lastTargetUriCache = null;  
 let selectedPaths = new Set();
@@ -27,81 +28,6 @@ const chatByMode = {
   coding: [],
   harper: [],
 };
-// --- PATCH: git auto-commit/tags/branch ---
-const cp = require('child_process');
-
-async function gitRun(args, cwd) {
-  return new Promise((resolve, reject) => {
-    cp.execFile('git', args, { cwd }, (err, stdout, stderr) => {
-      if (err) return reject(new Error(stderr || err.message));
-      resolve(stdout.trim());
-    });
-  });
-}
-
-async function harperGitAutomation(phase, runId, opts) {
-  const cwd = opts.workspaceRoot;
-  const autoCommit = opts.git?.autoCommit === true;
-  const createPR = opts.git?.createPR === true; // opzionale, gestibile in futuro
-  if (!autoCommit) return;
-
-  const branch = `harper/${phase}/${runId}`;
-  log('[harper] git automation', cwd, branch);
-  try {
-    await gitRun(['rev-parse', '--is-inside-work-tree'], cwd);
-    // 2. Controllo e Creazione/Checkout del branch
-    const branchRef = `refs/heads/${branch}`;
-    let branchExists = false;
-
-    try {
-        // git show-ref --verify fallisce se il branch non esiste (exit code 1)
-        await gitRun(['show-ref', '--verify', branchRef], cwd);
-        branchExists = true;
-    } catch (e) {
-        // Se show-ref fallisce, il branch non esiste (o c'è stato un altro errore, ma
-        // assumiamo per logica che sia la non-esistenza)
-        branchExists = false;
-    }
-
-    if (branchExists) {
-        // Se esiste: checkout (per sicurezza, anche se show-ref verifica solo)
-         await gitRun(['checkout', branch], cwd);
-        log(`[harper] Checkout existing branch: ${branch}`);
-    } else {
-        // Se NON esiste: crea e fa il checkout
-        await gitRun(['checkout', '-b', branch], cwd);
-        log(`[harper] Created and checked out new branch: ${branch}`);
-    }
-   
-    // add file per fase
-    const phaseFiles = {
-      spec: ['docs/harper/SPEC.md'],
-      plan: ['docs/harper/PLAN.md'],
-      kit:  ['docs/harper/KIT.md'],
-      finalize: ['docs/harper/RELEASE_NOTES.md',
-                  'README.md',
-
-      ]
-    };
-    const files = phaseFiles[phase] || [];
-    if (files.length) await gitRun(['add', ...files], cwd);
-
-    const commitMsg = `[harper:${phase}] runId=${runId} model=${opts.model || 'n/a'} profile=${opts.profile || 'n/a'}`;
-    await gitRun(['commit', '-m', commitMsg], cwd);
-
-    // tag semantico (incrementale lasciato al flusso esterno)
-    const tag = `harper/${phase}/${runId}`;
-    try { await gitRun(['tag', '-a', tag, '-m', commitMsg], cwd); } catch (e) { /* già taggato */ }
-
-    // opzionale PR (in futuro via gh/REST) — placeholder
-    if (createPR) {
-      console.log('[harper] create PR not implemented yet');
-    }
-  } catch (e) {
-    console.warn('[harper] git automation skipped:', e.message);
-  }
-}
-
 
 function getWorkspaceRoot() {
     const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -628,6 +554,21 @@ function cfg() {
     gitAutoCommit:    c.get('clike.git.autoCommit', true),
     gitCommitMessage: c.get('clike.git.commitMessage', 'clike: apply patch (AI)'),
     gitOpenPR:        c.get('clike.git.openPR', true),
+
+    // Git workflow
+    gitRemote:        c.get('clike.git.remote', 'origin'),
+    gitDefaultBranch: c.get('clike.git.defaultBranch', 'main'),
+    gitConventional:  c.get('clike.git.conventionalCommits', true),
+    gitPushRebase:    c.get('clike.git.pushRebase', true),
+
+    // Branching & PRs
+    gitBranchPrefix:  c.get('clike.git.branchPrefix', 'feature'),
+    gitTagPrefix:     c.get('clike.git.tagPrefix', 'harper'),
+    prPerReqDraft:    c.get('clike.git.prPerReqDraft.enabled', false),
+    prUseGhCli:       c.get('clike.git.prPerReqDraft.useGhCli', true),
+    prBodyPath:       c.get('clike.git.prBodyPath', 'docs/harper/PR_BODY.md'),
+    gitRemoteUrl:     c.get('clike.git.remoteUrl', 'git@github.com:authenticfake/test-coffe-buddy.git'),  // e.g. "git@github.com:org/repo.git" or "https://github.com/org/repo.git"
+
 
     // toggle AI → mappati su use.ai.*
     useAiDocstring: c.get('clike.useAi.docstring', true),
@@ -2113,7 +2054,7 @@ function handleSlash(slash) {
     try { bubble('user', slash.cmd + (slash.args?.targets ? (' ' + slash.args?.targets) : ''), (model && model.value) ? model.value : 'auto', atts); } catch {}
     const msg = { type: 'harperEDD', cmd: slash.cmd.slice(1), attachments: atts, argument: slash.args.targets || ''  };
     msg.targets = slash.args?.targets ?? null; // 'next' | ['REQ-01', ...]
-    msg.mode = slash.args?.mode ?? null;
+    msg.running = slash.args?.mode ?? null;
     msg.modeContent = slash.args?.modeContent ?? null;
     msg.path=path_ltc_json
     vscode.postMessage(msg);
@@ -2246,7 +2187,7 @@ function inferProvider(modelName) {
   const n = String(modelName||'').toLowerCase();
   if (n.startsWith('gpt')) return 'openai';
   if (/(llama|ollama|codellama|mistral|mixtral|phi|qwen|deepseek|granite|yi|gemma|llava)/.test(n)) return 'ollama';
-  if(n.startsWith('anthropic')) return 'anthropic';
+  if(n.startsWith('claude')) return 'anthropic';
   if(n.startsWith('vllm')) return 'vllm';
   return 'openai'; // fallback conservativo
 }
@@ -2585,6 +2526,12 @@ window.addEventListener('message', (event) => {
 
   }
   if (msg.type === 'files') {
+
+
+
+
+
+
     selectedPaths = new Set();
     const data_file = msg.data || {};
     const files = Array.isArray(data_file) ? data_file : [];
@@ -2601,6 +2548,12 @@ window.addEventListener('message', (event) => {
       chk.addEventListener('change', (e) => {
         const p = e.target.dataset.path;
         if (e.target.checked) selectedPaths.add(p); else selectedPaths.delete(p);
+      });
+    });
+    document.querySelectorAll('.file-open').forEach(lbl => {
+      lbl.addEventListener('click', () => {
+        const p = lbl.dataset.path;
+        vscode.postMessage({ type: 'openFile', path: p });
       });
     });
     
@@ -3022,12 +2975,22 @@ async function cmdOpenChat(context) {
             written = await saveGeneratedFiles(_out.files);
             panel.webview.postMessage({ type: 'files', data: _out.files });
             log(`[harperRun] written ${written.length} files`);
-            await harperGitAutomation(phase, runId, {
-              workspaceRoot: wsRoot,
-              git: { autoCommit: true, createPR: false }, // leggi da settings utente
-              model: _out?.model || _out?.telemetry?.model_id,
-              profile: _out?.profile || _out?.telemetry?.profile
-            });
+            const settings = cfg();
+            try {
+              await clikeGitSync(
+              phase,
+              runId,
+              targetReqId,
+              _out.files.map(f => f.path),
+              { workspaceRoot: toFsPath(wsRoot), finalizeOpenPr: (phase === 'finalize') },
+              settings,
+              out
+            );
+            } catch (err) {
+              log(`[harperRun] gitSync error ${err}`);
+            }
+            
+
           }
           // Tests summary
           if (_out?.tests?.summary) {
@@ -3103,7 +3066,7 @@ async function cmdOpenChat(context) {
           return;
         }
         var report = {}
-        const mode = (msg.mode) ? msg.mode : 'auto'
+        const mode = (msg.running) ? msg.running : 'auto'
         const modeContent = (msg.modeContent) ? msg.modeContent : 'pass'
 
         switch (msg.cmd) {
@@ -3486,9 +3449,7 @@ async function cmdOpenChat(context) {
           panel.webview.postMessage({ type: 'busy', on: false });
           inflightController = null;
         }
-    }
-    
-      
+      }
       // 6) APPLY
       if (msg.type === 'apply') {
         const run_dir  = msg.run_dir  || null;
@@ -3534,7 +3495,6 @@ async function cmdOpenChat(context) {
         }
        
       }
-
       // 7) CANCEL
       if (msg.type === 'cancel') {
         if (inflightController) inflightController.abort();
