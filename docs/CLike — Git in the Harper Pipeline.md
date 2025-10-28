@@ -41,7 +41,7 @@
   "clike.git.openPR": true,
 
   "clike.git.remote": "origin",
-  "clike.git.defaultBranch": "main",
+  "clike.git.defaultBranch": "master",
   "clike.git.conventionalCommits": true,
   "clike.git.pushRebase": true,
 

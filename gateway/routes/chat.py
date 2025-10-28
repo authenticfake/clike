@@ -23,6 +23,20 @@ router = APIRouter()
 log = logging.getLogger("gateway.chat")
 
 # ---------- Helpers comuni ----------
+def _sanitize_generation_api(provider: str, api: str | None) -> str:
+    """
+    Normalize the 'api' selector for providers.
+    - OpenAI/ AzureOpenAI can use 'responses' or 'chat'.
+    - Anthropic, Ollama, vLLM: force 'chat' (gateway implements OpenAI-compat /v1/chat/completions).
+    """
+    if not api:
+        return "chat"
+    p = (provider or "").lower()
+    a = (api or "").lower()
+    if p in ("openai", "azure") and a in ("responses", "chat"):
+        return a
+    # For Anthropic (and others) never use 'responses'
+    return "chat"
 
 def _normalize_model(model: str) -> str:
     m = (model or "").strip()
@@ -153,7 +167,7 @@ async def chat_completions(req: ChatRequest,  request: Request):
     # Routing per provider
     if provider == "openai":
         if not OPENAI_API_KEY:
-            raise HTTPException(401, "missing ANTHROPIC api key")
+            raise HTTPException(401, "missing OPENAI api key")
         data = await oai.chat(OPENAI_BASE, OPENAI_API_KEY, model, messages, temperature=temperature,
                                                                             max_tokens=max_tokens,
                                                                             tools=tools,

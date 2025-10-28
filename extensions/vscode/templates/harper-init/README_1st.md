@@ -48,9 +48,9 @@ Init ${project.name} gith repository
 1. git init
 2. git add .
 3. git commit -m "chore(init): bootstrap Harper workspace from CLike template"
-4. git branch -M main
-5. git remote add origin <git@github.com:org/repo.git>
-6. git push -u origin main
+4. git remote add origin https://github.com/<ORG>/<REPO>.git
+5. git config --global credential.helper osxkeychain 
+6. git push -u origin master
 
 Start ${project.name} harper approach
 7. Open \`docs/harper/IDEA.md\` and complete it.

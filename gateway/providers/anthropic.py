@@ -28,8 +28,12 @@ from __future__ import annotations
 
 import logging
 from typing import Any, Dict, List, Optional, Sequence
+import json  # needed for fallback: parse plain-text JSON {"files":[...]}
 
 import httpx
+import re
+import time
+from functools import lru_cache
 
 log = logging.getLogger("gateway.anthropic")
 
@@ -39,7 +43,76 @@ ANTHROPIC_VERSION = "2023-06-01"  # As of 2025 this header value remains current
 
 
 # ----------------------------- helpers (shared shape) -----------------------------
+CANON_4_5 = "claude-sonnet-4-5"
+CANON_4_5_VERSION = "20250929"  # default; verrà superato se troviamo una versione più recente via /v1/models
 
+_ALIAS_MAP = {
+    "claude-4-5-sonnet": CANON_4_5,
+    "claude-4.5-sonnet": CANON_4_5,
+    "claude sonnet 4.5": CANON_4_5,
+    "claude-sonnet-4.5": CANON_4_5,
+    "sonnet-4.5": CANON_4_5,
+    "sonnet-4-5": CANON_4_5,
+    # vecchi alias:
+    "claude-sonnet-4-0": "claude-sonnet-4-20250514",
+    "claude-opus-4-0": "claude-opus-4-20250514",
+}
+
+def _strip_version_suffix(model: str) -> str:
+    return re.sub(r"([\-@])20\d{6}$", "", model or "")
+
+def _ensure_version_suffix(model: str, default_date: str) -> str:
+    if re.search(r"([\-@])20\d{6}$", model or ""):
+        return model
+    return f"{model}-{default_date}"
+
+@lru_cache(maxsize=1)
+def _cached_model_list(base_url: str, api_key: str, timeout: float = 20.0) -> list[str]:
+    import httpx
+    # Normalize base_url so that we can always call '/v1/models' safely
+    base = (base_url or "").rstrip("/")
+    if base.endswith("/v1"):
+        base = base[:-3]  # drop trailing '/v1'
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+    }
+    with httpx.Client(base_url=base, headers=headers, timeout=timeout) as cli:
+        r = cli.get("/v1/models")
+        r.raise_for_status()
+        data = r.json() or {}
+        ids = [x.get("id") for x in (data.get("data") or []) if isinstance(x, dict)]
+        return [i for i in ids if isinstance(i, str)]
+
+def _pick_latest_with_prefix(ids: list[str], prefix: str) -> str | None:
+    cand = []
+    for mid in ids:
+        if not mid.startswith(prefix):
+            continue
+        m = re.search(r"([\-@])(20\d{6})$", mid)
+        date = m.group(2) if m else "00000000"
+        cand.append((date, mid))
+    if not cand:
+        return None
+    cand.sort(reverse=True)
+    return cand[0][1]
+
+def _normalize_model_id_for_anthropic(model: str, base_url: str, api_key: str) -> str:
+    raw = (model or "").strip()
+    low = raw.lower()
+    canon = _ALIAS_MAP.get(low, raw)
+    # se è la famiglia 4.5 senza data, aggiungi suffisso
+    if _strip_version_suffix(canon) == CANON_4_5:
+        canon = _ensure_version_suffix(CANON_4_5, CANON_4_5_VERSION)
+    # prova ad aggiornare alla versione più recente disponibile
+    try:
+        ids = _cached_model_list(base_url, api_key)
+        latest = _pick_latest_with_prefix(ids, CANON_4_5)
+        if latest and _strip_version_suffix(canon) == CANON_4_5:
+            canon = latest
+    except Exception:
+        pass
+    return canon
 
 def _mk_unified_result(
     ok: bool,
@@ -217,49 +290,185 @@ def _build_messages_payload(
     if isinstance(gen.get("thinking"), dict): out["thinking"] = gen["thinking"]
     if gen.get("attachments"): out["attachments"] = gen["attachments"]
     if gen.get("cache_control"): out["cache_control"] = gen["cache_control"]
-
+    # Haiku 4.5: if tools are provided but tool_choice not set, allow auto tool use.
+    try:
+        if _strip_version_suffix(model) in ("claude-haiku-4-5",) and out.get("tools") and "tool_choice" not in out:
+            out["tool_choice"] = "auto"
+    except Exception:
+        pass
     return _filter_payload(out)
 
 
 
 # ----------------------------- normalizers ----------------------------------------
+def _extract_files_from_json_text(text: str) -> List[Dict[str, Any]]:
+    """
+    If the assistant returned JSON in plain text with a {"files":[...]} shape,
+    extract it and return a normalized list of files:
+    {path:str, content:str, language?:str, executable?:bool}
+    """
+    out: List[Dict[str, Any]] = []
+    if not isinstance(text, str):
+        return out
+    s = text.strip()
+    if not s:
+        return out
+    # quick gate: must look like JSON
+    if not ((s.startswith("{") and s.endswith("}")) or (s.startswith("[") and s.endswith("]"))):
+        return out
+    try:
+        data = json.loads(s)
+    except Exception:
+        return out
 
+    # Accept both top-level {"files":[...]} and array of such objects
+    candidates = []
+    if isinstance(data, dict) and isinstance(data.get("files"), list):
+        candidates = data["files"]
+    elif isinstance(data, list):
+        # e.g., [{"files":[...]}]
+        for item in data:
+            if isinstance(item, dict) and isinstance(item.get("files"), list):
+                candidates.extend(item["files"])
+
+    for item in candidates or []:
+        if not isinstance(item, dict):
+            continue
+        path = item.get("path")
+        content = item.get("content")
+        if isinstance(path, str) and isinstance(content, str):
+            cleaned = {"path": path, "content": content}
+            if isinstance(item.get("language"), str):
+                cleaned["language"] = item["language"]
+            if isinstance(item.get("executable"), bool):
+                cleaned["executable"] = item["executable"]
+            out.append(cleaned)
+    return out
 
 def _normalize_messages_response(resp_json: Dict[str, Any]) -> Dict[str, Any]:
     """
     Convert Claude Messages API response to the unified envelope.
 
-    Anthropic response (abridged):
-    {
-      "id": "...",
-      "type": "message",
-      "role": "assistant",
-      "content": [
-        {"type": "text", "text": "..."},
-        {"type": "tool_use", "id": "...", "name": "foo", "input": {...}}
-      ],
-      "model": "claude-3-7-sonnet-20250224",
-      "stop_reason": "end_turn" | "max_tokens" | "stop_sequence" | "tool_use" | None,
-      "stop_sequence": null,
-      "usage": {"input_tokens": 123, "output_tokens": 456}
-    }
+    Logs:
+    - number of content blocks and their types
+    - tool_use blocks and extracted files count
+    - fallback: files parsed from plain text JSON
     """
     text_parts: List[str] = []
     tool_uses: List[Dict[str, Any]] = []
+    files_out: List[Dict[str, Any]] = []
 
-    for block in resp_json.get("content") or []:
+    blocks = resp_json.get("content") or []
+    log.info("anthropic.normalize: content_blocks=%d", len(blocks))
+
+    def _coerce_files(value: Any) -> List[Dict[str, Any]]:
+        """
+        Accepts various shapes and returns a clean list of files:
+        {path:str, content:str, language?:str, executable?:bool}
+
+        Handles:
+        - list[dict]
+        - JSON string representing list[dict]
+        - single dict {"path":..., "content":...}
+        """
+        out: List[Dict[str, Any]] = []
+
+        # Case 1: the model returned a JSON string for files (Haiku does this)
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+                log.info("anthropic.normalize: _coerce_files parsed JSON from string, type=%s", type(parsed).__name__)
+                value = parsed
+            except Exception as e:
+                log.warning("anthropic.normalize: _coerce_files cannot parse string JSON: %s", e)
+                return out
+
+        # Case 2: single dict
+        if isinstance(value, dict):
+            maybe = value
+            path = maybe.get("path")
+            content = maybe.get("content")
+            if isinstance(path, str) and isinstance(content, str):
+                cleaned = {"path": path, "content": content}
+                if isinstance(maybe.get("language"), str):
+                    cleaned["language"] = maybe["language"]
+                if isinstance(maybe.get("executable"), bool):
+                    cleaned["executable"] = maybe["executable"]
+                out.append(cleaned)
+            return out
+
+        # Case 3: list of dicts
+        if isinstance(value, list):
+            for item in value:
+                if not isinstance(item, dict):
+                    continue
+                path = item.get("path")
+                content = item.get("content")
+                if isinstance(path, str) and isinstance(content, str):
+                    cleaned = {"path": path, "content": content}
+                    if isinstance(item.get("language"), str):
+                        cleaned["language"] = item["language"]
+                    if isinstance(item.get("executable"), bool):
+                        cleaned["executable"] = item["executable"]
+                    out.append(cleaned)
+            return out
+
+        # Unknown shape → nothing
+        log.info("anthropic.normalize: _coerce_files unsupported type: %s", type(value).__name__)
+        return out
+
+
+    # parse content blocks
+    for i, block in enumerate(blocks):
         if not isinstance(block, dict):
+            log.info("anthropic.normalize: block[%d] skipped (not dict)", i)
             continue
         btype = block.get("type")
+        log.info("anthropic.normalize: block[%d].type=%s", i, btype)
+
         if btype == "text" and isinstance(block.get("text"), str):
-            text_parts.append(block["text"])
+            text = block["text"]
+            text_parts.append(text)
+            # log lunghezza testo per debug, no contenuto
+            log.info("anthropic.normalize: block[%d] text_len=%d", i, len(text))
+
         elif btype == "tool_use":
-            # Preserve tool_use structure for upstream tools in raw
             tool_uses.append(block)
+            name = (block.get("name") or "").strip().lower()
+            inp = block.get("input") or {}
+            log.info("anthropic.normalize: block[%d] tool_use name=%s", i, name)
+            # estrai files se presenti (input.files o input.file)
+            if isinstance(inp, dict) and isinstance(inp.get("files"), list):
+                extracted = _coerce_files(inp["files"])
+                files_out.extend(extracted)
+                log.info("anthropic.normalize: block[%d] tool_use files_found=%d", i, len(extracted))
+            elif name == "emit_files" and isinstance(inp, dict) and isinstance(inp.get("file"), dict):
+                extracted = _coerce_files([inp["file"]])
+                files_out.extend(extracted)
+                log.info("anthropic.normalize: block[%d] tool_use single file_found=%d", i, len(extracted))
 
     text = "\n".join([t for t in text_parts if t]).strip()
     finish_reason = (resp_json.get("stop_reason") or "") or ""
     usage = resp_json.get("usage") or {}
+
+    # Se tool_use presente ma nessun file estratto → WARN utile
+    if tool_uses and not files_out:
+        log.warning("anthropic.normalize: tool_use_present=true but files_out=0 (finish_reason=%s)", finish_reason)
+
+    # Fallback: se non abbiamo trovato files via tool_use,
+    # prova a parsare il testo come JSON con chiave "files".
+    if not files_out and text:
+        try:
+            files_from_text = _extract_files_from_json_text(text)
+            if files_from_text:
+                files_out.extend(files_from_text)
+                log.info("anthropic.normalize: files parsed from text JSON: %d", len(files_from_text))
+                # opzionale: svuota text così l’orchestrator non lo tratta come output umano
+                text = ""
+            else:
+                log.info("anthropic.normalize: no files in text JSON")
+        except Exception as e:
+            log.warning("anthropic.normalize: JSON parse fallback error: %s", e)
 
     raw = {
         "id": resp_json.get("id"),
@@ -269,10 +478,19 @@ def _normalize_messages_response(resp_json: Dict[str, Any]) -> Dict[str, Any]:
         "tool_uses": tool_uses,
     }
 
+    log.info(
+        "anthropic.normalize: result text_len=%d files=%d finish_reason=%s usage_in=%s usage_out=%s",
+        len(text),
+        len(files_out),
+        finish_reason,
+        usage.get("input_tokens"),
+        usage.get("output_tokens"),
+    )
+
     return _mk_unified_result(
         ok=True,
         text=text,
-        files=[],
+        files=files_out,
         usage=usage,
         finish_reason=finish_reason,
         raw=raw,
@@ -303,7 +521,12 @@ async def anthropic_complete_unified(
     - gen: generation options; see _build_messages_payload()
     - timeout: http timeout in seconds
     """
-    payload = _build_messages_payload(model, messages, gen or {})
+    gen = dict(gen or {})
+    # 1) NORMALIZZA MODEL ID QUI (difesa in profondità)
+    log.info("anthropic_complete_unified model: %s", model)
+    normalized_model = _normalize_model_id_for_anthropic(model, base_url, api_key)
+    log.info("anthropic_complete_unified normalized_model: %s", normalized_model)
+    payload = _build_messages_payload(normalized_model, messages, gen or {})
     betas = (gen or {}).get("betas") or []
     log.info("anthropic_complete_unified betas: %s", betas)
     log.info("anthropic_complete_unified payload: %s", payload)
@@ -336,7 +559,22 @@ async def anthropic_complete_unified(
     
         
     if r.status_code >= 400:
-        log.exception("anthropic complete unified Error code and text: %s", r.status_code, r.text)
+        log.exception("anthropic complete unified Error code and  %s", r.status_code)
+        log.exception("anthropic complete unified Error  %s", r)
+        try:
+            response_body = r.text
+            # Se la risposta è JSON, potresti volerla formattare meglio,
+            # ma r.text è sufficiente per catturare il contenuto grezzo.
+        except Exception:
+            response_body = "Impossibile decodificare il corpo della risposta."
+        # Logga tutte le informazioni rilevanti in un unico messaggio formattato
+        log.error(
+            "Anthropic API Error (Status: %d) - URL: %s\n"
+            "Messaggio di Errore API:\n%s",
+            r.status_code,
+            r.url,
+            response_body
+        )
         return _mk_unified_result(
             ok=False,
             text="",
@@ -349,7 +587,26 @@ async def anthropic_complete_unified(
     # 200 → normalize
     if r.status_code == 200:
         try:
-            return _normalize_messages_response(r.json())
+            j = r.json()
+            # log compatti di servizio
+            try:
+                _content_types = [b.get("type") for b in (j.get("content") or []) if isinstance(b, dict)]
+            except Exception:
+                _content_types = []
+            log.info(
+                "anthropic_complete_unified 200: stop_reason=%s content_types=%s",
+                j.get("stop_reason"),
+                _content_types,
+            )
+            normalized = _normalize_messages_response(j)
+            log.info(
+                "anthropic_complete_unified normalized: ok=%s text_len=%d files=%d finish_reason=%s",
+                normalized.get("ok"),
+                len(normalized.get("text") or ""),
+                len(normalized.get("files") or []),
+                normalized.get("finish_reason"),
+            )
+            return normalized
         except Exception as e:
             log.error("anthropic_complete_unified normalizer error: %s", e)
             body_preview = (r.text or "")[:800]
@@ -364,32 +621,56 @@ async def anthropic_complete_unified(
             )
 
     # Non-200 → return normalized error without raising
-    try:
-        j = r.json()
-    except Exception:
-        j = {}
+    # try:
+    #     j = r.json()
+    # except Exception:
+    #     j = {}
 
-    code = j.get("type") or j.get("error", {}).get("type") or str(r.status_code)
-    message = j.get("message") or j.get("error", {}).get("message") or r.text
-    param = j.get("param") or j.get("error", {}).get("param") or ""
+    # code = j.get("type") or j.get("error", {}).get("type") or str(r.status_code)
+    # message = j.get("message") or j.get("error", {}).get("message") or r.text
+    # param = j.get("param") or j.get("error", {}).get("param") or ""
 
-    return _mk_unified_result(
-        ok=False,
-        text="",
-        files=[],
-        usage=j.get("usage") or {},
-        finish_reason=j.get("stop_reason") or "",
-        raw={
-            "status": r.status_code,
-            "error": j,
-        },
-        errors=[f"anthropic:{code}:{param}:{message}"],
-    )
+    # return _mk_unified_result(
+    #     ok=False,
+    #     text="",
+    #     files=[],
+    #     usage=j.get("usage") or {},
+    #     finish_reason=j.get("stop_reason") or "",
+    #     raw={
+    #         "status": r.status_code,
+    #         "error": j,
+    #     },
+    #     errors=[f"anthropic:{code}:{param}:{message}"],
+    # )
 
 
 # Optional lightweight convenience (string-only) -----------------------------------
 
 
+# async def chat(
+#     base_url: str,
+#     api_key: str,
+#     model: str,
+#     messages: List[Dict[str, Any]],
+#     *,
+#     timeout: Optional[float] = 340.0,
+#     **gen: Any,
+# ) -> str:
+#     """
+#     Convenience wrapper returning just text. Preserves backwards compatibility
+#     with older call-sites that expected `anthropic.chat(...)->str`.
+#     """
+#     # Costruisci le opzioni di generazione (Anthropic accetta max_output_tokens ma l'adapter converte)
+#     temperature = gen.get('temperature', 0.5) # Recupera 'temperature', usa 0.5 come default se non fornito
+#     max_tokens = gen.get('max_tokens')
+#     log.info(f"temperature: {temperature}, max_tokens: {max_tokens}")
+#     gen = {
+#         'temperature': temperature,
+#         'max_tokens': max_tokens,
+#     }
+
+#     return await anthropic_complete_unified(base_url, api_key, model, messages, gen or {}, timeout=timeout)
+    
 async def chat(
     base_url: str,
     api_key: str,
@@ -397,24 +678,49 @@ async def chat(
     messages: List[Dict[str, Any]],
     *,
     timeout: Optional[float] = 340.0,
-    **gen: Any,
-) -> str:
+    temperature: Optional[float] = None,
+    max_tokens: Optional[int] = None,
+    response_format: Optional[Dict[str, Any]] = None,
+    reasoning: Optional[Dict[str, Any]] = None,  # mantenuto per simmetria con openai_compat (ignorato da Anthropic)
+    tools: Optional[List[Dict[str, Any]]] = None,
+    tool_choice: Optional[Any] = None,
+    top_p: Optional[float] = None,
+    stop: Optional[List[str]] = None,
+    **kwargs: Any,
+) -> Dict[str, Any]:
     """
-    Convenience wrapper returning just text. Preserves backwards compatibility
-    with older call-sites that expected `anthropic.chat(...)->str`.
+    Unified adapter entry for Anthropic (OpenAI-compat envelope).
+    Mirrors openai_compat.chat signature and returns:
+    { ok, text, files, usage, finish_reason, raw, errors }
     """
-    # Costruisci le opzioni di generazione (Anthropic accetta max_output_tokens ma l'adapter converte)
-    temperature = gen.get('temperature', 0.5) # Recupera 'temperature', usa 0.5 come default se non fornito
-    max_tokens = gen.get('max_tokens')
-    log.info(f"temperature: {temperature}, max_tokens: {max_tokens}")
     gen = {
-        'temperature': temperature,
-        'max_tokens': max_tokens,
+        "temperature": temperature,
+        "max_tokens": max_tokens,            # verrà mappato a max_output_tokens dal builder
+        "response_format": response_format,  # ignorato da Anthropic ma pass-through
+        "tools": tools,
+        "tool_choice": tool_choice,
+        "top_p": top_p,
+        # OpenAI-style 'stop' → Anthropic 'stop_sequences'
+        "stop_sequences": stop if stop else None,
+        # opzionali per parità di superficie
+        "thinking": kwargs.get("thinking"),
+        "attachments": kwargs.get("attachments"),
+        "cache_control": kwargs.get("cache_control"),
+        "betas": kwargs.get("betas"),
+        
     }
+    gen["api"] = "chat"
+    # pulisci None
+    gen = {k: v for k, v in gen.items() if v is not None}
 
-    return await anthropic_complete_unified(base_url, api_key, model, messages, gen or {}, timeout=timeout)
-    
-
+    return await anthropic_complete_unified(
+        base_url=base_url,
+        api_key=api_key,
+        model=model,
+        messages=messages,
+        gen=gen,
+        timeout=timeout,
+    )
 
 # Embeddings placeholder (Anthropic does not currently expose a public embeddings API)
 
