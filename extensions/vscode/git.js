@@ -19,15 +19,27 @@ function mkLog(out) {
   };
 }
 
+// Ritorna true se il working tree ha modifiche non committate/non staggate
+async function isWorkingTreeDirty(gitCtx) {
+  try {
+    const out = await gitRunVerbose(['status', '--porcelain'], gitCtx, 'diag');
+    return Boolean(out && out.trim().length > 0);
+  } catch {
+    return false;
+  }
+}
+
 async function gitRun(args, cwd) {
-  const _cwd = toFsPath(cwd);
+  const workdir = toFsPath(cwd);
   return new Promise((resolve, reject) => {
-    cp.execFile('git', args, { _cwd }, (err, stdout, stderr) => {
-      if (err) return reject(new Error(stderr || err.message));
-      resolve(stdout.trim());
+    // IMPORTANT: use 'cwd', not '_cwd'
+    cp.execFile('git', args, { cwd: workdir }, (err, stdout, stderr) => {
+      if (err) return reject(new Error((stderr || err.message || '').trim()));
+      resolve((stdout || '').trim());
     });
   });
 }
+
 function toFsPath(input) {
   if (!input) return '';
   if (input && typeof input === 'object' && input.scheme && input.fsPath) return input.fsPath; // vscode.Uri
@@ -111,6 +123,26 @@ async function gitRunVerbose(args, gitCtx, label = 'git', _out) {
   }
 }
 
+// Ensure the default branch exists locally.
+// If the repo has no commits, create an empty commit to materialize the branch.
+async function ensureDefaultBranchExists(gitRunVerbose, gitCtx, defaultBranch) {
+  let hasCommits = true;
+  try { await gitRunVerbose(['rev-parse', 'HEAD'], gitCtx, 'diag'); }
+  catch { hasCommits = false; }
+
+  // Create/switch default branch in an idempotent way
+  await gitRunVerbose(['checkout', '-B', defaultBranch], gitCtx);
+
+  if (!hasCommits) {
+    // Bootstrap an empty commit so the branch actually exists
+    try {
+      await gitRunVerbose(['commit', '--allow-empty', '-m', `chore: bootstrap ${defaultBranch}`], gitCtx, 'init');
+    } catch (e) {
+      // If user.name/email are missing, ensureGitRepo should have configured them
+    }
+  }
+}
+
 
 // Ensure repo exists; if not, initialize it and set default branch
 async function ensureGitRepo(gitCtx, defaultBranch = 'main', out) {
@@ -163,6 +195,13 @@ async function ensureGitRepo(gitCtx, defaultBranch = 'main', out) {
   } catch {
     try { await gitRunVerbose(['commit', '-m', 'chore: initial commit (clike init)'], gitCtx, 'init'); } catch {}
   }
+    // Ensure default branch is present and checked out (idempotent)
+  try {
+    await ensureDefaultBranchExists(gitRunVerbose, gitCtx, defaultBranch);
+  } catch (e) {
+    mkLog(out)('[git:init] ensureDefaultBranchExists warn:', e.message || e);
+  }
+
 }
 
 
@@ -191,6 +230,11 @@ async function ensureRemote(gitCtx, remoteName, remoteUrlOrEmpty, out) {
 
 async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings,out) {
   const log = mkLog(out);
+  const cwdFsPath = toFsPath(opts?.workspaceRoot);
+
+  if (!cwdFsPath || cwdFsPath === '/' || cwdFsPath.trim().length === 0) {
+    throw new Error('[clikeGit] No valid workspaceRoot: open a folder in VS Code before running Harper commands.');
+  }
   const s = settings
   const cwd = toFsPath(opts.workspaceRoot);
   const gitCtx = resolveGitContext(cwd, s.gitDefaultBranch);
@@ -222,20 +266,45 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings,ou
   let exists = false;
   try { await gitRunVerbose(['show-ref', '--verify', `refs/heads/${targetBranch}`], gitCtx); exists = true; } catch {}
   if (!exists) {
-    await gitRunVerbose(['checkout', s.gitDefaultBranch], gitCtx);
-    if (hasRemote && s.gitPushRebase) {
-      try { await gitRunVerbose(['pull', '--rebase', s.gitRemote, s.gitDefaultBranch], gitCtx); } catch (e) { log(`[git] pull warn: ${e.message}`); }
+     if (hasRemote && s.gitPushRebase) {
+      try {
+        const dirty = await isWorkingTreeDirty(gitCtx);
+        if (dirty) {
+          log('[git] working tree dirty → pull --rebase con auto-stash');
+          await gitRunVerbose(
+            ['-c', 'rebase.autoStash=true', 'pull', '--rebase', s.gitRemote, s.gitDefaultBranch],
+            gitCtx
+          );
+        } else {
+          await gitRunVerbose(['pull', '--rebase', s.gitRemote, s.gitDefaultBranch], gitCtx);
+        }
+      } catch (e) {
+        log(`[git] pull warn: ${e.message}`);
+      }
     }
-    if (targetBranch !== s.gitDefaultBranch) await gitRunVerbose(['checkout', '-b', targetBranch], gitCtx);
   } else {
-    await gitRunVerbose(['checkout', targetBranch], gitCtx);
+    // Idempotent switch even if the branch already exists
+    await gitRunVerbose(['checkout', '-B', targetBranch], gitCtx);
+
     if (hasRemote && targetBranch !== s.gitDefaultBranch && s.gitPushRebase) {
       try {
         await gitRunVerbose(['fetch', s.gitRemote, s.gitDefaultBranch], gitCtx);
-        await gitRunVerbose(['rebase', `${s.gitRemote}/${s.gitDefaultBranch}`], gitCtx);
+        const dirty = await isWorkingTreeDirty(gitCtx);
+        if (dirty) {
+          log('[git] working tree dirty → rebase con auto-stash');
+          await gitRunVerbose(
+            ['-c', 'rebase.autoStash=true', 'rebase', `${s.gitRemote}/${s.gitDefaultBranch}`],
+            gitCtx
+          );
+        } else {
+          await gitRunVerbose(['rebase', `${s.gitRemote}/${s.gitDefaultBranch}`], gitCtx);
+        }
       } catch (e) { log(`[git] rebase warn: ${e.message}`); }
     }
+
   }
+
+
 
   // 5) Stage changed files (fallback -A)
   try {
@@ -309,29 +378,21 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings,ou
   }
 }
 
-
-
-async function gitDebugSnapshot(cwd) {
-  log(`[git:diag] cwd=${cwd}`);
-  try { await gitRunVerbose(['rev-parse', '--is-inside-work-tree'], cwd, 'diag' ,out); } catch {}
-  try { await gitRunVerbose(['status', '--porcelain'], cwd, 'diag',out); } catch {}
-  try { await gitRunVerbose(['remote', '-v'], cwd, 'diag',out); } catch {}
-  try { await gitRunVerbose(['branch', '--show-current'], cwd, 'diag'); } catch {}
-  try { await gitRunVerbose(['config', '--get', 'user.name'], cwd, 'diag',out); } catch {}
-  try { await gitRunVerbose(['config', '--get', 'user.email'], cwd, 'diag',out); } catch {}
-  try { await gitRunVerbose(['ls-files'], cwd, 'diag',out); } catch {}
-  try { await gitRunVerbose(['rev-parse', 'HEAD'], cwd, 'diag',out); } catch {}
-  // opzionale: test remoto (non bloccare se fallisce)
-  try { await gitRunVerbose(['ls-remote', 'origin'], cwd, 'diag',out); } catch (e) { log(`[diag] ls-remote failed: ${e.message}`); }
+async function gitDebugSnapshot(gitCtx, out) {
+  const log = mkLog(out);
+  try { await gitRunVerbose(['rev-parse', '--is-inside-work-tree'], gitCtx, 'diag', out); } catch {}
+  try { await gitRunVerbose(['status', '--porcelain'], gitCtx, 'diag', out); } catch {}
+  try { await gitRunVerbose(['remote', '-v'], gitCtx, 'diag', out); } catch {}
+  try { await gitRunVerbose(['branch', '--show-current'], gitCtx, 'diag', out); } catch {}
+  try { await gitRunVerbose(['config', '--get', 'user.name'], gitCtx, 'diag', out); } catch {}
+  try { await gitRunVerbose(['config', '--get', 'user.email'], gitCtx, 'diag', out); } catch {}
+  try { await gitRunVerbose(['ls-files'], gitCtx, 'diag', out); } catch {}
+  try { await gitRunVerbose(['rev-parse', 'HEAD'], gitCtx, 'diag', out); } catch {}
+  try { await gitRunVerbose(['ls-remote', 'origin'], gitCtx, 'diag', out); } catch (e) { log(`[diag] ls-remote failed: ${e.message}`); }
   // gh (best-effort)
-  try { await gitRunVerbose(['--version'], cwd, 'gh',out); } catch {}
-  try { await gitRunVerbose(['auth', 'status'], cwd, 'gh',out); } catch {}
+  try { await gitRunVerbose(['--version'], gitCtx, 'gh', out); } catch {}
+  try { await gitRunVerbose(['auth', 'status'], gitCtx, 'gh', out); } catch {}
 }
-
-
-
-
-
 
 
 module.exports = {

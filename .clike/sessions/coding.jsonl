@@ -45,3 +45,7 @@
 {"ts":1761160043991,"mode":"coding","role":"user","content":"mi generi una classe in c in go per calcolare la radice quadrata senz primitive?\n","model":"llama3","provider":"ollama","attachments":[]}
 {"ts":1761160054409,"mode":"coding","role":"user","content":"mi generi una classe in c in go per calcolare la radice quadrata senz primitive?\n","model":"llama3","provider":"ollama","attachments":[]}
 {"ts":1761160092732,"mode":"coding","role":"assistant","content":"Generated files:\n- /generated/29ea54cd/src/sqrt.go","model":"llama3"}
+{"ts":1761577922724,"mode":"coding","role":"user","content":"vorrei una funzione in python che calcola la radice quadrata di un numero reale senza utilizzare librerie ma primitive \n","model":"claude-sonnet-4-5","provider":"anthropic","attachments":[]}
+{"ts":1761577940418,"mode":"coding","role":"assistant","content":"Generated files:\n- /generated/b2a42f68/src/radice_quadrata.py","model":"claude-sonnet-4-5"}
+{"ts":1761577966078,"mode":"coding","role":"user","content":"vorrei una funzione in python che calcola la radice quadrata di un numero reale senza utilizzare librerie ma primitive \n","model":"claude-opus-4-1","provider":"anthropic","attachments":[]}
+{"ts":1761577995318,"mode":"coding","role":"assistant","content":"Generated files:\n- /generated/3d81e098/src/sqrt_calculator.py","model":"claude-opus-4-1"}

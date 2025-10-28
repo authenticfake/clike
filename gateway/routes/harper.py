@@ -1208,7 +1208,7 @@ async def run(req: HarperRunRequest,  request: Request):
         # Routing per provider
         if provider == "openai":
             if not OPENAI_API_KEY:
-                raise HTTPException(401, "missing ANTHROPIC api key")
+                raise HTTPException(401, "missing OpenAI api key")
 
             llm_text = await oai.openai_complete_unified(OPENAI_API_KEY, model, messages, req.gen, timeout_sec)
                 #llm_text = await oai.chat(OPENAI_BASE, OPENAI_API_KEY, model, messages, gen_temperature, eff_max, gen_response_format,gen_reasoning, gen_tools, gen_tool_choice, timeout=timeout_sec, top_p=gen_top_p, stop=gen_stop) 
@@ -1221,7 +1221,17 @@ async def run(req: HarperRunRequest,  request: Request):
         elif provider == "anthropic":
             if not ANTHROPIC_API_KEY:
                 raise HTTPException(401, "missing ANTHROPIC api key")
-            llm_text = await anth.chat(ANTHROPIC_BASE, ANTHROPIC_API_KEY, model, messages, gen_temperature,eff_max, gen_top_p)
+            llm_text = await anth.chat(
+                ANTHROPIC_BASE, 
+                ANTHROPIC_API_KEY, 
+                model, 
+                messages, 
+                temperature=gen_temperature,
+                max_tokens=eff_max,
+                tools=gen_tools,
+                tool_choice=gen_tool_choice,
+                response_format=gen_response_format,
+                timeout=timeout_sec)
             
         else:
             raise HTTPException(400, f"unsupported provider for chat: {provider} for model '{req.model}")
@@ -1240,7 +1250,7 @@ async def run(req: HarperRunRequest,  request: Request):
         spec_md_txt, llm_diag = ("", {})
 
     text_len=0
-    #log.info("harper.gateway llm_text '%s' ", llm_text)
+    log.info("harper.gateway llm_text '%s' ", llm_text)
     # system_md_txt = ""
     # system_md_txt, llm_usage = oai.coerce_text_and_usage(llm_text)
     # system_md_txt = (system_md_txt or "").strip()

@@ -171,8 +171,23 @@ models:
     privacy: low
     enabled: false
 
+  - id: anthropic:claude-haiku-4-5
+    name: claude-haiku-4-5
+    provider: anthropic
+    base_url: https://api.anthropic.com/v1
+    remote_name: claude-opus-4-1-20250805
+    api_key_env: ANTHROPIC_API_KEY
+    modality: chat
+    capability: high
+    latency: medium
+    cost: medium
+    context_window: 200000
+    max_output_tokens: 8192
+    privacy: low
+    enabled: true
+
   - id: anthropic:claude-sonnet-4-5
-    name: claude-4-5-sonnet
+    name: claude-sonnet-4-5
     provider: anthropic
     base_url: https://api.anthropic.com/v1
     remote_name: claude-sonnet-4-5-20250929
@@ -186,26 +201,12 @@ models:
     privacy: low
     enabled: true
 
-  - id: anthropic:claude-4-sonnet
-    name: claude-4-sonnet
-    provider: anthropic
-    base_url: https://api.anthropic.com/v1
-    remote_name: claude-sonnet-4-20250514
-    api_key_env: ANTHROPIC_API_KEY
-    modality: chat
-    capability: high
-    latency: medium
-    cost: medium
-    context_window: 1000000
-    max_output_tokens: 8192
-    privacy: low
-    enabled: true
 
-  - id: anthropic:claude-opus-4
-    name: claude-opus-4
+  - id: anthropic:claude-opus-4-1
+    name: claude-opus-4-1
     provider: anthropic
     base_url: https://api.anthropic.com/v1
-    remote_name: claude-opus-4-20250514
+    remote_name: claude-opus-4-1-20250805
     api_key_env: ANTHROPIC_API_KEY
     modality: chat
     capability: high

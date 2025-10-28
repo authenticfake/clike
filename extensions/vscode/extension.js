@@ -557,7 +557,7 @@ function cfg() {
 
     // Git workflow
     gitRemote:        c.get('clike.git.remote', 'origin'),
-    gitDefaultBranch: c.get('clike.git.defaultBranch', 'main'),
+    gitDefaultBranch: c.get('clike.git.defaultBranch', 'master'),
     gitConventional:  c.get('clike.git.conventionalCommits', true),
     gitPushRebase:    c.get('clike.git.pushRebase', true),
 
