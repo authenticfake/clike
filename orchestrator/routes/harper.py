@@ -132,7 +132,55 @@ async def post_spec(req: HarperPhaseRequest):
             pass
 
     return HarperEnvelope(out=out, spec_md=spec_md)
-   
+
+
+@router.post("/idea", response_model=HarperEnvelope)
+async def post_plan(req: HarperPhaseRequest):
+    
+    payload = req.model_dump()
+    # Coerenza terminologica: manteniamo 'cmd' dal client ma imponiamo anche 'phase'
+    payload["phase"] = "idea"
+    payload.setdefault("cmd", "idea")
+    log.info("run_phase idea (route) core=%d attachments=%d flags=%s",
+            len(payload.get("core") or []),
+            len(payload.get("attachments") or []),
+            "present" if payload.get("flags") else "none")
+
+    # Delego al service che farà SOLO il merge del modello/profilo, senza perdere campi
+    out_dict = await svc.run_phase("idea", payload)
+    out = None
+    try: 
+        out = HarperRunResponse(
+            ok=bool(out_dict.get("ok", True)),
+            phase=out_dict.get("phase") or "idea",
+            echo=out_dict.get("echo"),
+            text=out_dict.get("text"),
+            files=[FileArtifact(**f) for f in (out_dict.get("files") or [])],
+            diffs=[DiffEntry(**d) for d in (out_dict.get("diffs") or [])],
+            tests=TestSummary(**(out_dict.get("tests") or {})),
+            warnings=out_dict.get("warnings") or [],
+            errors=out_dict.get("errors") or [],
+            runId=out_dict.get("runId"),
+            telemetry=out_dict.get("telemetry"),
+        )
+
+    
+    except Exception as e:
+        log.info( "Error in idea phase %s", e)
+        raise HTTPException(status_code=500, detail="Error in idea phase")    
+    
+    log.info("out text: %s len=%d",out.text,len(out.text))
+    # Retro-compat: spec_md, se disponibile (primo file markdown) oppure None
+    plan_md = None
+    if out.files:
+        try:
+            # se il primo file è SPEC.md lo esponiamo
+            if out.files[0].path.lower().endswith("plan.md"):
+                plan_md = out.files[0].content
+        except Exception:
+            pass
+
+    return HarperEnvelope(out=out, plan_md=plan_md)
 
 @router.post("/plan", response_model=HarperEnvelope)
 async def post_plan(req: HarperPhaseRequest):
@@ -169,7 +217,7 @@ async def post_plan(req: HarperPhaseRequest):
     
     except Exception:
         
-        raise HTTPException(status_code=500, detail="Error in plan")    
+        raise HTTPException(status_code=500, detail="Error in plan phase")    
     
     log.info("out text: %s len=%d",out.text,len(out.text))
     # Retro-compat: spec_md, se disponibile (primo file markdown) oppure None

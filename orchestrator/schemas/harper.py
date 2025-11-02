@@ -18,8 +18,13 @@ class Attachment(BaseModel):
     path: Optional[str] = None
     id: Optional[str] = None
     source: Optional[str] = None  # e.g., "external" | "workspace" | "upload"
+    origin: Optional[str] = None  # e.g., "external" | "workspace" | "upload"
     mime: Optional[str] = None
     content_base64: Optional[str] = None  # optional payload if provided
+    size: Optional[int] = None
+    content: Optional[str] = None
+    bytes_b64: Optional[str] = None
+               
 
 # --- NEW/UPDATED: options in input for /kit ---
 class HarperKitOptions(BaseModel):
@@ -68,6 +73,7 @@ class HarperPhaseRequest(BaseModel):
     context_hard_limit: Optional[int] = None
     rag_prefer_for: Optional[List[str]] = None
     project_id: Optional[str] = None
+    project_name: Optional[str] = None
     rag_chunks: Optional[List[dict]] = None
     rag_queries: Optional[List[str]] = None
     rag_top_k: Optional[int] = None

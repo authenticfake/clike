@@ -6,7 +6,9 @@ import os, re, json, time, hashlib, logging
 from typing import List, Dict, Any, Optional, Tuple
 import httpx
 
-log = logging.getLogger("rag")
+from utils.utils import _rag_base_url
+
+log = logging.getLogger("rag.store")
 
 # Config base (env + default)
 QDRANT_URL  = os.getenv("QDRANT_URL", "http://qdrant:6333").rstrip("/")
@@ -50,6 +52,7 @@ class EmbeddingClient:
     def __init__(self, gateway_base: str = "http://gateway:8000/v1"):
         self.base = gateway_base.rstrip("/")
         self.openai_key = os.getenv("OPENAI_API_KEY")
+    
 
     async def embed(self, texts: List[str]) -> List[List[float]]:
         # 1) prova via gateway /v1/embeddings (se presente)
@@ -88,12 +91,17 @@ class EmbeddingClient:
         return out
 
 class RagStore:
+    
     def __init__(self, project_id: str):
-        # project_id → namespace: multi-progetto nello stesso Qdrant
-        self.namespace = ("proj_" + re.sub(r"[^a-zA-Z0-9_]+","_", project_id or "default")).lower()
+        """
+        Initialize store for a specific project namespace.
+        """
+        self.project_id = (project_id or "default")
+        self.namespace = ("proj_" + re.sub(r"[^a-zA-Z0-9_]+", "_", self.project_id)).lower()
         self.q = QDRANT_URL
         self.c = f"{QCOLLECTION}__{self.namespace}"
         self.emb = EmbeddingClient()
+
 
     async def ensure(self) -> None:
         # crea collection se non esiste
@@ -114,6 +122,85 @@ class RagStore:
             log.error("RAG ensure failed: %s", e)
             raise
 
+    async def get_by_path(
+        self,
+        path: str,
+        *,
+        max_chars_per_doc: int = 200000,
+        search_top_k: int = 100,
+        base_url: Optional[str] = None,
+        timeout_sec: int = 30,
+    ) -> dict:
+        """
+        Call orchestrator RAG API to aggregate a single document by exact path.
+
+        Returns:
+            dict -> {"path": str, "text": str, "chunks": int} or {} on not found/error.
+        """
+        if not path:
+            return {}
+
+        payload = {
+            "project_id": self.project_id,
+            "paths": [path],
+            "max_chars_per_doc": max(500, int(max_chars_per_doc)),
+            "search_top_k": int(search_top_k),
+        }
+        # ⚠️ importante: usa _rag_base_url(base_url) per evitare "localhost" nel container gateway
+        url = f"{_rag_base_url()}/fetch_by_paths"
+        log.info("rag.store rag get_by_path %s %s", url, payload)
+
+        try:
+            async with httpx.AsyncClient(timeout=timeout_sec) as client:
+                r = await client.post(url, json=payload)
+                r.raise_for_status()
+                data = r.json() or {}
+                docs = data.get("docs") or []
+                return docs[0] if docs else {}
+        except Exception as e:
+            log.warning("get_by_path failed: %s", e)
+            return {}
+
+
+    async def fetch_docs(
+        self,
+        *,
+        paths: Optional[List[str]] = None,
+        path_prefix: Optional[str] = None,
+        limit_docs: int = 20,
+        max_chars_per_doc: int = 4000,
+        search_top_k: int = 100,
+        base_url: Optional[str] = None,
+        timeout_sec: int = 30,
+    ) -> List[dict]:
+        """
+        Call orchestrator RAG API to fetch multiple aggregated documents.
+
+        Returns:
+            list[dict] -> [{"path": str, "text": str, "chunks": int}, ...] or [] on error.
+        """
+        payload = {
+            "project_id": self.project_id,
+            "paths": paths or None,
+            "path_prefix": path_prefix or None,
+            "limit_docs": max(1, int(limit_docs)),
+            "max_chars_per_doc": max(500, int(max_chars_per_doc)),
+            "search_top_k": int(search_top_k),
+        }
+        url = f"{_rag_base_url(base_url)}/fetch"
+        log.info("rag fetch_docs %s %s", url, payload)
+
+        try:
+            async with httpx.AsyncClient(timeout=timeout_sec) as client:
+                r = await client.post(url, json=payload)
+                r.raise_for_status()
+                data = r.json() or {}
+                return data.get("docs") or []
+        except Exception as e:
+            log.warning("fetch_docs failed: %s", e)
+            return []
+
+        
     async def index_texts(self, items: List[Dict[str,Any]]) -> Dict[str,Any]:
         """
         items: [{path, text}]  (contenuti già estratti)

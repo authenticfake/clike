@@ -11,6 +11,10 @@ from pdfminer.high_level import extract_text  # import INSIDE to avoid import wa
 
 import docx
 import pydantic
+import openpyxl  # .xlsx
+import xlrd  # .xls (legacy)
+from pyxlsb import open_workbook as open_xlsb  # .xlsb (optional)
+from pptx import Presentation  # .pptx
 # Detect Pydantic major version once
 try:
     _PYD_VER = int((getattr(pydantic, "__version__", "1.0.0").split(".")[0]) or "1")
@@ -54,6 +58,83 @@ class RagSearchRequest(RagBase):
 class RagPurgeRequest(BaseModel):
     project_id: str
     path_prefix: Optional[str] = None
+
+# --- NEW: fetch models ---
+class RagFetchRequest(RagBase):
+    project_id: str
+    # Se indicati, limita il fetch a questi path (match "starts with" case-insensitive)
+    paths: Optional[List[str]] = None
+    # In alternativa/aggiunta, filtra per prefisso
+    path_prefix: Optional[str] = None
+    # Quanti documenti (path) restituire al massimo
+    limit_docs: int = 20
+    # Quanti caratteri massimi per documento aggregato (per prompt budget)
+    max_chars_per_doc: int = 4000
+    # Quanti chunk pescare dallo store (esageriamo: 5x documents)
+    search_top_k: int = 100
+
+class RagFetchByPathsRequest(RagBase):
+    project_id: str
+    paths: List[str]
+    max_chars_per_doc: int = 4000
+    search_top_k: int = 100
+    
+def _path_matches(p: str, paths: Optional[List[str]], prefix: Optional[str]) -> bool:
+    p_norm = (p or "").strip()
+    if not p_norm:
+        return False
+    p_low = p_norm.lower()
+    if prefix and p_low.startswith(prefix.lower()):
+        return True
+    if paths:
+        for want in paths:
+            w = (want or "").strip()
+            if not w:
+                continue
+            # match "starts with" per robustezza su path normalizzati
+            if p_low.startswith(w.lower()):
+                return True
+    # se non sono imposti paths/prefix, accetta tutti
+    return (paths is None and prefix is None)
+
+def _aggregate_hits_by_path(
+    hits: List[Dict[str, Any]],
+    max_chars_per_doc: int,
+    limit_docs: int,
+    paths: Optional[List[str]],
+    prefix: Optional[str],
+) -> List[Dict[str, Any]]:
+    """
+    Raggruppa i risultati per 'path' e concatena i testi finché non supera max_chars_per_doc.
+    Ritorna una lista di {path, text, chunks:int}.
+    """
+    buckets: Dict[str, Dict[str, Any]] = {}
+    for h in (hits or []):
+        p = (h.get("path") or "").strip()
+        t = (h.get("text") or "").strip()
+        if not p or not t:
+            continue
+        if not _path_matches(p, paths, prefix):
+            continue
+        b = buckets.get(p)
+        if not b:
+            b = {"path": p, "text": "", "chunks": 0}
+            buckets[p] = b
+        # Accumula rispettando il budget caratteri
+        remaining = max_chars_per_doc - len(b["text"])
+        if remaining <= 0:
+            continue
+        # +1 riga separatrice per chiarezza
+        piece = (("\n" if b["text"] else "") + t)[:remaining]
+        if piece:
+            b["text"] += piece
+            b["chunks"] += 1
+
+    # Ordina per path (stabile) e limita la quantità di documenti
+    ordered = list(buckets.values())
+    ordered.sort(key=lambda x: x["path"])
+    return ordered[: max(1, limit_docs)]
+
 
 def _b64_to_bytes(b64: Optional[str]) -> Optional[bytes]:
     if not isinstance(b64, str) or not b64:
@@ -104,6 +185,130 @@ def _extract_text_from_docx_bytes(raw: bytes) -> str:
     except Exception as e:
         log.warning("DOCX extract failed: %s", e)
         return ""
+    
+@router.post("/v1/rag/fetch")
+async def rag_fetch(req: RagFetchRequest):
+    """
+    Ritorna il contenuto aggregato per documento (path) senza dover specificare una query utente.
+    Usa internamente RagStore.search("", top_k=...) e filtra/accorpa lato router.
+    """
+    store = RagStore(project_id=req.project_id)
+
+    # 1) Peschiamo tanti chunk neutrali (query vuota / "context")
+    #    Nota: se il tuo RagStore non gestisce bene query vuota, prova con "context" o "*"
+    query = ""
+    raw_hits = await store.search(query, top_k=max(10, req.search_top_k))
+
+    # 2) Aggrega per path rispettando i limiti
+    docs = _aggregate_hits_by_path(
+        hits=raw_hits,
+        max_chars_per_doc=max(500, req.max_chars_per_doc),
+        limit_docs=max(1, req.limit_docs),
+        paths=req.paths,
+        prefix=(req.path_prefix or None),
+    )
+
+    return {"docs": docs, "count": len(docs)}
+
+def _extract_text_from_xlsx_bytes(raw: bytes) -> str:
+    if not openpyxl:
+        log.warning("openpyxl non disponibile: skip xlsx")
+        return ""
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(raw), data_only=True, read_only=True)
+        parts = []
+        for ws in wb.worksheets:
+            parts.append(f"# Sheet: {ws.title}")
+            for row in ws.iter_rows(values_only=True):
+                cells = [str(c) if c is not None else "" for c in row]
+                line = "\t".join(cells).strip()
+                if line:
+                    parts.append(line)
+        return "\n".join(parts)
+    except Exception as e:
+        log.warning("XLSX extract failed: %s", e)
+        return ""
+
+def _extract_text_from_xls_bytes(raw: bytes) -> str:
+    # Richiede xlrd>=2.0 (legge solo .xls)
+    if not xlrd:
+        log.warning("xlrd non disponibile: skip xls")
+        return ""
+    try:
+        book = xlrd.open_workbook(file_contents=raw)
+        parts = []
+        for si in range(book.nsheets):
+            sh = book.sheet_by_index(si)
+            parts.append(f"# Sheet: {sh.name}")
+            for r in range(sh.nrows):
+                row = [str(sh.cell_value(r, c)) for c in range(sh.ncols)]
+                line = "\t".join(row).strip()
+                if line:
+                    parts.append(line)
+        return "\n".join(parts)
+    except Exception as e:
+        log.warning("XLS extract failed: %s", e)
+        return ""
+
+def _extract_text_from_xlsb_bytes(raw: bytes) -> str:
+    if not open_xlsb:
+        log.warning("pyxlsb non disponibile: skip xlsb")
+        return ""
+    try:
+        parts = []
+        with open_xlsb(io.BytesIO(raw)) as wb:
+            for sheet_name in wb.sheets:
+                parts.append(f"# Sheet: {sheet_name}")
+                with wb.get_sheet(sheet_name) as sh:
+                    for row in sh.rows():
+                        vals = [str(c.v) if c.v is not None else "" for c in row]
+                        line = "\t".join(vals).strip()
+                        if line:
+                            parts.append(line)
+        return "\n".join(parts)
+    except Exception as e:
+        log.warning("XLSB extract failed: %s", e)
+        return ""
+
+def _extract_text_from_pptx_bytes(raw: bytes) -> str:
+    if not Presentation:
+        log.warning("python-pptx non disponibile: skip pptx")
+        return ""
+    try:
+        prs = Presentation(io.BytesIO(raw))
+        parts = []
+        for i, slide in enumerate(prs.slides, start=1):
+            parts.append(f"# Slide {i}")
+            for shape in slide.shapes:
+                if hasattr(shape, "text_frame") and shape.text_frame:
+                    for para in shape.text_frame.paragraphs:
+                        text = "".join(run.text or "" for run in para.runs).strip()
+                        if text:
+                            parts.append(text)
+                elif hasattr(shape, "text") and shape.text:
+                    t = (shape.text or "").strip()
+                    if t:
+                        parts.append(t)
+        return "\n".join(parts)
+    except Exception as e:
+        log.warning("PPTX extract failed: %s", e)
+        return ""
+
+@router.post("/v1/rag/fetch_by_paths")
+async def rag_fetch_by_paths(req: RagFetchByPathsRequest):
+    store = RagStore(project_id=req.project_id)
+    log.info("RAG Store %s", store)
+    # query neutra + filtro per path(s) lato router
+    raw_hits = await store.search("", top_k=max(10, req.search_top_k))
+    
+    docs = _aggregate_hits_by_path(
+        hits=raw_hits,
+        max_chars_per_doc=max(20500, req.max_chars_per_doc),
+        limit_docs=len(req.paths) if req.paths else 20,
+        paths=req.paths,
+        prefix=None,
+    )
+    return {"docs": docs, "count": len(docs)}
 
 @router.post("/v1/rag/reindex")
 async def rag_index(req: RagIndexRequest):
@@ -141,9 +346,25 @@ async def rag_index(req: RagIndexRequest):
                 elif ext == ".docx":
                     log.info("RAG index: DOCX")
                     txt = _extract_text_from_docx_bytes(raw)
+                elif ext == ".xlsx":
+                    log.info("inline: XLSX")
+                    txt = _extract_text_from_xlsx_bytes(raw)
+                elif ext == ".xls":
+                    log.info("inline: XLS (legacy)")
+                    txt = _extract_text_from_xls_bytes(raw)
+                elif ext == ".xlsb":
+                    log.info("inline: XLSB")
+                    txt = _extract_text_from_xlsb_bytes(raw)
+                elif ext == ".pptx":
+                    log.info("inline: PPTX")
+                    txt = _extract_text_from_pptx_bytes(raw)
                 else:
-                    # binari non supportati qui -> salta
-                    txt = ""
+                    # fallback: se è testo “grezzo” o sconosciuto, prova a decodare come utf-8
+                    try:
+                        txt = raw.decode("utf-8", errors="ignore")
+                    except Exception:
+                        txt = ""
+                
                 log.info("RAG file %s -> %d chars", p, len(txt))
 
         if isinstance(txt, str) and txt.strip():

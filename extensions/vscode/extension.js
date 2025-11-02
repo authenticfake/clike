@@ -14,9 +14,10 @@ const os = require('os');
 
 const { registerCommands } = require('./commands/registerCommands');
 const {  handleGate, handleEval } = require('./commands/slashBot');
-const { readPlanJson, getProjectId, promoteReqSources, runPromotionFlow,preIndexRag, normalizeAttachment, safeLog, readWorkspaceTextFile, getFileSizeBytes } = require('./utility')
-const { buildHarperBody,  defaultCoreForPhase, runKitCommand,runEvalGateCommand, saveKitCommand,saveEvalCommand,saveGateCommand } = require('./utility')
-const{ toFsPath, clikeGitSync } = require('./git'); // NEW: clikeGitSync
+const { readPlanJson, getProjectId, promoteReqSources, runPromotionFlow,preIndexRag, normalizeAttachment, safeLog, readWorkspaceTextFile, getFileSizeBytes, getProjectNameFromWorkspace } = require('./utility')
+const { buildHarperBody,  defaultCoreForPhase, runKitCommand,runEvalGateCommand, saveKitCommand,saveEvalCommand,saveGateCommand, normalizeChangedFiles } = require('./utility')
+const {sanitize} = require('./utility')
+const{ toFsPath, mapKitSrcToWorkspaceTarget, clikeGitSync } = require('./git'); // NEW: clikeGitSync
 
 let __clike_lastTargetUriCache = null;  
 let selectedPaths = new Set();
@@ -275,6 +276,7 @@ async function loadSessionFilteredHarper(mode, model, limit = 200) {
 
     // La logica si semplifica usando un array di prefissi
     const EXECUTION_COMMAND_PREFIXES = [
+        '▶IDEA',
         '▶SPEC|mode',
         '▶PLAN|mode',
         '▶KIT|mode',
@@ -567,8 +569,12 @@ function cfg() {
     prPerReqDraft:    c.get('clike.git.prPerReqDraft.enabled', false),
     prUseGhCli:       c.get('clike.git.prPerReqDraft.useGhCli', true),
     prBodyPath:       c.get('clike.git.prBodyPath', 'docs/harper/PR_BODY.md'),
-    gitRemoteUrl:     c.get('clike.git.remoteUrl', 'git@github.com:authenticfake/test-coffe-buddy.git'),  // e.g. "git@github.com:org/repo.git" or "https://github.com/org/repo.git"
-
+    gitRemoteUrl:     vscode.workspace.getConfiguration('clike.git').get('remoteUrl') || '',
+  
+    gitMergeOnGate:               c.get('clike.git.gitMergeOnGate', true),
+    gitDeleteBranchOnMerge:       c.get('clike.git.gitDeleteBranchOnMerge', false),     
+    gitReturnToFeatureAfterMerge:  c.get('clike.git. gitReturnToFeatureAfterMerge', false), 
+  
 
     // toggle AI → mappati su use.ai.*
     useAiDocstring: c.get('clike.useAi.docstring', true),
@@ -1398,6 +1404,7 @@ try {
  // --- Help overlay (/help) ---
 var HELP_COMMANDS = [
   {cmd:'/help', desc:'Shows this quick guide'},
+  {cmd:'/idea <name>'},
   {cmd:'/init <name> [--path <abs>] [--force]', desc:'Initializes the Harper project in the workspace'},
   {cmd:'/status', desc:'Shows the Harper project/context status'},
   {cmd:'/where', desc:'Shows the Harper workspace/doc-root path'},
@@ -1572,37 +1579,73 @@ const attachmentsByMode = { free: [], harper: [], coding: [] };
 function currentMode() { return document.getElementById('mode').value; }
 function currentModel() { return document.getElementById('model').value; }
 function ensureBucket(mode) {
+  if (!window.attachmentsByMode) window.attachmentsByMode = {};
   if (!attachmentsByMode[mode]) attachmentsByMode[mode] = [];
   return attachmentsByMode[mode];
 }
-
+// Count what's inline vs rag in a given list
+function _analyzeAttachments(list) {
+  let inlineN = 0, ragN = 0, noneN = 0;
+  for (var i = 0; i < (list || []).length; i++) {
+    var a = list[i] || {};
+    if (a && (a.content || a.bytes_b64)) inlineN++;
+    else if (a && a.path) ragN++;
+    else noneN++;
+  }
+  return { inlineN, ragN, noneN };
+}
+function debugBucket(mode, label) {
+  try {
+    const bucket = ensureBucket(mode);
+    const stats = _analyzeAttachments(bucket);
+    console.log('CLike DEBUG', label || 'bucket', { mode, stats, first: bucket[0] });
+  } catch (e) { /* ignore */ }
+}
 function renderAttachmentChips() {
-  const wrap = document.getElementById('attach-chips');
+  var wrap = document.getElementById('attach-chips');
   if (!wrap) return;
-  const list = ensureBucket(currentMode());
 
-  wrap.innerHTML = list.map(function(a, i) {
-    const nm = a && (a.name || a.path || a.id) ? (a.name || a.path || a.id) : 'file';
-    // evito caratteri speciali non escapati in title/text
-    const safe = String(nm).replace(/"/g, '&quot;');
+  // Usa escapeHtml se esiste, altrimenti fallback locale
+  var esc = (typeof escapeHtml === 'function')
+    ? escapeHtml
+    : function (s) {
+        s = String(s == null ? '' : s);
+        s = s.replace(/&/g, '&amp;');
+        s = s.replace(/</g, '&lt;');
+        s = s.replace(/>/g, '&gt;');
+        s = s.replace(/"/g, '&quot;');
+        s = s.replace(/'/g, '&#39;');
+        return s;
+      };
+
+  var list = ensureBucket(currentMode());
+
+  var html = list.map(function (a, i) {
+    var name = (a && (a.name || a.path || a.id)) ? (a.name || a.path || a.id) : 'file';
+    var isInline = !!(a && (a.content || a.bytes_b64));
+    var hasPath  = !!(a && a.path);
+    var meta = isInline ? ' (inline)' : (hasPath ? ' (path: ' + a.path + ')' : '');
+    var label = name + meta;
+    var safe = esc(label);
     return '<span class="chip" data-i="' + i + '" title="' + safe + '">' + safe + ' ✕</span>';
   }).join(' ');
 
-  // Event delegation (un solo listener, attaccato una sola volta)
-  if (!wrap._delegated) {
-    wrap._delegated = true;
-    wrap.addEventListener('click', (ev) => {
-      const el = ev.target.closest('.chip');
-      if (!el) return;
-      const idx = Number(el.dataset.i);
-      const bucket = ensureBucket(currentMode());
-      if (Number.isFinite(idx) && idx >= 0 && idx < bucket.length) {
+  wrap.innerHTML = html;
+
+  // Re-bind remove handlers
+  var chips = wrap.querySelectorAll('.chip');
+  for (var j = 0; j < chips.length; j++) {
+    chips[j].addEventListener('click', function () {
+      var idx = parseInt(this.getAttribute('data-i') || '-1', 10);
+      if (idx >= 0) {
+        var bucket = ensureBucket(currentMode());
         bucket.splice(idx, 1);
         renderAttachmentChips();
       }
     });
   }
 }
+
 // Non-bloccante: apri un piccolo "menu" in-page
 let _attachMenuOpen = false;
 
@@ -1759,14 +1802,12 @@ function parseSlash(s) {
     console.log('cmd init parsed:', name, rest,force,pth,pathTokens);
     return { cmd, args: { name, path: pth, force } };
   }
+ 
   if (cmd === '/eval' || cmd === '/gate') {
     const rest = parts.slice(1).map(x => String(x).trim()).filter(Boolean);
-    const mode = (rest.slice(1))? rest.slice(1)[0] : 'auto';
+    const testMode = (rest.slice(1))? rest.slice(1)[0] : 'auto';
     const modeContent = (rest.slice(2))? rest.slice(2)[0] : 'pass';
-    console.log('cmd evals rest:', rest);
-    console.log('cmd evals mode:', mode);
-    console.log('cmd evals modeContent:', modeContent);
-
+    
     let targets = null;
     if (!rest.length) {
       targets = ''; //findNextOpenReq in runCommand
@@ -1778,7 +1819,7 @@ function parseSlash(s) {
 
     }
     console.log('cmd evals targets:', targets);
-    return { cmd, args: { targets, mode, modeContent } };
+    return { cmd, args: { targets, testMode, modeContent } };
   }
   if (cmd === '/kit' ) {
     // Sintassi:
@@ -1802,6 +1843,11 @@ function parseSlash(s) {
     //   /spec | /plan (no args)
     let targets = '';
     return { cmd, args: { targets } };
+  }
+  if (cmd === '/idea') {
+    console.log('cmd init parsed:');
+    const name = parts[1]; 
+    return { cmd, args: { name } };
   }
 
 
@@ -2019,7 +2065,7 @@ function handleSlash(slash) {
     vscode.postMessage({ type: 'switchProject', name: slash.args.name || '' });
     return;
   }
-  if (slash.cmd === '/spec' || slash.cmd === '/plan' || slash.cmd === '/kit'  || slash.cmd === '/finalize') {
+  if (slash.cmd === '/idea' || slash.cmd === '/spec' || slash.cmd === '/plan' || slash.cmd === '/kit'  || slash.cmd === '/finalize') {
     // attachments della mode corrente (se li usi)
     var modeVal  = (mode  && mode.value)  ? mode.value  : 'harper';
     var key      = modeVal;
@@ -2034,9 +2080,15 @@ function handleSlash(slash) {
     const msg = { type: 'harperRun', cmd: slash.cmd.slice(1), attachments: atts };
     if (slash.cmd === '/kit') {
       msg.targets = slash.args?.targets ?? null; // 'next' | ['REQ-01', ...]
+    } 
+    else if (slash.cmd === '/idea') {
+      msg.name = slash.args.name || ''
     }
     vscode.postMessage(msg);
-
+    // ⬇️ SVUOTA ALLEGATI DELLA MODE CORRENTE DOPO L’INVIO
+    attachmentsByMode[currentMode()] = [];
+    renderAttachmentChips();
+    
     return true;
   }
   //EVALS
@@ -2054,10 +2106,12 @@ function handleSlash(slash) {
     try { bubble('user', slash.cmd + (slash.args?.targets ? (' ' + slash.args?.targets) : ''), (model && model.value) ? model.value : 'auto', atts); } catch {}
     const msg = { type: 'harperEDD', cmd: slash.cmd.slice(1), attachments: atts, argument: slash.args.targets || ''  };
     msg.targets = slash.args?.targets ?? null; // 'next' | ['REQ-01', ...]
-    msg.running = slash.args?.mode ?? null;
+    msg.running = slash.args?.testMode ?? null;
     msg.modeContent = slash.args?.modeContent ?? null;
     msg.path=path_ltc_json
     vscode.postMessage(msg);
+    attachmentsByMode[currentMode()] = [];
+    renderAttachmentChips();
     return;
   }
   // Fallback: slash non riconosciuto → mostro help
@@ -2249,7 +2303,7 @@ btnGen.addEventListener('click', ()=>{
   setTab('diffs');
 
   post('sendGenerate', { mode: m, model: model.value, provider:_provider, prompt: text, attachments: atts });
-  attachmentsByMode[currentMode()] = [];
+  attachmentsByMode[m] = [];
   renderAttachmentChips();
 });
 btnApply.addEventListener('click', ()=>{
@@ -2358,21 +2412,28 @@ window.addEventListener('message', (event) => {
   }
   
   
+  // --- PRESERVE INLINE FIELDS WHEN ADDING ATTACHMENTS ---
   if (msg && msg.type === 'attachmentsAdded') {
-    const bucket = ensureBucket(currentMode());
-    const incoming = Array.isArray(msg.attachments) ? msg.attachments : [];
-    for (const a of incoming) {
-      // normalizza struttura minima {name?, path?, id?, source?}
-      const norm = {
-        name: a?.name || a?.path || a?.id || 'file',
-        path: a?.path || null,
-        id: a?.id || null,
-        source: a?.source || (a?.path ? 'workspace' : 'external')
-      };
-      bucket.push(norm);
+    var bucket = ensureBucket(currentMode());
+    var incoming = Array.isArray(msg.attachments) ? msg.attachments : [];
+    for (var k = 0; k < incoming.length; k++) {
+      var a = incoming[k] || {};
+      bucket.push({
+        name:      a.name || a.path || a.id || 'file',
+        path:      (a.path != null ? a.path : null),
+        id:        (a.id != null ? a.id : null),
+        origin:    (a.origin != null ? a.origin : null),
+        source:    (a.source != null ? a.source : (a.path ? 'workspace' : 'external')),
+        content:   (a.content != null ? a.content : null),
+        bytes_b64: (a.bytes_b64 != null ? a.bytes_b64 : null),
+        size:      (a.size != null ? a.size : null),
+        mime:      (a.mime != null ? a.mime : null)
+      });
     }
     renderAttachmentChips();
+    debugBucket(currentMode(), 'attachmentsAdded');
   }
+
   
   if (msg.type === 'chatResult') {
     setBusy(false);
@@ -2798,6 +2859,9 @@ async function cmdOpenChat(context) {
       }
       // Run Harper phase from webview (slash: /spec | /plan | /kit | /build)
       if (msg.type === 'harperRun') {
+        const runId = (Math.random().toString(16).slice(2) + Date.now().toString(16));
+        log(`[harperRun] runId ...`,  runId);
+        
         out.appendLine(`[harperRun] inside ${JSON.stringify(msg)}`);
         const phase = msg.cmd;
         try {
@@ -2810,11 +2874,27 @@ async function cmdOpenChat(context) {
           log(`[harperRun] profileHint ...${profileHint}  ` );
           const activeProvider = (profileHint!=null) ?inferProvider(activeModel) :'';
           log(`[harperRun] activeProvider ....${activeProvider}  `);
-          let targets ='';
-          if (phase === 'kit') {
+          let targets =''
+          let project_name ='';
+          if (phase === 'idea') {
+            project_name = msg?.name
+          } else if (phase === 'kit') {
             targets = msg?.targets[0]?.toUpperCase() ?? "";
-          }
-          
+          } 
+          const projectName = getProjectNameFromWorkspace() || project_name; //name form workspace not from chat input!!!
+          //RAG
+          const { orchestratorUrl, routes } = cfg();
+          try { 
+            //log(`CLike preIndexRag: ${JSON.stringify(attachments)}`);
+            const { inline_files, rag_files } =  partitionAttachments(attachments);
+            log(`CLike rag_files size: ${rag_files.length} and inline_files size: ${inline_files.length}`);
+            if (rag_files) {
+              var urlOrch = (routes?.orchestrator?.ragIndex) ||  '/v1/rag/index';
+              let urlOrchestrator = orchestratorUrl + urlOrch;
+              const res = await preIndexRag(project_id, rag_files, urlOrchestrator, out); 
+              log((`CLike preIndexRag: ${JSON.stringify(res)} ${res}`));
+            }
+          } catch (e) { log(`CLike preIndexRag error: ${e}`); }
           // Core docs per fase
           let core = defaultCoreForPhase(phase);
           // Flags privacy (se già presenti altrove, riusale)
@@ -2824,8 +2904,6 @@ async function cmdOpenChat(context) {
           };
           //RAG Candidate text for saving and reusing improvements
           const RAG_PREFER_FOR = ["IDEA.md","SPEC.md"];
-          const runId = (Math.random().toString(16).slice(2) + Date.now().toString(16));
-          log(`[harperRun] runId ...`,  runId);
           //CHAT HARPEr START
           // History del MODE corrente
           const historyScope  = effectiveHistoryScope(context);
@@ -2843,12 +2921,12 @@ async function cmdOpenChat(context) {
           );
         
           var _messages = _source.map(b => ({ role: b.role, content: b.content }));
-          //CHAT HARPEr END
-          //RAG HARPEr START
+
+          let msg_bubble='';
 
           const _gen={
             temperature: 0.2,
-            max_tokens: (phase === 'plan' ? 6500 : phase === 'spec' ? 3500 : 7000),
+            max_tokens: (phase === 'plan' ? 15000 : phase === 'spec' ? 10500 : 9999),
             top_p: 0.9,
             stop: ["```.:: END ::.```"],
             presence_penalty: 0.0,
@@ -2858,7 +2936,6 @@ async function cmdOpenChat(context) {
             remote:'',
             response_format:'',
             tool_choice:''
-            
           }
           
           const payload = {
@@ -2875,27 +2952,28 @@ async function cmdOpenChat(context) {
             flags,
             runId,
             historyScope: state.historyScope,
-            project_id:project_id
+            project_id:project_id,
+            project_name:projectName
           };
           log(`[harperRun] payload (gen):`,  JSON.stringify(payload.gen));
-
+          msg_bubble = phase==='idea' ? project_id : targets; 
           // Persisti l’input dell’utente nella sessione del MODE (e mostreremo badge del modello in render)
           await appendSessionJSONL(activeMode, {
             role: 'user',
-            content: `▶ ${cmd.toUpperCase()} ${targets} | mode=${state.mode} model=${state.model} profile=${profileHint || '—'} core=${JSON.stringify(core)}`,
+            content: `▶ ${cmd.toUpperCase()} ${msg_bubble} | mode=${state.mode} model=${state.model} profile=${profileHint || '—'} core=${JSON.stringify(core)}`,
             model:  state.model || 'auto',
             attachments: Array.isArray(msg.attachments) ? msg.attachments : []
           });
           // Echo pre-run
           panel.webview.postMessage({
             type: 'echo',
-            message: `▶ ${cmd.toUpperCase()} ${targets} | mode=${state.mode} model=${state.model} profile=${profileHint || '—'} core=${JSON.stringify(core)} attachments=${attachments.length}`
+            message: `▶ ${cmd.toUpperCase()} ${msg_bubble} | mode=${state.mode} model=${state.model} profile=${profileHint || '—'} core=${JSON.stringify(core)} attachments=${attachments.length}`
           });
           //PATh for PLAN.md
-          const root = getWorkspaceRoot()
-          const plan = await readPlanJson(root);
+          const wsroot = getWorkspaceRoot();
           let targetReqId
           if (phase==='kit') {
+            const plan = await readPlanJson(wsroot);
             if (!plan) {
               vscode.window.showErrorMessage('plan.json not found. Run /plan first.');
               panel.webview.postMessage({ type: 'busy', on: false });
@@ -2910,7 +2988,7 @@ async function cmdOpenChat(context) {
             }
             payload["kit"]= {targets: [targetReqId] }
           }
-          const wsroot = getWorkspaceRoot();
+          
 
           const _headers = {"Content-Type": "application/json", "X-CLike-Profile": "code.strict"}
           //fals is for RAG chucks - TODO: RAG management via attachments is almost oden 70%
@@ -2956,20 +3034,18 @@ async function cmdOpenChat(context) {
           await appendSessionJSONL(activeMode, {
             ts: Date.now(),
             role: 'system',
-            content: `✔ ${String(cmd || '').toUpperCase()} ${targets} done — ${summary}`,
+            content: `✔ ${String(cmd || '').toUpperCase()} ${msg_bubble} done — ${summary}`,
             model:  state.model || 'auto',
             attachments: Array.isArray(msg.attachments) ? msg.attachments : []
           });
           panel.webview.postMessage({
             type: 'echo',
-            message: `✔ ${String(cmd || '').toUpperCase()} ${String(targets || '').toUpperCase()} done — ${summary}`
+            message: `✔ ${String(cmd || '').toUpperCase()} ${String(msg_bubble || '').toUpperCase()} done — ${summary}`
           });
 
           if (phase==="kit") {
             await saveKitCommand(root,plan,targetReqId,out) 
           }
-          var wsRoot = getWorkspaceRoot();
-          // --- SCRITTURA FILES (primary path) ---
           let written = [];
           if (Array.isArray(_out?.files) && _out.files.length) {
             written = await saveGeneratedFiles(_out.files);
@@ -2982,21 +3058,18 @@ async function cmdOpenChat(context) {
               runId,
               targetReqId,
               _out.files.map(f => f.path),
-              { workspaceRoot: toFsPath(wsRoot), finalizeOpenPr: (phase === 'finalize') },
+              { workspaceRoot: toFsPath(wsroot), finalizeOpenPr: (phase === 'finalize') },
               settings,
               out
             );
             } catch (err) {
               log(`[harperRun] gitSync error ${err}`);
             }
-            
-
           }
           // Tests summary
           if (_out?.tests?.summary) {
             panel.webview.postMessage({ type: 'echo', message: `✅ Tests: ${_out.tests.summary}` });
           }
-
           // Warnings / Errors
           if (Array.isArray(_out?.warnings) && _out.warnings.length) {
             panel.webview.postMessage({ type: 'echo', message: `⚠ Warnings: ${_out.warnings.join(' | ')}` });
@@ -3015,6 +3088,9 @@ async function cmdOpenChat(context) {
         const phase = msg.cmd;
         const ws_root= getWorkspaceRoot()
         log(`[harperEDD] ws_root: ${ws_root}`)
+        const runId = (Math.random().toString(16).slice(2) + Date.now().toString(16));
+        log(`[harperEDD] runId ...`,  runId);
+
 
         const plan = await readPlanJson(ws_root);
        
@@ -3068,22 +3144,66 @@ async function cmdOpenChat(context) {
         var report = {}
         const mode = (msg.running) ? msg.running : 'auto'
         const modeContent = (msg.modeContent) ? msg.modeContent : 'pass'
-
+        var files_git = []
+        let callGit =true;
         switch (msg.cmd) {
           case 'eval':
             report = await handleEval(path_ltc_json, ws_root, targets,mode, modeContent ); 
+            reportFile = await saveEvalCommand(ws_root,plan,targets,report,out)
+            files_git.push(toFsPath(reportFile));
+
             break;
           case 'gate': 
             report = await handleGate(path_ltc_json, ws_root,targets, opts={promote: false, reqId: targets, mode: mode, result: modeContent} );  
+            const {report_file, filesToCommit }= await saveGateCommand(ws_root,plan,targets,report,out)
+            log( "report_file, filesToCommit", report_file, filesToCommit)
+            if (report.gate.toLowerCase()==='pass' && filesToCommit) {
+              log("[harperEDD] Gate passed calling git for req:" + targets);
+              //const filesArray = normalizeChangedFiles(report_file, filesToCommit);
+              //files_git.push(...filesArray);
+              // 1) Report gate come URI → fsPath
+              const reportFs = toFsPath(report_file); // report_file è un vscode.Uri o "file://..."
+
+              // 2) filesToCommit oggi contiene i SORGENTI (runs/kit/REQ-001/src/...)
+              //    Li mappo ai TARGET nel workspace (/src/...)
+              const _targets = String(filesToCommit || '')
+                .split(',')
+                .map(s => s.trim())
+                .filter(Boolean)
+                .map(p => mapKitSrcToWorkspaceTarget(p, targets));
+
+              // 3) Costruisco l'array finale dei file da passare a Git
+              files_git = [reportFs, ..._targets];
+
+              
+              
+              log("[harperEDD] Gate passed calling git for the following files:" + files_git);
+            } else {
+              callGit=false;
+            }
             break;
         }
-        if (phase==="eval") {
-          await saveEvalCommand(ws_root,plan,targets,report,out) 
-        } else if (phase==="gate") {
-          await saveGateCommand(ws_root,plan,targets,report,out)
+        log(`[harperEDD] gitSync ${callGit}`)
+        if (callGit) {
+          //const changedFilesSafe = (files_git || []).map(sanitize).filter(Boolean);
+
+          const settings = cfg(); 
+          var wsRoot = getWorkspaceRoot();
+          try {
+            await clikeGitSync(
+            phase,
+            runId,
+            targets,
+            files_git,
+            { workspaceRoot: toFsPath(wsRoot), finalizeOpenPr: (phase === 'finalize') },
+            settings,
+            out
+          );
+          } catch (err) {
+            log(`[harperEDD] gitSync error ${err}`);
+          }
         }
-        log(`[harperEDD] after Eval/Gate report: ${JSON.stringify(report)}`)
-       // Persisti l’input dell’utente nella sessione del MODE (e mostreremo badge del modello in render)
+        // Persisti l’input dell’utente nella sessione del MODE (e mostreremo badge del modello in render)
         await appendSessionJSONL(activeMode, {
           role: 'system',
           content:"✔ "+ String(report.summary || ''),
@@ -3353,17 +3473,18 @@ async function cmdOpenChat(context) {
        
         const messages = source.map(b => ({ role: b.role, content: b.content }));
         const projectId = getProjectId();
+        const { orchestratorUrl, routes } = cfg();
         try { 
-          const { orchestratorUrl, routes } = cfg();
-          var urlOrch = (routes?.orchestrator?.ragIndex) ||  '/v1/rag/index';
-          let urlOrchestrator = orchestratorUrl + urlOrch;
-          const res = await preIndexRag(projectId, rag_files, urlOrchestrator, out); 
+          if (rag_files) {
+            var urlOrch = (routes?.orchestrator?.ragIndex) ||  '/v1/rag/index';
+            let urlOrchestrator = orchestratorUrl + urlOrch;
+            const res = await preIndexRag(projectId, rag_files, urlOrchestrator, out); 
+            log((`CLike preIndexRag: ${JSON.stringify(res)} ${res}`));
+          }
           
-          
-          log((`CLike preIndexRag: ${JSON.stringify(res)} ${res}`));
-        } catch (e) { console.warn(e); }
+        } catch (e) { log(`CLike preIndexRag error: ${e}`); }
 
-       // Costruisci payload
+        // payload
         const basePayload = { mode: activeMode, 
             project_id: projectId,
             model: activeModel,  
@@ -3376,7 +3497,7 @@ async function cmdOpenChat(context) {
             gen:{api:"responses"} //ore "responses" API's openai 
         };
 
-        // oppure, modo 2 (ternario corretto)
+        // (ternario corretto)
         const payload = (msg.type === 'sendChat')
         ? basePayload
         : { ...basePayload, max_tokens: 5100 };
@@ -3503,72 +3624,160 @@ async function cmdOpenChat(context) {
       }
       // --- PICK WORKSPACE FILES ----------------------------------------------------
       if (msg.type === 'pickWorkspaceFiles') {
-        const folders = vscode.workspace.workspaceFolders || [];
-        const base = folders.length ? folders[0].uri : undefined;
+        const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+        if (!ws) {
+          panel.webview.postMessage({ type: 'busy', on: false });
+          vscode.window.showWarningMessage('No workspace open.');
+          return;
+        }
 
         const uris = await vscode.window.showOpenDialog({
           canSelectFiles: true, canSelectFolders: false, canSelectMany: true,
-          openLabel: 'Attach', defaultUri: base
+          openLabel: 'Attach (workspace)'
         });
         if (!uris) {
           panel.webview.postMessage({ type: 'busy', on: false });
           return;
         }
 
-        const MAX_INLINE = 64 * 1024; // 64KB: sopra → RAG by path
+        const MAX_INLINE = 64 * 1024;
+        const TEXT_EXT = new Set(['.md','.txt','.log','.json','.yml','.yaml','.csv','.tsv','.py','.js','.ts','.java','.go','.rs','.c','.cpp','.cs','.sql','.ini','.toml','.cfg']);
         const atts = [];
+
         for (const uri of uris) {
           try {
             const stat = await vscode.workspace.fs.stat(uri);
-            const relPath = base ? vscode.workspace.asRelativePath(uri) : uri.fsPath;
+            const size = stat.size || 0;
+            const rel  = vscode.workspace.asRelativePath(uri);
+            const fsPath = uri.fsPath || rel;
+            const baseName = fsPath.split(/[\\/]/).pop() || 'file';
+            const ext = (baseName.match(/\.[^.]+$/)?.[0] || '').toLowerCase();
 
-            if (stat.size <= MAX_INLINE) {
+            if (size <= MAX_INLINE) {
               const bytes = await vscode.workspace.fs.readFile(uri);
-              atts.push({
-                origin: 'workspace',
-                name: relPath.split(/[\\/]/).pop(),
-                path: relPath,             // utile al server per referenza
-                bytes_b64: Buffer.from(bytes).toString('base64')
-              });
+              if (TEXT_EXT.has(ext)) {
+                atts.push({
+                  origin: 'workspace',
+                  source: 'workspace',
+                  name: baseName,
+                  path: rel,
+                  content: Buffer.from(bytes).toString('utf8'),
+                  size,
+                  mime: 'text/plain'
+                });
+              } else {
+                atts.push({
+                  origin: 'workspace',
+                  source: 'workspace',
+                  name: baseName,
+                  path: rel,
+                  bytes_b64: Buffer.from(bytes).toString('base64'),
+                  size,
+                  mime: 'application/octet-stream'
+                });
+              }
             } else {
-              // grande: passa solo il path → il server far�  RAG
               atts.push({
                 origin: 'workspace',
-                name: relPath.split(/[\\/]/).pop(),
-                path: relPath
+                source: 'workspace',
+                name: baseName,
+                path: rel,
+                size,
+                mime: 'application/octet-stream'
               });
             }
           } catch (e) {
-            vscode.window.showWarningMessage(`Attach failed: ${e.message}`);
+            vscode.window.showWarningMessage(`Attach (workspace) failed: ${e?.message || e}`);
           }
         }
+
         panel.webview.postMessage({ type: 'attachmentsAdded', attachments: atts });
       }
+      // === REPLACE ENTIRE EXTERNAL PICKER HANDLER WITH THIS BLOCK ===
       if (msg.type === 'pickExternalFiles') {
+        const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+        if (!ws) {
+          panel.webview.postMessage({ type: 'busy', on: false });
+          vscode.window.showWarningMessage('No workspace open.');
+          return;
+        }
+
+        // Always copy into .clike/uploads so we ALWAYS have a workspace-relative path (RAG-friendly)
+        const uploadsDir = vscode.Uri.joinPath(ws.uri, '.clike', 'uploads');
+        try { await vscode.workspace.fs.createDirectory(uploadsDir); } catch (e) { /* ignore */ }
+
         const uris = await vscode.window.showOpenDialog({
-          canSelectFiles: true, canSelectFolders: false, canSelectMany: true,
-          openLabel: 'Attach'
+          canSelectFiles: true,
+          canSelectFolders: false,
+          canSelectMany: true,
+          openLabel: 'Attach (external)'
         });
         if (!uris) {
           panel.webview.postMessage({ type: 'busy', on: false });
-          return; 
+          return;
+        }
+
+        // Heuristics
+        const MAX_INLINE = 64 * 1024;
+        const TEXT_EXT = { '.md':1,'.txt':1,'.log':1,'.json':1,'.yml':1,'.yaml':1,'.csv':1,'.tsv':1,
+                          '.py':1,'.js':1,'.ts':1,'.java':1,'.go':1,'.rs':1,'.c':1,'.cpp':1,'.cs':1,
+                          '.sql':1,'.ini':1,'.toml':1,'.cfg':1 };
+        function extOf(name) {
+          const m = /(\.[^.]+)$/.exec((name || '').toLowerCase());
+          return m ? m[1] : '';
         }
 
         const atts = [];
-        for (const uri of uris) {
+
+        for (let i = 0; i < uris.length; i++) {
+          const uri = uris[i];
           try {
+            // Read original external file
             const bytes = await vscode.workspace.fs.readFile(uri);
-            atts.push({
-              origin: 'external',
-              name: uri.fsPath.split(/[\\/]/).pop(),
-              bytes_b64: Buffer.from(bytes).toString('base64')
-            });
+            const size = bytes.byteLength || 0;
+            const fsPath = uri.fsPath || '';
+            const baseName = fsPath.split(/[\\/]/).pop() || 'file';
+            const e = extOf(baseName);
+            const isText = !!TEXT_EXT[e];
+
+            // 1) ALWAYS copy inside workspace (.clike/uploads/<name>)
+            const dst = vscode.Uri.joinPath(uploadsDir, baseName);
+            await vscode.workspace.fs.writeFile(dst, bytes);
+
+            // 2) Build workspace-relative path (this is what backend/RAG will use)
+            const rel = vscode.workspace.asRelativePath(dst);
+
+            // 3) Create attachment with path ALWAYS present
+            const common = {
+              origin: 'workspace',          // now the file physically lives in workspace
+              source: 'workspace',
+              name: baseName,
+              path: rel,
+              size: size,
+              mime: isText ? 'text/plain' : 'application/octet-stream'
+            };
+
+            // 4) Optionally also include inline content for small files (kept in case you need it)
+            if (size <= MAX_INLINE) {
+              if (isText) {
+                atts.push(Object.assign({}, common, { content: Buffer.from(bytes).toString('utf8') }));
+              } else {
+                atts.push(Object.assign({}, common, { bytes_b64: Buffer.from(bytes).toString('base64') }));
+              }
+            } else {
+              atts.push(common);
+            }
           } catch (e) {
-            vscode.window.showWarningMessage(`Attach failed: ${e.message}`);
+            vscode.window.showWarningMessage('Attach (external) failed: ' + (e && e.message ? e.message : String(e)));
           }
         }
+
+        // Notify webview: attachments now have a valid `path` (and inline for small files)
         panel.webview.postMessage({ type: 'attachmentsAdded', attachments: atts });
       }
+
+
+
     } catch (err) {
       panel.webview.postMessage({ type: 'error', message: String(err) });
       panel.webview.postMessage({ type: 'busy', on: false });
