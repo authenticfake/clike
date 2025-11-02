@@ -151,6 +151,7 @@ For each REQ you implement, in addition to code and tests you must emit the exec
 
 **1. LLM Test Contract (LTC) REQUIRED**
 
+
 - Path: `runs/kit/<REQ-ID>/ci/LTC.json`
 ### Required fields
 - `version`: fixed string `"1.0"`

@@ -12,7 +12,12 @@ from services.llm_client import call_gateway_chat, call_gateway_generate
 import time as _time
 from copy import deepcopy as _deepcopy
 from services.rag_store import RagStore
-
+import docx
+from pdfminer.high_level import extract_text
+import openpyxl  # .xlsx
+import xlrd  # .xls (legacy)
+from pyxlsb import open_workbook as open_xlsb  # .xlsb (optional)
+from pptx import Presentation  # .pptx
 # --- Generated root selection -------------------------------------------------
 import uuid
 # compat: alcuni repo usano services.router, altri services.model_router
@@ -472,9 +477,8 @@ async def chat( req: Request):
     log.info("chat extension & body fileds: %s, %s",  inline_files, rag_files)
     # If no explicit files were provided, but we have generic attachments, partition them.
     if not inline_files and not rag_files and attachments:
-        inline_files, rag_files = await _decide_inline_or_rag(attachments)
+        inline_files, rag_files = await decide_inline_or_rag(attachments)
     
-    inline_files, rag_files = await _decide_inline_or_rag(attachments)
     log.info("chat attachments: %s, %s",  inline_files, rag_files)
 
 
@@ -588,47 +592,224 @@ def _fence(fname: str, content: str) -> str:
     elif fname.endswith(".go"): lang="go"
     elif fname.endswith(".java"): lang="java"
     return f"```{lang}\n# {fname}\n{content}\n```"
+def _b64_to_bytes(b64: Optional[str]) -> Optional[bytes]:
+    if not isinstance(b64, str) or not b64:
+        return None
+    try:
+        # strip data URLs if present
+        if b64.startswith("data:"):
+            head, _, rest = b64.partition(",")
+            b64 = rest
+        return base64.b64decode(b64, validate=False)
+    except Exception:
+        return None
 
-async def _decide_inline_or_rag(attachments: list[dict]) -> tuple[list[dict], list[dict]]:
+def _ext_from_path(p: str) -> str:
+    try:
+        return os.path.splitext((p or "").strip())[1].lower()
+    except Exception:
+        return ""
+# --- ADD: extraction helpers ---
+def _extract_text_from_pdf_bytes(raw: bytes) -> str:
+    # pdfminer.six
+    try:
+        return extract_text(io.BytesIO(raw)) or ""
+    except Exception as e:
+        log.warning("PDF extract failed: %s", e)
+        return ""
+    
+
+
+def _extract_text_from_docx_bytes(raw: bytes) -> str:
+    # python-docx
+    try:
+        doc = docx.Document(io.BytesIO(raw))
+        parts = []
+        # paragraphs
+        for p in doc.paragraphs:
+            t = (p.text or "").strip()
+            if t:
+                parts.append(t)
+        # tables (cells)
+        for tbl in getattr(doc, "tables", []):
+            for row in tbl.rows:
+                for cell in row.cells:
+                    t = (cell.text or "").strip()
+                    if t:
+                        parts.append(t)
+        return "\n".join(parts)
+    except Exception as e:
+        log.warning("DOCX extract failed: %s", e)
+        return ""
+def _extract_text_from_xlsx_bytes(raw: bytes) -> str:
+    if not openpyxl:
+        log.warning("openpyxl non disponibile: skip xlsx")
+        return ""
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(raw), data_only=True, read_only=True)
+        parts = []
+        for ws in wb.worksheets:
+            parts.append(f"# Sheet: {ws.title}")
+            for row in ws.iter_rows(values_only=True):
+                cells = [str(c) if c is not None else "" for c in row]
+                line = "\t".join(cells).strip()
+                if line:
+                    parts.append(line)
+        return "\n".join(parts)
+    except Exception as e:
+        log.warning("XLSX extract failed: %s", e)
+        return ""
+
+def _extract_text_from_xls_bytes(raw: bytes) -> str:
+    # Richiede xlrd>=2.0 (legge solo .xls)
+    if not xlrd:
+        log.warning("xlrd non disponibile: skip xls")
+        return ""
+    try:
+        book = xlrd.open_workbook(file_contents=raw)
+        parts = []
+        for si in range(book.nsheets):
+            sh = book.sheet_by_index(si)
+            parts.append(f"# Sheet: {sh.name}")
+            for r in range(sh.nrows):
+                row = [str(sh.cell_value(r, c)) for c in range(sh.ncols)]
+                line = "\t".join(row).strip()
+                if line:
+                    parts.append(line)
+        return "\n".join(parts)
+    except Exception as e:
+        log.warning("XLS extract failed: %s", e)
+        return ""
+
+def _extract_text_from_xlsb_bytes(raw: bytes) -> str:
+    if not open_xlsb:
+        log.warning("pyxlsb non disponibile: skip xlsb")
+        return ""
+    try:
+        parts = []
+        with open_xlsb(io.BytesIO(raw)) as wb:
+            for sheet_name in wb.sheets:
+                parts.append(f"# Sheet: {sheet_name}")
+                with wb.get_sheet(sheet_name) as sh:
+                    for row in sh.rows():
+                        vals = [str(c.v) if c.v is not None else "" for c in row]
+                        line = "\t".join(vals).strip()
+                        if line:
+                            parts.append(line)
+        return "\n".join(parts)
+    except Exception as e:
+        log.warning("XLSB extract failed: %s", e)
+        return ""
+
+def _extract_text_from_pptx_bytes(raw: bytes) -> str:
+    if not Presentation:
+        log.warning("python-pptx non disponibile: skip pptx")
+        return ""
+    try:
+        prs = Presentation(io.BytesIO(raw))
+        parts = []
+        for i, slide in enumerate(prs.slides, start=1):
+            parts.append(f"# Slide {i}")
+            for shape in slide.shapes:
+                if hasattr(shape, "text_frame") and shape.text_frame:
+                    for para in shape.text_frame.paragraphs:
+                        text = "".join(run.text or "" for run in para.runs).strip()
+                        if text:
+                            parts.append(text)
+                elif hasattr(shape, "text") and shape.text:
+                    t = (shape.text or "").strip()
+                    if t:
+                        parts.append(t)
+        return "\n".join(parts)
+    except Exception as e:
+        log.warning("PPTX extract failed: %s", e)
+        return ""
+
+async def decide_inline_or_rag(attachments: list[dict]) -> tuple[list[dict], list[dict]]:
     """
-    Regole:
-      - se size_kb >= RAG_SIZE_THRESHOLD_KB => vai in RAG (a prescindere dal budget)
-      - altrimenti, se c'è 'content' e c'è budget inline => inline
-      - in tutti gli altri casi => RAG (con bytes_b64 se presente)
+    Allineato all'estensione (partitionAttachments):
+      - inline se a.content o a.bytes_b64 presenti
+      - altrimenti, se a.path presente => RAG by path
+      - altrimenti ignora (log warning)
+    Niente soglie di size, niente budget qui (per coerenza end-to-end).
     """
     inline, rag = [], []
     if not attachments:
         return inline, rag
 
-    budget = INLINE_MAX_TOTAL_KB
     for a in attachments:
         if not isinstance(a, dict):
             continue
-        size = int(a.get("size") or 0)
-        size_kb = _kb(size)
-        name = a.get("name") or a.get("path") or "file"
-        content = a.get("content")
-        bytes_b64 = a.get("bytes_b64")
-        origin = a.get("origin")
-        path = a.get("path")
-        log.info("decide inline or rag: %s", json.dumps({"name": name, "size": size, "size_kb": size_kb, "bytes_b64": bytes_b64, "origin": origin}, ensure_ascii=False))
-        # 1) se oltre soglia → RAG
-        if size_kb >= RAG_SIZE_THRESHOLD_KB:
-            rag.append({"name": name, "path": path, "bytes_b64": bytes_b64, "size": size, "origin": origin})
-            continue
 
-        # 2) inline se possibile
-        if isinstance(content, str) and content and size_kb <= INLINE_MAX_FILE_KB and (budget - size_kb) >= 0:
-            inline.append({"name": name, "content": content})
-            budget -= size_kb
+        name   = a.get("name") or a.get("path") or "file"
+        path   = a.get("path")
+        origin = a.get("origin") or a.get("source")  # normalizza
+        content    = a.get("content")
+        bytes_b64  = a.get("bytes_b64")
+
+        # Nota: evitiamo di loggare la base64 (solo boolean), per non intasare i log
+        log.info("decide inline or rag: %s",
+                 json.dumps({
+                     "name": name,
+                     "has_content": bool(content),
+                     "has_bytes_b64": bool(bytes_b64),
+                     "path": path,
+                     "origin": origin
+                 }, ensure_ascii=False))
+
+        if content or bytes_b64:
+            # Inline esattamente come fa l’estensione
+            if bytes_b64:
+                raw = _b64_to_bytes(bytes_b64)
+                if raw:
+                    ext = _ext_from_path(path)
+                    if ext == ".pdf":
+                        log.info("inline: PDF")
+                        txt = _extract_text_from_pdf_bytes(raw)
+                    elif ext == ".docx":
+                        log.info("inline DOCX")
+                        txt = _extract_text_from_docx_bytes(raw)
+                    elif ext == ".xlsx":
+                        log.info("inline: XLSX")
+                        txt = _extract_text_from_xlsx_bytes(raw)
+                    elif ext == ".xls":
+                        log.info("inline: XLS (legacy)")
+                        txt = _extract_text_from_xls_bytes(raw)
+                    elif ext == ".xlsb":
+                        log.info("inline: XLSB")
+                        txt = _extract_text_from_xlsb_bytes(raw)
+                    elif ext == ".pptx":
+                        log.info("inline: PPTX")
+                        txt = _extract_text_from_pptx_bytes(raw)
+                    else:
+                        # fallback: se è testo “grezzo” o sconosciuto, prova a decodare come utf-8
+                        try:
+                            txt = raw.decode("utf-8", errors="ignore")
+                        except Exception:
+                            txt = ""
+                  
+                    log.info("inline file %s -> %d chars", path, len(txt))
+                    content = txt
+
+            inline.append({
+                "name": name,
+                "path": path,          # opzionale (può servire per tracciabilità)
+                "content": content,    # può essere None
+                "bytes_b64": bytes_b64,# può essere None
+                "origin": origin
+            })
+        elif path:
+            # RAG by path, minimale (non inoltriamo bytes_b64 per non gonfiare la payload)
+            rag.append({
+                "name": name,
+                "path": path,
+                "origin": origin
+            })
         else:
-            # 3) fallback → RAG
-            rag.append({"name": name, "path": path, "bytes_b64": bytes_b64, "size": size, "origin": origin})
+            log.warning("Attachment senza content/bytes_b64 e senza path: ignorato: %s", name)
 
-    log.info("attachments routing %s", json.dumps({
-        "inline": len(inline), "rag": len(rag),
-        "budget_left_kb": max(0, budget)
-    }, ensure_ascii=False))
+    log.info("attachments routing %s",
+             json.dumps({"inline": len(inline), "rag": len(rag)}, ensure_ascii=False))
     return inline, rag
 
 
@@ -777,8 +958,6 @@ async def generate(req: Request):
     if not inline_files and not rag_files and attachments:
         inline_files, rag_files = await _decide_inline_or_rag(attachments)
     
-
-
     # RAG query dall’ultimo user
     user_query = ""
     for m in reversed(messages):

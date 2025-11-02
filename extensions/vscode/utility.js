@@ -63,6 +63,7 @@ async function copyFile(from, to) {
  */
 async function copyTreeWithConflicts(srcRoot, destRoot, { strategy, reqId, ts, log }) {
   const actions = [];
+  const filesToCommit = [] //file to be commit after the promotion
   const diffs = []; // [{left: existingUri, right: incomingUri, label}]
 
   async function ensureDir(u) {
@@ -84,6 +85,7 @@ async function copyTreeWithConflicts(srcRoot, destRoot, { strategy, reqId, ts, l
     if (!dstExists) {
       await copyFile(src, dst);
       actions.push({ op: 'copy', from: src.path, to: dst.path });
+      filesToCommit.push(src.path)
       continue;
     }
 
@@ -125,8 +127,8 @@ async function copyTreeWithConflicts(srcRoot, destRoot, { strategy, reqId, ts, l
     }
   }
 
-  log(`[promote] actions=${actions.length}, diffs=${diffs.length}`);
-  return { actions, diffs };
+  log(`[copyTreeWithConflicts] actions=${actions.length}, diffs=${diffs.length} files=${filesToCommit.length}`);
+  return { actions, diffs, filesToCommit };
 }
 
 /** QuickPick strategy selector with helpful descriptions. */
@@ -189,8 +191,7 @@ async function promoteReqSources(projectRootUri, reqId, strategy = 'folder', out
     await vscode.workspace.fs.createDirectory(destRoot);
   }
 
-  const { actions, diffs } = await copyTreeWithConflicts(srcDir, destRoot, { strategy, reqId, ts, log });
-
+  const { actions, diff, filesToCommit } = await copyTreeWithConflicts(srcDir, destRoot, { strategy, reqId, ts, log });
   // Build/write manifest
   const manifest = {
     req_id: reqId,
@@ -206,7 +207,7 @@ async function promoteReqSources(projectRootUri, reqId, strategy = 'folder', out
   const manifestUri = vscode.Uri.joinPath(manifestDir, `promotion_manifest_${ts}.json`);
   await vscode.workspace.fs.writeFile(manifestUri, Buffer.from(JSON.stringify(manifest, null, 2), 'utf8'));
 
-  return { manifestUri, actions, diffs };
+  return { manifestUri, actions, diff, filesToCommit };
 }
 
 /**
@@ -219,6 +220,7 @@ async function promoteReqSources(projectRootUri, reqId, strategy = 'folder', out
  */
 async function runPromotionFlow(projectRootUri, reqId, out) {
   const log = mkLog(out);
+  var filesToCommit = []
   try {
     // Step 1: REQ id
     let target = (reqId || '').trim();
@@ -245,9 +247,16 @@ async function runPromotionFlow(projectRootUri, reqId, out) {
       const r = await promoteReqSources(projectRootUri, target, strategy, out);
       return r;
     });
-
+    
     if (!result) return;
     const { manifestUri, actions, diffs } = result;
+    const _filesToCommit = result.filesToCommit;
+    
+    if (_filesToCommit) {
+      filesToCommit.push(..._filesToCommit);
+      log(`[runPromotionFlow]  filesToCommit=${filesToCommit.length}`);
+    }
+   
 
     // Step 4: Notify & post-actions
     const choice = await vscode.window.showInformationMessage(
@@ -262,9 +271,10 @@ async function runPromotionFlow(projectRootUri, reqId, out) {
       await openDiffs(diffs);
     }
   } catch (e) {
-    log('[promote] ERROR:', e?.message || String(e));
+    log('[runPromotionFlow] ERROR:', e?.message || String(e));
     vscode.window.showErrorMessage(`[promote] ${e?.message || e}`);
   }
+  return filesToCommit
 }
 
 
@@ -745,7 +755,7 @@ async function saveEvalCommand(projectRootUri, plan, targetReqId, report, out) {
   if (!effectivePlan || !Array.isArray(effectivePlan.reqs)) return;
   
 
-  await persistReports(projectRootUri, "eval", report, out)
+  const report_file = await persistReports(projectRootUri, "eval", report, out)
   log(`[saveEvalCommand] persistReports done`);
   // opzionale: se non è ancora in_progress → mettilo
   const req = effectivePlan.reqs.find(r => (r.id || '').toUpperCase() === targetReqId.toUpperCase());
@@ -755,6 +765,7 @@ async function saveEvalCommand(projectRootUri, plan, targetReqId, report, out) {
     await updatePlanMdInPlace(projectRootUri, effectivePlan);
     log(`[PLAN synced to in_progress] ${targetReqId}`);
   }
+  return report_file
 }
 // In utility.js (o dove hai definito persistReports)
 async function persistReports(projectRootUri, phase, rep, out) {
@@ -830,7 +841,7 @@ async function persistReports(projectRootUri, phase, rep, out) {
     log('[persistReports] ERROR writing JSON:', e?.message || String(e));
     vscode.window.showErrorMessage(`[persistReports] cannot write JSON: ${e?.message || e}`);
   }
-
+  return jsonUri
   // Se l’orchestrator ha già scritto dei file (rep.json_path, rep.junit_path), puoi opzionalmente copiarli qui.
   // Esempio (facoltativo):
   // if (rep.json_path) {
@@ -860,7 +871,8 @@ async function saveGateCommand(projectRootUri, plan, targetReqId,report, out) {
 
   await writePlanJson(projectRootUri, effectivePlan);
   await updatePlanMdInPlace(projectRootUri, effectivePlan);
-  await persistReports(projectRootUri, "gate", report, out)
+  const report_file = await persistReports(projectRootUri, "gate", report, out)
+  var filesToCommit = []
   if (report.gate.toLowerCase()==='pass') {
     log("[saveGateCommand] Gate passed for " + targetReqId);
     const choice = await vscode.window.showInformationMessage(
@@ -869,10 +881,12 @@ async function saveGateCommand(projectRootUri, plan, targetReqId,report, out) {
       'Cancel'
     );
     if (choice === 'Promote') {
-      await runPromotionFlow(projectRootUri, targetReqId, out);
+      filesToCommit = await runPromotionFlow(projectRootUri, targetReqId, out);
+      log("[saveGateCommand] filesToCommit " + filesToCommit);
     }
   }
   try { vscode.window.showInformationMessage(`REQ ${targetReqId} marked as done.`); } catch {}
+  return { report_file, filesToCommit }
 }
 /**
  * Trova l'ultimo REQ (per mtime) sotto runs/kit, pattern "REQ-*".
@@ -1194,6 +1208,8 @@ function extractUserMessages(sessionData) {
 
 function defaultCoreForPhase(phase) {
   switch ((phase||'').toLowerCase()) {
+     case "idea":
+      return [];
     case "spec":
       return [];
     case "plan":
@@ -1470,6 +1486,36 @@ async function getFileSizeBytes(filePath) {
   }
 }
 
+function normalizeChangedFiles(reportUri, promotedTargets) {
+  const list = [];
+  if (reportUri) {
+    try { list.push(toFsPath(reportUri)); } catch { list.push(String(reportUri)); }
+  }
+  // promotedTargets può essere array di path o stringa con virgole
+  const toArray = (val) => {
+    if (!val) return [];
+    if (Array.isArray(val)) return val;
+    if (typeof val === 'string') return val.split(',').map(s => s.trim()).filter(Boolean);
+    return [String(val)];
+  };
+  for (const p of toArray(promotedTargets)) {
+    if (!p) continue;
+    try { list.push(toFsPath(p)); } catch { list.push(String(p)); }
+  }
+  return list.filter(Boolean);
+}
+
+const sanitize = (x) => {
+  if (!x) return '';
+  if (x.fsPath) return x.fsPath;                 // vscode.Uri
+  const s = String(x);
+  if (s.startsWith('file://')) {
+    try { return decodeURI(new URL(s).pathname); }
+    catch { return s.replace(/^file:\/\//, ''); }
+  }
+  return s;
+};
+
 module.exports = {
 
   buildHarperBody,
@@ -1493,6 +1539,8 @@ module.exports = {
   normalizeAttachment,
   safeLog,
   readWorkspaceTextFile,
-  getFileSizeBytes
+  getFileSizeBytes,
+  normalizeChangedFiles,
+  sanitize
 
 };

@@ -53,24 +53,21 @@ BEGIN_FILE docs/harper/PLAN.md
 - **Out of scope / Deferred:** concise boundaries
 
 ## REQ-IDs Table
-### REQ-IDs Table
+###  REQ-IDs Table
 
 Return this section strictly as a **canonical Markdown table** using pipes with **one header row** and **one separator row**.
 **Columns (exact order and names):**
-- `ID` | `Title` | `Acceptance (≤3 bullets)` | `DependsOn [IDs]` | `Track` | `Status`
+- `ID` | `Title` | `Acceptance (bullets)` | `DependsOn [IDs]` | `Track` | `Status`
 
-**Rules (rendering & brevity):**
-- Each table row MUST be on a **single physical line** starting and ending with a pipe `|`.
-- The **only** line breaks allowed inside a cell are HTML `<br>`; DO NOT insert Markdown hard wraps.
-- In `Acceptance (≤3 bullets)`: provide **max 3 bullets**, each ≤ 10 words, no punctuation besides commas, separated by `<br>`.
-- Keep `Title` ≤ 8–10 words; avoid parentheses and arrows.
+**Rules:**
 - IDs start with `REQ-` and are stable.
+- Acceptance bullets short & testable, separated by `<br>` within the cell.
 - `Track=App` rows must be **/kit-ready**.
+- Apply the Prnciples listeve above -see: `Principles to be applied during REQs Defintion and Planning` section for generating the plans
 
 **After the table**, for each REQ add:
 `### Acceptance — <REQ-ID>`
-- A separate bullet list (≥5 items), observable & falsifiable, full detail (this is where you expand).
-
+- separate bullet list (not inside the table) with observable criteria (min 5).
 
 ## Dependency Graph (textual)
 Adjacency list (e.g., `REQ-003 -> REQ-001, REQ-002`)
@@ -134,27 +131,8 @@ Use this exact structure:
 END_FILE
 
 ---
-
-# Lane Detection — Canonical mapping (deterministic)
-
-Derive lanes from `TECH_CONSTRAINTS.yaml` using these rules:
-- `runtime: python` → lane `python`
-- `storage: postgres` → lane `sql`
-- `messaging: kafka` → lane `kafka`
-- `ci.ci: jenkins` → lane `ci`
-- Any platform/ingress/idp/secrets (k8s, nginx, kong, keycloak, vault) → lane `infra`
-
-**You MUST:**
-
-- Detect lanes from  TECH_CONSTRAINTS.yaml.
-- For each detected lane, write `docs/harper/lane-guides/<lane>.md` including:
-  - Tools per category: tests, lint, types, security, build.
-  - CLI examples (local and containerized).
-    - Default **gate policy** (thresholds, severities).
-  - Enterprise runner notes (e.g.:SonarQube, Jenkins/GitLab/Azure) + where to fetch artifacts.
-  - Integration of TECH_CONSTRAINTS (air-gap, internal registries, tokens).
-
-Emit **one file per detected lane** using the following stub if needed (keep concise):
+## LTC.json — Output Schema (Mandatory)
+For each detected lane from `TECH_CONSTRAINTS.yaml`, write `docs/harper/lane-guides/<lane>.md`
 
 BEGIN_FILE docs/harper/lane-guides/<lane>.md
 ## Lane Guide — <lane>
@@ -175,21 +153,37 @@ BEGIN_FILE docs/harper/lane-guides/<lane>.md
 - max criticals: …
 
 ### Enterprise Runner Notes
-- SonarQube: …
-- Jenkins: …
+for each tools, the correct description and usage to be applied
 
 ### TECH_CONSTRAINTS integration
 - air-gap: …
 - registries: …
 
 
+### Hard rules (MANDATORY)
+Derive lanes from `TECH_CONSTRAINTS.yaml` using these rules as model to be applied:
+- `runtime: python` → lane `python`
+- `storage: postgres` → lane `sql`
+- `messaging: kafka` → lane `kafka`
+- `ci.ci: jenkins` → lane `ci`
+- Any platform/ingress/idp/secrets (k8s, nginx, kong, keycloak, vault) → lane `infra`
 
-END_FILE
+**You MUST:**
 
-### Lane rules (MANDATORY)
+- Detect lanes from  TECH_CONSTRAINTS.yaml.
+- For each detected lane from `TECH_CONSTRAINTS.yaml`, write `docs/harper/lane-guides/<lane>.md` including:
+  - Tools per category: tests, lint, types, security, build.
+  - CLI examples (local and containerized).
+    - Default **gate policy** (thresholds, severities).
+  - Enterprise runner notes (e.g.:SonarQube, Jenkins/GitLab/Azure) + where to fetch artifacts.
+  - Integration of TECH_CONSTRAINTS (air-gap, internal registries, tokens).
+
+Emit **one file per detected lane** using the following stub if needed (keep concise):
 - If lanes detected ≥ 1: **emit at least the stub for each lane**.
 - If no lanes detected: write the rationale under PLAN.md → Notes.
 - Each section must be commented on and detailed.
+
+END_FILE 
 
 ## Mandatory quality bars
 - Acceptance bullets ≥ 5, observable & falsifiable.

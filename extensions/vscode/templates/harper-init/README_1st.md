@@ -44,7 +44,15 @@ runs/           # manifests, diffs, test logs
 6. FINALIZE → tag release (e.g., \`v0.1.0\`) + FINAL_REPORT.md.
 
 ## Next steps
+
+### Prerequisite Steps for using Git:
+-  brew install gh
+-  gh auth login
+- gh auth setup-git
+- git ls-remote origin
+
 Init ${project.name} gith repository
+
 1. git init
 2. git add .
 3. git commit -m "chore(init): bootstrap Harper workspace from CLike template"
@@ -53,9 +61,10 @@ Init ${project.name} gith repository
 6. git push -u origin master
 
 Start ${project.name} harper approach
-7. Open \`docs/harper/IDEA.md\` and complete it.
-8. Run \`/spec\` to generate \`SPEC.md\`.
-9. Review SPEC, then run \`/plan\`.
-10. Start \`/kit\` /\`/build\` cycles, verify gates, iterate.
+
+1. Open \`docs/harper/IDEA.md\` and complete it.
+2. Run \`/spec\` to generate \`SPEC.md\`.
+3. Review SPEC, then run \`/plan\`.
+4. Start \`/kit\` /\`/build\` cycles, verify gates, iterate.
 
 > Attachments in CLike are **supportive** only. Core docs from \`docs/harper/\` are **always** included in context.

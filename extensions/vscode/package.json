@@ -201,6 +201,30 @@
           "default": true,
           "description": "If true, auto-commit changes after apply."
         },
+        "clike.git.gitMergeOnGate": {
+          "type": "boolean",
+          "default": true,
+          "description": "If true, merge changes on gate."
+        },
+
+        "clike.git.gitDeleteBranchOnMerge": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, delete branch on merge."
+        },
+
+         "clike.git.gitReturnToFeatureAfterMerge": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, return to feature branch after merge."
+        },
+
+        "clike.git.remoteUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Optional remote URL to set (e.g., git@github.com:org/repo.git). If empty, Clike will not add/set the remote automatically."
+        },
+
         "clike.git.commitMessage": {
           "type": "string",
           "default": "clike: apply patch (AI)",
