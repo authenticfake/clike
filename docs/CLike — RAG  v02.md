@@ -200,10 +200,3 @@ A: Yes, but we currently recommend **manual** via `/ragIndex` for maximum contro
 
 **Q: Can I index PDFs?**
 A: Yes, provided the Orchestrator has a text extractor; scanned PDFs need OCR first.
-
-```
-
----
-
-Se vuoi, aggiungo anche un link a `docs/RAG.md` nel README dell’estensione e un “Quick test” che rimanda alla Postman collection. Dimmi solo se lo desideri.
-```
