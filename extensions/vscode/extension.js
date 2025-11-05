@@ -2085,7 +2085,7 @@ function handleSlash(slash) {
       msg.name = slash.args.name || ''
     }
     vscode.postMessage(msg);
-    // ⬇️ SVUOTA ALLEGATI DELLA MODE CORRENTE DOPO L’INVIO
+    //  SVUOTA ALLEGATI DELLA MODE CORRENTE DOPO L’INVIO
     attachmentsByMode[currentMode()] = [];
     renderAttachmentChips();
     
@@ -3021,6 +3021,7 @@ async function cmdOpenChat(context) {
           //log(`[harperRun] body (core_blobs):`,  JSON.stringify(body.core_blobs))
           if (activeProvider) _headers["X-CLike-Provider"] = activeProvider
           const outGateway = await callHarper(cmd, body, _headers);
+          panel.webview.postMessage({ type: 'busy', on: false });
 
           const _out  = outGateway.out;
           // 3) POST-RUN: persisti esito (riassunto + eventuale echo/testo)
@@ -3064,6 +3065,7 @@ async function cmdOpenChat(context) {
             );
             } catch (err) {
               log(`[harperRun] gitSync error ${err}`);
+
             }
           }
           // Tests summary
@@ -3777,8 +3779,8 @@ async function cmdOpenChat(context) {
       }
 
 
-
     } catch (err) {
+      
       panel.webview.postMessage({ type: 'error', message: String(err) });
       panel.webview.postMessage({ type: 'busy', on: false });
     }

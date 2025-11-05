@@ -51,29 +51,6 @@ _FILE_BLOCK_BEGIN_RE = re.compile(
     re.DOTALL | re.IGNORECASE
 )
 
-# --- finalize helpers ---------------------------------------------------------
-def _extract_file_blocks_any(text: str):
-    """Estrae blocchi file sia fenced che plain o BEGIN/END_FILE."""
-    files = []
-    for rx in (_FILE_BLOCK_FENCED_RE, _FILE_BLOCK_PLAIN_RE, _FILE_BLOCK_BEGIN_RE):
-        for m in rx.finditer(text or ""):
-            path = (m.group(1) or "").strip()
-            body = (m.group(2) or "").strip()
-            if path and body:
-                files.append({"path": path, "content": body})
-    return files
-
-def _release_notes_fallback(text: str):
-    """Se il modello non ha emesso un file-block, incarta l'output come RELEASE_NOTES.md."""
-    return [{
-        "path": "docs/harper/RELEASE_NOTES.md",
-        "content": (text or "").strip(),
-        "mime": "text/markdown",
-        "language": "markdown",
-        "encoding": "utf-8",
-    }]
-
-
 # --- Model parameters per phase (output budget & style) ----------------------
 PHASE_MODEL_PARAMS = {
     "idea":     {"max_tokens": 9500, "temperature": 0.25, "top_p": 1.0},
@@ -868,7 +845,7 @@ async def _append_attachs_by_files(messages: list[dict], project_id: str, paths:
         f"#### {m['title']}\n{m['text']}" for m in materials[:max_materials]
     )
     # appendiamo al messaggio 'user' (index 1 by contract)
-    log.info("FILES appendix '%s' ", appendix)
+    #log.info("FILES appendix '%s' ", appendix)
     messages[1]["content"] += appendix
     return len(materials[:max_materials])
 
@@ -1372,6 +1349,7 @@ async def run(req: HarperRunRequest,  request: Request):
 
     text_len=0
     log.info("harper.gateway llm_text length '%s' ", len(llm_text))
+    log.info("harper.gateway llm_text  '%s' ", (llm_text))
     # system_md_txt = ""
     # system_md_txt, llm_usage = oai.coerce_text_and_usage(llm_text)
     # system_md_txt = (system_md_txt or "").strip()
