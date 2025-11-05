@@ -10,14 +10,47 @@ ENV PYTHONPATH=/app
 ARG ENABLE_JAVA=true
 ARG ENABLE_NODE=true
 
-# ===== System deps di base =====
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates git openssh-client \
-    bash coreutils findutils \
-    gcc g++ make \
-    # util per debug/health (opzionale)
-    procps \
-  && rm -rf /var/lib/apt/lists/*
+# # ===== System deps di base =====
+# RUN apt-get update && apt-get install -y --no-install-recommends \
+#     curl ca-certificates git openssh-client \
+#     bash coreutils findutils \
+#     gcc g++ make \
+#     # util per debug/health (opzionale)
+#     procps \
+#   && rm -rf /var/lib/apt/lists/*
+# Harden APT against flaky mirrors/CDN
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN set -eux; \
+    # Detect codename (e.g., trixie/bookworm)
+    codename="$(. /etc/os-release && echo "${VERSION_CODENAME:-bookworm}")"; \
+    # Ensure APT sources exist and use HTTPS (handles both classic and deb822 formats)
+    if [ -f /etc/apt/sources.list ]; then \
+        sed -i -E 's|http://([^ ]+)|https://\1|g' /etc/apt/sources.list; \
+    elif ls /etc/apt/sources.list.d/*.sources >/dev/null 2>&1; then \
+        sed -i -E 's|^(URIs:\s*)http://|\1https://|g' /etc/apt/sources.list.d/*.sources; \
+    else \
+        printf "deb https://deb.debian.org/debian %s main\n" "$codename" > /etc/apt/sources.list; \
+        printf "deb https://deb.debian.org/debian %s-updates main\n" "$codename" >> /etc/apt/sources.list; \
+        printf "deb https://security.debian.org/debian-security %s-security main\n" "$codename" >> /etc/apt/sources.list; \
+    fi; \
+    # (opzionale) forzare mirror Cloudflare se i 500 persistono
+    # if grep -q deb.debian.org /etc/apt/sources.list 2>/dev/null; then sed -i 's|deb.debian.org|cloudflare.debian.org|g' /etc/apt/sources.list; fi; \
+    # if ls /etc/apt/sources.list.d/*.sources >/dev/null 2>&1; then sed -i 's|deb.debian.org|cloudflare.debian.org|g' /etc/apt/sources.list.d/*.sources; fi; \
+    # APT hardening: retry, timeouts, no-cache (abilita ForceIPv4 se la tua rete rompe IPv6)
+    printf 'Acquire::Retries "5";\nAcquire::http::No-Cache "true";\nAcquire::https::No-Cache "true";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\n' > /etc/apt/apt.conf.d/99-retries; \
+    # echo 'Acquire::ForceIPv4 "true";' > /etc/apt/apt.conf.d/99-force-ipv4; \
+    # Update + install with retries
+    apt-get update; \
+    for i in 1 2 3 4 5; do \
+        apt-get install -y --no-install-recommends \
+            curl ca-certificates git openssh-client \
+            bash coreutils findutils \
+            gcc g++ make procps \
+        && break || (echo "apt install failed, retry $i/5"; sleep 5; apt-get update); \
+    done; \
+    rm -rf /var/lib/apt/lists/*
+
 
 # ===== Java (facoltativo) =====
 # openjdk-17-jre-headless non è più disponibile -> usa OpenJDK 21

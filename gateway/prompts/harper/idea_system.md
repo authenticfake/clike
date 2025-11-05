@@ -56,7 +56,7 @@ BEGIN_FILE docs/harper/IDEA.md
 
 # IDEA — <Project Name>
 
-## Vision (Business Translator)
+## Vision
 In 2–4 sentences, state:
 - The immediate business value (cost/time/error reduction, new revenue, risk mitigation).
 - The promised user experience (speed, simplicity, transparency) and why it matters.

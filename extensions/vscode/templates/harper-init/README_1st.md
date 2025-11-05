@@ -56,9 +56,10 @@ Init ${project.name} gith repository
 1. git init
 2. git add .
 3. git commit -m "chore(init): bootstrap Harper workspace from CLike template"
-4. git remote add origin https://github.com/<ORG>/<REPO>.git
+4. git remote add origin https://github.com/<ORG>/${project.name}.git
 5. git config --global credential.helper osxkeychain 
-6. git push -u origin master
+6. git branch -M master
+7. git push -u origin master
 
 Start ${project.name} harper approach
 
