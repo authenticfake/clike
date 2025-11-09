@@ -16,8 +16,6 @@
 ### Evals & Gates
 /eval spec | plan | kit | finalize — run eval profile  
 /gate spec | plan | kit | finalize — enforce gates  
-/syncConstraints docs/harper/SPEC.md — sync constraints  
-/planUpdate REQ-xxx runs/<ts>/eval/kit.report.json — update PLAN checklist
 
 ## On-Prem Expectations
 - SPEC contains **Technology Constraints** for on-prem: Kubernetes + NGINX ingress, WSO2 APIM, Keycloak (OIDC), Kafka, PostgreSQL, Vault, Prometheus/Grafana.
@@ -26,6 +24,6 @@
 - PRs require green checks (SPEC/PLAN/KIT Gates) prior to merging.
 
 ## Quick checklist before `/kit`
-- SPEC approved and promoted to `SPEC.md`; `/syncConstraints` done.  
+- SPEC approved and promoted to `SPEC.md`;
 - PLAN approved with traceability and test hooks.  
 - On-prem dev env configured: kube context, Keycloak realm, WSO2 route, Vault policy, Kafka/Postgres connectivity.

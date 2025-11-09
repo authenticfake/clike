@@ -4,6 +4,7 @@ services:
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     environment:
       - MODELS_CONFIG=/workspace/configs/models.yaml
+      - HARPER_TELEMETRY_DIR=/workspace/telemetry
       - GATEWAY_DUMP_DIR=/app/runs/gateway_dumps
       - RAG_TOP_K=12
       - TIMEOUT=500.0

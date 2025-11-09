@@ -199,11 +199,12 @@ async def post_plan(req: HarperPhaseRequest):
     # Delego al service che farà SOLO il merge del modello/profilo, senza perdere campi
     out_dict = await svc.run_phase("plan", payload)
     out = None
+    log.info("post_plan out files len: %s", len(out_dict.get("files")));
     try: 
         out = HarperRunResponse(
             ok=bool(out_dict.get("ok", True)),
-            phase=out_dict.get("phase") or "spec",
-            echo=out_dict.get("echo"),
+            phase=out_dict.get("phase") or "plan",
+            echo="Plan phase: %s" % out_dict.get("echo"),
             text=out_dict.get("text"),
             files=[FileArtifact(**f) for f in (out_dict.get("files") or [])],
             diffs=[DiffEntry(**d) for d in (out_dict.get("diffs") or [])],
@@ -308,7 +309,7 @@ async def post_build_next(req: HarperPhaseRequest):
         warnings=out_dict.get("warnings") or [],
         errors=out_dict.get("errors") or [],
         runId=out_dict.get("runId"),
-        telemetry=out_dict.get("telemetry"),
+        telemetry=out_dict.get("telemetry")
     )
     # Retro-compat: spec_md, se disponibile (primo file markdown) oppure None
     release_notes_md = None

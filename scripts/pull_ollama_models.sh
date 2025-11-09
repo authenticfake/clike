@@ -5,16 +5,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Modelli da scaricare (aggiungi/sostituisci qui)
+# Modelli da scaricare
 MODELS=(
   "llama3"
   "nomic-embed-text"
 #  "gpt-oss"
 #  "codellama:34b"
 #  "deepseek-coder:33b"
+#da fabio fanta: starcoder, codegeex4, yi-coder -> *** to be read ***
 )
 
-# Se stai usando docker compose, pulla DENTRO il container
 if docker compose ps ollama >/dev/null 2>&1; then
   echo "[i] Using docker compose (service: ollama)"
   for m in "${MODELS[@]}"; do
