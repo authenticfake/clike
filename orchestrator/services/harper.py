@@ -113,10 +113,10 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
         log.warning("harper.routing failed (%s) → proceeding with provided 'model'=%s", e, model_override)
 
     # runId di default se manca
-    merged.setdefault("runId", f"{phase}")
+    merged.setdefault("runId", f"{merged.get('runId')}")
 
     out = await _post_json("/v1/harper/run", merged)
-    log.info("GATEWAY RES keys=%s files=%d text=%s",
+    log.info("GATEWAY HARPER RUN RES keys=%s files=%d text=%s",
              ",".join(sorted(out.keys())),
              len(out.get("files") or []),
              "yes" if out.get("text") else "no")

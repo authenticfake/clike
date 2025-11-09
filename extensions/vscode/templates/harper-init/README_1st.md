@@ -9,14 +9,14 @@ Harper is an outcome-driven, AI-native workflow: IDEA → SPEC → PLAN → KIT 
 - Open the **CLike Chat** panel. Use \`/help\` to see commands.
 - Modes: *harper* (planning/generation), *coding* (implementation), *free* (Q&A).
 - Commands:
+  - \`/idea\`: generate/update IDEA from scratch/attachs.
   - \`/spec\`: generate/update SPEC from IDEA.
   - \`/plan\`: generate/update PLAN from SPEC.
   - \`/kit\`, \`/build\`: implement & test in short loops.
   - \`/finalize\`: final gates & report.
   - \`/eval <spec|plan|kit|finalize>\`: Performs an eval of spec/plan/kit/finalize.
   - \`/gate <spec|plan|kit|finalize>\`: Performs a gate of spec/plan|kit|finalize. 
-  - \`/syncConstraints [path]\`: Syncs Technology Constraints from IDEA/SPEC, regenerates canonical JSON.
-  - \`/planUpdate [REQ-ID] [runs/.../eval/kit.report.json]\`: Checks off the PLAN item after a passing KIT eval.
+KIT eval.
   - \`/rag <query>\`: Searches the RAG (shows top results) (cross).
   - \`/rag list\`: Shows current attached files (inline+RAG) (cross).
   - \`/rag +<N>\`: Adds RAG result #N from the last search to the attached files (cross).

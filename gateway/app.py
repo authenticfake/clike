@@ -9,8 +9,15 @@ from routes.chat import router as chat_router
 from routes.embeddings import router as embed_router
 from routes.health import router as health_router
 from routes.models import router as models_router
-from routes.harper import router as harper_router   # ⬅️ AGGIUNGI
+from routes.harper import router as harper_router
+from routes.telemetry_api import router as telemetry_api_router
+from routes.telemetry_ui import router as telemetry_ui_router
+
 from middleware_security import SecureHeaders
+
+from pathlib import Path
+from fastapi.staticfiles import StaticFiles
+
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(level=LOG_LEVEL, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -34,7 +41,10 @@ app.add_middleware(
     allow_headers=["authorization","content-type","x-request-id"],
 )
 app.add_middleware(SecureHeaders)
-
+# Mount /static  (metti il logo in gateway/static/clike_64x64.png)
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+STATIC_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 class LogMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -65,4 +75,6 @@ app.include_router(health_router)
 app.include_router(chat_router)
 app.include_router(embed_router)
 app.include_router(models_router)
-app.include_router(harper_router)   
+app.include_router(harper_router)
+app.include_router(telemetry_api_router)
+app.include_router(telemetry_ui_router)

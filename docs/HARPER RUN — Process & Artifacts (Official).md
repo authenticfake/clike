@@ -70,11 +70,18 @@ tests/… (generated and/or existing tests)
 
 ## Phases
 
+### `/idea` → `IDEA.md`
+
+* **Input**:  chat history,  RAG attachments.
+* **Output**: `docs/harper/IDEA.md.md` (vision, problem statement, target user, Business Outcomes).
+* **Git**: commit 
+* **Telemetry**: prompt size, ctx window, model, tokens, duration.
+
 ### `/spec` → `SPEC.md`
 
 * **Input**: `IDEA.md`, chat history, `docs/harper/*` by prefix, RAG attachments.
 * **Output**: `docs/harper/SPEC.md` (concise, testable, with mandatory Acceptance Criteria).
-* **Git**: commit on `harper/spec/<runId>`; optional PR.
+* **Git**: commit
 * **Telemetry**: prompt size, ctx window, model, tokens, duration.
 
 ### `/plan` → `PLAN.md` + `plan.json`
@@ -194,14 +201,13 @@ Saved at: `runs/<runId>/telemetry.json`.
 ---
 
 ## Commands & Flags (summary)
-
+* `/idea`
 * `/spec`
 * `/plan`
 * `/kit [<REQ-ID>]`
 * `/eval [--all]`
 * `/gate [--all] [--manual <REQ-ID> pass|fail]`
 * `/finalize`
-* *(optional)* `/syncConstraints [path]` (or auto within `/plan`)
 
 ---
 

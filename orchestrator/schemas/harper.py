@@ -189,7 +189,7 @@ class DefaultsResponse(BaseModel):
     defaults: Dict[str, Any]
 
 class ResolveResponse(BaseModel):
-    task: Literal["spec","plan","kit","build","chat"]
+    task: Literal["idea","spec","plan","kit","finalize"]
     hint: Optional[str] = None
     chosen: Dict[str, Any]
     warnings: List[str] = []

@@ -14,6 +14,8 @@ const os = require('os');
 
 const { registerCommands } = require('./commands/registerCommands');
 const {  handleGate, handleEval } = require('./commands/slashBot');
+const {  persistTelemetryVSCode } = require('./telemetry');
+
 const { readPlanJson, getProjectId, promoteReqSources, runPromotionFlow,preIndexRag, normalizeAttachment, safeLog, readWorkspaceTextFile, getFileSizeBytes, getProjectNameFromWorkspace } = require('./utility')
 const { buildHarperBody,  defaultCoreForPhase, runKitCommand,runEvalGateCommand, saveKitCommand,saveEvalCommand,saveGateCommand, normalizeChangedFiles } = require('./utility')
 const {sanitize} = require('./utility')
@@ -2972,8 +2974,9 @@ async function cmdOpenChat(context) {
           //PATh for PLAN.md
           const wsroot = getWorkspaceRoot();
           let targetReqId
+          let plan 
           if (phase==='kit') {
-            const plan = await readPlanJson(wsroot);
+            plan = await readPlanJson(wsroot);
             if (!plan) {
               vscode.window.showErrorMessage('plan.json not found. Run /plan first.');
               panel.webview.postMessage({ type: 'busy', on: false });
@@ -2982,7 +2985,7 @@ async function cmdOpenChat(context) {
             targetReqId = await runKitCommand(plan, targets)
             log("happerRun targetReqId", targetReqId)
             if (!targetReqId) {
-              vscode.window.showErrorMessage(`CLike: cmd -> /kit REQ ID not found orcommand aborted.`);
+              vscode.window.showErrorMessage(`CLike: cmd -> /kit REQ ID not found or command aborted.`);
               panel.webview.postMessage({ type: 'busy', on: false });
               return
             }
@@ -3031,7 +3034,27 @@ async function cmdOpenChat(context) {
             (Array.isArray(_out?.files) && _out.files.length) ? `[files] ${_out.files.length}` : null,
             _out?.text ? `[text] ${Math.min(String(_out.text).length, 200)} chars` : null
           ].filter(Boolean).join(' • ') || 'no artifacts';
-          
+          // --- PERSIST TELEMETRY (avoid duplicates, one file per run) ---
+          try {
+            
+            // sorgente principale lato orchestrator
+            const tFromServer = _out?.telemetry || outGateway?.telemetry || _out?.usage ? {
+              provider: _out?.provider,
+              model: _out?.model,
+              usage: _out?.usage,
+              pricing: _out?.pricing,
+              files: _out?.files
+            } : null;
+            log(`[telemetry] tFromServer:`, JSON.stringify(tFromServer, null, 2), tFromServer)
+            await persistTelemetryVSCode(wsroot, project_id, runId, phase, tFromServer || {
+              provider: _out?.provider,
+              model: _out?.model,
+              usage: _out?.usage || {},
+              pricing: _out?.pricing || {},
+              files: _out?.files || []});
+          } catch (e) {
+            log(`[telemetry] skipped: ${e?.message || e}`);
+          }
           await appendSessionJSONL(activeMode, {
             ts: Date.now(),
             role: 'system',
@@ -3045,7 +3068,7 @@ async function cmdOpenChat(context) {
           });
 
           if (phase==="kit") {
-            await saveKitCommand(root,plan,targetReqId,out) 
+            await saveKitCommand(wsroot,plan,targetReqId,out) 
           }
           let written = [];
           if (Array.isArray(_out?.files) && _out.files.length) {

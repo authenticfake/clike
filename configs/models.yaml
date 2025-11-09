@@ -3,6 +3,7 @@ defaults:
   embedding_model: nomic-embed-text
 
 models:
+
   - id: ollama:llama3
     name: llama3
     provider: ollama
@@ -16,6 +17,9 @@ models:
     latency: low
     # ultra-low|low|medium|high
     cost: low
+    pricing:
+      input_per_1k: 0.002
+      output_per_1k: 0.007
     privacy: high
     enabled: true
     temperature: 0.2
@@ -68,6 +72,9 @@ models:
     capability: high
     latency: medium
     cost: medium
+    pricing:
+      input_per_1k: 0.002
+      output_per_1k: 0.007
     privacy: low
     enabled: false
     context_window: 128000
@@ -86,6 +93,9 @@ models:
     capability: high
     latency: medium
     cost: medium
+    pricing:
+      input_per_1k: 0.002
+      output_per_1k: 0.007
     privacy: low
     enabled: true
     temperature: 0.2
@@ -103,6 +113,9 @@ models:
     capability: high
     latency: medium
     cost: medium
+    pricing:
+      input_per_1k: 0.002
+      output_per_1k: 0.007
     privacy: low
     enabled: true
     context_window: 128000
@@ -114,12 +127,15 @@ models:
     name: gpt-5-nano
     provider: openai
     base_url: https://api.openai.com/v1
-    remote_name: gpt-5-nano-2025-08-07
+    remote_name: gpt-5-nano
     api_key_env: OPENAI_API_KEY
     modality: chat
     capability: frontier
     latency: medium
     cost: high
+    pricing:
+      input_per_1k: 0.005
+      output_per_1k: 0.015
     temperature: 0.1
     context_window: 400000
     max_output_tokens: 128000
@@ -130,11 +146,14 @@ models:
     name: gpt-5-mini
     provider: openai
     base_url: https://api.openai.com/v1
-    remote_name: gpt-5-mini-2025-08-07
+    remote_name: gpt-5-mini
     modality: chat
     capability: frontier
     latency: medium
     cost: high
+    pricing:
+      input_per_1k: 0.005
+      output_per_1k: 0.015
     temperature: 0.1
     context_window: 400000
     max_output_tokens: 128000
@@ -151,6 +170,9 @@ models:
     capability: frontier
     latency: medium
     cost: high
+    pricing:
+      input_per_1k: 0.005
+      output_per_1k: 0.015
     temperature: 0.1
     context_window: 400000
     max_output_tokens: 128000
@@ -181,6 +203,9 @@ models:
     capability: high
     latency: medium
     cost: medium
+    pricing:
+      input_per_1k: 0.003
+      output_per_1k: 0.015
     context_window: 200000
     max_output_tokens: 8192
     privacy: low
@@ -196,6 +221,9 @@ models:
     capability: high
     latency: medium
     cost: medium
+    pricing:
+      input_per_1k: 0.003
+      output_per_1k: 0.015
     context_window: 200000
     max_output_tokens: 8192
     privacy: low
@@ -212,6 +240,9 @@ models:
     capability: high
     latency: medium
     cost: medium
+    pricing:
+      input_per_1k: 0.015
+      output_per_1k: 0.075
     context_window: 1000000
     max_output_tokens: 8192
     privacy: low

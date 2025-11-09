@@ -201,7 +201,6 @@ Saved at: `runs/<runId>/telemetry.json`.
 * `/eval [--all]`
 * `/gate [--all] [--manual <REQ-ID> pass|fail]`
 * `/finalize`
-* *(optional)* `/syncConstraints [path]` (or auto within `/plan`)
 
 ---
 

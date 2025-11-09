@@ -2,12 +2,13 @@
 from __future__ import annotations
 import json
 
-from fastapi import APIRouter, HTTPException, Path, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from typing import List, Literal, Optional, Dict, Any, Union
-import logging
+import logging, time
+from pathlib import Path
 import os, datetime
-import httpx, random, math, asyncio
+import httpx
 from utils.utils import   collect_rag_materials_http, decide_inline_or_rag
 from utils.rag_store import RagStore
 from routes.chat import ANTHROPIC_API_KEY, ANTHROPIC_BASE, OLLAMA_BASE, OPENAI_API_KEY, OPENAI_BASE, VLLM_BASE, _json
@@ -18,13 +19,9 @@ from providers import ollama as oll
 from providers import vllm as vll
 import yaml, re
 import mimetypes
+from pricing import PricingManager  # [pricing]
 
 
-
-_FILE_BLOCK_RE = re.compile(
-    r"(?:^|\n)```[^\n]*\n\s*file:([^\n]+)\n(.*?)\n```",
-    re.DOTALL | re.IGNORECASE
-)
 log = logging.getLogger("harper")
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
@@ -36,6 +33,8 @@ PROMPT_PLAN_SYSTEM_PATH = os.getenv("PROMPT_PLAN_SYSTEM_PATH", "/app/prompts/har
 PROMPT_KIT_SYSTEM_PATH = os.getenv("PROMPT_KIT_SYSTEM_PATH", "/app/prompts/harper/kit_system.md")
 PROMPT_BUILD_SYSTEM_PATH = os.getenv("PROMPT_BIULD_SYSTEM_PATH", "/app/prompts/harper/build_system.md")
 PROMPT_FINALIZE_SYSTEM_PATH = os.getenv("PROMPT_FINALIZE_SYSTEM_PATH", "/app/prompts/harper/finalize_system.md")
+
+TELEMETRY_DIR = os.getenv("HARPER_TELEMETRY_DIR", "/workspace/telemetry")  # scrive qui i .jsonl
 
 _REPO_PLACEHOLDER = "[x]"
 _FILE_BLOCK_FENCED_RE = re.compile(
@@ -56,11 +55,19 @@ PHASE_MODEL_PARAMS = {
     "idea":     {"max_tokens": 9500, "temperature": 0.25, "top_p": 1.0},
     "spec":     {"max_tokens": 8500, "temperature": 0.25, "top_p": 1.0},
     "plan":     {"max_tokens": 25000, "temperature": 0.2, "top_p": 0.8},  # raise to 6500 only if many lanes
-    "kit":      {"max_tokens": 12500, "temperature": 0.25, "top_p": 1.0},
+    "kit":      {"max_tokens": 19500, "temperature": 0.25, "top_p": 1.0},
     "eval":     {"max_tokens": 6500, "temperature": 0.15, "top_p": 1.0},
     "gate":     {"max_tokens": 6000, "temperature": 0.15, "top_p": 1.0},
     "finalize": {"max_tokens": 9000, "temperature": 0.20, "top_p": 1.0},
 }
+
+_PRICING = None  # [pricing-singleton]
+
+def _get_pricing_manager():
+    global _PRICING
+    if _PRICING is None:
+        _PRICING = PricingManager.from_models_yaml(os.getenv("MODELS_CONFIG", "config/models.yaml"))
+    return _PRICING
 
 # --- Harper: Dynamic Context Budgeting (messages builder) --------------------
 from dataclasses import dataclass
@@ -209,6 +216,27 @@ def compose_harper_messages(
         )
     return messages
 
+def _canonicalize_path(p: str) -> str:
+    """
+    Normalizza i path per evitare duplicati logici:
+    - slash forward
+    - rimuove prefissi './' e slash iniziali
+    - mappa 'doc/...' -> 'docs/...'
+    - compattazione di slash ripetuti
+    - normalizza 'docs/harper/plan.md' e 'docs/harper/plan.json' case-preserving
+    """
+    if not p:
+        return p
+    p = p.replace("\\", "/").lstrip().lstrip("/")
+    while p.startswith("./"):
+        p = p[2:]
+    # mappa alias 'doc/' in 'docs/'
+    if p.startswith("doc/"):
+        p = "docs/" + p[len("doc/"):]
+    # compattazione degli slash multipli
+    while "//" in p:
+        p = p.replace("//", "/")
+    return p
 
 
 def get_model_params(phase: str) -> dict:
@@ -391,6 +419,26 @@ def _guess_mime(path: str) -> str:
     # Usa libreria standard per dedurre il MIME; fallback binario generico.
     mime, _ = mimetypes.guess_type(path or "", strict=False)
     return mime or "application/octet-stream"
+
+def _dedupe_by_path(files_list: list[dict]) -> list[dict]:
+    """
+    Deduplica per path canonico. Se ci sono duplicati, tiene il contenuto più lungo.
+    """
+    seen: dict[str, dict] = {}
+    for f in files_list or []:
+        raw_path = (f.get("path") or "")
+        canon = _canonicalize_path(raw_path)
+        content = f.get("content") or ""
+        if not canon:
+            # salta file senza path
+            continue
+        best = seen.get(canon)
+        if (best is None) or (len(content) > len(best.get("content") or "")):
+            ff = dict(f)
+            ff["path"] = canon
+            seen[canon] = ff
+    return list(seen.values())
+
 
 
 def _extract_file_blocks(text: str) -> tuple[list[dict], str]:
@@ -902,6 +950,21 @@ def _chunk_map_from_client(rag_chunks: dict) -> dict:
         cmap[(name, int(idx))] = txt
     return cmap
 
+def _telemetry_path(project_id: str) -> Path:
+    # un file per progetto, append in JSONL
+    fname = f"{(project_id or 'default').strip()}.json"
+    path = Path(TELEMETRY_DIR).joinpath(fname)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+def _write_telemetry(project_id: str, record: dict) -> None:
+    try:
+        path = _telemetry_path(project_id)
+        with path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except Exception as e:
+        log.warning("telemetry write failed: %s", e)
+
 async def gather_rag_materials(rag_chunks,rag_top_k, store, rag_queries = None) -> list[dict]:
     """
     Restituisce lista di materiali da includere nel prompt:
@@ -988,7 +1051,7 @@ def _tokens_per_model(messages: list[dict], model_entry: dict | None, req_max: i
     prompt_text = "".join(m.get("content","") for m in (messages or []) if isinstance(m.get("content"), str))
     prompt_tokens = approx_tokens_from_chars(prompt_text)
 
-    available_ctx = max(0, ctx_window - prompt_tokens)
+    available_ctx = max(10000, ctx_window - prompt_tokens)
     eff_max = max(1, min(req_max, available_ctx, max_out_cap))
 
     return eff_max
@@ -1197,7 +1260,6 @@ async def run(req: HarperRunRequest,  request: Request):
             except Exception as e:
                 log.warning("RAG (local RagStore) append failed: %s", e)
                 appended = 0
-
             if appended > 0:
                 log.info("RAG context appended (%d materials)", appended)
             else:
@@ -1215,20 +1277,7 @@ async def run(req: HarperRunRequest,  request: Request):
                         "runId": req.runId or "n/a",
                         "telemetry": None,
                 }
-    # return {
-    #                     "ok": False,
-    #                     "phase": phase,
-    #                     "echo": f"{model_route_label} :: {phase.upper()} generation",
-    #                     "text": f"No RAG context. No file attachments found. Idea phase failed.",
-    #                     "diffs": [],
-    #                     "files": [],
-    #                     "tests": {"passed": 0, "failed": 1, "summary": "Error no attachments found. Idea phase failed."},
-    #                     "warnings": ['Please send an attachment. Idea phase failed.'],
-    #                     "errors": ['Error no attachments found. Idea phase failed.'],
-    #                     "runId": req.runId or "n/a",
-    #                     "telemetry": None,
-    #             }
-    
+            
     if (phase or "").lower() == "finalize":
         # --- RAG: append al prompt (via utils.rag_query) -------------------------
         log.info("RAG append phase=%s", phase)
@@ -1325,7 +1374,7 @@ async def run(req: HarperRunRequest,  request: Request):
                 model, 
                 messages, 
                 temperature=gen_temperature,
-                max_tokens=eff_max,
+                max_tokens=gen_max_tokens,
                 tools=gen_tools,
                 tool_choice=gen_tool_choice,
                 response_format=gen_response_format,
@@ -1349,7 +1398,7 @@ async def run(req: HarperRunRequest,  request: Request):
 
     text_len=0
     log.info("harper.gateway llm_text length '%s' ", len(llm_text))
-    log.info("harper.gateway llm_text  '%s' ", (llm_text))
+    #log.info("harper.gateway llm_text  '%s' ", (llm_text))
     # system_md_txt = ""
     # system_md_txt, llm_usage = oai.coerce_text_and_usage(llm_text)
     # system_md_txt = (system_md_txt or "").strip()
@@ -1357,6 +1406,7 @@ async def run(req: HarperRunRequest,  request: Request):
 
     llm_usage = {}
     llm_usage = llm_text.get("usage") or {}
+
     system_md_txt = (llm_text.get("text") or "").strip()
     provider_files = llm_text.get("files") or []
 
@@ -1387,76 +1437,195 @@ async def run(req: HarperRunRequest,  request: Request):
 
 
     
-     # --- Multi-file support ---
+    # --- Multi-file support ---
     output_name = PHASE_OUTPUT_FILE.get(phase, f"{phase.upper()}.md")
     default_doc_path = f"{req.docRoot or 'docs/harper'}/{output_name}"
     
+    # --- Multi-file support
     files: list[dict] = []
 
-    gen_files, remainder = _extract_file_blocks(system_md_txt)
+    # Se il provider (es. anthropic.py / openai_compat.py) ha già estratto i file, usali.
+    if provider_files:
+        log.info("harper.files from provider: %d", len(provider_files))
+        for pf in provider_files:
+            p = (pf.get("path") or "").lstrip().lstrip("/")
+            c = pf.get("content") or ""
+            if not p:
+                p = default_doc_path  # fallback per non perdere contenuti
+            files.append({
+                "path": p,
+                "content": c,
+                "mime": _guess_mime(p),
+                "encoding": "utf-8",
+            })
 
-    if gen_files:
-        # I blocchi 'file:' sono path *relativi alla root repo* o assoluti '/...'
-        files.extend(gen_files)
-
-        # se rimane testo fuori dai blocchi file, lo salviamo nel documento della fase
-        if remainder:
+        # Se nel testo rimane del contenuto "fuori" dai blocchi file, salvalo nel doc di fase
+        remainder_txt = (system_md_txt or "").strip()
+        if remainder_txt:
             files.append({
                 "path": default_doc_path,
-                "content": remainder,
+                "content": remainder_txt,
                 "mime": "text/markdown",
                 "encoding": "utf-8",
             })
+
     else:
-        # fallback compatibile: singolo documento della fase
-        files.append({
-            "path": default_doc_path,
-            "content": system_md_txt,
-            "mime": "text/markdown",
-            "encoding": "utf-8",
-        })
+        # Prova a estrarre blocchi `file:...` dal testo grezzo
+        gen_files, remainder = _extract_file_blocks(system_md_txt)
+
+        if gen_files:
+            files.extend(gen_files)
+            if remainder:
+                files.append({
+                    "path": default_doc_path,
+                    "content": remainder,
+                    "mime": "text/markdown",
+                    "encoding": "utf-8",
+                })
+        else:
+            # Fallback: un solo documento di fase
+            files.append({
+                "path": default_doc_path,
+                "content": system_md_txt,
+                "mime": "text/markdown",
+                "encoding": "utf-8",
+            })
+
+    # Deduplica finale (per evitare file doppi o path ripetuti tra provider_files e parsing)
+    files = _dedupe_by_path(files)
+    for _f in files:
+         _f["path"] = _canonicalize_path(_f.get("path") or "")
+
+
     # --- plan.json derivation from PLAN.md (only for phase=plan) ---
     if phase == "plan":
-        # 1) Trova il contenuto del PLAN.md che stiamo restituendo
-        plan_md_text = None
-        # path atteso del documento di fase
+        # Path atteso
         plan_doc_path = f"{req.docRoot or 'docs/harper'}/PLAN.md"
+        plan_json_path = f"{req.docRoot or 'docs/harper'}/plan.json"
 
-        # Se ci sono file-block: preferisci il file esplicito PLAN.md
+        # 1) Trova il contenuto del PLAN.md
+        plan_md_text = None
         for f in files:
             p = (f.get("path") or "").strip()
             if p.endswith("/PLAN.md") or p == plan_doc_path:
                 plan_md_text = f.get("content") or ""
                 break
 
-        # Se non c'è un file esplicito, e non c’erano file-block,
-        # allora il documento di fase è l’intero output di testo
         if plan_md_text is None and not gen_files:
+            # no file-blocks: usa l'intero testo di fase
             plan_md_text = system_md_txt or ""
 
-        # 2) Deriva plan.json e aggiungilo ai files
+        # 2) Deriva plan.json e gestisci duplicati
         if plan_md_text:
             try:
                 plan_json = _derive_plan_json_from_md(plan_md_text)
             except Exception as e:
                 plan_json = None
-                warnings.append(f"plan_json_derivation_error: {type(e).__name__}: {e}")
+                warnings.append(f"plan_json_derivation_error: {e}")
 
-            if plan_json:
-                files.append({
-                    "path": f"{req.docRoot or 'docs/harper'}/plan.json",
-                    "content": json.dumps(plan_json, indent=2),
-                    "mime": "application/json",
-                    "encoding": "utf-8",
-                })
-                
+            if plan_json is not None:
+                new_payload = json.dumps(plan_json, indent=2, ensure_ascii=False)
+                # verifica se esiste già un plan.json
+                existing_idx = None
+                for i, f in enumerate(files):
+                    p = (f.get("path") or "").strip()
+                    if p == plan_json_path or p.endswith("/plan.json"):
+                        existing_idx = i
+                        break
+
+                if existing_idx is None:
+                    files.append({
+                        "path": plan_json_path,
+                        "content": new_payload,
+                        "mime": "application/json",
+                        "encoding": "utf-8",
+                    })
+                else:
+                    # tieni la versione più informativa (contenuto più lungo)
+                    old = files[existing_idx].get("content") or ""
+                    if len(new_payload) > len(old):
+                        files[existing_idx] = {
+                            "path": plan_json_path,
+                            "content": new_payload,
+                            "mime": "application/json",
+                            "encoding": "utf-8",
+                        }
+                    else:
+                        warnings.append("plan_json_existing_kept: provider version longer")
+    # --- Safety dedupe by path: keep longer content ---
+    seen = {}
+    deduped = []
+    for f in files:
+        k = (f.get("path") or "").strip()
+        c = f.get("content") or ""
+        if not k:
+            continue
+        if k not in seen or len(c) > len(seen[k].get("content") or ""):
+            seen[k] = f
+    deduped = list(seen.values())
+    files = deduped
+
+    
+    # --- Telemetry ---
+    telemetry = {}
+
+     # === persist telemetry ====================================================
+    # arricchisco con timestamp e costo stimato
+    ts = time.time()
+    telemetry["timestamp"] = ts
+    telemetry["project_name"] = project_id
+    telemetry["docRoot"] = req.docRoot
+    telemetry["phase_params"] = {
+        "temperature": gen_temperature,
+        "max_tokens": gen_max_tokens,
+        "top_p": gen_top_p,
+    }
+    telemetry["files"] = [ {"path": f["path"], "bytes": len(f.get("content") or "")} for f in files ]
+
     telemetry.update({
         "text_len": text_len,
+        "files_len": len(files),
         "usage": llm_usage or {},
-        "missing_sections": missing,
-        "budget_max_tokens": eff_max,
         "provider": provider,    
     })
+    pm = _get_pricing_manager()  # [pricing]
+    pricing_info = pm.estimate_cost(
+        model_id=resolved_entry.get("id") if isinstance(resolved_entry, dict) else None,
+        provider=resolved_entry.get("provider") if isinstance(resolved_entry, dict) else provider,
+        name=resolved_entry.get("name") if isinstance(resolved_entry, dict) else model,
+        usage=llm_usage,
+    )  # [pricing]
+    telemetry.setdefault("pricing", {})  # dict
+    telemetry["pricing"].update(pricing_info)  # {input_cost, output_cost, total_cost}  # [pricing]
+
+    # opzionale ma utile: salva anche i prezzi unitari se disponibili
+    p_cfg = _get_pricing_manager().for_model(
+        model_id=resolved_entry.get("id") if isinstance(resolved_entry, dict) else None,
+        provider=resolved_entry.get("provider") if isinstance(resolved_entry, dict) else provider,
+        name=resolved_entry.get("name") if isinstance(resolved_entry, dict) else model
+    )
+    telemetry["pricing"].setdefault("unit", {
+        "input_per_1k": p_cfg.input_per_1k,
+        "output_per_1k": p_cfg.output_per_1k,
+    })
+
+    _write_telemetry( project_id, {
+        "project_id": project_id,
+        "project_name": project_id,
+        "run_id": req.runId,
+        "phase": phase,
+        "model": model,
+        "provider": telemetry.get("provider"),
+        "usage": llm_usage or {},
+        "pricing": telemetry.get("pricing"),
+        "files": telemetry.get("files"),
+        "files_len": len(files),
+        "timestamp": ts,
+        "snapshot": telemetry.get("usage") or {},
+        "text_len": text_len,
+        "files_len": len(files),
+        "usage": llm_usage or {},
+        "provider": provider})
 
     return {
         "ok": len(errors) == 0,

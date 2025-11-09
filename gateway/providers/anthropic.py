@@ -77,6 +77,25 @@ def _normalize_path(p: str) -> str:
     p = p.strip("`\"' \t")
     return p
 
+def _to_rel_path(p: str) -> str:
+    p = _normalize_path(p or "")
+    p = p.replace("\\", "/")
+    # rimuovi drive letter Windows e leading slash
+    p = re.sub(r"^[A-Za-z]:", "", p)
+    p = p.lstrip("/")
+    # normalizza componenti ed elimina .. / .
+    parts = []
+    for seg in p.split("/"):
+        if not seg or seg == ".":
+            continue
+        if seg == "..":
+            if parts:
+                parts.pop()
+            continue
+        parts.append(seg)
+    return "/".join(parts)
+
+
 def _extract_file_blocks_any(text: str) -> List[Dict[str, Any]]:
     if not isinstance(text, str) or not text.strip():
         return []
@@ -106,21 +125,81 @@ def _extract_file_blocks_any(text: str) -> List[Dict[str, Any]]:
 
     return _dedupe_files_by_path(collected)
 
+def _canon_rel_key(p: str) -> str:
+    """Chiave canonica per dedupe: path relativo, case-insensitive."""
+    return (_to_rel_path(p) or "").lower()
+
+def _try_json_minify(s: str) -> tuple[bool, str]:
+    """Se s è JSON valido, ritorna (True, dump_minificato_con_sort_keys).
+    Altrimenti (False, s_immutato)."""
+    try:
+        obj = json.loads(s)
+        return True, json.dumps(obj, separators=(",", ":"), sort_keys=True)
+    except Exception:
+        return False, s
+
 def _dedupe_files_by_path(files: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    best: Dict[str, Dict[str, Any]] = {}
+    """
+    Dedupe robusto:
+    - chiave = path relativo case-insensitive
+    - JSON equivalenti (diversa spaziatura) collassati
+    - se contenuti diversi, tiene quello più lungo
+    """
+    best_by_key: Dict[str, Dict[str, Any]] = {}
     for f in files or []:
-        p = _normalize_path(f.get("path") or "")
-        c = f.get("content") or ""
-        if not p:
+        raw_p = f.get("path") or ""
+        norm_p = _to_rel_path(raw_p)
+        if not norm_p:
             continue
-        prev = best.get(p)
-        if prev is None or len(c) > len(prev.get("content") or ""):
-            keep = {"path": p, "content": c}
+        key = _canon_rel_key(norm_p)
+        content = _normalize_unicode(f.get("content") or "")
+
+        # Normalizza JSON se possibile per confronti stabili
+        is_json, content_norm = _try_json_minify(content)
+
+        prev = best_by_key.get(key)
+        if prev is None:
+            keep = {"path": norm_p, "content": content}
             for k in ("language", "executable"):
                 if k in f:
                     keep[k] = f[k]
-            best[p] = keep
-    return list(best.values())
+            # Memorizza anche versione minificata per confronto interno
+            if is_json:
+                keep["_content_min"] = content_norm
+            best_by_key[key] = keep
+            continue
+
+        # Confronto contro precedente
+        prev_content = _normalize_unicode(prev.get("content") or "")
+        prev_min = prev.get("_content_min")
+
+        # Se entrambi JSON ed equivalenti -> salta (duplicato reale)
+        if is_json and isinstance(prev_min, str):
+            if content_norm == prev_min:
+                continue
+        elif not is_json:
+            # Non JSON: se identico bit-a-bit, salta
+            if content == prev_content:
+                continue
+
+        # Se diversi: scegli il più "ricco" (lunghezza)
+        if len(content) > len(prev_content):
+            keep = {"path": norm_p, "content": content}
+            for k in ("language", "executable"):
+                if k in f:
+                    keep[k] = f[k]
+            if is_json:
+                keep["_content_min"] = content_norm
+            best_by_key[key] = keep
+        # altrimenti mantieni prev
+
+    # Ripulisci campo interno _content_min prima di restituire
+    out: List[Dict[str, Any]] = []
+    for v in best_by_key.values():
+        v.pop("_content_min", None)
+        out.append(v)
+    return out
+
 
 def _strip_all_file_blocks(text: str) -> str:
     if not isinstance(text, str) or not text:
@@ -358,78 +437,56 @@ def _normalize_messages_response(resp_json: Dict[str, Any]) -> Dict[str, Any]:
     text_parts: List[str] = []
     tool_uses: List[Dict[str, Any]] = []
     files_out: List[Dict[str, Any]] = []
-
+    #log.info("anthropic.normalize: resp_json=%s", resp_json)
     blocks = resp_json.get("content") or []
     log.info("anthropic.normalize: content_blocks=%d", len(blocks))
 
     def _coerce_files(value: Any) -> List[Dict[str, Any]]:
         out: List[Dict[str, Any]] = []
+        # Se arriva come stringa JSON
         if isinstance(value, str):
             try:
                 value = json.loads(value)
             except Exception as e:
                 log.warning("anthropic.normalize: files string not JSON: %s", e)
                 return out
+
+        # Caso dict singolo {path, content} o dizionario con collezione
         if isinstance(value, dict):
+            # singolo file
             p, c = value.get("path"), value.get("content")
             if isinstance(p, str) and isinstance(c, str):
-                out.append({"path": _normalize_path(p), "content": _normalize_unicode(c)})
+                out.append({"path": _to_rel_path(p), "content": _normalize_unicode(c)})
+                return out
+            # collezioni comuni: "files": [...], "file": {...}, "items": [...]
+            for key in ("files", "file", "items"):
+                coll = value.get(key)
+                if isinstance(coll, dict):
+                    # alcune risposte Claude usano {"files": {"items": [...]}}
+                    items = coll.get("items")
+                    if isinstance(items, list):
+                        coll = items
+                if isinstance(coll, list):
+                    for it in coll:
+                        if not isinstance(it, dict):
+                            continue
+                        p, c = it.get("path"), it.get("content")
+                        if isinstance(p, str) and isinstance(c, str):
+                            out.append({"path": _to_rel_path(p), "content": _normalize_unicode(c)})
             return out
+
+        # Caso lista diretta [{path, content}, ...]
         if isinstance(value, list):
             for it in value:
                 if not isinstance(it, dict):
                     continue
                 p, c = it.get("path"), it.get("content")
                 if isinstance(p, str) and isinstance(c, str):
-                    out.append({"path": _normalize_path(p), "content": _normalize_unicode(c)})
+                    out.append({"path": _to_rel_path(p), "content": _normalize_unicode(c)})
             return out
-        try:
-            files = out.get("files") or []
-            # de-dup last-wins by path
-            dedup = {}
-            for f in files:
-                p = (f.get("path") or f.get("name"))
-                c = f.get("content")
-                if not p or not isinstance(c, str):
-                    continue
-                dedup[p] = c
-
-            primary_names = {"IDEA.md", "SPEC.md", "PLAN.md", "EVAL.md", "GATE.md", "FINALIZE.md"}
-            primary_key = None
-            for p in list(dedup.keys()):
-                base = p.replace("\\", "/").split("/")[-1]
-                if base in primary_names:
-                    primary_key = p  # se ce ne sono più di uno, l'ultimo vince
-
-            # Se text è vuoto ma il primario è tra i files → promuovi a text e rimuovi dai files
-            if (not out.get("text")) and primary_key:
-                out["text"] = dedup.pop(primary_key)
-                g.info("anthropic.normalize: promoted primary %s to text (len=%d)", primary_key, len(out["text"]))
-            # Se text è già presente e c'è anche il primario nei files → rimuovi duplicato file
-            elif out.get("text") and primary_key:
-                dedup.pop(primary_key, None)
-                g.info("anthropic.normalize: dropped duplicate primary file %s because text is present", primary_key)
-
-            # Ricostruisci files senza duplicati e con path normalizzati (case-insensitive dedup)
-            rebuilt = [{"path": p, "content": c} for p, c in dedup.items()]
-            seen = set()
-            cleaned = []
-            for f in rebuilt:
-                key = f["path"].lower()
-                if key in seen:
-                    continue
-                seen.add(key)
-                cleaned.append(f)
-            out["files"] = cleaned
-
-            # safety: assicurati che text sia string
-            if not isinstance(out.get("text", ""), str):
-                out["text"] = str(out.get("text", ""))
-
-        except Exception as e:
-            log.warning("anthropic.normalize: postprocess failed: %s", e)
 
         return out
+
 
     for i, block in enumerate(blocks):
         if not isinstance(block, dict):
@@ -443,17 +500,33 @@ def _normalize_messages_response(resp_json: Dict[str, Any]) -> Dict[str, Any]:
             tool_uses.append(block)
             name = (block.get("name") or "").strip().lower()
             inp = block.get("input") or {}
+            log.info("anthropic.normalize: tool_use[%d] name=%s keys=%s", i, name, list(inp.keys()) if isinstance(inp, dict) else type(inp))
+
             if isinstance(inp, dict):
+                extracted: List[Dict[str, Any]] = []
+
+                # Caso standard: input.files
                 if "files" in inp:
                     extracted = _coerce_files(inp["files"])
-                    if extracted:
-                        files_out.extend(extracted)
-                        log.info("anthropic.normalize: tool_use[%d] files=%d", i, len(extracted))
-                elif name == "emit_files" and isinstance(inp.get("file"), (dict, list, str)):
+                    log.info("anthropic.normalize: tool_use[%d] from=files -> %d file(s)", i, len(extracted))
+
+                # Variante: input.items
+                if not extracted and "items" in inp:
+                    extracted = _coerce_files(inp["items"])
+                    log.info("anthropic.normalize: tool_use[%d] from=items -> %d file(s)", i, len(extracted))
+
+                # Variante: input.file (singolo o lista)
+                if not extracted and "file" in inp:
                     extracted = _coerce_files(inp["file"])
-                    if extracted:
-                        files_out.extend(extracted)
-                        log.info("anthropic.normalize: tool_use[%d] single_file=%d", i, len(extracted))
+                    log.info("anthropic.normalize: tool_use[%d] from=file -> %d file(s)", i, len(extracted))
+
+                # Fallback: prova a coergere l'intero input dict
+                if not extracted:
+                    extracted = _coerce_files(inp)
+                    log.info("anthropic.normalize: tool_use[%d] from=<dict-fallback> -> %d file(s)", i, len(extracted))
+
+                if extracted:
+                    files_out.extend(extracted)
 
     text_joined = _normalize_unicode("\n".join([t for t in text_parts if isinstance(t, str)]).strip())
 
@@ -472,18 +545,30 @@ def _normalize_messages_response(resp_json: Dict[str, Any]) -> Dict[str, Any]:
 
     files_out = _dedupe_files_by_path(files_out or [])
 
-    # NOVITÀ: se c'è ESATTAMENTE 1 file, ecco il blocco anche in 'text'
-    if len(files_out) == 1:
-        f = files_out[0]
-        text_clean = f"BEGIN_FILE {f['path']}\n{f['content']}\nEND_FILE"
-    elif files_out:
-        # più file → manteniamo text vuoto per evitare duplicazioni indesiderate
-        text_clean = ""
+    # Allineamento a openai_compat: NESSUN echo file nel campo text.
+    # Harper userà esclusivamente 'files' per scrivere gli artefatti.
+    if files_out:
+        text_clean = ""  # evita duplicazioni (files array è la fonte unica)
     else:
+        # Nessun file estratto: pulisci eventuali blocchi spurii e passa solo prosa
         text_clean = _strip_all_file_blocks(text_joined)
 
-    finish_reason = (resp_json.get("stop_reason") or "") or ""
+    stop_reason = (resp_json.get("stop_reason") or "") or ""
+    stop_seq = resp_json.get("stop_sequence")
+
+    def _map_finish_reason(sr: str) -> str:
+        sr = (sr or "").strip()
+        if sr == "end_turn":
+            return "stop"
+        if sr == "max_tokens":
+            return "length"  # allineato a OpenAI
+        if sr == "stop_sequence":
+            return "stop"
+        return sr or ("stop" if stop_seq else "")
+
+    finish_reason = _map_finish_reason(stop_reason)
     usage = resp_json.get("usage") or {}
+
 
     raw = {
         "id": resp_json.get("id"),
@@ -498,6 +583,16 @@ def _normalize_messages_response(resp_json: Dict[str, Any]) -> Dict[str, Any]:
         len(text_clean), len(files_out or []), finish_reason, usage.get("output_tokens"),
     )
     
+    if len(files_out) > 1 and (text_clean or "") == "":
+        log.info(
+            "anthropic.normalize: text intentionally empty because multiple files=%d (use 'files' array). sample_paths=%s",
+            len(files_out), [f["path"] for f in files_out[:3]]
+        )
+    elif len(files_out) == 1:
+        log.info("anthropic.normalize: single file echoed into text (BEGIN_FILE...). path=%s", files_out[0]["path"])
+    else:
+        log.info("anthropic.normalize: no files extracted; text_len=%d", len(text_clean))
+
     return _mk_unified_result(
         ok=True, text=text_clean, files=files_out or [], usage=usage,
         finish_reason=finish_reason, raw=raw, errors=[]
@@ -522,6 +617,7 @@ async def anthropic_complete_unified(
     betas = (gen or {}).get("betas") or []
     log.info("anthropic_complete_unified betas: %s", betas)
     log.info("anthropic_complete_unified payload length: %s", len(payload))
+    #log.info("anthropic_complete_unified payload: %s", payload)
 
     headers = {"Content-Type": "application/json", "anthropic-version": ANTHROPIC_VERSION}
     if api_key:
@@ -530,7 +626,7 @@ async def anthropic_complete_unified(
         headers["anthropic-beta"] = ",".join(betas)
 
     url = f"{base_url.rstrip('/')}/messages"
-
+    
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             r = await client.post(url, headers=headers, json=payload)
@@ -545,9 +641,9 @@ async def anthropic_complete_unified(
         try:
             response_body = r.text
         except Exception:
-            response_body = "Impossibile decodificare il corpo della risposta."
+            response_body = "Impossible to read response."
         log.error(
-            "Anthropic API Error (Status: %d) - URL: %s\nMessaggio di Errore API:\n%s",
+            "Anthropic API Error (Status: %d) - URL: %s\nError Message API:\n%s",
             r.status_code, r.url, response_body
         )
         return _mk_unified_result(
@@ -567,6 +663,14 @@ async def anthropic_complete_unified(
             j.get("stop_reason"), _content_types,
         )
         normalized = _normalize_messages_response(j)
+        # [LOG] verifica contenuto unified prima del ritorno
+        try:
+            _files_n = len(normalized.get("files") or [])
+            _paths = [f.get("path") for f in (normalized.get("files") or [])[:3]]
+            log.info("anthropic_complete_unified normalized-summary: files=%d sample_paths=%s", _files_n, _paths)
+        except Exception:
+            pass
+
         log.info(
             "anthropic_complete_unified normalized: ok=%s text_len=%d files=%d finish_reason=%s",
             normalized.get("ok"),
@@ -574,6 +678,7 @@ async def anthropic_complete_unified(
             len(normalized.get("files") or []),
             normalized.get("finish_reason"),
         )
+
         return normalized
     except Exception as e:
         log.error("anthropic_complete_unified normalizer error: %s", e)

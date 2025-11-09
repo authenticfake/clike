@@ -14,16 +14,14 @@
 
 ## Commands (chat)
 /init CoffeeBuddy [path] — scaffold project  
+/idea - generate an IDEA well formed
 /spec — generate SPEC from IDEA & context  
 /plan — generate PLAN from SPEC  
 /kit — scaffold + incremental build cycles  
-/build — apply micro-diffs and re-run tests
 
 ### Evals & Gates
 /eval spec | plan | kit | finalize — run eval profile  
 /gate spec | plan | kit | finalize — enforce gates  
-/syncConstraints docs/harper/SPEC.md — sync constraints  
-/planUpdate REQ-xxx runs/<ts>/eval/kit.report.json — update PLAN checklist
 
 ## Expectations
 - SPEC has all sections, KPIs include a **measurement** statement, and **Technology Constraints** are defined.  
@@ -32,6 +30,6 @@
 - PRs require green checks (SPEC/PLAN/KIT Gates) before merging.
 
 ## Quick checklist before `/kit`
-- SPEC approved; `/syncConstraints` done.  
+- SPEC approved.
 - PLAN approved with traceability and hooks.  
 - Local dev env configured (env vars, secrets manager, DB).
