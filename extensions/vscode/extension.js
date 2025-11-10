@@ -3060,7 +3060,7 @@ async function cmdOpenChat(context) {
               pricing: _out?.telemetry?.pricing,
               files: _out?.files
             } : null;
-            log(`[telemetry] tFromServer:`, JSON.stringify(tFromServer, null, 2), tFromServer)
+            //log(`[telemetry] tFromServer:`, JSON.stringify(tFromServer, null, 2), tFromServer)
             await persistTelemetryVSCode(wsroot, project_id, runId, phase, tFromServer || {
               provider: activeProvider,
               model: activeModel,

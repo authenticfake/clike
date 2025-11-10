@@ -231,7 +231,6 @@ async def post_plan(req: HarperPhaseRequest):
                 plan_md = out.files[0].content
         except Exception:
             pass
-    log.info("post_plan out: %s", out)
     return HarperEnvelope(out=out, plan_md=plan_md)
 
 @router.post("/kit", response_model=HarperEnvelope)
