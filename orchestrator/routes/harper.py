@@ -200,6 +200,7 @@ async def post_plan(req: HarperPhaseRequest):
     out_dict = await svc.run_phase("plan", payload)
     out = None
     log.info("post_plan out files len: %s", len(out_dict.get("files")));
+
     try: 
         out = HarperRunResponse(
             ok=bool(out_dict.get("ok", True)),
@@ -212,16 +213,16 @@ async def post_plan(req: HarperPhaseRequest):
             warnings=out_dict.get("warnings") or [],
             errors=out_dict.get("errors") or [],
             runId=out_dict.get("runId"),
+            usage=out_dict.get("usage"),
             telemetry=out_dict.get("telemetry"),
         )
 
-    
-    except Exception:
-        
+
+    except Exception as e:
+        log.info( "Error in plan phase %s", e)
         raise HTTPException(status_code=500, detail="Error in plan phase")    
     
     log.info("out text: %s len=%d",out.text,len(out.text))
-    # Retro-compat: spec_md, se disponibile (primo file markdown) oppure None
     plan_md = None
     if out.files:
         try:
@@ -230,7 +231,7 @@ async def post_plan(req: HarperPhaseRequest):
                 plan_md = out.files[0].content
         except Exception:
             pass
-
+    log.info("post_plan out: %s", out)
     return HarperEnvelope(out=out, plan_md=plan_md)
 
 @router.post("/kit", response_model=HarperEnvelope)

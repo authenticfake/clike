@@ -135,6 +135,67 @@ class HarperKitResult(BaseModel):
     resolved_from: Optional[str] = Field(
         default=None, description="one of {targets,batch,auto}"
     )
+class TelemetryFile(BaseModel):
+    path: str
+    bytes: int
+
+
+class TelemetryUsage(BaseModel):
+    input_tokens: int
+    output_tokens: int
+
+
+class TelemetryPricingUnit(BaseModel):
+    input_per_1k: float
+    output_per_1k: float
+
+
+class TelemetryPricing(BaseModel):
+    input_cost: float
+    output_cost: float
+    total_cost: float
+    unit: TelemetryPricingUnit
+
+
+class HarperTelemetry(BaseModel):
+    """
+    Strongly-typed telemetry payload. Keys mirror the gateway payload
+    to avoid any snake_case/camelCase mismatch on the extension.
+    """
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    timestamp: float
+    project_name: Optional[str] = None
+    docRoot: Optional[str] = None
+    phase_params: Optional[Dict[str, Any]]
+    files: Optional[List[TelemetryFile]] = []
+    text_len: int
+    files_len: int
+    usage: Optional[TelemetryUsage]
+    provider: Optional[str] = None
+    pricing: Optional[TelemetryPricing] = None
+
+class UsageInputTokensDetails(BaseModel):
+    cached_tokens: Optional[int] = None
+
+
+class UsageOutputTokensDetails(BaseModel):
+    reasoning_tokens: Optional[int] = None
+
+
+class HarperUsage(BaseModel):
+    """
+    Canonical usage model across providers.
+    """
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    input_tokens: Optional[int]
+    output_tokens: Optional[int]
+    total_tokens: Optional[int] = None
+    
+
+    input_tokens_details: UsageInputTokensDetails = UsageInputTokensDetails()
+    output_tokens_details: UsageOutputTokensDetails = UsageOutputTokensDetails()
 
 class HarperRunResponse(BaseModel):
     ok: bool = True
@@ -152,7 +213,9 @@ class HarperRunResponse(BaseModel):
     plan_md: Optional[str] = None
     kit_md: Optional[str] = None
     release_notes_md: Optional[str] = None
-    telemetry: Optional[Dict[str, Any]] = None  # token usage, route info, etc.
+    telemetry: Optional[HarperTelemetry] = None  # token usage, route info, etc.
+    usage: Optional[HarperUsage] = None
+
     kit: Optional[HarperKitResult] = None
     rag_strategy: Optional[str] = None
     context_hard_limit: Optional[int] = None

@@ -66,7 +66,7 @@ _PRICING = None  # [pricing-singleton]
 def _get_pricing_manager():
     global _PRICING
     if _PRICING is None:
-        _PRICING = PricingManager.from_models_yaml(os.getenv("MODELS_CONFIG", "config/models.yaml"))
+        _PRICING = PricingManager.from_models_yaml(os.getenv("MODELS_CONFIG", "../config/models.yaml"))
     return _PRICING
 
 # --- Harper: Dynamic Context Budgeting (messages builder) --------------------
@@ -1395,16 +1395,13 @@ async def run(req: HarperRunRequest,  request: Request):
         log.error("httpx error: %s", e)
         errors.append(f"provider_error: {type(e).__name__}: {e}")
         spec_md_txt, llm_diag = ("", {})
-
+   #llm_text = {"text": "", "usage": {'input_tokens':3033, 'output_tokens':5050 }, "files": []}
     text_len=0
     log.info("harper.gateway llm_text length '%s' ", len(llm_text))
     #log.info("harper.gateway llm_text  '%s' ", (llm_text))
     # system_md_txt = ""
     # system_md_txt, llm_usage = oai.coerce_text_and_usage(llm_text)
     # system_md_txt = (system_md_txt or "").strip()
-
-
-    llm_usage = {}
     llm_usage = llm_text.get("usage") or {}
 
     system_md_txt = (llm_text.get("text") or "").strip()
@@ -1595,6 +1592,7 @@ async def run(req: HarperRunRequest,  request: Request):
         name=resolved_entry.get("name") if isinstance(resolved_entry, dict) else model,
         usage=llm_usage,
     )  # [pricing]
+    log.info("pricing_info=%s", pricing_info)
     telemetry.setdefault("pricing", {})  # dict
     telemetry["pricing"].update(pricing_info)  # {input_cost, output_cost, total_cost}  # [pricing]
 
@@ -1615,18 +1613,15 @@ async def run(req: HarperRunRequest,  request: Request):
         "run_id": req.runId,
         "phase": phase,
         "model": model,
-        "provider": telemetry.get("provider"),
-        "usage": llm_usage or {},
         "pricing": telemetry.get("pricing"),
         "files": telemetry.get("files"),
-        "files_len": len(files),
         "timestamp": ts,
         "snapshot": telemetry.get("usage") or {},
         "text_len": text_len,
         "files_len": len(files),
         "usage": llm_usage or {},
         "provider": provider})
-
+    log.info("Telemetry saved for project_id=%s phase=%s model=%s telemetry=%s", project_id, phase, model, telemetry)
     return {
         "ok": len(errors) == 0,
         "phase": phase,
@@ -1638,6 +1633,7 @@ async def run(req: HarperRunRequest,  request: Request):
         "warnings": warnings,
         "errors": errors,
         "runId": req.runId or "n/a",
+        "usage": llm_usage,
         "telemetry": telemetry,
     }
     

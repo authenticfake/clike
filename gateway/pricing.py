@@ -41,15 +41,16 @@ class PricingManager:
 
     @classmethod
     def from_models_yaml(cls, path: Optional[str] = None) -> "PricingManager":
-        path = path or os.getenv("HARPER_MODELS_PATH", "config/models.yaml")
+        log.info("Loading models from %s", path)
+
+        path = path or os.getenv("MODELS_CONFIG", "../config/models.yaml")
         data = cls._read_models_yaml(path)
         log.info("Found %d models in %s", len(data.get("models") or []), path)
         table: Dict[str, Pricing] = {}
 
         for m in (data.get("models") or []):
-            log.info("Found model: %s", m)
-           #mid = m.get("id") or _mk_id(m.get("provider"), m.get("name"))
-            mid = m.get("remote_name")
+            mid = m.get("id") or _mk_id(m.get("provider"), m.get("name"))
+            #mid = m.get("remote_name")
             pr = m.get("pricing") or {}
             # supporta anche alias price_* usati in alcune repo
             inp = pr.get("input_per_1k", pr.get("price_input_per_1k", 0.0)) or 0.0
@@ -91,6 +92,8 @@ class PricingManager:
         name: Optional[str],
         usage: Dict[str, Any],
     ) -> Dict[str, float]:
+        log.info("Pricing estimate_cost for model %s", model_id)
+
         p = self.for_model(model_id, provider, name)
         itok = int(usage.get("input_tokens") or 0)
         otok = int(usage.get("output_tokens") or 0)

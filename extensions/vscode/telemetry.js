@@ -75,7 +75,7 @@ async function appendLineUri(uri, line) {
 async function persistTelemetryVSCode(wsroot, projectId, runId, phase, telemetryLikeObj) {
 
   if (!wsroot || !telemetryLikeObj) return;
-  log(`persistTelemetryVSCode(${projectId}, ${runId}, ${phase}, ${JSON.stringify(telemetryLikeObj, null, 2)})`);
+  log(`persistTelemetryVSCode(${projectId}, ${runId}, ${phase} len=${Object.keys(telemetryLikeObj).length})`);
   // normalizza per sicurezza
   const t = {
     project_id: projectId,
