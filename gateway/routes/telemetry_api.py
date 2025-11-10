@@ -7,14 +7,15 @@ from typing import Dict, List, Optional
 from datetime import datetime
 from fastapi import APIRouter, Query
 
+from pricing import PricingManager
+
 router = APIRouter(prefix="/v1/metrics", tags=["metrics"])
 log = logging.getLogger("gateway.telemetry")
 
-# ✅ Prendi da env ma converti SUBITO in Path
+# ✅ Prende da env ma converte SUBITO in Path
 _TELEMETRY_DIR_ENV = os.getenv("HARPER_TELEMETRY_DIR", "/workspace/telemetry")
 TELEMETRY_DIR: Path = Path(_TELEMETRY_DIR_ENV).resolve()
 
-# ✅ Guardia: se altrove qualcuno riassegna una stringa, riconverti
 def _as_path(p) -> Path:
     return p if isinstance(p, Path) else Path(p)
 

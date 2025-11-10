@@ -806,6 +806,18 @@ function ensurePreviewProvider() {
   return clikePreviewProvider;
 }
 
+function _inferProvider(modelName) {
+  const n = String(modelName||'').toLowerCase();
+  if (n.startsWith('gpt')) {
+    console.log("GPT", n);
+    return 'openai';
+  }
+  if (/(llama|ollama|codellama|mistral|mixtral|phi|qwen|deepseek|granite|yi|gemma|llava)/.test(n)) return 'ollama';
+  if(n.startsWith('claude')) return 'anthropic';
+  if(n.startsWith('vllm')) return 'vllm';
+  return 'openai'; // fallback conservativo
+}
+
 async function showDiffPreview(originalText, patchedText, title = 'Clike Preview') {
   const provider = ensurePreviewProvider();
   const uid = String(Date.now()) + '-' + Math.random().toString(36).slice(2, 8);
@@ -2241,7 +2253,10 @@ function summarizeAttachments(inlineFiles = [], ragFiles = []) {
 
 function inferProvider(modelName) {
   const n = String(modelName||'').toLowerCase();
-  if (n.startsWith('gpt')) return 'openai';
+  if (n.startsWith('gpt')) {
+    console.log("GPT", n);
+    return 'openai';
+  }
   if (/(llama|ollama|codellama|mistral|mixtral|phi|qwen|deepseek|granite|yi|gemma|llava)/.test(n)) return 'ollama';
   if(n.startsWith('claude')) return 'anthropic';
   if(n.startsWith('vllm')) return 'vllm';
@@ -2654,6 +2669,7 @@ post('fetchModels');
 </html>`;
 }
 
+
 async function cmdOpenChat(context) {
   out.appendLine(`cmdOpenChat ${context}`);
   const panel = vscode.window.createWebviewPanel(
@@ -2864,18 +2880,17 @@ async function cmdOpenChat(context) {
         const runId = (Math.random().toString(16).slice(2) + Date.now().toString(16));
         log(`[harperRun] runId ...`,  runId);
         
-        out.appendLine(`[harperRun] inside ${JSON.stringify(msg)}`);
+        log(`[harperRun] inside ${JSON.stringify(msg)}`);
         const phase = msg.cmd;
         try {
           const project_id = getProjectId();
           const { cmd, attachments = [] } = msg;
           const savedState = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto', historyScope:'singleModel' };
           savedState.phase= msg.cmd
-          const docRoot = 'docs/harper'; // default; se usi config runtime, leggila qui
+          const docRoot = 'docs/harper';
+          log(`[harperRun] savedState ...${JSON.stringify(savedState)}`);
           const profileHint = computeProfileHint(state.mode, state.model);
-          log(`[harperRun] profileHint ...${profileHint}  ` );
-          const activeProvider = (profileHint!=null) ?inferProvider(activeModel) :'';
-          log(`[harperRun] activeProvider ....${activeProvider}  `);
+          const activeProvider = (!profileHint) ? _inferProvider(activeModel) :'';
           let targets =''
           let project_name ='';
           if (phase === 'idea') {
@@ -3039,18 +3054,18 @@ async function cmdOpenChat(context) {
             
             // sorgente principale lato orchestrator
             const tFromServer = _out?.telemetry || outGateway?.telemetry || _out?.usage ? {
-              provider: _out?.provider,
-              model: _out?.model,
+              provider: activeProvider,
+              model: activeModel,
               usage: _out?.usage,
-              pricing: _out?.pricing,
+              pricing: _out?.telemetry?.pricing,
               files: _out?.files
             } : null;
             log(`[telemetry] tFromServer:`, JSON.stringify(tFromServer, null, 2), tFromServer)
             await persistTelemetryVSCode(wsroot, project_id, runId, phase, tFromServer || {
-              provider: _out?.provider,
-              model: _out?.model,
+              provider: activeProvider,
+              model: activeModel,
               usage: _out?.usage || {},
-              pricing: _out?.pricing || {},
+              pricing: _out?.telemetry?.pricing || {},
               files: _out?.files || []});
           } catch (e) {
             log(`[telemetry] skipped: ${e?.message || e}`);
@@ -3467,7 +3482,7 @@ async function cmdOpenChat(context) {
         const cur = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto' };
         const activeMode  = msg.mode  || cur.mode  || 'free';
         const activeModel = msg.model || cur.model || 'auto';
-        const activeProvider = msg.provider || inferProvider(activeModel);
+        const activeProvider = msg.provider || _inferProvider(activeModel);
         out.appendLine(`CLike: ${msg.type} (${activeMode} ${activeModel} ${activeProvider})`);
 
 
