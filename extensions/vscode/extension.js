@@ -557,7 +557,7 @@ function cfg() {
     // git helpers (presenti)
     gitAutoCommit:    c.get('clike.git.autoCommit', true),
     gitCommitMessage: c.get('clike.git.commitMessage', 'clike: apply patch (AI)'),
-    gitOpenPR:        c.get('clike.git.openPR', true),
+    gitOpenPR:        c.get('clike.git.openPR', false),
 
     // Git workflow
     gitRemote:        c.get('clike.git.remote', 'origin'),
