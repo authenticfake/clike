@@ -7,7 +7,7 @@ _FENCE_LINE_RE = re.compile(r"^\s*(```|~~~)([a-zA-Z0-9._+-]*)\s*$")
 
 # alcune estensioni per cui è sicuro rimuovere fences "sciolti"
 _STRIP_EXTS = {
-    ".md",".markdown",".json",".jsonc",".yml",".yaml",
+    ".json",".jsonc",".yml",".yaml",
     ".js",".mjs",".cjs",".ts",".tsx",
     ".java",".mjs",".cjs",".ts",".tsx",
     ".py",".sql",".sh",".bash",".env",".ini",".toml",
@@ -19,7 +19,7 @@ _STRIP_EXTS = {
     ".less", ".xml", ".json", ".yaml", ".yml", ".ini", ".cfg", ".lua", ".pl", 
     ".pm", ".tcl", ".clj", ".cljs", ".erl", ".ex", ".exs", ".fs", ".fsi", ".r", 
     ".asm", ".s", ".v", ".sv", ".vhd", ".scala", ".groovy", ".pas", ".d", ".dart", 
-    ".elm", ".hx", ".nim", ".rkt", ".ml", ".mli", ".tex", ".dll"
+    ".elm", ".hx", ".nim", ".rkt", ".ml", ".mli", ".tex", ".dll"    
 }
 
 def _strip_leading_trailing_fence_lines(txt: str) -> str:
