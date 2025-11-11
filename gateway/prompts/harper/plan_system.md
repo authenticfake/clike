@@ -67,13 +67,15 @@ Return this section strictly as a **canonical Markdown table** using pipes with 
 **Columns (exact order and names):**
 - `ID` | `Title` | `Acceptance (≤3 bullets)` | `DependsOn [IDs]` | `Track` | `Status`
 
-**Rules (rendering & brevity):**
+**Hard Rules (rendering & brevity):**
 - Each table row MUST be on a **single physical line** starting and ending with a pipe `|`.
 - The **only** line breaks allowed inside a cell are HTML `<br>`; DO NOT insert Markdown hard wraps.
-- In `Acceptance (≤3 bullets)`: provide **max 3 bullets**, each ≤ 10 words, no punctuation besides commas, separated by `<br>`.
-- Keep `Title` ≤ 8–10 words; avoid parentheses and arrows.
+- In `Acceptance (≤3 bullets)`: provide **max 3 bullets**, each ≤ 20 words, no punctuation besides commas, separated by `<br>`.
+- Keep `Title` ≤ 12–15 words; avoid parentheses and arrows.
 - IDs start with `REQ-` and are stable.
 - `Track=App` rows must be **/kit-ready**.
+- Emit the REQ-IDs Table exactly once. Do not repeat the table, sections, or rows later in the file. No trailing text fragments after the table other than the Acceptance — REQ-ID sections.
+- **Do NOT emit triple backticks in file bodies**. Never start or end any file content with `… or `language. If present, remove them.
 
 **After the table**, for each REQ add:
 `### Acceptance — <REQ-ID>`

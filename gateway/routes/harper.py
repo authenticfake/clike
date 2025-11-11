@@ -1441,7 +1441,7 @@ async def run(req: HarperRunRequest,  request: Request):
     
     # --- Multi-file support
     files: list[dict] = []
-
+    gen_files: list[dict] = [] 
     # Se il provider (es. anthropic.py / openai_compat.py) ha già estratto i file, usali.
     if provider_files:
         log.info("harper.files from provider: %d", len(provider_files))
