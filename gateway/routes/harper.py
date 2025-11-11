@@ -9,6 +9,7 @@ import logging, time
 from pathlib import Path
 import os, datetime
 import httpx
+from utils.sanitize import sanitize_for_path
 from utils.utils import   collect_rag_materials_http, decide_inline_or_rag
 from utils.rag_store import RagStore
 from routes.chat import ANTHROPIC_API_KEY, ANTHROPIC_BASE, OLLAMA_BASE, OPENAI_API_KEY, OPENAI_BASE, VLLM_BASE, _json
@@ -1490,6 +1491,17 @@ async def run(req: HarperRunRequest,  request: Request):
 
     # Deduplica finale (per evitare file doppi o path ripetuti tra provider_files e parsing)
     files = _dedupe_by_path(files)
+    #saniize files removing 
+    # ```
+    #
+    #``` json
+    for i, file_name in enumerate(files):
+        file_path = file_name["path"]
+        file_content = file_name["content"]
+        clean_content = sanitize_for_path(file_path, file_content)
+        files[i]["content"] = clean_content
+
+
     for _f in files:
          _f["path"] = _canonicalize_path(_f.get("path") or "")
 

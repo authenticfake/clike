@@ -3014,7 +3014,6 @@ async function cmdOpenChat(context) {
           const keys = Object.keys(body.core_blobs); 
           log(`[harperRun] body (keys::core_blobs):`,  keys)
           if (phase==='finalize') {
-
               try {
                 const items = await collectFinalizeRagItems(wsroot);
 
@@ -3188,6 +3187,7 @@ async function cmdOpenChat(context) {
         let callGit =true;
         switch (msg.cmd) {
           case 'eval':
+            log("[harperEDD] Calling eval for req:" + targets + " in: " + ws_root);
             report = await handleEval(path_ltc_json, ws_root, targets,mode, modeContent ); 
             reportFile = await saveEvalCommand(ws_root,plan,targets,report,out)
             files_git.push(toFsPath(reportFile));
