@@ -46,8 +46,8 @@ runs/           # manifests, diffs, test logs
 ## Next steps
 
 ### Prerequisite Steps for using Git:
--  brew install gh
--  gh auth login
+- brew install gh
+- gh auth login
 - gh auth setup-git
 - git ls-remote origin
 

@@ -543,7 +543,8 @@ def _normalize_messages_response(resp_json: Dict[str, Any]) -> Dict[str, Any]:
         except Exception as e:
             log.warning("anthropic.normalize: fallback JSON-in-text failed: %s", e)
 
-    files_out = _dedupe_files_by_path(files_out or [])
+    _files_out = _dedupe_files_by_path(files_out or [])
+
 
     # Allineamento a openai_compat: NESSUN echo file nel campo text.
     # Harper userà esclusivamente 'files' per scrivere gli artefatti.
