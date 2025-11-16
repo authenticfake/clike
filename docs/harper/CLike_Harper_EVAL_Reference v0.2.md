@@ -88,7 +88,6 @@ gh pr view --web
 - `/spec` — generate/update `SPEC.md` (runs **G0**).
 - `/plan` — generate/update `PLAN.md` (runs **G1**).
 - `/kit` — scaffold/update `KIT.md` (runs **G2**).
-- `/build-next 3` — implement next 3 TODOs (runs **Global Gates**).
 - `/rerun-evals` — re-run all gates on the PR head.
 - `/clear-session allModels` — clear LLM sessions.
 

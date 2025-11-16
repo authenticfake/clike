@@ -11,11 +11,10 @@
 /spec — generate SPEC from IDEA & context (writes to `SPEC.generated.md`, then promote to `SPEC.md`)  
 /plan — generate PLAN from SPEC  
 /kit — scaffold + incremental build cycles  
-/build — apply micro-diffs and re-run tests
 
 ### Evals & Gates
-/eval spec | plan | kit | finalize — run eval profile  
-/gate spec | plan | kit | finalize — enforce gates  
+/eval `<req-id>` — run eval profile for REQ-ID
+/gate `<req-id>` — enforce gates  for REQ-ID
 
 ## On-Prem Expectations
 - SPEC contains **Technology Constraints** for on-prem: Kubernetes + NGINX ingress, WSO2 APIM, Keycloak (OIDC), Kafka, PostgreSQL, Vault, Prometheus/Grafana.

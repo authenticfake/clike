@@ -56,7 +56,7 @@ services:
       - INLINE_MAX_FILE_KB=64
       - INLINE_MAX_TOTAL_KB=256
       - RAG_SIZE_THRESHOLD_KB=64
-      - TIMEOUT=500.0
+      - TIMEOUT=720.0
       - DEV_FOLDER=/Users/a.franco/dev/authenticfake
       
     env_file:

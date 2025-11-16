@@ -20,8 +20,8 @@
 /kit — scaffold + incremental build cycles  
 
 ### Evals & Gates
-/eval spec | plan | kit | finalize — run eval profile  
-/gate spec | plan | kit | finalize — enforce gates  
+/eval `<req-id>` — run eval profile for REQ-ID
+/gate `<req-id>` — enforce gates  for REQ-ID
 
 ## Expectations
 - SPEC has all sections, KPIs include a **measurement** statement, and **Technology Constraints** are defined.  

@@ -12,7 +12,6 @@ Select the primary phase this PR targets:
 - [ ] SPEC (G0)
 - [ ] PLAN (G1)
 - [ ] KIT (implementation)
-- [ ] BUILD (tests/integration)
 
 > Mixed changes are allowed, but each gate below must still pass.
 

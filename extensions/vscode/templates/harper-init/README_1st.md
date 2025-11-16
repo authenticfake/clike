@@ -1,7 +1,7 @@
 # ${project.name} — Harper Vibe Coding (CLike)
 
 ## What is Harper
-Harper is an outcome-driven, AI-native workflow: IDEA → SPEC → PLAN → KIT → BUILD → FINALIZE.
+Harper is an outcome-driven, AI-native workflow: IDEA → SPEC → PLAN → KIT → EVAL → GATE → FINALIZE.
 - Human = orchestrator/validator. AI = executor.
 - Core docs live in \`docs/harper/\` and are **always** part of the model context.
 
@@ -12,11 +12,10 @@ Harper is an outcome-driven, AI-native workflow: IDEA → SPEC → PLAN → KIT 
   - \`/idea\`: generate/update IDEA from scratch/attachs.
   - \`/spec\`: generate/update SPEC from IDEA.
   - \`/plan\`: generate/update PLAN from SPEC.
-  - \`/kit\`, \`/build\`: implement & test in short loops.
-  - \`/finalize\`: final gates & report.
-  - \`/eval <spec|plan|kit|finalize>\`: Performs an eval of spec/plan/kit/finalize.
-  - \`/gate <spec|plan|kit|finalize>\`: Performs a gate of spec/plan|kit|finalize. 
-KIT eval.
+  - \`/kit\`: implement & test in short loops.
+  - \`/finalize\`: package + SBOM + license checks.
+  - \`/eval <REQ-ID>\`: Performs an eval after kit phase for REQ-ID.
+  - \`/gate <REQ-ID>\`: Performs a gate after kit phase for REQ-ID.
   - \`/rag <query>\`: Searches the RAG (shows top results) (cross).
   - \`/rag list\`: Shows current attached files (inline+RAG) (cross).
   - \`/rag +<N>\`: Adds RAG result #N from the last search to the attached files (cross).
@@ -40,12 +39,13 @@ runs/           # manifests, diffs, test logs
    \`git push -u origin main\`
 3. SPEC approved (Gate G0) → tag/annotate.
 4. PLAN approved (Gate G1) → feature branches, PRs, CI checks.
-5. KIT/BUILD cycles → PR with tests and quality gates.
+5. KIT cycles → PR with tests and quality gates.
 6. FINALIZE → tag release (e.g., \`v0.1.0\`) + FINAL_REPORT.md.
 
 ## Next steps
 
 ### Prerequisite Steps for using Git:
+
 - brew install gh
 - gh auth login
 - gh auth setup-git
@@ -57,7 +57,7 @@ Init ${project.name} gith repository
 2. git add .
 3. git commit -m "chore(init): bootstrap Harper workspace from CLike template"
 4. git remote add origin https://github.com/<ORG>/${project.name}.git
-5. git config --global credential.helper osxkeychain 
+5. git config --global credential.helper osxkeychain
 6. git branch -M master
 7. git push -u origin master
 
