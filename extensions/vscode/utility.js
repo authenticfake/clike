@@ -9,6 +9,8 @@ const crypto = require('crypto');
 // usa Node.js fs per calcolare la size di un file
 const fs = require('fs');
 const { log } = require('console');
+const myhttp = require("http");
+const myhttps = require("https");
 
 /** Logger that accepts N args and JSON-serializes objects. */
 function mkLog(out) {
@@ -19,6 +21,24 @@ function mkLog(out) {
     }).join(' ');
     if (out?.appendLine) out.appendLine(line); else console.log(line);
   };
+}
+
+/**
+ * Funzione di logging personalizzata che scrive su entrambi i canali.
+ * @param {...any} args Messaggi o oggetti da loggare.
+ */
+function _log(...args) {
+    // 1. Log nella console standard per il debug.
+    console.log(...args); 
+    
+    // 2. Log nel canale di output di VS Code.
+    out.appendLine(args.map(arg => {
+        // Converte ogni argomento in stringa per l'output.
+        if (typeof arg === 'object' && arg !== null) {
+            return JSON.stringify(arg, null, 2);
+        }
+        return String(arg);
+    }).join(' ')); 
 }
 
 /** sha256 of a Buffer */
@@ -1460,8 +1480,8 @@ function normalizeAttachment(a) {
 }
 // Pretty JSON logger to avoid [object Object]
 function safeLog(prefix, obj) {
-  try { console.log(prefix, JSON.stringify(obj, null, 2)); }
-  catch { console.log(prefix, obj); }
+  try { _log(prefix, JSON.stringify(obj, null, 2)); }
+  catch { _log(prefix, obj); }
 }
 
 // Accept many base64 aliases, strip data URL header if any
@@ -1516,6 +1536,87 @@ const sanitize = (x) => {
   return s;
 };
 
+function httpPostJsonLong(url, { headers, body }, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const lib = u.protocol === "https:" ? myhttps : myhttp;
+
+    const req = lib.request(
+      {
+        hostname: u.hostname,
+        port: u.port || (u.protocol === "https:" ? 443 : 80),
+        path: u.pathname + u.search,
+        method: "POST",
+        headers: headers || {},
+      },
+      (res) => {
+        let data = "";
+        res.setEncoding("utf8");
+
+        res.on("data", (chunk) => {
+          data += chunk;
+        });
+
+        res.on("end", () => {
+          const response = {
+            ok: res.statusCode >= 200 && res.statusCode < 300,
+            status: res.statusCode,
+            async json() {
+              try {
+                return JSON.parse(data);
+              } catch (e) {
+                log(
+                  `[harper] invalid JSON from orchestrator: ${e.message}. ` +
+                  `Body[0..500]=${data.slice(0, 500)}`
+                );
+                throw e;
+              }
+            },
+            async text() {
+              return data;
+            },
+          };
+          resolve(response);
+        });
+      }
+    );
+
+    req.on("error", (err) => {
+      reject(err);
+    });
+
+    // timeout socket lato client (disabilitato se timeoutMs <= 0)
+    if (timeoutMs && timeoutMs > 0) {
+      req.setTimeout(timeoutMs, () => {
+        req.destroy(new Error(`Request timeout after ${timeoutMs}ms`));
+      });
+    }
+
+    if (body) {
+      req.write(body);
+    }
+    req.end();
+  });
+}
+
+
+function logCurrentTimeStandard(activity) {
+    const now = new Date();
+
+    // Estrae i componenti (ore, minuti, secondi)
+    const hours = now.getHours().toString().padStart(2, '0');
+    const minutes = now.getMinutes().toString().padStart(2, '0');
+    const seconds = now.getSeconds().toString().padStart(2, '0');
+    
+    // Opzionale: aggiunge i millisecondi
+    const milliseconds = now.getMilliseconds().toString().padStart(3, '0');
+
+    // Costruisce il log
+    const timeString = `${hours}:${minutes}:${seconds}.${milliseconds}`;
+    
+    _log(`Clike Time:[${timeString}] --> [${activity}]`);
+}
+
 module.exports = {
 
   buildHarperBody,
@@ -1541,6 +1642,8 @@ module.exports = {
   readWorkspaceTextFile,
   getFileSizeBytes,
   normalizeChangedFiles,
-  sanitize
+  sanitize,
+  logCurrentTimeStandard,
+  httpPostJsonLong
 
 };

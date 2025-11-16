@@ -104,6 +104,7 @@ async function persistTelemetryVSCode(wsroot, projectId, runId, phase, telemetry
     files_len: Array.isArray(t.files) ? t.files.length : (t.files_len ?? null),
     meta: { client: 'vscode', source: 'extension' }
   });
+  log( `persistTelemetryVSCode: appending ${line}`);
   const streamFile = telemetryAppendFileUri(wsroot, projectId);
   await appendLineUri(streamFile, line);
   log(`persistTelemetryVSCode: appended ${streamFile.fsPath}`);

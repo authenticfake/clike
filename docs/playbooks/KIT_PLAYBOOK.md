@@ -16,7 +16,6 @@ Deliver **working artifacts** (code, tests, README, requirements) that satisfy S
 - Align artifacts with SPEC constraints.
 
 ## System Prompts
-- Build:  see `prompts/KIT_BUILD.md`
 - Verify: see `prompts/KIT_VERIFY.md`
 
 ## Definition of Done

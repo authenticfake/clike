@@ -543,7 +543,7 @@ def _normalize_messages_response(resp_json: Dict[str, Any]) -> Dict[str, Any]:
         except Exception as e:
             log.warning("anthropic.normalize: fallback JSON-in-text failed: %s", e)
 
-    _files_out = _dedupe_files_by_path(files_out or [])
+    files_out = _dedupe_files_by_path(files_out or [])
 
 
     # Allineamento a openai_compat: NESSUN echo file nel campo text.
@@ -593,7 +593,7 @@ def _normalize_messages_response(resp_json: Dict[str, Any]) -> Dict[str, Any]:
         log.info("anthropic.normalize: single file echoed into text (BEGIN_FILE...). path=%s", files_out[0]["path"])
     else:
         log.info("anthropic.normalize: no files extracted; text_len=%d", len(text_clean))
-
+    log.info("anthropic.normalize: finish_reason=%s", finish_reason)
     return _mk_unified_result(
         ok=True, text=text_clean, files=files_out or [], usage=usage,
         finish_reason=finish_reason, raw=raw, errors=[]

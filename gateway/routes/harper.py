@@ -1,11 +1,12 @@
 # gateway/routes/harper.py
 from __future__ import annotations
+import asyncio
 import json
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from typing import List, Literal, Optional, Dict, Any, Union
-import logging, time
+import logging, time, ast
 from pathlib import Path
 import os, datetime
 import httpx
@@ -1101,6 +1102,42 @@ def normalize_context_from_body(req: HarperRunRequest) -> tuple[list[dict], list
 
     return inline_files, rag_files, attachments
 
+def load_anthropic_stub_from_file(path: str = "stub/anthropic_stub.json") -> dict:
+    """
+    Load a local stub response for Anthropics so we can test the VS Code
+    extension without calling the real API.
+    The file must contain a single JSON object with the same shape as
+    the real Anthropic response (keys: ok, text, files, usage, ...).
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        if not isinstance(data, dict):
+            raise ValueError("Anthropic stub must be a JSON object at top level")
+
+        return data
+
+    except FileNotFoundError:
+        log.error("harper.gateway anthropic stub file not found at %s", path)
+        raise HTTPException(
+            status_code=500,
+            detail="Anthropic stub file not found. Please create docs/harper/anthropic_stub.json",
+        )
+    except json.JSONDecodeError as e:
+        log.error("harper.gateway anthropic stub JSON decode error: %s", e)
+        raise HTTPException(
+            status_code=500,
+            detail="Anthropic stub JSON invalid, cannot be parsed",
+        )
+    except Exception as e:
+        log.error("harper.gateway anthropic stub unexpected error: %s", e)
+        raise HTTPException(
+            status_code=500,
+            detail="Anthropic stub load failed",
+        )
+
+
 @router.post("/run")
 async def run(req: HarperRunRequest,  request: Request):
     # TODO: apply policy based on req.profile (cloud/local/redaction) and perform the actual work.
@@ -1380,6 +1417,17 @@ async def run(req: HarperRunRequest,  request: Request):
                 tool_choice=gen_tool_choice,
                 response_format=gen_response_format,
                 timeout=timeout_sec)
+            # llm_text = load_anthropic_stub_from_file()
+            # log.info(
+            #     "harper.gateway anthropic stub loaded ok=%s text_len=%s files=%s",
+            #     llm_text.get("ok"),
+            #     len(llm_text.get("text") or ""),
+            #     len(llm_text.get("files") or []),
+            # )
+            # log.info("harper_plan_debug: start")
+            # await asyncio.sleep(60*10)  # 400 secondi
+            # log.info("harper_plan_debug: end")
+            
             
         else:
             raise HTTPException(400, f"unsupported provider for chat: {provider} for model '{req.model}")
@@ -1396,10 +1444,11 @@ async def run(req: HarperRunRequest,  request: Request):
         log.error("httpx error: %s", e)
         errors.append(f"provider_error: {type(e).__name__}: {e}")
         spec_md_txt, llm_diag = ("", {})
-   #llm_text = {"text": "", "usage": {'input_tokens':3033, 'output_tokens':5050 }, "files": []}
-    text_len=0
+    
+    #llm_text = {"text": "", "usage": {'input_tokens':3033, 'output_tokens':5050 }, "files": []}
+    #text_len=0
     log.info("harper.gateway llm_text length '%s' ", len(llm_text))
-    #log.info("harper.gateway llm_text  '%s' ", (llm_text))
+    log.info("harper.gateway llm_text  '%s' ", (llm_text))
     # system_md_txt = ""
     # system_md_txt, llm_usage = oai.coerce_text_and_usage(llm_text)
     # system_md_txt = (system_md_txt or "").strip()
@@ -1498,6 +1547,8 @@ async def run(req: HarperRunRequest,  request: Request):
     for i, file_name in enumerate(files):
         file_path = file_name["path"]
         file_content = file_name["content"]
+        log.info("file_path '%s' ", file_path)
+        log.info("file_content length '%s' ", len(file_content)  )
         clean_content = sanitize_for_path(file_path, file_content)
         files[i]["content"] = clean_content
 

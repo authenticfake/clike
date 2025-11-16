@@ -216,6 +216,7 @@ async def post_plan(req: HarperPhaseRequest):
             usage=out_dict.get("usage"),
             telemetry=out_dict.get("telemetry"),
         )
+        log.info("inside try out files len: %s", len(out_dict.get("files")));
 
 
     except Exception as e:
@@ -226,7 +227,7 @@ async def post_plan(req: HarperPhaseRequest):
     plan_md = None
     if out.files:
         try:
-            # se il primo file è SPEC.md lo esponiamo
+            # se il primo file è PLAN.md lo esponiamo
             if out.files[0].path.lower().endswith("plan.md"):
                 plan_md = out.files[0].content
         except Exception:

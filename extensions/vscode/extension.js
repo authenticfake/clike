@@ -12,13 +12,14 @@ const os = require('os');
 
 
 
+
 const { registerCommands } = require('./commands/registerCommands');
 const {  handleGate, handleEval } = require('./commands/slashBot');
 const {  persistTelemetryVSCode } = require('./telemetry');
 
 const { readPlanJson, getProjectId, promoteReqSources, runPromotionFlow,preIndexRag, normalizeAttachment, safeLog, readWorkspaceTextFile, getFileSizeBytes, getProjectNameFromWorkspace } = require('./utility')
 const { buildHarperBody,  defaultCoreForPhase, runKitCommand,runEvalGateCommand, saveKitCommand,saveEvalCommand,saveGateCommand, normalizeChangedFiles } = require('./utility')
-const {sanitize} = require('./utility')
+const {sanitize, logCurrentTimeStandard, httpPostJsonLong} = require('./utility')
 const{ toFsPath, mapKitSrcToWorkspaceTarget, clikeGitSync } = require('./git'); // NEW: clikeGitSync
 
 let __clike_lastTargetUriCache = null;  
@@ -170,18 +171,168 @@ async function collectFinalizeRagItems(workspaceRootUri, maxFiles = 400, maxByte
   return targets;
 }
 
-
+/*
 // --- generic Harper runner (spec/plan/kit/build) ---
 async function callHarper(cmd, payload, headers) {
-  const base = vscode.workspace.getConfiguration().get('clike.orchestratorUrl') || 'http://localhost:8080';
-  const url  = `${base}/v1/harper/${cmd}`;
-  const res  = await fetch(url, { method: 'POST', headers: headers, body: JSON.stringify(payload) });
-  if (!res.ok) {
-    const txt = await res.text().catch(()=> '');
-    throw new Error(`orchestrator ${cmd} ${res.status}: ${txt || 'error'}`);
+  let res
+  let raw;
+
+  try {
+    const base = vscode.workspace.getConfiguration().get('clike.orchestratorUrl') || 'http://localhost:8080';
+    const url  = `${base}/v1/harper/${cmd}`;
+    res  = await fetch(url, { method: 'POST', headers: headers, body: JSON.stringify(payload) });
+    if (!res.ok) {
+      throw new Error(`callHarper ${cmd} ${res}: ${'error'}`);
+    }
+    return res.json();
+
   }
-  return res.json();
+  catch (e) {
+    try {
+      raw = await res?.text();
+    } catch(err) {
+      log("[clike] callHarper — raw error", err)
+    }
+    
+    log("[clike] callHarper — network error", e)
+    log("[clike] callHarper — non-2xx response", {
+      status: res?.status,
+      statusText: res?.statusText,
+      bodyPreview: raw?.slice?.(0, 400)
+    })
+    throw new Error(`callHarper ${cmd} error: ${e.message}`);
+
+  }
+ 
+}*/
+
+// const HARPER_REQUEST_TIMEOUT_MS = 720000;
+
+// async function callHarper(cmd, payload, headers, opts = {}) {
+//   const base = vscode.workspace.getConfiguration().get('clike.orchestratorUrl') || 'http://localhost:8080';
+//   const url  = `${base}/v1/harper/${cmd}`;
+  
+//   const timeoutMs = opts.timeoutMs ?? HARPER_REQUEST_TIMEOUT_MS;
+//   const controller = new AbortController();
+//   const timeoutId = setTimeout(() => {
+//     controller.abort();
+//   }, timeoutMs);
+
+//   try {
+//     log(`[harper] calling ${url} with cmd=${cmd}, timeout=${timeoutMs}ms`);
+//     logCurrentTimeStandard('[harper] calling');
+//     const res = await fetch(url, {
+//       method: "POST",
+//       headers:  headers,
+//       body: JSON.stringify(payload),
+//       signal: controller.signal,
+//     });
+//     logCurrentTimeStandard('[harper] done');
+//     if (!res.ok) {
+//       const text = await res.text().catch(() => "<no body>");
+//       log(
+//         `[harper] ${cmd} http error ${res.status}: ${text.slice(0, 500)}`
+//       );
+//       throw new Error(
+//         `orchestrator ${cmd} ${res.status}: ${text.slice(0, 200)}`
+//       );
+//     }
+
+//     const json = await res.json();
+//     return json;
+//   } catch (err) {
+//     logCurrentTimeStandard('[harper] fetch failed');
+//     const isAbort =
+//       err?.name === "AbortError" ||
+//       (typeof err?.message === "string" &&
+//         err.message.toLowerCase().includes("aborted"));
+
+//     const errMsg =
+//       typeof err?.message === "string" ? err.message : String(err);
+
+//     const causeCode =
+//       err?.cause && typeof err.cause === "object" ? err.cause.code : undefined;
+
+//     log(
+//       `[harper] fetch failed for ${cmd}: ${errMsg}` +
+//         (causeCode ? ` (cause.code=${causeCode})` : "") +
+//         (err?.stack ? `\nSTACK: ${err.stack}` : "")
+//     );
+
+//     if (isAbort) {
+//       throw new Error(
+//         `Harper ${cmd} timed out after ${timeoutMs / 1000}s (client abort)`
+//       );
+//     }
+
+//     throw new Error(`Harper ${cmd} fetch failed: ${errMsg}`);
+//   } finally {
+//     clearTimeout(timeoutId);
+//   }
+// }
+
+
+const HARPER_REQUEST_TIMEOUT_MS = 12 * 60 * 1000; // 12 minuti #porcocazzo il timeout ...
+
+async function callHarper(cmd, payload, headers, opts = {}) {
+  const base =
+    vscode.workspace.getConfiguration().get("clike.orchestratorUrl") ||
+    "http://localhost:8080";
+  const url = `${base}/v1/harper/${cmd}`;
+
+  // Se vuoi, puoi passare opts.timeoutMs per override (es. comandi "leggeri")
+  const timeoutMs =
+    typeof opts.timeoutMs === "number"
+      ? opts.timeoutMs
+      : HARPER_REQUEST_TIMEOUT_MS;
+
+  try {
+    log(
+      `[harper] calling ${url} cmd=${cmd} timeout=${timeoutMs}ms (long http)`
+    );
+    logCurrentTimeStandard("[harper] calling");
+
+    const res = await httpPostJsonLong(
+      url,
+      {
+        headers,
+        body: JSON.stringify(payload),
+      },
+      timeoutMs
+    );
+
+    logCurrentTimeStandard("[harper] done");
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "<no body>");
+      log(
+        `[harper] ${cmd} http error ${res.status}: ${text.slice(0, 500)}`
+      );
+      throw new Error(
+        `orchestrator ${cmd} ${res.status}: ${text.slice(0, 200)}`
+      );
+    }
+
+    const json = await res.json();
+    return json;
+  } catch (err) {
+    logCurrentTimeStandard("[harper] fetch failed");
+
+    const errMsg =
+      typeof err?.message === "string" ? err.message : String(err);
+    const causeCode =
+      err?.cause && typeof err.cause === "object" ? err.cause.code : undefined;
+
+    log(
+      `[harper] fetch failed for ${cmd}: ${errMsg}` +
+        (causeCode ? ` (cause.code=${causeCode})` : "") +
+        (err?.stack ? `\nSTACK: ${err.stack}` : "")
+    );
+
+    throw new Error(`Harper ${cmd} fetch failed: ${errMsg}`);
+  }
 }
+
 
 
 
@@ -304,6 +455,48 @@ async function loadSessionFilteredHarper(mode, model, limit = 200) {
     return modelFilter;
     });
 
+}
+// Cancella la **prima** occorrenza che matcha role+content+model nel file di sessione
+async function deleteSessionEntry(mode, role, content, model) {
+  try {
+    const uri = sessionFileUri(mode);
+    const buf = await vscode.workspace.fs.readFile(uri);
+    const lines = buf.toString('utf8').split(/\r?\n/).filter(Boolean);
+
+    let deleted = false;
+    const kept = [];
+
+    for (const line of lines) {
+      let entry;
+      try {
+        entry = JSON.parse(line);
+      } catch {
+        // linea non valida → la teniamo
+        kept.push(line);
+        continue;
+      }
+
+      if (
+        !deleted &&
+        String(entry.role || '') === String(role || '') &&
+        String(entry.content || '') === String(content || '') &&
+        (!model || String(entry.model || '') === String(model || ''))
+      ) {
+        // saltiamo SOLO la prima che matcha
+        deleted = true;
+        continue;
+      }
+
+      kept.push(line);
+    }
+
+    const out = kept.length ? kept.join('\n') + '\n' : '';
+    await vscode.workspace.fs.writeFile(uri, Buffer.from(out, 'utf8'));
+    return deleted;
+  } catch (e) {
+    log(`[session] deleteSessionEntry failed: ${e?.message || e}`);
+    return false;
+  }
 }
 
 async function pruneSessionByModel(mode, model) {
@@ -1333,20 +1526,65 @@ function getWebviewHtml(orchestratorUrl) {
   .spinner.active { display:inline-block; animation: spin 1s linear infinite; }
   @keyframes spin { from {transform:rotate(0)} to {transform:rotate(360deg)} }
 
+  // .chat { border:1px solid var(--border); border-radius:8px; padding:10px; background:var(--card); height:260px; overflow:auto; }
+  // .msg { margin:8px 0; display:flex; }
+  // .msg.user { justify-content:flex-end; }
+  // .bubble { max-width:78%; padding:10px 12px; border-radius:14px; white-space:pre-wrap; word-break:break-word; }
+  // .user .bubble { background:var(--bubble-user); color:white; border-top-right-radius:4px; }
+  
+
+  // .ai .bubble { background:var(--bubble-ai); color:var(--fg); border-top-left-radius:4px; }
+  // .meta { font-size:11px; opacity:.7; margin-top:3px; }
+  // .badge { display:inline-block; font-size:10px; padding:2px 6px; border-radius:10px; border:1px solid var(--border); margin-right:6px; background:#0b0f14; color:var(--fg-dim); }
   .chat { border:1px solid var(--border); border-radius:8px; padding:10px; background:var(--card); height:260px; overflow:auto; }
   .msg { margin:8px 0; display:flex; }
   .msg.user { justify-content:flex-end; }
-  .bubble { max-width:78%; padding:10px 12px; border-radius:14px; white-space:pre-wrap; word-break:break-word; }
+
+  .bubble {
+    position: relative;
+    max-width:78%;
+    padding:10px 12px;
+    border-radius:14px;
+    white-space:pre-wrap;
+    word-break:break-word;
+  }
   .user .bubble { background:var(--bubble-user); color:white; border-top-right-radius:4px; }
-  .ai .bubble { background:var(--bubble-ai); color:var(--fg); border-top-left-radius:4px; }
+  .ai .bubble   { background:var(--bubble-ai);   color:var(--fg); border-top-left-radius:4px; }
   .meta { font-size:11px; opacity:.7; margin-top:3px; }
   .badge { display:inline-block; font-size:10px; padding:2px 6px; border-radius:10px; border:1px solid var(--border); margin-right:6px; background:#0b0f14; color:var(--fg-dim); }
+
+  .bubble-delete {
+    position:absolute;
+    top:4px;
+    right:6px;
+    width:18px;
+    height:18px;
+    padding:0;
+    border:none;
+    border-radius:999px;
+    font-size:11px;
+    line-height:18px;
+    text-align:center;
+    background:rgba(0,0,0,.35);
+    color:var(--fg-dim);
+    cursor:pointer;
+    opacity:0;
+    transition:opacity .15s ease-out, background .15s ease-out;
+  }
+  .bubble-delete:hover {
+    background:rgba(0,0,0,.55);
+    color:var(--fg);
+  }
+  .msg:hover .bubble-delete {
+    opacity:.9;
+  }
 
   .tabs { margin-top:10px; display:flex; gap:6px; }
   .tab { padding:6px 10px; border:1px solid var(--border); border-bottom:none; cursor:pointer; border-top-left-radius:6px; border-top-right-radius:6px; }
   .tab.active { background:var(--card); }
   .panel { border:1px solid var(--border); padding:8px; min-height: 150px; background:var(--card); }
   pre { white-space: pre-wrap; word-wrap: break-word; }
+  
 </style>
 </head>
 <body>
@@ -2178,7 +2416,24 @@ function bubble(role, content, modelName, attachments, ts, opts) {
       appendCitationsMeta(b, opts.citations);
     }
   } catch {}
-
+  // pulsante cestino → chiede al backend di eliminare il messaggio anche dal file JSONL
+  if (role === 'user' || role === 'assistant') {
+    const del = document.createElement('button');
+    del.className = 'bubble-delete';
+    del.textContent = '✕';
+    del.title = 'Remove from history';
+    del.addEventListener('click', function (ev) {
+      ev.stopPropagation(); // non triggera altri handler
+      vscode.postMessage({
+        type: 'deleteBubble',
+        mode: currentMode(),
+        role,
+        model: modelName || '',
+        content: String(content || '')
+      });
+    });
+    b.appendChild(del);
+  }
   wrap.appendChild(b);
   chat.appendChild(wrap);
   chat.scrollTop = chat.scrollHeight;
@@ -3037,7 +3292,7 @@ async function cmdOpenChat(context) {
           }
           //log(`[harperRun] body (core_blobs):`,  JSON.stringify(body.core_blobs))
           if (activeProvider) _headers["X-CLike-Provider"] = activeProvider
-          const outGateway = await callHarper(cmd, body, _headers);
+          const outGateway = await callHarper(cmd, body, _headers, { timeoutMs: 1000 * 60 * 12} );
           panel.webview.postMessage({ type: 'busy', on: false });
 
           const _out  = outGateway.out;
@@ -3048,9 +3303,9 @@ async function cmdOpenChat(context) {
             (Array.isArray(_out?.files) && _out.files.length) ? `[files] ${_out.files.length}` : null,
             _out?.text ? `[text] ${Math.min(String(_out.text).length, 200)} chars` : null
           ].filter(Boolean).join(' • ') || 'no artifacts';
+          log(`[harperRun] summary done`);
           // --- PERSIST TELEMETRY (avoid duplicates, one file per run) ---
           try {
-            
             // sorgente principale lato orchestrator
             const tFromServer = _out?.telemetry || outGateway?.telemetry || _out?.usage ? {
               provider: activeProvider,
@@ -3059,7 +3314,6 @@ async function cmdOpenChat(context) {
               pricing: _out?.telemetry?.pricing,
               files: _out?.files
             } : null;
-            //log(`[telemetry] tFromServer:`, JSON.stringify(tFromServer, null, 2), tFromServer)
             await persistTelemetryVSCode(wsroot, project_id, runId, phase, tFromServer || {
               provider: activeProvider,
               model: activeModel,
@@ -3069,6 +3323,7 @@ async function cmdOpenChat(context) {
           } catch (e) {
             log(`[telemetry] skipped: ${e?.message || e}`);
           }
+          log(`[harperRun] telemetry done`);
           await appendSessionJSONL(activeMode, {
             ts: Date.now(),
             role: 'system',
@@ -3085,6 +3340,8 @@ async function cmdOpenChat(context) {
             await saveKitCommand(wsroot,plan,targetReqId,out) 
           }
           let written = [];
+          log(`[harperRun] file to be written ${_out?.files} files`);
+
           if (Array.isArray(_out?.files) && _out.files.length) {
             written = await saveGeneratedFiles(_out.files);
             panel.webview.postMessage({ type: 'files', data: _out.files });
@@ -3105,6 +3362,7 @@ async function cmdOpenChat(context) {
 
             }
           }
+          log(`[harperRun] written files done`);
           // Tests summary
           if (_out?.tests?.summary) {
             panel.webview.postMessage({ type: 'echo', message: `✅ Tests: ${_out.tests.summary}` });
@@ -3117,6 +3375,7 @@ async function cmdOpenChat(context) {
             panel.webview.postMessage({ type: 'error', message: _out.errors.join(' | ') });
           }
         } catch (e) {
+          panel.webview.postMessage({ type: 'busy', on: false }) 
           panel.webview.postMessage({ type: 'error', message: (e?.message || String(e)) });
         }
         panel.webview.postMessage({ type: 'busy', on: false }) 
@@ -3457,6 +3716,32 @@ async function cmdOpenChat(context) {
 
         }
       
+      }
+      // 3.a) CLEAR user/assistent bubble
+      if (msg.type === 'deleteBubble') {
+        const ui = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto', historyScope: 'singleModel' };
+        const modeCur  = msg.mode  || ui.mode  || 'free';
+        const modelCur = msg.model || ui.model || 'auto';
+        const role     = msg.role  || '';
+        const content  = msg.content || '';
+
+        const ok = await deleteSessionEntry(modeCur, role, content, modelCur);
+        if (!ok) {
+          panel.webview.postMessage({ type: 'error', message: 'Unable to delete message from session history.' });
+          panel.webview.postMessage({ type: 'busy', on: false });
+          return;
+        }
+
+        // Ricarico la history coerente con lo scope corrente
+        const scope = effectiveHistoryScope(context);
+        const msgs = (scope === 'allModels')
+          ? await loadSession(modeCur, 200).catch(() => [])
+          : await loadSessionFiltered(modeCur, modelCur, 200).catch(() => []);
+
+        panel.webview.postMessage({ type: 'hydrateSession', messages: msgs });
+        vscode.window.setStatusBarMessage('CLike: message removed from history', 2000);
+        panel.webview.postMessage({ type: 'busy', on: false });
+        return;
       }
       // 4) OPEN FILE (tab Files cliccabile)
       if (msg.type === 'openFile' && msg.path) {
