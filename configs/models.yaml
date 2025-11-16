@@ -83,16 +83,16 @@ models:
     tags: [cheap]
     profiles: [local.codegen]
 
-  - id: openai:gpt-4o-mini
-    name: gpt-4o-mini
+  - id: openai:gpt-5.1
+    name: gpt-5.1
     provider: openai
     base_url: https://api.openai.com/v1
-    remote_name: gpt-4o-mini
+    remote_name: gpt-5.1-2025-11-13
     api_key_env: OPENAI_API_KEY
     modality: chat
     capability: high
     latency: medium
-    cost: medium
+    cost: high
     pricing:
       input_per_1k: 0.002
       output_per_1k: 0.007

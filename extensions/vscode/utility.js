@@ -1,7 +1,6 @@
 const vscode = require('vscode');
 const cp = require('child_process');
 const path = require('path');
-//const { activateTestController } = require('./testController');
 const { gatherRagChunks } = require('./rag.js');
 
 const out = vscode.window.createOutputChannel('Clike.utility');
