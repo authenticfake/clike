@@ -42,6 +42,32 @@
 3. **Pick a mode & model** in the chat header, set **History Scope** (Model/All models), and go.
 
 ---
+## Chat themes
+
+The **CLike Chat** panel supports four visual themes designed for different workflows.  
+You can select the active theme via the VS Code setting `clike.chat.theme`.
+The **CLike Chat** panel supports four visual themes designed for different workflows.  
+You can select the active theme via the VS Code setting `clike.chat.theme`.
+
+### Configuration
+
+Add or edit the following setting in your **User** or **Workspace** `settings.json`:
+
+```jsonc
+"clike.chat.theme": "pro"
+```
+
+Allowed values:
+
+| Value     | Description                                                                 |
+|-----------|-----------------------------------------------------------------------------|
+| `classic` | Original CLike theme. Chat-style bubbles with left/right layout.            |
+| `pro`     | Default professional theme. Document-style blocks, neutral dark palette aligned with VS Code. |
+| `studio`  | Console-oriented dark theme with subtle colored left borders for user/assistant messages. |
+| `paper`   | Light notebook-style theme with soft grey background and high-contrast text.|
+
+> If the setting is omitted, the extension falls back to `classic`.
+
 
 ## Slash commands
 

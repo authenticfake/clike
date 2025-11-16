@@ -115,11 +115,40 @@ code --install-extension clike-*.vsix
 ```
 
 Open your workspace in VS Code and look for the **CLike** commands:
+
 - **Clike: Add Docstring (AI via Orchestrator)**
 - **Clike: Refactor (AI via Orchestrator)**
 - **Clike: Generate Tests (AI via Orchestrator)**
 - **Clike: RAG Reindex / RAG Search**
 - **Clike: Git Create Branch / Commit Patch / Smart PR**
+
+
+#### Chat themes
+
+The **CLike Chat** panel supports four visual themes designed for different workflows.  
+You can select the active theme via the VS Code setting `clike.chat.theme`.
+The **CLike Chat** panel supports four visual themes designed for different workflows.  
+You can select the active theme via the VS Code setting `clike.chat.theme`.
+
+#### Configuration
+
+Add or edit the following setting in your **User** or **Workspace** `settings.json`:
+
+```jsonc
+"clike.chat.theme": "pro"
+```
+
+Allowed values:
+
+| Value     | Description                                                                 |
+|-----------|-----------------------------------------------------------------------------|
+| `classic` | Original CLike theme. Chat-style bubbles with left/right layout.            |
+| `pro`     | Default professional theme. Document-style blocks, neutral dark palette aligned with VS Code. |
+| `studio`  | Console-oriented dark theme with subtle colored left borders for user/assistant messages. |
+| `paper`   | Light notebook-style theme with soft grey background and high-contrast text.|
+
+> If the setting is omitted, the extension falls back to `classic`.
+
 
 > Tip: Enable **“Clike: Verbose Logging”** in settings if you’re debugging the extension.
 

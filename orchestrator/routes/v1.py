@@ -533,7 +533,7 @@ async def chat( req: Request):
         "profile": None,
     }
 
-    log.info("chat request --> paylod: %s", json.dumps(payload))
+   # log.info("chat request --> paylod: %s", json.dumps(payload))
     provider = body.get("provider")
     headers = {"Content-Type": "application/json"}
     _t0 = _time.time()

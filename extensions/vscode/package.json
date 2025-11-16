@@ -121,6 +121,18 @@
     "configuration": {
       "title": "Clike",
       "properties": {
+        "clike.chat.theme": {
+          "type": "string",
+          "default": "pro",
+          "enum": ["classic", "pro", "studio", "paper"],
+          "enumDescriptions": [
+            "Classic CLike dark (storico, ping-pong)",
+            "Pro doc-style (colonna unica, neutro, allineato a VS Code)",
+            "Studio dark console (più denso, focus contenuti)",
+            "Paper light (notebook chiaro)"
+          ],
+          "description": "Theme for the Clike chat UI."
+        },
         "clike.verboseLogging": {
           "type": "boolean",
           "default": false,
@@ -242,7 +254,7 @@
         },
          "clike.git.defaultBranch": {
           "type": "string",
-          "default": "master",
+          "default": "main",
           "description": "Default branch for PR flow."
         },
         "clike.git.conventionalCommits": {

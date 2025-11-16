@@ -3,13 +3,6 @@ const vscode = require('vscode');
 const { postEvalRun, postGateCheck } = require ("../api.js");
 const {resolveProfilePath } = require('../utility.js')
 
-function parseSlash(line) {
-  const m = line.trim().match(/^\/([a-zA-Z][\w:-]*)(?:\s+(.+))?$/);
-  if (!m) return null;
-  const cmd = m[1];
-  const args = m[2] ? m[2].split(/\s+/).filter(Boolean) : [];
-  return { cmd, args };
-}
 
 
 // Handler comando /eval
