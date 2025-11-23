@@ -1338,10 +1338,12 @@ async function cmdRagReindex(glob) {
       project_id: projectId,
       items
     });
+    
     vscode.window.showInformationMessage(`[RAG] Indexed ${items.length} items.`);
   } catch (e) {
     vscode.window.showErrorMessage(`[RAG] Index failed: ${String(e)}`);
   }
+  return items
 }
 
 
@@ -2110,8 +2112,9 @@ async function cmdOpenChat(context) {
       // opzionale: msg.glob (stringa). Riusiamo la logica del comando palette.
         try {
           panel.webview.postMessage({ type: 'busy', on: false });
-          await cmdRagReindex(msg.glob || '');
+          const items = await cmdRagReindex(msg.glob || '');
           panel.webview.postMessage({ type: 'echo', message: 'RAG indexing: request submitted' });
+          panel.webview.postMessage({ type: 'echo', message:  `[RAG] Indexed ${items.length} items.`});
         } catch (e) {
           panel.webview.postMessage({ type: 'echo', message: 'RAG indexing error: ' + String(e && e.message || e) });
         }
