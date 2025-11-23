@@ -463,16 +463,16 @@ try {
  // --- Help overlay (/help) ---
 var HELP_COMMANDS = [
   {cmd:'/help', desc:'Shows this quick guide'},
-  {cmd:'/idea <name>'},
   {cmd:'/init <name> [--path <abs>] [--force]', desc:'Initializes the Harper project in the workspace'},
   {cmd:'/status', desc:'Shows the Harper project/context status'},
   {cmd:'/where', desc:'Shows the Harper workspace/doc-root path'},
   {cmd:'/switch <name|path>', desc:'Switches to another Harper project'},
+  {cmd:'/idea', desc:'Formalizes the IDEA.md (optinal)'},
   {cmd:'/spec [file|testo]', desc:'Generates/Updates SPEC.md from the IDEA'},
   {cmd:'/plan [spec_path]', desc:'Generates/Updates PLAN.md from the SPEC'},
-  {cmd:'/kit [REQ-ID]', desc:'Generates/Updates KIT.md and PLAN.md'},
-  { cmd: '/eval <REQ-ID>', desc: 'Performs an eval of plan/kit/finalize' },
-  { cmd: '/gate <REQ-ID>', desc: 'Performs a gate of plan|kit|finalize' },
+  {cmd:'/kit [REQ-ID]', desc:'Generates KIT_REQ-ID.md, src, test and Updates PLAN.md and plan.json'},
+  { cmd: '/eval <REQ-ID>', desc: 'Performs an eval of kit' },
+  { cmd: '/gate <REQ-ID>', desc: 'Performs a gate of kit' },
   {cmd:'/finalize', desc:'Final gates and project closure (Harper)'},
   {cmd:'/rag <query>', desc:'Cerca nel RAG (mostra i top risultati) (cross)'},
   {cmd:'/rag +<N>', desc:'Adds RAG result #N from the last search to the attached files (cross)'},
@@ -908,7 +908,19 @@ function parseSlash(s) {
     const name = parts[1]; 
     return { cmd, args: { name } };
   }
+  
+    // --- RAG legacy commands: /ragIndex [glob], /ragSearch <query>
+  if (cmd === '/ragindex') {
+    // tutto quello dopo il comando è il glob
+    const tail = (parts.slice(1) || []).join(' ').trim();
+    return { cmd, args: { glob: tail } };
+  }
 
+  if (cmd === '/ragsearch') {
+    // tutto quello dopo il comando è la query
+    const tail = (parts.slice(1) || []).join(' ').trim();
+    return { cmd, args: { query: tail } };
+  }
 
   // /rag: 4 varianti supportate
   if (cmd === '/rag') {
@@ -935,7 +947,6 @@ function parseSlash(s) {
     return { cmd, args: { action: 'search', query: tail } };
   }
   
-  // …altri comandi slash, se presenti
   return { cmd, args: {} };
 }
 
@@ -978,7 +989,7 @@ function handleSlash(slash) {
   if (!slash) return;
   // dry 'Text' and 'Diffs' panels
   try { clearTextPanel(); clearDiffsPanel(); clearFilesPanel(); } catch {}
-  try { prompt.value = ''; } catch {}
+  //try { prompt.value = ''; } catch {}
   const slashCmd = slash.cmd.toLowerCase();
 
   // help: open overlay local
@@ -1071,7 +1082,7 @@ function handleSlash(slash) {
       const pathSuffix = x.path ? ' (path)' : '';
       return (i + 1) + '. ' + nameOrId + idSuffix + pathSuffix;
     });
-      bubble('assistant', lines.length ? "Allegati:<br/>"+ lines.join('<br/>') : 'Nessun allegato.', 'system');
+      bubble('assistant', lines.length ? "Allegati:\\n"+ lines.join('\\n') : 'Nessun allegato.', 'system');
       return true;
     }
     // 4) /rag clear → svuota allegati
@@ -1095,21 +1106,49 @@ function handleSlash(slash) {
   try {
     var typed = (typeof prompt !== 'undefined' && prompt && typeof prompt.value === 'string') ? prompt.value : '';
     var cmdLower = (slash.cmd || '').toLowerCase();
-    if (cmdLower === '/ragindex') {
-      var gl = (typed || '').slice(slash.cmd.length).trim(); // tutto quello dopo /ragIndex
+    
+      if (cmdLower === '/ragindex') {
+      // glob già estratto da parseSlash
+      var gl = (slash.args && typeof slash.args.glob === 'string')
+        ? slash.args.glob
+        : '';
+      
       vscode.postMessage({ type: 'ragIndex', glob: gl || '' });
-      try { bubble('user', slash.cmd + (gl ? (' ' + gl) : ''), (model && model.value) ? model.value : 'auto'); } catch {}
+      try {
+        bubble(
+          'user',
+          slash.cmd + (gl ? (' ' + gl) : ''),
+          (model && model.value) ? model.value : 'auto'
+        );
+      } catch {}
       try { prompt.value = ''; } catch {}
-      return;
+      return true;
     }
+
     if (cmdLower === '/ragsearch') {
-      var q = (typed || '').slice(slash.cmd.length).trim();   // tutto quello dopo /ragSearch
-      if (!q && slash.args && slash.args.name) q = String(slash.args.name || '');
+      // query già estratta da parseSlash
+      var q = '';
+      if (slash.args) {
+        if (typeof slash.args.query === 'string') {
+          q = slash.args.query;
+        } else if (slash.args.name) {
+          q = String(slash.args.name || '');
+        }
+      }
+
       vscode.postMessage({ type: 'ragSearch', q: q || '' });
-      try { bubble('user', '/ragSearch ' + (q || ''), (model && model.value) ? model.value : 'auto'); } catch {}
+      try {
+        bubble(
+          'user',
+          '/ragSearch ' + (q || ''),
+          (model && model.value) ? model.value : 'auto'
+        );
+      } catch {}
       try { prompt.value = ''; } catch {}
-      return;
+      return true;
     }
+
+
   } catch (eRagSlash) { console.warn('rag slash err', eRagSlash); }
   if (slash.cmd === '/where') {
     vscode.postMessage({ type: 'where' });
@@ -1413,6 +1452,125 @@ window.addEventListener('message', (event) => {
     if (pre) pre.textContent = text;
     return;
   }
+  // Generic text payload (es. RAG search summary)
+  if (msg.type === 'text') {
+    const pre = document.getElementById('text');
+    if (pre) {
+      pre.textContent = String(msg.text || '');
+      setTab('text');
+    }
+    return;
+  }
+  // --- RAG results (mostra i risultati di /rag e /ragSearch) ---
+  if (msg.type === 'ragResults') {
+    var hits = [];
+    try {
+      if (Array.isArray(msg.results)) {
+        hits = msg.results;
+      } else if (Array.isArray(msg.hits)) {
+        hits = msg.hits;
+      } else {
+        hits = [];
+      }
+    } catch (e) {
+      console.warn('[webview] ragResults parse failed', e);
+      hits = [];
+    }
+
+    // salva per /rag +N
+    try {
+      lastRagHits = hits;
+    } catch (e2) {
+      console.warn('[webview] lastRagHits assign failed', e2);
+    }
+
+    if (!hits.length) {
+      try { bubble('assistant', 'RAG: no results.', 'system'); } catch (e3) {
+        console.warn('[webview] rag no-results bubble failed', e3);
+      }
+      return;
+    }
+
+    var max = Math.min(hits.length, 10); // non più di 10 righe
+    var lines = [];
+
+    for (var i = 0; i < max; i++) {
+      var h = hits[i] || {};
+      var path = h.path || h.source || h.name || 'doc';
+
+      var score = '';
+      if (typeof h.score === 'number') {
+        score = ' [score ' + h.score.toFixed(3) + ']';
+      }
+
+      var rawText = '';
+      if (typeof h.text === 'string' && h.text) {
+        rawText = h.text;
+      } else if (typeof h.chunk_text === 'string' && h.chunk_text) {
+        rawText = h.chunk_text;
+      }
+
+      var preview = '';
+      if (rawText) {
+        preview = ' — ' + rawText.replace(/\s+/g, ' ').slice(0, 160) + '…';
+      }
+
+      lines.push((i + 1) + '. ' + path + score + preview);
+    }
+
+    try {
+      var msgText =
+          'RAG results:\\n' +
+          lines.join('\\n') +
+          '\\n\\nUse "/rag +N" to attach one hit to the next call or "/rag +*" to attach all.'+
+          '"/rag list" to list attachments, or "/rag clear" to reset.';
+      bubble(
+        'assistant  ',
+        msgText,  
+        'system'
+      );
+    } catch (e4) {
+      console.warn('[webview] ragResults bubble failed', e4);
+    }
+
+    return;
+  }
+
+    // --- RAG results (simple, no-freeze handler) ---
+  if (msg.type === 'ragResults') {
+    var hits = [];
+    try {
+      if (Array.isArray(msg.results)) {
+        hits = msg.results;
+      } else if (Array.isArray(msg.hits)) {
+        hits = msg.hits;
+      } else {
+        hits = [];
+      }
+    } catch (e) {
+      console.warn('[webview] ragResults parse failed', e);
+      hits = [];
+    }
+
+    // salva comunque per /rag +N, ma NON facciamo cose pesanti
+    try {
+      lastRagHits = hits;
+    } catch (e2) {
+      console.warn('[webview] lastRagHits assign failed', e2);
+    }
+
+    var count = hits.length || 0;
+    try {
+      var msgText = 'RAG: ' + count + ' result' + (count === 1 ? '' : 's') + ' found.';
+      bubble('assistant', msgText, 'system');
+    } catch (e3) {
+      console.warn('[webview] ragResults bubble failed', e3);
+    }
+
+    return;
+  }
+
+
 
   if (msg.type === 'busy') { setBusy(!!msg.on); return; }
   if (msg.type === 'initState' && msg.state) {
@@ -1667,11 +1825,6 @@ window.addEventListener('message', (event) => {
 
   }
   if (msg.type === 'files') {
-
-
-
-
-
 
     selectedPaths = new Set();
     const data_file = msg.data || {};

@@ -21,6 +21,7 @@ clike_orchestrator/
 ## Endpoints
 - `POST /agent/code` — intents: `docstring`, `refactor`, `tests`, `fix_errors`, `new_file`
 - `POST /v1/rag/reindex`
+-  POST /v1/rag/index`
 - `POST /v1/rag/search`
 - `POST /git/branch`
 - `POST /git/commit`

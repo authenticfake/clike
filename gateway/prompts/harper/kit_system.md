@@ -37,7 +37,9 @@ Before producing or modifying code, you **must read and analyze** the current pr
 - **Testability**: every behavior added must have a corresponding test (unit/integration as appropriate).
 - **Determinism**: make tests deterministic (mocks/fakes); control time and external IO.
 - **Config not code**: environment‑driven via `.env`/injection; never hard‑code secrets.
-- **Docs as interface**: each module exposes a short README or docstring to aid maintainers. **MANDATORY**
+- **Docs as interface**: each module exposes a short README or docstring to aid maintainers.
+- **Real infra**: you MUST generate production-ready, end-to-end code using real implementations for all in-scope infrastructure (logging, Kafka, databases, external APIs, etc.) and MUST NOT introduce fake, stub, in-memory, or no-op components in production paths (fakes/mocks are allowed in tests only).
+- **MANDATORY**
 - **You MUST avoid deprecated APIs, libraries, methods/functions**
 - The following principles ensure the **coherence, idempotency, and verifiability** of the database schema (RDBMS or NoSQL) within the development process (Kit):
 

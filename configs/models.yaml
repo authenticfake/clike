@@ -18,13 +18,11 @@ models:
     # ultra-low|low|medium|high
     cost: low
     pricing:
-      input_per_1k: 0.002
-      output_per_1k: 0.007
+      input_per_1k: 0.0
+      output_per_1k: 0.0
     privacy: high
     enabled: true
-    temperature: 0.2
     context_window: 8192
-    max_output_tokens: 2048
     tags: [local, fast, coding]
 
   - id: llama3:nomic-embed-text
@@ -40,9 +38,11 @@ models:
     latency: low
     # ultra-low|low|medium|high
     cost: low
+    pricing:
+      input_per_1k: 0.0
+      output_per_1k: 0.0
     privacy: high
     enabled: true
-    temperature: 0.2
     tags: [embeddings]
     profiles: [local.embeddings]
 
@@ -55,11 +55,12 @@ models:
     capability: high
     latency: medium
     cost: low
+    pricing:
+      input_per_1k: 0.0
+      output_per_1k: 0.0
     privacy: high
     enabled: false
     context_window: 128000
-    max_output_tokens: 16384
-    temperature: 0.2
     tags: [local, fast, coding]
 
   - id: deepseek:deepseek-chat
@@ -78,8 +79,6 @@ models:
     privacy: low
     enabled: false
     context_window: 128000
-    max_output_tokens: 32768
-    temperature: 0.3
     tags: [cheap]
     profiles: [local.codegen]
 
@@ -94,14 +93,12 @@ models:
     latency: medium
     cost: high
     pricing:
-      input_per_1k: 0.002
-      output_per_1k: 0.007
+      input_per_1k: 0.00125   # 1.25 / 1000
+      output_per_1k: 0.01     # 10 / 1000
     privacy: low
     enabled: true
-    temperature: 0.2
     context_window: 128000
-    max_output_tokens: 16384
-    tags: [cheap, fast]
+    tags: [code, quality, reasoning]
 
   - id: openai:gpt-4o
     name: gpt-4o
@@ -114,14 +111,12 @@ models:
     latency: medium
     cost: medium
     pricing:
-      input_per_1k: 0.002
-      output_per_1k: 0.007
+      input_per_1k: 0.005
+      output_per_1k: 0.015
     privacy: low
     enabled: true
     context_window: 128000
-    max_output_tokens: 16384
-    temperature: 0.2
-    tags: [cheap, fast]
+    tags: [plan, fast]
 
   - id: openai:gpt-5-nano
     name: gpt-5-nano
@@ -134,11 +129,9 @@ models:
     latency: medium
     cost: high
     pricing:
-      input_per_1k: 0.005
-      output_per_1k: 0.015
-    temperature: 0.1
+      input_per_1k: 0.00005   # 0.05 / 1000
+      output_per_1k: 0.0004   # 0.4 / 1000
     context_window: 400000
-    max_output_tokens: 128000
     tags: [frontier, quality, reasoning]
     enabled: true
    
@@ -154,9 +147,7 @@ models:
     pricing:
       input_per_1k: 0.005
       output_per_1k: 0.015
-    temperature: 0.1
     context_window: 400000
-    max_output_tokens: 128000
     tags: [frontier, quality, reasoning]
     enabled: true
     api_key_env: OPENAI_API_KEY
@@ -171,11 +162,9 @@ models:
     latency: medium
     cost: high
     pricing:
-      input_per_1k: 0.005
-      output_per_1k: 0.015
-    temperature: 0.1
+      input_per_1k: 0.00125
+      output_per_1k: 0.01
     context_window: 400000
-    max_output_tokens: 128000
     tags: [frontier, quality, reasoning]
     enabled: true
     api_key_env: OPENAI_API_KEY
@@ -204,10 +193,9 @@ models:
     latency: medium
     cost: medium
     pricing:
-      input_per_1k: 0.003
-      output_per_1k: 0.015
+      input_per_1k: 0.001
+      output_per_1k: 0.005
     context_window: 200000
-    max_output_tokens: 8192
     privacy: low
     enabled: true
 
@@ -225,7 +213,6 @@ models:
       input_per_1k: 0.003
       output_per_1k: 0.015
     context_window: 200000
-    max_output_tokens: 8192
     privacy: low
     enabled: true
 
@@ -244,7 +231,6 @@ models:
       input_per_1k: 0.015
       output_per_1k: 0.075
     context_window: 1000000
-    max_output_tokens: 8192
     privacy: low
     enabled: true
 
@@ -262,13 +248,13 @@ profiles:
         any_tags: [reasoning, fast]
 
   code.strict:
-    model: openai:gpt-5-thinking
+    model: openai:gpt-5-1
     select:
       any_tags: [coding, quality]
       avoid_tags: [cheap]
 
   chat.cheap:
-    model: anthropic:claude-3.7-haiku
+    model: anthropic:claude-4.5-haiku
     select:
       any_tags: [cheap]
 
@@ -279,10 +265,11 @@ profiles:
 
 # Routing per task → profilo (fallback se non si passa un hint)
 routing:
+  idea: plan.fast
   spec: plan.fast
   plan: plan.fast
   kit: code.strict
-  build: local.codegen
+  finalize: local.codegen
   chat: chat.cheap
 
 # Pesatura opzionale per tie-break quando più modelli sono eleggibili

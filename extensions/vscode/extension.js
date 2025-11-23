@@ -10,14 +10,14 @@ const fsSync = require('fs');
 const path = require('path');
 
 const { registerCommands } = require('./commands/registerCommands');
-const {  handleGate, handleEval } = require('./commands/slashBot');
+const {  handleGate, handleEval } = require('./commands/harper');
 const {  persistTelemetryVSCode } = require('./telemetry');
 
 const { readPlanJson, getProjectId, promoteReqSources, runPromotionFlow,preIndexRag, normalizeAttachment, safeLog, readWorkspaceTextFile, getFileSizeBytes, getProjectNameFromWorkspace } = require('./utility')
 const { buildHarperBody,  defaultCoreForPhase, runKitCommand,runEvalGateCommand, saveKitCommand,saveEvalCommand,saveGateCommand, normalizeChangedFiles } = require('./utility')
 const {sanitize, logCurrentTimeStandard, httpPostJsonLong} = require('./utility')
 const{ toFsPath, mapKitSrcToWorkspaceTarget, clikeGitSync } = require('./git'); // NEW: clikeGitSync
-const { getChatTheme, getWebviewHtml } = require('./theme');
+const { getChatTheme, getWebviewHtml } = require('./chat-ui');
 
 let __clike_lastTargetUriCache = null;  
 let selectedPaths = new Set();
@@ -720,6 +720,7 @@ function cfg() {
     orchestrator: {
       code: '/agent/code',
       ragIndex: '/v1/rag/index',
+      ragReIndex: '/v1/rag/reindex',
       ragSearch: '/v1/rag/search',
       health: '/health',
       chat: '/v1/chat',
@@ -1261,6 +1262,7 @@ async function cmdListModels() {
 }
 
 async function cmdCheckServices(context) {
+try {
   const editor = getActiveEditorOrThrow();
   const docInfo = documentInfoFromEditor(editor);
   await context.workspaceState.update('clike.lastTargetUri', docInfo.uriStr);
@@ -1268,15 +1270,26 @@ async function cmdCheckServices(context) {
   const { routes } = cfg();
   const o = await getJson(cfg().orchestratorUrl + routes.orchestrator.health);
   const g = await getJson(cfg().gatewayUrl + routes.gateway.health);
-  console.log("g", g);
-  console.log("o", o);
-  vscode.window.showInformationMessage(`Health — Orchestrator: ${o.status || 'err'} | Gateway: ${g.status || 'err'}`);
+  //log("cmdCheckServices g", JSON.stringify(g), g);
+  //log("cmdCheckServices o", JSON.stringify(o), o);
+  const gatewayStatus = g['clike gateway status'] || 'err';
+  const orchestratorStatus = o['clike orchestrator status'] || 'err';
+
+  vscode.window.showInformationMessage(`Health — Orchestrator: ${orchestratorStatus} | Gateway: ${gatewayStatus}`);
+} 
+catch (err) {
+  vscode.window.showErrorMessage(`Clike: ${err.message}`);
+}
 }
 
 async function cmdRagReindex(glob) {
   const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
-  if (!ws) return vscode.window.showWarningMessage('No workspace open.');
-  const projectId = `clike__${ws.name}`;
+  if (!ws) {
+    return vscode.window.showWarningMessage('No workspace open.');
+  }
+
+  // Allinea il projectId a tutto il resto (Harper, /kit, RAG da chat)
+  const projectId = getProjectId();
 
   // Collect candidates
   let uris = [];
@@ -1285,7 +1298,8 @@ async function cmdRagReindex(glob) {
   } else {
     const ok = await vscode.window.showWarningMessage(
       'This will re-index the whole workspace into RAG (text files only, size-capped). Continue?',
-      { modal: true }, 'Reindex'
+      { modal: true },
+      'Reindex'
     );
     if (ok !== 'Reindex') return;
     uris = await vscode.workspace.findFiles('**/*', '**/node_modules/**', 20000);
@@ -1295,67 +1309,93 @@ async function cmdRagReindex(glob) {
   const items = [];
   for (const uri of uris) {
     try {
-      const rel = uri.path.split(ws.uri.path + '/')[1];
-      if (!rel) continue;
       const data = await vscode.workspace.fs.readFile(uri);
+      if (!data || data.byteLength === 0) continue;
       if (data.byteLength > MAX_FILE_BYTES) continue;
-      const txt = Buffer.from(data).toString('utf8');
-      if (!/\x00/.test(txt) && txt.trim()) {
-        items.push({ path: rel, text: txt });
-      }
-    } catch {}
+      const buf = Buffer.from(data);
+      if (buf.includes(0)) continue; // skip binari
+
+      const text = buf.toString('utf8');
+      if (!text.trim()) continue;
+
+      const rel = ws ? vscode.workspace.asRelativePath(uri, false) : uri.fsPath;
+      items.push({ path: rel, text });
+    } catch (e) {
+      console.warn('[RAG] Skipping file', uri.fsPath || uri.toString(), e);
+    }
   }
 
-  if (!items.length) return vscode.window.showInformationMessage('[RAG] Nothing to index.');
+  if (!items.length) {
+    vscode.window.showWarningMessage('[RAG] No text files found to index.');
+    return;
+  }
 
   const { orchestratorUrl, routes } = cfg();
-  const url = (routes?.orchestrator?.ragIndex) || '/v1/rag/index';
+  const url = '/v1/rag/index';
+
   try {
-    const res = await postJson(`${orchestratorUrl}${url}`, { project_id: projectId, items });
-    vscode.window.showInformationMessage(`[RAG] Indexed ${res?.upserts ?? items.length} items.`);
+    const res = await postJson(`${orchestratorUrl}${url}`, {
+      project_id: projectId,
+      items
+    });
+    vscode.window.showInformationMessage(`[RAG] Indexed ${items.length} items.`);
   } catch (e) {
     vscode.window.showErrorMessage(`[RAG] Index failed: ${String(e)}`);
   }
 }
 
+
 async function cmdRagSearch(q) {
   const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
-  if (!ws) return vscode.window.showWarningMessage('No workspace open.');
-  const projectId = `clike__${ws.name}`;
+  if (!ws) {
+    return vscode.window.showWarningMessage('No workspace open.');
+  }
+
+  const projectId = getProjectId();  // allineato al resto
 
   let query = (typeof q === 'string') ? q : '';
   if (!query) {
     query = await vscode.window.showInputBox({ prompt: 'RAG search query' }) || '';
   }
-  if (!query.trim()) return;
+  query = query.trim();
+  if (!query) return;
 
   const topkStr = await vscode.window.showInputBox({ prompt: 'Top-K', value: '8' });
   const top_k = Number(topkStr || '8') || 8;
 
   const { orchestratorUrl, routes } = cfg();
-  const url = (routes?.orchestrator?.ragSearch) || '/v1/rag/search';
+  //const url = (routes?.orchestrator?.ragSearch) || '/v1/rag/search';
+  const url = '/v1/rag/search';
+
   try {
-    const res = await postJson(`${orchestratorUrl}${url}`, { project_id: projectId, query: query.trim(), top_k });
+    const res = await postJson(`${orchestratorUrl}${url}`, {
+      project_id: projectId,
+      query,
+      top_k
+    });
+
     const hits = (res?.hits || []).slice(0, top_k);
     vscode.window.showInformationMessage(`[RAG] Results: ${hits.length}`);
 
-    // Optional: show a quick summary in the panel/webview
+    // Optional: manda una summary alla webview nella tab Text
     try {
       const lines = hits.map((h, i) => {
         const p = h?.path || h?.source || '(unknown)';
         const s = (typeof h?.score === 'number') ? h.score.toFixed(3) : '';
-        return `${i + 1}. ${p}:${h?.chunk ?? 0}  ${s ? `(score ${s})` : ''}`;
+        return (i + 1) + '. ' + p + (s ? (' (score ' + s + ')') : '');
       });
       const summary = `RAG Search: "${query}"\n` + (lines.length ? lines.join('\n') : '(no results)');
       if (panel && panel.webview) {
         panel.webview.postMessage({ type: 'text', text: summary });
       }
     } catch {}
+
     return res;
   } catch (e) {
     vscode.window.showErrorMessage(`[RAG] Search failed: ${String(e)}`);
   }
 }
+
 
 
 
@@ -1833,7 +1873,7 @@ async function cmdOpenChat(context) {
                    const res = await preIndexRag(project_id, items, urlOrchestrator, out);
                    log((`CLike preIndexRag: ${JSON.stringify(res)} ${res}`));
                 } else {
-                  vscode.window.showErrorMessage(`[finalize] No any files found!!!`);
+                  vscode.window.showErrorMessage(`[finalize] No any source files found!!!`);
                   panel.webview.postMessage({ type: 'busy', on: false });
                   return
                 }
@@ -2068,34 +2108,60 @@ async function cmdOpenChat(context) {
      
       if (msg.type === 'ragIndex') {
       // opzionale: msg.glob (stringa). Riusiamo la logica del comando palette.
-      try {
-        await cmdRagReindex(msg.glob || '');
-        panel.webview.postMessage({ type: 'echo', message: 'RAG indexing: request submitted' });
-      } catch (e) {
-        panel.webview.postMessage({ type: 'echo', message: 'RAG indexing error: ' + String(e && e.message || e) });
+        try {
+          panel.webview.postMessage({ type: 'busy', on: false });
+          await cmdRagReindex(msg.glob || '');
+          panel.webview.postMessage({ type: 'echo', message: 'RAG indexing: request submitted' });
+        } catch (e) {
+          panel.webview.postMessage({ type: 'echo', message: 'RAG indexing error: ' + String(e && e.message || e) });
+        }
+        panel.webview.postMessage({ type: 'busy', on: false });
       }
-      }
-     
-      // RAG search chiesto dalla webview (/rag <query>)
+      
+
+
+      // RAG search richiesto dalla webview (/rag, /ragSearch)
       if (msg.type === 'ragSearch') {
         try {
-          const { routes } = cfg();
-          const q = String(msg.query || '').trim();
+          const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+          if (!ws) throw new Error('No workspace open.');
+
+          const projectId = getProjectId(); // es. "clike__<workspace-name>"
+
+          // accetta sia msg.q che msg.query (compatibilità vecchia/new)
+          const rawQ = (typeof msg.q !== 'undefined' ? msg.q : msg.query) || '';
+          const query = String(rawQ || '').trim();
           const top_k = Number.isFinite(msg.top_k) ? msg.top_k : 8;
-          if (!q) throw new Error('Query vuota.');
-          const resp = await postOrchestrator(routes.orchestrator.ragSearch, { query: q, top_k });
-          if (!resp.ok) {
-            panel.webview.postMessage({ type:'error', message: `RAG Search: HTTP ${resp.status}` });
-            return;
-          }
-          const results = (resp.json && (resp.json.hits || resp.json.results)) || [];
-          panel.webview.postMessage({ type:'ragResults', results });
+
+          if (!query) throw new Error('Query vuota.');
+
+          const { orchestratorUrl, routes } = cfg();
+          //const path = (routes?.orchestrator?.ragSearch) || '/v1/rag/search';
+          const path =  '/v1/rag/search';
+
+          const res = await postJson(`${orchestratorUrl}${path}`, {
+            project_id: projectId,
+            query: query.trim(),
+            top_k
+          });
+          log('[RAG] Search results:', JSON.stringify(res).slice(0, 20), res );
+
+          const results = (res && (res.hits || res.results)) || [];
+          panel.webview.postMessage({ type: 'ragResults', results, query });
+          
         } catch (e) {
-          panel.webview.postMessage({ type:'error', message: `RAG Search failed: ${e.message||String(e)}` });
+          panel.webview.postMessage({ type: 'busy', on: false });
+
+          panel.webview.postMessage({
+            type: 'echo',
+            message: 'RAG Search failed: ' + (e && e.message ? e.message : String(e))
+          });
         }
-   
+        panel.webview.postMessage({ type: 'busy', on: false });
+
       }
-      // opzionale utility
+
+            // opzionale utility
       if (msg.type === 'echo') {
         await appendSessionJSONL(state.mode, { role:'assistant', content:String(msg.message||''), model:'system' });
         
@@ -2270,8 +2336,20 @@ async function cmdOpenChat(context) {
         }
       
       }
+      // 4) OPEN FILE (tab Files cliccabile)
+      if (msg.type === 'openFile' && msg.path) {
+        try {
+          const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+          if (!ws) throw new Error('No workspace open');
+          const uri = vscode.Uri.joinPath(ws.uri, msg.path.replace(/^\.?\//,''));
+          const doc = await vscode.workspace.openTextDocument(uri);
+          await vscode.window.showTextDocument(doc, { preview: false });
+        } catch (e) {
+          vscode.window.showErrorMessage(`Open file failed: ${e.message}`);
+        }        
+       
+      }
       // 3.a) CLEAR user/assistent bubble
-            // 3.a) CLEAR singola bubble (user/assistant) + update file .clike/sessions/{mode}.jsonl
       if (msg.type === 'deleteBubble') {
         const ui = context.workspaceState.get('clike.uiState') || {
           mode: 'free',
@@ -2647,11 +2725,9 @@ async function cmdOpenChat(context) {
             vscode.window.showWarningMessage('Attach (external) failed: ' + (e && e.message ? e.message : String(e)));
           }
         }
-
         // Notify webview: attachments now have a valid `path` (and inline for small files)
         panel.webview.postMessage({ type: 'attachmentsAdded', attachments: atts });
       }
-
 
     } catch (err) {
       
@@ -2661,6 +2737,7 @@ async function cmdOpenChat(context) {
     panel.webview.postMessage({ type: 'busy', on: false });
   });
 }
+
 async function showInitSummaryIfPresent(panel, context) {
   try {
     const ws = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;

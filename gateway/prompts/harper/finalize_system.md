@@ -40,7 +40,7 @@ BEGIN_FILE README.md
 END_FILE
 ---
 
-BEGIN_FILE docs/HOWTO_RUN.md
+BEGIN_FILE docs/harper/HOWTO_RUN.md
 
 ### HOWTO_RUN.md
 - CLI: exact commands to run services (FastAPI, workers, schedulers)
@@ -52,25 +52,25 @@ BEGIN_FILE docs/HOWTO_RUN.md
 END_FILE
 ---
 
-BEGIN_FILE docs/RELEASE_NOTES.md
+BEGIN_FILE docs/harper/RELEASE_NOTES.md
 ### RELEASE_NOTES.md
 - Version/date, REQ-IDs included, highlights, breaking changes, known issues
 END_FILE
 ---
 
-BEGIN_FILE docs/SANITY_CHECKS.md
+BEGIN_FILE docs/harper/SANITY_CHECKS.md
 
 ### SANITY_CHECKS.md
 - Checklist + commands (docker compose config, uvicorn --help, pytest -q, ruff, mypy), postman collections APIs
 - Expected outputs and common fixes
 END_FILE
 ---
-BEGIN_FILE docs/TODO_NEXT.md
+BEGIN_FILE docs/harper/TODO_NEXT.md
 ### TODO_NEXT.md
 - Gaps to reach full E2E, ordered by impact
 END_FILE
 ---
-BEGIN_FILE docs/PR_BODY.md
+BEGIN_FILE docs/harper/PR_BODY.md
 ### PR_BODY.md
 - Title, summary, scope, test evidence, risks, rollback plan
 END_FILE
