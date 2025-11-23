@@ -185,6 +185,7 @@ The extension reads routes and behaviors from `Settings → Extensions → CLike
 ## 🧪 Eval‑Driven Development & Guardrails
 
 CLike encourages **eval‑driven** change (unit tests, lint, SAST/DAST, UAT) and guards promotion via Harper‑style gates:
+
 - Freeze **IDEA** → approve **SPEC** → build and test **PLAN** with **required evals** → generate **Release Solution**.
 - Orchestrator returns **diffs + full content** for safe application and review.
 - Integrate with your CI to run eval suites and enforce quality gates before merge.
@@ -228,6 +229,11 @@ npm i
 code .   # F5 for extension host or package + install
 ```
 
+**Telemetry UI**
+
+```bash
+http://localhost:8000/v1/metrics/harper/ui
+```
 ---
 
 ## 🧭 Roadmap (short)

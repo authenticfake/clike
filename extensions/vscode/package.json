@@ -298,7 +298,8 @@
             "orchestrator": {
               "code": "/agent/code",
               "ragSearch": "/v1/rag/search",
-              "ragReindex": "/rag/reindex",
+              "ragReindex": "/v1/rag/reindex",
+              "ragIndex": "/v1/rag/index",
               "health": "/health",
               "chat": "/v1/chat",
               "generate": "/v1/generate"

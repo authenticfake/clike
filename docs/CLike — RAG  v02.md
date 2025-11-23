@@ -55,7 +55,7 @@ The extension shows a bubble summary (file and chunk counts, issues if any).
 > Default base URL: `http://localhost:8080`  
 > Endpoints are implemented in `orchestrator/routes/rag.py` and `services/rag_store.py`.
 
-### 4.1 `POST /rag/index`
+### 4.1 `POST /v1/rag/index`
 Index or update documents.
 
 **Request (JSON)**
