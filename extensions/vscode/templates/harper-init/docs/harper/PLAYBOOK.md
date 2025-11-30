@@ -26,7 +26,7 @@ Harper turns a high-level IDEA into a working solution via short, testable steps
 - \`/spec\` → Use IDEA as source-of-truth, produce/update SPEC.
 - \`/plan\` → Use SPEC to produce/update PLAN (WBS, milestones, acceptance).
 - \`/kit\`  → Implement in short loops with tests.
-- \`/finalize\` → Final gates & report.
+- \`/finalize\` → Final release packaging, howto, git PR & report.
 
 ## Gates
 - **G0 (SPEC)**: requirements coherent, constraints explicit, acceptance clear.
@@ -55,10 +55,12 @@ This section summarizes the SPEC → PLAN → KIT workflow and the commands to r
 ### RAG
 - `/ragIndex [--path <p>] [--glob "<g>"] [--tags "<t>"]`  
   Ingest/update the vector store with docs and attachments.
+- `/ragSearch [<querySearch>] [top_k]`  
+  Search docs by vector (via querySearch).
 
 ### Evals & Gates
-- `/eval <spec|plan|kit|finalize>` → Run phase evaluations and show PASS/FAIL.
-- `/gate <spec|plan|kit|finalize>` → Enforce gates for the selected phase.
+- `/eval <kit>` → Run phase evaluations and show PASS/FAIL.
+- `/gate <kit` → Enforce gates for the selected phase.
 
 ## Workflow Expectations
 

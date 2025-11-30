@@ -15,7 +15,7 @@ QCOLLECTION = os.getenv("QDRANT_COLLECTION", "clike_rag")
 EMB_DIM     = int(os.getenv("EMBEDDING_DIM", "1536"))  # default openai small
 CHUNK_TOKENS   = int(os.getenv("RAG_CHUNK_TOKENS", "800"))
 CHUNK_OVERLAP  = int(os.getenv("RAG_CHUNK_OVERLAP", "80"))
-TOP_K          = int(os.getenv("RAG_TOP_K", "6"))
+TOP_K          = int(os.getenv("RAG_TOP_K", "12"))
 MAX_CTX_TOKENS = int(os.getenv("RAG_MAX_CTX_TOKENS", "1800"))
 
 # Alcune estensioni testuali

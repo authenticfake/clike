@@ -29,7 +29,7 @@ def _rag_project_id(body: dict) -> str:
         return pid.strip()
     return "default"
 
-RAG_TOP_K = int(os.getenv("RAG_TOP_K", "8"))
+RAG_TOP_K = int(os.getenv("RAG_TOP_K", "12"))
 def _rag_base_url() -> str:
     # es.: "http://localhost:8080/v1/rag"
     base =  os.getenv("RAG_BASE_URL", "http://orchestrator:8080/v1/rag")

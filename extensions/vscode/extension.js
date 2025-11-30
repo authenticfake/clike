@@ -100,7 +100,7 @@ function _looksTextual(p) {
   const exts = [
     '.md','.txt','.json','.yml','.yaml','.ini',
     '.js','.jsx','.ts','.tsx','.mjs','.cjs',
-    '.py','.java','.go','.rb','.rs','.cs',
+    '.py','.java','.go','.rb','.rs','.cs', 
     '.cpp','.cc','.c','.h','.hpp','.kt','.swift','.php',
     '.css','.scss','.less','.html'
   ];
@@ -166,6 +166,118 @@ async function collectFinalizeRagItems(workspaceRootUri, maxFiles = 400, maxByte
     }
   }
   return targets;
+}
+
+// Collect RAG items for a given REQ under runs/kit/REQ-XXX/src.
+// We index only KIT-generated code, not the global /src folder.
+async function collectKitRagItems(workspaceRoot, reqId,  opts = {}) {
+  if (!workspaceRoot) {
+    return [];
+  }
+
+  const maxFiles = opts.maxFiles ?? 400;
+  const maxBytes = opts.maxBytes ?? 512 * 1024;
+
+  const rootFsPath = workspaceRoot.fsPath;
+  const kitSrcDir = path.join(rootFsPath, 'runs', 'kit', reqId, 'src');
+  const kitSrcUri = vscode.Uri.file(kitSrcDir);
+
+  let stat;
+  try {
+    stat = await vscode.workspace.fs.stat(kitSrcUri);
+  } catch {
+    // No KIT src dir yet for this REQ
+    return [];
+  }
+
+  if (!stat || stat.type !== vscode.FileType.Directory) {
+    return [];
+  }
+
+  const items = [];
+
+  async function walk(dirUri, relBase) {
+    const entries = await vscode.workspace.fs.readDirectory(dirUri);
+
+    for (const [name, type] of entries) {
+      const childUri = vscode.Uri.joinPath(dirUri, name);
+      const relPath = relBase ? path.posix.join(relBase, name) : name;
+
+      if (type === vscode.FileType.Directory) {
+        await walk(childUri, relPath);
+        if (items.length >= maxFiles) {
+          return;
+        }
+        continue;
+      }
+
+      if (type !== vscode.FileType.File) {
+        continue;
+      }
+      // constants.js o all'inizio del tuo file
+      const CODE_EXTENSIONS = [
+        // Web & UI
+        'ts', 'tsx', 'js', 'jsx', 'html', 'htm', 'css', 'scss', 'sass',
+
+        // Core & Compilati
+        'java', 'cs', 'go', 'rs', 'swift', 'kt', 'm', 'mm', 'c', 'cpp', 'cc', 'h', 'hpp',
+
+        // Scripting
+        'py', 'pyw', 'rb', 'pl', 'php', 'sh', 'bash', 'ps1', 'lua', 'dart',
+
+        // Configurazione & Dati
+        'json', 'yml', 'yaml', 'toml', 'ini', 'xml',
+
+        // Database
+        'sql', 'pls', 'pck',
+
+        // Documentazione & Markup
+        'md', 'markdown', 'rst', 'tex', 'txt',
+
+        // Mendix (o altri specifici)
+        'mpr' 
+      ];
+      const fileExtension = name.split('.').pop().toLowerCase();
+      // Only index "code-ish" and text files. Adjust/extensions as needed.
+      if (!CODE_EXTENSIONS.includes(fileExtension)) {
+          log("[harperRAG] skip file (not code): " + childUri.fsPath);
+        continue;
+      }
+
+      let data;
+      try {
+        data = await vscode.workspace.fs.readFile(childUri);
+      } catch (err) {
+        log(`[harperRAG] skip file (read error): ${childUri.fsPath} -> ${err}`);
+        continue;
+      }
+
+      if (!data || !data.byteLength) {
+        continue;
+      }
+
+      const slice = data.byteLength > maxBytes ? data.slice(0, maxBytes) : data;
+      const b64 = Buffer.from(slice).toString('base64');
+
+      // Path relative to workspace root, so RAG can later map it back.
+      const relFromRoot = path.posix.join('runs', 'kit', reqId, 'src', relPath);
+
+      items.push({
+        path: relFromRoot,
+        bytes_b64: b64,
+      });
+
+      if (items.length >= maxFiles) {
+        log(`[harperRAG] kit RAG items truncated at ${maxFiles} files for ${reqId}`);
+        return;
+      }
+    }
+  }
+
+  await walk(kitSrcUri, '');
+
+  log(`[harperRAG] collected ${items.length} kit RAG items for ${reqId}`);
+  return items;
 }
 
 /*
@@ -285,7 +397,7 @@ async function callHarper(cmd, payload, headers, opts = {}) {
 
   try {
     log(
-      `[harper] calling ${url} cmd=${cmd} timeout=${timeoutMs}ms (long http)`
+      `[harper] calling ${url} cmd=${cmd} timeout=${timeoutMs}ms (custom http)`
     );
     logCurrentTimeStandard("[harper] calling");
 
@@ -401,58 +513,122 @@ async function loadSession(mode, limit = 200) {
 }
 
 async function loadSessionFiltered(mode, model, limit = 200) {
+  const all = await loadSessionFilteredHarper(mode, limit);
+  return all.filter(e => !model || (e.model || 'auto') === model)
+}
+
+async function loadSessionFilteredV2(mode, model, limit = 200) {
   const all = await loadSession(mode, limit);
   return all.filter(e => !model || (e.model || 'auto') === model)
 }
 
-async function loadSessionFilteredHarper(mode, model, limit = 200) {
+// async function loadSessionFilteredHarper(mode, model, limit = 200) {
+//   const all = await loadSession(mode, limit);
+
+//   return all.filter(e => {
+//     // Condizione 1 (Esistente): Filtra per modello (se specificato)
+//     const modelFilter = !model || (e.model || 'auto') === model;
+//     if (e.role === 'system') {
+//       return false; 
+//     }
+//     if (e.role !== 'user' && e.role !== 'assistant') {
+//       return false;
+//     }
+
+//     // La logica si semplifica usando un array di prefissi
+//     const EXECUTION_COMMAND_PREFIXES = [
+//         '▶IDEA',
+//         '▶SPEC',
+//         '▶PLAN',
+//         '▶KIT',
+//         '▶EVAL',
+//         '▶GATE',
+//         '▶FINALIZE',
+//         '✔',
+//         '🧪'
+//     ];
+//     const isExecutionCommand = e.content && EXECUTION_COMMAND_PREFIXES.some(prefix => 
+//         e.content.replace(/\s/g, "").startsWith(prefix)
+//     );
+//     if (isExecutionCommand) {
+//         return false; // Scarta i comandi di esecuzione
+//     }
+//     return modelFilter;
+//     });
+
+// }
+
+async function loadSessionFilteredHarper(mode, limit = 200) {
   const all = await loadSession(mode, limit);
 
-  return all.filter(e => {
-    // Condizione 1 (Esistente): Filtra per modello (se specificato)
-    const modelFilter = !model || (e.model || 'auto') === model;
+  // Prefissi per i comandi Harper, sia "grafici" sia testuali
+  const EXECUTION_PREFIXES = [
+    '▶ IDEA',
+    '▶ SPEC',
+    '▶ PLAN',
+    '▶ KIT',
+    '▶ EVAL',
+    '▶ GATE',
+    '▶ FINALIZE',
+    '✔',      // esito /gate
+    '🧪',     // esito /eval
+    '/idea',
+    '/spec',
+    '/plan',
+    '/kit',
+    '/eval',
+    '/gate',
+    '/finalize',
+  ];
 
-    // Condizione 2 (Nuova): Filtro per il ruolo e il contenuto indesiderato
-
-    // 2a. Escludi tutti i messaggi 'system'
-    if (e.role === 'system') {
-      return false; 
+  function isExecutionCommandMessage(content) {
+    if (!content || typeof content !== 'string') {
+      return false;
     }
 
-    // 2b. Accetta solo 'user' o 'assistant'
+    // Prendiamo solo la prima riga non vuota
+    const firstLine = content
+      .split('\n')
+      .map((l) => l.trimStart())
+      .find((l) => l.length > 0);
+
+    if (!firstLine) {
+      return false;
+    }
+
+    const firstLineLower = firstLine.toLowerCase();
+
+    return EXECUTION_PREFIXES.some((prefix) => {
+      const p = prefix.toLowerCase();
+      // Confronto semplice: la linea iniziale deve cominciare con il prefisso
+      return firstLineLower.startsWith(p);
+    });
+  }
+
+  return all.filter((e) => {
+
+    // 2. Escludi i system
+    if (e.role === 'system') {
+      return false;
+    }
+
+    // 3. Tieni solo user/assistant
     if (e.role !== 'user' && e.role !== 'assistant') {
       return false;
     }
 
-    // La logica si semplifica usando un array di prefissi
-    const EXECUTION_COMMAND_PREFIXES = [
-        '▶IDEA',
-        '▶SPEC|mode',
-        '▶PLAN|mode',
-        '▶KIT|mode',
-        '▶EVAL|mode',
-        '▶FINALIZE|mode',
-        '▶GATE|mode',
-        '▶KITREQ-',
-        '▶EVAL',
-        '▶GATE',
-        '▶FINALIZE',
-        '✔',
-        '🧪'
-    ];
-
-    const isExecutionCommand = e.content && EXECUTION_COMMAND_PREFIXES.some(prefix => 
-        e.content.replace(/\s/g, "").startsWith(prefix)
-    );
-
-    if (isExecutionCommand) {
-        return false; // Scarta i comandi di esecuzione
+    // 4. Scarta i messaggi comando
+    if (isExecutionCommandMessage(e.content)) {
+      return false;
     }
     
-    return modelFilter;
-    });
+    return true;
 
+
+  });
 }
+
+
 // Cancella la **prima** occorrenza che matcha role+content+model nel file di sessione
 async function deleteSessionEntry(mode, role, content, model) {
   try {
@@ -965,7 +1141,7 @@ async function gitAutoCommitAndPR() {
     await run(`git commit -m "${gitCommitMessage.replace('"', '\\"')}"`);
     vscode.window.setStatusBarMessage('Clike: changes committed.', 3000);
   } catch (e) {
-    out.appendLine(`[git] commit skip/failed: ${e.message}`);
+    log(`[harperGit] commit skip/failed: ${e.message}`);
   }
 
   if (gitOpenPR) {
@@ -1444,7 +1620,7 @@ async function cmdClearChatSession(context) {
   } else {
     await pruneSessionByModel(s.mode, s.model || 'auto');
     vscode.window.showInformationMessage(`CLike: cleared messages for model "${s.model}" in mode "${s.mode}"`);
-    const hist = await loadSessionFiltered(s.mode, s.model, 200);
+    const hist = await loadSessionFilteredV2(s.mode, s.model, 200);
     panel?.webview.postMessage({ type: 'hydrateSession', messages: hist });
   }
 }
@@ -1549,7 +1725,7 @@ async function cmdOpenChat(context) {
 
     const msgs = (scope === 'allModels')
       ? await loadSession(modeCur).catch(() => [])
-      : await loadSessionFiltered(modeCur, modelCur, 200).catch(() => []);
+      : await loadSessionFilteredV2(modeCur, modelCur, 200).catch(() => []);
 
     panel.webview.postMessage({ type: 'hydrateSession', messages: msgs });
 
@@ -1730,7 +1906,7 @@ async function cmdOpenChat(context) {
         const runId = (Math.random().toString(16).slice(2) + Date.now().toString(16));
         log(`[harperRun] runId ...`,  runId);
         
-        log(`[harperRun] inside ${JSON.stringify(msg)}`);
+        //log(`[harperRun] inside ${JSON.stringify(msg)}`);
         const phase = msg.cmd;
         try {
           const project_id = getProjectId();
@@ -1743,6 +1919,10 @@ async function cmdOpenChat(context) {
           const activeProvider = (!profileHint) ? _inferProvider(activeModel) :'';
           let targets =''
           let project_name ='';
+          const { orchestratorUrl, routes } = cfg();
+          var prefixRag = (routes?.orchestrator?.ragIndex) ||  '/v1/rag/index';
+          let urlRag = orchestratorUrl + prefixRag;
+  
           if (phase === 'idea') {
             project_name = msg?.name
           } else if (phase === 'kit') {
@@ -1750,15 +1930,12 @@ async function cmdOpenChat(context) {
           } 
           const projectName = getProjectNameFromWorkspace() || project_name; //name form workspace not from chat input!!!
           //RAG
-          const { orchestratorUrl, routes } = cfg();
           try { 
             //log(`CLike preIndexRag: ${JSON.stringify(attachments)}`);
             const { inline_files, rag_files } =  partitionAttachments(attachments);
             log(`CLike rag_files size: ${rag_files.length} and inline_files size: ${inline_files.length}`);
             if (rag_files) {
-              var urlOrch = (routes?.orchestrator?.ragIndex) ||  '/v1/rag/index';
-              let urlOrchestrator = orchestratorUrl + urlOrch;
-              const res = await preIndexRag(project_id, rag_files, urlOrchestrator, out); 
+              const res = await preIndexRag(project_id, rag_files, urlRag, out); 
               log((`CLike preIndexRag: ${JSON.stringify(res)} ${res}`));
             }
           } catch (e) { log(`CLike preIndexRag error: ${e}`); }
@@ -1769,16 +1946,15 @@ async function cmdOpenChat(context) {
             neverSendSourceToCloud: !!cfgChat().neverSendSourceToCloud || false,
             redaction: true
           };
-          //RAG Candidate text for saving and reusing improvements
-          const RAG_PREFER_FOR = ["IDEA.md","SPEC.md"];
           //CHAT HARPEr START
           // History del MODE corrente
           const historyScope  = effectiveHistoryScope(context);
           // History per conversazione “stateless�?: carico SOLO le bolle del MODE corrente
-          const history = await loadSession(activeMode).catch(() => []);
+          const history = await loadSessionFilteredHarper(activeMode).catch(() => []);
           // Filtra eventualmente per modello se vuoi inviare solo il sotto-filo di quel model:
-          const historyForThisModel = await loadSessionFilteredHarper (activeMode, activeModel); //history.filter(b => !b.model || b.model === activeModel);
-          //log((`CLike historyForThisModel: ${historyForThisModel}`));
+          const historyForThisModel = await loadSessionFiltered(activeMode, activeModel); //history.filter(b => !b.model || b.model === activeModel);
+          //log((`CLike history: ${JSON.stringify(history)}`));
+          
           const source = (historyScope === 'allModels')
           ? history
           : historyForThisModel;
@@ -1860,7 +2036,7 @@ async function cmdOpenChat(context) {
 
           const _headers = {"Content-Type": "application/json", "X-CLike-Profile": "code.strict"}
           //fals is for RAG chucks - TODO: RAG management via attachments is almost oden 70%
-          const body = await buildHarperBody(phase, payload, wsroot, RAG_PREFER_FOR,false, out);
+          const body = await buildHarperBody(phase, payload, wsroot, out);
           const keys = Object.keys(body.core_blobs); 
           log(`[harperRun] body (keys::core_blobs):`,  keys)
           if (phase==='finalize') {
@@ -1868,11 +2044,8 @@ async function cmdOpenChat(context) {
                 const items = await collectFinalizeRagItems(wsroot);
 
                 if (items.length) {
-                   const { orchestratorUrl, routes } = cfg();
-                   var urlRag = (routes?.orchestrator?.ragIndex) ||  '/v1/rag/index';
-                   let urlOrchestrator = orchestratorUrl + urlRag;
-  
-                   const res = await preIndexRag(project_id, items, urlOrchestrator, out);
+                   
+                   const res = await preIndexRag(project_id, items, urlRag, out);
                    log((`CLike preIndexRag: ${JSON.stringify(res)} ${res}`));
                 } else {
                   vscode.window.showErrorMessage(`[finalize] No any source files found!!!`);
@@ -1931,9 +2104,7 @@ async function cmdOpenChat(context) {
             message: `✔ ${String(cmd || '').toUpperCase()} ${String(msg_bubble || '').toUpperCase()} done — ${summary}`
           });
 
-          if (phase==="kit") {
-            await saveKitCommand(wsroot,plan,targetReqId,out) 
-          }
+          
           let written = [];
           log(`[harperRun] file to be written ${_out?.files} files`);
 
@@ -1958,6 +2129,28 @@ async function cmdOpenChat(context) {
             }
           }
           log(`[harperRun] written files done`);
+          
+          if (phase==="kit") {
+            await saveKitCommand(wsroot,plan,targetReqId,out)
+            // --- KIT RAG indexing: runs/kit/REQ-XXX/src only ---
+            const allItems = [];
+            const normalizedReq = targetReqId.toUpperCase();
+            const items = await collectKitRagItems(wsroot, normalizedReq, { maxFiles: 400, maxBytes: 512*1024 });
+            if (items && items.length) {
+              allItems.push(...items);
+            }
+            log(`[harperRAG] indexing ${allItems.length} KIT items for REQ(s): ${normalizedReq}`);
+
+
+            if (allItems.length) {
+              await preIndexRag(project_id, allItems, urlRag, out);
+              log(`[harperRAG] indexed ${allItems.length} KIT items for REQ(s): ${normalizedReq}`);
+
+            } else {
+              log('[harperRAG] no KIT RAG items collected (nothing to index)');
+            }
+
+          }
           // Tests summary
           if (_out?.tests?.summary) {
             panel.webview.postMessage({ type: 'echo', message: `✅ Tests: ${_out.tests.summary}` });
@@ -2068,10 +2261,6 @@ async function cmdOpenChat(context) {
 
               // 3) Costruisco l'array finale dei file da passare a Git
               files_git = [reportFs, ..._targets];
-
-              
-              
-              log("[harperEDD] Gate passed calling git for the following files:" + files_git);
             } else {
               callGit=false;
             }
@@ -2197,7 +2386,7 @@ async function cmdOpenChat(context) {
           try {
             const msgs = (ui.historyScope === 'allModels')
               ? await loadSession(ui.mode, 200).catch(() => [])
-              : await loadSessionFiltered(ui.mode, ui.model, 200).catch(() => []);
+              : await loadSessionFilteredV2(ui.mode, ui.model, 200).catch(() => []);
             panel.webview.postMessage({ type: 'hydrateSession', messages: msgs });
           } catch (e) {
             out.appendLine('[CLike] hydrate failed: ' + (e?.message || String(e)));
@@ -2256,7 +2445,7 @@ async function cmdOpenChat(context) {
         const modelCur = ui.model || 'auto';
         const msgs = (value === 'allModels')
           ? await loadSession(modeCur, 200).catch(()=>[])
-          : await loadSessionFiltered(modeCur, modelCur, 200).catch(()=>[]);
+          : await loadSessionFilteredV2(modeCur, modelCur, 200).catch(()=>[]);
         panel.webview.postMessage({ type: 'hydrateSession', messages: msgs });
 
         // NIENTE initState qui (evita rimbalzi della combo)
@@ -2297,7 +2486,7 @@ async function cmdOpenChat(context) {
           if (scope === 'singleModel') {
             const modeCur  = newState.mode  || 'free';
             const modelCur = newState.model || 'auto';
-            const msgs = await loadSessionFiltered(modeCur, modelCur, 200).catch(() => []);
+            const msgs = await loadSessionFilteredV2(modeCur, modelCur, 200).catch(() => []);
             panel.webview.postMessage({ type: 'hydrateSession', messages: msgs });
           }
          
@@ -2309,7 +2498,7 @@ async function cmdOpenChat(context) {
 
         const msgs = (scope === 'allModels')
           ? await loadSession(modeCur).catch(() => [])
-          : await loadSessionFiltered(modeCur, modelCur, 200).catch(() => []);
+          : await loadSessionFilteredV2(modeCur, modelCur, 200).catch(() => []);
 
         panel.webview.postMessage({ type: 'hydrateSession', messages: msgs });
        
@@ -2330,7 +2519,7 @@ async function cmdOpenChat(context) {
          // singleModel → ripulisci SOLO le righe del modello corrente
           await pruneSessionByModel(modeCur, modelCur);
           // NEW: dopo la pulizia, mostra subito le altre conversazioni del mode
-          const msgs = await loadSessionFiltered(modeCur, modelCur, 200).catch(() => []);
+          const msgs = await loadSessionFilteredV2(modeCur, modelCur, 200).catch(() => []);
           // Idrata la webview con i messaggi rimanenti (tutti gli altri modelli)
           // NON tocchiamo historyScope automaticamente: resta quello scelto in combo
           panel.webview.postMessage({ type: 'hydrateSession', messages: msgs});
@@ -2381,7 +2570,7 @@ async function cmdOpenChat(context) {
         if (scope === 'allModels') {
           msgs = await loadSession(modeCur, 200).catch(() => []);
         } else {
-          msgs = await loadSessionFiltered(modeCur, modelCur, 200).catch(() => []);
+          msgs = await loadSessionFilteredV2(modeCur, modelCur, 200).catch(() => []);
         }
 
         panel.webview.postMessage({ type: 'hydrateSession', messages: msgs });
@@ -2419,14 +2608,16 @@ async function cmdOpenChat(context) {
         // History del MODE corrente
         const historyScope  = effectiveHistoryScope(context);
         // History per conversazione “stateless�?: carico SOLO le bolle del MODE corrente
-        const history = await loadSession(activeMode).catch(() => []);
+        const history = await loadSessionFilteredHarper(activeMode).catch(() => []);
         //log((`CLike historyForThisModel: ${historyForThisModel}`));
-        const historyForThisModel = await loadSessionFilteredHarper(activeMode, activeModel, 200);
+        const historyForThisModel = await loadSessionFiltered(activeMode, activeModel, 200);
 
-
+        //log((`CLike history: ${JSON.stringify(history)}`));
         const source = (historyScope === 'allModels')
         ? history
         : historyForThisModel;
+
+
        
         const messages = source.map(b => ({ role: b.role, content: b.content }));
         const projectId = getProjectId();

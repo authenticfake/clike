@@ -4,11 +4,11 @@ defaults:
 
 models:
 
-  - id: ollama:llama3
-    name: llama3
+  - id: ollama:llama4
+    name: llama4
     provider: ollama
     base_url: http://ollama:11434
-    remote_name: llama3
+    remote_name: llama4
     # chat|completion|embedding
     modality: chat
     # tiny|small|medium|large|frontier
@@ -100,6 +100,42 @@ models:
     context_window: 128000
     tags: [code, quality, reasoning]
 
+  - id: openai:gpt-5.1-codex-mini
+    name: gpt-5.1-codex-mini
+    provider: openai
+    base_url: https://api.openai.com/v1
+    remote_name: gpt-5.1-codex-mini
+    api_key_env: OPENAI_API_KEY
+    modality: chat
+    capability: high
+    latency: medium
+    cost: high
+    pricing:
+      input_per_1k: 0.00025   # 0.25 / 1000
+      output_per_1k: 0.002     # 2 / 1000
+    privacy: low
+    enabled: true
+    context_window: 128000
+    tags: [code, quality, reasoning]
+
+  - id: openai:gpt-5.1-codex
+    name: gpt-5.1-codex
+    provider: openai
+    base_url: https://api.openai.com/v1
+    remote_name: gpt-5.1-codex
+    api_key_env: OPENAI_API_KEY
+    modality: chat
+    capability: high
+    latency: medium
+    cost: high
+    pricing:
+      input_per_1k: 0.00125   # 1.25 / 1000
+      output_per_1k: 0.01     # 10 / 1000
+    privacy: low
+    enabled: true
+    context_window: 128000
+    tags: [code, quality, reasoning]
+
   - id: openai:gpt-4o
     name: gpt-4o
     provider: openai
@@ -114,7 +150,7 @@ models:
       input_per_1k: 0.005
       output_per_1k: 0.015
     privacy: low
-    enabled: true
+    enabled: false
     context_window: 128000
     tags: [plan, fast]
 
@@ -230,6 +266,23 @@ models:
     pricing:
       input_per_1k: 0.015
       output_per_1k: 0.075
+    context_window: 1000000
+    privacy: low
+    enabled: true
+  
+  - id: anthropic:claude-opus-4-5
+    name: claude-opus-4-5
+    provider: anthropic
+    base_url: https://api.anthropic.com/v1
+    remote_name: claude-opus-4-5-20251101
+    api_key_env: ANTHROPIC_API_KEY
+    modality: chat
+    capability: high
+    latency: medium
+    cost: medium
+    pricing:
+      input_per_1k: 0.005
+      output_per_1k: 0.025
     context_window: 1000000
     privacy: low
     enabled: true

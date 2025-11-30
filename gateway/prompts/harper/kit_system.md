@@ -12,15 +12,32 @@ Use and remain consistent with:
 - **SPEC.md**, **TECH_CONSTRAINTS.yaml**
 - Core docs discovered by prefix in `docs/harper/`
 - **Chat history** (user/assistant only, no system messages)
-- **RAG retrievals** if needed (cite which files you used in the log)
+- **Attachments RAG Contex** eventually files attached
+- **RAG context** injected into the prompt:
+  - it may include code and docs for the **target REQ** and for any **REQs it depends on** (from `plan.json`)
+  - treat this context as the canonical view of previous KIT implementations; **reuse patterns, types and modules**, do not re-invent them
 
-## Repository Awareness (mandatory)
-Before producing or modifying code, you **must read and analyze** the current project repository to align with what already exists:
-- Public scenario: **`[PROJECT_REPO_URL]`** (placeholder; the orchestrator/extension provides the real URL) and **all branch** - if available.
-- Enterprise scenario: may require authenticated internal mirrors. **Never embed secrets**; reference placeholders or documented secret managers.
-- Inspect: `/runs/kit/<REQ-ID>/src`, `/runs/kit/<REQ-ID>/test`, plus any shared modules already present.
-- **Extend or adapt existing modules** instead of rewriting arbitrarily.
-- Keep strict alignment with the accepted **SPEC** and **PLAN**; evolve code incrementally to avoid divergence and hallucinations.
+## RAG Awareness (mandatory)
+Before producing or modifying code, you **must align with what already exists**:
+
+- Treat the files and snippets provided in the prompt (especially under
+  `### RAG Context – previous KIT implementations`) as the **canonical view**
+  of existing KIT code for:
+  - the targeted REQ, and
+  - any REQs it depends on (`dependsOn` in `plan.json`).
+- **Inspect and reuse**:
+  - modules/package/namepsaces and types under `/runs/kit/<REQ-ID>/src`
+    that appear in the RAG context
+  - any clearly shared modules surfaced there (common errors, config, DTOs, etc.)
+- **Extend or adapt existing modules** instead of rewriting arbitrarily:
+  - prefer adding functions or small adapters over duplicating logic
+  - preserve public signatures unless the acceptance criteria explicitly require a breaking change
+- Keep strict alignment with the accepted **SPEC** and **PLAN**:
+  - respect the `lane`, root namespaces and paths implied by `plan.json`
+  - evolve code incrementally so that future KIT runs can keep composing on top without refactors.
+- When reading the RAG context, respect the **Module/Package & Namespace Plan** from PLAN:
+  - keep using the same root namespaces/modules declared per REQ
+  - do not move responsibilities between REQs without an explicit change in PLAN.
 
 ## Engineering Principles
 - **Composition‑first**: prefer small, composable units; design seams for future refactors.
@@ -39,9 +56,9 @@ Before producing or modifying code, you **must read and analyze** the current pr
 - **Config not code**: environment‑driven via `.env`/injection; never hard‑code secrets.
 - **Docs as interface**: each module exposes a short README or docstring to aid maintainers.
 - **Real infra**: you MUST generate production-ready, end-to-end code using real implementations for all in-scope infrastructure (logging, Kafka, databases, external APIs, etc.) and MUST NOT introduce fake, stub, in-memory, or no-op components in production paths (fakes/mocks are allowed in tests only).
-- **MANDATORY**
+- Each kit **MAY include** runs/kit/<ID>/test/api/curl_file.json (or postman collection)  for testing service / business APIs.
 - **You MUST avoid deprecated APIs, libraries, methods/functions**
-- The following principles ensure the **coherence, idempotency, and verifiability** of the database schema (RDBMS or NoSQL) within the development process (Kit):
+- **MANDATORY** The following principles ensure the **coherence, idempotency, and verifiability** of the database schema (RDBMS or NoSQL) within the development process (Kit):
 
 	* **Single source of truth**
 	   A single, engine-neutral schema spec (JSON/YAML) is the canonical model. Everything else is rendered from it.
@@ -61,9 +78,8 @@ Before producing or modifying code, you **must read and analyze** the current pr
 	* **Strict ordering & reversibility**
 	   Apply in a strict order (types → structures → relations/indexes). Provide an inverse teardown. Every upgrade has a downgrade.
 	   
-	* Each kit MAY include runs/kit/<ID>/requirements.txt listing only the minimal test/runtime dependencies (drivers, migration helpers). CI/eval MUST install it before running tests. If installation isn’t possible, tests MUST self-skip when packages are missing. Schema artifacts (SQL/JSON) remain pure and engine-portable.
+	* Each kit **MAY include a build file** with all dependencies like requirements.txt in the following path runs/kit/<ID>/ listing only the minimal test/runtime dependencies (drivers, migration helpers). CI/eval MUST install it before running tests. If installation isn’t possible, tests MUST self-skip when packages are missing. Schema artifacts (SQL/JSON) remain pure and engine-portable.
 
-	* Each kit MAY include runs/kit/<ID>/test/api/postman_collection_<ID>.json  for testing service / business APIs.
 		
 	* **Deterministic artifacts**
 	   Renderers must produce deterministic files (no timestamps/random IDs) to enable diff, review, and caching.
@@ -102,11 +118,11 @@ Before producing or modifying code, you **must read and analyze** the current pr
 		  test/
 		    test_migration_sql.py     # shape test + idempotency + round-trip
 		  config/
-		  README.md
-		  kit_syst
+		  kit_system
+      ...
 		```
   
-## Output Contract
+## Output Contract **REQUIRED/MANDATORY**
 Emit all required **files** for this iteration using **fenced blocks per file**. Only these blocks (and the iteration log below) should appear in the output.
 
 ```
@@ -118,8 +134,8 @@ file:/runs/kit/<REQ-ID>/test/<path/inside/test.ext>
 <file contents>
 <file contents>
 
-file:/runs/kit/<REQ-ID>/KIT_<REQ-ID>.md
-file:/runs/kit/<REQ-ID>/README.md
+file:/runs/kit/<REQ-ID>/docs/KIT_<REQ-ID>.md
+file:/runs/kit/<REQ-ID>/docs/README_<REQ-ID>.md
 ```
 
 * For only python code use httpx with explicit **ASGITransport** (no app=): AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost:8080").
@@ -151,7 +167,7 @@ Optionally, include a compact index mapping REQ‑IDs to artifacts for traceabil
 
 For each REQ you implement, in addition to code and tests you must emit the execution contract and operational recipe.
 
-**1. LLM Test Contract (LTC) REQUIRED**
+**1. LLM Test Contract (LTC) REQUIRED/MANDATORY**
 
 
 - Path: `runs/kit/<REQ-ID>/ci/LTC.json`
@@ -178,6 +194,9 @@ For each REQ you implement, in addition to code and tests you must emit the exec
 - `external_runner`: optional integration info
 - `constraints_applied`: snapshot of applied constraints
 
+**EXCLUDE** any other type of field, for example,`KIT Iteration Log
+
+**MANDATORY Always strictly maintain a mandatory JSON structure**
 **CWD Policy (MANDATORY)**
 
 For every `case` you MUST set `cwd` without assuming any specific tool. Use this generic rule:
@@ -200,8 +219,6 @@ For every `case` you MUST set `cwd` without assuming any specific tool. Use this
 - **Compose (just another file anchor):** `run: "docker compose -f compose.yml up -d"` → `cwd`: folder containing `compose.yml`.
 
 **Environment variables:** Prefer in-line `VAR=value cmd` or emit an `env` map in the LTC; do not rely on implicit shell state across cases.
-
-
 
 **Contract rules**
 

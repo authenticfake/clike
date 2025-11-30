@@ -42,6 +42,7 @@
 - **AI-Native Software Engineering (Gartner)** → introduces agentic workflows, autonomous improvement loops, human-in-the-loop, and security as a guardrail. The process includes SAST, DAST, UAT/E2E, make targets for automatic cycles → process exactly in line with these recommendations.
 [Gartner AI](https://www.gartner.com/document-reader/document/6076795?ref=pubsite)
 
+
 ---
 
 ## 🧱 Architecture at a Glance
@@ -260,3 +261,6 @@ TBD — see `LICENSE` when available.
 - Docs: docs/harper/
 - Runs: runs/
 - Open Chat: Command Palette → "CLike: Open Chat"
+
+---
+# **Clike on, code on.**

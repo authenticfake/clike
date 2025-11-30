@@ -8,6 +8,7 @@ import httpx
 _OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
 _OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 #TODO params filtering
+#TODO params filtering
 CHAT_ALLOWED = {
     "model","messages","temperature","top_p","n","stream","stop",
     "presence_penalty","frequency_penalty","logit_bias","user",
@@ -19,6 +20,26 @@ RESP_ALLOWED = {
     "response_format","audio","modalities","reasoning","tool_choice",
     "tools","seed","max_output_tokens"  # Responses: usa max_output_tokens
 }
+
+def _is_reasoning_model_name(model: Optional[str]) -> bool:
+    """
+    Riconosce i modelli 'reasoning' di OpenAI (GPT-5.1, Codex, o-series, ecc.)
+    per i quali parametri come temperature/top_p non sono supportati.
+    """
+    if not model:
+        return False
+    m = model.lower()
+    return any(
+        tag in m
+        for tag in (
+            "gpt-5",
+            "gpt-5.1",       # gpt-5.1, gpt-5.1-chat, gpt-5.1-codex, etc.
+            "gpt-5.1-codex",   # gpt-5.1-codex family
+            "codex",         # catch-all codex models
+            "o1", "o3"       # o1, o3 reasoning series
+        )
+    )
+
 #TODO params filtering
 def _normalize_and_validate(api_kind: str, payload: dict) -> dict:
     """api_kind: 'chat' | 'responses'"""
@@ -35,6 +56,19 @@ def _normalize_and_validate(api_kind: str, payload: dict) -> dict:
         if "max_tokens" in out and "max_output_tokens" not in out:
             out["max_output_tokens"] = out.pop("max_tokens")
         allowed = RESP_ALLOWED
+    
+    # --- Filtra parametri non supportati dai modelli "reasoning" ---
+    model_name = str(out.get("model") or "")
+    if _is_reasoning_model_name(model_name):
+        # I modelli reasoning (GPT-5.1, GPT-5.1-codex, o-series, ecc.)
+        # NON supportano temperature/top_p/presence_penalty/frequency_penalty.
+        # Vedi doc Azure/OpenAI:
+        # - gpt-5.1-chat: "does not support parameters like temperature"
+        #   https://learn.microsoft.com/.../openai/how-to/reasoning
+        out.pop("temperature", None)
+        out.pop("top_p", None)
+        out.pop("presence_penalty", None)
+        out.pop("frequency_penalty", None)
 
     unknown = [k for k in out.keys() if k not in allowed]
     if unknown:
@@ -165,14 +199,67 @@ def _build_responses_payload(
     elif "max_tokens" in gen:  # retro-compat
         out["max_output_tokens"] = gen["max_tokens"]
 
-    # Tools / response_format (se utili nel tuo flusso)
-    # if gen.get("response_format"):
-    #     out["response_format"] = gen["response_format"]
+    # Structured outputs for Responses API:
+    # In Responses API, Structured Outputs are configured via text.format
+    # instead of the top-level response_format parameter used by Chat.
+    rf = gen.get("response_format")
+    text_cfg: Dict[str, Any] = {}
+    if rf:
+
+        # Typical Chat-style structured outputs:
+        # {
+        #   "type": "json_schema",
+        #   "json_schema": {
+        #       "name": "FilesBundle",
+        #       "schema": { ... },
+        #       "strict": true
+        #   }
+        # }
+        if isinstance(rf, dict) and rf.get("type") == "json_schema":
+            js = rf.get("json_schema") or {}
+
+            text_format: Dict[str, Any] = {"type": "json_schema"}
+
+            # Prefer top-level values if already present (future-proof),
+            # otherwise fall back to json_schema.* as produced for Chat API.
+            name = rf.get("name") or js.get("name")
+            schema = rf.get("schema") or js.get("schema")
+            strict = rf.get("strict") if "strict" in rf else js.get("strict")
+
+            if name is not None:
+                text_format["name"] = name
+            if schema is not None:
+                text_format["schema"] = schema
+            if strict is not None:
+                text_format["strict"] = strict
+
+            text_cfg["format"] = text_format
+        else:
+            # Non json_schema formats (e.g. {"type": "json_object"})
+            # can be passed through as-is; the Responses API accepts
+            # text.format = { "type": "json_object" } etc.
+            text_cfg["format"] = rf
+
+
     if gen.get("tools"): out["tools"] = gen["tools"]
     if gen.get("tool_choice"): out["tool_choice"] = gen["tool_choice"]
+    model_lower = (model or "").lower()
+    is_codex = "codex" in model_lower
+      
+    if _is_reasoning_model_name(model_lower) or is_codex:
+        # Default CLike per Codex: reasoning "low".
+        # Se vuoi zero reasoning nascosto, cambia in {"effort": "none"}.
+        out["reasoning"] = {"effort": "low"}
+        if "format" not in text_cfg:
+            text_cfg["format"] = {"type": "text"}
 
+        text_cfg["verbosity"] = "medium"
+
+    if text_cfg:
+        out["text"] = text_cfg    
     # Ripulisci chiavi None per evitare 400 inutili
     return {k: v for k, v in out.items() if v is not None}
+
 
 # --- end: payload builders ---
 # --- begin: response normalizers ---
@@ -258,6 +345,7 @@ def _normalize_responses_response(resp_json: Dict[str, Any]) -> Dict[str, Any]:
         # finish_reason: se c'è uno stato/flag, altrimenti vuoto
         finish_reason = (
             resp_json.get("finish_reason")
+            or (resp_json.get("incomplete_details") or {}).get("reason")
             or resp_json.get("reason")
             or ""
         )
@@ -267,7 +355,9 @@ def _normalize_responses_response(resp_json: Dict[str, Any]) -> Dict[str, Any]:
                 if isinstance(itm, dict) and itm.get("type") in ("file", "image", "artifact"):
                     files.append(itm)
     except Exception as e:
-        return _mk_unified_result(False, "", files, usage, finish_reason, resp_json, [f"normalize_responses: {e}"])
+        text = str(resp_json)
+        finish_reason = finish_reason or ""
+        return _mk_unified_result(False, text, files, usage, finish_reason, resp_json, [f"normalize_responses: {e}"])
 
     return _mk_unified_result(True, text, files, usage, finish_reason, resp_json, [])
 
@@ -329,8 +419,6 @@ async def chat(
     top_p: Optional[float] = None,
     stop: Optional[List[str]] = None
 ) -> Dict[str, Any]:
-    headers = {"Authorization": f"Bearer {api_key}"}
-    url = f"{base.rstrip('/')}/chat/completions"
     gen = {}
     gen["temperature"] = temperature
     gen["max_tokens"] = max_tokens
@@ -340,7 +428,13 @@ async def chat(
     gen["tool_choice"] = tool_choice
     gen["top_p"] = top_p
     gen["stop"] = stop
-    gen["api"] = "chat"
+
+    api_kind = "chat"
+    low_model = (model or "").lower()
+    if "codex" in low_model:
+        api_kind = "responses"
+
+    gen["api"] = api_kind
 
     return await openai_complete_unified(api_key=api_key, model=model, messages=messages, gen=gen, timeout_s=timeout)
 

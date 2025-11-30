@@ -71,7 +71,6 @@ class HarperPhaseRequest(BaseModel):
     kit: Optional[HarperKitOptions] = None
     rag_strategy: Optional[str] = None
     context_hard_limit: Optional[int] = None
-    rag_prefer_for: Optional[List[str]] = None
     project_id: Optional[str] = None
     project_name: Optional[str] = None
     rag_chunks: Optional[List[dict]] = None
@@ -219,7 +218,6 @@ class HarperRunResponse(BaseModel):
     kit: Optional[HarperKitResult] = None
     rag_strategy: Optional[str] = None
     context_hard_limit: Optional[int] = None
-    rag_prefer_for: Optional[List[str]] = None
     project_id: Optional[str] = None
     rag_chunks: Optional[List[dict]] = None
     rag_queries: Optional[List[str]] = None
