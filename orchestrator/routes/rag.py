@@ -297,7 +297,7 @@ def _extract_text_from_pptx_bytes(raw: bytes) -> str:
 @router.post("/v1/rag/fetch_by_paths")
 async def rag_fetch_by_paths(req: RagFetchByPathsRequest):
     store = RagStore(project_id=req.project_id)
-    log.info("RAG Store %s", store)
+    log.info("RAG Store  for rag_fetch_by_paths")
     # query neutra + filtro per path(s) lato router
     raw_hits = await store.search("", top_k=max(10, req.search_top_k))
     
@@ -326,8 +326,7 @@ async def rag_index(req: RagIndexRequest):
     # return out
    
     store = RagStore(project_id=req.project_id)
-    log.info("RAG Store %s", store)
-    log.info("RAG index %d items", len(req.items))
+    log.info("RAG Store for indexing - %d items", len(req.items))
 
     # Costruisci docs normalizzati: sempre {"path":..., "text":...}
     docs = []

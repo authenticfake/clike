@@ -330,7 +330,7 @@ def _rag_project_id(body: dict) -> str:
         return pid.strip()
     return "default"
 
-RAG_TOP_K = int(os.getenv("RAG_TOP_K", "8"))
+RAG_TOP_K = int(os.getenv("RAG_TOP_K", "12"))
 
 async def rag_index_items(project_id: str, items: list[dict]):
     # Optional server-side index; we prefer client-side, but keep for completeness.

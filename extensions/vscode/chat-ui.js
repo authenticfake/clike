@@ -1522,7 +1522,7 @@ window.addEventListener('message', (event) => {
       var msgText =
           'RAG results:\\n' +
           lines.join('\\n') +
-          '\\n\\nUse "/rag +N" to attach one hit to the next call or "/rag +*" to attach all.'+
+          '\\n\\nUse "/rag +N" to attach one hit to the next call.'+
           '"/rag list" to list attachments, or "/rag clear" to reset.';
       bubble(
         'assistant  ',

@@ -289,7 +289,7 @@
         },
          "clike.git.prBodyPath": {
           "type": "string",
-          "default": "docs/PR_BODY.md",
+          "default": "docs/harper/PR_BODY.md",
           "description": "Prefix for tag names."
         },
         "clike.routes": {

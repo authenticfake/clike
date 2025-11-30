@@ -183,7 +183,7 @@ async function openDiffs(diffs) {
 /**
  * Promote KIT sources into the workspace with conflict-safe strategies.
  * - Writes a JSON promotion manifest under runs/kit/<REQ>/promotion_manifest_<ts>.json
- * - Returns { manifestUri, actions, diffs }
+ * - Returns { manifestUri, actions, diffs, filesToCommit }
  */
 async function promoteReqSources(projectRootUri, reqId, strategy = 'folder', out) {
   const log = mkLog(out);
@@ -193,7 +193,7 @@ async function promoteReqSources(projectRootUri, reqId, strategy = 'folder', out
     return null;
   }
 
-  const srcDir = vscode.Uri.joinPath(projectRootUri, 'runs', 'kit', reqId, 'src');
+  const srcDir = vscode.Uri.joinPath(projectRootUri, 'runs', 'kit', reqId);
   try {
     await vscode.workspace.fs.stat(srcDir);
   } catch {
@@ -203,14 +203,33 @@ async function promoteReqSources(projectRootUri, reqId, strategy = 'folder', out
 
   // Resolve destination root
   const ts = new Date().toISOString().replace(/[:.]/g, '-');
-  let destRoot =  vscode.Uri.joinPath(projectRootUri, 'src');
-  
+  let destRoot = vscode.Uri.joinPath(projectRootUri, '.');
+
   if (strategy === 'folder') {
     destRoot = vscode.Uri.joinPath(projectRootUri, 'promoted', `${reqId}_${ts}`);
     await vscode.workspace.fs.createDirectory(destRoot);
   }
 
-  const { actions, diff, filesToCommit } = await copyTreeWithConflicts(srcDir, destRoot, { strategy, reqId, ts, log });
+  // usiamo *diffs* (non diff) e lo propaghiamo con lo stesso nome
+  const { actions, diffs, filesToCommit } = await copyTreeWithConflicts(
+    srcDir,
+    destRoot,
+    { strategy, reqId, ts, log }
+  );
+
+  // --- ESCLUDI cartella ci/ e i suoi file (LTC.json, HOWTO.md) dal risultato ---
+  const ciDir = vscode.Uri.joinPath(destRoot, 'ci');
+  try {
+    await vscode.workspace.fs.delete(ciDir, { recursive: true, useTrash: false });
+  } catch {
+    // se non esiste, ignora
+  }
+
+  const filteredFilesToCommit = (filesToCommit || []).filter((uri) => {
+    const p = (uri.fsPath ?? uri.path ?? '').toLowerCase();
+    return !p.includes('/ci/') && !p.includes('\\ci\\');
+  });
+
   // Build/write manifest
   const manifest = {
     req_id: reqId,
@@ -221,13 +240,24 @@ async function promoteReqSources(projectRootUri, reqId, strategy = 'folder', out
     total_actions: actions.length,
     actions
   };
-  const manifestDir = vscode.Uri.joinPath(projectRootUri, 'runs', 'kit', reqId);
-  try { await vscode.workspace.fs.createDirectory(manifestDir); } catch {}
-  const manifestUri = vscode.Uri.joinPath(manifestDir, `promotion_manifest_${ts}.json`);
-  await vscode.workspace.fs.writeFile(manifestUri, Buffer.from(JSON.stringify(manifest, null, 2), 'utf8'));
 
-  return { manifestUri, actions, diff, filesToCommit };
+  const manifestDir = vscode.Uri.joinPath(projectRootUri, 'runs', 'kit', reqId);
+  try {
+    await vscode.workspace.fs.createDirectory(manifestDir);
+  } catch {}
+
+  const manifestUri = vscode.Uri.joinPath(
+    manifestDir,
+    `promotion_manifest_${ts}.json`
+  );
+  await vscode.workspace.fs.writeFile(
+    manifestUri,
+    Buffer.from(JSON.stringify(manifest, null, 2), 'utf8')
+  );
+
+  return { manifestUri, actions, diffs, filesToCommit: filteredFilesToCommit };
 }
+
 
 /**
  * End-to-end flow with UI:
@@ -239,7 +269,8 @@ async function promoteReqSources(projectRootUri, reqId, strategy = 'folder', out
  */
 async function runPromotionFlow(projectRootUri, reqId, out) {
   const log = mkLog(out);
-  var filesToCommit = []
+  const filesToCommit = [];
+
   try {
     // Step 1: REQ id
     let target = (reqId || '').trim();
@@ -263,19 +294,17 @@ async function runPromotionFlow(projectRootUri, reqId, out) {
       cancellable: false
     }, async (progress) => {
       progress.report({ message: 'Scanning and copying files...' });
-      const r = await promoteReqSources(projectRootUri, target, strategy, out);
-      return r;
+      return await promoteReqSources(projectRootUri, target, strategy, out);
     });
-    
+
     if (!result) return;
-    const { manifestUri, actions, diffs } = result;
-    const _filesToCommit = result.filesToCommit;
-    
-    if (_filesToCommit) {
+
+    const { manifestUri, actions, diffs, filesToCommit: _filesToCommit } = result;
+
+    if (_filesToCommit && _filesToCommit.length) {
       filesToCommit.push(..._filesToCommit);
-      log(`[runPromotionFlow]  filesToCommit=${filesToCommit.length}`);
+      log(`[runPromotionFlow] filesToCommit=${filesToCommit.length}`);
     }
-   
 
     // Step 4: Notify & post-actions
     const choice = await vscode.window.showInformationMessage(
@@ -293,8 +322,10 @@ async function runPromotionFlow(projectRootUri, reqId, out) {
     log('[runPromotionFlow] ERROR:', e?.message || String(e));
     vscode.window.showErrorMessage(`[promote] ${e?.message || e}`);
   }
-  return filesToCommit
+
+  return filesToCommit;
 }
+
 
 
 
@@ -499,12 +530,15 @@ async function detectRepoUrl(projectRootUri) {
         r.rootUri.fsPath === projectRootUri.fsPath ||
         projectRootUri.fsPath.startsWith(r.rootUri.fsPath)
       );
+      mkLog(`repo ${repo}`);
       const remote = repo?.state?.remotes?.[0]?.fetchUrl || repo?.state?.remotes?.[0]?.pushUrl;
+      mkLog(`remote ${remote}`);
       const n = normalizeRepoUrl(remote);
+      mkLog(`n ${n}`);
       if (n) return n;
     }
-  } catch {
-    // ignore
+  } catch (e) {
+    mkLog(`Error while fetching repo URL: ${e}`);  // and ignore    
   }
   // 2) fallback: git config
   const cwd = projectRootUri.fsPath;
@@ -893,7 +927,7 @@ async function saveGateCommand(projectRootUri, plan, targetReqId,report, out) {
   const report_file = await persistReports(projectRootUri, "gate", report, out)
   var filesToCommit = []
   if (report.gate.toLowerCase()==='pass') {
-    log("[saveGateCommand] Gate passed for " + targetReqId);
+    log("[harperRun] Gate passed for " + targetReqId);
     const choice = await vscode.window.showInformationMessage(
       `Gate passed for ${targetReqId}. Promote sources now?`,
       'Promote',
@@ -901,7 +935,7 @@ async function saveGateCommand(projectRootUri, plan, targetReqId,report, out) {
     );
     if (choice === 'Promote') {
       filesToCommit = await runPromotionFlow(projectRootUri, targetReqId, out);
-      log("[saveGateCommand] filesToCommit " + filesToCommit);
+      //log("[harperRun] filesToCommit " + filesToCommit);
     }
   }
   try { vscode.window.showInformationMessage(`REQ ${targetReqId} marked as done.`); } catch {}
@@ -925,7 +959,7 @@ function resolveLatestReq(rootDir) {
 }
 
 // projectRootUri: URI del progetto "attivo" (quello creato con /init nome)
-async function buildHarperBody(phase, payload, projectRootUri, rag_prefer_for,rag_enabler, out) {
+async function buildHarperBody(phase, payload, projectRootUri, out) {
   const log = (msg) => {
     if (out && typeof out.appendLine === 'function') out.appendLine(msg);
     else console.log(msg);
@@ -960,47 +994,19 @@ async function buildHarperBody(phase, payload, projectRootUri, rag_prefer_for,ra
   const core_blobs = await attachCoreBlobs(_docRoot, payload["core"] || []);
   payload["idea_md"] = idea_md;
   payload["core_blobs"] = core_blobs;
-  payload["rag_prefer_for"]= rag_prefer_for;
   //RAG SUGGENSTIONDS
-  payload["rag_strategy"] = "prefer";                  // semantic hint
-  // --- RAG ephemeral chunks from workspace (client-first) ---
-  let rag_chunks
-  if (rag_enabler) {
-      try {
-        rag_chunks = await gatherRagChunks(projectRootUri, rag_prefer_for);
-        payload["rag_chunks"] = rag_chunks;
-        log(`[CLike] attached ${rag_chunks.length} RAG chunks`);
-        // --- RAG queries from headings (client hint) ---
-        try {
-          const qs = [];
-          for (const ch of (rag_chunks|| [])) {
-            const name = (ch.name || '').toLowerCase();
-            const nnpref_lc = rag_prefer_for.map(function(txt) {
-                return txt.toLowerCase();
-            });
-            if (nnpref_lc.includes(name) ) {
-              const lines = (ch.text || '').split(/\r?\n/);
-              const head = lines.find(l => /^#{1,3}\s/.test(l));
-              if (head) qs.push(head.replace(/^#+\s*/, '').trim());
-            }
-          }
-          if (qs.length) payload["rag_queries"] = qs.slice(0, 6);
-            log(`[CLike] attached ${payload["rag_queries"].length} RAG chunks`);
+  payload["rag_strategy"] = "auto";
+  payload["rag_top_k"] = 12;
+  payload["context_hard_limit"] = 12500; // per budgeting lato gateway  
 
-        } catch (e) {
-          log('[CLike] build rag queries failed:', e);
-        }
-
-
-      } catch (e) {
-        log('[CLike] gatherRagChunks failed:', e);
-      }   
+  if (phase === 'kit') {
+      payload["rag_strategy"] = "deps_only";//“auto”, “force”, “off”, “deps_only”
+      payload["context_hard_limit"] = 22500; // per budgeting lato gateway  
+      payload["rag_top_k"] = 100;
   }
-
-  payload["context_hard_limit"] = 6500;                // per budgeting lato gateway  
-  //RAG HARPER END
-
-  // 2) Body retro-compatibile + nuovi campi opzionali
+   if (phase === 'finalize') {
+      payload["rag_top_k"] = 200;
+   }
   return payload;
 }
 // PATCH 1 — utilities per PLAN/REQ (in alto vicino ad altre utility)
@@ -1351,7 +1357,7 @@ async function buildRagItemsForIndex(rag_files, out) {
     const t = await readWorkspaceTextFile(p, out);
     if (t && t.trim()) {
       items.push({ path: p, text: t });
-      log(`read ${p} -> text`);
+      log(`[harperRAG] read ${p} -> text`);
       continue;
     }
 

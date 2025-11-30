@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 import os, re, json, time, hashlib, logging
+import traceback
 from typing import List, Dict, Any, Optional, Tuple
 import httpx
 
@@ -16,7 +17,7 @@ QCOLLECTION = os.getenv("QDRANT_COLLECTION", "clike_rag")
 EMB_DIM     = int(os.getenv("EMBEDDING_DIM", "1536"))  # default openai small
 CHUNK_TOKENS   = int(os.getenv("RAG_CHUNK_TOKENS", "800"))
 CHUNK_OVERLAP  = int(os.getenv("RAG_CHUNK_OVERLAP", "80"))
-TOP_K          = int(os.getenv("RAG_TOP_K", "6"))
+TOP_K          = int(os.getenv("RAG_TOP_K", "12"))
 MAX_CTX_TOKENS = int(os.getenv("RAG_MAX_CTX_TOKENS", "1800"))
 
 # Alcune estensioni testuali
@@ -254,15 +255,20 @@ class RagStore:
 
     async def search(self, query: str, top_k:int=TOP_K) -> List[Dict[str,Any]]:
         await self.ensure()
+
         # embed query
         vec = (await self.emb.embed([query]))[0]
+        #log.info("search vec: %s", vec)
+
         # search
         try:
             async with httpx.AsyncClient(timeout=20) as client:
-                body = {"vector": vec, "limit": top_k, "with_payload": True}
+                limit_as_int = int(top_k)
+                body = {"vector": vec, "limit": limit_as_int, "with_payload": True}
                 r = await client.post(f"{self.q}/collections/{self.c}/points/search", json=body)
                 r.raise_for_status()
                 data = r.json()
+                log.info("RAG search result: %s", len(data.get("result") or []))
                 out = []
                 for it in (data.get("result") or []):
                     pl = it.get("payload") or {}
@@ -273,8 +279,20 @@ class RagStore:
                         "text": pl.get("text","")
                     })
                 return out
+        except httpx.HTTPStatusError as e:
+            # Errore HTTP (es. 400 Bad Request, 404 Not Found, 500 Internal Server Error)
+            error_details = e.response.text[:200] if e.response else "N/A"
+            log.error(
+                "RAG search failed (HTTP Error %s). URL: %s. Dettagli: %s", 
+                e.response.status_code, 
+                e.request.url, 
+                error_details
+            )
+        
         except Exception as e:
+            full_traceback = traceback.format_exc()
             log.error("RAG search failed: %s", e)
+            log.error("RAG search full_traceback failed: %s", full_traceback)
             return []
 
     async def purge(self, path_prefix: Optional[str]=None) -> Dict[str,Any]:

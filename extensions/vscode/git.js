@@ -274,8 +274,8 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
   const cwd = toFsPath(opts.workspaceRoot);
   const gitCtx = resolveGitContext(cwd, s.gitDefaultBranch);
 
-  log(`[git] phase=${phase} runId=${runId} reqId=${reqId || '∅'} files=${Array.isArray(changedFiles) ? changedFiles.length : '∅'} mode=${gitCtx.mode}`);
-  if (!s.gitAutoCommit) { log('[git] autoCommit=false → skip'); return; }
+  log(`[harperGit] phase=${phase} runId=${runId} reqId=${reqId || '∅'} files=${Array.isArray(changedFiles) ? changedFiles.length : '∅'} mode=${gitCtx.mode}`);
+  if (!s.gitAutoCommit) { log('[harperGit] autoCommit=false → skip'); return; }
 
   // 1) Repo pronto
   await ensureGitRepo(gitCtx, s.gitDefaultBranch);
@@ -290,11 +290,11 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
     const slug = String(reqId).toLowerCase();
     targetBranch = `${s.gitBranchPrefix}/${slug}`;
   }
-  log(`[git] targetBranch=${targetBranch}`);
+  log(`[harperGit] targetBranch=${targetBranch}`);
 
   // 4) Allineamento con default branch + checkout target
   if (hasRemote) {
-    try { await gitRunVerbose(['fetch', s.gitRemote], gitCtx); } catch (e) { log(`[git] fetch warn: ${e.message}`); }
+    try { await gitRunVerbose(['fetch', s.gitRemote], gitCtx); } catch (e) { log(`[harperGit] fetch warn: ${e.message}`); }
   }
 
   // Verifica esistenza branch target
@@ -311,9 +311,9 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
         if (!dirty) {
           await gitRunVerbose(['pull', '--rebase', s.gitRemote, s.gitDefaultBranch], gitCtx);
         } else {
-          log('[git] default branch dirty → skip pull --rebase');
+          log('[harperGit] default branch dirty → skip pull --rebase');
         }
-      } catch (e) { log(`[git] pull warn: ${e.message}`); }
+      } catch (e) { log(`[harperGit] pull warn: ${e.message}`); }
     }
     if (targetBranch !== s.gitDefaultBranch) {
       await gitRunVerbose(['checkout', '-B', targetBranch], gitCtx);
@@ -328,9 +328,9 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
         if (!dirty) {
           await gitRunVerbose(['rebase', `${s.gitRemote}/${s.gitDefaultBranch}`], gitCtx);
         } else {
-          log('[git] working tree dirty → skip rebase');
+          log('[harperGit] working tree dirty → skip rebase');
         }
-      } catch (e) { log(`[git] rebase warn: ${e.message}`); }
+      } catch (e) { log(`[harperGit] rebase warn: ${e.message}`); }
     }
   }
 
@@ -378,7 +378,7 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
     // fallback: aggiungi 1-per-1, così i validi passano comunque
     for (const f of files) {
       try { await gitRunVerbose(['add', f], gitCtx); }
-      catch (e2) { mkLog(out)(`[git] add skip file '${f}': ${e2.message}`); }
+      catch (e2) { mkLog(out)(`[harperGit] add skip file '${f}': ${e2.message}`); }
     }
   }
 
@@ -395,7 +395,7 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
     return base;
   };
   try { await gitRunVerbose(['commit', '-m', makeMsg()], gitCtx); }
-  catch (e) { log(`[git] commit skipped: ${e.message}`); }
+  catch (e) { log(`[harperGit] commit skipped: ${e.message}`); }
 
   // 7) Push (se remoto configurato)
   if (hasRemote) {
@@ -403,9 +403,9 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
       const upstream = await gitRunVerbose(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], gitCtx).catch(() => '');
       if (!upstream) await gitRunVerbose(['push', '--set-upstream', s.gitRemote, targetBranch], gitCtx);
       else await gitRunVerbose(['push'], gitCtx);
-    } catch (e) { log(`[git] push warn: ${e.message}`); }
+    } catch (e) { log(`[harperGit] push warn: ${e.message}`); }
   } else {
-    log(`[git] no remote configured → committed locally. Set "clike.git.remoteUrl" to enable pushes.`);
+    log(`[harperGit] no remote configured → committed locally. Set "clike.git.remoteUrl" to enable pushes.`);
   }
 
   // 8) Tag (best-effort)
@@ -413,7 +413,7 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
   try {
     await gitRunVerbose(['tag', '-a', tag, '-m', tag], gitCtx);
     if (hasRemote) await gitRunVerbose(['push', s.gitRemote, tag], gitCtx);
-  } catch (e) { log(`[git] tag warn: ${e.message}`); }
+  } catch (e) { log(`[harperGit] tag warn: ${e.message}`); }
 
   // 9) Merge su default branch quando phase === 'gate'
   if (phase === 'gate' && s.gitMergeOnGate === true) {
@@ -426,16 +426,16 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
           if (!dirtyMain) {
             await gitRunVerbose(['pull', '--rebase', s.gitRemote, s.gitDefaultBranch], gitCtx);
           } else {
-            log('[git] main dirty → skip pull --rebase before merge');
+            log('[harperGit] main dirty → skip pull --rebase before merge');
           }
-        } catch (e) { log(`[git] pull main warn: ${e.message}`); }
+        } catch (e) { log(`[harperGit] pull main warn: ${e.message}`); }
       }
 
       await gitRunVerbose(['merge', '--no-ff', targetBranch, '-m', `merge: ${reqId} via gate [runId=${runId}]`], gitCtx);
 
       if (hasRemote) {
         try { await gitRunVerbose(['push', s.gitRemote, s.gitDefaultBranch], gitCtx); } 
-        catch (e) { log(`[git] push main warn: ${e.message}`); }
+        catch (e) { log(`[harperGit] push main warn: ${e.message}`); }
       }
 
       // Opzionale: delete branch feature dopo merge
@@ -443,7 +443,7 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
         try {
           await gitRunVerbose(['branch', '-d', targetBranch], gitCtx);
           if (hasRemote) { await gitRunVerbose(['push', s.gitRemote, '--delete', targetBranch], gitCtx); }
-        } catch (e) { log(`[git] delete branch warn: ${e.message}`); }
+        } catch (e) { log(`[harperGit] delete branch warn: ${e.message}`); }
       }
 
       // Torna al branch feature se preferisci (o resta su main)
@@ -452,7 +452,7 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
       }
 
     } catch (e) {
-      log(`[git] merge-on-gate warn: ${e.message}`);
+      log(`[harperGit] merge-on-gate warn: ${e.message}`);
     }
   }
 
@@ -466,7 +466,7 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
       } else {
         await vscode.commands.executeCommand('github.createPullRequest');
       }
-    } catch (e) { log(`[git] gh pr create skipped: ${e.message}`); }
+    } catch (e) { log(`[harperGit] gh pr create skipped: ${e.message}`); }
   }
 
   if (phase === 'finalize' && opts?.finalizeOpenPr === true && hasRemote) {
@@ -481,7 +481,7 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
       } else {
         await vscode.commands.executeCommand('github.createPullRequest');
       }
-    } catch (e) { log(`[git] finalize PR skipped: ${e.message}`); }
+    } catch (e) { log(`[harperGit] finalize PR skipped: ${e.message}`); }
   }
 }
 
