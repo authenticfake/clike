@@ -7,7 +7,7 @@ set -euo pipefail
 
 # Modelli da scaricare
 MODELS=(
-#  "llama4"
+  "llama4"
   "nomic-embed-text"
 #  "gpt-oss"
 #  "codellama:34b"
