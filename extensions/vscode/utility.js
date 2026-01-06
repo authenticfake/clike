@@ -7,7 +7,6 @@ const out = vscode.window.createOutputChannel('Clike.utility');
 const crypto = require('crypto');
 // usa Node.js fs per calcolare la size di un file
 const fs = require('fs');
-const { log } = require('console');
 const myhttp = require("http");
 const myhttps = require("https");
 
@@ -26,7 +25,7 @@ function mkLog(out) {
  * Funzione di logging personalizzata che scrive su entrambi i canali.
  * @param {...any} args Messaggi o oggetti da loggare.
  */
-function _log(...args) {
+function log(...args) {
     // 1. Log nella console standard per il debug.
     console.log(...args); 
     
@@ -39,6 +38,7 @@ function _log(...args) {
         return String(arg);
     }).join(' ')); 
 }
+
 
 /** sha256 of a Buffer */
 function hashBuf(buf) {
@@ -216,18 +216,61 @@ async function promoteReqSources(projectRootUri, reqId, strategy = 'folder', out
     destRoot,
     { strategy, reqId, ts, log }
   );
-
+  // --- PULIZIA FISICA DEL FILE SYSTEM ---
+  // Definiamo una funzione ricorsiva interna per eliminare __pycache__ e .pyc
+  const cleanDirRecursively = async (uri) => {
+    const entries = await vscode.workspace.fs.readDirectory(uri);
+    
+    for (const [name, type] of entries) {
+      const childUri = vscode.Uri.joinPath(uri, name);
+      
+      if (type === vscode.FileType.Directory) {
+        if (name === '__pycache__') {
+          // Elimina l'intera cartella pycache
+          await vscode.workspace.fs.delete(childUri, { recursive: true, useTrash: false });
+        } else {
+          // Continua la ricerca nelle sottocartelle
+          await cleanDirRecursively(childUri);
+        }
+      } else if (type === vscode.FileType.File) {
+        if (name.endsWith('.pyc')) {
+          await vscode.workspace.fs.delete(childUri, { useTrash: false });
+        }
+        if (name.startsWith('.DS_Store')) {
+          await vscode.workspace.fs.delete(childUri, { useTrash: false });
+        }
+      }
+    }
+  };
   // --- ESCLUDI cartella ci/ e i suoi file (LTC.json, HOWTO.md) dal risultato ---
+  // --- NUOVO: Rimuovi __pycache__ e file .pyc dalla destinazione ---
+  // NOTA: Questa operazione pulisce solo la destinazione, se sono stati copiati
+  
+  // Rimuovi tutte le cartelle __pycache__ che potresti trovare
+  // (Potrebbe essere complesso se ce ne sono molte, questo è un esempio semplificato)
+  // Se la strategia di copia ha un'azione specifica per directory, potresti iterare su actions.
+  
+  // Per semplicità, ci concentriamo sull'esclusione da filesToCommit e manifest
+
+  // ------------------------------------------------------------------------
   const ciDir = vscode.Uri.joinPath(destRoot, 'ci');
   try {
     await vscode.workspace.fs.delete(ciDir, { recursive: true, useTrash: false });
   } catch {
     // se non esiste, ignora
   }
-
+  await cleanDirRecursively(destRoot);
   const filteredFilesToCommit = (filesToCommit || []).filter((uri) => {
     const p = (uri.fsPath ?? uri.path ?? '').toLowerCase();
-    return !p.includes('/ci/') && !p.includes('\\ci\\');
+    
+    // Esclusione esistente per la cartella 'ci'
+    const isCI = p.includes('/ci/') || p.includes('\\ci\\');
+    
+    // NUOVE Esclusioni per Python
+    const isPyc = p.endsWith('.pyc');
+    const isPycache = p.includes('/__pycache__/') || p.includes('\\__pycache__\\');
+    
+    return !isCI && !isPyc && !isPycache;
   });
 
   // Build/write manifest
@@ -679,8 +722,56 @@ function _updateReqTableSection(sectionText, statusMap) {
   return glueA + rebuilt + glueB;
 }
 
+/**
+ * Check whether a given REQ-ID exists in docs/harper/plan.json.
+ *
+ * - reqId: string like "REQ-001"
+ * - workspaceRoot: vscode.WorkspaceFolder or undefined
+ *
+ * Returns:
+ *   - true  if the REQ-ID exists in plan.json
+ *   - false if not found or plan.json missing/invalid
+ *
+ * Shows a VS Code error message if the REQ is missing.
+ */
+async function ensureReqIdInPlan(reqId, plan) {
+  const trimmed = (reqId || '').trim();
+ 
+  out.appendLine(`ensureReqIdInPlan(${trimmed})`);
+  if (!trimmed) {
+    vscode.window.showErrorMessage('Missing REQ-ID for this command.');
+    return false;
+  }
+
+  if (!plan || !Array.isArray(plan.reqs)) {
+    vscode.window.showErrorMessage(
+      `Unable to read "${PLAN_JSON_REL_PATH}". Make sure PLAN has been run and plan.json is present.`
+    );
+    return false;
+  }
+  
+  const upper = trimmed.toUpperCase();
+  const exists = plan.reqs.some((r) => {
+    const rid = (r && r.id) ? String(r.id).trim().toUpperCase() : '';
+    return rid === upper;
+  });
+
+  if (!exists) {
+
+    vscode.window.showErrorMessage(
+      `REQ-ID "${trimmed}" not found.`
+    );
+    return false;
+  }
+
+
+  return true;
+}
+
 async function runKitCommand( plan, cmdArgs) {
+  
   out.appendLine(`[runKitCommand] ${cmdArgs}`);
+
   // cmdArgs: string dopo "/kit", es. "", "REQ-001"
   let targetReqId = (cmdArgs || '').trim() || null;
   if (!targetReqId) {
@@ -689,7 +780,13 @@ async function runKitCommand( plan, cmdArgs) {
       vscode.window.showWarningMessage('No open REQ found in plan.json.');
       return;
     }
+  } else  {
+    out.appendLine(`[runKitCommand] passed targetReqId: ${targetReqId}`)
+    const result = await ensureReqIdInPlan(targetReqId, plan); 
+    if (!result) return;
   }
+  out.appendLine(`[runKitCommand] targetReqId: ${targetReqId} validated`)
+
   // (opzionale) avvisa se deps non done
   const candidate = (plan.reqs || []).find(r => r.id === targetReqId);
   const deps = Array.isArray(candidate?.dependsOn) ? candidate.dependsOn : [];
@@ -705,6 +802,8 @@ async function runKitCommand( plan, cmdArgs) {
   return targetReqId;
 }
 
+
+
 async function runEvalGateCommand( plan, cmdArgs) {
   out.appendLine(`[runEvalGateCommand] ${cmdArgs}`);
   // cmdArgs: string dopo "/kit", es. "", "REQ-001"
@@ -715,6 +814,9 @@ async function runEvalGateCommand( plan, cmdArgs) {
       vscode.window.showWarningMessage('No pending REQ found in plan.json with status in_progress');
       return;
     }
+  } else {
+    const result = await ensureReqIdInPlan(targetReqId, plan); 
+    if (!result) return;
   }
   // (opzionale) avvisa se deps non done
   const candidate = (plan.reqs || []).find(r => r.id === targetReqId);
@@ -960,10 +1062,7 @@ function resolveLatestReq(rootDir) {
 
 // projectRootUri: URI del progetto "attivo" (quello creato con /init nome)
 async function buildHarperBody(phase, payload, projectRootUri, out) {
-  const log = (msg) => {
-    if (out && typeof out.appendLine === 'function') out.appendLine(msg);
-    else console.log(msg);
-  };
+
   const _docRoot =  vscode.Uri.joinPath(projectRootUri, 'docs', 'harper');
   // 1) Allegati/file core
   var idea_md = (phase === 'spec') ? await loadMd(_docRoot, 'IDEA.md') : null;
@@ -1002,10 +1101,10 @@ async function buildHarperBody(phase, payload, projectRootUri, out) {
   if (phase === 'kit') {
       payload["rag_strategy"] = "deps_only";//“auto”, “force”, “off”, “deps_only”
       payload["context_hard_limit"] = 22500; // per budgeting lato gateway  
-      payload["rag_top_k"] = 100;
+      payload["rag_top_k"] = 150;
   }
    if (phase === 'finalize') {
-      payload["rag_top_k"] = 200;
+      payload["rag_top_k"] = 250;
    }
   return payload;
 }
@@ -1163,6 +1262,7 @@ function renderReqTableMd(plan) {
   ].join('\n');
 }
 
+
 // Regex di sezione robuste: case-insensitive, tolleranti su spazi/varianti
 function sectionRegex(titleVariants) {
   // Esempio: ['Plan Snapshot'] o ['REQ-IDs Table']
@@ -1202,21 +1302,44 @@ async function updatePlanMdInPlace(projectRootUri, plan) {
     // Non trovata → appenderla in cima
     md = `${newSnapshot}\n${md}`;
   }
+  log("test rxTable", rxTable.test(md));
+  // --- Tabella (logica identica alla tua updatePlanMdInPlace) ---
+  const tableHeading = '## REQ-IDs Table';
+  const headingIdx = md.indexOf(tableHeading);
 
-  // Sostituisci o aggiungi Tabella
-  if (rxTable.test(md)) {
-    md = md.replace(rxTable, (_, heading /*, body*/) => {
-      const contentLines = newTable.split('\n');
-      contentLines.shift(); // rimuovi "## REQ-IDs Table"
-      const content = contentLines.join('\n');
-      return `${heading}${content}\n`;
-    });
+  if (headingIdx !== -1) {
+    // md = [prima della tabella] + [tabella e resto]
+    const before = md.slice(0, headingIdx);
+    const after = md.slice(headingIdx);
+
+    // Nel blocco "after", troviamo dove finisce la tabella
+    // e dove iniziano le Acceptance già presenti.
+    const idxAcceptance = after.indexOf('\n### Acceptance');
+    const idxNextSection = after.indexOf('\n## ', tableHeading.length);
+
+    // Se c'è una sezione "### Acceptance — REQ-001", usiamo quella come fine della tabella.
+    // Altrimenti, come fallback, usiamo il prossimo "## " oppure la fine del file.
+    let cut;
+    if (idxAcceptance !== -1) {
+      cut = idxAcceptance;
+    } else if (idxNextSection !== -1) {
+      cut = idxNextSection;
+    } else {
+      cut = after.length;
+    }
+
+    // Inseriamo la tabella nuova (newTable include già "## REQ-IDs Table")
+    // e manteniamo tutto ciò che viene dopo (Acceptance, Dependency Graph, ecc.).
+    const afterTail = after.slice(cut);
+    md = `${before}${newTable}${afterTail}`;
   } else {
+    // Se non esiste ancora la sezione, la appendiamo in fondo
     md = `${md}\n\n${newTable}`;
   }
-
+  
   await writeTextFile(uri, md);
 }
+
 
 function extractUserMessages(sessionData) {
     // 1. Filtra l'array per mantenere solo gli elementi con role 'user'.
@@ -1485,8 +1608,8 @@ function normalizeAttachment(a) {
 }
 // Pretty JSON logger to avoid [object Object]
 function safeLog(prefix, obj) {
-  try { _log(prefix, JSON.stringify(obj, null, 2)); }
-  catch { _log(prefix, obj); }
+  try { log(prefix, JSON.stringify(obj, null, 2)); }
+  catch { log(prefix, obj); }
 }
 
 // Accept many base64 aliases, strip data URL header if any
@@ -1619,7 +1742,7 @@ function logCurrentTimeStandard(activity) {
     // Costruisce il log
     const timeString = `${hours}:${minutes}:${seconds}.${milliseconds}`;
     
-    _log(`Clike Time:[${timeString}] --> [${activity}]`);
+    log(`Clike Time:[${timeString}] --> [${activity}]`);
 }
 
 module.exports = {
@@ -1649,6 +1772,7 @@ module.exports = {
   normalizeChangedFiles,
   sanitize,
   logCurrentTimeStandard,
-  httpPostJsonLong
+  httpPostJsonLong,
+  ensureReqIdInPlan
 
 };

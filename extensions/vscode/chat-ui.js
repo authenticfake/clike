@@ -1359,7 +1359,8 @@ function inferProvider(modelName) {
     console.log("GPT", n);
     return 'openai';
   }
-  if (/(llama|ollama|codellama|mistral|mixtral|phi|qwen|deepseek|granite|yi|gemma|llava)/.test(n)) return 'ollama';
+  if(n.startsWith('deepseek')) return 'deepseek';
+  if (/(llama|ollama|codellama|mistral|mixtral|phi|qwen|granite|yi|gemma|llava)/.test(n)) return 'ollama';
   if(n.startsWith('claude')) return 'anthropic';
   if(n.startsWith('vllm')) return 'vllm';
   return 'openai'; // fallback conservativo

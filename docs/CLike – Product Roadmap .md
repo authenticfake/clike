@@ -1,5 +1,3 @@
-
-
 ## CLike – Product Roadmap 
 
 ### Horizon 1

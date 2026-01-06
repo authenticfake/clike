@@ -1,0 +1,126 @@
+tech_constraints:
+  version: 1.1.0
+
+  metadata:
+    name: "Next.js SaaS Dashboard - Vercel"
+    description: "B2B SaaS dashboard for analytics, fully hosted on Vercel."
+    owner: "saas-platform-team"
+    environment: [dev, preview, prod]
+    criticality: medium
+    complexity: medium
+    domain: "analytics"
+    compliance: ["GDPR"]
+
+  classification:
+    solution_type: "web"
+    location: "cloud"
+    cloud_provider: "vercel"
+    tenant_model: "multi"
+    data_sensitivity: "internal"
+
+  project_definition:
+    type: "web_application"
+    framework: "nextjs"
+    language: "typescript"
+    deployment_target: "vercel"
+
+  technology_stack:
+    core:
+      framework: "Next.js 14+ (App Router)"
+      language: "TypeScript (strict)"
+      runtime: "Edge Runtime and Node.js where needed"
+    styling:
+      primary: "Tailwind CSS"
+      components: "Shadcn/UI"
+      icons: "Lucide React"
+    state_management:
+      server_state: "React Server Components and TanStack Query"
+      client_state: "Zustand"
+    database_and_backend:
+      orm: "Prisma"
+      database: "PostgreSQL (Neon or Vercel Postgres)"
+      auth: "Auth.js v5"
+    observability_stack:
+      logging: "Vercel Logs"
+      monitoring: "Vercel Analytics and Sentry"
+
+  lanes:
+    - name: "web-nextjs"
+      lane: "js-ts"
+      purpose: "Frontend and API routes"
+      allowed_frameworks: ["Next.js", "React"]
+      forbidden_technologies:
+        - "Express.js"
+        - "NestJS"
+        - "jQuery"
+        - "Bootstrap"
+        - "runtime-css-in-js"
+      default_test_profile:
+        coverage_min: 80
+        required_checks: [tests, lint, types, build]
+
+  profiles:
+    - name: "app-core"
+      runtime: "next.js@14"
+      platform: "vercel"
+      api: ["rest"]
+      storage: ["postgres"]
+      messaging: []
+      auth: ["oauth", "email-link"]
+      observability: ["vercel-logs", "sentry"]
+
+  capabilities:
+    - type: "ci.quality"
+      coverage_min: 80
+      require_sast: false
+      require_sca: false
+
+  ci_cd:
+    system: "vercel-github-integration"
+    runners: "Vercel build pipeline"
+    pipelines:
+      main_branch: "Vercel production deployment"
+      preview_branches: "Vercel preview deployments"
+    external_quality_gates:
+      sonar:
+        enabled: false
+      security_scanner:
+        enabled: false
+    default_branch_protection:
+      require_pr: true
+      require_reviews: 1
+      require_status_checks: true
+
+  security:
+    internet_egress: "allowed"
+    allowed_endpoints: ["*"]
+    secrets_management: "Vercel Environment Variables"
+    dependency_policy:
+      allowlist: ["next", "react", "prisma", "@tanstack/react-query"]
+    authentication:
+      user_auth: "OAuth providers and email magic link"
+      service_auth: "JWT between services"
+    authorization:
+      method: "RBAC"
+      policies_source: "Application database"
+    data_protection:
+      encryption_at_rest: true
+      encryption_in_transit: true
+      pii_handling: "Only business contact data"
+
+  data_management:
+    primary_stores:
+      - name: "primary-db"
+        engine: "postgres"
+        region: "eu-central"
+    backup_policy:
+      rpo_minutes: 30
+      rto_minutes: 60
+    retention_policy:
+      tenant_data_days: 1825
+
+  eval_profiles:
+    default:
+      coverage_min: 80
+      max_critical_vulns: 0
+      lint_must_be_clean: true

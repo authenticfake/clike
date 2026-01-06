@@ -15,7 +15,7 @@ const {  persistTelemetryVSCode } = require('./telemetry');
 
 const { readPlanJson, getProjectId, promoteReqSources, runPromotionFlow,preIndexRag, normalizeAttachment, safeLog, readWorkspaceTextFile, getFileSizeBytes, getProjectNameFromWorkspace } = require('./utility')
 const { buildHarperBody,  defaultCoreForPhase, runKitCommand,runEvalGateCommand, saveKitCommand,saveEvalCommand,saveGateCommand, normalizeChangedFiles } = require('./utility')
-const {sanitize, logCurrentTimeStandard, httpPostJsonLong} = require('./utility')
+const {sanitize, logCurrentTimeStandard, httpPostJsonLong, ensureReqIdInPlan} = require('./utility')
 const{ toFsPath, mapKitSrcToWorkspaceTarget, clikeGitSync } = require('./git'); // NEW: clikeGitSync
 const { getChatTheme, getWebviewHtml } = require('./chat-ui');
 
@@ -166,6 +166,91 @@ async function collectFinalizeRagItems(workspaceRootUri, maxFiles = 400, maxByte
     }
   }
   return targets;
+}
+// --- : collect lane-guides for RAG after /plan ------------------------
+async function collectLaneGuidesRagItems(workspaceRoot, opts = {}) {
+  if (!workspaceRoot) {
+    return [];
+  }
+
+  const maxFiles = opts.maxFiles ?? 200;
+  const maxBytes = opts.maxBytes ?? 256 * 1024;
+
+  const rootFsPath = workspaceRoot.fsPath;
+  const laneRootDir = path.join(rootFsPath, 'docs', 'harper', 'lane-guides');
+  const laneRootUri = vscode.Uri.file(laneRootDir);
+
+  let stat;
+  try {
+    stat = await vscode.workspace.fs.stat(laneRootUri);
+  } catch {
+    // Folder does not exist yet → nothing to index
+    return [];
+  }
+
+  if (!stat || stat.type !== vscode.FileType.Directory) {
+    return [];
+  }
+
+  const items = [];
+
+  async function walk(dirUri, relBase) {
+    const entries = await vscode.workspace.fs.readDirectory(dirUri);
+
+    for (const [name, type] of entries) {
+      const childUri = vscode.Uri.joinPath(dirUri, name);
+      const relPath = relBase ? path.posix.join(relBase, name) : name;
+
+      if (type === vscode.FileType.Directory) {
+        await walk(childUri, relPath);
+        if (items.length >= maxFiles) {
+          return;
+        }
+        continue;
+      }
+
+      if (type !== vscode.FileType.File) {
+        continue;
+      }
+
+      const ext = (name.split('.').pop() || '').toLowerCase();
+      const ALLOWED = ['md', 'markdown', 'txt'];
+
+      if (!ALLOWED.includes(ext)) {
+        continue;
+      }
+
+      let data;
+      try {
+        data = await vscode.workspace.fs.readFile(childUri);
+      } catch (err) {
+        log(`[harperRAG] skip lane-guide (read error): ${childUri.fsPath} -> ${err}`);
+        continue;
+      }
+
+      if (!data || !data.byteLength) {
+        continue;
+      }
+
+      const slice = data.byteLength > maxBytes ? data.slice(0, maxBytes) : data;
+      const b64 = Buffer.from(slice).toString('base64');
+      const relFromRoot = path.posix.join('docs', 'harper', 'lane-guides', relPath);
+
+      items.push({
+        path: relFromRoot,
+        bytes_b64: b64,
+      });
+
+      if (items.length >= maxFiles) {
+        log(`[harperRAG] lane-guide RAG items truncated at ${maxFiles} files`);
+        return;
+      }
+    }
+  }
+
+  await walk(laneRootUri, '');
+  log(`[harperRAG] collected ${items.length} lane-guide RAG items`);
+  return items;
 }
 
 // Collect RAG items for a given REQ under runs/kit/REQ-XXX/src.
@@ -844,7 +929,7 @@ async function runWriteCommand(context, op, label, { useContent = false } = {}) 
 
   if (!resp || !resp.ok) {
     const msg = (resp && resp.json && (resp.json.detail || resp.json.message)) || `HTTP ${resp && resp.status}`;
-    return vscode.window.showErrorMessage(`Clike ${label}: ${msg}`);
+    return vscode.window.handleGaterrorMessage(`Clike ${label}: ${msg}`);
   }  
   vscode.window.setStatusBarMessage(`Clike ✓ ${op} applied`, 3000);
   vscode.window.showInformationMessage(`Clike: ${op} completato (${resp.json.source || 'embedded'})`);
@@ -1179,9 +1264,11 @@ function _inferProvider(modelName) {
     console.log("GPT", n);
     return 'openai';
   }
-  if (/(llama|ollama|codellama|mistral|mixtral|phi|qwen|deepseek|granite|yi|gemma|llava)/.test(n)) return 'ollama';
+  if (/(llama|ollama|codellama|mistral|mixtral|phi|qwen|granite|yi|gemma|llava)/.test(n)) return 'ollama';
   if(n.startsWith('claude')) return 'anthropic';
   if(n.startsWith('vllm')) return 'vllm';
+  if(n.startsWith('deepseek')) return 'deepseek';
+  
   return 'openai'; // fallback conservativo
 }
 
@@ -1695,6 +1782,17 @@ function activate(context) {
   vscode.window.setStatusBarMessage('Clike: orchestrator+gateway integration ready', 2000);
 }
 
+function isTextFile(filePath) {
+    const buffer    = Buffer.alloc(4096); // Leggiamo i primi 4KB
+    const fd        = fsSync.openSync(filePath, 'r');
+    const bytesRead = fsSync.readSync(fd, buffer, 0, 4096, 0);
+    fsSync.closeSync(fd);
+
+    for (let i = 0; i < bytesRead; i++) {
+        if (buffer[i] === 0) return false; // Trovato byte nullo: è BINARIO
+    }
+    return true; // Nessun byte nullo: è TESTO
+}
 
 async function cmdOpenChat(context) {
   out.appendLine(`cmdOpenChat ${context}`);
@@ -1814,7 +1912,7 @@ async function cmdOpenChat(context) {
           const extRoot = context.extensionPath;
           
           const templatesDir = path.join(extRoot, 'templates', 'harper-init');
-          
+          const BINARY_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.pdf', '.zip', '.exe', '.dll', '.so', '.dylib', '.woff', '.woff2', '.ttf', '.eot']);
           function copyRecursive(src, dest, _name) {
             out.appendLine(`copyRecursive ${src} -> ${dest} ${_name}`);
             if (fsSync.statSync(src).isDirectory()) {
@@ -1827,14 +1925,19 @@ async function cmdOpenChat(context) {
                 panel.webview.postMessage({ type: 'busy', on: false });
                 return;
               }
+              const ext = path.extname(src).toLowerCase();
 
+              if (BINARY_EXTENSIONS.has(ext) || !isTextFile(src)) {
+                 fsSync.copyFileSync(src, dest);
+                 
+              } else {
                 // 1. Leggi il contenuto del file
-              let content = fsSync.readFileSync(src, 'utf-8');
-
-              // 2. Esegui la sostituzione
-              content = content.replace(/\${project.name}/g, _name);
-              // 3. Scrivi il nuovo contenuto nel file di destinazione
-              fsSync.writeFileSync(dest, content);
+                let content = fsSync.readFileSync(src, 'utf-8');
+                // 2. Esegui la sostituzione
+                content = content.replace(/\${project.name}/g, _name);
+                // 3. Scrivi il nuovo contenuto nel file di destinazione
+                fsSync.writeFileSync(dest, content);
+              }
               //fs.copyFileSync(src, dest);
             }
           }
@@ -1964,9 +2067,7 @@ async function cmdOpenChat(context) {
           );
         
           var _messages = _source.map(b => ({ role: b.role, content: b.content }));
-
           let msg_bubble='';
-
           const _gen={
             temperature: 0.2,
             max_tokens: (phase === 'plan' ? 15000 : phase === 'spec' ? 10500 : 9999),
@@ -1998,20 +2099,6 @@ async function cmdOpenChat(context) {
             project_id:project_id,
             project_name:projectName
           };
-          log(`[harperRun] payload (gen):`,  JSON.stringify(payload.gen));
-          msg_bubble = phase==='idea' ? project_id : targets; 
-          // Persisti l’input dell’utente nella sessione del MODE (e mostreremo badge del modello in render)
-          await appendSessionJSONL(activeMode, {
-            role: 'user',
-            content: `▶ ${cmd.toUpperCase()} ${msg_bubble} | mode=${state.mode} model=${state.model} profile=${profileHint || '—'} core=${JSON.stringify(core)}`,
-            model:  state.model || 'auto',
-            attachments: Array.isArray(msg.attachments) ? msg.attachments : []
-          });
-          // Echo pre-run
-          panel.webview.postMessage({
-            type: 'echo',
-            message: `▶ ${cmd.toUpperCase()} ${msg_bubble} | mode=${state.mode} model=${state.model} profile=${profileHint || '—'} core=${JSON.stringify(core)} attachments=${attachments.length}`
-          });
           //PATh for PLAN.md
           const wsroot = getWorkspaceRoot();
           let targetReqId
@@ -2026,12 +2113,26 @@ async function cmdOpenChat(context) {
             targetReqId = await runKitCommand(plan, targets)
             log("happerRun targetReqId", targetReqId)
             if (!targetReqId) {
-              vscode.window.showErrorMessage(`CLike: cmd -> /kit REQ ID not found or command aborted.`);
               panel.webview.postMessage({ type: 'busy', on: false });
               return
             }
             payload["kit"]= {targets: [targetReqId] }
           }
+          log(`[harperRun] payload (gen):`,  JSON.stringify(payload.gen));
+          msg_bubble = phase==='idea' ? project_id : targets; 
+          // Persisti l’input dell’utente nella sessione del MODE (e mostreremo badge del modello in render)
+          await appendSessionJSONL(activeMode, {
+            role: 'user',
+            content: `▶ ${cmd.toUpperCase()} ${msg_bubble} | mode=${state.mode} model=${state.model} profile=${profileHint || '—'} core=${JSON.stringify(core)}`,
+            model:  state.model || 'auto',
+            attachments: Array.isArray(msg.attachments) ? msg.attachments : []
+          });
+          // Echo pre-run
+          panel.webview.postMessage({
+            type: 'echo',
+            message: `▶ ${cmd.toUpperCase()} ${msg_bubble} | mode=${state.mode} model=${state.model} profile=${profileHint || '—'} core=${JSON.stringify(core)} attachments=${attachments.length}`
+          });
+          
           
 
           const _headers = {"Content-Type": "application/json", "X-CLike-Profile": "code.strict"}
@@ -2113,23 +2214,41 @@ async function cmdOpenChat(context) {
             panel.webview.postMessage({ type: 'files', data: _out.files });
             log(`[harperRun] written ${written.length} files`);
             const settings = cfg();
-            try {
-              await clikeGitSync(
-              phase,
-              runId,
-              targetReqId,
-              _out.files.map(f => f.path),
-              { workspaceRoot: toFsPath(wsroot), finalizeOpenPr: (phase === 'finalize') },
-              settings,
-              out
-            );
-            } catch (err) {
-              log(`[harperRun] gitSync error ${err}`);
+            if (settings.gitAutoCommit) {
+               try {
+                await clikeGitSync(
+                phase,
+                runId,
+                targetReqId,
+                _out.files.map(f => f.path),
+                { workspaceRoot: toFsPath(wsroot), finalizeOpenPr: (phase === 'finalize') },
+                settings,
+                out
+              );
+              } catch (err) {
+                log(`[harperRun] gitSync error ${err}`);
 
+              }
             }
+      
           }
           log(`[harperRun] written files done`);
-          
+          if (phase === 'plan') {
+            try {
+              const laneItems = await collectLaneGuidesRagItems(wsroot, {
+                maxFiles: 200,
+                maxBytes: 512 * 1024,
+              });
+              const count = (laneItems && laneItems.length) || 0;
+              log(`[harperRAG] lane-guides collection after /plan: ${count} items`);
+              if (count > 0) {
+                await preIndexRag(project_id, laneItems, urlRag, out);
+                log(`[harperRAG] indexed ${count} lane-guide items for project ${project_id}`);
+              }
+            } catch (e) {
+              log(`[harperRAG] lane-guides indexing failed: ${e?.message || e}`);
+            }
+          }
           if (phase==="kit") {
             await saveKitCommand(wsroot,plan,targetReqId,out)
             // --- KIT RAG indexing: runs/kit/REQ-XXX/src only ---
@@ -2140,7 +2259,6 @@ async function cmdOpenChat(context) {
               allItems.push(...items);
             }
             log(`[harperRAG] indexing ${allItems.length} KIT items for REQ(s): ${normalizedReq}`);
-
 
             if (allItems.length) {
               await preIndexRag(project_id, allItems, urlRag, out);
@@ -2176,19 +2294,21 @@ async function cmdOpenChat(context) {
         log(`[harperEDD] ws_root: ${ws_root}`)
         const runId = (Math.random().toString(16).slice(2) + Date.now().toString(16));
         log(`[harperEDD] runId ...`,  runId);
-
-
+        const mode = (msg.running) ? msg.running : 'auto'
+        const modeContent = (msg.modeContent) ? msg.modeContent : 'pass'
+        const isManual = msg.running === 'manual' && msg.modeContent === 'pass' ? true : false
         const plan = await readPlanJson(ws_root);
        
         if (phase === 'eval' || phase === 'gate' ) {
           targets = msg?.targets[0]?.toUpperCase() ?? "";
         }
-        if (!targets){
-          targetReqId = await runEvalGateCommand (plan, targets)
-          targets = targetReqId
-          msg.path =  "runs/kit/" + targets+"/ci/LTC.json"
-        }
-
+        targetReqId = await runEvalGateCommand (plan, targets)
+        if (!targetReqId) {
+            panel.webview.postMessage({ type: 'busy', on: false });
+            return;
+          }
+        targets = targetReqId
+        msg.path =  "runs/kit/" + targets+"/ci/LTC.json"
         log("harperEDD targetReqId", targetReqId)
         
         if (!targets && !targetReqId){
@@ -2198,14 +2318,14 @@ async function cmdOpenChat(context) {
         }
         await appendSessionJSONL(activeMode, {
           role: 'user',
-          content: `▶ ${phase.toUpperCase()} ${targets} | mode=${state.mode} model=${state.model}`,
+          content: `▶ ${phase.toUpperCase()} ${targets} ${mode} ${modeContent} | mode=${state.mode} model=${state.model}`,
           model:  state.model || 'auto',
           attachments: Array.isArray(msg.attachments) ? msg.attachments : []
         });
         // Echo pre-run
         panel.webview.postMessage({
           type: 'echo',
-          message: `▶ ${phase.toUpperCase()} ${targets} | mode=${state.mode} model=${state.model}`
+          message: `▶ ${phase.toUpperCase()} ${targets} ${mode} ${modeContent}| mode=${state.mode} model=${state.model}`
         });
         const path_ltc_json = msg.path
         log(`[harperEDD] path_ltc_json: ${path_ltc_json}`)
@@ -2215,7 +2335,7 @@ async function cmdOpenChat(context) {
         
         try {
           const stats = fsSync.statSync(ltcUri.fsPath);
-          if (!stats.isFile()) {
+          if (!stats.isFile() && !isManual) {
               vscode.window.showErrorMessage('LTC.json not found. Run /kit REQ-ID to generate source and tests and /eval REQ-ID -> /gate REQ-ID');
               panel.webview.postMessage({ type: 'busy', on: false });
               return;
@@ -2228,8 +2348,7 @@ async function cmdOpenChat(context) {
           return;
         }
         var report = {}
-        const mode = (msg.running) ? msg.running : 'auto'
-        const modeContent = (msg.modeContent) ? msg.modeContent : 'pass'
+        
         var files_git = []
         let callGit =true;
         switch (msg.cmd) {
@@ -2272,18 +2391,20 @@ async function cmdOpenChat(context) {
 
           const settings = cfg(); 
           var wsRoot = getWorkspaceRoot();
-          try {
-            await clikeGitSync(
-            phase,
-            runId,
-            targets,
-            files_git,
-            { workspaceRoot: toFsPath(wsRoot), finalizeOpenPr: (phase === 'finalize') },
-            settings,
-            out
-          );
-          } catch (err) {
-            log(`[harperEDD] gitSync error ${err}`);
+          if (settings.gitAutoCommit) {
+            try {
+                await clikeGitSync(
+                phase,
+                runId,
+                targets,
+                files_git,
+                { workspaceRoot: toFsPath(wsRoot), finalizeOpenPr: (phase === 'finalize') },
+                settings,
+                out
+              );
+            } catch (err) {
+              log(`[harperEDD] gitSync error ${err}`);
+            }
           }
         }
         // Persisti l’input dell’utente nella sessione del MODE (e mostreremo badge del modello in render)

@@ -1,0 +1,171 @@
+tech_constraints:
+  version: 1.1.0
+
+  metadata:
+    name: "AI Survey Agent - AWS Cloud"
+    description: "Voice/phone survey agent with LLM orchestration, call control and analytics."
+    owner: "cx-ai-team"
+    environment: [dev, qa, prod]
+    criticality: high
+    complexity: high
+    domain: "customer_experience"
+    compliance: ["GDPR", "ISO27001"]
+
+  classification:
+    solution_type: "agent"
+    location: "cloud"
+    cloud_provider: "aws"
+    tenant_model: "multi"
+    data_sensitivity: "confidential"
+
+  project_definition:
+    type: "ai_agent_platform"
+    framework: "FastAPI + LangGraph"
+    language: "python"
+    deployment_target: "EKS + AWS Lambda (async jobs)"
+
+  technology_stack:
+    core:
+      api_gateway: "Amazon API Gateway (REST + WebSocket)"
+      orchestration: "Python 3.12, FastAPI, LangGraph"
+      runtime: "AWS Lambda + EKS for long-running workers"
+    telephony:
+      provider: "Twilio or Amazon Connect"
+      protocols: ["SIP", "WebRTC"]
+    messaging:
+      broker: "Amazon SQS"
+      event_stream: "Amazon EventBridge"
+    database_and_backend:
+      orm: "SQLAlchemy"
+      database: "Amazon RDS PostgreSQL"
+      cache: "Amazon ElastiCache (Redis)"
+      vector_store: "Qdrant managed or OpenSearch Vector"
+    observability_stack:
+      logging: "CloudWatch Logs with JSON structured logging"
+      tracing: "AWS X-Ray and OpenTelemetry"
+      metrics: "CloudWatch Metrics and custom dashboards"
+
+  lanes:
+    - name: "agent-orchestrator"
+      lane: "python"
+      purpose: "LLM orchestration, tools and flows"
+      allowed_frameworks: ["FastAPI", "LangGraph"]
+      forbidden_technologies: ["Flask", "synchronous_blocking_http_clients"]
+      default_test_profile:
+        coverage_min: 85
+        required_checks: [tests, lint, types, security, build]
+    - name: "frontend-console"
+      lane: "js-ts"
+      purpose: "Ops console for supervisors"
+      allowed_frameworks: ["Next.js", "React"]
+      forbidden_technologies: ["jQuery", "Bootstrap"]
+      default_test_profile:
+        coverage_min: 80
+        required_checks: [tests, lint, types, build]
+
+  profiles:
+    - name: "agent-core"
+      runtime: "python@3.12"
+      platform: "aws-eks"
+      api: ["rest", "websocket"]
+      storage: ["postgres", "redis", "qdrant"]
+      messaging: ["sqs", "eventbridge"]
+      auth: ["cognito-jwt", "service-token"]
+      observability: ["cloudwatch", "xray", "opentelemetry"]
+
+  capabilities:
+    - type: "ai.generation"
+      mode: "chat"
+      params:
+        max_tokens: 8192
+        tools_enabled: true
+    - type: "ai.rag.index"
+      formats:
+        docx: true
+        pdf: true
+        txt: true
+      max_chunk_tokens: 800
+    - type: "ai.agentic"
+      patterns: ["langgraph", "conversational_tools", "guardrails"]
+    - type: "ci.quality"
+      coverage_min: 85
+      require_sast: true
+      require_sca: true
+
+  ci_cd:
+    system: "github_actions"
+    runners: "ubuntu-latest with Docker"
+    pipelines:
+      main_branch: ".github/workflows/ci-agent.yml"
+      deploy_pipeline: ".github/workflows/deploy-agent.yml"
+    external_quality_gates:
+      sonar:
+        enabled: true
+        project_key: "ai-survey-agent-backend"
+      security_scanner:
+        enabled: true
+        tool: "Trivy"
+    default_branch_protection:
+      require_pr: true
+      require_reviews: 1
+      require_status_checks: true
+
+  security:
+    internet_egress: "restricted"
+    allowed_endpoints:
+      - "https://api.openai.com"
+      - "https://api.anthropic.com"
+      - "https://accounts.twilio.com"
+    secrets_management: "AWS Secrets Manager"
+    dependency_policy:
+      allowlist: ["pydantic", "fastapi", "httpx", "langgraph", "boto3"]
+      denylist: ["requests<2.32.0"]
+    authentication:
+      user_auth: "Cognito (OIDC)"
+      service_auth: "JWT with short-lived STS"
+    authorization:
+      method: "RBAC"
+      policies_source: "IAM and app-level RBAC"
+    data_protection:
+      encryption_at_rest: true
+      encryption_in_transit: true
+      pii_handling: "Minimal capture and tokenization for phone numbers"
+
+  data_management:
+    primary_stores:
+      - name: "core-db"
+        engine: "postgres"
+        region: "eu-central-1"
+      - name: "conversation-store"
+        engine: "s3"
+        retention_days: 365
+    backup_policy:
+      rpo_minutes: 15
+      rto_minutes: 60
+    retention_policy:
+      survey_raw_audio_days: 90
+      survey_transcripts_days: 365
+      aggregated_metrics_days: 730
+    migration_strategy: "Alembic migrations with blue/green deploy"
+
+  eval_profiles:
+    default:
+      coverage_min: 85
+      max_critical_vulns: 0
+      lint_must_be_clean: true
+      allow_snapshot_tests: true
+    relaxed_non_prod:
+      coverage_min: 70
+      max_critical_vulns: 0
+      allow_flaky_tests: true
+
+  ai_policies:
+    allowed_providers: ["openai", "anthropic", "local"]
+    allowed_models:
+      - "gpt-4.1-mini"
+      - "gpt-4.1"
+      - "claude-3.5-sonnet"
+    data_boundary: "EU-only processing with logs stored in eu-central-1"
+    logging:
+      prompt_logging_enabled: false
+      redaction_required: true

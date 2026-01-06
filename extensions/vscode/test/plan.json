@@ -1,0 +1,469 @@
+{
+  "snapshot": {
+    "total": 24,
+    "open": 3,
+    "in_progress": 21,
+    "done": 0,
+    "deferred": 0,
+    "progressPct": 0
+  },
+  "reqs": [
+    {
+      "id": "REQ-001",
+      "title": "Database schema and migrations",
+      "acceptance": [
+        "All entities from SPEC data model have corresponding Alembic migrations",
+        "Migrations are idempotent and can be run multiple times without error",
+        "Foreign key columns have appropriate indexes for query performance",
+        "Enum types are created for all status and type fields",
+        "UUID primary keys use PostgreSQL native UUID type"
+      ],
+      "dependsOn": [],
+      "track": "Infra",
+      "status": "in_progress",
+      "lane": "python",
+      "test_profile": "app-core",
+      "gate_policy_ref": "docs/harper/lane-guides/python.md"
+    },
+    {
+      "id": "REQ-002",
+      "title": "OIDC authentication integration",
+      "acceptance": [
+        "OIDC authorization code flow implemented with configurable IdP endpoints",
+        "JWT tokens validated on every API request via middleware",
+        "User record created or updated on first login with OIDC subject mapping",
+        "Session tokens have configurable expiration with refresh capability",
+        "Invalid or expired tokens return 401 with appropriate error message"
+      ],
+      "dependsOn": [
+        "REQ-001"
+      ],
+      "track": "App",
+      "status": "in_progress",
+      "lane": "python",
+      "test_profile": "app-core",
+      "gate_policy_ref": "docs/harper/lane-guides/python.md"
+    },
+    {
+      "id": "REQ-003",
+      "title": "RBAC authorization middleware",
+      "acceptance": [
+        "Role extracted from JWT claims or user database record",
+        "Route decorators enforce minimum required role",
+        "Admin endpoints restricted to admin role only",
+        "Campaign modification restricted to campaign_manager and admin",
+        "Denied access attempts logged with user ID, endpoint, and timestamp"
+      ],
+      "dependsOn": [
+        "REQ-002"
+      ],
+      "track": "App",
+      "status": "in_progress",
+      "lane": "python",
+      "test_profile": "app-core",
+      "gate_policy_ref": "docs/harper/lane-guides/python.md"
+    },
+    {
+      "id": "REQ-004",
+      "title": "Campaign CRUD API",
+      "acceptance": [
+        "POST /api/campaigns creates campaign in draft status",
+        "GET /api/campaigns returns paginated list with status filter",
+        "GET /api/campaigns/{id} returns full campaign details",
+        "PUT /api/campaigns/{id} validates field changes against current status",
+        "Status transitions follow state machine: draft→scheduled→running→paused→completed"
+      ],
+      "dependsOn": [
+        "REQ-003"
+      ],
+      "track": "App",
+      "status": "in_progress",
+      "lane": "python",
+      "test_profile": "app-core",
+      "gate_policy_ref": "docs/harper/lane-guides/python.md"
+    },
+    {
+      "id": "REQ-005",
+      "title": "Campaign validation service",
+      "acceptance": [
+        "Activation blocked if campaign has zero contacts",
+        "Activation blocked if any of 3 questions is empty",
+        "Activation blocked if retry policy invalid (attempts < 1 or > 5)",
+        "Activation blocked if time window invalid (start >= end)",
+        "Successful validation transitions status to running or scheduled"
+      ],
+      "dependsOn": [
+        "REQ-004"
+      ],
+      "track": "App",
+      "status": "in_progress",
+      "lane": "python",
+      "test_profile": "app-core",
+      "gate_policy_ref": "docs/harper/lane-guides/python.md"
+    },
+    {
+      "id": "REQ-006",
+      "title": "Contact CSV upload and parsing",
+      "acceptance": [
+        "POST /api/campaigns/{id}/contacts/upload accepts multipart CSV",
+        "Phone numbers validated against E.164 format",
+        "Invalid rows collected with line number and error reason",
+        "Valid rows create Contact records in pending state",
+        "At least 95% of valid rows accepted when file has mixed validity"
+      ],
+      "dependsOn": [
+        "REQ-004"
+      ],
+      "track": "App",
+      "status": "in_progress",
+      "lane": "python",
+      "test_profile": "app-core",
+      "gate_policy_ref": "docs/harper/lane-guides/python.md"
+    },
+    {
+      "id": "REQ-007",
+      "title": "Exclusion list management",
+      "acceptance": [
+        "POST /api/exclusions/import accepts CSV of phone numbers",
+        "Contacts matching exclusion list marked as excluded state",
+        "Excluded contacts never returned by scheduler queries",
+        "Manual exclusion addition via API supported",
+        "Exclusion removal requires admin role"
+      ],
+      "dependsOn": [
+        "REQ-006"
+      ],
+      "track": "App",
+      "status": "in_progress",
+      "lane": "python",
+      "test_profile": "app-core",
+      "gate_policy_ref": "docs/harper/lane-guides/python.md"
+    },
+    {
+      "id": "REQ-008",
+      "title": "Call scheduler service",
+      "acceptance": [
+        "Scheduler runs as background task every 60 seconds",
+        "Selects contacts with state pending or not_reached",
+        "Filters by attempts_count < campaign.max_attempts",
+        "Filters by current time within allowed_call_start/end window",
+        "Creates CallAttempt record before initiating call"
+      ],
+      "dependsOn": [
+        "REQ-007"
+      ],
+      "track": "App",
+      "status": "in_progress",
+      "lane": "python",
+      "test_profile": "app-core",
+      "gate_policy_ref": "docs/harper/lane-guides/python.md"
+    },
+    {
+      "id": "REQ-009",
+      "title": "Telephony provider adapter interface",
+      "acceptance": [
+        "TelephonyProvider interface defines initiate_call method",
+        "Interface defines parse_webhook_event method",
+        "Concrete adapter implements Twilio-compatible API",
+        "Adapter configurable via ProviderConfig entity",
+        "Adapter is injectable for testing with mock provider"
+      ],
+      "dependsOn": [
+        "REQ-001"
+      ],
+      "track": "App",
+      "status": "in_progress",
+      "lane": "python",
+      "test_profile": "app-core",
+      "gate_policy_ref": "docs/harper/lane-guides/python.md"
+    },
+    {
+      "id": "REQ-010",
+      "title": "Telephony webhook handler",
+      "acceptance": [
+        "POST /webhooks/telephony/events receives provider callbacks",
+        "Events parsed into domain CallEvent objects",
+        "call.answered triggers dialogue start",
+        "call.no_answer updates attempt outcome and contact state",
+        "Duplicate events handled idempotently via call_id"
+      ],
+      "dependsOn": [
+        "REQ-009"
+      ],
+      "track": "App",
+      "status": "in_progress",
+      "lane": "python",
+      "test_profile": "app-core",
+      "gate_policy_ref": "docs/harper/lane-guides/python.md"
+    },
+    {
+      "id": "REQ-011",
+      "title": "LLM gateway integration",
+      "acceptance": [
+        "LLMGateway interface defines chat_completion method",
+        "Gateway supports configurable provider (OpenAI, Anthropic)",
+        "System prompt includes survey context and constraints",
+        "Timeout handling with configurable duration",
+        "Gateway errors logged with correlation ID"
+      ],
+      "dependsOn": [
+        "REQ-001"
+      ],
+      "track": "App",
+      "status": "in_progress",
+      "lane": "python",
+      "test_profile": "app-core",
+      "gate_policy_ref": "docs/harper/lane-guides/python.md"
+    },
+    {
+      "id": "REQ-012",
+      "title": "Dialogue orchestrator consent flow",
+      "acceptance": [
+        "Intro script played immediately on call.answered",
+        "Consent question asked after intro",
+        "Positive consent proceeds to first question",
+        "Negative consent triggers call termination within 10 seconds",
+        "survey.refused event published on refusal"
+      ],
+      "dependsOn": [
+        "REQ-010",
+        "REQ-011"
+      ],
+      "track": "App",
+      "status": "in_progress",
+      "lane": "python",
+      "test_profile": "app-core",
+      "gate_policy_ref": "docs/harper/lane-guides/python.md"
+    },
+    {
+      "id": "REQ-013",
+      "title": "Dialogue orchestrator Q&A flow",
+      "acceptance": [
+        "Questions asked sequentially after consent",
+        "Each question text from campaign configuration",
+        "Answer captured and stored in draft state",
+        "Repeat request detected and question re-asked once",
+        "All 3 answers captured before completion flow"
+      ],
+      "dependsOn": [
+        "REQ-012"
+      ],
+      "track": "App",
+      "status": "in_progress",
+      "lane": "python",
+      "test_profile": "app-core",
+      "gate_policy_ref": "docs/harper/lane-guides/python.md"
+    },
+    {
+      "id": "REQ-014",
+      "title": "Survey response persistence",
+      "acceptance": [
+        "SurveyResponse created with all 3 answers",
+        "Response linked to successful CallAttempt",
+        "Contact state updated to completed",
+        "Timestamps recorded for completion",
+        "Transaction ensures atomicity of all updates"
+      ],
+      "dependsOn": [
+        "REQ-013"
+      ],
+      "track": "App",
+      "status": "in_progress",
+      "lane": "python",
+      "test_profile": "app-core",
+      "gate_policy_ref": "docs/harper/lane-guides/python.md"
+    },
+    {
+      "id": "REQ-015",
+      "title": "Event publisher service",
+      "acceptance": [
+        "EventPublisher interface defines publish method",
+        "SQS adapter implements publish to configured queue",
+        "Event schema includes event_type, campaign_id, contact_id, call_id",
+        "Message deduplication via call_id",
+        "Failed publishes retried with exponential backoff"
+      ],
+      "dependsOn": [
+        "REQ-014"
+      ],
+      "track": "App",
+      "status": "in_progress",
+      "lane": "python",
+      "test_profile": "app-core",
+      "gate_policy_ref": "docs/harper/lane-guides/python.md"
+    },
+    {
+      "id": "REQ-016",
+      "title": "Email worker service",
+      "acceptance": [
+        "Email worker polls SQS queue continuously",
+        "survey.completed triggers completed email if template configured",
+        "Template variables substituted from event payload",
+        "EmailNotification record created with status",
+        "Failed sends retried up to 3 times with backoff"
+      ],
+      "dependsOn": [
+        "REQ-015"
+      ],
+      "track": "App",
+      "status": "in_progress",
+      "lane": "python",
+      "test_profile": "app-core",
+      "gate_policy_ref": "docs/harper/lane-guides/python.md"
+    },
+    {
+      "id": "REQ-017",
+      "title": "Campaign dashboard stats API",
+      "acceptance": [
+        "GET /api/campaigns/{id}/stats returns aggregate metrics",
+        "Metrics include total, completed, refused, not_reached counts",
+        "Time-series data for calls per hour/day",
+        "Stats cached with 60-second TTL",
+        "Response time under 500ms for campaigns with 10k contacts"
+      ],
+      "dependsOn": [
+        "REQ-014"
+      ],
+      "track": "App",
+      "status": "in_progress",
+      "lane": "python",
+      "test_profile": "app-core",
+      "gate_policy_ref": "docs/harper/lane-guides/python.md"
+    },
+    {
+      "id": "REQ-018",
+      "title": "Campaign CSV export",
+      "acceptance": [
+        "GET /api/campaigns/{id}/export initiates export job",
+        "Export includes campaign_id, contact_id, external_contact_id",
+        "Async job stores CSV in S3 with signed URL",
+        "Download URL returned with expiration",
+        "Export respects RBAC (campaign_manager or admin only)"
+      ],
+      "dependsOn": [
+        "REQ-017"
+      ],
+      "track": "App",
+      "status": "in_progress",
+      "lane": "python",
+      "test_profile": "app-core",
+      "gate_policy_ref": "docs/harper/lane-guides/python.md"
+    },
+    {
+      "id": "REQ-019",
+      "title": "Admin configuration API",
+      "acceptance": [
+        "GET /api/admin/config returns current configuration",
+        "PUT /api/admin/config updates provider settings",
+        "Telephony provider credentials stored in Secrets Manager",
+        "Config changes logged in audit trail",
+        "Admin role required for all config endpoints"
+      ],
+      "dependsOn": [
+        "REQ-003"
+      ],
+      "track": "App",
+      "status": "in_progress",
+      "lane": "python",
+      "test_profile": "app-core",
+      "gate_policy_ref": "docs/harper/lane-guides/python.md"
+    },
+    {
+      "id": "REQ-020",
+      "title": "Call detail view API",
+      "acceptance": [
+        "GET /api/calls/{call_id} returns call details",
+        "Response includes outcome, attempt_number, timestamps",
+        "Transcript snippet included if stored",
+        "Access restricted to campaign_manager and admin",
+        "404 returned for non-existent call_id"
+      ],
+      "dependsOn": [
+        "REQ-014"
+      ],
+      "track": "App",
+      "status": "in_progress",
+      "lane": "python",
+      "test_profile": "app-core",
+      "gate_policy_ref": "docs/harper/lane-guides/python.md"
+    },
+    {
+      "id": "REQ-021",
+      "title": "Observability instrumentation",
+      "acceptance": [
+        "All log entries in structured JSON format",
+        "Correlation ID propagated across HTTP, telephony, LLM calls",
+        "Prometheus metrics endpoint at /metrics",
+        "OpenTelemetry traces for API requests",
+        "Log level configurable via environment variable"
+      ],
+      "dependsOn": [
+        "REQ-001"
+      ],
+      "track": "Infra",
+      "status": "in_progress",
+      "lane": "python",
+      "test_profile": "app-core",
+      "gate_policy_ref": "docs/harper/lane-guides/python.md"
+    },
+    {
+      "id": "REQ-022",
+      "title": "Data retention jobs",
+      "acceptance": [
+        "Retention job runs daily as scheduled task",
+        "Recordings older than retention_days deleted from storage",
+        "Deletion logged with count and timestamp",
+        "Job handles partial failures gracefully",
+        "GDPR deletion requests processed within 72 hours"
+      ],
+      "dependsOn": [
+        "REQ-019"
+      ],
+      "track": "Infra",
+      "status": "open",
+      "lane": "python",
+      "test_profile": "app-core",
+      "gate_policy_ref": "docs/harper/lane-guides/python.md"
+    },
+    {
+      "id": "REQ-023",
+      "title": "Frontend campaign management UI",
+      "acceptance": [
+        "Campaign list page shows all campaigns with status badges",
+        "CSV upload component with drag-drop and progress indicator",
+        "Activate button enabled only when validation passes",
+        "Form validation matches backend rules",
+        "Responsive design for desktop and tablet"
+      ],
+      "dependsOn": [
+        "REQ-004",
+        "REQ-006"
+      ],
+      "track": "App",
+      "status": "open",
+      "lane": "node",
+      "test_profile": "frontend",
+      "gate_policy_ref": "docs/harper/lane-guides/node.md"
+    },
+    {
+      "id": "REQ-024",
+      "title": "Frontend dashboard and export UI",
+      "acceptance": [
+        "Dashboard shows completion/refusal/not_reached percentages",
+        "Time-series chart for call activity",
+        "Export button triggers async job",
+        "Stats refresh automatically every 60 seconds",
+        "Error states with retry options"
+      ],
+      "dependsOn": [
+        "REQ-017",
+        "REQ-018"
+      ],
+      "track": "App",
+      "status": "open",
+      "lane": "node",
+      "test_profile": "frontend",
+      "gate_policy_ref": "docs/harper/lane-guides/node.md"
+    }
+  ]
+}

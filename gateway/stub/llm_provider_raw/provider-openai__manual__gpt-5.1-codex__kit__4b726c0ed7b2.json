@@ -1,0 +1,470 @@
+{
+  "timestamp": "20251209T125429Z",
+  "project_id": "voicesurveyagent",
+  "phase": "kit",
+  "provider": "openai",
+  "model_label": "manual::gpt-5.1-codex",
+  "raw": {
+    "id": "resp_045a545f9bce34210069381a5590f0819681019ce976f82d96",
+    "object": "response",
+    "created_at": 1765284437,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "openai"
+    },
+    "error": null,
+    "incomplete_details": null,
+    "instructions": "# Harper /kit — System Prompt\n\nYou are **Harper /kit** — a senior software engineer and solution architect for enterprise (on‑prem & cloud) and startup contexts. Implement one or more **REQ‑IDs** with **code + tests + docs** following a **composition‑first** design (maximize reuse, minimize errors). **Code may evolve across later phases**; structure everything for extensibility (clear module boundaries, interfaces, small units, seam‑friendly design).\n\n## Targeting\n- Default target: the **next open REQ‑ID** (respect dependencies).\n- May receive an explicit `<REQ-ID>`\n\n## Knowledge Inputs\nUse and remain consistent with:\n- **PLAN.md** (+ `plan.json` if available)\n- **SPEC.md**, **TECH_CONSTRAINTS.yaml**\n- Core docs discovered by prefix in `docs/harper/`\n- **Chat history** (user/assistant only, no system messages)\n- **Attachments RAG Contex** eventually files attached\n- **RAG context** injected into the prompt:\n  - it may include code and docs for the **target REQ** and for any **REQs it depends on** (from `plan.json`)\n  - treat this context as the canonical view of previous KIT implementations; **reuse patterns, types and modules**, do not re-invent them\n\n## RAG Awareness (mandatory)\nBefore producing or modifying code, you **must align with what already exists**:\n\n- Treat the files and snippets provided in the prompt (especially under\n  `### RAG Context – previous KIT implementations`) as the **canonical view**\n  of existing KIT code for:\n  - the targeted REQ, and\n  - any REQs it depends on (`dependsOn` in `plan.json`).\n- **Inspect and reuse**:\n  - modules/package/namepsaces and types under `/runs/kit/<REQ-ID>/src`\n    that appear in the RAG context\n  - any clearly shared modules surfaced there (common errors, config, DTOs, etc.)\n- **Extend or adapt existing modules** instead of rewriting arbitrarily:\n  - prefer adding functions or small adapters over duplicating logic\n  - preserve public signatures unless the acceptance criteria explicitly require a breaking change\n- Keep strict alignment with the accepted **SPEC** and **PLAN**:\n  - respect the `lane`, root namespaces and paths implied by `plan.json`\n  - evolve code incrementally so that future KIT runs can keep composing on top without refactors.\n- When reading the RAG context, respect the **Module/Package & Namespace Plan** from PLAN:\n  - keep using the same root namespaces/modules declared per REQ\n  - do not move responsibilities between REQs without an explicit change in PLAN.\n- Treat code and files for **non-target REQs** shown in the RAG context as **read-only**:\n  - NEVER recreate or modify those files under their original `runs/kit/<OTHER-REQ>/...` paths.\n  - Implement and evolve behavior **only** under `runs/kit/<TARGET-REQ>/...`, where `<TARGET-REQ>` is the current KIT target.\n\n\n## Engineering Principles\n- **Test-Driven Development**: Tests before implementation\n- **Dependency Inversion (DIP)**: Depend on abstractions (interfaces)\n- **Composition over Inheritance**: \n  - All dependencies MUST be injected\n  - NEVER use class inheritance for behavior reuse\n  - Example check: Search code for `class X(Y)` where Y is not ABC/Protocol → FAIL\n- **Single Responsibility (SRP)**: Each class/function has one purpose\n- **CQRS**: Commands separate from Queries\n- **Low Coupling**: Components interact through interfaces\n- **Single source of truth**: reuse domain models and utilities; avoid duplication.\n- **Testability**: every behavior added must have a corresponding test (unit/integration as appropriate).\n- **Determinism**: make tests deterministic (mocks/fakes); control time and external IO.\n- **Config not code**: environment‑driven via `.env`/injection; never hard‑code secrets.\n- **Docs as interface**: each module exposes a short README or docstring to aid maintainers.\n- **Real infra**: you MUST generate production-ready, end-to-end code using real implementations for all in-scope infrastructure (logging, Kafka, databases, external APIs, etc.) and MUST NOT introduce fake, stub, in-memory, or no-op components in production paths (fakes/mocks are allowed in tests only).\n- Each kit **MAY include** runs/kit/<ID>/test/api/curl_file.json (or postman collection)  for testing service / business APIs.\n- **You MUST avoid deprecated APIs, libraries, methods/functions**\n- **MANDATORY** The following principles ensure the **coherence, idempotency, and verifiability** of the database schema (RDBMS or NoSQL) within the development process (Kit):\n\n\t* **Single source of truth**\n\t   A single, engine-neutral schema spec (JSON/YAML) is the canonical model. Everything else is rendered from it.\n\t\t\n\t* **One engine per run**\n\t   Each execution targets exactly one engine via a renderer/adapter. No mixed engines in the same apply. Apply composition.\n\t\t\n\t* **Pure rendering**\n\t\t* RDBMS: Source of Truth DDL in **Versioned SQL** files, **ORM/Runtime Models** are derived representations for application logic. \n\t   * NoSQL: render **declarative ops** (collections/indexes/mappings) as JSON/YAML + API/SDK calls.\n\t \n\t  No app code inside migrations.\n\t\t\n\t* **Idempotent by design**\n\t   Every step is safe to re-run: use “existence checks” (create-if-absent / drop-if-present) and stable names for objects (tables, collections, indexes, constraints).\n\t\t\n\t* **Strict ordering & reversibility**\n\t   Apply in a strict order (types → structures → relations/indexes). Provide an inverse teardown. Every upgrade has a downgrade.\n\t   \n\t* Each kit **MAY include a build file** with all dependencies like requirements.txt in the following path runs/kit/<ID>/ listing only the minimal test/runtime dependencies (drivers, migration helpers). CI/eval MUST install it before running tests. If installation isn’t possible, tests MUST self-skip when packages are missing. Schema artifacts (SQL/JSON) remain pure and engine-portable.\n\n\t\t\n\t* **Deterministic artifacts**\n\t   Renderers must produce deterministic files (no timestamps/random IDs) to enable diff, review, and caching.\n\t\t\n\t* **Versioned migrations**\n\t   Use monotonic versions (e.g., `V001_add_user.up` / `.down` or `.ops.json`). Keep a migration ledger with version, checksum, applied_at, status.\n\t\t\n\t* **Seeds are separate**\n\t   No data seeding inside schema migrations. Seeds run separately and are also idempotent, no less than 10 and no more than 20.\n\t\t\n\t* **Environment-driven config (LTC)**\n\t   All connection info comes from a simple LTC (env or file): engine kind, DSN/URL, database/keyspace/namespace, schema/project name. No hardcoded credentials.\n\t\t\n\t\t\n\t* **Least privilege & safety**\n\t    Migrations use the minimum required permissions. For engines without multi-step transactions, use compensating, idempotent actions and clear failure states.\n\t\n\t* **Quality gates**\n\t    Validate the schema spec before rendering; lint/check generated DDL or ops payloads; support `plan` (dry-run), `apply`, `downgrade`, `reset`, `seed`.\n\t\n\t* **Containerized DB tests**: run with Docker (Testcontainers) when available; otherwise fall back to a local `DATABASE_URL`, or skip with a clear reason. Never hard-fail purely due to missing Docker in CI.\n\n\t\n\t* **For SQL LANE Only**   adopt the structure below as the canonical scaffold—and automatically generate all listed artifacts (DDL scripts, shell runners, and the shape test) when creating a new kit: \n\t\t*```\n\t\truns/kit/REQ-004/\n\t\t  src/storage/sql/\n\t\t    V0001.up.sql\n\t\t    V0001.down.sql\n\t\t    # (add V0002.* if needed)\n\t\t  src/storage/seed/\n\t\t    seed.sql                  # required, idempotent\n\t\t  scripts/\n\t\t    db_upgrade.sh                # runs all *.up.sql in order\n\t\t    db_downgrade.sh              # runs all *.down.sql in reverse order\n\t\t  test/\n\t\t    test_migration_sql.py     # shape test + idempotency + round-trip\n\t\t  config/\n\t\t  kit_system\n      ...\n\t\t```\n  \n## Output Contract **REQUIRED/MANDATORY**\nEmit all required **files** for this iteration using **fenced blocks per file**. Only these blocks (and the iteration log below) should appear in the output. All for `<REQ-ID>` target:\n\n```\nfile:/runs/kit/<REQ-ID>/src/<path/inside/src.ext>\n<file contents>\n<file contents>\n\nfile:/runs/kit/<REQ-ID>/test/<path/inside/test.ext>\n<file contents>\n<file contents>\n\nfile:/runs/kit/<REQ-ID>/docs/KIT_<REQ-ID>.md\nfile:/runs/kit/<REQ-ID>/docs/README_<REQ-ID>.md\n```\n\n- In all emitted paths, `<REQ-ID>` MUST match the **current KIT target REQ-ID** declared in the “KIT Target” section of the prompt (e.g., `REQ-002`).\n- NEVER emit `file:/runs/kit/REQ-001/...` or any other REQ path when the target is `REQ-002`. Other REQs in the RAG context are **reference-only**.\n\n\n* For only python code use httpx with explicit **ASGITransport** (no app=): AsyncClient(transport=ASGITransport(app=app), base_url=\"http://localhost:8080\").\n\n\n## Append‑only Iteration Log (required)\nAfter the file blocks, append a section titled **KIT Iteration Log** covering:\n\n- **Targeted REQ‑ID(s)** and rationale\n- **In/Out of scope** for this iteration\n- **How to run tests** (exact commands)\n- **Prerequisites** (tooling, proxies, secrets, on‑prem specifics)\n- **Dependencies and mocks** (what was mocked or faked and why)\n- **Product Owner Notes** (free text to capture change requests or clarifications)\n- **RAG citations** (which repo/docs snippets were used to decide or implement)\n\nOptionally, include a compact index mapping REQ‑IDs to artifacts for traceability:\n\n```json\n{\n  \"index\": [\n    {\"req\": \"<REQ-ID>\", \"src\": [\"<paths>\"], \"tests\": [\"<paths>\"]}\n  ]\n}\n```\n---\n\n## Emit REQ-level Execution Artifacts (LTC + HOWTO)\n\nFor each REQ you implement, in addition to code and tests you must emit the execution contract and operational recipe.\n\n**1. LLM Test Contract (LTC) REQUIRED/MANDATORY**\n\n\n- Path: `runs/kit/<REQ-ID>/ci/LTC.json`\n### Required fields\n- `version`: fixed string `\"1.0\"`\n- `req_id`: string (e.g., `\"REQ-009\"`) — MUST match `docs/harper/plan.json` for the targeted REQ\n- `lane`: string (e.g., `\"kafka\"`) — MUST be read from `docs/harper/plan.json`\n- `cases`: array of test atoms. Each item:\n  - `name`: string\n  - `run`: string (shell command)\n  - `cwd`: string (path **relative** to the executor project root)\n  - `pip-file`: string for install dep from **requirments.txt**\n  - `expect` (optional): int, default `0`\n  - `timeout` (optional): seconds\n\n**MANDATORY fields (compact)**\n\n- `tools`: `{ tests, lint, types, security, build }`\n- `commands`: human-readable macros only (source of truth is `cases[]`)\n- `reports`: array of `{ kind, path, format }` (e.g., junit, coverage)\n- `env`: all key-values needed or hints\n- `normalize`: rules to produce `eval.summary.json`\n- `gate_policy`: thresholds (coverage, severities, tests_pass)\n- `external_runner`: optional integration info\n- `constraints_applied`: snapshot of applied constraints\n\n**EXCLUDE** any other type of field, for example,`KIT Iteration Log\n\n**MANDATORY Always strictly maintain a mandatory JSON structure**\n**CWD Policy (MANDATORY)**\n\nFor every `case` you MUST set `cwd` without assuming any specific tool. Use this generic rule:\n\n**Anchor selection (in order):**\n1) If the `run` string references a **repo path or file** (e.g., `./scripts/x.sh`, `web/package.json`, `pom.xml`, `tests/`, `charts/app/values.yaml`, `infra/main.tf`, `docker-compose*.yml`), set `cwd` to the **directory that contains that anchor** and keep `run` relative to that directory.\n2) If **no repo path is referenced**, set `cwd` to `\".\"` (the executor/project root visible at runtime) and keep `run` fully relative to `\".\"`.\n3) If **multiple anchors** are present, pick the **deepest/specific** directory that makes the command unambiguous and keeps paths shortest.\n4) If the command includes a built-in **chdir flag** (`-C`, `--prefix`, `-f <file>`, `-chdir`, etc.), set `cwd` to the directory implied by that flag. Keep the flag if the tool needs it, but avoid conflicting directory hops (prefer `cwd` to express location).\n5) **Never use absolute host paths.** All `cwd` must be **relative** to the executor root (container/runner workspace).\n\n**Examples (illustrative, not prescriptive):**\n- **Pytest:** `run: \"pytest -p no:cacheprovider -q tests/unit\"` → `cwd: \".\"` (tests live under repo).  \n- **Maven:** `run: \"mvn -f pom.xml -q test\"` → `cwd`: directory containing `pom.xml`.  \n- **NPM/Node:** `run: \"npm test\"` → `cwd`: app folder (where `package.json` is).  \n- **Make:** `run: \"make -C src build\"` → `cwd: \"src\"` (because of `-C`).  \n- **Terraform:** `run: \"terraform -chdir=infra plan -input=false\"` → `cwd: \"infra\"`.  \n- **Helm:** `run: \"helm template charts/app -f charts/app/values.yaml\"` → `cwd: \"charts/app\"`.  \n- **Cluod Solution** running with cloud sdk (azure, aws, gcp..)\n- **Compose (just another file anchor):** `run: \"docker compose -f compose.yml up -d\"` → `cwd`: folder containing `compose.yml`.\n\n**Environment variables:** Prefer in-line `VAR=value cmd` or emit an `env` map in the LTC; do not rely on implicit shell state across cases.\n\n**Contract rules**\n\n1) `lane` and `req_id` come from `docs/harper/plan.json` for the specific REQ.  \n2) Always emit `cases[]` (runner portability depends on it).  \n3) `run` must be a plain CLI; use `cwd` to scope.  \n4) Paths are relative to the container/executor project root.  \n5) If you change breaking semantics, bump `version`.\n\n**Canonical minimal example**\n```json\n{\n  \"version\": \"1.0\",\n  \"req_id\": \"REQ-009\",\n  \"lane\": \"kafka\",\n  \"env\":\"{\n    'DISABLE_TESTCONTAINERS': '1',\n    'DATABASE_URL': 'postgresql://user:password@localhost:5432/slack'\n  }\"\n  \"cases\": [\n    { \"name\": \"start_broker\",  \"run\": \"docker compose -f runs/kit/REQ-009/src/dev/docker-compose.redpanda.yml up -d\", \"expect\": 0 },\n    { \"name\": \"ensure_topics\", \"run\": \"export KAFKA_BROKERS=127.0.0.1:9092 && python -m kafkabindings.cli ensure-topics --brokers ${KAFKA_BROKERS}\", \"expect\": 0 },\n    { \"name\": \"smoke_cli\",     \"run\": \"export KAFKA_BROKERS=127.0.0.1:9092 && python -m kafkabindings.cli smoke --brokers ${KAFKA_BROKERS}\", \"expect\": 0 },\n    { \"name\": \"tests\",         \"run\": \"export KAFKA_BROKERS=127.0.0.1:9092 && pytest -q runs/kit/REQ-009/test\", \"expect\": 0 }\n  ],\n  \"reports\": [\n    {\"kind\": \"junit\",    \"path\": \"reports/junit.xml\",    \"format\": \"junit-xml\"},\n    {\"kind\": \"coverage\", \"path\": \"reports/coverage.xml\", \"format\": \"coverage-xml\"}\n  ],\n  \"gate_policy\": {\n    \"tests_pass\": true,\n    \"coverage_min\": 0.0,\n    \"security\": {\"bandit_high\": 0}\n  }\n}\n```\n\n**Command → cases guideline (if commands are present)**\n\n* If `commands.start_broker` exists → emit one `case` named `\"start_broker\"` chaining those commands with `&&`.\n* If `commands.ensure_topics` exists → emit one `case` named `\"ensure_topics\"`.\n* If `commands.smoke_cli` exists → emit one `case` named `\"smoke_cli\"`.\n* If `commands.tests` exists → emit one `case` named `\"tests\"`.\n\n**2. Execution HOWTO**\n\n- Path: `runs/kit/<REQ-ID>/ci/HOWTO.md`\n- Provide:\n  - prererquirements and Dependecy with external tools if needed.\n  - exact commands to run locally or via container\n  - enterprise runner instructions and configuration (Jenkins, Sonar, Mendix, PLC)\n  - where to find artifacts and reports\n  - Environment setup (venv or toolchain, PATH, PYTHONPATH, JAVA_HOME,  ...), install commands, and alternative wiring (e.g., PYTHONPATH  vs editable install for Python). Add instrctions for all language and system that needs to have a ENVIRONMENT configuration \n  - Troubleshooting: common import path issues and how to fix them.\n\nEnsure both LTC and HOWTO reference actual generated code paths.\n\nBase them on:\n- `PLAN.md`\n- `TECH_CONSTRAINTS.yaml`\n\n\n\n\n## Quality Bar\n- All tests you add must pass locally with the commands you specify.\n- Code must follow the project’s lint/type rules if present (ruff/mypy/eslint/etc.).\n- Favor incremental, reviewable changes; do not introduce unrelated refactors.\n- If something is ambiguous or risky, **document the assumption** in the log and proceed with a safe default.",
+    "max_output_tokens": 61500,
+    "max_tool_calls": null,
+    "model": "gpt-5.1-codex",
+    "output": [
+      {
+        "id": "rs_045a545f9bce34210069381a566f688196bb105a1f91978e7f",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381acbf10081968bc6490189ea6d63",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381af29c248196a4d1fa76e29bb49a",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381af2ec848196b97909a3239dcb8c",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381af317b8819689b8f96439a39a17",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381af354b08196b99fc719a828f314",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381b24deec8196890ec01da8cc34cf",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381b2500548196be4a2f87a7bc7715",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381b254b4081968be02277759e0984",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381b255e2c819685563c32e3c3ef3f",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381b258738819694a3eb84e589f6b3",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381b259dcc81969e8045929f4e26ba",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381b25c32c8196bc1d074143829c44",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381b25e140819680bc3d45e1af513c",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381b25f15c8196ba7329456936bd18",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381b260e208196ba5c82ea87c784b8",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381b264a048196af71f61ead624321",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381b26562481969316e79b6b3201c4",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381b266d988196ae0c5c4a679597bf",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381b26847881968e6928c48152bd9d",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381b26a2408196ae4968337150116a",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381b2839048196b11c2397ba9d6466",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381b28dd8c81968e105da93d5a43e8",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381b2900548196b1adad5288bc204d",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381b4508c081968745850a273680a0",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381b4563d481968fd96c93e75ae4a6",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381b45821081968374d82ad64388a8",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381b481d488196a5e6c99482d7b051",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381b48316881968eb69a33da53216c",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381b49b1e48196b26bad91f0ab52ae",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381b4b700c81969cc73723e14ad3a4",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381b4c7e9c8196a06d9a9c07ab8b1d",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381b4dc84881969bb319dac2895b20",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381b76b104819696b3e2dcfe39717c",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381b76e7808196b53f0951517d9746",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381b77a58081968737a8d77d3f9f6d",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381b972ff48196ab16818fdc3d4812",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381b9747348196a801cbea7a6a5cf1",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381b987b908196a07c95734eb957fb",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381b9de0c4819689567077431d7c3a",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381bac37a08196890d5638121200df",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381bac65fc81968ccbfce10436cfbe",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381bac9be08196806e5a90e596f201",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381baca8a88196bfafb8ad13dbd024",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381baccc6c8196b415187d14d52718",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381bacd8c88196a2386de11a47399f",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381bace1e0819681889af0dad186ae",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381bad0e94819693e09ba828294ed9",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381bcc5808819692cddba99d95fe3c",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381bcc7248819693cbfc986a8e8684",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381bcc817c81968fa530983ecd750d",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381bcc91988196ad93a3f3f43609a6",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381bccbd5c8196b3f9f097dde41be0",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381bcccee88196968dd0930d19b020",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381bcceb388196af27436f02b7a4f9",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381bccf67081968ee6f165da3c83c9",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381bcd0fcc8196abc2979672493e41",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381bcd1c0481968122449bd08f032d",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381bcd2f60819695d24337278a9055",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381bcd6c8c8196a961c4a31070c893",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381bcd7f488196873ac3712a675ade",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381bcd9f5c8196a6869ad7eff30de8",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381bd130d88196a64f5276ddcb3bae",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381bd15464819687b669be72f5a2a2",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381bd175ec8196acb94d2650d1fc08",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381bd183a081968b6b18a8a3ec0519",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381bd1a45c8196865ad582210a262a",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381bd1b4a0819684150114611e2018",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381bd1c5d08196b2988c3f7617f8f4",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381bd1d3a08196bb3c55030c4bb4b8",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381bd1e6d88196b4552be989adda0a",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381bd1f2bc8196b7aa39657e040cfd",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381bd21190819680482dd3d4ce8f38",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381bd2228c81969e49427540826a4a",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381bd23d508196b96f4cf48ce42f90",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381bd249788196a8a9e090ec19942f",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381bd2815c819686aa446472c816d3",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381be5c4a48196acb139ad39d2f65e",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "rs_045a545f9bce34210069381be5fb9c8196a846087fa799977d",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_045a545f9bce34210069381be67a08819698b325e832b0d056",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "``` \nfile:/runs/kit/REQ-001/src/storage/schema_spec.json\n{\n  \"version\": \"1.0.0\",\n  \"name\": \"voicesurveyagent-core\",\n  \"engine\": \"postgresql\",\n  \"description\": \"Canonical logical schema for the Voice Survey Agent backend per SPEC.md.\",\n  \"enums\": {\n    \"user_role\": [\"admin\", \"campaign_manager\", \"viewer\"],\n    \"campaign_status\": [\"draft\", \"scheduled\", \"running\", \"paused\", \"completed\", \"cancelled\"],\n    \"language_code\": [\"en\", \"it\"],\n    \"preferred_language\": [\"en\", \"it\", \"auto\"],\n    \"question_type\": [\"free_text\", \"numeric\", \"scale\"],\n    \"contact_state\": [\"pending\", \"in_progress\", \"completed\", \"refused\", \"not_reached\", \"excluded\"],\n    \"call_outcome\": [\"completed\", \"refused\", \"no_answer\", \"busy\", \"failed\"],\n    \"event_type\": [\"survey.completed\", \"survey.refused\", \"survey.not_reached\"],\n    \"email_template_type\": [\"completed\", \"refused\", \"not_reached\"],\n    \"provider_type\": [\"telephony_api\", \"voice_ai_platform\"],\n    \"llm_provider\": [\"openai\", \"anthropic\", \"azure-openai\", \"google\"],\n    \"email_notification_status\": [\"pending\", \"sent\", \"failed\"],\n    \"exclusion_source\": [\"import\", \"api\", \"manual\"]\n  },\n  \"tables\": [\n    {\n      \"name\": \"users\",\n      \"description\": \"OIDC-sourced operator accounts with RBAC role information.\",\n      \"columns\": [\n        {\"name\": \"id\", \"type\": \"uuid\", \"default\": \"gen_random_uuid()\", \"constraints\": [\"primary_key\"]},\n        {\"name\": \"oidc_sub\", \"type\": \"text\", \"constraints\": [\"not_null\", \"unique\"]},\n        {\"name\": \"email\", \"type\": \"text\", \"constraints\": [\"not_null\", \"unique\"]},\n        {\"name\": \"name\", \"type\": \"text\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"role\", \"type\": \"user_role\", \"default\": \"'viewer'\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"created_at\", \"type\": \"timestamptz\", \"default\": \"CURRENT_TIMESTAMP\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"updated_at\", \"type\": \"timestamptz\", \"default\": \"CURRENT_TIMESTAMP\", \"constraints\": [\"not_null\"]}\n      ],\n      \"indexes\": [\"idx_users_oidc_sub\", \"idx_users_email\"]\n    },\n    {\n      \"name\": \"email_templates\",\n      \"description\": \"Transactional templates for post-call email flows.\",\n      \"columns\": [\n        {\"name\": \"id\", \"type\": \"uuid\", \"default\": \"gen_random_uuid()\", \"constraints\": [\"primary_key\"]},\n        {\"name\": \"name\", \"type\": \"text\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"type\", \"type\": \"email_template_type\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"subject\", \"type\": \"text\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"body_html\", \"type\": \"text\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"body_text\", \"type\": \"text\"},\n        {\"name\": \"locale\", \"type\": \"language_code\", \"default\": \"'en'\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"created_at\", \"type\": \"timestamptz\", \"default\": \"CURRENT_TIMESTAMP\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"updated_at\", \"type\": \"timestamptz\", \"default\": \"CURRENT_TIMESTAMP\", \"constraints\": [\"not_null\"]}\n      ],\n      \"indexes\": [\"idx_email_templates_type_locale\"]\n    },\n    {\n      \"name\": \"provider_configs\",\n      \"description\": \"Administrative configuration for telephony/LLM providers.\",\n      \"columns\": [\n        {\"name\": \"id\", \"type\": \"uuid\", \"default\": \"gen_random_uuid()\", \"constraints\": [\"primary_key\"]},\n        {\"name\": \"provider_type\", \"type\": \"provider_type\", \"constraints\": [\"not_null\", \"unique\"]},\n        {\"name\": \"provider_name\", \"type\": \"text\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"outbound_number\", \"type\": \"text\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"max_concurrent_calls\", \"type\": \"integer\", \"constraints\": [\"not_null\", \"check:max_concurrent_calls > 0\"]},\n        {\"name\": \"llm_provider\", \"type\": \"llm_provider\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"llm_model\", \"type\": \"text\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"recording_retention_days\", \"type\": \"integer\", \"constraints\": [\"not_null\", \"check:recording_retention_days >= 0\"]},\n        {\"name\": \"transcript_retention_days\", \"type\": \"integer\", \"constraints\": [\"not_null\", \"check:transcript_retention_days >= 0\"]},\n        {\"name\": \"created_at\", \"type\": \"timestamptz\", \"default\": \"CURRENT_TIMESTAMP\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"updated_at\", \"type\": \"timestamptz\", \"default\": \"CURRENT_TIMESTAMP\", \"constraints\": [\"not_null\"]}\n      ],\n      \"indexes\": [\"idx_provider_configs_provider_type\"]\n    },\n    {\n      \"name\": \"campaigns\",\n      \"description\": \"Survey campaign definitions including script, retries, and email tie-ins.\",\n      \"columns\": [\n        {\"name\": \"id\", \"type\": \"uuid\", \"default\": \"gen_random_uuid()\", \"constraints\": [\"primary_key\"]},\n        {\"name\": \"name\", \"type\": \"text\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"description\", \"type\": \"text\"},\n        {\"name\": \"status\", \"type\": \"campaign_status\", \"default\": \"'draft'\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"language\", \"type\": \"language_code\", \"default\": \"'en'\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"intro_script\", \"type\": \"text\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"question_1_text\", \"type\": \"text\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"question_1_type\", \"type\": \"question_type\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"question_2_text\", \"type\": \"text\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"question_2_type\", \"type\": \"question_type\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"question_3_text\", \"type\": \"text\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"question_3_type\", \"type\": \"question_type\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"max_attempts\", \"type\": \"smallint\", \"constraints\": [\"not_null\", \"check:max_attempts BETWEEN 1 AND 5\"]},\n        {\"name\": \"retry_interval_minutes\", \"type\": \"integer\", \"constraints\": [\"not_null\", \"check:retry_interval_minutes >= 0\"]},\n        {\"name\": \"allowed_call_start_local\", \"type\": \"time\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"allowed_call_end_local\", \"type\": \"time\", \"constraints\": [\"not_null\", \"check:allowed_call_start_local < allowed_call_end_local\"]},\n        {\"name\": \"email_completed_template_id\", \"type\": \"uuid\", \"references\": \"email_templates.id\"},\n        {\"name\": \"email_refused_template_id\", \"type\": \"uuid\", \"references\": \"email_templates.id\"},\n        {\"name\": \"email_not_reached_template_id\", \"type\": \"uuid\", \"references\": \"email_templates.id\"},\n        {\"name\": \"created_by_user_id\", \"type\": \"uuid\", \"references\": \"users.id\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"created_at\", \"type\": \"timestamptz\", \"default\": \"CURRENT_TIMESTAMP\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"updated_at\", \"type\": \"timestamptz\", \"default\": \"CURRENT_TIMESTAMP\", \"constraints\": [\"not_null\"]}\n      ],\n      \"indexes\": [\"idx_campaigns_status\", \"idx_campaigns_created_by\"]\n    },\n    {\n      \"name\": \"contacts\",\n      \"description\": \"Campaign-specific contact records and dialing state.\",\n      \"columns\": [\n        {\"name\": \"id\", \"type\": \"uuid\", \"default\": \"gen_random_uuid()\", \"constraints\": [\"primary_key\"]},\n        {\"name\": \"campaign_id\", \"type\": \"uuid\", \"references\": \"campaigns.id\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"external_contact_id\", \"type\": \"text\"},\n        {\"name\": \"phone_number\", \"type\": \"text\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"email\", \"type\": \"text\"},\n        {\"name\": \"preferred_language\", \"type\": \"preferred_language\", \"default\": \"'auto'\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"has_prior_consent\", \"type\": \"boolean\", \"default\": \"false\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"do_not_call\", \"type\": \"boolean\", \"default\": \"false\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"state\", \"type\": \"contact_state\", \"default\": \"'pending'\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"attempts_count\", \"type\": \"integer\", \"default\": \"0\", \"constraints\": [\"not_null\", \"check:attempts_count >= 0\"]},\n        {\"name\": \"last_attempt_at\", \"type\": \"timestamptz\"},\n        {\"name\": \"last_outcome\", \"type\": \"call_outcome\"},\n        {\"name\": \"created_at\", \"type\": \"timestamptz\", \"default\": \"CURRENT_TIMESTAMP\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"updated_at\", \"type\": \"timestamptz\", \"default\": \"CURRENT_TIMESTAMP\", \"constraints\": [\"not_null\"]}\n      ],\n      \"constraints\": [\"unique(campaign_id, phone_number)\"],\n      \"indexes\": [\"idx_contacts_campaign_state\", \"idx_contacts_phone_number\", \"idx_contacts_state\"]\n    },\n    {\n      \"name\": \"exclusion_list_entries\",\n      \"description\": \"Global and campaign-level Do-Not-Call entries.\",\n      \"columns\": [\n        {\"name\": \"id\", \"type\": \"uuid\", \"default\": \"gen_random_uuid()\", \"constraints\": [\"primary_key\"]},\n        {\"name\": \"phone_number\", \"type\": \"text\", \"constraints\": [\"not_null\", \"unique\"]},\n        {\"name\": \"reason\", \"type\": \"text\"},\n        {\"name\": \"source\", \"type\": \"exclusion_source\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"created_at\", \"type\": \"timestamptz\", \"default\": \"CURRENT_TIMESTAMP\", \"constraints\": [\"not_null\"]}\n      ],\n      \"indexes\": [\"idx_exclusion_phone_number\"]\n    },\n    {\n      \"name\": \"call_attempts\",\n      \"description\": \"Per-contact dialing attempts with provider metadata.\",\n      \"columns\": [\n        {\"name\": \"id\", \"type\": \"uuid\", \"default\": \"gen_random_uuid()\", \"constraints\": [\"primary_key\"]},\n        {\"name\": \"contact_id\", \"type\": \"uuid\", \"references\": \"contacts.id\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"campaign_id\", \"type\": \"uuid\", \"references\": \"campaigns.id\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"attempt_number\", \"type\": \"integer\", \"constraints\": [\"not_null\", \"check:attempt_number >= 1\"]},\n        {\"name\": \"call_id\", \"type\": \"text\", \"constraints\": [\"not_null\", \"unique\"]},\n        {\"name\": \"provider_call_id\", \"type\": \"text\"},\n        {\"name\": \"started_at\", \"type\": \"timestamptz\", \"default\": \"CURRENT_TIMESTAMP\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"answered_at\", \"type\": \"timestamptz\"},\n        {\"name\": \"ended_at\", \"type\": \"timestamptz\"},\n        {\"name\": \"outcome\", \"type\": \"call_outcome\"},\n        {\"name\": \"provider_raw_status\", \"type\": \"text\"},\n        {\"name\": \"error_code\", \"type\": \"text\"},\n        {\"name\": \"metadata\", \"type\": \"jsonb\", \"default\": \"'{}'::jsonb\", \"constraints\": [\"not_null\"]}\n      ],\n      \"constraints\": [\"unique(contact_id, attempt_number)\"],\n      \"indexes\": [\"idx_call_attempts_contact\", \"idx_call_attempts_campaign\"]\n    },\n    {\n      \"name\": \"survey_responses\",\n      \"description\": \"Structured answers for completed surveys.\",\n      \"columns\": [\n        {\"name\": \"id\", \"type\": \"uuid\", \"default\": \"gen_random_uuid()\", \"constraints\": [\"primary_key\"]},\n        {\"name\": \"contact_id\", \"type\": \"uuid\", \"references\": \"contacts.id\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"campaign_id\", \"type\": \"uuid\", \"references\": \"campaigns.id\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"call_attempt_id\", \"type\": \"uuid\", \"references\": \"call_attempts.id\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"q1_answer\", \"type\": \"text\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"q2_answer\", \"type\": \"text\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"q3_answer\", \"type\": \"text\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"q1_confidence\", \"type\": \"numeric(4,3)\", \"constraints\": [\"check:q1_confidence BETWEEN 0 AND 1\"]},\n        {\"name\": \"q2_confidence\", \"type\": \"numeric(4,3)\", \"constraints\": [\"check:q2_confidence BETWEEN 0 AND 1\"]},\n        {\"name\": \"q3_confidence\", \"type\": \"numeric(4,3)\", \"constraints\": [\"check:q3_confidence BETWEEN 0 AND 1\"]},\n        {\"name\": \"completed_at\", \"type\": \"timestamptz\", \"default\": \"CURRENT_TIMESTAMP\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"created_at\", \"type\": \"timestamptz\", \"default\": \"CURRENT_TIMESTAMP\", \"constraints\": [\"not_null\"]}\n      ],\n      \"constraints\": [\"unique(contact_id)\", \"unique(call_attempt_id)\"],\n      \"indexes\": [\"idx_survey_responses_campaign\"]\n    },\n    {\n      \"name\": \"events\",\n      \"description\": \"Domain events emitted for survey outcomes.\",\n      \"columns\": [\n        {\"name\": \"id\", \"type\": \"uuid\", \"default\": \"gen_random_uuid()\", \"constraints\": [\"primary_key\"]},\n        {\"name\": \"event_type\", \"type\": \"event_type\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"campaign_id\", \"type\": \"uuid\", \"references\": \"campaigns.id\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"contact_id\", \"type\": \"uuid\", \"references\": \"contacts.id\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"call_attempt_id\", \"type\": \"uuid\", \"references\": \"call_attempts.id\"},\n        {\"name\": \"payload\", \"type\": \"jsonb\", \"default\": \"'{}'::jsonb\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"created_at\", \"type\": \"timestamptz\", \"default\": \"CURRENT_TIMESTAMP\", \"constraints\": [\"not_null\"]}\n      ],\n      \"indexes\": [\"idx_events_type\", \"idx_events_campaign\"]\n    },\n    {\n      \"name\": \"email_notifications\",\n      \"description\": \"Outbound email delivery log linked to survey events.\",\n      \"columns\": [\n        {\"name\": \"id\", \"type\": \"uuid\", \"default\": \"gen_random_uuid()\", \"constraints\": [\"primary_key\"]},\n        {\"name\": \"event_id\", \"type\": \"uuid\", \"references\": \"events.id\", \"constraints\": [\"not_null\", \"unique\"]},\n        {\"name\": \"contact_id\", \"type\": \"uuid\", \"references\": \"contacts.id\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"campaign_id\", \"type\": \"uuid\", \"references\": \"campaigns.id\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"template_id\", \"type\": \"uuid\", \"references\": \"email_templates.id\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"to_email\", \"type\": \"text\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"status\", \"type\": \"email_notification_status\", \"default\": \"'pending'\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"provider_message_id\", \"type\": \"text\"},\n        {\"name\": \"error_message\", \"type\": \"text\"],\n        {\"name\": \"created_at\", \"type\": \"timestamptz\", \"default\": \"CURRENT_TIMESTAMP\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"updated_at\", \"type\": \"timestamptz\", \"default\": \"CURRENT_TIMESTAMP\", \"constraints\": [\"not_null\"]}\n      ],\n      \"indexes\": [\"idx_email_notifications_status\"]\n    },\n    {\n      \"name\": \"transcript_snippets\",\n      \"description\": \"Optional short transcript summaries per successful call attempt.\",\n      \"columns\": [\n        {\"name\": \"id\", \"type\": \"uuid\", \"default\": \"gen_random_uuid()\", \"constraints\": [\"primary_key\"]},\n        {\"name\": \"call_attempt_id\", \"type\": \"uuid\", \"references\": \"call_attempts.id\", \"constraints\": [\"not_null\", \"unique\"]},\n        {\"name\": \"transcript_text\", \"type\": \"text\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"language\", \"type\": \"language_code\", \"constraints\": [\"not_null\"]},\n        {\"name\": \"created_at\", \"type\": \"timestamptz\", \"default\": \"CURRENT_TIMESTAMP\", \"constraints\": [\"not_null\"]}\n      ],\n      \"indexes\": [\"idx_transcript_snippets_call_attempt_id\"]\n    }\n  ]\n}\n```"
+          }
+        ],
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "low",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 1.0,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 54993,
+      "input_tokens_details": {
+        "cached_tokens": 54144
+      },
+      "output_tokens": 31717,
+      "output_tokens_details": {
+        "reasoning_tokens": 27712
+      },
+      "total_tokens": 86710
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

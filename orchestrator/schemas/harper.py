@@ -193,8 +193,8 @@ class HarperUsage(BaseModel):
     total_tokens: Optional[int] = None
     
 
-    input_tokens_details: UsageInputTokensDetails = UsageInputTokensDetails()
-    output_tokens_details: UsageOutputTokensDetails = UsageOutputTokensDetails()
+    input_tokens_details: Optional[UsageInputTokensDetails ]= UsageInputTokensDetails()
+    output_tokens_details: Optional[UsageOutputTokensDetails] = UsageOutputTokensDetails()
 
 class HarperRunResponse(BaseModel):
     ok: bool = True

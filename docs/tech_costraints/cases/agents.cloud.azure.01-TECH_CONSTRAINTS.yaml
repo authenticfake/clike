@@ -1,0 +1,151 @@
+tech_constraints:
+  version: 1.1.0
+
+  metadata:
+    name: "AI Contact Center Agent - Azure"
+    description: "Multi-channel AI agent integrated with Dynamics 365 and Teams."
+    owner: "digital-care-team"
+    environment: [dev, qa, prod]
+    criticality: high
+    complexity: high
+    domain: "customer_service"
+    compliance: ["GDPR", "SOC2", "ISO27001"]
+
+  classification:
+    solution_type: "agent"
+    location: "cloud"
+    cloud_provider: "azure"
+    tenant_model: "single"
+    data_sensitivity: "restricted"
+
+  project_definition:
+    type: "ai_agent_platform"
+    framework: "Azure Functions, Durable Functions and Bot Framework"
+    language: "csharp"
+    deployment_target: "Azure Kubernetes Service and Azure Functions"
+
+  technology_stack:
+    core:
+      runtime: ".NET 8"
+      orchestration: "Durable Functions"
+      bot_runtime: "Azure Bot Service"
+    integrations:
+      crm: "Dynamics 365"
+      communication: "Azure Communication Services"
+    messaging:
+      broker: "Azure Service Bus"
+    database_and_backend:
+      database: "Azure SQL Database"
+      cache: "Azure Cache for Redis"
+      storage: "Azure Blob Storage"
+    observability_stack:
+      logging: "Azure Monitor and Application Insights"
+      tracing: "Application Insights distributed tracing"
+
+  lanes:
+    - name: "bot-backend"
+      lane: "dotnet"
+      purpose: "Bot logic, orchestration and integrations"
+      allowed_frameworks: ["ASP.NET Core", "Azure Functions"]
+      forbidden_technologies: ["legacy .NET Framework", "WCF"]
+      default_test_profile:
+        coverage_min: 80
+        required_checks: [tests, lint, types, security, build]
+    - name: "infrastructure"
+      lane: "iac-k8s"
+      purpose: "Azure Bicep and Terraform definitions"
+      allowed_frameworks: ["bicep", "terraform"]
+      forbidden_technologies: ["raw-portal-clickops"]
+      default_test_profile:
+        coverage_min: 0
+        required_checks: [tests, security, build]
+
+  profiles:
+    - name: "agent-core"
+      runtime: "dotnet@8"
+      platform: "azure-aks"
+      api: ["rest"]
+      storage: ["azure-sql", "blob", "redis"]
+      messaging: ["servicebus"]
+      auth: ["azure-ad"]
+      observability: ["app-insights"]
+
+  capabilities:
+    - type: "ai.generation"
+      mode: "chat"
+      params:
+        provider: "azure-openai"
+        deployment_names: ["gpt-4o", "gpt-4o-mini"]
+    - type: "ai.rag.index"
+      formats:
+        pdf: true
+        html: true
+      store: "Azure AI Search"
+    - type: "ci.quality"
+      coverage_min: 80
+      require_sast: true
+      require_sca: true
+
+  ci_cd:
+    system: "azure_devops"
+    runners: "Microsoft-hosted agents"
+    pipelines:
+      main_branch: "pipelines/ci.yml"
+      deploy_pipeline: "pipelines/cd.yml"
+    external_quality_gates:
+      sonar:
+        enabled: true
+        project_key: "ai-contact-center-dotnet"
+      security_scanner:
+        enabled: true
+        tool: "Microsoft Defender for DevOps"
+    default_branch_protection:
+      require_pr: true
+      require_reviews: 2
+      require_status_checks: true
+
+  security:
+    internet_egress: "restricted"
+    allowed_endpoints:
+      - "https://{your-azure-openai-endpoint}.openai.azure.com"
+    secrets_management: "Azure Key Vault"
+    dependency_policy:
+      allowlist: [".NET 8 LTS packages", "Azure SDK latest"]
+      denylist: ["System.Drawing.Common<8.0.0"]
+    authentication:
+      user_auth: "Azure AD (Entra ID)"
+      service_auth: "Managed identities"
+    authorization:
+      method: "RBAC"
+      policies_source: "AAD groups and app roles"
+    data_protection:
+      encryption_at_rest: true
+      encryption_in_transit: true
+    pii_handling: "Store only pseudonymized data with DLP policies enforced"
+
+  data_management:
+    primary_stores:
+      - name: "conversation_db"
+        engine: "azure-sql"
+        region: "westeurope"
+    backup_policy:
+      rpo_minutes: 5
+      rto_minutes: 30
+    retention_policy:
+      conversation_days: 365
+      debug_logs_days: 30
+    migration_strategy: "EF Core migrations with zero-downtime patterns"
+
+  eval_profiles:
+    default:
+      coverage_min: 80
+      max_critical_vulns: 0
+      lint_must_be_clean: true
+
+  ai_policies:
+    allowed_providers: ["azure-openai"]
+    allowed_models: ["gpt-4o", "gpt-4o-mini"]
+    data_boundary: "EU-only in West Europe region"
+    logging:
+      prompt_logging_enabled: false
+      redaction_required: true

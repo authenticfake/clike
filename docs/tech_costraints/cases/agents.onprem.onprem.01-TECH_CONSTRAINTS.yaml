@@ -1,0 +1,131 @@
+tech_constraints:
+  version: 1.1.0
+
+  metadata:
+    name: "On-prem AI Agent - Knowledge Base"
+    description: "Internal Q&A agent fully on-prem, local LLM and air-gapped."
+    owner: "it-knowledge-team"
+    environment: [dev, qa, prod]
+    criticality: medium
+    complexity: high
+    domain: "internal_it"
+    compliance: ["GDPR", "internal_policy_airgap"]
+
+  classification:
+    solution_type: "agent"
+    location: "onprem"
+    cloud_provider: "onprem"
+    tenant_model: "single"
+    data_sensitivity: "restricted"
+
+  project_definition:
+    type: "ai_agent_onprem"
+    framework: "FastAPI with local vLLM"
+    language: "python"
+    deployment_target: "On-prem Kubernetes with no internet egress"
+
+  technology_stack:
+    core:
+      runtime: "Python 3.11"
+      api: "FastAPI"
+      model_runtime: "vLLM on GPU nodes"
+    database_and_backend:
+      vector_store: "Qdrant on-prem"
+      config_store: "PostgreSQL on-prem"
+    observability_stack:
+      logging: "EFK stack (Elastic, Fluentd, Kibana)"
+      tracing: "OpenTelemetry and Jaeger"
+      metrics: "Prometheus and Grafana"
+
+  lanes:
+    - name: "agent-onprem"
+      lane: "python"
+      purpose: "LLM orchestration and RAG"
+      allowed_frameworks: ["FastAPI", "vLLM"]
+      forbidden_technologies: ["external-cloud-apis"]
+      default_test_profile:
+        coverage_min: 75
+        required_checks: [tests, lint, types, security, build]
+
+  profiles:
+    - name: "onprem-ai"
+      runtime: "python@3.11"
+      platform: "onprem-k8s"
+      api: ["rest"]
+      storage: ["postgres", "qdrant"]
+      messaging: []
+      auth: ["ldap", "kerberos"]
+      observability: ["efk", "prometheus"]
+
+  capabilities:
+    - type: "ai.generation"
+      mode: "chat"
+      params:
+        provider: "local"
+        model_ids: ["llama3-70b-instruct", "mixtral-8x7b"]
+    - type: "ai.rag.index"
+      formats:
+        pdf: true
+        docx: true
+        html: true
+      store: "Qdrant"
+    - type: "ci.quality"
+      coverage_min: 75
+      require_sast: true
+      require_sca: true
+
+  ci_cd:
+    system: "jenkins"
+    runners: "on-prem Jenkins agents"
+    pipelines:
+      main_branch: "jenkins/Jenkinsfile"
+    external_quality_gates:
+      sonar:
+        enabled: true
+        project_key: "onprem-ai-agent"
+    default_branch_protection:
+      require_pr: true
+      require_reviews: 1
+      require_status_checks: true
+
+  security:
+    internet_egress: "blocked"
+    allowed_endpoints: []
+    secrets_management: "HashiCorp Vault"
+    dependency_policy:
+      allowlist: ["whitelisted internal mirror indices"]
+      denylist: ["any direct PyPI access"]
+    authentication:
+      user_auth: "LDAP or Active Directory"
+      service_auth: "mTLS with Vault-issued certificates"
+    authorization:
+      method: "RBAC"
+      policies_source: "Active Directory groups"
+    data_protection:
+      encryption_at_rest: true
+      encryption_in_transit: true
+      pii_handling: "Internal-only but treated as confidential"
+
+  data_management:
+    primary_stores:
+      - name: "kb-index"
+        engine: "qdrant"
+        location: "onprem"
+    backup_policy:
+      rpo_minutes: 60
+      rto_minutes: 180
+    retention_policy:
+      kb_docs_days: 3650
+
+  eval_profiles:
+    default:
+      coverage_min: 75
+      max_critical_vulns: 0
+      lint_must_be_clean: true
+
+  ai_policies:
+    allowed_providers: ["local"]
+    data_boundary: "Strict on-prem, no external calls"
+    logging:
+      prompt_logging_enabled: true
+      redaction_required: true

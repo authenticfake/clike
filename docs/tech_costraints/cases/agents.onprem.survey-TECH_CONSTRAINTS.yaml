@@ -1,0 +1,263 @@
+# agents.onprem.survey-TECH_CONSTRAINTS.yaml
+tech_constraints:
+  version: 1.1.0
+
+  metadata:
+    name: "Phone Survey Agent - On-premise"
+    description: "Python agent deployed on-prem that imports an Excel contact list, performs telephone surveys via PBX/SIP with one active call at a time, retries on busy/no answer, and persists outcomes on an on-prem database."
+    owner: "voice-ops-team"
+    environment: [dev, qa, prod]
+    criticality: high
+    complexity: high
+    domain: "customer_experience"
+    compliance:
+      - "GDPR"
+      - "internal_security_policy"
+
+  classification:
+    solution_type: "agent"
+    location: "onprem"
+    cloud_provider: "onprem"
+    tenant_model: "single"
+    data_sensitivity: "restricted"
+
+  project_definition:
+    type: "ai_agent_platform"
+    framework: "FastAPI + background worker (Celery/RQ)"
+    language: "python"
+    deployment_target: "On-prem Kubernetes (or bare-metal) with PBX/SIP integration"
+
+  technology_stack:
+    core:
+      runtime: "Python 3.12"
+      api_framework: "FastAPI"
+      worker_runtime: "Celery or RQ worker"
+      deployment_pattern: "1 API pod + 1 worker pod (replicas = 1 in prod to enforce single call at a time)"
+    telephony:
+      pbx_platform: "Asterisk or FreeSWITCH or Cisco/Avaya PBX with SIP trunk"
+      integration_protocol: "SIP + REST/AMI/ARI API"
+      call_direction: "outbound"
+      callback_pattern: "PBX events -> webhook -> FastAPI"
+    file_ingestion:
+      input_format: "xlsx"
+      ingestion_source: "shared network folder or HTTP upload to API"
+      parsing_library: "openpyxl or equivalent"
+      expected_columns:
+        - "phone_number"
+        - "contact_name"
+        - "language"
+        - "time_window"
+    job_queue:
+      queue_engine: "Redis or RabbitMQ"
+      queue_name: "survey-call-jobs"
+      delivery_pattern: "single-consumer"
+      max_retry_attempts: 5
+      dead_letter_queue_enabled: true
+      visibility_model: "explicit ack with retry by worker"
+    database_and_backend:
+      database_engine: "PostgreSQL (on-prem cluster)"
+      schema_expectations:
+        tables:
+          - "call_jobs"
+          - "call_attempts"
+          - "survey_responses"
+        core_status_fields:
+          - "status"
+          - "attempt_count"
+          - "last_attempt_at"
+          - "final_outcome"
+    observability_stack:
+      logging: "EFK (Elasticsearch, Fluentd, Kibana) or Loki + Grafana"
+      tracing: "OpenTelemetry + Jaeger"
+      metrics:
+        provider: "Prometheus"
+        key_metrics:
+          - "active_calls"
+          - "completed_surveys"
+          - "failed_calls"
+          - "retry_count"
+          - "duration_per_call_sec"
+
+  constraints:
+    forbidden_technologies:
+      - "Direct DB access from Excel client"
+      - "Multiple worker replicas in production (would break one-call-at-a-time guarantee)"
+      - "Custom ad-hoc shell scripts as primary scheduler"
+      - "Hard-coded SIP credentials in source code"
+    architectural_rules:
+      - "The worker deployment in prod must have replicas = 1 to enforce one active call at a time."
+      - "Retry logic must be centralized in the worker, not in PBX configuration."
+      - "Excel ingestion must validate data and generate normalized call_jobs records before enqueuing messages."
+      - "Survey script and questions must be versioned and linked to each call_attempt record."
+      - "Every call attempt must be idempotently recorded; replays must not generate duplicate survey_responses."
+    call_flow_rules:
+      max_attempts_per_contact: 5
+      min_seconds_between_attempts: 1800   # 30 minutes
+      reschedule_on_status:
+        - "BUSY"
+        - "NO_ANSWER"
+        - "TEMPORARY_FAILURE"
+      terminal_statuses:
+        - "COMPLETED_ACCEPTED"
+        - "COMPLETED_REFUSED"
+        - "HARD_BOUNCE"
+      concurrency:
+        mode: "single_worker"
+        worker_processes: 1
+        worker_concurrency: 1
+
+  lanes:
+    - name: "survey-api"
+      lane: "python"
+      purpose: "REST API for Excel upload, job inspection and reporting."
+      allowed_frameworks:
+        - "FastAPI"
+      forbidden_technologies:
+        - "Flask without ASGI server"
+      default_test_profile:
+        coverage_min: 75
+        required_checks:
+          - tests
+          - lint
+          - types
+          - security
+          - build
+
+    - name: "survey-worker"
+      lane: "python"
+      purpose: "Background worker that reads from queue, performs calls via PBX, manages retries and updates DB."
+      allowed_frameworks:
+        - "Celery"
+        - "RQ"
+      forbidden_technologies:
+        - "Ad-hoc infinite loops instead of a real worker framework"
+      default_test_profile:
+        coverage_min: 80
+        required_checks:
+          - tests
+          - lint
+          - types
+          - security
+          - build
+
+    - name: "infra-k8s"
+      lane: "iac-k8s"
+      purpose: "Kubernetes manifests/Helm charts for API, worker, PBX integration and monitoring."
+      allowed_frameworks:
+        - "helm"
+        - "kustomize"
+      forbidden_technologies:
+        - "Untracked kubectl apply from local files"
+      default_test_profile:
+        coverage_min: 0
+        required_checks:
+          - tests
+          - security
+          - build
+
+  profiles:
+    - name: "survey-onprem-core"
+      runtime: "python@3.12"
+      platform: "onprem-k8s"
+      api:
+        - "rest"
+      storage:
+        - "postgres"
+      messaging:
+        - "redis"
+        - "rabbitmq"
+      auth:
+        - "ldap"
+      observability:
+        - "efk"
+        - "prometheus"
+        - "jaeger"
+
+  capabilities:
+    - type: "ai.generation"
+      mode: "chat"
+      params:
+        provider: "local-or-cloud"   # e.g. local LLM or OpenAI if allowed by policy
+        usage: "Generate flexible survey script, introductions and closing phrases."
+        max_tokens: 2048
+        tools_enabled: false
+    - type: "ci.quality"
+      coverage_min: 80
+      require_sast: true
+      require_sca: true
+
+  ci_cd:
+    system: "jenkins"
+    runners: "on-prem agents"
+    pipelines:
+      main_branch: "jenkins/ci-survey-onprem.Jenkinsfile"
+      deploy_pipeline: "jenkins/deploy-survey-onprem.Jenkinsfile"
+    external_quality_gates:
+      sonar:
+        enabled: true
+        project_key: "phone-survey-agent-onprem"
+    default_branch_protection:
+      require_pr: true
+      require_reviews: 1
+      require_status_checks: true
+
+  security:
+    internet_egress: "restricted"
+    allowed_endpoints:
+      - "https://api.twilio.com"   # only if telephony provider is cloud
+    secrets_management: "HashiCorp Vault or equivalent"
+    dependency_policy:
+      allowlist:
+        - "fastapi"
+        - "pydantic"
+        - "sqlalchemy"
+        - "httpx"
+        - "openpyxl"
+        - "celery"
+        - "rq"
+      denylist:
+        - "requests<2.32.0"
+    authentication:
+      user_auth: "LDAP or Active Directory for admin UI"
+      service_auth: "mTLS between pods and PBX, or API keys for PBX REST endpoints"
+    authorization:
+      method: "RBAC"
+      policies_source: "Directory groups (LDAP/AD) and app-level roles"
+    data_protection:
+      encryption_at_rest: true
+      encryption_in_transit: true
+      pii_handling: "Phone numbers and survey responses stored on-prem only, no export without explicit process."
+
+  data_management:
+    primary_stores:
+      - name: "survey-db"
+        engine: "postgres"
+        datacenter: "primary-dc"
+    backup_policy:
+      rpo_minutes: 15
+      rto_minutes: 60
+    retention_policy:
+      call_metadata_days: 365
+      survey_responses_days: 365
+      technical_logs_days: 30
+    migration_strategy: "Alembic migrations running from a controlled CI/CD job."
+
+  eval_profiles:
+    default:
+      coverage_min: 80
+      max_critical_vulns: 0
+      lint_must_be_clean: true
+      allow_snapshot_tests: true
+    relaxed_non_prod:
+      coverage_min: 60
+      max_critical_vulns: 0
+      allow_flaky_tests: true
+
+  ai_policies:
+    allowed_providers:
+      - "local"
+      - "openai"        # only if allowed by company policy
+    data_boundary: "Survey content must not include sensitive PII; prompts must avoid free-text sensitive data."
+    logging:
+      prompt_logging_enabled: false
+      redaction_required: true

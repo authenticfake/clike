@@ -1,0 +1,10 @@
+{
+  "timestamp": "20251209T124639Z",
+  "project_id": "voicesurveyagent",
+  "phase": "kit",
+  "provider": "openai",
+  "model_label": "manual::gpt-5.1-codex",
+  "raw": {
+    "exception": "ReadTimeout: "
+  }
+}

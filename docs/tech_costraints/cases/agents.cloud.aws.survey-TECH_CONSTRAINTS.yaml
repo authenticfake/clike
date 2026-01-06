@@ -1,0 +1,252 @@
+# agents.cloud.aws.survey-TECH_CONSTRAINTS.yaml
+tech_constraints:
+  version: 1.1.0
+
+  metadata:
+    name: "Phone Survey Agent - AWS Serverless"
+    description: "Python serverless agent that reads an Excel list, performs phone surveys one call at a time, retries on busy/no answer, and stores outcomes in a database."
+    owner: "cx-ai-team"
+    environment: [dev, qa, prod]
+    criticality: high
+    complexity: medium
+    domain: "customer_experience"
+    compliance:
+      - "GDPR"
+
+  classification:
+    solution_type: "agent"
+    location: "cloud"
+    cloud_provider: "aws"
+    tenant_model: "single"
+    data_sensitivity: "confidential"
+
+  project_definition:
+    type: "ai_agent_platform"
+    framework: "Python Lambda functions + AWS Step Functions"
+    language: "python"
+    deployment_target: "AWS Lambda + Step Functions + SQS"
+
+  technology_stack:
+    core:
+      runtime: "Python 3.12"
+      pattern: "Serverless worker + workflow orchestration"
+      orchestration: "AWS Step Functions for call lifecycle and retries"
+      api_layer: "Amazon API Gateway HTTP APIs (admin + webhooks)"
+    file_ingestion:
+      input_format: "xlsx"
+      ingestion_source: "S3 bucket"
+      ingestion_trigger: "S3 -> Lambda"
+      parsing_library: "openpyxl or equivalent"
+      expected_columns:
+        - "phone_number"
+        - "contact_name"
+        - "language"
+        - "time_window"
+    telephony:
+      provider: "Amazon Connect or Twilio"
+      call_direction: "outbound"
+      concurrency_model: "one_active_call_per_worker"
+      callback_pattern: "webhook -> API Gateway -> Lambda"
+    job_queue:
+      queue_type: "Amazon SQS"
+      queue_mode: "FIFO"
+      queue_name: "survey-call-jobs-fifo"
+      delivery_pattern: "single-consumer"
+      visibility_timeout_seconds: 600
+      max_retry_attempts: 5
+      dead_letter_queue_enabled: true
+    database_and_backend:
+      database_engine: "Amazon Aurora Serverless v2 (PostgreSQL-compatible)"
+      database_access_pattern: "RDS Data API or direct PostgreSQL connection from Lambda"
+      schema_expectations:
+        tables:
+          - "call_jobs"
+          - "call_attempts"
+          - "survey_responses"
+        core_status_fields:
+          - "status"
+          - "attempt_count"
+          - "last_attempt_at"
+          - "final_outcome"
+    observability_stack:
+      logging: "CloudWatch Logs with JSON structured logs"
+      tracing: "AWS X-Ray + OpenTelemetry"
+      metrics:
+        provider: "CloudWatch Metrics"
+        key_metrics:
+          - "active_calls"
+          - "completed_surveys"
+          - "failed_calls"
+          - "retry_count"
+          - "duration_per_call_sec"
+
+  constraints:
+    forbidden_technologies:
+      - "Monolithic EC2-only implementation"
+      - "Custom long-running daemon without Lambda or Step Functions"
+      - "Polling Excel directly from local filesystem"
+      - "Direct DB access from Excel ingestion client"
+    architectural_rules:
+      - "Production must use a single SQS FIFO queue for survey jobs."
+      - "In prod there must be exactly one Lambda consumer subscribed to the SQS survey queue (reserved_concurrency = 1)."
+      - "All Excel uploads must be validated, normalized and persisted as call_jobs records before enqueuing messages."
+      - "Retries must never exceed max_retry_attempts per phone_number."
+      - "Call outcomes (including REFUSED, COMPLETED, NO_ANSWER, BUSY) must be stored in the database within a single transactional operation."
+    call_flow_rules:
+      max_attempts_per_contact: 5
+      min_seconds_between_attempts: 1800   # 30 minutes between attempts
+      reschedule_on_status:
+        - "BUSY"
+        - "NO_ANSWER"
+        - "TEMPORARY_FAILURE"
+      terminal_statuses:
+        - "COMPLETED_ACCEPTED"
+        - "COMPLETED_REFUSED"
+        - "HARD_BOUNCE"
+      concurrency:
+        mode: "single_worker"
+        lambda_reserved_concurrency_prod: 1
+        sqs_batch_size: 1
+
+  lanes:
+    - name: "survey-lambda-worker"
+      lane: "python"
+      purpose: "Read jobs from SQS, call telephony provider, update DB and schedule retry if needed."
+      allowed_frameworks:
+        - "boto3"
+        - "httpx"
+      forbidden_technologies:
+        - "synchronous_blocking_http_clients_without_timeouts"
+        - "requests<2.32.0"
+      default_test_profile:
+        coverage_min: 80
+        required_checks:
+          - tests
+          - lint
+          - types
+          - security
+          - build
+
+    - name: "survey-admin-api"
+      lane: "python"
+      purpose: "Admin APIs to upload Excel via pre-signed URLs, inspect queues, and read survey results."
+      allowed_frameworks:
+        - "FastAPI"
+      forbidden_technologies:
+        - "Django monolith"
+      default_test_profile:
+        coverage_min: 70
+        required_checks:
+          - tests
+          - lint
+          - types
+          - build
+
+  profiles:
+    - name: "survey-lambda-core"
+      runtime: "python@3.12"
+      platform: "aws-lambda"
+      api:
+        - "rest"
+      storage:
+        - "aurora-postgres"
+        - "s3"
+      messaging:
+        - "sqs"
+      auth:
+        - "iam-roles"
+      observability:
+        - "cloudwatch"
+        - "xray"
+
+  capabilities:
+    - type: "ai.generation"
+      mode: "chat"
+      params:
+        provider: "openai"
+        usage: "Call script generation and dynamic phrasing to convince the user to answer the survey."
+        max_tokens: 2048
+        tools_enabled: false
+    - type: "ci.quality"
+      coverage_min: 80
+      require_sast: true
+      require_sca: true
+
+  ci_cd:
+    system: "github_actions"
+    runners: "ubuntu-latest"
+    pipelines:
+      main_branch: ".github/workflows/ci-survey-aws.yml"
+      deploy_pipeline: ".github/workflows/deploy-survey-aws.yml"
+    external_quality_gates:
+      sonar:
+        enabled: true
+        project_key: "phone-survey-agent-aws"
+    default_branch_protection:
+      require_pr: true
+      require_reviews: 1
+      require_status_checks: true
+
+  security:
+    internet_egress: "restricted"
+    allowed_endpoints:
+      - "https://api.twilio.com"
+      - "https://api.amazonconnect.amazonaws.com"
+      - "https://api.openai.com"
+    secrets_management: "AWS Secrets Manager + SSM Parameter Store"
+    dependency_policy:
+      allowlist:
+        - "boto3"
+        - "pydantic"
+        - "fastapi"
+        - "httpx"
+        - "openpyxl"
+      denylist:
+        - "requests<2.32.0"
+    authentication:
+      user_auth: "Cognito (for admin UI) or corporate IdP via Cognito federation"
+      service_auth: "IAM roles for Lambda"
+    authorization:
+      method: "RBAC"
+      policies_source: "Cognito groups or IAM roles"
+    data_protection:
+      encryption_at_rest: true
+      encryption_in_transit: true
+      pii_handling: "Phone numbers and call metadata treated as confidential; no storage of call audio, only metadata and survey answers."
+
+  data_management:
+    primary_stores:
+      - name: "survey-core-db"
+        engine: "aurora-postgres"
+        region: "eu-central-1"
+    backup_policy:
+      rpo_minutes: 15
+      rto_minutes: 60
+    retention_policy:
+      call_metadata_days: 365
+      survey_responses_days: 365
+      technical_logs_days: 30
+    migration_strategy: "Alembic migrations triggered in a dedicated migration workflow."
+
+  eval_profiles:
+    default:
+      coverage_min: 80
+      max_critical_vulns: 0
+      lint_must_be_clean: true
+      allow_snapshot_tests: true
+    relaxed_non_prod:
+      coverage_min: 60
+      max_critical_vulns: 0
+      allow_flaky_tests: true
+
+  ai_policies:
+    allowed_providers:
+      - "openai"
+      - "azure-openai"
+    allowed_models:
+      - "gpt-4.1-mini"
+      - "gpt-4.1"
+    data_boundary: "Prompts must not contain free-text PII beyond phone_number and first_name."
+    logging:
+      prompt_logging_enabled: false
+      redaction_required: true

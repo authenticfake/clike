@@ -88,34 +88,197 @@ In ≤240 words:
 - Anything beyond the minimum metrics below.
 
 ## Technology Constraints (SPEC-ready)
+- Please fill / update in the tech constraints fields (listed below just as example) correctly based on the information you have acquired and remove all items unuseful.
+
 ```yaml
 tech_constraints:
-  version: 1.0.0
+  version: 1.1.0  # Semantic version for the constraints schema
+
+  metadata:
+    name: "My Solution Name"
+    description: "Short description of the solution."
+    owner: "team-or-owner"
+    environment: [dev, qa, uat, prod]  # Environments where this applies
+    criticality: low  # low | medium | high
+    complexity: medium  # medium | high
+    domain: "business_domain_or_product_line"
+    compliance:
+      - "GDPR"
+      - "ISO27001"
+
+  classification:
+    solution_type: "web"        # agent | web | enterprise | mobile | lowcode
+    location: "cloud"           # cloud | onprem | hybrid
+    cloud_provider: "aws"       # aws | azure | gcp | vercel | onprem | mendixcloud
+    tenant_model: "single"      # single | multi
+    data_sensitivity: "internal"  # public | internal | confidential | restricted
+
+  project_definition:
+    type: "web_application"  # web_application | ai_agent_platform | enterprise_platform | mobile_application | lowcode_application | other
+    framework: "nextjs"      # Main framework or runtime family
+    language: "typescript"   # Primary implementation language
+    deployment_target: "vercel"  # Where this is deployed
+
+  technology_stack:
+    core:
+      framework: "Next.js 14+ (App Router)"
+      language: "TypeScript (strict)"
+      runtime: "Node.js or Edge runtime"
+    styling:
+      primary: "Tailwind CSS"
+      components: "Shadcn/UI"
+      icons: "Lucide React"
+    state_management:
+      server_state: "React Server Components and TanStack Query"
+      client_state: "Zustand"
+    database_and_backend:
+      orm: "Prisma"
+      database: "PostgreSQL"
+      cache: "Redis"
+      vector_store: "Qdrant or other"
+      auth: "Auth.js or Cognito or other"
+    messaging:
+      broker: "Kafka or Service Bus or SQS"
+      event_stream: "EventBridge or Pub/Sub or Event Hubs"
+    observability_stack:
+      logging: "Centralized logging stack (CloudWatch, EFK, etc.)"
+      tracing: "OpenTelemetry, X-Ray, Jaeger, etc."
+      metrics: "Prometheus, Cloud Monitoring, CloudWatch, etc."
+
+  lanes:
+    - name: "backend"
+      lane: "python"  # python | js-ts | java | dotnet | go | flutter | mendix | iac-k8s | other
+      purpose: "Backend APIs and domain logic"
+      allowed_frameworks:
+        - "FastAPI"
+        - "Django"
+      forbidden_technologies:
+        - "Flask without ASGI"
+      default_test_profile:
+        coverage_min: 80
+        required_checks:
+          - tests
+          - lint
+          - types
+          - security
+          - build
+    - name: "frontend"
+      lane: "js-ts"
+      purpose: "Web frontend UI"
+      allowed_frameworks:
+        - "Next.js"
+        - "React"
+      forbidden_technologies:
+        - "jQuery"
+        - "Bootstrap"
+      default_test_profile:
+        coverage_min: 75
+        required_checks:
+          - tests
+          - lint
+          - types
+          - build
+
   profiles:
-    - name: app-core
-      runtime: <nodejs@20|python@3.12|go@1.22>
-      platform: <kubernetes|serverless.aws|vm>
-      api: [rest]
-      storage: [<postgres|s3|fs>]
-      messaging: [<kafka|none>]
-      auth: [oidc]
-      observability: [<opentelemetry|prometheus|cloudwatch>]
-    - name: ai-rag
-      runtime: python@3.12
-      platform: <kubernetes|serverless.aws>
-      api: [internal.rag]
-      storage: [<qdrant|pgvector|elasticsearch>]
-      messaging: []
-      auth: [service-token]
-      observability: [opentelemetry]
-  capabilities:
-    - type: ai.generation
-      mode: chat
-      params: { max_tokens: 9500 }
-    - type: ai.rag.index
-      formats: { docx: true, pdf: true, xlsx: true, pptx: true }
-    - type: ci.quality
+    - name: "app-core"
+      runtime: "python@3.12"
+      platform: "aws-eks"
+      api:
+        - "rest"
+        - "graphql"
+        - "events"
+      storage:
+        - "postgres"
+        - "redis"
+        - "s3"
+      messaging:
+        - "kafka"
+        - "sqs"
+      auth:
+        - "cognito"
+        - "oidc"
+      observability:
+        - "cloudwatch"
+        - "xray"
+        - "prometheus"
+
+  ci_cd:
+    system: "github_actions"
+    runners: "ubuntu-latest or self-hosted"
+    pipelines:
+      main_branch: ".github/workflows/ci.yml"
+      deploy_pipeline: ".github/workflows/cd.yml"
+    external_quality_gates:
+      sonar:
+        enabled: true
+        project_key: "my-project-key"
+      security_scanner:
+        enabled: true
+        tool: "Trivy or Snyk"
+    default_branch_protection:
+      require_pr: true
+      require_reviews: 1
+      require_status_checks: true
+
+  security:
+    internet_egress: "restricted"
+    allowed_endpoints:
+      - "https://api.openai.com"
+    secrets_management: "AWS Secrets Manager or Azure Key Vault or Vault"
+    dependency_policy:
+      allowlist:
+        - "fastapi"
+        - "pydantic"
+      denylist:
+        - "requests<2.32.0"
+    authentication:
+      user_auth: "Cognito or Azure AD or LDAP"
+      service_auth: "IAM roles, mTLS, or JWT"
+    authorization:
+      method: "RBAC"
+      policies_source: "IAM, AAD groups, or app database"
+    data_protection:
+      encryption_at_rest: true
+      encryption_in_transit: true
+      pii_handling: "Describe how PII is captured, masked and retained"
+
+  data_management:
+    primary_stores:
+      - name: "core-db"
+        engine: "postgres"
+        region: "eu-central-1"
+    backup_policy:
+      rpo_minutes: 15
+      rto_minutes: 60
+    retention_policy:
+      transactional_data_days: 3650
+      logs_days: 365
+    migration_strategy: "Alembic, Liquibase, EF Core migrations, etc."
+
+  eval_profiles:
+    default:
       coverage_min: 80
+      max_critical_vulns: 0
+      lint_must_be_clean: true
+      allow_snapshot_tests: true
+    relaxed_non_prod:
+      coverage_min: 60
+      max_critical_vulns: 0
+      allow_flaky_tests: true
+
+  ai_policies:
+    allowed_providers:
+      - "openai"
+      - "anthropic"
+      - "azure-openai"
+      - "local"
+    allowed_models:
+      - "gpt-5*"
+      - "claude-4.5-sonnet"
+    data_boundary: "EU-only or region-specific processing constraint"
+    logging:
+      prompt_logging_enabled: false
+      redaction_required: true
 ```
 
 ## Risks & Assumptions
