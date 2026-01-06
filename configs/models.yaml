@@ -46,22 +46,24 @@ models:
     tags: [embeddings]
     profiles: [local.embeddings]
 
-  - id: vllm:deepseek-coder-v2
-    name: deepseek-coder-v2
-    provider: vllm
-    base_url: http://vllm:8000/v1
+  - id: deepseek:deepseek-coder-v2
+    name: deepseek-coder
+    provider: deepseek
+    base_url: https://api.deepseek.com/v1
     remote_name: deepseek-coder-v2
     modality: chat
     capability: high
     latency: medium
     cost: low
+    api_key_env: DEEPSEEK_API_KEY
     pricing:
-      input_per_1k: 0.0
-      output_per_1k: 0.0
+      input_per_1k: 0.00014
+      output_per_1k: 0.00028
     privacy: high
-    enabled: false
+    enabled: true
     context_window: 128000
-    tags: [local, fast, coding]
+    tags: [cheap, fast, coding]
+    profiles: [cloud.codegen]
 
   - id: deepseek:deepseek-chat
     name: deepseek-chat
@@ -74,19 +76,73 @@ models:
     latency: medium
     cost: medium
     pricing:
-      input_per_1k: 0.002
-      output_per_1k: 0.007
+      input_per_1k: 0.00017
+      output_per_1k: 0.00034
     privacy: low
-    enabled: false
+    enabled: true
     context_window: 128000
     tags: [cheap]
-    profiles: [local.codegen]
+    profiles: [cloud.business]
+    
+  - id: openai:gpt-5.2
+    name: gpt-5.2
+    provider: openai
+    base_url: https://api.openai.com/v1
+    remote_name: gpt-5.2-2025-12-11
+    api_key_env: OPENAI_API_KEY
+    modality: chat
+    capability: high
+    latency: medium
+    cost: high
+    pricing:
+      input_per_1k: 0.00175   # 1.75 / 1000
+      output_per_1k: 0.014     # 14 / 1000
+    privacy: low
+    enabled: true
+    context_window: 128000
+    tags: [quality, reasoning]
 
   - id: openai:gpt-5.1
     name: gpt-5.1
     provider: openai
     base_url: https://api.openai.com/v1
     remote_name: gpt-5.1-2025-11-13
+    api_key_env: OPENAI_API_KEY
+    modality: chat
+    capability: high
+    latency: medium
+    cost: high
+    pricing:
+      input_per_1k: 0.00125   # 1.25 / 1000
+      output_per_1k: 0.01     # 10 / 1000
+    privacy: low
+    enabled: true
+    context_window: 128000
+    tags: [code, quality, reasoning]
+
+  - id: openai:gpt-5.1-codex-max
+    name: gpt-5.1-codex-max
+    provider: openai
+    base_url: https://api.openai.com/v1
+    remote_name: gpt-5.1-codex-max
+    api_key_env: OPENAI_API_KEY
+    modality: chat
+    capability: high
+    latency: medium
+    cost: high
+    pricing:
+      input_per_1k: 0.00125   # 1.25 / 1000
+      output_per_1k: 0.01     # 10 / 1000
+    privacy: low
+    enabled: true
+    context_window: 128000
+    tags: [code, quality, reasoning]
+
+  - id: openai:gpt-5.1-codex
+    name: gpt-5.1-codex
+    provider: openai
+    base_url: https://api.openai.com/v1
+    remote_name: gpt-5.1-codex
     api_key_env: OPENAI_API_KEY
     modality: chat
     capability: high
@@ -118,25 +174,9 @@ models:
     context_window: 128000
     tags: [code, quality, reasoning]
 
-  - id: openai:gpt-5.1-codex
-    name: gpt-5.1-codex
-    provider: openai
-    base_url: https://api.openai.com/v1
-    remote_name: gpt-5.1-codex
-    api_key_env: OPENAI_API_KEY
-    modality: chat
-    capability: high
-    latency: medium
-    cost: high
-    pricing:
-      input_per_1k: 0.00125   # 1.25 / 1000
-      output_per_1k: 0.01     # 10 / 1000
-    privacy: low
-    enabled: true
-    context_window: 128000
-    tags: [code, quality, reasoning]
 
-  - id: openai:gpt-4o
+
+  - id: openai:gpt-5
     name: gpt-4o
     provider: openai
     base_url: https://api.openai.com/v1
@@ -169,7 +209,7 @@ models:
       output_per_1k: 0.0004   # 0.4 / 1000
     context_window: 400000
     tags: [frontier, quality, reasoning]
-    enabled: true
+    enabled: false
    
   - id: openai:gpt-5-mini
     name: gpt-5-mini
@@ -185,7 +225,7 @@ models:
       output_per_1k: 0.015
     context_window: 400000
     tags: [frontier, quality, reasoning]
-    enabled: true
+    enabled: false
     api_key_env: OPENAI_API_KEY
 
   - id: openai:gpt-5
@@ -313,6 +353,11 @@ profiles:
 
   local.codegen:
     model: ollama:llama3
+    select:
+      any_tags: [local, coding]
+  
+  cloud.codegen:
+    model: deepseek:deepseek-code
     select:
       any_tags: [local, coding]
 

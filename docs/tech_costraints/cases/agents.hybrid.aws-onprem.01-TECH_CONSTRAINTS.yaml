@@ -1,0 +1,147 @@
+tech_constraints:
+  version: 1.1.0
+
+  metadata:
+    name: "AI Agent Hybrid - Call Routing"
+    description: "On-prem PBX with cloud LLM routing logic on AWS."
+    owner: "unified-comms-team"
+    environment: [dev, qa, prod]
+    criticality: high
+    complexity: high
+    domain: "unified_communications"
+    compliance: ["GDPR"]
+
+  classification:
+    solution_type: "agent"
+    location: "hybrid"
+    cloud_provider: "aws"
+    tenant_model: "single"
+    data_sensitivity: "restricted"
+
+  project_definition:
+    type: "ai_agent_hybrid"
+    framework: "Python FastAPI with on-prem SIP gateway"
+    language: "python"
+    deployment_target: "On-prem K8s for SIP and AWS EKS for LLM and APIs"
+
+  technology_stack:
+    core:
+      k8s_onprem: "VMware with Rancher cluster"
+      k8s_cloud: "EKS"
+      api_framework: "FastAPI"
+    telephony:
+      pbx: "Cisco or Avaya PBX"
+      sip_gateway: "Kamailio or FreeSWITCH"
+    messaging:
+      broker: "Kafka on-prem"
+      cloud_stream: "MSK on AWS"
+    database_and_backend:
+      database: "PostgreSQL on-prem replicated to AWS RDS"
+      cache: "Redis on-prem"
+    observability_stack:
+      logging: "Elastic Stack on-prem"
+      tracing: "Jaeger"
+      metrics: "Prometheus and Grafana"
+
+  lanes:
+    - name: "sip-gateway"
+      lane: "c"
+      purpose: "High-performance SIP handling"
+      allowed_frameworks: ["C11", "libevent"]
+      forbidden_technologies: ["C++ frameworks with heavy exceptions usage"]
+      default_test_profile:
+        coverage_min: 60
+        required_checks: [tests, build, security]
+    - name: "control-plane"
+      lane: "python"
+      purpose: "LLM calls, routing logic and control APIs"
+      allowed_frameworks: ["FastAPI"]
+      forbidden_technologies: ["Django"]
+      default_test_profile:
+        coverage_min: 80
+        required_checks: [tests, lint, types, security, build]
+
+  profiles:
+    - name: "onprem-voice"
+      runtime: "c@11 and python@3.12"
+      platform: "onprem-k8s"
+      api: ["internal.grpc"]
+      storage: ["postgres_onprem", "redis_onprem"]
+      messaging: ["kafka_onprem"]
+      auth: ["mutual-tls"]
+      observability: ["elastic", "prometheus"]
+    - name: "aws-control"
+      runtime: "python@3.12"
+      platform: "aws-eks"
+      api: ["rest"]
+      storage: ["rds-postgres"]
+      messaging: ["kafka-msk"]
+      auth: ["oidc"]
+      observability: ["cloudwatch"]
+
+  capabilities:
+    - type: "ai.generation"
+      mode: "chat"
+      params:
+        provider: "openai"
+        max_tokens: 4096
+    - type: "ci.quality"
+      coverage_min: 80
+      require_sast: true
+      require_sca: true
+
+  ci_cd:
+    system: "gitlab_ci"
+    runners: "hybrid (on-prem and cloud)"
+    pipelines:
+      main_branch: ".gitlab-ci.yml"
+    external_quality_gates:
+      sonar:
+        enabled: true
+        project_key: "hybrid-agent"
+    default_branch_protection:
+      require_pr: true
+      require_reviews: 1
+      require_status_checks: true
+
+  security:
+    internet_egress: "onprem-blocked, cloud-restricted"
+    allowed_endpoints:
+      - "https://api.openai.com"
+    secrets_management: "HashiCorp Vault on-prem and AWS Secrets Manager"
+    dependency_policy:
+      allowlist: ["fastapi", "pydantic", "confluent-kafka"]
+    authentication:
+      user_auth: "corporate SSO using SAML or OIDC"
+      service_auth: "mTLS and JWT"
+    authorization:
+      method: "RBAC"
+    policies_source: "central IAM store"
+    data_protection:
+      encryption_at_rest: true
+      encryption_in_transit: true
+      pii_handling: "No call content leaves on-prem, only embeddings and metadata"
+
+  data_management:
+    primary_stores:
+      - name: "cdr-db"
+        engine: "postgres"
+        location: "onprem"
+    backup_policy:
+      rpo_minutes: 15
+      rto_minutes: 60
+    retention_policy:
+      cdr_days: 365
+
+  eval_profiles:
+    default:
+      coverage_min: 80
+      max_critical_vulns: 0
+      lint_must_be_clean: true
+
+  ai_policies:
+    allowed_providers: ["openai"]
+    data_boundary: "No raw audio is sent to cloud, transcripts optional with consent"
+    logging:
+      prompt_logging_enabled: false
+      redaction_required: true

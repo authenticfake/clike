@@ -1,0 +1,260 @@
+tech_constraints:
+  version: 1.1.0
+
+  metadata:
+    name: "Web App SSR - Next.js + Strapi CMS"
+    description: "SSR front-end in Next.js su Vercel con Strapi headless CMS e PostgreSQL su Heroku."
+    owner: "web-cms-team"
+    environment: [dev, preview, prod]
+    criticality: medium
+    complexity: medium
+    domain: "content_driven_web"
+    compliance:
+      - "GDPR"
+
+  classification:
+    solution_type: "web"
+    location: "cloud"
+    cloud_provider: "multi"          # Vercel + Heroku
+    tenant_model: "single"
+    data_sensitivity: "internal"     # contenuti + eventuali dati utente (non altamente sensibili)
+
+  project_definition:
+    type: "web_application"
+    framework: "nextjs + strapi"
+    language: "typescript-frontend + javascript-backend"
+    deployment_target: "vercel (frontend) + heroku (cms + database)"
+
+  technology_stack:
+    frontend:
+      framework: "Next.js 14+ (App Router, SSR/SSG mix)"
+      language: "TypeScript (strict mode)"
+      runtime:
+        default: "Node.js serverless functions on Vercel"
+        edge_eligible:
+          - "simple SSR pages without heavy server logic"
+      rendering:
+        modes:
+          - "SSR for content pages with per-request personalization"
+          - "ISR/SSG for mostly static content"
+        rules:
+          - "Use Server Components by default, Client Components solo quando necessario"
+          - "Usare next/image per tutte le immagini"
+      styling:
+        primary: "Tailwind CSS"
+        components: "Shadcn/UI (Radix UI based)"
+        icons: "Lucide React"
+      state_management:
+        server_state: "React Server Components + fetch in Server Actions"
+        client_state: "Zustand (no Redux unless justified)"
+        data_fetching:
+          - "Preferire Server Actions e fetch lato server verso Strapi"
+          - "Niente chiamate dirette al DB da Next.js"
+    cms:
+      product: "Strapi (ultima LTS 5.x+)"
+      language: "Node.js (JavaScript/TypeScript support)"
+      deployment: "Heroku app (dyno web + worker opzionale)"
+      api_style:
+        - "REST"
+        - "GraphQL (opzionale, se abilitato)"
+      features:
+        - "Content types modulari e riusabili"
+        - "Role-based access control per area admin"
+      configuration:
+        env_management: "Config vars Heroku"
+        file_uploads:
+          provider: "S3-like storage consigliato per prod, locale solo in dev"
+    database_and_backend:
+      database:
+        engine: "PostgreSQL"
+        provider: "Heroku Postgres"
+        usage:
+          - "Single source of truth per tutti i contenuti gestiti da Strapi"
+        constraints:
+          - "Nessun accesso diretto da Next.js al DB (solo via API di Strapi)"
+      migrations:
+        strategy: "Gestite da Strapi e/o script dedicati in fase di deploy"
+    integration_contracts:
+      api_contract:
+        source_of_truth: "Strapi content-types"
+        doc:
+          - "OpenAPI/Swagger auto-generato"
+          - "Schema GraphQL (se abilitato)"
+        versioning:
+          strategy: "versione API tramite prefix (es. /api/v1)"
+      network:
+        frontend_to_cms:
+          protocol: "HTTPS"
+          auth: "API tokens (server-side only) o JWT"
+          timeout_ms: 5000
+    observability_stack:
+      frontend:
+        logging: "Vercel Logs"
+        monitoring:
+          - "Vercel Analytics"
+          - "Sentry (Front-end + API routes)"
+      cms_backend:
+        logging: "Heroku Logs + log drain verso ELK/Grafana Loki (opzionale)"
+        metrics: "Heroku metrics + APM esterno (New Relic, Datadog ecc.)"
+
+  constraints:
+    forbidden_technologies:
+      - "Custom Node.js server su Vercel (no server custom fuori dai function handlers)"
+      - "jQuery"
+      - "Bootstrap CSS monolitico"
+      - "Runtime CSS-in-JS (styled-components, emotion) per componenti SSR critici"
+      - "Accesso diretto di Next.js al database PostgreSQL"
+      - "Upload di file su filesystem locale in produzione su Heroku"
+    architectural_rules:
+      - "Next.js deve usare App Router (directory app/), non Pages Router."
+      - "Tutto il contenuto gestito editorialmente deve passare tramite Strapi."
+      - "Next.js deve consumare Strapi solo da ambiente server (Server Components, Server Actions, API routes)."
+      - "Le variabili d'ambiente sensibili (API token Strapi) non devono essere esposte al client."
+      - "Gli URL delle API di Strapi devono essere configurati per ambiente (dev/preview/prod) tramite env vars."
+      - "Il front-end non deve definire logica di business legata alla persistenza dei contenuti, solo presentazione."
+    performance_rules:
+      - "Abilitare caching lato Vercel per pagina/route dove possibile (ISR)."
+      - "Strapi deve esporre endpoint paginati per liste di contenuti."
+      - "Limitare la dimensione delle response (fields selezionati, no *)."
+
+  lanes:
+    - name: "frontend-nextjs"
+      lane: "js-ts"
+      purpose: "SSR front-end, routing, UI e integrazione con Strapi."
+      allowed_frameworks:
+        - "Next.js"
+        - "React"
+      forbidden_technologies:
+        - "create-react-app"
+        - "Vanilla Node server custom"
+        - "Direct DB access"
+      default_test_profile:
+        coverage_min: 80
+        required_checks:
+          - tests
+          - lint
+          - types
+          - build
+
+    - name: "cms-strapi"
+      lane: "js-ts"
+      purpose: "Strapi CMS, content types e API."
+      allowed_frameworks:
+        - "Strapi"
+        - "Koa (framework base Strapi, solo se necessario estendere)"
+      forbidden_technologies:
+        - "Express custom standalone al posto di Strapi"
+        - "ORM custom scollegato dal layer Strapi"
+      default_test_profile:
+        coverage_min: 60
+        required_checks:
+          - tests
+          - lint
+          - build
+
+    - name: "infra-paas"
+      lane: "iac-k8s"
+      purpose: "Configurazioni di progetto Vercel/Heroku, pipeline CI e config env."
+      allowed_frameworks:
+        - "YAML/JSON per config Vercel"
+        - "Heroku app.json"
+        - "GitHub Actions workflows"
+      forbidden_technologies:
+        - "Deploy manuali non ripetibili (solo CLI senza config versionata)"
+      default_test_profile:
+        coverage_min: 0
+        required_checks:
+          - tests
+          - security
+          - build
+
+  profiles:
+    - name: "frontend-vercel"
+      runtime: "node@20"
+      platform: "vercel"
+      api:
+        - "rest"
+      storage:
+        - "none-direct"      # solo consumatore, niente DB locale
+      messaging: []
+      auth:
+        - "jwt-from-strapi"  # se auth lato CMS
+      observability:
+        - "vercel-logs"
+        - "sentry"
+
+    - name: "cms-heroku"
+      runtime: "node@20"
+      platform: "heroku"
+      api:
+        - "rest"
+        - "graphql"
+      storage:
+        - "heroku-postgres"
+      messaging: []
+      auth:
+        - "local-users"
+        - "optional-sso"
+      observability:
+        - "heroku-logs"
+
+  capabilities:
+    - type: "ci.quality"
+      coverage_min: 80
+      require_sast: true
+      require_sca: true
+
+  ci_cd:
+    system: "github_actions"
+    runners: "ubuntu-latest"
+    pipelines:
+      main_branch: ".github/workflows/ci-main.yml"
+      deploy_frontend: ".github/workflows/deploy-vercel.yml"
+      deploy_cms: ".github/workflows/deploy-heroku.yml"
+    external_quality_gates:
+      sonar:
+        enabled: true
+        project_key: "nextjs-strapi-webapp"
+    default_branch_protection:
+      require_pr: true
+      require_reviews: 1
+      require_status_checks: true
+
+  security:
+    internet_egress: "allowed"
+    allowed_endpoints:
+      - "https://api.vercel.com"
+      - "https://*.vercel.app"
+      - "https://api.heroku.com"
+      - "https://*.herokuapp.com"
+    secrets_management:
+      frontend: "Vercel Environment Variables (server-side only per i token Strapi)"
+      cms: "Heroku config vars"
+    dependency_policy:
+      allowlist:
+        - "next"
+        - "react"
+        - "react-dom"
+        - "typescript"
+        - "tailwindcss"
+        - "@radix-ui/*"
+        - "lucide-react"
+        - "@strapi/*"
+        - "pg"
+      denylist:
+        - "requests<2.32.0"    # (se mai usato via python utility)
+    authentication:
+      user_auth:
+        frontend: "JWT o session cookies generati dal CMS Strapi"
+        strapi_admin: "local users con 2FA opzionale o SSO"
+      service_auth:
+        frontend_to_cms: "API token Strapi lato server"
+    authorization:
+      method: "RBAC"
+      policies_source:
+        - "Strapi roles/permissions"
+        - "App-level guards in Next.js (protected routes, ecc.)"
+    data_protection:
+      encryption_at_rest: true
+      encryption_in_transit: true
+      pii_handl_

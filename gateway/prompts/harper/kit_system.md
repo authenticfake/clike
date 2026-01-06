@@ -38,9 +38,14 @@ Before producing or modifying code, you **must align with what already exists**:
 - When reading the RAG context, respect the **Module/Package & Namespace Plan** from PLAN:
   - keep using the same root namespaces/modules declared per REQ
   - do not move responsibilities between REQs without an explicit change in PLAN.
+- Treat code and files for **non-target REQs** shown in the RAG context as **read-only**:
+  - NEVER recreate or modify those files under their original `runs/kit/<OTHER-REQ>/...` paths.
+  - Implement and evolve behavior **only** under `runs/kit/<TARGET-REQ>/...`, where `<TARGET-REQ>` is the current KIT target.
+
 
 ## Engineering Principles
-- **Composition‑first**: prefer small, composable units; design seams for future refactors.
+
+- **All imports must resolve within runs/kit/<REQ-ID>/src first.** If compatibility with previous REQs is required, add a shim module in the current REQ (shadow) and never modify prior REQs. Avoid double-prefixing routers: either set router prefix OR include_router prefix, not both.
 - **Test-Driven Development**: Tests before implementation
 - **Dependency Inversion (DIP)**: Depend on abstractions (interfaces)
 - **Composition over Inheritance**: 
@@ -56,8 +61,54 @@ Before producing or modifying code, you **must align with what already exists**:
 - **Config not code**: environment‑driven via `.env`/injection; never hard‑code secrets.
 - **Docs as interface**: each module exposes a short README or docstring to aid maintainers.
 - **Real infra**: you MUST generate production-ready, end-to-end code using real implementations for all in-scope infrastructure (logging, Kafka, databases, external APIs, etc.) and MUST NOT introduce fake, stub, in-memory, or no-op components in production paths (fakes/mocks are allowed in tests only).
-- Each kit **MAY include** runs/kit/<ID>/test/api/curl_file.json (or postman collection)  for testing service / business APIs.
+	- **TEST STRATEGY (MANDATORY)**:
+		* Separate test types:
+		   - Logic tests (no ORM, no DB)
+		   - Repository tests (ORM only)
+		   - Smoke test (optional)
+		* ORM rules:
+		   - No bidirectional assumptions
+		   - No implicit relationships
+		   - No schema inference in tests
+		* REQ isolation:
+		   - Tests must adapt to promoted models
+		   - Promoted code is source of truth
+		   - Tests can be written freely
+		* Performance:
+		   - Avoid DB in scheduler tests
+		   - Use fakes and stubs aggressively
+- Each **kit MAY include** runs/kit/<REQ-ID>/test/api/postman_collection.json for testing service / business APIs.
+	- "Generate the complete JSON export file for a **Postman Collection (v2.1 Schema)**, based on the standard CRUD operations for the following API resource. The output must be a single, valid JSON block ready for immediate import.
+
+		**API Context and Variables:**
+		1.  **Project Name:** CRUD Operations for the [Resource Name] API
+		2.  **Base URL Variable:** `{{base_url}}` (Default value: `https://api.yourdomain.com/v1`)
+		3.  **Authentication:** All requests require a Header: `Authorization: Bearer {{auth_token}}`.
+		4.  **Resource Variables:** Use `{{[resource]_id}}` for path variables (e.g., `{{user_id}}` or `{{product_id}}`).
+		
+		**Standard CRUD Endpoints to Include:**
+		
+		| Operation | Name | Method | Path | Body/Params | Postman Tests |
+		| :--- | :--- | :--- | :--- | :--- | :--- |
+		| **C**reate | **Create [Resource Name]** | `POST` | `/[resource_plural]` | JSON body: `{"field1": "value", "field2": "value"}` | Status 201; Check response has `id`; Set `{{[resource]_id}}` variable from response. |
+		| **R**ead (All) | **List All [Resource Name]** | `GET` | `/[resource_plural]` | Query Params: `page=1`, `limit=10` | Status 200; Check response is an array of items. |
+		| **R**ead (One) | **Get Single [Resource Name]** | `GET` | `/[resource_plural]/{{[resource]_id}}` | Path variable `{{[resource]_id}}` | Status 200; Check response has expected fields. |
+		| **U**pdate | **Update [Resource Name]** | `PATCH` | `/[resource_plural]/{{[resource]_id}}` | JSON body: `{"field1": "new_value"}` | Status 200/204; Check response for updated value (if 200). |
+		| **D**elete | **Delete [Resource Name]** | `DELETE` | `/[resource_plural]/{{[resource]_id}}` | No body required. | Status 204/200; |
+		
+		**Key Constraints for Output Structure:**
+		* The root array must be named `"item"`.
+		* All test logic must be converted into the proper Postman `event` and `script` structure for execution.
+		* Include the required `_postman_id` and `schema` fields in the `info` object."
+  
 - **You MUST avoid deprecated APIs, libraries, methods/functions**
+
+- **LIBRARY SELECTION CRITERIA:**
+
+	1.  **Prioritize:** You **MUST** exclusively use modern, actively maintained, and **non-deprecated** libraries or Cloud SDKs to ensure code longevity and stability.
+	2.  **Permitted Licenses:** Usage is permitted for libraries under **Apache License, Open Source licenses, and official Cloud SDKs.**
+	3.  **Commercial Use:** If a commercially licensed library is required, you **MUST** include a clear, explicit **Commercial Note** detailing its license requirements.
+
 - **MANDATORY** The following principles ensure the **coherence, idempotency, and verifiability** of the database schema (RDBMS or NoSQL) within the development process (Kit):
 
 	* **Single source of truth**
@@ -78,7 +129,7 @@ Before producing or modifying code, you **must align with what already exists**:
 	* **Strict ordering & reversibility**
 	   Apply in a strict order (types → structures → relations/indexes). Provide an inverse teardown. Every upgrade has a downgrade.
 	   
-	* Each kit **MAY include a build file** with all dependencies like requirements.txt in the following path runs/kit/<ID>/ listing only the minimal test/runtime dependencies (drivers, migration helpers). CI/eval MUST install it before running tests. If installation isn’t possible, tests MUST self-skip when packages are missing. Schema artifacts (SQL/JSON) remain pure and engine-portable.
+	* Each kit **MAY include a build file** with all dependencies like requirements.txt in the following path runs/kit/<REQ-ID>/ listing only the minimal test/runtime dependencies (drivers, migration helpers). CI/eval MUST install it before running tests. If installation isn’t possible, tests MUST self-skip when packages are missing. Schema artifacts (SQL/JSON) remain pure and engine-portable.
 
 		
 	* **Deterministic artifacts**
@@ -123,7 +174,7 @@ Before producing or modifying code, you **must align with what already exists**:
 		```
   
 ## Output Contract **REQUIRED/MANDATORY**
-Emit all required **files** for this iteration using **fenced blocks per file**. Only these blocks (and the iteration log below) should appear in the output.
+Emit all required **files** for this iteration using **fenced blocks per file**. Only these blocks (and the iteration log below) should appear in the output. All for `<REQ-ID>` target:
 
 ```
 file:/runs/kit/<REQ-ID>/src/<path/inside/src.ext>
@@ -137,6 +188,10 @@ file:/runs/kit/<REQ-ID>/test/<path/inside/test.ext>
 file:/runs/kit/<REQ-ID>/docs/KIT_<REQ-ID>.md
 file:/runs/kit/<REQ-ID>/docs/README_<REQ-ID>.md
 ```
+
+- In all emitted paths, `<REQ-ID>` MUST match the **current KIT target REQ-ID** declared in the “KIT Target” section of the prompt (e.g., `REQ-002`).
+- NEVER emit `file:/runs/kit/REQ-001/...` or any other REQ path when the target is `REQ-002`. Other REQs in the RAG context are **reference-only**.
+
 
 * For only python code use httpx with explicit **ASGITransport** (no app=): AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost:8080").
 

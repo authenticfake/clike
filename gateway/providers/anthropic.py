@@ -23,7 +23,7 @@ import re
 import unicodedata
 from functools import lru_cache
 
-log = logging.getLogger("gateway.anthropic")
+log = logging.getLogger("anthropic")
 
 ANTHROPIC_VERSION = "2023-06-01"
 
@@ -38,7 +38,9 @@ _ALIAS_MAP = {
     "sonnet-4.5": CANON_4_5,
     "sonnet-4-5": CANON_4_5,
     "claude-sonnet-4-0": "claude-sonnet-4-20250514",
-    "claude-opus-4-0": "claude-opus-4-20250514",
+    "claude-opus-4-1": "claude-opus-4-1",
+    "claude-opus-4-5": "claude-opus-4-5",
+
 }
 
 # --- Regex per blocchi file (BEGIN_FILE/file:)
@@ -367,6 +369,8 @@ def _build_messages_payload(
     else:
         tok = 1024
     out["max_tokens"] = tok
+    if model == "claude-opus-4-1":
+        out["max_tokens"] = 32000
 
     if "temperature" in gen:
         out["temperature"] = gen["temperature"]
@@ -571,13 +575,15 @@ def _normalize_messages_response(resp_json: Dict[str, Any]) -> Dict[str, Any]:
     usage = resp_json.get("usage") or {}
 
 
-    raw = {
-        "id": resp_json.get("id"),
-        "model": resp_json.get("model"),
-        "role": resp_json.get("role"),
-        "stop_sequence": resp_json.get("stop_sequence"),
-        "tool_uses": tool_uses,
-    }
+    # raw = {
+    #     "id": resp_json.get("id"),
+    #     "model": resp_json.get("model"),
+    #     "role": resp_json.get("role"),
+    #     "stop_sequence": resp_json.get("stop_sequence"),
+    #     "tool_uses": tool_uses,
+    #     "text": resp_json.get("text"),
+    # }
+    raw = resp_json
 
     log.info(
         "anthropic.normalize: result text_len=%d files=%d finish_reason=%s usage_out=%s",

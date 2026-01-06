@@ -1,0 +1,10 @@
+{
+  "timestamp": "20251209T161811Z",
+  "project_id": "voicesurveyagent",
+  "phase": "kit",
+  "provider": "anthropic",
+  "model_label": "manual::claude-opus-4-5",
+  "raw": {
+    "body_preview": "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"},\"request_id\":null}"
+  }
+}

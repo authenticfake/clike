@@ -66,7 +66,7 @@ BEGIN_FILE docs/harper/PLAN.md
 - **Tracks:** `App` vs `Platform/Infra` (Infra later unless blocking)
 - **Out of scope / Deferred:** concise boundaries
   
-## Module/Package & Namespace Plan (per KIT)
+## Module/Package & Namespace Structure  (per KIT)
 
 For each REQ you MUST make the structure explicit so that KIT can stay coherent:
 
@@ -97,8 +97,6 @@ This Module & Namespace Plan is **normative** for future KIT runs:
 - When a REQ depends on others, KIT must import and extend types/functions from their declared modules instead of duplicating behavior.
 
 ## REQ-IDs Table
-
-### REQ-IDs Table
 
 Return this section strictly as a **canonical Markdown table** using pipes with **one header row** and **one separator row**.
 **Columns (exact order and names):**

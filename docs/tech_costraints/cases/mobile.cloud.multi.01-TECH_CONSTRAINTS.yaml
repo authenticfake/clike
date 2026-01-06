@@ -1,0 +1,260 @@
+# mobile.cloud.multi.01-TECH_CONSTRAINTS.yaml
+tech_constraints:
+  version: 1.1.0
+
+  metadata:
+    name: "Mobile App - Flutter (Cloud Backend, Social Auth)"
+    description: "Cross-platform Flutter app (Android, iOS, Windows) with cloud backend API and social login (Google, Apple, etc.)."
+    owner: "mobile-cloud-team"
+    environment: [dev, qa, prod]
+    criticality: medium
+    complexity: high
+    domain: "consumer_mobile_app"
+    compliance:
+      - "GDPR"
+
+  classification:
+    solution_type: "mobile"
+    location: "cloud"
+    cloud_provider: "multi"   # e.g. AWS, Azure, GCP, Firebase backend, etc.
+    tenant_model: "multi"
+    data_sensitivity: "confidential"
+
+  project_definition:
+    type: "mobile_application"
+    framework: "flutter"
+    language: "dart"
+    deployment_target: "App Store, Google Play, Microsoft Store (sideload/Store)"
+
+  technology_stack:
+    mobile:
+      framework: "Flutter (stable channel, 3.22+)"
+      language: "Dart (null-safety)"
+      targets:
+        - "android"
+        - "ios"
+        - "windows"
+      architecture:
+        pattern: "Clean Architecture + BLoC/Cubit or Riverpod"
+        navigation: "go_router"
+        state_management:
+          preferred: "Riverpod or BLoC"
+          forbidden:
+            - "setState heavy use for global state"
+            - "Provider for complex global state"
+      ui_kit:
+        design_system: "Custom design system with Material 3"
+        theming: "Light/Dark themes, high-contrast friendly"
+      persistence:
+        local_storage:
+          - "secure storage for tokens (flutter_secure_storage)"
+          - "small key-value cache (shared_preferences or hive)"
+        offline_mode:
+          enabled: true
+          strategy: "read-through cache for critical views"
+    backend:
+      style: "REST (JSON) or GraphQL, versioned"
+      language: "Node.js, Python, Java or .NET (choose once per project)"
+      hosting:
+        pattern: "Managed PaaS / serverless (e.g. AWS Lambda, Cloud Run, Azure Functions, App Service)"
+      data_layer:
+        database_engine: "PostgreSQL or MySQL"
+        api_gateway: "Managed API Gateway (AWS API Gateway, Azure API Management, Apigee, etc.)"
+      security:
+        incoming_auth: "JWT/OIDC tokens issued by social IdP or auth broker"
+    auth:
+      pattern: "OAuth2 / OpenID Connect social login"
+      providers:
+        - "Google"
+        - "Apple"
+        - "Facebook"
+      broker:
+        recommended: "Firebase Auth, Auth0, or Cognito with social identity federation"
+      token_handling:
+        token_type: "ID/Access token (JWT)"
+        storage_on_device: "secure storage (encrypted), no plain-text"
+        refresh_strategy: "refresh tokens or auth broker SDK"
+      rules:
+        - "No long-term tokens stored in clear-text."
+        - "No social provider secret embedded in the app binary."
+        - "All client IDs and secrets managed via backend/config, not inside Flutter code."
+    observability_stack:
+      mobile:
+        crash_reporting:
+          - "Sentry"
+          - "Firebase Crashlytics"
+        analytics:
+          - "privacy-aware custom events (opt-in)"
+      backend:
+        logging: "centralized logging (CloudWatch, Stackdriver, App Insights, etc.)"
+        tracing: "OpenTelemetry"
+        metrics: "cloud-native monitoring (CloudWatch, Cloud Monitoring, etc.)"
+
+  constraints:
+    forbidden_technologies:
+      - "Native-only implementations per platform (must be Flutter-based core)."
+      - "Storing tokens or PII in plain SharedPreferences/Sqflite without encryption."
+      - "WebView-based pseudo-app as primary UI."
+      - "Direct DB access from mobile app."
+      - "Embedded social provider secrets in app bundle."
+    architectural_rules:
+      - "All business logic must be implemented in shared Dart code, not in platform-specific code, except for hardware integrations."
+      - "The mobile app communicates only with the backend API, never directly with the database."
+      - "Social login flows use provider SDKs or OAuth flows; tokens are verified and enriched server-side."
+      - "API endpoints must be versioned (e.g. /api/v1)."
+      - "All API calls must have timeouts and network error handling with graceful UX."
+    performance_rules:
+      - "Images and heavy content must be paginated and cached."
+      - "Avoid blocking UI thread with heavy computation (use isolates if needed)."
+
+  lanes:
+    - name: "mobile-flutter"
+      lane: "flutter"
+      purpose: "Mobile app UI, navigation, state management and API integration."
+      allowed_frameworks:
+        - "Flutter"
+        - "Riverpod"
+        - "flutter_bloc"
+        - "go_router"
+      forbidden_technologies:
+        - "Massive setState usage for global state"
+        - "Legacy Flutter plugins not null-safe"
+      default_test_profile:
+        coverage_min: 70
+        required_checks:
+          - tests
+          - lint
+          - build
+
+    - name: "backend-api"
+      lane: "python"  # or js-ts / java / dotnet, depending on chosen stack
+      purpose: "Public and internal API, auth validation, business logic and persistence."
+      allowed_frameworks:
+        - "FastAPI"
+        - "NestJS"
+        - "Spring Boot"
+        - "ASP.NET Core"
+      forbidden_technologies:
+        - "Monolithic framework without API versioning"
+        - "Direct exposure of database to the internet"
+      default_test_profile:
+        coverage_min: 80
+        required_checks:
+          - tests
+          - lint
+          - types
+          - security
+          - build
+
+  profiles:
+    - name: "mobile-app"
+      runtime: "flutter@stable"
+      platform: "android-ios-windows"
+      api:
+        - "rest"
+        - "graphql"
+      storage:
+        - "local-secure"
+      messaging:
+        - "push-notifications (FCM/APNs)"
+      auth:
+        - "oauth2-social"
+      observability:
+        - "sentry"
+        - "crashlytics"
+
+    - name: "cloud-backend"
+      runtime: "node@20 or python@3.12 or dotnet@8"
+      platform: "cloud-paas-or-serverless"
+      api:
+        - "rest"
+        - "graphql"
+      storage:
+        - "sql-db"
+        - "object-storage"
+      messaging:
+        - "pubsub-or-queue"
+      auth:
+        - "oidc"
+      observability:
+        - "central-logs"
+        - "apm"
+
+  capabilities:
+    - type: "ci.quality"
+      coverage_min: 75
+      require_sast: true
+      require_sca: true
+
+  ci_cd:
+    system: "github_actions"
+    runners: "ubuntu-latest"
+    pipelines:
+      mobile:
+        build: ".github/workflows/ci-mobile.yml"
+        release: ".github/workflows/release-mobile.yml"
+      backend:
+        build: ".github/workflows/ci-backend.yml"
+        deploy: ".github/workflows/deploy-backend.yml"
+    external_quality_gates:
+      sonar:
+        enabled: true
+        project_key: "mobile-cloud-flutter"
+    default_branch_protection:
+      require_pr: true
+      require_reviews: 1
+      require_status_checks: true
+
+  security:
+    internet_egress: "allowed"
+    allowed_endpoints:
+      - "https://accounts.google.com"
+      - "https://appleid.apple.com"
+      - "https://graph.facebook.com"
+      - "https://api.backend.example.com"
+    secrets_management:
+      mobile: "No secrets stored; only public client IDs allowed when necessary."
+      backend: "Cloud secret manager or vault (no secrets in git)."
+    dependency_policy:
+      allowlist:
+        - "flutter_secure_storage"
+        - "dio"
+        - "http"
+        - "riverpod"
+        - "flutter_bloc"
+      denylist:
+        - "flutter_http_legacy"
+    authentication:
+      user_auth: "OAuth2/OIDC with social providers via auth broker."
+      service_auth: "Backend to other services via service accounts."
+    authorization:
+      method: "RBAC / claims-based authorization in backend."
+      policies_source: "Backend DB or IAM system."
+    data_protection:
+      encryption_at_rest: true
+      encryption_in_transit: true
+      pii_handling: "Minimal PII; tokens and identifiers handled according to GDPR."
+
+  data_management:
+    primary_stores:
+      - name: "app-db"
+        engine: "sql-db"
+        region: "eu-region"
+    backup_policy:
+      rpo_minutes: 30
+      rto_minutes: 120
+    retention_policy:
+      user_data_days: 365
+      audit_logs_days: 365
+    migration_strategy: "Versioned migrations (Flyway, Liquibase, or framework-specific)."
+
+  eval_profiles:
+    default:
+      coverage_min: 75
+      max_critical_vulns: 0
+      lint_must_be_clean: true
+      allow_snapshot_tests: true
+    relaxed_non_prod:
+      coverage_min: 60
+      max_critical_vulns: 0
+      allow_flaky_tests: true

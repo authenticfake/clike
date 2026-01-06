@@ -1,0 +1,273 @@
+# mobile.onprem.hybrid.01-TECH_CONSTRAINTS.yaml
+tech_constraints:
+  version: 1.1.0
+
+  metadata:
+    name: "Mobile App - Flutter (On-prem Backend, Social Auth)"
+    description: "Cross-platform Flutter app (Android, iOS, Windows) with on-prem backend API and social login via external IdPs, exposed through a secure DMZ gateway."
+    owner: "mobile-onprem-team"
+    environment: [dev, qa, prod]
+    criticality: high
+    complexity: high
+    domain: "consumer_mobile_app"
+    compliance:
+      - "GDPR"
+      - "internal_security_policy"
+
+  classification:
+    solution_type: "mobile"
+    location: "onprem"
+    cloud_provider: "onprem"
+    tenant_model: "single"
+    data_sensitivity: "restricted"
+
+  project_definition:
+    type: "mobile_application"
+    framework: "flutter"
+    language: "dart"
+    deployment_target: "App Store, Google Play, Windows desktop"
+
+  technology_stack:
+    mobile:
+      framework: "Flutter (stable channel, 3.22+)"
+      language: "Dart"
+      targets:
+        - "android"
+        - "ios"
+        - "windows"
+      architecture:
+        pattern: "Clean Architecture + BLoC/Cubit or Riverpod"
+        navigation: "go_router"
+      state_management:
+        preferred: "Riverpod or BLoC"
+      persistence:
+        local_storage:
+          - "secure storage for tokens (flutter_secure_storage)"
+          - "optional offline cache (hive or sqflite encrypted)"
+    backend:
+      hosting:
+        datacenter: "onprem"
+        pattern: "Kubernetes cluster on-prem or VM cluster"
+        exposure: "Reverse proxy/API Gateway in DMZ (e.g. NGINX, F5, Apigee on-prem)"
+      api:
+        style: "REST (JSON) or GraphQL"
+        versioning: "mandatory (e.g. /api/v1)"
+        security:
+          inbound_auth: "JWT/OIDC tokens issued by external social IdPs or enterprise broker"
+          tls_termination: "at DMZ gateway, mTLS between gateway and internal services"
+      data_layer:
+        database_engine: "PostgreSQL or SQL Server (on-prem cluster)"
+        access:
+          pattern: "repository/service layer, no direct SQL from controllers"
+    auth:
+      pattern: "OAuth2 / OIDC social login + enterprise broker"
+      providers:
+        - "Google"
+        - "Apple"
+        - "Facebook"
+      broker:
+        recommended: "Azure AD B2C / Keycloak / Auth0 self-hosted / corporate IdP"
+      flow:
+        mobile_to_idp: "mobile app uses secure browser/webview or SDK for social login"
+        idp_to_mobile: "redirect/DEEPLINK with authorization code or token"
+        mobile_to_gateway: "mobile sends token to API Gateway in DMZ"
+        gateway_to_backend: "validated token, user context propagated via headers/claims"
+      rules:
+        - "No social provider secrets stored in the mobile app."
+        - "IdP endpoints must be allowlisted in firewall rules."
+        - "Backend must never call social IdPs directly from untrusted network segments."
+    observability_stack:
+      mobile:
+        crash_reporting:
+          - "Sentry (self-hosted or cloud)"
+        analytics:
+          - "privacy-aware events, stored in on-prem analytics if required"
+      backend:
+        logging: "on-prem centralized logging (ELK/EFK/Loki)"
+        tracing: "Jaeger or OpenTelemetry collector"
+        metrics: "Prometheus + Grafana"
+
+  constraints:
+    forbidden_technologies:
+      - "Direct exposure of backend services to the internet without DMZ gateway."
+      - "Token validation purely on the mobile app without server-side verification."
+      - "Storing PII or tokens in plain text on device."
+      - "Non-versioned APIs for public mobile usage."
+      - "Direct DB access from DMZ gateway."
+    architectural_rules:
+      - "Public endpoint must be only the DMZ API Gateway/Reverse Proxy."
+      - "Backend services and database must be reachable only from internal network zones."
+      - "JWT/OIDC tokens must be validated at the gateway and/or an auth service on-prem."
+      - "Mobile app must not embed secrets; only public client IDs when strictly necessary."
+      - "All communication between gateway and backend must be TLS-protected; mTLS recommended."
+      - "API-level rate limiting and throttling must be configured at the gateway."
+    performance_rules:
+      - "Introduce caching at gateway for read-only endpoints where applicable."
+      - "Paginate lists and limit payload size."
+      - "Timeouts and circuit breakers must be in place between gateway and backend."
+
+  lanes:
+    - name: "mobile-flutter"
+      lane: "flutter"
+      purpose: "Client app, social login UI, API consumption."
+      allowed_frameworks:
+        - "Flutter"
+        - "Riverpod"
+        - "flutter_bloc"
+      forbidden_technologies:
+        - "Plain HTTP (non-HTTPS) calls in production."
+        - "Manual OAuth flows without using secure libraries/SDKs."
+      default_test_profile:
+        coverage_min: 70
+        required_checks:
+          - tests
+          - lint
+          - build
+
+    - name: "backend-onprem-api"
+      lane: "python"  # or js-ts/java/dotnet as per chosen stack
+      purpose: "On-prem API, business logic and data access."
+      allowed_frameworks:
+        - "FastAPI"
+        - "NestJS"
+        - "Spring Boot"
+        - "ASP.NET Core"
+      forbidden_technologies:
+        - "Direct SQL from controller layer."
+        - "Exposed DB port to DMZ or internet."
+      default_test_profile:
+        coverage_min: 80
+        required_checks:
+          - tests
+          - lint
+          - types
+          - security
+          - build
+
+    - name: "gateway-dmz"
+      lane: "iac-k8s"
+      purpose: "DMZ reverse proxy/API Gateway configuration, WAF, mTLS, rate limiting."
+      allowed_frameworks:
+        - "NGINX"
+        - "Envoy"
+        - "API Gateway appliance or software (Apigee, Kong, etc.)"
+      forbidden_technologies:
+        - "Ad-hoc unmanaged reverse proxies configured only via UI (no IaC)."
+      default_test_profile:
+        coverage_min: 0
+        required_checks:
+          - tests
+          - security
+          - build
+
+  profiles:
+    - name: "mobile-app-onprem"
+      runtime: "flutter@stable"
+      platform: "android-ios-windows"
+      api:
+        - "rest"
+      storage:
+        - "local-secure"
+      messaging:
+        - "push-notifications"
+      auth:
+        - "oauth2-social"
+      observability:
+        - "sentry"
+
+    - name: "onprem-backend-core"
+      runtime: "python@3.12 or equivalent"
+      platform: "onprem-k8s-or-VM"
+      api:
+        - "rest"
+      storage:
+        - "sql-db"
+      messaging:
+        - "internal-broker (Kafka/RabbitMQ optional)"
+      auth:
+        - "oidc"
+      observability:
+        - "efk"
+        - "prometheus"
+        - "jaeger"
+
+  capabilities:
+    - type: "ci.quality"
+      coverage_min: 80
+      require_sast: true
+      require_sca: true
+
+  ci_cd:
+    system: "jenkins or gitlab_ci"
+    runners: "on-prem runners"
+    pipelines:
+      mobile:
+        build: "ci/jenkins-mobile-flutter.Jenkinsfile"
+      backend:
+        build: "ci/jenkins-backend-onprem.Jenkinsfile"
+        deploy: "ci/jenkins-deploy-onprem.Jenkinsfile"
+      gateway:
+        deploy: "ci/jenkins-deploy-gateway.Jenkinsfile"
+    external_quality_gates:
+      sonar:
+        enabled: true
+        project_key: "mobile-onprem-flutter"
+    default_branch_protection:
+      require_pr: true
+      require_reviews: 1
+      require_status_checks: true
+
+  security:
+    internet_egress: "restricted"
+    allowed_endpoints:
+      - "https://accounts.google.com"
+      - "https://appleid.apple.com"
+      - "https://graph.facebook.com"
+      - "https://mobile-api.company.com"
+    secrets_management:
+      mobile: "No secrets stored; only public client IDs when necessary."
+      backend: "HashiCorp Vault or enterprise secret manager."
+      gateway: "Certificates and keys stored in HSM or secure keystore."
+    dependency_policy:
+      allowlist:
+        - "flutter_secure_storage"
+        - "dio"
+        - "http"
+        - "riverpod"
+        - "flutter_bloc"
+      denylist:
+        - "unmaintained flutter plugins"
+    authentication:
+      user_auth: "OAuth2/OIDC social login, federated via corporate IdP if required."
+      service_auth: "mTLS between gateway and backend services."
+    authorization:
+      method: "RBAC / ABAC in backend."
+      policies_source: "Backend DB or central IAM."
+    data_protection:
+      encryption_at_rest: true
+      encryption_in_transit: true
+      pii_handling: "All user data stored on-prem; no replication to public cloud unless anonymized."
+
+  data_management:
+    primary_stores:
+      - name: "onprem-app-db"
+        engine: "sql-db"
+        datacenter: "primary-dc"
+    backup_policy:
+      rpo_minutes: 30
+      rto_minutes: 120
+    retention_policy:
+      user_data_days: 365
+      audit_logs_days: 365
+    migration_strategy: "Versioned migrations via CI/CD (Flyway, Liquibase, or framework-native)."
+
+  eval_profiles:
+    default:
+      coverage_min: 80
+      max_critical_vulns: 0
+      lint_must_be_clean: true
+      allow_snapshot_tests: true
+    relaxed_non_prod:
+      coverage_min: 60
+      max_critical_vulns: 0
+      allow_flaky_tests: true

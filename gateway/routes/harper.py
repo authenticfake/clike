@@ -2,6 +2,9 @@
 from __future__ import annotations
 import asyncio
 import json
+import traceback
+import uuid
+import re
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -13,13 +16,13 @@ import httpx
 from utils.sanitize import sanitize_for_path
 from utils.utils import   collect_rag_materials_http, decide_inline_or_rag
 from utils.rag_store import RagStore
-from routes.chat import ANTHROPIC_API_KEY, ANTHROPIC_BASE, OLLAMA_BASE, OPENAI_API_KEY, OPENAI_BASE, VLLM_BASE, _json
+from routes.chat import ANTHROPIC_API_KEY, ANTHROPIC_BASE, DEEPSEEK_BASE, OLLAMA_BASE, OPENAI_API_KEY, DEEPSEEK_API_KEY, OPENAI_BASE, VLLM_BASE, _json
 from providers import openai_compat as oai
 from providers import anthropic as anth
-from providers import deepseek as dsk
+from providers import deepseek as deepseek
 from providers import ollama as oll
 from providers import vllm as vll
-import yaml, re
+import yaml
 import mimetypes
 from pricing import PricingManager  # [pricing]
 
@@ -41,6 +44,7 @@ PROMPT_BUILD_SYSTEM_PATH = os.getenv("PROMPT_BIULD_SYSTEM_PATH", "/app/prompts/h
 PROMPT_FINALIZE_SYSTEM_PATH = os.getenv("PROMPT_FINALIZE_SYSTEM_PATH", "/app/prompts/harper/finalize_system.md")
 
 TELEMETRY_DIR = os.getenv("HARPER_TELEMETRY_DIR", "/workspace/telemetry")  # scrive qui i .jsonl
+STUB_DIR = os.getenv("HARPER_STUB_DIR", "/workspace/gateway/stub")  # scrive qui i .jsonl
 
 _REPO_PLACEHOLDER = "[x]"
 _FILE_BLOCK_FENCED_RE = re.compile(
@@ -55,16 +59,20 @@ _FILE_BLOCK_BEGIN_RE = re.compile(
     r"(?:^|\n)BEGIN_FILE\s+([^\n]+)\n(.*?)(?:\nEND_FILE|$)",
     re.DOTALL | re.IGNORECASE
 )
+_FILE_BLOCK_FENCED_INLINE_RE = re.compile(
+    r"(?:^|\n)```file:([^\n]+)\n(.*?)\n```",
+    re.DOTALL | re.IGNORECASE
+)
 
 # --- Model parameters per phase (output budget & style) ----------------------
 PHASE_MODEL_PARAMS = {
-    "idea":     {"max_tokens": 13500, "temperature": 0.2, "top_p": 1.0},
-    "spec":     {"max_tokens": 22500, "temperature": 0.2, "top_p": 1.0},
+    "idea":     {"max_tokens": 23500, "temperature": 0.2, "top_p": 1.0},
+    "spec":     {"max_tokens": 29500, "temperature": 0.2, "top_p": 1.0},
     "plan":     {"max_tokens": 45000, "temperature": 0.2, "top_p": 0.8},  # raise to 6500 only if many lanes
     "kit":      {"max_tokens": 61500, "temperature": 0.1, "top_p": 1.0},
     "eval":     {"max_tokens": 6500, "temperature": 0.1, "top_p": 1.0},
     "gate":     {"max_tokens": 6000, "temperature": 0.1, "top_p": 1.0},
-    "finalize": {"max_tokens": 21000, "temperature": 0.1, "top_p": 1.0},
+    "finalize": {"max_tokens": 31000, "temperature": 0.1, "top_p": 1.0},
 }
 # --- RAG helpers: filter out docs and non-source hits -----------------------
 
@@ -138,9 +146,7 @@ def _canonicalize_path(p: str) -> str:
 
 def get_model_params(phase: str) -> dict:
     return PHASE_MODEL_PARAMS.get((phase or "").lower(), {"max_tokens": 6000, "temperature": 0.25, "top_p": 1.0})
-# === PATCH 1A: Helpers per derivare plan.json dal PLAN.md (Markdown table) ===
-import re
-import json
+
 
 def _extract_req_table_md(plan_md: str) -> str | None:
     """
@@ -294,6 +300,49 @@ def _load_plan_json(core_blobs: dict | None) -> dict | None:
     log.info("harper.plan: no plan.json entry found in core_blobs")
     return None
 
+# ---  collect gate_policy_ref paths for KIT --------------------------
+def _collect_gate_policy_refs(plan_data: dict, targets: list[str]) -> list[str]:
+    """
+    Return lane/plan references (gate_policy_ref) for the given target REQ-IDs.
+
+    We support both a single string and a list of strings for gate_policy_ref.
+    """
+    try:
+        if not plan_data:
+            return []
+
+        reqs = plan_data.get("reqs") or []
+        target_ids = {
+            str(t or "").strip()
+            for t in (targets or [])
+            if str(t or "").strip()
+        }
+
+        refs: set[str] = set()
+        for r in reqs:
+            rid = str(r.get("id") or "").strip()
+            if not rid or rid not in target_ids:
+                continue
+
+            ref_val = r.get("gate_policy_ref")
+            
+            if not ref_val:
+                continue
+
+            if isinstance(ref_val, str):
+                v = ref_val.strip()
+                if v:
+                    refs.add(v)
+            elif isinstance(ref_val, (list, tuple)):
+                for x in ref_val:
+                    v = str(x or "").strip()
+                    if v:
+                        refs.add(v)
+
+        return sorted(refs)
+    except Exception as exc:
+        log.warning("collect_gate_policy_refs failed: %s", exc)
+        return []
 
 
 def _collect_req_deps(plan_data: dict, targets: list[str]) -> list[str]:
@@ -413,6 +462,10 @@ def _extract_file_blocks(text: str) -> tuple[list[dict], str]:
       file:/path/to/file.ext
       <contenuto>
       ```
+      e anche lo stile inline:
+      ```file:/path/to/file.ext
+      <contenuto>
+      ```
 
     B) PLAIN:
       file:/path/to/file.ext
@@ -446,7 +499,19 @@ def _extract_file_blocks(text: str) -> tuple[list[dict], str]:
             "mime": _guess_mime(norm_path),
             "encoding": "utf-8",
         })
-
+    # --- A2) FENCED inline: ```file:/path ---
+    for m in _FILE_BLOCK_FENCED_INLINE_RE.finditer(text):
+        start, end = m.span()
+        intervals.append((start, end))
+        raw_path = (m.group(1) or "").strip()
+        content = (m.group(2) or "")
+        norm_path = raw_path.lstrip().lstrip("/")
+        files.append({
+            "path": norm_path,
+            "content": content,
+            "mime": _guess_mime(norm_path),
+            "encoding": "utf-8",
+        })
     # --- B) PLAIN ---
     for m in _FILE_BLOCK_PLAIN_RE.finditer(text):
         start, end = m.span()
@@ -477,6 +542,8 @@ def _extract_file_blocks(text: str) -> tuple[list[dict], str]:
         })
 
     if not intervals:
+        # nessun blocco file riconosciuto: restituisci il testo intero come remainder
+        log.info("no file blocks found")
         return [], text.strip()
 
     # Rimuovi gli intervalli estratti per ottenere il remainder
@@ -572,14 +639,13 @@ def _output_checklist_for_phase(phase: str) -> str:
             "- All major sections use `## Section` headings (no numbered titles).\n"
             "- Required diagrams (if any) use fenced code blocks (e.g., Mermaid). No ASCII art.\n"
             "- Clean Markdown bullets (one space after `-` or `*`).\n"
-            "- Output is a single Markdown document (no extra prose before/after).\n"
         )
 
     if p == "finalize":
         return (
             "### OUTPUT CONFORMITY CHECKLIST\n"
             f"- Top-level heading is `# {p.upper()}`.\n"
-            "- Produce `RELEASE_NOTES.md` as a single Markdown document or as a `file:/...` block.\n"
+            "- Emit one or more `file:/path/...` block.\n"
             "- If additional metadata (tags/version) is included, keep it at the end in a clearly labeled section.\n"
             "- No ASCII art; diagrams (if any) use proper fenced blocks.\n"
             "- Clean Markdown bullets (one space after `-` or `*`).\n"
@@ -589,9 +655,8 @@ def _output_checklist_for_phase(phase: str) -> str:
     return (
         "### OUTPUT CONFORMITY CHECKLIST\n"
         "- Emit one or more `file:/path` blocks with complete file contents.\n"
-        "- Include the phase log (`KIT.md`) as a file block if required.\n"
+        "- Rispect the Module/Package & Namespace structure defined in the PLAN.md during kit command"
         "- No trailing prose outside fenced blocks, except a short append-only iteration log if specified.\n"
-        "- Respect repository structure and composition-first design.\n"
     )
 
 def _append_kit_target_to_user(user_text: str, targets: list[str], acceptance: Optional[list[str]] = list[str]) -> str:
@@ -601,9 +666,11 @@ def _append_kit_target_to_user(user_text: str, targets: list[str], acceptance: O
     rid = targets[0]
     # opzionale: acceptance passata dal client
     acc = acceptance or []
-    section = [ "\n### KIT Target", f"- REQ: {rid}" ]
+    section = [ "\n### KIT Target To Be Applied for this phase. ", f"- REQ-ID: {rid}.\n" ]
+    section.append(f"- Generates code, docs, test for the following REQ-ID: {rid}.")
+
     if isinstance(acc, list) and acc:
-        section.append("- Acceptance (from plan):")
+        section.append("- Acceptance (from PLAN.md):")
         section.extend([f"  - {a}" for a in acc])
     return user_text + "\n" + "\n".join(section) + "\n"
 
@@ -654,8 +721,8 @@ def _compose_system_messages(phase: str,
         log.info("componse message nmber: %s", len(system.split("\n")))
         for name, content in core_blobs.items():
             lname = (name or "").lower()
-            if name.endswith('plan.json'):
-                continue
+            # if name.endswith('plan.json'):
+            #     continue
             log.info("componse message nmber: %s", len(system.split("\n")))
             if lname.startswith("tech_constraints"):
                     constraints_keys.append(name)
@@ -687,11 +754,11 @@ def _compose_system_messages(phase: str,
         idea_txt = f"### IDEA.md (verbatim)\n{idea_md}\n\n"
     user = (
         f"{foreground}\n\n"
-        f"### Route\n- profile: {profile_hint or '—'}\n- model: {model_route_label or '—'}\n- runId: {run_id or 'n/a'}\n\n"
+        f"### Route\n\n"
         f"{idea_txt}"
         f"{refs}\n\n"
         f"{_output_checklist_for_phase(phase)}"
-        f"### Task\nProduce/Transform the {phase.upper()} output that strictly follows the Output contract. Return only the Markdown document for this phase.{suffix}"
+        f"### Task\nProduce/Transform the {phase.upper()} output that strictly follows the Output contract. Returns files as requested for this pahse.{suffix}"
     )
     # --- se fase KIT, inietta direttiva target ---
     if (phase or "").lower() == "kit":
@@ -806,7 +873,6 @@ async def _append_attachs_by_files(messages: list[dict], project_id: str, paths:
 
     materials = []
     for p in paths:
-
         try:
             doc = await store.get_by_path(
                         p,
@@ -823,17 +889,16 @@ async def _append_attachs_by_files(messages: list[dict], project_id: str, paths:
             continue
 
     for c in contents:
-        log.info("INLINE retrieve content '%s'", c['name'])
-        content_text = c['content']
+        log.info("INLINE retrieve content '%s'", c['name']) # type: ignore
+        content_text = c['content'] # pyright: ignore[reportArgumentType]
         if content_text:
             if (len(content_text) > max_chars_each):
                 content_text= content_text[:max_chars_each] + "\n# ... truncated"
-            materials.append({"title": c['name'], "text": content_text})
+            materials.append({"title": c['name'], "text": content_text}) # type: ignore
 
     if not materials:
         return 0
-
-    appendix = "\n\n### Project Nanme (<Project Name>): "+project_id+"\n\n### Attachments RAG Context\n" + "\n\n".join(
+    appendix =  "\n\n### RAG Context – Attachments" + "\n\n".join(
         f"#### {m['title']}\n{m['text']}" for m in materials[:max_materials]
     )
     # appendiamo al messaggio 'user' (index 1 by contract)
@@ -870,6 +935,132 @@ def _write_telemetry(project_id: str, record: dict) -> None:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
     except Exception as e:
         log.warning("telemetry write failed: %s", e)
+
+def _dump_llm_provider_raw(
+    *,
+    project_id: str,
+    phase: str,
+    model_label: str,
+    provider: str,
+    raw_payload: dict | None,
+) -> None:
+    """
+    Persist the *provider raw* payload (as returned in `llm_result['raw']`).
+
+    File name pattern (under TELEMETRY_DIR/llm_provider_raw/):
+        provider-<provider>__<model>__<phase>__<uuid>.json
+
+    - provider: 'openai', 'anthropic', 'ollama', ecc.
+    - model: sanitized model label (':' '/' ' ' → '_')
+    - phase: harper phase (idea/spec/plan/kit/...)
+    """
+    try:
+        if not isinstance(raw_payload, dict) or not raw_payload:
+            return
+
+        phase_slug = (phase or "phase").strip().lower() or "phase"
+        model_slug = (model_label or "model").strip() or "model"
+        model_slug = (
+            model_slug
+            .replace(":", "_")
+            .replace("/", "_")
+            .replace("\\", "_")
+            .replace(" ", "_")
+        )
+        provider_slug = (provider or "provider").strip().lower() or "provider"
+
+        uid = uuid.uuid4().hex[:12]
+        ts = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+
+        # Directory dedicata ai RAW provider dentro TELEMETRY_DIR
+        root = Path(TELEMETRY_DIR).joinpath("llm_provider_raw")
+        root.mkdir(parents=True, exist_ok=True)
+
+        filename = f"provider-{provider_slug}__{model_slug}__{phase_slug}__{uid}.json"
+        path = root.joinpath(filename)
+
+        payload: dict[str, object] = {
+            "timestamp": ts,
+            "project_id": project_id,
+            "phase": phase_slug,
+            "provider": provider_slug,
+            "model_label": model_label,
+            "raw": raw_payload,
+        }
+
+        with path.open("w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+
+        log.info("harper.llm_dump: saved provider raw response to %s", path)
+    except Exception as e:
+        # Non deve mai rompere il flusso Harper, è solo telemetria aggiuntiva.
+        log.warning("harper.llm_dump: failed to save provider raw response: %s", e)
+
+
+def _dump_llm_response(
+    *,
+    project_id: str,
+    phase: str,
+    model_label: str,
+    provider: str,
+    messages: list[dict],
+    gen: dict | None,
+    llm_result: dict | None,
+) -> None:
+    """
+    Persist raw LLM response for debugging/forensics.
+
+    File name pattern:
+        <model>__<phase>__<uuid>.json
+
+    - model: sanitized (':' and '/' replaced with '_')
+    - phase: lowercased harper phase (idea/spec/plan/kit/...)
+    - uuid: short hex, unique per call
+    """
+    try:
+        if not isinstance(llm_result, dict):
+            return
+
+        phase_slug = (phase or "phase").strip().lower() or "phase"
+        model_slug = (model_label or "model").strip() or "model"
+        model_slug = (
+            model_slug
+            .replace(":", "_")
+            .replace("/", "_")
+            .replace("\\", "_")
+            .replace(" ", "_")
+        )
+        provider_slug = (provider or "provider").strip().lower() or "provider"
+
+        uid = uuid.uuid4().hex[:12]
+        ts = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+
+        # Directory dedicata ai dump LLM dentro TELEMETRY_DIR
+        root = Path(TELEMETRY_DIR).joinpath("clike_raw")
+        root.mkdir(parents=True, exist_ok=True)
+
+        filename = f"{model_slug}__{phase_slug}__{uid}.json"
+        path = root.joinpath(filename)
+
+        payload: dict[str, object] = {
+            "timestamp": ts,
+            "project_id": project_id,
+            "phase": phase_slug,
+            "provider": provider_slug,
+            "model_label": model_label,
+            "gen": gen or {},
+            "messages": messages or [],
+            "llm_result": llm_result,
+        }
+
+        with path.open("w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+
+        log.info("harper.llm_dump: saved LLM response to %s", path)
+    except Exception as e:
+        # Non deve mai rompere il flusso Harper, è solo telemetria.
+        log.warning("harper.llm_dump: failed to save LLM response: %s", e)
+
 
 async def gather_rag_materials(rag_chunks,rag_top_k, store, rag_queries = None) -> list[dict]:
     """
@@ -941,7 +1132,7 @@ async def _retrive_rag_chunks(messages: list[dict], rag_chunks: list[dict] | Non
 
         # Prepara 'rag_queries' se non arrivano dal client: estrai da IDEA/SPEC headings nei chunks
         if not rag_queries:
-            log.info("rag_queries not found (rag_chunks) '%s' ", len(rag_chunks))
+            log.info("rag_queries not found (rag_chunks) '%s' ", len(rag_chunks)) # type: ignore
             qs = []
             for ch in (rag_chunks or []):
                 name = (ch.get("name") or "").lower()
@@ -1053,7 +1244,7 @@ def load_anthropic_stub_from_file(path: str = "stub/anthropic_stub.json") -> dic
             detail="Anthropic stub load failed",
         )
 
-async def loadAttachments(rag_enabled: bool, project_id: str, phase: str, messages: list[dict], inline_files: list[dict], rag_files: list[dict], attachments: list[dict], model_route_label: str, runId: str) -> dict:
+async def loadAttachments(rag_enabled: bool, project_id: str, phase: str, messages: list[dict], inline_files: list[str], rag_files: list[dict], attachments: list[dict], model_route_label: str, runId: str) -> dict:
     appended = []   # <--- evita UnboundLocalError
     if rag_enabled and (len(rag_files) > 0 or len(inline_files) > 0):
             pathFiles = [item.get('path') for item in attachments if isinstance(item, dict) and item.get('path')]
@@ -1061,7 +1252,7 @@ async def loadAttachments(rag_enabled: bool, project_id: str, phase: str, messag
            
             # 1) tentativo locale via RagStore
             try:
-                appended = await _append_attachs_by_files(messages, project_id, pathFiles, inline_files)
+                appended = await _append_attachs_by_files(messages, project_id, paths=pathFiles, contents=inline_files)
             except Exception as e:
                 log.warning("RAG (local RagStore) append failed: %s", e)
                 appended = 0
@@ -1114,7 +1305,6 @@ async def run(req: HarperRunRequest,  request: Request):
     project_id = req.project_id or "default_id"
     project_name = req.project_name  or "default_name"
     if not phase:
-    # Non 422 “duro”: rispondiamo comunque con errore soft dentro il payload
         return {
             "ok": False,
             "echo": "missing phase/cmd",
@@ -1263,54 +1453,79 @@ async def run(req: HarperRunRequest,  request: Request):
                     log.info("harper.kit.rag: no plan.json in core_blobs; skip deps_only RAG")
                 else:
                     dep_ids = _collect_req_deps(plan_data, targets)
-                    log.info("harper.kit.rag: dep_ids:%s", dep_ids)
+                    gate_refs = _collect_gate_policy_refs(plan_data, targets)
+
+                    log.info("harper.kit.rag: dep_ids=%s gate_refs=%s", dep_ids, gate_refs)
 
                     if not dep_ids:
                         log.info("harper.kit.rag: no deps for targets=%s", targets)
-                    else:
+                    if not gate_refs:
+                        log.info("harper.kit.rag: no refs for targets=%s", targets)
+                    elif dep_ids or gate_refs:    
                         # Costruisce le rag_queries a partire dalle dipendenze (REQ-XXX)
                         base_queries = list(req.rag_queries or [])
+                        if dep_ids:
+                            for d in dep_ids:
+                                if d not in base_queries:
+                                    base_queries.append(d)
+                            log.info("harper.kit.rag: base_queries extended:%s", base_queries)
 
-                        for d in dep_ids:
-                            if d not in base_queries:
-                                base_queries.append(d)
-                        log.info("harper.kit.rag: base_queries extended:%s", base_queries)
+                            materials = await _retrive_rag_chunks(
+                                messages,
+                                req.rag_chunks or [],
+                                base_queries,
+                                req.rag_top_k,
+                                project_id,
+                            )
 
-                        materials = await _retrive_rag_chunks(
-                            messages,
-                            req.rag_chunks or [],
-                            base_queries,
-                            req.rag_top_k,
-                            project_id,
-                        )
+                            if materials:
+                                # Preferisci i materiali legati ai KIT precedenti (runs/kit/REQ-XXX/src/**)
+                                kit_materials: list[dict] = []
+                                for m in materials:
+                                    title = (m.get("title") or "").lower()
+                                    path_part = title.split("#", 1)[0]
+                                    if path_part.startswith("runs/kit/req-") and "/src/" in path_part:
+                                        kit_materials.append(m)
 
-                        if materials:
-                            # Preferisci i materiali legati ai KIT precedenti (runs/kit/REQ-XXX/src/**)
-                            kit_materials: list[dict] = []
-                            for m in materials:
-                                title = (m.get("title") or "").lower()
-                                path_part = title.split("#", 1)[0]
-                                if path_part.startswith("runs/kit/req-") and "/src/" in path_part:
-                                    kit_materials.append(m)
-
-                            use_materials = kit_materials or materials
-                            appendix = (
-                                "\n\n### RAG Context – previous KIT implementations\n"
-                                + "\n\n".join(
-                                    f"#### {m['title']}\n{m['text']}" for m in use_materials[:24]
+                                use_materials = kit_materials or materials
+                                appendix = (
+                                    "\n\n### RAG Context – The curresnt source codes implementations and structure\n"
+                                    + "\n\n".join(
+                                        f"#### {m['title']}\n{m['text']}" for m in use_materials[:24]
+                                    )
                                 )
-                            )
-                            messages[1]["content"] += appendix
-                            log.info(
-                                "harper.kit.rag: appended %d materials (deps=%s)",
-                                len(use_materials),
-                                dep_ids,
-                            )
-                        else:
-                            log.info(
-                                "harper.kit.rag: no RAG materials found for deps=%s",
-                                dep_ids,
-                            )
+                                messages[1]["content"] += appendix
+                                log.info(
+                                    "harper.kit.rag: appended %d materials (deps=%s)",
+                                    len(use_materials),
+                                    dep_ids,
+                                )
+                            else:
+                                log.info(
+                                    "harper.kit.rag: no RAG materials found for deps=%s",
+                                    dep_ids,
+                                )
+                        # 2) Lane guide specifica (gate_policy_ref) per il REQ corrente
+                        #    → path-based, usando la stessa logica delle attachments
+                        if gate_refs:
+                            try:
+                                await _append_attachs_by_files(
+                                    messages,
+                                    project_id,
+                                    paths=gate_refs,
+                                    contents=[],
+                                    max_materials=6,
+                                 )
+    
+                                log.info(
+                                    "harper.kit.rag: appended gate_policy_ref docs for refs=%s",
+                                    gate_refs,
+                                )
+                            except Exception as e:
+                                log.warning(
+                                    "harper.kit.rag: failed to append gate_policy_ref docs: %s",
+                                    e,
+                                )
             except Exception as e:
                 log.warning("harper.kit.rag: failed to append deps_only RAG: %s", e)
 
@@ -1396,6 +1611,11 @@ async def run(req: HarperRunRequest,  request: Request):
 
             llm_text = await oai.openai_complete_unified(OPENAI_API_KEY, model, messages, req.gen, timeout_sec)
                 #llm_text = await oai.chat(OPENAI_BASE, OPENAI_API_KEY, model, messages, gen_temperature, eff_max, gen_response_format,gen_reasoning, gen_tools, gen_tool_choice, timeout=timeout_sec, top_p=gen_top_p, stop=gen_stop) 
+        elif provider == "deepseek":
+            if not DEEPSEEK_API_KEY:
+                raise HTTPException(401, "missing OpenAI api key")
+
+            llm_text = await deepseek.chat(DEEPSEEK_API_KEY, DEEPSEEK_BASE, model, messages, gen_temperature, eff_max, gen_top_p)  
 
         elif provider == "vllm":
             llm_text =  await vll.chat(VLLM_BASE, model, messages, gen_temperature, eff_max, gen_response_format, gen_tools, gen_tool_choice, gen_top_p)
@@ -1426,8 +1646,6 @@ async def run(req: HarperRunRequest,  request: Request):
             # log.info("harper_plan_debug: start")
             # await asyncio.sleep(30)  # 400 secondi
             # log.info("harper_plan_debug: end")
-            
-            
         else:
             raise HTTPException(400, f"unsupported provider for chat: {provider} for model '{req.model}")
 
@@ -1440,7 +1658,9 @@ async def run(req: HarperRunRequest,  request: Request):
             log.error("httpx error: %s", e)
             raise HTTPException(502, detail=f"provider connection error: {e}")
     except Exception as e:
-        log.error("httpx error: %s", e)
+        error_stack = traceback.format_exc()
+        log.error("httpx error (error_stack): %s", error_stack)
+        log.error("httpx error: %s", e, exc_info=True)
         errors.append(f"provider_error: {type(e).__name__}: {e}")
         spec_md_txt, llm_diag = ("", {})
     
@@ -1448,6 +1668,45 @@ async def run(req: HarperRunRequest,  request: Request):
     #text_len=0
     log.info("harper.gateway llm_text length '%s' ", len(llm_text))
     #log.info("harper.gateway llm_text  '%s' ", (llm_text))
+    
+        # --- Dump raw LLM response + provider raw for debugging/forensics (non-blocking) ---
+    try:
+        log.info("--- Dump Clike LLM response  ---")
+
+        if "llm_text" in locals() and isinstance(llm_text, dict):
+            # 1) risposta unificata (normalized Harper envelope)
+            _dump_llm_response(
+                project_id=project_id,
+                phase=phase,
+                model_label=model_route_label,
+                provider=provider,
+                messages=messages,
+                gen=req.gen or {},
+                llm_result=llm_text,
+            )
+            log.info("--- Dump Clike LLM response done ---")
+
+            # 2) payload grezzo del provider (campo 'raw' dell'envelope)
+            provider_raw = llm_text.get("raw")
+            log.info("--- Dump Provider LLM response  ---")
+
+            if isinstance(provider_raw, dict) and provider_raw:
+                _dump_llm_provider_raw(
+                    project_id=project_id,
+                    phase=phase,
+                    model_label=model_route_label,
+                    provider=provider,
+                    raw_payload=provider_raw,
+                )
+            log.info("--- Dump Clike Provider response done ---")
+
+        else:
+            log.info("harper.llm_dump: skip (llm_text not available or not a dict)")
+    except Exception as e:
+        # Non deve mai interferire con il flusso principale
+        log.warning("harper.llm_dump: error while dumping response: %s", e)
+
+
     # system_md_txt = ""
     # system_md_txt, llm_usage = oai.coerce_text_and_usage(llm_text)
     # system_md_txt = (system_md_txt or "").strip()
@@ -1474,8 +1733,8 @@ async def run(req: HarperRunRequest,  request: Request):
             warnings.append("normalized_heading: added H1 heading to SPEC")
 
         required_sections = [
-            "Problem", "Objectives", "Scope", "Non-Goals", "Constraints",
-            "KPIs", "Assumptions", "Risks", "Acceptance Criteria", "Sources"
+           "Summary", "Goals", "Problem", "Users & Context", "Functional Requirements", "Non-Goals", "Non-Functional Requirements",
+            "High-Level Architecture", "", "Interfaces", "Data Model", "Assumptions"
         ]
         missing = [s for s in required_sections if f"## {s}" not in system_md_txt]
         if missing:
@@ -1625,9 +1884,6 @@ async def run(req: HarperRunRequest,  request: Request):
     
     # --- Telemetry ---
     telemetry = {}
-
-     # === persist telemetry ====================================================
-    # arricchisco con timestamp e costo stimato
     ts = time.time()
     telemetry["timestamp"] = ts
     telemetry["project_name"] = project_id

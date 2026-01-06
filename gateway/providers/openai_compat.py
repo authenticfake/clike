@@ -5,6 +5,8 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import httpx
 
+log = logging.getLogger("openai")
+
 _OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
 _OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 #TODO params filtering
@@ -95,9 +97,6 @@ def _mk_unified_result(
         "raw": raw or {},
         "errors": errors or [],
     }
-# --- end: openai_compat unified imports/helpers ---
-# --- begin: payload builders ---
-log = logging.getLogger("gateway.openai")
 
 def _build_chat_payload(
     model: str,
@@ -478,7 +477,7 @@ async def openai_complete_unified(
                 r = await client.post(url, headers=headers, json=payload)
                 log.info("openai_complete_unified response %s", r.status_code)
                 #LOG RESPONSE OPENAI 
-                # log.info("gateway._post_with_retries response text %s", r.text)
+                #log.info("gateway._post_with_retries response text %s", r.text)
        
     except Exception as e:
         log.error("exception openai_complete_unified Error: %s", e, exc_info=True)

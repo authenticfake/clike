@@ -40,7 +40,7 @@ models:
     tags: [embeddings]
     profiles: [local.embeddings]
 
-  - id: vllm:deepseek-coder-v2
+  - id: deepseek:deepseek-coder-v2
     name: deepseek-coder-v2
     provider: vllm
     base_url: http://vllm:8000/v1
@@ -49,6 +49,7 @@ models:
     capability: high
     latency: medium
     cost: low
+    
     privacy: high
     enabled: false
     temperature: 0.2

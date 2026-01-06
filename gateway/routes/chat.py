@@ -6,18 +6,19 @@ from typing import List, Dict, Any, Optional, Union
 
 from providers import openai_compat as oai
 from providers import anthropic as anth
-from providers import deepseek as dsk
+from providers import deepseek as deepseek
 from providers import ollama as oll
 from providers import vllm as vll
 
 
 OPENAI_BASE = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+DEEPSEEK_BASE = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1").rstrip("/")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-
+ANTHROPIC_BASE= os.getenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1").rstrip("/")
 VLLM_BASE = os.getenv("VLLM_BASE_URL", "http://vllm:8000/v1").rstrip("/")
 OLLAMA_BASE = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434").rstrip("/")
-ANTHROPIC_BASE= os.getenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1").rstrip("/")
 
 router = APIRouter()
 log = logging.getLogger("gateway.chat")
@@ -176,7 +177,32 @@ async def chat_completions(req: ChatRequest,  request: Request):
                                                                             timeout=timeout) 
         return data
     if provider == "vllm":
-        return await vll.chat(VLLM_BASE, model, messages, temperature, max_tokens, max_tokens, response_format, tools, tool_choice, timeout)
+        return await vll.chat(base=VLLM_BASE,
+                              model=model, 
+                                   messages=messages, 
+                                   temperature=temperature, 
+                                   max_tokens=max_tokens, 
+                                   response_format=response_format, 
+                                   tools=tools, 
+                                   tool_choice=tool_choice, 
+                                   timeout=timeout)
+    if provider == "deepseek":
+        if not DEEPSEEK_API_KEY:
+            raise HTTPException(401, "missing DEEPSEEK api key")
+       
+        return await deepseek.chat(base=DEEPSEEK_BASE,
+                                   api_key=DEEPSEEK_API_KEY, 
+                                   model=model, 
+                                   messages=messages, 
+                                   temperature=temperature, 
+                                   max_tokens=max_tokens, 
+                                   response_format=response_format, 
+                                   tools=tools, 
+                                   tool_choice=tool_choice, 
+                                   timeout=timeout)
+    
+    
+    
     if provider == "ollama":
         return await oll.chat(OLLAMA_BASE, model, messages, temperature, max_tokens, timeout)
     elif provider == "anthropic":

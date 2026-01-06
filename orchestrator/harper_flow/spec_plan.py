@@ -1,223 +1,148 @@
 import json
-import re
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Tuple
 
-REQ_PATTERN = re.compile(r"REQ-[A-Z0-9\-]+")
+from .nodes import NodeExecutionResult, NodeStatus
 
+SPEC_TEMPLATE = """# SPEC
 
-@dataclass
-class SpecPlanArtifacts:
-    spec_path: Path
-    plan_path: Path
-    plan_json_path: Path
-    req_ids: List[str] = field(default_factory=list)
+Context
+{context}
 
+Problem Statement
+{problem}
 
-class SpecPlanGenerator:
-    def __init__(self, project_root: Path):
-        self.project_root = project_root
-        self.docs_dir = project_root / "docs" / "harper"
-        self.spec_path = self.docs_dir / "SPEC.md"
-        self.plan_path = self.docs_dir / "PLAN.md"
-        self.plan_json_path = self.docs_dir / "plan.json"
-        self.docs_dir.mkdir(parents=True, exist_ok=True)
+Target Users
+{users}
 
-    def generate_spec(self, start_from: str, run_id: str, idea_override: Optional[Path] = None) -> Dict:
-        start_from = (start_from or "auto").lower()
-        idea_path_candidates = [
-            idea_override,
-            self.project_root / "IDEA.md",
-            self.docs_dir / "IDEA.md",
-        ]
-        idea_path = next((p for p in idea_path_candidates if p and p.exists()), None)
+Values & Outcomes
+{values}
 
-        spec_exists = self.spec_path.exists()
-        if start_from == "spec" and spec_exists:
-            content = self.spec_path.read_text(encoding="utf-8")
-            normalized = self._normalize_spec(content)
-            self.spec_path.write_text(normalized, encoding="utf-8")
-            return {"path": str(self.spec_path), "source": "existing", "normalized": True}
+Requirements
+{requirements}
 
-        if not idea_path:
-            raise FileNotFoundError("IDEA.md not found for SPEC generation")
+Out of Scope
+{out_of_scope}
+"""
 
-        idea_text = idea_path.read_text(encoding="utf-8")
-        spec_text = self._render_spec_from_idea(idea_text, run_id)
-        if spec_exists:
-            existing = self.spec_path.read_text(encoding="utf-8")
-            spec_text = self._merge_existing_spec(existing, spec_text)
-        self.spec_path.write_text(spec_text, encoding="utf-8")
-        return {"path": str(self.spec_path), "source": str(idea_path), "normalized": False}
+PLAN_TEMPLATE_HEADER = """# PLAN
 
-    def generate_plan(self) -> SpecPlanArtifacts:
-        if not self.spec_path.exists():
-            raise FileNotFoundError("SPEC.md is required to generate PLAN")
+Summary
+Derived from SPEC requirements.
 
-        spec_text = self.spec_path.read_text(encoding="utf-8")
-        req_ids = self._extract_req_ids(spec_text)
-        existing_plan_json = self._load_plan_json()
-        merged_plan_json = self._merge_plan_json(existing_plan_json, req_ids)
+Keep this synchronized with docs/harper/plan.json.
+"""
 
-        self.plan_json_path.parent.mkdir(parents=True, exist_ok=True)
-        self.plan_json_path.write_text(json.dumps(merged_plan_json, indent=2), encoding="utf-8")
+PLAN_ENTRY_TEMPLATE = """### {req_id}
 
-        plan_md = self._render_plan_md(merged_plan_json)
-        self.plan_path.write_text(plan_md, encoding="utf-8")
+Acceptance: {acceptance}
 
-        return SpecPlanArtifacts(
-            spec_path=self.spec_path,
-            plan_path=self.plan_path,
-            plan_json_path=self.plan_json_path,
-            req_ids=req_ids,
-        )
+Lane: {lane}
 
-    def _extract_req_ids(self, spec_text: str) -> List[str]:
-        unique: Set[str] = set(REQ_PATTERN.findall(spec_text))
-        return sorted(unique)
+Depends on: {depends_on}
+"""
 
-    def _load_plan_json(self) -> List[Dict]:
-        if not self.plan_json_path.exists():
-            return []
-        try:
-            return json.loads(self.plan_json_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            return []
+def read_idea(idea_path: Path) -> str:
+    return idea_path.read_text(encoding="utf-8").strip()
 
-    def _merge_plan_json(self, existing: List[Dict], req_ids: List[str]) -> List[Dict]:
-        indexed_existing = {item.get("id"): item for item in existing if item.get("id")}
-        merged: List[Dict] = []
+def generate_spec_from_idea(idea_text: str) -> str:
+    context = "Context derived from IDEA.md"
+    problem = "Problem statement derived from IDEA.md"
+    users = "Primary users and stakeholders"
+    values = "Desired outcomes and values"
+    requirements = "- REQ-001: Fill detailed requirement here"
+    out_of_scope = "- Non-goals and exclusions"
+    return SPEC_TEMPLATE.format(
+    context=context,
+    problem=problem,
+    users=users,
+    values=values,
+    requirements=requirements,
+    out_of_scope=out_of_scope,
+)
 
-        for req in req_ids:
-            current = indexed_existing.get(req, {})
-            merged.append(
-                {
-                    "id": req,
-                    "status": current.get("status", "pending"),
-                    "lane": current.get("lane", "core"),
-                    "dependsOn": current.get("dependsOn", []),
-                    "test_profile": current.get("test_profile", "default"),
-                    "gate_policy_ref": current.get("gate_policy_ref", "default"),
-                }
+def normalize_spec(spec_text: str) -> str:
+    if not spec_text.lstrip().startswith("# SPEC"):
+        return "# SPEC\n\n" + spec_text
+    return spec_text
+
+def extract_requirements(spec_text: str) -> List[Tuple[str, str]]:
+    reqs: List[Tuple[str, str]] = []
+    for line in spec_text.splitlines():
+        line = line.strip()
+        if line.startswith("- REQ-"):
+            parts = line.split(":", 1)
+            if len(parts) == 2:
+                reqs.append((parts[0].strip("- ").strip(), parts[1].strip()))
+    return reqs
+
+def load_spec_requirements(spec_path: Path) -> List[Tuple[str, str]]:
+    if not spec_path.exists():
+        return []
+    return extract_requirements(spec_path.read_text(encoding="utf-8"))
+
+def build_plan_entries(requirements: List[Tuple[str, str]]) -> List[Dict[str, str]]:
+    entries: List[Dict[str, str]] = []
+    for req_id, desc in requirements:
+        entries.append(
+        {
+        "id": req_id,
+        "status": "pending",
+        "lane": "core",
+        "dependsOn": [],
+        "description": desc,
+        "test_profile": "default",
+        "gate_policy_ref": "default",
+        }
+    )
+    return entries
+
+def generate_plan_md(entries: List[Dict[str, str]]) -> str:
+    parts = [PLAN_TEMPLATE_HEADER]
+    for entry in entries:
+        parts.append(
+        PLAN_ENTRY_TEMPLATE.format(
+            req_id=entry["id"],
+            acceptance=entry.get("description", "TBD"),
+            lane=entry.get("lane", "core"),
+            depends_on=", ".join(entry.get("dependsOn", [])) or "none",
             )
-
-        for req_id, item in indexed_existing.items():
-            if req_id not in req_ids:
-                merged.append(item)
-
-        merged.sort(key=lambda x: x.get("id", ""))
-        return merged
-
-    def _render_plan_md(self, plan_json: List[Dict]) -> str:
-        lines = ["# PLAN", "", "## Work Breakdown", ""]
-        for entry in plan_json:
-            req = entry.get("id")
-            status = entry.get("status", "pending")
-            lane = entry.get("lane", "core")
-            deps = entry.get("dependsOn", [])
-            dep_text = f" (depends on: {', '.join(deps)})" if deps else ""
-            lines.append(f"- {req} — lane: {lane}; status: {status}{dep_text}")
-        lines.extend(
-            [
-                "",
-                "## Traceability",
-                "Coverage: 100% of SPEC requirements mapped to PLAN entries.",
-                "",
-                "## Test Strategy",
-                "Unit Tests\nFunctional Tests\nIntegration Tests\nSecurity Tests\nUAT Tests",
-                "",
-                "## Milestones",
-                "- M1: SPEC ready\n- M2: PLAN agreed\n- M3: KIT/EVAL/GATE slice complete",
-                "",
-                "## Risks & Mitigations",
-                "- TBD",
-                "",
-                "## Non-Functionals",
-                "Performance targets documented; security controls aligned with constraints.",
-                "",
-                "## Environment Profiles",
-                "Reflect tech_constraints profiles (e.g., onprem/cloud)",
-            ]
         )
-        return "\n".join(lines).strip() + "\n"
+    return "\n".join(parts).strip() + "\n"
 
-    def _render_spec_from_idea(self, idea_text: str, run_id: str) -> str:
-        return (
-            "# SPEC\n\n"
-            "## Problem\n"
-            f"{idea_text.strip()}\n\n"
-            "## Objectives\n"
-            "- Define objectives derived from IDEA.\n\n"
-            "## Scope\n"
-            "- In scope items tied to IDEA outcomes.\n\n"
-            "## Non-Goals\n"
-            "- Out of scope items.\n\n"
-            "## Constraints\n"
-            "- Technology constraints captured as YAML below.\n\n"
-            "```yaml\ntech_constraints:\n  profiles: [default]\n  notes: Generated in quickstart run {run_id}\n```\n\n"
-            "## KPIs\n"
-            "- KPI placeholder with measurement method.\n\n"
-            "## Assumptions\n"
-            "- Assumptions captured here.\n\n"
-            "## Risks\n"
-            "- Risk placeholders.\n\n"
-            "## Acceptance Criteria\n"
-            "- REQ-EXAMPLE-001: Placeholder acceptance criteria mapped to tests.\n\n"
-            "## Sources & Evidence\n"
-            "- IDEA.md\n\n"
-            "## Technology Constraints\n"
-            "- Mirror of constraints YAML above.\n"
+def merge_plan_json(existing: Dict[str, Dict], new_entries: List[Dict[str, str]]) -> List[Dict[str, str]]:
+    merged: Dict[str, Dict] = {item["id"]: item for item in new_entries}
+    for item in existing.get("requirements", []):
+        merged[item["id"]] = {**item, **merged.get(item["id"], item)}
+    return list(merged.values())
+
+def generate_plan(spec_path: Path, plan_md_path: Path) -> NodeExecutionResult:
+    requirements = load_spec_requirements(spec_path)
+    entries = build_plan_entries(requirements)
+    plan_md = generate_plan_md(entries)
+    plan_md_path.parent.mkdir(parents=True, exist_ok=True)
+    plan_md_path.write_text(plan_md, encoding="utf-8")
+    return NodeExecutionResult(
+        status=NodeStatus.COMPLETED,
+        artifacts={"plan_md": str(plan_md_path)},
+        details={"requirements": [e["id"] for e in entries]},
+    )
+
+def generate_plan_json(spec_path: Path, plan_json_path: Path) -> NodeExecutionResult:
+    requirements = load_spec_requirements(spec_path)
+    new_entries = build_plan_entries(requirements)
+    existing: Dict[str, Dict] = {}
+    if plan_json_path.exists():
+        try:
+            existing = json.loads(plan_json_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            existing = {}
+        merged_entries = merge_plan_json(existing, new_entries)
+        payload = {"requirements": merged_entries}
+        plan_json_path.parent.mkdir(parents=True, exist_ok=True)
+        plan_json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        return NodeExecutionResult(
+            status=NodeStatus.COMPLETED,
+            artifacts={"plan_json": str(plan_json_path)},
+            details={"requirements": [e["id"] for e in merged_entries]},
         )
-
-    def _merge_existing_spec(self, existing: str, generated: str) -> str:
-        required_sections = [
-            "Problem",
-            "Objectives",
-            "Scope",
-            "Non-Goals",
-            "Constraints",
-            "KPIs",
-            "Assumptions",
-            "Risks",
-            "Acceptance Criteria",
-            "Sources & Evidence",
-            "Technology Constraints",
-        ]
-        merged = existing
-        for section in required_sections:
-            header = f"## {section}"
-            if header not in merged and header in generated:
-                merged = merged.rstrip() + "\n\n" + self._extract_section(generated, header)
-        return merged
-
-    def _extract_section(self, text: str, header: str) -> str:
-        lines = text.splitlines()
-        capture = False
-        buffer: List[str] = []
-        for line in lines:
-            if line.startswith("## "):
-                capture = line == header
-            if capture:
-                buffer.append(line)
-        return "\n".join(buffer)
-
-    def _normalize_spec(self, spec_text: str) -> str:
-        required = [
-            "## Problem",
-            "## Objectives",
-            "## Scope",
-            "## Non-Goals",
-            "## Constraints",
-            "## KPIs",
-            "## Assumptions",
-            "## Risks",
-            "## Acceptance Criteria",
-            "## Sources & Evidence",
-            "## Technology Constraints",
-        ]
-        normalized = spec_text.rstrip()
-        for header in required:
-            if header not in normalized:
-                normalized += f"\n\n{header}\n- TBD"
-        return normalized + "\n"
