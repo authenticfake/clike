@@ -1,5 +1,5 @@
 defaults:
-  chat_model: llama3
+  chat_model: gpt-4o-mini
   embedding_model: nomic-embed-text
 
 models:
@@ -8,39 +8,30 @@ models:
     provider: ollama
     base_url: http://ollama:11434
     remote_name: llama3
-    # chat|completion|embedding
     modality: chat
-    # tiny|small|medium|large|frontier
     capability: medium
-    # ultra-low|low|medium|high
     latency: low
-    # ultra-low|low|medium|high
     cost: low
     privacy: high
     enabled: true
     temperature: 0.2
     tags: [local, fast, coding]
 
-  - id: llama3:nomic-embed-text
+  - id: ollama:nomic-embed-text
     name: nomic-embed-text
-    provider: llama3
+    provider: ollama
     base_url: http://ollama:11434
     remote_name: nomic-embed-text
-    # chat|completion|embedding
     modality: embeddings
-    # tiny|small|medium|large|frontier
     capability: medium
-    # ultra-low|low|medium|high 
     latency: low
-    # ultra-low|low|medium|high
     cost: low
     privacy: high
     enabled: true
     temperature: 0.2
-    tags: [embeddings]
-    profiles: [local.embeddings]
+    tags: [embeddings, local]
 
-  - id: deepseek:deepseek-coder-v2
+  - id: vllm:deepseek-coder-v2
     name: deepseek-coder-v2
     provider: vllm
     base_url: http://vllm:8000/v1
@@ -49,7 +40,6 @@ models:
     capability: high
     latency: medium
     cost: low
-    
     privacy: high
     enabled: false
     temperature: 0.2
@@ -69,7 +59,6 @@ models:
     enabled: false
     temperature: 0.4
     tags: [cheap]
-    profiles: [local.codegen]
 
   - id: openai:gpt-4o-mini
     name: gpt-4o-mini
@@ -80,7 +69,7 @@ models:
     modality: chat
     capability: high
     latency: medium
-    cost: medium
+    cost: low
     privacy: low
     enabled: true
     temperature: 0.2
@@ -99,15 +88,14 @@ models:
     privacy: low
     enabled: true
     temperature: 0.2
-    tags: [cheap, fast]
+    tags: [quality]
 
-   
-  - id: openai:gpt-5-thinking
-    name: gpt-5-thinking
+  - id: openai:gpt-5
+    name: gpt-5
     provider: openai
     base_url: https://api.openai.com/v1
-    remote_name: gpt-5-thinking
-    modality: chat
+    remote_name: gpt-5
+    modality: responses
     capability: frontier
     latency: medium
     cost: high
@@ -129,40 +117,34 @@ models:
     privacy: low
     enabled: false
 
-  - id: anthropic:claude-3-5-sonnet
-    name: claude-3-5-sonnet
+  - id: anthropic:claude-haiku-4-5
+    name: claude-haiku-4-5
     provider: anthropic
     base_url: https://api.anthropic.com/v1
-    remote_name: claude-3-5-sonnet-20240620
+    remote_name: claude-haiku-4-5-20251001
     api_key_env: ANTHROPIC_API_KEY
     modality: chat
-    capability: high
-    latency: medium
-    cost: medium
+    capability: medium
+    latency: low
+    cost: low
     privacy: low
-    enabled: false
+    enabled: true
+    tags: [cheap, fast]
 
-
-# Profili (etichette "umane" che puntano a criteri di selezione dei modelli)
 profiles:
   plan.fast:
+    model: openai:gpt-4o-mini
     select:
-      any_tags: [reasoning, fast]
+      any_tags: [fast]
       prefer_providers: [openai, anthropic]
-      model: openai:gpt-4o-mini            # se presente → selezione deterministica
-      fallback: [anthropic:claude-3.7-haiku, ollama:llama3]   # opzionale
-      # opzionale: criteri per caso estremo in cui non troviamo i pin/fallback
-      select:
-        any_tags: [reasoning, fast]
 
   code.strict:
-    model: openai:gpt-5-thinking
+    model: openai:gpt-5
     select:
-      any_tags: [coding, quality]
-      avoid_tags: [cheap]
+      any_tags: [quality]
 
   chat.cheap:
-    model: anthropic:claude-3.7-haiku
+    model: anthropic:claude-haiku-4-5
     select:
       any_tags: [cheap]
 
@@ -171,7 +153,6 @@ profiles:
     select:
       any_tags: [local, coding]
 
-# Routing per task → profilo (fallback se non si passa un hint)
 routing:
   spec: plan.fast
   plan: plan.fast
@@ -179,10 +160,9 @@ routing:
   build: local.codegen
   chat: chat.cheap
 
-# Pesatura opzionale per tie-break quando più modelli sono eleggibili
 scoring:
   weights:
-    capability: 0.5      # frontier > large > medium > small > tiny
-    latency: 0.2         # ultra-low > low > medium > high
-    cost: 0.2            # ultra-low > low > medium > high
-    quality: 0.1         # +1 se tag quality/frontier, -1 se cheap
+    capability: 0.5
+    latency: 0.2
+    cost: 0.2
+    quality: 0.1

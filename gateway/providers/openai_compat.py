@@ -35,6 +35,8 @@ def _is_reasoning_model_name(model: Optional[str]) -> bool:
         tag in m
         for tag in (
             "gpt-5",
+            "gpt-5.4",
+            "gpt-5.4-pro"
             "gpt-5.1",       # gpt-5.1, gpt-5.1-chat, gpt-5.1-codex, etc.
             "gpt-5.1-codex",   # gpt-5.1-codex family
             "codex",         # catch-all codex models
@@ -139,6 +141,89 @@ def _build_chat_payload(
 
     return out
 
+def _normalize_responses_tools(tools: List[Dict[str, Any]] | None) -> List[Dict[str, Any]]:
+    """
+    Convert Chat Completions-style tools into Responses API-style tools.
+
+    Chat style:
+      {
+        "type": "function",
+        "function": {
+          "name": "...",
+          "description": "...",
+          "parameters": {...}
+        }
+      }
+
+    Responses style:
+      {
+        "type": "function",
+        "name": "...",
+        "description": "...",
+        "parameters": {...}
+      }
+    """
+    out: List[Dict[str, Any]] = []
+
+    for t in tools or []:
+        if not isinstance(t, dict):
+            continue
+
+        t_type = t.get("type")
+        fn = t.get("function")
+
+        if t_type == "function" and isinstance(fn, dict):
+            item: Dict[str, Any] = {
+                "type": "function",
+                "name": fn.get("name"),
+                "description": fn.get("description", ""),
+                "parameters": fn.get("parameters") or {
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                    "additionalProperties": False,
+                },
+            }
+            out.append(item)
+        else:
+            out.append(t)
+
+    return out
+
+
+def _normalize_responses_tool_choice(tool_choice: Any) -> Any:
+    """
+    Convert Chat Completions-style tool_choice into Responses API-style tool_choice.
+    Normalize empty / invalid values to None so they are omitted from the payload.
+    """
+    if tool_choice is None:
+        return None
+
+    if isinstance(tool_choice, str):
+        value = tool_choice.strip().lower()
+        if value == "":
+            return None
+        if value in {"none", "auto", "required"}:
+            return value
+        return None
+
+    if isinstance(tool_choice, dict):
+        if tool_choice.get("type") == "function":
+            fn = tool_choice.get("function")
+            if isinstance(fn, dict):
+                name = fn.get("name")
+                if not name:
+                    return None
+                return {
+                    "type": "function",
+                    "name": name,
+                }
+        t = tool_choice.get("type")
+        if t in {"none", "auto", "required"}:
+            return {"type": t}
+        return None
+
+    return None
 
 def _linearize_messages_for_responses(messages: List[Dict[str, str]]) -> Tuple[str, str]:
     """
@@ -240,15 +325,20 @@ def _build_responses_payload(
             text_cfg["format"] = rf
 
 
-    if gen.get("tools"): out["tools"] = gen["tools"]
-    if gen.get("tool_choice"): out["tool_choice"] = gen["tool_choice"]
+    norm_tools = _normalize_responses_tools(gen.get("tools"))
+    if norm_tools:
+        out["tools"] = norm_tools
+
+    norm_tool_choice = _normalize_responses_tool_choice(gen.get("tool_choice"))
+    if norm_tool_choice is not None:
+        out["tool_choice"] = norm_tool_choice
     model_lower = (model or "").lower()
     is_codex = "codex" in model_lower
       
     if _is_reasoning_model_name(model_lower) or is_codex:
         # Default CLike per Codex: reasoning "low".
         # Se vuoi zero reasoning nascosto, cambia in {"effort": "none"}.
-        out["reasoning"] = {"effort": "low"}
+        out["reasoning"] = {"effort": "medium"}
         if "format" not in text_cfg:
             text_cfg["format"] = {"type": "text"}
 
@@ -338,21 +428,66 @@ def _normalize_responses_response(resp_json: Dict[str, Any]) -> Dict[str, Any]:
     usage = resp_json.get("usage") or {}
     files: List[Dict[str, Any]] = []
 
+    def _try_parse_json(value: Any) -> Any:
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except Exception:
+                return None
+        return None
+
     try:
-        # testo
+        # 1) Extract plain text if present
         text = _extract_responses_text(resp_json).strip()
-        # finish_reason: se c'è uno stato/flag, altrimenti vuoto
+
+        # 2) Finish reason
         finish_reason = (
             resp_json.get("finish_reason")
             or (resp_json.get("incomplete_details") or {}).get("reason")
             or resp_json.get("reason")
             or ""
         )
-        # eventuali file artifacts (se la tua integrazione li prevede in Responses)
-        if isinstance(resp_json.get("outputs"), list):
-            for itm in resp_json["outputs"]:
-                if isinstance(itm, dict) and itm.get("type") in ("file", "image", "artifact"):
+
+        # 3) Extract artifacts / files if already present
+        outputs = resp_json.get("output") or resp_json.get("outputs") or []
+        if isinstance(outputs, list):
+            for itm in outputs:
+                if not isinstance(itm, dict):
+                    continue
+
+                itm_type = str(itm.get("type") or "").lower()
+
+                # Native artifacts / files
+                if itm_type in {"file", "image", "artifact"}:
                     files.append(itm)
+                    continue
+
+                # Responses API function calls
+                if itm_type in {"function_call", "tool_call"}:
+                    fn_name = itm.get("name") or (itm.get("function") or {}).get("name")
+                    raw_args = (
+                        itm.get("arguments")
+                        or itm.get("input")
+                        or itm.get("call_arguments")
+                        or (itm.get("function") or {}).get("arguments")
+                    )
+
+                    parsed_args = _try_parse_json(raw_args)
+                    if fn_name == "emit_files" and isinstance(parsed_args, dict):
+                        maybe_files = parsed_args.get("files")
+                        if isinstance(maybe_files, list):
+                            files.extend(maybe_files)
+
+        # 4) If still no files, try to parse text as JSON bundle
+        if not files and text:
+            parsed_text = _try_parse_json(text)
+            if isinstance(parsed_text, dict):
+                maybe_files = parsed_text.get("files")
+                if isinstance(maybe_files, list):
+                    files.extend(maybe_files)
+
     except Exception as e:
         text = str(resp_json)
         finish_reason = finish_reason or ""
@@ -418,7 +553,7 @@ async def chat(
     top_p: Optional[float] = None,
     stop: Optional[List[str]] = None
 ) -> Dict[str, Any]:
-    gen = {}
+    gen: Dict[str, Any] = {}
     gen["temperature"] = temperature
     gen["max_tokens"] = max_tokens
     gen["response_format"] = response_format
@@ -428,15 +563,21 @@ async def chat(
     gen["top_p"] = top_p
     gen["stop"] = stop
 
-    api_kind = "chat"
     low_model = (model or "").lower()
-    if "codex" in low_model:
-        api_kind = "responses"
 
-    gen["api"] = api_kind
+    # All GPT-5 family and Codex family must go through Responses API.
+    if low_model.startswith("gpt-5") or "codex" in low_model or _is_reasoning_model_name(low_model):
+        gen["api"] = "responses"
+    else:
+        gen["api"] = "chat"
 
-    return await openai_complete_unified(api_key=api_key, model=model, messages=messages, gen=gen, timeout_s=timeout)
-
+    return await openai_complete_unified(
+        api_key=api_key,
+        model=model,
+        messages=messages,
+        gen=gen,
+        timeout_s=timeout,
+    )
 # --- end: response normalizers ---
 async def openai_complete_unified(
     
@@ -453,7 +594,8 @@ async def openai_complete_unified(
     - Comportamento deterministico: NESSUN retry, NESSUNA eccezione alzata; i non-200 ritornano ok=False con errori.
     """
     use_responses = (gen.get("api") == "responses")
-
+    log.info("openai_complete_unified %s", use_responses)
+    log.info("openai_complete_unified (gen.get(api)) %s", gen.get("api"))
     # Costruisci payload + normalizer + budget (telemetria)
     if use_responses:
         url = _OPENAI_RESPONSES_URL
@@ -544,9 +686,24 @@ async def embeddings(base_url: str, api_key: str | None, model: str, input_text:
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
-    payload = {"model": model, "input": input_text}
+    else:
+        raise RuntimeError("missing API key for OpenAI-compatible embeddings provider")
+
+    payload = {
+        "model": model,
+        "input": input_text,
+    }
+
     async with httpx.AsyncClient(timeout=120) as client:
-        r = await client.post(f"{base_url.rstrip('/')}/s", json=payload, headers=headers)
+        r = await client.post(
+            f"{base_url.rstrip('/')}/embeddings",
+            json=payload,
+            headers=headers,
+        )
         r.raise_for_status()
-        data = r.json()
-        return (data.get("data") or [{}])[0].get("embedding")
+        data = r.json() or {}
+
+    vec = (data.get("data") or [{}])[0].get("embedding")
+    if not isinstance(vec, list) or not vec:
+        raise RuntimeError("OpenAI-compatible embeddings provider returned an empty vector")
+    return vec

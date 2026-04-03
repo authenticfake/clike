@@ -75,15 +75,19 @@ async def call_gateway_chat_json(
 _DEFAULT_TIMEOUT = httpx.Timeout(connect=5.0, read=120.0, write=120.0, pool=120.0)
 
 async def call_gateway_chat(
-    model: str,
-    messages: list[dict],
     *,
-    temperature: float = 0.2,
-    max_tokens: int = 512,
-    base_url: str | None = None,
-    timeout: float | None = None,
-    response_format=None, tools=None, tool_choice=None, profile=None, provider: str | None = None,  
-
+    model,
+    messages,
+    temperature=None,
+    max_tokens=None,
+    base_url=None,
+    timeout=None,
+    response_format=None,
+    tools=None,
+    tool_choice=None,
+    profile=None,
+    provider=None,
+    mode_contract=None,
 ) -> str:
     log.info("call_gateway_chat request: %s", json.dumps({
         "model": model,
@@ -103,7 +107,7 @@ async def call_gateway_chat(
 
     base = (base_url or str(getattr(settings, "GATEWAY_URL", "http://localhost:8000"))).rstrip("/")
     to = float(timeout or float(getattr(settings, "REQUEST_TIMEOUT_S", 240)))
-    body = {"model": model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens}
+    body = {"model": model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens,"mode_contract": mode_contract}
     if response_format is not None:
         body["response_format"] = response_format
     if tools is not None:
@@ -114,8 +118,8 @@ async def call_gateway_chat(
         body["profile"] = profile  # facoltativo, utile per osservabilità/routing coerente
     if provider is not None:
         body["provider"] = provider
-
-    log.info("generate request: %s", json.dumps({
+        
+    log.info("chat request: %s", json.dumps({
         "model": body.get("model"),
         "messages_len": len(messages),
         "has_response_format": bool(response_format),
@@ -144,7 +148,7 @@ async def call_gateway_chat(
             try:
                 data = json.loads(txt)
             except Exception:
-                return {"version": "1.0", "text": txt, "usage": {}, "sources": []}
+                return txt
 
         
         if isinstance(data, dict):

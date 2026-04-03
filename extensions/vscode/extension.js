@@ -18,7 +18,8 @@ const { buildHarperBody,  defaultCoreForPhase, runKitCommand,runEvalGateCommand,
 const {sanitize, logCurrentTimeStandard, httpPostJsonLong, ensureReqIdInPlan} = require('./utility')
 const{ toFsPath, mapKitSrcToWorkspaceTarget, clikeGitSync } = require('./git'); // NEW: clikeGitSync
 const { getChatTheme, getWebviewHtml } = require('./chat-ui');
-
+let clikeChatPanel = null;
+let clikeExtensionContext = null;
 let __clike_lastTargetUriCache = null;  
 let selectedPaths = new Set();
 // --- Stato richiesta in corso (per Cancel) ---
@@ -161,7 +162,7 @@ async function collectFinalizeRagItems(workspaceRootUri, maxFiles = 400, maxByte
 
       targets.push({
         path: rel,                              // <= relativo
-        bytes_b64x: Buffer.from(buf).toString('base64'),
+        bytes_b64: Buffer.from(buf).toString('base64'),
       });
     }
   }
@@ -466,7 +467,7 @@ async function callHarper(cmd, payload, headers) {
 // }
 
 
-const HARPER_REQUEST_TIMEOUT_MS = 12 * 60 * 1000; // 12 minuti #porcocazzo il timeout ...
+const HARPER_REQUEST_TIMEOUT_MS = 25 * 60 * 1000; // 12 minuti #porcocazzo il timeout ...
 
 async function callHarper(cmd, payload, headers, opts = {}) {
   const base =
@@ -1000,7 +1001,7 @@ function cfg() {
     gatewayUrl:      c.get('clike.gatewayUrl', 'http://localhost:8000').replace(/\/+$/, ''),
 
     optimizeFor: c.get('clike.optimizeFor', 'capability'),
-
+    harperTimeout: c.get('clike.harperTimeout', 25),
     // policy apply
     requireCleanGit: c.get('clike.apply.requireCleanGit', false),
     backup:          c.get('clike.apply.backup', true),
@@ -1256,6 +1257,58 @@ function ensurePreviewProvider() {
   clikePreviewProvider = new MemContentProvider();
   vscode.workspace.registerTextDocumentContentProvider('clike-preview', clikePreviewProvider);
   return clikePreviewProvider;
+}
+function explicitProviderForModel(model) {
+  const m = String(model || '').trim();
+  if (!m || m === 'auto') return '';
+  if (m.includes(':')) {
+    return m.split(':', 1)[0].trim().toLowerCase();
+  }
+  return '';
+}
+
+function buildModeContract(mode, phase = '') {
+  const m = String(mode || 'free').toLowerCase();
+  const p = String(phase || '').toLowerCase();
+
+  if (m === 'free') {
+    return {
+      mode: 'free',
+      allow_file_output: false,
+      prefer_tools: false,
+      prefer_response_format: true,
+      require_phase_artifacts: false,
+    };
+  }
+
+  if (m === 'coding') {
+    return {
+      mode: 'coding',
+      allow_file_output: true,
+      prefer_tools: true,
+      prefer_response_format: true,
+      require_phase_artifacts: false,
+    };
+  }
+
+  if (m === 'harper') {
+    return {
+      mode: 'harper',
+      phase: p,
+      allow_file_output: true,
+      prefer_tools: true,
+      prefer_response_format: true,
+      require_phase_artifacts: true,
+    };
+  }
+
+  return {
+    mode: m,
+    allow_file_output: false,
+    prefer_tools: false,
+    prefer_response_format: true,
+    require_phase_artifacts: false,
+  };
 }
 
 function _inferProvider(modelName) {
@@ -1525,24 +1578,63 @@ async function cmdListModels() {
 }
 
 async function cmdCheckServices(context) {
-try {
-  const editor = getActiveEditorOrThrow();
-  const docInfo = documentInfoFromEditor(editor);
-  await context.workspaceState.update('clike.lastTargetUri', docInfo.uriStr);
+  try {
+    const editor = getActiveEditorOrThrow();
+    const docInfo = documentInfoFromEditor(editor);
+    await context.workspaceState.update('clike.lastTargetUri', docInfo.uriStr);
 
-  const { routes } = cfg();
-  const o = await getJson(cfg().orchestratorUrl + routes.orchestrator.health);
-  const g = await getJson(cfg().gatewayUrl + routes.gateway.health);
-  //log("cmdCheckServices g", JSON.stringify(g), g);
-  //log("cmdCheckServices o", JSON.stringify(o), o);
-  const gatewayStatus = g['clike gateway status'] || 'err';
-  const orchestratorStatus = o['clike orchestrator status'] || 'err';
+    const { routes } = cfg();
+    const o = await getJson(cfg().orchestratorUrl + routes.orchestrator.health);
+    const g = await getJson(cfg().gatewayUrl + routes.gateway.health);
+    //log("cmdCheckServices g", JSON.stringify(g), g);
+    //log("cmdCheckServices o", JSON.stringify(o), o);
+    const gatewayStatus = g['clike gateway status'] || 'err';
+    const orchestratorStatus = o['clike orchestrator status'] || 'err';
 
-  vscode.window.showInformationMessage(`Health — Orchestrator: ${orchestratorStatus} | Gateway: ${gatewayStatus}`);
-} 
-catch (err) {
-  vscode.window.showErrorMessage(`Clike: ${err.message}`);
+    vscode.window.showInformationMessage(`Health — Orchestrator: ${orchestratorStatus} | Gateway: ${gatewayStatus}`);
+  } 
+  catch (err) {
+    vscode.window.showErrorMessage(`Clike: ${err.message}`);
+  }
 }
+
+function shouldIndexWorkspacePathForRag(relPath) {
+  const p = String(relPath || '').replace(/\\/g, '/');
+
+  const EXCLUDED_PREFIXES = [
+    'runs/',
+    '.clike/sessions/',
+    '.clike/telemetry/',
+    '.git/',
+    'node_modules/',
+    'dist/',
+    'build/',
+    'out/',
+    '.next/',
+    '.venv/',
+    '.mypy_cache/',
+  ];
+
+  if (EXCLUDED_PREFIXES.some(prefix => p.startsWith(prefix))) {
+    return false;
+  }
+
+  const INCLUDED_TOP_LEVEL = [
+    'src/',
+    'test/',
+    'tests/',
+    'docs/harper/',
+    'configs/',
+    'prompts/',
+    'README.md',
+    'package.json',
+    'package-lock.json',
+    'requirements.txt',
+    'pyproject.toml',
+    'docker-compose.yml',
+  ];
+
+  return INCLUDED_TOP_LEVEL.some(prefix => p === prefix || p.startsWith(prefix));
 }
 
 async function cmdRagReindex(glob) {
@@ -1582,6 +1674,7 @@ async function cmdRagReindex(glob) {
       if (!text.trim()) continue;
 
       const rel = ws ? vscode.workspace.asRelativePath(uri, false) : uri.fsPath;
+      if (!shouldIndexWorkspacePathForRag(rel)) continue;
       items.push({ path: rel, text });
     } catch (e) {
       console.warn('[RAG] Skipping file', uri.fsPath || uri.toString(), e);
@@ -1609,14 +1702,13 @@ async function cmdRagReindex(glob) {
   return items
 }
 
-
 async function cmdRagSearch(q) {
   const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
   if (!ws) {
     return vscode.window.showWarningMessage('No workspace open.');
   }
 
-  const projectId = getProjectId();  // allineato al resto
+  const projectId = getProjectId();
 
   let query = (typeof q === 'string') ? q : '';
   if (!query) {
@@ -1628,32 +1720,81 @@ async function cmdRagSearch(q) {
   const topkStr = await vscode.window.showInputBox({ prompt: 'Top-K', value: '8' });
   const top_k = Number(topkStr || '8') || 8;
 
-  const { orchestratorUrl, routes } = cfg();
-  //const url = (routes?.orchestrator?.ragSearch) || '/v1/rag/search';
+  const { orchestratorUrl } = cfg();
   const url = '/v1/rag/search';
 
   try {
     const res = await postJson(`${orchestratorUrl}${url}`, {
       project_id: projectId,
       query,
-      top_k
+      top_k,
     });
 
-    const hits = (res?.hits || []).slice(0, top_k);
-    vscode.window.showInformationMessage(`[RAG] Results: ${hits.length}`);
+    const hits = (res?.hits || res?.results || res?.matches || []).slice(0, top_k);
 
-    // Optional: manda una summary alla webview nella tab Text
+    vscode.window.showInformationMessage(`[RAG] Results: ${hits.length}`);
     try {
-      const lines = hits.map((h, i) => {
-        const p = h?.path || h?.source || '(unknown)';
-        const s = (typeof h?.score === 'number') ? h.score.toFixed(3) : '';
-        return (i + 1) + '. ' + p + (s ? (' (score ' + s + ')') : '');
-      });
-      const summary = `RAG Search: "${query}"\n` + (lines.length ? lines.join('\n') : '(no results)');
-      if (panel && panel.webview) {
-        panel.webview.postMessage({ type: 'text', text: summary });
+      const uniquePaths = Array.from(new Set(
+        hits
+          .map(h => (h && (h.path || h.source || h.name)) ? String(h.path || h.source || h.name) : '')
+          .filter(Boolean)
+      ));
+
+      if (uniquePaths.length > 0) {
+        const picked = await vscode.window.showQuickPick(
+          uniquePaths.map(p => ({ label: p, description: 'RAG result' })),
+          {
+            title: `RAG results for: ${query}`,
+            placeHolder: 'Select a file to open or Esc to dismiss',
+            matchOnDescription: true,
+          }
+        );
+
+        if (picked && picked.label) {
+          try {
+            const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+            if (ws) {
+              const fileUri = vscode.Uri.joinPath(ws.uri, picked.label);
+              const doc = await vscode.workspace.openTextDocument(fileUri);
+              await vscode.window.showTextDocument(doc, { preview: false });
+            }
+          } catch (openErr) {
+            vscode.window.showWarningMessage(`RAG result selected, but file could not be opened: ${picked.label}`);
+          }
+        }
       }
-    } catch {}
+    } catch (qpErr) {
+      log('[RAG] QuickPick failed:', String(qpErr && qpErr.message || qpErr));
+    }
+    const chatPanel = (clikeChatPanel && clikeChatPanel.webview) ? clikeChatPanel : null;
+
+    if (chatPanel) {
+      try {
+        chatPanel.webview.postMessage({
+          type: 'ragResults',
+          results: hits,
+          query,
+        });
+      } catch (postErr) {
+        log('[RAG] failed to post results to existing chat panel:', String(postErr && postErr.message || postErr));
+      }
+    }
+
+    // log utile in Output
+    try {
+      const uniquePaths = Array.from(new Set(
+        hits
+          .map(h => (h && (h.path || h.source || h.name)) ? String(h.path || h.source || h.name) : '')
+          .filter(Boolean)
+      ));
+
+      log(`[RAG] query="${query}" raw_results=${hits.length} unique_paths=${uniquePaths.length}`);
+      for (const p of uniquePaths.slice(0, 20)) {
+        log(`[RAG] file: ${p}`);
+      }
+    } catch (e) {
+      log('[RAG] result logging failed:', String(e && e.message || e));
+    }
 
     return res;
   } catch (e) {
@@ -1728,7 +1869,8 @@ async function cmdOpenChatSessionFile(context) {
 
 function activate(context) {
   const reg = (id, fn) => context.subscriptions.push(vscode.commands.registerCommand(id, () => fn(context)));
-  out.appendLine(`activate ${context}`);
+  //out.appendLine(`activate ${context}`);
+  clikeExtensionContext = context;
   reg('clike.chat.openSessionFile', cmdOpenChatSessionFile);
     reg('clike.harper.init', async () => {
     const panel = await cmdOpenChat(context); // riusa l’apri-chat esistente
@@ -1802,6 +1944,14 @@ async function cmdOpenChat(context) {
     vscode.ViewColumn.Beside,
     { enableScripts: true, retainContextWhenHidden: true }
   );
+
+  clikeChatPanel = panel;
+
+  panel.onDidDispose(() => {
+    if (clikeChatPanel === panel) {
+      clikeChatPanel = null;
+    }
+  });
   const c = vscode.workspace.getConfiguration();
   const orchestratorUrl = c.get('clike.orchestratorUrl') || 'http://localhost:8080';
   const chatTheme = getChatTheme()
@@ -2012,14 +2162,25 @@ async function cmdOpenChat(context) {
         //log(`[harperRun] inside ${JSON.stringify(msg)}`);
         const phase = msg.cmd;
         try {
+
           const project_id = getProjectId();
           const { cmd, attachments = [] } = msg;
-          const savedState = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto', historyScope:'singleModel' };
-          savedState.phase= msg.cmd
+
+          const state = context.workspaceState.get('clike.uiState') || {
+            mode: 'harper',
+            model: 'auto',
+            historyScope: 'singleModel'
+          };
+
+          state.phase = msg.cmd;
+
+          const activeMode = state.mode || 'harper';
+          const activeModel = state.model || 'auto';
+          const profileHint = computeProfileHint(activeMode, activeModel);
+          const activeProvider = profileHint ? '' : (explicitProviderForModel(activeModel) || '');
           const docRoot = 'docs/harper';
-          log(`[harperRun] savedState ...${JSON.stringify(savedState)}`);
-          const profileHint = computeProfileHint(state.mode, state.model);
-          const activeProvider = (!profileHint) ? _inferProvider(activeModel) :'';
+          log(`[harperRun] savedState ...${JSON.stringify(state)}`);
+
           let targets =''
           let project_name ='';
           const { orchestratorUrl, routes } = cfg();
@@ -2082,11 +2243,13 @@ async function cmdOpenChat(context) {
             tool_choice:''
           }
           
+          
           const payload = {
             cmd,
             phase: msg.cmd,
-            mode: state.mode,
-            model: state.model,
+            mode: activeMode,
+            model: activeModel,
+            ...(activeProvider ? { provider: activeProvider } : {}),
             profileHint,
             docRoot,
             core,
@@ -2095,9 +2258,10 @@ async function cmdOpenChat(context) {
             attachments,
             flags,
             runId,
-            historyScope: state.historyScope,
-            project_id:project_id,
-            project_name:projectName
+            historyScope: state.historyScope || 'singleModel',
+            project_id: project_id,
+            project_name: projectName,
+            mode_contract: buildModeContract(activeMode, msg.cmd),
           };
           //PATh for PLAN.md
           const wsroot = getWorkspaceRoot();
@@ -2135,7 +2299,11 @@ async function cmdOpenChat(context) {
           
           
 
-          const _headers = {"Content-Type": "application/json", "X-CLike-Profile": "code.strict"}
+          const _headers = { "Content-Type": "application/json" };
+
+          if (profileHint && typeof profileHint === 'string' && profileHint.trim()) {
+            _headers["X-CLike-Profile"] = profileHint.trim();
+          }
           //fals is for RAG chucks - TODO: RAG management via attachments is almost oden 70%
           const body = await buildHarperBody(phase, payload, wsroot, out);
           const keys = Object.keys(body.core_blobs); 
@@ -2161,7 +2329,8 @@ async function cmdOpenChat(context) {
           }
           //log(`[harperRun] body (core_blobs):`,  JSON.stringify(body.core_blobs))
           if (activeProvider) _headers["X-CLike-Provider"] = activeProvider
-          const outGateway = await callHarper(cmd, body, _headers, { timeoutMs: 1000 * 60 * 12} );
+          harperTimeout = cfg().harperTimeout;
+          const outGateway = await callHarper(cmd, body, _headers, { timeoutMs: 1000 * 60 * harperTimeout} );
           panel.webview.postMessage({ type: 'busy', on: false });
 
           const _out  = outGateway.out;
@@ -2457,11 +2626,46 @@ async function cmdOpenChat(context) {
             query: query.trim(),
             top_k
           });
-          log('[RAG] Search results:', JSON.stringify(res).slice(0, 20), res );
+
 
           const results = (res && (res.hits || res.results)) || [];
           panel.webview.postMessage({ type: 'ragResults', results, query });
-          
+        
+          try {
+            const uniquePaths = Array.from(new Set(
+              (results || [])
+                .map(r => (r && (r.path || r.source || r.name)) ? String(r.path || r.source || r.name) : '')
+                .filter(Boolean)
+            ));
+
+            if (uniquePaths.length > 0) {
+              const picked = await vscode.window.showQuickPick(
+                uniquePaths.map(p => ({ label: p, description: 'RAG result' })),
+                {
+                  title: `RAG results for: ${query}`,
+                  placeHolder: 'Select a file to open or Esc to dismiss',
+                  matchOnDescription: true,
+                }
+              );
+
+              if (picked && picked.label) {
+                try {
+                  const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+                  if (ws) {
+                    const fileUri = vscode.Uri.joinPath(ws.uri, picked.label);
+                    const doc = await vscode.workspace.openTextDocument(fileUri);
+                    await vscode.window.showTextDocument(doc, { preview: false });
+                  }
+                } catch (openErr) {
+                  vscode.window.showWarningMessage(`RAG result selected, but file could not be opened: ${picked.label}`);
+                }
+              }
+            } else {
+              vscode.window.showInformationMessage(`RAG: no files found for "${query}".`);
+            }
+          } catch (qpErr) {
+            log('[RAG] QuickPick failed:', String(qpErr && qpErr.message || qpErr));
+          }
         } catch (e) {
           panel.webview.postMessage({ type: 'busy', on: false });
 
@@ -2523,8 +2727,12 @@ async function cmdOpenChat(context) {
             clearTimeout(timer);
             let models = [];
             if (Array.isArray(res?.models)) {
-              const raw = res.models.map(m => m.name || m.id || m.model || 'unknown');
-              models = raw.filter(n => !/embed|embedding|nomic-embed/i.test(n));
+              const raw = res.models
+                .filter(m => (typeof m?.enabled === 'undefined' ? true : !!m.enabled))
+                .filter(m => !/embed|embedding|nomic-embed/i.test(String(m?.name || m?.id || m?.model || '')))
+                .map(m => m.name || m.id || m.model || 'unknown');
+
+              models = raw;
             } else if (Array.isArray(res?.data)) {
               const raw = res.data.map(m => m.id || m.name || 'unknown');
               models = raw.filter(n => !/embed|embedding|nomic-embed/i.test(n));
@@ -2578,7 +2786,10 @@ async function cmdOpenChat(context) {
         const res = await fetchJson(`${orchestratorUrl}/v1/models`);
         let models = [];
         if (Array.isArray(res?.models)) {
-          let raw = res.models.map(m => m.name || m.id || m.model || 'unknown');
+          let raw = res.models
+            .filter(m => (typeof m?.enabled === 'undefined' ? true : !!m.enabled))
+            .map(m => m.name || m.id || m.model || 'unknown');
+
           const filtered = raw.filter(n => !/embed|embedding|nomic-embed/i.test(n));
           models = filtered.length ? filtered : raw;
         } else if (Array.isArray(res?.data)) {
@@ -2709,10 +2920,9 @@ async function cmdOpenChat(context) {
         const cur = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto' };
         const activeMode  = msg.mode  || cur.mode  || 'free';
         const activeModel = msg.model || cur.model || 'auto';
-        const activeProvider = msg.provider || _inferProvider(activeModel);
+        const activeProvider = explicitProviderForModel(activeModel) || '';
         out.appendLine(`CLike: ${msg.type} (${activeMode} ${activeModel} ${activeProvider})`);
-
-
+        
         // Persisti l’input dell’utente nella sessione del MODE (e mostreremo badge del modello in render)
         await appendSessionJSONL(activeMode, {
           role: 'user',
@@ -2757,13 +2967,15 @@ async function cmdOpenChat(context) {
         const basePayload = { mode: activeMode, 
             project_id: projectId,
             model: activeModel,  
-            provider: activeProvider, 
+            ...(activeProvider ? { provider: activeProvider } : {}), 
             messages, 
             inline_files, 
             rag_files, 
             attachments: atts ,
             max_tokens: 4000,
-            gen:{api:"responses"} //ore "responses" API's openai 
+            gen:{api:"responses"}, //ore "responses" API's openai 
+            profileHint: computeProfileHint(activeMode, activeModel),
+            mode_contract: buildModeContract(activeMode),
         };
 
         // (ternario corretto)

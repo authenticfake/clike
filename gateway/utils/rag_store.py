@@ -1,30 +1,55 @@
-# Lightweight RAG service: chunk, embed, upsert/search su Qdrant
-# Riusa models.yaml per scegliere il modello embeddings preferito
-
 from __future__ import annotations
-import os, re, json, time, hashlib, logging
+import os, re, json, time, hashlib, logging, uuid
 import traceback
 from typing import List, Dict, Any, Optional, Tuple
 import httpx
 
-from utils.utils import _rag_base_url
+
+def _rag_base_url(base_url: str | None = None) -> str:
+    return (base_url or os.getenv("RAG_BASE_URL", "http://localhost:8080/v1/rag")).rstrip("/")
+
 
 log = logging.getLogger("rag.store")
 
 # Config base (env + default)
 QDRANT_URL  = os.getenv("QDRANT_URL", "http://qdrant:6333").rstrip("/")
 QCOLLECTION = os.getenv("QDRANT_COLLECTION", "clike_rag")
-EMB_DIM     = int(os.getenv("EMBEDDING_DIM", "1536"))  # default openai small
+EMB_DIM     = int(os.getenv("EMBEDDING_DIM", "1536"))
 CHUNK_TOKENS   = int(os.getenv("RAG_CHUNK_TOKENS", "800"))
 CHUNK_OVERLAP  = int(os.getenv("RAG_CHUNK_OVERLAP", "80"))
 TOP_K          = int(os.getenv("RAG_TOP_K", "12"))
 MAX_CTX_TOKENS = int(os.getenv("RAG_MAX_CTX_TOKENS", "1800"))
+MAX_EMBED_TEXT_CHARS = int(os.getenv("RAG_MAX_EMBED_TEXT_CHARS", "12000"))
+RAG_SCORE_THRESHOLD = float(os.getenv("RAG_SCORE_THRESHOLD", "0.30"))
+def _default_embed_family() -> str:
+    explicit = (os.getenv("RAG_EMBED_FAMILY") or "").strip()
+    if explicit:
+        return explicit
+
+    model_name = (os.getenv("RAG_EMBED_MODEL") or "").strip().lower()
+    if model_name.startswith("openai:") or "text-embedding-3" in model_name:
+        return f"openai_{EMB_DIM}"
+    if model_name.startswith("ollama:"):
+        return f"ollama_{EMB_DIM}"
+    if model_name.startswith("vllm:"):
+        return f"vllm_{EMB_DIM}"
+    if model_name.startswith("deepseek:"):
+        return f"deepseek_{EMB_DIM}"
+
+    # conservative fallback, but no longer preferred
+    return f"emb_{EMB_DIM}"
+
+EMB_FAMILY = _default_embed_family()
 
 # Alcune estensioni testuali
 TEXT_EXTS = {".md",".txt",".rst",".adoc",".py",".js",".ts",".tsx",".jsx",".java",".go",".rs",".cpp",".c",".h",".sql",".yml",".yaml",".json",".toml",".ini",".proto",".sh",".ps1",".rb",".php",".cs",".kt"}
 
 def _norm_path(p: str) -> str:
     return re.sub(r"[\\]+", "/", (p or "").strip())
+
+def _point_id(embed_family: str, path: str, sha: str, chunk_idx: int) -> str:
+    raw = f"{embed_family}|{path}|{sha}|{chunk_idx}"
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, raw))
 
 def _sha1(s: str) -> str:
     return hashlib.sha1(s.encode("utf-8", "ignore")).hexdigest()
@@ -46,61 +71,89 @@ def _split_chunks(text: str, tokens:int=CHUNK_TOKENS, overlap:int=CHUNK_OVERLAP)
 
 class EmbeddingClient:
     """
-    Cliente embeddings “compatibile”. Sceglie provider dal gateway se presente
-    o cade su OpenAI text-embedding-3-small (se OPENAI_API_KEY è disponibile).
-    Altrimenti usa un fallback grezzo (hash) per non bloccare.
+    Gateway-only embedding client.
+    No direct-provider fallback.
+    No fake vectors.
+    Fail fast on provider failure or dimension mismatch.
     """
+
     def __init__(self, gateway_base: str = "http://gateway:8000/v1"):
         self.base = gateway_base.rstrip("/")
-        self.openai_key = os.getenv("OPENAI_API_KEY")
-    
+        self.model_name = (os.getenv("RAG_EMBED_MODEL") or "").strip()
+
+    async def _embed_one_gateway(self, text: str) -> List[float]:
+        payload: Dict[str, Any] = {"input": text}
+        if self.model_name:
+            payload["model"] = self.model_name
+
+        async with httpx.AsyncClient(timeout=60) as client:
+            r = await client.post(f"{self.base}/embeddings", json=payload)
+            r.raise_for_status()
+            data = r.json() or {}
+
+        vecs = [
+            d["embedding"]
+            for d in (data.get("data") or [])
+            if isinstance(d, dict) and "embedding" in d
+        ]
+        if not vecs:
+            raise RuntimeError("gateway embeddings returned no vectors")
+
+        vec = vecs[0]
+        if not isinstance(vec, list) or not vec:
+            raise RuntimeError("gateway embeddings returned an empty vector")
+
+        if len(vec) != EMB_DIM:
+            raise RuntimeError(
+                f"embedding dimension mismatch: expected={EMB_DIM} got={len(vec)}"
+            )
+
+        return vec
 
     async def embed(self, texts: List[str]) -> List[List[float]]:
-        # 1) prova via gateway /v1/embeddings (se presente)
-        try:
-            async with httpx.AsyncClient(timeout=20) as client:
-                r = await client.post(f"{self.base}/embeddings", json={"input": texts})
-                if r.is_success:
-                    data = r.json()
-                    vecs = [d["embedding"] for d in (data.get("data") or []) if "embedding" in d]
-                    if vecs: return vecs
-        except Exception:
-            pass
-        # 2) prova OpenAI diretto se key presente
-        if self.openai_key:
-            try:
-                headers = {"Authorization": f"Bearer {self.openai_key}"}
-                async with httpx.AsyncClient(timeout=20) as client:
-                    r = await client.post("https://api.openai.com/v1/embeddings",
-                        headers=headers,
-                        json={"model":"text-embedding-3-small","input":texts})
-                    r.raise_for_status()
-                    data = r.json()
-                    return [d["embedding"] for d in data.get("data") or []]
-            except Exception:
-                pass
-        # 3) fallback dummy (hash → sparse float) per non bloccare
-        log.warning("RAG embeddings fallback: using hash-based embeddings")
-        out = []
-        for t in texts:
-            h = hashlib.sha256((t or "").encode("utf-8","ignore")).digest()
-            vec = [x/255.0 for x in h[:128]]  # finto vettore
-            # pad a EMB_DIM
-            if len(vec) < EMB_DIM:
-                vec = vec + [0.0]*(EMB_DIM - len(vec))
-            out.append(vec[:EMB_DIM])
-        return out
+        results: List[List[float]] = []
+
+        for text in texts:
+            payload: Dict[str, Any] = {"input": text}
+            model_name = (os.getenv("RAG_EMBED_MODEL") or "").strip()
+            if model_name:
+                payload["model"] = model_name
+
+            async with httpx.AsyncClient(timeout=60) as client:
+                r = await client.post(f"{self.base}/embeddings", json=payload)
+                r.raise_for_status()
+                data = r.json() or {}
+
+            vecs = [
+                d["embedding"]
+                for d in (data.get("data") or [])
+                if isinstance(d, dict) and "embedding" in d
+            ]
+            if not vecs:
+                raise RuntimeError("gateway embeddings returned no vectors")
+
+            vec = vecs[0]
+            if not isinstance(vec, list) or len(vec) != EMB_DIM:
+                raise RuntimeError(
+                    f"embedding dimension mismatch: expected={EMB_DIM} got={len(vec) if isinstance(vec, list) else 'invalid'}"
+                )
+
+            results.append(vec)
+
+        return results
 
 class RagStore:
     
     def __init__(self, project_id: str):
         """
         Initialize store for a specific project namespace.
+        Collection naming MUST include embedding family to avoid mixing
+        incompatible vector spaces across index/search callers.
         """
         self.project_id = (project_id or "default")
         self.namespace = ("proj_" + re.sub(r"[^a-zA-Z0-9_]+", "_", self.project_id)).lower()
         self.q = QDRANT_URL
-        self.c = f"{QCOLLECTION}__{self.namespace}"
+        self.c = f"{QCOLLECTION}__{self.namespace}__{EMB_FAMILY}"
         self.emb = EmbeddingClient()
 
 
@@ -148,7 +201,7 @@ class RagStore:
             "search_top_k": int(search_top_k),
         }
         # ⚠️ importante: usa _rag_base_url(base_url) per evitare "localhost" nel container gateway
-        url = f"{_rag_base_url()}/fetch_by_paths"
+        url = f"{_rag_base_url(base_url)}/fetch_by_paths"
         log.info("rag.store rag get_by_path %s %s", url, payload)
 
         try:
@@ -157,7 +210,19 @@ class RagStore:
                 r.raise_for_status()
                 data = r.json() or {}
                 docs = data.get("docs") or []
-                return docs[0] if docs else {}
+
+                if docs:
+                    first = docs[0] or {}
+                    log.info(
+                        "rag.store get_by_path found path=%s chunks=%s text_len=%s",
+                        first.get("path"),
+                        first.get("chunks"),
+                        len(first.get("text") or ""),
+                    )
+                    return first
+
+                log.info("rag.store get_by_path found nothing for path=%s", path)
+                return {}
         except Exception as e:
             log.warning("get_by_path failed: %s", e)
             return {}
@@ -202,99 +267,193 @@ class RagStore:
             return []
 
         
-    async def index_texts(self, items: List[Dict[str,Any]]) -> Dict[str,Any]:
-        """
-        items: [{path, text}]  (contenuti già estratti)
-        """
+    async def index_texts(self, items: List[Dict[str, Any]]) -> Dict[str, Any]:
         await self.ensure()
-        points = []
-        id_auto = int(time.time()*1000)
-        texts = []
-        metas = []
-        # chunk → embed
+
+        texts: List[str] = []
+        metas: List[Dict[str, Any]] = []
+        paths_to_replace: set[str] = set()
+
         for it in items:
             p = _norm_path(it.get("path") or "unknown")
             t = it.get("text") or ""
+            if not p or not isinstance(t, str) or not t.strip():
+                continue
+
+            paths_to_replace.add(p)
+            file_sha = _sha1(t)
+
             chunks = _split_chunks(t)
             for idx, ch in enumerate(chunks):
-                meta = {"path": p, "sha": _sha1(t), "chunk": idx}
+                if not ch.strip():
+                    continue
                 texts.append(ch)
-                metas.append(meta)
+                metas.append(
+                    {
+                        "path": p,
+                        "sha": file_sha,
+                        "chunk": idx,
+                    }
+                )
+
         if not texts:
-            return {"ok": True, "upserts": 0}
+            return {"ok": True, "upserts": 0, "indexed_paths": 0}
 
         vecs = await self.emb.embed(texts)
-        # compose points (optionally include text in payload, capped)
-        INCLUDE_TEXT = os.getenv("RAG_PAYLOAD_TEXT", "1").strip() not in ("0","false","False","no")
-        TEXT_MAX = int(os.getenv("RAG_PAYLOAD_TEXT_CHARS", "1200"))
-        for i,(v,m) in enumerate(zip(vecs, metas)):
-            payload = dict(m)
-            if INCLUDE_TEXT:
-                # attach truncated text chunk for server-side retrieval in prompts
-                try:
-                    chunk_idx = m.get("chunk", 0)
-                    payload["text"] = (texts[i] or "")[:max(200, TEXT_MAX)]
-                except Exception:
-                    pass
-           
-            points.append({
-                "id": id_auto + i,
-                "vector": v,
-                "payload": payload
-            })
-        # upsert
+        if len(vecs) != len(metas):
+            raise RuntimeError(
+                f"embedding count mismatch: vecs={len(vecs)} metas={len(metas)}"
+            )
+
         try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                body = {"points": points}
-                r = await client.put(f"{self.q}/collections/{self.c}/points", json=body)
-                r.raise_for_status()
-            return {"ok": True, "upserts": len(points)}
+            async with httpx.AsyncClient(timeout=60) as client:
+                if paths_to_replace:
+                    delete_body = {
+                        "filter": {
+                            "should": [
+                                {"key": "path", "match": {"value": p}}
+                                for p in sorted(paths_to_replace)
+                            ]
+                        }
+                    }
+                    r_del = await client.post(
+                        f"{self.q}/collections/{self.c}/points/delete?wait=true",
+                        json=delete_body,
+                    )
+                    if r_del.status_code >= 400:
+                        log.error("RAG delete failed status=%s body=%s", r_del.status_code, r_del.text)
+                        r_del.raise_for_status()
+
+                points = []
+                for i, (v, m) in enumerate(zip(vecs, metas)):
+                    chunk_text = texts[i]
+                    points.append(
+                        {
+                            "id": _point_id(EMB_FAMILY, m["path"], m["sha"], int(m["chunk"])),
+                            "vector": v,
+                            "payload": {
+                                "path": m["path"],
+                                "sha": m["sha"],
+                                "chunk": int(m["chunk"]),
+                                "text": chunk_text,
+                                "text_len": len(chunk_text),
+                                "embed_family": EMB_FAMILY,
+                            },
+                        }
+                    )
+
+                r_up = await client.put(
+                    f"{self.q}/collections/{self.c}/points?wait=true",
+                    json={"points": points},
+                )
+
+                if r_up.status_code >= 400:
+                    log.error("RAG upsert failed status=%s body=%s", r_up.status_code, r_up.text)
+                    r_up.raise_for_status()
+
         except Exception as e:
             log.error("RAG upsert failed: %s", e)
-            return {"ok": False, "error": str(e)}
+            raise
 
-    async def search(self, query: str, top_k:int=TOP_K) -> List[Dict[str,Any]]:
+        return {
+            "ok": True,
+            "upserts": len(points),
+            "indexed_paths": len(paths_to_replace),
+        }
+
+    async def search(self, query: str, top_k: int = TOP_K) -> List[Dict[str, Any]]:
         await self.ensure()
 
-        # embed query
-        vec = (await self.emb.embed([query]))[0]
-        #log.info("search vec: %s", vec)
+        query_text = (query or "").strip()
+        if not query_text:
+            return []
 
-        # search
+        vec = (await self.emb.embed([query_text]))[0]
+
         try:
             async with httpx.AsyncClient(timeout=20) as client:
                 limit_as_int = int(top_k)
-                body = {"vector": vec, "limit": limit_as_int, "with_payload": True}
+                body = {
+                    "vector": vec,
+                    "limit": limit_as_int,
+                    "with_payload": True,
+                    "score_threshold": RAG_SCORE_THRESHOLD,
+                }
                 r = await client.post(f"{self.q}/collections/{self.c}/points/search", json=body)
                 r.raise_for_status()
-                data = r.json()
-                log.info("RAG search result: %s", len(data.get("result") or []))
-                out = []
-                for it in (data.get("result") or []):
+                data = r.json() or {}
+
+                raw_results = data.get("result") or []
+                out: List[Dict[str, Any]] = []
+                unique_paths = set()
+                max_score = None
+                min_score = None
+
+                for it in raw_results:
                     pl = it.get("payload") or {}
+                    score = float(it.get("score", 0.0))
+                    path = pl.get("path", "") or ""
+                    chunk = pl.get("chunk", 0)
+                    text = pl.get("text", "") or ""
+
+                    if path:
+                        unique_paths.add(path)
+
+                    if max_score is None or score > max_score:
+                        max_score = score
+                    if min_score is None or score < min_score:
+                        min_score = score
+
                     out.append({
-                        "path": pl.get("path",""),
-                        "chunk": pl.get("chunk",0),
-                        "score": it.get("score",0.0),
-                        "text": pl.get("text","")
+                        "path": path,
+                        "chunk": chunk,
+                        "score": score,
+                        "text": text,
                     })
+
+                log.info(
+                    "RAG search raw_hits=%d unique_paths=%d max_score=%.4f min_score=%.4f query=%r collection=%s",
+                    len(raw_results),
+                    len(unique_paths),
+                    max_score or 0.0,
+                    min_score or 0.0,
+                    query_text,
+                    self.c,
+                )
+
+                try:
+                    ranked_paths = []
+                    for item in sorted(out, key=lambda x: float(x.get("score", 0.0)), reverse=True):
+                        p = (item.get("path") or "").strip()
+                        if not p:
+                            continue
+                        ranked_paths.append(f"{p} (chunk={item.get('chunk', 0)} score={float(item.get('score', 0.0)):.3f})")
+
+                    if ranked_paths:
+                        log.info("RAG search files for query=%r -> %s", query_text, " | ".join(ranked_paths[:20]))
+                    else:
+                        log.info("RAG search files for query=%r -> none", query_text)
+                except Exception as log_err:
+                    log.warning("RAG search path logging failed for query=%r: %s", query_text, log_err)
+
                 return out
+
         except httpx.HTTPStatusError as e:
-            # Errore HTTP (es. 400 Bad Request, 404 Not Found, 500 Internal Server Error)
-            error_details = e.response.text[:200] if e.response else "N/A"
+            error_details = e.response.text[:400] if e.response else "N/A"
             log.error(
-                "RAG search failed (HTTP Error %s). URL: %s. Dettagli: %s", 
-                e.response.status_code, 
-                e.request.url, 
-                error_details
+                "RAG search failed (HTTP %s). URL=%s details=%s",
+                e.response.status_code if e.response else "N/A",
+                e.request.url if e.request else "N/A",
+                error_details,
             )
-        
+            return []
+
         except Exception as e:
             full_traceback = traceback.format_exc()
             log.error("RAG search failed: %s", e)
-            log.error("RAG search full_traceback failed: %s", full_traceback)
+            log.error("RAG search traceback: %s", full_traceback)
             return []
-
+    
     async def purge(self, path_prefix: Optional[str]=None) -> Dict[str,Any]:
         await self.ensure()
         # delete by filter

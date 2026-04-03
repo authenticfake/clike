@@ -207,18 +207,61 @@ async def chat_text(base_url: str, model: str, messages: List[Dict[str, Any]], *
 
 # Embeddings (supported by Ollama as /api/embeddings for some models)
 async def embeddings(base_url: str, model: str, input_text: str, timeout: float = 120.0) -> List[float]:
-    url = f"{base_url.rstrip('/')}/api/embeddings"
-    log.info("Embeddings: %s", url + f"?model={model}&prompt={input_text}")
-    payload = {"model": model, "prompt": input_text}
-    log.info("Embeddings payload: %s", payload)
+    """
+    Prefer modern Ollama embeddings route first:
+      POST /api/embed with {"model": ..., "input": ...}
+
+    Fallback to legacy route:
+      POST /api/embeddings with {"model": ..., "prompt": ...}
+    """
+    base = base_url.rstrip("/")
+
     async with httpx.AsyncClient(timeout=timeout) as client:
-        r = await client.post(url, json=payload)
-        r.raise_for_status()
-        j = r.json()
-        # common shapes: {'embedding': [...]} or OpenAI-like {'data':[{'embedding':[...]}]}
-        if isinstance(j.get("embedding"), list):
-            return j["embedding"]
-        data = (j.get("data") or [])
-        if data and isinstance(data[0], dict) and isinstance(data[0].get("embedding"), list):
-            return data[0]["embedding"]
+        # Modern route
+        url_embed = f"{base}/api/embed"
+        payload_embed = {"model": model, "input": input_text}
+        log.info("ollama embeddings try route=%s model=%s", url_embed, model)
+
+        r = await client.post(url_embed, json=payload_embed)
+        if r.status_code < 400:
+            j = r.json()
+
+            if isinstance(j.get("embeddings"), list) and j["embeddings"]:
+                first = j["embeddings"][0]
+                if isinstance(first, list):
+                    return first
+
+            if isinstance(j.get("embedding"), list):
+                return j["embedding"]
+
+            data = j.get("data") or []
+            if data and isinstance(data[0], dict) and isinstance(data[0].get("embedding"), list):
+                return data[0]["embedding"]
+
+            return []
+
+        # Legacy fallback only if modern route is missing
+        if r.status_code != 404:
+            r.raise_for_status()
+
+        url_legacy = f"{base}/api/embeddings"
+        payload_legacy = {"model": model, "prompt": input_text}
+        log.warning("ollama embeddings fallback route=%s model=%s", url_legacy, model)
+
+        r2 = await client.post(url_legacy, json=payload_legacy)
+        r2.raise_for_status()
+        j2 = r2.json()
+
+        if isinstance(j2.get("embedding"), list):
+            return j2["embedding"]
+
+        if isinstance(j2.get("embeddings"), list) and j2["embeddings"]:
+            first = j2["embeddings"][0]
+            if isinstance(first, list):
+                return first
+
+        data2 = j2.get("data") or []
+        if data2 and isinstance(data2[0], dict) and isinstance(data2[0].get("embedding"), list):
+            return data2[0]["embedding"]
+
         return []
