@@ -79,9 +79,8 @@ Pick one style and use it consistently.
 
 ### Finalization
 End the output with this exact line on its own:
-```
-```SPEC_END```
-```
+
+SPEC_END
 
 ### Common Failure Modes to Avoid
 - Starting with `# PLAN` or any heading other than the required first line.
@@ -91,6 +90,3 @@ End the output with this exact line on its own:
 - Ignoring constraints or inventing external services not in inputs.
 
 (Do not echo these instructions; produce only the `SPEC.md` content.)
-
-End the output with this exact line on its own:
-```SPEC_END```

@@ -9,7 +9,7 @@ from providers import anthropic as anth
 from providers import deepseek as deepseek
 from providers import ollama as oll
 from providers import vllm as vll
-
+from config import load_models_cfg
 
 OPENAI_BASE = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -85,6 +85,38 @@ async def _pick_openai_remote(norm: str) -> str:
     examples = ", ".join(sorted([m for m in avail if isinstance(m, str) and m.startswith("gpt-")][:10])) or "(none)"
     raise HTTPException(400, detail=f"Model '{norm}' not available for this API key. Available examples: {examples}")
 
+def _sanitize_mode_contract_payload(provider: str, mode_contract: dict | None, response_format, tools, tool_choice) -> dict:
+    contract = dict(mode_contract or {})
+    mode = str(contract.get("mode") or "free").lower()
+    allow_file_output = bool(contract.get("allow_file_output", False))
+
+    rf = response_format
+    tl = tools
+    tc = tool_choice
+
+    if mode == "free" and not allow_file_output:
+        rf = None
+        tl = None
+        tc = None
+
+    prov = str(provider or "").lower().strip()
+
+    # In free chat, never allow file-generation contract.
+    # In coding/harper, do NOT strip tools for OpenAI, because GPT-5 family
+    # is more reliable with tool-calling than with long textual JSON output.
+    if mode == "free" and prov in {"openai", "azure_openai"} and tl:
+        tl = None
+        tc = None
+
+    # Tool-oriented providers should not receive response_format.
+    if prov in {"anthropic", "ollama", "deepseek", "vllm"} and rf:
+        rf = None
+
+    return {
+        "response_format": rf,
+        "tools": tl,
+        "tool_choice": tc,
+    }
 # --- Schemi ---------------------------------------------------------------
 
 class ChatMessage(BaseModel):
@@ -96,17 +128,17 @@ class ChatRequest(BaseModel):
     messages: List[ChatMessage]
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
-    # pass-through opzionali (usati solo se il provider li supporta)
     response_format: Optional[Dict[str, Any]] = None
     tools: Optional[List[Dict[str, Any]]] = None
     tool_choice: Optional[Union[str, Dict[str, Any]]] = None
-    profile: Optional[str] = None  # solo per osservabilità
-    timeout: Optional[float] = None 
+    profile: Optional[str] = None
+    timeout: Optional[float] = None
 
-    provider: Optional[str] = Field(None, description="openai|anthropic|vllm|ollama")
+    provider: Optional[str] = Field(None, description="openai|anthropic|vllm|ollama|deepseek")
     base_url: Optional[str] = None
     remote_name: Optional[str] = None
-    max_completion_tokens: int | None = Field(None, description="GPT-5 style")
+    max_completion_tokens: Optional[int] = Field(None, description="GPT-5 style")
+    mode_contract: Optional[Dict[str, Any]] = None
 
 # ---------- Utils ----------
 
@@ -123,15 +155,50 @@ def _json(obj: Any) -> str:
     except Exception:
         return str(obj)
 
-# ---------- Endpoint ----------
+def _load_model_catalog() -> list[dict]:
+    try:
+        _, models = load_models_cfg(os.getenv("MODELS_CONFIG", "/workspace/configs/models.yaml"))
+        return models or []
+    except Exception:
+        return []
 
+def _match_model_entry(model_name: str) -> dict | None:
+    wanted = (model_name or "").strip().lower()
+    if not wanted:
+        return None
+
+    for m in _load_model_catalog():
+        mid = str(m.get("id") or "").strip().lower()
+        name = str(m.get("name") or "").strip().lower()
+        remote = str(m.get("remote_name") or "").strip().lower()
+
+        if wanted in {mid, name, remote}:
+            return m
+
+        # Accept "provider:name"
+        if ":" in wanted and wanted == mid:
+            return m
+
+    return None
+# ---------- Endpoint ----------
 @router.post("/v1/chat/completions")
 async def chat_completions(req: ChatRequest,  request: Request):
-    provider = (req.provider or request.headers.get("X-CLike-Provider") or _infer_provider(req.model) or "").lower().strip()
+    resolved_entry = _match_model_entry(req.model)
 
-    # ----- Normalizza input per provider -----
-    # ATTENZIONE: niente virgola -> niente tupla!
-    model = req.model  # era: req.model,
+    provider = (
+        req.provider
+        or request.headers.get("X-CLike-Provider")
+        or (resolved_entry or {}).get("provider")
+        or _infer_provider(req.model)
+        or ""
+    ).lower().strip()
+
+    model = (
+        req.remote_name
+        or (resolved_entry or {}).get("remote_name")
+        or (resolved_entry or {}).get("name")
+        or req.model
+    )
     # Converte ChatMessage (pydantic) -> dict
     messages = []
     for m in (req.messages or []):
@@ -146,6 +213,16 @@ async def chat_completions(req: ChatRequest,  request: Request):
     response_format = req.response_format
     tools = req.tools
     tool_choice = req.tool_choice
+    sanitized = _sanitize_mode_contract_payload(
+        provider=provider,
+        mode_contract=req.mode_contract,
+        response_format=response_format,
+        tools=tools,
+        tool_choice=tool_choice,
+    )
+    response_format = sanitized["response_format"]
+    tools = sanitized["tools"]
+    tool_choice = sanitized["tool_choice"]
     remote = (req.remote_name or model)
     timeout = req.timeout
 
@@ -154,8 +231,8 @@ async def chat_completions(req: ChatRequest,  request: Request):
         "chat payload (safe) %s",
         _json({
             "provider": provider,
-            "model": model,
-            "remote": remote,
+            "req_model": req.model,
+            "resolved_model": model,
             "messages_len": len(messages),
             "has_tools": bool(tools),
             "has_tool_choice": bool(tool_choice),

@@ -40,6 +40,9 @@ PROMPT_SPEC_SYSTEM_PATH = os.getenv("PROMPT_SPEC_SYSTEM_PATH", "/app/prompts/har
 SPEC_TEMPLATE_PATH = os.getenv("SPEC_TEMPLATE_PATH", "/app/templates/SPEC_TEMPLATE.md")
 PROMPT_PLAN_SYSTEM_PATH = os.getenv("PROMPT_PLAN_SYSTEM_PATH", "/app/prompts/harper/plan_system.md")
 PROMPT_KIT_SYSTEM_PATH = os.getenv("PROMPT_KIT_SYSTEM_PATH", "/app/prompts/harper/kit_system.md")
+PROMPT_INTEGRITY_EVAL_SYSTEM_PATH = os.getenv("PROMPT_INTEGRITY_EVAL_SYSTEM_PATH", "/app/prompts/harper/integrity_eval.md")
+PROMPT_PROMOTION_HARDENER_SYSTEM_PATH = os.getenv("PROMPT_PROMOTION_HARDENER_SYSTEM_PATH", "/app/prompts/harper/promotion_hardener.md")
+PROMPT_PROMOTION_EVAL_SYSTEM_PATH = os.getenv("PROMPT_PROMOTION_EVAL_SYSTEM_PATH", "/app/prompts/harper/promotion_eval.md")
 PROMPT_BUILD_SYSTEM_PATH = os.getenv("PROMPT_BIULD_SYSTEM_PATH", "/app/prompts/harper/build_system.md")
 PROMPT_FINALIZE_SYSTEM_PATH = os.getenv("PROMPT_FINALIZE_SYSTEM_PATH", "/app/prompts/harper/finalize_system.md")
 
@@ -66,10 +69,13 @@ _FILE_BLOCK_FENCED_INLINE_RE = re.compile(
 
 # --- Model parameters per phase (output budget & style) ----------------------
 PHASE_MODEL_PARAMS = {
-    "idea":     {"max_tokens": 23500, "temperature": 0.2, "top_p": 1.0},
-    "spec":     {"max_tokens": 29500, "temperature": 0.2, "top_p": 1.0},
-    "plan":     {"max_tokens": 45000, "temperature": 0.2, "top_p": 0.8},  # raise to 6500 only if many lanes
-    "kit":      {"max_tokens": 61500, "temperature": 0.1, "top_p": 1.0},
+    "idea":                 {"max_tokens": 23500, "temperature": 0.2, "top_p": 1.0},
+    "spec":                 {"max_tokens": 29500, "temperature": 0.2, "top_p": 1.0},
+    "plan":                 {"max_tokens": 45000, "temperature": 0.2, "top_p": 0.8},  # raise to 6500 only if many lanes
+    "kit":                  {"max_tokens": 48000, "temperature": 0.1, "top_p": 1.0},
+    "integrity_eval":       {"max_tokens": 17000, "temperature": 0.1, "top_p": 1.0},
+    "promotion_hardener":   {"max_tokens": 22000, "temperature": 0.1, "top_p": 1.0},
+    "promotion_eval":       {"max_tokens": 18000, "temperature": 0.1, "top_p": 1.0},
     "eval":     {"max_tokens": 6500, "temperature": 0.1, "top_p": 1.0},
     "gate":     {"max_tokens": 6000, "temperature": 0.1, "top_p": 1.0},
     "finalize": {"max_tokens": 31000, "temperature": 0.1, "top_p": 1.0},
@@ -453,32 +459,34 @@ def _dedupe_by_path(files_list: list[dict]) -> list[dict]:
 
 
 
-def _extract_file_blocks(text: str) -> tuple[list[dict], str]:
+def _extract_file_blocks(text: str, *, allow_plain: bool = True) -> tuple[list[dict], str]:
     """
-    Estrae blocchi file in tre varianti:
+    Extract file blocks from model output.
 
-    A) FENCED:
-      ```<qualcosa>
-      file:/path/to/file.ext
-      <contenuto>
-      ```
-      e anche lo stile inline:
-      ```file:/path/to/file.ext
-      <contenuto>
-      ```
+    Supported formats:
+      A) FENCED:
+         ```text
+         file:/path/to/file.ext
+         <content>
+         ```
 
-    B) PLAIN:
-      file:/path/to/file.ext
-      <contenuto fino al prossimo "file:" o EOF>
+      A2) INLINE FENCED:
+         ```file:/path/to/file.ext
+         <content>
+         ```
 
-    C) BEGIN_FILE:
-      BEGIN_FILE path/to/file.ext
-      <contenuto>
-      END_FILE
+      B) PLAIN (optional, disabled for KIT):
+         file:/path/to/file.ext
+         <content until next file: or EOF>
 
-    Ritorna (files, remainder) dove:
-      - files: lista di {path, content, mime, encoding}
-      - remainder: testo rimanente senza i blocchi estratti
+      C) BEGIN_FILE:
+         BEGIN_FILE path/to/file.ext
+         <content>
+         END_FILE
+
+    Returns:
+      - files: list of {path, content, mime, encoding}
+      - remainder: text outside recognized file blocks
     """
     files: list[dict] = []
     if not text:
@@ -486,7 +494,7 @@ def _extract_file_blocks(text: str) -> tuple[list[dict], str]:
 
     intervals: list[tuple[int, int]] = []
 
-    # --- A) FENCED ---
+    # A) FENCED
     for m in _FILE_BLOCK_FENCED_RE.finditer(text):
         start, end = m.span()
         intervals.append((start, end))
@@ -499,7 +507,8 @@ def _extract_file_blocks(text: str) -> tuple[list[dict], str]:
             "mime": _guess_mime(norm_path),
             "encoding": "utf-8",
         })
-    # --- A2) FENCED inline: ```file:/path ---
+
+    # A2) INLINE FENCED
     for m in _FILE_BLOCK_FENCED_INLINE_RE.finditer(text):
         start, end = m.span()
         intervals.append((start, end))
@@ -512,22 +521,24 @@ def _extract_file_blocks(text: str) -> tuple[list[dict], str]:
             "mime": _guess_mime(norm_path),
             "encoding": "utf-8",
         })
-    # --- B) PLAIN ---
-    for m in _FILE_BLOCK_PLAIN_RE.finditer(text):
-        start, end = m.span()
-        intervals.append((start, end))
-        raw_path = (m.group(1) or "").strip()
-        content = (m.group(2) or "")
-        content = re.sub(r"\n```+\s*\Z", "\n", content)
-        norm_path = raw_path.lstrip().lstrip("/")
-        files.append({
-            "path": norm_path,
-            "content": content.strip("\n"),
-            "mime": _guess_mime(norm_path),
-            "encoding": "utf-8",
-        })
 
-    # --- C) BEGIN_FILE ---
+    # B) PLAIN (disabled for KIT)
+    if allow_plain:
+        for m in _FILE_BLOCK_PLAIN_RE.finditer(text):
+            start, end = m.span()
+            intervals.append((start, end))
+            raw_path = (m.group(1) or "").strip()
+            content = (m.group(2) or "")
+            content = re.sub(r"\n```+\s*\Z", "\n", content)
+            norm_path = raw_path.lstrip().lstrip("/")
+            files.append({
+                "path": norm_path,
+                "content": content.strip("\n"),
+                "mime": _guess_mime(norm_path),
+                "encoding": "utf-8",
+            })
+
+    # C) BEGIN_FILE
     for m in _FILE_BLOCK_BEGIN_RE.finditer(text):
         start, end = m.span()
         intervals.append((start, end))
@@ -542,11 +553,9 @@ def _extract_file_blocks(text: str) -> tuple[list[dict], str]:
         })
 
     if not intervals:
-        # nessun blocco file riconosciuto: restituisci il testo intero come remainder
         log.info("no file blocks found")
         return [], text.strip()
 
-    # Rimuovi gli intervalli estratti per ottenere il remainder
     intervals.sort()
     remainder_parts: list[str] = []
     last = 0
@@ -691,7 +700,10 @@ def _compose_system_messages(phase: str,
         "spec": PROMPT_SPEC_SYSTEM_PATH,
         "plan": PROMPT_PLAN_SYSTEM_PATH,
         "kit": PROMPT_KIT_SYSTEM_PATH,
+        "integrity_eval": PROMPT_INTEGRITY_EVAL_SYSTEM_PATH,
         "finalize": PROMPT_FINALIZE_SYSTEM_PATH,
+        "promotion_hardener": PROMPT_PROMOTION_HARDENER_SYSTEM_PATH,
+        "promotion_eval": PROMPT_PROMOTION_EVAL_SYSTEM_PATH,
     }
     system_path = system_by_phase.get(phase, PROMPT_SPEC_SYSTEM_PATH)
     system = _read_text(system_path).strip() or "# Harper System Prompt\nFollow the phase contract strictly."
@@ -708,7 +720,7 @@ def _compose_system_messages(phase: str,
         "- Keep output concise but testable; Acceptance Criteria are mandatory.\n"
         "- Maintain human-in-control tone; do not invent facts.\n"
     )
-    log.info("componse message nmber: %s", len(system.split("\n")))
+    log.debug("componse message nmber: %s", len(system.split("\n")))
 
     # Background context (IDEA + optional core blobs names)
     idea_md or ""
@@ -718,12 +730,12 @@ def _compose_system_messages(phase: str,
 
     if core_blobs:
        
-        log.info("componse message nmber: %s", len(system.split("\n")))
+        log.debug("componse message nmber: %s", len(system.split("\n")))
         for name, content in core_blobs.items():
             lname = (name or "").lower()
             # if name.endswith('plan.json'):
             #     continue
-            log.info("componse message nmber: %s", len(system.split("\n")))
+            log.debug("componse message nmber: %s", len(system.split("\n")))
             if lname.startswith("tech_constraints"):
                     constraints_keys.append(name)
                     if isinstance(content, str) and content.strip():
@@ -736,7 +748,7 @@ def _compose_system_messages(phase: str,
        refs = "### Included references:\n" + "\n".join(f"- {k} ({len(v or '')} chars)" for k, v in core_blobs.items())
 
     suffix_parts = []
-    log.info("componse message nmber: %s", len(system.split("\n")))
+    log.debug("componse message nmber: %s", len(system.split("\n")))
 
     if other_core:
         for n, c in other_core.items():
@@ -1062,65 +1074,105 @@ def _dump_llm_response(
         log.warning("harper.llm_dump: failed to save LLM response: %s", e)
 
 
-async def gather_rag_materials(rag_chunks,rag_top_k, store, rag_queries = None) -> list[dict]:
+async def gather_rag_materials(rag_chunks, rag_top_k, store, rag_queries=None) -> list[dict]:
     """
-    Restituisce lista di materiali da includere nel prompt:
-    [{title, text, source}]
-    Strategia:
-      1) client 'rag_chunks' (IDEA/SPEC) → sempre inclusi (ephemeral)
-      2) server 'rag_queries' → search(top-k), preferendo 'text' dal payload;
-         se assente, prova a mappare (path,chunk) sui rag_chunks client.
+    Build useful RAG materials for Harper prompts.
+
+    Policy:
+      1) client rag_chunks are included first (ephemeral)
+      2) store search is deduplicated by path
+      3) prefer source-ish files
+      4) keep only the best chunk per file
     """
     log.info("--- gather_rag_materials")
-    materials = []
-    ragTopK =  rag_top_k or os.getenv("RAG_TOP_K") or 100 #just for harper process
 
-    # 1) Ephemeral chunks dal client
+    materials: list[dict] = []
+    ragTopK = int(rag_top_k or os.getenv("RAG_TOP_K") or 12)
+
+    # 1) client-side ephemeral chunks
     cmap = _chunk_map_from_client(rag_chunks)
-    for (name, idx), txt in list(cmap.items())[:88]:  # cap di sicurezza
-        materials.append({"title": f"{name}#{idx}", "text": txt, "source": "client"})
+    for (name, idx), txt in list(cmap.items())[:24]:
+        materials.append({
+            "title": f"{name}#{idx}",
+            "text": txt,
+            "source": "client",
+        })
 
-    # 2) Query sullo store (se definito e se arrivano rag_queries)
+    # 2) server-side semantic retrieval
     queries = rag_queries or []
+    if not store or not queries:
+        return materials
 
-    if store and queries:
-        for q in queries[:24]:  # cap query
+    best_by_path: dict[str, dict] = {}
 
-            try:
-                res = await store.search(q, top_k=ragTopK or 24)
-                log.debug("---gather_rag_materials q=%s → %s hits", q, len(res or []))
+    for q in queries[:24]:
+        try:
+            res = await store.search(q, top_k=ragTopK)
+            log.info("harper.rag query=%r hits=%d", q, len(res or []))
+        except Exception as e:
+            log.warning("harper.rag search failed for query=%r: %s", q, e)
+            res = []
 
-            except Exception:
-                res = []
-            for hit in res or []:
-                path = (hit.get("path") or "").strip()
-                # Filtra per evitare documentazione indicizzata
-                if path and not _is_source_rag_path(path):
-                    log.debug(
-                        "---gather_rag_materials skip non-source path: %s", path
-                    )
-                    continue
-                
-                txt = (hit.get("text") or "").strip()
-                if not txt:
-                    # fallback: mappa su client chunks se possibile
-                    key = (hit.get("path","").split("/")[-1], int(hit.get("chunk",0)))
-                    txt = cmap.get(key, "")
-                if txt:
-                    title = f"{hit.get('path','') or 'doc'}#{hit.get('chunk',0)} (score={hit.get('score',0.0):.3f})"
-                    materials.append({"title": title, "text": txt, "source": "store"})
-    return materials
-"""
-usage for having SPEC.mD IDEA.md as RAG: 
-materials = await _retrive_rag_chunks(messages, req.rag_chunks, req.rag_queries, req.rag_top_k,  req.project_id )
-    if materials:
-        appendix = "\n\n### RAG Context\n" + "\n\n".join(
-            f"#### {m['title']}\n{m['text']}" for m in materials[:12]
+        for hit in res or []:
+            path = (hit.get("path") or "").strip()
+            if not path:
+                continue
+
+            if not _is_source_rag_path(path):
+                log.debug("harper.rag skip non-source path: %s", path)
+                continue
+
+            txt = (hit.get("text") or "").strip()
+            if not txt:
+                key = (hit.get("path", "").split("/")[-1], int(hit.get("chunk", 0)))
+                txt = cmap.get(key, "")
+
+            if not txt:
+                continue
+
+            score = float(hit.get("score", 0.0))
+            prev = best_by_path.get(path)
+
+            if prev is None or score > float(prev.get("score", 0.0)):
+                best_by_path[path] = {
+                    "title": f"{path}#{hit.get('chunk', 0)} (score={score:.3f})",
+                    "text": txt,
+                    "source": "store",
+                    "score": score,
+                    "path": path,
+                }
+
+    if best_by_path:
+        ranked = sorted(
+            best_by_path.values(),
+            key=lambda x: float(x.get("score", 0.0)),
+            reverse=True,
         )
-        #log.info("materials appendix '%s' ", appendix)
+        materials.extend(ranked[:ragTopK])
 
-        messages[1]["content"] += appendix
-"""
+    log.info(
+        "harper.rag gathered materials total=%d client=%d store_unique=%d",
+        len(materials),
+        min(len(cmap), 24),
+        len(best_by_path),
+    )
+
+    try:
+        material_titles = []
+        for m in materials:
+            title = (m.get("title") or "").strip()
+            if title:
+                material_titles.append(title)
+
+        if material_titles:
+            log.info("harper.rag selected materials -> %s", " | ".join(material_titles[:24]))
+        else:
+            log.info("harper.rag selected materials -> none")
+    except Exception as log_err:
+        log.warning("harper.rag selected materials logging failed: %s", log_err)
+
+    return materials
+
 async def _retrive_rag_chunks(messages: list[dict], rag_chunks: list[dict] | None, rag_queries: list[str] | None, rag_top_k: int | None,  project_id: str | None ) -> list[dict]:
     # 2) RAG: client-first + server-search (Qdrant)
 
@@ -1281,10 +1333,62 @@ async def loadAttachments(rag_enabled: bool, project_id: str, phase: str, messag
         "text": f"RAG context {rag_enabled} defined for attachments. {appended} materials appended. {phase.upper()} phase succeeded.",
     }
 
+def _infer_provider_from_model_name(raw: str | None) -> str:
+    s = str(raw or "").strip().lower()
+    if not s:
+        return ""
 
-        
+    if ":" in s:
+        pref = s.split(":", 1)[0].strip()
+        if pref in {"openai", "anthropic", "ollama", "vllm", "deepseek", "azure_openai"}:
+            return pref
+
+    if s.startswith("gpt-") or "codex" in s or s.startswith(("o1", "o3", "o4")):
+        return "openai"
+    if s.startswith("claude"):
+        return "anthropic"
+    if s.startswith("deepseek"):
+        return "deepseek"
+
+    return ""   
   
+async def _append_dep_req_sources_by_path(
+    messages: list[dict],
+    project_id: str,
+    dep_ids: list[str],
+    max_materials: int = 24,
+) -> int:
+    """
+    Exact-path retrieval for previous KIT sources.
+    We try canonical folder patterns for dependent REQs before semantic search.
+    """
+    if not dep_ids:
+        return 0
 
+    candidate_paths: list[str] = []
+    for dep in dep_ids:
+        dep_norm = str(dep or "").strip().upper()
+        if not dep_norm:
+            continue
+        candidate_paths.extend([
+            f"runs/kit/{dep_norm}/src",
+            f"runs/kit/{dep_norm}/test",
+            f"runs/kit/{dep_norm}/ci/LTC.json",
+            f"runs/kit/{dep_norm}/ci/HOWTO.md",
+        ])
+    log.info("harper.kit.rag exact dep candidate_paths=%s", candidate_paths)
+    try:
+        appended = await _append_attachs_by_files(
+            messages,
+            project_id,
+            paths=candidate_paths,
+            contents=[],
+            max_materials=max_materials,
+        )
+        return appended
+    except Exception as e:
+        log.warning("harper.kit.rag: exact dep path append failed: %s", e)
+        return 0
 @router.post("/run")
 async def run(req: HarperRunRequest,  request: Request):
     # TODO: apply policy based on req.profile (cloud/local/redaction) and perform the actual work.
@@ -1292,14 +1396,17 @@ async def run(req: HarperRunRequest,  request: Request):
              req.cmd, req.model, bool(req.idea_md), len(req.core_blobs or {}))
     phase = (req.phase or req.cmd or "").strip()
     default_params_reasoning =get_model_params(phase);
-    log.info("harper.run phase=%s model=%s params=%s gen=%s", phase, req.model, default_params_reasoning, req.gen)
     resolved_entry = None
-    if req.model and not str(req.model).lower().startswith(("openai:","anthropic:","ollama:","vllm:","deepseek:","azure:","google:")):
+    if req.model:
         resolved_entry = _gw_try_match_model(str(req.model))
         if resolved_entry:
-            log.info("harper.gateway normalized model '%s' -> id=%s (provider=%s)",
-                     req.model, resolved_entry.get("id"), resolved_entry.get("provider"))
-    
+            log.info(
+                "harper.gateway normalized model '%s' -> id=%s (provider=%s)",
+                req.model,
+                resolved_entry.get("id"),
+                resolved_entry.get("provider"),
+            )
+
     # --- Context budgeting ---
     ctx_window, max_out_cap = _resolve_ctx_caps(resolved_entry)
     project_id = req.project_id or "default_id"
@@ -1330,11 +1437,22 @@ async def run(req: HarperRunRequest,  request: Request):
     if rag_enabled:
         log.info("harper.rag enabled attachments=%s", len(req.attachments))
 
-    provider = ( request.headers.get("X-CLike-Provider") or resolved_entry.get("provider") or "").lower().strip()
+    provider = (
+        request.headers.get("X-CLike-Provider")
+        or (resolved_entry.get("provider") if isinstance(resolved_entry, dict) else None)
+        or _infer_provider_from_model_name(req.model)
+        or ""
+    ).lower().strip()
 
-    # ----- Normalizza input per provider -----
-    # ATTENZIONE: niente virgola -> niente tupla!
-    model = req.model  # era: req.model,
+    model = (
+        (resolved_entry.get("remote_name") if isinstance(resolved_entry, dict) else None)
+        or (resolved_entry.get("name") if isinstance(resolved_entry, dict) else None)
+        or str(req.model or "").strip()
+    )
+
+    if not provider:
+        raise HTTPException(400, f"unable to resolve provider for model '{req.model}'")
+
     if req.kit is not None:
         targets = req.kit.targets or []
         log.info("harper targets=%s", targets)
@@ -1363,22 +1481,33 @@ async def run(req: HarperRunRequest,  request: Request):
             req.gen = g
         except Exception:
             pass
-    g = req.gen or {}
+       # Normalize generation settings defensively.
+    # Harper requests may legitimately arrive with req.gen = None.
+    g = dict(req.gen or {})
+    req.gen = g
+    # Defensive normalization for provider-facing generation params
+    tool_choice = g.get("tool_choice")
+    if isinstance(tool_choice, str) and not tool_choice.strip():
+        g.pop("tool_choice", None)
 
-    
+    response_format = g.get("response_format")
+    if response_format == "":
+        g.pop("response_format", None)
+
     log.info("harper.run params=%s", default_params_reasoning)
+
     req.gen["temperature"] = default_params_reasoning.get("temperature") or req.gen.get("temperature", 0.2)
     req.gen["max_tokens"] = default_params_reasoning.get("max_tokens") or req.gen.get("max_tokens", 6500)
-    #req.gen["top_p"] = default_params_reasoning.get("top_p") or req.gen.get("top_p")
-    req.gen["stop"] = req.gen.get("stop") or ("`PLAN_END`")
-    #    - Se gen["api"] == "responses" usa /v1/responses, altrimenti /v1/chat/completions.
-    req.gen["api"] = "responses"
+    # req.gen["top_p"] = default_params_reasoning.get("top_p") or req.gen.get("top_p")
+    req.gen["stop"] = req.gen.get("stop") or "`PLAN_END`"
+    # If gen["api"] == "responses" use /v1/responses, otherwise /v1/chat/completions.
+    req.gen["api"] = req.gen.get("api") or "responses"
 
-    gen_temperature = default_params_reasoning.get("temperature") or g.get("temperature", 0.2)
-    gen_max_tokens = default_params_reasoning.get("max_tokens") or  g.get("max_tokens", 6500)
-    gen_top_p = default_params_reasoning.get("top_p") or g.get("top_p")
-    gen_stop = g.get("stop")
-    gen_presence_penalty = g.get("presence_penalty")
+    gen_temperature = req.gen.get("temperature", 0.2)
+    gen_max_tokens = req.gen.get("max_tokens", 6500)
+    gen_top_p = default_params_reasoning.get("top_p") or req.gen.get("top_p")
+    gen_stop = req.gen.get("stop")
+    gen_presence_penalty = req.gen.get("presence_penalty")
     gen_frequency_penalty = g.get("frequency_penalty")
     gen_seed = g.get("seed")
     gen_tools = g.get("tools")
@@ -1458,67 +1587,81 @@ async def run(req: HarperRunRequest,  request: Request):
                     log.info("harper.kit.rag: dep_ids=%s gate_refs=%s", dep_ids, gate_refs)
 
                     if not dep_ids:
-                        log.info("harper.kit.rag: no deps for targets=%s", targets)
+                        log.debug("harper.kit.rag: no deps for targets=%s", targets)
                     if not gate_refs:
-                        log.info("harper.kit.rag: no refs for targets=%s", targets)
-                    elif dep_ids or gate_refs:    
-                        # Costruisce le rag_queries a partire dalle dipendenze (REQ-XXX)
-                        base_queries = list(req.rag_queries or [])
+                        log.debug("harper.kit.rag: no refs for targets=%s", targets)
+
+                    if dep_ids or gate_refs:
+                            # 1) Retrieve dependent REQ source materials
                         if dep_ids:
-                            for d in dep_ids:
-                                if d not in base_queries:
-                                    base_queries.append(d)
-                            log.info("harper.kit.rag: base_queries extended:%s", base_queries)
+                                appended_exact = await _append_dep_req_sources_by_path(
+                                    messages,
+                                    project_id,
+                                    dep_ids,
+                                )
 
-                            materials = await _retrive_rag_chunks(
-                                messages,
-                                req.rag_chunks or [],
-                                base_queries,
-                                req.rag_top_k,
-                                project_id,
-                            )
-
-                            if materials:
-                                # Preferisci i materiali legati ai KIT precedenti (runs/kit/REQ-XXX/src/**)
-                                kit_materials: list[dict] = []
-                                for m in materials:
-                                    title = (m.get("title") or "").lower()
-                                    path_part = title.split("#", 1)[0]
-                                    if path_part.startswith("runs/kit/req-") and "/src/" in path_part:
-                                        kit_materials.append(m)
-
-                                use_materials = kit_materials or materials
-                                appendix = (
-                                    "\n\n### RAG Context – The curresnt source codes implementations and structure\n"
-                                    + "\n\n".join(
-                                        f"#### {m['title']}\n{m['text']}" for m in use_materials[:24]
+                                if appended_exact > 0:
+                                    log.info(
+                                        "harper.kit.rag: appended %d exact-path materials for deps=%s",
+                                        appended_exact,
+                                        dep_ids,
                                     )
-                                )
-                                messages[1]["content"] += appendix
-                                log.info(
-                                    "harper.kit.rag: appended %d materials (deps=%s)",
-                                    len(use_materials),
-                                    dep_ids,
-                                )
-                            else:
-                                log.info(
-                                    "harper.kit.rag: no RAG materials found for deps=%s",
-                                    dep_ids,
-                                )
-                        # 2) Lane guide specifica (gate_policy_ref) per il REQ corrente
-                        #    → path-based, usando la stessa logica delle attachments
+                                else:
+                                    base_queries = list(req.rag_queries or [])
+                                    for d in dep_ids:
+                                        if d not in base_queries:
+                                            base_queries.append(d)
+
+                                    log.info("harper.kit.rag: fallback semantic queries=%s", base_queries)
+
+                                    materials = await _retrive_rag_chunks(
+                                        messages,
+                                        req.rag_chunks or [],
+                                        base_queries,
+                                        req.rag_top_k,
+                                        project_id,
+                                    )
+
+                                    if materials:
+                                        kit_materials: list[dict] = []
+                                        for m in materials:
+                                            title = (m.get("title") or "").lower()
+                                            path_part = title.split("#", 1)[0]
+                                            if path_part.startswith("runs/kit/req-") and "/src/" in path_part:
+                                                kit_materials.append(m)
+
+                                        use_materials = kit_materials or materials
+                                        appendix = (
+                                            "\n\n### RAG Context – Current source code implementations and structure\n"
+                                            + "\n\n".join(
+                                                f"#### {m['title']}\n{m['text']}" for m in use_materials[:24]
+                                            )
+                                        )
+                                        messages[1]["content"] += appendix
+                                        log.info(
+                                            "harper.kit.rag: appended %d semantic materials for deps=%s",
+                                            len(use_materials),
+                                            dep_ids,
+                                        )
+                                    else:
+                                        log.info(
+                                            "harper.kit.rag: no RAG materials found for deps=%s",
+                                            dep_ids,
+                                        )
+
+                        # 2) Retrieve lane guide / gate policy refs by exact path
                         if gate_refs:
                             try:
-                                await _append_attachs_by_files(
+                                appended_refs = await _append_attachs_by_files(
                                     messages,
                                     project_id,
                                     paths=gate_refs,
                                     contents=[],
                                     max_materials=6,
-                                 )
-    
+                                )
                                 log.info(
-                                    "harper.kit.rag: appended gate_policy_ref docs for refs=%s",
+                                    "harper.kit.rag: appended %d gate_policy_ref docs for refs=%s",
+                                    appended_refs,
                                     gate_refs,
                                 )
                             except Exception as e:
@@ -1581,10 +1724,17 @@ async def run(req: HarperRunRequest,  request: Request):
     # 0) Check token per model
     # --- Context budgeting ---
     eff_max = _tokens_per_model(messages, resolved_entry, gen_max_tokens)
-    # timeout dinamico (60s base + 2s per 1k token, max 180s)
-    # tuning: timeout dinamico (90s base + 3.5s per 1k token, max 3000)
-    timeout_sec = min(300.0, 110 + (eff_max / 1000.0) * 3.5)
-    timeout_sec =600.0
+    # Dynamic timeout tuned for heavy Harper phases.
+    timeout_sec = min(900.0, 180.0 + (eff_max / 1000.0) * 9.0)
+
+    # Give /plan and /finalize extra headroom because they emit long structured artifacts.
+    if phase in {"plan", "finalize"}:
+        timeout_sec = max(timeout_sec, 1000.0)
+    elif phase == "kit":
+        timeout_sec = max(timeout_sec, 920.0)
+    elif phase in {"promotion_hardener", "promotion_eval", "integrity_eval"}:
+        timeout_sec = max(timeout_sec, 900.0)
+
     log.info("harper.gateway eff_max & timeout '%s' '%s'",
                     eff_max, timeout_sec)
     log.info("harper.gateway eff_max=%s ctx_window=%s prompt_tokens≈%s cap=%s",
@@ -1608,9 +1758,8 @@ async def run(req: HarperRunRequest,  request: Request):
         if provider == "openai":
             if not OPENAI_API_KEY:
                 raise HTTPException(401, "missing OpenAI api key")
-
-            llm_text = await oai.openai_complete_unified(OPENAI_API_KEY, model, messages, req.gen, timeout_sec)
-                #llm_text = await oai.chat(OPENAI_BASE, OPENAI_API_KEY, model, messages, gen_temperature, eff_max, gen_response_format,gen_reasoning, gen_tools, gen_tool_choice, timeout=timeout_sec, top_p=gen_top_p, stop=gen_stop) 
+            llm_text = await oai.openai_complete_unified(api_key=OPENAI_API_KEY, model=model, messages=messages, gen=req.gen, timeout_s=timeout_sec)
+            
         elif provider == "deepseek":
             if not DEEPSEEK_API_KEY:
                 raise HTTPException(401, "missing OpenAI api key")
@@ -1669,9 +1818,9 @@ async def run(req: HarperRunRequest,  request: Request):
     log.info("harper.gateway llm_text length '%s' ", len(llm_text))
     #log.info("harper.gateway llm_text  '%s' ", (llm_text))
     
-        # --- Dump raw LLM response + provider raw for debugging/forensics (non-blocking) ---
+    # --- Dump raw LLM response + provider raw for debugging/forensics (non-blocking) ---
     try:
-        log.info("--- Dump Clike LLM response  ---")
+        log.debug("--- Dump Clike LLM response  ---")
 
         if "llm_text" in locals() and isinstance(llm_text, dict):
             # 1) risposta unificata (normalized Harper envelope)
@@ -1684,11 +1833,11 @@ async def run(req: HarperRunRequest,  request: Request):
                 gen=req.gen or {},
                 llm_result=llm_text,
             )
-            log.info("--- Dump Clike LLM response done ---")
+            log.debug("--- Dump Clike LLM response done ---")
 
             # 2) payload grezzo del provider (campo 'raw' dell'envelope)
             provider_raw = llm_text.get("raw")
-            log.info("--- Dump Provider LLM response  ---")
+            log.debug("--- Dump Provider LLM response  ---")
 
             if isinstance(provider_raw, dict) and provider_raw:
                 _dump_llm_provider_raw(
@@ -1698,7 +1847,7 @@ async def run(req: HarperRunRequest,  request: Request):
                     provider=provider,
                     raw_payload=provider_raw,
                 )
-            log.info("--- Dump Clike Provider response done ---")
+            log.debug("--- Dump Clike Provider response done ---")
 
         else:
             log.info("harper.llm_dump: skip (llm_text not available or not a dict)")
@@ -1706,17 +1855,43 @@ async def run(req: HarperRunRequest,  request: Request):
         # Non deve mai interferire con il flusso principale
         log.warning("harper.llm_dump: error while dumping response: %s", e)
 
+    if not isinstance(llm_text, dict):
+        raise HTTPException(502, f"provider returned invalid response type for phase={phase}")
 
-    # system_md_txt = ""
-    # system_md_txt, llm_usage = oai.coerce_text_and_usage(llm_text)
-    # system_md_txt = (system_md_txt or "").strip()
     llm_usage = llm_text.get("usage") or {}
-
     system_md_txt = (llm_text.get("text") or "").strip()
     provider_files = llm_text.get("files") or []
+    provider_errors = llm_text.get("errors") or []
+    provider_ok = llm_text.get("ok")
 
-    text_len = len((system_md_txt or "").strip())
-    log.info("harper.llm.result text_len=%d usage=%s", text_len, (llm_usage or {}))
+    text_len = len(system_md_txt)
+    log.info("harper.llm.result text_len=%d usage=%s ok=%s errors=%s", text_len, llm_usage, provider_ok, provider_errors)
+
+    fail_hard_phases = {
+        "spec",
+        "plan",
+        "kit",
+        "integrity_eval",
+        "promotion_hardener",
+        "promotion_eval",
+        "finalize",
+    }
+
+    has_files = isinstance(provider_files, list) and len(provider_files) > 0
+    has_text = bool(system_md_txt)
+
+    if (phase or "").lower() in fail_hard_phases:
+        if provider_ok is False:
+            raise HTTPException(
+                502,
+                f"provider failed for phase={phase}: {provider_errors or ['unknown provider failure']}",
+            )
+
+        if not has_text and not has_files:
+            raise HTTPException(
+                502,
+                f"empty provider result for phase={phase}: no text and no files returned",
+            )
 
     # --- soft-fail & normalizzazione i.e. SPEC.md ---
     system_md_txt = (system_md_txt or "").strip()
@@ -1788,13 +1963,17 @@ async def run(req: HarperRunRequest,  request: Request):
                     "encoding": "utf-8",
                 })
         else:
-            # Fallback: un solo documento di fase
-            files.append({
-                "path": default_doc_path,
-                "content": system_md_txt,
-                "mime": "text/markdown",
-                "encoding": "utf-8",
-            })
+            structured_only_phases = {"integrity_eval", "promotion_hardener", "promotion_eval"}
+            if phase in structured_only_phases:
+                warnings.append(f"{phase}_no_file_blocks: model did not emit valid file blocks")
+            else:
+                # Fallback: un solo documento di fase
+                files.append({
+                    "path": default_doc_path,
+                    "content": system_md_txt,
+                    "mime": "text/markdown",
+                    "encoding": "utf-8",
+                }) 
 
     # Deduplica finale (per evitare file doppi o path ripetuti tra provider_files e parsing)
     files = _dedupe_by_path(files)

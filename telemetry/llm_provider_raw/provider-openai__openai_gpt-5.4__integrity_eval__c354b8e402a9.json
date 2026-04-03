@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260401T161509Z",
+  "project_id": "docufu",
+  "phase": "integrity_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_0d1cecdd5376096a0069cd44607b40819381e448d82b22255d",
+    "object": "response",
+    "created_at": 1775060064,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1775060109,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "# Harper /kit — INTEGRITY_EVAL\n\nYou are **Harper /kit INTEGRITY_EVAL** — a **Senior Software Architect, Senior Software Engineer, Senior LLM Generation Code, promotion reviewer, and stop-ship reviewer**.\n\nYour task is to evaluate the real integrity of the already generated KIT candidate for one target REQ.\n\nYou are NOT implementing the REQ.\nYou are NOT fixing the REQ.\nYou are NOT redesigning the solution.\nYou are evaluating whether the current REQ candidate is:\n\n- complete enough\n- substantial enough\n- coherent enough\n- promotion-oriented enough\n\nto deserve hardening and later promotion.\n\nThe candidate lives in staging under:\n\n- `runs/kit/<REQ-ID>/src/...`\n- `runs/kit/<REQ-ID>/test/...`\n- `runs/kit/<REQ-ID>/docs/...`\n- `runs/kit/<REQ-ID>/ci/...`\n\nBut it must be judged as a future promotion candidate for canonical repository targets such as:\n\n- `src/...`\n- `tests/...`\n- `test/...`\n\n---\n\n## 1) Mission\n\nEvaluate the current REQ candidate against:\n\n- `IDEA.md`\n- `SPEC.md`\n- `PLAN.md`\n- `plan.json`\n- `TECH_CONSTRAINTS.yaml`\n- `REQ_PROMOTION_MANIFEST.md` when present\n- the current candidate files already generated for the REQ\n- repository-aware references when present\n\nYour goal is to determine whether the REQ candidate is:\n\n- fake-complete\n- skeletal\n- incomplete\n- salvageable\n- hardening-ready\n- already close to promotion-candidate quality\n\n---\n\n## 2) What you must evaluate\n\n### A. Scope fidelity\nCheck whether the candidate actually implements the intended REQ and acceptance criteria.\n\n### B. Source substance\nCheck whether the candidate contains enough real implementation substance.\n\nA candidate is **skeletal** when one or more of the following is true:\n\n- too few source files compared to the REQ scope\n- primary source modules are too thin, placeholder-like, or mostly seams with little real logic\n- docs and tests describe more behavior than the source code actually supports\n- the implementation mass is disproportionately low relative to the REQ acceptance and the emitted docs/ci package\n\n### C. Test substance\nCheck whether tests prove real REQ acceptance or only shallow structure.\n\n### D. Docs / code / CI coherence\nCheck whether:\n- `README_<REQ-ID>.md`\n- `KIT_<REQ-ID>.md`\n- `LTC.json`\n- `HOWTO.md`\n\nactually match the emitted source files, test files, commands, runtime modes, and limitations.\n\n### E. Promotion fit\nCheck whether the candidate is designed for later promotion toward canonical repository targets, not merely for survival in `runs/...`.\n\n### F. Shared/common correctness\nIf the candidate introduces or extends `shared`, `common`, or equivalent cross-slice modules, check whether that is justified by actual reuse and architectural ownership.\n\nDo NOT reward unnecessary shared/common extraction.\nDo NOT penalize justified shared/common seams when they clearly reduce duplication and improve promotion fit.\n\n### G. Dual-mode integrity\nIf the REQ is expected to support both local-dev mode and target-runtime mode, check whether:\n- the same business design is preserved\n- runtime differences are expressed through adapters/configuration\n- local mode does not replace the intended promotable architecture\n\n---\n\n## 3) Hard rules\n\n- Be severe.\n- Be precise.\n- Be explicit.\n- Do not be optimistic.\n- Do not reward narrative packaging when the code is weak.\n- Treat “docs rich / code poor” as a serious integrity problem.\n- Treat placeholder-style implementation as non-promotable.\n- Do not fix files.\n- Do not emit code patches.\n- Do not propose large redesigns.\n- Do not widen scope.\n- Do not add adjacent features.\n\n---\n\n## 4) Output artifact\n\nEmit exactly one file block:\n\n`file:/runs/kit/<REQ-ID>/ci/INTEGRITY_EVAL.json`\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must be valid and must contain:\n\n- `version`\n- `req_id`\n- `verdict`\n- `summary`\n- `scope_fidelity`\n- `source_substance`\n- `test_substance`\n- `docs_code_coherence`\n- `promotion_fit`\n- `shared_common_assessment`\n- `dual_mode_assessment`\n- `blockers`\n- `hardening_targets`\n\n---\n\n## 5) Allowed verdicts\n\nUse exactly one of:\n\n- `reject`\n- `skeletal`\n- `incomplete`\n- `salvageable`\n- `hardening_ready`\n- `promotion_candidate`\n\n### Meaning\n\n- `reject` → the candidate is too weak or too misleading to proceed safely\n- `skeletal` → the candidate is too thin and lacks enough implementation substance\n- `incomplete` → important expected parts are missing or incoherent\n- `salvageable` → the candidate has a meaningful base but needs targeted hardening\n- `hardening_ready` → the candidate is solid enough to benefit from promotion hardening\n- `promotion_candidate` → rare; already strong and coherent enough to be considered close to evaluable promotion quality\n\n---\n\n## 6) Scoring intent\n\nEach assessment section should be concise but operational.\nState clearly:\n\n- what is good\n- what is weak\n- what is missing\n- what must be hardened next\n\n`hardening_targets` must be concrete and actionable.\nThey must identify the weak areas that the next phase should improve.\n\n---\n\n## 7) Evaluation style\n\nThink like a stop-ship promotion reviewer.\n\nDo NOT say:\n- “overall this looks good” unless it is truly strong\n- “minimal but acceptable” when it is actually too thin\n- “promotable” unless the candidate has enough real code, test credibility, and architectural fitness\n\nPrefer explicit judgments such as:\n\n- “source implementation is too thin for the declared REQ scope”\n- “tests overclaim behavior not supported by the emitted source”\n- “docs and CI contract are richer than the actual implementation”\n- “candidate is structurally coherent but lacks enough implementation mass”\n- “shared/common usage is justified”\n- “shared/common extraction is premature”\n\n---\n\n## 8) Output format example shape\n\nThe JSON must follow this shape exactly in spirit:\n\n```json\n{\n  \"version\": \"1.0.0\",\n  \"req_id\": \"REQ-005\",\n  \"verdict\": \"salvageable\",\n  \"summary\": \"The candidate is coherent but too thin relative to REQ scope and promotion expectations.\",\n  \"scope_fidelity\": {\n    \"status\": \"partial\",\n    \"notes\": [\n      \"Core REQ direction is present\",\n      \"Some acceptance expectations are only partially supported by source\"\n    ]\n  },\n  \"source_substance\": {\n    \"status\": \"weak\",\n    \"notes\": [\n      \"Primary source package is too thin\",\n      \"Implementation mass is lower than expected for the declared REQ\"\n    ]\n  },\n  \"test_substance\": {\n    \"status\": \"partial\",\n    \"notes\": [\n      \"Tests are present\",\n      \"Coverage of real behavior is weaker than the docs imply\"\n    ]\n  },\n  \"docs_code_coherence\": {\n    \"status\": \"mixed\",\n    \"notes\": [\n      \"Docs are operationally useful\",\n      \"Some claims exceed actual emitted implementation\"\n    ]\n  },\n  \"promotion_fit\": {\n    \"status\": \"partial\",\n    \"notes\": [\n      \"Design direction is promotable\",\n      \"Current candidate needs hardening before serious promotion\"\n    ]\n  },\n  \"shared_common_assessment\": {\n    \"status\": \"acceptable\",\n    \"notes\": [\n      \"Shared seams are justified\",\n      \"No obvious duplicate module family\"\n    ]\n  },\n  \"dual_mode_assessment\": {\n    \"status\": \"acceptable\",\n    \"notes\": [\n      \"Local and target-runtime modes are conceptually aligned\"\n    ]\n  },\n  \"blockers\": [\n    \"Source layer too thin for declared REQ scope\"\n  ],\n  \"hardening_targets\": [\n    \"Strengthen primary source modules\",\n    \"Align tests more tightly with real behavior\",\n    \"Reduce doc/code claim mismatch\"\n  ]\n}\n\n```\nThe example above is illustrative.\nJudge the actual candidate, not the example.\n\n---",
+    "max_output_tokens": 17000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_0d1cecdd5376096a0069cd4461a2248193a91c55cabda79141",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_0d1cecdd5376096a0069cd447bb2448193ba3b047fb39cfd65",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "```file:/runs/kit/REQ-004/ci/INTEGRITY_EVAL.json\n{\n  \"version\": \"1.0.0\",\n  \"req_id\": \"REQ-004\",\n  \"verdict\": \"salvageable\",\n  \"summary\": \"The candidate is structurally coherent and contains real frontend implementation for the upload flow, not just scaffolding. It covers the main UI behaviors for selection, client-side validation, upload success, and 401/403 handling. However, it does not fully satisfy REQ-004 as written because the required browser smoke is not present; the emitted tests are jsdom component/integration tests only, and redirect behavior is proven through injected navigator callbacks rather than real routing/navigation. Docs and CI metadata overstate this as acceptance-complete.\",\n  \"scope_fidelity\": {\n    \"status\": \"partial\",\n    \"notes\": [\n      \"Core REQ-004 flow is implemented: Italian upload page, drag-and-drop, file picker input, client validation, success state, and next-action link.\",\n      \"The source cleanly consumes the REQ-003 upload contract through a shared API client instead of redefining backend behavior.\",\n      \"401 and 403 handling exists, but it is implemented as navigator callback side effects and not demonstrated through real Next.js routing or browser navigation.\",\n      \"The acceptance item requiring browser smoke for a valid and invalid upload path is not actually met by the emitted test package.\"\n    ]\n  },\n  \"source_substance\": {\n    \"status\": \"adequate\",\n    \"notes\": [\n      \"The candidate has meaningful implementation mass for a narrow frontend REQ: shared API client, runtime/auth wiring, reusable dropzone, mutation hook, page component, and route entrypoint.\",\n      \"Validation logic, error translation, success rendering, and runtime-driven next action construction are real logic, not placeholders.\",\n      \"The code remains intentionally narrow and depends on a host app shell for QueryClientProvider and route integration, so it is not standalone promotable yet.\",\n      \"Desktop-first behavior is expressed mainly through layout/styling classes; that is acceptable for this slice but not deeply proven.\"\n    ]\n  },\n  \"test_substance\": {\n    \"status\": \"partial\",\n    \"notes\": [\n      \"Tests cover valid upload via drag-and-drop, invalid format rejection, oversize rejection, and 401/403 error branches.\",\n      \"The tests exercise real component behavior with React Testing Library and TanStack Query rather than only snapshotting structure.\",\n      \"The package does not include true browser smoke or e2e automation, despite the REQ acceptance and PLAN kit-readiness expecting that level of evidence.\",\n      \"Redirect assertions are limited to mocked navigator calls and status text; they do not prove integration with actual route transitions.\",\n      \"No test proves a successful file-picker happy path, only drag-and-drop success and file-picker negatives.\"\n    ]\n  },\n  \"docs_code_coherence\": {\n    \"status\": \"mixed\",\n    \"notes\": [\n      \"README, KIT, HOWTO, and LTC all point to the correct emitted files and the documented commands align with the actual test artifact.\",\n      \"The documentation accurately states that the slice depends on upstream shell/provider wiring and on REQ-002 and REQ-003.\",\n      \"The docs also claim the jsdom tests are sufficient for REQ-004 acceptance and describe them as smoke coverage; that is stronger than the actual evidence.\",\n      \"LTC maps acceptance to tests, but one acceptance item is only approximated, not satisfied, because no real browser smoke is emitted.\"\n    ]\n  },\n  \"promotion_fit\": {\n    \"status\": \"partial\",\n    \"notes\": [\n      \"Module placement follows the PLAN-defined frontend namespaces and shared families, which is good promotion discipline.\",\n      \"The implementation is localized and reviewable, making later promotion into canonical src/tests targets feasible.\",\n      \"Promotion is not yet low-risk enough to treat as hardening-ready because the navigation proof and browser-level acceptance evidence are missing.\",\n      \"The current candidate is better than a stub, but it still behaves like a staging slice that assumes host shell integration rather than proving it.\"\n    ]\n  },\n  \"shared_common_assessment\": {\n    \"status\": \"acceptable\",\n    \"notes\": [\n      \"Use of shared frontend modules is justified: API client, auth/runtime wiring, and dropzone UI are reasonable reusable seams for adjacent slices.\",\n      \"The candidate stays within the shared module families authorized by PLAN and does not invent parallel roots.\",\n      \"There is no obvious premature or excessive common extraction in this slice.\"\n    ]\n  },\n  \"dual_mode_assessment\": {\n    \"status\": \"acceptable\",\n    \"notes\": [\n      \"Local and aws modes preserve the same business flow and differ mainly through environment-driven configuration.\",\n      \"The same page, hook, and API contract are used in both modes, which is the correct promotable pattern.\",\n      \"Target-runtime claims are lightly evidenced only through env substitution; they are not validated against real deployment/runtime wiring.\"\n    ]\n  },\n  \"blockers\": [\n    \"Required browser smoke coverage for one valid and one invalid upload path is missing; only jsdom component/integration tests are emitted.\",\n    \"401/403 acceptance is only simulated through injected navigator callbacks and status messaging, not proven through real routing/navigation behavior.\",\n    \"Docs and LTC overstate acceptance completeness by treating jsdom tests as sufficient browser smoke evidence.\"\n  ],\n  \"hardening_targets\": [\n    \"Add actual browser or e2e smoke for one successful upload and one invalid upload path, consistent with REQ-004 acceptance and PLAN expectations.\",\n    \"Prove 401 and 403 route handling through the real navigation layer used after promotion, not only mocked auth navigator callbacks.\",\n    \"Tighten README, KIT, HOWTO, and LTC language so test claims match the actual evidence and do not overclaim acceptance closure.\",\n    \"Add at least one promotion-facing integration test that exercises the route entrypoint with required provider wiring instead of testing only the inner page component.\"\n  ]\n}\n```"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 31805,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 2786,
+      "output_tokens_details": {
+        "reasoning_tokens": 1538
+      },
+      "total_tokens": 34591
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

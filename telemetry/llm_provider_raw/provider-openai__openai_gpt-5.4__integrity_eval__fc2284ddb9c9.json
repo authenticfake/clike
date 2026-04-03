@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260401T175455Z",
+  "project_id": "docufu",
+  "phase": "integrity_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_0d33d3b4903c683b0069cd5ba3ca2881979f742a6de152588a",
+    "object": "response",
+    "created_at": 1775066019,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1775066094,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "# Harper /kit — INTEGRITY_EVAL\n\nYou are **Harper /kit INTEGRITY_EVAL** — a **Senior Software Architect, Senior Software Engineer, Senior LLM Generation Code, promotion reviewer, and stop-ship reviewer**.\n\nYour task is to evaluate the real integrity of the already generated KIT candidate for one target REQ.\n\nYou are NOT implementing the REQ.\nYou are NOT fixing the REQ.\nYou are NOT redesigning the solution.\nYou are evaluating whether the current REQ candidate is:\n\n- complete enough\n- substantial enough\n- coherent enough\n- promotion-oriented enough\n\nto deserve hardening and later promotion.\n\nThe candidate lives in staging under:\n\n- `runs/kit/<REQ-ID>/src/...`\n- `runs/kit/<REQ-ID>/test/...`\n- `runs/kit/<REQ-ID>/docs/...`\n- `runs/kit/<REQ-ID>/ci/...`\n\nBut it must be judged as a future promotion candidate for canonical repository targets such as:\n\n- `src/...`\n- `tests/...`\n- `test/...`\n\n---\n\n## 1) Mission\n\nEvaluate the current REQ candidate against:\n\n- `IDEA.md`\n- `SPEC.md`\n- `PLAN.md`\n- `plan.json`\n- `TECH_CONSTRAINTS.yaml`\n- `REQ_PROMOTION_MANIFEST.md` when present\n- the current candidate files already generated for the REQ\n- repository-aware references when present\n\nYour goal is to determine whether the REQ candidate is:\n\n- fake-complete\n- skeletal\n- incomplete\n- salvageable\n- hardening-ready\n- already close to promotion-candidate quality\n\n---\n\n## 2) What you must evaluate\n\n### A. Scope fidelity\nCheck whether the candidate actually implements the intended REQ and acceptance criteria.\n\n### B. Source substance\nCheck whether the candidate contains enough real implementation substance.\n\nA candidate is **skeletal** when one or more of the following is true:\n\n- too few source files compared to the REQ scope\n- primary source modules are too thin, placeholder-like, or mostly seams with little real logic\n- docs and tests describe more behavior than the source code actually supports\n- the implementation mass is disproportionately low relative to the REQ acceptance and the emitted docs/ci package\n\n### C. Test substance\nCheck whether tests prove real REQ acceptance or only shallow structure.\n\n### D. Docs / code / CI coherence\nCheck whether:\n- `README_<REQ-ID>.md`\n- `KIT_<REQ-ID>.md`\n- `LTC.json`\n- `HOWTO.md`\n\nactually match the emitted source files, test files, commands, runtime modes, and limitations.\n\n### E. Promotion fit\nCheck whether the candidate is designed for later promotion toward canonical repository targets, not merely for survival in `runs/...`.\n\n### F. Shared/common correctness\nIf the candidate introduces or extends `shared`, `common`, or equivalent cross-slice modules, check whether that is justified by actual reuse and architectural ownership.\n\nDo NOT reward unnecessary shared/common extraction.\nDo NOT penalize justified shared/common seams when they clearly reduce duplication and improve promotion fit.\n\n### G. Dual-mode integrity\nIf the REQ is expected to support both local-dev mode and target-runtime mode, check whether:\n- the same business design is preserved\n- runtime differences are expressed through adapters/configuration\n- local mode does not replace the intended promotable architecture\n\n---\n\n## 3) Hard rules\n\n- Be severe.\n- Be precise.\n- Be explicit.\n- Do not be optimistic.\n- Do not reward narrative packaging when the code is weak.\n- Treat “docs rich / code poor” as a serious integrity problem.\n- Treat placeholder-style implementation as non-promotable.\n- Do not fix files.\n- Do not emit code patches.\n- Do not propose large redesigns.\n- Do not widen scope.\n- Do not add adjacent features.\n\n---\n\n## 4) Output artifact\n\nEmit exactly one file block:\n\n`file:/runs/kit/<REQ-ID>/ci/INTEGRITY_EVAL.json`\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must be valid and must contain:\n\n- `version`\n- `req_id`\n- `verdict`\n- `summary`\n- `scope_fidelity`\n- `source_substance`\n- `test_substance`\n- `docs_code_coherence`\n- `promotion_fit`\n- `shared_common_assessment`\n- `dual_mode_assessment`\n- `blockers`\n- `hardening_targets`\n\n---\n\n## 5) Allowed verdicts\n\nUse exactly one of:\n\n- `reject`\n- `skeletal`\n- `incomplete`\n- `salvageable`\n- `hardening_ready`\n- `promotion_candidate`\n\n### Meaning\n\n- `reject` → the candidate is too weak or too misleading to proceed safely\n- `skeletal` → the candidate is too thin and lacks enough implementation substance\n- `incomplete` → important expected parts are missing or incoherent\n- `salvageable` → the candidate has a meaningful base but needs targeted hardening\n- `hardening_ready` → the candidate is solid enough to benefit from promotion hardening\n- `promotion_candidate` → rare; already strong and coherent enough to be considered close to evaluable promotion quality\n\n---\n\n## 6) Scoring intent\n\nEach assessment section should be concise but operational.\nState clearly:\n\n- what is good\n- what is weak\n- what is missing\n- what must be hardened next\n\n`hardening_targets` must be concrete and actionable.\nThey must identify the weak areas that the next phase should improve.\n\n---\n\n## 7) Evaluation style\n\nThink like a stop-ship promotion reviewer.\n\nDo NOT say:\n- “overall this looks good” unless it is truly strong\n- “minimal but acceptable” when it is actually too thin\n- “promotable” unless the candidate has enough real code, test credibility, and architectural fitness\n\nPrefer explicit judgments such as:\n\n- “source implementation is too thin for the declared REQ scope”\n- “tests overclaim behavior not supported by the emitted source”\n- “docs and CI contract are richer than the actual implementation”\n- “candidate is structurally coherent but lacks enough implementation mass”\n- “shared/common usage is justified”\n- “shared/common extraction is premature”\n\n---\n\n## 8) Output format example shape\n\nThe JSON must follow this shape exactly in spirit:\n\n```json\n{\n  \"version\": \"1.0.0\",\n  \"req_id\": \"REQ-005\",\n  \"verdict\": \"salvageable\",\n  \"summary\": \"The candidate is coherent but too thin relative to REQ scope and promotion expectations.\",\n  \"scope_fidelity\": {\n    \"status\": \"partial\",\n    \"notes\": [\n      \"Core REQ direction is present\",\n      \"Some acceptance expectations are only partially supported by source\"\n    ]\n  },\n  \"source_substance\": {\n    \"status\": \"weak\",\n    \"notes\": [\n      \"Primary source package is too thin\",\n      \"Implementation mass is lower than expected for the declared REQ\"\n    ]\n  },\n  \"test_substance\": {\n    \"status\": \"partial\",\n    \"notes\": [\n      \"Tests are present\",\n      \"Coverage of real behavior is weaker than the docs imply\"\n    ]\n  },\n  \"docs_code_coherence\": {\n    \"status\": \"mixed\",\n    \"notes\": [\n      \"Docs are operationally useful\",\n      \"Some claims exceed actual emitted implementation\"\n    ]\n  },\n  \"promotion_fit\": {\n    \"status\": \"partial\",\n    \"notes\": [\n      \"Design direction is promotable\",\n      \"Current candidate needs hardening before serious promotion\"\n    ]\n  },\n  \"shared_common_assessment\": {\n    \"status\": \"acceptable\",\n    \"notes\": [\n      \"Shared seams are justified\",\n      \"No obvious duplicate module family\"\n    ]\n  },\n  \"dual_mode_assessment\": {\n    \"status\": \"acceptable\",\n    \"notes\": [\n      \"Local and target-runtime modes are conceptually aligned\"\n    ]\n  },\n  \"blockers\": [\n    \"Source layer too thin for declared REQ scope\"\n  ],\n  \"hardening_targets\": [\n    \"Strengthen primary source modules\",\n    \"Align tests more tightly with real behavior\",\n    \"Reduce doc/code claim mismatch\"\n  ]\n}\n\n```\nThe example above is illustrative.\nJudge the actual candidate, not the example.\n\n---",
+    "max_output_tokens": 17000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_0d33d3b4903c683b0069cd5ba505748197873b0879fe062f5b",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_0d33d3b4903c683b0069cd5bdada08819796a5b9d573f6e3f3",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "file:/runs/kit/REQ-006/ci/INTEGRITY_EVAL.json\n```json\n{\n  \"version\": \"1.0.0\",\n  \"req_id\": \"REQ-006\",\n  \"verdict\": \"salvageable\",\n  \"summary\": \"The candidate has a coherent service-level base for processing success, failure, and retry semantics, but it is not complete enough for promotion because persistence and runtime integrations remain seam-only and the tests prove mostly in-memory behavior.\",\n  \"scope_fidelity\": {\n    \"status\": \"partial\",\n    \"notes\": [\n      \"Core REQ direction is present: success outcome handling, failure outcome handling, original file access seam, and retry endpoint guardrails are implemented.\",\n      \"Success path updates status to `da_validare` and publishes `document.needs_validation` at the service layer.\",\n      \"Failure path updates status to `eccezione`, normalizes a readable error message, and creates a recovery task through the repository seam.\",\n      \"The critical acceptance word `stores` is not satisfied in promotable source because there is no concrete repository implementation against the REQ-001 schema; persistence is only simulated by test fakes.\",\n      \"Retry behavior is only event re-publication from the API/service boundary and is not integrated with a real worker/backbone from REQ-005.\"\n    ]\n  },\n  \"source_substance\": {\n    \"status\": \"mixed\",\n    \"notes\": [\n      \"The primary service contains real logic for document lookup, state validation, audit emission, event publication, and error normalization.\",\n      \"The API is small but functional and includes stable 404 and 409 error payloads for retry.\",\n      \"Implementation mass is concentrated in one service while the persistence layer is entirely abstract, which is a material gap for this REQ rather than a minor seam.\",\n      \"Shared storage and audit seams are reasonable, but this REQ also emits shared config and shared events modules that are not clearly owned by REQ-006 per the plan.\",\n      \"The candidate is not skeletal, but it is still incomplete at the source level for promotion purposes.\"\n    ]\n  },\n  \"test_substance\": {\n    \"status\": \"partial\",\n    \"notes\": [\n      \"Tests exercise meaningful happy paths for success outcome, failure outcome, and retry endpoint behavior using a real FastAPI app.\",\n      \"Negative API coverage exists for retry on wrong status and unknown document.\",\n      \"All persistence behavior is proven only through an in-memory repository fake, so the tests do not validate actual database writes, task persistence, or schema integration.\",\n      \"The `within 30 seconds` requirement is not meaningfully tested; the fake repository simply creates the task at the provided timestamp.\",\n      \"There are no adapter tests for SNS or S3 behavior, no integration checks against prior REQ-005 event contracts, and no tests for invalid service state on `apply_success` or `apply_failure`.\"\n    ]\n  },\n  \"docs_code_coherence\": {\n    \"status\": \"mixed\",\n    \"notes\": [\n      \"The docs are candid about missing SQLAlchemy repository integration and the absence of a full worker loop.\",\n      \"README, KIT, HOWTO, and LTC are broadly aligned with the emitted files and commands.\",\n      \"The docs describe S3 and SNS adapters as production-close, but the declared install/test path omits `boto3` and the adapters are not exercised in tests, so runtime operability is overstated.\",\n      \"The package is heavily documented relative to the amount of promotable concrete integration code.\",\n      \"Operational commands are staging-path specific and will require cleanup before canonical promotion.\"\n    ]\n  },\n  \"promotion_fit\": {\n    \"status\": \"partial\",\n    \"notes\": [\n      \"Package naming follows the planned `backend.app...` structure and is directionally promotable to canonical `src/` and `tests/` targets.\",\n      \"Ports and adapters are structured in a way that can be promoted after hardening.\",\n      \"Current promotion risk is still high because the candidate does not integrate with the actual persistence layer expected from REQ-001 and does not prove end-to-end behavior with REQ-005.\",\n      \"The service and API are a usable base, but the candidate is not yet a low-risk promotion target.\"\n    ]\n  },\n  \"shared_common_assessment\": {\n    \"status\": \"mixed\",\n    \"notes\": [\n      \"Shared object storage and audit seams are justified because they represent cross-slice infrastructure concerns.\",\n      \"The new shared events and runtime config modules introduced in this slice are only partially justified and may overlap with ownership expected from REQ-005 and REQ-017.\",\n      \"This is not catastrophic, but shared/common extraction is not cleanly bounded in the current candidate and needs reconciliation before promotion.\"\n    ]\n  },\n  \"dual_mode_assessment\": {\n    \"status\": \"partial\",\n    \"notes\": [\n      \"Local and AWS modes preserve the same service design and express runtime differences through configuration and adapters rather than divergent business logic.\",\n      \"That architectural direction is correct for promotion.\",\n      \"AWS mode is only credible at config-dry-run level in this package; actual adapter execution is unproven and the dependency path is incomplete.\"\n    ]\n  },\n  \"blockers\": [\n    \"No concrete repository implementation exists for document outcome persistence, proposed field storage, readable failure storage, and recovery task persistence against the actual schema.\",\n    \"Test evidence is limited to in-memory fakes and does not validate canonical database, event, or storage integration.\",\n    \"S3 and SNS adapters are documented as usable runtime components but are not operationally proven and are missing declared runtime dependency support.\",\n    \"Shared module ownership is not cleanly aligned with the plan for REQ-006, especially around shared events and runtime config.\"\n  ],\n  \"hardening_targets\": [\n    \"Integrate a real SQLAlchemy-backed repository that persists extracted text URI, document type, proposed fields, failure details, and recovery tasks using the REQ-001 schema.\",\n    \"Add integration tests that exercise the real repository and verify status transitions, field persistence, readable error storage, and retry acceptance against actual data access code.\",\n    \"Exercise SNS and S3 adapters in tests or narrow the docs to seam-only claims until runtime behavior is truly supported.\",\n    \"Reconcile shared module placement with prior REQs so shared events/config ownership is consistent with the planned architecture.\",\n    \"Add stronger negative tests for invalid service states, document-not-found paths at the service level, and non-trivial verification of recovery task creation timing semantics.\"\n  ]\n}\n```"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 35261,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 4634,
+      "output_tokens_details": {
+        "reasoning_tokens": 3276
+      },
+      "total_tokens": 39895
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "timestamp": "20260403T110324Z",
+  "project_id": "docufu",
+  "phase": "promotion_hardener",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "exception": "ReadTimeout: "
+  }
+}

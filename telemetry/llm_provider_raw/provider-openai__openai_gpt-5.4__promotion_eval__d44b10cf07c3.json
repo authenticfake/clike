@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260401T192659Z",
+  "project_id": "docufu",
+  "phase": "promotion_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_042f5f97205b94710069cd715390208195ab4c0c7cf2a2547d",
+    "object": "response",
+    "created_at": 1775071571,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1775071619,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "# Harper /kit — PROMOTION_EVAL\n\nYou are **Harper /kit PROMOTION_EVAL** — a **Senior Software Architect, Senior Software Engineer, promotion reviewer, and stop-ship evaluator**.\n\nYour task is to evaluate whether the current REQ candidate, after hardening, is ready to move forward as a serious promotion candidate.\n\nYou are NOT fixing files.\nYou are NOT redesigning.\nYou are evaluating.\n\n---\n\n## 1) Mission\n\nEvaluate the hardened REQ candidate against:\n\n- `IDEA.md`\n- `SPEC.md`\n- `PLAN.md`\n- `plan.json`\n- `TECH_CONSTRAINTS.yaml`\n- `REQ_PROMOTION_MANIFEST.md` when present\n- `INTEGRITY_EVAL.json`\n- current candidate files already generated for the REQ\n- repository-aware references when present\n\nYour goal is to determine whether the candidate is now:\n\n- still too weak\n- still missing required hardening\n- ready for later eval\n- a serious promotion candidate\n\n---\n\n## 2) What you must evaluate\n\n### A. Scope fidelity\nDoes the candidate still match the intended REQ?\n\n### B. Source substance\nIs the implementation now substantial enough?\n\n### C. Test credibility\nDo the tests now support real acceptance credibility?\n\n### D. Docs/code/test/ci coherence\nDo emitted docs and CI artifacts match the actual implementation?\n\n### E. Promotion fit\nIs the candidate clearly shaped for later promotion into canonical repository targets?\n\n### F. Shared/common correctness\nIf shared/common modules are involved, are they justified and coherent?\n\n### G. Runtime-profile integrity\nIf local-dev and target-runtime modes both matter, are they still aligned under one promotable design?\n\n---\n\n## 3) Hard rules\n\n- Be severe.\n- Be explicit.\n- Do not be optimistic.\n- Do not reward superficial cleanup as if it were true hardening.\n- Do not fix code.\n- Do not emit patches.\n- Do not emit prose outside the required file block.\n\n---\n\n## 4) Output artifact\n\nEmit exactly one file block:\n\n`file:/runs/kit/<REQ-ID>/ci/PROMOTION_EVAL.json`\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must be valid and must contain:\n\n- `version`\n- `req_id`\n- `verdict`\n- `summary`\n- `source_substance`\n- `test_credibility`\n- `docs_code_coherence`\n- `promotion_fit`\n- `shared_common_assessment`\n- `runtime_profile_assessment`\n- `blockers`\n- `remaining_risks`\n\n---\n\n## 5) Allowed verdicts\n\nUse exactly one of:\n\n- `reject`\n- `needs_more_hardening`\n- `eval_ready`\n- `promotion_candidate`\n- `promotion_candidate_with_risks`\n\n### Meaning\n\n- `reject` → still not a serious promotion candidate\n- `needs_more_hardening` → meaningful progress exists, but more targeted hardening is required\n- `eval_ready` → good enough to move into later evaluation stages\n- `promotion_candidate` → strong and coherent enough for serious promotion consideration\n- `promotion_candidate_with_risks` → promotable direction exists, but explicit bounded risks remain\n\n---\n\n## 6) Style\n\nThink like a promotion gate reviewer before formal gate.\n\nDo not hide weakness.\nDo not inflate quality.\nUse concise, operational judgments.\n\nIf the candidate is still too thin, say so clearly.\nIf the candidate is now strong, say so clearly.",
+    "max_output_tokens": 18000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_042f5f97205b94710069cd7154c7408195afe66fbb8b59e3b7",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_042f5f97205b94710069cd71712aa881959112161748c8b048",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "```file:/runs/kit/REQ-007/ci/PROMOTION_EVAL.json\n{\n  \"version\": \"1.0.0\",\n  \"req_id\": \"REQ-007\",\n  \"verdict\": \"eval_ready\",\n  \"summary\": \"The hardened candidate now materially satisfies the REQ-007 slice and is no longer blocked by the earlier hardening gaps. Scope fidelity is good: the implementation covers the document detail query, stable typed DTOs, stable 401/403/404 payloads, preview metadata shaping, and an eager-loading repository path with explicit negative tests. It is credible enough to move into later evaluation. It is not yet a strong promotion candidate because direct promotion still carries integration risk: the repository still contains compatibility ORM schema scaffolding instead of proving canonical REQ-001 binding in practice, preview/download authorization is represented as metadata masking rather than end-to-end deny enforcement, and target-runtime confidence remains limited because verification is still SQLite-centric.\",\n  \"source_substance\": {\n    \"status\": \"substantial_but_not_canonical\",\n    \"notes\": [\n      \"The slice contains real implementation logic across router, service, RBAC checks, preview adapter, DTOs, and repository mapping.\",\n      \"The SQLAlchemy repository is nontrivial and uses eager loading to control query shape.\",\n      \"The injected model-binding seam is a meaningful improvement over hardwired slice-owned schema assumptions.\",\n      \"However, the file still carries compatibility ORM models and Base metadata inside the REQ-007 package, which is promotion scaffolding rather than clean canonical integration.\",\n      \"The shared RBAC seam is minimal and may still overlap with the eventual REQ-002 shared auth/RBAC contract.\"\n    ]\n  },\n  \"test_credibility\": {\n    \"status\": \"credible_at_contract_level\",\n    \"notes\": [\n      \"Tests cover the main acceptance path, unknown document 404, missing identity 401, missing detail permission 403, document-scope denial 403, preview/download metadata masking, bounded query count, PostgreSQL dialect compilation, and preview-unavailable behavior.\",\n      \"The N+1 test is meaningful and materially strengthens acceptance credibility.\",\n      \"The suite validates the response DTO using Pydantic rather than relying on loose JSON assertions alone.\",\n      \"Confidence is still limited to contract-level behavior because execution is against SQLite in-memory, not PostgreSQL 16.\",\n      \"There is no proof of canonical dependency wiring with the real auth layer, real repository models, or real Paperless integration.\"\n    ]\n  },\n  \"docs_code_coherence\": {\n    \"status\": \"mostly_coherent\",\n    \"notes\": [\n      \"README, KIT, HOWTO, LTC, tests, and the curl artifact now align with the emitted package contents.\",\n      \"The previously missing API contract artifact is now present.\",\n      \"The docs correctly narrow package-local runnable checks to pytest and curl, while repo-level lint/types/security/build remain stated as post-promotion expectations.\",\n      \"The code and docs are aligned on preview/download behavior as gated metadata exposure within this REQ, not full binary endpoint implementation.\",\n      \"The package still relies on explanatory documentation to distinguish test-only compatibility models from promotion targets; that distinction is not enforced by code structure.\"\n    ]\n  },\n  \"promotion_fit\": {\n    \"status\": \"ready_for_later_eval_not_low_risk_promotion\",\n    \"notes\": [\n      \"Module placement follows the planned namespace families and does not invent unrelated roots.\",\n      \"The router/service/repository split is promotable in direction.\",\n      \"Promotion remains higher risk than ideal because canonical REQ-001 ORM consumption is only designed for, not demonstrated.\",\n      \"A reviewer can evaluate this slice seriously now, but direct promotion into canonical repository targets would still require careful integration review.\"\n    ]\n  },\n  \"shared_common_assessment\": {\n    \"status\": \"justified_with_overlap_risk\",\n    \"notes\": [\n      \"Using shared modules for RBAC and Paperless preview is consistent with the plan.\",\n      \"The Paperless preview adapter is a reasonable shared seam.\",\n      \"The RBAC helper is small and functional, but it still risks overlapping with the real shared auth/RBAC ownership expected from REQ-002.\",\n      \"Shared/common usage is acceptable for evaluation, not yet clean enough to assume zero-conflict promotion.\"\n    ]\n  },\n  \"runtime_profile_assessment\": {\n    \"status\": \"design_aligned_validation_thin\",\n    \"notes\": [\n      \"Local and aws profiles preserve one design and differ mainly through configuration, which is the correct direction.\",\n      \"The docs are explicit that SQLite is only a hermetic harness and not the intended promoted datastore.\",\n      \"The PostgreSQL compilation check is useful but does not replace actual PostgreSQL-backed execution.\",\n      \"Runtime-profile integrity is acceptable for later eval, but not strongly proven for target deployment.\"\n    ]\n  },\n  \"blockers\": [\n    \"Direct promotion is still blocked by lack of demonstrated binding to canonical REQ-001 ORM models; the slice still carries compatibility schema scaffolding.\",\n    \"Target-runtime confidence is still blocked at the database layer because there is no real PostgreSQL 16 execution evidence.\",\n    \"End-to-end authorization semantics for preview/download remain indirect; this REQ proves metadata gating, not actual endpoint denial behavior.\"\n  ],\n  \"remaining_risks\": [\n    \"Promotion could create overlap or merge friction with the canonical REQ-002 shared auth/RBAC implementation.\",\n    \"The current scope-denial approach returns an explicit forbidden response for existing out-of-scope documents, which may be acceptable for this REQ but still deserves security review at promotion time.\",\n    \"Paperless integration is limited to URL construction; live adapter behavior against the real DMS remains unproven.\",\n    \"Repository behavior against pilot-sized fixtures is tested for query count, but not against the real production schema, indexes, or PostgreSQL planner behavior.\"\n  ]\n}\n```"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 34913,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 3087,
+      "output_tokens_details": {
+        "reasoning_tokens": 1871
+      },
+      "total_tokens": 38000
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

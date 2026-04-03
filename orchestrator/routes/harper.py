@@ -11,8 +11,7 @@ from schemas.harper import (
     ResolveResponse, HarperPhaseRequest, TestSummary
 )
 from services import harper as svc
-from services.router import _load_cfg, resolve
-
+from services.router import _load_cfg, resolve, resolve_explain
 router = APIRouter(prefix="/v1/harper", tags=["harper"])
 log = logging.getLogger("orchestrator.harper")
 
@@ -54,11 +53,30 @@ def get_profiles():
 @router.get("/routing/resolve", response_model=ResolveResponse)
 def get_routing_resolve(
     task: str = Query(..., pattern="^(spec|plan|kit|build|chat)$"),
-    hint: str | None = None
+    hint: str | None = None,
+    model: str | None = "auto",
+    provider: str | None = None,
 ):
-    chosen, warnings = resolve(task=task, hint=hint)
-    return ResolveResponse(task=task, hint=hint, chosen=chosen, warnings=warnings)
+    explained = resolve_explain(task=task, hint=hint, model=model, provider=provider)
+    chosen = dict(explained.get("catalog_entry") or {})
+    resolved = explained.get("resolved") or {}
 
+    if resolved.get("model"):
+        chosen.setdefault("id", resolved["model"])
+        chosen.setdefault("name", chosen.get("name") or resolved["model"])
+    if resolved.get("provider"):
+        chosen["provider"] = resolved["provider"]
+    if resolved.get("remote_name"):
+        chosen["remote_name"] = resolved["remote_name"]
+    if resolved.get("profile"):
+        chosen["profile"] = resolved["profile"]
+
+    return ResolveResponse(
+        task=task,
+        hint=hint,
+        chosen=chosen,
+        warnings=[],
+    )
 @router.post("/session/clear")
 def session_clear(req: SessionClearRequest):
     # Placeholder: clear model sessions / caches; currently stateless
@@ -98,11 +116,17 @@ async def post_spec(req: HarperPhaseRequest):
     # Normalizza attachments in una forma stabile (list[dict])
     payload["attachments"] = _normalize_attachments(req.attachments)
 
-    log.info("run_phase spec (route): idea_md=%s core=%d attachments=%d flags=%s",
-             bool(payload.get("idea_md")),
-             len(payload.get("core") or []),
-             len(payload.get("attachments") or []),
-             "present" if payload.get("flags") else "none")
+    repo_ctx = payload.get("repository_context") or {}
+    log.info(
+        "run_phase spec (route): idea_md=%s core=%d attachments=%d flags=%s git_detected=%s repo_root=%s branch=%s",
+        bool(payload.get("idea_md")),
+        len(payload.get("core") or []),
+        len(payload.get("attachments") or []),
+        bool(payload.get("flags")),
+        repo_ctx.get("git_detected"),
+        repo_ctx.get("repo_root"),
+        repo_ctx.get("branch"),
+    )
 
     # Delego al service che farà SOLO il merge del modello/profilo, senza perdere campi
     out_dict = await svc.run_phase("spec", payload)
@@ -240,6 +264,8 @@ async def post_kit(req: HarperPhaseRequest):
     # Coerenza terminologica: manteniamo 'cmd' dal client ma imponiamo anche 'phase'
     payload["phase"] = "kit"
     payload.setdefault("cmd", payload["phase"])
+    repo_ctx = payload.get("repository_context") or {}
+    
     log.info("run_phase kit (route): idea_md=%s  plan_md=%s kit_md=%s core=%d gen=%s attachments=%d flags=%s",
             bool(payload.get("idea_md")),
             bool(payload.get("plan_md")),
@@ -250,6 +276,13 @@ async def post_kit(req: HarperPhaseRequest):
             len(payload.get("attachments") or []),
             "present" if payload.get("flags") else "none")
 
+    log.info(
+        "run_phase kit (route): git_detected=%s repo_root=%s branch=%s repo_url=%s",
+        repo_ctx.get("git_detected"),
+        repo_ctx.get("repo_root"),
+        repo_ctx.get("branch"),
+        repo_ctx.get("repo_url"),
+    )
     # Delego al service che farà SOLO il merge del modello/profilo, senza perdere campi
     out_dict = await svc.run_phase("kit", payload)
     

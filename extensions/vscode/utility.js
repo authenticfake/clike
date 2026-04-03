@@ -9,6 +9,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const myhttp = require("http");
 const myhttps = require("https");
+const VALID_STATUSES = ['open', 'in_progress', 'done', 'deferred'];
 
 /** Logger that accepts N args and JSON-serializes objects. */
 function mkLog(out) {
@@ -96,7 +97,15 @@ async function copyTreeWithConflicts(srcRoot, destRoot, { strategy, reqId, ts, l
   for (const src of srcFiles) {
     // Dest path mirrors relative structure of src under srcRoot
     const rel = src.path.slice(srcRoot.path.length);
-    const dst = vscode.Uri.joinPath(destRoot, rel.replace(/^\/+/, ''));
+    const normalizedRel = rel.replace(/^\/+/, '');
+
+    // Exclude non-promotable staging families from promotion
+    if (shouldExcludePromotionRelativePath(normalizedRel)) {
+      actions.push({ op: 'skip_excluded', from: src.path, rel: normalizedRel });
+      continue;
+    }
+
+    const dst = vscode.Uri.joinPath(destRoot, normalizedRel);
 
     await ensureDir(vscode.Uri.joinPath(dst, '..'));
 
@@ -179,7 +188,20 @@ async function openDiffs(diffs) {
     }
   }
 }
+function shouldExcludePromotionRelativePath(relPath) {
+  const normalized = String(relPath || '')
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '');
 
+  if (!normalized) return false;
+
+  return (
+    normalized === 'docs' ||
+    normalized.startsWith('docs/') ||
+    normalized === 'ci' ||
+    normalized.startsWith('ci/')
+  );
+}
 /**
  * Promote KIT sources into the workspace with conflict-safe strategies.
  * - Writes a JSON promotion manifest under runs/kit/<REQ>/promotion_manifest_<ts>.json
@@ -590,6 +612,79 @@ async function detectRepoUrl(projectRootUri) {
   if (n) return n;
 
   return null;
+}
+
+async function detectRepositoryContext(projectRootUri) {
+  const workspaceFolder = projectRootUri?.fsPath || null;
+  const fallback = {
+    git_detected: false,
+    repo_root: workspaceFolder,
+    branch: null,
+    workspace_folder: workspaceFolder,
+    repo_url: null,
+  };
+
+  if (!projectRootUri?.fsPath) {
+    return fallback;
+  }
+
+  // 1) Prefer VS Code Git API because it already knows the active repositories.
+  try {
+    const gitExt = vscode.extensions.getExtension('vscode.git');
+    if (gitExt) {
+      const git = gitExt.isActive ? gitExt.exports : await gitExt.activate();
+      const api = git.getAPI(1);
+      const repo = api.repositories.find(r =>
+        projectRootUri.fsPath === r.rootUri.fsPath ||
+        projectRootUri.fsPath.startsWith(r.rootUri.fsPath)
+      );
+
+      if (repo?.rootUri?.fsPath) {
+        const remote =
+          repo?.state?.remotes?.[0]?.fetchUrl ||
+          repo?.state?.remotes?.[0]?.pushUrl ||
+          null;
+
+        const branch =
+          repo?.state?.HEAD?.name ||
+          execSyncSafe('git rev-parse --abbrev-ref HEAD', repo.rootUri.fsPath) ||
+          null;
+
+        return {
+          git_detected: true,
+          repo_root: repo.rootUri.fsPath,
+          branch,
+          workspace_folder: workspaceFolder,
+          repo_url: normalizeRepoUrl(remote),
+        };
+      }
+    }
+  } catch (e) {
+    log('[CLike] detectRepositoryContext Git API failed:', e?.message || String(e));
+  }
+
+  // 2) Fallback to git CLI from the current workspace folder.
+  try {
+    const repoRoot = execSyncSafe('git rev-parse --show-toplevel', projectRootUri.fsPath);
+    if (!repoRoot) {
+      return fallback;
+    }
+
+    const branch = execSyncSafe('git rev-parse --abbrev-ref HEAD', repoRoot) || null;
+    const rawRemote = execSyncSafe('git config --get remote.origin.url', repoRoot);
+    const repoUrl = normalizeRepoUrl(rawRemote);
+
+    return {
+      git_detected: true,
+      repo_root: repoRoot,
+      branch,
+      workspace_folder: workspaceFolder,
+      repo_url: repoUrl,
+    };
+  } catch (e) {
+    log('[CLike] detectRepositoryContext CLI fallback failed:', e?.message || String(e));
+    return fallback;
+  }
 }
 // --- PLAN.md helpers: update only the "### REQ-IDs Table" section (markdown table) ---
 
@@ -1019,16 +1114,26 @@ async function saveGateCommand(projectRootUri, plan, targetReqId,report, out) {
 
   let effectivePlan = plan || await readPlanJson(projectRootUri);
   if (!effectivePlan || !Array.isArray(effectivePlan.reqs)) return;
-
-  if (!setReqStatus(effectivePlan, targetReqId, 'done')) {
-    log(`[saveGateCommand] REQ ${targetReqId} not found in plan.json`);
+  
+  const gateVerdict = String(report?.gate || '').trim().toLowerCase();
+  const isPass = gateVerdict === 'pass';
+  if (isPass) {
+    if (!setReqStatus(effectivePlan, targetReqId, 'done')) {
+      log(`[saveGateCommand] REQ ${targetReqId} not found in plan.json`);
+    }
+  } else {
+    // keep REQ in progress if gate failed or verdict missing
+    setReqStatus(effectivePlan, targetReqId, 'in_progress');
+    log(`[saveGateCommand] gate not passed for ${targetReqId}; status kept as in_progress`);
   }
+  
 
   await writePlanJson(projectRootUri, effectivePlan);
   await updatePlanMdInPlace(projectRootUri, effectivePlan);
   const report_file = await persistReports(projectRootUri, "gate", report, out)
   var filesToCommit = []
-  if (report.gate.toLowerCase()==='pass') {
+  
+  if (isPass) {
     log("[harperRun] Gate passed for " + targetReqId);
     const choice = await vscode.window.showInformationMessage(
       `Gate passed for ${targetReqId}. Promote sources now?`,
@@ -1037,10 +1142,12 @@ async function saveGateCommand(projectRootUri, plan, targetReqId,report, out) {
     );
     if (choice === 'Promote') {
       filesToCommit = await runPromotionFlow(projectRootUri, targetReqId, out);
-      //log("[harperRun] filesToCommit " + filesToCommit);
     }
+    try { vscode.window.showInformationMessage(`REQ ${targetReqId} marked as done.`); } catch {}
+  } else {
+    try { vscode.window.showWarningMessage(`Gate failed for ${targetReqId}. REQ not promoted.`); } catch {}
   }
-  try { vscode.window.showInformationMessage(`REQ ${targetReqId} marked as done.`); } catch {}
+  
   return { report_file, filesToCommit }
 }
 /**
@@ -1081,10 +1188,13 @@ async function buildHarperBody(phase, payload, projectRootUri, out) {
       }
       idea_md = removeTechConstraintsYaml(idea_md);
     } 
-    else if (phase === 'kit') {
-       // 3) repoUrl
-      const repoUrl = await detectRepoUrl(projectRootUri);
-        if (repoUrl) payload["repoUrl"] = repoUrl;
+   // 3) Always attach repository metadata so the orchestrator can become repo-aware.
+    const repositoryContext = await detectRepositoryContext(projectRootUri);
+    payload["repository_context"] = repositoryContext;
+    
+    // Keep backward compatibility with the existing repoUrl field.
+    if (repositoryContext?.repo_url) {
+      payload["repoUrl"] = repositoryContext.repo_url;
     }
   } catch (err) {
     log('[CLike] saveTechConstraintsYaml failed:', err);
@@ -1125,12 +1235,26 @@ async function readPlanJson(projectRootUri) {
   const uri = vscode.Uri.joinPath(projectRootUri, 'docs', 'harper', 'plan.json');
   try {
     const raw = await readTextFile(uri);
-    return raw ? JSON.parse(raw) : null;
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (!parsed || typeof parsed !== 'object') return null;
+
+    if (Array.isArray(parsed.reqs)) {
+      return parsed;
+    }
+
+    if (Array.isArray(parsed.req)) {
+      return {
+        ...parsed,
+        reqs: parsed.req
+      };
+    }
+
+    return parsed;
+
   } catch {
     return null;
   }
 }
-const VALID_STATUSES = ['open', 'in_progress', 'done', 'deferred'];
 
 function normalizeStatus(s) {
   const v = String(s || '').trim().toLowerCase();
@@ -1471,29 +1595,47 @@ function decodeTextBase64Safe(b64) {
 async function buildRagItemsForIndex(rag_files, out) {
   const log = mkLog(out);
   const items = [];
+
   for (const f of (rag_files || [])) {
     if (!f) continue;
+
     const p = f.path || (f.name ? `attachments/${f.name}` : null);
     if (!p) continue;
 
-    // 1) tenta testo
-    const t = await readWorkspaceTextFile(p, out);
-    if (t && t.trim()) {
-      items.push({ path: p, text: t });
-      log(`[harperRAG] read ${p} -> text`);
+    // 1) Trust already-normalized content first
+    if (typeof f.content === 'string' && f.content.trim()) {
+      items.push({ path: p, text: f.content });
+      log(`[harperRAG] use provided content for ${p}`);
       continue;
     }
 
-    // 2) fallback: bytes -> base64 (PDF/DOCX ecc.)
+    // 2) Trust provided bytes_b64 before trying to re-read from workspace
+    if (typeof f.bytes_b64 === 'string' && f.bytes_b64.length > 0) {
+      items.push({ path: p, bytes_b64: f.bytes_b64 });
+      log(`[harperRAG] use provided bytes_b64 for ${p}`);
+      continue;
+    }
+
+    // 3) Workspace text fallback
+    const t = await readWorkspaceTextFile(p, out);
+    if (t && t.trim()) {
+      items.push({ path: p, text: t });
+      log(`[harperRAG] read workspace text for ${p}`);
+      continue;
+    }
+
+    // 4) Workspace binary fallback
     const buf = await readWorkspaceFileBytes(p);
     if (buf && buf.length) {
       items.push({ path: p, bytes_b64: buf.toString('base64') });
-      log(`read ${p} -> binary (${buf.length}B)`);
-    } else {
-      log(`read ${p} -> skip (empty/unreadable)`);
+      log(`[harperRAG] read workspace binary for ${p} (${buf.length}B)`);
+      continue;
     }
+
+    log(`[harperRAG] skip unreadable item ${p}`);
   }
-  log(`items -> ${items.length}`);
+
+  log(`[harperRAG] items built -> ${items.length}`);
   return items;
 }
 

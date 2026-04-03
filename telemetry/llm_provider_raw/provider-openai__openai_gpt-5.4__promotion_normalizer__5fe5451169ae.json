@@ -1,0 +1,86 @@
+{
+  "timestamp": "20260401T093109Z",
+  "project_id": "docufu",
+  "phase": "promotion_normalizer",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_0cd2e3075fbddd550069cce58a9ff08194a5f90f2e92304eee",
+    "object": "response",
+    "created_at": 1775035786,
+    "status": "incomplete",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": null,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": {
+      "reason": "max_output_tokens"
+    },
+    "instructions": "You are the Harper Promotion Normalizer.\n\nYour task is NOT to implement new features.\nYour task is NOT to change the REQ scope.\nYour task is NOT to redesign the solution.\n\nYour task is to normalize an already-generated KIT candidate so it becomes more promotion-ready.\n\n## Mission\n\nGiven an existing REQ candidate under `runs/kit/<REQ-ID>/...`, improve only:\n\n- repository fit\n- canonical placement assumptions\n- naming consistency\n- import consistency\n- helper reuse consistency\n- source/test/docs coherence\n- promotion readiness toward canonical repository targets\n\n## Hard constraints\n\n- Do not add new scope.\n- Do not add adjacent features.\n- Do not rewrite the architecture unless a small structural correction is required for promotion readiness.\n- Do not convert the REQ into a larger refactor.\n- Preserve the implementation intent of the existing KIT.\n- Keep edits localized and reviewable.\n- Emit only file blocks.\n- Do not emit prose outside file blocks.\n\n## Required inputs\n\nUse and remain consistent with:\n\n- `PLAN.md`\n- `plan.json`\n- `SPEC.md`\n- `TECH_CONSTRAINTS.yaml`\n- `REQ_PROMOTION_MANIFEST.md` when present\n- existing files already generated in `runs/kit/<REQ-ID>/...`\n- repository reference context surfaced by the orchestrator\n\n## Normalization priorities\n\n1. Preserve REQ scope\n2. Preserve candidate behavior\n3. Improve promotion fit\n4. Reduce unnecessary duplication\n5. Improve consistency between `src`, `test`, `docs`, and `ci`\n6. Keep changes minimal\n\n## What to normalize\n\nNormalize only what is necessary for promotion readiness, such as:\n\n- file placement assumptions\n- import paths\n- module naming\n- helper reuse\n- duplicated micro-abstractions\n- mismatches between docs and code\n- mismatches between tests and code\n- incorrect staging-vs-canonical assumptions\n\n## What not to do\n\nDo NOT:\n\n- introduce brand new layers unless strictly necessary\n- create new top-level module roots\n- create new top-level test roots\n- replace the solution with a different design\n- widen the REQ\n- add “future work” placeholders\n\n## Output contract\n\nEmit only full file blocks for files that must be updated.\nDo not emit unchanged files.\nDo not emit summaries.\nDo not emit a trailing log.",
+    "max_output_tokens": 6000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_0cd2e3075fbddd550069cce58bfc6081948fb91271637c2fd4",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_0cd2e3075fbddd550069cce5d09e1c81949d372f71e6c51663",
+        "type": "message",
+        "status": "incomplete",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "```file:/runs/kit/REQ-004/src/node/frontend/app/shared/api/documents.ts\nexport type UploadRuntimeProfile = \"local\" | \"aws\";\n\nexport interface UploadResponse {\n  document_id: string;\n  correlation_id: string;\n}\n\nexport interface UploadClient {\n  upload(file: File): Promise<UploadResponse>;\n}\n\nexport class UploadApiError extends Error {\n  readonly status: number;\n  readonly code: string;\n\n  constructor(status: number, message: string, code = \"UPLOAD_FAILED\") {\n    super(message);\n    this.name = \"UploadApiError\";\n    this.status = status;\n    this.code = code;\n  }\n}\n\nexport interface RuntimeConfig {\n  profile: UploadRuntimeProfile;\n  apiBaseUrl: string;\n}\n\ntype EnvShape = Record<string, string | undefined>;\n\nexport function resolveUploadRuntimeConfig(env: EnvShape = process.env): RuntimeConfig {\n  const profile: UploadRuntimeProfile = env.NEXT_PUBLIC_RUNTIME_PROFILE === \"aws\" ? \"aws\" : \"local\";\n  const configuredBaseUrl = env.NEXT_PUBLIC_API_BASE_URL?.trim();\n\n  if (configuredBaseUrl) {\n    return {\n      profile,\n      apiBaseUrl: configuredBaseUrl.replace(/\\/+$/, \"\"),\n    };\n  }\n\n  if (profile === \"local\") {\n    return {\n      profile,\n      apiBaseUrl: \"http://localhost:8000\",\n    };\n  }\n\n  throw new Error(\"NEXT_PUBLIC_API_BASE_URL deve essere configurato per il profilo aws.\");\n}\n\nasync function safeJson(response: Response): Promise<unknown> {\n  const contentType = response.headers.get(\"content-type\") ?? \"\";\n  if (!contentType.includes(\"application/json\")) {\n    return null;\n  }\n\n  try {\n    return await response.json();\n  } catch {\n    return null;\n  }\n}\n\nfunction extractErrorMessage(payload: unknown, fallback: string): string {\n  if (!payload || typeof payload !== \"object\") {\n    return fallback;\n  }\n\n  if (\"message\" in payload && typeof payload.message === \"string\") {\n    return payload.message;\n  }\n\n  if (\n    \"error\" in payload &&\n    payload.error &&\n    typeof payload.error === \"object\" &&\n    \"message\" in payload.error &&\n    typeof payload.error.message === \"string\"\n  ) {\n    return payload.error.message;\n  }\n\n  return fallback;\n}\n\nexport function createUploadClient(\n  config: RuntimeConfig = resolveUploadRuntimeConfig(),\n  fetchImpl: typeof fetch = fetch,\n): UploadClient {\n  return {\n    async upload(file: File): Promise<UploadResponse> {\n      const formData = new FormData();\n      formData.set(\"file\", file);\n\n      const response = await fetchImpl(`${config.apiBaseUrl}/documents`, {\n        method: \"POST\",\n        body: formData,\n        headers: {\n          \"X-Client-Runtime-Profile\": config.profile,\n        },\n      });\n\n      if (!response.ok) {\n        const payload = await safeJson(response);\n        throw new UploadApiError(\n          response.status,\n          extractErrorMessage(payload, \"Upload non riuscito.\"),\n          `HTTP_${response.status}`,\n        );\n      }\n\n      const payload = (await response.json()) as Partial<UploadResponse>;\n\n      if (!payload.document_id || !payload.correlation_id) {\n        throw new UploadApiError(502, \"Risposta upload non valida.\", \"UPLOAD_INVALID_RESPONSE\");\n      }\n\n      return {\n        document_id: payload.document_id,\n        correlation_id: payload.correlation_id,\n      };\n    },\n  };\n}\n```\n\n```file:/runs/kit/REQ-004/src/node/frontend/app/shared/auth/redirects.ts\nexport const UNAUTHORIZED_PATH = \"/unauthorized\";\n\nexport function buildLoginRedirectPath(nextPath: string): string {\n  return `/login?next=${nextPath}`;\n}\n```\n\n```file:/runs/kit/REQ-004/src/node/frontend/app/intake/upload/types.ts\nimport type { UploadResponse } from \"../../shared/api/documents\";\n\nexport type AuthState = \"authenticated\" | \"unauthenticated\" | \"forbidden\";\n\nexport type {\n  UploadClient,\n  UploadResponse,\n  UploadRuntimeProfile,\n} from \"../../shared/api/documents\";\n\nexport interface UploadSuccessState extends UploadResponse {\n  nextActionHref: string;\n}\n```\n\n```file:/runs/kit/REQ-004/src/node/frontend/app/intake/upload/api/documents.ts\nexport {\n  createUploadClient,\n  resolveUploadRuntimeConfig,\n  UploadApiError,\n} from \"../../../shared/api/documents\";\n\nexport type { RuntimeConfig } from \"../../../shared/api/documents\";\n```\n\n```file:/runs/kit/REQ-004/src/node/frontend/app/intake/upload/hooks/use-upload-document.ts\n\"use client\";\n\nimport { useEffect, useMemo, useState } from \"react\";\nimport { useMutation } from \"@tanstack/react-query\";\n\nimport { buildLoginRedirectPath, UNAUTHORIZED_PATH } from \"../../../shared/auth/redirects\";\nimport { createUploadClient, UploadApiError } from \"../api/documents\";\nimport type { AuthState, UploadClient, UploadSuccessState } from \"../types\";\nimport { validateUploadFile } from \"../validation\";\n\nconst LOGIN_PATH = buildLoginRedirectPath(\"/intake/upload\");\n\nexport interface UseUploadDocumentOptions {\n  authState?: AuthState;\n  client?: UploadClient;\n  navigate?: (href: string) => void;\n  nextActionHrefBuilder?: (documentId: string) => string;\n}\n\nfunction defaultNavigate(href: string): void {\n  if (typeof window !== \"undefined\") {\n    window.location.assign(href);\n  }\n}\n\nexport function useUploadDocument(options: UseUploadDocumentOptions = {}) {\n  const authState = options.authState ?? \"authenticated\";\n  const client = useMemo(() => options.client ?? createUploadClient(), [options.client]);\n  const navigate = options.navigate ?? defaultNavigate;\n  const nextActionHrefBuilder = options.nextActionHrefBuilder ?? ((documentId: string) => `/workflow/inbox?highlight=${documentId}`);\n\n  const [selectedFile, setSelectedFile] = useState<File | null>(null);\n  const [validationMessage, setValidationMessage] = useState<string | null>(null);\n  const [serverMessage, setServerMessage] = useState<string | null>(null);\n  const [success, setSuccess] = useState<UploadSuccessState | null>(null);\n  const [redirectTarget, setRedirectTarget] = useState<string | null>(null);\n\n  useEffect(() => {\n    if (authState === \"unauthenticated\") {\n      setRedirectTarget(LOGIN_PATH);\n      navigate(LOGIN_PATH);\n      return;\n    }\n\n"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 31396,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 6000,
+      "output_tokens_details": {
+        "reasoning_tokens": 4630
+      },
+      "total_tokens": 37396
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260401T165536Z",
+  "project_id": "docufu",
+  "phase": "integrity_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_0787f115921823e50069cd4ddc592c8197b658f416dcdf26dd",
+    "object": "response",
+    "created_at": 1775062492,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1775062536,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "# Harper /kit — INTEGRITY_EVAL\n\nYou are **Harper /kit INTEGRITY_EVAL** — a **Senior Software Architect, Senior Software Engineer, Senior LLM Generation Code, promotion reviewer, and stop-ship reviewer**.\n\nYour task is to evaluate the real integrity of the already generated KIT candidate for one target REQ.\n\nYou are NOT implementing the REQ.\nYou are NOT fixing the REQ.\nYou are NOT redesigning the solution.\nYou are evaluating whether the current REQ candidate is:\n\n- complete enough\n- substantial enough\n- coherent enough\n- promotion-oriented enough\n\nto deserve hardening and later promotion.\n\nThe candidate lives in staging under:\n\n- `runs/kit/<REQ-ID>/src/...`\n- `runs/kit/<REQ-ID>/test/...`\n- `runs/kit/<REQ-ID>/docs/...`\n- `runs/kit/<REQ-ID>/ci/...`\n\nBut it must be judged as a future promotion candidate for canonical repository targets such as:\n\n- `src/...`\n- `tests/...`\n- `test/...`\n\n---\n\n## 1) Mission\n\nEvaluate the current REQ candidate against:\n\n- `IDEA.md`\n- `SPEC.md`\n- `PLAN.md`\n- `plan.json`\n- `TECH_CONSTRAINTS.yaml`\n- `REQ_PROMOTION_MANIFEST.md` when present\n- the current candidate files already generated for the REQ\n- repository-aware references when present\n\nYour goal is to determine whether the REQ candidate is:\n\n- fake-complete\n- skeletal\n- incomplete\n- salvageable\n- hardening-ready\n- already close to promotion-candidate quality\n\n---\n\n## 2) What you must evaluate\n\n### A. Scope fidelity\nCheck whether the candidate actually implements the intended REQ and acceptance criteria.\n\n### B. Source substance\nCheck whether the candidate contains enough real implementation substance.\n\nA candidate is **skeletal** when one or more of the following is true:\n\n- too few source files compared to the REQ scope\n- primary source modules are too thin, placeholder-like, or mostly seams with little real logic\n- docs and tests describe more behavior than the source code actually supports\n- the implementation mass is disproportionately low relative to the REQ acceptance and the emitted docs/ci package\n\n### C. Test substance\nCheck whether tests prove real REQ acceptance or only shallow structure.\n\n### D. Docs / code / CI coherence\nCheck whether:\n- `README_<REQ-ID>.md`\n- `KIT_<REQ-ID>.md`\n- `LTC.json`\n- `HOWTO.md`\n\nactually match the emitted source files, test files, commands, runtime modes, and limitations.\n\n### E. Promotion fit\nCheck whether the candidate is designed for later promotion toward canonical repository targets, not merely for survival in `runs/...`.\n\n### F. Shared/common correctness\nIf the candidate introduces or extends `shared`, `common`, or equivalent cross-slice modules, check whether that is justified by actual reuse and architectural ownership.\n\nDo NOT reward unnecessary shared/common extraction.\nDo NOT penalize justified shared/common seams when they clearly reduce duplication and improve promotion fit.\n\n### G. Dual-mode integrity\nIf the REQ is expected to support both local-dev mode and target-runtime mode, check whether:\n- the same business design is preserved\n- runtime differences are expressed through adapters/configuration\n- local mode does not replace the intended promotable architecture\n\n---\n\n## 3) Hard rules\n\n- Be severe.\n- Be precise.\n- Be explicit.\n- Do not be optimistic.\n- Do not reward narrative packaging when the code is weak.\n- Treat “docs rich / code poor” as a serious integrity problem.\n- Treat placeholder-style implementation as non-promotable.\n- Do not fix files.\n- Do not emit code patches.\n- Do not propose large redesigns.\n- Do not widen scope.\n- Do not add adjacent features.\n\n---\n\n## 4) Output artifact\n\nEmit exactly one file block:\n\n`file:/runs/kit/<REQ-ID>/ci/INTEGRITY_EVAL.json`\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must be valid and must contain:\n\n- `version`\n- `req_id`\n- `verdict`\n- `summary`\n- `scope_fidelity`\n- `source_substance`\n- `test_substance`\n- `docs_code_coherence`\n- `promotion_fit`\n- `shared_common_assessment`\n- `dual_mode_assessment`\n- `blockers`\n- `hardening_targets`\n\n---\n\n## 5) Allowed verdicts\n\nUse exactly one of:\n\n- `reject`\n- `skeletal`\n- `incomplete`\n- `salvageable`\n- `hardening_ready`\n- `promotion_candidate`\n\n### Meaning\n\n- `reject` → the candidate is too weak or too misleading to proceed safely\n- `skeletal` → the candidate is too thin and lacks enough implementation substance\n- `incomplete` → important expected parts are missing or incoherent\n- `salvageable` → the candidate has a meaningful base but needs targeted hardening\n- `hardening_ready` → the candidate is solid enough to benefit from promotion hardening\n- `promotion_candidate` → rare; already strong and coherent enough to be considered close to evaluable promotion quality\n\n---\n\n## 6) Scoring intent\n\nEach assessment section should be concise but operational.\nState clearly:\n\n- what is good\n- what is weak\n- what is missing\n- what must be hardened next\n\n`hardening_targets` must be concrete and actionable.\nThey must identify the weak areas that the next phase should improve.\n\n---\n\n## 7) Evaluation style\n\nThink like a stop-ship promotion reviewer.\n\nDo NOT say:\n- “overall this looks good” unless it is truly strong\n- “minimal but acceptable” when it is actually too thin\n- “promotable” unless the candidate has enough real code, test credibility, and architectural fitness\n\nPrefer explicit judgments such as:\n\n- “source implementation is too thin for the declared REQ scope”\n- “tests overclaim behavior not supported by the emitted source”\n- “docs and CI contract are richer than the actual implementation”\n- “candidate is structurally coherent but lacks enough implementation mass”\n- “shared/common usage is justified”\n- “shared/common extraction is premature”\n\n---\n\n## 8) Output format example shape\n\nThe JSON must follow this shape exactly in spirit:\n\n```json\n{\n  \"version\": \"1.0.0\",\n  \"req_id\": \"REQ-005\",\n  \"verdict\": \"salvageable\",\n  \"summary\": \"The candidate is coherent but too thin relative to REQ scope and promotion expectations.\",\n  \"scope_fidelity\": {\n    \"status\": \"partial\",\n    \"notes\": [\n      \"Core REQ direction is present\",\n      \"Some acceptance expectations are only partially supported by source\"\n    ]\n  },\n  \"source_substance\": {\n    \"status\": \"weak\",\n    \"notes\": [\n      \"Primary source package is too thin\",\n      \"Implementation mass is lower than expected for the declared REQ\"\n    ]\n  },\n  \"test_substance\": {\n    \"status\": \"partial\",\n    \"notes\": [\n      \"Tests are present\",\n      \"Coverage of real behavior is weaker than the docs imply\"\n    ]\n  },\n  \"docs_code_coherence\": {\n    \"status\": \"mixed\",\n    \"notes\": [\n      \"Docs are operationally useful\",\n      \"Some claims exceed actual emitted implementation\"\n    ]\n  },\n  \"promotion_fit\": {\n    \"status\": \"partial\",\n    \"notes\": [\n      \"Design direction is promotable\",\n      \"Current candidate needs hardening before serious promotion\"\n    ]\n  },\n  \"shared_common_assessment\": {\n    \"status\": \"acceptable\",\n    \"notes\": [\n      \"Shared seams are justified\",\n      \"No obvious duplicate module family\"\n    ]\n  },\n  \"dual_mode_assessment\": {\n    \"status\": \"acceptable\",\n    \"notes\": [\n      \"Local and target-runtime modes are conceptually aligned\"\n    ]\n  },\n  \"blockers\": [\n    \"Source layer too thin for declared REQ scope\"\n  ],\n  \"hardening_targets\": [\n    \"Strengthen primary source modules\",\n    \"Align tests more tightly with real behavior\",\n    \"Reduce doc/code claim mismatch\"\n  ]\n}\n\n```\nThe example above is illustrative.\nJudge the actual candidate, not the example.\n\n---",
+    "max_output_tokens": 17000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_0787f115921823e50069cd4ddd75648197a9b645701685f6fc",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_0787f115921823e50069cd4df547508197ac4f29f6f50468a5",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "```file:/runs/kit/REQ-005/ci/INTEGRITY_EVAL.json\n{\n  \"version\": \"1.0.0\",\n  \"req_id\": \"REQ-005\",\n  \"verdict\": \"salvageable\",\n  \"summary\": \"The candidate has real implementation substance for an event envelope, SNS publisher, and single-message worker contract, but it does not meet REQ-005 end-to-end acceptance. The missing durable idempotency backing, absent upload-path integration, and lack of audit-row protection leave the current result below hardening-ready promotion quality.\",\n  \"scope_fidelity\": {\n    \"status\": \"partial\",\n    \"notes\": [\n      \"The emitted source covers the intended REQ direction: typed document.ingested payload, SNS publish path, worker startup transition to in_elaborazione via repository seam, bounded retry logic, and correlation binding hooks.\",\n      \"REQ acceptance is not satisfied end-to-end because successful upload is not actually wired to publish exactly one event; the candidate only provides a service that could be called later.\",\n      \"Duplicate delivery handling is only partially implemented. The worker skips reprocessing for a completed receipt key, but the key is derived from message_id and there is no durable receipt implementation here.\",\n      \"The REQ acceptance mentions avoiding duplicate documents or duplicate audit rows; this candidate explicitly omits real persistence and audit integration, so that claim is unsupported.\"\n    ]\n  },\n  \"source_substance\": {\n    \"status\": \"moderate\",\n    \"notes\": [\n      \"This is not placeholder code. The worker contains real control flow for parsing, trace binding, duplicate checks, processing-start marking, failure classification, retry behavior, and terminal completion.\",\n      \"The publisher path is also real enough to serialize payloads and message attributes against a boto3-compatible SNS client.\",\n      \"However, the implementation mass is still constrained to library seams and unit-test doubles. The most important integrity parts for promotion—durable idempotency state, upload integration, and audit effects—are missing.\",\n      \"The repository abstraction is reasonable, but without a concrete implementation the worker contract remains only partially realized.\"\n    ]\n  },\n  \"test_substance\": {\n    \"status\": \"partial\",\n    \"notes\": [\n      \"Tests verify meaningful behavior: one publish call, payload shape, message attributes, trace binding, worker start ordering, duplicate skip on repeated receipt, retriable failure, and terminal failure.\",\n      \"The tests are entirely double-based and do not exercise boto3 wiring, SNS/SQS-compatible envelopes beyond a simple local JSON case, or any durable persistence behavior.\",\n      \"There is no test proving exactly-one publication from the upload success path, because that integration is absent.\",\n      \"There is no test proving duplicate audit-row avoidance or durable idempotency across process restarts or different logical duplicate deliveries.\"\n    ]\n  },\n  \"docs_code_coherence\": {\n    \"status\": \"mixed\",\n    \"notes\": [\n      \"Docs are mostly honest about the emitted scope and clearly state that real persistence, audit rows, daemon polling, and REQ-006 outcomes are out of scope.\",\n      \"That honesty helps coherence, but it also confirms that documented limits cut directly across REQ-005 acceptance obligations.\",\n      \"README, KIT, HOWTO, and LTC generally match the emitted files and commands.\",\n      \"Some phrasing such as production-close overstates promotion readiness given the lack of concrete durability and end-to-end integration.\"\n    ]\n  },\n  \"promotion_fit\": {\n    \"status\": \"partial\",\n    \"notes\": [\n      \"Module placement follows the PLAN namespace rules and is localized to backend.app.processing.events plus permitted shared modules.\",\n      \"The design is promotion-oriented in shape: adapters are separated, local/aws runtime behavior is config-driven, and no staging-only architectural root was invented.\",\n      \"Promotion risk remains material because the core guarantees required in a canonical repository—durable receipts, real state persistence, and upload workflow integration—are not present yet.\",\n      \"As-is, promotion would move abstractions and unit tests more than a complete REQ implementation.\"\n    ]\n  },\n  \"shared_common_assessment\": {\n    \"status\": \"acceptable\",\n    \"notes\": [\n      \"Extending backend.app.shared.events is justified because the event envelope, logger/tracer contracts, and SNS publisher are reusable beyond this slice.\",\n      \"Using backend.app.shared.config for messaging runtime settings is aligned with the plan and not obviously excessive.\",\n      \"There is no obvious premature shared/common explosion beyond the permitted module families.\"\n    ]\n  },\n  \"dual_mode_assessment\": {\n    \"status\": \"acceptable\",\n    \"notes\": [\n      \"Local and aws modes preserve the same business contract and payload shape.\",\n      \"Runtime differences are expressed through environment-driven boto3 client settings rather than alternate business logic.\",\n      \"This is a strong part of the candidate and aligns with the expected promotion architecture.\"\n    ]\n  },\n  \"blockers\": [\n    \"No durable idempotency implementation exists; duplicate handling depends on an abstract repository seam and is not promotion-safe.\",\n    \"Upload success is not actually integrated with event publication, so the candidate does not prove exactly one document.ingested event per successful upload.\",\n    \"REQ acceptance around duplicate audit rows is unsupported because audit persistence is absent.\",\n    \"Idempotency is keyed only by message_id in the emitted worker, which is weaker than a durable logical event/document receipt strategy.\",\n    \"Test evidence is limited to unit doubles and does not validate AWS-compatible runtime behavior or persistence-backed guarantees.\"\n  ],\n  \"hardening_targets\": [\n    \"Back IngestReceiptRepository with real persistence tied to REQ-001 data ownership so idempotency survives restarts and prevents duplicate downstream effects.\",\n    \"Wire UploadIngestEventService into the real upload success path after commit and add tests that prove exactly-one publication with the shared correlation_id.\",\n    \"Integrate audit-safe handling so duplicate deliveries do not create duplicate audit effects, and test that behavior explicitly.\",\n    \"Strengthen receipt-key strategy beyond message_id-only semantics where needed for logical duplicate protection.\",\n    \"Add integration tests against AWS-compatible messaging adapters or equivalent contract fixtures, not only in-memory doubles.\",\n    \"Add targeted tests for invalid envelopes, parsing failures, and persistence of structured failure reasons through the concrete repository.\"\n  ]\n}\n```"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 32501,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 2849,
+      "output_tokens_details": {
+        "reasoning_tokens": 1552
+      },
+      "total_tokens": 35350
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

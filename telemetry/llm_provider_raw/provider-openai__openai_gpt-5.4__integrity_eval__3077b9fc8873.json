@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260402T133006Z",
+  "project_id": "docufu",
+  "phase": "integrity_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_080c1604e02230910069ce6f2c82b881968e92ecfbc997a1a7",
+    "object": "response",
+    "created_at": 1775136556,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1775136605,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "# Harper /kit — INTEGRITY_EVAL\n\nYou are **Harper /kit INTEGRITY_EVAL** — a **Senior Software Architect, Senior Software Engineer, Senior LLM Generation Code, promotion reviewer, and stop-ship reviewer**.\n\nYour task is to evaluate the real integrity of the already generated KIT candidate for one target REQ.\n\nYou are NOT implementing the REQ.\nYou are NOT fixing the REQ.\nYou are NOT redesigning the solution.\nYou are evaluating whether the current REQ candidate is:\n\n- complete enough\n- substantial enough\n- coherent enough\n- promotion-oriented enough\n\nto deserve hardening and later promotion.\n\nThe candidate lives in staging under:\n\n- `runs/kit/<REQ-ID>/src/...`\n- `runs/kit/<REQ-ID>/test/...`\n- `runs/kit/<REQ-ID>/docs/...`\n- `runs/kit/<REQ-ID>/ci/...`\n\nBut it must be judged as a future promotion candidate for canonical repository targets such as:\n\n- `src/...`\n- `tests/...`\n- `test/...`\n\n---\n\n## 1) Mission\n\nEvaluate the current REQ candidate against:\n\n- `IDEA.md`\n- `SPEC.md`\n- `PLAN.md`\n- `plan.json`\n- `TECH_CONSTRAINTS.yaml`\n- `REQ_PROMOTION_MANIFEST.md` when present\n- the current candidate files already generated for the REQ\n- repository-aware references when present\n\nYour goal is to determine whether the REQ candidate is:\n\n- fake-complete\n- skeletal\n- incomplete\n- salvageable\n- hardening-ready\n- already close to promotion-candidate quality\n\n---\n\n## 2) What you must evaluate\n\n### A. Scope fidelity\nCheck whether the candidate actually implements the intended REQ and acceptance criteria.\n\n### B. Source substance\nCheck whether the candidate contains enough real implementation substance.\n\nA candidate is **skeletal** when one or more of the following is true:\n\n- too few source files compared to the REQ scope\n- primary source modules are too thin, placeholder-like, or mostly seams with little real logic\n- docs and tests describe more behavior than the source code actually supports\n- the implementation mass is disproportionately low relative to the REQ acceptance and the emitted docs/ci package\n\n### C. Test substance\nCheck whether tests prove real REQ acceptance or only shallow structure.\n\n### D. Docs / code / CI coherence\nCheck whether:\n- `README_<REQ-ID>.md`\n- `KIT_<REQ-ID>.md`\n- `LTC.json`\n- `HOWTO.md`\n\nactually match the emitted source files, test files, commands, runtime modes, and limitations.\n\n### E. Promotion fit\nCheck whether the candidate is designed for later promotion toward canonical repository targets, not merely for survival in `runs/...`.\n\n### F. Shared/common correctness\nIf the candidate introduces or extends `shared`, `common`, or equivalent cross-slice modules, check whether that is justified by actual reuse and architectural ownership.\n\nDo NOT reward unnecessary shared/common extraction.\nDo NOT penalize justified shared/common seams when they clearly reduce duplication and improve promotion fit.\n\n### G. Dual-mode integrity\nIf the REQ is expected to support both local-dev mode and target-runtime mode, check whether:\n- the same business design is preserved\n- runtime differences are expressed through adapters/configuration\n- local mode does not replace the intended promotable architecture\n\n---\n\n## 3) Hard rules\n\n- Be severe.\n- Be precise.\n- Be explicit.\n- Do not be optimistic.\n- Do not reward narrative packaging when the code is weak.\n- Treat “docs rich / code poor” as a serious integrity problem.\n- Treat placeholder-style implementation as non-promotable.\n- Do not fix files.\n- Do not emit code patches.\n- Do not propose large redesigns.\n- Do not widen scope.\n- Do not add adjacent features.\n\n---\n\n## 4) Output artifact\n\nEmit exactly one file block:\n\n`file:/runs/kit/<REQ-ID>/ci/INTEGRITY_EVAL.json`\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must be valid and must contain:\n\n- `version`\n- `req_id`\n- `verdict`\n- `summary`\n- `scope_fidelity`\n- `source_substance`\n- `test_substance`\n- `docs_code_coherence`\n- `promotion_fit`\n- `shared_common_assessment`\n- `dual_mode_assessment`\n- `blockers`\n- `hardening_targets`\n\n---\n\n## 5) Allowed verdicts\n\nUse exactly one of:\n\n- `reject`\n- `skeletal`\n- `incomplete`\n- `salvageable`\n- `hardening_ready`\n- `promotion_candidate`\n\n### Meaning\n\n- `reject` → the candidate is too weak or too misleading to proceed safely\n- `skeletal` → the candidate is too thin and lacks enough implementation substance\n- `incomplete` → important expected parts are missing or incoherent\n- `salvageable` → the candidate has a meaningful base but needs targeted hardening\n- `hardening_ready` → the candidate is solid enough to benefit from promotion hardening\n- `promotion_candidate` → rare; already strong and coherent enough to be considered close to evaluable promotion quality\n\n---\n\n## 6) Scoring intent\n\nEach assessment section should be concise but operational.\nState clearly:\n\n- what is good\n- what is weak\n- what is missing\n- what must be hardened next\n\n`hardening_targets` must be concrete and actionable.\nThey must identify the weak areas that the next phase should improve.\n\n---\n\n## 7) Evaluation style\n\nThink like a stop-ship promotion reviewer.\n\nDo NOT say:\n- “overall this looks good” unless it is truly strong\n- “minimal but acceptable” when it is actually too thin\n- “promotable” unless the candidate has enough real code, test credibility, and architectural fitness\n\nPrefer explicit judgments such as:\n\n- “source implementation is too thin for the declared REQ scope”\n- “tests overclaim behavior not supported by the emitted source”\n- “docs and CI contract are richer than the actual implementation”\n- “candidate is structurally coherent but lacks enough implementation mass”\n- “shared/common usage is justified”\n- “shared/common extraction is premature”\n\n---\n\n## 8) Output format example shape\n\nThe JSON must follow this shape exactly in spirit:\n\n```json\n{\n  \"version\": \"1.0.0\",\n  \"req_id\": \"REQ-005\",\n  \"verdict\": \"salvageable\",\n  \"summary\": \"The candidate is coherent but too thin relative to REQ scope and promotion expectations.\",\n  \"scope_fidelity\": {\n    \"status\": \"partial\",\n    \"notes\": [\n      \"Core REQ direction is present\",\n      \"Some acceptance expectations are only partially supported by source\"\n    ]\n  },\n  \"source_substance\": {\n    \"status\": \"weak\",\n    \"notes\": [\n      \"Primary source package is too thin\",\n      \"Implementation mass is lower than expected for the declared REQ\"\n    ]\n  },\n  \"test_substance\": {\n    \"status\": \"partial\",\n    \"notes\": [\n      \"Tests are present\",\n      \"Coverage of real behavior is weaker than the docs imply\"\n    ]\n  },\n  \"docs_code_coherence\": {\n    \"status\": \"mixed\",\n    \"notes\": [\n      \"Docs are operationally useful\",\n      \"Some claims exceed actual emitted implementation\"\n    ]\n  },\n  \"promotion_fit\": {\n    \"status\": \"partial\",\n    \"notes\": [\n      \"Design direction is promotable\",\n      \"Current candidate needs hardening before serious promotion\"\n    ]\n  },\n  \"shared_common_assessment\": {\n    \"status\": \"acceptable\",\n    \"notes\": [\n      \"Shared seams are justified\",\n      \"No obvious duplicate module family\"\n    ]\n  },\n  \"dual_mode_assessment\": {\n    \"status\": \"acceptable\",\n    \"notes\": [\n      \"Local and target-runtime modes are conceptually aligned\"\n    ]\n  },\n  \"blockers\": [\n    \"Source layer too thin for declared REQ scope\"\n  ],\n  \"hardening_targets\": [\n    \"Strengthen primary source modules\",\n    \"Align tests more tightly with real behavior\",\n    \"Reduce doc/code claim mismatch\"\n  ]\n}\n\n```\nThe example above is illustrative.\nJudge the actual candidate, not the example.\n\n---",
+    "max_output_tokens": 17000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_080c1604e02230910069ce6f2da72c8196ace1e620e0b4d5d6",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_080c1604e02230910069ce6f4a93ec8196b9f717104f955f8b",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "```file:/runs/kit/REQ-008/ci/INTEGRITY_EVAL.json\n{\n  \"version\": \"1.0.0\",\n  \"req_id\": \"REQ-008\",\n  \"verdict\": \"salvageable\",\n  \"summary\": \"The candidate has real UI implementation mass and covers the main workspace layout, required-field gating, and exception affordance, but it is not yet hardening-ready. One acceptance point is only partially met because operator-visible copy is not fully Italian, the error-state branch is effectively broken by control-flow order, and tests lean heavily on injected fixtures instead of proving the real query/error path.\",\n  \"scope_fidelity\": {\n    \"status\": \"partial\",\n    \"notes\": [\n      \"Core REQ-008 behavior is present: single-screen layout, preview pane, status badge, extracted vs editable values, confidence/provenance display, required-field highlighting, and exception retry affordance.\",\n      \"The validation action is correctly kept as a seam for REQ-009 rather than falsely implemented here.\",\n      \"Operator-visible localization is incomplete: labels such as \\\"Confidence\\\" and \\\"Correlation ID\\\" remain English-facing, and technical field keys are surfaced directly.\",\n      \"Exception handling for 401/403/404 is described and coded, but the current screen control flow returns the loading shell whenever data is absent, so query failures do not reliably reach the dedicated error UI.\"\n    ]\n  },\n  \"source_substance\": {\n    \"status\": \"good_with_gaps\",\n    \"notes\": [\n      \"This is not skeletal. The candidate contains a substantial primary component, typed DTOs, a runtime adapter, a Zustand store, a query hook, and a route page.\",\n      \"The UI logic for required-field completion and state-based action availability is real and localized enough to demonstrate the intended workflow shape.\",\n      \"The source is weaker around promotable integration seams: fetch/error handling is slice-local instead of aligned with the planned shared frontend API layer, and the current error branch logic undermines claimed unauthorized/forbidden/not-found behavior.\",\n      \"The component is large and monolithic; promotion is possible, but hardening should reduce risk around state and error behavior before considering it stable.\"\n    ]\n  },\n  \"test_substance\": {\n    \"status\": \"weak\",\n    \"notes\": [\n      \"Tests do prove some real UI behavior: required fields block completion, extracted and editable panels are distinct, and retry affordance appears in exception state.\",\n      \"Most tests bypass the real data-loading path by supplying initialDocument fixtures, so they do not validate fetch, query lifecycle, or runtime error handling.\",\n      \"There is no direct test for 401/403/404 rendering, no proof that the current bugged error branch is caught, and no meaningful dual-profile coverage beyond command packaging.\",\n      \"Browser smoke is component-level mount coverage, not end-to-end route/integration evidence.\"\n    ]\n  },\n  \"docs_code_coherence\": {\n    \"status\": \"mixed\",\n    \"notes\": [\n      \"README, KIT, HOWTO, and LTC are internally organized and generally describe the emitted files accurately.\",\n      \"Docs claim explicit handling of 401/403/404 states, but the current component flow makes those states unreliable because `!data` returns the loading UI before the error branches.\",\n      \"Docs present operator-facing Italian UX as a completed outcome, but some visible labels remain English.\",\n      \"CI and HOWTO commands are staging-aware and operationally plausible, though they depend on canonical repo tooling that is not demonstrated here.\"\n    ]\n  },\n  \"promotion_fit\": {\n    \"status\": \"partial\",\n    \"notes\": [\n      \"The candidate stays within the planned `frontend.app.validation.workspace` family and is localized enough to promote into canonical `src/` with limited path churn.\",\n      \"It does not invent unnecessary top-level roots, which is good for promotion safety.\",\n      \"Promotion fit is reduced by slice-local runtime/fetch handling instead of use of the planned shared frontend API conventions, and by the unproven error path.\",\n      \"The staging package is reviewable, but it still needs targeted hardening before it is a credible promotion candidate.\"\n    ]\n  },\n  \"shared_common_assessment\": {\n    \"status\": \"acceptable_with_missed_alignment\",\n    \"notes\": [\n      \"The candidate does not introduce unjustified shared/common extraction.\",\n      \"That restraint is preferable to premature abstraction.\",\n      \"However, the plan expected alignment with shared frontend API/UI conventions; the current slice keeps its own fetch/error wrapper rather than showing reuse of those seams.\"\n    ]\n  },\n  \"dual_mode_assessment\": {\n    \"status\": \"acceptable\",\n    \"notes\": [\n      \"Local and AWS modes preserve the same page shape, DTO contract, and business UI behavior.\",\n      \"Runtime differences are limited to configuration of the backend base URL, which is the right architectural direction for a promotable frontend slice.\",\n      \"Dual-mode integrity is only lightly evidenced because tests do not meaningfully exercise both profiles.\"\n    ]\n  },\n  \"blockers\": [\n    \"Error-state handling is not trustworthy: when query data is absent the screen returns the loading shell before the dedicated 401/403/404 branches, so documented failure behavior is effectively broken.\",\n    \"Operator-visible localization is incomplete, which leaves REQ-008 acceptance only partially satisfied.\",\n    \"Tests do not cover the real query/error path and therefore miss the current control-flow defect.\"\n  ],\n  \"hardening_targets\": [\n    \"Harden screen state flow so loading, success, and fetch-error states are mutually correct and 401/403/404 rendering is actually reachable.\",\n    \"Complete operator-facing Italian localization for all visible labels and avoid surfacing raw technical field identifiers where operator labels should suffice.\",\n    \"Add tests for real query execution and API error states instead of relying mainly on `initialDocument` fixtures.\",\n    \"Add focused tests for state-dependent actions, including validation callback invocation after required fields are completed and exception screens where retry is not allowed.\",\n    \"Align the slice runtime/API seam more closely with the planned shared frontend API conventions to reduce promotion friction.\"\n  ]\n}\n```"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 36078,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 3127,
+      "output_tokens_details": {
+        "reasoning_tokens": 1860
+      },
+      "total_tokens": 39205
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

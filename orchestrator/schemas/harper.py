@@ -56,7 +56,7 @@ class HarperPhaseRequest(BaseModel):
     messages: List[HarperMessage] = Field(default_factory=list)
     runId: Optional[str] = None
     historyScope: Optional[str] = None
-    repoUrl: Optional[str] = None
+    repository_context: Optional[Dict[str, Any]] = None
     rag_queries: Optional[List[str]] = None
     gen: Optional[Dict[str, Any]] = None
    
@@ -140,8 +140,11 @@ class TelemetryFile(BaseModel):
 
 
 class TelemetryUsage(BaseModel):
-    input_tokens: int
-    output_tokens: int
+    input_tokens: Optional[int] = 0
+    output_tokens: Optional[int] = 0
+    total_tokens: Optional[int] = None
+
+    model_config = ConfigDict(extra="ignore")
 
 
 class TelemetryPricingUnit(BaseModel):
@@ -188,13 +191,12 @@ class HarperUsage(BaseModel):
     """
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
-    input_tokens: Optional[int]
-    output_tokens: Optional[int]
+    input_tokens: Optional[int] = 0
+    output_tokens: Optional[int] = 0
     total_tokens: Optional[int] = None
-    
 
-    input_tokens_details: Optional[UsageInputTokensDetails ]= UsageInputTokensDetails()
-    output_tokens_details: Optional[UsageOutputTokensDetails] = UsageOutputTokensDetails()
+    input_tokens_details: Optional[UsageInputTokensDetails] = None
+    output_tokens_details: Optional[UsageOutputTokensDetails] = None
 
 class HarperRunResponse(BaseModel):
     ok: bool = True

@@ -163,6 +163,58 @@ def _linearize_messages_for_responses(messages: List[Dict[str, str]]) -> Tuple[s
     linear_input = "\n\n---\n\n".join(turns).strip()
     return instructions, linear_input
 
+def _normalize_responses_tools(tools: List[Dict[str, Any]] | None) -> List[Dict[str, Any]]:
+    """
+    Convert Chat Completions-style tools into Responses API-style tools.
+    """
+    out: List[Dict[str, Any]] = []
+
+    for t in tools or []:
+        if not isinstance(t, dict):
+            continue
+
+        t_type = t.get("type")
+        fn = t.get("function")
+
+        if t_type == "function" and isinstance(fn, dict):
+            out.append({
+                "type": "function",
+                "name": fn.get("name"),
+                "description": fn.get("description", ""),
+                "parameters": fn.get("parameters") or {
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                    "additionalProperties": False,
+                },
+            })
+        else:
+            out.append(t)
+
+    return out
+
+
+def _normalize_responses_tool_choice(tool_choice: Any) -> Any:
+    """
+    Convert Chat Completions-style tool_choice into Responses API-style tool_choice.
+    """
+    if tool_choice is None:
+        return None
+
+    if isinstance(tool_choice, str):
+        return tool_choice
+
+    if isinstance(tool_choice, dict):
+        if tool_choice.get("type") == "function":
+            fn = tool_choice.get("function")
+            if isinstance(fn, dict):
+                return {
+                    "type": "function",
+                    "name": fn.get("name"),
+                }
+        return tool_choice
+
+    return tool_choice
 
 def _build_responses_payload(
     model: str,
@@ -241,8 +293,13 @@ def _build_responses_payload(
             text_cfg["format"] = rf
 
 
-    if gen.get("tools"): out["tools"] = gen["tools"]
-    if gen.get("tool_choice"): out["tool_choice"] = gen["tool_choice"]
+    norm_tools = _normalize_responses_tools(gen.get("tools"))
+    if norm_tools:
+        out["tools"] = norm_tools
+
+    norm_tool_choice = _normalize_responses_tool_choice(gen.get("tool_choice"))
+    if norm_tool_choice is not None:
+        out["tool_choice"] = norm_tool_choice
     model_lower = (model or "").lower()
     is_codex = "codex" in model_lower
       
@@ -551,9 +608,24 @@ async def embeddings(base_url: str, api_key: str | None, model: str, input_text:
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
-    payload = {"model": model, "input": input_text}
+    else:
+        raise RuntimeError("missing API key for DeepSeek embeddings provider")
+
+    payload = {
+        "model": model,
+        "input": input_text,
+    }
+
     async with httpx.AsyncClient(timeout=120) as client:
-        r = await client.post(f"{base_url.rstrip('/')}/s", json=payload, headers=headers)
+        r = await client.post(
+            f"{base_url.rstrip('/')}/embeddings",
+            json=payload,
+            headers=headers,
+        )
         r.raise_for_status()
-        data = r.json()
-        return (data.get("data") or [{}])[0].get("embedding")
+        data = r.json() or {}
+
+    vec = (data.get("data") or [{}])[0].get("embedding")
+    if not isinstance(vec, list) or not vec:
+        raise RuntimeError("DeepSeek embeddings provider returned an empty vector")
+    return vec

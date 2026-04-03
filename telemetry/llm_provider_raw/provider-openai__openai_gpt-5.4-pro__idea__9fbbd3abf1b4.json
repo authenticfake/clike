@@ -1,0 +1,19 @@
+{
+  "timestamp": "20260326T175430Z",
+  "project_id": "docufu",
+  "phase": "idea",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4-pro",
+  "raw": {
+    "status_code": 400,
+    "url": "https://api.openai.com/v1/responses",
+    "error": {
+      "message": "Invalid value: ''. Supported values are: 'none', 'auto', and 'required'.",
+      "type": "invalid_request_error",
+      "param": "tool_choice",
+      "code": "invalid_value"
+    },
+    "payload_echo_bytes": 33580,
+    "budget": 23500
+  }
+}

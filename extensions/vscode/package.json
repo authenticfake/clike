@@ -130,8 +130,13 @@
             "Pro doc-style (colonna unica, neutro, allineato a VS Code)",
             "Studio dark console (più denso, focus contenuti)",
             "Paper light (notebook chiaro)"
-          ],
+          ], 
           "description": "Theme for the Clike chat UI."
+        },
+        "clike.harperTimeout": {
+          "type": "number",
+          "default": 25,
+          "description": "timeout in minutes for harper phase completions."
         },
         "clike.verboseLogging": {
           "type": "boolean",

@@ -17,12 +17,35 @@ from middleware_security import SecureHeaders
 
 from pathlib import Path
 from fastapi.staticfiles import StaticFiles
-
+from utils.model_catalog_validator import validate_catalog
+from config import load_models_cfg
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(level=LOG_LEVEL, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("gateway")
+STRICT_MODEL_CATALOG = os.getenv("STRICT_MODEL_CATALOG", "0").strip() == "1"
 
+def _validate_catalog_on_startup() -> None:
+    try:
+        cfg_path = os.getenv("MODELS_CONFIG", "/workspace/configs/models.yaml")
+        data, models = load_models_cfg(cfg_path)
+        validation = validate_catalog(data, models)
+
+        if validation.get("ok"):
+            logger.info("model catalog validation OK: %s", validation.get("summary"))
+            return
+
+        logger.warning("model catalog validation FAILED: %s", validation)
+
+        if STRICT_MODEL_CATALOG:
+            raise RuntimeError(f"invalid model catalog: {validation.get('errors')}")
+    except Exception as e:
+        logger.exception("model catalog startup validation error: %s", e)
+        if STRICT_MODEL_CATALOG:
+            raise
+
+        
+_validate_catalog_on_startup()
 app = FastAPI(title="Clike Gateway (AI Pipilines for enabling Vibe Code for StartUp & Entprise Solutions)", version="1.0.0")
 
 # app.add_middleware(

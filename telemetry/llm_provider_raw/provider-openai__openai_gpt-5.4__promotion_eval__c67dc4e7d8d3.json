@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260403T100407Z",
+  "project_id": "docufu",
+  "phase": "promotion_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_0e7045ecbe0adb090069cf90524450819492e1864810aae615",
+    "object": "response",
+    "created_at": 1775210578,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1775210647,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "# Harper /kit — PROMOTION_EVAL\n\nYou are **Harper /kit PROMOTION_EVAL** — a **Senior Software Architect, Senior Software Engineer, promotion reviewer, and stop-ship evaluator**.\n\nYour task is to evaluate whether the current REQ candidate, after hardening, is ready to move forward as a serious promotion candidate.\n\nYou are NOT fixing files.\nYou are NOT redesigning.\nYou are evaluating.\n\n---\n\n## 1) Mission\n\nEvaluate the hardened REQ candidate against:\n\n- `IDEA.md`\n- `SPEC.md`\n- `PLAN.md`\n- `plan.json`\n- `TECH_CONSTRAINTS.yaml`\n- `REQ_PROMOTION_MANIFEST.md` when present\n- `INTEGRITY_EVAL.json`\n- current candidate files already generated for the REQ\n- repository-aware references when present\n\nYour goal is to determine whether the candidate is now:\n\n- still too weak\n- still missing required hardening\n- ready for later eval\n- a serious promotion candidate\n\n---\n\n## 2) What you must evaluate\n\n### A. Scope fidelity\nDoes the candidate still match the intended REQ?\n\n### B. Source substance\nIs the implementation now substantial enough?\n\n### C. Test credibility\nDo the tests now support real acceptance credibility?\n\n### D. Docs/code/test/ci coherence\nDo emitted docs and CI artifacts match the actual implementation?\n\n### E. Promotion fit\nIs the candidate clearly shaped for later promotion into canonical repository targets?\n\n### F. Shared/common correctness\nIf shared/common modules are involved, are they justified and coherent?\n\n### G. Runtime-profile integrity\nIf local-dev and target-runtime modes both matter, are they still aligned under one promotable design?\n\n---\n\n## 3) Hard rules\n\n- Be severe.\n- Be explicit.\n- Do not be optimistic.\n- Do not reward superficial cleanup as if it were true hardening.\n- Do not fix code.\n- Do not emit patches.\n- Do not emit prose outside the required file block.\n\n---\n\n## 4) Output artifact\n\nEmit exactly one file block:\n\n`file:/runs/kit/<REQ-ID>/ci/PROMOTION_EVAL.json`\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must be valid and must contain:\n\n- `version`\n- `req_id`\n- `verdict`\n- `summary`\n- `source_substance`\n- `test_credibility`\n- `docs_code_coherence`\n- `promotion_fit`\n- `shared_common_assessment`\n- `runtime_profile_assessment`\n- `blockers`\n- `remaining_risks`\n\n---\n\n## 5) Allowed verdicts\n\nUse exactly one of:\n\n- `reject`\n- `needs_more_hardening`\n- `eval_ready`\n- `promotion_candidate`\n- `promotion_candidate_with_risks`\n\n### Meaning\n\n- `reject` → still not a serious promotion candidate\n- `needs_more_hardening` → meaningful progress exists, but more targeted hardening is required\n- `eval_ready` → good enough to move into later evaluation stages\n- `promotion_candidate` → strong and coherent enough for serious promotion consideration\n- `promotion_candidate_with_risks` → promotable direction exists, but explicit bounded risks remain\n\n---\n\n## 6) Style\n\nThink like a promotion gate reviewer before formal gate.\n\nDo not hide weakness.\nDo not inflate quality.\nUse concise, operational judgments.\n\nIf the candidate is still too thin, say so clearly.\nIf the candidate is now strong, say so clearly.",
+    "max_output_tokens": 18000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_0e7045ecbe0adb090069cf90547e1481948dcfe90a0c1c0a5e",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_0e7045ecbe0adb090069cf907f9b148194851cc88820901cfc",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "```file:/runs/kit/REQ-010/ci/PROMOTION_EVAL.json\n{\n  \"version\": \"1.0\",\n  \"req_id\": \"REQ-010\",\n  \"verdict\": \"needs_more_hardening\",\n  \"summary\": \"Scope fidelity is partial but real: the candidate implements upload follow-up task projection, exception task creation, dashboard notifications for `da_validare`/`eccezione`/`validato`, config-gated email attempts, and masked logging. That is meaningful substance. It is still not a serious promotion candidate because acceptance is only demonstrated at service-unit level, with no concrete persistence adapter, no promotable ingress wiring, no proof of duplicate-event handling for notifications, and a missing REQ-010 API artifact. Docs are mostly honest about the staged seam, but the emitted CI story is still thinner than the plan and tech constraints require.\",\n  \"source_substance\": {\n    \"status\": \"moderate_but_incomplete\",\n    \"notes\": [\n      \"The implementation is not skeletal. `backend.app.workflow.notifications` contains real business logic for task projection, state-to-template mapping, dashboard notification creation, config-gated email delivery, and sent/failed status transitions.\",\n      \"The models are explicit and typed enough for review, including workflow states, task types, notification channels/statuses, runtime settings, and email delivery DTOs.\",\n      \"Most implementation mass is concentrated in one service module plus thin adapters. The hard promotion-critical parts are still abstracted away behind protocols: no concrete repository, no backend handler, no consumer, no real persistence contract proof.\",\n      \"The repository surface is underspecified for promotion. `save_notification()` is used for both create and update semantics, but the contract does not define mutation behavior, uniqueness, or idempotency expectations for pending-to-sent/failed transitions.\",\n      \"The candidate remains isolated from the planned shared event/config/audit surfaces. That keeps scope small, but it also leaves reconciliation work for promotion.\"\n    ]\n  },\n  \"test_credibility\": {\n    \"status\": \"limited\",\n    \"notes\": [\n      \"The tests exercise meaningful service behavior: upload task idempotency, dashboard notification creation, email gating, email failure handling, and log masking.\",\n      \"Acceptance evidence is still unit-centric. All important behaviors are proven only with in-memory fakes and injected clocks, not with promotable persistence or real ingress seams.\",\n      \"The 60-second requirement is not operationally demonstrated. The test only chooses a clock offset inside the window; it does not prove real processing latency behavior.\",\n      \"There is no coverage for duplicate state-change events creating duplicate notifications, even though the architecture is explicitly event-driven and duplicate delivery is a realistic condition.\",\n      \"There is no emitted API/event contract artifact for REQ-010 despite KIT readiness expecting `test/api/tasks-notifications.curl`.\"\n    ]\n  },\n  \"docs_code_coherence\": {\n    \"status\": \"mixed\",\n    \"notes\": [\n      \"README, KIT, and HOWTO mostly describe the code accurately as a staged service seam rather than a complete backend feature.\",\n      \"The documentation correctly states that concrete FastAPI wiring, SQLAlchemy/PostgreSQL persistence, SQS/SNS consumer bootstrap, and full observability wiring are not included.\",\n      \"That honesty does not remove the coherence gaps: the planned REQ-010 API artifact is missing, so the emitted docs and kit-readiness contract do not fully line up.\",\n      \"LTC covers tests, lint, types, and Bandit, but it does not cover a build step and does not reflect the repo-level Trivy expectation called out in the constraints. The CI story is therefore thinner than the stated quality bar.\",\n      \"The docs make AWS-mode claims that are architectural only. There is no emitted runtime validation evidence for SES integration, secrets handling, or CloudWatch/OpenTelemetry wiring.\"\n    ]\n  },\n  \"promotion_fit\": {\n    \"status\": \"not_yet_promotable\",\n    \"notes\": [\n      \"The package layout is localized and generally reviewable. It does not invent a rogue top-level root and could be moved into canonical `src/` and `tests/` with limited path churn.\",\n      \"The local/aws split is kept behind adapters instead of forking business logic, which is the right shape for later promotion.\",\n      \"Promotion risk is still high because the candidate is not end-to-end. It has no concrete repository implementation, no real event ingress, no shared-module reconciliation, and no durable acceptance proof.\",\n      \"This is a plausible foundation for later evaluation, but not a serious promotion candidate in its current form.\"\n    ]\n  },\n  \"shared_common_assessment\": {\n    \"status\": \"partially_coherent_with_plan_gaps\",\n    \"notes\": [\n      \"The candidate does not create unjustified new top-level families. That is good.\",\n      \"It does, however, define workflow-local DTOs, runtime settings, and logging behavior where the plan explicitly anticipated reuse of `backend.app.shared.events`, `backend.app.shared.audit`, and `backend.app.shared.config`.\",\n      \"That divergence is not fatal at kit stage, but it is a real promotion concern. Without reconciliation, promotion will either duplicate shared contracts or force a rewrite during integration.\",\n      \"No audit integration is shown, despite the plan assigning shared audit relevance to this REQ's surrounding workflow context.\"\n    ]\n  },\n  \"runtime_profile_assessment\": {\n    \"status\": \"architecturally_aligned_but_not_proven\",\n    \"notes\": [\n      \"Local and aws profiles use the same service logic and differ mainly by email adapter and configuration. That is the correct promotable shape.\",\n      \"Local mode is testable and useful. AWS mode is only represented as a seam, not as validated runtime behavior.\",\n      \"There is no evidence that aws mode has been exercised against SES-like behavior, IAM/Secrets-managed configuration, or the repository/runtime characteristics expected by the target platform.\",\n      \"The dual-profile design is coherent, but the aws profile remains declarative rather than operationally credible.\"\n    ]\n  },\n  \"blockers\": [\n    \"No concrete persistence implementation or integration evidence exists for durable `WorkflowTask` and `Notification` rows, including sent/failed update semantics.\",\n    \"Upload follow-up task creation and state-change processing are not wired through promotable ingress paths such as FastAPI handlers or SQS/SNS consumers.\",\n    \"Notification behavior under duplicate state-change events is not proven; event-driven promotion without this is unsafe.\",\n    \"The REQ-010 KIT-readiness API artifact `test/api/tasks-notifications.curl` is missing.\",\n    \"CI evidence is incomplete relative to stated constraints: no build step is represented and Trivy-aligned security gating is absent from the emitted REQ CI contract.\"\n  ],\n  \"remaining_risks\": [\n    \"The `save_notification` contract is ambiguous and may produce duplicate rows or incorrect mutation behavior in a real repository.\",\n    \"Workflow-local DTO/config/logger surfaces may diverge from planned shared module ownership and increase integration cost during promotion.\",\n    \"The 60-second notification requirement may fail in real consumer/queue wiring because current proof is only clock-simulated.\",\n    \"Logging redaction is adequate for the current service calls, but the generic sanitizer is not a complete policy boundary if future callers log email body or free-form message fields directly.\",\n    \"Recipient selection and assignment logic are delegated to the caller; promotion may expose RBAC/ownership mismatches not covered here.\"\n  ]\n}\n```"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 34313,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 4002,
+      "output_tokens_details": {
+        "reasoning_tokens": 2451
+      },
+      "total_tokens": 38315
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

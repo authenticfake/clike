@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from config import settings
 from services import utils as su
 from services.llm_client import call_gateway_chat, call_gateway_generate
-# --- LOGGING UTILS (aggiunta) ---
+from services.llm_contracts import resolve_llm_selection, load_catalog
 import time as _time
 from copy import deepcopy as _deepcopy
 from services.rag_store import RagStore
@@ -20,11 +20,7 @@ from pyxlsb import open_workbook as open_xlsb  # .xlsb (optional)
 from pptx import Presentation  # .pptx
 # --- Generated root selection -------------------------------------------------
 import uuid
-# compat: alcuni repo usano services.router, altri services.model_router
-try:
-    from services import model_router
-except Exception:
-    from services import router as model_router
+from services.mode_contracts import normalize_mode_contract, validate_chat_contract, apply_generate_contract
 
 # splitter (alcune funzioni potrebbero non essere usate, ma manteniamo le import per compat)
 from services.splitter import (
@@ -409,8 +405,16 @@ def _normalize_models(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     return []
 
 def _filter_by_modality(models: List[Dict[str, Any]], modality: Optional[str]) -> List[Dict[str, Any]]:
-    if modality in ("chat", "embed"):
-        return [m for m in models if (m.get("modality") or "chat") == modality]
+    if modality == "chat":
+        return [
+            m for m in models
+            if (m.get("modality") or "chat") in {"chat", "responses"}
+        ]
+    if modality in {"embed", "embeddings"}:
+        return [
+            m for m in models
+            if (m.get("modality") or "chat") in {"embed", "embedding", "embeddings"}
+        ]
     return models
 
 async def _load_models_or_fallback() -> List[Dict[str, Any]]:
@@ -425,10 +429,10 @@ async def _load_models_or_fallback() -> List[Dict[str, Any]]:
                 return models
     except Exception:
         pass
-    # fallback: YAML
+    # fallback: shared local catalog through llm_contracts
     try:
-        cfg = model_router._load_cfg()
-        raw = cfg.get("models", [])
+        catalog = await load_catalog(str(getattr(settings, "GATEWAY_URL", "http://localhost:8000")).rstrip("/"))
+        raw = catalog.get("models", []) or []
         out = []
         for m in raw:
             name = m.get("name") or m.get("id") or m.get("model")
@@ -445,12 +449,17 @@ async def _load_models_or_fallback() -> List[Dict[str, Any]]:
 
 @router.get("/models")
 async def list_models(
-    modality: Optional[str] = Query(default="chat", pattern="^(chat|embed|all)$")
+    modality: Optional[str] = Query(default="chat", pattern="^(chat|embed|embeddings|all)$")
 ):
     try:
         models = await _load_models_or_fallback()
+
+        # Show only enabled models in the UI/API list.
+        models = [m for m in models if bool(m.get("enabled", True))]
+
         if modality != "all":
             models = _filter_by_modality(models, modality)
+
         return {"version": "1.0", "models": models}
     except Exception as ex:
         raise HTTPException(502, f"cannot load models: {type(ex).__name__}: {ex}")
@@ -464,8 +473,27 @@ async def chat( req: Request):
     if mode not in ("free","harper"):
         raise HTTPException(400, "mode must be 'free' for /v1/chat")
 
-    provider = (body.get("provider") or "").lower().strip()
-    model = body.get("model") or "auto"
+    requested_provider = (body.get("provider") or "").lower().strip() or None
+    requested_model = body.get("model") or "auto"
+
+    llm_sel = await resolve_llm_selection(
+        base_url=str(getattr(settings, "GATEWAY_URL", "http://localhost:8000")).rstrip("/"),
+        mode="free",
+        phase=None,
+        requested_model=requested_model,
+        requested_provider=requested_provider,
+        profile_hint=body.get("profileHint"),
+    )
+
+    provider = llm_sel.get("provider") or ""
+    model = llm_sel.get("model") or requested_model
+    remote_name = llm_sel.get("remote_name") or model
+    mode_contract = llm_sel.get("mode_contract") or {}
+    mode_contract = normalize_mode_contract(body.get("mode_contract"), mode_contract)
+    try:
+        validate_chat_contract(mode_contract)
+    except Exception as e:
+        raise HTTPException(400, f"invalid mode_contract for chat: {e}")
     messages = body.get("messages") or []
     if not isinstance(messages, list) or not messages:
         raise HTTPException(422, "messages (list) is required")
@@ -512,29 +540,43 @@ async def chat( req: Request):
 
     # validate modality
     all_models = await _load_models_or_fallback()
-    requested_modality = next((m.get("modality") for m in all_models if (m.get("name")==model)), None)
-    if requested_modality == "embed":
+    requested_modality = next(
+        (
+            m.get("modality")
+            for m in all_models
+            if model in {
+                m.get("id"),
+                m.get("name"),
+                m.get("remote_name"),
+            }
+        ),
+        None,
+    )
+    if str(requested_modality or "").lower() in {"embed", "embedding", "embeddings"}:
         raise HTTPException(400, f"model '{model}' is an embedding model and cannot be used for chat.")
-
-       # log input (già presente, lascialo pure)
-    log.info("chat request: %s", json.dumps({"model": model, "provider": provider, "messages_len": len(messages)}, ensure_ascii=False))
-
+    
+    log.info(
+        "chat request: %s",
+        json.dumps(
+            {
+                "requested_model": requested_model,
+                "resolved_model": model,
+                "remote_name": remote_name,
+                "provider": provider,
+                "profile": llm_sel.get("profile"),
+                "messages_len": len(messages),
+                "mode_contract": mode_contract,
+            },
+            ensure_ascii=False,
+        ),
+    )
     # Prepara meta per log
     _gw = str(getattr(settings, "GATEWAY_URL", "http://localhost:8000")).rstrip("/")
  
-    payload = {
-        "model": model,
-        "messages": msgs,
-        "temperature": body.get("temperature"),
-        "max_tokens": body.get("max_tokens"),
-        "provider": provider,
-        "base_url": str(getattr(settings, "GATEWAY_URL", "http://localhost:8000")),
-        "remote_name": body.get("remote_name") or model,
-        "profile": None,
-    }
-
-   # log.info("chat request --> paylod: %s", json.dumps(payload))
-    provider = body.get("provider")
+    # NOTE:
+    # We intentionally do not build a local "payload" object here because /chat
+    # sends arguments directly to call_gateway_chat(...).
+    # Keep provider/model/profile as resolved by resolve_llm_selection().
     headers = {"Content-Type": "application/json"}
     _t0 = _time.time()
     try:
@@ -545,18 +587,19 @@ async def chat( req: Request):
         timeout_sec = min(340.0, 240.0 + (eff_max / 1000.0) * 3.8)
         
         text = await call_gateway_chat(
-            model = body.get("model"),
+            model = model,
             messages = msgs,
             temperature= body.get("temperature"),
             max_tokens= eff_max,
             # --- AGGIUNGI: provider-awareness end-to-end ---        
-            base_url= str(getattr(settings, "GATEWAY_URL", "http://localhost:8000")), 
+            base_url= _gw, 
             timeout=timeout_sec,
             response_format=None, 
             tools=None, 
             tool_choice=None, 
-            profile=None, 
-            provider= provider
+            profile=llm_sel.get("profile"),
+            provider=provider,
+            mode_contract=mode_contract,
 
         )
         _ms = int((_time.time() - _t0) * 1000)
@@ -813,7 +856,6 @@ async def decide_inline_or_rag(attachments: list[dict]) -> tuple[list[dict], lis
     return inline, rag
 
 
-# --- REPLACE: _augment_messages_with_context ---------------------------------
 async def _augment_messages_with_context(
     msgs: list[dict],
     inline_files: list[dict],
@@ -823,16 +865,13 @@ async def _augment_messages_with_context(
 ) -> list[dict]:
     """
     Enrich messages with:
-      1) Inline files (fenced) as a single system message.
-      2) RAG retrieval on user_query (top-K) and prepend a 'Relevant project context' system message.
-
-    Notes:
-    - We assume large files were pre-indexed client-side.
-    - We DO NOT re-index here (no rag_reindex_* or rag_search legacy calls).
+      1) Inline files as fenced blocks.
+      2) Exact-path RAG fetch for explicitly attached rag_files.
+      3) Semantic RAG search only when no exact rag paths are available.
     """
     out = list(msgs)
 
-    # 1) Inline files → fenced block
+    # 1) Inline files
     if inline_files:
         blocks = "\n\n".join(
             _fence(f.get("name") or f.get("path") or "file", f.get("content") or "")
@@ -840,72 +879,97 @@ async def _augment_messages_with_context(
             if isinstance(f, dict) and (f.get("content") or "").strip()
         )
         if blocks.strip():
-            out = [{"role": "system", "content": "You can use the following project files:\n\n" + blocks}] + out
+            out = [{
+                "role": "system",
+                "content": "You can use the following inline project files:\n\n" + blocks
+            }] + out
 
-    # 2) RAG retrieval (top-K)
+    rag_paths = []
+    seen_paths = set()
+    for rf in (rag_files or []):
+        if not isinstance(rf, dict):
+            continue
+        p = (rf.get("path") or "").strip()
+        if not p:
+            continue
+        norm = os.path.normpath(p).replace("\\", "/").lower()
+        if norm in seen_paths:
+            continue
+        seen_paths.add(norm)
+        rag_paths.append(p)
+
+    # 2) Exact-path fetch for explicitly attached RAG files
+    if rag_paths:
+        try:
+            store = RagStore(project_id=project_id)
+            docs = await store.fetch_docs_by_paths(
+                rag_paths,
+                max_chars_per_doc=12000,
+                limit_points=max(200, len(rag_paths) * 50),
+            )
+
+            if docs:
+                blocks = []
+                for d in docs:
+                    text = (d.get("text") or "").strip()
+                    path = (d.get("path") or "").strip()
+                    if not text or not path:
+                        continue
+                    blocks.append(f"### {path}\n{text}")
+
+                if blocks:
+                    out = [{
+                        "role": "system",
+                        "content": "Attached project context:\n\n" + "\n\n".join(blocks)
+                    }] + out
+                    return out
+        except Exception as e:
+            log.warning("Exact-path RAG enrichment failed: %s", e)
+
+        # If explicit rag paths were provided but exact fetch produced nothing,
+        # do not silently switch to semantic search over arbitrary workspace content.
+        return out
+
+    # 3) Semantic RAG only when the user did not attach explicit rag paths
     try:
         q = (user_query or "").strip()
-        # (opzionale) leggero bias coi nomi dai rag_files
-        if rag_files:
-            names = []
-            for rf in rag_files:
-                n = (rf.get("path") or rf.get("name") or "").strip()
-                if n:
-                    names.append(n)
-            if names:
-                hint = " ".join(f"file:{n}" for n in names[:8])
-                q = (q + " " + hint).strip()
+        if q:
+            hits = await rag_query(project_id, q, top_k=RAG_TOP_K)
+            dedup = []
+            seen = set()
 
-        hits = await rag_query(project_id, q, top_k=RAG_TOP_K)
-        def _norm(p: str) -> str:
-            try:
-                return os.path.normpath((p or "").strip()).lower()
-            except Exception:
-                return (p or "").strip().lower()
-
-        allowed_full = {_norm(rf.get("path")) for rf in (rag_files or []) if isinstance(rf, dict) and rf.get("path")}
-        allowed_base = {os.path.basename(p) for p in allowed_full if p}
-        if hits and (allowed_full or allowed_base):
-            filtered = []
-            seen = set()  # (norm_path, chunk, first64)
-            for h in hits:
+            for h in hits or []:
                 if not isinstance(h, dict):
                     continue
-                hpath = (h.get("path") or h.get("source") or "").strip()
-                npath = _norm(hpath)
-                base  = os.path.basename(npath)
-
-                # tieni SOLO se è uno dei file del turno corrente
-                if npath not in allowed_full and base not in allowed_base:
-                    continue
-
+                path = (h.get("path") or "").strip()
                 text = (h.get("text") or "").strip()
-                if not text:
+                chunk = int(h.get("chunk", 0))
+                if not path or not text:
                     continue
 
-                chunk = int(h.get("chunk", 0))
-                sig = (npath, chunk, text[:64])
+                sig = (path.lower(), chunk, text[:96])
                 if sig in seen:
                     continue
                 seen.add(sig)
-                filtered.append({"path": hpath, "chunk": chunk, "text": text})
+                dedup.append({"path": path, "chunk": chunk, "text": text})
 
-            hits = filtered
-            if hits:
+            if dedup:
                 blocks = []
-                for h in hits[:RAG_TOP_K]:
+                for h in dedup[:RAG_TOP_K]:
                     t = h["text"]
                     if len(t) > 4000:
                         t = t[:4000] + "\n...[truncated]..."
                     blocks.append(f"### {h['path']}:{h['chunk']}\n{t}")
+
                 if blocks:
-                    out = [{"role": "system", "content": "Relevant project context:\n\n" + "\n\n".join(blocks)}] + out
+                    out = [{
+                        "role": "system",
+                        "content": "Relevant project context:\n\n" + "\n\n".join(blocks)
+                    }] + out
     except Exception as e:
-        log.warning("RAG enrichment failed: %s", e)
+        log.warning("Semantic RAG enrichment failed: %s", e)
 
     return out
-
-
 
 @router.post("/generate")
 async def generate(req: Request):
@@ -915,15 +979,30 @@ async def generate(req: Request):
     if mode not in ("harper", "coding"):
         raise HTTPException(400, "mode must be 'harper' or 'coding'")
 
-    model = body.get("model") or "auto"
-    provider = (body.get("provider") or "").lower().strip()  # <---
+    requested_model = body.get("model") or "auto"
+    requested_provider = (body.get("provider") or "").lower().strip() or None
+
+    llm_sel = await resolve_llm_selection(
+        base_url=str(getattr(settings, "GATEWAY_URL", "http://localhost:8000")).rstrip("/"),
+        mode="coding" if mode == "coding" else "harper",
+        phase="kit" if mode == "coding" else body.get("phase"),
+        requested_model=requested_model,
+        requested_provider=requested_provider,
+        profile_hint=body.get("profileHint"),
+    )
+
+    model = llm_sel.get("model") or requested_model
+    provider = (llm_sel.get("provider") or "").lower().strip()
+    remote_name = llm_sel.get("remote_name") or model
+    mode_contract = llm_sel.get("mode_contract") or {}
+    mode_contract = normalize_mode_contract(body.get("mode_contract"), mode_contract)
 
     PROVIDERS_RESPONSE_FORMAT = {"openai", "azure_openai"}
-    PROVIDERS_TOOL_CALL      = {"ollama", "anthropic", "deepseek", "vllm"}
+    PROVIDERS_TOOL_CALL = {"ollama", "anthropic", "deepseek", "vllm"}
 
-    prov = (provider or "").lower()
+    prov = (provider or "").lower().strip()
     _use_respfmt = prov in PROVIDERS_RESPONSE_FORMAT
-    _use_tools   = prov in PROVIDERS_TOOL_CALL
+    _use_tools = prov in PROVIDERS_TOOL_CALL
 
     messages = body.get("messages") or []
     # Enforce tool-call in coding mode
@@ -971,8 +1050,19 @@ async def generate(req: Request):
 
     # modality check
     all_models = await _load_models_or_fallback()
-    requested_modality = next((m.get("modality") for m in all_models if (m.get("name")==model)), None)
-    if requested_modality == "embed":
+    requested_modality = next(
+        (
+            m.get("modality")
+            for m in all_models
+            if model in {
+                m.get("id"),
+                m.get("name"),
+                m.get("remote_name"),
+            }
+        ),
+        None,
+    )
+    if str(requested_modality or "").lower() in {"embed", "embedding", "embeddings"}:
         raise HTTPException(400, f"model '{model}' is an embedding model and cannot be used for code generation.")
 
     log.info("generate request: %s", json.dumps({"model": model, "messages_len": len(messages)}, ensure_ascii=False))
@@ -982,8 +1072,6 @@ async def generate(req: Request):
     base_url = str(getattr(settings, "GATEWAY_URL", "http://localhost:8000")).rstrip("/")
 
    
-
-    # 2) JSON schema per response_format (OpenAI)
     FILES_BUNDLE_SCHEMA = {
         "name": "files_bundle_v1",
         "schema": {
@@ -994,52 +1082,47 @@ async def generate(req: Request):
                     "items": {
                         "type": "object",
                         "properties": {
-                            "path":      {"type": "string"},
-                            "content":   {"type": "string"},
-                            "language":  {"type": "string"},
-                            "executable":{"type": "boolean"}
+                            "path": {"type": "string"},
+                            "content": {"type": "string"},
                         },
                         "required": ["path", "content"],
-                        "additionalProperties": False
+                        "additionalProperties": False,
                     }
                 }
             },
             "required": ["files"],
-            "additionalProperties": False
+            "additionalProperties": False,
         },
-        "strict": True
+        "strict": True,
     }
 
-    # 3) Decidi strategia in base al provider:
-    #    - openai: niente tools → response_format JSON schema (evita l'errore 'tools' type)
-    #    - altrimenti: tool-calling classico
-    _use_tools = (provider or "").lower() not in ("openai", "azure_openai")
-
-    # 4) Prompt di servizio per istruire l'output (robusto anche senza response_format)
     emit_files_guidance = (
-        "When you propose code changes, you MUST return a bundle of files with paths and contents. "
-        "Prefer the exact JSON schema if supported; otherwise return a single top-level JSON object "
-        "with the structure {\"files\":[{\"path\":\"...\",\"content\":\"...\",\"language\":\"optional\",\"executable\":false}]} "
-        "with no extra text before or after."
+        "When you propose code changes, you MUST return files, not prose. "
+        "If tool calling is available, you MUST call emit_files with a non-empty files array. "
+        "The tool arguments must be exactly: {\"files\":[{\"path\":\"...\",\"content\":\"...\"}]}. "
+        "Do not call emit_files with empty input. "
+        "If tool calling is not available, return a single top-level JSON object with the structure "
+        "{\"files\":[{\"path\":\"...\",\"content\":\"...\"}]} and no extra text before or after. "
+        "Do not return explanations outside the file bundle."
     )
-    # Inseriamo un system aggiuntivo conciso (resta compatibile con il resto del prompt Harper)
-    msgs = [{"role":"system","content": emit_files_guidance}] + msgs
+    
+    msgs = [{"role": "system", "content": emit_files_guidance}] + msgs
 
-    # 5) Costruisci payload
     temperature = body.get("temperature", 0.1)
-    max_tokens  = body.get("max_tokens", 4048)
+    max_tokens = body.get("max_tokens", 4048)
 
     payload = {
         "model": model,
         "messages": msgs,
         "base_url": base_url,
+        "remote_name": remote_name,
+        "profile": llm_sel.get("profile"),
+        "mode_contract": mode_contract,
     }
 
-    # Provider passato esplicitamente (utile per gateway routing)
-    if provider is not None:
+    if provider:
         payload["provider"] = provider
 
-    # Token fields: GPT-5 usa max_completion_tokens, altri max_tokens
     if str(model).startswith("gpt-5"):
         if max_tokens is not None:
             payload["max_completion_tokens"] = max_tokens
@@ -1047,138 +1130,73 @@ async def generate(req: Request):
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
 
-    # Temperature: tienila bassa in coding; per GPT-5 spesso è ignorata, non la inviamo.
     if temperature is not None and not str(model).startswith("gpt-5"):
         payload["temperature"] = temperature
 
-    # --- Cross-provider: tools vs response_format ---
-    PROVIDERS_RESPONSE_FORMAT = {"openai", "azure_openai"}
-    PROVIDERS_TOOL_CALL      = {"ollama", "anthropic", "deepseek", "vllm"}
-
-    prov = (provider or "").lower()
-
-    if prov in PROVIDERS_TOOL_CALL:
-        # Tool-calling classico (emit_files)
-        emit_files_tool = {
-            "type": "function",
-            "function": {
-                "name": "emit_files",
-                "description": "Return source files to be written by the caller.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "files": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "path":       {"type": "string"},
-                                    "content":    {"type": "string"},
-                                    "language":   {"type": "string"},
-                                    "executable": {"type": "boolean"}
-                                },
-                                "required": ["path", "content"],
-                                "additionalProperties": False
-                            }
-                        }
-                    },
-                    "required": ["files"],
-                    "additionalProperties": False
-                }
-            }
-        }
-        payload["tools"] = [emit_files_tool]
-        payload["tool_choice"] = {"type": "function", "function": {"name": "emit_files"}}
-    else:
-        # OpenAI/Azure (o default): niente tools, usa JSON schema response_format
-        payload.pop("tools", None)
-        payload.pop("tool_choice", None)
-        payload["response_format"] = {
-            "type": "json_schema",
-            "json_schema": {
-                "name": "files_bundle_v1",
-                "schema": {
-                    "type": "object",
-                    "properties": {
-                        "files": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "path":       {"type": "string"},
-                                    "content":    {"type": "string"},
-                                    "executable": {"type": "boolean"}
-                                },
-                                "required": ["path", "content"],
-                                "additionalProperties": False
-                            }
-                        }
-                    },
-                    "required": ["files"],
-                    "additionalProperties": False
+    emit_files_tool = {
+        "type": "function",
+        "function": {
+            "name": "emit_files",
+            "description": "Return source files to be written by the caller.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "files": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "path": {"type": "string"},
+                                "content": {"type": "string"},
+                                "language": {"type": "string"},
+                                "executable": {"type": "boolean"},
+                            },
+                            "required": ["path", "content"],
+                            "additionalProperties": False,
+                        },
+                    }
                 },
-                "strict": True
-            }
-        }
+                "required": ["files"],
+                "additionalProperties": False,
+            },
+        },
+    }
 
-    # Safety: se per qualsiasi motivo in alto qualcuno ha messo tools/tool_choice, rimuovili per OpenAI/Azure
-    if prov in PROVIDERS_RESPONSE_FORMAT:
-        payload.pop("tools", None)
-        payload.pop("tool_choice", None)
+    try:
+        payload = apply_generate_contract(
+            payload=payload,
+            provider=provider,
+            contract=mode_contract,
+            files_bundle_schema=FILES_BUNDLE_SCHEMA,
+            emit_files_tool=emit_files_tool,
+        )
+    except Exception as e:
+        raise HTTPException(400, f"invalid mode_contract for generate: {e}")
 
-    if _use_tools:
-        # Percorso tool-calling (Ollama, altri provider)
-        payload["tools"] = [emit_files_tool]
-        payload["tool_choice"] = {"type": "function", "function": {"name": "emit_files"}}
-    else:
-        # Percorso OpenAI senza tools → JSON schema mode
-        payload["response_format"] = {
-            "type": "json_schema",
-            "json_schema": FILES_BUNDLE_SCHEMA
-        }
-        # NOTA: nessun "tools" e nessun "tool_choice" nel payload
-
-    # Sanitizza per sicurezza
     payload = _json_safe(payload)
-    payload["response_format"] = build_response_format_files_bundle()
 
-
-    # --- LOG rich: request/response gateway ---
-    _headers = {"Content-Type": "application/json", "X-CLike-Profile": "code.strict"}
+    _headers = {"Content-Type": "application/json", "X-CLike-Profile": llm_sel.get("profile") or "code.strict"}
     if provider:
         _headers["X-CLike-Provider"] = provider
 
-    log.info("gateway.request %s", json.dumps({
-        "url": f"{base_url}/v1/chat/completions",
-        "model": model,
-        "profile": payload.get("profile"),
-        "tools": bool(payload.get("tools")),
-        "tool_choice": bool(payload.get("tool_choice")),
-        "has_response_format": bool(payload.get("response_format")),
-        "max_tokens": payload.get("max_tokens"),
-        "provider": payload.get("provider"),
-        "max_completion_tokens": payload.get("max_completion_tokens"),
-    }, ensure_ascii=False))
-
-
-
-        # --- LOG rich: request/response gateway ---
-   
-    _headers = {"Content-Type": "application/json", "X-CLike-Profile": "code.strict"}
-    if provider:
-        _headers["X-CLike-Provider"] = provider
-   
-    log.info("gateway.request %s", json.dumps({
-        "url": f"{base_url}/v1/chat/completions",
-        "model": model,
-        "profile": payload.get("profile"),
-        "tools": bool(payload.get("tools")),
-        "tool_choice": bool(payload.get("tool_choice")),
-        "max_tokens": payload.get("max_tokens"),
-        "provider": payload.get("provider"),
-        "max_completion_tokens": payload.get("max_completion_tokens"),
-    }, ensure_ascii=False))
-    
+    log.info(
+        "gateway.request %s",
+        json.dumps(
+            {
+                "url": f"{base_url}/v1/chat/completions",
+                "model": model,
+                "profile": payload.get("profile"),
+                "tools": bool(payload.get("tools")),
+                "tool_choice": bool(payload.get("tool_choice")),
+                "has_response_format": bool(payload.get("response_format")),
+                "max_tokens": payload.get("max_tokens"),
+                "max_completion_tokens": payload.get("max_completion_tokens"),
+                "provider": payload.get("provider"),
+                "mode_contract": mode_contract,
+            },
+            ensure_ascii=False,
+        ),
+    )
     try:
         all_models = await _load_models_or_fallback()
         model_entry = next((m for m in all_models if m.get("name") == model), None)
@@ -1188,6 +1206,76 @@ async def generate(req: Request):
         payload["timeout"] = timeout_sec
 
         data = await call_gateway_generate(payload, _headers)
+
+        def _is_truncated_no_files_response(d: Any) -> bool:
+            if not isinstance(d, dict):
+                return False
+
+            finish_reason = str(d.get("finish_reason") or "").lower()
+            raw = d.get("raw") or {}
+
+            raw_stop_reason = str(raw.get("stop_reason") or "").lower()
+            incomplete_reason = str((raw.get("incomplete_details") or {}).get("reason") or "").lower()
+
+            if finish_reason in {"length", "max_tokens", "max_output_tokens"}:
+                return True
+            if raw_stop_reason in {"max_tokens"}:
+                return True
+            if incomplete_reason in {"max_output_tokens", "max_tokens"}:
+                return True
+
+            return False
+        
+        # Single retry for truncated coding generations.
+        # This helps both:
+        # - GPT-5 family producing incomplete textual JSON
+        # - Claude stopping during emit_files input serialization
+        if _is_truncated_no_files_response(data):
+            retry_payload = dict(payload)
+
+            if "max_completion_tokens" in retry_payload:
+                retry_payload["max_completion_tokens"] = max(int(retry_payload["max_completion_tokens"]) * 2, 12000)
+
+            if "max_tokens" in retry_payload:
+                retry_payload["max_tokens"] = max(int(retry_payload["max_tokens"]) * 2, 12000)
+
+            retry_payload["timeout"] = max(float(payload.get("timeout") or 0), 520.0)
+
+            log.info(
+                "generate retry-on-truncation %s",
+                json.dumps(
+                    {
+                        "provider": provider,
+                        "model": model,
+                        "retry_max_tokens": retry_payload.get("max_tokens"),
+                        "retry_max_completion_tokens": retry_payload.get("max_completion_tokens"),
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+
+            data_retry = await call_gateway_generate(retry_payload, _headers)
+
+            # Prefer retry result if it is still truncated but at least different / fuller.
+            if isinstance(data_retry, dict):
+                data = data_retry
+        def _has_empty_emit_files_tool_call(d: Any) -> bool:
+            if not isinstance(d, dict):
+                return False
+
+            raw = d.get("raw") or {}
+            content = raw.get("content") or []
+            if not isinstance(content, list):
+                return False
+
+            for item in content:
+                if not isinstance(item, dict):
+                    continue
+                if item.get("type") == "tool_use" and item.get("name") == "emit_files":
+                    tool_input = item.get("input")
+                    if tool_input == {} or tool_input is None:
+                        return True
+            return False
 
         # ---- Estrazione FILES in modo robusto cross-provider ----
         files: List[Dict[str, Any]] = []
@@ -1232,11 +1320,22 @@ async def generate(req: Request):
         if not files and isinstance(data, dict) and isinstance(data.get("files"), list):
             files = _normalize_files_for_write(data["files"])
             log.info("generate top-level->files %s", json.dumps({"count": len(files)}, ensure_ascii=False))
-
+        if not files and isinstance(data, dict):
+            maybe_text = data.get("text")
+            if isinstance(maybe_text, str) and maybe_text.strip():
+                try:
+                    obj = _extract_json(maybe_text)
+                    jf = obj.get("files") if isinstance(obj, dict) else None
+                    if isinstance(jf, list) and jf:
+                        files = _normalize_files_for_write(jf)
+                        log.info("generate top-level-text-json->files %s", json.dumps({"count": len(files)}, ensure_ascii=False))
+                except Exception:
+                    pass
         # 3) Fallback: JSON puro dentro message.content / oppure 'text'
         if not files:
             if not content_str and isinstance(data, dict) and "text" in data:
                 content_str = data.get("text") or ""
+
             if isinstance(content_str, str) and content_str.strip():
                 try:
                     obj = _extract_json(content_str)
@@ -1245,7 +1344,10 @@ async def generate(req: Request):
                         files = _normalize_files_for_write(jf)
                         log.info("generate content-json->files %s", json.dumps({"count": len(files)}, ensure_ascii=False))
                 except Exception:
-                    # 4) Ultimo fallback: code fences → file singoli
+                    pass
+
+                # Final tolerant fallback: any fenced code block becomes a file.
+                if not files:
                     from_fences = _extract_files_from_fences(content_str)
                     if from_fences:
                         files = _normalize_files_for_write(from_fences)

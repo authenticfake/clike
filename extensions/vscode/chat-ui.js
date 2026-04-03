@@ -1453,6 +1453,18 @@ window.addEventListener('message', (event) => {
     if (pre) pre.textContent = text;
     return;
   }
+  if (msg.type === 'hydrateAppend') {
+    try {
+      var m = msg.message || {};
+      var role = m.role || 'assistant';
+      var content = m.content || '';
+      var provider = m.provider || 'system';
+      bubble(role, content, provider);
+    } catch (e) {
+      console.warn('[webview] hydrateAppend failed', e);
+    }
+    return;
+  }
   // Generic text payload (es. RAG search summary)
   if (msg.type === 'text') {
     const pre = document.getElementById('text');
@@ -1494,7 +1506,9 @@ window.addEventListener('message', (event) => {
 
     var max = Math.min(hits.length, 10); // non più di 10 righe
     var lines = [];
-
+    lines.push('RAG results for: ' + (msg.query || 'query'));
+    lines.push('Files found: ' + hits.length);
+    lines.push('');
     for (var i = 0; i < max; i++) {
       var h = hits[i] || {};
       var path = h.path || h.source || h.name || 'doc';
@@ -1536,42 +1550,6 @@ window.addEventListener('message', (event) => {
 
     return;
   }
-
-    // --- RAG results (simple, no-freeze handler) ---
-  if (msg.type === 'ragResults') {
-    var hits = [];
-    try {
-      if (Array.isArray(msg.results)) {
-        hits = msg.results;
-      } else if (Array.isArray(msg.hits)) {
-        hits = msg.hits;
-      } else {
-        hits = [];
-      }
-    } catch (e) {
-      console.warn('[webview] ragResults parse failed', e);
-      hits = [];
-    }
-
-    // salva comunque per /rag +N, ma NON facciamo cose pesanti
-    try {
-      lastRagHits = hits;
-    } catch (e2) {
-      console.warn('[webview] lastRagHits assign failed', e2);
-    }
-
-    var count = hits.length || 0;
-    try {
-      var msgText = 'RAG: ' + count + ' result' + (count === 1 ? '' : 's') + ' found.';
-      bubble('assistant', msgText, 'system');
-    } catch (e3) {
-      console.warn('[webview] ragResults bubble failed', e3);
-    }
-
-    return;
-  }
-
-
 
   if (msg.type === 'busy') { setBusy(!!msg.on); return; }
   if (msg.type === 'initState' && msg.state) {

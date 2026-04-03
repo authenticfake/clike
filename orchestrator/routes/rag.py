@@ -185,30 +185,20 @@ def _extract_text_from_docx_bytes(raw: bytes) -> str:
     except Exception as e:
         log.warning("DOCX extract failed: %s", e)
         return ""
-    
+
 @router.post("/v1/rag/fetch")
 async def rag_fetch(req: RagFetchRequest):
-    """
-    Ritorna il contenuto aggregato per documento (path) senza dover specificare una query utente.
-    Usa internamente RagStore.search("", top_k=...) e filtra/accorpa lato router.
-    """
     store = RagStore(project_id=req.project_id)
 
-    # 1) Peschiamo tanti chunk neutrali (query vuota / "context")
-    #    Nota: se il tuo RagStore non gestisce bene query vuota, prova con "context" o "*"
-    query = ""
-    raw_hits = await store.search(query, top_k=max(10, req.search_top_k))
+    if req.paths:
+        docs = await store.fetch_docs_by_paths(
+            req.paths,
+            max_chars_per_doc=max(500, req.max_chars_per_doc),
+            limit_points=max(100, req.search_top_k),
+        )
+        return {"docs": docs[: max(1, req.limit_docs)], "count": len(docs[: max(1, req.limit_docs)])}
 
-    # 2) Aggrega per path rispettando i limiti
-    docs = _aggregate_hits_by_path(
-        hits=raw_hits,
-        max_chars_per_doc=max(500, req.max_chars_per_doc),
-        limit_docs=max(1, req.limit_docs),
-        paths=req.paths,
-        prefix=(req.path_prefix or None),
-    )
-
-    return {"docs": docs, "count": len(docs)}
+    raise HTTPException(400, detail="rag fetch currently requires explicit paths")
 
 def _extract_text_from_xlsx_bytes(raw: bytes) -> str:
     if not openpyxl:
@@ -297,22 +287,19 @@ def _extract_text_from_pptx_bytes(raw: bytes) -> str:
 @router.post("/v1/rag/fetch_by_paths")
 async def rag_fetch_by_paths(req: RagFetchByPathsRequest):
     store = RagStore(project_id=req.project_id)
-    log.info("RAG Store  for rag_fetch_by_paths")
-    # query neutra + filtro per path(s) lato router
-    raw_hits = await store.search("", top_k=max(10, req.search_top_k))
-    
-    docs = _aggregate_hits_by_path(
-        hits=raw_hits,
-        max_chars_per_doc=max(20500, req.max_chars_per_doc),
-        limit_docs=len(req.paths) if req.paths else 20,
-        paths=req.paths,
-        prefix=None,
+    log.info("RAG fetch_by_paths project=%s paths=%d", req.project_id, len(req.paths or []))
+
+    docs = await store.fetch_docs_by_paths(
+        req.paths or [],
+        max_chars_per_doc=max(500, req.max_chars_per_doc),
+        limit_points=max(100, req.search_top_k),
     )
     return {"docs": docs, "count": len(docs)}
 
+
 @router.post("/v1/rag/reindex")
-async def rag_index(req: RagIndexRequest):
-    return rag_index(req)
+async def rag_reindex(req: RagIndexRequest):
+    return await rag_index(req)
 
 @router.post("/v1/rag/index")
 async def rag_index(req: RagIndexRequest):

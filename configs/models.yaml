@@ -1,50 +1,41 @@
 defaults:
-  chat_model: llama3
-  embedding_model: nomic-embed-text
+  chat_model: gpt-5.4-mini
+  embedding_model: openai:text-embedding-3-small
 
 models:
-
   - id: ollama:llama4
     name: llama4
     provider: ollama
     base_url: http://ollama:11434
     remote_name: llama4
-    # chat|completion|embedding
     modality: chat
-    # tiny|small|medium|large|frontier
     capability: medium
-    # ultra-low|low|medium|high
     latency: low
-    # ultra-low|low|medium|high
     cost: low
     pricing:
       input_per_1k: 0.0
       output_per_1k: 0.0
     privacy: high
-    enabled: true
+    enabled: false
     context_window: 8192
     tags: [local, fast, coding]
 
-  - id: llama3:nomic-embed-text
+  - id: ollama:nomic-embed-text
     name: nomic-embed-text
-    provider: llama3
+    provider: ollama
     base_url: http://ollama:11434
     remote_name: nomic-embed-text
-    # chat|completion|embedding
     modality: embeddings
-    # tiny|small|medium|large|frontier
     capability: medium
-    # ultra-low|low|medium|high 
     latency: low
-    # ultra-low|low|medium|high
     cost: low
     pricing:
       input_per_1k: 0.0
       output_per_1k: 0.0
     privacy: high
-    enabled: true
-    tags: [embeddings]
-    profiles: [local.embeddings]
+    enabled: false
+    context_window: 8192
+    tags: [embeddings, local]
 
   - id: deepseek:deepseek-coder-v2
     name: deepseek-coder
@@ -59,11 +50,10 @@ models:
     pricing:
       input_per_1k: 0.00014
       output_per_1k: 0.00028
-    privacy: high
-    enabled: true
+    privacy: low
+    enabled: false
     context_window: 128000
-    tags: [cheap, fast, coding]
-    profiles: [cloud.codegen]
+    tags: [cheap, coding]
 
   - id: deepseek:deepseek-chat
     name: deepseek-chat
@@ -79,46 +69,63 @@ models:
       input_per_1k: 0.00017
       output_per_1k: 0.00034
     privacy: low
-    enabled: true
+    enabled: false
     context_window: 128000
     tags: [cheap]
-    profiles: [cloud.business]
-    
-  - id: openai:gpt-5.2
-    name: gpt-5.2
+
+  - id: openai:gpt-5.4-pro
+    name: gpt-5.4-pro
     provider: openai
     base_url: https://api.openai.com/v1
-    remote_name: gpt-5.2-2025-12-11
+    remote_name: gpt-5.4-pro-2026-03-05
     api_key_env: OPENAI_API_KEY
-    modality: chat
-    capability: high
+    modality: responses
+    capability: frontier
     latency: medium
     cost: high
     pricing:
-      input_per_1k: 0.00175   # 1.75 / 1000
-      output_per_1k: 0.014     # 14 / 1000
+      input_per_1k: 0.03
+      output_per_1k: 0.18
     privacy: low
     enabled: true
-    context_window: 128000
+    context_window: 1000000
     tags: [quality, reasoning]
 
-  - id: openai:gpt-5.1
-    name: gpt-5.1
+  - id: openai:gpt-5.4
+    name: gpt-5.4
     provider: openai
     base_url: https://api.openai.com/v1
-    remote_name: gpt-5.1-2025-11-13
+    remote_name: gpt-5.4-2026-03-05
     api_key_env: OPENAI_API_KEY
-    modality: chat
+    modality: responses
     capability: high
     latency: medium
-    cost: high
+    cost: medium
     pricing:
-      input_per_1k: 0.00125   # 1.25 / 1000
-      output_per_1k: 0.01     # 10 / 1000
+      input_per_1k: 0.00255
+      output_per_1k: 0.015
     privacy: low
     enabled: true
-    context_window: 128000
-    tags: [code, quality, reasoning]
+    context_window: 1000000
+    tags: [quality, reasoning]
+
+  - id: openai:gpt-5.4-mini
+    name: gpt-5.4-mini
+    provider: openai
+    base_url: https://api.openai.com/v1
+    remote_name: gpt-5.4-mini-2026-03-17
+    api_key_env: OPENAI_API_KEY
+    modality: responses
+    capability: high
+    latency: medium
+    cost: low
+    pricing:
+      input_per_1k: 0.00075
+      output_per_1k: 0.0045
+    privacy: low
+    enabled: true
+    context_window: 400000
+    tags: [code, quality, reasoning, cheap]
 
   - id: openai:gpt-5.1-codex-max
     name: gpt-5.1-codex-max
@@ -126,31 +133,31 @@ models:
     base_url: https://api.openai.com/v1
     remote_name: gpt-5.1-codex-max
     api_key_env: OPENAI_API_KEY
-    modality: chat
+    modality: responses
     capability: high
     latency: medium
     cost: high
     pricing:
-      input_per_1k: 0.00125   # 1.25 / 1000
-      output_per_1k: 0.01     # 10 / 1000
+      input_per_1k: 0.00125
+      output_per_1k: 0.01
     privacy: low
     enabled: true
     context_window: 128000
     tags: [code, quality, reasoning]
 
-  - id: openai:gpt-5.1-codex
-    name: gpt-5.1-codex
+  - id: openai:gpt-5.3-codex
+    name: gpt-5.3-codex
     provider: openai
     base_url: https://api.openai.com/v1
-    remote_name: gpt-5.1-codex
+    remote_name: gpt-5.3-codex
     api_key_env: OPENAI_API_KEY
-    modality: chat
+    modality: responses
     capability: high
     latency: medium
-    cost: high
+    cost: medium
     pricing:
-      input_per_1k: 0.00125   # 1.25 / 1000
-      output_per_1k: 0.01     # 10 / 1000
+      input_per_1k: 0.00175
+      output_per_1k: 0.014
     privacy: low
     enabled: true
     context_window: 128000
@@ -162,78 +169,24 @@ models:
     base_url: https://api.openai.com/v1
     remote_name: gpt-5.1-codex-mini
     api_key_env: OPENAI_API_KEY
-    modality: chat
+    modality: responses
     capability: high
     latency: medium
-    cost: high
+    cost: low
     pricing:
-      input_per_1k: 0.00025   # 0.25 / 1000
-      output_per_1k: 0.002     # 2 / 1000
+      input_per_1k: 0.00025
+      output_per_1k: 0.002
     privacy: low
     enabled: true
     context_window: 128000
-    tags: [code, quality, reasoning]
-
-
-
-  - id: openai:gpt-5
-    name: gpt-4o
-    provider: openai
-    base_url: https://api.openai.com/v1
-    remote_name: gpt-4o
-    api_key_env: OPENAI_API_KEY
-    modality: chat
-    capability: high
-    latency: medium
-    cost: medium
-    pricing:
-      input_per_1k: 0.005
-      output_per_1k: 0.015
-    privacy: low
-    enabled: false
-    context_window: 128000
-    tags: [plan, fast]
-
-  - id: openai:gpt-5-nano
-    name: gpt-5-nano
-    provider: openai
-    base_url: https://api.openai.com/v1
-    remote_name: gpt-5-nano
-    api_key_env: OPENAI_API_KEY
-    modality: chat
-    capability: frontier
-    latency: medium
-    cost: high
-    pricing:
-      input_per_1k: 0.00005   # 0.05 / 1000
-      output_per_1k: 0.0004   # 0.4 / 1000
-    context_window: 400000
-    tags: [frontier, quality, reasoning]
-    enabled: false
-   
-  - id: openai:gpt-5-mini
-    name: gpt-5-mini
-    provider: openai
-    base_url: https://api.openai.com/v1
-    remote_name: gpt-5-mini
-    modality: chat
-    capability: frontier
-    latency: medium
-    cost: high
-    pricing:
-      input_per_1k: 0.005
-      output_per_1k: 0.015
-    context_window: 400000
-    tags: [frontier, quality, reasoning]
-    enabled: false
-    api_key_env: OPENAI_API_KEY
+    tags: [code, quality, reasoning, cheap]
 
   - id: openai:gpt-5
     name: gpt-5
     provider: openai
     base_url: https://api.openai.com/v1
     remote_name: gpt-5
-    modality: chat
+    modality: responses
     capability: frontier
     latency: medium
     cost: high
@@ -244,6 +197,40 @@ models:
     tags: [frontier, quality, reasoning]
     enabled: true
     api_key_env: OPENAI_API_KEY
+
+  - id: openai:gpt-5-mini
+    name: gpt-5-mini
+    provider: openai
+    base_url: https://api.openai.com/v1
+    remote_name: gpt-5-mini
+    modality: responses
+    capability: high
+    latency: medium
+    cost: medium
+    pricing:
+      input_per_1k: 0.00025
+      output_per_1k: 0.002
+    context_window: 400000
+    tags: [quality, reasoning, cheap]
+    enabled: false
+    api_key_env: OPENAI_API_KEY
+
+  - id: openai:gpt-5-nano
+    name: gpt-5-nano
+    provider: openai
+    base_url: https://api.openai.com/v1
+    remote_name: gpt-5-nano
+    api_key_env: OPENAI_API_KEY
+    modality: responses
+    capability: medium
+    latency: low
+    cost: low
+    pricing:
+      input_per_1k: 0.00005
+      output_per_1k: 0.0004
+    context_window: 400000
+    tags: [cheap, reasoning]
+    enabled: false
 
   - id: openai:text-embedding-3-small
     name: text-embedding-3-small
@@ -256,30 +243,31 @@ models:
     latency: medium
     cost: medium
     privacy: low
-    enabled: false
+    enabled: true
 
   - id: anthropic:claude-haiku-4-5
     name: claude-haiku-4-5
     provider: anthropic
     base_url: https://api.anthropic.com/v1
-    remote_name: claude-opus-4-1-20250805
+    remote_name: claude-haiku-4-5-20251001
     api_key_env: ANTHROPIC_API_KEY
     modality: chat
-    capability: high
-    latency: medium
-    cost: medium
+    capability: medium
+    latency: low
+    cost: low
     pricing:
       input_per_1k: 0.001
       output_per_1k: 0.005
     context_window: 200000
     privacy: low
     enabled: true
+    tags: [cheap, fast]
 
-  - id: anthropic:claude-sonnet-4-5
-    name: claude-sonnet-4-5
+  - id: anthropic:claude-sonnet-4-6
+    name: claude-sonnet-4-6
     provider: anthropic
     base_url: https://api.anthropic.com/v1
-    remote_name: claude-sonnet-4-5-20250929
+    remote_name: claude-sonnet-4-6
     api_key_env: ANTHROPIC_API_KEY
     modality: chat
     capability: high
@@ -291,25 +279,26 @@ models:
     context_window: 200000
     privacy: low
     enabled: true
+    tags: [quality]
 
-
-  - id: anthropic:claude-opus-4-1
-    name: claude-opus-4-1
+  - id: anthropic:claude-opus-4-6
+    name: claude-opus-4-6
     provider: anthropic
     base_url: https://api.anthropic.com/v1
-    remote_name: claude-opus-4-1-20250805
+    remote_name: claude-opus-4-6
     api_key_env: ANTHROPIC_API_KEY
     modality: chat
-    capability: high
+    capability: frontier
     latency: medium
-    cost: medium
+    cost: high
     pricing:
-      input_per_1k: 0.015
-      output_per_1k: 0.075
+      input_per_1k: 0.005
+      output_per_1k: 0.025
     context_window: 1000000
     privacy: low
     enabled: true
-  
+    tags: [quality, reasoning]
+
   - id: anthropic:claude-opus-4-5
     name: claude-opus-4-5
     provider: anthropic
@@ -317,63 +306,58 @@ models:
     remote_name: claude-opus-4-5-20251101
     api_key_env: ANTHROPIC_API_KEY
     modality: chat
-    capability: high
+    capability: frontier
     latency: medium
-    cost: medium
+    cost: high
     pricing:
       input_per_1k: 0.005
       output_per_1k: 0.025
     context_window: 1000000
     privacy: low
     enabled: true
+    tags: [quality, reasoning]
 
-
-# Profili (etichette "umane" che puntano a criteri di selezione dei modelli)
 profiles:
   plan.fast:
+    model: openai:gpt-5.4-mini
     select:
-      any_tags: [reasoning, fast]
-      prefer_providers: [openai, openai]
-      model: openai:gpt-5-mini # se presente → selezione deterministica
-      fallback: [anthropenaiopic:claude-3.7-haiku, ollama:llama3]   # opzionale
-      # opzionale: criteri per caso estremo in cui non troviamo i pin/fallback
-      select:
-        any_tags: [reasoning, fast]
+      any_tags: [reasoning]
+      prefer_providers: [openai, anthropic]
 
   code.strict:
-    model: openai:gpt-5-1
+    model: openai:gpt-5.1-codex-max
     select:
-      any_tags: [coding, quality]
+      any_tags: [code, quality]
       avoid_tags: [cheap]
 
   chat.cheap:
-    model: anthropic:claude-4.5-haiku
+    model: anthropic:claude-haiku-4-5
     select:
       any_tags: [cheap]
 
   local.codegen:
-    model: ollama:llama3
-    select:
-      any_tags: [local, coding]
-  
-  cloud.codegen:
-    model: deepseek:deepseek-code
+    model: ollama:llama4
     select:
       any_tags: [local, coding]
 
-# Routing per task → profilo (fallback se non si passa un hint)
+  cloud.codegen:
+    model: deepseek:deepseek-coder-v2
+    select:
+      any_tags: [coding]
+
 routing:
   idea: plan.fast
   spec: plan.fast
   plan: plan.fast
   kit: code.strict
+  build: code.strict
   finalize: local.codegen
   chat: chat.cheap
 
-# Pesatura opzionale per tie-break quando più modelli sono eleggibili
 scoring:
   weights:
-    capability: 0.5      # frontier > large > medium > small > tiny
-    latency: 0.2         # ultra-low > low > medium > high
-    cost: 0.2            # ultra-low > low > medium > high
-    quality: 0.1         # +1 se tag quality/frontier, -1 se cheap
+    capability: 0.45  # frontier > large > medium > small > tiny
+    latency: 0.20     # ultra-low > low > medium > high
+    cost: 0.20        # ultra-low > low > medium > high
+    privacy: 0.05    
+    quality: 0.10    # +1 se tag quality/frontier, -1 se cheap

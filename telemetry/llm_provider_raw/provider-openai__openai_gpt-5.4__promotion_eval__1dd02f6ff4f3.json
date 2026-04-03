@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260403T192738Z",
+  "project_id": "docufu",
+  "phase": "promotion_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_0186f1d442cc6f0b0069d0146f27408193bec3c40f637dc993",
+    "object": "response",
+    "created_at": 1775244399,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1775244458,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "# Harper /kit — PROMOTION_EVAL\n\nYou are **Harper /kit PROMOTION_EVAL** — a **Senior Software Architect, Senior Software Engineer, promotion reviewer, and stop-ship evaluator**.\n\nYour task is to evaluate whether the current REQ candidate, after hardening, is ready to move forward as a serious promotion candidate.\n\nYou are NOT fixing files.\nYou are NOT redesigning.\nYou are evaluating.\n\n---\n\n## 1) Mission\n\nEvaluate the hardened REQ candidate against:\n\n- `IDEA.md`\n- `SPEC.md`\n- `PLAN.md`\n- `plan.json`\n- `TECH_CONSTRAINTS.yaml`\n- `REQ_PROMOTION_MANIFEST.md` when present\n- `INTEGRITY_EVAL.json`\n- current candidate files already generated for the REQ\n- repository-aware references when present\n\nYour goal is to determine whether the candidate is now:\n\n- still too weak\n- still missing required hardening\n- ready for later eval\n- a serious promotion candidate\n\n---\n\n## 2) What you must evaluate\n\n### A. Scope fidelity\nDoes the candidate still match the intended REQ?\n\n### B. Source substance\nIs the implementation now substantial enough?\n\n### C. Test credibility\nDo the tests now support real acceptance credibility?\n\n### D. Docs/code/test/ci coherence\nDo emitted docs and CI artifacts match the actual implementation?\n\n### E. Promotion fit\nIs the candidate clearly shaped for later promotion into canonical repository targets?\n\n### F. Shared/common correctness\nIf shared/common modules are involved, are they justified and coherent?\n\n### G. Runtime-profile integrity\nIf local-dev and target-runtime modes both matter, are they still aligned under one promotable design?\n\n---\n\n## 3) Hard rules\n\n- Be severe.\n- Be explicit.\n- Do not be optimistic.\n- Do not reward superficial cleanup as if it were true hardening.\n- Do not fix code.\n- Do not emit patches.\n- Do not emit prose outside the required file block.\n\n---\n\n## 4) Output artifact\n\nEmit exactly one file block:\n\n`file:/runs/kit/<REQ-ID>/ci/PROMOTION_EVAL.json`\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must be valid and must contain:\n\n- `version`\n- `req_id`\n- `verdict`\n- `summary`\n- `source_substance`\n- `test_credibility`\n- `docs_code_coherence`\n- `promotion_fit`\n- `shared_common_assessment`\n- `runtime_profile_assessment`\n- `blockers`\n- `remaining_risks`\n\n---\n\n## 5) Allowed verdicts\n\nUse exactly one of:\n\n- `reject`\n- `needs_more_hardening`\n- `eval_ready`\n- `promotion_candidate`\n- `promotion_candidate_with_risks`\n\n### Meaning\n\n- `reject` → still not a serious promotion candidate\n- `needs_more_hardening` → meaningful progress exists, but more targeted hardening is required\n- `eval_ready` → good enough to move into later evaluation stages\n- `promotion_candidate` → strong and coherent enough for serious promotion consideration\n- `promotion_candidate_with_risks` → promotable direction exists, but explicit bounded risks remain\n\n---\n\n## 6) Style\n\nThink like a promotion gate reviewer before formal gate.\n\nDo not hide weakness.\nDo not inflate quality.\nUse concise, operational judgments.\n\nIf the candidate is still too thin, say so clearly.\nIf the candidate is now strong, say so clearly.",
+    "max_output_tokens": 18000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_0186f1d442cc6f0b0069d014712d3c8193a5681859581fbd0e",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_0186f1d442cc6f0b0069d014904750819394b3be847c6f52ef",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "file:/runs/kit/REQ-011/ci/PROMOTION_EVAL.json\n```json\n{\n  \"version\": \"1.0.0\",\n  \"req_id\": \"REQ-011\",\n  \"verdict\": \"needs_more_hardening\",\n  \"summary\": \"Scope remains aligned to REQ-011 and the candidate is a real frontend slice, not scaffolding. It delivers typed inbox DTOs, runtime URL resolution, TanStack Query fetch/mutation flow, a substantial inbox screen, and basic tests. It is not yet promotion-grade because core integration points are still assumed rather than evidenced against dependent REQs, test hardening is too shallow for acceptance credibility, and docs/LTC overstate runtime-smoke portability beyond what the emitted Playwright harness actually supports.\",\n  \"source_substance\": {\n    \"status\": \"adequate\",\n    \"assessment\": \"Substantive frontend work exists in source. The implementation covers task listing, five workflow-state badge mappings, detail links, conditional retry affordance, read-state mutation, refresh behavior, and localized error states.\",\n    \"strengths\": [\n      \"Module placement under `frontend/app/workflow/inbox` matches the planned namespace and is promotable with low path churn.\",\n      \"The UI is not placeholder code; `WorkflowInbox.tsx` contains real behavior and presentation logic.\",\n      \"The hook and runtime layers provide typed DTO handling and a single configurable API-base design across profiles.\"\n    ],\n    \"weaknesses\": [\n      \"The inbox/read REST contract and detail route are assumed locally; there is no emitted evidence that they reconcile with REQ-007 and REQ-010 outputs.\",\n      \"The candidate bypasses the planned shared frontend query/UI module families and uses a local ad hoc fetch/query surface instead.\",\n      \"Robustness is thin around invalid backend payloads and integration failure modes; there are no runtime guards for unexpected status values.\"\n    ]\n  },\n  \"test_credibility\": {\n    \"status\": \"partial\",\n    \"assessment\": \"Tests demonstrate meaningful behavior, but they do not yet provide promotion-level acceptance confidence.\",\n    \"strengths\": [\n      \"Unit tests cover runtime profile resolution and URL normalization.\",\n      \"Component tests cover task rendering, detail links, retry visibility, read-state mutation, refresh action, and 401 handling.\",\n      \"A browser smoke exists and exercises the page against mocked same-origin endpoints.\"\n    ],\n    \"weaknesses\": [\n      \"Coverage is narrow for hardening: no explicit 403 case, no generic remote-error case, no empty inbox case, no detail-disabled case, and no assertion sweep across all five workflow states.\",\n      \"The 'without full page reload' claim is only inferred from mocked component behavior, not demonstrated by stronger browser-level acceptance evidence.\",\n      \"The Playwright smoke is local/mock oriented and does not validate real backend integration, permissions, or dependency contracts.\"\n    ]\n  },\n  \"docs_code_coherence\": {\n    \"status\": \"mixed\",\n    \"assessment\": \"Most docs match the emitted files, commands, env vars, and stated assumptions. The main coherence problem is that README/HOWTO/LTC present the smoke path as deploy-target portable, while the emitted Playwright spec is clearly shaped around `/api-mock` interception and fixed mocked data.\",\n    \"matches\": [\n      \"Docs accurately describe the local/aws runtime env vars and the emitted source/test files.\",\n      \"Docs correctly state that retry execution itself is out of scope and that backend inbox/read endpoints are assumed.\"\n    ],\n    \"mismatches\": [\n      \"LTC and HOWTO imply browser smoke can credibly target AWS/UAT, but the supplied smoke spec is not a reliable deployed-environment acceptance test.\",\n      \"Operational guidance depends on repository-level QueryClient and Next.js wiring that are not evidenced here.\"\n    ]\n  },\n  \"promotion_fit\": {\n    \"status\": \"partial\",\n    \"assessment\": \"The slice is localized and reviewable, which is good for later promotion. It is not yet a strong promotion candidate because the implementation is insufficiently reconciled with dependency interfaces and planned shared frontend module usage.\",\n    \"positives\": [\n      \"File boundaries are small, reviewable, and map cleanly toward canonical `src/` and `tests/` targets.\",\n      \"The UI remains within the intended REQ-011 slice and does not sprawl into unrelated functionality.\"\n    ],\n    \"concerns\": [\n      \"Promotion will still require contract reconciliation for `/tasks/inbox`, `/tasks/{taskId}/read`, and `/validation/workspace/{documentId}`.\",\n      \"The local fetch/query approach is not yet aligned with the planned shared query/UI families, increasing later consolidation cost.\"\n    ]\n  },\n  \"shared_common_assessment\": {\n    \"status\": \"under-aligned\",\n    \"assessment\": \"The candidate does not create unjustified new shared modules, which avoids one class of architectural damage. However, PLAN explicitly steers REQ-011 toward `frontend.app.shared.query` and `frontend.app.shared.ui`, and this candidate does not demonstrate that reuse.\",\n    \"issues\": [\n      \"Shared/common alignment is not evidenced; the slice remains self-contained but isolated.\",\n      \"This is acceptable for a staged kit artifact, but not yet strong promotion behavior.\"\n    ]\n  },\n  \"runtime_profile_assessment\": {\n    \"status\": \"acceptable_with_limits\",\n    \"assessment\": \"Local and aws modes remain one promotable design, differing mainly by API base URL. That is the right direction. The limitation is evidentiary: only the local mocked profile is actually exercised by tests with credibility.\",\n    \"strengths\": [\n      \"No alternate local-only architecture was introduced.\",\n      \"DTO shape and UI behavior are kept consistent across profiles.\"\n    ],\n    \"limits\": [\n      \"The `aws` profile is mostly declarative and not meaningfully validated.\",\n      \"Browser smoke evidence does not support claimed deployed-runtime confidence.\"\n    ]\n  },\n  \"blockers\": [\n    \"Dependent interface assumptions are still unresolved in evidence: `/tasks/inbox`, `/tasks/{taskId}/read`, and `/validation/workspace/{documentId}` are documented assumptions, not proven integrations.\",\n    \"Test hardening is insufficient for promotion evaluation; key negative and edge-state cases are still missing.\",\n    \"Docs/LTC overstate smoke portability to AWS/UAT beyond what the emitted Playwright harness actually validates.\",\n    \"Planned shared frontend query/UI reuse is not demonstrated, weakening promotion alignment.\"\n  ],\n  \"remaining_risks\": [\n    \"Mark-as-read on detail navigation is fire-and-forget and may not persist reliably if navigation interrupts the request.\",\n    \"Unexpected backend enum or payload drift can break UI behavior because runtime validation is absent.\",\n    \"If dependent REQs land with different route shapes or DTO names, this slice will require non-trivial integration rework.\",\n    \"Acceptance credibility for permissions and workflow-state consistency remains limited until broader integration tests exist.\"\n  ]\n}\n```"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 34845,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 3352,
+      "output_tokens_details": {
+        "reasoning_tokens": 1918
+      },
+      "total_tokens": 38197
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

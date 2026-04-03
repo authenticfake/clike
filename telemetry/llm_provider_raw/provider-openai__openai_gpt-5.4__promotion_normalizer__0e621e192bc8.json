@@ -1,0 +1,86 @@
+{
+  "timestamp": "20260401T112758Z",
+  "project_id": "docufu",
+  "phase": "promotion_normalizer",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_050eadc49262fe840069cd00e876988195902ed0133ac3e4b4",
+    "object": "response",
+    "created_at": 1775042792,
+    "status": "incomplete",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": null,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": {
+      "reason": "max_output_tokens"
+    },
+    "instructions": "You are the Harper Promotion Normalizer.\n\nYour task is NOT to implement new features.\nYour task is NOT to change the REQ scope.\nYour task is NOT to redesign the solution.\n\nYour task is to normalize an already-generated KIT candidate so it becomes more promotion-ready.\n\n## Mission\n\nGiven an existing REQ candidate under `runs/kit/<REQ-ID>/...`, improve only:\n\n- repository fit\n- canonical placement assumptions\n- naming consistency\n- import consistency\n- helper reuse consistency\n- source/test/docs coherence\n- promotion readiness toward canonical repository targets\n\n## Hard constraints\n\n- Do not add new scope.\n- Do not add adjacent features.\n- Do not rewrite the architecture unless a small structural correction is required for promotion readiness.\n- Do not convert the REQ into a larger refactor.\n- Preserve the implementation intent of the existing KIT.\n- Keep edits localized and reviewable.\n- Emit only file blocks.\n- Do not emit prose outside file blocks.\n\n## Required inputs\n\nUse and remain consistent with:\n\n- `PLAN.md`\n- `plan.json`\n- `SPEC.md`\n- `TECH_CONSTRAINTS.yaml`\n- `REQ_PROMOTION_MANIFEST.md` when present\n- existing files already generated in `runs/kit/<REQ-ID>/...`\n- repository reference context surfaced by the orchestrator\n\n## Normalization priorities\n\n1. Preserve REQ scope\n2. Preserve candidate behavior\n3. Improve promotion fit\n4. Reduce unnecessary duplication\n5. Improve consistency between `src`, `test`, `docs`, and `ci`\n6. Keep changes minimal\n\n## What to normalize\n\nNormalize only what is necessary for promotion readiness, such as:\n\n- file placement assumptions\n- import paths\n- module naming\n- helper reuse\n- duplicated micro-abstractions\n- mismatches between docs and code\n- mismatches between tests and code\n- incorrect staging-vs-canonical assumptions\n\n## What not to do\n\nDo NOT:\n\n- introduce brand new layers unless strictly necessary\n- create new top-level module roots\n- create new top-level test roots\n- replace the solution with a different design\n- widen the REQ\n- add “future work” placeholders\n\n## Output contract\n\nEmit only full file blocks for files that must be updated.\nDo not emit unchanged files.\nDo not emit summaries.\nDo not emit a trailing log.",
+    "max_output_tokens": 6000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_050eadc49262fe840069cd00e984888195baa668d0bb40235e",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_050eadc49262fe840069cd013b67e88195a573a571df72e5da",
+        "type": "message",
+        "status": "incomplete",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "```file:runs/kit/REQ-004/src/node/frontend/app/shared/api/documents.ts\nexport interface UploadDocumentResponse {\n  document_id: string;\n  correlation_id: string;\n}\n\nexport type UploadApiErrorCode =\n  | \"unauthenticated\"\n  | \"unauthorized\"\n  | \"validation_error\"\n  | \"network_error\"\n  | \"unexpected_response\";\n\nexport class UploadApiError extends Error {\n  public readonly code: UploadApiErrorCode;\n  public readonly status?: number;\n\n  constructor(message: string, options: { code: UploadApiErrorCode; status?: number }) {\n    super(message);\n    this.name = \"UploadApiError\";\n    this.code = options.code;\n    this.status = options.status;\n  }\n}\n\nexport function resolveApiBaseUrl(env: Record<string, string | undefined> = process.env): string {\n  const baseUrl = env.NEXT_PUBLIC_API_BASE_URL?.trim() || \"/api\";\n  return baseUrl.endsWith(\"/\") ? baseUrl.slice(0, -1) : baseUrl;\n}\n\nasync function readErrorMessage(response: Response): Promise<string> {\n  const fallback = `Upload fallito con stato ${response.status}.`;\n\n  try {\n    const contentType = response.headers.get(\"content-type\") ?? \"\";\n\n    if (contentType.includes(\"application/json\")) {\n      const payload = (await response.json()) as { detail?: string; message?: string };\n      return payload.detail || payload.message || fallback;\n    }\n\n    const text = (await response.text()).trim();\n    return text ||"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 31551,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 6000,
+      "output_tokens_details": {
+        "reasoning_tokens": 5678
+      },
+      "total_tokens": 37551
+    },
+    "user": null,
+    "metadata": {}
+  }
+}
