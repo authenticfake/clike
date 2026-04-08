@@ -35,7 +35,7 @@ async function handleGate(argument, workspaceRoot, req_id, opts={promote: false,
     return res;
 
   } catch (err) {
-    vscode.window.showErrorMessage(`GATE error: ${String(err)}`);
+    vscode.window.showErrorMessage(`GATE error: ${String(err)} | req_id=${req_id} workspace=${workspaceRoot} argument=${argument}` );
     var res = {gate:0}
     res.summary=`Gate ${profile}: ${res.gate}`;
     return res;

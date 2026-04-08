@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+import json
+
 
 
 EXCLUDED_TOP_LEVEL = {
@@ -56,6 +58,67 @@ CANONICAL_TEST_ROOT_CANDIDATES = [
     "test",
 ]
 
+def build_repo_access_manifest(repository_context: Optional[Dict[str, Any]]) -> Optional[str]:
+    repo_ctx = dict(repository_context or {})
+    repo_root_raw = _safe_str(repo_ctx.get("repo_root")) or _safe_str(repo_ctx.get("workspace_folder"))
+    if not repo_root_raw:
+        return None
+
+    repo_root = Path(repo_root_raw).expanduser().resolve()
+    if not repo_root.exists() or not repo_root.is_dir():
+        return None
+
+    repo_url = _safe_str(repo_ctx.get("repo_url"))
+    branch = _safe_str(repo_ctx.get("branch")) or "unknown"
+
+    github_verified = False
+    local_snapshot_verified = True
+
+    lines: List[str] = [
+        "# Repository Access Manifest",
+        "",
+        "## Verification Status",
+        f"- Local snapshot verified: `{str(local_snapshot_verified).lower()}`",
+        f"- GitHub remote verified in this run: `{str(github_verified).lower()}`",
+        f"- Repository root analyzed: `{repo_root}`",
+        f"- Branch hint: `{branch}`",
+        f"- Repository URL hint: `{repo_url}`" if repo_url else "- Repository URL hint: `unknown`",
+        "",
+        "## Truthfulness Rules",
+        "- You MAY say that a local repository snapshot was analyzed if you use this manifest.",
+        "- You MUST NOT claim that the GitHub repository was analyzed unless `GitHub remote verified in this run` is `true`.",
+        "- README and HOWTO must describe only repository evidence actually available in this run.",
+        "",
+        "## Documentation Wording Policy",
+        "- Allowed wording: `Implementation decisions were informed by the local source snapshot and project artifacts provided for this run.`",
+        "- Forbidden wording unless GitHub is verified: `The GitHub repository was analyzed.`",
+    ]
+    return "\n".join(lines).strip() + "\n"
+
+
+def build_repo_structure_evidence(repository_context: Optional[Dict[str, Any]]) -> Optional[str]:
+    repo_ctx = dict(repository_context or {})
+    repo_root_raw = _safe_str(repo_ctx.get("repo_root")) or _safe_str(repo_ctx.get("workspace_folder"))
+    if not repo_root_raw:
+        return None
+
+    repo_root = Path(repo_root_raw).expanduser().resolve()
+    if not repo_root.exists() or not repo_root.is_dir():
+        return None
+
+    top_level_dirs = _list_top_level_directories(repo_root)
+    top_level_files = _list_top_level_files(repo_root)
+    marker_files = _find_marker_files(top_level_files)
+
+    payload = {
+        "repo_root": str(repo_root),
+        "top_level_dirs": top_level_dirs,
+        "top_level_files": top_level_files,
+        "marker_files": marker_files,
+        "canonical_source_roots": _resolve_canonical_source_roots(top_level_dirs),
+        "canonical_test_roots": _resolve_canonical_test_roots(top_level_dirs),
+    }
+    return json.dumps(payload, indent=2, ensure_ascii=False)
 
 def _safe_str(value: Any) -> Optional[str]:
     if value is None:
