@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260407T200628Z",
+  "project_id": "docufu",
+  "phase": "promotion_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_0f9d7aa34bbe9fad0069d56385fc58819695cdc15d5d6c27e1",
+    "object": "response",
+    "created_at": 1775592326,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1775592388,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "# Harper /kit — PROMOTION_EVAL\n\nYou are **Harper /kit PROMOTION_EVAL** — a **Senior Software Architect, Senior Software Engineer, promotion reviewer, and stop-ship evaluator**.\n\nYour task is to evaluate whether the current REQ candidate, after hardening, is ready to move forward as a serious promotion candidate.\n\nYou are NOT fixing files.\nYou are NOT redesigning.\nYou are evaluating.\n\n---\n\n## 1) Mission\n\nEvaluate the hardened REQ candidate against:\n\n- `IDEA.md`\n- `SPEC.md`\n- `PLAN.md`\n- `plan.json`\n- `TECH_CONSTRAINTS.yaml`\n- `REQ_PROMOTION_MANIFEST.md` when present\n- `INTEGRITY_EVAL.json`\n- current candidate files already generated for the REQ\n- repository-aware references when present\n\nYour goal is to determine whether the candidate is now:\n\n- still too weak\n- still missing required hardening\n- ready for later eval\n- a serious promotion candidate\n\n---\n\n## 2) What you must evaluate\n\n### A. Scope fidelity\nDoes the candidate still match the intended REQ?\n\n### B. Source substance\nIs the implementation now substantial enough?\n\n### C. Test credibility\nDo the tests now support real acceptance credibility?\n\n### D. Docs/code/test/ci coherence\nDo emitted docs and CI artifacts match the actual implementation?\n\n### E. Promotion fit\nIs the candidate clearly shaped for later promotion into canonical repository targets?\n\n### F. Shared/common correctness\nIf shared/common modules are involved, are they justified and coherent?\n\n### G. Runtime-profile integrity\nIf local-dev and target-runtime modes both matter, are they still aligned under one promotable design?\n\n---\n\n## 3) Hard rules\n\n- Be severe.\n- Be explicit.\n- Do not be optimistic.\n- Do not reward superficial cleanup as if it were true hardening.\n- Do not fix code.\n- Do not emit patches.\n- Do not emit prose outside the required file block.\n\n---\n\n## 4) Output artifact\n\nEmit exactly one file block:\n\n`file:/runs/kit/<REQ-ID>/ci/PROMOTION_EVAL.json`\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must be valid and must contain:\n\n- `version`\n- `req_id`\n- `verdict`\n- `summary`\n- `source_substance`\n- `test_credibility`\n- `docs_code_coherence`\n- `promotion_fit`\n- `shared_common_assessment`\n- `runtime_profile_assessment`\n- `blockers`\n- `remaining_risks`\n\n---\n\n## 5) Allowed verdicts\n\nUse exactly one of:\n\n- `reject`\n- `needs_more_hardening`\n- `eval_ready`\n- `promotion_candidate`\n- `promotion_candidate_with_risks`\n\n### Meaning\n\n- `reject` → still not a serious promotion candidate\n- `needs_more_hardening` → meaningful progress exists, but more targeted hardening is required\n- `eval_ready` → good enough to move into later evaluation stages\n- `promotion_candidate` → strong and coherent enough for serious promotion consideration\n- `promotion_candidate_with_risks` → promotable direction exists, but explicit bounded risks remain\n\n---\n\n## 6) Style\n\nThink like a promotion gate reviewer before formal gate.\n\nDo not hide weakness.\nDo not inflate quality.\nUse concise, operational judgments.\n\nIf the candidate is still too thin, say so clearly.\nIf the candidate is now strong, say so clearly.",
+    "max_output_tokens": 18000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_0f9d7aa34bbe9fad0069d563872c908196905c9c9f66669f0e",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_0f9d7aa34bbe9fad0069d563b2661c8196930b561581784519",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "file:/runs/kit/REQ-003/ci/PROMOTION_EVAL.json\n```json\n{\n  \"version\": \"1.0.0\",\n  \"req_id\": \"REQ-003\",\n  \"verdict\": \"promotion_candidate_with_risks\",\n  \"summary\": \"REQ-003 is now a serious promotion candidate. The candidate has real runtime contract code, real AWS and on-prem adapters, explicit bootstrap validation, non-secret startup diagnostics, and materially better tests than the prior salvageable state. The earlier hardening gaps around mixed-config rejection, provider startup validation, and CI gate alignment are substantially addressed. Remaining risk is bounded: config ownership still diverges from the plan's intended shared-config reuse, and profile parity is proven mainly at contract/build level rather than against live dependency readiness.\",\n  \"source_substance\": {\n    \"status\": \"strong_with_bounded_gaps\",\n    \"notes\": [\n      \"Implementation is substantial, not scaffold-level: contracts, config resolution, bootstrap orchestration, AWS adapters, and on-prem adapters all contain real behavior.\",\n      \"Startup validation is now explicit and enforced through provider validation before startup logging, which closes the main prior fail-fast weakness.\",\n      \"On-prem providers perform credible filesystem, queue spool, notification spool, and env-secret behavior rather than only shape-matching interfaces.\",\n      \"AWS providers are production-shaped and use real boto3-backed methods for S3, SQS, SNS, and Secrets Manager.\",\n      \"The main source-level weakness is architectural drift from the plan's intended reuse of backend.shared.config; config ownership is currently localized under infra.runtime.config.\"\n    ]\n  },\n  \"test_credibility\": {\n    \"status\": \"credible_for_later_eval_not_full_production_proof\",\n    \"notes\": [\n      \"Tests cover both accepted modes, mixed-config rejection, invalid mode handling, secret-safe diagnostics, AWS and on-prem container build paths, missing boto3 failure, unwritable on-prem storage failure, and once-per-process startup logging.\",\n      \"On-prem integration tests exercise real local side effects, which materially improves acceptance credibility.\",\n      \"The test suite demonstrates the candidate's intended contract and hardening direction rather than only import success.\",\n      \"AWS-path testing still relies on monkeypatched dependency validation and does not prove live resource readiness, endpoint reachability, or real AWS permission correctness.\",\n      \"Cross-profile parity is tested at interface/container level more than full behavioral equivalence of emitted queue envelopes and downstream consumption.\"\n    ]\n  },\n  \"docs_code_coherence\": {\n    \"status\": \"mostly_coherent\",\n    \"notes\": [\n      \"README, KIT, HOWTO, LTC, source layout, and test layout are aligned to the emitted candidate.\",\n      \"Coverage and gate policy now align with the repository default 80% baseline for this lane.\",\n      \"Documentation is appropriately explicit that local development is implemented through the on-prem profile rather than inventing a third deployment mode.\",\n      \"Startup behavior described in docs is materially supported by the code and tests.\",\n      \"The documented config-boundary deviation is honest, but it remains a plan-coherence issue rather than a documentation mismatch.\"\n    ]\n  },\n  \"promotion_fit\": {\n    \"status\": \"good\",\n    \"notes\": [\n      \"Package placement stays within the planned promotable families: infra.runtime, infra.aws, and infra.onprem.\",\n      \"The candidate is localized and low-risk to move from staging into canonical src/ and test/ targets.\",\n      \"The provider container contract is a usable downstream seam for REQ-004 and later slices.\",\n      \"This is no longer merely salvageable groundwork; it is shaped for promotion.\",\n      \"Promotion still carries some architectural follow-up because later REQs were planned to reuse a shared config boundary that does not yet exist here.\"\n    ]\n  },\n  \"shared_common_assessment\": {\n    \"status\": \"acceptable\",\n    \"notes\": [\n      \"Shared extraction is limited to the right boundary: infra.runtime.contracts and bootstrap/config logic.\",\n      \"There is no obvious shared/common sprawl or premature abstraction outside the REQ-owned infra families.\",\n      \"The only shared-boundary concern is the missing planned reuse of backend.shared.config.\"\n    ]\n  },\n  \"runtime_profile_assessment\": {\n    \"status\": \"coherent_with_minor_parity_risk\",\n    \"notes\": [\n      \"AWS and on-prem profiles expose the same business-facing provider categories and one runtime-selected container.\",\n      \"Local development reuses the on-prem profile, which preserves one promotable design instead of creating a fake local-only architecture.\",\n      \"Mixed configuration is rejected before startup and provider validation occurs before startup diagnostics are emitted.\",\n      \"Non-secret diagnostics are emitted once per process and include selected mode and enabled providers.\",\n      \"Parity risk remains because some provider behavior is only contract-equivalent, not fully proven identical at message-envelope and operational-readiness level.\"\n    ]\n  },\n  \"blockers\": [],\n  \"remaining_risks\": [\n    \"Plan fidelity is not perfect: infra.runtime.config exists instead of reusing backend.shared.config as planned, so later REQs need a clear promotion decision on config ownership.\",\n    \"AWS startup validation proves dependency/import readiness, not live AWS resource existence, credentials, or permission correctness.\",\n    \"SMTP branches are configured and shape-tested but not proven against real transport availability.\",\n    \"Queue payload parity across AWS and on-prem is stable at business-contract level, but raw emitted envelopes are not proven identical end-to-end.\"\n  ]\n}\n```"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 50133,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 3197,
+      "output_tokens_details": {
+        "reasoning_tokens": 2070
+      },
+      "total_tokens": 53330
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

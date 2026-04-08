@@ -2000,7 +2000,6 @@ async function cmdOpenChat(context) {
 
   // Ascolto eventi dalla webview
   panel.webview.onDidReceiveMessage(async (msg) => {
-    out.appendLine(`[webview] recv ${msg && msg?.type}`);
     panel.webview.postMessage({ type: 'busy', on: true });
 
     try {
@@ -2157,8 +2156,6 @@ async function cmdOpenChat(context) {
       // Run Harper phase from webview (slash: /spec | /plan | /kit | /build)
       if (msg.type === 'harperRun') {
         const runId = (Math.random().toString(16).slice(2) + Date.now().toString(16));
-        log(`[harperRun] runId ...`,  runId);
-        
         //log(`[harperRun] inside ${JSON.stringify(msg)}`);
         const phase = msg.cmd;
         try {
@@ -2282,7 +2279,7 @@ async function cmdOpenChat(context) {
             }
             payload["kit"]= {targets: [targetReqId] }
           }
-          log(`[harperRun] payload (gen):`,  JSON.stringify(payload.gen));
+          //log(`[harperRun] payload (gen):`,  JSON.stringify(payload.gen));
           msg_bubble = phase==='idea' ? project_id : targets; 
           // Persisti l’input dell’utente nella sessione del MODE (e mostreremo badge del modello in render)
           await appendSessionJSONL(activeMode, {
@@ -2376,8 +2373,7 @@ async function cmdOpenChat(context) {
 
           
           let written = [];
-          log(`[harperRun] file to be written ${_out?.files} files`);
-
+          
           if (Array.isArray(_out?.files) && _out.files.length) {
             written = await saveGeneratedFiles(_out.files);
             panel.webview.postMessage({ type: 'files', data: _out.files });

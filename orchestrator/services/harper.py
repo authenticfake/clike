@@ -15,7 +15,11 @@ from pathlib import Path
 GATEWAY_URL = os.environ.get("CL_GATEWAY_URL", "http://gateway:8000")
 log = logging.getLogger("orcehstrator:service:harper")
 TIMEOUT =float(os.environ.get("TIMEOUT", 720.0))
-
+from services.repository_manifest import (
+    build_req_promotion_manifest,
+    build_repo_access_manifest,
+    build_repo_structure_evidence,
+)
 
 async def _post_json(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     url = f"{GATEWAY_URL}{path}"
@@ -170,6 +174,20 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
     merged.setdefault("flags", {})
     merged = await _normalize_message(merged)
 
+
+    repo_ctx = merged.get("repository_context") or {}
+    core_blobs = dict(merged.get("core_blobs") or {})
+
+    repo_access_manifest = build_repo_access_manifest(repo_ctx)
+    if repo_access_manifest:
+        core_blobs["REPO_ACCESS_MANIFEST.md"] = repo_access_manifest
+
+    repo_structure_evidence = build_repo_structure_evidence(repo_ctx)
+    if repo_structure_evidence:
+        core_blobs["REPO_STRUCTURE_EVIDENCE.json"] = repo_structure_evidence
+
+    if core_blobs:
+        merged["core_blobs"] = core_blobs
 
     target_req_id: Optional[str] = None
 

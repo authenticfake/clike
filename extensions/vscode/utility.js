@@ -1169,7 +1169,6 @@ function resolveLatestReq(rootDir) {
 
 // projectRootUri: URI del progetto "attivo" (quello creato con /init nome)
 async function buildHarperBody(phase, payload, projectRootUri, out) {
-
   const _docRoot =  vscode.Uri.joinPath(projectRootUri, 'docs', 'harper');
   // 1) Allegati/file core
   var idea_md = (phase === 'spec') ? await loadMd(_docRoot, 'IDEA.md') : null;
@@ -1190,6 +1189,8 @@ async function buildHarperBody(phase, payload, projectRootUri, out) {
     } 
    // 3) Always attach repository metadata so the orchestrator can become repo-aware.
     const repositoryContext = await detectRepositoryContext(projectRootUri);
+    repositoryContext.local_snapshot_verified = true;
+    repositoryContext.github_verified = false;
     payload["repository_context"] = repositoryContext;
     
     // Keep backward compatibility with the existing repoUrl field.

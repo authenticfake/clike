@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260407T173132Z",
+  "project_id": "docufu",
+  "phase": "promotion_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_0fe3f23260f6d29d0069d53f37e9cc8194adcaaca67e28b19b",
+    "object": "response",
+    "created_at": 1775583031,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1775583092,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "# Harper /kit — PROMOTION_EVAL\n\nYou are **Harper /kit PROMOTION_EVAL** — a **Senior Software Architect, Senior Software Engineer, promotion reviewer, and stop-ship evaluator**.\n\nYour task is to evaluate whether the current REQ candidate, after hardening, is ready to move forward as a serious promotion candidate.\n\nYou are NOT fixing files.\nYou are NOT redesigning.\nYou are evaluating.\n\n---\n\n## 1) Mission\n\nEvaluate the hardened REQ candidate against:\n\n- `IDEA.md`\n- `SPEC.md`\n- `PLAN.md`\n- `plan.json`\n- `TECH_CONSTRAINTS.yaml`\n- `REQ_PROMOTION_MANIFEST.md` when present\n- `INTEGRITY_EVAL.json`\n- current candidate files already generated for the REQ\n- repository-aware references when present\n\nYour goal is to determine whether the candidate is now:\n\n- still too weak\n- still missing required hardening\n- ready for later eval\n- a serious promotion candidate\n\n---\n\n## 2) What you must evaluate\n\n### A. Scope fidelity\nDoes the candidate still match the intended REQ?\n\n### B. Source substance\nIs the implementation now substantial enough?\n\n### C. Test credibility\nDo the tests now support real acceptance credibility?\n\n### D. Docs/code/test/ci coherence\nDo emitted docs and CI artifacts match the actual implementation?\n\n### E. Promotion fit\nIs the candidate clearly shaped for later promotion into canonical repository targets?\n\n### F. Shared/common correctness\nIf shared/common modules are involved, are they justified and coherent?\n\n### G. Runtime-profile integrity\nIf local-dev and target-runtime modes both matter, are they still aligned under one promotable design?\n\n---\n\n## 3) Hard rules\n\n- Be severe.\n- Be explicit.\n- Do not be optimistic.\n- Do not reward superficial cleanup as if it were true hardening.\n- Do not fix code.\n- Do not emit patches.\n- Do not emit prose outside the required file block.\n\n---\n\n## 4) Output artifact\n\nEmit exactly one file block:\n\n`file:/runs/kit/<REQ-ID>/ci/PROMOTION_EVAL.json`\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must be valid and must contain:\n\n- `version`\n- `req_id`\n- `verdict`\n- `summary`\n- `source_substance`\n- `test_credibility`\n- `docs_code_coherence`\n- `promotion_fit`\n- `shared_common_assessment`\n- `runtime_profile_assessment`\n- `blockers`\n- `remaining_risks`\n\n---\n\n## 5) Allowed verdicts\n\nUse exactly one of:\n\n- `reject`\n- `needs_more_hardening`\n- `eval_ready`\n- `promotion_candidate`\n- `promotion_candidate_with_risks`\n\n### Meaning\n\n- `reject` → still not a serious promotion candidate\n- `needs_more_hardening` → meaningful progress exists, but more targeted hardening is required\n- `eval_ready` → good enough to move into later evaluation stages\n- `promotion_candidate` → strong and coherent enough for serious promotion consideration\n- `promotion_candidate_with_risks` → promotable direction exists, but explicit bounded risks remain\n\n---\n\n## 6) Style\n\nThink like a promotion gate reviewer before formal gate.\n\nDo not hide weakness.\nDo not inflate quality.\nUse concise, operational judgments.\n\nIf the candidate is still too thin, say so clearly.\nIf the candidate is now strong, say so clearly.",
+    "max_output_tokens": 18000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_0fe3f23260f6d29d0069d53f39464081949d48256df789674d",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_0fe3f23260f6d29d0069d53f60ec2c81948f4a2d4f7d1f6130",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "```file:/runs/kit/REQ-001/ci/PROMOTION_EVAL.json\n{\n  \"version\": \"1.0.0\",\n  \"req_id\": \"REQ-001\",\n  \"verdict\": \"needs_more_hardening\",\n  \"summary\": \"REQ-001 is now a substantial schema candidate with real SQLAlchemy models, a full Alembic migration, and credible PostgreSQL-backed tests. The core data contract is materially implemented and much stronger than a thin scaffold. It is not yet a serious promotion candidate because the emitted CI artifact set is not promotion-safe: `ci/LTC.json` is malformed as provided, run commands are inconsistent with the actual package import layout, and there is no emitted pass evidence for lint, types, tests, coverage, or security. Source is close; promotion hardening is not complete.\",\n  \"source_substance\": {\n    \"status\": \"strong_with_minor_contract_gaps\",\n    \"notes\": [\n      \"All seven canonical entities required by REQ-001 are implemented with UUID primary keys, foreign keys, indexes, uniqueness rules, and PostgreSQL-backed enum types.\",\n      \"Document, task, export, notification, and audit vocabularies match the PLAN and plan.json contract.\",\n      \"The Alembic migration is real and nontrivial, not declarative prose.\",\n      \"Lifecycle transitions are explicitly codified in a reusable helper and match the required legal transitions.\",\n      \"Some semantic integrity remains application-side rather than schema-enforced. Example: the schema enforces `validated_by` and `validated_at` pairing, but not full status-coupled validity semantics.\"\n    ]\n  },\n  \"test_credibility\": {\n    \"status\": \"good_but_not_fully_proven\",\n    \"notes\": [\n      \"Unit tests check canonical enums, lifecycle rules, foreign keys, uniqueness, check constraints, and indexes.\",\n      \"Integration tests use real PostgreSQL/Alembic flows and cover upgrade, downgrade/upgrade roundtrip, full graph persistence, invalid enum rejection, FK rejection, uniqueness rejection, and check-constraint rejection.\",\n      \"This is materially credible acceptance support for REQ-001.\",\n      \"However, the candidate does not emit actual test, lint, type, coverage, or Trivy results showing these commands passed in this run.\"\n    ]\n  },\n  \"docs_code_coherence\": {\n    \"status\": \"weak\",\n    \"notes\": [\n      \"README, KIT, and HOWTO stay within REQ-001 scope and generally describe the emitted schema package correctly.\",\n      \"The major coherence failure is operational: documentation commands use conflicting `PYTHONPATH` and coverage target conventions.\",\n      \"Source imports are `backend.shared...`, but parts of README/HOWTO use `PYTHONPATH=src` and coverage target `src.backend.shared.models`, which does not align with the actual import layout used elsewhere.\",\n      \"LTC uses `PYTHONPATH=src/src` and `--cov=backend.shared.models`, which is closer to the code, but the artifact itself is malformed as provided.\"\n    ]\n  },\n  \"promotion_fit\": {\n    \"status\": \"partial\",\n    \"notes\": [\n      \"The implementation stays localized to the owned shared model and migration families and does not invent forbidden top-level architecture.\",\n      \"Promotion into canonical `src/backend/shared/...` and `tests/...` targets appears structurally feasible.\",\n      \"Even so, promotion is not yet low-risk because the runnable contract around CI/test invocation is inconsistent and not reliably reviewable from the emitted artifacts.\"\n    ]\n  },\n  \"shared_common_assessment\": {\n    \"status\": \"justified_and_coherent\",\n    \"notes\": [\n      \"REQ-001 explicitly owns the shared canonical schema backbone, so placement in shared/common families is appropriate.\",\n      \"No obvious premature abstraction beyond the required shared schema, enums, and lifecycle contract is present.\"\n    ]\n  },\n  \"runtime_profile_assessment\": {\n    \"status\": \"acceptable_for_schema_scope\",\n    \"notes\": [\n      \"For this REQ, local development and aws/onprem target runtime share the same schema and migration artifacts, which is coherent.\",\n      \"Profile differences are limited to database connectivity and operational TLS/network concerns, which is appropriate for a schema-only slice.\",\n      \"This is documented rather than deeply exercised. That is acceptable for REQ-001, but it is not strong runtime evidence.\"\n    ]\n  },\n  \"blockers\": [\n    \"The emitted `runs/kit/REQ-001/ci/LTC.json` is malformed/incomplete as provided, so the CI contract is not review-safe.\",\n    \"Run commands are inconsistent with the actual package layout: documentation mixes `PYTHONPATH=src` with code that imports `backend.shared...`, while other artifacts require `PYTHONPATH=src/src`.\",\n    \"The candidate does not emit actual passing outputs for tests, lint, types, coverage, or Trivy, so promotion confidence still depends on unproven command execution.\"\n  ],\n  \"remaining_risks\": [\n    \"Document lifecycle legality is enforced by helper contract, not by database-level transition constraints; later service layers must apply it consistently.\",\n    \"Schema constraints do not fully encode all status-coupled business semantics, leaving room for semantically invalid but structurally valid rows if downstream code is careless.\",\n    \"Staging wrapper paths (`src/src`, `test/tests`) are promotable but still add avoidable operational friction until the execution contract is fully normalized.\"\n  ]\n}\n```"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 50166,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 3443,
+      "output_tokens_details": {
+        "reasoning_tokens": 2308
+      },
+      "total_tokens": 53609
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260407T172551Z",
+  "project_id": "docufu",
+  "phase": "integrity_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_03af88b894047d660069d53dc72d5c819594d4fed7217a13a6",
+    "object": "response",
+    "created_at": 1775582663,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1775582751,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "# Harper /kit — INTEGRITY_EVAL\n\nYou are **Harper /kit INTEGRITY_EVAL** — a **Senior Software Architect, Senior Software Engineer, Senior LLM Generation Code, promotion reviewer, and stop-ship reviewer**.\n\nYour task is to evaluate the real integrity of the already generated KIT candidate for one target REQ.\n\nYou are NOT implementing the REQ.\nYou are NOT fixing the REQ.\nYou are NOT redesigning the solution.\nYou are evaluating whether the current REQ candidate is:\n\n- complete enough\n- substantial enough\n- coherent enough\n- promotion-oriented enough\n\nto deserve hardening and later promotion.\n\nThe candidate lives in staging under:\n\n- `runs/kit/<REQ-ID>/src/...`\n- `runs/kit/<REQ-ID>/test/...`\n- `runs/kit/<REQ-ID>/docs/...`\n- `runs/kit/<REQ-ID>/ci/...`\n\nBut it must be judged as a future promotion candidate for canonical repository targets such as:\n\n- `src/...`\n- `tests/...`\n- `test/...`\n\n---\n\n## 1) Mission\n\nEvaluate the current REQ candidate against:\n\n- `IDEA.md`\n- `SPEC.md`\n- `PLAN.md`\n- `plan.json`\n- `TECH_CONSTRAINTS.yaml`\n- `REQ_PROMOTION_MANIFEST.md` when present\n- the current candidate files already generated for the REQ\n- repository-aware references when present\n\nYour goal is to determine whether the REQ candidate is:\n\n- fake-complete\n- skeletal\n- incomplete\n- salvageable\n- hardening-ready\n- already close to promotion-candidate quality\n\n---\n\n## 2) What you must evaluate\n\n### A. Scope fidelity\nCheck whether the candidate actually implements the intended REQ and acceptance criteria.\n\n### B. Source substance\nCheck whether the candidate contains enough real implementation substance.\n\nA candidate is **skeletal** when one or more of the following is true:\n\n- too few source files compared to the REQ scope\n- primary source modules are too thin, placeholder-like, or mostly seams with little real logic\n- docs and tests describe more behavior than the source code actually supports\n- the implementation mass is disproportionately low relative to the REQ acceptance and the emitted docs/ci package\n\n### C. Test substance\nCheck whether tests prove real REQ acceptance or only shallow structure.\n\n### D. Docs / code / CI coherence\nCheck whether:\n- `README_<REQ-ID>.md`\n- `KIT_<REQ-ID>.md`\n- `LTC.json`\n- `HOWTO.md`\n\nactually match the emitted source files, test files, commands, runtime modes, and limitations.\n\n### E. Promotion fit\nCheck whether the candidate is designed for later promotion toward canonical repository targets, not merely for survival in `runs/...`.\n\n### F. Shared/common correctness\nIf the candidate introduces or extends `shared`, `common`, or equivalent cross-slice modules, check whether that is justified by actual reuse and architectural ownership.\n\nDo NOT reward unnecessary shared/common extraction.\nDo NOT penalize justified shared/common seams when they clearly reduce duplication and improve promotion fit.\n\n### G. Dual-mode integrity\nIf the REQ is expected to support both local-dev mode and target-runtime mode, check whether:\n- the same business design is preserved\n- runtime differences are expressed through adapters/configuration\n- local mode does not replace the intended promotable architecture\n\n---\n\n## 3) Hard rules\n\n- Be severe.\n- Be precise.\n- Be explicit.\n- Do not be optimistic.\n- Do not reward narrative packaging when the code is weak.\n- Treat “docs rich / code poor” as a serious integrity problem.\n- Treat placeholder-style implementation as non-promotable.\n- Do not fix files.\n- Do not emit code patches.\n- Do not propose large redesigns.\n- Do not widen scope.\n- Do not add adjacent features.\n\n---\n\n## 4) Output artifact\n\nEmit exactly one file block:\n\n`file:/runs/kit/<REQ-ID>/ci/INTEGRITY_EVAL.json`\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must be valid and must contain:\n\n- `version`\n- `req_id`\n- `verdict`\n- `summary`\n- `scope_fidelity`\n- `source_substance`\n- `test_substance`\n- `docs_code_coherence`\n- `promotion_fit`\n- `shared_common_assessment`\n- `dual_mode_assessment`\n- `blockers`\n- `hardening_targets`\n\n---\n\n## 5) Allowed verdicts\n\nUse exactly one of:\n\n- `reject`\n- `skeletal`\n- `incomplete`\n- `salvageable`\n- `hardening_ready`\n- `promotion_candidate`\n\n### Meaning\n\n- `reject` → the candidate is too weak or too misleading to proceed safely\n- `skeletal` → the candidate is too thin and lacks enough implementation substance\n- `incomplete` → important expected parts are missing or incoherent\n- `salvageable` → the candidate has a meaningful base but needs targeted hardening\n- `hardening_ready` → the candidate is solid enough to benefit from promotion hardening\n- `promotion_candidate` → rare; already strong and coherent enough to be considered close to evaluable promotion quality\n\n---\n\n## 6) Scoring intent\n\nEach assessment section should be concise but operational.\nState clearly:\n\n- what is good\n- what is weak\n- what is missing\n- what must be hardened next\n\n`hardening_targets` must be concrete and actionable.\nThey must identify the weak areas that the next phase should improve.\n\n---\n\n## 7) Evaluation style\n\nThink like a stop-ship promotion reviewer.\n\nDo NOT say:\n- “overall this looks good” unless it is truly strong\n- “minimal but acceptable” when it is actually too thin\n- “promotable” unless the candidate has enough real code, test credibility, and architectural fitness\n\nPrefer explicit judgments such as:\n\n- “source implementation is too thin for the declared REQ scope”\n- “tests overclaim behavior not supported by the emitted source”\n- “docs and CI contract are richer than the actual implementation”\n- “candidate is structurally coherent but lacks enough implementation mass”\n- “shared/common usage is justified”\n- “shared/common extraction is premature”\n\n---\n\n## 8) Output format example shape\n\nThe JSON must follow this shape exactly in spirit:\n\n```json\n{\n  \"version\": \"1.0.0\",\n  \"req_id\": \"REQ-005\",\n  \"verdict\": \"salvageable\",\n  \"summary\": \"The candidate is coherent but too thin relative to REQ scope and promotion expectations.\",\n  \"scope_fidelity\": {\n    \"status\": \"partial\",\n    \"notes\": [\n      \"Core REQ direction is present\",\n      \"Some acceptance expectations are only partially supported by source\"\n    ]\n  },\n  \"source_substance\": {\n    \"status\": \"weak\",\n    \"notes\": [\n      \"Primary source package is too thin\",\n      \"Implementation mass is lower than expected for the declared REQ\"\n    ]\n  },\n  \"test_substance\": {\n    \"status\": \"partial\",\n    \"notes\": [\n      \"Tests are present\",\n      \"Coverage of real behavior is weaker than the docs imply\"\n    ]\n  },\n  \"docs_code_coherence\": {\n    \"status\": \"mixed\",\n    \"notes\": [\n      \"Docs are operationally useful\",\n      \"Some claims exceed actual emitted implementation\"\n    ]\n  },\n  \"promotion_fit\": {\n    \"status\": \"partial\",\n    \"notes\": [\n      \"Design direction is promotable\",\n      \"Current candidate needs hardening before serious promotion\"\n    ]\n  },\n  \"shared_common_assessment\": {\n    \"status\": \"acceptable\",\n    \"notes\": [\n      \"Shared seams are justified\",\n      \"No obvious duplicate module family\"\n    ]\n  },\n  \"dual_mode_assessment\": {\n    \"status\": \"acceptable\",\n    \"notes\": [\n      \"Local and target-runtime modes are conceptually aligned\"\n    ]\n  },\n  \"blockers\": [\n    \"Source layer too thin for declared REQ scope\"\n  ],\n  \"hardening_targets\": [\n    \"Strengthen primary source modules\",\n    \"Align tests more tightly with real behavior\",\n    \"Reduce doc/code claim mismatch\"\n  ]\n}\n\n```\nThe example above is illustrative.\nJudge the actual candidate, not the example.\n\n---",
+    "max_output_tokens": 17000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_03af88b894047d660069d53dc8bcdc8195be6e0cd2dfb1f50b",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_03af88b894047d660069d53e0a105c8195ab95dcf56694134d",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "```file:/runs/kit/REQ-001/ci/INTEGRITY_EVAL.json\n{\n  \"version\": \"1.0.0\",\n  \"req_id\": \"REQ-001\",\n  \"verdict\": \"hardening_ready\",\n  \"summary\": \"The candidate is a real and substantial REQ-001 implementation: it emits nontrivial SQLAlchemy models, a full Alembic schema migration, and meaningful PostgreSQL-backed tests. It covers most acceptance expectations for the canonical schema backbone. It is not yet close to promotion-candidate quality because the emitted package namespace is misaligned with the PLAN canonical family, promotion shaping is weaker than the docs imply, and test evidence is incomplete around downgrade/full-contract happy-path validation.\",\n  \"scope_fidelity\": {\n    \"status\": \"strong\",\n    \"notes\": [\n      \"The candidate implements the declared REQ scope: shared canonical models, enums, lifecycle helper, and migration artifacts.\",\n      \"All seven canonical entities required by REQ-001 are present with UUID primary keys, core foreign keys, and required enum-backed status fields.\",\n      \"Document lifecycle vocabulary and allowed transitions are defined exactly as required, but transition enforcement is only represented by an application-side helper rather than by a tested service path.\"\n    ]\n  },\n  \"source_substance\": {\n    \"status\": \"strong_with_issues\",\n    \"notes\": [\n      \"Source implementation is substantial, not skeletal: the entity module and migration contain real schema logic, constraints, enums, relationships, and PostgreSQL-specific types.\",\n      \"Check constraints, uniqueness rules, and ownership relationships are materially implemented rather than described only in docs.\",\n      \"Promotion-oriented source quality is reduced by namespace drift: imports and coverage targets use `src.backend...` while the PLAN canonical family is `backend.shared.models` under `src/backend/...`.\",\n      \"Type annotations for UUID-backed columns and foreign keys are imprecise (`Mapped[str]` against `UUID(as_uuid=True)`), which is not fatal for staging but weakens correctness and later hardening quality.\"\n    ]\n  },\n  \"test_substance\": {\n    \"status\": \"good_but_incomplete\",\n    \"notes\": [\n      \"Tests are real and exercise actual PostgreSQL behavior, including invalid enum rejection, foreign-key rejection, uniqueness constraints, and numeric/check constraints.\",\n      \"Unit tests validate canonical enum vocabularies and the lifecycle helper contract.\",\n      \"There is no direct integration proof of downgrade reversibility despite the migration being documented as reversible and listed in CI commands.\",\n      \"There is no broad happy-path integration test that inserts and traverses all canonical entity families and relationships, so downstream contract confidence is still partial.\",\n      \"Lifecycle rejection is only proven at helper level; there is no emitted service-level or persistence-level enforcement test for forbidden status transitions.\"\n    ]\n  },\n  \"docs_code_coherence\": {\n    \"status\": \"mixed\",\n    \"notes\": [\n      \"README, KIT, HOWTO, and LTC are generally aligned with the emitted source and test files and stay within REQ-001 scope.\",\n      \"The documentation correctly avoids claiming GitHub remote verification and uses repository wording allowed by the access manifest.\",\n      \"Commands, required environment variables, and generated report paths are coherent with the staged artifact set.\",\n      \"The main coherence problem is promotion/path narrative: docs describe canonical `src/backend/...` families, but the actual Python namespace and commands are centered on `src.backend...`, which is less promotion-fit than the narrative suggests.\"\n    ]\n  },\n  \"promotion_fit\": {\n    \"status\": \"partial\",\n    \"notes\": [\n      \"The candidate stays within the owned shared model and migration families and avoids forbidden top-level path invention.\",\n      \"It is structurally close to the intended canonical backend slice, but it is still shaped to survive staging rather than to drop cleanly into canonical repository targets.\",\n      \"The emitted namespace contract (`src.backend...`) conflicts with the PLAN's canonical family naming (`backend.shared.models`), which creates avoidable promotion friction.\",\n      \"The staged test root `test/tests/...` is workable for KIT staging but is not yet cleanly promotion-shaped toward canonical `tests/...` expectations.\"\n    ]\n  },\n  \"shared_common_assessment\": {\n    \"status\": \"justified\",\n    \"notes\": [\n      \"Shared/common extraction is justified here because REQ-001 explicitly owns the canonical shared data backbone reused by all later REQs.\",\n      \"No obvious premature cross-slice abstraction was introduced beyond the schema, enums, and lifecycle contract that this REQ is supposed to centralize.\"\n    ]\n  },\n  \"dual_mode_assessment\": {\n    \"status\": \"acceptable_for_scope\",\n    \"notes\": [\n      \"For this schema-only REQ, local, AWS, and on-prem differences are limited to database connectivity and operational settings, which is a coherent dual-mode treatment.\",\n      \"The same schema artifacts are preserved across modes; local mode does not replace the intended promotable data design.\",\n      \"Dual-mode support is mostly documented and command-shaped rather than deeply exercised, which is acceptable for REQ-001 but not strong evidence beyond schema portability.\"\n    ]\n  },\n  \"blockers\": [\n    \"Package and import namespace are not aligned with the PLAN canonical module family; the implementation is built around `src.backend...` instead of a clean `backend...` contract under canonical `src/backend/...` promotion targets.\",\n    \"Test evidence does not directly prove migration downgrade success or full happy-path integrity across all canonical entities and relationships.\",\n    \"Promotion narrative is stronger than the actual staging-to-canonical fit; current artifact shaping still carries staging-oriented assumptions.\"\n  ],\n  \"hardening_targets\": [\n    \"Normalize the package/import contract to the PLAN canonical module family so promotion into `src/backend/shared/...` does not require namespace surgery.\",\n    \"Add direct migration downgrade validation and assert schema can round-trip cleanly from empty database to head and back.\",\n    \"Add an integration happy-path covering creation and linkage of the full canonical entity set, not only isolated constraint failures.\",\n    \"Strengthen lifecycle integrity evidence by proving forbidden document transitions are rejected in a real service or persistence-facing usage path, not only by a standalone helper.\",\n    \"Tighten typing on UUID-backed model fields and foreign keys to reduce promotion-time type and tooling friction.\"\n  ]\n}\n```"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 47177,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 4408,
+      "output_tokens_details": {
+        "reasoning_tokens": 3106
+      },
+      "total_tokens": 51585
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

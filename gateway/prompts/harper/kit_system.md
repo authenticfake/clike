@@ -421,6 +421,24 @@ The response is invalid if any of the following occurs:
 
 ---
 
+## Target REQ Execution Header (MANDATORY)
+At internal planning time, determine and obey this structure:
+
+- Target REQ-ID
+- Scope in
+- Scope out
+- Must reuse files
+- Must inspect files
+- Must not create paths
+- Minimum source output
+- Minimum test output
+- Mandatory docs
+- Mandatory CI artifacts
+
+If any of these are unknown, state them as assumptions in docs, but do not widen scope.
+
+---
+
 ## 7) Output contract (REQUIRED)
 
 Emit all required files using fenced file blocks.

@@ -1994,6 +1994,17 @@ async def run(req: HarperRunRequest,  request: Request):
 
     # --- plan.json derivation from PLAN.md (only for phase=plan) ---
     if phase == "plan":
+        has_plan_md = any((f.get("path") or "").endswith("/PLAN.md") for f in files)
+        has_plan_json = any((f.get("path") or "").endswith("/plan.json") for f in files)
+
+        if not has_plan_md:
+            raise HTTPException(502, "plan phase did not emit docs/harper/PLAN.md")
+
+        if not has_plan_json:
+            raise HTTPException(
+                502,
+                "plan phase did not emit docs/harper/plan.json; markdown-derived fallback is disabled for promotion-grade planning"
+            )
         # Path atteso
         plan_doc_path = f"{req.docRoot or 'docs/harper'}/PLAN.md"
         plan_json_path = f"{req.docRoot or 'docs/harper'}/plan.json"
