@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260408T191430Z",
+  "project_id": "docufu",
+  "phase": "promotion_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_005f7b0df5df2f4b0069d76813f6a48197978b4b2fd885f155",
+    "object": "response",
+    "created_at": 1775724564,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1775724631,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "# Harper /kit — PROMOTION_EVAL\n\nYou are **Harper /kit PROMOTION_EVAL** — a **Senior Software Architect, Senior Software Engineer, promotion reviewer, and stop-ship evaluator**.\n\nYour task is to evaluate whether the current REQ candidate, after hardening, is ready to move forward as a serious promotion candidate.\n\nYou are NOT fixing files.\nYou are NOT redesigning.\nYou are evaluating.\n\n---\n\n## 1) Mission\n\nEvaluate the hardened REQ candidate against:\n\n- `IDEA.md`\n- `SPEC.md`\n- `PLAN.md`\n- `plan.json`\n- `TECH_CONSTRAINTS.yaml`\n- `REQ_PROMOTION_MANIFEST.md` when present\n- `INTEGRITY_EVAL.json`\n- current candidate files already generated for the REQ\n- repository-aware references when present\n\nYour goal is to determine whether the candidate is now:\n\n- still too weak\n- still missing required hardening\n- ready for later eval\n- a serious promotion candidate\n\n---\n\n## 2) What you must evaluate\n\n### A. Scope fidelity\nDoes the candidate still match the intended REQ?\n\n### B. Source substance\nIs the implementation now substantial enough?\n\n### C. Test credibility\nDo the tests now support real acceptance credibility?\n\n### D. Docs/code/test/ci coherence\nDo emitted docs and CI artifacts match the actual implementation?\n\n### E. Promotion fit\nIs the candidate clearly shaped for later promotion into canonical repository targets?\n\n### F. Shared/common correctness\nIf shared/common modules are involved, are they justified and coherent?\n\n### G. Runtime-profile integrity\nIf local-dev and target-runtime modes both matter, are they still aligned under one promotable design?\n\n---\n\n## 3) Hard rules\n\n- Be severe.\n- Be explicit.\n- Do not be optimistic.\n- Do not reward superficial cleanup as if it were true hardening.\n- Do not fix code.\n- Do not emit patches.\n- Do not emit prose outside the required file block.\n\n---\n\n## 4) Output artifact\n\nEmit exactly one file block:\n\n`file:/runs/kit/<REQ-ID>/ci/PROMOTION_EVAL.json`\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must be valid and must contain:\n\n- `version`\n- `req_id`\n- `verdict`\n- `summary`\n- `source_substance`\n- `test_credibility`\n- `docs_code_coherence`\n- `promotion_fit`\n- `shared_common_assessment`\n- `runtime_profile_assessment`\n- `blockers`\n- `remaining_risks`\n\n---\n\n## 5) Allowed verdicts\n\nUse exactly one of:\n\n- `reject`\n- `needs_more_hardening`\n- `eval_ready`\n- `promotion_candidate`\n- `promotion_candidate_with_risks`\n\n### Meaning\n\n- `reject` → still not a serious promotion candidate\n- `needs_more_hardening` → meaningful progress exists, but more targeted hardening is required\n- `eval_ready` → good enough to move into later evaluation stages\n- `promotion_candidate` → strong and coherent enough for serious promotion consideration\n- `promotion_candidate_with_risks` → promotable direction exists, but explicit bounded risks remain\n\n---\n\n## 6) Style\n\nThink like a promotion gate reviewer before formal gate.\n\nDo not hide weakness.\nDo not inflate quality.\nUse concise, operational judgments.\n\nIf the candidate is still too thin, say so clearly.\nIf the candidate is now strong, say so clearly.",
+    "max_output_tokens": 18000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_005f7b0df5df2f4b0069d76815738881979c8e41f3defe8f8a",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_005f7b0df5df2f4b0069d7684563948197a8eca13b1d4fefc9",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "```file:/runs/kit/REQ-001/ci/PROMOTION_EVAL.json\n{\n  \"version\": \"1.0.0\",\n  \"req_id\": \"REQ-001\",\n  \"verdict\": \"eval_ready\",\n  \"summary\": \"Scope remains faithful to REQ-001. The candidate now has real shared-backbone substance: canonical enums, models, migration, runtime profile loading, and ORM flush-time lifecycle enforcement are present, and the earlier migration-loading weakness is addressed. Tests are materially more credible than before and cover key invariants and non-bypass behavior for normal ORM mutations. It is suitable for later evaluation, but not yet a strong promotion candidate because no executed gate artifacts are emitted, the HOWTO artifact provided is incomplete, and lifecycle integrity still depends on disciplined ORM usage rather than database-enforced transition history rules.\",\n  \"source_substance\": {\n    \"status\": \"substantial\",\n    \"notes\": [\n      \"Implementation is appropriately sized for a data-backbone REQ and stays within the declared shared module family.\",\n      \"Canonical entities required by SPEC and PLAN are present with UUID primary keys, audit-relevant fields, enum-backed state fields, and downstream-oriented constraints.\",\n      \"The Alembic baseline is non-trivial and includes the major tables, foreign keys, uniqueness constraints, indexes, and status-dependent checks expected for REQ-001.\",\n      \"Lifecycle rules are no longer helper-only; normal SQLAlchemy session mutations are checked centrally at flush time.\"\n    ]\n  },\n  \"test_credibility\": {\n    \"status\": \"moderate\",\n    \"notes\": [\n      \"The prior migration import/path credibility issue is addressed by dynamic module loading in test conftest.\",\n      \"Tests cover lifecycle allow/deny cases, migration smoke, uniqueness constraints, one-row-per-document content, open-task deduplication, validated-document audit metadata, runtime profile loading, and ORM flush-time transition rejection.\",\n      \"Test design is materially aligned to REQ-001 acceptance and mandatory tests.\",\n      \"Credibility is still capped because no executed junit, coverage, lint, type, or security result artifacts are emitted in the candidate set; the evidence is inspectable test code, not demonstrated passing gates.\",\n      \"Local validation uses SQLite only, so PostgreSQL-specific behavior is inferred rather than directly proven.\"\n    ]\n  },\n  \"docs_code_coherence\": {\n    \"status\": \"mixed\",\n    \"notes\": [\n      \"README, KIT notes, source layout, and LTC mostly describe the implementation that is actually present.\",\n      \"The documentation correctly keeps scope limited to REQ-001 and avoids unsupported remote-repository claims.\",\n      \"The hardening narrative about flush-time lifecycle enforcement and direct migration loading matches the emitted source and tests.\",\n      \"The provided HOWTO artifact is incomplete/truncated, which weakens operational coherence and makes the documented execution path less trustworthy than the rest of the package.\"\n    ]\n  },\n  \"promotion_fit\": {\n    \"status\": \"good_but_not_final\",\n    \"notes\": [\n      \"Module placement is promotable into canonical src/tests targets and respects the declared repository structure.\",\n      \"The candidate is shaped as shared canonical infrastructure rather than staging-only glue, which is the correct direction for REQ-001.\",\n      \"Promotion risk is reduced versus the earlier candidate because core invariants and lifecycle checks are centralized in reusable shared code.\",\n      \"It is not yet strong enough for serious promotion consideration because pass/fail gate evidence is absent and one required operational doc artifact is incomplete.\"\n    ]\n  },\n  \"shared_common_assessment\": {\n    \"status\": \"justified\",\n    \"notes\": [\n      \"Use of backend.shared.contracts, backend.shared.state, and backend.shared.db is justified by REQ-001 ownership of the canonical schema and lifecycle contract.\",\n      \"There is no obvious parallel helper sprawl or unjustified commonization beyond the declared backbone responsibility.\",\n      \"The shared surface is coherent with later REQ dependencies in PLAN and plan.json.\"\n    ]\n  },\n  \"runtime_profile_assessment\": {\n    \"status\": \"aligned_with_bounded_risk\",\n    \"notes\": [\n      \"Local, aws, and onprem profiles share the same schema and lifecycle design; only database configuration changes across modes.\",\n      \"This is consistent with the promotion goal of one promotable backbone used across environments.\",\n      \"The local SQLite seam is acceptable for deterministic tests, but it does not fully prove PostgreSQL-16 target behavior for partial indexes and enum/check semantics.\"\n    ]\n  },\n  \"blockers\": [\n    \"No executed gate artifacts are emitted for tests, coverage, lint, types, or security; LTC declares commands, but promotion-grade acceptance evidence is not present.\",\n    \"The provided ci/HOWTO.md artifact is incomplete, so the docs/CI package is not fully promotion-hardened.\",\n    \"Lifecycle enforcement is centralized for normal ORM session writes, but not guaranteed against bulk SQLAlchemy/core updates or other out-of-band writes.\"\n  ],\n  \"remaining_risks\": [\n    \"PostgreSQL-specific behavior remains indirectly validated because the emitted tests run against SQLite rather than PostgreSQL 16.\",\n    \"The partial unique index for open workflow tasks is appropriate for target runtimes but still depends on consistent migration execution in the promoted environment.\",\n    \"Future REQs can weaken lifecycle integrity if they introduce write paths that bypass the ORM session listener.\",\n    \"The incomplete HOWTO suggests packaging discipline is not yet consistently at promotion quality even where source quality is materially improved.\"\n  ]\n}\n```"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 50035,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 3881,
+      "output_tokens_details": {
+        "reasoning_tokens": 2747
+      },
+      "total_tokens": 53916
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

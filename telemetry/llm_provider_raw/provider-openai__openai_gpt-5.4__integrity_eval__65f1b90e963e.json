@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260411T123232Z",
+  "project_id": "docufu",
+  "phase": "integrity_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_00d04a0f3429993b0069da3f3324988195b395b57ad091a7b2",
+    "object": "response",
+    "created_at": 1775910707,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1775910752,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "# Harper /kit — INTEGRITY_EVAL\n\nYou are **Harper /kit INTEGRITY_EVAL** — a **Senior Software Architect, Senior Software Engineer, Senior LLM Generation Code, promotion reviewer, and stop-ship reviewer**.\n\nYour task is to evaluate the real integrity of the already generated KIT candidate for one target REQ.\n\nYou are NOT implementing the REQ.\nYou are NOT fixing the REQ.\nYou are NOT redesigning the solution.\nYou are evaluating whether the current REQ candidate is:\n\n- complete enough\n- substantial enough\n- coherent enough\n- promotion-oriented enough\n\nto deserve hardening and later promotion.\n\nThe candidate lives in staging under:\n\n- `runs/kit/<REQ-ID>/src/...`\n- `runs/kit/<REQ-ID>/test/...`\n- `runs/kit/<REQ-ID>/docs/...`\n- `runs/kit/<REQ-ID>/ci/...`\n\nBut it must be judged as a future promotion candidate for canonical repository targets such as:\n\n- `src/...`\n- `tests/...`\n- `test/...`\n\n---\n\n## 1) Mission\n\nEvaluate the current REQ candidate against:\n\n- `IDEA.md`\n- `SPEC.md`\n- `PLAN.md`\n- `plan.json`\n- `TECH_CONSTRAINTS.yaml`\n- `REQ_PROMOTION_MANIFEST.md` when present\n- the current candidate files already generated for the REQ\n- repository-aware references when present\n\nYour goal is to determine whether the REQ candidate is:\n\n- fake-complete\n- skeletal\n- incomplete\n- salvageable\n- hardening-ready\n- already close to promotion-candidate quality\n\n---\n\n## 2) What you must evaluate\n\n### A. Scope fidelity\nCheck whether the candidate actually implements the intended REQ and acceptance criteria.\n\n### B. Source substance\nCheck whether the candidate contains enough real implementation substance.\n\nA candidate is **skeletal** when one or more of the following is true:\n\n- too few source files compared to the REQ scope\n- primary source modules are too thin, placeholder-like, or mostly seams with little real logic\n- docs and tests describe more behavior than the source code actually supports\n- the implementation mass is disproportionately low relative to the REQ acceptance and the emitted docs/ci package\n\n### C. Test substance\nCheck whether tests prove real REQ acceptance or only shallow structure.\n\n### D. Docs / code / CI coherence\nCheck whether:\n- `README_<REQ-ID>.md`\n- `KIT_<REQ-ID>.md`\n- `LTC.json`\n- `HOWTO.md`\n\nactually match the emitted source files, test files, commands, runtime modes, and limitations.\n\n### E. Promotion fit\nCheck whether the candidate is designed for later promotion toward canonical repository targets, not merely for survival in `runs/...`.\n\n### F. Shared/common correctness\nIf the candidate introduces or extends `shared`, `common`, or equivalent cross-slice modules, check whether that is justified by actual reuse and architectural ownership.\n\nDo NOT reward unnecessary shared/common extraction.\nDo NOT penalize justified shared/common seams when they clearly reduce duplication and improve promotion fit.\n\n### G. Dual-mode integrity\nIf the REQ is expected to support both local-dev mode and target-runtime mode, check whether:\n- the same business design is preserved\n- runtime differences are expressed through adapters/configuration\n- local mode does not replace the intended promotable architecture\n\n---\n\n## 3) Hard rules\n\n- Be severe.\n- Be precise.\n- Be explicit.\n- Do not be optimistic.\n- Do not reward narrative packaging when the code is weak.\n- Treat “docs rich / code poor” as a serious integrity problem.\n- Treat placeholder-style implementation as non-promotable.\n- Do not fix files.\n- Do not emit code patches.\n- Do not propose large redesigns.\n- Do not widen scope.\n- Do not add adjacent features.\n- New application entrypoints, local bootstraps, or parallel settings modules are promotion blockers unless explicitly justified by repository evidence or REQ scope.\n\n---\n\n## 4) Output artifact\n\nEmit exactly one file block:\n\n`file:/runs/kit/<REQ-ID>/ci/INTEGRITY_EVAL.json`\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must be valid and must contain:\n\n- `version`\n- `req_id`\n- `verdict`\n- `summary`\n- `scope_fidelity`\n- `source_substance`\n- `test_substance`\n- `docs_code_coherence`\n- `promotion_fit`\n- `shared_common_assessment`\n- `dual_mode_assessment`\n- `blockers`\n- `hardening_targets`\n\n---\n\n## 5) Allowed verdicts\n\nUse exactly one of:\n\n- `reject`\n- `skeletal`\n- `incomplete`\n- `salvageable`\n- `hardening_ready`\n- `promotion_candidate`\n\n### Meaning\n\n- `reject` → the candidate is too weak or too misleading to proceed safely\n- `skeletal` → the candidate is too thin and lacks enough implementation substance\n- `incomplete` → important expected parts are missing or incoherent\n- `salvageable` → the candidate has a meaningful base but needs targeted hardening\n- `hardening_ready` → the candidate is solid enough to benefit from promotion hardening\n- `promotion_candidate` → rare; already strong and coherent enough to be considered close to evaluable promotion quality\n\n---\n\n## 6) Scoring intent\n\nEach assessment section should be concise but operational.\nState clearly:\n\n- what is good\n- what is weak\n- what is missing\n- what must be hardened next\n\n`hardening_targets` must be concrete and actionable.\nThey must identify the weak areas that the next phase should improve.\n\n---\n\n## 7) Evaluation style\n\nThink like a stop-ship promotion reviewer.\n\nDo NOT say:\n- “overall this looks good” unless it is truly strong\n- “minimal but acceptable” when it is actually too thin\n- “promotable” unless the candidate has enough real code, test credibility, and architectural fitness\n\nPrefer explicit judgments such as:\n\n- “source implementation is too thin for the declared REQ scope”\n- “tests overclaim behavior not supported by the emitted source”\n- “docs and CI contract are richer than the actual implementation”\n- “candidate is structurally coherent but lacks enough implementation mass”\n- “shared/common usage is justified”\n- “shared/common extraction is premature”\n\n---\n\n## 8) Output format example shape\n\nThe JSON must follow this shape exactly in spirit:\n\n```json\n{\n  \"version\": \"1.0.0\",\n  \"req_id\": \"REQ-005\",\n  \"verdict\": \"salvageable\",\n  \"summary\": \"The candidate is coherent but too thin relative to REQ scope and promotion expectations.\",\n  \"scope_fidelity\": {\n    \"status\": \"partial\",\n    \"notes\": [\n      \"Core REQ direction is present\",\n      \"Some acceptance expectations are only partially supported by source\"\n    ]\n  },\n  \"source_substance\": {\n    \"status\": \"weak\",\n    \"notes\": [\n      \"Primary source package is too thin\",\n      \"Implementation mass is lower than expected for the declared REQ\"\n    ]\n  },\n  \"test_substance\": {\n    \"status\": \"partial\",\n    \"notes\": [\n      \"Tests are present\",\n      \"Coverage of real behavior is weaker than the docs imply\"\n    ]\n  },\n  \"docs_code_coherence\": {\n    \"status\": \"mixed\",\n    \"notes\": [\n      \"Docs are operationally useful\",\n      \"Some claims exceed actual emitted implementation\"\n    ]\n  },\n  \"promotion_fit\": {\n    \"status\": \"partial\",\n    \"notes\": [\n      \"Design direction is promotable\",\n      \"Current candidate needs hardening before serious promotion\"\n    ]\n  },\n  \"shared_common_assessment\": {\n    \"status\": \"acceptable\",\n    \"notes\": [\n      \"Shared seams are justified\",\n      \"No obvious duplicate module family\"\n    ]\n  },\n  \"dual_mode_assessment\": {\n    \"status\": \"acceptable\",\n    \"notes\": [\n      \"Local and target-runtime modes are conceptually aligned\"\n    ]\n  },\n  \"blockers\": [\n    \"Source layer too thin for declared REQ scope\"\n  ],\n  \"hardening_targets\": [\n    \"Strengthen primary source modules\",\n    \"Align tests more tightly with real behavior\",\n    \"Reduce doc/code claim mismatch\"\n  ]\n}\n\n```\nThe example above is illustrative.\nJudge the actual candidate, not the example.\n\n---",
+    "max_output_tokens": 17000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_00d04a0f3429993b0069da3f33de388195bf6be1cf19b14ee5",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_00d04a0f3429993b0069da3f4857708195b202cd71ff9a5ac1",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "```file:/runs/kit/REQ-002/ci/INTEGRITY_EVAL.json\n{\n  \"version\": \"1.0.0\",\n  \"req_id\": \"REQ-002\",\n  \"verdict\": \"salvageable\",\n  \"summary\": \"The candidate has a real implementation core for session/RBAC behavior, but it is not promotion-fit yet. The package is narrowly scoped, test evidence is concentrated in a single app-focused test module, and the composition conflicts with repository guidance by introducing a parallel auth/session_rbac slice and a new app entrypoint instead of clearly reusing the existing shared authz family and canonical composition seams.\",\n  \"scope_fidelity\": {\n    \"status\": \"partial\",\n    \"notes\": [\n      \"The emitted source set is directionally aligned with a session/RBAC REQ: contracts, service logic, application wiring, and app-level tests are present.\",\n      \"The candidate appears to cover only a localized slice of the intended behavior; there is not enough implementation surface to treat broader REQ acceptance as fully proven.\",\n      \"Acceptance confidence is reduced because the candidate does not visibly integrate with the repository's existing shared authz module family that already owns adjacent RBAC concerns.\"\n    ]\n  },\n  \"source_substance\": {\n    \"status\": \"weak\",\n    \"notes\": [\n      \"There is real code, not just placeholders, but the total implementation mass is small for an enterprise auth/RBAC slice.\",\n      \"Most behavior is concentrated in a single narrow package with only contracts, service, and app modules.\",\n      \"The source footprint is modest relative to the surrounding docs and CI packaging, which raises fake-complete risk.\",\n      \"The implementation does not demonstrate strong architectural reuse of existing shared authz components already present in the repository.\"\n    ]\n  },\n  \"test_substance\": {\n    \"status\": \"partial\",\n    \"notes\": [\n      \"A non-trivial test module exists and is better than a purely structural smoke test.\",\n      \"Test evidence is still too concentrated in one app-level file to establish promotion-grade confidence.\",\n      \"There is insufficient visible proof of direct unit coverage for service-layer edge cases, contract validation behavior, and repository-specific integration seams.\",\n      \"The current test package is adequate as a base for hardening, not as final evidence of REQ acceptance.\"\n    ]\n  },\n  \"docs_code_coherence\": {\n    \"status\": \"mixed\",\n    \"notes\": [\n      \"The candidate includes the expected README, KIT, LTC, and HOWTO artifacts, so operational packaging is present.\",\n      \"The packaging is richer than the emitted source/test footprint, which makes the candidate look more complete than the code alone justifies.\",\n      \"The docs/CI set may be operationally useful, but it cannot compensate for the limited implementation mass and composition misalignment.\",\n      \"Any claims of promotion readiness would currently overstate what the source and tests prove.\"\n    ]\n  },\n  \"promotion_fit\": {\n    \"status\": \"weak\",\n    \"notes\": [\n      \"The repository evidence says promotion should target canonical src/ and test/ roots and preserve existing module families.\",\n      \"This candidate introduces or preserves a parallel backend/auth/session_rbac slice and a new app.py even though the repository already has a canonical authz shared family and an existing session_rbac app entrypoint in old.runs.\",\n      \"That composition choice is a promotion blocker unless explicitly justified by REQ scope, and no such justification is evident from the emitted candidate set.\",\n      \"The candidate is reviewable and localized, but not yet shaped as a low-risk promotion into canonical architecture.\"\n    ]\n  },\n  \"shared_common_assessment\": {\n    \"status\": \"problematic\",\n    \"notes\": [\n      \"Repository composition evidence already provides shared authz modules under src/backend/shared/authz and corresponding tests.\",\n      \"The candidate does not show clear reuse of that ownership boundary and instead builds a parallel auth/session_rbac implementation family.\",\n      \"This looks more like bypassing existing architecture than justified specialization.\",\n      \"Shared/common extraction is already available in-repo; the weakness here is failure to align with it.\"\n    ]\n  },\n  \"dual_mode_assessment\": {\n    \"status\": \"not_demonstrated\",\n    \"notes\": [\n      \"The provided candidate set does not establish meaningful dual-mode behavior or adapter-driven runtime variation.\",\n      \"No clear evidence shows local-dev versus target-runtime differences being isolated behind configuration or existing shared seams.\",\n      \"Dual-mode integrity is therefore not proven by this candidate.\"\n    ]\n  },\n  \"blockers\": [\n    \"Promotion composition conflicts with repository rules: the candidate uses a parallel backend/auth/session_rbac slice and a new app.py instead of clearly aligning with existing shared authz ownership and canonical composition seams.\",\n    \"Implementation mass is modest for the declared REQ area; the source is real but too narrow to justify strong acceptance confidence.\",\n    \"Test proof is too concentrated in one app-focused module and does not yet establish promotion-safe coverage of service logic, edge cases, and integration boundaries.\",\n    \"Docs and CI packaging are heavier than the underlying code footprint, creating a risk of narrative completeness exceeding implementation completeness.\"\n  ],\n  \"hardening_targets\": [\n    \"Align the candidate with the existing src/backend/shared/authz module family and justify or remove the parallel auth/session_rbac composition before promotion.\",\n    \"Rework entrypoint strategy to match repository composition rules and avoid an unjustified standalone app.py path.\",\n    \"Expand tests beyond app-level behavior to cover service-layer decisions, RBAC denial paths, session edge cases, malformed claims, and canonical integration seams.\",\n    \"Tighten README, KIT, HOWTO, and LTC claims so they describe only behavior directly supported by the emitted source and tests.\",\n    \"Demonstrate a low-risk promotion path from staging into canonical src/ and test/ targets without introducing parallel architecture.\"\n  ]\n}\n```"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 6090,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 2383,
+      "output_tokens_details": {
+        "reasoning_tokens": 1171
+      },
+      "total_tokens": 8473
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

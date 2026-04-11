@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260411T112019Z",
+  "project_id": "docufu",
+  "phase": "promotion_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_0808eb7a459570480069da2e526be88195a40287c2669682c1",
+    "object": "response",
+    "created_at": 1775906386,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1775906419,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "# Harper /kit — PROMOTION_EVAL\n\nYou are **Harper /kit PROMOTION_EVAL** — a **Senior Software Architect, Senior Software Engineer, promotion reviewer, and stop-ship evaluator**.\n\nYour task is to evaluate whether the current REQ candidate, after hardening, is ready to move forward as a serious promotion candidate.\n\nYou are NOT fixing files.\nYou are NOT redesigning.\nYou are evaluating.\n\n---\n\n## 1) Mission\n\nEvaluate the hardened REQ candidate against:\n\n- `IDEA.md`\n- `SPEC.md`\n- `PLAN.md`\n- `plan.json`\n- `TECH_CONSTRAINTS.yaml`\n- `REQ_PROMOTION_MANIFEST.md` when present\n- `INTEGRITY_EVAL.json`\n- current candidate files already generated for the REQ\n- repository-aware references when present\n\nYour goal is to determine whether the candidate is now:\n\n- still too weak\n- still missing required hardening\n- ready for later eval\n- a serious promotion candidate\n\n---\n\n## 2) What you must evaluate\n\n### A. Scope fidelity\nDoes the candidate still match the intended REQ?\n\n### B. Source substance\nIs the implementation now substantial enough?\n\n### C. Test credibility\nDo the tests now support real acceptance credibility?\n\n### D. Docs/code/test/ci coherence\nDo emitted docs and CI artifacts match the actual implementation?\n\n### E. Promotion fit\nIs the candidate clearly shaped for later promotion into canonical repository targets?\nPromotion fit must explicitly reject or downgrade candidates that:\n- create unjustified new `app.py` files\n- create duplicate local `config.py` or `settings.py` modules when shared equivalents already exist\n- re-bootstrap auth, runtime profile, or settings that should extend canonical shared modules\n- behave like a standalone micro-application when the REQ should only extend an existing application composition\n\n### F. Shared/common correctness\nIf shared/common modules are involved, are they justified and coherent?\n\n### G. Runtime-profile integrity\nIf local-dev and target-runtime modes both matter, are they still aligned under one promotable design?\n\n---\n\n## 3) Hard rules\n\n- Be severe.\n- Be explicit.\n- Do not be optimistic.\n- Do not reward superficial cleanup as if it were true hardening.\n- Do not fix code.\n- Do not emit patches.\n- Do not emit prose outside the required file block.\n- New application entrypoints, duplicate bootstrap modules, or duplicate shared configuration modules are promotion blockers unless explicitly justified by repository evidence or REQ scope.\n\n---\n\n## 4) Output artifact\n\nEmit exactly one file block:\n\n`file:/runs/kit/<REQ-ID>/ci/PROMOTION_EVAL.json`\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must be valid and must contain:\n\n- `version`\n- `req_id`\n- `verdict`\n- `summary`\n- `source_substance`\n- `test_credibility`\n- `docs_code_coherence`\n- `promotion_fit`\n- `shared_common_assessment`\n- `runtime_profile_assessment`\n- `blockers`\n- `remaining_risks`\n\n---\n\n## 5) Allowed verdicts\n\nUse exactly one of:\n\n- `reject`\n- `needs_more_hardening`\n- `eval_ready`\n- `promotion_candidate`\n- `promotion_candidate_with_risks`\n\n### Meaning\n\n- `reject` → still not a serious promotion candidate\n- `needs_more_hardening` → meaningful progress exists, but more targeted hardening is required\n- `eval_ready` → good enough to move into later evaluation stages\n- `promotion_candidate` → strong and coherent enough for serious promotion consideration\n- `promotion_candidate_with_risks` → promotable direction exists, but explicit bounded risks remain\n\n---\n\n## 6) Style\n\nThink like a promotion gate reviewer before formal gate.\n\nDo not hide weakness.\nDo not inflate quality.\nUse concise, operational judgments.\n\nIf the candidate is still too thin, say so clearly.\nIf the candidate is now strong, say so clearly.",
+    "max_output_tokens": 18000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_0808eb7a459570480069da2e52f1f481959ea66384ffaf858b",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_0808eb7a459570480069da2e6307108195a697a06b0c0a95b7",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "```file:/runs/kit/REQ-002/ci/PROMOTION_EVAL.json\n{\n  \"version\": \"1.0\",\n  \"req_id\": \"REQ-002\",\n  \"verdict\": \"eval_ready\",\n  \"summary\": \"The hardened REQ-002 candidate is no longer thin. It now has a coherent module split under backend/documents/intake, corresponding tests for core seams, and supporting docs/CI artifacts. It is shaped like an extension to an existing codebase rather than a standalone micro-application. However, the available evidence still stops short of proving canonical repository integration, target-runtime execution, or repository-level acceptance. This is strong enough for later evaluation, but not yet strong enough to call a clear promotion candidate.\",\n  \"source_substance\": {\n    \"assessment\": \"Materially improved and structurally credible. The candidate spans contracts, runtime, storage, service, router, package init, and smoke coverage surfaces rather than a single thin file.\",\n    \"evidence\": [\n      \"Source staged under runs/kit/REQ-002/src/backend/documents/intake/\",\n      \"Implementation split across __init__.py, contracts.py, runtime.py, storage.py, service.py, router.py, and smoke.py\",\n      \"Module family is localized to documents/intake and does not introduce a new top-level source root\"\n    ],\n    \"judgment\": \"Substantial enough to continue evaluation.\"\n  },\n  \"test_credibility\": {\n    \"assessment\": \"Better than superficial. Tests exist for runtime, service, and router seams, plus a curl request artifact for manual API exercise. This supports basic acceptance credibility for the staged component.\",\n    \"evidence\": [\n      \"test/backend/documents/intake/test_runtime.py present\",\n      \"test/backend/documents/intake/test_service.py present\",\n      \"test/backend/documents/intake/test_router.py present\",\n      \"test/api/document_intake_request.curl.txt present\"\n    ],\n    \"limits\": [\n      \"No repository-level integration test evidence was provided here\",\n      \"No demonstrated execution against canonical application composition was provided here\",\n      \"Manual curl artifact is useful but not a substitute for automated end-to-end acceptance\"\n    ],\n    \"judgment\": \"Credible for module-level evaluation, not yet definitive for promotion.\"\n  },\n  \"docs_code_coherence\": {\n    \"assessment\": \"Reasonably coherent. The candidate includes README, KIT doc, HOWTO, LTC, and integrity artifacts alongside the implementation and tests. The emitted artifact set matches the code/test shape.\",\n    \"evidence\": [\n      \"docs/README_REQ-002.md present\",\n      \"docs/KIT_REQ-002.md present\",\n      \"ci/HOWTO.md present\",\n      \"ci/LTC.json present\",\n      \"ci/INTEGRITY_EVAL.json present\"\n    ],\n    \"limits\": [\n      \"Without full artifact text here, deeper claims about exact acceptance coverage cannot be verified\",\n      \"Documentation existence does not prove runtime integration or promotion readiness by itself\"\n    ],\n    \"judgment\": \"Coherent enough for later eval, but documentation should not be overcredited.\"\n  },\n  \"promotion_fit\": {\n    \"assessment\": \"Good promotion shape. The candidate extends a backend/documents/intake package and does not appear to create a standalone application shell.\",\n    \"evidence\": [\n      \"No candidate app.py was introduced\",\n      \"No candidate config.py or settings.py was introduced\",\n      \"No parallel auth/bootstrap files were introduced in the candidate tree\",\n      \"Implementation remains localized under an existing-style backend namespace\"\n    ],\n    \"limits\": [\n      \"Actual wiring into canonical src/ and tests/ targets is not yet demonstrated\",\n      \"Promotion still depends on later review of import alignment and repository composition fit\"\n    ],\n    \"judgment\": \"Promotion-friendly direction; not yet fully promotion-proven.\"\n  },\n  \"shared_common_assessment\": {\n    \"assessment\": \"Acceptable and non-invasive. Repository manifests show canonical shared auth/settings modules already exist, and the candidate does not visibly duplicate them.\",\n    \"evidence\": [\n      \"Repository composition manifest lists canonical shared auth/settings modules under old.runs/backend/shared/authz/\",\n      \"Candidate file set does not introduce duplicate auth, bootstrap, config, or settings modules\"\n    ],\n    \"limits\": [\n      \"Absence of duplicate files is positive, but actual reuse/integration of shared modules cannot be fully confirmed from filenames alone\"\n    ],\n    \"judgment\": \"No shared/common promotion blocker is visible.\"\n  },\n  \"runtime_profile_assessment\": {\n    \"assessment\": \"Runtime concerns are at least explicitly modeled because runtime.py exists and is tested. That is better than embedding environment behavior ad hoc in unrelated modules.\",\n    \"evidence\": [\n      \"runtime.py present\",\n      \"test_runtime.py present\"\n    ],\n    \"limits\": [\n      \"No evidence here that both local-dev and target-runtime modes were exercised end-to-end\",\n      \"No evidence here of canonical deployment profile validation\"\n    ],\n    \"judgment\": \"Runtime-profile handling looks intentional, but still needs later confirmation under real promotion conditions.\"\n  },\n  \"blockers\": [],\n  \"remaining_risks\": [\n    \"Canonical repository integration is not yet proven; this remains a staged candidate under runs/kit.\",\n    \"Module-level tests exist, but repo-level acceptance and target-runtime validation are not evidenced here.\",\n    \"Manual API request artifact helps, but automated end-to-end acceptance evidence is still limited.\",\n    \"The canonical test root in repository evidence is tests/ while staging uses test/; promotion mapping must be handled carefully.\",\n    \"Shared module reuse appears non-duplicative, but actual dependency alignment with canonical shared code still needs later inspection.\"\n  ]\n}\n```"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 3023,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 2192,
+      "output_tokens_details": {
+        "reasoning_tokens": 1009
+      },
+      "total_tokens": 5215
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

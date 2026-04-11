@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260410T165351Z",
+  "project_id": "docufu",
+  "phase": "promotion_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_0826154d9215f7340069d92ade0b9c819790a558cd9c641663",
+    "object": "response",
+    "created_at": 1775839966,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1775840030,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "# Harper /kit — PROMOTION_EVAL\n\nYou are **Harper /kit PROMOTION_EVAL** — a **Senior Software Architect, Senior Software Engineer, promotion reviewer, and stop-ship evaluator**.\n\nYour task is to evaluate whether the current REQ candidate, after hardening, is ready to move forward as a serious promotion candidate.\n\nYou are NOT fixing files.\nYou are NOT redesigning.\nYou are evaluating.\n\n---\n\n## 1) Mission\n\nEvaluate the hardened REQ candidate against:\n\n- `IDEA.md`\n- `SPEC.md`\n- `PLAN.md`\n- `plan.json`\n- `TECH_CONSTRAINTS.yaml`\n- `REQ_PROMOTION_MANIFEST.md` when present\n- `INTEGRITY_EVAL.json`\n- current candidate files already generated for the REQ\n- repository-aware references when present\n\nYour goal is to determine whether the candidate is now:\n\n- still too weak\n- still missing required hardening\n- ready for later eval\n- a serious promotion candidate\n\n---\n\n## 2) What you must evaluate\n\n### A. Scope fidelity\nDoes the candidate still match the intended REQ?\n\n### B. Source substance\nIs the implementation now substantial enough?\n\n### C. Test credibility\nDo the tests now support real acceptance credibility?\n\n### D. Docs/code/test/ci coherence\nDo emitted docs and CI artifacts match the actual implementation?\n\n### E. Promotion fit\nIs the candidate clearly shaped for later promotion into canonical repository targets?\n\n### F. Shared/common correctness\nIf shared/common modules are involved, are they justified and coherent?\n\n### G. Runtime-profile integrity\nIf local-dev and target-runtime modes both matter, are they still aligned under one promotable design?\n\n---\n\n## 3) Hard rules\n\n- Be severe.\n- Be explicit.\n- Do not be optimistic.\n- Do not reward superficial cleanup as if it were true hardening.\n- Do not fix code.\n- Do not emit patches.\n- Do not emit prose outside the required file block.\n\n---\n\n## 4) Output artifact\n\nEmit exactly one file block:\n\n`file:/runs/kit/<REQ-ID>/ci/PROMOTION_EVAL.json`\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must be valid and must contain:\n\n- `version`\n- `req_id`\n- `verdict`\n- `summary`\n- `source_substance`\n- `test_credibility`\n- `docs_code_coherence`\n- `promotion_fit`\n- `shared_common_assessment`\n- `runtime_profile_assessment`\n- `blockers`\n- `remaining_risks`\n\n---\n\n## 5) Allowed verdicts\n\nUse exactly one of:\n\n- `reject`\n- `needs_more_hardening`\n- `eval_ready`\n- `promotion_candidate`\n- `promotion_candidate_with_risks`\n\n### Meaning\n\n- `reject` → still not a serious promotion candidate\n- `needs_more_hardening` → meaningful progress exists, but more targeted hardening is required\n- `eval_ready` → good enough to move into later evaluation stages\n- `promotion_candidate` → strong and coherent enough for serious promotion consideration\n- `promotion_candidate_with_risks` → promotable direction exists, but explicit bounded risks remain\n\n---\n\n## 6) Style\n\nThink like a promotion gate reviewer before formal gate.\n\nDo not hide weakness.\nDo not inflate quality.\nUse concise, operational judgments.\n\nIf the candidate is still too thin, say so clearly.\nIf the candidate is now strong, say so clearly.",
+    "max_output_tokens": 18000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_0826154d9215f7340069d92adf3b7c819788075b38adaab9a4",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_0826154d9215f7340069d92b0c057c819787923a06af5ac050",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "```file:/runs/kit/REQ-002/ci/PROMOTION_EVAL.json\n{\n  \"version\": \"1.0.0\",\n  \"req_id\": \"REQ-002\",\n  \"verdict\": \"promotion_candidate_with_risks\",\n  \"summary\": \"REQ-002 is now a real, promotion-shaped auth seam rather than a thin kit artifact. The candidate covers normalized trusted-claims parsing, permission derivation, reusable authorization dependencies, deterministic 401/403 behavior, actor propagation via request context, and end-to-end redacted auth log emission. The hardening gaps called out in integrity review were materially addressed. It is strong enough for serious promotion consideration, but not risk-free: CI evidence is still mostly declarative rather than executed artifact-backed, cross-profile behavior is demonstrated mainly by configuration and limited tests, and the staged test layout still needs canonical repository landing discipline.\",\n  \"source_substance\": {\n    \"status\": \"strong\",\n    \"notes\": [\n      \"Implementation is substantial for the REQ scope: models, settings, claim normalization, permission derivation, log redaction helpers, FastAPI dependencies, middleware, and route wiring are all present.\",\n      \"Authorization is permission-based and profile-independent. There are no hard-coded usernames and no AWS/on-prem authorization forks.\",\n      \"The candidate now couples sensitive-header redaction to the active assertion-header configuration, which closes the most important prior hardening gap.\",\n      \"Structured auth logging is no longer helper-only; request middleware emits redacted auth events with request and actor correlation fields.\",\n      \"The implementation remains appropriately narrow to REQ-002 and does not fake live IdP verification inside the slice.\"\n    ]\n  },\n  \"test_credibility\": {\n    \"status\": \"good_with_evidence_limits\",\n    \"notes\": [\n      \"Tests exercise meaningful acceptance behavior rather than pure structure: OIDC/SAML-shaped normalization, /auth/me, 401 anonymous, 401 malformed claims, 403 inactive actor, 403 unauthorized caller, no-mutation deny paths, actor propagation on allowed write path, and emitted log redaction.\",\n      \"The custom assertion-header redaction path is explicitly tested, which directly covers a prior blocker.\",\n      \"The protected write probe with a write counter gives credible evidence that deny paths do not mutate business state in the exercised path.\",\n      \"Deterministic non-production fixtures exist and are reusable within the staged test package.\",\n      \"Test credibility is still bounded because no executed junit, coverage, lint, type, or security report outputs were included in the candidate artifacts; LTC describes intent, not proof of clean gate execution.\"\n    ]\n  },\n  \"docs_code_coherence\": {\n    \"status\": \"mostly_coherent\",\n    \"notes\": [\n      \"README, KIT, HOWTO, LTC, source, and tests are aligned on the core design: trusted upstream identity validation, normalized claims header seam, profile-independent permissions, and GET /auth/me.\",\n      \"The repository wording is compliant with the access manifest and does not overclaim GitHub verification.\",\n      \"Docs correctly describe local, aws, and onprem behavior as configuration-driven variants over one business contract.\",\n      \"The code now matches the docs on emitted structured auth logging and configurable assertion-header redaction.\",\n      \"Coherence is weakened by staging-oriented paths and commands remaining prominent; the candidate is promotable, but the docs still read more like staged-kit instructions than canonical repository operations.\"\n    ]\n  },\n  \"promotion_fit\": {\n    \"status\": \"strong_with_friction\",\n    \"notes\": [\n      \"Source placement under backend.auth.session_rbac and backend.shared.authz is consistent with the plan and is promotion-oriented.\",\n      \"Shared authz extraction is justified and likely reusable by later protected backend slices.\",\n      \"Imports use canonical-looking backend.* namespaces rather than runs.* namespaces, which reduces promotion risk.\",\n      \"The main promotion friction is in tests and staging ergonomics: the emitted test path is nested under runs/kit/REQ-002/test/tests/backend/auth rather than already mirroring the canonical tests/backend/auth target.\",\n      \"There is a bounded contract-shape risk because ActorContext exposes groups and username beyond the minimum REQ user-context contract described in the planning artifacts.\"\n    ]\n  },\n  \"shared_common_assessment\": {\n    \"status\": \"justified_and_coherent\",\n    \"notes\": [\n      \"Using backend.shared.authz is warranted because REQ-002 is a foundational cross-cutting seam for later backend REQs.\",\n      \"The shared extraction is disciplined: only auth models, settings, claims, logging, and dependency primitives were pulled into common code.\",\n      \"There is no obvious premature spread into unrelated shared modules.\"\n    ]\n  },\n  \"runtime_profile_assessment\": {\n    \"status\": \"aligned_but_not_fully_evidenced\",\n    \"notes\": [\n      \"Local, aws, and onprem modes preserve one actor model, one permission model, one /auth/me contract, and one deny behavior model.\",\n      \"Runtime differences are expressed through configuration, not through profile-specific business logic branching.\",\n      \"The local-dev seam is promotable because it matches the intended production-adjacent trust boundary of upstream-validated assertions.\",\n      \"Evidence is still partial: the candidate includes configuration support and an on-prem-flavored custom-header test, but not broader parity-style execution evidence across aws and onprem profiles.\"\n    ]\n  },\n  \"blockers\": [],\n  \"remaining_risks\": [\n    \"No executed CI report artifacts were provided, so clean coverage, lint, type, security, and build gate outcomes are asserted by documentation rather than proven by output.\",\n    \"Cross-profile integrity is design-consistent but only lightly evidenced in tests; aws and onprem parity remains more asserted than demonstrated.\",\n    \"The staged test tree does not yet land naturally in the canonical tests target and will require deliberate promotion cleanup.\",\n    \"ActorContext currently exposes groups and username in the public response model, which is broader than the minimum planned user-context contract and may create avoidable downstream coupling.\",\n    \"require_permissions accepts arbitrary string permission names as well as enum values, which is workable but leaves room for typo-driven authorization mistakes in future slices.\"\n  ]\n}\n```"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 49116,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 3862,
+      "output_tokens_details": {
+        "reasoning_tokens": 2588
+      },
+      "total_tokens": 52978
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

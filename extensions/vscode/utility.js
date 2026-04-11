@@ -533,17 +533,28 @@ async function attachCoreBlobs(docUri, coreList) {
     }
 
     // 2) autodiscovery: tutti i file che iniziano con 'base' (stesso prefisso), esclusi già presi
-    const prefixed = entries.filter(([name, type]) => 
-      type === vscode.FileType.File
-      && name.toLowerCase().startsWith(base.toLowerCase())
-      && (name.toLowerCase().endsWith('.md') || name.toLowerCase().endsWith('.markdown') 
-          || name.toLowerCase().endsWith('.txt') || name.toLowerCase().endsWith('.1st') 
-          || name.toLowerCase().endsWith('.yaml') || name.toLowerCase().endsWith('.yml')
-          || name.toLowerCase().endsWith('.json')) //for plan.json
-     
-          && name.toLowerCase() !== `${base.toLowerCase()}.md`
-    );
+    const baseLower = base.toLowerCase();
+    const baseStem = baseLower.replace(/\.(md|markdown|txt|1st|yaml|yml|json)$/i, "");
 
+    const prefixed = entries.filter(([name, type]) => {
+      const nameLower = name.toLowerCase();
+
+      return (
+        type === vscode.FileType.File &&
+        nameLower.startsWith(baseStem) &&
+        (
+          nameLower.endsWith(".md") ||
+          nameLower.endsWith(".markdown") ||
+          nameLower.endsWith(".txt") ||
+          nameLower.endsWith(".1st") ||
+          nameLower.endsWith(".yaml") ||
+          nameLower.endsWith(".yml") ||
+          nameLower.endsWith(".json")
+        ) &&
+        nameLower !== baseLower
+      );
+    });
+  
     for (const [name, type] of prefixed) {
       const fullUri = vscode.Uri.joinPath(rootUri, name);
       const key = name; // manteniamo nome completo (es. IDEA_verAndrea.md)
@@ -1488,9 +1499,9 @@ function defaultCoreForPhase(phase) {
     case "plan":
       return ["SPEC.md", "TECH_CONSTRAINTS.yaml"];
     case "kit":
-      return ["SPEC.md", "PLAN.md", "TECH_CONSTRAINTS.yaml"];
+      return ["SPEC.md", "PLAN.md", "plan.json", "TECH_CONSTRAINTS.yaml"];
     case "finalize":
-      return ["SPEC.md", "PLAN.md", "TECH_CONSTRAINTS.yaml"];
+      return ["SPEC.md", "PLAN.md",  "plan.json", "TECH_CONSTRAINTS.yaml"];
     default:
       return ["IDEA.md"];
   }

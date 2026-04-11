@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260409T122052Z",
+  "project_id": "documentale",
+  "phase": "promotion_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_0e6bbc2de2bdd5820069d7c9491c4881969c24a4ac2a9e8ec0",
+    "object": "response",
+    "created_at": 1775749449,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1775749521,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "# Harper /kit — PROMOTION_EVAL\n\nYou are **Harper /kit PROMOTION_EVAL** — a **Senior Software Architect, Senior Software Engineer, promotion reviewer, and stop-ship evaluator**.\n\nYour task is to evaluate whether the current REQ candidate, after hardening, is ready to move forward as a serious promotion candidate.\n\nYou are NOT fixing files.\nYou are NOT redesigning.\nYou are evaluating.\n\n---\n\n## 1) Mission\n\nEvaluate the hardened REQ candidate against:\n\n- `IDEA.md`\n- `SPEC.md`\n- `PLAN.md`\n- `plan.json`\n- `TECH_CONSTRAINTS.yaml`\n- `REQ_PROMOTION_MANIFEST.md` when present\n- `INTEGRITY_EVAL.json`\n- current candidate files already generated for the REQ\n- repository-aware references when present\n\nYour goal is to determine whether the candidate is now:\n\n- still too weak\n- still missing required hardening\n- ready for later eval\n- a serious promotion candidate\n\n---\n\n## 2) What you must evaluate\n\n### A. Scope fidelity\nDoes the candidate still match the intended REQ?\n\n### B. Source substance\nIs the implementation now substantial enough?\n\n### C. Test credibility\nDo the tests now support real acceptance credibility?\n\n### D. Docs/code/test/ci coherence\nDo emitted docs and CI artifacts match the actual implementation?\n\n### E. Promotion fit\nIs the candidate clearly shaped for later promotion into canonical repository targets?\n\n### F. Shared/common correctness\nIf shared/common modules are involved, are they justified and coherent?\n\n### G. Runtime-profile integrity\nIf local-dev and target-runtime modes both matter, are they still aligned under one promotable design?\n\n---\n\n## 3) Hard rules\n\n- Be severe.\n- Be explicit.\n- Do not be optimistic.\n- Do not reward superficial cleanup as if it were true hardening.\n- Do not fix code.\n- Do not emit patches.\n- Do not emit prose outside the required file block.\n\n---\n\n## 4) Output artifact\n\nEmit exactly one file block:\n\n`file:/runs/kit/<REQ-ID>/ci/PROMOTION_EVAL.json`\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must be valid and must contain:\n\n- `version`\n- `req_id`\n- `verdict`\n- `summary`\n- `source_substance`\n- `test_credibility`\n- `docs_code_coherence`\n- `promotion_fit`\n- `shared_common_assessment`\n- `runtime_profile_assessment`\n- `blockers`\n- `remaining_risks`\n\n---\n\n## 5) Allowed verdicts\n\nUse exactly one of:\n\n- `reject`\n- `needs_more_hardening`\n- `eval_ready`\n- `promotion_candidate`\n- `promotion_candidate_with_risks`\n\n### Meaning\n\n- `reject` → still not a serious promotion candidate\n- `needs_more_hardening` → meaningful progress exists, but more targeted hardening is required\n- `eval_ready` → good enough to move into later evaluation stages\n- `promotion_candidate` → strong and coherent enough for serious promotion consideration\n- `promotion_candidate_with_risks` → promotable direction exists, but explicit bounded risks remain\n\n---\n\n## 6) Style\n\nThink like a promotion gate reviewer before formal gate.\n\nDo not hide weakness.\nDo not inflate quality.\nUse concise, operational judgments.\n\nIf the candidate is still too thin, say so clearly.\nIf the candidate is now strong, say so clearly.",
+    "max_output_tokens": 18000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_0e6bbc2de2bdd5820069d7c94c9f6c81969fd88e3dc0c42e73",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_0e6bbc2de2bdd5820069d7c97df310819699bfbb02fbc8e383",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "```file:/runs/kit/REQ-001/ci/PROMOTION_EVAL.json\n{\n  \"version\": \"1.0.0\",\n  \"req_id\": \"REQ-001\",\n  \"verdict\": \"needs_more_hardening\",\n  \"summary\": \"This is now a materially stronger REQ-001 candidate. The schema work is substantive, downstream contract surface is no longer obviously under-specified, and the integration tests are credible for lifecycle, FK, replay, and constraint behavior. It is still short of serious promotion-candidate quality because the provided CI contract artifact is malformed/incomplete, promotion evidence still depends on runnable scripts rather than demonstrated executed results, and the canonical-schema claim remains partially split between SQL and unenforced Node-side contracts.\",\n  \"source_substance\": {\n    \"status\": \"strong\",\n    \"notes\": [\n      \"The migration is real implementation, not scaffolding: enums, tables, checks, indexes, functions, and triggers are present and coherent with REQ-001 scope.\",\n      \"Hardening closed the prior gap on downstream-facing contracts by adding documentRecord, persistenceContracts, and broader review/audit model surfaces.\",\n      \"A minimal repository seam now exists and is aligned to later planned REQs without inventing extra top-level architecture.\",\n      \"Remaining weakness: some canonical business vocabulary is still only expressed in JavaScript contract modules rather than enforced in the database schema itself.\"\n    ]\n  },\n  \"test_credibility\": {\n    \"status\": \"moderate_to_strong\",\n    \"notes\": [\n      \"Unit tests now cover lifecycle, document field contracts, persistence seam, review decisions, and audit entity/action compatibility.\",\n      \"Integration tests exercise real PostgreSQL behavior: migration apply, up/down/up replay, FK integrity, enum rejection, lifecycle transition rejection, terminal-state protection, blank-field checks, and idempotency uniqueness.\",\n      \"These tests are acceptance-relevant for a data-first REQ and are materially better than smoke-only assertions.\",\n      \"Credibility is not full promotion-grade because the supplied package does not include fresh execution outputs proving the hardened candidate actually passed, only scripts and declared artifact paths.\"\n    ]\n  },\n  \"docs_code_coherence\": {\n    \"status\": \"mixed\",\n    \"notes\": [\n      \"README, KIT, and HOWTO are largely aligned with the emitted source and test files.\",\n      \"Repository-analysis wording stays within the provided manifest rules and does not overclaim GitHub verification.\",\n      \"Runtime-profile documentation is coherent with the implementation: same migration set, same tests, only connection and SSL posture differ.\",\n      \"The provided LTC.json evidence is malformed or truncated in the supplied candidate reference, which is a concrete coherence failure for a required machine-readable CI artifact.\"\n    ]\n  },\n  \"promotion_fit\": {\n    \"status\": \"good_but_not_gate_ready\",\n    \"notes\": [\n      \"The candidate stays within the intended promotable module families: src/platform/db and domain model roots only, with tests under the expected database and domain areas.\",\n      \"Promotion from staging into canonical src/ and tests/ targets would be structurally low risk.\",\n      \"The data contract surface is now close to what downstream REQs need, which improves promotion fitness materially versus the earlier integrity evaluation.\",\n      \"It is not yet a serious promotion candidate because required promotion evidence is not cleanly machine-consumable and hard pass evidence is missing.\"\n    ]\n  },\n  \"shared_common_assessment\": {\n    \"status\": \"appropriate\",\n    \"notes\": [\n      \"Shared/common extraction remains restrained and justified.\",\n      \"src/platform/db is the correct shared family for persistence vocabulary in a data-first REQ.\",\n      \"The added repository contract seam is narrow and purposeful rather than speculative abstraction.\"\n    ]\n  },\n  \"runtime_profile_assessment\": {\n    \"status\": \"aligned\",\n    \"notes\": [\n      \"Local and AWS-targeted profiles preserve one promotable design: identical migration SQL, identical contract modules, identical test logic.\",\n      \"Profile differences are limited to connection details and SSL posture, which is the correct boundary for this REQ.\",\n      \"No local-only shortcut architecture was introduced.\"\n    ]\n  },\n  \"blockers\": [\n    \"The supplied ci/LTC.json artifact is malformed or incomplete in the provided candidate evidence, so a required machine-readable CI contract cannot be trusted or consumed as-is.\",\n    \"The hardened candidate still lacks demonstrated pass evidence for the updated tests; promotion review would rely on intended commands rather than executed results.\",\n    \"Because promotion evidence is not cleanly consumable, the candidate is not yet ready to be treated as a serious promotion candidate even though the source hardening improved materially.\"\n  ],\n  \"remaining_risks\": [\n    \"Audit entity/action vocabulary is modeled in Node contracts but not strongly constrained in the database schema, so the 'canonical schema' claim is not fully enforced at the storage boundary.\",\n    \"Idempotency conflict semantics beyond route_key plus idempotency_key uniqueness remain dependent on downstream application behavior rather than full schema-level enforcement.\",\n    \"The current test suite is strong for REQ-001 scope, but later promotion should still insist on archived run outputs or CI-produced reports, not just runnable scripts and declared artifact paths.\"\n  ]\n}\n```"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 38032,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 3397,
+      "output_tokens_details": {
+        "reasoning_tokens": 2321
+      },
+      "total_tokens": 41429
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

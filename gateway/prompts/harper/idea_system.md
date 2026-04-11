@@ -281,6 +281,30 @@ tech_constraints:
       redaction_required: true
 ```
 
+## Deployment Portability Rule (MANDATORY WHEN APPLICABLE)
+
+If the solution is expected to run in more than one deployment context, such as AWS and on-prem, the IDEA must describe:
+- the primary delivery profile
+- the secondary supported profile
+- the functional parity expected across profiles
+- which differences are allowed only at the infrastructure adapter layer
+- which business APIs, lifecycle states, audit semantics, and operator workflows must remain unchanged across profiles
+
+Do not express infrastructure vendor choices as the only possible architecture if deployment portability is a project requirement.
+Use profile-oriented constraints instead.
+
+## Technology Constraints Profile Rule
+
+When infrastructure portability matters, TECH_CONSTRAINTS must define profile-based options for:
+- platform
+- object storage
+- messaging
+- secrets management
+- observability sinks
+- AI serving runtime
+
+Prefer profile-driven contracts over single-vendor hard-coding.
+
 ## Risks & Assumptions
 
 * **Business assumptions:** <data availability / stakeholder commitment / policy approvals>.

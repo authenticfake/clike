@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260411T121252Z",
+  "project_id": "docufu",
+  "phase": "promotion_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_07583f9b9d1a704c0069da3a8d86b48193afdcf9c29c0918c8",
+    "object": "response",
+    "created_at": 1775909517,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1775909572,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "# Harper /kit — PROMOTION_EVAL\n\nYou are **Harper /kit PROMOTION_EVAL** — a **Senior Software Architect, Senior Software Engineer, promotion reviewer, and stop-ship evaluator**.\n\nYour task is to evaluate whether the current REQ candidate, after hardening, is ready to move forward as a serious promotion candidate.\n\nYou are NOT fixing files.\nYou are NOT redesigning.\nYou are evaluating.\n\n---\n\n## 1) Mission\n\nEvaluate the hardened REQ candidate against:\n\n- `IDEA.md`\n- `SPEC.md`\n- `PLAN.md`\n- `plan.json`\n- `TECH_CONSTRAINTS.yaml`\n- `REQ_PROMOTION_MANIFEST.md` when present\n- `INTEGRITY_EVAL.json`\n- current candidate files already generated for the REQ\n- repository-aware references when present\n\nYour goal is to determine whether the candidate is now:\n\n- still too weak\n- still missing required hardening\n- ready for later eval\n- a serious promotion candidate\n\n---\n\n## 2) What you must evaluate\n\n### A. Scope fidelity\nDoes the candidate still match the intended REQ?\n\n### B. Source substance\nIs the implementation now substantial enough?\n\n### C. Test credibility\nDo the tests now support real acceptance credibility?\n\n### D. Docs/code/test/ci coherence\nDo emitted docs and CI artifacts match the actual implementation?\n\n### E. Promotion fit\nIs the candidate clearly shaped for later promotion into canonical repository targets?\nPromotion fit must explicitly reject or downgrade candidates that:\n- create unjustified new `app.py` files\n- create duplicate local `config.py` or `settings.py` modules when shared equivalents already exist\n- re-bootstrap auth, runtime profile, or settings that should extend canonical shared modules\n- behave like a standalone micro-application when the REQ should only extend an existing application composition\n\n### F. Shared/common correctness\nIf shared/common modules are involved, are they justified and coherent?\n\n### G. Runtime-profile integrity\nIf local-dev and target-runtime modes both matter, are they still aligned under one promotable design?\n\n---\n\n## 3) Hard rules\n\n- Be severe.\n- Be explicit.\n- Do not be optimistic.\n- Do not reward superficial cleanup as if it were true hardening.\n- Do not fix code.\n- Do not emit patches.\n- Do not emit prose outside the required file block.\n- New application entrypoints, duplicate bootstrap modules, or duplicate shared configuration modules are promotion blockers unless explicitly justified by repository evidence or REQ scope.\n\n---\n\n## 4) Output artifact\n\nEmit exactly one file block:\n\n`file:/runs/kit/<REQ-ID>/ci/PROMOTION_EVAL.json`\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must be valid and must contain:\n\n- `version`\n- `req_id`\n- `verdict`\n- `summary`\n- `source_substance`\n- `test_credibility`\n- `docs_code_coherence`\n- `promotion_fit`\n- `shared_common_assessment`\n- `runtime_profile_assessment`\n- `blockers`\n- `remaining_risks`\n\n---\n\n## 5) Allowed verdicts\n\nUse exactly one of:\n\n- `reject`\n- `needs_more_hardening`\n- `eval_ready`\n- `promotion_candidate`\n- `promotion_candidate_with_risks`\n\n### Meaning\n\n- `reject` → still not a serious promotion candidate\n- `needs_more_hardening` → meaningful progress exists, but more targeted hardening is required\n- `eval_ready` → good enough to move into later evaluation stages\n- `promotion_candidate` → strong and coherent enough for serious promotion consideration\n- `promotion_candidate_with_risks` → promotable direction exists, but explicit bounded risks remain\n\n---\n\n## 6) Style\n\nThink like a promotion gate reviewer before formal gate.\n\nDo not hide weakness.\nDo not inflate quality.\nUse concise, operational judgments.\n\nIf the candidate is still too thin, say so clearly.\nIf the candidate is now strong, say so clearly.",
+    "max_output_tokens": 18000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_07583f9b9d1a704c0069da3a8e1be08193937aa5a0c09fa8ee",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_07583f9b9d1a704c0069da3ab185bc81939dfaafad7b53fe05",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "```file:/runs/kit/REQ-001/ci/PROMOTION_EVAL.json\n{\n  \"version\": \"1.0\",\n  \"req_id\": \"REQ-001\",\n  \"verdict\": \"needs_more_hardening\",\n  \"summary\": \"The candidate is materially stronger than a thin stub: it stays within a coherent shared authz scope, adds multiple focused source modules, avoids inventing a new app entrypoint, and includes dedicated tests plus CI/docs artifacts. That said, it is not yet a serious promotion candidate. The key gap is promotion proof: the repository already has shared authz/settings assets under old.runs, and the staged package is not yet evidenced as a justified migration/extension rather than a parallel reimplementation. Test credibility also remains bounded because the visible staged evidence is concentrated in a single unit-test module and does not demonstrate integration with the existing application composition or runtime-profile behavior.\",\n  \"source_substance\": {\n    \"assessment\": \"meaningful but not yet promotion-strong\",\n    \"details\": [\n      \"The staged source is not superficial: it contains a multi-module backend/shared/authz package with separate models, settings, claims, dependencies, and logging modules.\",\n      \"The implementation shape is aligned with the apparent REQ theme and does not sprawl into unrelated application areas.\",\n      \"The package is reviewable and structured for later promotion into src/, but current evidence does not prove how it relates to the already-existing authz implementation in old.runs.\"\n    ]\n  },\n  \"test_credibility\": {\n    \"assessment\": \"partial acceptance support only\",\n    \"details\": [\n      \"A dedicated authz test module exists, which is materially better than no tests and suggests some behavioral coverage.\",\n      \"The staged evidence only shows one test module for the feature area; that is not enough by itself to establish strong acceptance credibility for shared authz behavior.\",\n      \"There is no visible evidence here of integration tests against the existing application composition, dependency wiring, or runtime profile differences.\",\n      \"CI artifacts exist, but their presence alone does not upgrade unit-level coverage into promotion-grade acceptance evidence.\"\n    ]\n  },\n  \"docs_code_coherence\": {\n    \"assessment\": \"partially coherent, not fully proven\",\n    \"details\": [\n      \"README, KIT, HOWTO, LTC, and INTEGRITY artifacts are present, which is a positive sign of delivery hygiene.\",\n      \"However, the visible prompt does not provide enough artifact content to award strong coherence credit between documented claims, executable behavior, and CI outcomes.\",\n      \"Promotion readiness requires clearer evidence that acceptance criteria and integrity conclusions map directly to the staged implementation and tests.\"\n    ]\n  },\n  \"promotion_fit\": {\n    \"assessment\": \"directionally correct, but still under-justified\",\n    \"details\": [\n      \"The candidate does not create a new app.py and does not behave like a standalone micro-application. That avoids a major promotion blocker.\",\n      \"The module family stays under backend/shared/authz, which is the right architectural neighborhood for a shared authz concern.\",\n      \"The main weakness is reuse/migration justification: repository evidence already lists shared authz modules and settings in old.runs. The candidate is not yet evidenced as a clear extension, consolidation, or promotion-safe replacement of that existing shared surface.\",\n      \"Until that relationship is explicit and tested, promotion fit remains below serious-candidate level.\"\n    ]\n  },\n  \"shared_common_assessment\": {\n    \"assessment\": \"plausibly justified, but duplication risk remains\",\n    \"details\": [\n      \"A shared/common authz package is a reasonable shape for the REQ.\",\n      \"Repository composition evidence shows a pre-existing shared authz package family. That raises a hard review question: is this staged package a canonical move into src/, or an unauthorized parallel copy?\",\n      \"Without stronger evidence of compatibility and intended replacement/merge behavior, the shared/common story is still fragile.\"\n    ]\n  },\n  \"runtime_profile_assessment\": {\n    \"assessment\": \"incomplete promotion evidence\",\n    \"details\": [\n      \"A settings module exists, so runtime-profile concerns were not ignored.\",\n      \"But settings presence is not enough. There is no visible proof here that local-dev and target-runtime modes stay aligned under one promotable design.\",\n      \"No explicit end-to-end evidence is shown for configuration loading, dependency behavior under different profiles, or failure-mode handling.\"\n    ]\n  },\n  \"blockers\": [\n    \"The staged authz package is not yet clearly justified against the repository's already-existing shared authz/settings modules in old.runs; promotion currently looks too much like parallel implementation risk.\",\n    \"Acceptance evidence is still too unit-centric; there is no demonstrated integration with the existing application composition or dependency wiring.\",\n    \"Runtime-profile integrity is not sufficiently demonstrated beyond the existence of a settings module.\",\n    \"Docs/CI presence is positive, but promotion-grade coherence is not yet proven from the visible evidence.\"\n  ],\n  \"remaining_risks\": [\n    \"Promotion into canonical src/ and tests/ targets may expose import-path, packaging, or dependency mismatches not surfaced by the staged layout.\",\n    \"Behavioral drift between the new shared authz package and the repository's pre-existing authz implementation may create hidden compatibility regressions.\",\n    \"If downstream application code expects the old.runs authz contract, the staged package may still require contract verification before safe promotion.\",\n    \"Any undocumented assumptions in claims parsing, dependency behavior, or authz logging may become stop-ship issues once integrated into real application flows.\"\n  ]\n}\n```"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 2881,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 3150,
+      "output_tokens_details": {
+        "reasoning_tokens": 2004
+      },
+      "total_tokens": 6031
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

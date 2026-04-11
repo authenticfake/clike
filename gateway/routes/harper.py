@@ -438,6 +438,31 @@ def _guess_mime(path: str) -> str:
     mime, _ = mimetypes.guess_type(path or "", strict=False)
     return mime or "application/octet-stream"
 
+def _enforce_single_req_output(files_list: list[dict], target_req: str | None) -> list[dict]:
+    """
+    Reject any file outside the current target REQ staging root.
+    """
+    if not files_list or not target_req:
+        return files_list or []
+
+    prefix = f"runs/kit/{target_req}/"
+    filtered: list[dict] = []
+
+    for item in files_list:
+        path = _canonicalize_path(str(item.get("path") or ""))
+        if not path.startswith(prefix):
+            log.warning(
+                "harper.kit dropping file outside target req root: target=%s path=%s",
+                target_req,
+                path,
+            )
+            continue
+        cloned = dict(item)
+        cloned["path"] = path
+        filtered.append(cloned)
+
+    return filtered
+
 def _dedupe_by_path(files_list: list[dict]) -> list[dict]:
     """
     Deduplica per path canonico. Se ci sono duplicati, tiene il contenuto più lungo.
@@ -636,6 +661,104 @@ PHASE_INPUT_FILE = {
     "finalize":["IDEA.md", "SPEC.md", "PLAN.md"],
 }# Pass-through opzionali dal req.gen (se presenti)
 
+def _filter_core_blobs_for_kit(
+    core_blobs: dict | None,
+    target_req: str | None,
+) -> dict[str, str]:
+    """
+    Keep only the blobs that are useful for the current KIT target.
+
+    This reduces prompt drift by removing unrelated manifest noise and stale REQ
+    material from previous runs.
+    """
+    if not core_blobs:
+        return {}
+
+    target_req = str(target_req or "").strip()
+    kept: dict[str, str] = {}
+
+    always_keep_suffixes = (
+        "spec.md",
+        "plan.md",
+        "plan.json",
+        "tech_constraints.yaml",
+    )
+    always_keep_prefixes = (
+        "REPO_ACCESS_MANIFEST",
+        "REPO_STRUCTURE_EVIDENCE",
+        "REPO_COMPOSITION_MANIFEST",
+    )
+
+    for name, content in core_blobs.items():
+        key = str(name or "").strip()
+        lkey = key.lower()
+
+        if any(lkey.endswith(sfx) for sfx in always_keep_suffixes):
+            kept[key] = content
+            continue
+
+        if any(key.startswith(prefix) for prefix in always_keep_prefixes):
+            kept[key] = content
+            continue
+
+        if key.startswith("REQ_PROMOTION_MANIFEST"):
+            if target_req and target_req in key:
+                kept[key] = content
+            elif target_req and f"REQ Promotion Manifest — {target_req}" in str(content):
+                kept[key] = content
+            continue
+
+    return kept
+
+
+def _build_kit_user_message(
+    phase: str,
+    user: str,
+    core_blobs: dict | None,
+    targets: list[str] | None,
+) -> str:
+    """
+    For KIT, replace the giant narrative prompt with a smaller target-first prompt.
+    """
+    if (phase or "").lower() != "kit":
+        return user
+
+    target_req = str((targets or [None])[0] or "").strip()
+    filtered_core = _filter_core_blobs_for_kit(core_blobs, target_req)
+
+    refs = []
+    for name, content in filtered_core.items():
+        refs.append(f"- {name} ({len(content or '')} chars)")
+
+    concise_parts = [
+        "## CLike Principles (short)",
+        "- Harper pipeline: IDEA→SPEC→PLAN→KIT, eval-driven quality, outcome-first.",
+        "- Keep output concise but testable; Acceptance Criteria are mandatory.",
+        "- Maintain human-in-control tone; do not invent facts.",
+        "",
+        "## KIT EXECUTION MODE",
+        f"- Current phase: {phase}",
+        f"- Current target REQ-ID: {target_req}",
+        "- Use only the current target REQ staging root.",
+        "- Dependencies are context only and must not receive emitted files.",
+        "- If context conflicts with the target block, obey the target block.",
+        "",
+        "## Included references",
+    ]
+    concise_parts.extend(refs if refs else ["- none"])
+    concise_parts.extend([
+            "",
+            "## OUTPUT CONFORMITY CHECKLIST",
+            "- Emit one or more `file:/path` fenced blocks with complete file contents.",
+            "- Respect the module/package and namespace structure defined by PLAN.md.",
+            "- No trailing prose outside fenced blocks.",
+            "- Any file path outside the target REQ staging root is invalid.",
+            "",
+            "## Task",
+            "Produce/Transform the KIT output that strictly follows the Output contract.",
+        ])
+
+    return "\n".join(concise_parts).strip()
 
 # --- PATCH START: phase-aware output checklist ---
 def _output_checklist_for_phase(phase: str) -> str:
@@ -667,22 +790,41 @@ def _output_checklist_for_phase(phase: str) -> str:
         "- Rispect the Module/Package & Namespace structure defined in the PLAN.md during kit command"
         "- No trailing prose outside fenced blocks, except a short append-only iteration log if specified.\n"
     )
+  
+def _append_kit_target_to_user(user_text: str, targets: list[str], acceptance: Optional[list[str]] = None,) -> str:
+    """
+    Force a single authoritative KIT target block at the very top of the user prompt.
 
-def _append_kit_target_to_user(user_text: str, targets: list[str], acceptance: Optional[list[str]] = list[str]) -> str:
-    
+    This is intentionally strict because GPT-5.4 drifts when the target is only
+    mentioned later in a long prompt body.
+    """
     if not targets:
         return user_text
-    rid = targets[0]
-    # opzionale: acceptance passata dal client
-    acc = acceptance or []
-    section = [ "\n### KIT Target To Be Applied for this phase. ", f"- REQ-ID: {rid}.\n" ]
-    section.append(f"- Generates code, docs, test for the following REQ-ID: {rid}.")
 
-    if isinstance(acc, list) and acc:
-        section.append("- Acceptance (from PLAN.md):")
-        section.extend([f"  - {a}" for a in acc])
-    return user_text + "\n" + "\n".join(section) + "\n"
+    target_req = str(targets[0]).strip()
+    acc = [str(item).strip() for item in (acceptance or []) if str(item).strip()]
 
+    header_lines = [
+        "## KIT TARGET (AUTHORITATIVE)",
+        f"- Target REQ-ID: {target_req}",
+        f"- Only valid staging root: runs/kit/{target_req}/",
+        f"- Only valid source root for this response: runs/kit/{target_req}/src/",
+        f"- Only valid test root for this response: runs/kit/{target_req}/test/",
+        f"- Only valid docs root for this response: runs/kit/{target_req}/docs/",
+        f"- Only valid ci root for this response: runs/kit/{target_req}/ci/",
+        "- Do not emit files for any other REQ-ID.",
+        "- Do not emit paths for dependencies under their own REQ staging roots.",
+        "- Dependency REQs are read-only context only.",
+        "- If any manifest, repo evidence, or prior context conflicts with this target block, this target block wins.",
+        "- Any file path outside the target REQ staging root is an invalid response.",
+    ]
+
+    if acc:
+        header_lines.append("- Acceptance criteria for this target:")
+        header_lines.extend([f"  - {item}" for item in acc])
+
+    authoritative_block = "\n".join(header_lines).strip()
+    return f"{authoritative_block}\n\n{user_text.lstrip()}"
 
 
 def _compose_system_messages(phase: str,
@@ -750,9 +892,19 @@ def _compose_system_messages(phase: str,
     suffix_parts = []
     log.debug("componse message nmber: %s", len(system.split("\n")))
 
+    NORMATIVE_PREFIXES = (
+        "REQ_PROMOTION_MANIFEST",
+        "REPO_ACCESS_MANIFEST",
+        "REPO_STRUCTURE_EVIDENCE",
+        "REPO_COMPOSITION_MANIFEST",
+    )
+
     if other_core:
         for n, c in other_core.items():
-            suffix_parts.append(f"\n\n### {n} (verbatim)\n{c}")
+            if any((n or "").startswith(prefix) for prefix in NORMATIVE_PREFIXES):
+                suffix_parts.append(f"\n\n### {n} (verbatim)\n{c}")
+            else:
+                suffix_parts.append(f"\n\n### {n} (reference only)\nIncluded as project context; do not ignore if relevant.")
 
     # Technology Constraints unified block (if any were found under core)
     if constraints_chunks:
@@ -764,6 +916,7 @@ def _compose_system_messages(phase: str,
     idea_txt = ""
     if idea_md and phase.lower() == 'spec':
         idea_txt = f"### IDEA.md (verbatim)\n{idea_md}\n\n"
+
     user = (
         f"{foreground}\n\n"
         f"### Route\n\n"
@@ -774,8 +927,14 @@ def _compose_system_messages(phase: str,
     )
     # --- se fase KIT, inietta direttiva target ---
     if (phase or "").lower() == "kit":
+        user = _build_kit_user_message(
+            phase=phase,
+            user=user,
+            core_blobs=core_blobs,
+            targets=targets,
+        )
         user = _append_kit_target_to_user(user, targets=targets)
-
+    
     messages_output = [
         {"role": "system", "content": system.strip()},
         {"role": "user", "content": user.strip()},
@@ -869,6 +1028,27 @@ class HarperRunRequest(BaseModel):
 
 
 # --- RAG: helper locale (RagStore) per recupero per path ---------------------
+def _collect_dependency_candidate_paths(plan_data: dict, targets: list[str]) -> list[str]:
+    reqs = plan_data.get("reqs") or []
+    target_ids = {str(t or "").strip() for t in (targets or []) if str(t or "").strip()}
+    dep_ids: set[str] = set()
+
+    for r in reqs:
+        rid = str(r.get("id") or "").strip()
+        if rid in target_ids:
+            for dep in r.get("dependsOn") or []:
+                dep = str(dep or "").strip()
+                if dep:
+                    dep_ids.add(dep)
+
+    paths: list[str] = []
+    for dep in sorted(dep_ids):
+        paths.extend([
+            f"runs/kit/{dep}/src",
+            f"runs/kit/{dep}/test",
+        ])
+    return paths
+
 async def _append_attachs_by_files(messages: list[dict], project_id: str, paths: list[str],contents: list[str], max_materials: int = 12, max_chars_each: int = 200000):
     """
     It loads documents from the RagStore by exact paths and appends them to the user message as '### RAG Context'. 
@@ -1352,43 +1532,76 @@ def _infer_provider_from_model_name(raw: str | None) -> str:
 
     return ""   
   
+
 async def _append_dep_req_sources_by_path(
     messages: list[dict],
     project_id: str,
     dep_ids: list[str],
     max_materials: int = 24,
+    max_chars_each: int = 12000,
 ) -> int:
     """
-    Exact-path retrieval for previous KIT sources.
-    We try canonical folder patterns for dependent REQs before semantic search.
+    Prefix-based retrieval for previous KIT source files only.
+    Policy for /kit:
+    - include only promoted source files under runs/kit/<REQ>/src/**
+    - exclude tests, HOWTO, LTC, README and other CI/document artifacts
     """
     if not dep_ids:
         return 0
 
-    candidate_paths: list[str] = []
+    try:
+        store = RagStore(project_id=project_id or "default_id") if RagStore else None
+    except Exception:
+        store = None
+
+    if not store:
+        return 0
+
+    materials: list[dict] = []
+
     for dep in dep_ids:
         dep_norm = str(dep or "").strip().upper()
         if not dep_norm:
             continue
-        candidate_paths.extend([
-            f"runs/kit/{dep_norm}/src",
-            f"runs/kit/{dep_norm}/test",
-            f"runs/kit/{dep_norm}/ci/LTC.json",
-            f"runs/kit/{dep_norm}/ci/HOWTO.md",
-        ])
-    log.info("harper.kit.rag exact dep candidate_paths=%s", candidate_paths)
-    try:
-        appended = await _append_attachs_by_files(
-            messages,
-            project_id,
-            paths=candidate_paths,
-            contents=[],
-            max_materials=max_materials,
-        )
-        return appended
-    except Exception as e:
-        log.warning("harper.kit.rag: exact dep path append failed: %s", e)
+
+        src_prefix = f"runs/kit/{dep_norm}/src"
+        log.info("harper.kit.rag source prefix=%s", src_prefix)
+
+        try:
+            docs = await store.fetch_docs(
+                path_prefix=src_prefix,
+                limit_docs=max_materials,
+                max_chars_per_doc=max_chars_each,
+                search_top_k=200,
+                base_url=os.getenv("RAG_BASE_URL", "http://orchestrator:8080/v1/rag"),
+            )
+        except Exception as e:
+            log.warning("harper.kit.rag prefix fetch failed for %s: %s", src_prefix, e)
+            docs = []
+
+        for doc in docs or []:
+            path = str(doc.get("path") or "").strip()
+            txt = str(doc.get("text") or "")
+            if not path or not txt:
+                continue
+
+            if len(txt) > max_chars_each:
+                txt = txt[:max_chars_each] + "\n# ... truncated"
+
+            materials.append({"title": path, "text": txt})
+
+    if not materials:
         return 0
+
+    appendix = (
+        "\n\n### RAG Context – Promoted dependency source files\n"
+        + "\n\n".join(
+            f"#### {m['title']}\n{m['text']}" for m in materials[:max_materials]
+        )
+    )
+    messages[1]["content"] += appendix
+    return len(materials[:max_materials])
+
 @router.post("/run")
 async def run(req: HarperRunRequest,  request: Request):
     # TODO: apply policy based on req.profile (cloud/local/redaction) and perform the actual work.
@@ -1577,7 +1790,15 @@ async def run(req: HarperRunRequest,  request: Request):
 
         if strategy == "deps_only":
             try:
+                appended_exact = 0
                 plan_data = _load_plan_json(core_blobs)
+                dep_candidate_paths = _collect_dependency_candidate_paths(plan_data, targets)
+                if dep_candidate_paths:
+                    messages[1]["content"] += (
+                        "\n\n### Dependency code to inspect first\n"
+                        + "\n".join(f"- {p}" for p in dep_candidate_paths)
+                        + "\nUse these promoted or dependency-aligned code paths as canonical before creating new local modules."
+                    )
                 if not plan_data:
                     log.info("harper.kit.rag: no plan.json in core_blobs; skip deps_only RAG")
                 else:
@@ -1590,7 +1811,7 @@ async def run(req: HarperRunRequest,  request: Request):
                         log.debug("harper.kit.rag: no deps for targets=%s", targets)
                     if not gate_refs:
                         log.debug("harper.kit.rag: no refs for targets=%s", targets)
-
+                    appended_exact = 0
                     if dep_ids or gate_refs:
                             # 1) Retrieve dependent REQ source materials
                         if dep_ids:
@@ -1607,48 +1828,16 @@ async def run(req: HarperRunRequest,  request: Request):
                                         dep_ids,
                                     )
                                 else:
-                                    base_queries = list(req.rag_queries or [])
-                                    for d in dep_ids:
-                                        if d not in base_queries:
-                                            base_queries.append(d)
-
-                                    log.info("harper.kit.rag: fallback semantic queries=%s", base_queries)
-
-                                    materials = await _retrive_rag_chunks(
-                                        messages,
-                                        req.rag_chunks or [],
-                                        base_queries,
-                                        req.rag_top_k,
-                                        project_id,
+                                    log.info(
+                                        "harper.kit.rag: no source materials found for deps=%s; semantic fallback disabled for /kit to avoid PLAN/SPEC noise",
+                                        dep_ids,
                                     )
 
-                                    if materials:
-                                        kit_materials: list[dict] = []
-                                        for m in materials:
-                                            title = (m.get("title") or "").lower()
-                                            path_part = title.split("#", 1)[0]
-                                            if path_part.startswith("runs/kit/req-") and "/src/" in path_part:
-                                                kit_materials.append(m)
-
-                                        use_materials = kit_materials or materials
-                                        appendix = (
-                                            "\n\n### RAG Context – Current source code implementations and structure\n"
-                                            + "\n\n".join(
-                                                f"#### {m['title']}\n{m['text']}" for m in use_materials[:24]
-                                            )
-                                        )
-                                        messages[1]["content"] += appendix
-                                        log.info(
-                                            "harper.kit.rag: appended %d semantic materials for deps=%s",
-                                            len(use_materials),
-                                            dep_ids,
-                                        )
-                                    else:
-                                        log.info(
-                                            "harper.kit.rag: no RAG materials found for deps=%s",
-                                            dep_ids,
-                                        )
-
+                        # /kit RAG policy:
+                        # - include only promoted source files from dependent REQs: runs/kit/<REQ>/src/**
+                        # - exclude tests, HOWTO, LTC, README and CI artifacts
+                        # - exclude PLAN/SPEC/KIT docs from semantic fallback because they are already passed in the payload
+                        # - keep one target lane-guide as direct support material
                         # 2) Retrieve lane guide / gate policy refs by exact path
                         if gate_refs:
                             try:
@@ -1671,6 +1860,14 @@ async def run(req: HarperRunRequest,  request: Request):
                                 )
             except Exception as e:
                 log.warning("harper.kit.rag: failed to append deps_only RAG: %s", e)
+            
+            log.info(
+                "harper.kit.rag summary: targets=%s deps=%s source_materials_appended=%d gate_refs=%s",
+                targets,
+                dep_ids,
+                appended_exact if dep_ids else 0,
+                gate_refs,
+            )
 
 
     if (phase or "").lower() == "finalize":
@@ -1728,7 +1925,7 @@ async def run(req: HarperRunRequest,  request: Request):
     timeout_sec = min(900.0, 180.0 + (eff_max / 1000.0) * 9.0)
 
     # Give /plan and /finalize extra headroom because they emit long structured artifacts.
-    if phase in {"plan", "finalize"}:
+    if phase in {"plan", "spec", "idea", "finalize"}:
         timeout_sec = max(timeout_sec, 1000.0)
     elif phase == "kit":
         timeout_sec = max(timeout_sec, 920.0)
@@ -1975,8 +2172,12 @@ async def run(req: HarperRunRequest,  request: Request):
                     "encoding": "utf-8",
                 }) 
 
+
     # Deduplica finale (per evitare file doppi o path ripetuti tra provider_files e parsing)
     files = _dedupe_by_path(files)
+    if (phase or "").lower() == "kit":
+        current_target = str((targets or [None])[0] or "").strip()
+        files = _enforce_single_req_output(files, current_target)
     #saniize files removing 
     # ```
     #

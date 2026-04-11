@@ -11,6 +11,12 @@ from config import settings
 from services.repository_manifest import build_req_promotion_manifest
 import httpx  # ensure available in requirements
 from pathlib import Path
+from services.repository_manifest import (
+    build_req_promotion_manifest,
+    build_repo_access_manifest,
+    build_repo_structure_evidence,
+    build_repo_composition_manifest,
+)
 
 GATEWAY_URL = os.environ.get("CL_GATEWAY_URL", "http://gateway:8000")
 log = logging.getLogger("orcehstrator:service:harper")
@@ -97,6 +103,24 @@ def _collect_existing_req_candidate_files(req_id: str) -> Dict[str, str]:
 
     return out
 
+def _detect_req_path_mismatch(
+    req_id: str,
+    files: List[Dict[str, Any]],
+) -> List[str]:
+    expected_prefix = f"runs/kit/{req_id}/"
+    blockers: List[str] = []
+
+    for item in files or []:
+        path = str(item.get("path") or "").strip()
+        if not path:
+            continue
+        if not path.startswith(expected_prefix):
+            blockers.append(
+                f"REQ {req_id} received out-of-target file path: {path}"
+            )
+
+    return blockers
+
 def _collect_candidate_file_artifacts_from_output(out: Dict[str, Any], req_id: str) -> List[Dict[str, Any]]:
     files = out.get("files") or []
     target_prefix = f"runs/kit/{req_id}/"
@@ -123,6 +147,96 @@ def _filter_req_stage_files(files: List[Dict[str, Any]], req_id: str) -> List[Di
         out.append(dict(item))
 
     return out
+
+def _detect_bootstrap_blockers(
+    req_id: str,
+    candidate_files: List[Dict[str, Any]],
+    core_blobs: Dict[str, Any],
+) -> List[str]:
+    blockers: List[str] = []
+
+    composition_manifest = str(core_blobs.get("REPO_COMPOSITION_MANIFEST.md") or "")
+
+    existing_entrypoints = "`app.py`" in composition_manifest
+    existing_shared_settings = "Shared Settings / Config Modules Already Present" in composition_manifest
+
+    staged_paths = [str(item.get("path") or "").strip() for item in candidate_files if item.get("path")]
+
+    staged_apps = [p for p in staged_paths if p.endswith("/app.py")]
+    staged_local_config = [p for p in staged_paths if p.endswith("/config.py") or p.endswith("/settings.py")]
+
+    if existing_entrypoints and staged_apps:
+        blockers.append(
+            f"REQ {req_id} emits new application entrypoints {staged_apps} even though canonical app composition already exists"
+        )
+
+    if existing_shared_settings:
+        suspicious_local = [
+            p for p in staged_local_config
+            if "/shared/" not in f"/{p}"
+        ]
+        if suspicious_local:
+            blockers.append(
+                f"REQ {req_id} emits local config/settings modules {suspicious_local} while shared settings/config modules already exist"
+            )
+
+    return blockers
+
+def _filter_core_blobs_for_target_req(
+    core_blobs: Dict[str, Any],
+    target_req_id: str,
+) -> Dict[str, Any]:
+    """
+    Keep only the normative context needed for a single target REQ.
+    """
+    if not core_blobs:
+        return {}
+
+    kept: Dict[str, Any] = {}
+
+    always_keep_suffixes = (
+        "SPEC.md",
+        "PLAN.md",
+        "plan.json",
+        "TECH_CONSTRAINTS.yaml",
+    )
+    always_keep_prefixes = (
+        "REPO_ACCESS_MANIFEST",
+        "REPO_STRUCTURE_EVIDENCE",
+        "REPO_COMPOSITION_MANIFEST",
+    )
+
+    for key, value in core_blobs.items():
+        name = str(key or "").strip()
+
+        if any(name.endswith(sfx) for sfx in always_keep_suffixes):
+            kept[name] = value
+            continue
+
+        if any(name.startswith(prefix) for prefix in always_keep_prefixes):
+            kept[name] = value
+            continue
+
+        if name.startswith("REQ_PROMOTION_MANIFEST"):
+            text = str(value or "")
+            if target_req_id in name or f"REQ Promotion Manifest — {target_req_id}" in text:
+                kept[name] = value
+            continue
+
+    return kept
+
+
+def _inject_candidate_blobs(
+    base_core_blobs: Dict[str, Any],
+    candidate_files: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    merged = dict(base_core_blobs or {})
+    for item in candidate_files or []:
+        path = str(item.get("path") or "").strip()
+        content = str(item.get("content") or "")
+        if path and content:
+            merged[f"candidate::{path}"] = content
+    return merged
 
 def _collect_candidate_files_from_output(out: Dict[str, Any], req_id: str) -> Dict[str, str]:
     files = out.get("files") or []
@@ -177,7 +291,7 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
 
     repo_ctx = merged.get("repository_context") or {}
     core_blobs = dict(merged.get("core_blobs") or {})
-
+    
     repo_access_manifest = build_repo_access_manifest(repo_ctx)
     if repo_access_manifest:
         core_blobs["REPO_ACCESS_MANIFEST.md"] = repo_access_manifest
@@ -185,9 +299,11 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
     repo_structure_evidence = build_repo_structure_evidence(repo_ctx)
     if repo_structure_evidence:
         core_blobs["REPO_STRUCTURE_EVIDENCE.json"] = repo_structure_evidence
+    repo_composition_manifest = build_repo_composition_manifest(repo_ctx)
 
-    if core_blobs:
-        merged["core_blobs"] = core_blobs
+    if repo_composition_manifest:
+        core_blobs["REPO_COMPOSITION_MANIFEST.md"] = repo_composition_manifest
+
 
     target_req_id: Optional[str] = None
 
@@ -198,11 +314,16 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
             raise ValueError("Harper /kit requires exactly one target REQ-ID in kit.targets, e.g. { kit: { targets: ['REQ-001'] } }")
 
         target_req_id = targets[0].strip()
+        filtered_core_blobs = _filter_core_blobs_for_target_req(
+            dict(merged.get("core_blobs") or {}),
+            target_req_id,
+        )
+        merged["core_blobs"] = filtered_core_blobs
         repo_ctx = merged.get("repository_context") or {}
         log.info("harper.kit target_req_id=%s repo_root=%s branch=%s", target_req_id, repo_ctx.get("repo_root"), repo_ctx.get("branch"))
         promotion_manifest = build_req_promotion_manifest(repo_ctx, target_req_id)
         if promotion_manifest:
-            core_blobs = dict(merged.get("core_blobs") or {})
+            core_blobs =filtered_core_blobs
             core_blobs["REQ_PROMOTION_MANIFEST.md"] = promotion_manifest
             merged["core_blobs"] = core_blobs
 
@@ -271,10 +392,18 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
             integrity_payload["phase"] = "integrity_eval"
             integrity_payload["cmd"] = "integrity_eval"
 
-            core_blobs = dict(integrity_payload.get("core_blobs") or {})
-            for path, content in candidate_files.items():
-                core_blobs[f"candidate::{path}"] = content
-            integrity_payload["core_blobs"] = core_blobs
+            base_core_blobs = _filter_core_blobs_for_target_req(
+                dict(integrity_payload.get("core_blobs") or {}),
+                target_req_id,
+            )
+            candidate_artifacts = [
+                {"path": path, "content": content}
+                for path, content in candidate_files.items()
+            ]
+            integrity_payload["core_blobs"] = _inject_candidate_blobs(
+                base_core_blobs,
+                candidate_artifacts,
+            )
 
             integrity_payload["integrity_eval"] = {
                 "req_id": target_req_id,
@@ -311,20 +440,53 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
     # --- PROMOTION_HARDENER + PROMOTION_EVAL pipeline ---
     if phase == "kit" and target_req_id:
         candidate_file_artifacts = _collect_candidate_file_artifacts_from_output(out, target_req_id)
-
+        all_returned_files = out.get("files") or []
+        req_path_blockers = _detect_req_path_mismatch(target_req_id, all_returned_files)
+        if req_path_blockers:
+            out["promotion_eval_applied"] = False
+            out["promotion_eval_status"] = "blocked_req_path_mismatch"
+            out["promotion_eval_blockers"] = req_path_blockers
+            log.warning(
+                "harper.kit req path mismatch req=%s blockers=%s",
+                target_req_id,
+                req_path_blockers,
+            )
+            return out
         # 1) PROMOTION_HARDENER
         if candidate_file_artifacts:
+            
+
+            bootstrap_blockers = _detect_bootstrap_blockers(
+                    target_req_id,
+                    candidate_file_artifacts,
+                    dict(merged.get("core_blobs") or {}),
+                )
+
+            if bootstrap_blockers:
+                out["promotion_eval_applied"] = False
+                out["promotion_eval_status"] = "blocked_pre_eval"
+                out["promotion_eval_blockers"] = bootstrap_blockers
+                log.warning(
+                    "harper.kit promotion pre-eval blockers req=%s blockers=%s",
+                    target_req_id,
+                    bootstrap_blockers,
+                )
+                return out
+
+            
             hardener_payload = dict(merged)
+
             hardener_payload["phase"] = "promotion_hardener"
             hardener_payload["cmd"] = "promotion_hardener"
 
-            hardener_core_blobs = dict(hardener_payload.get("core_blobs") or {})
-            for item in candidate_file_artifacts:
-                path = str(item.get("path") or "").strip()
-                content = str(item.get("content") or "")
-                if path and content:
-                    hardener_core_blobs[f"candidate::{path}"] = content
-            hardener_payload["core_blobs"] = hardener_core_blobs
+            hardener_base_core_blobs = _filter_core_blobs_for_target_req(
+                dict(hardener_payload.get("core_blobs") or {}),
+                target_req_id,
+            )
+            hardener_payload["core_blobs"] = _inject_candidate_blobs(
+                hardener_base_core_blobs,
+                candidate_file_artifacts,
+            )
 
             hardener_payload["promotion_hardener"] = {
                 "req_id": target_req_id,
@@ -373,6 +535,15 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
                         promotion_eval_core_blobs[f"candidate::{path}"] = content
                 promotion_eval_payload["core_blobs"] = promotion_eval_core_blobs
 
+             
+                promotion_eval_base_core_blobs = _filter_core_blobs_for_target_req(
+                    dict(promotion_eval_payload.get("core_blobs") or {}),
+                    target_req_id,
+                )
+                promotion_eval_payload["core_blobs"] = _inject_candidate_blobs(
+                    promotion_eval_base_core_blobs,
+                    candidate_after_hardening,
+                )
                 promotion_eval_payload["promotion_eval"] = {
                     "req_id": target_req_id,
                     "mode": "promotion_review",
@@ -385,17 +556,31 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
                 )
 
                 promotion_eval_start = time.time()
-                promotion_eval_out = await _post_json("/v1/harper/run", promotion_eval_payload)
-                promotion_eval_elapsed = time.time() - promotion_eval_start
-
+                
+                try:
+                    promotion_eval_out = await _post_json("/v1/harper/run", promotion_eval_payload)
+                    promotion_eval_elapsed = time.time() - promotion_eval_start
+                    log.info(
+                        "harper.kit promotion eval completed req=%s elapsed=%.3fs files=%d",
+                        target_req_id,
+                        promotion_eval_elapsed,
+                        len((promotion_eval_out or {}).get("files") or []),
+                    )
+                except httpx.HTTPError as exc:
+                    promotion_eval_elapsed = time.time() - promotion_eval_start
+                    log.warning(
+                        "harper.kit promotion eval transient failure req=%s elapsed=%.3fs error=%s",
+                        target_req_id,
+                        promotion_eval_elapsed,
+                        exc,
+                    )
+                    out["promotion_eval_applied"] = False
+                    out["promotion_eval_status"] = "transient_failure"
+                    out["promotion_eval_error"] = str(exc)
+                    return out
+                
                 promotion_eval_files = _filter_req_stage_files(promotion_eval_out.get("files") or [], target_req_id)
-                log.info(
-                    "harper.kit promotion eval completed req=%s elapsed=%.3fs valid_files=%d",
-                    target_req_id,
-                    promotion_eval_elapsed,
-                    len(promotion_eval_files),
-                )
-
+                
                 if promotion_eval_files:
                     base_files = out.get("files") or []
                     out["files"] = _merge_file_lists_by_path(base_files, promotion_eval_files)

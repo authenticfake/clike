@@ -18,7 +18,7 @@ CHUNK_OVERLAP  = int(os.getenv("RAG_CHUNK_OVERLAP", "80"))
 TOP_K          = int(os.getenv("RAG_TOP_K", "12"))
 MAX_CTX_TOKENS = int(os.getenv("RAG_MAX_CTX_TOKENS", "1800"))
 MAX_EMBED_TEXT_CHARS = int(os.getenv("RAG_MAX_EMBED_TEXT_CHARS", "12000"))
-
+RAG_SCORE_THRESHOLD = float(os.getenv("RAG_SCORE_THRESHOLD", "0.30"))
 TEXT_EXTS = {
     ".md",".txt",".rst",".adoc",".py",".js",".ts",".tsx",".jsx",".java",".go",".rs",
     ".cpp",".c",".h",".sql",".yml",".yaml",".json",".toml",".ini",".proto",".sh",
@@ -232,7 +232,7 @@ class RagStore:
             return []
 
         vec = (await self.emb.embed([query_text]))[0]
-
+        
         try:
             async with httpx.AsyncClient(timeout=20) as client:
                 limit_as_int = int(top_k)
@@ -332,6 +332,104 @@ class RagStore:
         except Exception as e:
             log.error("RAG purge failed: %s", e)
             return {"ok": False, "error": str(e)}
+    
+    async def fetch_docs_by_prefix(
+        self,
+        path_prefix: str,
+        *,
+        max_chars_per_doc: int = 4000,
+        limit_points: int = 2000,
+        limit_docs: int = 100,
+    ) -> List[Dict[str, Any]]:
+        await self.ensure()
+
+        prefix = _norm_path(path_prefix)
+        if not prefix:
+            return []
+
+        collected: List[Dict[str, Any]] = []
+        offset = None
+
+        try:
+            async with httpx.AsyncClient(timeout=60) as client:
+                while len(collected) < max(10, int(limit_points)):
+                    body: Dict[str, Any] = {
+                        "with_payload": True,
+                        "limit": min(256, max(10, int(limit_points)) - len(collected)),
+                    }
+                    if offset is not None:
+                        body["offset"] = offset
+
+                    r = await client.post(
+                        f"{self.q}/collections/{self.c}/points/scroll",
+                        json=body,
+                    )
+                    r.raise_for_status()
+
+                    data = r.json() or {}
+                    result = data.get("result") or {}
+                    points = result.get("points") or []
+                    if not points:
+                        break
+
+                    collected.extend(points)
+                    offset = result.get("next_page_offset")
+                    if offset is None:
+                        break
+
+            by_path: Dict[str, List[Dict[str, Any]]] = {}
+            prefix_norm = prefix.rstrip("/") + "/"
+
+            for pt in collected:
+                pl = pt.get("payload") or {}
+                path = _norm_path(pl.get("path") or "")
+                text = (pl.get("text") or "").strip()
+                if not path or not text:
+                    continue
+                if not path.startswith(prefix_norm):
+                    continue
+
+                by_path.setdefault(path, []).append(
+                    {
+                        "chunk": int(pl.get("chunk") or 0),
+                        "text": text,
+                    }
+                )
+
+            out: List[Dict[str, Any]] = []
+            for path in sorted(by_path.keys())[: max(1, int(limit_docs))]:
+                parts = sorted(by_path.get(path) or [], key=lambda x: x["chunk"])
+                if not parts:
+                    continue
+
+                acc: List[str] = []
+                used = 0
+                chunks = 0
+                for item in parts:
+                    piece = item["text"]
+                    add_len = len(piece) + (1 if acc else 0)
+                    if used + add_len > max_chars_per_doc:
+                        remaining = max_chars_per_doc - used
+                        if remaining > 0:
+                            trimmed = piece[:remaining]
+                            if trimmed:
+                                acc.append(trimmed)
+                                used += len(trimmed)
+                                chunks += 1
+                        break
+
+                    acc.append(piece)
+                    used += add_len
+                    chunks += 1
+
+                text = "\n".join(acc).strip()
+                if text:
+                    out.append({"path": path, "text": text, "chunks": chunks})
+
+            return out
+        except Exception as e:
+            log.error("RAG fetch_docs_by_prefix failed: %s", e)
+            return []
     
     async def fetch_docs_by_paths(
         self,

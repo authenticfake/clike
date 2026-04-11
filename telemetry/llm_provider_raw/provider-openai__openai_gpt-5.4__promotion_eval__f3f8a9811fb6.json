@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260411T151506Z",
+  "project_id": "docufu",
+  "phase": "promotion_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_02b7b15eec65daab0069da654b9bec8197a27ae0a59e2bedbd",
+    "object": "response",
+    "created_at": 1775920459,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1775920505,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "# Harper /kit — PROMOTION_EVAL\n\nYou are **Harper /kit PROMOTION_EVAL** — a **Senior Software Architect, Senior Software Engineer, promotion reviewer, and stop-ship evaluator**.\n\nYour task is to evaluate whether the current REQ candidate, after hardening, is ready to move forward as a serious promotion candidate.\n\nYou are NOT fixing files.\nYou are NOT redesigning.\nYou are evaluating.\n\n---\n\n## 1) Mission\n\nEvaluate the hardened REQ candidate against:\n\n- `IDEA.md`\n- `SPEC.md`\n- `PLAN.md`\n- `plan.json`\n- `TECH_CONSTRAINTS.yaml`\n- `REQ_PROMOTION_MANIFEST.md` when present\n- `INTEGRITY_EVAL.json`\n- current candidate files already generated for the REQ\n- repository-aware references when present\n\nYour goal is to determine whether the candidate is now:\n\n- still too weak\n- still missing required hardening\n- ready for later eval\n- a serious promotion candidate\n\n---\n\n## 2) What you must evaluate\n\n### A. Scope fidelity\nDoes the candidate still match the intended REQ?\n\n### B. Source substance\nIs the implementation now substantial enough?\n\n### C. Test credibility\nDo the tests now support real acceptance credibility?\n\n### D. Docs/code/test/ci coherence\nDo emitted docs and CI artifacts match the actual implementation?\n\n### E. Promotion fit\nIs the candidate clearly shaped for later promotion into canonical repository targets?\nPromotion fit must explicitly reject or downgrade candidates that:\n- create unjustified new `app.py` files\n- create duplicate local `config.py` or `settings.py` modules when shared equivalents already exist\n- re-bootstrap auth, runtime profile, or settings that should extend canonical shared modules\n- behave like a standalone micro-application when the REQ should only extend an existing application composition\n\n### F. Shared/common correctness\nIf shared/common modules are involved, are they justified and coherent?\n\n### G. Runtime-profile integrity\nIf local-dev and target-runtime modes both matter, are they still aligned under one promotable design?\n\n---\n\n## 3) Hard rules\n\n- Be severe.\n- Be explicit.\n- Do not be optimistic.\n- Do not reward superficial cleanup as if it were true hardening.\n- Do not fix code.\n- Do not emit patches.\n- Do not emit prose outside the required file block.\n- New application entrypoints, duplicate bootstrap modules, or duplicate shared configuration modules are promotion blockers unless explicitly justified by repository evidence or REQ scope.\n\n---\n\n## 4) Output artifact\n\nEmit exactly one file block:\n\n`file:/runs/kit/<REQ-ID>/ci/PROMOTION_EVAL.json`\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must be valid and must contain:\n\n- `version`\n- `req_id`\n- `verdict`\n- `summary`\n- `source_substance`\n- `test_credibility`\n- `docs_code_coherence`\n- `promotion_fit`\n- `shared_common_assessment`\n- `runtime_profile_assessment`\n- `blockers`\n- `remaining_risks`\n\n---\n\n## 5) Allowed verdicts\n\nUse exactly one of:\n\n- `reject`\n- `needs_more_hardening`\n- `eval_ready`\n- `promotion_candidate`\n- `promotion_candidate_with_risks`\n\n### Meaning\n\n- `reject` → still not a serious promotion candidate\n- `needs_more_hardening` → meaningful progress exists, but more targeted hardening is required\n- `eval_ready` → good enough to move into later evaluation stages\n- `promotion_candidate` → strong and coherent enough for serious promotion consideration\n- `promotion_candidate_with_risks` → promotable direction exists, but explicit bounded risks remain\n\n---\n\n## 6) Style\n\nThink like a promotion gate reviewer before formal gate.\n\nDo not hide weakness.\nDo not inflate quality.\nUse concise, operational judgments.\n\nIf the candidate is still too thin, say so clearly.\nIf the candidate is now strong, say so clearly.",
+    "max_output_tokens": 18000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_02b7b15eec65daab0069da654c848c81979b9fc686643d9733",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_02b7b15eec65daab0069da6563279c8197a25acce1628111bd",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "```file:/runs/kit/REQ-001/ci/PROMOTION_EVAL.json\n{\n  \"version\": \"1.0\",\n  \"req_id\": \"REQ-001\",\n  \"verdict\": \"needs_more_hardening\",\n  \"summary\": \"REQ-001 is no longer a trivial stub. The candidate includes a localized Python package, non-trivial source files, supporting docs, and a dedicated test module. That said, the supplied evidence is still short of promotion-grade hardening. The package looks reviewable, but repository integration, runtime-profile parity, and mandatory quality-gate credibility are not demonstrated strongly enough to treat it as a serious promotion candidate yet.\",\n  \"source_substance\": {\n    \"assessment\": \"moderate\",\n    \"judgment\": \"There is meaningful implementation mass: `src/runtime_store/config.py`, `src/runtime_store/object_store.py`, package init, and a dedicated test module. Based on file footprint alone, this is more than placeholder code.\",\n    \"strengths\": [\n      \"Implementation is localized and reviewable.\",\n      \"Source surface appears focused on the stated runtime/object-store concern rather than sprawling into unrelated areas.\",\n      \"No unjustified new application entrypoint is visible in the emitted file set.\"\n    ],\n    \"weaknesses\": [\n      \"Substance is confined to a narrow package; promotion readiness depends on how it composes with the existing repository, and that composition is not evidenced here.\",\n      \"A local `config.py` exists, but there is no repository-aware evidence showing whether this extends canonical configuration patterns or duplicates them.\"\n    ]\n  },\n  \"test_credibility\": {\n    \"assessment\": \"limited\",\n    \"judgment\": \"A dedicated test file exists, which is positive, but the provided artifact set does not establish strong acceptance credibility.\",\n    \"strengths\": [\n      \"There is explicit test coverage work for the runtime store slice.\",\n      \"Tests are separated into the canonical `test/` family under staging, which is promotion-friendly.\"\n    ],\n    \"weaknesses\": [\n      \"Only one visible test module is provided for the slice.\",\n      \"The supplied context does not demonstrate executed results, coverage attainment, or closure of edge/error-path concerns.\",\n      \"Required checks from `TECH_CONSTRAINTS.yaml` for the Python lane and default eval profile—tests, lint, types, security, build, and 80% coverage—are not credibly evidenced.\"\n    ]\n  },\n  \"docs_code_coherence\": {\n    \"assessment\": \"partial\",\n    \"judgment\": \"README/HOWTO/KIT docs exist, which is useful, but coherence is only partially established from the supplied materials.\",\n    \"strengths\": [\n      \"Documentation artifacts were emitted alongside code and tests.\",\n      \"The candidate respects staging-path conventions described in the promotion manifest.\"\n    ],\n    \"weaknesses\": [\n      \"The provided surface does not prove that docs precisely match current implementation behavior.\",\n      \"No strong CI artifact set is shown to tie documented usage to validated execution.\",\n      \"Promotion-path intent is documented, but actual repository landing points and integration seams remain under-specified.\"\n    ]\n  },\n  \"promotion_fit\": {\n    \"assessment\": \"mixed\",\n    \"judgment\": \"The candidate avoids the clearest promotion anti-patterns, but it is not yet convincingly shaped for low-risk promotion.\",\n    \"strengths\": [\n      \"No new `app.py` or equivalent standalone bootstrap is visible.\",\n      \"No obvious auth/runtime re-bootstrap artifact is visible in the emitted file list.\",\n      \"The work is constrained to `src/` and `test/` staging families, consistent with the manifest.\"\n    ],\n    \"weaknesses\": [\n      \"The package currently reads as an isolated module slice; there is not enough repository-aware evidence that it cleanly extends existing application composition.\",\n      \"The local `config.py` may be justified, but no evidence is provided that it reuses or aligns with canonical shared configuration mechanisms if such mechanisms already exist.\",\n      \"There is no demonstrated promotion mapping beyond the generic staging-to-canonical rule.\"\n    ]\n  },\n  \"shared_common_assessment\": {\n    \"assessment\": \"insufficiently demonstrated\",\n    \"judgment\": \"Shared/common correctness cannot be positively established from the supplied candidate surface.\",\n    \"strengths\": [\n      \"The candidate does not appear to create a large shared-framework layer prematurely.\"\n    ],\n    \"weaknesses\": [\n      \"There is no repository-aware evidence showing reuse of existing shared runtime/profile/config abstractions.\",\n      \"If shared modules already exist in the repo, this candidate does not prove alignment with them.\"\n    ]\n  },\n  \"runtime_profile_assessment\": {\n    \"assessment\": \"under-hardened\",\n    \"judgment\": \"REQ-001 appears directionally aligned with the platform's object-storage adapter expectations, but promotable runtime-profile integrity is not yet proven.\",\n    \"strengths\": [\n      \"The scope appears compatible with the stated AWS and on-prem S3-compatible storage model.\",\n      \"The implementation focus is at least pointed toward a profile-sensitive infrastructure concern.\"\n    ],\n    \"weaknesses\": [\n      \"The supplied evidence does not demonstrate one coherent design serving both AWS and on-prem profiles with functional parity.\",\n      \"There is no clear proof of profile-driven integration with surrounding concerns such as secrets, observability, or deployment-time configuration.\",\n      \"No acceptance evidence is shown for profile-specific behavior or contract compatibility.\"\n    ]\n  },\n  \"blockers\": [\n    \"Promotion-grade quality-gate evidence is missing or not credibly demonstrated: tests, lint, types, security, build, and required coverage from `TECH_CONSTRAINTS.yaml` are not substantiated.\",\n    \"Repository-aware integration is not demonstrated; the candidate remains evaluable as a staging module, but not yet as a low-risk promotion target into the canonical codebase.\",\n    \"Runtime-profile parity across AWS and on-prem object-storage expectations is not convincingly proven.\",\n    \"The presence of a local `config.py` remains a promotion concern until alignment with any canonical shared configuration approach is explicitly shown.\"\n  ],\n  \"remaining_risks\": [\n    \"Tests may be narrow or predominantly happy-path; error handling, misconfiguration, and profile-variant behavior may still be weak.\",\n    \"Documentation may overstate readiness relative to actual validated CI evidence.\",\n    \"Promotion may still require non-trivial reshaping once actual repository integration points are applied.\",\n    \"If the repository already contains shared config/runtime helpers, this candidate may duplicate rather than extend them.\"\n  ]\n}\n```"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 4313,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 2555,
+      "output_tokens_details": {
+        "reasoning_tokens": 1204
+      },
+      "total_tokens": 6868
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

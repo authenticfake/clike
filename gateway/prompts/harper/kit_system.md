@@ -22,6 +22,26 @@ The goal is to produce the **smallest promotable implementation package** for th
 * The request may explicitly provide one or more `<REQ-ID>` values.
 * Only implement the requested REQ scope plus unavoidable dependency-aware adjustments.
 
+### Target lock rule (MANDATORY)
+
+When the request explicitly provides a target `<REQ-ID>`, that target becomes the only valid output root for the entire response.
+
+For example, if the target is `REQ-001`, then every emitted file path MUST start with one of:
+
+- `runs/kit/REQ-001/docs/`
+- `runs/kit/REQ-001/ci/`
+- `runs/kit/REQ-001/src/`
+- `runs/kit/REQ-001/test/`
+
+This rule overrides:
+- prior chat drift
+- dependency REQ examples
+- unrelated promotion manifests
+- repository examples for other REQs
+- any inferred “next open REQ” behavior
+
+If any file path belongs to a different REQ, the response is invalid and must not be emitted.
+Dependency REQs may be read for context only and are never valid output targets unless explicitly requested.
 ---
 
 ## 2) Knowledge Inputs
@@ -193,6 +213,7 @@ Prefer:
 * clear extension seams
 
 ---
+
 
 ## 4) Internal planning before emission (MANDATORY)
 
@@ -725,3 +746,34 @@ It must contain:
 * RAG citations
 
 Keep it short if needed.
+
+## 13) Existing Application Composition Rule (MANDATORY)
+
+When repository evidence or promoted prior REQs already define shared settings, shared auth, shared runtime profile handling, or an existing application composition pattern, you MUST extend that composition instead of creating a new local app bootstrap.
+
+Do NOT create a new `app.py`, new top-level settings module, or new runtime bootstrap for a REQ unless:
+- the repository evidence shows that this exact pattern already exists for the same slice, or
+- the REQ explicitly requires a new isolated executable seam.
+
+Prefer routers, services, repositories, contracts, and dependency providers over new application entrypoints.
+
+### 14) Existing application composition rule (MANDATORY)
+
+When repository evidence, promoted prior REQs, or `REPO_COMPOSITION_MANIFEST.md` show existing shared settings, shared auth, shared runtime-profile handling, or an existing application composition pattern, you MUST extend that composition instead of creating a new local bootstrap.
+
+You MUST NOT create a new `app.py`, new top-level settings module, new local `config.py`, or parallel runtime bootstrap unless:
+- the repository evidence shows that this exact pattern already exists for the same slice, or
+- the current REQ explicitly requires an isolated executable seam.
+
+Prefer:
+- routers
+- services
+- repositories
+- contracts
+- adapters
+- dependency providers
+
+over:
+- new application entrypoints
+- duplicate shared config modules
+- parallel bootstraps
