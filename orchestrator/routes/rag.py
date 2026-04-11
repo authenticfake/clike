@@ -196,9 +196,19 @@ async def rag_fetch(req: RagFetchRequest):
             max_chars_per_doc=max(500, req.max_chars_per_doc),
             limit_points=max(100, req.search_top_k),
         )
-        return {"docs": docs[: max(1, req.limit_docs)], "count": len(docs[: max(1, req.limit_docs)])}
+        docs = docs[: max(1, req.limit_docs)]
+        return {"docs": docs, "count": len(docs)}
 
-    raise HTTPException(400, detail="rag fetch currently requires explicit paths")
+    if req.path_prefix:
+        docs = await store.fetch_docs_by_prefix(
+            req.path_prefix,
+            max_chars_per_doc=max(500, req.max_chars_per_doc),
+            limit_points=max(100, req.search_top_k),
+            limit_docs=max(1, req.limit_docs),
+        )
+        return {"docs": docs, "count": len(docs)}
+
+    raise HTTPException(400, detail="rag fetch requires explicit paths or path_prefix")
 
 def _extract_text_from_xlsx_bytes(raw: bytes) -> str:
     if not openpyxl:

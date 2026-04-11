@@ -113,6 +113,7 @@ If the REQ is expected to support both local-dev mode and target-runtime mode, c
 - Do not propose large redesigns.
 - Do not widen scope.
 - Do not add adjacent features.
+- New application entrypoints, local bootstraps, or parallel settings modules are promotion blockers unless explicitly justified by repository evidence or REQ scope.
 
 ---
 

@@ -1010,11 +1010,11 @@ function cfg() {
     // git helpers (presenti)
     gitAutoCommit:    c.get('clike.git.autoCommit', true),
     gitCommitMessage: c.get('clike.git.commitMessage', 'clike: apply patch (AI)'),
-    gitOpenPR:        c.get('clike.git.openPR', false),
+    gitOpenPR:        c.get('clike.git.openPR', true),
 
     // Git workflow
     gitRemote:        c.get('clike.git.remote', 'origin'),
-    gitDefaultBranch: c.get('clike.git.defaultBranch', 'master'),
+    gitDefaultBranch: c.get('clike.git.defaultBranch', 'main'),
     gitConventional:  c.get('clike.git.conventionalCommits', true),
     gitPushRebase:    c.get('clike.git.pushRebase', true),
 
@@ -1028,7 +1028,7 @@ function cfg() {
   
     gitMergeOnGate:               c.get('clike.git.gitMergeOnGate', true),
     gitDeleteBranchOnMerge:       c.get('clike.git.gitDeleteBranchOnMerge', false),     
-    gitReturnToFeatureAfterMerge:  c.get('clike.git. gitReturnToFeatureAfterMerge', false), 
+    gitReturnToFeatureAfterMerge:  c.get('clike.git.gitReturnToFeatureAfterMerge', false), 
   
 
     // toggle AI → mappati su use.ai.*
@@ -1206,6 +1206,9 @@ async function getJson(url) {
 }
 
 /** ---------- Git helpers ---------- */
+/**
+ * @deprecated Questo metodo è obsoleto. Usa `clikeGitSync()` al suo posto.
+ */
 async function gitAutoCommitAndPR() {
   const { gitAutoCommit, gitCommitMessage, gitOpenPR } = cfg();
   if (!gitAutoCommit) return;

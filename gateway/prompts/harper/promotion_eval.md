@@ -49,6 +49,11 @@ Do emitted docs and CI artifacts match the actual implementation?
 
 ### E. Promotion fit
 Is the candidate clearly shaped for later promotion into canonical repository targets?
+Promotion fit must explicitly reject or downgrade candidates that:
+- create unjustified new `app.py` files
+- create duplicate local `config.py` or `settings.py` modules when shared equivalents already exist
+- re-bootstrap auth, runtime profile, or settings that should extend canonical shared modules
+- behave like a standalone micro-application when the REQ should only extend an existing application composition
 
 ### F. Shared/common correctness
 If shared/common modules are involved, are they justified and coherent?
@@ -67,6 +72,7 @@ If local-dev and target-runtime modes both matter, are they still aligned under 
 - Do not fix code.
 - Do not emit patches.
 - Do not emit prose outside the required file block.
+- New application entrypoints, duplicate bootstrap modules, or duplicate shared configuration modules are promotion blockers unless explicitly justified by repository evidence or REQ scope.
 
 ---
 

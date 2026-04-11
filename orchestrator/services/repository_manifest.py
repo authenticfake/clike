@@ -95,6 +95,69 @@ def build_repo_access_manifest(repository_context: Optional[Dict[str, Any]]) -> 
     ]
     return "\n".join(lines).strip() + "\n"
 
+def build_repo_composition_manifest(repository_context: Optional[Dict[str, Any]]) -> Optional[str]:
+    repo_ctx = dict(repository_context or {})
+    repo_root_raw = _safe_str(repo_ctx.get("repo_root")) or _safe_str(repo_ctx.get("workspace_folder"))
+    if not repo_root_raw:
+        return None
+
+    repo_root = Path(repo_root_raw).expanduser().resolve()
+    if not repo_root.exists() or not repo_root.is_dir():
+        return None
+
+    canonical_entrypoints: List[str] = []
+    shared_settings_like: List[str] = []
+    shared_auth_like: List[str] = []
+
+    for path in repo_root.rglob("*"):
+        if not path.is_file():
+            continue
+
+        rel = path.relative_to(repo_root).as_posix()
+
+        if any(part in EXCLUDED_TOP_LEVEL for part in rel.split("/")):
+            continue
+
+        name = path.name.lower()
+
+        if name == "app.py":
+            canonical_entrypoints.append(rel)
+
+        if name in {"settings.py", "config.py"} and "/shared/" in f"/{rel}":
+            shared_settings_like.append(rel)
+
+        if "/shared/auth" in f"/{rel}" or "/shared/authz" in f"/{rel}":
+            shared_auth_like.append(rel)
+
+    lines: List[str] = [
+        "# Repository Composition Manifest",
+        "",
+        "## Canonical Entry Points Already Present",
+    ]
+    lines.extend([f"- `{p}`" for p in sorted(canonical_entrypoints)] or ["- none detected"])
+
+    lines.extend([
+        "",
+        "## Shared Settings / Config Modules Already Present",
+    ])
+    lines.extend([f"- `{p}`" for p in sorted(shared_settings_like)] or ["- none detected"])
+
+    lines.extend([
+        "",
+        "## Shared Auth / RBAC Modules Already Present",
+    ])
+    lines.extend([f"- `{p}`" for p in sorted(shared_auth_like)] or ["- none detected"])
+
+    lines.extend([
+        "",
+        "## Composition Rules",
+        "- Reuse existing shared settings/config modules before creating new local config modules.",
+        "- Reuse existing shared auth/RBAC modules before creating parallel auth bootstrap.",
+        "- Do not create new `app.py` files when a canonical application composition already exists unless the REQ explicitly requires an isolated executable seam.",
+        "- Treat existing shared modules and entrypoints as canonical unless the REQ explicitly authorizes a new one.",
+    ])
+
+    return "\n".join(lines).strip() + "\n"
 
 def build_repo_structure_evidence(repository_context: Optional[Dict[str, Any]]) -> Optional[str]:
     repo_ctx = dict(repository_context or {})
