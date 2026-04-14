@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260412T171432Z",
+  "project_id": "docufu",
+  "phase": "integrity_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_0401eb024c66f6440069dbd28df4088193bbaa4ca60d971572",
+    "object": "response",
+    "created_at": 1776013966,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1776014072,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "# Harper /kit — INTEGRITY_EVAL\n\nYou are Harper /kit INTEGRITY_EVAL.\n\nYou are acting as:\n\n* Senior Software Architect\n* Senior Software Engineer\n* Stop-ship reviewer\n\nYou are evaluating the current REQ candidate.\nYou are NOT fixing it.\n\n## Authoritative inputs\n\nUse the following in this order:\n\n1. TARGET_CONTRACT.json\n2. FILE_REQUIREMENTS.json\n3. current candidate files\n4. REQ_PROMOTION_MANIFEST.md when present\n5. plan.json\n6. PLAN.md\n7. SPEC.md\n8. TECH_CONSTRAINTS.yaml\n9. repository evidence\n\n## What you must evaluate\n\nEvaluate the candidate on:\n\n* target REQ fidelity\n* lane fidelity\n* path contract fidelity\n* file contract fidelity\n* source substance\n* test substance\n* docs / code / CI coherence\n* repository fit\n* shared/common correctness\n* promotion plausibility\n\n## Hard rules\n\n* Be severe.\n* Do not reward path correctness if the implementation is semantically wrong.\n* Do not reward docs or tests that overclaim behavior not supported by source.\n* If a required file from FILE_REQUIREMENTS.json is missing, say so explicitly.\n* If a required file exists but does not cover its declared purpose, say so explicitly.\n* Wrong lane, wrong module family, duplicate settings/bootstrap/logging wrappers, or unjustified shared extraction are blockers.\n* Thin source with thick docs/tests is not promotable.\n* If the candidate is salvageable with bounded hardening, say so explicitly.\n* If the candidate is fundamentally wrong for the target REQ, reject it.\n\n## Output artifact\n\nEmit exactly one file block:\n\nfile:/runs/kit/<REQ-ID>/ci/INTEGRITY_EVAL.json\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must be valid and contain:\n\n* version\n* req_id\n* verdict\n* hardening_required\n* summary\n* scope_fidelity\n* lane_fidelity\n* path_contract\n* file_contract\n* source_substance\n* test_substance\n* docs_ci_coherence\n* repo_fit\n* shared_common_assessment\n* blockers\n* hardening_targets\n* promotability_score\n\n## Allowed verdicts\n\nUse exactly one of:\n\n* reject\n* salvageable\n* review_ready\n* promotion_candidate\n\n## Scoring\n\npromotability_score must be an integer from 0 to 100.\n\nUse these dimensions:\n\n* scope_fidelity: 0-20\n* lane_fidelity: 0-10\n* path_contract: 0-10\n* file_contract: 0-15\n* source_substance: 0-20\n* test_substance: 0-10\n* docs_ci_coherence: 0-5\n* repo_fit: 0-5\n* shared_common_assessment: 0-5",
+    "max_output_tokens": 17000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_0401eb024c66f6440069dbd2950c108193864a5971448a969c",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_0401eb024c66f6440069dbd2d650bc8193903159d480750552",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "file:/runs/kit/REQ-002/ci/INTEGRITY_EVAL.json\n{\n  \"version\": \"1.0.0\",\n  \"req_id\": \"REQ-002\",\n  \"verdict\": \"salvageable\",\n  \"hardening_required\": true,\n  \"summary\": \"The candidate has real source and real behavioral tests, and it does implement core claim normalization, 401/403 deny behavior, actor propagation into injected write/audit ports, and token/assertion redaction. However it misses key REQ-002 contract fidelity in several stop-ship areas: the normalized actor contract does not match the required UserContext shape (missing required active field and using actor_id instead of id), deny-path logging is not minimal and can log broader claims/group data than allowed, required shared/common reuse is not honored, and the binding introduces a demo-only protected mutation endpoint instead of integrating a reusable authorization primitive into canonical shared auth composition. This is not promotion-ready, but it is salvageable with bounded hardening because the core normalization and authorization logic exists.\",\n  \"scope_fidelity\": {\n    \"score\": 10,\n    \"max\": 20,\n    \"assessment\": \"Partial. The candidate covers most headline behaviors, but not the full target contract. It normalizes OIDC/SAML claims, returns 401/403 on the staged seam, propagates actor identity to injected write/audit ports, avoids username allowlists, and redacts token/assertion-looking keys. It does not satisfy the required normalized UserContext contract because the emitted actor model lacks required active and id fields as specified by TARGET_CONTRACT data_contracts. It also violates the audit/logging intent by logging sanitized but still over-broad claims data on deny paths rather than restricting logs to request/actor correlation identifiers.\"\n  },\n  \"lane_fidelity\": {\n    \"score\": 7,\n    \"max\": 10,\n    \"assessment\": \"Correct lane overall: Python/FastAPI backend slice with executable tests. The lane implementation is materially real. Fidelity is reduced because CI only proves compile and pytest and explicitly defers lint/type/security checks expected by the python lane policy, and because the binding mixes a non-production header-fixture seam directly into the application-facing router.\"\n  },\n  \"path_contract\": {\n    \"score\": 4,\n    \"max\": 10,\n    \"assessment\": \"Mixed. Required staged files are present under the expected runs/kit REQ-002 source/test/doc/ci areas. However the implementation does not honor the path-level reuse expectation: no candidate file is created under src/backend/shared/authz, and there is no reuse of src/backend/shared/contracts despite TARGET_CONTRACT.paths.must_reuse explicitly requiring it. Promotion plausibility is further weakened by introducing local auth contracts in backend/auth instead of aligning to shared/common placement.\"\n  },\n  \"file_contract\": {\n    \"score\": 7,\n    \"max\": 15,\n    \"assessment\": \"All required files from FILE_REQUIREMENTS.json are present. Several do not fully satisfy their declared purpose. contracts.py exists but does not define the required normalized UserContext shape from TARGET_CONTRACT; active is missing and id is replaced by actor_id. binding.py exists but covers the REQ through an invented /auth/protected-mutation endpoint rather than a reusable canonical auth primitive wired into shared authz composition. test_req_behavior.py exists and contains real assertions, but it does not cover the missing active contract, deny-log minimization, or shared/common reuse expectations. README_REQ-002.md and KIT_REQ-002.md exist and are mostly truthful, but they overstate promotability by not disclosing the contract mismatch and over-broad logging behavior.\"\n  },\n  \"source_substance\": {\n    \"score\": 11,\n    \"max\": 20,\n    \"assessment\": \"There is meaningful implementation substance: claim source detection, field extraction across OIDC/SAML shapes, permission expansion, authorization guard, audit/write propagation, and recursive token redaction. The weaknesses are semantic, not thinness. The largest source issues are: missing required active in actor context; no deterministic explicit permission/deny response contract model; over-broad logging of claims on deny paths; local duplicate auth contracts instead of required shared/common reuse; and a demo protected mutation endpoint that is not part of the target business API contract.\"\n  },\n  \"test_substance\": {\n    \"score\": 5,\n    \"max\": 10,\n    \"assessment\": \"Tests are real and assertion-bearing. They cover OIDC normalization, SAML normalization, GET /auth/me, 401 anonymous, 403 unauthorized, actor propagation, and token/assertion redaction. They do not cover critical missing semantics: the required active field, minimal deny logging, deterministic non-leaking deny bodies, shared/common reuse, or promotion-fit integration with canonical composition. The protected endpoint tests are centered on an invented seam rather than a target-defined business contract.\"\n  },\n  \"docs_ci_coherence\": {\n    \"score\": 3,\n    \"max\": 5,\n    \"assessment\": \"Docs, HOWTO, LTC, and requirements are internally coherent and runnable for the staged candidate. The README appropriately states the local trusted-claims assumption. Coherence is reduced because the docs present the slice as promotable while omitting the contract miss on active/id and the fact that deny-path logs may still include broader personal/group data than the REQ allows. CI is thin relative to lane expectations.\"\n  },\n  \"repo_fit\": {\n    \"score\": 1,\n    \"max\": 5,\n    \"assessment\": \"Poor repository fit. Repository evidence says existing shared auth/RBAC modules already exist and should be reused before creating parallel auth bootstrap/composition. This candidate creates a parallel local auth contract/service/binding stack in backend/auth and does not reuse surfaced shared/common auth modules or required shared contracts. It does avoid creating a new app.py, which is the main repo-fit positive.\"\n  },\n  \"shared_common_assessment\": {\n    \"score\": 1,\n    \"max\": 5,\n    \"assessment\": \"Weak shared/common correctness. TARGET_CONTRACT explicitly requires reuse of src/backend/shared/contracts, and the repository composition manifest directs reuse of shared auth/RBAC modules. The candidate instead defines local contracts and local auth mechanics under backend/auth. This duplication is a blocker for clean promotion because later REQs are supposed to depend on stable shared/common auth semantics.\"\n  },\n  \"blockers\": [\n    \"contracts.py does not satisfy the target UserContext contract: required active is missing, and the canonical id field is replaced by actor_id.\",\n    \"Deny-path logging is semantically wrong for the REQ: log_access_decision records sanitized but still broad claims/header context, which exceeds the allowed minimal identifiers and can expose group/person data.\",\n    \"Required shared/common reuse is not honored: TARGET_CONTRACT requires reuse of src/backend/shared/contracts, but the candidate defines local contracts instead.\",\n    \"Repository composition guidance is ignored: existing shared auth/RBAC modules were not reused, creating a parallel auth/RBAC stack.\",\n    \"binding.py exposes an invented /auth/protected-mutation route that is not part of the target API contract and weakens promotion plausibility.\",\n    \"No artifact under src/backend/shared/authz was emitted despite that root being part of the expected source roots and the natural home for reusable authorization primitives.\",\n    \"Tests do not assert the required normalized actor contract shape including active, so a key downstream guarantee is unproven.\",\n    \"Docs overstate promotability by not calling out the active/id contract mismatch and the over-broad deny-path logging behavior.\"\n  ],\n  \"hardening_targets\": [\n    \"Align the normalized actor response model to the target contract: add required active, expose canonical id semantics, and ensure GET /auth/me returns the downstream-stable shape later REQs expect.\",\n    \"Constrain deny-path logging to request/actor correlation identifiers only; stop logging full sanitized claims/group payloads on deny paths.\",\n    \"Refactor local contracts to reuse the required shared/common contract surface, especially src/backend/shared/contracts, and place reusable authorization primitives in shared/authz where appropriate.\",\n    \"Remove or demote the demo-only /auth/protected-mutation endpoint; replace it with reusable dependencies/guards or a narrower canonical seam tied to the actual REQ API surface.\",\n    \"Add tests proving active/id contract shape, minimal deny logging, deterministic non-leaking 401/403 bodies, and compatibility with shared/common composition.\",\n    \"Document the remaining bounded assumptions truthfully after the contract and logging fixes, including explicit separation of local test fixtures from production trusted-auth composition.\",\n    \"Add lane-expected checks or at minimum truthfully narrow CI claims so the candidate does not imply broader quality coverage than it has.\"\n  ],\n  \"promotability_score\": 49\n}"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 44735,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 5210,
+      "output_tokens_details": {
+        "reasoning_tokens": 3395
+      },
+      "total_tokens": 49945
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

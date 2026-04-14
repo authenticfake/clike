@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260412T212914Z",
+  "project_id": "docufu",
+  "phase": "promotion_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_0d42ccd44f7e17000069dc0e5bcea4819687c71e3a117ce02c",
+    "object": "response",
+    "created_at": 1776029275,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1776029354,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "Harper /kit — PROMOTION_EVAL\n\nYou are Harper /kit PROMOTION_EVAL.\n\nYou are acting as:\n\n* Senior Software Architect\n* Senior Software Engineer\n* Promotion reviewer\n* Stop-ship evaluator\n\nYou are evaluating the final candidate after optional hardening.\nYou are NOT fixing it.\n\n## Authoritative inputs\n\nUse the following in this order:\n\n1. TARGET_CONTRACT.json\n2. FILE_REQUIREMENTS.json\n3. current candidate files\n4. INTEGRITY_EVAL.json\n5. REQ_PROMOTION_MANIFEST.md when present\n6. plan.json\n7. PLAN.md\n8. SPEC.md\n9. TECH_CONSTRAINTS.yaml\n10. repository evidence\n\n## What you must evaluate\n\nEvaluate:\n\n* target REQ fidelity\n* lane correctness\n* file contract fidelity\n* source substance\n* test credibility\n* docs / code / CI coherence\n* promotion fit\n* repository fit\n* shared/common correctness\n* runtime/profile integrity\n* bounded remaining risks\n\n## Hard rules\n\n* Be severe.\n* Do not inflate quality.\n* Do not reward cosmetic cleanup as if it were substantive hardening.\n* Missing required files are blockers.\n* Required files that do not satisfy their declared purpose are blockers or major risks.\n* Wrong lane, wrong module family, duplicate bootstrap/config/logging wrappers, or fake completeness are promotion blockers.\n* If the candidate is still too thin, say so clearly.\n\n## Output artifact\n\nEmit exactly one file block:\n\nfile:/runs/kit/<REQ-ID>/ci/PROMOTION_EVAL.json\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must contain:\n\n* version\n* req_id\n* verdict\n* summary\n* scope_fidelity\n* lane_fidelity\n* file_contract\n* source_substance\n* test_credibility\n* docs_code_coherence\n* promotion_fit\n* repo_fit\n* shared_common_assessment\n* runtime_profile_assessment\n* blockers\n* remaining_risks\n* promotability_score\n\n## Allowed verdicts\n\nUse exactly one of:\n\n* reject\n* needs_more_hardening\n* eval_ready\n* promotion_candidate\n* promotion_candidate_with_risks\n\n## Scoring\n\npromotability_score must be an integer from 0 to 100.\n\nUse these dimensions:\n\n* scope_fidelity: 0-15\n* lane_fidelity: 0-10\n* file_contract: 0-15\n* source_substance: 0-20\n* test_credibility: 0-15\n* docs_code_coherence: 0-10\n* promotion_fit: 0-5\n* repo_fit: 0-5\n* shared_common_assessment: 0-5",
+    "max_output_tokens": 18000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_0d42ccd44f7e17000069dc0e5d2b108196877d5aada0a67059",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_0d42ccd44f7e17000069dc0e951cec8196919f3a35e5475cb0",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "file:/runs/kit/REQ-003/ci/PROMOTION_EVAL.json\n{\n  \"version\": \"1.0.0\",\n  \"req_id\": \"REQ-003\",\n  \"verdict\": \"needs_more_hardening\",\n  \"summary\": \"This is a substantive REQ-003 candidate, not a toy. It now covers the core intake path, exposes both POST /documents and GET /documents/{document_id}, enforces type and size checks, rolls back on storage failure, and includes meaningful deny-path and failure-path tests. It is still not promotion-ready. The strongest blockers are non-compliant required docs (README/HOWTO are incomplete for their declared purpose), duplicate shared/common seams inside the intake slice instead of mandated reuse of shared auth/storage/events/audit modules, and unresolved integrity drift around audit-before-event emission that can leave an immutable upload audit for a request that is later rolled back.\",\n  \"scope_fidelity\": {\n    \"score\": 12,\n    \"max\": 15,\n    \"assessment\": \"REQ-003 business scope is mostly present: supported formats are constrained, the 20 MB limit is enforced, uploaded documents are persisted, storage is invoked through an adapter seam, one processing request plus one upload audit are emitted on the happy path, explicit client-visible rejections exist, rollback on storage failure exists, and the required GET status seam is now implemented. Scope is still short of full target fidelity because shared-contract reuse requirements are not honored and post-persistence failure semantics remain inconsistent.\"\n  },\n  \"lane_fidelity\": {\n    \"score\": 8,\n    \"max\": 10,\n    \"assessment\": \"Correct lane and framework family: Python plus FastAPI, no wrong-lane drift, no frontend or infra sprawl, no per-REQ app bootstrap. Lane fidelity is reduced by local reinvention of auth and boundary seams that should have come from shared backend modules.\"\n  },\n  \"file_contract\": {\n    \"score\": 7,\n    \"max\": 15,\n    \"assessment\": \"All required files are present and the source files are substantive. The implementation, contract, binding, workflow, and tests all serve real purposes. However, required documentation files do not satisfy their declared purpose: README_REQ-003.md is truncated before usable run instructions and does not fully cover assumptions/gaps, and ci/HOWTO.md contains headings but not actual copy-paste commands or expected outputs. Under the evaluation rules, required files that do not satisfy purpose are blockers.\"\n  },\n  \"source_substance\": {\n    \"score\": 13,\n    \"max\": 20,\n    \"assessment\": \"The source is real and non-trivial: format resolution, MIME/extension mismatch handling, size validation, repository persistence, storage write, cleanup on failure, GET status retrieval, and FastAPI bindings are all implemented. The code is still architecturally off in shared/common correctness: local Protocols for repository/storage/event/audit and custom auth guards duplicate seams that the target explicitly said to reuse from shared roots. The upload integrity model is also not strong enough for promotion because an audit record can be committed before event publication and cannot be compensated.\"\n  },\n  \"test_credibility\": {\n    \"score\": 11,\n    \"max\": 15,\n    \"assessment\": \"Tests are credible and materially better than a placeholder suite. They assert happy path, unsupported input, oversize input, MIME/extension mismatch, storage rollback, audit failure rollback, publisher failure rollback, GET status, 401, 403, and missing multipart file behavior. Credibility is still limited because the suite is entirely in-memory and slice-local, there is no executed report evidence in the candidate, and there is no proof of actual shared-auth/shared-adapter integration or latency target measurement beyond local timing bookkeeping.\"\n  },\n  \"docs_code_coherence\": {\n    \"score\": 4,\n    \"max\": 10,\n    \"assessment\": \"KIT notes are mostly truthful and align with the emitted code. CI command definitions are plausible for this staged candidate. Coherence drops sharply because the main README and HOWTO are incomplete and therefore do not operationalize the candidate. The docs also understate the seriousness of the shared-contract duplication and the audit/event integrity gap.\"\n  },\n  \"promotion_fit\": {\n    \"score\": 2,\n    \"max\": 5,\n    \"assessment\": \"The slice is localized and reviewable, which helps promotion. It is not fit for promotion yet because promotion would carry forward duplicate auth and boundary logic, incomplete required docs, and unresolved audit/event integrity drift into the canonical tree.\"\n  },\n  \"repo_fit\": {\n    \"score\": 2,\n    \"max\": 5,\n    \"assessment\": \"The candidate stays inside the correct backend family and avoids inventing a new top-level application bootstrap. Repository fit is reduced by bypassing existing shared auth/RBAC composition evidence and introducing local equivalents in the binding and contract layer.\"\n  },\n  \"shared_common_assessment\": {\n    \"score\": 1,\n    \"max\": 5,\n    \"assessment\": \"Weak. The target required reuse of src/backend/shared/storage, src/backend/shared/audit, src/backend/shared/events, and src/backend/shared/authz. This candidate only lightly touches shared logging and a fallback user context import, then defines local storage/event/audit protocols and custom permission checks inside the intake slice. That is architectural drift, not harmless encapsulation.\"\n  },\n  \"runtime_profile_assessment\": {\n    \"assessment\": \"No explicit AWS/on-prem branching was introduced in the slice, which is good. But runtime/profile integrity is only partial because the implementation does not actually prove reuse of canonical shared adapter contracts. Promotion in this form would make later profile-wiring and parity work harder, not easier.\"\n  },\n  \"blockers\": [\n    \"Required file purpose failure: runs/kit/REQ-003/docs/README_REQ-003.md is incomplete and does not fully provide runnable commands, assumptions, and gaps as required.\",\n    \"Required file purpose failure: runs/kit/REQ-003/ci/HOWTO.md is incomplete and does not contain copy-paste commands or expected outputs.\",\n    \"Shared/common reuse violation: the candidate defines local intake-owned storage, event, and audit protocols instead of reusing the mandated shared roots under src/backend/shared/*.\",\n    \"Duplicate auth enforcement logic in binding.py bypasses canonical shared auth/RBAC composition and introduces a parallel permission gate implementation inside the REQ slice.\",\n    \"Upload integrity remains promotion-blocking: workflow.py records immutable upload audit before processing event publication, and implementation.py can then roll back document/storage on publisher failure while leaving an irreversible upload audit for a request that did not complete its required downstream work.\"\n  ],\n  \"remaining_risks\": [\n    \"The API returns storage_uri in both accepted upload and document status responses; that may be an unnecessary storage-location leak even if not explicitly forbidden by this REQ.\",\n    \"Fallback imports for lifecycle/shared contracts improve isolated testability but leave promotion-time import normalization risk if canonical module paths differ.\",\n    \"Ack latency tracking is implemented but not validated against any real runtime profile or storage/event backends.\",\n    \"The current tests do not prove compatibility with the actual shared authz, audit, storage, or event modules already present in the repository.\"\n  ],\n  \"promotability_score\": 60\n}"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 49857,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 4948,
+      "output_tokens_details": {
+        "reasoning_tokens": 3430
+      },
+      "total_tokens": 54805
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

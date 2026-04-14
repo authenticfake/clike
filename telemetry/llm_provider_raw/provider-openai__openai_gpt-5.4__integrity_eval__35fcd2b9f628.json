@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260411T201216Z",
+  "project_id": "docufu",
+  "phase": "integrity_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_02375e841af4a51d0069daaa9e9ec88197804f8c77f6ad5cdd",
+    "object": "response",
+    "created_at": 1775938206,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1775938336,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "# Harper /kit — INTEGRITY_EVAL\n\nYou are Harper /kit INTEGRITY_EVAL.\n\nYou are acting as:\n\n* Senior Software Architect\n* Senior Software Engineer\n* Stop-ship reviewer\n\nYou are evaluating the current REQ candidate.\nYou are NOT fixing it.\n\n## Authoritative inputs\n\nUse the following in this order:\n\n1. TARGET_CONTRACT.json\n2. FILE_REQUIREMENTS.json\n3. current candidate files\n4. REQ_PROMOTION_MANIFEST.md when present\n5. plan.json\n6. PLAN.md\n7. SPEC.md\n8. TECH_CONSTRAINTS.yaml\n9. repository evidence\n\n## What you must evaluate\n\nEvaluate the candidate on:\n\n* target REQ fidelity\n* lane fidelity\n* path contract fidelity\n* file contract fidelity\n* source substance\n* test substance\n* docs / code / CI coherence\n* repository fit\n* shared/common correctness\n* promotion plausibility\n\n## Hard rules\n\n* Be severe.\n* Do not reward path correctness if the implementation is semantically wrong.\n* Do not reward docs or tests that overclaim behavior not supported by source.\n* If a required file from FILE_REQUIREMENTS.json is missing, say so explicitly.\n* If a required file exists but does not cover its declared purpose, say so explicitly.\n* Wrong lane, wrong module family, duplicate settings/bootstrap/logging wrappers, or unjustified shared extraction are blockers.\n* Thin source with thick docs/tests is not promotable.\n* If the candidate is salvageable with bounded hardening, say so explicitly.\n* If the candidate is fundamentally wrong for the target REQ, reject it.\n\n## Output artifact\n\nEmit exactly one file block:\n\nfile:/runs/kit/<REQ-ID>/ci/INTEGRITY_EVAL.json\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must be valid and contain:\n\n* version\n* req_id\n* verdict\n* hardening_required\n* summary\n* scope_fidelity\n* lane_fidelity\n* path_contract\n* file_contract\n* source_substance\n* test_substance\n* docs_ci_coherence\n* repo_fit\n* shared_common_assessment\n* blockers\n* hardening_targets\n* promotability_score\n\n## Allowed verdicts\n\nUse exactly one of:\n\n* reject\n* salvageable\n* review_ready\n* promotion_candidate\n\n## Scoring\n\npromotability_score must be an integer from 0 to 100.\n\nUse these dimensions:\n\n* scope_fidelity: 0-20\n* lane_fidelity: 0-10\n* path_contract: 0-10\n* file_contract: 0-15\n* source_substance: 0-20\n* test_substance: 0-10\n* docs_ci_coherence: 0-5\n* repo_fit: 0-5\n* shared_common_assessment: 0-5\n\nEND FILE\n\n---",
+    "max_output_tokens": 17000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_02375e841af4a51d0069daaaa9ced081978c05fb8d490d80fb",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_02375e841af4a51d0069daaae3f2948197afe0e2047c380aeb",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "file:/runs/kit/REQ-002/ci/INTEGRITY_EVAL.json\n```json\n{\n  \"version\": \"1.0\",\n  \"req_id\": \"REQ-002\",\n  \"verdict\": \"salvageable\",\n  \"hardening_required\": true,\n  \"summary\": \"The candidate proves a meaningful subset of REQ-002: OIDC/SAML-like claim normalization, permission checks, 401/403 deny paths with no write-side effects, actor propagation into write/audit seams, and token/assertion redaction. It is not promotion-ready. It misses required contract elements (`active` in the normalized actor context), does not reuse the required shared contract family, does not satisfy the plan-level file minimums or required API docs, logs are not structured and do not carry the required correlation identifiers, and the emitted module/test paths do not align cleanly with the canonical promotion targets. This is salvageable with bounded hardening; it is not fundamentally wrong, but it is under-shaped for promotion.\",\n  \"scope_fidelity\": {\n    \"score\": 11,\n    \"assessment\": \"Partial fidelity. Core authz behavior is present, but the normalized actor contract is incomplete and observability/redaction requirements are under-met.\",\n    \"evidence\": [\n      \"Implements claim normalization for OIDC and SAML-like payloads via `AuthPolicy.normalize_actor`.\",\n      \"Implements `GET /auth/me` and a protected mutation seam to prove allow/deny behavior.\",\n      \"Returns 401 for missing/malformed auth claims and 403 for missing permission.\",\n      \"Propagates actor identity into write and audit sinks on allowed mutation.\",\n      \"Does not include required `active` field in the actor context/UserContext contract.\",\n      \"Does not provide structured logging with stable request and actor correlation identifiers.\",\n      \"Logs redacted claims, but still logs more identity payload than the minimum identifiers expected by REQ-002.\"\n    ]\n  },\n  \"lane_fidelity\": {\n    \"score\": 8,\n    \"assessment\": \"Correct lane and framework family overall: Python backend, FastAPI-compatible dependency seams, Pydantic v2. The lane fit is reduced by monolithic packaging and incomplete repository contract reuse.\",\n    \"evidence\": [\n      \"Uses FastAPI router/dependencies and Pydantic v2 models.\",\n      \"Stays within backend/auth staging scope and avoids frontend/data/infra work.\",\n      \"Does not introduce profile-specific authorization branches or username allowlists.\",\n      \"Packaging remains a single monolithic module rather than a clearer session/RBAC module split expected by the plan.\"\n    ]\n  },\n  \"path_contract\": {\n    \"score\": 4,\n    \"assessment\": \"Only partial path fidelity. The source is under `src/backend/auth`, but the candidate does not align to the canonical module family and does not reflect the expected promotion structure cleanly.\",\n    \"evidence\": [\n      \"Source file exists under `runs/kit/REQ-002/src/backend/auth/main_module.py`, which is at least inside the allowed auth family.\",\n      \"Canonical module family in the plan is `src/backend/auth/session_rbac`; candidate emits `main_module.py` instead.\",\n      \"Expected source roots include `src/backend/shared/authz`, but no candidate source is emitted there.\",\n      \"Plan canonical test root is `tests/backend/auth`; candidate uses staging path `test/backend/auth`, which is weaker for low-risk promotion.\"\n    ]\n  },\n  \"file_contract\": {\n    \"score\": 3,\n    \"assessment\": \"Fails plan-level file contract expectations in multiple ways.\",\n    \"evidence\": [\n      \"REQ-002 kit minimum requires at least 3 source files; candidate emits 1 source file.\",\n      \"REQ-002 requires API docs; the plan/KIT readiness specifically calls for API docs for `GET /auth/me`, and no such API doc artifact is present under a dedicated API docs path.\",\n      \"Required reuse target `src/backend/shared/contracts` is not used by the implementation.\",\n      \"The existing docs files describe the slice but do not satisfy the required API documentation contract.\"\n    ]\n  },\n  \"source_substance\": {\n    \"score\": 11,\n    \"assessment\": \"There is real implementation substance, but it is too self-contained and contract-light for promotion.\",\n    \"evidence\": [\n      \"Implements normalization helpers for groups, scopes, and permission claims.\",\n      \"Implements explicit deny behavior and dependency-based authorization seams.\",\n      \"Includes redaction logic for token/assertion-shaped fields.\",\n      \"Uses local `ActorContext` instead of required shared/common contracts.\",\n      \"Misses `active` in the normalized actor payload despite REQ-002 acceptance and data contract expectations.\",\n      \"Uses ad hoc header-forwarded JSON claims parsing as the sole request auth input, with no broader session abstraction beyond this module.\",\n      \"Logging is plain logger text, not structured logging tied to correlation IDs.\"\n    ]\n  },\n  \"test_substance\": {\n    \"score\": 6,\n    \"assessment\": \"Tests cover the main happy/deny paths and redaction basics, but coverage is still narrow versus the stated REQ.\",\n    \"evidence\": [\n      \"Tests cover OIDC normalization, SAML normalization, `GET /auth/me`, 401 deny, 403 deny, and actor propagation.\",\n      \"Tests assert no business mutation and no audit writes on deny paths.\",\n      \"Tests assert token/assertion redaction in log capture.\",\n      \"No test asserts presence of the required `active` field.\",\n      \"No test asserts deterministic non-leakage of deny bodies beyond status code.\",\n      \"No test asserts structured logging or request/actor correlation identifiers.\",\n      \"No test covers malformed auth payload variants beyond missing headers via endpoint behavior.\",\n      \"No test proves reuse/binding with shared contracts.\"\n    ]\n  },\n  \"docs_ci_coherence\": {\n    \"score\": 3,\n    \"assessment\": \"Mostly coherent, but docs overstate readiness relative to source and omit important gaps required by the REQ.\",\n    \"evidence\": [\n      \"README and KIT notes accurately describe the use of in-memory sinks and the out-of-scope upstream IdP verification.\",\n      \"CI commands are plausible for compile, pytest+coverage, and lint.\",\n      \"Docs claim a stable actor context, but the implemented actor contract omits the required `active` field.\",\n      \"Docs do not surface the missing shared contract reuse or missing required API docs.\"\n    ]\n  },\n  \"repo_fit\": {\n    \"score\": 2,\n    \"assessment\": \"Weak repository fit for promotion as-is.\",\n    \"evidence\": [\n      \"The candidate stays out of forbidden top-level families.\",\n      \"Promotion manifest says to design files as if they will promote into canonical repository targets; this candidate does not cleanly do that.\",\n      \"The implementation duplicates a local actor contract instead of binding to shared/common backend contracts.\",\n      \"Module naming and test-root shape increase promotion friction.\"\n    ]\n  },\n  \"shared_common_assessment\": {\n    \"score\": 1,\n    \"assessment\": \"Shared/common correctness is the largest architectural weakness in this candidate.\",\n    \"evidence\": [\n      \"REQ-002 explicitly requires reuse of `src/backend/shared/contracts`.\",\n      \"The candidate docs explicitly admit no direct import of an existing shared actor contract.\",\n      \"Actor/audit shape is locally invented in `main_module.py`.\",\n      \"No source is emitted under `src/backend/shared/authz`, despite that being an allowed and expected source root for this REQ.\"\n    ]\n  },\n  \"blockers\": [\n    \"Normalized actor context is missing the required `active` field from REQ-002 acceptance/data contract.\",\n    \"Required shared/common reuse is not met: `src/backend/shared/contracts` is not reused, and auth shaping is duplicated locally.\",\n    \"REQ-002 kit minimum source file count is not met: 1 source file emitted vs minimum 3.\",\n    \"Required API docs are missing; the plan/KIT readiness calls for API docs for `GET /auth/me`.\",\n    \"Logging is not structured and does not include the required stable request and actor correlation identifiers.\",\n    \"Logged auth payload, while redacted for secrets, still carries more identity detail than the minimum-identifiers expectation.\",\n    \"Canonical module family/path fidelity is weak (`main_module.py` instead of the planned `session_rbac` family, no emitted shared authz module).\"\n  ],\n  \"hardening_targets\": [\n    \"Add the missing `active` field to the normalized actor context and ensure `/auth/me` returns the required contract shape.\",\n    \"Refactor to reuse `src/backend/shared/contracts` for actor/shared contract definitions instead of defining them locally.\",\n    \"Split the monolith into at least the minimum viable source set aligned to the plan, including a proper auth/session RBAC module family and shared authz seam where appropriate.\",\n    \"Emit the required API documentation artifact for `GET /auth/me` and keep it consistent with the implemented response model.\",\n    \"Replace plain-text logging with structured logging and include stable request and actor correlation identifiers.\",\n    \"Reduce logged auth identity payload to minimum necessary identifiers while preserving token/assertion redaction.\",\n    \"Align promotion-oriented paths/module naming with the canonical repository structure to lower promotion risk.\",\n    \"Expand tests to cover `active`, deny-body determinism/non-leakage, malformed claim payloads, and structured logging expectations.\"\n  ],\n  \"promotability_score\": 49\n}\n```"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 39650,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 4030,
+      "output_tokens_details": {
+        "reasoning_tokens": 2070
+      },
+      "total_tokens": 43680
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260412T205118Z",
+  "project_id": "docufu",
+  "phase": "promotion_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_0357ce27d2ca9f410069dc056df6ec8190bf22eb5d8e6851fa",
+    "object": "response",
+    "created_at": 1776026990,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1776027078,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "Harper /kit — PROMOTION_EVAL\n\nYou are Harper /kit PROMOTION_EVAL.\n\nYou are acting as:\n\n* Senior Software Architect\n* Senior Software Engineer\n* Promotion reviewer\n* Stop-ship evaluator\n\nYou are evaluating the final candidate after optional hardening.\nYou are NOT fixing it.\n\n## Authoritative inputs\n\nUse the following in this order:\n\n1. TARGET_CONTRACT.json\n2. FILE_REQUIREMENTS.json\n3. current candidate files\n4. INTEGRITY_EVAL.json\n5. REQ_PROMOTION_MANIFEST.md when present\n6. plan.json\n7. PLAN.md\n8. SPEC.md\n9. TECH_CONSTRAINTS.yaml\n10. repository evidence\n\n## What you must evaluate\n\nEvaluate:\n\n* target REQ fidelity\n* lane correctness\n* file contract fidelity\n* source substance\n* test credibility\n* docs / code / CI coherence\n* promotion fit\n* repository fit\n* shared/common correctness\n* runtime/profile integrity\n* bounded remaining risks\n\n## Hard rules\n\n* Be severe.\n* Do not inflate quality.\n* Do not reward cosmetic cleanup as if it were substantive hardening.\n* Missing required files are blockers.\n* Required files that do not satisfy their declared purpose are blockers or major risks.\n* Wrong lane, wrong module family, duplicate bootstrap/config/logging wrappers, or fake completeness are promotion blockers.\n* If the candidate is still too thin, say so clearly.\n\n## Output artifact\n\nEmit exactly one file block:\n\nfile:/runs/kit/<REQ-ID>/ci/PROMOTION_EVAL.json\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must contain:\n\n* version\n* req_id\n* verdict\n* summary\n* scope_fidelity\n* lane_fidelity\n* file_contract\n* source_substance\n* test_credibility\n* docs_code_coherence\n* promotion_fit\n* repo_fit\n* shared_common_assessment\n* runtime_profile_assessment\n* blockers\n* remaining_risks\n* promotability_score\n\n## Allowed verdicts\n\nUse exactly one of:\n\n* reject\n* needs_more_hardening\n* eval_ready\n* promotion_candidate\n* promotion_candidate_with_risks\n\n## Scoring\n\npromotability_score must be an integer from 0 to 100.\n\nUse these dimensions:\n\n* scope_fidelity: 0-15\n* lane_fidelity: 0-10\n* file_contract: 0-15\n* source_substance: 0-20\n* test_credibility: 0-15\n* docs_code_coherence: 0-10\n* promotion_fit: 0-5\n* repo_fit: 0-5\n* shared_common_assessment: 0-5",
+    "max_output_tokens": 18000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_0357ce27d2ca9f410069dc056f59988190ab3e090ff9466f2c",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_0357ce27d2ca9f410069dc05a4ecc0819094cf0e607acc9b60",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "file:/runs/kit/REQ-002/ci/PROMOTION_EVAL.json\n{\n  \"version\": \"1.0.0\",\n  \"req_id\": \"REQ-002\",\n  \"verdict\": \"promotion_candidate_with_risks\",\n  \"summary\": \"This candidate is materially improved and now satisfies the core REQ-002 behavior: it normalizes OIDC/SAML claims into a stable actor context, returns 401/403 deny paths correctly, propagates actor identity into write and audit sinks, avoids username-based authorization, and emits structured redacted auth logs. Required files are present and substantively populated. The remaining concerns are promotion-facing rather than slice-failing: the implementation is still a local proving seam rather than a repository-integrated auth composition, permission policy wiring is fixture-style rather than repository-configured, and repository evidence under old.runs may require reconciliation before promotion.\",\n  \"scope_fidelity\": {\n    \"score\": 13,\n    \"max_score\": 15,\n    \"assessment\": \"Strong REQ fidelity. The slice now covers the target acceptance points with bounded assumptions.\",\n    \"evidence\": [\n      \"OIDC and SAML claim normalization is implemented in `src/backend/auth/implementation.py` via `AuthSessionService.resolve_actor()`.\",\n      \"The normalized API-facing contract now uses shared `UserContext` with required fields `id`, `display_name`, `permissions`, and `active` in `src/backend/shared/contracts.py`.\",\n      \"`GET /auth/me` returns `UserContext` from `src/backend/auth/binding.py`.\",\n      \"Anonymous callers are rejected with 401 in `_extract_claims_envelope()` and mapped by `_to_http_exception()`.\",\n      \"Authenticated but unauthorized or inactive callers are rejected with 403 via `ensure_permissions()`.\",\n      \"Actor identity is propagated into both write and audit sinks in `apply_mutation()`.\",\n      \"Authorization is permission-based through `PermissionPolicy`; there are no hard-coded usernames or profile branches.\",\n      \"Token and assertion redaction is implemented in `src/backend/shared/authz/logging.py` and the emitted log payload is minimized.\",\n      \"Bounded gap: this slice assumes trusted upstream claims injection rather than implementing raw token or SAML signature verification, which is acceptable for this REQ but still an integration dependency.\"\n    ]\n  },\n  \"lane_fidelity\": {\n    \"score\": 9,\n    \"max_score\": 10,\n    \"assessment\": \"Correct lane and mostly correct delivery discipline for a Python backend auth slice.\",\n    \"evidence\": [\n      \"Implementation is entirely in Python under backend source families.\",\n      \"FastAPI router binding is used for the application-facing seam, consistent with the backend lane.\",\n      \"No forbidden frontend, data migration, or infra implementation paths were introduced.\",\n      \"LTC defines lane-appropriate checks for build, lint, types, security, and tests.\",\n      \"Minor deduction: the candidate is still a slice-local proving seam rather than clearly wired into the repository's canonical runtime composition.\"\n    ]\n  },\n  \"file_contract\": {\n    \"score\": 14,\n    \"max_score\": 15,\n    \"assessment\": \"Required outputs are present and mostly satisfy their declared purposes.\",\n    \"evidence\": [\n      \"Primary implementation present: `runs/kit/REQ-002/src/backend/auth/implementation.py`.\",\n      \"Boundary contract present: `runs/kit/REQ-002/src/backend/auth/contracts.py`.\",\n      \"Entry binding present: `runs/kit/REQ-002/src/backend/auth/binding.py`.\",\n      \"Acceptance tests present: `runs/kit/REQ-002/test/backend/auth/test_req_behavior.py`.\",\n      \"Operational README present: `runs/kit/REQ-002/docs/README_REQ-002.md`.\",\n      \"KIT notes present: `runs/kit/REQ-002/docs/KIT_REQ-002.md`.\",\n      \"Execution contract present: `runs/kit/REQ-002/ci/LTC.json`.\",\n      \"Execution HOWTO present: `runs/kit/REQ-002/ci/HOWTO.md`.\",\n      \"Python requirements present: `runs/kit/REQ-002/ci/requirements.txt`.\",\n      \"API contract notes are also present in `runs/kit/REQ-002/docs/API_REQ-002.md`, satisfying the API-doc expectation.\",\n      \"The candidate additionally introduces `src/backend/shared/contracts.py` and `src/backend/shared/authz/logging.py`, which are relevant shared artifacts rather than filler.\",\n      \"Minor deduction: TARGET_CONTRACT names canonical module family `src/backend/auth/session_rbac`, while the emitted files sit directly under `src/backend/auth`; FILE_REQUIREMENTS path hints partially offset this, but the mismatch should be reconciled at promotion.\"\n    ]\n  },\n  \"source_substance\": {\n    \"score\": 17,\n    \"max_score\": 20,\n    \"assessment\": \"This is real implementation, not cosmetic hardening. The code contains meaningful normalization, authorization, binding, and logging behavior.\",\n    \"evidence\": [\n      \"Provider inference supports both OIDC and SAML claim patterns.\",\n      \"Claim extraction handles subject, username, display name, groups, permissions, and active-state coercion.\",\n      \"Permission derivation is deterministic and policy-driven through `PermissionPolicy.from_mapping()`.\",\n      \"Authorization denial is enforced before mutation side effects in `apply_mutation()`.\",\n      \"Logging is structured JSON with correlation ids and minimal details through `log_auth_event()`.\",\n      \"Shared `UserContext` separation from internal `ActorContext` is a substantive contract improvement.\",\n      \"The implementation avoids a per-REQ `app.py` bootstrap and exposes a router builder instead.\",\n      \"Deduction: the slice proves downstream propagation via protocol sinks and demo endpoints rather than repository-owned adapters and canonical endpoints.\"\n    ]\n  },\n  \"test_credibility\": {\n    \"score\": 13,\n    \"max_score\": 15,\n    \"assessment\": \"Tests are behavior-heavy and credible for this slice, though still limited to staged local seams.\",\n    \"evidence\": [\n      \"Tests cover deterministic permission mapping for both OIDC and SAML identities.\",\n      \"Tests assert the corrected `/auth/me` user-context shape including `active`.\",\n      \"Tests assert 401 for anonymous and 403 for unauthorized callers.\",\n      \"Tests assert inactive-user denial on protected and write routes.\",\n      \"Tests assert no mutation and no audit side effects on deny paths.\",\n      \"Tests assert actor propagation into downstream write and audit sinks.\",\n      \"Tests assert structured logging behavior and absence of token/assertion leakage.\",\n      \"Tests use FastAPI `TestClient`, giving integration-like route coverage rather than pure unit-only assertions.\",\n      \"Deduction: there are no produced reports in evidence, so credibility comes from test substance and executable commands rather than observed CI execution.\",\n      \"Deduction: tests exercise demo protected/write routes rather than repository-integrated business endpoints.\"\n    ]\n  },\n  \"docs_code_coherence\": {\n    \"score\": 8,\n    \"max_score\": 10,\n    \"assessment\": \"Docs are mostly truthful and aligned with the emitted code and CI contract.\",\n    \"evidence\": [\n      \"README accurately describes the emitted slice, assumptions, and explicit gaps.\",\n      \"KIT notes explain the rationale for separating shared `UserContext` from internal `ActorContext`.\",\n      \"API notes match the implemented `/auth/me`, `/auth/protected`, and `/auth/write` routes.\",\n      \"HOWTO commands correspond to the emitted source and test files.\",\n      \"Repository-access wording is compliant: it states only that the local snapshot informed decisions.\",\n      \"Minor deduction: docs frame the proving seam clearly, but promotion-time reconciliation with repository composition is still not fully specified.\"\n    ]\n  },\n  \"promotion_fit\": {\n    \"score\": 4,\n    \"max_score\": 5,\n    \"assessment\": \"Close to promotable, but not drop-in clean.\",\n    \"evidence\": [\n      \"The implementation is localized and reviewable.\",\n      \"The shared/public contract split is suitable for later REQs to depend on.\",\n      \"No fake completeness signals or unnecessary bootstrap files were added.\",\n      \"Remaining issue: the permission policy is still caller-supplied and test-fixture shaped rather than obviously bound to repository configuration.\"\n    ]\n  },\n  \"repo_fit\": {\n    \"score\": 3,\n    \"max_score\": 5,\n    \"assessment\": \"Reasonable but not fully reconciled with repository evidence.\",\n    \"evidence\": [\n      \"The candidate is designed for promotion into canonical `src/` and `test/` families, consistent with the promotion manifest.\",\n      \"No forbidden top-level source roots were introduced.\",\n      \"No new `app.py` bootstrap was created, which avoids a major composition mistake.\",\n      \"However, repository composition evidence points to existing auth/authz assets under `old.runs/...`; this candidate does not demonstrate direct reuse or migration alignment with those assets.\"\n    ]\n  },\n  \"shared_common_assessment\": {\n    \"score\": 4,\n    \"max_score\": 5,\n    \"assessment\": \"Shared/common handling is materially better than the pre-hardening state.\",\n    \"evidence\": [\n      \"Shared API-facing contract was factored into `src/backend/shared/contracts.py` and reused by the auth slice.\",\n      \"Shared auth logging helper exists under `src/backend/shared/authz/logging.py`, matching the allowed shared family.\",\n      \"The auth slice depends on shared contracts instead of keeping the full public contract local.\",\n      \"Deduction: this still introduces new shared artifacts rather than clearly integrating with existing repository-authz code evidenced in `old.runs`.\"\n    ]\n  },\n  \"runtime_profile_assessment\": {\n    \"assessment\": \"The slice is profile-independent and does not introduce AWS/on-prem business divergence. It correctly keeps auth normalization and permission evaluation detached from deployment profile branches. Runtime integration remains incomplete because the candidate assumes trusted upstream claim injection and does not show repository-owned gateway wiring.\",\n    \"evidence\": [\n      \"No AWS-specific or on-prem-specific authorization branches appear in the implementation.\",\n      \"Provider handling is identity-format based (`oidc`/`saml`), not infrastructure-profile based.\",\n      \"Logging is structured and redaction-oriented, which fits the runtime observability expectations.\",\n      \"The trusted-header seam is acceptable for a staged REQ but still requires integration with real upstream auth infrastructure before release.\"\n    ]\n  },\n  \"blockers\": [],\n  \"remaining_risks\": [\n    \"Repository composition reconciliation is still needed: existing auth/authz assets under `old.runs` may diverge from these staged modules and were not explicitly merged or superseded here.\",\n    \"The canonical module family naming (`session_rbac`) is not reflected literally in the emitted package layout; promotion should resolve whether that family is conceptual or requires a subpackage move.\",\n    \"Permission policy wiring is injected by the caller and proven by fixtures; repository-owned configuration or settings binding is still pending.\",\n    \"The trusted `X-Auth-Claims` seam depends on an upstream gateway or equivalent repository seam; production integration is outside this candidate.\",\n    \"CI commands are defined, but no executed reports are included in the candidate evidence, so operational confidence is based on test/code substance rather than observed green runs.\",\n    \"Demonstration routes `/auth/protected` and `/auth/write` are useful proving seams, but they should not be promoted blindly if canonical repository endpoints already cover the same concerns.\"\n  ],\n  \"promotability_score\": 85\n}"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 50757,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 5600,
+      "output_tokens_details": {
+        "reasoning_tokens": 3215
+      },
+      "total_tokens": 56357
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260412T150954Z",
+  "project_id": "docufu",
+  "phase": "promotion_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_04fc626d8d3be1d60069dbb56e63308195a8232a4cc4f3ad9e",
+    "object": "response",
+    "created_at": 1776006510,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1776006593,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "Harper /kit — PROMOTION_EVAL\n\nYou are Harper /kit PROMOTION_EVAL.\n\nYou are acting as:\n\n* Senior Software Architect\n* Senior Software Engineer\n* Promotion reviewer\n* Stop-ship evaluator\n\nYou are evaluating the final candidate after optional hardening.\nYou are NOT fixing it.\n\n## Authoritative inputs\n\nUse the following in this order:\n\n1. TARGET_CONTRACT.json\n2. FILE_REQUIREMENTS.json\n3. current candidate files\n4. INTEGRITY_EVAL.json\n5. REQ_PROMOTION_MANIFEST.md when present\n6. plan.json\n7. PLAN.md\n8. SPEC.md\n9. TECH_CONSTRAINTS.yaml\n10. repository evidence\n\n## What you must evaluate\n\nEvaluate:\n\n* target REQ fidelity\n* lane correctness\n* file contract fidelity\n* source substance\n* test credibility\n* docs / code / CI coherence\n* promotion fit\n* repository fit\n* shared/common correctness\n* runtime/profile integrity\n* bounded remaining risks\n\n## Hard rules\n\n* Be severe.\n* Do not inflate quality.\n* Do not reward cosmetic cleanup as if it were substantive hardening.\n* Missing required files are blockers.\n* Required files that do not satisfy their declared purpose are blockers or major risks.\n* Wrong lane, wrong module family, duplicate bootstrap/config/logging wrappers, or fake completeness are promotion blockers.\n* If the candidate is still too thin, say so clearly.\n\n## Output artifact\n\nEmit exactly one file block:\n\nfile:/runs/kit/<REQ-ID>/ci/PROMOTION_EVAL.json\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must contain:\n\n* version\n* req_id\n* verdict\n* summary\n* scope_fidelity\n* lane_fidelity\n* file_contract\n* source_substance\n* test_credibility\n* docs_code_coherence\n* promotion_fit\n* repo_fit\n* shared_common_assessment\n* runtime_profile_assessment\n* blockers\n* remaining_risks\n* promotability_score\n\n## Allowed verdicts\n\nUse exactly one of:\n\n* reject\n* needs_more_hardening\n* eval_ready\n* promotion_candidate\n* promotion_candidate_with_risks\n\n## Scoring\n\npromotability_score must be an integer from 0 to 100.\n\nUse these dimensions:\n\n* scope_fidelity: 0-15\n* lane_fidelity: 0-10\n* file_contract: 0-15\n* source_substance: 0-20\n* test_credibility: 0-15\n* docs_code_coherence: 0-10\n* promotion_fit: 0-5\n* repo_fit: 0-5\n* shared_common_assessment: 0-5",
+    "max_output_tokens": 18000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_04fc626d8d3be1d60069dbb56fda1c8195adfbd9f137463311",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_04fc626d8d3be1d60069dbb5ab19688195a20e272e01b35d61",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "```file:/runs/kit/REQ-001/ci/PROMOTION_EVAL.json\n{\n  \"version\": \"1.0\",\n  \"req_id\": \"REQ-001\",\n  \"verdict\": \"needs_more_hardening\",\n  \"summary\": \"Evaluated against PLAN/plan.json/SPEC because TARGET_CONTRACT.json and FILE_REQUIREMENTS.json were not provided. The current candidate is materially closer to REQ-001 than the supplied INTEGRITY_EVAL describes; that prior integrity report appears stale against the present files. Source substance is real and mostly in the correct Data/sql slice: canonical tables, lifecycle enums, migration DDL, pilot metadata indexes, and audit/task triggers are present. Promotion is still blocked by weak proof and incoherent support artifacts: the provided test file does not credibly demonstrate the mandatory migration smoke, seeded upgrade/downgrade, index verification, or audit immutability claims, while README/KIT/LTC assert trigger/index behavior and defaults that the source does not actually implement.\",\n  \"scope_fidelity\": {\n    \"score\": 12,\n    \"max\": 15,\n    \"assessment\": \"Core REQ-001 scope is mostly present. The candidate defines the required entity family, lifecycle vocabularies, reserved exported document state, canonical task type constraint, metadata/full-text support columns, and immutable-audit intent. It falls short on evidence for the acceptance clause requiring migration smoke and index checks, and some contract details remain weaker than the target logical model, notably missing explicit event_type enum enforcement and reliance on Python lifecycle contracts rather than database-level transition guards.\"\n  },\n  \"lane_fidelity\": {\n    \"score\": 9,\n    \"max\": 10,\n    \"assessment\": \"Strong lane discipline. Files stay within Data/sql concerns under src/data/schema and src/data/migrations, with no backend, frontend, or infra spillover and no duplicate bootstrap or shared wrapper invention. Minor deduction only because promotion still has to re-home staged test material into the canonical tests family.\"\n  },\n  \"file_contract\": {\n    \"score\": 8,\n    \"max\": 15,\n    \"assessment\": \"The expected artifact types are present: contracts module, schema module, Alembic revision, tests, docs, and CI notes. However several required files do not satisfy their declared purpose. The test file, as provided, does not substantively prove the migration smoke, downgrade, seeded database behavior, index presence, or audit immutability that README/LTC claim. README and KIT notes describe a search trigger, metadata GIN index, and default state behavior not found in the source.\"\n  },\n  \"source_substance\": {\n    \"score\": 15,\n    \"max\": 20,\n    \"assessment\": \"This is not a thin cosmetic submission. contracts.py defines substantive lifecycle contracts for document, extracted field, task, notification, export job, and AI query records. schema.py defines eight canonical tables with meaningful constraints and indexes, including pilot metadata field indexing and PostgreSQL TSVECTOR support. The migration includes non-trivial DDL plus audit immutability and task completion triggers. Deductions remain because some invariants are only partially enforced, extracted_text_tsv population is not implemented in the emitted DDL, and AuditEvent.event_type is unconstrained despite the logical model naming an enum.\"\n  },\n  \"test_credibility\": {\n    \"score\": 3,\n    \"max\": 15,\n    \"assessment\": \"This is the main failure point. The visible test file contains useful contract assertions and scaffolding for migration execution, but it does not credibly deliver the mandatory REQ-001 proof burden. As provided, it does not show real upgrade/downgrade execution, seeded-database checks, trigger verification, immutability checks, or index introspection matching the CI claims. One visible index assertion is effectively vacuous. The CI evidence therefore cannot be trusted as promotion-grade validation.\"\n  },\n  \"docs_code_coherence\": {\n    \"score\": 2,\n    \"max\": 10,\n    \"assessment\": \"Docs and CI are materially overstated relative to code. README claims GIN indexes for documents.metadata and documents.search_vector, a full-text trigger, and Document.state defaulting to reserved; those claims are not supported by the emitted source. KIT notes repeat the trigger/index story. LTC expects proof for trigger/index behavior that the provided tests do not demonstrate. This is not minor polish drift; it undermines trust in the slice.\"\n  },\n  \"promotion_fit\": {\n    \"score\": 2,\n    \"max\": 5,\n    \"assessment\": \"Promotion is plausible because the source is localized and not architecturally invasive, but it is not fit for promotion yet. The code is close enough to salvage, but the acceptance evidence is not promotion-grade and the support documents would mislead reviewers.\"\n  },\n  \"repo_fit\": {\n    \"score\": 3,\n    \"max\": 5,\n    \"assessment\": \"The module family is aligned with the planned canonical destination under src/data/schema/core_lifecycle and src/data/migrations. No conflicting app/bootstrap composition is introduced. Residual deduction comes from staged-path reality versus canonical promotion targets and the lack of repository-integrated Alembic bootstrap evidence.\"\n  },\n  \"shared_common_assessment\": {\n    \"score\": 5,\n    \"max\": 5,\n    \"assessment\": \"No shared/common misuse detected. The candidate does not create duplicate auth/config/bootstrap wrappers, does not fork module families, and stays bounded to the intended schema/migration slice.\"\n  },\n  \"runtime_profile_assessment\": {\n    \"assessment\": \"Appropriate for the Data/sql lane. The candidate is explicitly PostgreSQL-oriented, which matches REQ-001 and the technology constraints. There is no profile-specific business branching. Remaining runtime concerns are evidence-related rather than design-related: tests depend on an external PostgreSQL URL/Docker flow, and the emitted artifacts do not prove the claimed trigger/index/runtime behavior.\"\n  },\n  \"blockers\": [\n    \"Mandatory REQ-001 proof is not credible. The provided test file does not substantively demonstrate Alembic upgrade and downgrade on empty and seeded databases, index verification, or audit immutability despite those being explicit acceptance requirements.\",\n    \"README_REQ-001.md materially overclaims the implementation: it asserts documents.metadata/search_vector GIN indexes, a full-text trigger, and Document.state default/reservation behavior not supported by the emitted source.\",\n    \"KIT_REQ-001.md repeats unsupported trigger/index claims, so docs are not reliable promotion guidance.\",\n    \"ci/LTC.json claims evidence for trigger/index behavior that the provided tests do not visibly verify, so CI cannot be treated as trustworthy acceptance evidence.\",\n    \"As provided, the emitted slice is not promotion-ready because required files meant to prove correctness do not fulfill their declared purpose.\"\n  ],\n  \"remaining_risks\": [\n    \"Lifecycle transition correctness is enforced in Python contract code, not comprehensively at the database layer; direct SQL mutation could bypass those guards unless later layers are disciplined.\",\n    \"AuditEvent.event_type is not constrained to the declared canonical event vocabulary, which weakens contract rigidity.\",\n    \"The extracted_text_tsv column is present but no population mechanism is emitted here; later slices or migration hardening must ensure search data is actually maintained.\",\n    \"Repository-wide Alembic chain integration is assumed rather than proven in this staged slice.\",\n    \"The supplied INTEGRITY_EVAL.json does not match the current source and should not be used as-is for final promotion gating without reconciliation.\"\n  ],\n  \"promotability_score\": 59\n}\n```"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 50730,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 5148,
+      "output_tokens_details": {
+        "reasoning_tokens": 3575
+      },
+      "total_tokens": 55878
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

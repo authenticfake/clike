@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260412T072000Z",
+  "project_id": "docufu",
+  "phase": "integrity_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_0b8858d95d3fba5e0069db4748792c81979f01fc73d8cee476",
+    "object": "response",
+    "created_at": 1775978312,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1775978399,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "# Harper /kit — INTEGRITY_EVAL\n\nYou are Harper /kit INTEGRITY_EVAL.\n\nYou are acting as:\n\n* Senior Software Architect\n* Senior Software Engineer\n* Stop-ship reviewer\n\nYou are evaluating the current REQ candidate.\nYou are NOT fixing it.\n\n## Authoritative inputs\n\nUse the following in this order:\n\n1. TARGET_CONTRACT.json\n2. FILE_REQUIREMENTS.json\n3. current candidate files\n4. REQ_PROMOTION_MANIFEST.md when present\n5. plan.json\n6. PLAN.md\n7. SPEC.md\n8. TECH_CONSTRAINTS.yaml\n9. repository evidence\n\n## What you must evaluate\n\nEvaluate the candidate on:\n\n* target REQ fidelity\n* lane fidelity\n* path contract fidelity\n* file contract fidelity\n* source substance\n* test substance\n* docs / code / CI coherence\n* repository fit\n* shared/common correctness\n* promotion plausibility\n\n## Hard rules\n\n* Be severe.\n* Do not reward path correctness if the implementation is semantically wrong.\n* Do not reward docs or tests that overclaim behavior not supported by source.\n* If a required file from FILE_REQUIREMENTS.json is missing, say so explicitly.\n* If a required file exists but does not cover its declared purpose, say so explicitly.\n* Wrong lane, wrong module family, duplicate settings/bootstrap/logging wrappers, or unjustified shared extraction are blockers.\n* Thin source with thick docs/tests is not promotable.\n* If the candidate is salvageable with bounded hardening, say so explicitly.\n* If the candidate is fundamentally wrong for the target REQ, reject it.\n\n## Output artifact\n\nEmit exactly one file block:\n\nfile:/runs/kit/<REQ-ID>/ci/INTEGRITY_EVAL.json\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must be valid and contain:\n\n* version\n* req_id\n* verdict\n* hardening_required\n* summary\n* scope_fidelity\n* lane_fidelity\n* path_contract\n* file_contract\n* source_substance\n* test_substance\n* docs_ci_coherence\n* repo_fit\n* shared_common_assessment\n* blockers\n* hardening_targets\n* promotability_score\n\n## Allowed verdicts\n\nUse exactly one of:\n\n* reject\n* salvageable\n* review_ready\n* promotion_candidate\n\n## Scoring\n\npromotability_score must be an integer from 0 to 100.\n\nUse these dimensions:\n\n* scope_fidelity: 0-20\n* lane_fidelity: 0-10\n* path_contract: 0-10\n* file_contract: 0-15\n* source_substance: 0-20\n* test_substance: 0-10\n* docs_ci_coherence: 0-5\n* repo_fit: 0-5\n* shared_common_assessment: 0-5",
+    "max_output_tokens": 17000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_0b8858d95d3fba5e0069db474a1638819780271a4a9b4a4c9a",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_0b8858d95d3fba5e0069db4787ea6481979fbed7848498cc20",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "file:/runs/kit/REQ-003/ci/INTEGRITY_EVAL.json\n```json\n{\n  \"version\": \"1.0\",\n  \"req_id\": \"REQ-003\",\n  \"verdict\": \"salvageable\",\n  \"hardening_required\": true,\n  \"summary\": \"Candidate hits the basic happy-path upload flow for REQ-003, but it is not review-ready. It misses a declared API contract, uses the wrong permission name, under-specifies required document and audit data, and duplicates shared adapter contracts locally instead of reusing shared/common module families. Tests are useful but narrow. This is salvageable with bounded hardening; it is not promotable as-is.\",\n  \"scope_fidelity\": {\n    \"score\": 11,\n    \"out_of\": 20,\n    \"assessment\": \"Implements POST /documents happy path, supported extension set, size limit, storage write, processing event emission, upload audit emission, and storage-failure rollback. However, the declared REQ-003 API contract also includes GET /documents/{documentId}, which is missing. The auth rule is misaligned: the code enforces document.write, while the REQ contract requires document.upload. Document persistence and audit contracts also omit required timestamp fields.\"\n  },\n  \"lane_fidelity\": {\n    \"score\": 8,\n    \"out_of\": 10,\n    \"assessment\": \"Correct lane: Python/FastAPI backend slice under documents intake. No wrong-lane technology introduced. Score reduced because the candidate depends on shared auth contracts but does not consistently follow shared contract reuse expectations for storage/events/audit.\"\n  },\n  \"path_contract\": {\n    \"score\": 8,\n    \"out_of\": 10,\n    \"assessment\": \"Primary source placement is within the correct module family for promotion: src/backend/documents/intake. No forbidden frontend/data/infra files were added. Test placement uses test/backend/... which fits repository evidence but diverges from PLAN.md's tests/... wording. Staging paths are acceptable, but promotion will require cleanup of staging-specific references.\"\n  },\n  \"file_contract\": {\n    \"score\": 4,\n    \"out_of\": 15,\n    \"assessment\": \"The provided evaluation inputs do not include TARGET_CONTRACT.json or FILE_REQUIREMENTS.json, so full authoritative file-contract validation is blocked. Even so, against plan-level requirements this candidate is short: REQ-003 minimum deliverable requires 4 source files and API docs; only 2 source files are present, and no real API contract documentation for POST /documents and GET /documents/{documentId} is provided. The required GET endpoint is also absent from source.\"\n  },\n  \"source_substance\": {\n    \"score\": 9,\n    \"out_of\": 20,\n    \"assessment\": \"There is real implementation logic, not pure scaffolding. Validation, persistence orchestration, storage write, rollback-on-storage-failure, and event/audit side effects are present. But substance is too thin for the contract: uploaded_at is not represented in the document command/record, upload audit lacks timestamp, permission naming is wrong, media-type validation is too permissive because supported filename extensions bypass unsupported media types, and event/audit failures are not handled for consistency.\"\n  },\n  \"test_substance\": {\n    \"score\": 5,\n    \"out_of\": 10,\n    \"assessment\": \"Tests cover the main happy path, unsupported type, oversize, and storage rollback. That is meaningful. But they do not cover 401/403 auth behavior, the missing GET endpoint, malformed multipart handling, media-type spoofing, event-publish failure, audit-write failure, or any timestamp/data-contract assertions. The suite proves only a narrow subset of REQ-003.\"\n  },\n  \"docs_ci_coherence\": {\n    \"score\": 3,\n    \"out_of\": 5,\n    \"assessment\": \"Docs and HOWTO generally match the source and tests and do not overclaim processing/OCR behavior. CI commands are plausible for the staged output. Score reduced because API docs required by KIT readiness are not actually delivered, and the docs do not call out the missing GET contract.\"\n  },\n  \"repo_fit\": {\n    \"score\": 3,\n    \"out_of\": 5,\n    \"assessment\": \"Localized, reviewable, and broadly promotable into the backend documents intake family. Fit is reduced because the candidate introduces local adapter protocols for storage, events, and audit instead of reusing the shared/common module families identified by the plan.\"\n  },\n  \"shared_common_assessment\": {\n    \"score\": 2,\n    \"out_of\": 5,\n    \"assessment\": \"Auth reuse is attempted via shared authz imports, which is good. But storage, event, and audit boundaries are redefined locally in intake/contracts.py rather than reusing the mandated shared/common families under src/backend/shared/{storage,audit,events}. That is a contract drift risk and weakens promotion confidence.\"\n  },\n  \"blockers\": [\n    \"TARGET_CONTRACT.json was not provided in the evaluation inputs; full target-contract validation is therefore incomplete.\",\n    \"FILE_REQUIREMENTS.json was not provided in the evaluation inputs; full required-file validation is therefore incomplete.\",\n    \"Declared REQ-003 API contract GET /documents/{documentId} is missing from the candidate.\",\n    \"Authorization guard uses document.write instead of the required document.upload permission contract.\",\n    \"Document persistence contract omits uploaded_at even though REQ-003 data contract requires it.\",\n    \"Upload audit contract omits a timestamp even though REQ-003 requires actor and timestamp on the immutable upload audit event.\",\n    \"Candidate defines local StorageAdapter, ProcessingEventPublisher, and UploadAuditWriter protocols instead of reusing shared/common module families mandated by plan.json and PLAN.md.\",\n    \"REQ-003 minimum deliverable calls for 4 source files; candidate ships only 2 source files.\",\n    \"KIT readiness says API docs are required; no actual API contract documentation is present.\"\n  ],\n  \"hardening_targets\": [\n    \"Add the missing GET /documents/{documentId} endpoint and tests aligned to the declared REQ-003 API contract.\",\n    \"Change the permission guard from document.write to document.upload and add explicit 401/403 tests.\",\n    \"Extend document create/read contracts to carry uploaded_at and any other required persistence fields from REQ-001/REQ-003 data contracts.\",\n    \"Extend upload audit contract to include created_at/timestamp and verify immutability semantics in tests.\",\n    \"Replace locally defined storage/event/audit protocols with imports or implementations that reuse the shared/common module families required by the plan.\",\n    \"Tighten upload validation so unsupported media types are not accepted solely because the filename extension looks valid, and add spoofed-content-type tests.\",\n    \"Add negative tests for malformed multipart payloads and for no-side-effect behavior on validation failures.\",\n    \"Add consistency handling or clearly bounded failure semantics for event-publish and audit-write failures so accepted uploads cannot silently lose required side effects.\",\n    \"Provide real API documentation artifacts for the REQ-003 endpoints, not only README/KIT notes.\",\n    \"Increase source completeness to meet the minimum deliverable and downstream contract needs.\"\n  ],\n  \"promotability_score\": 53\n}\n```"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 40530,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 4449,
+      "output_tokens_details": {
+        "reasoning_tokens": 2940
+      },
+      "total_tokens": 44979
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

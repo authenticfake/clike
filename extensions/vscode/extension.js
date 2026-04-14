@@ -2180,18 +2180,52 @@ async function cmdOpenChat(context) {
           const activeProvider = profileHint ? '' : (explicitProviderForModel(activeModel) || '');
           const docRoot = 'docs/harper';
           log(`[harperRun] savedState ...${JSON.stringify(state)}`);
-
-          let targets =''
-          let project_name ='';
+          if (phase === 'kit') {
+            log(`[harperRun] kit raw targetReqId=${JSON.stringify(msg?.targetReqId)} raw targets=${JSON.stringify(msg?.targets)} phases=${JSON.stringify(msg?.phases || ['kit'])}`);
+          }
+          let targets = '';
+          let project_name = '';
           const { orchestratorUrl, routes } = cfg();
-          var prefixRag = (routes?.orchestrator?.ragIndex) ||  '/v1/rag/index';
+          var prefixRag = (routes?.orchestrator?.ragIndex) || '/v1/rag/index';
           let urlRag = orchestratorUrl + prefixRag;
-  
+
           if (phase === 'idea') {
-            project_name = msg?.name
+            project_name = msg?.name;
           } else if (phase === 'kit') {
-            targets = msg?.targets[0]?.toUpperCase() ?? "";
-          } 
+            const explicitTarget = String(msg?.targetReqId || '').trim().toUpperCase();
+            const rawTargets = msg?.targets;
+            const rawCommand = String(msg?.rawCommand || '').trim();
+
+            const normalizeReq = (value) => {
+              return String(value || '')
+                .trim()
+                .toUpperCase()
+                .replace(/[–—]/g, '-')
+                .replace(/[,;]+$/, '');
+            };
+
+            let rawCommandTarget = '';
+            if (rawCommand) {
+              const m = rawCommand.match(/\bREQ[-–—_ ]?(\d+)\b/i);
+              if (m && m[1]) {
+                rawCommandTarget = 'REQ-' + m[1];
+              }
+            }
+
+            if (explicitTarget) {
+              targets = normalizeReq(explicitTarget);
+            } else if (Array.isArray(rawTargets) && rawTargets.length > 0) {
+              targets = normalizeReq(rawTargets[0]);
+            } else if (typeof rawTargets === 'string' && rawTargets.trim()) {
+              targets = normalizeReq(rawTargets);
+            } else if (rawCommandTarget) {
+              targets = normalizeReq(rawCommandTarget);
+            } else {
+              targets = '';
+            }
+
+            log(`[harperRun] normalized kit target='${targets}' explicit=${JSON.stringify(explicitTarget)} raw=${JSON.stringify(rawTargets)} rawCommand=${JSON.stringify(rawCommand)} rawCommandTarget=${JSON.stringify(rawCommandTarget)}`);
+          }
           const projectName = getProjectNameFromWorkspace() || project_name; //name form workspace not from chat input!!!
           //RAG
           try { 
@@ -2267,20 +2301,73 @@ async function cmdOpenChat(context) {
           const wsroot = getWorkspaceRoot();
           let targetReqId
           let plan 
-          if (phase==='kit') {
+          if (phase === 'kit') {
             plan = await readPlanJson(wsroot);
             if (!plan) {
               vscode.window.showErrorMessage('plan.json not found. Run /plan first.');
               panel.webview.postMessage({ type: 'busy', on: false });
               return;
             }
-            targetReqId = await runKitCommand(plan, targets)
-            log("happerRun targetReqId", targetReqId)
+
+            targetReqId = await runKitCommand(plan, targets);
+            log("happerRun targetReqId", targetReqId);
+
             if (!targetReqId) {
               panel.webview.postMessage({ type: 'busy', on: false });
-              return
+              return;
             }
-            payload["kit"]= {targets: [targetReqId] }
+
+            const requestedPhases = Array.isArray(msg?.phases) && msg.phases.length
+              ? msg.phases
+              : null;
+
+            if (requestedPhases && requestedPhases.length) {
+              const normalizedPhases = requestedPhases
+                .map(p => String(p || '').trim().toLowerCase())
+                .filter(Boolean);
+
+              const postKitPhases = ['integrity_eval', 'promotion_hardener', 'promotion_eval'];
+              const needsExistingCandidate = normalizedPhases.some(p => postKitPhases.includes(p));
+
+              if (needsExistingCandidate) {
+                const reqRoot = vscode.Uri.joinPath(wsroot, 'runs', 'kit', targetReqId);
+                const required = [
+                  vscode.Uri.joinPath(reqRoot, 'src'),
+                  vscode.Uri.joinPath(reqRoot, 'test'),
+                  vscode.Uri.joinPath(reqRoot, 'docs', 'TARGET_CONTRACT.json'),
+                  vscode.Uri.joinPath(reqRoot, 'docs', 'FILE_REQUIREMENTS.json'),
+                  vscode.Uri.joinPath(reqRoot, 'docs', 'REQ_PROMOTION_MANIFEST.md'),
+                ];
+
+                if (normalizedPhases.includes('promotion_hardener') || normalizedPhases.includes('promotion_eval')) {
+                  required.push(vscode.Uri.joinPath(reqRoot, 'docs', 'INTEGRITY_EVAL.json'));
+                }
+
+                const missing = [];
+                for (const uri of required) {
+                  try {
+                    await vscode.workspace.fs.stat(uri);
+                  } catch {
+                    missing.push(vscode.workspace.asRelativePath(uri));
+                  }
+                }
+
+                if (missing.length) {
+                  const reason =
+                    `Cannot run ${normalizedPhases.join(', ')} for ${targetReqId}: missing required KIT candidate artifacts in workspace.\n` +
+                    missing.map(x => `- ${x}`).join('\n');
+                  log(`[harperRun] kit phase preflight failed for ${targetReqId}: ${reason}`);
+                  vscode.window.showErrorMessage(reason);
+                  panel.webview.postMessage({ type: 'busy', on: false });
+                  return;
+                }
+              }
+            }
+
+            payload["kit"] = {
+              targets: [targetReqId],
+              ...(requestedPhases ? { phases: requestedPhases } : {})
+            };
           }
           //log(`[harperRun] payload (gen):`,  JSON.stringify(payload.gen));
           msg_bubble = phase==='idea' ? project_id : targets; 
@@ -2459,7 +2546,7 @@ async function cmdOpenChat(context) {
         let targets, targetReqId
         const phase = msg.cmd;
         const ws_root= getWorkspaceRoot()
-        log(`[harperEDD] ws_root: ${ws_root}`)
+        //log(`[harperEDD] ws_root: ${ws_root}`)
         const runId = (Math.random().toString(16).slice(2) + Date.now().toString(16));
         log(`[harperEDD] runId ...`,  runId);
         const mode = (msg.running) ? msg.running : 'auto'
@@ -2467,8 +2554,18 @@ async function cmdOpenChat(context) {
         const isManual = msg.running === 'manual' && msg.modeContent === 'pass' ? true : false
         const plan = await readPlanJson(ws_root);
        
-        if (phase === 'eval' || phase === 'gate' ) {
-          targets = msg?.targets[0]?.toUpperCase() ?? "";
+        if (phase === 'eval' || phase === 'gate') {
+          const explicitTarget = String(msg?.targetRsseqId || '').trim().toUpperCase();
+
+          if (explicitTarget) {
+            targets = explicitTarget;
+          } else if (Array.isArray(msg?.targets) && msg.targets.length > 0) {
+            targets = String(msg.targets[0] || '').trim().toUpperCase();
+          } else if (typeof msg?.targets === 'string' && msg.targets.trim()) {
+            targets = msg.targets.trim().toUpperCase();
+          } else {
+            targets = '';
+          }
         }
         targetReqId = await runEvalGateCommand (plan, targets)
         if (!targetReqId) {
@@ -2528,28 +2625,46 @@ async function cmdOpenChat(context) {
 
             break;
           case 'gate': 
-            report = await handleGate(path_ltc_json, ws_root,targets, opts={promote: false, reqId: targets, mode: mode, result: modeContent} );  
-            const {report_file, filesToCommit }= await saveGateCommand(ws_root,plan,targets,report,out)
-            log( "report_file, filesToCommit", report_file, filesToCommit)
-            if (report.gate.toLowerCase()==='pass' && filesToCommit) {
-              log("[harperEDD] Gate passed calling git for req:" + targets);
-              //const filesArray = normalizeChangedFiles(report_file, filesToCommit);
-              //files_git.push(...filesArray);
-              // 1) Report gate come URI → fsPath
-              const reportFs = toFsPath(report_file); // report_file è un vscode.Uri o "file://..."
+            report = await handleGate(
+              path_ltc_json,
+              ws_root,
+              targets,
+              opts = { promote: false, reqId: targets, mode: mode, result: modeContent }
+            );
 
-              // 2) filesToCommit oggi contiene i SORGENTI (runs/kit/REQ-001/src/...)
-              //    Li mappo ai TARGET nel workspace (/src/...)
-              const _targets = String(filesToCommit || '')
-                .split(',')
-                .map(s => s.trim())
-                .filter(Boolean)
-                .map(p => mapKitSrcToWorkspaceTarget(p, targets));
+            const { report_file, filesToCommit, planFiles } = await saveGateCommand(
+              ws_root,
+              plan,
+              targets,
+              report,
+              out
+            );
 
-              // 3) Costruisco l'array finale dei file da passare a Git
-              files_git = [reportFs, ..._targets];
-            } else {
-              callGit=false;
+            log("report_file, filesToCommit, planFiles", report_file, filesToCommit, planFiles);
+
+            const gateVerdict = String(report?.gate || '').trim().toLowerCase();
+            const reportFs = report_file ? toFsPath(report_file) : '';
+
+            const committedTargets = Array.isArray(filesToCommit)
+              ? filesToCommit.map(p => toFsPath(p)).filter(Boolean)
+              : String(filesToCommit || '')
+                  .split(',')
+                  .map(s => s.trim())
+                  .filter(Boolean)
+                  .map(p => toFsPath(p));
+
+            const planTargets = Array.isArray(planFiles)
+              ? planFiles.map(p => toFsPath(p)).filter(Boolean)
+              : [];
+
+            files_git = [...new Set(
+              [reportFs, ...planTargets, ...committedTargets].filter(Boolean)
+            )];
+
+            log(`[harperEDD] gate verdict=${gateVerdict} files_git=${files_git.length}`);
+
+            if (gateVerdict !== 'pass') {
+              callGit = false;
             }
             break;
         }

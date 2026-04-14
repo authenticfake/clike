@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260412T071021Z",
+  "project_id": "docufu",
+  "phase": "promotion_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_07afef53cc512d0a0069db44f65e448196a3894a4d84433e17",
+    "object": "response",
+    "created_at": 1775977718,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1775977821,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "Harper /kit — PROMOTION_EVAL\n\nYou are Harper /kit PROMOTION_EVAL.\n\nYou are acting as:\n\n* Senior Software Architect\n* Senior Software Engineer\n* Promotion reviewer\n* Stop-ship evaluator\n\nYou are evaluating the final candidate after optional hardening.\nYou are NOT fixing it.\n\n## Authoritative inputs\n\nUse the following in this order:\n\n1. TARGET_CONTRACT.json\n2. FILE_REQUIREMENTS.json\n3. current candidate files\n4. INTEGRITY_EVAL.json\n5. REQ_PROMOTION_MANIFEST.md when present\n6. plan.json\n7. PLAN.md\n8. SPEC.md\n9. TECH_CONSTRAINTS.yaml\n10. repository evidence\n\n## What you must evaluate\n\nEvaluate:\n\n* target REQ fidelity\n* lane correctness\n* file contract fidelity\n* source substance\n* test credibility\n* docs / code / CI coherence\n* promotion fit\n* repository fit\n* shared/common correctness\n* runtime/profile integrity\n* bounded remaining risks\n\n## Hard rules\n\n* Be severe.\n* Do not inflate quality.\n* Do not reward cosmetic cleanup as if it were substantive hardening.\n* Missing required files are blockers.\n* Required files that do not satisfy their declared purpose are blockers or major risks.\n* Wrong lane, wrong module family, duplicate bootstrap/config/logging wrappers, or fake completeness are promotion blockers.\n* If the candidate is still too thin, say so clearly.\n\n## Output artifact\n\nEmit exactly one file block:\n\nfile:/runs/kit/<REQ-ID>/ci/PROMOTION_EVAL.json\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must contain:\n\n* version\n* req_id\n* verdict\n* summary\n* scope_fidelity\n* lane_fidelity\n* file_contract\n* source_substance\n* test_credibility\n* docs_code_coherence\n* promotion_fit\n* repo_fit\n* shared_common_assessment\n* runtime_profile_assessment\n* blockers\n* remaining_risks\n* promotability_score\n\n## Allowed verdicts\n\nUse exactly one of:\n\n* reject\n* needs_more_hardening\n* eval_ready\n* promotion_candidate\n* promotion_candidate_with_risks\n\n## Scoring\n\npromotability_score must be an integer from 0 to 100.\n\nUse these dimensions:\n\n* scope_fidelity: 0-15\n* lane_fidelity: 0-10\n* file_contract: 0-15\n* source_substance: 0-20\n* test_credibility: 0-15\n* docs_code_coherence: 0-10\n* promotion_fit: 0-5\n* repo_fit: 0-5\n* shared_common_assessment: 0-5",
+    "max_output_tokens": 18000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_07afef53cc512d0a0069db44f7afc88196a0fab738f43e3fb0",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_07afef53cc512d0a0069db453f6a9c8196a8802ea2651aa20d",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "file:/runs/kit/REQ-002/ci/PROMOTION_EVAL.json\n```json\n{\n  \"version\": \"1.0\",\n  \"req_id\": \"REQ-002\",\n  \"verdict\": \"needs_more_hardening\",\n  \"summary\": \"The candidate is materially improved over the prior integrity snapshot: it now ships the required staged API doc, splits source across the expected auth and shared/authz families, returns the canonical `/auth/me` fields (`id`, `display_name`, `permissions`, `active`), and includes executable allow/deny tests with real FastAPI request paths. However, it is still not promotion-ready. The implementation remains a narrow staged seam centered on a local test header and an in-memory write/audit store, and it duplicates shared/common auth modules despite repository composition evidence that equivalent auth/RBAC modules already exist. CI evidence is also below the backend lane quality bar because only compile and pytest are gated; lint, types, and security checks are absent.\",\n  \"scope_fidelity\": {\n    \"score\": 11,\n    \"out_of\": 15,\n    \"assessment\": \"Core REQ-002 behavior is substantially present: OIDC/SAML-shaped claim normalization, permission derivation from groups and direct claims, deterministic 401/403 behavior, actor propagation into an explicit write/audit seam, redaction of obvious token/assertion fields, and a normalized `GET /auth/me` response. Deductions remain because the actor propagation proof is only into a local in-memory seam rather than repository-owned downstream write/audit paths, and the auth ingress is still a staged `x-auth-claims` shortcut rather than integration with the canonical verified identity context.\"\n  },\n  \"lane_fidelity\": {\n    \"score\": 9,\n    \"out_of\": 10,\n    \"assessment\": \"Correct App/backend Python lane. FastAPI is appropriate, no spill into frontend/data/infra, and the module family broadly follows `src/backend/auth/session_rbac` plus `src/backend/shared/authz`. Minor deduction for the candidate still behaving like an isolated staged app seam rather than clearly aligning to the repository's existing auth composition.\"\n  },\n  \"file_contract\": {\n    \"score\": 11,\n    \"out_of\": 15,\n    \"assessment\": \"Using available evidence from PLAN/KIT artifacts because `TARGET_CONTRACT.json` and `FILE_REQUIREMENTS.json` were not provided, the candidate now satisfies the minimum staged deliverable shape: multiple source files, one executable pytest suite, and the required API doc for `GET /auth/me`. Deductions remain because REQ-002's `mustReuse` expectation for `src/backend/shared/contracts` is not evidenced, and the staged test layout is acceptable but not strongly aligned to the plan's expected `tests/backend/auth` family.\"\n  },\n  \"source_substance\": {\n    \"score\": 13,\n    \"out_of\": 20,\n    \"assessment\": \"This is real code, not cosmetic scaffolding. The claims module has non-trivial normalization logic, permission policy behavior, active-flag coercion, and redaction helpers. Dependencies enforce request correlation and permission checks. The app exposes an actual protected read endpoint and a mutation seam. Deductions are substantial because the implementation remains thin for promotion: downstream persistence is simulated by `InMemoryWriteAuditStore`, no repository-owned adapters are wired, and the candidate recreates shared auth concerns (`claims.py`, `dependencies.py`, `logging.py`, `models.py`) instead of reusing the existing repository family indicated by composition evidence.\"\n  },\n  \"test_credibility\": {\n    \"score\": 11,\n    \"out_of\": 15,\n    \"assessment\": \"Tests are executable and behavior-oriented. They verify OIDC/SAML normalization, `/auth/me` contract fields, request correlation logging, 401 anonymous deny, 403 unauthorized deny, non-mutation on deny, actor propagation on allow, and API-doc presence. That is credible substance. Deductions remain because evidence of actual execution is not included, coverage is narrow, and CI does not extend to lint/type/security gates expected for the backend lane.\"\n  },\n  \"docs_code_coherence\": {\n    \"score\": 7,\n    \"out_of\": 10,\n    \"assessment\": \"README, KIT notes, HOWTO, LTC, API doc, and code are internally consistent, and repository wording follows the access manifest. The documented limitations are honest. Deductions remain because the docs normalize a staged-only auth ingress and in-memory persistence seam without reconciling that with promotion into the canonical repository composition.\"\n  },\n  \"promotion_fit\": {\n    \"score\": 2,\n    \"out_of\": 5,\n    \"assessment\": \"Not fit for direct promotion yet. The candidate demonstrates the contract behavior but still looks like a bounded proof slice rather than a repository-integrated implementation. It needs hardening around canonical reuse and lane-quality gates before promotion.\"\n  },\n  \"repo_fit\": {\n    \"score\": 2,\n    \"out_of\": 5,\n    \"assessment\": \"Repository fit is weak. The candidate stays inside the permitted backend auth/shared-authz family, but repository composition evidence already points to existing auth entry and shared authz modules under `old.runs`. This candidate adds parallel claims/dependencies/logging/models behavior instead of clearly reusing or extending that common substrate.\"\n  },\n  \"shared_common_assessment\": {\n    \"score\": 1,\n    \"out_of\": 5,\n    \"assessment\": \"This is the main architectural concern. Shared/common auth behavior is duplicated rather than demonstrably reused. The hard rule against duplicate bootstrap/config/logging wrappers is directly relevant here: even though the candidate uses the right family names, it still creates a parallel shared auth stack instead of proving alignment with existing common modules.\"\n  },\n  \"runtime_profile_assessment\": {\n    \"assessment\": \"Profile-independence at the business-rule level is mostly preserved: there are no AWS/on-prem authorization branches, permission checks are claim-driven, and the test seam is deployment-agnostic. But runtime integrity is incomplete for promotion because the only auth ingress shown is a test-only header carrying pre-verified claims; no canonical upstream verified identity adapter, middleware, or service boundary is evidenced. Logging is also only key-value text via the standard logger, not a broader structured observability contract.\"\n  },\n  \"blockers\": [\n    \"Promotion blocker: the candidate duplicates shared/common auth modules (`claims.py`, `dependencies.py`, `logging.py`, `models.py`) despite repository composition evidence that equivalent shared auth/RBAC modules already exist and should be reused rather than paralleled.\",\n    \"Promotion blocker: auth composition is still staged and local. The implementation proves behavior through `x-auth-claims` and `InMemoryWriteAuditStore`, but does not demonstrate integration with repository-owned write/audit paths or the canonical auth composition seam.\",\n    \"Promotion blocker: CI/gate coverage is below the backend lane bar from technology constraints. Only compile and pytest are defined; required lint, type, and security checks are absent.\"\n  ],\n  \"remaining_risks\": [\n    \"No evidence that direct permission claims are constrained by a repository-wide contract; the staged resolver accepts permission-like values from claim payloads.\",\n    \"No evidence of promotion-safe reuse of `src/backend/shared/contracts`, which REQ-002 identifies as a must-reuse dependency.\",\n    \"The logger format is minimally structured, but there is no stronger observability contract or emitted trace/metric evidence.\",\n    \"The staged test harness depends on import path manipulation and a local header-based identity fixture; that is suitable for eval, but brittle as a promoted architectural seam.\",\n    \"Repository top-level canonical test root is `test/`; the plan's `tests/...` expectation and the staged layout are not fully reconciled.\"\n  ],\n  \"promotability_score\": 67\n}\n```"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 43968,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 4763,
+      "output_tokens_details": {
+        "reasoning_tokens": 3134
+      },
+      "total_tokens": 48731
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

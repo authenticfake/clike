@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260411T200013Z",
+  "project_id": "docufu",
+  "phase": "promotion_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_01374acee7dd93a00069daa802599c8195b2bd6fb4de3089b0",
+    "object": "response",
+    "created_at": 1775937538,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1775937613,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "# Harper /kit — PROMOTION_EVAL\n\nYou are Harper /kit PROMOTION_EVAL.\n\nYou are acting as:\n\n* Senior Software Architect\n* Senior Software Engineer\n* Promotion reviewer\n* Stop-ship evaluator\n\nYou are evaluating the final candidate after optional hardening.\nYou are NOT fixing it.\n\n## Authoritative inputs\n\nUse the following in this order:\n\n1. TARGET_CONTRACT.json\n2. FILE_REQUIREMENTS.json\n3. current candidate files\n4. INTEGRITY_EVAL.json\n5. REQ_PROMOTION_MANIFEST.md when present\n6. plan.json\n7. PLAN.md\n8. SPEC.md\n9. TECH_CONSTRAINTS.yaml\n10. repository evidence\n\n## What you must evaluate\n\nEvaluate:\n\n* target REQ fidelity\n* lane correctness\n* file contract fidelity\n* source substance\n* test credibility\n* docs / code / CI coherence\n* promotion fit\n* repository fit\n* shared/common correctness\n* runtime/profile integrity\n* bounded remaining risks\n\n## Hard rules\n\n* Be severe.\n* Do not inflate quality.\n* Do not reward cosmetic cleanup as if it were substantive hardening.\n* Missing required files are blockers.\n* Required files that do not satisfy their declared purpose are blockers or major risks.\n* Wrong lane, wrong module family, duplicate bootstrap/config/logging wrappers, or fake completeness are promotion blockers.\n* If the candidate is still too thin, say so clearly.\n\n## Output artifact\n\nEmit exactly one file block:\n\nfile:/runs/kit/<REQ-ID>/ci/PROMOTION_EVAL.json\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must contain:\n\n* version\n* req_id\n* verdict\n* summary\n* scope_fidelity\n* lane_fidelity\n* file_contract\n* source_substance\n* test_credibility\n* docs_code_coherence\n* promotion_fit\n* repo_fit\n* shared_common_assessment\n* runtime_profile_assessment\n* blockers\n* remaining_risks\n* promotability_score\n\n## Allowed verdicts\n\nUse exactly one of:\n\n* reject\n* needs_more_hardening\n* eval_ready\n* promotion_candidate\n* promotion_candidate_with_risks\n\n## Scoring\n\npromotability_score must be an integer from 0 to 100.\n\nUse these dimensions:\n\n* scope_fidelity: 0-15\n* lane_fidelity: 0-10\n* file_contract: 0-15\n* source_substance: 0-20\n* test_credibility: 0-15\n* docs_code_coherence: 0-10\n* promotion_fit: 0-5\n* repo_fit: 0-5\n* shared_common_assessment: 0-5\n\nEND FILE\n\n---",
+    "max_output_tokens": 18000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_01374acee7dd93a00069daa803d1d08195b0653357b49c54f9",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_01374acee7dd93a00069daa83807208195b3cd488ea0bc16e4",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "file:/runs/kit/REQ-001/ci/PROMOTION_EVAL.json\n```json\n{\n  \"version\": \"1.0\",\n  \"req_id\": \"REQ-001\",\n  \"verdict\": \"needs_more_hardening\",\n  \"summary\": \"The candidate is materially improved versus the prior integrity rejection and is now largely aligned to the REQ-001 canonical schema/lifecycle backbone. It stays in the correct Data/sql lane, defines the right core entities and lifecycle enums, reserves Document.state=exported for Slice-1, and includes real PostgreSQL-focused migration tests with audit immutability and task-completion enforcement. However, promotion should still stop here. The supplied package is not fully coherent: the visible source set appears to miss the plan minimum source-file count, and the docs/CI artifacts overclaim index coverage and downgrade evidence that are not credibly supported by the shown migration/tests. That is not harmless polish debt; it weakens trust in the package as a promotion artifact.\",\n  \"scope_fidelity\": {\n    \"score\": 12,\n    \"max\": 15,\n    \"assessment\": \"Good but not clean. The emitted enums and migration now substantially match REQ-001: canonical entities exist, lifecycle values are aligned, forbidden transitions are modeled, exported is reserved for Slice-1, metadata/full-text support is represented, and audit immutability is enforced. Residual gaps remain around completeness of enforced invariants and truthfulness of the supporting docs/CI story.\"\n  },\n  \"lane_fidelity\": {\n    \"score\": 9,\n    \"max\": 10,\n    \"assessment\": \"Correct lane overall. Files stay under src/data/schema, src/data/migrations, and test/data/schema with no backend/frontend/infra bleed. The only minor mismatch is plan.json expecting tests/data/schema while repository evidence and manifest favor test/data/schema.\"\n  },\n  \"file_contract\": {\n    \"score\": 9,\n    \"max\": 15,\n    \"assessment\": \"Core artifact types are present: lifecycle module, migration, tests, docs, and CI helper files. But the contract is not fully satisfied. Based on the supplied candidate file list, only two source files are evidenced under source roots while plan.json sets a minimum of three. More importantly, HOWTO/LTC do not faithfully describe what the migration and visible tests actually provide, so required files exist but do not fully satisfy their declared purpose.\"\n  },\n  \"source_substance\": {\n    \"score\": 15,\n    \"max\": 20,\n    \"assessment\": \"There is real source substance now. The migration defines the eight required tables, PostgreSQL enums, key FKs, core check constraints, search-vector indexing, pilot metadata lookup indexes, immutable audit rows, and task completion gating on validated documents. The lifecycle helper module is compact and useful. Remaining weakness: most lifecycle transition enforcement lives in Python helpers rather than database constraints/triggers, so the schema is strong but not fully self-defending beyond audit immutability and task completion.\"\n  },\n  \"test_credibility\": {\n    \"score\": 9,\n    \"max\": 15,\n    \"assessment\": \"Test substance is real: PostgreSQL-only tests, schema isolation per run, upgrade application, seeded-row checks, constraint inspection, audit immutability, and task/document invariants. Credibility is reduced by two issues: tests skip entirely without DATABASE_URL, and the supplied docs/CI reference downgrade and index assertions that are not clearly supported by the visible test content. No executed report evidence is provided.\"\n  },\n  \"docs_code_coherence\": {\n    \"score\": 4,\n    \"max\": 10,\n    \"assessment\": \"Weak. README/KIT notes broadly describe the implemented intent, but HOWTO and LTC overclaim concrete index names and report content not backed by the shown migration. The package therefore looks more complete on paper than it is in verifiable source/tests. That is a promotion concern, not a cosmetic issue.\"\n  },\n  \"promotion_fit\": {\n    \"score\": 3,\n    \"max\": 5,\n    \"assessment\": \"The candidate is localized, reviewable, and much closer to promotable than the earlier rejected version. It is not yet promotion-safe because trust in the package is undermined by file-contract thinness and inaccurate docs/CI claims.\"\n  },\n  \"repo_fit\": {\n    \"score\": 4,\n    \"max\": 5,\n    \"assessment\": \"Good repository fit. The candidate stays inside canonical src/ and test/ families described by the promotion manifest and does not introduce extra top-level module roots.\"\n  },\n  \"shared_common_assessment\": {\n    \"score\": 5,\n    \"max\": 5,\n    \"assessment\": \"No cross-lane contamination, duplicate bootstrap, or gratuitous shared-module sprawl. The change is contained to the intended data backbone area.\"\n  },\n  \"runtime_profile_assessment\": {\n    \"assessment\": \"Acceptable for this lane. REQ-001 is a canonical PostgreSQL data-contract slice, and the candidate correctly targets PostgreSQL 16 semantics without pretending profile-specific runtime parity. No AWS/on-prem branching is introduced here. Runtime risk is limited to test execution dependence on an external PostgreSQL instance via DATABASE_URL.\"\n  },\n  \"blockers\": [\n    \"File-contract thinness: based on the supplied candidate files, only two source files are evidenced under REQ-001 source roots, while plan.json declares a minimum deliverable of three source files.\",\n    \"Docs/CI truthfulness failure: ci/HOWTO.md and ci/LTC.json claim or imply checks for index artifacts such as ix_document_metadata_gin, ix_extracted_field_metadata_gin, and ix_ai_query_metadata_gin that are not created by the shown migration.\",\n    \"CI coherence is not promotion-grade: the supplied LTC references downgrade/report flows that are not credibly supported by the visible test content, creating a fake-completeness risk.\"\n  ],\n  \"remaining_risks\": [\n    \"Lifecycle transition enforcement is mainly in Python helper code rather than database-side transition guards, so raw SQL writers could bypass canonical state rules.\",\n    \"The schema does not visibly enforce every downstream invariant at the database layer, for example export_job completed requiring output_uri.\",\n    \"Tests depend on DATABASE_URL and honestly skip when absent; without concrete CI run artifacts, actual gate pass status is unproven.\",\n    \"Full-text support is scaffolded via search_vector and indexes, but population/query behavior is deferred to later REQs; downstream consumers must not over-assume operational readiness from this slice alone.\"\n  ],\n  \"promotability_score\": 70\n}\n```"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 50230,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 4617,
+      "output_tokens_details": {
+        "reasoning_tokens": 3238
+      },
+      "total_tokens": 54847
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

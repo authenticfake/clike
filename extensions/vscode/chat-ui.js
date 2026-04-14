@@ -470,7 +470,7 @@ var HELP_COMMANDS = [
   {cmd:'/idea', desc:'Formalizes the IDEA.md (optinal)'},
   {cmd:'/spec [file|testo]', desc:'Generates/Updates SPEC.md from the IDEA'},
   {cmd:'/plan [spec_path]', desc:'Generates/Updates PLAN.md from the SPEC'},
-  {cmd:'/kit [REQ-ID]', desc:'Generates KIT_REQ-ID.md, src, test and Updates PLAN.md and plan.json'},
+  {cmd:'/kit [REQ-ID] [--integrity|--hardener|--promotion-eval|--phases=...]', desc:'Runs base KIT by default, or explicit follow-up KIT phases on an existing/generated candidate'},
   { cmd: '/eval <REQ-ID>', desc: 'Performs an eval of kit' },
   { cmd: '/gate <REQ-ID>', desc: 'Performs a gate of kit' },
   {cmd:'/finalize', desc:'Final gates and project closure (Harper)'},
@@ -880,22 +880,80 @@ function parseSlash(s) {
     console.log('cmd evals targets:', targets);
     return { cmd, args: { targets, testMode, modeContent } };
   }
-  if (cmd === '/kit' ) {
-    // Sintassi:
-    //   /kit               → findNextOpenReq in runKitCommand open REQ (batch=1)
-    //   /kit REQ-02        → target specifico
-    
+  if (cmd === '/kit') {
+    // Supported syntax:
+    //   /kit
+    //   /kit REQ-001
+    //   /kit REQ-001 --integrity
+    //   /kit REQ-001 --hardener
+    //   /kit REQ-001 --promotion-eval
+    //   /kit REQ-001 --phases=kit,integrity_eval,promotion_hardener,promotion_eval
+
     const rest = parts.slice(1).map(x => String(x).trim()).filter(Boolean);
-    let targets = null;
-    if (!rest.length) {
-      targets = ''; //findNextOpenReq in runKitCommand
-    } else {
-      // assumiamo REQ-ID singolo (o più REQ-ID separati da spazio)
-      const isReq = (s) => /^req-\d+/i.test(s);
-      const onlyReqs = rest.every(isReq);
-      targets = onlyReqs ? rest : [rest[0]];
+
+    const normalizeReqToken = (value) => {
+      return String(value || '')
+        .trim()
+        .toUpperCase()
+        .replace(/[–—]/g, '-')
+        .replace(/[,;]+$/, '');
+    };
+
+    const reqTokens = [];
+    const candidateTokens = [];
+    const phaseTokens = [];
+    let inlinePhases = null;
+
+    for (const token of rest) {
+      const lower = token.toLowerCase();
+
+      if (lower === '--integrity') {
+        phaseTokens.push('integrity_eval');
+        continue;
+      }
+      if (lower === '--hardener') {
+        phaseTokens.push('promotion_hardener');
+        continue;
+      }
+      if (lower === '--promotion-eval') {
+        phaseTokens.push('promotion_eval');
+        continue;
+      }
+      if (lower.startsWith('--phases=')) {
+        inlinePhases = token.split('=').slice(1).join('=').trim();
+        continue;
+      }
+
+      const normalized = normalizeReqToken(token);
+      if (/^REQ-\d+/i.test(normalized)) {
+        reqTokens.push(normalized);
+        continue;
+      }
+
+      candidateTokens.push(normalized);
     }
-    return { cmd, args: { targets } };
+
+    let targets = '';
+    if (reqTokens.length) {
+      targets = reqTokens;
+    } else if (candidateTokens.length) {
+      // Fallback robusto: se l’utente ha scritto qualcosa di non perfetto ma non-flag,
+      // trattiamo il primo token come target esplicito.
+      targets = [candidateTokens[0]];
+    }
+
+    let phases = null;
+
+    if (inlinePhases) {
+      phases = inlinePhases
+        .split(',')
+        .map(x => String(x).trim().toLowerCase())
+        .filter(Boolean);
+    } else if (phaseTokens.length) {
+      phases = Array.from(new Set(phaseTokens));
+    }
+
+    return { cmd, args: { targets, phases } };
   }
   if (cmd === '/plan' || cmd === '/spec') {
     // Sintassi:
@@ -1163,47 +1221,117 @@ function handleSlash(slash) {
     vscode.postMessage({ type: 'switchProject', name: slash.args.name || '' });
     return;
   }
-  if (slash.cmd === '/idea' || slash.cmd === '/spec' || slash.cmd === '/plan' || slash.cmd === '/kit'  || slash.cmd === '/finalize') {
-    // attachments della mode corrente (se li usi)
-    var modeVal  = (mode  && mode.value)  ? mode.value  : 'harper';
-    var key      = modeVal;
+  if (slash.cmd === '/idea' || slash.cmd === '/spec' || slash.cmd === '/plan' || slash.cmd === '/kit' || slash.cmd === '/finalize') {
+    var modeVal = (mode && mode.value) ? mode.value : 'harper';
+    var key = modeVal;
     var atts = [];
+
     try {
       if (typeof attachmentsByMode !== 'undefined' && attachmentsByMode && attachmentsByMode[key]) {
         atts = attachmentsByMode[key].slice(0);
       }
-    } catch {}    
-    try { bubble('user', slash.cmd + (slash.args?.targets ? (' ' + slash.args.targets) : ''), (model && model.value) ? model.value : 'auto', atts); } catch {}
-    
-    const msg = { type: 'harperRun', cmd: slash.cmd.slice(1), attachments: atts };
+    } catch {}
+
+    var rawCommand = '';
+    try {
+      rawCommand = (typeof prompt !== 'undefined' && prompt && typeof prompt.value === 'string')
+        ? String(prompt.value || '').trim()
+        : '';
+    } catch {}
+
+    var firstTarget = '';
+    var targetText = '';
+    var phaseSuffix = '';
+
+    try {
+      if (Array.isArray(slash.args?.targets) && slash.args.targets.length > 0) {
+        firstTarget = String(slash.args.targets[0] || '').trim().toUpperCase();
+        targetText = slash.args.targets.join(' ');
+      } else if (typeof slash.args?.targets === 'string' && slash.args.targets.trim()) {
+        firstTarget = slash.args.targets.trim().toUpperCase();
+        targetText = firstTarget;
+      }
+
+      if (Array.isArray(slash.args?.phases) && slash.args.phases.length) {
+        phaseSuffix = ' --phases=' + slash.args.phases.join(',');
+      }
+
+      bubble(
+        'user',
+        rawCommand || (slash.cmd + (targetText ? (' ' + targetText) : '') + phaseSuffix),
+        (model && model.value) ? model.value : 'auto',
+        atts
+      );
+    } catch {}
+
+    const msg = {
+      type: 'harperRun',
+      cmd: slash.cmd.slice(1),
+      attachments: atts,
+      rawCommand: rawCommand || null
+    };
+
     if (slash.cmd === '/kit') {
-      msg.targets = slash.args?.targets ?? null; // 'next' | ['REQ-01', ...]
-    } 
-    else if (slash.cmd === '/idea') {
-      msg.name = slash.args.name || ''
+      msg.targets = slash.args?.targets ?? null;
+      msg.targetReqId = firstTarget || null;
+      msg.phases = slash.args?.phases ?? null;
+    } else if (slash.cmd === '/idea') {
+      msg.name = slash.args.name || '';
     }
+
+    console.log('[CLike][chat-ui][/kit] rawCommand =', JSON.stringify(rawCommand));
+    console.log('[CLike][chat-ui][/kit] slash.args =', JSON.stringify(slash.args));
+    console.log('[CLike][chat-ui][/kit] firstTarget =', firstTarget);
+    console.log('[CLike][chat-ui][/kit] msg.targets =', JSON.stringify(msg.targets));
+    console.log('[CLike][chat-ui][/kit] msg.targetReqId =', JSON.stringify(msg.targetReqId));
+    console.log('[CLike][chat-ui][/kit] msg.phases =', JSON.stringify(msg.phases));
     vscode.postMessage(msg);
-    //  SVUOTA ALLEGATI DELLA MODE CORRENTE DOPO L’INVIO
     attachmentsByMode[currentMode()] = [];
     renderAttachmentChips();
-    
+
     return true;
   }
   //EVALS
   if (slashCmd === '/eval' || slashCmd === '/gate') {
-    // mappa su handler host esistente (eval)
     var atts = [];
     try {
       if (typeof attachmentsByMode !== 'undefined' && attachmentsByMode && attachmentsByMode[key]) {
         atts = attachmentsByMode[key].slice(0);
       }
-    } catch {}    
-    //Eval‑Driven Development - EDD
-    const path_ltc_json = "runs/kit/" + slash.args?.targets+"/ci/LTC.json"
-    console.log("slash.args", slash.args);
-    try { bubble('user', slash.cmd + (slash.args?.targets ? (' ' + slash.args?.targets) : ''), (model && model.value) ? model.value : 'auto', atts); } catch {}
-    const msg = { type: 'harperEDD', cmd: slash.cmd.slice(1), attachments: atts, argument: slash.args.targets || ''  };
-    msg.targets = slash.args?.targets ?? null; // 'next' | ['REQ-01', ...]
+    } catch {}
+
+    var firstTarget = '';
+    if (Array.isArray(slash.args?.targets) && slash.args.targets.length > 0) {
+      firstTarget = String(slash.args.targets[0] || '').trim().toUpperCase();
+    } else if (typeof slash.args?.targets === 'string' && slash.args.targets.trim()) {
+      firstTarget = slash.args.targets.trim().toUpperCase();
+    }
+
+    const path_ltc_json = 'runs/kit/' + firstTarget + '/ci/LTC.json';
+    console.log('slash.args', slash.args);
+
+    try {
+      const targetText = Array.isArray(slash.args?.targets)
+        ? slash.args.targets.join(' ')
+        : (slash.args?.targets || '');
+
+      bubble(
+        'user',
+        slash.cmd + (targetText ? (' ' + targetText) : ''),
+        (model && model.value) ? model.value : 'auto',
+        atts
+      );
+    } catch {}
+
+    const msg = {
+      type: 'harperEDD',
+      cmd: slash.cmd.slice(1),
+      attachments: atts,
+      argument: firstTarget || ''
+    };
+
+    msg.targets = slash.args?.targets ?? null;
+    msg.targetReqId = firstTarget || null;
     msg.running = slash.args?.testMode ?? null;
     msg.modeContent = slash.args?.modeContent ?? null;
     msg.path=path_ltc_json

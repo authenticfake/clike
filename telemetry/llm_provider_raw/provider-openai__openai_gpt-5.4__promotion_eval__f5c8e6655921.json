@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260412T200249Z",
+  "project_id": "docufu",
+  "phase": "promotion_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_0d89ea14f847891c0069dbf9fd1b8c819098b8ddcf3fb05884",
+    "object": "response",
+    "created_at": 1776024061,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1776024169,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "Harper /kit — PROMOTION_EVAL\n\nYou are Harper /kit PROMOTION_EVAL.\n\nYou are acting as:\n\n* Senior Software Architect\n* Senior Software Engineer\n* Promotion reviewer\n* Stop-ship evaluator\n\nYou are evaluating the final candidate after optional hardening.\nYou are NOT fixing it.\n\n## Authoritative inputs\n\nUse the following in this order:\n\n1. TARGET_CONTRACT.json\n2. FILE_REQUIREMENTS.json\n3. current candidate files\n4. INTEGRITY_EVAL.json\n5. REQ_PROMOTION_MANIFEST.md when present\n6. plan.json\n7. PLAN.md\n8. SPEC.md\n9. TECH_CONSTRAINTS.yaml\n10. repository evidence\n\n## What you must evaluate\n\nEvaluate:\n\n* target REQ fidelity\n* lane correctness\n* file contract fidelity\n* source substance\n* test credibility\n* docs / code / CI coherence\n* promotion fit\n* repository fit\n* shared/common correctness\n* runtime/profile integrity\n* bounded remaining risks\n\n## Hard rules\n\n* Be severe.\n* Do not inflate quality.\n* Do not reward cosmetic cleanup as if it were substantive hardening.\n* Missing required files are blockers.\n* Required files that do not satisfy their declared purpose are blockers or major risks.\n* Wrong lane, wrong module family, duplicate bootstrap/config/logging wrappers, or fake completeness are promotion blockers.\n* If the candidate is still too thin, say so clearly.\n\n## Output artifact\n\nEmit exactly one file block:\n\nfile:/runs/kit/<REQ-ID>/ci/PROMOTION_EVAL.json\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must contain:\n\n* version\n* req_id\n* verdict\n* summary\n* scope_fidelity\n* lane_fidelity\n* file_contract\n* source_substance\n* test_credibility\n* docs_code_coherence\n* promotion_fit\n* repo_fit\n* shared_common_assessment\n* runtime_profile_assessment\n* blockers\n* remaining_risks\n* promotability_score\n\n## Allowed verdicts\n\nUse exactly one of:\n\n* reject\n* needs_more_hardening\n* eval_ready\n* promotion_candidate\n* promotion_candidate_with_risks\n\n## Scoring\n\npromotability_score must be an integer from 0 to 100.\n\nUse these dimensions:\n\n* scope_fidelity: 0-15\n* lane_fidelity: 0-10\n* file_contract: 0-15\n* source_substance: 0-20\n* test_credibility: 0-15\n* docs_code_coherence: 0-10\n* promotion_fit: 0-5\n* repo_fit: 0-5\n* shared_common_assessment: 0-5",
+    "max_output_tokens": 18000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_0d89ea14f847891c0069dbf9fe77748190803f7c755ac6cdc5",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_0d89ea14f847891c0069dbfa460c108190897950898125d25b",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "```file:/runs/kit/REQ-002/ci/PROMOTION_EVAL.json\n{\n  \"version\": \"1.0.0\",\n  \"req_id\": \"REQ-002\",\n  \"verdict\": \"needs_more_hardening\",\n  \"summary\": \"The candidate is materially better than the prior integrity state: it now includes an active flag, redacts claims-bearing headers, stays in the correct Python/FastAPI lane, avoids a per-REQ app bootstrap, and provides real behavior tests. That said, it is still not promotion-ready. The boundary contract does not fully match the target UserContext shape because GET /auth/me returns actor_id instead of the required id field, the declared must_reuse direction for src/backend/shared/contracts is still not demonstrated, and the lane-quality posture is asserted rather than evidenced. Clean lint/type/security gates are not proven, and the emitted source appears to contain at least one likely lint failure. This is a substantive candidate, but not a safe promotion candidate yet.\",\n  \"scope_fidelity\": {\n    \"score\": 11,\n    \"out_of\": 15,\n    \"assessment\": \"Mostly aligned to REQ-002 acceptance, but not fully contract-faithful.\",\n    \"evidence\": [\n      \"Normalizes OIDC and SAML claim shapes into a stable ActorContext.\",\n      \"Implements deterministic 401 for anonymous/invalid auth and 403 for insufficient permission.\",\n      \"Propagates actor identity into downstream mutation and audit objects on accepted writes.\",\n      \"Avoids username-based and profile-specific authorization branching.\",\n      \"Redacts tokens, assertions, and claims-bearing headers before logging.\",\n      \"Target UserContext required field id is not exposed as such; the API returns actor_id instead.\"\n    ]\n  },\n  \"lane_fidelity\": {\n    \"score\": 8,\n    \"out_of\": 10,\n    \"assessment\": \"Correct backend lane and framework family with reasonable slice boundaries.\",\n    \"evidence\": [\n      \"Uses Python and FastAPI as required by the lane.\",\n      \"Keeps implementation under backend auth/authz families and does not drift into frontend, data migrations, or infra.\",\n      \"Exposes router binding rather than inventing a new app.py bootstrap.\",\n      \"Provides reusable FastAPI dependency factories under shared authz.\",\n      \"Lane-quality evidence is incomplete because report artifacts are not supplied and clean gate execution is unproven.\"\n    ]\n  },\n  \"file_contract\": {\n    \"score\": 10,\n    \"out_of\": 15,\n    \"assessment\": \"All required outputs exist, but not all satisfy their declared purpose completely.\",\n    \"evidence\": [\n      \"Required implementation, contract, binding, test, docs, HOWTO, LTC, integrity eval, and requirements files are present.\",\n      \"implementation.py contains real authn/authz logic and actor propagation behavior.\",\n      \"contracts.py contains typed DTOs and protocols used by the emitted code.\",\n      \"binding.py exposes the required GET /auth/me seam and a proof write seam.\",\n      \"The boundary contract does not fully satisfy the target data contract because it uses actor_id rather than id.\",\n      \"The candidate does not demonstrate reuse of the required shared contract direction src/backend/shared/contracts.\",\n      \"The protected-write seam is synthetic and useful for proof, but it is not itself a target business endpoint.\"\n    ]\n  },\n  \"source_substance\": {\n    \"score\": 13,\n    \"out_of\": 20,\n    \"assessment\": \"Real, non-trivial source code with meaningful behavior, but with unresolved contract and composition issues.\",\n    \"evidence\": [\n      \"ClaimNormalizer handles heterogeneous subject, username, display name, email, group, role, permission, scope, and active claim variants.\",\n      \"PermissionCatalog supports deterministic permission expansion from groups and roles.\",\n      \"AuthSessionService separates header authentication, permission checks, and authorized write orchestration.\",\n      \"Shared authz models, logging, and dependency helpers are factored into src/backend/shared/authz rather than duplicated per route.\",\n      \"The implementation remains profile-independent and does not branch business auth behavior by provider deployment profile.\",\n      \"Local auth DTOs for mutation/audit remain defined under backend/auth/contracts.py instead of clearly reusing a required shared contract family.\",\n      \"The emitted API contract still misses exact target fidelity on the required id field naming.\"\n    ]\n  },\n  \"test_credibility\": {\n    \"score\": 9,\n    \"out_of\": 15,\n    \"assessment\": \"Behavior tests are real and useful, but credibility is limited by incomplete gate evidence and missed contract checks.\",\n    \"evidence\": [\n      \"Tests cover deterministic claim normalization across OIDC and SAML.\",\n      \"Tests cover 401 anonymous and 403 unauthorized behavior.\",\n      \"Tests assert deny paths do not mutate the writer or audit sink.\",\n      \"Tests assert actor propagation on a successful protected write.\",\n      \"Tests assert redaction of token, assertion, and claims-bearing log content.\",\n      \"Tests do not assert the target-required id field name on the normalized actor response.\",\n      \"No actual lint, type, or security report artifacts are supplied despite LTC claiming those gates.\",\n      \"The emitted source appears to contain likely lint issues, which weakens confidence that the declared lane checks pass cleanly.\"\n    ]\n  },\n  \"docs_code_coherence\": {\n    \"score\": 7,\n    \"out_of\": 10,\n    \"assessment\": \"Generally coherent and more truthful than before, but still not fully aligned with target/runtime expectations.\",\n    \"evidence\": [\n      \"README and KIT notes accurately describe the auth slice, proof seam, and bounded assumptions.\",\n      \"Docs correctly avoid claiming live IdP integration or repository-wide auth integration.\",\n      \"HOWTO and LTC commands are relevant to the emitted files.\",\n      \"Docs claim a backend quality posture that is not backed by supplied reports.\",\n      \"README and HOWTO state Python 3.11+ while the project runtime constraint is Python 3.12.\"\n    ]\n  },\n  \"promotion_fit\": {\n    \"score\": 2,\n    \"out_of\": 5,\n    \"assessment\": \"Not yet fit for promotion without additional hardening.\",\n    \"evidence\": [\n      \"The candidate is localized and reviewable.\",\n      \"It avoids a stop-ship class security leak previously identified in integrity review.\",\n      \"Promotion is still blocked by contract mismatch against the target and unresolved shared-contract reuse expectations.\",\n      \"Promotion would also import an unproven clean-gate posture.\"\n    ]\n  },\n  \"repo_fit\": {\n    \"score\": 2,\n    \"out_of\": 5,\n    \"assessment\": \"Partially repo-fit, but still weak against repository composition guidance.\",\n    \"evidence\": [\n      \"The source is staged as if promotable into canonical src/ and test/ roots.\",\n      \"It keeps implementation under backend/auth and backend/shared/authz, which matches planned module families.\",\n      \"Repository composition evidence already shows shared authz material in old.runs; this candidate partially mirrors that direction but does not prove real reuse/alignment.\",\n      \"The required must_reuse direction for src/backend/shared/contracts is still unmet or at least unproven.\"\n    ]\n  },\n  \"shared_common_assessment\": {\n    \"score\": 2,\n    \"out_of\": 5,\n    \"assessment\": \"Improved from the earlier integrity state, but still not strong enough for promotion.\",\n    \"evidence\": [\n      \"Shared authz primitives are now placed under src/backend/shared/authz rather than kept entirely local.\",\n      \"The candidate avoids introducing a duplicate app bootstrap.\",\n      \"It still defines auth-local mutation/audit DTOs instead of clearly integrating with a shared/common contract family.\",\n      \"No evidence shows reuse of src/backend/shared/contracts despite that being explicitly required.\"\n    ]\n  },\n  \"runtime_profile_assessment\": {\n    \"assessment\": \"Reasonably profile-independent at the auth logic level, but operational integration remains assumed rather than proven.\",\n    \"evidence\": [\n      \"OIDC and SAML normalization are handled through the same service and contract shape.\",\n      \"No AWS/on-prem branching appears in the auth logic.\",\n      \"The slice assumes claims have already been verified by upstream gateway or middleware, which is acceptable for scope but leaves integration risk.\",\n      \"No runtime profile or IdP composition tests are supplied.\"\n    ]\n  },\n  \"blockers\": [\n    \"GET /auth/me does not fully satisfy the target data contract: TARGET_CONTRACT.json requires UserContext field id, but the emitted boundary contract and response use actor_id instead.\",\n    \"The candidate does not demonstrate the required must_reuse contract direction for src/backend/shared/contracts; shared/common contract fidelity remains incomplete.\",\n    \"Backend lane quality gates are claimed but not evidenced. No actual lint/type/security reports are supplied, and the emitted source appears to contain at least one likely lint regression (unused imports in contracts.py).\"\n  ],\n  \"remaining_risks\": [\n    \"The synthetic /auth/protected-write route is acceptable as a proof seam, but it is not a promotable business contract and could be mistaken for one if not isolated during promotion.\",\n    \"Provider-specific claim-header paths are implemented but not directly exercised in tests.\",\n    \"Defaulting active=True when no claim is present is practical for fixtures, but the upstream identity contract must stay explicit or later slices may encode inconsistent inactivity semantics.\",\n    \"No live gateway/IdP integration or signature/assertion verification is proven; the slice depends on trusted upstream verification.\",\n    \"Repository alignment with existing old.runs shared authz material remains only partial and may create parallel maintenance surfaces if promoted carelessly.\"\n  ],\n  \"promotability_score\": 64\n}\n```"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 48795,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 5993,
+      "output_tokens_details": {
+        "reasoning_tokens": 3991
+      },
+      "total_tokens": 54788
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

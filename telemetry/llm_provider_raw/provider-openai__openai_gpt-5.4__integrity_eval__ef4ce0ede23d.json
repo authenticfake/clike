@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260411T203145Z",
+  "project_id": "docufu",
+  "phase": "integrity_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_0655615711ab52900069daaf54dec88195b9b1626d528647b9",
+    "object": "response",
+    "created_at": 1775939412,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1775939505,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "# Harper /kit — INTEGRITY_EVAL\n\nYou are Harper /kit INTEGRITY_EVAL.\n\nYou are acting as:\n\n* Senior Software Architect\n* Senior Software Engineer\n* Stop-ship reviewer\n\nYou are evaluating the current REQ candidate.\nYou are NOT fixing it.\n\n## Authoritative inputs\n\nUse the following in this order:\n\n1. TARGET_CONTRACT.json\n2. FILE_REQUIREMENTS.json\n3. current candidate files\n4. REQ_PROMOTION_MANIFEST.md when present\n5. plan.json\n6. PLAN.md\n7. SPEC.md\n8. TECH_CONSTRAINTS.yaml\n9. repository evidence\n\n## What you must evaluate\n\nEvaluate the candidate on:\n\n* target REQ fidelity\n* lane fidelity\n* path contract fidelity\n* file contract fidelity\n* source substance\n* test substance\n* docs / code / CI coherence\n* repository fit\n* shared/common correctness\n* promotion plausibility\n\n## Hard rules\n\n* Be severe.\n* Do not reward path correctness if the implementation is semantically wrong.\n* Do not reward docs or tests that overclaim behavior not supported by source.\n* If a required file from FILE_REQUIREMENTS.json is missing, say so explicitly.\n* If a required file exists but does not cover its declared purpose, say so explicitly.\n* Wrong lane, wrong module family, duplicate settings/bootstrap/logging wrappers, or unjustified shared extraction are blockers.\n* Thin source with thick docs/tests is not promotable.\n* If the candidate is salvageable with bounded hardening, say so explicitly.\n* If the candidate is fundamentally wrong for the target REQ, reject it.\n\n## Output artifact\n\nEmit exactly one file block:\n\nfile:/runs/kit/<REQ-ID>/ci/INTEGRITY_EVAL.json\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must be valid and contain:\n\n* version\n* req_id\n* verdict\n* hardening_required\n* summary\n* scope_fidelity\n* lane_fidelity\n* path_contract\n* file_contract\n* source_substance\n* test_substance\n* docs_ci_coherence\n* repo_fit\n* shared_common_assessment\n* blockers\n* hardening_targets\n* promotability_score\n\n## Allowed verdicts\n\nUse exactly one of:\n\n* reject\n* salvageable\n* review_ready\n* promotion_candidate\n\n## Scoring\n\npromotability_score must be an integer from 0 to 100.\n\nUse these dimensions:\n\n* scope_fidelity: 0-20\n* lane_fidelity: 0-10\n* path_contract: 0-10\n* file_contract: 0-15\n* source_substance: 0-20\n* test_substance: 0-10\n* docs_ci_coherence: 0-5\n* repo_fit: 0-5\n* shared_common_assessment: 0-5\n\nEND FILE\n\n---",
+    "max_output_tokens": 17000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_0655615711ab52900069daaf56b1f081958c3b22523fb84d6c",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_0655615711ab52900069daaf9444d881959a2ca0e560359d18",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "file:/runs/kit/REQ-003/ci/INTEGRITY_EVAL.json\n{\n  \"version\": \"1.0\",\n  \"req_id\": \"REQ-003\",\n  \"verdict\": \"salvageable\",\n  \"hardening_required\": true,\n  \"summary\": \"Candidate is in the correct App/python/backend intake slice and implements a real POST /documents upload path, but it is not promotion-ready. It misses required REQ-003 contract coverage for GET /documents/{documentId} and required API documentation, uses the wrong permission name, embeds a duplicate local auth fallback instead of clean shared reuse, and has a side-effect ordering flaw where processing can be emitted before audit completion, making rollback semantically unsafe.\",\n  \"scope_fidelity\": {\n    \"score\": 9,\n    \"max\": 20,\n    \"assessment\": \"The candidate covers part of the target outcome: accepted upload validation, uploaded-state persistence via repository contract, storage adapter invocation, processing event emission, upload audit emission, unsupported/oversize rejection, and storage-write rollback. However, REQ-003 also declares GET /documents/{documentId}; that endpoint is absent. Malformed multipart rejection with explicit client-visible reason is not covered. Authorization uses document.write instead of the required document.upload permission. The implementation also does not provide a semantically safe all-or-nothing outcome for post-storage side effects.\"\n  },\n  \"lane_fidelity\": {\n    \"score\": 6,\n    \"max\": 10,\n    \"assessment\": \"The slice stays in the backend/python lane and uses FastAPI appropriately. It does not drift into frontend/data/infra ownership. Lane fidelity is reduced because the module ships a local auth fallback inside the intake slice, effectively duplicating shared auth behavior instead of strictly reusing canonical shared/common auth seams.\"\n  },\n  \"path_contract\": {\n    \"score\": 8,\n    \"max\": 10,\n    \"assessment\": \"Source and tests are staged under the expected REQ-003 backend intake family and do not introduce forbidden module families. The candidate remains localized. The score is not perfect because the delivered surface is narrower than the declared path contract: only one source module is present and the required status/read contract is absent.\"\n  },\n  \"file_contract\": {\n    \"score\": 3,\n    \"max\": 15,\n    \"assessment\": \"File contract fidelity is weak. REQ-003 requires API docs; a required API documentation artifact is missing. README_REQ-003.md and KIT_REQ-003.md exist, but neither provides actual API contract documentation for POST /documents or GET /documents/{documentId}. The candidate also delivers only 1 source file, below the REQ-003 kit minimum of 4 source files. The required GET /documents/{documentId} behavior is not covered by any emitted source file.\"\n  },\n  \"source_substance\": {\n    \"score\": 7,\n    \"max\": 20,\n    \"assessment\": \"There is real source substance: request validation, protocol-based dependency seams, repository/storage/event/audit coordination, and explicit failure paths. But the semantics are not sound enough for promotion. The permission check is wrong for the target contract. The implementation omits GET /documents/{documentId}. Most importantly, it publishes document.processing.requested before audit completion; if audit recording fails, the code deletes local state best-effort but cannot retract the already-emitted processing event, creating orphan work and breaking the intended consistency model. The embedded fallback auth path also changes auth behavior and request contract from the shared canonical path.\"\n  },\n  \"test_substance\": {\n    \"score\": 4,\n    \"max\": 10,\n    \"assessment\": \"Tests are not empty and do exercise core positive/negative upload behavior plus storage failure rollback. That said, coverage is materially incomplete for REQ-003. There are no tests for GET /documents/{documentId}, no 401 anonymous path, no 403 unauthorized path against the canonical permission, no malformed multipart behavior, no assertion around wrong permission naming, and no test exposing the post-upload event/audit inconsistency. Tests rely on the local fallback auth seam rather than proving real REQ-002 integration.\"\n  },\n  \"docs_ci_coherence\": {\n    \"score\": 2,\n    \"max\": 5,\n    \"assessment\": \"The README, KIT notes, HOWTO, and LTC are internally consistent with the emitted files, but they overstate repo-fit by normalizing the local auth fallback as harmless. CI guidance only covers compileall and pytest; it does not reflect the lane's lint/type/security expectations from the broader constraints. Documentation also does not compensate for the missing required API docs.\"\n  },\n  \"repo_fit\": {\n    \"score\": 3,\n    \"max\": 5,\n    \"assessment\": \"The candidate is localized, avoids new bootstrap/logging/config wrappers, and mostly fits the canonical backend documents/intake family. Repo fit is reduced by the embedded auth fallback and by the reliance on a shared auth import path that is not convincingly aligned to the REQ-002 canonical module family evidence.\"\n  },\n  \"shared_common_assessment\": {\n    \"score\": 1,\n    \"max\": 5,\n    \"assessment\": \"Storage, audit, and event concerns are correctly modeled as injected contracts, which is good. Shared/common correctness is otherwise poor because auth is not cleanly reused: the module contains its own fallback ActorContext and permission dependency behavior, creating a duplicate auth seam and alternate header contract inside an App slice that should consume shared/common auth instead.\"\n  },\n  \"blockers\": [\n    \"Required API documentation is missing for REQ-003. README_REQ-003.md and KIT_REQ-003.md are not API docs and do not define the POST /documents and GET /documents/{documentId} contracts.\",\n    \"Required REQ-003 endpoint GET /documents/{documentId} is missing from source.\",\n    \"Authorization contract is semantically wrong: the handler requires document.write, while REQ-003 explicitly requires document.upload.\",\n    \"The source embeds a duplicate local auth fallback inside the intake module instead of strictly reusing shared/common authz. This is shared extraction duplication and changes runtime behavior.\",\n    \"Post-upload side-effect ordering is unsafe: document.processing.requested is emitted before audit completion, so an audit failure can still leave an orphaned processing event after local best-effort rollback.\",\n    \"Delivered source substance is below the REQ-003 minimum deliverable: only 1 source file is present versus the minimum 4 source files.\",\n    \"Tests do not cover required auth deny paths, missing GET status contract, malformed multipart handling, or the event/audit consistency failure mode.\"\n  ],\n  \"hardening_targets\": [\n    \"Add the missing GET /documents/{documentId} endpoint with the REQ-003 status/metadata contract.\",\n    \"Replace document.write with the required document.upload permission and align deny behavior to REQ-002 shared auth semantics.\",\n    \"Remove the local auth fallback from the intake slice; consume the canonical shared/common auth contract only.\",\n    \"Provide actual API documentation for REQ-003 endpoints, not just README/KIT notes.\",\n    \"Rework side-effect consistency so accepted uploads cannot emit processing without durable audit/persistence guarantees; current best-effort delete is not sufficient once an event is published.\",\n    \"Expand source layout to meet the REQ-003 minimum deliverable with clearer separation of endpoint, contract/schema, and orchestration concerns if promotion expects that structure.\",\n    \"Add tests for 401, 403, missing permission name mismatch, malformed multipart, GET status retrieval, and post-upload failure consistency behavior.\"\n  ],\n  \"promotability_score\": 43\n}"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 40155,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 4677,
+      "output_tokens_details": {
+        "reasoning_tokens": 3083
+      },
+      "total_tokens": 44832
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

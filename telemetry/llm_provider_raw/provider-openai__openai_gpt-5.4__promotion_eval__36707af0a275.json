@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260411T203746Z",
+  "project_id": "docufu",
+  "phase": "promotion_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_07b6349bb2fd5d000069dab0c2a76c81978dc7b6e6294f8276",
+    "object": "response",
+    "created_at": 1775939778,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1775939866,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "# Harper /kit — PROMOTION_EVAL\n\nYou are Harper /kit PROMOTION_EVAL.\n\nYou are acting as:\n\n* Senior Software Architect\n* Senior Software Engineer\n* Promotion reviewer\n* Stop-ship evaluator\n\nYou are evaluating the final candidate after optional hardening.\nYou are NOT fixing it.\n\n## Authoritative inputs\n\nUse the following in this order:\n\n1. TARGET_CONTRACT.json\n2. FILE_REQUIREMENTS.json\n3. current candidate files\n4. INTEGRITY_EVAL.json\n5. REQ_PROMOTION_MANIFEST.md when present\n6. plan.json\n7. PLAN.md\n8. SPEC.md\n9. TECH_CONSTRAINTS.yaml\n10. repository evidence\n\n## What you must evaluate\n\nEvaluate:\n\n* target REQ fidelity\n* lane correctness\n* file contract fidelity\n* source substance\n* test credibility\n* docs / code / CI coherence\n* promotion fit\n* repository fit\n* shared/common correctness\n* runtime/profile integrity\n* bounded remaining risks\n\n## Hard rules\n\n* Be severe.\n* Do not inflate quality.\n* Do not reward cosmetic cleanup as if it were substantive hardening.\n* Missing required files are blockers.\n* Required files that do not satisfy their declared purpose are blockers or major risks.\n* Wrong lane, wrong module family, duplicate bootstrap/config/logging wrappers, or fake completeness are promotion blockers.\n* If the candidate is still too thin, say so clearly.\n\n## Output artifact\n\nEmit exactly one file block:\n\nfile:/runs/kit/<REQ-ID>/ci/PROMOTION_EVAL.json\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must contain:\n\n* version\n* req_id\n* verdict\n* summary\n* scope_fidelity\n* lane_fidelity\n* file_contract\n* source_substance\n* test_credibility\n* docs_code_coherence\n* promotion_fit\n* repo_fit\n* shared_common_assessment\n* runtime_profile_assessment\n* blockers\n* remaining_risks\n* promotability_score\n\n## Allowed verdicts\n\nUse exactly one of:\n\n* reject\n* needs_more_hardening\n* eval_ready\n* promotion_candidate\n* promotion_candidate_with_risks\n\n## Scoring\n\npromotability_score must be an integer from 0 to 100.\n\nUse these dimensions:\n\n* scope_fidelity: 0-15\n* lane_fidelity: 0-10\n* file_contract: 0-15\n* source_substance: 0-20\n* test_credibility: 0-15\n* docs_code_coherence: 0-10\n* promotion_fit: 0-5\n* repo_fit: 0-5\n* shared_common_assessment: 0-5\n\nEND FILE\n\n---",
+    "max_output_tokens": 18000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_07b6349bb2fd5d000069dab0c40aa881979fb0415936ede393",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_07b6349bb2fd5d000069dab1027a308197b911d1671d273519",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "file:/runs/kit/REQ-003/ci/PROMOTION_EVAL.json\n```json\n{\n  \"version\": \"1.0\",\n  \"req_id\": \"REQ-003\",\n  \"verdict\": \"needs_more_hardening\",\n  \"summary\": \"The candidate is materially improved and now covers the visible REQ-003 API surface: POST /documents, GET /documents/{documentId}, explicit reject paths, storage rollback on storage failure, upload audit before processing dispatch, and meaningful acceptance-style tests. However, it is still not promotion-ready. The slice violates the declared shared/common reuse contract by defining storage, event, and audit adapter protocols inside the intake module and by staging shared auth/contracts as part of the REQ-003 payload. It also leaves an operational integrity gap: if processing dispatch fails, the request returns 500 but the uploaded document and audit remain persisted with no durable retry/outbox guarantee, so the intake command does not reliably complete its 'persist and emit work' outcome under failure. CI evidence is also below backend lane expectations.\",\n  \"scope_fidelity\": {\n    \"score\": 11,\n    \"max\": 15,\n    \"assessment\": \"REQ-003 scope is mostly present. The candidate accepts supported extensions up to 20 MB, persists uploaded metadata, writes the original through an adapter, records upload audit before dispatch, emits one processing request on success, exposes GET status, and rejects malformed, anonymous, unauthorized, oversize, and unsupported requests with explicit reasons. Scope fidelity is reduced because the shared-contract requirement is not met cleanly and the failure mode after event dispatch failure leaves a persisted upload without guaranteed downstream processing.\"\n  },\n  \"lane_fidelity\": {\n    \"score\": 9,\n    \"max\": 10,\n    \"assessment\": \"This stays in the correct App/backend/python lane, uses FastAPI appropriately, and does not drift into frontend, data, or infra implementation. Deduction is for pulling dependency-slice shared auth/contracts into this REQ payload rather than consuming established shared/common ownership cleanly.\"\n  },\n  \"file_contract\": {\n    \"score\": 10,\n    \"max\": 15,\n    \"assessment\": \"Required source, test, README/KIT notes, API docs, and CI helper artifacts are present. The source count exceeds the minimum. The main contract issue is purpose fidelity: REQ-003 explicitly says shared storage, audit, events, and authz must be reused, but the candidate defines local Protocol contracts for storage/audit/events inside backend.documents.intake.contracts and stages shared auth files inside this REQ output, which weakens architectural ownership and promotion safety.\"\n  },\n  \"source_substance\": {\n    \"score\": 13,\n    \"max\": 20,\n    \"assessment\": \"There is real implementation substance: request validation, dependency injection, upload orchestration, rollback behavior for storage and audit failure, explicit error mapping, and a working status query. This is not cosmetic. The main source weaknesses are architectural and runtime-integrity related: shared concern seams are locally redefined instead of reused, dispatch failure leaves a persisted uploaded document without guaranteed follow-up processing, and there is no durable outbox/retry mechanism to preserve the business outcome under broker failure.\"\n  },\n  \"test_credibility\": {\n    \"score\": 11,\n    \"max\": 15,\n    \"assessment\": \"Tests are substantive and aligned to acceptance behavior. They cover happy path, GET status, unsupported type, oversize, malformed multipart, 401, 403, storage rollback, audit failure cleanup, and event dispatch failure behavior. Credibility is limited because all dependencies are in-memory doubles, there is no proof of integration with canonical shared storage/audit/events/auth seams, and there is no coverage/lint/type/security evidence despite backend lane expectations.\"\n  },\n  \"docs_code_coherence\": {\n    \"score\": 7,\n    \"max\": 10,\n    \"assessment\": \"Docs, code, and tests are mostly coherent now. API_REQ-003 documents the implemented endpoints and matches the router/service behavior. README, KIT notes, and HOWTO are consistent with the emitted slice. Score is reduced because the docs normalize staged shared/auth files and local intake-owned adapter protocols as if that were the intended promotion shape, which is at odds with the must-reuse contract in the plan.\"\n  },\n  \"promotion_fit\": {\n    \"score\": 2,\n    \"max\": 5,\n    \"assessment\": \"This is reviewable and not fake-thin, but it is still not a safe promotion candidate. Promotion would either duplicate shared/common seams or force follow-on refactoring immediately. The dispatch-failure orphan risk is also too central to ignore for a command whose core outcome is to persist and emit processing work.\"\n  },\n  \"repo_fit\": {\n    \"score\": 3,\n    \"max\": 5,\n    \"assessment\": \"The intake slice is localized and does not introduce rogue top-level roots, bootstrap wrappers, or config frameworks. Repo fit is weakened by REQ-local staging of shared auth/contracts and by local definition of shared concern interfaces that belong in canonical shared ownership.\"\n  },\n  \"shared_common_assessment\": {\n    \"score\": 1,\n    \"max\": 5,\n    \"assessment\": \"This is the strongest negative area. REQ-003 was supposed to reuse shared storage, audit, events, and authz seams. Instead, storage, audit, and event ports are defined inside backend.documents.intake.contracts, and shared auth/contracts are staged as part of the REQ output. That creates ownership ambiguity and promotion collision risk rather than clean shared/common reuse.\"\n  },\n  \"runtime_profile_assessment\": {\n    \"assessment\": \"Positive: profile-specific behavior remains abstracted behind injected adapters, there is no AWS/on-prem branching in business logic, and the request path does not perform hidden OCR/extraction work. Negative: the implementation reads the full upload into memory, provides no performance evidence for the 5s target, has no observability/security gate evidence, and most importantly lacks durable dispatch recovery semantics. A broker failure can strand a persisted uploaded document in state=uploaded with audit recorded but no processing work guaranteed.\"\n  },\n  \"blockers\": [\n    \"REQ-003 must reuse shared storage, audit, events, and authz seams. The candidate instead defines StorageAdapter, EventPublisher, and AuditSink inside backend.documents.intake.contracts and stages shared auth/contracts in the REQ payload, which is not clean shared/common reuse and is unsafe for promotion ownership.\",\n    \"Processing dispatch failure is not operationally closed. The request returns 500 but leaves a persisted uploaded document and upload audit with no durable outbox, retry contract, or compensating recovery path to guarantee processing will occur. That is a core integrity gap for the intake command.\",\n    \"Backend lane quality evidence is below promotion expectations. The candidate provides compileall and pytest only; there is no lint, type, security, build, or coverage evidence aligned to the backend lane gate profile.\"\n  ],\n  \"remaining_risks\": [\n    \"Upload validation is extension-driven and accepts the provided content_type largely as-is; mismatched filename/content-type combinations are not strongly validated.\",\n    \"GET /documents/{documentId} requires authentication only, with no document-level authorization beyond actor presence. That may be acceptable for the narrow REQ but is a future access-control risk if reused too broadly.\",\n    \"The request path reads the entire file into memory before validation and persistence. At 20 MB this is tolerable for the slice but not yet hardened.\",\n    \"Tests prove slice behavior with fakes, not integration against canonical shared implementations or persistent data stores.\",\n    \"No explicit idempotency or recovery behavior is documented for client retries after a 500 returned from processing dispatch failure.\"\n  ],\n  \"promotability_score\": 67\n}\n```"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 46148,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 5245,
+      "output_tokens_details": {
+        "reasoning_tokens": 3624
+      },
+      "total_tokens": 51393
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

@@ -67,6 +67,20 @@ _FILE_BLOCK_FENCED_INLINE_RE = re.compile(
     re.DOTALL | re.IGNORECASE
 )
 
+_KIT_FILE_HEADER_RE = re.compile(
+    r"^/?runs/kit/REQ-[A-Za-z0-9._-]+/(src|test|docs|ci)/[^\s][^\r\n]*$"
+)
+
+_PLAN_FILE_HEADER_RE = re.compile(
+    r"^/?docs/harper/(PLAN\.md|plan\.json|lane-guides/[A-Za-z0-9._-]+\.md)$",
+    re.IGNORECASE,
+)
+
+_DOC_PHASE_FILE_HEADER_RE = re.compile(
+    r"^/?docs/harper/[A-Za-z0-9._./-]+$",
+    re.IGNORECASE,
+)
+
 # --- Model parameters per phase (output budget & style) ----------------------
 PHASE_MODEL_PARAMS = {
     "idea":                 {"max_tokens": 23500, "temperature": 0.2, "top_p": 1.0},
@@ -83,7 +97,48 @@ PHASE_MODEL_PARAMS = {
 # --- RAG helpers: filter out docs and non-source hits -----------------------
 
 _DOC_EXTS: set[str] = {".md", ".markdown", ".rst", ".txt", ".adoc", ".tex", ".pdf", ".doc",".docx", ".xlsx", "xls", ".ppt", ".pptx" }
+_VALID_FILE_HEADER_RE = re.compile(r"^/?runs/kit/REQ-[A-Za-z0-9._-]+/(src|test|docs|ci)/[^\s][^\r\n]*$")
 
+def _is_valid_file_header_path(raw_path: str, *, phase: str | None = None) -> bool:
+    p = str(raw_path or "").strip().lstrip("/")
+    phase_norm = str(phase or "").strip().lower()
+
+    if not p:
+        return False
+    if "\n" in p or "\r" in p or "\t" in p:
+        return False
+    if p.endswith("```"):
+        return False
+
+    bad_fragments = [
+        " from __future__ import",
+        " import ",
+        ' """',
+        " '''",
+        "# ",
+        "BEGIN_FILE",
+        "END_FILE",
+    ]
+    lowered = p.lower()
+    for frag in bad_fragments:
+        if frag.lower() in lowered:
+            return False
+
+    if phase_norm == "kit":
+        return bool(_KIT_FILE_HEADER_RE.match(p))
+
+    if phase_norm == "plan":
+        return bool(_PLAN_FILE_HEADER_RE.match(p))
+
+    if phase_norm in {"idea", "spec", "finalize", "build"}:
+        return bool(_DOC_PHASE_FILE_HEADER_RE.match(p)) or bool(_KIT_FILE_HEADER_RE.match(p))
+
+    # Conservative default: allow both canonical docs and kit staging files.
+    return (
+        bool(_KIT_FILE_HEADER_RE.match(p))
+        or bool(_PLAN_FILE_HEADER_RE.match(p))
+        or bool(_DOC_PHASE_FILE_HEADER_RE.match(p))
+    )
 
 def _is_source_rag_path(path: str | None) -> bool:
     """
@@ -438,6 +493,55 @@ def _guess_mime(path: str) -> str:
     mime, _ = mimetypes.guess_type(path or "", strict=False)
     return mime or "application/octet-stream"
 
+
+def _coerce_llm_text(raw: Any) -> str:
+    """
+    Normalize provider/model output to plain assistant text before file-block extraction.
+
+    Accepts:
+    - plain string
+    - dict-like object with a "text" field
+    - stringified dict / JSON object containing a "text" field
+
+    Returns:
+    - plain assistant text
+    """
+    if raw is None:
+        return ""
+
+    if isinstance(raw, str):
+        text = raw.strip()
+
+        # Already plain assistant text with file blocks
+        if text.startswith("file:/") or "\nfile:/" in text or text.startswith("BEGIN_FILE"):
+            return raw
+
+        # JSON string containing a "text" field
+        try:
+            parsed_json = json.loads(text)
+            if isinstance(parsed_json, dict) and isinstance(parsed_json.get("text"), str):
+                return parsed_json["text"]
+        except Exception:
+            pass
+
+        # Python-dict-like string containing a "text" field
+        try:
+            parsed_py = ast.literal_eval(text)
+            if isinstance(parsed_py, dict) and isinstance(parsed_py.get("text"), str):
+                return parsed_py["text"]
+        except Exception:
+            pass
+
+        return raw
+
+    if isinstance(raw, dict):
+        text_val = raw.get("text")
+        if isinstance(text_val, str):
+            return text_val
+        return str(raw)
+
+    return str(raw)
+
 def _enforce_single_req_output(files_list: list[dict], target_req: str | None) -> list[dict]:
     """
     Reject any file outside the current target REQ staging root.
@@ -451,11 +555,11 @@ def _enforce_single_req_output(files_list: list[dict], target_req: str | None) -
     for item in files_list:
         path = _canonicalize_path(str(item.get("path") or ""))
         if not path.startswith(prefix):
-            log.warning(
-                "harper.kit dropping file outside target req root: target=%s path=%s",
-                target_req,
-                path,
-            )
+            if path == "docs/harper/KIT.md":
+                log.info("harper.kit ignoring legacy non-target artifact path=%s", path)
+            else:
+                log.warning("harper.kit dropping file outside target req root: target=%s path=%s", target_req, path)
+
             continue
         cloned = dict(item)
         cloned["path"] = path
@@ -484,101 +588,94 @@ def _dedupe_by_path(files_list: list[dict]) -> list[dict]:
 
 
 
-def _extract_file_blocks(text: str, *, allow_plain: bool = True) -> tuple[list[dict], str]:
+def _extract_file_blocks(text: str, *, allow_plain: bool = True, phase: str | None = None) -> tuple[list[dict], str]:
     """
     Extract file blocks from model output.
 
     Supported formats:
       A) FENCED:
          ```text
-         file:/path/to/file.ext
+         file:/runs/kit/REQ-XXX/...
          <content>
          ```
 
       A2) INLINE FENCED:
-         ```file:/path/to/file.ext
+         ```file:/runs/kit/REQ-XXX/...
          <content>
          ```
 
-      B) PLAIN (optional, disabled for KIT):
-         file:/path/to/file.ext
+      B) PLAIN (optional, disabled for KIT and structured review phases):
+         file:/runs/kit/REQ-XXX/...
          <content until next file: or EOF>
 
       C) BEGIN_FILE:
-         BEGIN_FILE path/to/file.ext
+         BEGIN_FILE runs/kit/REQ-XXX/...
          <content>
          END_FILE
-
-    Returns:
-      - files: list of {path, content, mime, encoding}
-      - remainder: text outside recognized file blocks
     """
     files: list[dict] = []
+
+    if text is None:
+        return [], ""
+
+    text = _coerce_llm_text(text)
+
     if not text:
         return [], ""
 
     intervals: list[tuple[int, int]] = []
+    warnings_local: list[str] = []
+
+    def _append_if_valid(raw_path: str, content: str, start: int, end: int) -> None:
+        norm_path = str(raw_path or "").strip().lstrip("/")
+        if not _is_valid_file_header_path(norm_path, phase=phase):
+            warnings_local.append(f"invalid_file_header:{norm_path[:160]}")
+            return
+        intervals.append((start, end))
+        files.append({
+            "path": norm_path,
+            "content": (content or "").strip("\n"),
+            "mime": _guess_mime(norm_path),
+            "encoding": "utf-8",
+        })
+        log.info("harper.file_blocks accepted path=%s size=%d", norm_path, len((content or "").strip("\n")))
 
     # A) FENCED
     for m in _FILE_BLOCK_FENCED_RE.finditer(text):
         start, end = m.span()
-        intervals.append((start, end))
         raw_path = (m.group(1) or "").strip()
         content = (m.group(2) or "")
-        norm_path = raw_path.lstrip().lstrip("/")
-        files.append({
-            "path": norm_path,
-            "content": content,
-            "mime": _guess_mime(norm_path),
-            "encoding": "utf-8",
-        })
+        _append_if_valid(raw_path, content, start, end)
 
     # A2) INLINE FENCED
     for m in _FILE_BLOCK_FENCED_INLINE_RE.finditer(text):
         start, end = m.span()
-        intervals.append((start, end))
         raw_path = (m.group(1) or "").strip()
         content = (m.group(2) or "")
-        norm_path = raw_path.lstrip().lstrip("/")
-        files.append({
-            "path": norm_path,
-            "content": content,
-            "mime": _guess_mime(norm_path),
-            "encoding": "utf-8",
-        })
+        _append_if_valid(raw_path, content, start, end)
 
-    # B) PLAIN (disabled for KIT)
+    # B) PLAIN
     if allow_plain:
         for m in _FILE_BLOCK_PLAIN_RE.finditer(text):
             start, end = m.span()
-            intervals.append((start, end))
             raw_path = (m.group(1) or "").strip()
             content = (m.group(2) or "")
             content = re.sub(r"\n```+\s*\Z", "\n", content)
-            norm_path = raw_path.lstrip().lstrip("/")
-            files.append({
-                "path": norm_path,
-                "content": content.strip("\n"),
-                "mime": _guess_mime(norm_path),
-                "encoding": "utf-8",
-            })
+            _append_if_valid(raw_path, content, start, end)
 
     # C) BEGIN_FILE
     for m in _FILE_BLOCK_BEGIN_RE.finditer(text):
         start, end = m.span()
-        intervals.append((start, end))
         raw_path = (m.group(1) or "").strip()
         content = (m.group(2) or "")
-        norm_path = raw_path.lstrip().lstrip("/")
-        files.append({
-            "path": norm_path,
-            "content": content.strip("\n"),
-            "mime": _guess_mime(norm_path),
-            "encoding": "utf-8",
-        })
+        _append_if_valid(raw_path, content, start, end)
+
+    
+    if warnings_local:
+        log.warning("harper.file_blocks invalid headers: %s", warnings_local)
 
     if not intervals:
-        log.info("no file blocks found")
+        log.info("no valid file blocks found")
         return [], text.strip()
 
     intervals.sort()
@@ -593,8 +690,6 @@ def _extract_file_blocks(text: str, *, allow_plain: bool = True) -> tuple[list[d
     remainder = "".join(remainder_parts).strip()
 
     return files, remainder
-
-# --- PATCH END (helpers) ---
 
 def approx_tokens_from_chars(text: str) -> int:
     # euristica stabile usata nel resto del repo (≈ 4 chars/token)
@@ -661,16 +756,38 @@ PHASE_INPUT_FILE = {
     "finalize":["IDEA.md", "SPEC.md", "PLAN.md"],
 }# Pass-through opzionali dal req.gen (se presenti)
 
+def _load_json_blob(core_blobs: dict | None, suffix: str) -> dict | None:
+    if not core_blobs:
+        return None
+
+    suffix = str(suffix or "").strip().lower()
+    for name, content in (core_blobs or {}).items():
+        key = str(name or "").strip().lower()
+        if not key.endswith(suffix):
+            continue
+        try:
+            data = json.loads(str(content or ""))
+        except Exception as exc:
+            log.warning("failed to parse json blob %s from %s: %s", suffix, name, exc)
+            return None
+        if isinstance(data, dict):
+            return data
+        return None
+
+    return None
+
+
+def _load_target_contract_from_core_blobs(core_blobs: dict | None) -> dict | None:
+    return _load_json_blob(core_blobs, "target_contract.json")
+
+
+def _load_file_requirements_from_core_blobs(core_blobs: dict | None) -> dict | None:
+    return _load_json_blob(core_blobs, "file_requirements.json")
+
 def _filter_core_blobs_for_kit(
     core_blobs: dict | None,
     target_req: str | None,
 ) -> dict[str, str]:
-    """
-    Keep only the blobs that are useful for the current KIT target.
-
-    This reduces prompt drift by removing unrelated manifest noise and stale REQ
-    material from previous runs.
-    """
     if not core_blobs:
         return {}
 
@@ -682,11 +799,16 @@ def _filter_core_blobs_for_kit(
         "plan.md",
         "plan.json",
         "tech_constraints.yaml",
+        "target_contract.json",
+        "file_requirements.json",
+        "integrity_eval.json",
     )
     always_keep_prefixes = (
+        "REQ_PROMOTION_MANIFEST",
         "REPO_ACCESS_MANIFEST",
         "REPO_STRUCTURE_EVIDENCE",
         "REPO_COMPOSITION_MANIFEST",
+        "candidate::",
     )
 
     for name, content in core_blobs.items():
@@ -694,21 +816,22 @@ def _filter_core_blobs_for_kit(
         lkey = key.lower()
 
         if any(lkey.endswith(sfx) for sfx in always_keep_suffixes):
-            kept[key] = content
+            kept[key] = str(content or "")
             continue
 
         if any(key.startswith(prefix) for prefix in always_keep_prefixes):
-            kept[key] = content
+            kept[key] = str(content or "")
             continue
 
         if key.startswith("REQ_PROMOTION_MANIFEST"):
             if target_req and target_req in key:
-                kept[key] = content
-            elif target_req and f"REQ Promotion Manifest — {target_req}" in str(content):
-                kept[key] = content
+                kept[key] = str(content or "")
+            elif target_req and f"REQ Promotion Manifest — {target_req}" in str(content or ""):
+                kept[key] = str(content or "")
             continue
 
     return kept
+
 
 
 def _build_kit_user_message(
@@ -717,48 +840,100 @@ def _build_kit_user_message(
     core_blobs: dict | None,
     targets: list[str] | None,
 ) -> str:
-    """
-    For KIT, replace the giant narrative prompt with a smaller target-first prompt.
-    """
     if (phase or "").lower() != "kit":
         return user
 
     target_req = str((targets or [None])[0] or "").strip()
     filtered_core = _filter_core_blobs_for_kit(core_blobs, target_req)
 
+    target_contract = _load_target_contract_from_core_blobs(filtered_core)
+    file_requirements = _load_file_requirements_from_core_blobs(filtered_core)
+
     refs = []
     for name, content in filtered_core.items():
-        refs.append(f"- {name} ({len(content or '')} chars)")
+        refs.append(f"- {name} ({len(str(content or ''))} chars)")
 
-    concise_parts = [
-        "## CLike Principles (short)",
-        "- Harper pipeline: IDEA→SPEC→PLAN→KIT, eval-driven quality, outcome-first.",
-        "- Keep output concise but testable; Acceptance Criteria are mandatory.",
-        "- Maintain human-in-control tone; do not invent facts.",
-        "",
+    parts = [
         "## KIT EXECUTION MODE",
-        f"- Current phase: {phase}",
         f"- Current target REQ-ID: {target_req}",
-        "- Use only the current target REQ staging root.",
-        "- Dependencies are context only and must not receive emitted files.",
-        "- If context conflicts with the target block, obey the target block.",
+        "- TARGET_CONTRACT.json is authoritative for scope, lane, paths, and acceptance.",
+        "- FILE_REQUIREMENTS.json is authoritative for required emitted files and their content expectations.",
+        "- REQ_PROMOTION_MANIFEST.md is authoritative for staging-vs-canonical promotion discipline.",
+        "- Dependencies are read-only context only.",
+        "",
+    ]
+
+    if target_contract:
+        lane = str(target_contract.get("lane") or "").strip()
+        title = str(target_contract.get("title") or "").strip()
+        primary_outcome = str(target_contract.get("primary_outcome") or "").strip()
+        acceptance = [str(x).strip() for x in (target_contract.get("acceptance") or []) if str(x).strip()]
+        create_under = [str(x).strip() for x in ((target_contract.get("paths") or {}).get("create_under") or []) if str(x).strip()]
+        must_reuse = [str(x).strip() for x in ((target_contract.get("paths") or {}).get("must_reuse") or []) if str(x).strip()]
+        forbidden = [str(x).strip() for x in ((target_contract.get("paths") or {}).get("forbidden") or []) if str(x).strip()]
+
+        parts.extend([
+            "## TARGET CONTRACT SUMMARY",
+            f"- Lane: {lane}",
+            f"- Title: {title}",
+            f"- Primary outcome: {primary_outcome}",
+            "- Allowed createUnder roots:",
+        ])
+        parts.extend([f"  - {x}" for x in create_under] or ["  - none"])
+        parts.append("- Must reuse:")
+        parts.extend([f"  - {x}" for x in must_reuse] or ["  - none"])
+        parts.append("- Forbidden roots:")
+        parts.extend([f"  - {x}" for x in forbidden] or ["  - none"])
+        parts.append("- Acceptance criteria:")
+        parts.extend([f"  - {x}" for x in acceptance] or ["  - none"])
+        parts.append("")
+
+    if file_requirements:
+        parts.append("## FILE REQUIREMENTS")
+        for item in list(file_requirements.get("required_outputs") or []):
+            path_hint = str(item.get("path_hint") or "").strip()
+            kind = str(item.get("kind") or "").strip()
+            purpose = str(item.get("purpose") or "").strip()
+            required = bool(item.get("required", False))
+            must_cover = [str(x).strip() for x in (item.get("must_cover") or []) if str(x).strip()]
+            must_contain = [str(x).strip() for x in (item.get("must_contain") or []) if str(x).strip()]
+            must_not_contain = [str(x).strip() for x in (item.get("must_not_contain") or []) if str(x).strip()]
+
+            parts.extend([
+                f"- Output file ({kind}) [{'required' if required else 'optional'}]: {path_hint}",
+                f"  - Purpose: {purpose or 'n/a'}",
+            ])
+            if must_cover:
+                parts.append("  - Must cover:")
+                parts.extend([f"    - {x}" for x in must_cover])
+            if must_contain:
+                parts.append("  - Must contain:")
+                parts.extend([f"    - {x}" for x in must_contain])
+            if must_not_contain:
+                parts.append("  - Must not contain:")
+                parts.extend([f"    - {x}" for x in must_not_contain])
+        parts.append("")
+
+    parts.extend([
+        "## HARD RULES",
+        "- Emit files only under the current target REQ staging root.",
+        "- Do not emit files for adjacent REQs.",
+        "- Do not invent file structure outside FILE_REQUIREMENTS.json without strong repository evidence.",
+        "- If a file is marked required, emit it.",
+        "- Do not create duplicate config/settings/logging/helpers if canonical equivalents already exist or are implied by repository evidence.",
+        "- Prefer compact, reviewable, repo-fit files over fragmented thin files.",
         "",
         "## Included references",
-    ]
-    concise_parts.extend(refs if refs else ["- none"])
-    concise_parts.extend([
-            "",
-            "## OUTPUT CONFORMITY CHECKLIST",
-            "- Emit one or more `file:/path` fenced blocks with complete file contents.",
-            "- Respect the module/package and namespace structure defined by PLAN.md.",
-            "- No trailing prose outside fenced blocks.",
-            "- Any file path outside the target REQ staging root is invalid.",
-            "",
-            "## Task",
-            "Produce/Transform the KIT output that strictly follows the Output contract.",
-        ])
+    ])
+    parts.extend(refs if refs else ["- none"])
+    parts.extend([
+        "",
+        "## OUTPUT CONTRACT",
+        "- Emit only `file:/path` file blocks with complete file contents.",
+        "- No prose outside file blocks.",
+    ])
 
-    return "\n".join(concise_parts).strip()
+    return "\n".join(parts).strip()
 
 # --- PATCH START: phase-aware output checklist ---
 def _output_checklist_for_phase(phase: str) -> str:
@@ -787,17 +962,15 @@ def _output_checklist_for_phase(phase: str) -> str:
     return (
         "### OUTPUT CONFORMITY CHECKLIST\n"
         "- Emit one or more `file:/path` blocks with complete file contents.\n"
-        "- Rispect the Module/Package & Namespace structure defined in the PLAN.md during kit command"
-        "- No trailing prose outside fenced blocks, except a short append-only iteration log if specified.\n"
+        "- Respect the module/package and namespace structure defined in PLAN.md and plan.json during KIT.\n"
+        "- No trailing prose outside fenced blocks, except a short append-only iteration log if explicitly specified.\n"
     )
-  
-def _append_kit_target_to_user(user_text: str, targets: list[str], acceptance: Optional[list[str]] = None,) -> str:
-    """
-    Force a single authoritative KIT target block at the very top of the user prompt.
 
-    This is intentionally strict because GPT-5.4 drifts when the target is only
-    mentioned later in a long prompt body.
-    """
+def _append_kit_target_to_user(
+    user_text: str,
+    targets: list[str],
+    acceptance: Optional[list[str]] = None,
+) -> str:
     if not targets:
         return user_text
 
@@ -808,15 +981,13 @@ def _append_kit_target_to_user(user_text: str, targets: list[str], acceptance: O
         "## KIT TARGET (AUTHORITATIVE)",
         f"- Target REQ-ID: {target_req}",
         f"- Only valid staging root: runs/kit/{target_req}/",
-        f"- Only valid source root for this response: runs/kit/{target_req}/src/",
-        f"- Only valid test root for this response: runs/kit/{target_req}/test/",
-        f"- Only valid docs root for this response: runs/kit/{target_req}/docs/",
-        f"- Only valid ci root for this response: runs/kit/{target_req}/ci/",
+        f"- Only valid source root: runs/kit/{target_req}/src/",
+        f"- Only valid test root: runs/kit/{target_req}/test/",
+        f"- Only valid docs root: runs/kit/{target_req}/docs/",
+        f"- Only valid ci root: runs/kit/{target_req}/ci/",
         "- Do not emit files for any other REQ-ID.",
-        "- Do not emit paths for dependencies under their own REQ staging roots.",
         "- Dependency REQs are read-only context only.",
-        "- If any manifest, repo evidence, or prior context conflicts with this target block, this target block wins.",
-        "- Any file path outside the target REQ staging root is an invalid response.",
+        "- Any file path outside the target REQ staging root is invalid.",
     ]
 
     if acc:
@@ -827,16 +998,23 @@ def _append_kit_target_to_user(user_text: str, targets: list[str], acceptance: O
     return f"{authoritative_block}\n\n{user_text.lstrip()}"
 
 
-def _compose_system_messages(phase: str,
-                            idea_md: Optional[str],
-                            core_blobs: dict | None,
-                            profile_hint: str | None,
-                            model_route_label: str | None,
-                            run_id: str | None,
-                            repo_url: str | None,
-                            targets: Optional[list[str]]) -> list[dict]:
-    log.info("Compose system messages for phase (too long) %s", phase)
-    """Build OpenAI/Anthropic style chat messages: system + user. Minimal, RAG-light."""
+def _route_label(model: str | None, profile: str | None) -> str:
+    if model and profile:
+        return f"{profile}::{model}"
+    return model or profile or "auto"
+
+def _compose_system_messages(
+    phase: str,
+    idea_md: Optional[str],
+    core_blobs: dict | None,
+    profile_hint: str | None,
+    model_route_label: str | None,
+    run_id: str | None,
+    repo_url: str | None,
+    targets: Optional[list[str]],
+) -> list[dict]:
+    log.info("Compose system messages for phase %s", phase)
+
     system_by_phase = {
         "idea": PROMPT_IDEA_SYSTEM_PATH,
         "spec": PROMPT_SPEC_SYSTEM_PATH,
@@ -849,72 +1027,103 @@ def _compose_system_messages(phase: str,
     }
     system_path = system_by_phase.get(phase, PROMPT_SPEC_SYSTEM_PATH)
     system = _read_text(system_path).strip() or "# Harper System Prompt\nFollow the phase contract strictly."
-    #log.info("System prdockeompt for phase %s: %s", phase, system)
-    if phase == "kit" and repo_url:
-        system = _inject_repo_url_in_system(system, repo_url) 
-    #log.debug("System w/ repo url prompt for phase %s: %s", phase, system)
 
-    
-    # Foreground principles (tiny, inline to keep context short)
+    if phase == "kit" and repo_url:
+        system = _inject_repo_url_in_system(system, repo_url)
+
     foreground = (
         "## CLike Principles (short)\n"
         "- Harper pipeline: IDEA→SPEC→PLAN→KIT, eval-driven quality, outcome-first.\n"
         "- Keep output concise but testable; Acceptance Criteria are mandatory.\n"
         "- Maintain human-in-control tone; do not invent facts.\n"
     )
-    log.debug("componse message nmber: %s", len(system.split("\n")))
 
-    # Background context (IDEA + optional core blobs names)
-    idea_md or ""
-    constraints_keys: list[str] = []
-    other_core: dict[str, str] = {}
     constraints_chunks: list[str] = []
-
+    other_core: dict[str, str] = {}
     if core_blobs:
-       
-        log.debug("componse message nmber: %s", len(system.split("\n")))
         for name, content in core_blobs.items():
             lname = (name or "").lower()
-            # if name.endswith('plan.json'):
-            #     continue
-            log.debug("componse message nmber: %s", len(system.split("\n")))
             if lname.startswith("tech_constraints"):
-                    constraints_keys.append(name)
-                    if isinstance(content, str) and content.strip():
-                        constraints_chunks.append(content.strip())
+                if isinstance(content, str) and content.strip():
+                    constraints_chunks.append(content.strip())
             else:
-                other_core[name] = content
-    # Pack minimal project context (IDEA + optional core blobs names)
+                other_core[str(name)] = str(content or "")
+
     refs = ""
     if other_core:
-       refs = "### Included references:\n" + "\n".join(f"- {k} ({len(v or '')} chars)" for k, v in core_blobs.items())
+        refs = "### Included references:\n" + "\n".join(
+            f"- {k} ({len(v or '')} chars)" for k, v in other_core.items()
+        )
 
     suffix_parts = []
-    log.debug("componse message nmber: %s", len(system.split("\n")))
 
-    NORMATIVE_PREFIXES = (
+    verbatim_suffixes_for_phase = {
+        "kit": (
+            "SPEC.md",
+            "PLAN.md",
+            "plan.json",
+            "TECH_CONSTRAINTS.yaml",
+            "TARGET_CONTRACT.json",
+            "FILE_REQUIREMENTS.json",
+        ),
+        "integrity_eval": (
+            "SPEC.md",
+            "PLAN.md",
+            "plan.json",
+            "TECH_CONSTRAINTS.yaml",
+            "TARGET_CONTRACT.json",
+            "FILE_REQUIREMENTS.json",
+        ),
+        "promotion_hardener": (
+            "SPEC.md",
+            "PLAN.md",
+            "plan.json",
+            "TECH_CONSTRAINTS.yaml",
+            "TARGET_CONTRACT.json",
+            "FILE_REQUIREMENTS.json",
+            "INTEGRITY_EVAL.json",
+        ),
+        "promotion_eval": (
+            "SPEC.md",
+            "PLAN.md",
+            "plan.json",
+            "TECH_CONSTRAINTS.yaml",
+            "TARGET_CONTRACT.json",
+            "FILE_REQUIREMENTS.json",
+            "INTEGRITY_EVAL.json",
+        ),
+    }
+
+    normative_prefixes = (
         "REQ_PROMOTION_MANIFEST",
         "REPO_ACCESS_MANIFEST",
         "REPO_STRUCTURE_EVIDENCE",
         "REPO_COMPOSITION_MANIFEST",
+        "candidate::",
     )
 
-    if other_core:
-        for n, c in other_core.items():
-            if any((n or "").startswith(prefix) for prefix in NORMATIVE_PREFIXES):
-                suffix_parts.append(f"\n\n### {n} (verbatim)\n{c}")
-            else:
-                suffix_parts.append(f"\n\n### {n} (reference only)\nIncluded as project context; do not ignore if relevant.")
+    active_verbatim_suffixes = verbatim_suffixes_for_phase.get((phase or "").lower(), tuple())
 
-    # Technology Constraints unified block (if any were found under core)
+    for name, content in other_core.items():
+        if any((name or "").startswith(prefix) for prefix in normative_prefixes):
+            suffix_parts.append(f"\n\n### {name} (verbatim)\n{content}")
+            continue
+
+        if any((name or "").endswith(sfx) for sfx in active_verbatim_suffixes):
+            suffix_parts.append(f"\n\n### {name} (verbatim)\n{content}")
+            continue
+
+        suffix_parts.append(
+            f"\n\n### {name} (reference only)\nIncluded as project context; do not ignore if relevant."
+        )
+
     if constraints_chunks:
-        # Non forziamo il parsing; mostriamo come testo YAML fenced per massima compatibilità
         constraints_text = "\n\n---\n\n".join(constraints_chunks)
         suffix_parts.append("### Technology Constraints (YAML)\n```yaml\n" + constraints_text + "\n```")
 
     suffix = "".join(suffix_parts)
     idea_txt = ""
-    if idea_md and phase.lower() == 'spec':
+    if idea_md and phase.lower() == "spec":
         idea_txt = f"### IDEA.md (verbatim)\n{idea_md}\n\n"
 
     user = (
@@ -923,30 +1132,29 @@ def _compose_system_messages(phase: str,
         f"{idea_txt}"
         f"{refs}\n\n"
         f"{_output_checklist_for_phase(phase)}"
-        f"### Task\nProduce/Transform the {phase.upper()} output that strictly follows the Output contract. Returns files as requested for this pahse.{suffix}"
+        f"### Task\nProduce/Transform the {phase.upper()} output that strictly follows the Output contract.{suffix}"
     )
-    # --- se fase KIT, inietta direttiva target ---
+
     if (phase or "").lower() == "kit":
+        target_contract = _load_target_contract_from_core_blobs(core_blobs)
+        acceptance = (target_contract or {}).get("acceptance") or []
         user = _build_kit_user_message(
             phase=phase,
             user=user,
             core_blobs=core_blobs,
             targets=targets,
         )
-        user = _append_kit_target_to_user(user, targets=targets)
-    
+        user = _append_kit_target_to_user(
+            user,
+            targets=targets or [],
+            acceptance=acceptance,
+        )
+
     messages_output = [
         {"role": "system", "content": system.strip()},
         {"role": "user", "content": user.strip()},
     ]
     return messages_output
-
-def _route_label(model: str | None, profile: str | None) -> str:
-    if model and profile:
-        return f"{profile}::{model}"
-    return model or profile or "auto"
-
-
 def _fallback_spec_from_template(idea_md: str, model_route_label: str | None, run_id: str | None) -> str:
     """Deterministic SPEC using template + IDEA first paragraph(s)."""
     tpl = _read_text(SPEC_TEMPLATE_PATH)
@@ -983,10 +1191,30 @@ class Attachment(BaseModel):
 
 
 class HarperKitOptions(BaseModel):
+    """
+    Options to drive /kit targeting behavior.
+
+    - targets: explicit list of REQ-IDs to implement now
+    - batch: take the next N open REQ-IDs (ignored if 'targets' given)
+    - req_ids: legacy alias (read-only for backward compat)
+    - rescope: if True, incorporate Product Owner notes into plan.json view
+
+    KIT phases:
+    - default: ["kit"]
+    - allowed: "kit", "integrity_eval", "promotion_hardener", "promotion_eval"
+
+    Examples:
+    - /kit REQ-001                         -> phases omitted => ["kit"]
+    - /kit REQ-001 --integrity            -> phases=["integrity_eval"]
+    - /kit REQ-001 --hardener             -> phases=["promotion_hardener"]
+    - /kit REQ-001 --promotion-eval       -> phases=["promotion_eval"]
+    - /kit REQ-001 --phases=kit,integrity_eval,promotion_hardener,promotion_eval
+    """
     targets: Optional[List[str]] = Field(default=None)
     batch: Optional[int] = Field(default=None, ge=1)
     req_ids: Optional[List[str]] = Field(default=None)  # backward-compat alias
     rescope: Optional[bool] = Field(default=False)
+    phases: Optional[List[str]] = Field(default=None)
 
 class HarperRunRequest(BaseModel):
     project_id: Optional[str] = None
@@ -1127,6 +1355,40 @@ def _write_telemetry(project_id: str, record: dict) -> None:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
     except Exception as e:
         log.warning("telemetry write failed: %s", e)
+
+def _prompt_debug_path(project_id: str, run_id: str | None, phase: str) -> Path:
+    fname = f"{(project_id or 'default').strip()}__{(run_id or 'n-a').strip()}__{(phase or 'phase').strip()}.json"
+    path = Path(TELEMETRY_DIR).joinpath("prompt_debug").joinpath(fname)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _write_prompt_debug(
+    project_id: str,
+    run_id: str | None,
+    phase: str,
+    provider: str,
+    model: str,
+    messages: list[dict],
+    core_blobs: dict | None,
+    targets: list[str] | None,
+) -> None:
+    try:
+        summary = {
+            "project_id": project_id,
+            "run_id": run_id,
+            "phase": phase,
+            "provider": provider,
+            "model": model,
+            "targets": targets or [],
+            "core_blob_keys": sorted(list((core_blobs or {}).keys())),
+            "messages": messages or [],
+        }
+        path = _prompt_debug_path(project_id, run_id, phase)
+        path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+        log.info("harper.prompt_debug saved to %s", path)
+    except Exception as exc:
+        log.warning("harper.prompt_debug failed: %s", exc)
 
 def _dump_llm_provider_raw(
     *,
@@ -1747,6 +2009,74 @@ async def run(req: HarperRunRequest,  request: Request):
     )
     idea = req.idea_md or ""
     core_blobs = req.core_blobs or {}
+    
+    if (phase or "").lower() == "kit":
+        target_contract = _load_target_contract_from_core_blobs(core_blobs)
+        file_requirements = _load_file_requirements_from_core_blobs(core_blobs)
+
+        if not target_contract:
+            log.error("KIT 422: missing TARGET_CONTRACT.json in core_blobs keys=%s", sorted(list(core_blobs.keys())))
+            raise HTTPException(
+                status_code=422,
+                detail="KIT phase requires TARGET_CONTRACT.json in core_blobs"
+            )
+
+        if not file_requirements:
+            log.error("KIT 422: missing FILE_REQUIREMENTS.json in core_blobs keys=%s", sorted(list(core_blobs.keys())))
+            raise HTTPException(
+                status_code=422,
+                detail="KIT phase requires FILE_REQUIREMENTS.json in core_blobs"
+            )
+
+        contract_issues = []
+
+        req_id = str(target_contract.get("req_id") or "").strip()
+        lane = str(target_contract.get("lane") or "").strip()
+        title = str(target_contract.get("title") or "").strip()
+        primary_outcome = str(target_contract.get("primary_outcome") or "").strip()
+
+        paths = target_contract.get("paths") or {}
+        create_under = [str(x).strip() for x in (paths.get("create_under") or []) if str(x).strip()]
+        must_reuse = [str(x).strip() for x in (paths.get("must_reuse") or []) if str(x).strip()]
+        forbidden = [str(x).strip() for x in (paths.get("forbidden") or []) if str(x).strip()]
+
+        required_outputs = file_requirements.get("required_outputs") or []
+
+        if not req_id:
+            contract_issues.append("TARGET_CONTRACT.req_id is empty")
+        if not lane:
+            contract_issues.append("TARGET_CONTRACT.lane is empty")
+        if not title:
+            contract_issues.append("TARGET_CONTRACT.title is empty")
+        if not primary_outcome:
+            contract_issues.append("TARGET_CONTRACT.primary_outcome is empty")
+        if not create_under:
+            contract_issues.append("TARGET_CONTRACT.paths.create_under is empty")
+        if not (must_reuse or forbidden):
+            contract_issues.append("TARGET_CONTRACT.paths must declare must_reuse and/or forbidden roots")
+        if not required_outputs:
+            contract_issues.append("FILE_REQUIREMENTS.required_outputs is empty")
+
+        if contract_issues:
+            log.error(
+                "KIT 422: weak contract for req_id=%s issues=%s",
+                target_contract.get("req_id"),
+                contract_issues,
+            )
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "message": "KIT phase requires a promotion-grade TARGET_CONTRACT/FILE_REQUIREMENTS pair",
+                    "issues": contract_issues,
+                },
+            )
+
+        log.info(
+            "harper.gateway kit guardrails present req_id=%s lane=%s required_outputs=%d",
+            target_contract.get("req_id"),
+            target_contract.get("lane"),
+            len(required_outputs),
+        )
     model_route_label = _route_label(req.model, req.profileHint)
     log.info("model_route_label (too long) %s", model_route_label)
 
@@ -1941,6 +2271,17 @@ async def run(req: HarperRunRequest,  request: Request):
         (_resolve_ctx_caps(resolved_entry)[1]))
     log.info("harper.gateway normalized messages '%s' ", len(messages))
 
+    _write_prompt_debug(
+        project_id=project_id,
+        run_id=req.runId,
+        phase=phase,
+        provider=provider,
+        model=model,
+        messages=messages,
+        core_blobs=core_blobs,
+        targets=targets,
+    )
+
     telemetry: dict[str, object] = {
         "phase": phase,
         "model": model_route_label,
@@ -2012,8 +2353,12 @@ async def run(req: HarperRunRequest,  request: Request):
     
     #llm_text = {"text": "", "usage": {'input_tokens':3033, 'output_tokens':5050 }, "files": []}
     #text_len=0
-    log.info("harper.gateway llm_text length '%s' ", len(llm_text))
-    #log.info("harper.gateway llm_text  '%s' ", (llm_text))
+    raw_type = type(llm_text).__name__
+    normalized_preview = _coerce_llm_text(llm_text)[:400].replace("\n", "\\n")
+    normalized_len = len(_coerce_llm_text(llm_text))
+
+    log.info("harper.gateway llm_text raw_type=%s normalized_len=%s", raw_type, normalized_len)
+    log.info("harper.gateway llm_text preview=%r", normalized_preview)
     
     # --- Dump raw LLM response + provider raw for debugging/forensics (non-blocking) ---
     try:
@@ -2147,9 +2492,10 @@ async def run(req: HarperRunRequest,  request: Request):
             })
 
     else:
-        # Prova a estrarre blocchi `file:...` dal testo grezzo
-        gen_files, remainder = _extract_file_blocks(system_md_txt)
-
+        structured_phases = {"kit", "integrity_eval", "promotion_hardener", "promotion_eval"}
+        #allow_plain = phase not in structured_phases
+        allow_plain = True
+        gen_files, remainder = _extract_file_blocks(system_md_txt, allow_plain=allow_plain, phase=phase)
         if gen_files:
             files.extend(gen_files)
             if remainder:
@@ -2222,8 +2568,14 @@ async def run(req: HarperRunRequest,  request: Request):
             # no file-blocks: usa l'intero testo di fase
             plan_md_text = system_md_txt or ""
 
-        # 2) Deriva plan.json e gestisci duplicati
-        if plan_md_text:
+        # 2) Promotion-grade rule:
+        # Never replace an emitted plan.json with a markdown-derived fallback.
+        # The fallback is structurally lossy and can destroy REQ implementation directives
+        # such as paths, ownership, mandatory tests, and downstream guarantees.
+        #
+        # At most, derive a fallback for diagnostics when the emitted JSON is missing,
+        # but this branch should not happen because we already fail hard above.
+        if plan_md_text and not has_plan_json:
             try:
                 plan_json = _derive_plan_json_from_md(plan_md_text)
             except Exception as e:
@@ -2231,34 +2583,20 @@ async def run(req: HarperRunRequest,  request: Request):
                 warnings.append(f"plan_json_derivation_error: {e}")
 
             if plan_json is not None:
-                new_payload = json.dumps(plan_json, indent=2, ensure_ascii=False)
-                # verifica se esiste già un plan.json
-                existing_idx = None
-                for i, f in enumerate(files):
-                    p = (f.get("path") or "").strip()
-                    if p == plan_json_path or p.endswith("/plan.json"):
-                        existing_idx = i
-                        break
-
-                if existing_idx is None:
-                    files.append({
-                        "path": plan_json_path,
-                        "content": new_payload,
-                        "mime": "application/json",
-                        "encoding": "utf-8",
-                    })
-                else:
-                    # tieni la versione più informativa (contenuto più lungo)
-                    old = files[existing_idx].get("content") or ""
-                    if len(new_payload) > len(old):
-                        files[existing_idx] = {
-                            "path": plan_json_path,
-                            "content": new_payload,
-                            "mime": "application/json",
-                            "encoding": "utf-8",
-                        }
-                    else:
-                        warnings.append("plan_json_existing_kept: provider version longer")
+                files.append({
+                    "path": plan_json_path,
+                    "content": json.dumps(plan_json, indent=2, ensure_ascii=False),
+                    "mime": "application/json",
+                    "encoding": "utf-8",
+                })
+    
+    if (phase or "").lower() == "kit" and not files:
+        preview = (system_md_txt or "")[:2000]
+        log.error("KIT 422: no valid file blocks. raw_preview=%s", preview)
+        raise HTTPException(
+            status_code=422,
+            detail="KIT phase did not produce any valid file blocks"
+        )
     # --- Safety dedupe by path: keep longer content ---
     seen = {}
     deduped = []
@@ -2271,6 +2609,7 @@ async def run(req: HarperRunRequest,  request: Request):
             seen[k] = f
     deduped = list(seen.values())
     files = deduped
+
 
     
     # --- Telemetry ---

@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260412T171957Z",
+  "project_id": "docufu",
+  "phase": "promotion_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_0ca995e39fec25f90069dbd3e9556c8193bc25976a89818f31",
+    "object": "response",
+    "created_at": 1776014313,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1776014397,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "Harper /kit — PROMOTION_EVAL\n\nYou are Harper /kit PROMOTION_EVAL.\n\nYou are acting as:\n\n* Senior Software Architect\n* Senior Software Engineer\n* Promotion reviewer\n* Stop-ship evaluator\n\nYou are evaluating the final candidate after optional hardening.\nYou are NOT fixing it.\n\n## Authoritative inputs\n\nUse the following in this order:\n\n1. TARGET_CONTRACT.json\n2. FILE_REQUIREMENTS.json\n3. current candidate files\n4. INTEGRITY_EVAL.json\n5. REQ_PROMOTION_MANIFEST.md when present\n6. plan.json\n7. PLAN.md\n8. SPEC.md\n9. TECH_CONSTRAINTS.yaml\n10. repository evidence\n\n## What you must evaluate\n\nEvaluate:\n\n* target REQ fidelity\n* lane correctness\n* file contract fidelity\n* source substance\n* test credibility\n* docs / code / CI coherence\n* promotion fit\n* repository fit\n* shared/common correctness\n* runtime/profile integrity\n* bounded remaining risks\n\n## Hard rules\n\n* Be severe.\n* Do not inflate quality.\n* Do not reward cosmetic cleanup as if it were substantive hardening.\n* Missing required files are blockers.\n* Required files that do not satisfy their declared purpose are blockers or major risks.\n* Wrong lane, wrong module family, duplicate bootstrap/config/logging wrappers, or fake completeness are promotion blockers.\n* If the candidate is still too thin, say so clearly.\n\n## Output artifact\n\nEmit exactly one file block:\n\nfile:/runs/kit/<REQ-ID>/ci/PROMOTION_EVAL.json\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must contain:\n\n* version\n* req_id\n* verdict\n* summary\n* scope_fidelity\n* lane_fidelity\n* file_contract\n* source_substance\n* test_credibility\n* docs_code_coherence\n* promotion_fit\n* repo_fit\n* shared_common_assessment\n* runtime_profile_assessment\n* blockers\n* remaining_risks\n* promotability_score\n\n## Allowed verdicts\n\nUse exactly one of:\n\n* reject\n* needs_more_hardening\n* eval_ready\n* promotion_candidate\n* promotion_candidate_with_risks\n\n## Scoring\n\npromotability_score must be an integer from 0 to 100.\n\nUse these dimensions:\n\n* scope_fidelity: 0-15\n* lane_fidelity: 0-10\n* file_contract: 0-15\n* source_substance: 0-20\n* test_credibility: 0-15\n* docs_code_coherence: 0-10\n* promotion_fit: 0-5\n* repo_fit: 0-5\n* shared_common_assessment: 0-5",
+    "max_output_tokens": 18000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_0ca995e39fec25f90069dbd3ecc0e48193bd3b45c97c37e124",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_0ca995e39fec25f90069dbd42599248193a47f157689a53718",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "file:/runs/kit/REQ-002/ci/PROMOTION_EVAL.json\n```json\n{\n  \"version\": \"1.0.0\",\n  \"req_id\": \"REQ-002\",\n  \"verdict\": \"needs_more_hardening\",\n  \"summary\": \"The candidate is materially improved versus the earlier integrity findings: required files are present, the implementation is substantive, shared contracts are now reused, reusable auth dependencies exist under shared/authz, and the emitted slice covers OIDC/SAML normalization, 401/403 behavior, token/assertion redaction, and actor-aware downstream write/audit plumbing in principle. It is still not promotion-ready. The most serious remaining issue is a boundary-contract defect: ProtectedMutationRequest incorrectly inherits UserContext, which makes the authorized happy-path fixture seam invalid as written and materially weakens the credibility of the actor-propagation proof. The emitted /auth/me seam is also still tied to header-supplied trusted claims rather than a repository-fit upstream-auth composition seam, and the lane evidence remains thin because only compile and pytest commands are defined.\",\n  \"scope_fidelity\": {\n    \"score\": 10,\n    \"max\": 15,\n    \"assessment\": \"Covers most REQ-002 behaviors: claim normalization, permission-based authorization, deterministic 401/403 responses, no username allowlists, and log redaction of token/assertion material. Fidelity is reduced because the proof of downstream actor propagation is compromised by a bad request contract on the fixture mutation seam, and the application-facing seam still relies on test-style trusted headers instead of an integrated auth context handoff.\"\n  },\n  \"lane_fidelity\": {\n    \"score\": 7,\n    \"max\": 10,\n    \"assessment\": \"Correct lane and stack: Python/FastAPI backend slice under the expected module families, with no frontend/infra spillover. Lane fidelity is lowered by thin CI evidence: LTC only covers compileall and pytest, while the stated python lane expects broader checks (tests, lint, types, security, build).\"\n  },\n  \"file_contract\": {\n    \"score\": 11,\n    \"max\": 15,\n    \"assessment\": \"All required outputs from FILE_REQUIREMENTS.json are present and mostly aligned to purpose. The main contract defect is in contracts.py, where ProtectedMutationRequest inherits UserContext and therefore carries unrelated actor fields into the request body shape. That is an ownership-boundary error and undercuts the validity of the acceptance-test seam. Docs and CI artifacts are present and coherent, but they do not surface this defect.\"\n  },\n  \"source_substance\": {\n    \"score\": 14,\n    \"max\": 20,\n    \"assessment\": \"Real implementation exists: OIDC/SAML claim-key handling, source detection, permission expansion, auth guards, sanitized logging, reusable dependency builders, and route binding for GET /auth/me. This is not cosmetic work. Deductions are for the incorrect mutation request model inheritance, the continued use of header-injected trusted claims in the emitted application seam, and the broader-than-necessary ActorContext response surface for /auth/me.\"\n  },\n  \"test_credibility\": {\n    \"score\": 6,\n    \"max\": 15,\n    \"assessment\": \"Tests are real, behavior-oriented, and cover normalization, /auth/me, deny paths, redaction, and attempted actor propagation. Credibility is materially weakened by a likely schema mismatch: the authorized protected-mutation test posts a body that does not satisfy ProtectedMutationRequest as defined. That means a key happy-path assertion is not trustworthy as written. No actual test reports are provided in the candidate, only commands that would generate them.\"\n  },\n  \"docs_code_coherence\": {\n    \"score\": 7,\n    \"max\": 10,\n    \"assessment\": \"README, KIT notes, HOWTO, LTC, and requirements are mutually consistent and mostly truthful. The docs correctly state the local trusted-claims assumption and that the protected mutation endpoint is fixture-local. Coherence is reduced because they do not call out the boundary-contract bug in ProtectedMutationRequest, and the prerequisites say Python 3.11+ while the broader technical constraints target Python 3.12.\"\n  },\n  \"promotion_fit\": {\n    \"score\": 2,\n    \"max\": 5,\n    \"assessment\": \"The slice is localized and reviewable, avoids a new app bootstrap, and is close to a promotable auth substrate. It is not yet fit for promotion because a key acceptance proof path is defective and the emitted route still depends on test-header identity injection rather than a stronger repository-fit trusted-auth composition seam.\"\n  },\n  \"repo_fit\": {\n    \"score\": 3,\n    \"max\": 5,\n    \"assessment\": \"Reasonable fit to the repository targets: source is under src-style families, tests are under the repo's singular test root convention, and no forbidden path families are introduced. Score is capped because repository evidence points to existing old.runs auth/RBAC composition that is not explicitly reconciled or reused in a promotion-ready way.\"\n  },\n  \"shared_common_assessment\": {\n    \"score\": 4,\n    \"max\": 5,\n    \"assessment\": \"This is materially better than the earlier integrity state. The candidate now reuses backend.shared.contracts and places reusable dependencies under backend.shared.authz, which is the correct shared/common direction. Remaining weakness: shared/authz still depends directly on backend.auth contracts, and the candidate does not demonstrate alignment with the repository's prior shared auth composition evidence from old.runs.\"\n  },\n  \"runtime_profile_assessment\": {\n    \"assessment\": \"The logic is profile-independent: there are no AWS/on-prem branches, no hard-coded usernames, and permission derivation is driven by claims plus injected policy. Runtime integrity is still incomplete because the emitted application seam assumes trusted header-supplied claims instead of a concrete upstream verified-auth handoff. That is acceptable for local non-production fixtures but not a complete promotion-grade runtime seam.\",\n    \"profile_independence\": \"good\",\n    \"runtime_seam_maturity\": \"partial\",\n    \"notes\": [\n      \"No deployment-profile-specific authorization branches were introduced.\",\n      \"The slice assumes upstream cryptographic verification is done elsewhere.\",\n      \"Promotion would require wiring to the repository's canonical trusted-auth context rather than keeping header-based identity injection on the application seam.\"\n    ]\n  },\n  \"blockers\": [\n    \"ProtectedMutationRequest incorrectly inherits UserContext, making id and display_name part of the request body contract; the authorized happy-path fixture test does not satisfy that schema, so a key acceptance proof is not credible.\",\n    \"Actor propagation into downstream write and audit paths is therefore not convincingly proven at the application seam, even though the underlying execute_protected_mutation method is implemented.\",\n    \"The emitted GET /auth/me binding still relies directly on header-supplied trusted claims, which is not a strong enough promotion-grade runtime/auth composition seam for repository integration.\",\n    \"LTC evidence is too thin for promotion: only compile and pytest are defined, with no lane-level lint/type/security/build proof.\"\n  ],\n  \"remaining_risks\": [\n    \"GET /auth/me returns the richer ActorContext model, including internal-facing fields beyond the minimal downstream-stable UserContext contract; this may create avoidable API surface drift.\",\n    \"Repository fit is only partial because existing auth/RBAC composition evidence in old.runs is not explicitly reconciled.\",\n    \"There is no coverage artifact or evidence that the backend-authz-80 profile target is actually met.\",\n    \"The docs state Python 3.11+ while the technical constraints specify Python 3.12; this is minor but should be tightened before promotion.\",\n    \"The current trusted-header seam is appropriate for deterministic local fixtures but remains a bounded operational risk until replaced or clearly isolated behind canonical auth composition.\"\n  ],\n  \"promotability_score\": 64\n}\n```"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 48616,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 5248,
+      "output_tokens_details": {
+        "reasoning_tokens": 3614
+      },
+      "total_tokens": 53864
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260411T172119Z",
+  "project_id": "docufu",
+  "phase": "integrity_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_04c70ba5abd97f830069da82c882148194955d4ba4ff811945",
+    "object": "response",
+    "created_at": 1775928008,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1775928079,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "# Harper /kit — INTEGRITY_EVAL\n\nYou are Harper /kit INTEGRITY_EVAL.\n\nYou are acting as:\n- Senior Software Architect\n- Senior Software Engineer\n- Stop-ship reviewer\n\nYou are evaluating the current REQ candidate against the current REQ contract.\n\nYou are NOT fixing files.\nYou are NOT widening scope.\nYou are evaluating.\n\n## Authoritative inputs\n\nUse the following in this order:\n\n1. TARGET_CONTRACT.json\n2. current candidate files\n3. REQ_PROMOTION_MANIFEST.md when present\n4. plan.json\n5. PLAN.md\n6. SPEC.md\n7. TECH_CONSTRAINTS.yaml\n8. repository evidence\n\n## What you must evaluate\n\nEvaluate the candidate on:\n\n- target REQ fidelity\n- lane fidelity\n- path contract fidelity\n- source substance\n- test substance\n- docs / code / CI coherence\n- repository fit\n- promotion plausibility\n\n## Hard rules\n\n- Be severe.\n- Do not reward path correctness if the implementation is semantically wrong.\n- Do not reward docs or tests that overclaim behavior not supported by source.\n- If the wrong lane or wrong module family was implemented, say so explicitly.\n- If the candidate is too thin for the declared REQ, say so explicitly.\n- If the candidate is salvageable with bounded hardening, say so explicitly.\n- If the candidate is fundamentally wrong for the target REQ, reject it.\n\n## Output artifact\n\nEmit exactly one file block:\n\nfile:/runs/kit/<REQ-ID>/ci/INTEGRITY_EVAL.json\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must be valid and contain:\n\n- version\n- req_id\n- verdict\n- hardening_required\n- summary\n- scope_fidelity\n- lane_fidelity\n- path_contract\n- source_substance\n- test_substance\n- docs_ci_coherence\n- repo_fit\n- blockers\n- hardening_targets\n- promotability_score\n\n## Allowed verdicts\n\nUse exactly one of:\n\n- reject\n- salvageable\n- review_ready\n- promotion_candidate\n\n### Meaning\n\n- reject -> wrong target, wrong lane, wrong module family, or too weak to harden safely\n- salvageable -> direction is materially correct, but bounded hardening is required\n- review_ready -> coherent and strong enough to skip hardening and continue to promotion evaluation\n- promotion_candidate -> already very strong for the current stage\n\n## Scoring\n\npromotability_score must be an integer from 0 to 100.\n\nUse these dimensions:\n\n- scope_fidelity: 0-25\n- lane_fidelity: 0-15\n- path_contract: 0-10\n- source_substance: 0-20\n- test_substance: 0-15\n- docs_ci_coherence: 0-5\n- repo_fit: 0-10\n\nThe sum is the score.\n\n## Required file shape\n\nEmit exactly:\n\n```text\nfile:/runs/kit/<REQ-ID>/ci/INTEGRITY_EVAL.json\n{\n  ...\n}\n````",
+    "max_output_tokens": 17000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_04c70ba5abd97f830069da82ca023481949e11d161bd7da5a5",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_04c70ba5abd97f830069da82efa0a88194bc1547f1890607d6",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "file:/runs/kit/REQ-001/ci/INTEGRITY_EVAL.json\n{\n  \"version\": \"1.0\",\n  \"req_id\": \"REQ-001\",\n  \"verdict\": \"reject\",\n  \"hardening_required\": true,\n  \"summary\": \"Candidate is in the correct Data/sql lane and roughly the correct module family, but it implements the wrong schema and lifecycle contract for REQ-001. Most core entities, enum values, transitions, and audit fields diverge materially from the required canonical Slice-1 backbone. Tests and docs reinforce the wrong semantics, so this is not promotion-plausible as-is.\",\n  \"scope_fidelity\": {\n    \"score\": 2,\n    \"out_of\": 25,\n    \"assessment\": \"Low. The candidate creates eight tables and an Alembic baseline, but the actual contract is largely wrong. Document lifecycle states are not the required uploaded/processing/validation_ready/exception/validated/(reserved exported); instead it defines uploaded/ingesting/extracted/validated/archived/failed and then forbids all document transitions. User, Document, ExtractedField, Task, Notification, ExportJob, AuditEvent, and AIQuery field sets do not match the REQ contract.\"\n  },\n  \"lane_fidelity\": {\n    \"score\": 10,\n    \"out_of\": 15,\n    \"assessment\": \"Moderate. This is clearly a Data/sql-lane submission using SQLAlchemy and Alembic under the permitted data module family. Lane choice is correct, but the implementation semantics are for a different lifecycle model than the declared REQ.\"\n  },\n  \"path_contract\": {\n    \"score\": 7,\n    \"out_of\": 10,\n    \"assessment\": \"Mostly localized correctly under src/data/schema and src/data/migrations, with tests under the staged test tree. There is mild contract drift versus plan.json's expected pluralized test root, though the manifest and repository evidence make the chosen test root repo-fit. Path correctness does not offset the semantic mismatch.\"\n  },\n  \"source_substance\": {\n    \"score\": 5,\n    \"out_of\": 20,\n    \"assessment\": \"There is non-trivial source substance: enums, transition helpers, metadata, tables, indexes, migration, and audit immutability trigger. However, the substance is mostly aimed at the wrong domain contract. Key required invariants are absent or replaced with incompatible ones: username uniqueness per deployment profile, active flag, document size/format checks, validation task semantics, explicit notification/export/AI lifecycles, preserved validated_by/validated_at fields, and audit before/after/reason fields.\"\n  },\n  \"test_substance\": {\n    \"score\": 3,\n    \"out_of\": 15,\n    \"assessment\": \"Tests are present and executable in shape, but they mainly verify the wrong contract. Unit tests assert incorrect enum values and transition rules. Integration tests check table creation, some indexes, and audit immutability, but do not verify the required REQ-001 lifecycle states, reserved exported handling, required field set, or business invariants. The e2e test only exercises a Python helper, not a schema-enforced lifecycle rule.\"\n  },\n  \"docs_ci_coherence\": {\n    \"score\": 1,\n    \"out_of\": 5,\n    \"assessment\": \"Low coherence. Docs and CI are internally aligned with the candidate, but they overclaim REQ fidelity. README/KIT docs state Document.state exported is present/reserved, while the source enum does not include exported. Documentation reinforces incorrect behavior rather than accurately constraining it.\"\n  },\n  \"repo_fit\": {\n    \"score\": 6,\n    \"out_of\": 10,\n    \"assessment\": \"Reasonable repository fit in terms of localization and promotion staging. No forbidden backend/frontend/infra families were touched. But promotion would inject a semantically incompatible canonical schema into the repo, which is a stop-ship issue for fit with downstream REQs.\"\n  },\n  \"blockers\": [\n    \"Wrong Document lifecycle contract: required states are uploaded, processing, validation_ready, exception, validated, with exported reserved in schema only. Candidate defines incompatible states and then blocks all document transitions wholesale.\",\n    \"Wrong ExtractedField lifecycle contract: required proposed/corrected/accepted/rejected is replaced by pending/extracted/reviewed/accepted/rejected/failed.\",\n    \"Wrong Task lifecycle contract: required open/in_progress/completed/exception is replaced by queued/running/succeeded/failed/cancelled.\",\n    \"Wrong Notification lifecycle contract: required pending/sent/failed/read is replaced by pending/dispatched/delivered/read/failed.\",\n    \"Wrong ExportJob lifecycle contract: required requested/running/completed/failed is replaced by queued/running/completed/failed/cancelled.\",\n    \"Wrong AIQuery lifecycle contract: required requested/completed/denied/failed is replaced by queued/running/answered/failed/cancelled.\",\n    \"Core entity schemas do not match REQ-001 data contracts. Examples: User lacks username and active; Document lacks original_filename/format/size_bytes/storage_uri/uploaded_by/uploaded_at/validated_by/validated_at; ExtractedField lacks proposed_value/corrected_value/provenance/updated_by; Notification lacks document_id and notification_type; AIQuery lacks citations and uses nullable document_id plus prompt-search fields not required by the contract.\",\n    \"AuditEvent contract is wrong. Required actor_id, before_value, after_value, and reason fields are missing; payload plus actor_type/actor_identifier is not the declared canonical schema.\",\n    \"Required invariants are missing or incompatible: no document size <= 20 MB check, no format enum restriction, no confidence_score normalization check, no task_type fixed to validation, no one-task-per-document validation invariant, no completed-task linkage semantics.\",\n    \"Search-supporting index strategy is not the requested one. Candidate adds generic JSONB and AI prompt indexes instead of the canonical metadata-field/full-text support expected for later archive requirements.\",\n    \"Tests and docs codify the incorrect schema and lifecycle, so they cannot be used as evidence for REQ-001 acceptance.\"\n  ],\n  \"hardening_targets\": [\n    {\n      \"path\": \"runs/kit/REQ-001/src/data/schema/core_lifecycle.py\",\n      \"required\": \"Replace the enum sets, transition matrix, and table definitions with the exact REQ-001 canonical contracts. This is a substantive rewrite, not a small patch.\"\n    },\n    {\n      \"path\": \"runs/kit/REQ-001/src/data/migrations/versions/0001_req001_canonical_schema.py\",\n      \"required\": \"Rebuild the migration to match the required entities, fields, constraints, indexes, and audit append-only behavior.\"\n    },\n    {\n      \"path\": \"runs/kit/REQ-001/test/data/schema/test_core_lifecycle_unit.py\",\n      \"required\": \"Rewrite unit assertions against the actual REQ-001 states, forbidden transitions, unique constraints, and invariant definitions.\"\n    },\n    {\n      \"path\": \"runs/kit/REQ-001/test/data/schema/test_migrations_integration.py\",\n      \"required\": \"Add contract-accurate upgrade/downgrade verification for required columns, constraints, and index strategy; remove assertions tied to the wrong schema.\"\n    },\n    {\n      \"path\": \"runs/kit/REQ-001/test/data/schema/test_document_transition_e2e.py\",\n      \"required\": \"Reframe e2e evidence around the required lifecycle semantics, especially allowed uploaded->processing and forbidden uploaded->validated, plus reserved exported handling.\"\n    },\n    {\n      \"path\": \"runs/kit/REQ-001/docs/KIT_REQ-001.md\",\n      \"required\": \"Correct overclaims and document only behavior actually implemented by the canonical REQ-001 contract.\"\n    },\n    {\n      \"path\": \"runs/kit/REQ-001/docs/README_REQ-001.md\",\n      \"required\": \"Align documentation with the actual required schema and lifecycle backbone; remove false statement that exported is present in the current source.\"\n    }\n  ],\n  \"promotability_score\": 34\n}"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 45156,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 3758,
+      "output_tokens_details": {
+        "reasoning_tokens": 2070
+      },
+      "total_tokens": 48914
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

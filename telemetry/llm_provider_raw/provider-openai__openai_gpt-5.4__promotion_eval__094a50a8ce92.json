@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260412T072612Z",
+  "project_id": "docufu",
+  "phase": "promotion_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_0a333e4bdc6b38e50069db48bf3c0881978c56aabb0da7403f",
+    "object": "response",
+    "created_at": 1775978687,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1775978772,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "Harper /kit — PROMOTION_EVAL\n\nYou are Harper /kit PROMOTION_EVAL.\n\nYou are acting as:\n\n* Senior Software Architect\n* Senior Software Engineer\n* Promotion reviewer\n* Stop-ship evaluator\n\nYou are evaluating the final candidate after optional hardening.\nYou are NOT fixing it.\n\n## Authoritative inputs\n\nUse the following in this order:\n\n1. TARGET_CONTRACT.json\n2. FILE_REQUIREMENTS.json\n3. current candidate files\n4. INTEGRITY_EVAL.json\n5. REQ_PROMOTION_MANIFEST.md when present\n6. plan.json\n7. PLAN.md\n8. SPEC.md\n9. TECH_CONSTRAINTS.yaml\n10. repository evidence\n\n## What you must evaluate\n\nEvaluate:\n\n* target REQ fidelity\n* lane correctness\n* file contract fidelity\n* source substance\n* test credibility\n* docs / code / CI coherence\n* promotion fit\n* repository fit\n* shared/common correctness\n* runtime/profile integrity\n* bounded remaining risks\n\n## Hard rules\n\n* Be severe.\n* Do not inflate quality.\n* Do not reward cosmetic cleanup as if it were substantive hardening.\n* Missing required files are blockers.\n* Required files that do not satisfy their declared purpose are blockers or major risks.\n* Wrong lane, wrong module family, duplicate bootstrap/config/logging wrappers, or fake completeness are promotion blockers.\n* If the candidate is still too thin, say so clearly.\n\n## Output artifact\n\nEmit exactly one file block:\n\nfile:/runs/kit/<REQ-ID>/ci/PROMOTION_EVAL.json\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must contain:\n\n* version\n* req_id\n* verdict\n* summary\n* scope_fidelity\n* lane_fidelity\n* file_contract\n* source_substance\n* test_credibility\n* docs_code_coherence\n* promotion_fit\n* repo_fit\n* shared_common_assessment\n* runtime_profile_assessment\n* blockers\n* remaining_risks\n* promotability_score\n\n## Allowed verdicts\n\nUse exactly one of:\n\n* reject\n* needs_more_hardening\n* eval_ready\n* promotion_candidate\n* promotion_candidate_with_risks\n\n## Scoring\n\npromotability_score must be an integer from 0 to 100.\n\nUse these dimensions:\n\n* scope_fidelity: 0-15\n* lane_fidelity: 0-10\n* file_contract: 0-15\n* source_substance: 0-20\n* test_credibility: 0-15\n* docs_code_coherence: 0-10\n* promotion_fit: 0-5\n* repo_fit: 0-5\n* shared_common_assessment: 0-5",
+    "max_output_tokens": 18000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_0a333e4bdc6b38e50069db48c0c37481978f7412e4702048f0",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_0a333e4bdc6b38e50069db48fc1df481978ec0ec1e1a503957",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "file:/runs/kit/REQ-003/ci/PROMOTION_EVAL.json\n{\n  \"version\": \"1.0\",\n  \"req_id\": \"REQ-003\",\n  \"verdict\": \"reject\",\n  \"summary\": \"The candidate is materially better than the prior integrity snapshot: it now includes the declared GET status endpoint, four source files, API docs, and broader negative-path tests. It is still not promotable. Two authoritative evaluation inputs are missing, shared/common contract reuse is still violated by local storage/event/audit protocol redefinition, rollback semantics remain inconsistent when required side effects fail, required API documentation is malformed/incomplete, and promotion-quality CI evidence is absent.\",\n  \"scope_fidelity\": {\n    \"score\": 10,\n    \"out_of\": 15,\n    \"assessment\": \"The slice covers most of REQ-003's visible business flow: supported formats, 20 MB limit, persisted uploaded record, storage write, processing-request emission, upload audit emission, explicit client-visible rejections, GET status lookup, and storage-failure rollback. Fidelity drops because accepted-upload semantics are not cleanly preserved when required side effects fail after storage: on event-publish failure the code leaves an immutable upload audit event behind even though the document row is rolled back and the request returns 503. There is also no evidence for the latency target.\"\n  },\n  \"lane_fidelity\": {\n    \"score\": 8,\n    \"out_of\": 10,\n    \"assessment\": \"Correct lane and module family overall: Python/FastAPI backend code under backend.documents.intake with tests under backend/documents/intake. No wrong-lane technology was introduced. Score reduced because the candidate partially bypasses plan-mandated shared/common reuse by defining local ports for concerns that should come from shared backend families.\"\n  },\n  \"file_contract\": {\n    \"score\": 5,\n    \"out_of\": 15,\n    \"assessment\": \"Observed staging artifacts now meet the plan-level minimum source-file count and include API docs, README, KIT notes, LTC, HOWTO, and tests. However, full file-contract validation is blocked because TARGET_CONTRACT.json and FILE_REQUIREMENTS.json were not provided in the evaluation inputs. In addition, a required purpose file is defective: API_REQ-003.md is truncated/malformed and therefore does not fully satisfy its declared documentation purpose.\"\n  },\n  \"source_substance\": {\n    \"score\": 11,\n    \"out_of\": 20,\n    \"assessment\": \"This is real implementation, not cosmetic scaffolding. The service layer orchestrates persistence, storage, audit, publish, and rollback; validation is explicit; endpoints are wired; negative paths are handled. Substance is cut down by two architectural problems: local duplication of shared storage/event/audit contracts, and inconsistent failure semantics that can create an upload audit record for a request that ultimately failed and lost its document row. The event-failure classification logic is also brittle, relying on exception naming/args rather than a stable shared contract.\"\n  },\n  \"test_credibility\": {\n    \"score\": 8,\n    \"out_of\": 15,\n    \"assessment\": \"The test file is materially useful. It exercises the happy path, GET success and 404, unsupported type, spoofed media type, oversize, malformed multipart, 401, 403, storage failure rollback, event-publish failure, and audit failure. Credibility remains limited because the suite is entirely fake-adapter based, does not verify integration with canonical shared modules or composition, provides no coverage artifact, and has no lint/type/security/build evidence despite backend quality-gate expectations.\"\n  },\n  \"docs_code_coherence\": {\n    \"score\": 4,\n    \"out_of\": 10,\n    \"assessment\": \"README, KIT notes, and HOWTO broadly describe the implemented slice and avoid inventing OCR/processing behavior. Coherence is weakened by concrete defects: API_REQ-003.md is incomplete/truncated, and HOWTO claims 11 passing tests while the supplied suite contains 12 tests. CI docs describe only pytest and compileall, which is materially below promotion-grade backend gate expectations.\"\n  },\n  \"promotion_fit\": {\n    \"score\": 1,\n    \"out_of\": 5,\n    \"assessment\": \"Not fit for promotion. The candidate is still carrying promotion blockers: missing authoritative contract inputs, defective required docs, duplicate shared/common interface definitions, and inconsistent audit/rollback integrity under side-effect failure.\"\n  },\n  \"repo_fit\": {\n    \"score\": 4,\n    \"out_of\": 5,\n    \"assessment\": \"The work is localized, reviewable, and placed under the intended backend documents intake family with matching test placement for the repository evidence provided. Fit is reduced because the implementation still behaves like an isolated slice rather than a clean increment on top of shared repository-owned storage/audit/events contracts and canonical composition.\"\n  },\n  \"shared_common_assessment\": {\n    \"score\": 1,\n    \"out_of\": 5,\n    \"assessment\": \"This remains the clearest architectural miss. The plan explicitly requires reuse of src/backend/shared/storage, src/backend/shared/audit, src/backend/shared/events, and src/backend/shared/authz. Only authz reuse is evidenced. StorageAdapter, ProcessingEventPublisher, and UploadAuditWriter are redefined locally in intake/contracts.py, which is shared/common drift and a promotion blocker.\"\n  },\n  \"runtime_profile_assessment\": {\n    \"assessment\": \"Runtime/profile integrity evidence is thin. The slice itself does not introduce AWS-only branching, which is good, but there is no proof of structured logging, redaction behavior, observability hooks, profile-safe composition, or Python 3.12/runtime gate execution. The candidate also exposes only slice-local dependency seams via app.state and does not show canonical runtime wiring.\"\n  },\n  \"blockers\": [\n    \"TARGET_CONTRACT.json was not provided in the evaluation inputs; full target-contract validation is blocked.\",\n    \"FILE_REQUIREMENTS.json was not provided in the evaluation inputs; full required-file validation is blocked.\",\n    \"The candidate still defines local StorageAdapter, ProcessingEventPublisher, and UploadAuditWriter protocols instead of reusing the shared/common module families mandated by PLAN.md and plan.json.\",\n    \"Event-publish failure leaves an immutable upload audit event after document rollback, creating an inconsistent accepted-upload-style audit trail for a failed request.\",\n    \"API_REQ-003.md is malformed/incomplete and therefore does not satisfy the required API documentation purpose.\",\n    \"Promotion-grade quality-gate evidence is missing: no lint, type, security, build, or coverage artifacts are supplied, despite backend quality expectations in the spec/constraints.\"\n  ],\n  \"remaining_risks\": [\n    \"GET /documents/{documentId} is guarded with the same upload permission, which may be stricter than the eventual repository-wide read/status contract and is not justified by shared auth policy evidence.\",\n    \"The service depends on staged/shared imports that are not part of the provided candidate set, so cross-REQ dependency correctness is not fully demonstrable from this artifact set.\",\n    \"The event-failure discriminator is heuristic and may misclassify runtime failures in real adapters.\",\n    \"No evidence is provided for P95 upload acknowledgment timing.\",\n    \"No evidence is provided for structured log redaction, correlation IDs, or audit sink behavior beyond fake writer tests.\",\n    \"Returning storage_uri in API responses may couple clients to internal storage locators unless repository-wide API policy explicitly permits it.\"\n  ],\n  \"promotability_score\": 52\n}"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 47268,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 4912,
+      "output_tokens_details": {
+        "reasoning_tokens": 3356
+      },
+      "total_tokens": 52180
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

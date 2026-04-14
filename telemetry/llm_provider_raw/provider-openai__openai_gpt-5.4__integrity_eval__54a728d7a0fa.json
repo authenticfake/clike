@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260412T082857Z",
+  "project_id": "docufu",
+  "phase": "integrity_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_003c35187e9ee98e0069db578b25008197a586d55823655c2c",
+    "object": "response",
+    "created_at": 1775982475,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1775982537,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "# Harper /kit — INTEGRITY_EVAL\n\nYou are Harper /kit INTEGRITY_EVAL.\n\nYou are acting as:\n\n* Senior Software Architect\n* Senior Software Engineer\n* Stop-ship reviewer\n\nYou are evaluating the current REQ candidate.\nYou are NOT fixing it.\n\n## Authoritative inputs\n\nUse the following in this order:\n\n1. TARGET_CONTRACT.json\n2. FILE_REQUIREMENTS.json\n3. current candidate files\n4. REQ_PROMOTION_MANIFEST.md when present\n5. plan.json\n6. PLAN.md\n7. SPEC.md\n8. TECH_CONSTRAINTS.yaml\n9. repository evidence\n\n## What you must evaluate\n\nEvaluate the candidate on:\n\n* target REQ fidelity\n* lane fidelity\n* path contract fidelity\n* file contract fidelity\n* source substance\n* test substance\n* docs / code / CI coherence\n* repository fit\n* shared/common correctness\n* promotion plausibility\n\n## Hard rules\n\n* Be severe.\n* Do not reward path correctness if the implementation is semantically wrong.\n* Do not reward docs or tests that overclaim behavior not supported by source.\n* If a required file from FILE_REQUIREMENTS.json is missing, say so explicitly.\n* If a required file exists but does not cover its declared purpose, say so explicitly.\n* Wrong lane, wrong module family, duplicate settings/bootstrap/logging wrappers, or unjustified shared extraction are blockers.\n* Thin source with thick docs/tests is not promotable.\n* If the candidate is salvageable with bounded hardening, say so explicitly.\n* If the candidate is fundamentally wrong for the target REQ, reject it.\n\n## Output artifact\n\nEmit exactly one file block:\n\nfile:/runs/kit/<REQ-ID>/ci/INTEGRITY_EVAL.json\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must be valid and contain:\n\n* version\n* req_id\n* verdict\n* hardening_required\n* summary\n* scope_fidelity\n* lane_fidelity\n* path_contract\n* file_contract\n* source_substance\n* test_substance\n* docs_ci_coherence\n* repo_fit\n* shared_common_assessment\n* blockers\n* hardening_targets\n* promotability_score\n\n## Allowed verdicts\n\nUse exactly one of:\n\n* reject\n* salvageable\n* review_ready\n* promotion_candidate\n\n## Scoring\n\npromotability_score must be an integer from 0 to 100.\n\nUse these dimensions:\n\n* scope_fidelity: 0-20\n* lane_fidelity: 0-10\n* path_contract: 0-10\n* file_contract: 0-15\n* source_substance: 0-20\n* test_substance: 0-10\n* docs_ci_coherence: 0-5\n* repo_fit: 0-5\n* shared_common_assessment: 0-5",
+    "max_output_tokens": 17000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_003c35187e9ee98e0069db578da2ec8197a42534c03ce60d7f",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_003c35187e9ee98e0069db57b9e9ac81979cbf99a7c919a9a7",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "file:/runs/kit/REQ-001/ci/INTEGRITY_EVAL.json\n```json\n{\n  \"version\": \"1.0\",\n  \"req_id\": \"REQ-001\",\n  \"verdict\": \"reject\",\n  \"hardening_required\": true,\n  \"summary\": \"The candidate stays in the Data/sql lane and emits non-trivial schema artifacts, but it is fundamentally misaligned with REQ-001. The lifecycle model is wrong for Document, ExtractedField, Task, Notification, ExportJob, and AIQuery; the canonical table fields diverge materially from the required logical data model; key invariants are missing; search/index design does not reflect the required metadata and extracted-text contract; tests mostly validate the wrong schema; and ci/LTC.json is not valid JSON. This is not promotable as REQ-001.\",\n  \"scope_fidelity\": 1,\n  \"lane_fidelity\": 9,\n  \"path_contract\": 8,\n  \"file_contract\": 3,\n  \"source_substance\": 4,\n  \"test_substance\": 2,\n  \"docs_ci_coherence\": 1,\n  \"repo_fit\": 4,\n  \"shared_common_assessment\": 5,\n  \"blockers\": [\n    \"Document lifecycle contract is wrong. REQ-001 requires uploaded -> processing -> validation_ready -> validated, with exception as failure state and exported reserved but not used. Candidate defines review_pending, ready_for_export, failed, archived, and omits validation_ready, exception, and validated.\",\n    \"ExtractedField lifecycle contract is wrong. REQ-001 requires proposed, corrected, accepted, rejected with explicit forbidden transitions. Candidate defines detected, normalized, review_pending, accepted, rejected.\",\n    \"Task lifecycle contract is wrong. REQ-001 requires open, in_progress, completed, exception and completion only after related document is validated. Candidate defines queued, running, succeeded, failed, cancelled and does not encode the required validation dependency.\",\n    \"Notification lifecycle contract is wrong. REQ-001 requires pending -> sent|failed and sent -> read. Candidate defines queued, dispatched, delivered, failed, cancelled and has no read state.\",\n    \"ExportJob lifecycle contract is wrong. REQ-001 requires requested -> running -> completed|failed. Candidate defines requested, rendering, completed, failed, cancelled.\",\n    \"AIQuery lifecycle contract is wrong. REQ-001 requires requested -> completed|denied|failed. Candidate defines queued, running, succeeded, failed, cancelled and omits denied.\",\n    \"Canonical entity fields are materially wrong. User is modeled with email/is_active instead of username/display_name/role/idp_group_refs/active. Document omits original_filename, media_type, format, size_bytes, storage_uri, extracted_text_uri, classification_label, uploaded_by, uploaded_at, validated_by, validated_at. Similar mismatches exist across ExtractedField, Task, AuditEvent, Notification, ExportJob, and AIQuery.\",\n    \"AuditEvent contract is wrong. REQ-001 requires event_type, optional document_id, actor_id, before_value, after_value, reason, created_at and immutable append-only behavior. Candidate instead models subject_type/subject_id/action/actor_ref/actor_user_id/event_ts/payload_json, which does not satisfy the declared purpose.\",\n    \"Required invariants are missing or wrong: no username uniqueness per deployment profile, no document size <= 20 MB constraint, no supported document format constraint, no normalized confidence_score 0..1 constraint, no fixed Slice-1 validation task-type invariant, and no required AIQuery or Notification semantic constraints.\",\n    \"Document.state exported is not merely reserved and transition-forbidden; the migration check constraint blocks storing exported at all. That is stricter than the target contract and breaks the stated reserved-in-schema behavior.\",\n    \"Search-supporting indexes do not match the REQ-001 purpose. Candidate indexes generic metadata_json and a title/search_text tsvector, but the required contract calls for pilot-scope metadata indexes and full-text support over extracted text references without embedding raw blobs in PostgreSQL.\",\n    \"Tests are not contract-faithful. They validate the wrong lifecycle names and wrong schema shape, do not prove forbidden uploaded -> validated rejection, do not exercise seeded upgrade/downgrade, and only check audit immutability trigger presence rather than behavioral immutability.\",\n    \"ci/LTC.json exists but is not valid JSON, so it does not cover its declared CI manifest purpose.\"\n  ],\n  \"hardening_targets\": [\n    \"Replace every lifecycle enum and transition guard with the exact REQ-001 state vocabularies and forbidden-transition semantics for Document, ExtractedField, Task, Notification, ExportJob, and AIQuery.\",\n    \"Redesign contracts.py, schema.py, and the Alembic migration so the canonical tables and columns match the REQ-001 logical data model and downstream guarantees exactly.\",\n    \"Add the missing invariants and constraints: document format and size limits, confidence normalization, username uniqueness semantics, one validation task type, reserved-but-not-used exported state handling, and append-only audit requirements.\",\n    \"Rework search support to reflect pilot metadata fields and extracted-text-reference based full-text support rather than generic title/search_text placeholders.\",\n    \"Rewrite tests to validate the actual REQ-001 contract: exact lifecycle semantics, required fields, seeded and empty PostgreSQL upgrade/downgrade, direct forbidden transitions, index presence for required search support, and behavioral audit immutability.\",\n    \"Fix ci/LTC.json into valid JSON and align README/HOWTO claims with what the source and tests actually implement.\"\n  ],\n  \"promotability_score\": 37\n}\n```"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 50603,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 3761,
+      "output_tokens_details": {
+        "reasoning_tokens": 2588
+      },
+      "total_tokens": 54364
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

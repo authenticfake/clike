@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260412T150413Z",
+  "project_id": "docufu",
+  "phase": "integrity_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_091f34295a7ac7fc0069dbb410f8008190a6139dd246ca7a55",
+    "object": "response",
+    "created_at": 1776006161,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1776006252,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "# Harper /kit — INTEGRITY_EVAL\n\nYou are Harper /kit INTEGRITY_EVAL.\n\nYou are acting as:\n\n* Senior Software Architect\n* Senior Software Engineer\n* Stop-ship reviewer\n\nYou are evaluating the current REQ candidate.\nYou are NOT fixing it.\n\n## Authoritative inputs\n\nUse the following in this order:\n\n1. TARGET_CONTRACT.json\n2. FILE_REQUIREMENTS.json\n3. current candidate files\n4. REQ_PROMOTION_MANIFEST.md when present\n5. plan.json\n6. PLAN.md\n7. SPEC.md\n8. TECH_CONSTRAINTS.yaml\n9. repository evidence\n\n## What you must evaluate\n\nEvaluate the candidate on:\n\n* target REQ fidelity\n* lane fidelity\n* path contract fidelity\n* file contract fidelity\n* source substance\n* test substance\n* docs / code / CI coherence\n* repository fit\n* shared/common correctness\n* promotion plausibility\n\n## Hard rules\n\n* Be severe.\n* Do not reward path correctness if the implementation is semantically wrong.\n* Do not reward docs or tests that overclaim behavior not supported by source.\n* If a required file from FILE_REQUIREMENTS.json is missing, say so explicitly.\n* If a required file exists but does not cover its declared purpose, say so explicitly.\n* Wrong lane, wrong module family, duplicate settings/bootstrap/logging wrappers, or unjustified shared extraction are blockers.\n* Thin source with thick docs/tests is not promotable.\n* If the candidate is salvageable with bounded hardening, say so explicitly.\n* If the candidate is fundamentally wrong for the target REQ, reject it.\n\n## Output artifact\n\nEmit exactly one file block:\n\nfile:/runs/kit/<REQ-ID>/ci/INTEGRITY_EVAL.json\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must be valid and contain:\n\n* version\n* req_id\n* verdict\n* hardening_required\n* summary\n* scope_fidelity\n* lane_fidelity\n* path_contract\n* file_contract\n* source_substance\n* test_substance\n* docs_ci_coherence\n* repo_fit\n* shared_common_assessment\n* blockers\n* hardening_targets\n* promotability_score\n\n## Allowed verdicts\n\nUse exactly one of:\n\n* reject\n* salvageable\n* review_ready\n* promotion_candidate\n\n## Scoring\n\npromotability_score must be an integer from 0 to 100.\n\nUse these dimensions:\n\n* scope_fidelity: 0-20\n* lane_fidelity: 0-10\n* path_contract: 0-10\n* file_contract: 0-15\n* source_substance: 0-20\n* test_substance: 0-10\n* docs_ci_coherence: 0-5\n* repo_fit: 0-5\n* shared_common_assessment: 0-5",
+    "max_output_tokens": 17000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_091f34295a7ac7fc0069dbb41348308190a68d494f492c409c",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_091f34295a7ac7fc0069dbb45210a08190ad819a1d734ecefc",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "file:/runs/kit/REQ-001/ci/INTEGRITY_EVAL.json\n{\n  \"version\": \"1.0\",\n  \"req_id\": \"REQ-001\",\n  \"verdict\": \"reject\",\n  \"hardening_required\": true,\n  \"summary\": \"Rejected. The candidate stays in the Data/sql lane and includes non-trivial schema, migration, and PostgreSQL smoke-test material, but it is fundamentally not the REQ-001 backbone. Core lifecycle vocabularies, entity fields, invariants, and search support differ materially from the target contract. Evaluation used PLAN/SPEC/manifests because TARGET_CONTRACT.json and FILE_REQUIREMENTS.json were not provided in this run.\",\n  \"scope_fidelity\": {\n    \"score\": 1,\n    \"max\": 20,\n    \"assessment\": \"Fundamentally misses the target REQ. Document lifecycle is modeled as a single reserved state instead of uploaded -> processing -> validation_ready|exception -> validated, with exported reserved in schema only. ExtractedField, Task, Notification, ExportJob, and AIQuery lifecycles all use the wrong state sets. Canonical entities exist by table name only; their fields and invariants are mostly non-canonical.\"\n  },\n  \"lane_fidelity\": {\n    \"score\": 7,\n    \"max\": 10,\n    \"assessment\": \"Mostly stays in the intended Data/sql lane and avoids backend/frontend/infra spillover. However, lane correctness does not rescue semantic failure, and the staged test root uses `test/` rather than the canonical `tests/` family expected for promotion.\"\n  },\n  \"path_contract\": {\n    \"score\": 5,\n    \"max\": 10,\n    \"assessment\": \"Source files are under allowed `src/data/schema` and `src/data/migrations` families, and the migration lives in the expected versions path. Path fidelity is weakened by the test path being `test/data/schema` instead of the expected `tests/data/schema`, and promotion would require path correction.\"\n  },\n  \"file_contract\": {\n    \"score\": 2,\n    \"max\": 15,\n    \"assessment\": \"No FILE_REQUIREMENTS.json was provided in this run, so file-missing assessment is limited to plan/manifest expectations. The candidate includes the expected kinds of artifacts, but required files do not cover their declared purpose: `contracts.py` defines non-canonical lifecycle contracts, `schema.py` defines non-canonical entity fields, `20260412_000001_backbone.py` materializes the wrong schema, and `test_req_behavior.py` validates the wrong contract.\"\n  },\n  \"source_substance\": {\n    \"score\": 4,\n    \"max\": 20,\n    \"assessment\": \"There is meaningful implementation volume, including DDL, triggers, indexes, and lifecycle helpers. But the substance is aimed at a different model: users use `email` not `username`/`active`; documents use `owner_user_id`, `title`, `content_text`, `metadata` instead of intake/archive lifecycle fields; audit rows do not match required document-oriented before/after/reason shape; search support stores text directly on documents rather than extracted text references.\"\n  },\n  \"test_substance\": {\n    \"score\": 2,\n    \"max\": 10,\n    \"assessment\": \"Tests are executable and include a PostgreSQL smoke path, but they enshrine the wrong semantics. They assert `Document.state == reserved` as the only document state, validate wrong lifecycle names for all other entities, and do not prove the required forbidden canonical transition `uploaded -> validated`. They also do not validate canonical metadata-field indexes or the reserved-but-present `exported` state rule.\"\n  },\n  \"docs_ci_coherence\": {\n    \"score\": 1,\n    \"max\": 5,\n    \"assessment\": \"Docs and CI are internally aligned with the candidate, but they overclaim REQ-001 fidelity. README/KIT notes describe a canonical Slice-1 backbone while the source implements a different lifecycle and field model. LTC only runs the same misaligned test suite, so CI evidence would be misleading.\"\n  },\n  \"repo_fit\": {\n    \"score\": 2,\n    \"max\": 5,\n    \"assessment\": \"The slice is localized and does not introduce unrelated app/bootstrap files. Repo fit is still poor because promotion would import non-canonical contracts into the canonical `src/` and `tests/` families, and the staged singular `test/` path diverges from the repository promotion target `tests/`.\"\n  },\n  \"shared_common_assessment\": {\n    \"score\": 4,\n    \"max\": 5,\n    \"assessment\": \"No unjustified shared/common extraction, duplicate auth bootstrap, or stray wrappers were introduced. The blocker is not shared-module misuse; it is that the core schema and lifecycle contracts are materially wrong for the target REQ.\"\n  },\n  \"blockers\": [\n    \"Document lifecycle contract is fundamentally wrong: only `reserved` exists; required states `uploaded`, `processing`, `validation_ready`, `exception`, `validated`, and reserved `exported` are absent.\",\n    \"ExtractedField lifecycle is wrong: implemented `pending/extracted/validated/rejected/superseded` instead of `proposed/corrected/accepted/rejected` with the required forbidden transitions.\",\n    \"Task lifecycle is wrong: implemented worker-style `queued/running/succeeded/failed/cancelled` instead of validation workflow `open/in_progress/completed/exception`.\",\n    \"Notification lifecycle is wrong: implemented `queued/sending/sent/failed/cancelled` instead of `pending/sent/failed/read`.\",\n    \"ExportJob and AIQuery lifecycles are wrong: implemented `queued/running/succeeded/failed/cancelled` instead of `requested/running/completed|failed` and `requested/completed|denied|failed`.\",\n    \"Canonical entity fields are materially wrong across the schema. Examples: `users.email` replaces required `username` and `active`; `documents` lacks `original_filename`, `media_type`, `format`, `size_bytes`, `storage_uri`, `extracted_text_uri`, `classification_label`, `uploaded_by`, `uploaded_at`, `validated_by`, `validated_at`.\",\n    \"Required invariants are missing or wrong: no document size <= 20 MB constraint, no document format constraint for supported input types, no fixed validation task type invariant, no canonical audit `before_value`/`after_value`/`reason` fields, and no exported-state reservation rule as specified.\",\n    \"Search-support contract is wrong: candidate embeds `content_text` in `documents` and indexes a document-level `search_vector`; REQ-001 requires support around extracted text references and pilot metadata fields without embedding raw document blobs in PostgreSQL.\",\n    \"Tests validate the wrong contract and therefore are not promotable evidence for REQ-001.\",\n    \"Docs overclaim canonical compliance not supported by source.\"\n  ],\n  \"hardening_targets\": [\n    {\n      \"path\": \"runs/kit/REQ-001/src/data/schema/core_lifecycle/contracts.py\",\n      \"required\": \"Replace all lifecycle enums and transition maps with the canonical REQ-001 states and forbidden transitions. Model `Document.state = exported` as present in schema but forbidden for Slice-1 transition use.\"\n    },\n    {\n      \"path\": \"runs/kit/REQ-001/src/data/schema/core_lifecycle/schema.py\",\n      \"required\": \"Redefine all tables to the canonical logical model and invariants from PLAN/SPEC: correct field names, key relationships, state/status columns, actor/timestamp fields, and pilot-scope constraints.\"\n    },\n    {\n      \"path\": \"runs/kit/REQ-001/src/data/migrations/versions/20260412_000001_backbone.py\",\n      \"required\": \"Regenerate the Alembic revision from the corrected schema contract. Add the required constraints and indexes for metadata and full-text support in the intended model rather than the current document-blob approach.\"\n    },\n    {\n      \"path\": \"runs/kit/REQ-001/test/data/schema/test_req_behavior.py\",\n      \"required\": \"Rewrite tests to prove the canonical contract, including required lifecycle states, forbidden transitions, exported-state reservation, index presence for intended search support, and migration smoke aligned to the real schema.\"\n    },\n    {\n      \"path\": \"runs/kit/REQ-001/test/data/schema/test_req_behavior.py\",\n      \"required\": \"Correct the staged-to-canonical test path assumption for promotion; canonical target is `tests/data/schema`, not `test/data/schema`.\"\n    },\n    {\n      \"path\": \"runs/kit/REQ-001/docs/README_REQ-001.md\",\n      \"required\": \"Remove unsupported claims until the source actually matches REQ-001. Current documentation describes canonical compliance that the implementation does not provide.\"\n    },\n    {\n      \"path\": \"runs/kit/REQ-001/docs/KIT_REQ-001.md\",\n      \"required\": \"Revise promotion notes to match actual implementation limits or, preferably, after the schema is corrected. Current notes materially overstate fidelity.\"\n    }\n  ],\n  \"promotability_score\": 28\n}"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 47447,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 5021,
+      "output_tokens_details": {
+        "reasoning_tokens": 3106
+      },
+      "total_tokens": 52468
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

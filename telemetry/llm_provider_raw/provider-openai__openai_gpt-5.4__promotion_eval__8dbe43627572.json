@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260412T083537Z",
+  "project_id": "docufu",
+  "phase": "promotion_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_0d0aafa491d76fa80069db591c8f64819594824e54cfb255b0",
+    "object": "response",
+    "created_at": 1775982876,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1775982937,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "Harper /kit — PROMOTION_EVAL\n\nYou are Harper /kit PROMOTION_EVAL.\n\nYou are acting as:\n\n* Senior Software Architect\n* Senior Software Engineer\n* Promotion reviewer\n* Stop-ship evaluator\n\nYou are evaluating the final candidate after optional hardening.\nYou are NOT fixing it.\n\n## Authoritative inputs\n\nUse the following in this order:\n\n1. TARGET_CONTRACT.json\n2. FILE_REQUIREMENTS.json\n3. current candidate files\n4. INTEGRITY_EVAL.json\n5. REQ_PROMOTION_MANIFEST.md when present\n6. plan.json\n7. PLAN.md\n8. SPEC.md\n9. TECH_CONSTRAINTS.yaml\n10. repository evidence\n\n## What you must evaluate\n\nEvaluate:\n\n* target REQ fidelity\n* lane correctness\n* file contract fidelity\n* source substance\n* test credibility\n* docs / code / CI coherence\n* promotion fit\n* repository fit\n* shared/common correctness\n* runtime/profile integrity\n* bounded remaining risks\n\n## Hard rules\n\n* Be severe.\n* Do not inflate quality.\n* Do not reward cosmetic cleanup as if it were substantive hardening.\n* Missing required files are blockers.\n* Required files that do not satisfy their declared purpose are blockers or major risks.\n* Wrong lane, wrong module family, duplicate bootstrap/config/logging wrappers, or fake completeness are promotion blockers.\n* If the candidate is still too thin, say so clearly.\n\n## Output artifact\n\nEmit exactly one file block:\n\nfile:/runs/kit/<REQ-ID>/ci/PROMOTION_EVAL.json\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must contain:\n\n* version\n* req_id\n* verdict\n* summary\n* scope_fidelity\n* lane_fidelity\n* file_contract\n* source_substance\n* test_credibility\n* docs_code_coherence\n* promotion_fit\n* repo_fit\n* shared_common_assessment\n* runtime_profile_assessment\n* blockers\n* remaining_risks\n* promotability_score\n\n## Allowed verdicts\n\nUse exactly one of:\n\n* reject\n* needs_more_hardening\n* eval_ready\n* promotion_candidate\n* promotion_candidate_with_risks\n\n## Scoring\n\npromotability_score must be an integer from 0 to 100.\n\nUse these dimensions:\n\n* scope_fidelity: 0-15\n* lane_fidelity: 0-10\n* file_contract: 0-15\n* source_substance: 0-20\n* test_credibility: 0-15\n* docs_code_coherence: 0-10\n* promotion_fit: 0-5\n* repo_fit: 0-5\n* shared_common_assessment: 0-5",
+    "max_output_tokens": 18000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_0d0aafa491d76fa80069db591e2b688195be4c96a1ea12ba19",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_0d0aafa491d76fa80069db5946aa408195918f649cd7ca7b54",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "file:/runs/kit/REQ-001/ci/PROMOTION_EVAL.json\n{\n  \"version\": \"1.0\",\n  \"req_id\": \"REQ-001\",\n  \"verdict\": \"reject\",\n  \"summary\": \"Partial hardening improved the in-memory lifecycle enums and contract metadata, but the candidate remains non-promotable. The executable migration is still the older, materially wrong schema; the tests still validate that stale model; docs and CI were not brought back into coherence; and ci/LTC.json is still invalid JSON. This is split-brain delivery, not a promotable canonical backbone.\",\n  \"scope_fidelity\": {\n    \"score\": 6,\n    \"assessment\": \"The newer enums.py and contracts.py move materially closer to REQ-001, including the correct lifecycle vocabularies and many required logical fields. That improvement is not carried through the authoritative physical contract: the only provided migration file still encodes the superseded entity shapes and lifecycle model, including the wrong columns and stricter-than-required exported-state handling. Executable REQ fidelity remains low.\"\n  },\n  \"lane_fidelity\": {\n    \"score\": 9,\n    \"assessment\": \"The work stays in the Data/sql lane and within the allowed data module family. No backend, frontend, or infra drift is evident in the emitted candidate files. Lane choice is correct.\"\n  },\n  \"file_contract\": {\n    \"score\": 5,\n    \"assessment\": \"Required file families are present, but several do not satisfy their declared purpose. The migration file does not implement the hardened contract, the tests still exercise the stale schema, and ci/LTC.json is not valid JSON. Presence alone does not satisfy the file contract.\"\n  },\n  \"source_substance\": {\n    \"score\": 9,\n    \"assessment\": \"There is real implementation substance here: non-trivial lifecycle enums, entity contracts, SQLAlchemy metadata, a PostgreSQL migration, and smoke tests. However, the source is internally inconsistent. The hardened logical contract and the shipped migration are not the same system, which makes the candidate unsafe to promote.\"\n  },\n  \"test_credibility\": {\n    \"score\": 4,\n    \"assessment\": \"The tests use real PostgreSQL semantics for migration smoke, which is better than a fake SQLite check. Credibility collapses because they still validate the obsolete lifecycle/table model, do not cover the hardened contract, do not exercise seeded upgrade/downgrade as required, and only check audit immutability structurally rather than behaviorally.\"\n  },\n  \"docs_code_coherence\": {\n    \"score\": 2,\n    \"assessment\": \"Docs describe a coherent REQ-001 slice in broad terms, but they are no longer trustworthy against the mixed candidate. CI instructions and README point at tests that validate the stale migration, and the LTC manifest itself is malformed JSON. The code, tests, docs, and CI do not tell one consistent story.\"\n  },\n  \"promotion_fit\": {\n    \"score\": 1,\n    \"assessment\": \"Promotion would be high-risk because the promoted physical schema would still be the wrong one. This is not review-ready hardening; it is partial correction layered on top of an uncorrected executable base.\"\n  },\n  \"repo_fit\": {\n    \"score\": 4,\n    \"assessment\": \"The candidate is localized under canonical source/test families compatible with later promotion into src/ and test/. It fits the repository structure reasonably well. The main repo-fit issue is not placement but promotability of inconsistent artifacts.\"\n  },\n  \"shared_common_assessment\": {\n    \"score\": 5,\n    \"assessment\": \"No duplicate app bootstrap, auth wrapper, config wrapper, or shared/common family misuse is evident. For a SQL-lane slice, shared/common impact is appropriately minimal.\"\n  },\n  \"runtime_profile_assessment\": {\n    \"assessment\": \"Profile integrity is mostly neutral for this REQ because it is a PostgreSQL 16 schema slice with no AWS/on-prem branching. That said, runtime validation integrity is weakened by the stale migration being the executable truth, by Docker-or-env dependence in smoke tests, and by the malformed LTC manifest preventing reliable CI orchestration evidence.\"\n  },\n  \"blockers\": [\n    \"The only provided Alembic migration remains on the obsolete model. It still defines the wrong lifecycle enums and wrong physical columns for multiple entities, so the executable database contract does not satisfy REQ-001.\",\n    \"Document.state reserved handling is still wrong in the migration: the database check constraint forbids storing exported at all, instead of reserving it in-schema while forbidding Slice-1 transition use.\",\n    \"The hardened logical contract is not propagated consistently across schema, migration, tests, and docs. Promotion would create an internally contradictory backbone.\",\n    \"The shipped tests are still anchored to the obsolete model. They do not validate the hardened entity shapes, required seeded migration path, or behavioral append-only audit immutability required by REQ-001 acceptance.\",\n    \"ci/LTC.json is malformed and therefore does not satisfy its declared CI manifest purpose. That is a file-contract blocker.\",\n    \"AuditEvent remains inconsistent across artifacts. The hardened contract expects document_id/actor_id/event_type/before_value/after_value/reason/created_at, while the executable migration still uses subject_type/subject_id/action/actor_ref/actor_user_id/event_ts/payload_json.\",\n    \"Search-support support remains inadequately evidenced. The stale migration indexes the earlier placeholder design, and there is no trustworthy end-to-end proof that the promoted schema matches the required extracted-text-reference and pilot metadata intent.\"\n  ],\n  \"remaining_risks\": [\n    \"Even after the blockers are fixed, repository-global Alembic environment wiring is still absent and would need careful integration at promotion time.\",\n    \"The migration smoke harness depends on Docker or an externally supplied disposable PostgreSQL URL, which is acceptable for KIT but still operationally brittle for CI until standardized.\",\n    \"Constraint coverage still appears thin around some downstream invariants, especially where state-dependent requirements should be enforced or at least explicitly documented as service-layer guarantees.\"\n  ],\n  \"promotability_score\": 45\n}"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 57705,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 3839,
+      "output_tokens_details": {
+        "reasoning_tokens": 2566
+      },
+      "total_tokens": 61544
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260411T210153Z",
+  "project_id": "docufu",
+  "phase": "promotion_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_0b0e08c10b17b7100069dab66697b48196ae8fe48d20d4ef48",
+    "object": "response",
+    "created_at": 1775941222,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1775941313,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "Harper /kit — PROMOTION_EVAL\n\nYou are Harper /kit PROMOTION_EVAL.\n\nYou are acting as:\n\n* Senior Software Architect\n* Senior Software Engineer\n* Promotion reviewer\n* Stop-ship evaluator\n\nYou are evaluating the final candidate after optional hardening.\nYou are NOT fixing it.\n\n## Authoritative inputs\n\nUse the following in this order:\n\n1. TARGET_CONTRACT.json\n2. FILE_REQUIREMENTS.json\n3. current candidate files\n4. INTEGRITY_EVAL.json\n5. REQ_PROMOTION_MANIFEST.md when present\n6. plan.json\n7. PLAN.md\n8. SPEC.md\n9. TECH_CONSTRAINTS.yaml\n10. repository evidence\n\n## What you must evaluate\n\nEvaluate:\n\n* target REQ fidelity\n* lane correctness\n* file contract fidelity\n* source substance\n* test credibility\n* docs / code / CI coherence\n* promotion fit\n* repository fit\n* shared/common correctness\n* runtime/profile integrity\n* bounded remaining risks\n\n## Hard rules\n\n* Be severe.\n* Do not inflate quality.\n* Do not reward cosmetic cleanup as if it were substantive hardening.\n* Missing required files are blockers.\n* Required files that do not satisfy their declared purpose are blockers or major risks.\n* Wrong lane, wrong module family, duplicate bootstrap/config/logging wrappers, or fake completeness are promotion blockers.\n* If the candidate is still too thin, say so clearly.\n\n## Output artifact\n\nEmit exactly one file block:\n\nfile:/runs/kit/<REQ-ID>/ci/PROMOTION_EVAL.json\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must contain:\n\n* version\n* req_id\n* verdict\n* summary\n* scope_fidelity\n* lane_fidelity\n* file_contract\n* source_substance\n* test_credibility\n* docs_code_coherence\n* promotion_fit\n* repo_fit\n* shared_common_assessment\n* runtime_profile_assessment\n* blockers\n* remaining_risks\n* promotability_score\n\n## Allowed verdicts\n\nUse exactly one of:\n\n* reject\n* needs_more_hardening\n* eval_ready\n* promotion_candidate\n* promotion_candidate_with_risks\n\n## Scoring\n\npromotability_score must be an integer from 0 to 100.\n\nUse these dimensions:\n\n* scope_fidelity: 0-15\n* lane_fidelity: 0-10\n* file_contract: 0-15\n* source_substance: 0-20\n* test_credibility: 0-15\n* docs_code_coherence: 0-10\n* promotion_fit: 0-5\n* repo_fit: 0-5\n* shared_common_assessment: 0-5",
+    "max_output_tokens": 18000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_0b0e08c10b17b7100069dab66922808196aa911426c1b4373b",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_0b0e08c10b17b7100069dab6a683188196b0737a157ce36539",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "file:/runs/kit/REQ-001/ci/PROMOTION_EVAL.json\n```json\n{\n  \"version\": \"1.0\",\n  \"req_id\": \"REQ-001\",\n  \"verdict\": \"needs_more_hardening\",\n  \"summary\": \"Current source is materially closer to the REQ-001 target than the prior integrity reject and now has real canonical-schema substance in the correct Data/SQL lane. However, it is still not promotion-ready. One required lifecycle invariant is still missing from the backbone itself: Task.completed is not constrained to an already-validated related Document. In addition, the docs/CI evidence is materially incoherent with the implemented contract, especially around reserved exported-state behavior and audit/index descriptions. The code is no longer thin, but the promotion evidence is not yet trustworthy enough.\",\n  \"scope_fidelity\": {\n    \"score\": 11,\n    \"out_of\": 15,\n    \"assessment\": \"Mostly aligned with REQ-001, but not fully complete at the contract level.\",\n    \"findings\": [\n      \"Implements the eight required canonical entities: User, Document, ExtractedField, Task, AuditEvent, Notification, ExportJob, and AIQuery.\",\n      \"Document lifecycle vocabulary now matches REQ-001: uploaded, processing, validation_ready, exception, validated, exported.\",\n      \"ExtractedField, Notification, ExportJob, and AIQuery lifecycle vocabularies align with the target contract.\",\n      \"Document.state exported is present in schema vocabulary and is forbidden in Slice-1 transition helpers, which is the correct target behavior.\",\n      \"Search-supporting indexes exist for pilot metadata fields and full-text search.\",\n      \"Audit rows are made append-only in the database through trigger protection.\",\n      \"REQ-001 explicitly requires Task.completed to require an already-validated related Document, but that invariant is not encoded in transition helpers or the schema.\"\n    ]\n  },\n  \"lane_fidelity\": {\n    \"score\": 10,\n    \"out_of\": 10,\n    \"assessment\": \"Correct lane and correct module family.\",\n    \"findings\": [\n      \"Implementation stays in the Data/SQL lane.\",\n      \"Source is localized to src/data/schema and src/data/migrations.\",\n      \"No backend, frontend, or infra leakage detected.\",\n      \"PostgreSQL-first features used here are consistent with the stated data-lane contract.\"\n    ]\n  },\n  \"file_contract\": {\n    \"score\": 13,\n    \"out_of\": 15,\n    \"assessment\": \"Required source and test files are present and mostly serve the intended REQ-001 purpose, but the evidence package is not fully coherent.\",\n    \"findings\": [\n      \"Authoritative TARGET_CONTRACT.json and FILE_REQUIREMENTS.json were not supplied, so completeness could only be checked against plan.json, PLAN.md, and the provided candidate files.\",\n      \"REQ-001 minimum source-file count is satisfied: contracts.py, enums.py, schema.py, and the Alembic revision are present.\",\n      \"Required test substance is present: lifecycle/schema assertions and PostgreSQL migration smoke tests.\",\n      \"Files remain within the expected source roots for the data slice.\",\n      \"Test root uses test/data/schema, which matches the repository top-level test root and promotion manifest, but differs from some plan.json references to tests/data/schema.\",\n      \"CI/doc artifacts exist, but some of them describe a different contract than the source actually implements.\"\n    ]\n  },\n  \"source_substance\": {\n    \"score\": 15,\n    \"out_of\": 20,\n    \"assessment\": \"Substantive and reviewable implementation with real DDL, enums, constraints, and migration behavior; not superficial. The main deficiency is one missing cross-entity invariant.\",\n    \"findings\": [\n      \"schema.py defines all core tables with meaningful columns, foreign keys, unique constraints, and check constraints.\",\n      \"Migration creates explicit PostgreSQL enum types, tables, indexes, and an audit immutability trigger.\",\n      \"Size limit and confidence-score invariants are encoded in the schema.\",\n      \"User uniqueness by deployment_profile + username is enforced.\",\n      \"One task type validation is represented canonically.\",\n      \"Reserved exported-state handling is implemented at the transition-helper layer rather than incorrectly deleting it from the schema vocabulary.\",\n      \"The task lifecycle contract is still incomplete because completed is not tied to validated document state.\",\n      \"The source does not show repository Alembic chain integration; it only provides the revision itself.\"\n    ]\n  },\n  \"test_credibility\": {\n    \"score\": 12,\n    \"out_of\": 15,\n    \"assessment\": \"Tests are real and materially useful, especially the PostgreSQL smoke coverage, but they do not fully prove the target contract.\",\n    \"findings\": [\n      \"Migration smoke tests exercise real PostgreSQL upgrade, seed data, index presence, immutability, and downgrade behavior.\",\n      \"Tests verify that exported is storable in the schema while still treated as reserved by the Slice-1 transition helpers.\",\n      \"Tests cover lifecycle helper behavior for most target enums and transitions.\",\n      \"Tests do not prove the required cross-entity rule that Task.completed is only valid once the related Document is validated.\",\n      \"Tests drive the revision directly via Alembic Operations rather than through a repository Alembic environment or head-chain invocation.\",\n      \"The CI manifest text and HOWTO expectations contradict what the tests actually assert, which weakens confidence in the evidence package.\"\n    ]\n  },\n  \"docs_code_coherence\": {\n    \"score\": 3,\n    \"out_of\": 10,\n    \"assessment\": \"This is the weakest area. Source and tests are closer to the target than the docs/CI artifacts are.\",\n    \"findings\": [\n      \"KIT_REQ-001.md claims a documents-table constraint forbids exported persistence, but the actual schema does not, and the smoke test correctly proves exported can be stored.\",\n      \"HOWTO.md says inserting a document in state exported should fail; the provided smoke test asserts the opposite.\",\n      \"LTC.json includes a fail condition stating Document state exported being storable is a failure, which contradicts the REQ-001 acceptance contract and the actual candidate tests.\",\n      \"KIT_REQ-001.md refers to actor and occurred_at wording, while the implemented canonical columns are actor_id and created_at.\",\n      \"HOWTO/KIT notes mention JSONB GIN index behavior that is not what the migration actually builds for pilot metadata lookups.\"\n    ]\n  },\n  \"promotion_fit\": {\n    \"score\": 2,\n    \"out_of\": 5,\n    \"assessment\": \"Low-to-moderate promotion fitness. The source is close enough to be worth preserving, but the candidate should not be promoted before contract and evidence cleanup.\",\n    \"findings\": [\n      \"Code is localized and low-blast-radius for promotion.\",\n      \"Downstream REQs could build on most of this backbone.\",\n      \"Promoting with a missing task/document invariant would bake a gap into the canonical contract.\",\n      \"Promoting with contradictory CI/docs evidence would create avoidable review and gate confusion.\"\n    ]\n  },\n  \"repo_fit\": {\n    \"score\": 4,\n    \"out_of\": 5,\n    \"assessment\": \"Good repository fit with one minor path-documentation inconsistency.\",\n    \"findings\": [\n      \"Candidate respects the canonical data module family.\",\n      \"No duplicate bootstrap, logging, config, or unrelated shared wrappers were introduced.\",\n      \"Promotion manifest and repo top-level structure support promotion into src/ and test/ roots.\",\n      \"Some planning artifacts refer to tests/, while the repo and candidate use test/.\"\n    ]\n  },\n  \"shared_common_assessment\": {\n    \"score\": 5,\n    \"out_of\": 5,\n    \"assessment\": \"No shared/common hygiene issues detected.\",\n    \"findings\": [\n      \"No unnecessary abstractions or cross-cutting wrappers were introduced.\",\n      \"No lane-crossing helper families were invented.\",\n      \"Shared correctness concerns here are about canonical contract fidelity, not shared-module misuse.\"\n    ]\n  },\n  \"runtime_profile_assessment\": {\n    \"assessment\": \"Acceptable for the Data lane.\",\n    \"findings\": [\n      \"PostgreSQL-specific ENUM, JSONB, GIN, and trigger usage is consistent with the stated PostgreSQL 16 data strategy.\",\n      \"No deployment-profile branching or runtime-wrapper duplication appears in this slice.\",\n      \"This candidate does not create parity risk by itself because it is schema-only and remains profile-independent at the business-contract level.\"\n    ]\n  },\n  \"blockers\": [\n    \"REQ-001 task lifecycle is still incomplete: neither transition helpers nor database constraints enforce that Task.completed requires the related Document to already be validated.\",\n    \"Docs and CI evidence are materially contradictory on reserved exported-state behavior; LTC.json and HOWTO.md describe the opposite of the required contract and the implemented tests.\",\n    \"Documentation misstates key implemented facts, including audit-field naming and index behavior, so the promotion evidence cannot currently be trusted as coherent.\"\n  ],\n  \"remaining_risks\": [\n    \"Migration validation is done through direct Alembic Operations rather than a repository Alembic environment and revision-chain invocation.\",\n    \"Path references between plan artifacts and repository reality are not fully normalized for test roots.\",\n    \"Some cross-entity business invariants may still be assumed to live in later services rather than in the canonical backbone unless explicitly clarified.\"\n  ],\n  \"promotability_score\": 75\n}\n```"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 49004,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 5865,
+      "output_tokens_details": {
+        "reasoning_tokens": 3900
+      },
+      "total_tokens": 54869
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

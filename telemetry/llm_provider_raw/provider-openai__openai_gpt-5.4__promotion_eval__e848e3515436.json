@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260411T191617Z",
+  "project_id": "docufu",
+  "phase": "promotion_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_0be587f8ac4d9fa20069da9da26f908193b09fcd9f71862945",
+    "object": "response",
+    "created_at": 1775934882,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1775934976,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "# Harper /kit — PROMOTION_EVAL\n\nYou are Harper /kit PROMOTION_EVAL.\n\nYou are acting as:\n\n* Senior Software Architect\n* Senior Software Engineer\n* Promotion reviewer\n* Stop-ship evaluator\n\nYou are evaluating the final candidate after optional hardening.\nYou are NOT fixing it.\n\n## Authoritative inputs\n\nUse the following in this order:\n\n1. TARGET_CONTRACT.json\n2. FILE_REQUIREMENTS.json\n3. current candidate files\n4. INTEGRITY_EVAL.json\n5. REQ_PROMOTION_MANIFEST.md when present\n6. plan.json\n7. PLAN.md\n8. SPEC.md\n9. TECH_CONSTRAINTS.yaml\n10. repository evidence\n\n## What you must evaluate\n\nEvaluate:\n\n* target REQ fidelity\n* lane correctness\n* file contract fidelity\n* source substance\n* test credibility\n* docs / code / CI coherence\n* promotion fit\n* repository fit\n* shared/common correctness\n* runtime/profile integrity\n* bounded remaining risks\n\n## Hard rules\n\n* Be severe.\n* Do not inflate quality.\n* Do not reward cosmetic cleanup as if it were substantive hardening.\n* Missing required files are blockers.\n* Required files that do not satisfy their declared purpose are blockers or major risks.\n* Wrong lane, wrong module family, duplicate bootstrap/config/logging wrappers, or fake completeness are promotion blockers.\n* If the candidate is still too thin, say so clearly.\n\n## Output artifact\n\nEmit exactly one file block:\n\nfile:/runs/kit/<REQ-ID>/ci/PROMOTION_EVAL.json\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must contain:\n\n* version\n* req_id\n* verdict\n* summary\n* scope_fidelity\n* lane_fidelity\n* file_contract\n* source_substance\n* test_credibility\n* docs_code_coherence\n* promotion_fit\n* repo_fit\n* shared_common_assessment\n* runtime_profile_assessment\n* blockers\n* remaining_risks\n* promotability_score\n\n## Allowed verdicts\n\nUse exactly one of:\n\n* reject\n* needs_more_hardening\n* eval_ready\n* promotion_candidate\n* promotion_candidate_with_risks\n\n## Scoring\n\npromotability_score must be an integer from 0 to 100.\n\nUse these dimensions:\n\n* scope_fidelity: 0-15\n* lane_fidelity: 0-10\n* file_contract: 0-15\n* source_substance: 0-20\n* test_credibility: 0-15\n* docs_code_coherence: 0-10\n* promotion_fit: 0-5\n* repo_fit: 0-5\n* shared_common_assessment: 0-5\n\nEND FILE\n\n---",
+    "max_output_tokens": 18000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_0be587f8ac4d9fa20069da9da438188193afba38e997519787",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_0be587f8ac4d9fa20069da9de3cf50819396af589776cc9ba2",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "file:/runs/kit/REQ-003/ci/PROMOTION_EVAL.json\n```json\n{\n  \"version\": \"1.0\",\n  \"req_id\": \"REQ-003\",\n  \"verdict\": \"needs_more_hardening\",\n  \"summary\": \"The candidate is materially improved and now covers the core REQ-003 intake slice with real source substance: POST /documents and GET /documents/{documentId} exist, supported type and 20 MiB checks are enforced, upload permission is checked, uploaded_at is persisted through the repository contract, the processing event topic matches the required contract, immutable upload audit emission is present, storage failure rollback is implemented, and API docs/tests are present. It is still not promotion-fit as-is. The main stop-ship concerns are security and integration integrity rather than missing happy-path functionality: authentication and permission fallback to raw request headers remains live in production code rather than being isolated to test fixtures, shared/common integration is speculative and based on guessed helper names, and CI evidence is too thin for backend promotion because only compileall and pytest are provided with no lint, type, security, or coverage evidence.\",\n  \"scope_fidelity\": {\n    \"score\": 13,\n    \"out_of\": 15,\n    \"assessment\": \"REQ-003 functional scope is mostly met. Accepted uploads are validated, persisted in uploaded state, stored through a storage seam, followed by one processing-request event and one immutable upload audit event. Unsupported, oversize, malformed, anonymous, and unauthorized cases are rejected with explicit outcomes, and storage failure rolls back the created document row. Remaining scope gaps are mostly non-functional or integrity-related: there is no performance evidence for the 5-second target, and failure handling after storage success but before event/audit completion is not hardened.\"\n  },\n  \"lane_fidelity\": {\n    \"score\": 8,\n    \"out_of\": 10,\n    \"assessment\": \"Correct App/python lane, correct backend module family, and no frontend/data/infra drift. FastAPI is an appropriate lane fit. Score is reduced because the candidate does not cleanly anchor itself to established REQ-002 auth semantics; instead it retains permissive header-based fallback paths that weaken lane correctness for a protected backend command.\"\n  },\n  \"file_contract\": {\n    \"score\": 14,\n    \"out_of\": 15,\n    \"assessment\": \"The kit now satisfies the plan-derived minimum deliverable for REQ-003: four source files are present, API docs are present, tests/docs/ci artifacts exist, and the implementation stays localized to the intended intake module family. Minor deduction for unresolved promotion-time uncertainty around exact shared/common symbol contracts and because no authoritative FILE_REQUIREMENTS.json was supplied for stricter named-file validation.\"\n  },\n  \"source_substance\": {\n    \"score\": 15,\n    \"out_of\": 20,\n    \"assessment\": \"This is no longer a cosmetic candidate. The source is split into contracts, validation, service orchestration, and route wiring; it performs meaningful orchestration with repository, storage, event, and audit seams. However, the implementation still falls short of promotion-grade integrity. Auth resolution and permission checking fall back to raw headers in live code, shared/common integration relies on guessed helper names and optional imports, and there is no transactional hardening if event or audit emission fails after the storage write succeeds.\"\n  },\n  \"test_credibility\": {\n    \"score\": 11,\n    \"out_of\": 15,\n    \"assessment\": \"The tests are behavior-oriented and materially exercise the API through FastAPI routes. They cover the key acceptance surface: happy path, GET status, 401, 403, oversize rejection, unsupported type rejection, malformed multipart rejection, and storage rollback. Credibility is reduced because tests rely entirely on in-memory fakes, do not exercise actual shared auth/storage/event/audit integrations, do not cover 404/503 paths, do not probe event/audit failure integrity, and provide no coverage/lint/type/security evidence.\"\n  },\n  \"docs_code_coherence\": {\n    \"score\": 8,\n    \"out_of\": 10,\n    \"assessment\": \"Docs, code, and local CI artifacts are broadly coherent. README, KIT notes, API docs, LTC, and HOWTO describe the emitted endpoints and the included tests accurately. Deductions remain because the CI contract is much narrower than the platform quality bar in the SPEC and tech constraints, and the docs normalize the header-based auth fallback as a test seam even though the code leaves it active in runtime paths.\"\n  },\n  \"promotion_fit\": {\n    \"score\": 3,\n    \"out_of\": 5,\n    \"assessment\": \"The candidate is localized, reviewable, and promotion-shaped, but not yet safe to promote without further hardening. The security posture and missing quality-gate evidence are the main reasons it is below promotion-candidate status.\"\n  },\n  \"repo_fit\": {\n    \"score\": 4,\n    \"out_of\": 5,\n    \"assessment\": \"Good overall repository fit: correct backend documents/intake family, no duplicate top-level roots, and no forbidden frontend/infra/data drift. Minor deduction because shared/common reuse is only partially evidenced and currently implemented via speculative optional imports rather than proven repository-native contracts.\"\n  },\n  \"shared_common_assessment\": {\n    \"score\": 2,\n    \"out_of\": 5,\n    \"assessment\": \"Positive: the candidate does not create duplicate shared storage, audit, event, or authz packages. Negative: reuse is weakly substantiated. The code guesses helper names across shared modules and retains raw-header auth fallback when those shared seams are absent. That is not clean shared/common correctness for promotion.\"\n  },\n  \"runtime_profile_assessment\": {\n    \"assessment\": \"This slice does not introduce AWS/on-prem branching and keeps storage/event/audit concerns behind adapters, which is directionally correct for profile parity. Runtime integrity remains incomplete because there is no profile-aware wiring evidence, no observability or structured logging evidence, and the live auth fallback behavior would be dangerous under misconfiguration in any deployment profile.\",\n    \"positives\": [\n      \"No business logic branching by deployment profile.\",\n      \"Storage, audit, and event interactions are adapter-oriented.\"\n    ],\n    \"concerns\": [\n      \"Authentication and authorization fallback to request headers is active in runtime code.\",\n      \"No parity or operational evidence exists for promoted shared adapters.\",\n      \"No lint/type/security/build evidence was provided for backend runtime readiness.\"\n    ]\n  },\n  \"blockers\": [\n    \"Production-path authentication and authorization are not hard-bound to REQ-002 shared auth semantics. If no explicit app resolver/checker or shared auth implementation is wired, the code accepts identity and permissions from raw request headers. That is a promotion blocker for a protected backend command.\",\n    \"Shared/common integration is speculative. The implementation guesses multiple helper names across shared auth, storage, events, and audit modules without repository proof that those contracts exist. Promotion would carry avoidable integration risk into canonical source.\",\n    \"CI evidence is insufficient for backend promotion. The candidate provides compileall and pytest only; there is no lint, type, security, or coverage evidence despite the SPEC and tech constraints requiring clean backend quality gates.\"\n  ],\n  \"remaining_risks\": [\n    \"If event publication fails after storage succeeds, the request may leave a persisted uploaded document without the downstream processing request; no outbox or compensating rollback is implemented.\",\n    \"If audit recording fails after storage succeeds, the request may leave a persisted uploaded document without the required immutable upload audit event.\",\n    \"No performance evidence substantiates the P95 upload acknowledgment target.\",\n    \"Status-query authorization is authentication-only in this slice; that may be acceptable for REQ-003 but may need tightening once broader RBAC/document-access rules are integrated.\",\n    \"Tests do not exercise actual repository implementations or real shared adapters, so promotion-time integration mismatches remain plausible.\"\n  ],\n  \"promotability_score\": 78\n}\n```"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 46576,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 5423,
+      "output_tokens_details": {
+        "reasoning_tokens": 3767
+      },
+      "total_tokens": 51999
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

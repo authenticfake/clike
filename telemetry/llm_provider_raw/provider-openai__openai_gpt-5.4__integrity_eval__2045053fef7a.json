@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260411T205540Z",
+  "project_id": "docufu",
+  "phase": "integrity_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_02c287a03b5f76c50069dab50b27e481969786f7a1d4f40dcc",
+    "object": "response",
+    "created_at": 1775940875,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1775940940,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "# Harper /kit — INTEGRITY_EVAL\n\nYou are Harper /kit INTEGRITY_EVAL.\n\nYou are acting as:\n\n* Senior Software Architect\n* Senior Software Engineer\n* Stop-ship reviewer\n\nYou are evaluating the current REQ candidate.\nYou are NOT fixing it.\n\n## Authoritative inputs\n\nUse the following in this order:\n\n1. TARGET_CONTRACT.json\n2. FILE_REQUIREMENTS.json\n3. current candidate files\n4. REQ_PROMOTION_MANIFEST.md when present\n5. plan.json\n6. PLAN.md\n7. SPEC.md\n8. TECH_CONSTRAINTS.yaml\n9. repository evidence\n\n## What you must evaluate\n\nEvaluate the candidate on:\n\n* target REQ fidelity\n* lane fidelity\n* path contract fidelity\n* file contract fidelity\n* source substance\n* test substance\n* docs / code / CI coherence\n* repository fit\n* shared/common correctness\n* promotion plausibility\n\n## Hard rules\n\n* Be severe.\n* Do not reward path correctness if the implementation is semantically wrong.\n* Do not reward docs or tests that overclaim behavior not supported by source.\n* If a required file from FILE_REQUIREMENTS.json is missing, say so explicitly.\n* If a required file exists but does not cover its declared purpose, say so explicitly.\n* Wrong lane, wrong module family, duplicate settings/bootstrap/logging wrappers, or unjustified shared extraction are blockers.\n* Thin source with thick docs/tests is not promotable.\n* If the candidate is salvageable with bounded hardening, say so explicitly.\n* If the candidate is fundamentally wrong for the target REQ, reject it.\n\n## Output artifact\n\nEmit exactly one file block:\n\nfile:/runs/kit/<REQ-ID>/ci/INTEGRITY_EVAL.json\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must be valid and contain:\n\n* version\n* req_id\n* verdict\n* hardening_required\n* summary\n* scope_fidelity\n* lane_fidelity\n* path_contract\n* file_contract\n* source_substance\n* test_substance\n* docs_ci_coherence\n* repo_fit\n* shared_common_assessment\n* blockers\n* hardening_targets\n* promotability_score\n\n## Allowed verdicts\n\nUse exactly one of:\n\n* reject\n* salvageable\n* review_ready\n* promotion_candidate\n\n## Scoring\n\npromotability_score must be an integer from 0 to 100.\n\nUse these dimensions:\n\n* scope_fidelity: 0-20\n* lane_fidelity: 0-10\n* path_contract: 0-10\n* file_contract: 0-15\n* source_substance: 0-20\n* test_substance: 0-10\n* docs_ci_coherence: 0-5\n* repo_fit: 0-5\n* shared_common_assessment: 0-5\n\nEND FILE\n\n---",
+    "max_output_tokens": 17000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_02c287a03b5f76c50069dab50cca38819696017c38a059a75c",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_02c287a03b5f76c50069dab53085748196a2ea1464186c8093",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "file:/runs/kit/REQ-001/ci/INTEGRITY_EVAL.json\n{\n  \"version\": \"1.0\",\n  \"req_id\": \"REQ-001\",\n  \"verdict\": \"reject\",\n  \"hardening_required\": true,\n  \"summary\": \"Candidate is localized to the correct Data/SQL slice and contains real migration/test substance, but it is fundamentally misaligned with REQ-001's canonical contract. Core lifecycle enums, table schemas, field names, and transition semantics diverge from the required downstream backbone. Docs and tests reinforce the wrong contract rather than validating the target one. This is not promotable as-is.\",\n  \"scope_fidelity\": {\n    \"score\": 2,\n    \"out_of\": 20,\n    \"assessment\": \"Low fidelity. It creates eight tables and lifecycle helpers, but the actual schema and lifecycle contract are materially different from REQ-001.\",\n    \"findings\": [\n      \"Document lifecycle is wrong: candidate uses created/ingesting/ingested/classifying/extracted/failed/exported instead of uploaded/processing/validation_ready/exception/validated with exported reserved.\",\n      \"ExtractedField lifecycle is wrong: pending/extracted/reviewed/rejected/failed instead of proposed/corrected/accepted/rejected.\",\n      \"Task lifecycle is wrong: queued/running/succeeded/failed/cancelled instead of open/in_progress/completed/exception.\",\n      \"Notification lifecycle is wrong: pending/sending/sent/failed/cancelled instead of pending/sent/failed/read.\",\n      \"ExportJob lifecycle is wrong: queued/running/completed/failed/cancelled instead of requested/running/completed/failed.\",\n      \"AIQuery lifecycle is wrong: pending/running/succeeded/failed/cancelled instead of requested/completed/denied/failed.\",\n      \"Schema fields for User, Document, ExtractedField, Task, AuditEvent, Notification, ExportJob, and AIQuery do not match the canonical data model required by SPEC/PLAN/plan.json.\"\n    ]\n  },\n  \"lane_fidelity\": {\n    \"score\": 9,\n    \"out_of\": 10,\n    \"assessment\": \"Correct lane and mostly correct slice boundaries.\",\n    \"findings\": [\n      \"Implementation stays in Data/SQL lane.\",\n      \"No backend/frontend/infra leakage detected.\",\n      \"Alembic/PostgreSQL-first approach matches lane expectations.\"\n    ]\n  },\n  \"path_contract\": {\n    \"score\": 7,\n    \"out_of\": 10,\n    \"assessment\": \"Mostly path-correct, but path correctness does not rescue the semantic contract failure.\",\n    \"findings\": [\n      \"Source is under src/data/schema and src/data/migrations as required.\",\n      \"Tests are under test/data/schema, which matches the staging examples and repo top-level test root, though plan.json elsewhere mentions tests/data/schema.\",\n      \"No forbidden module families introduced.\"\n    ]\n  },\n  \"file_contract\": {\n    \"score\": 2,\n    \"out_of\": 15,\n    \"assessment\": \"File presence is incomplete against minimum deliverable, and existing files do not fulfill their declared REQ-001 purpose.\",\n    \"findings\": [\n      \"Authoritative FILE_REQUIREMENTS.json was not supplied, so required-file completeness cannot be fully verified from that source.\",\n      \"REQ-001 kit minimum deliverable requires at least 3 source files; candidate provides only 2 source files.\",\n      \"src/data/schema/core_lifecycle/enums.py exists but does not cover its declared purpose as the canonical lifecycle contract for REQ-001 because the enum values and transitions are not the target ones.\",\n      \"src/data/migrations/versions/202604110001_core_lifecycle.py exists but does not cover its declared purpose as the canonical schema backbone because most entity columns and invariants do not match the required contract.\",\n      \"test/data/schema/test_core_lifecycle_schema.py exists but validates the candidate's wrong lifecycle vocabulary rather than the target REQ lifecycle.\",\n      \"test/data/schema/test_migration_smoke.py exists and exercises real PostgreSQL upgrade/downgrade paths, but it proves the wrong schema.\"\n    ]\n  },\n  \"source_substance\": {\n    \"score\": 5,\n    \"out_of\": 20,\n    \"assessment\": \"There is real implementation effort, but the substance is directed at the wrong contract.\",\n    \"findings\": [\n      \"Migration includes real DDL, indexes, enum types, and an audit immutability trigger.\",\n      \"However, the source models the wrong business backbone, so downstream REQs cannot safely build on it.\",\n      \"User table uses email/is_active instead of username/display_name/role/idp_group_refs/active.\",\n      \"Document table omits original_filename, media_type, format, size_bytes, storage_uri, extracted_text_uri, classification_label, uploaded_by, uploaded_at, validated_by, validated_at.\",\n      \"ExtractedField omits proposed_value, corrected_value, provenance, updated_by, and required status semantics.\",\n      \"Task omits assignee_id, canonical status semantics, and due_at.\",\n      \"AuditEvent omits canonical event_type/before_value/after_value/reason/created_at contract.\",\n      \"Notification omits user_id, notification_type, sent_at, and canonical status semantics.\",\n      \"ExportJob omits output_uri/failure reason shape and uses non-canonical state names.\",\n      \"AIQuery omits citations and denied-state semantics.\"\n    ]\n  },\n  \"test_substance\": {\n    \"score\": 4,\n    \"out_of\": 10,\n    \"assessment\": \"Tests are non-trivial and use PostgreSQL, but they certify the wrong thing.\",\n    \"findings\": [\n      \"Positive: migration smoke tests perform real upgrade/downgrade and immutability checks.\",\n      \"Positive: lifecycle helpers are unit-tested.\",\n      \"Negative: tests encode non-canonical state names and transitions, so they harden the wrong contract.\",\n      \"Negative: tests do not validate the required canonical document transition chain uploaded -> processing -> validation_ready/exception -> validated.\",\n      \"Negative: tests do not validate required canonical extracted field, task, notification, export job, and AI query lifecycle semantics.\",\n      \"Negative: tests do not validate required canonical entity columns and invariants from plan.json.\"\n    ]\n  },\n  \"docs_ci_coherence\": {\n    \"score\": 1,\n    \"out_of\": 5,\n    \"assessment\": \"Docs and CI are coherent with the candidate, but they overclaim fidelity to REQ-001.\",\n    \"findings\": [\n      \"README and KIT notes claim a canonical REQ-001 backbone, which is not supported by the actual source semantics.\",\n      \"CI commands exercise the candidate's tests faithfully, but the tests themselves target the wrong lifecycle/schema contract.\",\n      \"Docs present 'exported' as schema-reserved yet the migration also blocks storing it entirely via check constraint, which is stronger and different from the stated target behavior.\"\n    ]\n  },\n  \"repo_fit\": {\n    \"score\": 2,\n    \"out_of\": 5,\n    \"assessment\": \"Localized and low-blast-radius, but poor fit for the repository's planned downstream contract.\",\n    \"findings\": [\n      \"Candidate stays within the intended module family.\",\n      \"No unjustified cross-cutting abstractions were introduced.\",\n      \"But downstream REQs depend on exact state names and canonical column names; promoting this would force divergence or later breakage.\"\n    ]\n  },\n  \"shared_common_assessment\": {\n    \"score\": 4,\n    \"out_of\": 5,\n    \"assessment\": \"No major shared/common misuse detected, but correctness is limited to local mechanics, not the shared contract.\",\n    \"findings\": [\n      \"No duplicate bootstrap/logging/settings wrappers introduced.\",\n      \"No unjustified shared extraction detected.\",\n      \"The main failure is contract correctness, not shared-module hygiene.\"\n    ]\n  },\n  \"blockers\": [\n    \"Fundamental target-contract mismatch: lifecycle enums and allowed transitions are not the REQ-001 canonical states.\",\n    \"Fundamental schema mismatch: core table columns do not match the canonical data model required by SPEC/PLAN/plan.json.\",\n    \"Reserved Document.state exported is implemented as non-storable via check constraint, not merely reserved and forbidden in Slice-1 transitions.\",\n    \"Task, notification, export job, and AI query states are incompatible with downstream REQs and acceptance criteria.\",\n    \"AuditEvent shape is incompatible with required event_type/before_value/after_value/reason/created_at contract.\",\n    \"REQ-001 minimum deliverable requires at least 3 source files; only 2 source files are present.\",\n    \"Docs/tests/CI overclaim compliance and validate the wrong semantic contract.\"\n  ],\n  \"hardening_targets\": [\n    \"Replace all lifecycle enums and transition guards with the exact REQ-001 canonical states and forbidden transitions.\",\n    \"Rewrite migration tables to match the canonical entities and column names from plan.json and SPEC.\",\n    \"Model Document.state exported as present in enum/schema vocabulary while forbidding Slice-1 transition usage, without collapsing future extensibility.\",\n    \"Add required invariants: size_bytes <= 20 MB, supported format enum, confidence score normalization, one validation task semantics, immutable audit rows with canonical field names.\",\n    \"Add search-supporting indexes aligned to pilot metadata fields and extracted-text search contract.\",\n    \"Rewrite tests to validate the target contract, not the current alternate lifecycle.\",\n    \"Add at least one additional substantive source file to satisfy the minimum deliverable and improve contract separation if retained.\",\n    \"Downgrade docs and CI claims until source semantics are truly aligned.\"\n  ],\n  \"promotability_score\": 36\n}"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 47420,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 4271,
+      "output_tokens_details": {
+        "reasoning_tokens": 2259
+      },
+      "total_tokens": 51691
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

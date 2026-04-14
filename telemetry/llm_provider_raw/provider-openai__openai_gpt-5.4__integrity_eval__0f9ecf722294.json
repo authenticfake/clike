@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260412T212329Z",
+  "project_id": "docufu",
+  "phase": "integrity_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_0ce563eaf44b41c90069dc0cff3c3c8194b0272755879ae360",
+    "object": "response",
+    "created_at": 1776028927,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1776029009,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "# Harper /kit — INTEGRITY_EVAL\n\nYou are Harper /kit INTEGRITY_EVAL.\n\nYou are acting as:\n\n* Senior Software Architect\n* Senior Software Engineer\n* Stop-ship reviewer\n\nYou are evaluating the current REQ candidate.\nYou are NOT fixing it.\n\n## Authoritative inputs\n\nUse the following in this order:\n\n1. TARGET_CONTRACT.json\n2. FILE_REQUIREMENTS.json\n3. current candidate files\n4. REQ_PROMOTION_MANIFEST.md when present\n5. plan.json\n6. PLAN.md\n7. SPEC.md\n8. TECH_CONSTRAINTS.yaml\n9. repository evidence\n\n## What you must evaluate\n\nEvaluate the candidate on:\n\n* target REQ fidelity\n* lane fidelity\n* path contract fidelity\n* file contract fidelity\n* source substance\n* test substance\n* docs / code / CI coherence\n* repository fit\n* shared/common correctness\n* promotion plausibility\n\n## Hard rules\n\n* Be severe.\n* Do not reward path correctness if the implementation is semantically wrong.\n* Do not reward docs or tests that overclaim behavior not supported by source.\n* If a required file from FILE_REQUIREMENTS.json is missing, say so explicitly.\n* If a required file exists but does not cover its declared purpose, say so explicitly.\n* Wrong lane, wrong module family, duplicate settings/bootstrap/logging wrappers, or unjustified shared extraction are blockers.\n* Thin source with thick docs/tests is not promotable.\n* If the candidate is salvageable with bounded hardening, say so explicitly.\n* If the candidate is fundamentally wrong for the target REQ, reject it.\n\n## Output artifact\n\nEmit exactly one file block:\n\nfile:/runs/kit/<REQ-ID>/ci/INTEGRITY_EVAL.json\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must be valid and contain:\n\n* version\n* req_id\n* verdict\n* hardening_required\n* summary\n* scope_fidelity\n* lane_fidelity\n* path_contract\n* file_contract\n* source_substance\n* test_substance\n* docs_ci_coherence\n* repo_fit\n* shared_common_assessment\n* blockers\n* hardening_targets\n* promotability_score\n\n## Allowed verdicts\n\nUse exactly one of:\n\n* reject\n* salvageable\n* review_ready\n* promotion_candidate\n\n## Scoring\n\npromotability_score must be an integer from 0 to 100.\n\nUse these dimensions:\n\n* scope_fidelity: 0-20\n* lane_fidelity: 0-10\n* path_contract: 0-10\n* file_contract: 0-15\n* source_substance: 0-20\n* test_substance: 0-10\n* docs_ci_coherence: 0-5\n* repo_fit: 0-5\n* shared_common_assessment: 0-5",
+    "max_output_tokens": 17000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_0ce563eaf44b41c90069dc0d0078848194a65fbcfa3bf19639",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_0ce563eaf44b41c90069dc0d3a9f488194a08485ffe8ac148d",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "file:/runs/kit/REQ-003/ci/INTEGRITY_EVAL.json\n{\n  \"version\": \"1.0.0\",\n  \"req_id\": \"REQ-003\",\n  \"verdict\": \"salvageable\",\n  \"hardening_required\": true,\n  \"summary\": \"The candidate has real intake code, a FastAPI POST binding, storage rollback on write failure, and non-trivial behavior tests. It is not promotion-ready because it misses required target behavior and drifts from shared contracts: the emitted event name is wrong (`documents.processing.requested` vs required `document.processing.requested`), the required `GET /documents/{documentId}` seam is absent, upload permission enforcement and 401/403 semantics are not implemented, and local storage/event/audit protocols duplicate contracts that were supposed to be reused from shared roots. Salvage is bounded to this slice, but the current candidate should not ship.\",\n  \"scope_fidelity\": {\n    \"score\": 9,\n    \"max\": 20,\n    \"assessment\": \"Covers core POST upload flow, format/size validation, storage persistence, rollback on storage failure, and accepted-upload side effects. Does not cover the full target API surface because `GET /documents/{documentId}` is missing. Auth rules from the target are also not implemented, so scope coverage is materially incomplete.\"\n  },\n  \"lane_fidelity\": {\n    \"score\": 8,\n    \"max\": 10,\n    \"assessment\": \"Correct lane and framework family: Python plus FastAPI. However, lane fidelity is weakened by local boundary contract invention instead of clear reuse of shared backend seams and by incomplete use of prior REQ-002 authz guarantees.\"\n  },\n  \"path_contract\": {\n    \"score\": 6,\n    \"max\": 10,\n    \"assessment\": \"Source files are localized under `src/backend/documents/intake` as required. No forbidden frontend/infra/data-migration roots were touched. Test staging uses `test/backend/...` instead of the target contract's `tests/backend/...`; this matches repository evidence and promotion manifest staging, but it is still a contract drift against the higher-priority plan/target path expectations.\"\n  },\n  \"file_contract\": {\n    \"score\": 9,\n    \"max\": 15,\n    \"assessment\": \"All required files are present. The `primary_implementation` file contains real logic. The `boundary_contract` file is used. The `workflow_component` is substantive, but it encodes the wrong event contract name. The `entry_binding` file does not cover its declared purpose fully because the REQ defines an application-facing seam with both POST and GET contracts, and only POST is exposed. Docs and CI files exist and are runnable, but they do not fully surface the missing API/auth gaps.\"\n  },\n  \"source_substance\": {\n    \"score\": 11,\n    \"max\": 20,\n    \"assessment\": \"The implementation is not toy code: it resolves supported formats, enforces size, persists, stores, rolls back on storage failure, and emits workflow artifacts. But core semantic gaps remain: no permission enforcement, no anonymous/unauthorized deny behavior, wrong downstream event name, no required GET status endpoint, and no deterministic handling when event/audit emission fails after storage succeeds.\"\n  },\n  \"test_substance\": {\n    \"score\": 4,\n    \"max\": 10,\n    \"assessment\": \"Tests are real and assert several required behaviors: supported upload happy path, unsupported type rejection, oversize rejection, rollback on storage failure, and POST route integration. They are still too thin for the target contract: no auth deny tests, no exact contract check for the required event name, no GET endpoint coverage, no malformed multipart coverage, and no event/audit failure-path assertions.\"\n  },\n  \"docs_ci_coherence\": {\n    \"score\": 3,\n    \"max\": 5,\n    \"assessment\": \"Docs mostly match the emitted files and avoid major fiction. KIT notes truthfully admit auth policy is not fully enforced. However, the overall doc set does not clearly call out that the required GET endpoint is missing, and it normalizes the wrong event name rather than identifying it as a drift. CI commands are plausible for the emitted candidate.\"\n  },\n  \"repo_fit\": {\n    \"score\": 2,\n    \"max\": 5,\n    \"assessment\": \"The candidate stays localized and avoids creating a new app bootstrap, which fits the repo. Repo fit is reduced because it defines local storage/event/audit ports inside the intake module rather than reusing canonical shared contracts from `src/backend/shared/*` as directed.\"\n  },\n  \"shared_common_assessment\": {\n    \"score\": 1,\n    \"max\": 5,\n    \"assessment\": \"Weak shared/common correctness. The candidate only lightly reuses shared authz logging and otherwise creates local protocol contracts for storage, audit, and events. That duplicates seams the target explicitly said to reuse and increases drift risk. Auth integration with prior REQ-002 is effectively absent at enforcement level.\"\n  },\n  \"blockers\": [\n    \"Wrong event contract: the implementation, tests, docs, and response models use `documents.processing.requested`, but the target contract requires `document.processing.requested`. This is a downstream compatibility break, not a naming nit.\",\n    \"Missing required application-facing seam: `GET /documents/{documentId}` is in the target contract and is not implemented in the binding.\",\n    \"Auth semantics are not implemented: no `document.upload` permission check, no 401/403 behavior, and no proof that unauthorized callers cannot create storage side effects.\",\n    \"Shared contract reuse is violated: local `StorageWriter`, `ProcessingEventPublisher`, and `UploadAuditSink` protocols are introduced inside the intake slice instead of reusing the mandated shared roots for storage, audit, events, and authz.\",\n    \"Accepted-upload side effects are not made reliable: if event or audit emission fails after storage succeeds, the slice can leave a persisted uploaded document without proving the required processing request and immutable upload audit were durably recorded.\"\n  ],\n  \"hardening_targets\": [\n    \"Correct the event contract everywhere to `document.processing.requested` and add tests that assert the exact published event name.\",\n    \"Implement the required `GET /documents/{documentId}` status/metadata endpoint or otherwise satisfy the target API contract explicitly.\",\n    \"Wire real REQ-002-style authz enforcement into the binding: 401 for anonymous, 403 for unauthorized, and zero storage/persistence side effects on denied requests.\",\n    \"Replace local intake-owned storage/event/audit/auth contract shims with canonical shared contracts from `src/backend/shared/storage`, `src/backend/shared/events`, `src/backend/shared/audit`, and `src/backend/shared/authz`, or provide a strong justification with actual shared reuse.\",\n    \"Define deterministic failure behavior for event/audit emission after storage persistence, preferably via transactional/outbox-style hardening or explicit request failure semantics that preserve downstream guarantees.\",\n    \"Expand tests to cover deny paths, missing/malformed multipart input, media-type/extension mismatch, exact event contract, missing GET seam, and emission-failure behavior.\",\n    \"Update README/KIT/CI descriptions so they do not normalize contract drift and so they clearly state the remaining API/auth gaps until fixed.\"\n  ],\n  \"promotability_score\": 53\n}"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 46079,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 4739,
+      "output_tokens_details": {
+        "reasoning_tokens": 3210
+      },
+      "total_tokens": 50818
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

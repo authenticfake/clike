@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260411T182249Z",
+  "project_id": "docufu",
+  "phase": "promotion_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_0504b048414fd5bd0069da912390a08197b2c0b24739136b79",
+    "object": "response",
+    "created_at": 1775931683,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1775931769,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "# Harper /kit — PROMOTION_EVAL\n\nYou are Harper /kit PROMOTION_EVAL.\n\nYou are acting as:\n\n* Senior Software Architect\n* Senior Software Engineer\n* Promotion reviewer\n* Stop-ship evaluator\n\nYou are evaluating the final candidate after optional hardening.\nYou are NOT fixing it.\n\n## Authoritative inputs\n\nUse the following in this order:\n\n1. TARGET_CONTRACT.json\n2. FILE_REQUIREMENTS.json\n3. current candidate files\n4. INTEGRITY_EVAL.json\n5. REQ_PROMOTION_MANIFEST.md when present\n6. plan.json\n7. PLAN.md\n8. SPEC.md\n9. TECH_CONSTRAINTS.yaml\n10. repository evidence\n\n## What you must evaluate\n\nEvaluate:\n\n* target REQ fidelity\n* lane correctness\n* file contract fidelity\n* source substance\n* test credibility\n* docs / code / CI coherence\n* promotion fit\n* repository fit\n* shared/common correctness\n* runtime/profile integrity\n* bounded remaining risks\n\n## Hard rules\n\n* Be severe.\n* Do not inflate quality.\n* Do not reward cosmetic cleanup as if it were substantive hardening.\n* Missing required files are blockers.\n* Required files that do not satisfy their declared purpose are blockers or major risks.\n* Wrong lane, wrong module family, duplicate bootstrap/config/logging wrappers, or fake completeness are promotion blockers.\n* If the candidate is still too thin, say so clearly.\n\n## Output artifact\n\nEmit exactly one file block:\n\nfile:/runs/kit/<REQ-ID>/ci/PROMOTION_EVAL.json\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must contain:\n\n* version\n* req_id\n* verdict\n* summary\n* scope_fidelity\n* lane_fidelity\n* file_contract\n* source_substance\n* test_credibility\n* docs_code_coherence\n* promotion_fit\n* repo_fit\n* shared_common_assessment\n* runtime_profile_assessment\n* blockers\n* remaining_risks\n* promotability_score\n\n## Allowed verdicts\n\nUse exactly one of:\n\n* reject\n* needs_more_hardening\n* eval_ready\n* promotion_candidate\n* promotion_candidate_with_risks\n\n## Scoring\n\npromotability_score must be an integer from 0 to 100.\n\nUse these dimensions:\n\n* scope_fidelity: 0-15\n* lane_fidelity: 0-10\n* file_contract: 0-15\n* source_substance: 0-20\n* test_credibility: 0-15\n* docs_code_coherence: 0-10\n* promotion_fit: 0-5\n* repo_fit: 0-5\n* shared_common_assessment: 0-5\n\nEND FILE\n\n---",
+    "max_output_tokens": 18000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_0504b048414fd5bd0069da912511cc819789e70c690708acdb",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_0504b048414fd5bd0069da9162a69481979b33503e44d81550",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "file:/runs/kit/REQ-002/ci/PROMOTION_EVAL.json\n```json\n{\n  \"version\": \"1.0\",\n  \"req_id\": \"REQ-002\",\n  \"verdict\": \"needs_more_hardening\",\n  \"summary\": \"The candidate is materially improved versus the prior integrity evaluation: it now has the required source file count, API-doc artifact, structured logging helper, canonical actor fields including id and active, deny-path no-mutation behavior, and actor propagation seams. It is still not promotable. The stop-ship issue is trust-boundary integrity: the live auth path accepts unsigned bearer payloads and raw/base64 SAML assertions as authenticated identity without verification or an explicit test-only gate. In addition, log redaction is not strict because token/assertion previews leak fragments of auth material. Promotion-path fitness is also weak because tests and execution instructions are coupled to runs/kit file paths instead of canonical repository imports.\",\n  \"scope_fidelity\": {\n    \"score\": 8,\n    \"assessment\": \"Covers most stated REQ-002 behaviors: normalized actor context, permission mapping from group refs, 401/403 behavior, active flag handling, actor propagation, and structured deny logging. Fidelity is reduced by a major security gap: the implementation authenticates from unverified claim material rather than a trusted upstream assertion or clearly isolated non-production fixture path. That is not compatible with a promotable auth slice.\"\n  },\n  \"lane_fidelity\": {\n    \"score\": 9,\n    \"assessment\": \"Correct lane and module family overall: Python/FastAPI backend only, no frontend/data/infra leakage, and no profile-specific authorization branching or username-based policy logic. The lane choice is right.\"\n  },\n  \"file_contract\": {\n    \"score\": 11,\n    \"assessment\": \"Against the available plan/manifest evidence, the candidate now satisfies the minimum source-file count and includes the required API-doc artifact, docs, and CI contract files. Pathing remains somewhat staging-oriented: tests and run instructions are anchored to runs/kit paths rather than canonical promoted imports, which weakens promotion confidence.\"\n  },\n  \"source_substance\": {\n    \"score\": 10,\n    \"assessment\": \"There is real implementation substance: OIDC/SAML claim normalization, permission resolution, active-actor enforcement, FastAPI dependency guards, request correlation, and downstream write/audit seams. The main defect is severe rather than cosmetic: authentication trust is effectively mocked on the live path. The code also leaks partial auth material via redaction previews, which is contrary to the security requirement.\"\n  },\n  \"test_credibility\": {\n    \"score\": 8,\n    \"assessment\": \"Tests are substantive for the local seam: they cover mapping, /auth/me, 401/403 paths, inactive actor denial, no mutation on deny, propagation, and logging output. Credibility is reduced because the tests are built around staging-path imports and explicitly assert partial token/assertion previews in logs, thereby codifying behavior that should be rejected. They do not prove a safe promotion-time trust boundary.\"\n  },\n  \"docs_code_coherence\": {\n    \"score\": 6,\n    \"assessment\": \"Docs are mostly honest about scope and remaining gaps, and the emitted artifacts are internally consistent. Coherence drops because the docs normalize an implementation that is only safe as a test fixture seam, while the code exposes it as the actual request authentication path. LTC/HOWTO are also tied to staging paths instead of promotion-ready module execution.\"\n  },\n  \"promotion_fit\": {\n    \"score\": 1,\n    \"assessment\": \"Not fit for promotion in current form. Auth is security-critical, and accepting unverified bearer/SAML material on the live path is a stop-ship blocker. The remaining work is bounded but substantive.\"\n  },\n  \"repo_fit\": {\n    \"score\": 2,\n    \"assessment\": \"Localized and reviewable, with no new top-level roots and no duplicate shared package family. Repo fit is weakened by staging-coupled test imports and by the extra compatibility wrapper that adds indirection without improving canonical promotion clarity.\"\n  },\n  \"shared_common_assessment\": {\n    \"score\": 3,\n    \"assessment\": \"Positive: the candidate avoids creating a duplicate shared contracts package and keeps reuse seams light. Negative: shared/common integration is only opportunistic and unproven, and no clear shared authz primitive is emitted under the allowed shared path. Acceptable but not strong.\"\n  },\n  \"runtime_profile_assessment\": {\n    \"assessment\": \"The implementation is profile-independent in the narrow sense that it does not branch by AWS vs on-prem and keeps permission logic based on IdP/application groups. Runtime integrity is still weak because the trust boundary is undefined: there is no separation between test fixture parsing and production authentication, and no hard guard that would prevent forged auth material from being accepted in a deployed profile.\"\n  },\n  \"blockers\": [\n    \"Stop-ship security flaw: the request authentication path accepts unsigned/unverified bearer payloads and raw or base64 SAML assertions as authenticated identity, with no verification step and no explicit non-production gate.\",\n    \"Token/assertion redaction is not strict. redact_secret logs first/last character previews of auth material, which leaks token/assertion content instead of fully redacting it.\",\n    \"Promotion-path fitness is incomplete: tests, HOWTO, and LTC commands are coupled to runs/kit staging paths rather than canonical repository imports, increasing promotion friction and reducing confidence that the promoted layout is the real target.\"\n  ],\n  \"remaining_risks\": [\n    \"SAML handling is parsing-only and does not establish a trusted assertion-validation boundary; docs acknowledge this, but that does not remove the risk for promoted code.\",\n    \"The representative write-test endpoint proves the seam locally but does not demonstrate integration across the broader protected API surface that later REQs will depend on.\",\n    \"The optional shared-contract hook is weakly exercised; promotion may surface contract-shape mismatches if repository shared helpers differ.\",\n    \"main_module.py is a thin wrapper with fallback import behavior; it is not a blocker by itself, but it adds avoidable indirection.\"\n  ],\n  \"promotability_score\": 58\n}\n```"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 45768,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 4575,
+      "output_tokens_details": {
+        "reasoning_tokens": 3283
+      },
+      "total_tokens": 50343
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

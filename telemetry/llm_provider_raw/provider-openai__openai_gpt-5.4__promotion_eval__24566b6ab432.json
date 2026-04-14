@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260411T172737Z",
+  "project_id": "docufu",
+  "phase": "promotion_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_06152266b8711fd80069da843e3ba08194bffe9d2892c8d64b",
+    "object": "response",
+    "created_at": 1775928382,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1775928456,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "# Harper /kit — PROMOTION_EVAL\n\nYou are Harper /kit PROMOTION_EVAL.\n\nYou are acting as:\n- Senior Software Architect\n- Senior Software Engineer\n- Promotion reviewer\n- Stop-ship evaluator\n\nYou are evaluating the final candidate after optional hardening.\n\nYou are NOT fixing files.\nYou are NOT redesigning.\nYou are evaluating and suggeest notes for supporting the promotion_harderner.\n\n## Authoritative inputs\n\nUse the following in this order:\n\n1. TARGET_CONTRACT.json\n2. current candidate files\n3. INTEGRITY_EVAL.json\n4. REQ_PROMOTION_MANIFEST.md when present\n5. plan.json\n6. PLAN.md\n7. SPEC.md\n8. TECH_CONSTRAINTS.yaml\n9. repository evidence\n\n## What you must evaluate\n\nEvaluate:\n\n- target REQ fidelity\n- lane correctness\n- source substance\n- test credibility\n- docs / code / CI coherence\n- promotion fit\n- repository fit\n- runtime-profile integrity when relevant\n- bounded remaining risks\n\n## Hard rules\n\n- Be severe.\n- Do not inflate quality.\n- Do not reward cosmetic cleanup as if it were substantive hardening.\n- Wrong lane, wrong module family, duplicate bootstrap/config, or fake completeness are promotion blockers.\n- If the candidate is still too thin, say so clearly.\n\n## Output artifact\n\nEmit exactly one file block:\n\nfile:/runs/kit/<REQ-ID>/ci/PROMOTION_EVAL.json\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must contain:\n\n- version\n- req_id\n- verdict\n- summary\n- scope_fidelity\n- lane_fidelity\n- source_substance\n- test_credibility\n- docs_code_coherence\n- promotion_fit\n- repo_fit\n- runtime_profile_assessment\n- blockers\n- remaining_risks\n- promotability_score\n\n## Allowed verdicts\n\nUse exactly one of:\n\n- reject\n- needs_more_hardening\n- eval_ready\n- promotion_candidate\n- promotion_candidate_with_risks\n\n### Meaning\n\n- reject -> still not a serious candidate\n- needs_more_hardening -> meaningful progress exists, but not enough\n- eval_ready -> strong enough to proceed to later evaluation\n- promotion_candidate -> strong promotion-oriented candidate\n- promotion_candidate_with_risks -> promotion-oriented candidate with explicit bounded risks\n\n## Scoring\n\npromotability_score must be an integer from 0 to 100.\n\nUse these dimensions:\n\n- scope_fidelity: 0-20\n- lane_fidelity: 0-10\n- source_substance: 0-25\n- test_credibility: 0-20\n- docs_code_coherence: 0-10\n- promotion_fit: 0-10\n- repo_fit: 0-5\n\nThe sum is the score.",
+    "max_output_tokens": 18000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_06152266b8711fd80069da8443639c819483c42299cf86e7c2",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_06152266b8711fd80069da84723aac81948b2286b7641ae1b0",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "file:/runs/kit/REQ-001/ci/PROMOTION_EVAL.json\n{\n  \"version\": \"1.0\",\n  \"req_id\": \"REQ-001\",\n  \"verdict\": \"promotion_candidate_with_risks\",\n  \"summary\": \"This is now a serious REQ-001 candidate. It is in the correct Data/sql lane, localized to the correct module family, and materially implements the canonical schema backbone: the required tables, enums, migration baseline, search-supporting indexes, and append-only audit rows are present. The tests are substantive and far more credible than the prior rejected submission. Remaining concerns are bounded but real: key lifecycle semantics are enforced primarily by Python helpers rather than database constraints, the task transition contract is slightly looser than the strictest reading of REQ-001, and the E2E evidence is thin relative to promotion-grade schema hardening.\",\n  \"scope_fidelity\": {\n    \"score\": 17,\n    \"out_of\": 20,\n    \"assessment\": \"Strong overall fidelity. The candidate now defines the required entities, core fields, lifecycle enums, reserved document exported state, metadata/full-text search support, username uniqueness per deployment profile, validation-only task type, and immutable audit rows. The main deductions are for contract edges that remain softer than ideal: lifecycle enforcement is not database-hard for most entities, completed task semantics rely on helper context, and validated-state invariants are only partially enforced at the database level.\"\n  },\n  \"lane_fidelity\": {\n    \"score\": 10,\n    \"out_of\": 10,\n    \"assessment\": \"Correct lane and correct family. This is a Data/sql implementation using SQLAlchemy and Alembic under src/data/schema and src/data/migrations, with no spill into forbidden backend, frontend, or infra families.\"\n  },\n  \"source_substance\": {\n    \"score\": 21,\n    \"out_of\": 25,\n    \"assessment\": \"Substantive implementation, not cosmetic cleanup. The candidate ships a real canonical schema module, explicit state enums and transition helpers, PostgreSQL-specific types and indexes, a full Alembic baseline, and an audit immutability trigger. Deductions remain because some business-critical invariants are represented as helper logic instead of schema-enforced rules, and the task lifecycle helper permits open -> completed when provided validated document context, which is broader than the narrowest REQ-001 reading.\"\n  },\n  \"test_credibility\": {\n    \"score\": 16,\n    \"out_of\": 20,\n    \"assessment\": \"Credible and meaningfully multi-layered: unit tests cover lifecycle and metadata definitions, integration tests exercise real Alembic upgrade/downgrade and PostgreSQL constraints, and the suite verifies audit immutability with actual DB failures. The score is capped because the E2E test is still thin and helper-centric, not a stronger end-to-end proof of enforced lifecycle semantics at the persistence boundary, and successful integration execution depends on Docker or an externally supplied PostgreSQL instance.\"\n  },\n  \"docs_code_coherence\": {\n    \"score\": 9,\n    \"out_of\": 10,\n    \"assessment\": \"Good coherence across code, docs, and lane test contract. The docs describe the actual delivered schema, lifecycle set, and test execution model, and LTC/HOWTO align with the staged asset layout. Minor deduction because the docs understandably speak confidently about contract intent while some of that intent is still implemented as helper-level discipline rather than hard schema enforcement.\"\n  },\n  \"promotion_fit\": {\n    \"score\": 8,\n    \"out_of\": 10,\n    \"assessment\": \"Promotion-oriented and reviewable. The change is localized, canonical, and clearly intended for promotion into src/ and test/ roots without inventing new top-level families. It is strong enough to support downstream REQs. Deduction remains because promotion would still carry forward a few soft-contract risks that later service code could violate unless it consistently uses the helper contract.\"\n  },\n  \"repo_fit\": {\n    \"score\": 4,\n    \"out_of\": 5,\n    \"assessment\": \"Good repository fit. The package targets canonical src/data and test/data families, matches the repo's visible top-level structure, and keeps the blast radius small. Minor deduction because the candidate is still staged under runs/ and promotion will need path normalization and final integration into canonical repository wiring.\"\n  },\n  \"runtime_profile_assessment\": {\n    \"relevant\": true,\n    \"assessment\": \"Runtime-profile concerns are limited for REQ-001. The candidate stays appropriately profile-neutral at the business-contract level and introduces no AWS/on-prem branching. Its PostgreSQL 16 dependence, Alembic usage, pgcrypto extension, JSONB, TSVECTOR, and GIN indexing are consistent with the stated Data-lane contract and technology constraints.\"\n  },\n  \"blockers\": [],\n  \"remaining_risks\": [\n    \"Lifecycle legality is mostly enforced through Python transition helpers, not database triggers or constraints. Later code paths that bypass helper usage could violate the intended contract.\",\n    \"Task lifecycle handling is slightly ambiguous: the helper allows open -> completed when related_document_state is validated. That matches some downstream flow expectations, but it is broader than the strict open -> in_progress -> completed wording in REQ-001 acceptance text.\",\n    \"The schema enforces validated_by/validated_at pairing, but it does not hard-bind Document.state = validated to those fields at the database level.\",\n    \"The E2E evidence is lighter than the integration evidence; it proves helper behavior and state mutation flow, but not a stronger end-to-end guard against invalid direct persistence mutations.\",\n    \"Integration credibility depends on Docker or TEST_DATABASE_URL availability, so promotion should ensure CI actually provisions PostgreSQL rather than relying on local-only execution assumptions.\"\n  ],\n  \"promotability_score\": 85\n}"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 50140,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 3799,
+      "output_tokens_details": {
+        "reasoning_tokens": 2588
+      },
+      "total_tokens": 53939
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

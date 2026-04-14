@@ -1,0 +1,84 @@
+{
+  "timestamp": "20260412T195704Z",
+  "project_id": "docufu",
+  "phase": "integrity_eval",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.4",
+  "raw": {
+    "id": "resp_030915beb2bc272d0069dbf8baa1d48195aee6bfa0463b013e",
+    "object": "response",
+    "created_at": 1776023738,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1776023823,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "# Harper /kit — INTEGRITY_EVAL\n\nYou are Harper /kit INTEGRITY_EVAL.\n\nYou are acting as:\n\n* Senior Software Architect\n* Senior Software Engineer\n* Stop-ship reviewer\n\nYou are evaluating the current REQ candidate.\nYou are NOT fixing it.\n\n## Authoritative inputs\n\nUse the following in this order:\n\n1. TARGET_CONTRACT.json\n2. FILE_REQUIREMENTS.json\n3. current candidate files\n4. REQ_PROMOTION_MANIFEST.md when present\n5. plan.json\n6. PLAN.md\n7. SPEC.md\n8. TECH_CONSTRAINTS.yaml\n9. repository evidence\n\n## What you must evaluate\n\nEvaluate the candidate on:\n\n* target REQ fidelity\n* lane fidelity\n* path contract fidelity\n* file contract fidelity\n* source substance\n* test substance\n* docs / code / CI coherence\n* repository fit\n* shared/common correctness\n* promotion plausibility\n\n## Hard rules\n\n* Be severe.\n* Do not reward path correctness if the implementation is semantically wrong.\n* Do not reward docs or tests that overclaim behavior not supported by source.\n* If a required file from FILE_REQUIREMENTS.json is missing, say so explicitly.\n* If a required file exists but does not cover its declared purpose, say so explicitly.\n* Wrong lane, wrong module family, duplicate settings/bootstrap/logging wrappers, or unjustified shared extraction are blockers.\n* Thin source with thick docs/tests is not promotable.\n* If the candidate is salvageable with bounded hardening, say so explicitly.\n* If the candidate is fundamentally wrong for the target REQ, reject it.\n\n## Output artifact\n\nEmit exactly one file block:\n\nfile:/runs/kit/<REQ-ID>/ci/INTEGRITY_EVAL.json\n\nNo other file blocks.\nNo prose outside the file block.\n\nThe JSON must be valid and contain:\n\n* version\n* req_id\n* verdict\n* hardening_required\n* summary\n* scope_fidelity\n* lane_fidelity\n* path_contract\n* file_contract\n* source_substance\n* test_substance\n* docs_ci_coherence\n* repo_fit\n* shared_common_assessment\n* blockers\n* hardening_targets\n* promotability_score\n\n## Allowed verdicts\n\nUse exactly one of:\n\n* reject\n* salvageable\n* review_ready\n* promotion_candidate\n\n## Scoring\n\npromotability_score must be an integer from 0 to 100.\n\nUse these dimensions:\n\n* scope_fidelity: 0-20\n* lane_fidelity: 0-10\n* path_contract: 0-10\n* file_contract: 0-15\n* source_substance: 0-20\n* test_substance: 0-10\n* docs_ci_coherence: 0-5\n* repo_fit: 0-5\n* shared_common_assessment: 0-5",
+    "max_output_tokens": 17000,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-2026-03-05",
+    "output": [
+      {
+        "id": "rs_030915beb2bc272d0069dbf8bc08008195b398e21124e6c645",
+        "type": "reasoning",
+        "summary": []
+      },
+      {
+        "id": "msg_030915beb2bc272d0069dbf8f4cb508195b2033b433b891340",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "file:/runs/kit/REQ-002/ci/INTEGRITY_EVAL.json\n```json\n{\n  \"version\": \"1.0.0\",\n  \"req_id\": \"REQ-002\",\n  \"verdict\": \"salvageable\",\n  \"hardening_required\": true,\n  \"summary\": \"All required candidate files are present, and the slice contains real FastAPI/Python auth logic plus behavior tests. However, it is not review-ready. The normalized actor contract is incomplete because it omits the required active flag, the emitted /auth/me response therefore does not satisfy the declared UserContext contract, and logging redaction is semantically unsafe because raw x-auth-claims content can be logged, leaking claim and group data. Repository fit is also weak: the candidate does not reuse the required shared/common contract direction and duplicates auth/logging behavior locally rather than aligning with the repository's existing shared authz evidence. This is salvageable with bounded hardening, but current promotion would be risky.\",\n  \"scope_fidelity\": {\n    \"score\": 11,\n    \"out_of_20\": 20,\n    \"assessment\": \"Partial target fidelity.\",\n    \"evidence\": [\n      \"Implements claim normalization for OIDC and SAML into one ActorContext.\",\n      \"Implements 401 for anonymous/invalid auth and 403 for missing permission on the protected route.\",\n      \"Propagates actor identity into downstream write and audit command objects.\",\n      \"Avoids hard-coded usernames and profile-specific authorization branches.\",\n      \"Misses the required active flag in normalized context and API response.\",\n      \"Redaction requirement is not met safely because x-auth-claims payloads are logged unredacted.\"\n    ]\n  },\n  \"lane_fidelity\": {\n    \"score\": 8,\n    \"out_of_10\": 10,\n    \"assessment\": \"Correct lane and framework family, but incomplete quality posture for the backend lane.\",\n    \"evidence\": [\n      \"Python/FastAPI implementation matches the REQ lane.\",\n      \"Behavioral tests use pytest and FastAPI TestClient.\",\n      \"CI evidence only covers compile and pytest, not the broader lane expectations for lint, types, and security.\"\n    ]\n  },\n  \"path_contract\": {\n    \"score\": 5,\n    \"out_of_10\": 10,\n    \"assessment\": \"Partially aligned staging paths, but weak fidelity to the declared shared/common path expectations.\",\n    \"evidence\": [\n      \"Primary source files are under runs/kit/REQ-002/src/backend/auth as hinted.\",\n      \"Test file is present at runs/kit/REQ-002/test/backend/auth/test_req_behavior.py as required by FILE_REQUIREMENTS.json.\",\n      \"No emitted source exists under src/backend/shared/authz despite the target allowing and repository evidence favoring shared auth reuse.\",\n      \"The target contract explicitly says must_reuse src/backend/shared/contracts, but the candidate does not reuse any shared contract module.\"\n    ]\n  },\n  \"file_contract\": {\n    \"score\": 10,\n    \"out_of_15\": 15,\n    \"assessment\": \"All required files exist, but several do not fully satisfy their declared purpose.\",\n    \"evidence\": [\n      \"Required file present: runs/kit/REQ-002/src/backend/auth/implementation.py.\",\n      \"Required file present: runs/kit/REQ-002/src/backend/auth/contracts.py.\",\n      \"Required file present: runs/kit/REQ-002/src/backend/auth/binding.py.\",\n      \"Required file present: runs/kit/REQ-002/test/backend/auth/test_req_behavior.py.\",\n      \"Required file present: runs/kit/REQ-002/docs/README_REQ-002.md.\",\n      \"Required file present: runs/kit/REQ-002/docs/KIT_REQ-002.md.\",\n      \"Required file present: runs/kit/REQ-002/ci/LTC.json.\",\n      \"Required file present: runs/kit/REQ-002/ci/HOWTO.md.\",\n      \"Required file present: runs/kit/REQ-002/ci/requirements.txt.\",\n      \"contracts.py exists but does not cover the declared UserContext requirement fully because active is absent.\",\n      \"binding.py exists and exposes /auth/me, but the only mutation proof seam is a synthetic protected-write route rather than a reusable exported guard primitive for downstream slices.\",\n      \"LTC.json exists but does not define meaningful lint/type/security checks expected for the backend lane.\",\n      \"KIT_REQ-002.md overstates promotion readiness relative to the current semantic gaps.\"\n    ]\n  },\n  \"source_substance\": {\n    \"score\": 11,\n    \"out_of_20\": 20,\n    \"assessment\": \"Real source code with meaningful logic, but semantically incomplete and unsafe in a key area.\",\n    \"evidence\": [\n      \"ClaimNormalizer handles heterogeneous claim keys for subject, username, display name, email, groups, roles, permissions, and scopes.\",\n      \"PermissionCatalog provides deterministic permission expansion from groups and roles.\",\n      \"AuthSessionService clearly separates authentication, authorization, and authorized write orchestration.\",\n      \"Critical contract miss: ActorContext and ActorResponse omit active, which is required by the target data contract.\",\n      \"Critical security miss: redact_http_headers does not redact x-auth-claims, x-oidc-claims, or x-saml-claims, so raw claim JSON and group membership can be logged.\",\n      \"This conflicts with the target's deny non-leakage posture and the broader logging minimization expectations.\",\n      \"Shared/common reuse is missing; the candidate redefines local auth contracts and redaction logic instead of reusing the expected shared/common direction.\"\n    ]\n  },\n  \"test_substance\": {\n    \"score\": 6,\n    \"out_of_10\": 10,\n    \"assessment\": \"Tests are real and behavior-oriented, but they miss critical contract and security gaps.\",\n    \"evidence\": [\n      \"Tests cover deterministic claim mapping for OIDC and SAML.\",\n      \"Tests cover 401 anonymous and 403 unauthorized behavior.\",\n      \"Tests prove deny paths do not mutate the recording writer or audit sink.\",\n      \"Tests prove actor propagation on an accepted write.\",\n      \"Tests cover token and assertion redaction only for authorization and x-saml-assertion headers.\",\n      \"Tests do not assert the required active field in normalized actor context.\",\n      \"Tests do not detect the current leakage of x-auth-claims payloads and embedded group data in logs.\"\n    ]\n  },\n  \"docs_ci_coherence\": {\n    \"score\": 2,\n    \"out_of_5\": 5,\n    \"assessment\": \"Mostly coherent, but the docs and CI overstate readiness.\",\n    \"evidence\": [\n      \"README and KIT notes generally describe the emitted files truthfully.\",\n      \"KIT notes claim the candidate is ready to promote, which is not supported by the missing active contract and unsafe redaction behavior.\",\n      \"LTC.json contains only compile and pytest commands; it does not reflect the fuller backend lane quality gates.\",\n      \"HOWTO expected pytest output shows five dots even though six tests are present.\"\n    ]\n  },\n  \"repo_fit\": {\n    \"score\": 1,\n    \"out_of_5\": 5,\n    \"assessment\": \"Weak repository fit.\",\n    \"evidence\": [\n      \"Repository composition evidence already shows shared auth/RBAC material under old.runs/backend/shared/authz.\",\n      \"Composition rules explicitly say to reuse shared auth/RBAC modules before creating parallel auth bootstrap.\",\n      \"The candidate instead creates local contracts, local redaction behavior, and local guard wiring under backend/auth without clear integration with the shared/common direction.\",\n      \"The target contract also requires reuse of src/backend/shared/contracts, which is not demonstrated.\"\n    ]\n  },\n  \"shared_common_assessment\": {\n    \"score\": 1,\n    \"out_of_5\": 5,\n    \"assessment\": \"Shared/common correctness is poor and is a blocker until aligned.\",\n    \"evidence\": [\n      \"No reuse of the required shared contract direction is visible.\",\n      \"Auth and logging/redaction concerns are implemented locally, creating parallel behavior instead of a clearly shared primitive.\",\n      \"Given repository evidence of existing shared authz modules, this local duplication is unjustified.\"\n    ]\n  },\n  \"blockers\": [\n    \"Normalized actor contract is incomplete: active is required by TARGET_CONTRACT.json data_contracts but absent from ActorContext, ActorResponse, and /auth/me output.\",\n    \"Logging redaction is semantically unsafe: x-auth-claims, x-oidc-claims, and x-saml-claims are not redacted, so raw claims and group data can be logged.\",\n    \"The candidate does not satisfy the target must_reuse direction for src/backend/shared/contracts.\",\n    \"Repository composition rules favor reuse of existing shared auth/RBAC modules; this candidate duplicates auth/logging behavior locally instead.\",\n    \"Docs overclaim promotion readiness despite unresolved contract and security gaps.\"\n  ],\n  \"hardening_targets\": [\n    \"Add the required active flag to the normalized actor contract, populate it deterministically from claims or fixture defaults, and expose it on GET /auth/me.\",\n    \"Add explicit inactive-identity handling semantics or, at minimum, surface active consistently so downstream slices can enforce it.\",\n    \"Redact all claims-bearing headers, not just token/assertion-named headers; raw claim payloads must not be logged.\",\n    \"Add tests that fail on x-auth-claims leakage and on omission of active from the normalized response.\",\n    \"Refactor toward shared/common reuse consistent with repository evidence and the target must_reuse contract, rather than keeping all auth primitives local to backend/auth.\",\n    \"Downgrade promotion claims in docs until shared/common alignment and redaction safety are actually implemented.\",\n    \"Strengthen CI evidence beyond compile+pytest to better match backend lane expectations.\"\n  ],\n  \"promotability_score\": 55\n}\n```"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": {
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 44280,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 5269,
+      "output_tokens_details": {
+        "reasoning_tokens": 3219
+      },
+      "total_tokens": 49549
+    },
+    "user": null,
+    "metadata": {}
+  }
+}
