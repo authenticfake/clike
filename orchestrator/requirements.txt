@@ -13,6 +13,9 @@ mypy>=1.9
 types-requests>=2.32
 bandit==1.7.9
 
+# MCP server/client official SDK
+mcp>=1.23,<2
+
 python-multipart==0.0.9
 watchfiles==0.22.0
 PyYAML==6.0.2

@@ -256,6 +256,7 @@ async def post_plan(req: HarperPhaseRequest):
             pass
     return HarperEnvelope(out=out, plan_md=plan_md)
 
+
 @router.post("/kit", response_model=HarperEnvelope)
 async def post_kit(req: HarperPhaseRequest):
     payload = req.model_dump()
@@ -269,16 +270,17 @@ async def post_kit(req: HarperPhaseRequest):
         kit_opts.get("targets"),
         kit_opts.get("phases") or ["kit"],
     )
-    
-    log.info("run_phase kit (route): idea_md=%s  plan_md=%s kit_md=%s core=%d gen=%s attachments=%d flags=%s",
-            bool(payload.get("idea_md")),
-            bool(payload.get("plan_md")),
-            bool(payload.get("kit_md")),
-            len(payload.get("core") or []),
-            bool(payload.get("gen")),
 
-            len(payload.get("attachments") or []),
-            "present" if payload.get("flags") else "none")
+    log.info(
+        "run_phase kit (route): idea_md=%s  plan_md=%s kit_md=%s core=%d gen=%s attachments=%d flags=%s",
+        bool(payload.get("idea_md")),
+        bool(payload.get("plan_md")),
+        bool(payload.get("kit_md")),
+        len(payload.get("core") or []),
+        bool(payload.get("gen")),
+        len(payload.get("attachments") or []),
+        "present" if payload.get("flags") else "none",
+    )
 
     log.info(
         "run_phase kit (route): git_detected=%s repo_root=%s branch=%s repo_url=%s",
@@ -287,34 +289,59 @@ async def post_kit(req: HarperPhaseRequest):
         repo_ctx.get("branch"),
         repo_ctx.get("repo_url"),
     )
-    # Delego al service che farà SOLO il merge del modello/profilo, senza perdere campi
-    out_dict = await svc.run_phase("kit", payload)
-    
-    out = HarperRunResponse(
-        ok=bool(out_dict.get("ok", True)),
-        phase=out_dict.get("phase") or "kit",
-        echo=out_dict.get("echo"),
-        text=out_dict.get("text"),
-        files=[FileArtifact(**f) for f in (out_dict.get("files") or [])],
-        diffs=[DiffEntry(**d) for d in (out_dict.get("diffs") or [])],
-        tests=TestSummary(**(out_dict.get("tests") or {})),
-        warnings=out_dict.get("warnings") or [],
-        errors=out_dict.get("errors") or [],
-        runId=out_dict.get("runId"),
-        telemetry=out_dict.get("telemetry"),
-    )
-    # Retro-compat: spec_md, se disponibile (primo file markdown) oppure None
+
+    try:
+        # Delego al service che farà SOLO il merge del modello/profilo, senza perdere campi
+        out_dict = await svc.run_phase("kit", payload)
+
+        out = HarperRunResponse(
+            ok=bool(out_dict.get("ok", True)),
+            phase=out_dict.get("phase") or "kit",
+            echo=out_dict.get("echo"),
+            text=out_dict.get("text"),
+            files=[FileArtifact(**f) for f in (out_dict.get("files") or [])],
+            diffs=[DiffEntry(**d) for d in (out_dict.get("diffs") or [])],
+            tests=TestSummary(**(out_dict.get("tests") or {})),
+            warnings=out_dict.get("warnings") or [],
+            errors=out_dict.get("errors") or [],
+            runId=out_dict.get("runId"),
+            telemetry=out_dict.get("telemetry"),
+        )
+
+    except RuntimeError as exc:
+        msg = str(exc)
+
+        prefix = "Gateway upstream error "
+        if msg.startswith(prefix):
+            rest = msg[len(prefix):]
+            status_str, sep, detail = rest.partition(":")
+            if sep:
+                try:
+                    status_code = int(status_str.strip())
+                except ValueError:
+                    status_code = 502
+
+                raise HTTPException(
+                    status_code=status_code,
+                    detail=detail.strip() or msg,
+                )
+
+        raise HTTPException(status_code=502, detail=msg)
+
+    except Exception as exc:
+        log.exception("Error in kit phase: %s", exc)
+        raise HTTPException(status_code=500, detail="Error in kit phase")
+
+    # Retro-compat: kit_md, se disponibile (primo file markdown) oppure None
     kit_md = None
     if out.files:
         try:
-            # se il primo file è SPEC.md lo esponiamo
             if out.files[0].path.lower().endswith("kit.md"):
                 kit_md = out.files[0].content
         except Exception:
             pass
 
     return HarperEnvelope(out=out, kit_md=kit_md)
-
 
 @router.post("/finalize", response_model=HarperEnvelope)
 async def post_build_next(req: HarperPhaseRequest):
