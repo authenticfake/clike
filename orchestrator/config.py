@@ -1,20 +1,19 @@
-# orchestrator/config.py
 import os
 from pydantic_settings import BaseSettings
-from pydantic import HttpUrl  # oppure: from pydantic import AnyUrl as HttpUrl
+from pydantic import HttpUrl
 
 
 def _get_bool(name: str, default: bool) -> bool:
     v = os.getenv(name)
     if v is None:
         return default
-    return v.lower() in {"1","true","yes","on"}
+    return v.lower() in {"1", "true", "yes", "on"}
 
 
 def _default_models_cfg_path() -> str:
-    # <repo>/configs/models.yaml (risolve a partire da questo file)
     here = os.path.dirname(__file__)
     return os.path.abspath(os.path.join(here, "..", "configs", "models.yaml"))
+
 
 class Settings(BaseSettings):
     # Upstream Gateway
@@ -25,17 +24,17 @@ class Settings(BaseSettings):
     NEVER_SEND_SOURCE_TO_CLOUD: str = os.getenv("NEVER_SEND_SOURCE_TO_CLOUD", "true")
     OPTIMIZE_FOR: str = os.getenv("OPTIMIZE_FOR", "capability")
 
-    CODE_ROOT_BASE: str = "src"
-    TEST_ROOT_BASE: str = "tests"
-    GEN_ID_PREFIX: str = "generated"
-    ENSURE_MIN_TESTS: bool = True
-    SPLIT_DEFAULT_STRATEGY: str = "per_symbol"
-# Workspace & runs
-    WORKSPACE_ROOT: str = os.getenv("WORKSPACE_ROOT", os.path.abspath(os.path.join(os.getcwd(), "..")))
+    # Workspace & runs
+    WORKSPACE_ROOT: str = os.getenv(
+        "WORKSPACE_ROOT",
+        os.path.abspath(os.path.join(os.getcwd(), "..")),
+    )
     RUNS_DIR: str = os.getenv("RUNS_DIR", os.path.join(os.getcwd(), "runs"))
 
-    # Timeouts & retries (LLM_TIMEOUT_S retro-compat)
-    REQUEST_TIMEOUT_S: int = int(os.getenv("REQUEST_TIMEOUT_S", os.getenv("LLM_TIMEOUT_S", "240")))
+    # Timeouts & retries
+    REQUEST_TIMEOUT_S: int = int(
+        os.getenv("REQUEST_TIMEOUT_S", os.getenv("LLM_TIMEOUT_S", "240"))
+    )
     RETRY_MAX_ATTEMPTS: int = int(os.getenv("RETRY_MAX_ATTEMPTS", "3"))
     RETRY_BACKOFF_S: float = float(os.getenv("RETRY_BACKOFF_S", "0.5"))
 
@@ -47,35 +46,37 @@ class Settings(BaseSettings):
     QDRANT_HOST: str = os.getenv("QDRANT_HOST", "qdrant")
     QDRANT_PORT: int = int(os.getenv("QDRANT_PORT", "6333"))
 
-    # Models config (fallback legacy, usato SOLO in fallback dal model_router)
+    # Models config
     MODELS_CONFIG_PATH: str = os.getenv("MODELS_CONFIG", _default_models_cfg_path())
     MODELS_CONFIG: str = os.getenv("MODELS_CONFIG", _default_models_cfg_path())
 
-
-    # --- Feature flags split multi-lingua (fase 1: anche solo segnaposto) ---
+    # Split / lane flags
     SPLIT_ENABLE_PY: bool = True
-    SPLIT_ENABLE_TS: bool = True     # vale anche per Node/JS in fase 1
+    SPLIT_ENABLE_TS: bool = True
     SPLIT_ENABLE_GO: bool = True
     SPLIT_ENABLE_JAVA: bool = True
     SPLIT_ENABLE_REACT: bool = True
-    SPLIT_ENABLE_MENDIX: bool = False  # Mendix gestito prudenzialmente (doc/template)
+    SPLIT_ENABLE_MENDIX: bool = False
 
-    # --- Policy test minimi ---
+    # Policy
     ENSURE_MIN_TESTS: bool = True
-
-    # --- Prefisso per gli id di generazione ---
     GEN_ID_PREFIX: str = "generated"
-    SPLIT_DEFAULT_STRATEGY: str = "per_symbol"  # "none" | "per_symbol" | "per_filehint"
+    SPLIT_DEFAULT_STRATEGY: str = "per_symbol"
+    TEST_POLICY_DEFAULT: str = "ensure_min_tests"
 
-    # --- Tests scaffold policy ---
-    TEST_POLICY_DEFAULT: str = "ensure_min_tests"  # "none" | "ensure_min_tests"
-
-    # --- Paths di progetto (usati per mapping file e test) ---
+    # Paths
     CODE_ROOT: str = "src"
     TEST_ROOT: str = "tests"
 
+    # MCP server v1
+    MCP_SERVER_ENABLED: bool = _get_bool("MCP_SERVER_ENABLED", True)
+    MCP_SERVER_NAME: str = os.getenv("MCP_SERVER_NAME", "clike-orchestrator")
+    MCP_SERVER_VERSION: str = os.getenv("MCP_SERVER_VERSION", "0.1.0")
+    MCP_SERVER_MOUNT_PATH: str = os.getenv("MCP_SERVER_MOUNT_PATH", "/mcp")
+    MCP_SERVER_READONLY: bool = _get_bool("MCP_SERVER_READONLY", True)
+    MCP_SERVER_ENABLE_RAG_SEARCH: bool = _get_bool("MCP_SERVER_ENABLE_RAG_SEARCH", True)
+    MCP_SERVER_ENABLE_RUNS_READ: bool = _get_bool("MCP_SERVER_ENABLE_RUNS_READ", True)
 
-    # Tooling flags — unico posto per leggerli (retro-compat con ENV)
     def tool_flag(self, name: str, default: bool = True) -> bool:
         v = os.getenv(name, None)
         if v is None:

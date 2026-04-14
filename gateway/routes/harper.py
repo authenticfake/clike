@@ -2028,47 +2028,54 @@ async def run(req: HarperRunRequest,  request: Request):
                 detail="KIT phase requires FILE_REQUIREMENTS.json in core_blobs"
             )
 
-        contract_issues = []
-
         req_id = str(target_contract.get("req_id") or "").strip()
         lane = str(target_contract.get("lane") or "").strip()
         title = str(target_contract.get("title") or "").strip()
-        primary_outcome = str(target_contract.get("primary_outcome") or "").strip()
+        required_outputs = file_requirements.get("required_outputs") or []
 
+        minimal_issues = []
+        if not req_id:
+            minimal_issues.append("TARGET_CONTRACT.req_id is empty")
+        if not lane:
+            minimal_issues.append("TARGET_CONTRACT.lane is empty")
+        if not title:
+            minimal_issues.append("TARGET_CONTRACT.title is empty")
+        if not required_outputs:
+            minimal_issues.append("FILE_REQUIREMENTS.required_outputs is empty")
+
+        if minimal_issues:
+            log.error(
+                "KIT 422: invalid minimum contract for req_id=%s issues=%s",
+                target_contract.get("req_id"),
+                minimal_issues,
+            )
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "message": "KIT phase requires a minimally valid TARGET_CONTRACT/FILE_REQUIREMENTS pair",
+                    "issues": minimal_issues,
+                },
+            )
+
+        weak_fields = []
+        primary_outcome = str(target_contract.get("primary_outcome") or "").strip()
         paths = target_contract.get("paths") or {}
         create_under = [str(x).strip() for x in (paths.get("create_under") or []) if str(x).strip()]
         must_reuse = [str(x).strip() for x in (paths.get("must_reuse") or []) if str(x).strip()]
         forbidden = [str(x).strip() for x in (paths.get("forbidden") or []) if str(x).strip()]
 
-        required_outputs = file_requirements.get("required_outputs") or []
-
-        if not req_id:
-            contract_issues.append("TARGET_CONTRACT.req_id is empty")
-        if not lane:
-            contract_issues.append("TARGET_CONTRACT.lane is empty")
-        if not title:
-            contract_issues.append("TARGET_CONTRACT.title is empty")
         if not primary_outcome:
-            contract_issues.append("TARGET_CONTRACT.primary_outcome is empty")
+            weak_fields.append("TARGET_CONTRACT.primary_outcome is empty")
         if not create_under:
-            contract_issues.append("TARGET_CONTRACT.paths.create_under is empty")
+            weak_fields.append("TARGET_CONTRACT.paths.create_under is empty")
         if not (must_reuse or forbidden):
-            contract_issues.append("TARGET_CONTRACT.paths must declare must_reuse and/or forbidden roots")
-        if not required_outputs:
-            contract_issues.append("FILE_REQUIREMENTS.required_outputs is empty")
+            weak_fields.append("TARGET_CONTRACT.paths must declare must_reuse and/or forbidden roots")
 
-        if contract_issues:
-            log.error(
-                "KIT 422: weak contract for req_id=%s issues=%s",
+        if weak_fields:
+            log.warning(
+                "KIT weak contract for req_id=%s issues=%s",
                 target_contract.get("req_id"),
-                contract_issues,
-            )
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "message": "KIT phase requires a promotion-grade TARGET_CONTRACT/FILE_REQUIREMENTS pair",
-                    "issues": contract_issues,
-                },
+                weak_fields,
             )
 
         log.info(
@@ -2076,7 +2083,7 @@ async def run(req: HarperRunRequest,  request: Request):
             target_contract.get("req_id"),
             target_contract.get("lane"),
             len(required_outputs),
-        )
+        )    
     model_route_label = _route_label(req.model, req.profileHint)
     log.info("model_route_label (too long) %s", model_route_label)
 
