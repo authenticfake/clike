@@ -247,16 +247,28 @@ async function ensureRemote(gitCtx, remoteName, remoteUrlOrEmpty, out) {
 }
 
 function mapKitSrcToWorkspaceTarget(absPath, reqId) {
-  // Esempio input:
-  // /.../runs/kit/REQ-001/src/storage/models.py
-  // Output atteso:
-  // /.../src/storage/models.py
   try {
     if (!absPath) return '';
-    const marker = `/runs/kit/${reqId}/src/`;
-    const idx = absPath.indexOf(marker);
-    if (idx === -1) return absPath; // già target o fuori convenzione
-    return absPath.slice(0, idx) + '/src/' + absPath.slice(idx + marker.length);
+
+    const normalized = String(absPath).replace(/\\/g, '/');
+    const baseMarker = `/runs/kit/${reqId}/`;
+
+    const idx = normalized.indexOf(baseMarker);
+    if (idx === -1) return absPath;
+
+    const rest = normalized.slice(idx + baseMarker.length);
+
+    if (rest.startsWith('src/')) {
+      return normalized.slice(0, idx) + '/src/' + rest.slice('src/'.length);
+    }
+    if (rest.startsWith('test/')) {
+      return normalized.slice(0, idx) + '/test/' + rest.slice('test/'.length);
+    }
+    if (rest.startsWith('docs/')) {
+      return normalized.slice(0, idx) + '/docs/' + rest.slice('docs/'.length);
+    }
+
+    return absPath;
   } catch {
     return absPath;
   }
@@ -371,14 +383,38 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
     if (files.length) {
       await gitRunVerbose(['add', ...files], gitCtx);
     } else {
-      // nessun file valido → tenta add -A (può capitare se i file non sono ancora stati scritti)
       await gitRunVerbose(['add', '-A'], gitCtx);
     }
+
+    // Defensive rule for gate:
+    // if gate changed plan/report/promotion state outside the explicit file list,
+    // stage all remaining tracked/untracked changes so checkout/merge won't fail.
+    if (phase === 'gate') {
+      const dirtyAfterExplicitAdd = await isWorkingTreeDirty(gitCtx);
+      if (dirtyAfterExplicitAdd) {
+        log('[harperGit] gate detected extra dirty files after explicit add → staging all with git add -A');
+        await gitRunVerbose(['add', '-A'], gitCtx);
+      }
+    }
   } catch (e) {
-    // fallback: aggiungi 1-per-1, così i validi passano comunque
     for (const f of files) {
-      try { await gitRunVerbose(['add', f], gitCtx); }
-      catch (e2) { mkLog(out)(`[harperGit] add skip file '${f}': ${e2.message}`); }
+      try {
+        await gitRunVerbose(['add', f], gitCtx);
+      } catch (e2) {
+        mkLog(out)(`[harperGit] add skip file '${f}': ${e2.message}`);
+      }
+    }
+
+    if (phase === 'gate') {
+      try {
+        const dirtyAfterFallback = await isWorkingTreeDirty(gitCtx);
+        if (dirtyAfterFallback) {
+          log('[harperGit] gate fallback detected extra dirty files → staging all with git add -A');
+          await gitRunVerbose(['add', '-A'], gitCtx);
+        }
+      } catch (e3) {
+        log(`[harperGit] gate add -A fallback warn: ${e3.message}`);
+      }
     }
   }
 
@@ -417,9 +453,16 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
 
   // 9) Merge su default branch quando phase === 'gate'
   if (phase === 'gate' && s.gitMergeOnGate === true) {
+    let sessionNoiseStashed = false;
     try {
-      // Vai sul default, aggiorna, unisci no-ff, push
+      const onlySessionNoise = await isOnlySessionNoiseDirty(gitCtx);
+      if (onlySessionNoise) {
+        log('[harperGit] only session noise detected before merge');
+      }
+      sessionNoiseStashed = await stashLocalSessionNoise(gitCtx, log);
+
       await gitRunVerbose(['checkout', s.gitDefaultBranch], gitCtx);
+
       if (hasRemote && s.gitPushRebase) {
         try {
           const dirtyMain = await isWorkingTreeDirty(gitCtx);
@@ -428,31 +471,46 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
           } else {
             log('[harperGit] main dirty → skip pull --rebase before merge');
           }
-        } catch (e) { log(`[harperGit] pull main warn: ${e.message}`); }
+        } catch (e) {
+          log(`[harperGit] pull main warn: ${e.message}`);
+        }
       }
 
-      await gitRunVerbose(['merge', '--no-ff', targetBranch, '-m', `merge: ${reqId} via gate [runId=${runId}]`], gitCtx);
+      await gitRunVerbose(
+        ['merge', '--no-ff', targetBranch, '-m', `merge: ${reqId} via gate [runId=${runId}]`],
+        gitCtx
+      );
 
       if (hasRemote) {
-        try { await gitRunVerbose(['push', s.gitRemote, s.gitDefaultBranch], gitCtx); } 
-        catch (e) { log(`[harperGit] push main warn: ${e.message}`); }
+        try {
+          await gitRunVerbose(['push', s.gitRemote, s.gitDefaultBranch], gitCtx);
+        } catch (e) {
+          log(`[harperGit] push main warn: ${e.message}`);
+        }
       }
 
-      // Opzionale: delete branch feature dopo merge
       if (s.gitDeleteBranchOnMerge === true) {
         try {
           await gitRunVerbose(['branch', '-d', targetBranch], gitCtx);
-          if (hasRemote) { await gitRunVerbose(['push', s.gitRemote, '--delete', targetBranch], gitCtx); }
-        } catch (e) { log(`[harperGit] delete branch warn: ${e.message}`); }
+          if (hasRemote) {
+            await gitRunVerbose(['push', s.gitRemote, '--delete', targetBranch], gitCtx);
+          }
+        } catch (e) {
+          log(`[harperGit] delete branch warn: ${e.message}`);
+        }
       }
 
-      // Torna al branch feature se preferisci (o resta su main)
       if (s.gitReturnToFeatureAfterMerge === true) {
-        try { await gitRunVerbose(['checkout', targetBranch], gitCtx); } catch {}
+        try {
+          await gitRunVerbose(['checkout', targetBranch], gitCtx);
+        } catch {}
       }
-
     } catch (e) {
       log(`[harperGit] merge-on-gate warn: ${e.message}`);
+    } finally {
+      if (sessionNoiseStashed) {
+        await popLocalSessionNoise(gitCtx, log);
+      }
     }
   }
 
@@ -548,6 +606,44 @@ async function mergeOnGate(gitCtx, s, hasRemote, targetBranch, runId, reqId, out
     log(`[git:gate] merge completed: ${targetBranch} -> ${defaultBranch}`);
   } catch (e) {
     log(`[git:gate] mergeOnGate warn: ${e.message}`);
+  }
+}
+
+async function stashLocalSessionNoise(gitCtx, log) {
+  try {
+    await gitRunVerbose(
+      ['stash', 'push', '-m', 'clike-session-noise', '--', '.clike/sessions/harper.jsonl'],
+      gitCtx
+    );
+    log('[harperGit] stashed local session noise');
+    return true;
+  } catch (e) {
+    log(`[harperGit] stash session noise warn: ${e.message}`);
+    return false;
+  }
+}
+
+async function isOnlySessionNoiseDirty(gitCtx) {
+  try {
+    const { stdout } = await gitRunRaw(['status', '--porcelain'], gitCtx);
+    const lines = String(stdout || '')
+      .split('\n')
+      .map(x => x.trim())
+      .filter(Boolean);
+
+    if (!lines.length) return false;
+
+    return lines.every(line => line.includes('.clike/sessions/harper.jsonl'));
+  } catch {
+    return false;
+  }
+}
+async function popLocalSessionNoise(gitCtx, log) {
+  try {
+    await gitRunVerbose(['stash', 'pop'], gitCtx);
+    log('[harperGit] restored local session noise');
+  } catch (e) {
+    log(`[harperGit] stash pop warn: ${e.message}`);
   }
 }
 

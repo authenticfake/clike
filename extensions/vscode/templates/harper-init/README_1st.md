@@ -13,6 +13,10 @@ Harper is an outcome-driven, AI-native workflow: IDEA → SPEC → PLAN → KIT 
   - \`/spec\`: generate/update SPEC from IDEA.
   - \`/plan\`: generate/update PLAN from SPEC.
   - \`/kit\`: implement & test in short loops.
+  - \`/kit [REQ-ID] --integrity\`: → runs `integrity_eval` on the latest candidate for that REQ.
+  - \`/kit [REQ-ID] --hardener\`:→ runs `promotion_hardener` on the latest candidate for that REQ.
+  - \`/kit [REQ-ID] --promotion-eval\`: → runs `promotion_eval` on the latest candidate for that REQ.
+  - \`/kit [REQ-ID] --phases=kit,integrity_eval,promotion_hardener,promotion_eval:` → runs a chained KIT pipeline explicitly.  
   - \`/finalize\`: package + SBOM + license checks.
   - \`/eval <REQ-ID>\`: Performs an eval after kit phase for REQ-ID.
   - \`/gate <REQ-ID>\`: Performs a gate after kit phase for REQ-ID.

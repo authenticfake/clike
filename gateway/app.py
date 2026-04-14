@@ -73,11 +73,11 @@ class LogMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         try:
             body = await request.body()
-            logger.info(f"[REQ] {request.method} {request.url} ct={request.headers.get('content-type')} len={len(body)}")
+            logger.debug(f"[REQ] {request.method} {request.url} ct={request.headers.get('content-type')} len={len(body)}")
         except Exception:
             logger.warning("[REQ] failed to read body for logging")
         resp = await call_next(request)
-        logger.info(f"[RES] {request.method} {request.url} -> {resp.status_code}")
+        logger.debug(f"[RES] {request.method} {request.url} -> {resp.status_code}")
         return resp
 
 app.add_middleware(LogMiddleware)

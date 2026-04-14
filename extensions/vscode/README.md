@@ -86,8 +86,11 @@ Type in the chat:
 
   * **`/spec`** → generate SPEC from IDEA & context.
   * **`/plan`** → generate PLAN from SPEC.
-  * **`/kit`**  → initial kit/scaffold from SPEC+PLAN.
-  
+  * **`/kit [REQ-ID]`** → runs the base KIT candidate generation from SPEC+PLAN.
+  * **`/kit [REQ-ID] --integrity`** → runs `integrity_eval` on the latest candidate for that REQ.
+  * **`/kit [REQ-ID] --hardener`** → runs `promotion_hardener` on the latest candidate for that REQ.
+  * **`/kit [REQ-ID] --promotion-eval`** → runs `promotion_eval` on the latest candidate for that REQ.
+  * **`/kit [REQ-ID] --phases=kit,integrity_eval,promotion_hardener,promotion_eval`** → runs a chained KIT pipeline explicitly.  
   * **'/eval'**  <spec|plan|kit|finalize> — run eval profile and show PASS/FAIL summary  
   * **'/gate'** <spec|plan|kit|finalize> — enforce gates for the selected phase  
 * **RAG**:
@@ -187,11 +190,12 @@ Prompt for code; the model returns **files** via tool-calls; review **Diffs**, t
 1. `/init <name> [path] [--force]` → scaffold & open workspace.
 2. Complete `IDEA.md`.
 3. `/spec` → generate SPEC.md.
-4. `/plan` → generate PLAN.md.
-5. `/kit`  → scaffold.
-6. `/eval`  → test the kit code.
-7. `/gate`  → promote source code if gate is succesfull reached.
-8. (Sprint B) `/finalize` → EVAL/PR automation gates.
+4. `/plan` → generate PLAN.md and plan.json.
+5. `/kit REQ-XXX` → generate the base candidate for the selected REQ.
+6. Optionally run `/kit REQ-XXX --integrity`, `--hardener`, or `--promotion-eval` depending on the candidate quality.
+7. `/eval` → test the generated kit code.
+8. `/gate`  → promote source code if gate is succesfull reached.
+9. (Sprint B) `/finalize` → EVAL/PR automation gates.
 
 ---
 

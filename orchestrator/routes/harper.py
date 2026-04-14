@@ -10,7 +10,6 @@ from schemas.harper import (
     SessionClearRequest, ModelsResponse, ProfilesResponse, DefaultsResponse,
     ResolveResponse, HarperPhaseRequest, TestSummary
 )
-from services import harper as svc
 from services.router import _load_cfg, resolve, resolve_explain
 router = APIRouter(prefix="/v1/harper", tags=["harper"])
 log = logging.getLogger("orchestrator.harper")
@@ -91,9 +90,6 @@ def get_run(run_id: str):
 
 
 
-# ... imports in testa restano uguali ...
-from services import harper as svc
-
 
 # ---- Endpoint SPEC ----------------------------------------------------------
 
@@ -159,7 +155,7 @@ async def post_spec(req: HarperPhaseRequest):
 
 
 @router.post("/idea", response_model=HarperEnvelope)
-async def post_plan(req: HarperPhaseRequest):
+async def post_idea(req: HarperPhaseRequest):
     
     payload = req.model_dump()
     # Coerenza terminologica: manteniamo 'cmd' dal client ma imponiamo anche 'phase'
@@ -220,12 +216,13 @@ async def post_plan(req: HarperPhaseRequest):
             len(payload.get("attachments") or []),
             "present" if payload.get("flags") else "none")
 
-    # Delego al service che farà SOLO il merge del modello/profilo, senza perdere campi
-    out_dict = await svc.run_phase("plan", payload)
     out = None
-    log.info("post_plan out files len: %s", len(out_dict.get("files")));
-
     try: 
+        # Delego al service che farà SOLO il merge del modello/profilo, senza perdere campi
+        out_dict = await svc.run_phase("plan", payload)
+        
+        log.info("post_plan out files len: %s", len(out_dict.get("files")));
+
         out = HarperRunResponse(
             ok=bool(out_dict.get("ok", True)),
             phase=out_dict.get("phase") or "plan",
@@ -242,7 +239,8 @@ async def post_plan(req: HarperPhaseRequest):
         )
         log.info("inside try out files len: %s", len(out_dict.get("files")));
 
-
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
     except Exception as e:
         log.info( "Error in plan phase %s", e)
         raise HTTPException(status_code=500, detail="Error in plan phase")    
@@ -265,13 +263,19 @@ async def post_kit(req: HarperPhaseRequest):
     payload["phase"] = "kit"
     payload.setdefault("cmd", payload["phase"])
     repo_ctx = payload.get("repository_context") or {}
+    kit_opts = payload.get("kit") or {}
+    log.info(
+        "run_phase kit (route): targets=%s phases=%s",
+        kit_opts.get("targets"),
+        kit_opts.get("phases") or ["kit"],
+    )
     
     log.info("run_phase kit (route): idea_md=%s  plan_md=%s kit_md=%s core=%d gen=%s attachments=%d flags=%s",
             bool(payload.get("idea_md")),
             bool(payload.get("plan_md")),
             bool(payload.get("kit_md")),
             len(payload.get("core") or []),
-            bool(payload.get("geb")),
+            bool(payload.get("gen")),
 
             len(payload.get("attachments") or []),
             "present" if payload.get("flags") else "none")

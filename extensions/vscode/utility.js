@@ -113,7 +113,7 @@ async function copyTreeWithConflicts(srcRoot, destRoot, { strategy, reqId, ts, l
     if (!dstExists) {
       await copyFile(src, dst);
       actions.push({ op: 'copy', from: src.path, to: dst.path });
-      filesToCommit.push(src.path)
+      filesToCommit.push(dst.fsPath || dst.path);
       continue;
     }
 
@@ -129,6 +129,7 @@ async function copyTreeWithConflicts(srcRoot, destRoot, { strategy, reqId, ts, l
     if (strategy === 'overwrite') {
       await vscode.workspace.fs.writeFile(dst, a);
       actions.push({ op: 'overwrite', to: dst.path });
+      filesToCommit.push(dst.fsPath || dst.path);
     } else if (strategy === 'skip') {
       actions.push({ op: 'skip_conflict', to: dst.path });
     } else if (strategy === 'backup') {
@@ -138,6 +139,7 @@ async function copyTreeWithConflicts(srcRoot, destRoot, { strategy, reqId, ts, l
       await vscode.workspace.fs.rename(dst, backup, { overwrite: true });
       await vscode.workspace.fs.writeFile(dst, a);
       actions.push({ op: 'backup_then_write', old: dst.path, backup: backup.path });
+      filesToCommit.push(dst.fsPath || dst.path);
       // Diff: existing backup vs new dest
       diffs.push({ left: backup, right: dst, label: `${name} (backup vs new)` });
     } else if (strategy === 'suffix') {
@@ -152,10 +154,11 @@ async function copyTreeWithConflicts(srcRoot, destRoot, { strategy, reqId, ts, l
       // 'folder' uses a unique destRoot, so we shouldn't hit conflicts—still handle gracefully
       await vscode.workspace.fs.writeFile(dst, a);
       actions.push({ op: 'copy_folder_mode', to: dst.path });
+      filesToCommit.push(dst.fsPath || dst.path);
     }
   }
 
-  log(`[copyTreeWithConflicts] actions=${actions.length}, diffs=${diffs.length} files=${filesToCommit.length}`);
+  //log(`[copyTreeWithConflicts] actions=${actions.length}, diffs=${diffs.length} files=${filesToCommit.length}`);
   return { actions, diffs, filesToCommit };
 }
 
@@ -319,8 +322,13 @@ async function promoteReqSources(projectRootUri, reqId, strategy = 'folder', out
     manifestUri,
     Buffer.from(JSON.stringify(manifest, null, 2), 'utf8')
   );
+  const uniqFilesToCommit = [...new Set(
+  (filteredFilesToCommit || [])
+    .map(p => String(p || '').trim())
+    .filter(Boolean)
+  )];
 
-  return { manifestUri, actions, diffs, filesToCommit: filteredFilesToCommit };
+  return { manifestUri, actions, diffs, filesToCommit: uniqFilesToCommit };
 }
 
 
@@ -874,30 +882,41 @@ async function ensureReqIdInPlan(reqId, plan) {
   return true;
 }
 
-async function runKitCommand( plan, cmdArgs) {
-  
-  out.appendLine(`[runKitCommand] ${cmdArgs}`);
+async function runKitCommand(plan, cmdArgs) {
+  out.appendLine(`[runKitCommand] raw cmdArgs=${JSON.stringify(cmdArgs)}`);
 
-  // cmdArgs: string dopo "/kit", es. "", "REQ-001"
-  let targetReqId = (cmdArgs || '').trim() || null;
+  let targetReqId = null;
+
+  if (Array.isArray(cmdArgs) && cmdArgs.length > 0) {
+    targetReqId = String(cmdArgs[0] || '').trim().toUpperCase() || null;
+  } else if (typeof cmdArgs === 'string') {
+    targetReqId = cmdArgs.trim().toUpperCase() || null;
+  } else {
+    targetReqId = null;
+  }
+
+  out.appendLine(`[runKitCommand] normalized targetReqId=${targetReqId}`);
+
   if (!targetReqId) {
     targetReqId = findNextOpenReq(plan);
     if (!targetReqId) {
       vscode.window.showWarningMessage('No open REQ found in plan.json.');
       return;
     }
-  } else  {
-    out.appendLine(`[runKitCommand] passed targetReqId: ${targetReqId}`)
-    const result = await ensureReqIdInPlan(targetReqId, plan); 
+    out.appendLine(`[runKitCommand] fallback next open req=${targetReqId}`);
+  } else {
+    out.appendLine(`[runKitCommand] explicit targetReqId=${targetReqId}`);
+    const result = await ensureReqIdInPlan(targetReqId, plan);
     if (!result) return;
   }
-  out.appendLine(`[runKitCommand] targetReqId: ${targetReqId} validated`)
 
-  // (opzionale) avvisa se deps non done
+  out.appendLine(`[runKitCommand] targetReqId validated=${targetReqId}`);
+
   const candidate = (plan.reqs || []).find(r => r.id === targetReqId);
   const deps = Array.isArray(candidate?.dependsOn) ? candidate.dependsOn : [];
-  const byId = Object.fromEntries((plan.reqs||[]).map(r=>[r.id,r]));
+  const byId = Object.fromEntries((plan.reqs || []).map(r => [r.id, r]));
   const depsOk = deps.every(d => byId[d] && byId[d].status === 'done');
+
   if (!depsOk) {
     const pick = await vscode.window.showWarningMessage(
       `Dependencies for ${targetReqId} are not all 'done'. Proceed anyway?`,
@@ -905,6 +924,7 @@ async function runKitCommand( plan, cmdArgs) {
     );
     if (pick !== 'Proceed') return;
   }
+
   return targetReqId;
 }
 
@@ -1060,10 +1080,13 @@ async function persistReports(projectRootUri, phase, rep, out) {
 
   // runs/<phase>/<req_id>
   const outDirUri = vscode.Uri.joinPath(rootUri, 'runs', phase, req_id);
-  log('[persistReports] outDirUri=', outDirUri);
+  //log('[persistReports] outDirUri=', outDirUri);
 
-  try { await vscode.workspace.fs.createDirectory(outDirUri); } catch (e) {
-    log('[persistReports] createDirectory warning:', e?.message || String(e));
+  try { 
+    await vscode.workspace.fs.createDirectory(outDirUri);
+  } 
+  catch (e) {
+    //log('[persistReports] createDirectory warning:', e?.message || String(e));
   }
 
   const ts = Date.now(); // ms per uniqueness
@@ -1119,48 +1142,84 @@ async function persistReports(projectRootUri, phase, rep, out) {
 /**
  * /gate → porta REQ a done e sincronizza artefatti
  */
-async function saveGateCommand(projectRootUri, plan, targetReqId,report, out) {
+async function saveGateCommand(projectRootUri, plan, targetReqId, report, out) {
   const log = (m) => (out?.appendLine ? out.appendLine(m) : console.log(m));
   log(`[saveGateCommand] target=${targetReqId}`);
 
   let effectivePlan = plan || await readPlanJson(projectRootUri);
   if (!effectivePlan || !Array.isArray(effectivePlan.reqs)) return;
-  
+
   const gateVerdict = String(report?.gate || '').trim().toLowerCase();
   const isPass = gateVerdict === 'pass';
+
   if (isPass) {
     if (!setReqStatus(effectivePlan, targetReqId, 'done')) {
       log(`[saveGateCommand] REQ ${targetReqId} not found in plan.json`);
     }
   } else {
-    // keep REQ in progress if gate failed or verdict missing
     setReqStatus(effectivePlan, targetReqId, 'in_progress');
     log(`[saveGateCommand] gate not passed for ${targetReqId}; status kept as in_progress`);
   }
-  
 
   await writePlanJson(projectRootUri, effectivePlan);
   await updatePlanMdInPlace(projectRootUri, effectivePlan);
-  const report_file = await persistReports(projectRootUri, "gate", report, out)
-  var filesToCommit = []
-  
+
+  const planJsonUri = vscode.Uri.joinPath(projectRootUri, 'docs', 'harper', 'plan.json');
+  const planMdUri = vscode.Uri.joinPath(projectRootUri, 'docs', 'harper', 'PLAN.md');
+
+  const report_file = await persistReports(projectRootUri, "gate", report, out);
+
+  let filesToCommit = [
+    planJsonUri.fsPath,
+    planMdUri.fsPath,
+  ];
+
   if (isPass) {
-    log("[harperRun] Gate passed for " + targetReqId);
+    log(`[saveGateCommand] Gate passed for ${targetReqId}`);
+
     const choice = await vscode.window.showInformationMessage(
-      `Gate passed for ${targetReqId}. Promote sources now?`,
+      `Gate passed for ${targetReqId}. Choose how to promote sources now.`,
       'Promote',
-      'Cancel'
+      'Skip promote'
     );
+
     if (choice === 'Promote') {
-      filesToCommit = await runPromotionFlow(projectRootUri, targetReqId, out);
+      const strategy = await pickPromotionStrategy();
+      if (strategy) {
+        const result = await promoteReqSources(projectRootUri, targetReqId, strategy, out);
+        const promotedFiles = Array.isArray(result?.filesToCommit) ? result.filesToCommit : [];
+        filesToCommit.push(...promotedFiles);
+        log(`[saveGateCommand] promote strategy=${strategy} files=${promotedFiles.length}`);
+      } else {
+        log('[saveGateCommand] promotion strategy selection cancelled');
+      }
+    } else {
+      log('[saveGateCommand] promote skipped by user');
     }
-    try { vscode.window.showInformationMessage(`REQ ${targetReqId} marked as done.`); } catch {}
+
+    try {
+      vscode.window.showInformationMessage(`REQ ${targetReqId} marked as done.`);
+    } catch {}
   } else {
-    try { vscode.window.showWarningMessage(`Gate failed for ${targetReqId}. REQ not promoted.`); } catch {}
+    try {
+      vscode.window.showWarningMessage(`Gate failed for ${targetReqId}. REQ not promoted.`);
+    } catch {}
   }
-  
-  return { report_file, filesToCommit }
+
+  filesToCommit = [...new Set(
+    filesToCommit
+      .map(p => String(p || '').trim())
+      .filter(Boolean)
+  )];
+
+  return {
+    report_file,
+    filesToCommit,
+    planFiles: [planJsonUri.fsPath, planMdUri.fsPath],
+  };
 }
+
+
 /**
  * Trova l'ultimo REQ (per mtime) sotto runs/kit, pattern "REQ-*".
  * Ritorna es. "REQ-001" o null se non presente.
@@ -1215,6 +1274,40 @@ async function buildHarperBody(phase, payload, projectRootUri, out) {
   const core_blobs = await attachCoreBlobs(_docRoot, payload["core"] || []);
   payload["idea_md"] = idea_md;
   payload["core_blobs"] = core_blobs;
+
+  if (phase === 'kit') {
+    const requestedKit = payload["kit"] || {};
+    const requestedTargets = Array.isArray(requestedKit.targets) ? requestedKit.targets : [];
+    const requestedPhases = Array.isArray(requestedKit.phases) ? requestedKit.phases : ['kit'];
+    const targetReqId = String(requestedTargets[0] || '').trim().toUpperCase();
+
+    const postKitPhases = ['integrity_eval', 'promotion_hardener', 'promotion_eval'];
+    const needsCandidateArtifacts = requestedPhases.some(p =>
+      postKitPhases.includes(String(p || '').trim().toLowerCase())
+    );
+
+    if (targetReqId && needsCandidateArtifacts) {
+      const reqDocsRoot = vscode.Uri.joinPath(projectRootUri, 'runs', 'kit', targetReqId, 'docs');
+      const candidateDocs = [
+        'TARGET_CONTRACT.json',
+        'FILE_REQUIREMENTS.json',
+        'REQ_PROMOTION_MANIFEST.md',
+        'REPO_ACCESS_MANIFEST.md',
+        'REPO_STRUCTURE_EVIDENCE.md',
+        'REPO_COMPOSITION_MANIFEST.md',
+        'INTEGRITY_EVAL.json',
+      ];
+
+      for (const fileName of candidateDocs) {
+        try {
+          const raw = await vscode.workspace.fs.readFile(vscode.Uri.joinPath(reqDocsRoot, fileName));
+          payload["core_blobs"][fileName] = Buffer.from(raw).toString('utf8');
+        } catch {
+          // best effort: preflight and backend validation will handle missing required files
+        }
+      }
+    }
+  }
   //RAG SUGGENSTIONDS
   payload["rag_strategy"] = "auto";
   payload["rag_top_k"] = 12;
@@ -1624,7 +1717,7 @@ async function buildRagItemsForIndex(rag_files, out) {
     // 2) Trust provided bytes_b64 before trying to re-read from workspace
     if (typeof f.bytes_b64 === 'string' && f.bytes_b64.length > 0) {
       items.push({ path: p, bytes_b64: f.bytes_b64 });
-      log(`[harperRAG] use provided bytes_b64 for ${p}`);
+      //log(`[harperRAG] use provided bytes_b64 for ${p}`);
       continue;
     }
 
