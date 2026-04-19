@@ -49,7 +49,12 @@ function localAgentSupportsPhase(executorId, phase, settings) {
     return normalized === 'claude_code' || normalized === 'gpt_codex';
   }
 
-  // Recovery tranche: /eval remains canonical/CLike-owned.
+  if (p === 'eval') {
+    // /eval uses the local agent only as a pre-pass hardener/diagnostic runner.
+    // The canonical CLike EvalRunner remains the final evidence-based judge.
+    return normalized === 'claude_code' || normalized === 'gpt_codex';
+  }
+
   return false;
 }
 
@@ -68,7 +73,7 @@ function getExecutorConfig(executorId, settings) {
       timeoutMinutes: settings.localAgentTimeoutMinutes || settings.claudeCodeTimeoutMinutes || 20,
       supports: {
         kit: true,
-        eval: false,
+        eval: true,
         followUpKitPhases: false,
         nonInteractive: true,
         permissionMode: true,
@@ -90,7 +95,7 @@ function getExecutorConfig(executorId, settings) {
       timeoutMinutes: settings.localAgentTimeoutMinutes || settings.codexTimeoutMinutes || 20,
       supports: {
         kit: true,
-        eval: false,
+        eval: true,
         followUpKitPhases: false,
         nonInteractive: true,
         permissionMode: false,

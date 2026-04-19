@@ -98,6 +98,144 @@ Prefer REQ boundaries that answer clearly:
 - which states, contracts, or side effects must already be true
 - what later REQs are allowed to assume
 
+## REQ Authoring Rules — Functional + Technical Completeness (MANDATORY)
+
+Each REQ MUST be generated as a complete implementation unit, not as a short task title.
+
+Every REQ MUST contain two explicit human-readable sections in `PLAN.md`:
+
+- `Functional Scope`
+- `Technical Scope`
+
+### Functional Scope requirements
+
+The Functional Scope MUST describe the user-facing, business-facing, operational, or process-facing behavior of the REQ.
+
+It MUST explain:
+
+- what behavior this REQ introduces
+- who benefits from it
+- which broader scenario this REQ belongs to
+- how this REQ contributes to the final solution
+- what is delivered now
+- what is intentionally deferred to later REQs
+- which future capabilities this REQ must not block
+- which assumptions must remain stable for subsequent REQs
+
+The Functional Scope MUST be specific enough for a product engineer, business analyst, industrial process owner, enterprise architect, or human reviewer to understand the intended outcome without guessing.
+
+### Technical Scope requirements
+
+The Technical Scope MUST describe the expected implementation direction of the REQ.
+
+It MUST explain:
+
+- affected components
+- expected main module boundary
+- canonical module/package/namespace ownership
+- integration points
+- data contracts
+- APIs, events, queues, adapters, protocols, or persistence concerns
+- runtime expectations such as local, cloud, on-prem, air-gapped, edge, or hybrid execution
+- configuration expectations
+- test expectations
+- documentation expectations
+- quality gates
+- compatibility with future REQs
+
+The Technical Scope MUST be specific enough for a coding agent to generate functional, testable, review-ready code aligned with this REQ and with later REQs.
+
+### REQ size and density guidance
+
+REQ descriptions SHOULD be sufficiently detailed to support high-quality KIT generation.
+
+Recommended size:
+
+- Simple REQ: 25–40 lines total.
+- Standard REQ: 45–70 lines total.
+- Complex, enterprise, industrial, manufacturing, integration-heavy, security-sensitive, AI-native, or domain-critical REQ: 70–100 lines total.
+- Default target: around 60 lines total, approximately 30 lines for Functional Scope and 30 lines for Technical Scope.
+
+Do NOT add filler text to satisfy line count.
+
+Prefer dense, implementation-useful detail over verbose repetition.
+
+A REQ is under-specified if KIT would need to invent business behavior, integration contracts, runtime behavior, tests, quality gates, or future compatibility assumptions.
+
+### Broader scenario awareness
+
+Every REQ MUST explicitly state that it is part of a broader scenario when the complete solution is expected to be delivered across multiple REQs.
+
+Each REQ MUST clarify:
+
+- what part of the scenario is implemented by this REQ
+- what part is deferred to later REQs
+- which contracts, interfaces, data models, module boundaries, or runtime assumptions must remain stable
+- which future REQs are expected to build on this one
+- which shortcuts are forbidden because they would block future implementation
+
+The PLAN MUST avoid isolated REQs that only make sense individually but do not compose into the final solution.
+
+### Capability awareness
+
+Each REQ SHOULD identify candidate capabilities that may guide KIT, EVAL, and GATE.
+
+When applicable, each REQ SHOULD include:
+
+- candidate lane, such as python, typescript, java, dotnet, go, rust, iac, frontend, backend, data, ai-native, industrial, plc/scada, manufacturing, integration, or security
+- candidate domain, such as consumer, startup, enterprise, industrial, manufacturing, healthcare, fintech, public-sector, AI-native, developer-tooling, or internal-platform
+- candidate runtime profile, such as local, cloud, on-prem, air-gapped, edge, hybrid, or local-cloud
+- candidate skills or capabilities
+- candidate packs
+- candidate design profile, when UI/UX is involved
+- gate implications
+
+Capabilities are planning hints for later phases. They MUST NOT replace acceptance criteria.
+
+### Agnostic planning rule
+
+The PLAN MUST remain agnostic across:
+
+- agents
+- model providers
+- programming languages
+- frameworks
+- deployment targets
+- business domains
+- consumer, startup, enterprise, industrial, and manufacturing scenarios
+
+Do not assume Python, web/frontend, cloud-only, consumer-only, SaaS-only, or startup-only unless SPEC, IDEA, TECH_CONSTRAINTS, repository evidence, or explicit user instruction requires it.
+
+When possible, express implementation direction in terms of capabilities, contracts, runtime profiles, domain constraints, and quality gates rather than vendor-specific assumptions.
+
+Technology choices MUST be grounded in:
+
+- existing repository structure
+- SPEC
+- IDEA
+- TECH_CONSTRAINTS
+- explicit user instruction
+- detected lane guides
+- available capability packs or skills
+- repository evidence
+
+If multiple implementation lanes are plausible, PLAN must either:
+
+- select the most likely lane and explain why in Technical Scope
+- or mark the lane as candidate/ambiguous and defer final selection to human review or KIT
+
+### Main module boundary hint
+
+When planning implementation work, prefer one coherent main module boundary per REQ.
+
+The PLAN MUST identify the expected main module or main implementation area whenever possible.
+
+Avoid encouraging scattered, duplicated, or cross-REQ file generation.
+
+Supporting modules are allowed only when justified by interfaces, adapters, tests, configuration, or documentation.
+
+The stricter single-main-module implementation rule is enforced by KIT, but PLAN must prepare the boundary clearly.
+
 ## REQ Implementation Directives (MANDATORY)
 
 For each REQ, you MUST define:
@@ -334,9 +472,41 @@ Return this section strictly as a **canonical Markdown table** using pipes with 
 - In particular, **never echo raw HTTP/audit log phrases** (for example: `… access with 403 and audit log entry`) as free text in PLAN.md or as repeated fragments. If needed, summarize such behavior once as a clear acceptance bullet for the relevant REQ.
 - **Do NOT emit triple backticks in file bodies**. Never start or end any file content with `… or `language. If present, remove them.
 
-**After the table**, for each REQ add:
+**After the table**, for each REQ add the following detailed sections in this exact order:
+
+`### Functional Scope — <REQ-ID>`
+- Describe the business, user, operational, industrial, enterprise, or system behavior delivered by this REQ.
+- Explain the broader scenario this REQ belongs to.
+- Explain what this REQ delivers now.
+- Explain what is intentionally deferred to later REQs.
+- Explain what future REQs may safely assume after this REQ is complete.
+- Keep this section dense and implementation-useful.
+- Target approximately 30 lines for standard REQs, more for complex/domain-critical REQs, less for simple REQs.
+
+`### Technical Scope — <REQ-ID>`
+- Describe affected components, canonical module family, expected main module boundary, integration points, contracts, runtime profiles, test expectations, documentation expectations, and gate implications.
+- Explain local/cloud/on-prem/edge/air-gapped expectations when relevant.
+- Explain which abstractions, adapters, interfaces, events, APIs, persistence models, or configuration seams must be stable.
+- Identify candidate lane, domain, runtime profile, skills, packs, and design profile when applicable.
+- Keep this section dense and implementation-useful.
+- Target approximately 30 lines for standard REQs, more for complex/domain-critical REQs, less for simple REQs.
+
 `### Acceptance — <REQ-ID>`
-- A separate bullet list (≥5 items), observable & falsifiable, full detail (this is where you expand).
+- A separate bullet list with at least 5 items.
+- Each item must be observable and falsifiable.
+- Acceptance criteria must cover both Functional Scope and Technical Scope.
+- Include local/cloud/on-prem/runtime parity criteria when applicable.
+- Include documentation and gate expectations when applicable.
+
+`### Out of Scope — <REQ-ID>`
+- Explicitly list behavior that must not be implemented by the current REQ.
+- Mention deferred work that belongs to later REQs.
+- Do not use this section to defer mandatory TECH_CONSTRAINTS obligations.
+
+`### Future Compatibility — <REQ-ID>`
+- State what later REQs may safely rely on.
+- State which contracts, data models, module boundaries, or runtime behavior must remain stable.
+- State which shortcuts are forbidden because they would block future implementation.
 
 
 ## Dependency Graph (textual)
@@ -423,19 +593,34 @@ Use this exact structure:
     {
       "id": "REQ-001",
       "title": "string",
+      "functional_scope": "Concise but complete functional summary aligned with PLAN.md Functional Scope.",
+      "technical_scope": "Concise but complete technical summary aligned with PLAN.md Technical Scope.",
       "acceptance": ["bullet 1", "bullet 2", "bullet 3", "bullet 4", "bullet 5"],
       "dependsOn": ["REQ-00x", "..."],
-      "track": "App" | "Infra",
+      "track": "App" | "Infra" | "Data" | "Integration" | "Industrial" | "AI-Native",
       "status": "open" | "in_progress" | "done" | "deferred",
-      "lane": "python" | "node" | "java" | "sql" | "kafka" | "ci" | "infra",
+      "lane": "python" | "typescript" | "node" | "java" | "dotnet" | "go" | "rust" | "sql" | "kafka" | "ci" | "data" | "data platform" | Cloud Data Platform | "confluent" | "infra" | "frontend" | "Mendix" | "backend" | "iac" | "industrial" | "plc-scada" | "ai-native", 
+      "domain": "consumer" | "startup" | "enterprise" | "industrial" | "manufacturing" | "ai-native" | "developer-tooling" | "not_applicable",
+      "runtime_profile": "local" | "cloud" | "local-cloud" | "on-prem" | "air-gapped" | "edge" | "mobile" |  "hybrid" | "not_applicable",
+      "packs": ["candidate-pack-name"],
+      "skills": ["candidate-skill-name"],
+      "design_profiles": ["candidate-design-profile-name"],
       "test_profile": "string",
-      "gate_policy_ref": "docs/harper/lane-guides/<lane>.md"
+      "gate_policy_ref": "docs/harper/lane-guides/<lane>.md",
+      "gate_expectations": ["tests", "lint", "types", "security", "skill_adherence", "runtime_profile_adherence"],
+      "main_module_boundary": "Expected canonical module/package/namespace or implementation area.",
+      "out_of_scope": ["Explicit deferred behavior."],
+      "future_compatibility_notes": ["Contracts or boundaries that later REQs may rely on."]
     }
   ]
 }
 
 ### Hard rules
 - Every REQ **must** include: lane, test_profile, gate_policy_ref.
+- Every REQ **should** include: functional_scope, technical_scope, domain, runtime_profile, packs, skills, design_profiles, gate_expectations, main_module_boundary, out_of_scope, future_compatibility_notes.
+- The new capability fields are additive and backward-compatible. Do not remove existing required fields.
+- If a field is not applicable, use an empty array or `"not_applicable"`.
+- Do not invent fake tools, fake services, fake protocols, fake packs, fake skills, or fake design profiles. Use capability hints only when grounded in SPEC, IDEA, TECH_CONSTRAINTS, repository evidence, or explicit user intent.
 - `snapshot.total == len(reqs)`.
 - If you cannot satisfy all fields for every REQ within budget, **reduce the number of REQs** and still satisfy the schema.
 - `plan.json` MUST always be emitted.

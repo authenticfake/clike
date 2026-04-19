@@ -339,6 +339,63 @@ class EvalRunner:
                 )
             return norm_cases
 
+        if isinstance(ltc.get("commands"), list) and ltc["commands"]:
+            for command in ltc["commands"]:
+                if not isinstance(command, dict):
+                    continue
+
+                run = command.get("run") or command.get("command")
+                if not run:
+                    continue
+
+                expected = command.get(
+                    "expected_exit_code",
+                    command.get("expect_exit", command.get("expect", 0)),
+                )
+
+                required = command.get("required", True)
+                blocking = bool(required)
+
+                norm_cases.append(
+                    {
+                        "name": command.get("id") or command.get("name") or command.get("label") or run,
+                        "run": run,
+                        "cwd": command.get("cwd") or command.get("working_dir"),
+                        "expect": int(expected),
+                        "timeout": command.get("timeout"),
+                        "env": command.get("env") or {},
+                        "blocking": blocking,
+                        "environment_requirements": command.get("environment_requirements") or [],
+                    }
+                )
+            return norm_cases
+
+        if isinstance(ltc.get("commands"), dict) and ltc["commands"]:
+            for name, raw in ltc["commands"].items():
+                if isinstance(raw, list):
+                    run = " && ".join(str(item) for item in raw if str(item).strip())
+                elif isinstance(raw, dict):
+                    run = raw.get("run") or raw.get("command")
+                else:
+                    run = str(raw)
+
+                if not run:
+                    continue
+
+                norm_cases.append(
+                    {
+                        "name": str(name),
+                        "run": run,
+                        "cwd": raw.get("cwd") if isinstance(raw, dict) else ltc.get("cwd"),
+                        "expect": int(raw.get("expect", 0)) if isinstance(raw, dict) else 0,
+                        "timeout": raw.get("timeout") if isinstance(raw, dict) else None,
+                        "env": raw.get("env") if isinstance(raw, dict) else {},
+                        "blocking": bool(raw.get("required", True)) if isinstance(raw, dict) else True,
+                        "environment_requirements": raw.get("environment_requirements") if isinstance(raw, dict) else [],
+                    }
+                )
+            return norm_cases
+
         if ltc.get("run"):
             norm_cases.append(
                 {
@@ -443,7 +500,17 @@ class EvalRunner:
 
         base_env = self._merge_env(top_env, None)
         runtime = ltc.get("runtime") or {}
-        requirements_file = runtime.get("requirements_file") or ltc.get("pip_file")
+        requirements_file = (
+            runtime.get("requirements_file")
+            or ltc.get("requirements_file")
+            or ltc.get("pip_file")
+            or ltc.get("pip-file")
+        )
+
+        if not requirements_file:
+            inferred_requirements = profile_path.parent.parent / "requirements.txt"
+            if inferred_requirements.exists():
+                requirements_file = str(inferred_requirements)
 
         eval_env, setup_cases = self._ensure_eval_venv(
             req_id=eff_req,
@@ -475,7 +542,7 @@ class EvalRunner:
                     passed=False,
                     code=4,
                     stdout="",
-                    stderr="LTC contains no executable checks. Expected one of checks[], cases[], steps[], or run.",
+                    stderr="LTC contains no executable checks. Expected one of checks[], cases[], steps[], commands[], or run.",
                     cmd=None,
                     cwd=str(default_cwd),
                     blocking=True,

@@ -6,7 +6,7 @@ from typing import Any, Dict
 #
 # Recovery rule:
 # - /kit base phase can use a local agent execution package.
-# - /eval remains canonical/CLike-owned for now.
+# - /eval may use a local-agent pre-pass, but canonical CLike EvalRunner remains the final judge.
 # - kit follow-up phases are orchestrator/cloud-owned until the local contract is stable.
 _ALLOWED_LOCAL_AGENT_PHASES = {
     "kit",

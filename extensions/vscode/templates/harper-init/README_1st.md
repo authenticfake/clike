@@ -1,6 +1,46 @@
 # ${project.name} — Harper Vibe Coding (CLike)
 
-## What is Harper
+## ✨ What is Harper
+
+**Clike** is 
+- Harper-governed
+- RAG-grounded
+- Eval-driven
+- Human-in-the-loop
+- Multi-model / agent-agnostic
+- Cloud + local agent compatible
+
+**Clike** is not just an agent that writes code; it is an AI-native pipeline / platform that orchestrates verifiable capabilities across specs, plans, code, tests, reviews, and release gates.
+
+**CLike** is an AI-native platform that merges the **Harper-style** pipeline with the **Vibe Coding** philosophy and operationalizes it through:
+
+- a VS Code extension;
+- a FastAPI orchestrator;
+- a FastAPI model gateway;
+- RAG-backed context retrieval;
+- cloud LLM execution;
+- local coding-agent execution;
+- Git-aware promotion;
+- eval-driven governance;
+- MCP surfaces for agent interoperability.
+
+CLike is not just a chat panel. It is a governed software-generation pipeline.
+
+The core workflow is:
+
+```text
+IDEA → SPEC → PLAN → KIT → EVAL → GATE → FINALIZE
+```
+
+The main operating principle is:
+
+```text
+The developer leads.
+CLike governs.
+Cloud models and local agents execute.
+Eval and Gate decide.
+```
+
 Harper is an outcome-driven, AI-native workflow: IDEA → SPEC → PLAN → KIT → EVAL → GATE → FINALIZE.
 - Human = orchestrator/validator. AI = executor.
 - Core docs live in \`docs/harper/\` and are **always** part of the model context.
@@ -35,6 +75,30 @@ docs/harper/
 runs/           # manifests, diffs, test logs
 .clike/         # project config & policy
 \`\`\`
+
+## CLike Capability System
+
+This workspace includes a project-local capability system under `.clike/`.
+
+```text
+.clike/
+  skills/
+    local-cloud-parity/
+    eval-contract-writer/
+    gate-risk-reviewer/
+  packs/
+    enterprise-onprem/
+    industrial-manufacturing/
+    consumer-saas/
+  design-profiles/
+    enterprise-console/
+    industrial-control-room/
+```
+Capabilities are project-specific, agent-agnostic, model-agnostic, language-agnostic, and domain-aware.
+
+They help Harper phases generate better SPEC, PLAN, KIT, EVAL, and GATE outputs without turning CLike into a vendor-specific coding agent.
+
+CLike is not just an agent that writes code; it is an AI-native platform that orchestrates verifiable capabilities across specs, plans, code, tests, reviews, and release gates.
 
 ## GitHub workflow (recommended)
 1. \`git init\`; first commit (bootstrap).

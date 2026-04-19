@@ -706,9 +706,11 @@ async function executeLocalAgentPackage({
 
   panel.webview.postMessage({
     type: 'echo',
-    message: `🤖 ${executorLabel} local ${phaseForAgent.toUpperCase()} package received from orchestrator for ${reqForAgent}.`
+    message:
+      `🤖 ${executorLabel} local ${phaseForAgent.toUpperCase()} package received for ${reqForAgent}. ` +
+      `CLike remains the workflow owner; the agent is the local actuator/hardener.`
   });
-
+  
   const agentResult = await runLocalAgentSync({
     workspaceRootUri: wsroot,
     prompt: promptContent,
@@ -3067,9 +3069,17 @@ async function cmdOpenChat(context) {
             files_created: [
               'README.md',
               '.gitignore',
-              '.clike/policy.yaml',
+                            '.clike/policy.yaml',
               '.clike/capabilities.yaml',
-              '.clike/policy.yaml',
+              '.clike/project.json',
+              '.clike/skills/local-cloud-parity/SKILL.md',
+              '.clike/skills/eval-contract-writer/SKILL.md',
+              '.clike/skills/gate-risk-reviewer/SKILL.md',
+              '.clike/packs/enterprise-onprem/PACK.md',
+              '.clike/packs/industrial-manufacturing/PACK.md',
+              '.clike/packs/consumer-saas/PACK.md',
+              '.clike/design-profiles/enterprise-console/DESIGN.md',
+              '.clike/design-profiles/industrial-control-room/DESIGN.md',
               '.github/CODEOWNERS',
               '.github/pull_request_template.md',
               '.github/worflow/clike-ci.yaml',
@@ -3292,7 +3302,7 @@ x
           let msg_bubble='';
           const _gen={
             temperature: 0.2,
-            max_tokens: (phase === 'plan' ? 15000 : phase === 'spec' ? 10500 : 9999),
+            max_tokens: (phase === 'plan' ? 45000 : phase === 'spec' ? 10500 : 9999),
             top_p: 0.9,
             stop: ["```.:: END ::.```"],
             presence_penalty: 0.0,
@@ -3467,7 +3477,7 @@ x
 
           if (phase === 'kit') {
             body.localAgentExecutor = normalizeLocalAgentExecutor(
-              state.localAgentExecutor || settings.localAgentPreferredExecutor || 'auto'
+              selectedLocalExecutor || state.localAgentExecutor || settings.localAgentPreferredExecutor || 'auto'
             );
 
             body.localAgentCapabilities = detectLocalAgentAvailability(settings);
@@ -3904,11 +3914,15 @@ x
         const localExecutorLabel = buildLocalAgentDisplayLabel(selectedLocalExecutor || 'auto');
 
         switch (msg.cmd) {
-          case 'eval':
-            if (localAgentRequested) {
+          case 'eval': {
+            const evalAgentPrepassRequested =
+              executionPreference !== 'cloud_only' && !!selectedLocalExecutor;
+
+            if (evalAgentPrepassRequested) {
               log(
                 `[harperEDD][agent] local eval pre-pass requested; ` +
-                `canonical CLike eval will still run afterwards req=${targets}`
+                `canonical CLike eval will still run afterwards req=${targets} ` +
+                `executor=${selectedLocalExecutor}`
               );
 
               const evalHeaders = { "Content-Type": "application/json" };
@@ -3921,7 +3935,7 @@ x
                 mode: 'harper',
                 model: state.model || 'auto',
                 profileHint: null,
-                executionPreference,
+                executionPreference: 'prefer_local_agent',
                 docRoot: 'docs/harper',
                 core: defaultCoreForPhase('eval'),
                 messages: [],
@@ -3958,7 +3972,7 @@ x
               const evalBody = await buildHarperBody('eval', evalPayload, ws_root, out);
 
               evalBody.localAgentExecutor = normalizeLocalAgentExecutor(
-                state.localAgentExecutor || settings.localAgentPreferredExecutor || 'auto'
+                selectedLocalExecutor || state.localAgentExecutor || settings.localAgentPreferredExecutor || 'auto'
               );
 
               evalBody.localAgentCapabilities = detectLocalAgentAvailability(settings);
@@ -4027,13 +4041,20 @@ x
                 });
               }
             }
-
+            else {
+              log(
+                `[harperEDD][agent] local eval pre-pass skipped; ` +
+                `reason=${executionPreference === 'cloud_only' ? 'cloud_only' : 'no_local_executor_available'} ` +
+                `req=${targets}`
+              );
+            }
             log("[harperEDD] Calling canonical eval for req:" + targets + " in: " + ws_root);
             report = await handleEval(path_ltc_json, ws_root, targets, mode, modeContent);
             reportFile = await saveEvalCommand(ws_root, plan, targets, report, out);
             files_git.push(toFsPath(reportFile));
 
             break;
+          }
           case 'gate': 
             report = await handleGate(
               path_ltc_json,

@@ -65,8 +65,11 @@ async function handleGate(argument, workspaceRoot, req_id, opts = { promote: fal
     profile = await resolveProfilePath(argument, workspaceRoot);
     const res = await postGateCheck(profile, workspaceRoot, req_id, opts);
     const status = String(res?.status || res?.gate || 'FAIL').toUpperCase();
-    const msg = `GATE ${status} — passed=${Number(res?.passed_count || res?.passed || 0)}, failed=${Number(res?.failed || 0)}, blocked=${Number(res?.blocked_count || 0)}`;
-
+    const reasonCode = String(res?.reason_code || '').trim();
+    const msg =
+      `GATE ${status} — passed=${Number(res?.passed_count || res?.passed || 0)}, ` +
+      `failed=${Number(res?.failed || 0)}, blocked=${Number(res?.blocked_count || 0)}` +
+      (reasonCode ? `, reason=${reasonCode}` : '');
     if (status === 'FAIL') {
       vscode.window.showErrorMessage(`${msg} | profile=${profile}`);
     } else if (status === 'PASS_WITH_WARNINGS') {

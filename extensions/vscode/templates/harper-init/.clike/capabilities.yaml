@@ -1,0 +1,32 @@
+# CLike project-local capability configuration.
+#
+# This file is intentionally lightweight.
+# The actual capability content lives under:
+# - .clike/skills/*/SKILL.md
+# - .clike/packs/*/PACK.md
+# - .clike/design-profiles/*/DESIGN.md
+#
+# CLike discovers those folders from the active workspace.
+
+version: 1
+
+defaults:
+  enabled: true
+  discovery:
+    skills: ".clike/skills"
+    packs: ".clike/packs"
+    design_profiles: ".clike/design-profiles"
+
+policy:
+  agent_agnostic: true
+  model_agnostic: true
+  language_agnostic: true
+  domain_agnostic: true
+  require_verifiable_capabilities: true
+  external_plugins_enabled: false
+  external_plugins_require_human_approval: true
+
+notes:
+  - "Workspace capabilities override built-in templates."
+  - "Capabilities guide PLAN, KIT, EVAL, and GATE."
+  - "Capabilities do not override SPEC, TECH_CONSTRAINTS, repository evidence, or explicit user instructions."

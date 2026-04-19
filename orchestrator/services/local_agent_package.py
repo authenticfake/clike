@@ -19,6 +19,27 @@ def _extract_core_blob(payload: Dict[str, Any], suffix: str) -> str:
 
     return ""
 
+def _extract_capability_manifest(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Return a compact capability manifest for local agents.
+
+    Cloud/gateway prompts receive core blobs directly. Local agents need the same
+    operational power inside AGENT_*_CONTEXT.json, otherwise they only see the
+    selected capability names without the actual guidance.
+    """
+    manifest = _extract_core_blob(payload, "CLIKE_CAPABILITY_MANIFEST.md")
+    index = _extract_core_blob(payload, "CLIKE_CAPABILITY_INDEX.json")
+
+    max_chars = 18_000
+    if len(manifest) > max_chars:
+        manifest = manifest[:max_chars].rstrip() + "\n\n...[truncated]\n"
+
+    return {
+        "available": bool(manifest),
+        "manifest_name": "CLIKE_CAPABILITY_MANIFEST.md",
+        "index_available": bool(index),
+        "content": manifest,
+    }
 
 def _extract_req_from_plan(payload: Dict[str, Any], req_id: str) -> Dict[str, Any]:
     plan_json_text = _extract_core_blob(payload, "plan.json")
@@ -30,7 +51,7 @@ def _extract_req_from_plan(payload: Dict[str, Any], req_id: str) -> Dict[str, An
     except Exception:
         return {"id": req_id}
 
-    reqs = plan.get("req") or plan.get("requirements") or []
+    reqs = plan.get("reqs") or plan.get("req") or plan.get("requirements") or []
     if not isinstance(reqs, list):
         return {"id": req_id}
 
@@ -43,6 +64,48 @@ def _extract_req_from_plan(payload: Dict[str, Any], req_id: str) -> Dict[str, An
 
     return {"id": req_id}
 
+def _resolve_local_executor(payload: Dict[str, Any]) -> str:
+    """
+    Resolve a concrete local executor from the request payload.
+
+    The extension is the actuator, so the orchestrator must return a concrete
+    executor that the extension can actually run.
+    """
+    raw = _safe_text(payload.get("localAgentExecutor")).strip().lower()
+
+    if raw in {"codex", "gpt-codex"}:
+        raw = "gpt_codex"
+    elif raw in {"claude", "claude-code"}:
+        raw = "claude_code"
+
+    capabilities = payload.get("localAgentCapabilities") or {}
+    if not isinstance(capabilities, dict):
+        capabilities = {}
+
+    def available(name: str) -> bool:
+        item = capabilities.get(name) or {}
+        return bool(item.get("available"))
+
+    if raw in {"claude_code", "gpt_codex"}:
+        if available(raw) or not capabilities:
+            return raw
+
+    preferred = _safe_text(payload.get("localAgentPreferredExecutor")).strip().lower()
+    if preferred in {"codex", "gpt-codex"}:
+        preferred = "gpt_codex"
+    elif preferred in {"claude", "claude-code"}:
+        preferred = "claude_code"
+
+    if preferred in {"claude_code", "gpt_codex"} and available(preferred):
+        return preferred
+
+    for candidate in ("claude_code", "gpt_codex"):
+        if available(candidate):
+            return candidate
+
+    # Last fallback keeps backward compatibility for older clients that do not
+    # send localAgentCapabilities.
+    return "gpt_codex"
 
 def build_kit_local_agent_package(
     *,
@@ -62,17 +125,10 @@ def build_kit_local_agent_package(
     
     req_id = _safe_text(req_id).upper()
     run_id = _safe_text(payload.get("runId")) or f"kit-local-{req_id}"
-    local_executor = _safe_text(payload.get("localAgentExecutor")) or "auto"
-    local_executor = local_executor.strip().lower()
-
-    if local_executor in {"codex", "gpt-codex"}:
-        local_executor = "gpt_codex"
-    elif local_executor in {"claude", "claude-code"}:
-        local_executor = "claude_code"
-    elif local_executor == "auto":
-        local_executor = "gpt_codex"
+    local_executor = _resolve_local_executor(payload)
 
     req = _extract_req_from_plan(payload, req_id)
+    capability_manifest = _extract_capability_manifest(payload)
 
     allowed_write_roots = [
         f"runs/kit/{req_id}/src",
@@ -121,6 +177,18 @@ def build_kit_local_agent_package(
         "extension_role": "local_actuator_only",
         "local_runtime": local_runtime,
         "req": req,
+        "capability_context": {
+            "lane": req.get("lane"),
+            "domain": req.get("domain"),
+            "runtime_profile": req.get("runtime_profile"),
+            "packs": req.get("packs") or [],
+            "skills": req.get("skills") or [],
+            "design_profiles": req.get("design_profiles") or [],
+            "gate_expectations": req.get("gate_expectations") or [],
+            "main_module_boundary": req.get("main_module_boundary"),
+            "future_compatibility_notes": req.get("future_compatibility_notes") or [],
+            "manifest": capability_manifest,
+        },
         "project": {
             "project_id": payload.get("project_id"),
             "project_name": payload.get("project_name"),
@@ -167,7 +235,7 @@ def build_kit_local_agent_package(
             "Do not modify docs/harper/PLAN.md or docs/harper/plan.json.",
             "Do not run git commands.",
             "Do not commit, branch, push, tag, or open pull requests.",
-            "Only write files under allowed_write_roots.",
+            "Respect capability_context from AGENT_EVAL_CONTEXT.json: lane, domain, runtime_profile, packs, skills, design_profiles, gate_expectations, main_module_boundary, future_compatibility_notes, and manifest content when available.",
             "Patch operations are allowed only under allowed_write_roots.",
             "Do not create or modify files outside runs/kit/<REQ-ID>/ for this phase.",
             "Do not install packages globally or into system Python.",
@@ -203,6 +271,11 @@ def build_kit_local_agent_package(
             "",
             "Strict rules:",
             "- Follow AGENT_EXECUTION_CONTEXT.json as the primary execution contract.",
+            "- Read capability_context, including capability_context.manifest.content when available.",
+            "- Apply selected skills, packs, and design profiles only when relevant to this REQ.",
+            "- Do not add decorative architecture just to show that a capability was used.",
+            "- Use main_module_boundary to keep the implementation focused and avoid scattered files.",
+            "- Follow this compact agentic protocol before writing files: inspect contracts, identify the smallest promotable implementation shape, implement source/tests/docs/LTC as one coherent slice, then run or document executable checks.",
             f"""- Before writing any code, read docs/harper/PLAN.md and docs/harper/plan.json.
             - Identify the target REQ dependencies from the plan.
             - Inspect existing dependency KIT artifacts under runs/kit/<DEPENDENCY_REQ_ID>/ when present.
@@ -329,18 +402,10 @@ def build_eval_local_agent_package(
     req_id = _safe_text(req_id).upper()
     run_id = _safe_text(payload.get("runId")) or f"eval-local-{req_id}"
 
-    local_executor = _safe_text(payload.get("localAgentExecutor")) or "auto"
-    local_executor = local_executor.strip().lower()
-
-    if local_executor in {"codex", "gpt-codex"}:
-        local_executor = "gpt_codex"
-    elif local_executor in {"claude", "claude-code"}:
-        local_executor = "claude_code"
-    elif local_executor == "auto":
-        local_executor = "gpt_codex"
+    local_executor = _resolve_local_executor(payload)
 
     req = _extract_req_from_plan(payload, req_id)
-
+    capability_manifest = _extract_capability_manifest(payload)
     local_runtime = payload.get("localRuntime") or {}
     if not isinstance(local_runtime, dict):
         local_runtime = {}
@@ -401,6 +466,18 @@ def build_eval_local_agent_package(
             "fallback_policy": "extension_may_fallback_to_canonical_eval_only_when_not_local_agent_only",
         },
         "req": req,
+                "capability_context": {
+            "lane": req.get("lane"),
+            "domain": req.get("domain"),
+            "runtime_profile": req.get("runtime_profile"),
+            "packs": req.get("packs") or [],
+            "skills": req.get("skills") or [],
+            "design_profiles": req.get("design_profiles") or [],
+            "gate_expectations": req.get("gate_expectations") or [],
+            "main_module_boundary": req.get("main_module_boundary"),
+            "future_compatibility_notes": req.get("future_compatibility_notes") or [],
+            "manifest": capability_manifest,
+        },
         "project": {
             "project_id": payload.get("project_id"),
             "project_name": payload.get("project_name"),
@@ -487,7 +564,7 @@ def build_eval_local_agent_package(
             "Do not modify docs/harper/PLAN.md or docs/harper/plan.json.",
             "Do not run git commands.",
             "Do not commit, branch, push, tag, or open pull requests.",
-            "Only write files under allowed_write_roots.",
+            "Respect capability_context from AGENT_EVAL_CONTEXT.json: lane, domain, runtime_profile, packs, skills, design_profiles, gate_expectations, main_module_boundary, future_compatibility_notes, and manifest content when available.",
             "Patch operations are allowed only under allowed_write_roots.",
             "Do not create or modify files outside runs/kit/<REQ-ID>/ for this phase.",
             "Do not install packages globally or into system Python.",
@@ -528,6 +605,12 @@ def build_eval_local_agent_package(
             "",
             "Strict rules:",
             "- Follow AGENT_EVAL_CONTEXT.json as the primary execution contract.",
+            "- Read capability_context, including capability_context.manifest.content when available.",
+            "- Use selected skills, packs, runtime profile, design profile, and gate expectations as repair constraints.",
+            "- Apply capability guidance only when relevant to this REQ; do not create decorative fixes.",
+            "- Use main_module_boundary to avoid scattering repairs across unrelated files.",
+            "- This is an eval pre-pass: you may execute checks, diagnose failures, harden candidate code/tests, and repair LTC/HOWTO when they are wrong.",
+            "- You must not declare the final eval result. Canonical CLike EvalRunner remains the judge.",
             "- This is an eval pre-pass: you may harden candidate code/tests, but you must not declare the final eval result.",
             "- Before writing anything, read docs/harper/PLAN.md and docs/harper/plan.json.",
             "- Identify the target REQ dependencies from the plan.",
@@ -559,7 +642,10 @@ def build_eval_local_agent_package(
             f"- Read runs/kit/{req_id}/ci/HOWTO.md when present.",
             f"- Inspect runs/kit/{req_id}/src and runs/kit/{req_id}/test.",
             "- Execute the LTC/HOWTO commands when possible.",
+            "- If LTC.json is malformed, incomplete, or not executable, repair LTC.json under runs/kit/<REQ-ID>/ci before changing source code.",
+            "- Ensure LTC.json contains a non-empty cases[] execution contract; commands[] may exist only as human-readable aliases.",
             "- Repair candidate code/tests under allowed_write_roots when checks fail for code reasons.",
+            "- If checks are blocked by missing infrastructure, mark or document the blockage instead of faking success.",
             "- Create reports under runs/kit/<REQ-ID>/reports when useful.",
             "",
             "At the end, print a concise summary with:",

@@ -1099,6 +1099,7 @@ def _compose_system_messages(
         "REPO_ACCESS_MANIFEST",
         "REPO_STRUCTURE_EVIDENCE",
         "REPO_COMPOSITION_MANIFEST",
+        "CLIKE_CAPABILITY_MANIFEST",
         "candidate::",
     )
 
