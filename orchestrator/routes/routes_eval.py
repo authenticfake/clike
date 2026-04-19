@@ -284,9 +284,16 @@ def gate_check(
 
     hard_gate = "PASS" if rep.status in {"PASS", "PASS_WITH_WARNINGS"} else "FAIL"
 
+    reason_code = "GATE_PASS"
+    if rep.status == "PASS_WITH_WARNINGS":
+        reason_code = "GATE_BLOCKED_WARNINGS_PRESENT"
+    elif rep.status == "FAIL":
+        reason_code = "GATE_BLOCKED_FAILED_CHECKS"
+
     return {
         "gate": hard_gate,
         "status": rep.status,
+        "reason_code": reason_code,
         "profile": rep.profile,
         "req_id": rep.req_id,
         "mode": rep.mode,

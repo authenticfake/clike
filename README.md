@@ -5,6 +5,7 @@
 [![Made with Python](https://img.shields.io/badge/Made%20with-Python-3776AB?logo=python)](https://www.python.org/)
 [![VS Code Extension](https://img.shields.io/badge/VS%20Code-Extension-007ACC?logo=visualstudiocode)](extensions/vscode)
 [![Dockerized](https://img.shields.io/badge/Run%20with-Docker-2496ED?logo=docker)](docker)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 > **From intent to impact.**  
 > CLike keeps developers in flow, augments delivery with agentic workflows, and bakes in governance, eval-driven quality, repository grounding, and a safe paved road for enterprise-grade software delivery.
@@ -22,6 +23,14 @@
 ---
 
 ## ✨ What is CLike?
+
+**Clike** is 
+- Harper-governed
+- RAG-grounded
+- Eval-driven
+- Human-in-the-loop
+- Multi-model / agent-agnostic
+- Cloud + local agent compatible
 
 **Clike** is not just an agent that writes code; it is an AI-native pipeline / platform that orchestrates verifiable capabilities across specs, plans, code, tests, reviews, and release gates.
 

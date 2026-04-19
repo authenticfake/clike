@@ -445,7 +445,7 @@ function getWebviewHtml(orchestratorUrl, themeName = 'classic') {
   </div>
   <div class="row">
     <button id="sendChat">Send (free)</button>
-    <button id="sendGen">Generate (harper/coding)</button>
+    <button id="sendGen">Code (harper/code)</button>
     <button id="apply" disabled>Apply</button>
     <button id="cancel" disabled>Cancel</button>
   </div>
@@ -849,7 +849,7 @@ function updateBotBadge() {
   const c1 = document.getElementById('sendChat');
   const c2 = document.getElementById('sendGen');
   if (c1) c1.textContent = isHarper ? 'Chat (harper)' : 'Send (free)';
-  if (c2) c2.textContent = isHarper ? 'Generate (harper)' : 'Generate (coding)';
+  if (c2) c2.textContent = isHarper ? 'Code (harper)' : 'Code (coding)';
 }
 
 // --- Slash commands ---
@@ -1563,7 +1563,19 @@ function inferProvider(modelName) {
   if(n.startsWith('vllm')) return 'vllm';
   return 'openai'; // fallback conservativo
 }
+function runHarperCommandFromEnter() {
+  if (currentMode() !== 'harper') return false;
 
+  const text = String(prompt.value || '');
+  if (!text.trim()) return false;
+
+  const slash = parseSlash(text);
+  if (!slash) return false;
+
+  handleSlash(slash);
+  prompt.value = '';
+  return true;
+}
 
 btnChat.addEventListener('click', ()=>{
   console.log('[webview] sendChat click');
@@ -1624,6 +1636,31 @@ btnGen.addEventListener('click', ()=>{
   attachmentsByMode[m] = [];
   renderAttachmentChips();
 });
+
+prompt.addEventListener('keydown', (ev) => {
+  if (currentMode() !== 'harper') return;
+
+  const isEnter = ev.key === 'Enter' || ev.key === 'Return';
+  if (!isEnter) return;
+
+  if (ev.shiftKey || ev.altKey || ev.ctrlKey || ev.metaKey || ev.isComposing) {
+    return;
+  }
+
+  const text = String(prompt.value || '');
+  const slash = parseSlash(text);
+
+  if (!slash) {
+    return;
+  }
+
+  ev.preventDefault();
+  ev.stopPropagation();
+
+  handleSlash(slash);ner
+  prompt.value = '';
+});
+
 btnApply.addEventListener('click', ()=>{
   console.log('[webview] apply click', lastRun);
   

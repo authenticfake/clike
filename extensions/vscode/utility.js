@@ -1101,13 +1101,20 @@ async function persistReports(projectRootUri, phase, rep, out) {
   const fileBase = `report_${req_id}_${ts}`;
 
   // Costruisci JSON “persistito” (coerente con orchestrator snake_case)
-  const persisted = {
-    profile,
-    req_id,
-    mode,
-    passed,
-    failed,
-    cases: cases.map(c => ({
+    const persisted = {
+      profile,
+      req_id,
+      mode,
+      status: rep.status || rep.gate || undefined,
+      gate: rep.gate || undefined,
+      reason_code: rep.reason_code || undefined,
+      passed,
+      failed,
+      passed_count: rep.passed_count,
+      blocked_count: rep.blocked_count,
+      warning_count: rep.warning_count,
+      summary: rep.summary || undefined,
+      cases: cases.map(c => ({
       name: c.name,
       passed: !!c.passed,
       code: typeof c.code === 'number' ? c.code : (typeof c.rc === 'number' ? c.rc : undefined),
@@ -1158,7 +1165,8 @@ async function saveGateCommand(projectRootUri, plan, targetReqId, report, out) {
   if (!effectivePlan || !Array.isArray(effectivePlan.reqs)) return;
 
   const gateVerdict = String(report?.gate || '').trim().toLowerCase();
-  const isPass = gateVerdict === 'pass';
+  const gateStatus = String(report?.status || '').trim().toUpperCase();
+  const isPass = gateVerdict === 'pass' && gateStatus === 'PASS';
 
   if (isPass) {
     if (!setReqStatus(effectivePlan, targetReqId, 'done')) {
@@ -2017,6 +2025,16 @@ function buildAgentExecutionContext({
       status: String(req?.status || '').trim().toLowerCase(),
       acceptance_criteria: acceptance,
       depends_on: dependsOn,
+      functional_scope: String(req?.functional_scope || '').trim(),
+      technical_scope: String(req?.technical_scope || '').trim(),
+      domain: String(req?.domain || '').trim(),
+      runtime_profile: String(req?.runtime_profile || '').trim(),
+      packs: Array.isArray(req?.packs) ? req.packs : [],
+      skills: Array.isArray(req?.skills) ? req.skills : [],
+      design_profiles: Array.isArray(req?.design_profiles) ? req.design_profiles : [],
+      gate_expectations: Array.isArray(req?.gate_expectations) ? req.gate_expectations : [],
+      main_module_boundary: String(req?.main_module_boundary || '').trim(),
+      future_compatibility_notes: Array.isArray(req?.future_compatibility_notes) ? req.future_compatibility_notes : [],
     },
     project: {
       project_id: String(projectMeta.project_id || '').trim(),
@@ -2067,6 +2085,9 @@ function buildAgentExecutionContext({
       },
       generation_rules: [
         'Generate repository-aware code (src/ ), tests (test/) and docs aligned to the REQ acceptance criteria.',
+        'Respect req.functional_scope and req.technical_scope when present.',
+        'Respect req.domain, req.runtime_profile, req.packs, req.skills, req.design_profiles, req.gate_expectations, req.main_module_boundary, and req.future_compatibility_notes when present.',
+        'Use req.main_module_boundary to keep the implementation focused and avoid scattered files.',
         'Do not write outside allowed_write_roots.',
         'Do not promote candidate files into canonical src/ or test/ roots.',
         'README and KIT docs are required candidate artifacts for local KIT parity.',
@@ -2182,6 +2203,8 @@ function buildAgentKitPrompt({ reqId, requestedPhases }) {
     '',
     'Strict execution rules:',
     '- Follow AGENT_EXECUTION_CONTEXT.json as the primary execution contract.',
+    '- Read and respect capability_context when present.',
+    '- Use main_module_boundary when present to keep the implementation focused and avoid scattered files.',
     '- Do not modify docs/harper/PLAN.md or docs/harper/plan.json.',
     '- Do not commit, branch, push, open PRs, or modify git metadata.',
     '- Do not promote candidate files into canonical src/ or test/ roots.',

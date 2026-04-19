@@ -7,6 +7,14 @@
 
 >**CLike** is not just an agent that writes code; it is an AI-native platform that orchestrates verifiable capabilities across specs, plans, code, tests, reviews, and release gates.
 
+**Clike** is 
+- Harper-governed
+- RAG-grounded
+- Eval-driven
+- Human-in-the-loop
+- Multi-model / agent-agnostic
+- Cloud + local agent compatible
+
 ## What the extension does today
 
 The extension currently supports three main interactive modes inside the chat panel:

@@ -18,12 +18,14 @@ import httpx
 from config import settings
 from services.utils import GATEWAY_URL
 from services.llm_contracts import resolve_llm_selection
+
 from services.repository_manifest import (
     build_req_promotion_manifest,
     build_repo_access_manifest,
     build_repo_structure_evidence,
     build_repo_composition_manifest,
 )
+from services.capabilities import build_capability_context
 from services.execution_policy import (
     normalize_execution_preference,
     resolve_execution_policy,
@@ -344,7 +346,7 @@ def _extract_target_contract(
     if not plan_data:
         return None
 
-    reqs = plan_data.get("reqs") or []
+    reqs = plan_data.get("reqs") or plan_data.get("req") or plan_data.get("requirements") or []
     target = None
     for item in reqs:
         if str(item.get("id") or "").strip() == req_id:
@@ -355,29 +357,53 @@ def _extract_target_contract(
         return None
 
     raw_paths = dict(target.get("paths") or {})
-    mandatory_tests = dict(target.get("mandatoryTests") or {})
-    kit_minimum = dict(target.get("kitMinimumDeliverable") or {})
+    mandatory_tests = dict(target.get("mandatoryTests") or target.get("mandatory_tests") or {})
+    kit_minimum = dict(target.get("kitMinimumDeliverable") or target.get("kit_minimum_deliverable") or {})
+    main_module_boundary = str(
+        target.get("main_module_boundary")
+        or target.get("mainModuleBoundary")
+        or ""
+    ).strip()
 
     contract = {
         "version": "1.0.0",
         "req_id": req_id,
         "title": str(target.get("title") or "").strip(),
+        "functional_scope": str(target.get("functional_scope") or target.get("functionalScope") or "").strip(),
+        "technical_scope": str(target.get("technical_scope") or target.get("technicalScope") or "").strip(),
         "lane": str(target.get("lane") or "").strip(),
         "track": str(target.get("track") or "").strip(),
+        "domain": str(target.get("domain") or "").strip(),
+        "runtime_profile": str(target.get("runtime_profile") or target.get("runtimeProfile") or "").strip(),
+        "packs": list(target.get("packs") or []),
+        "skills": list(target.get("skills") or []),
+        "design_profiles": list(target.get("design_profiles") or target.get("designProfiles") or []),
+        "gate_expectations": list(target.get("gate_expectations") or target.get("gateExpectations") or []),
+        "main_module_boundary": main_module_boundary,
+        "future_compatibility_notes": list(
+            target.get("future_compatibility_notes")
+            or target.get("futureCompatibilityNotes")
+            or []
+        ),
         "primary_outcome": (
-            str(target.get("primaryOutcome") or "").strip()
+            str(target.get("primaryOutcome") or target.get("primary_outcome") or "").strip()
             or f"Implement {str(target.get('title') or req_id).strip()}"
         ),
         "acceptance": list(target.get("acceptance") or []),
-        "in_scope": list(target.get("inScope") or []),
-        "out_of_scope": list(target.get("outOfScope") or []),
-        "depends_on": list(target.get("dependsOn") or []),
-        "dependency_type": list(target.get("dependencyType") or []),
+        "in_scope": list(target.get("inScope") or target.get("in_scope") or []),
+        "out_of_scope": list(target.get("outOfScope") or target.get("out_of_scope") or []),
+        "depends_on": list(target.get("dependsOn") or target.get("depends_on") or []),
+        "dependency_type": list(target.get("dependencyType") or target.get("dependency_type") or []),
         "paths": {
             "create_under": list(raw_paths.get("createUnder") or raw_paths.get("create_under") or []),
             "must_reuse": list(raw_paths.get("mustReuse") or raw_paths.get("must_reuse") or []),
             "forbidden": list(raw_paths.get("forbidden") or []),
-            "canonical_module_family": str(raw_paths.get("canonicalModuleFamily") or raw_paths.get("canonical_module_family") or "").strip(),
+            "canonical_module_family": str(
+                raw_paths.get("canonicalModuleFamily")
+                or raw_paths.get("canonical_module_family")
+                or main_module_boundary
+                or ""
+            ).strip(),
             "expected_source_roots": list(raw_paths.get("expectedSourceRoots") or raw_paths.get("expected_source_roots") or []),
             "expected_test_roots": list(raw_paths.get("expectedTestRoots") or raw_paths.get("expected_test_roots") or []),
             "new_modules_allowed": bool(raw_paths.get("newModulesAllowed", raw_paths.get("new_modules_allowed", False))),
@@ -975,6 +1001,16 @@ def _materialize_file_requirements(
         "canonical_module_family": canonical_family,
         "expected_source_roots": expected_source_roots,
         "expected_test_roots": expected_test_roots,
+        "capability_context": {
+            "domain": contract.get("domain"),
+            "runtime_profile": contract.get("runtime_profile"),
+            "packs": contract.get("packs") or [],
+            "skills": contract.get("skills") or [],
+            "design_profiles": contract.get("design_profiles") or [],
+            "gate_expectations": contract.get("gate_expectations") or [],
+            "main_module_boundary": contract.get("main_module_boundary"),
+            "future_compatibility_notes": contract.get("future_compatibility_notes") or [],
+        },
         "required_outputs": required_outputs,
     }
 
@@ -1097,6 +1133,8 @@ def _filter_core_blobs_for_target_req(
         "REPO_ACCESS_MANIFEST.md",
         "REPO_STRUCTURE_EVIDENCE.json",
         "REPO_COMPOSITION_MANIFEST.md",
+        "CLIKE_CAPABILITY_MANIFEST.md",
+        "CLIKE_CAPABILITY_INDEX.json",
     }
 
     for raw_name, value in core_blobs.items():
@@ -1244,6 +1282,15 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
     repo_composition_manifest = build_repo_composition_manifest(repo_ctx)
     if repo_composition_manifest:
         core_blobs["REPO_COMPOSITION_MANIFEST.md"] = repo_composition_manifest
+
+    capability_blobs = build_capability_context(repo_ctx)
+    if capability_blobs:
+        core_blobs.update(capability_blobs)
+        log.info(
+            "harper.capabilities discovered manifest=%s index=%s",
+            "CLIKE_CAPABILITY_MANIFEST.md" in capability_blobs,
+            "CLIKE_CAPABILITY_INDEX.json" in capability_blobs,
+        )
 
     # Make enriched core blobs authoritative for the whole phase.
     merged["core_blobs"] = core_blobs

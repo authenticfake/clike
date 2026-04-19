@@ -5,6 +5,8 @@ node_modules/
 .project
 .classpath
 .settings/
+.clike/
+.vscode/
 build/
 dist/
 out/
