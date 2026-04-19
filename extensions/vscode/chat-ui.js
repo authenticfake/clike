@@ -402,17 +402,27 @@ function getWebviewHtml(orchestratorUrl, themeName = 'classic') {
       <option value="harper">harper</option>
       <option value="coding">coding</option>
     </select>
-     <button id="helpBtn" title="Slash help" style="margin-left:4px;"><span id="botBadge" class="badge" style="display:none">🤖</span></button>
+    <button id="helpBtn" title="Slash help" style="margin-left:4px;"><span id="botBadge" class="badge" style="display:none">🤖</span></button>
     <label>Model</label>
     <select id="model"></select>
-    <button id="refresh">↻ Models</button>
+    <button id="refresh"> ↻ </button>
+    <label>Execution</label>
+    <select id="execution">
+      <option value="auto">auto</option>
+      <option value="cloud_only">cloud only</option>
+      <option value="prefer_local_agent">prefer agent</option>
+      <option value="local_agent_only">agent only</option>
+      <option value="hybrid">hybrid</option>
+    </select>
+
+
     <button id="clear">Clear Session</button>
 
     <label class="ctl">
       Scope
       <select id="historyScope">
         <option value="singleModel">Model</option>
-        <option value="allModels">All models</option>
+        <option value="allModels">All</option>
       </select>
     </label>
     <span id="status">Ready</span>
@@ -467,20 +477,20 @@ var HELP_COMMANDS = [
   {cmd:'/status', desc:'Shows the Harper project/context status'},
   {cmd:'/where', desc:'Shows the Harper workspace/doc-root path'},
   {cmd:'/switch <name|path>', desc:'Switches to another Harper project'},
-  {cmd:'/idea', desc:'Formalizes the IDEA.md (optinal)'},
-  {cmd:'/spec [file|testo]', desc:'Generates/Updates SPEC.md from the IDEA'},
+  {cmd:'/idea', desc:'Formalizes the IDEA.md (optional)'},
+  {cmd:'/spec [file|text]', desc:'Generates/Updates SPEC.md from the IDEA'},
   {cmd:'/plan [spec_path]', desc:'Generates/Updates PLAN.md from the SPEC'},
   {cmd:'/kit [REQ-ID] [--integrity|--hardener|--promotion-eval|--phases=...]', desc:'Runs base KIT by default, or explicit follow-up KIT phases on an existing/generated candidate'},
-  { cmd: '/eval <REQ-ID>', desc: 'Performs an eval of kit' },
-  { cmd: '/gate <REQ-ID>', desc: 'Performs a gate of kit' },
+  {cmd:'/eval <REQ-ID>', desc:'Performs an eval of KIT'},
+  {cmd:'/gate <REQ-ID>', desc:'Performs a gate of KIT'},
+  {cmd:'/agent-default codex|claude|auto', desc:'Sets the preferred local agent executor for Harper local flows'},
   {cmd:'/finalize', desc:'Final gates and project closure (Harper)'},
-  {cmd:'/rag <query>', desc:'Cerca nel RAG (mostra i top risultati) (cross)'},
-  {cmd:'/rag +<N>', desc:'Adds RAG result #N from the last search to the attached files (cross)'},
-  {cmd:'/rag list', desc:'Shows current attached files (inline+RAG) (cross).'},
-  {cmd:'/rag clear', desc:'Svuota gli allegati correnti (cross)'},
-  { cmd: '/ragIndex [glob]', desc: 'Manually indexes into the RAG. Examples:/ragIndex docs/**/*.md  |  /ragIndex **/*' },
-  { cmd: '/ragSearch <query>', desc: 'Searches the RAG (shows top results) (cross).' },
-  
+  {cmd:'/rag <query>', desc:'Searches the RAG and shows top results'},
+  {cmd:'/rag +<N>', desc:'Adds RAG result #N from the last search to the attached files'},
+  {cmd:'/rag list', desc:'Shows current attached files (inline + RAG)'},
+  {cmd:'/rag clear', desc:'Clears the current attached files'},
+  {cmd:'/ragIndex [glob]', desc:'Manually indexes files into the RAG. Examples: /ragIndex docs/**/*.md | /ragIndex **/*'},
+  {cmd:'/ragSearch <query>', desc:'Searches the RAG and shows top results'}
 ];
 
 // --- bootstrap sync: seleziona modello SOLO quando tutto è pronto ---
@@ -637,6 +647,10 @@ document.addEventListener('keydown', (ev) => {
 const attachmentsByMode = { free: [], harper: [], coding: [] };
 function currentMode() { return document.getElementById('mode').value; }
 function currentModel() { return document.getElementById('model').value; }
+function currentExecution() {
+  const el = document.getElementById('execution');
+  return el ? el.value : 'auto';
+}
 function ensureBucket(mode) {
   if (!window.attachmentsByMode) window.attachmentsByMode = {};
   if (!attachmentsByMode[mode]) attachmentsByMode[mode] = [];
@@ -793,6 +807,7 @@ function appendCitationsMeta(container, cits) {
 const el = (id) => document.getElementById(id);
 const mode = el('mode');
 const model = el('model');
+const execution = el('execution');
 const prompt = el('prompt');
 const btnRefresh = el('refresh');
 const btnClear = el('clear');
@@ -966,8 +981,12 @@ function parseSlash(s) {
     const name = parts[1]; 
     return { cmd, args: { name } };
   }
-  
-    // --- RAG legacy commands: /ragIndex [glob], /ragSearch <query>
+  if (cmd === '/agent-default') {
+    const value = String(parts[1] || '').trim().toLowerCase();
+    return { cmd, args: { value } };
+  }
+
+  // --- RAG legacy commands: /ragIndex [glob], /ragSearch <query>
   if (cmd === '/ragindex') {
     // tutto quello dopo il comando è il glob
     const tail = (parts.slice(1) || []).join(' ').trim();
@@ -1045,10 +1064,30 @@ function getHelpListSafe() {
 
 function handleSlash(slash) {
   if (!slash) return;
+
+  const slashCmd = String(slash.cmd || '').toLowerCase();
+  const isHarperOnlyCommand = new Set([
+    '/init',
+    '/status',
+    '/where',
+    '/switch',
+    '/idea',
+    '/spec',
+    '/plan',
+    '/kit',
+    '/eval',
+    '/gate',
+    '/agent-default',
+    '/finalize'
+  ]).has(slashCmd);
+
+  if (isHarperOnlyCommand && currentMode() !== 'harper') {
+    bubble('assistant', 'This command is available only in Harper mode.', 'system');
+    try { prompt.value = ''; } catch {}
+    return;
+  }
   // dry 'Text' and 'Diffs' panels
   try { clearTextPanel(); clearDiffsPanel(); clearFilesPanel(); } catch {}
-  //try { prompt.value = ''; } catch {}
-  const slashCmd = slash.cmd.toLowerCase();
 
   // help: open overlay local
   if (slashCmd === '/help') {
@@ -1221,7 +1260,14 @@ function handleSlash(slash) {
     vscode.postMessage({ type: 'switchProject', name: slash.args.name || '' });
     return;
   }
-  if (slash.cmd === '/idea' || slash.cmd === '/spec' || slash.cmd === '/plan' || slash.cmd === '/kit' || slash.cmd === '/finalize') {
+    if (
+    slash.cmd === '/idea' ||
+    slash.cmd === '/spec' ||
+    slash.cmd === '/plan' ||
+    slash.cmd === '/kit' ||
+    slash.cmd === '/finalize' ||
+    slash.cmd === '/agent-default'
+  ) {
     var modeVal = (mode && mode.value) ? mode.value : 'harper';
     var key = modeVal;
     var atts = [];
@@ -1270,6 +1316,11 @@ function handleSlash(slash) {
       attachments: atts,
       rawCommand: rawCommand || null
     };
+    if (slash.cmd === '/agent-default') {
+      msg.value = slash.args?.value || '';
+      console.log('[CLike][chat-ui][/agent-default] value =', JSON.stringify(msg.value));
+
+    }
 
     if (slash.cmd === '/kit') {
       msg.targets = slash.args?.targets ?? null;
@@ -1277,20 +1328,23 @@ function handleSlash(slash) {
       msg.phases = slash.args?.phases ?? null;
     } else if (slash.cmd === '/idea') {
       msg.name = slash.args.name || '';
-    }
+    } 
 
-    console.log('[CLike][chat-ui][/kit] rawCommand =', JSON.stringify(rawCommand));
-    console.log('[CLike][chat-ui][/kit] slash.args =', JSON.stringify(slash.args));
-    console.log('[CLike][chat-ui][/kit] firstTarget =', firstTarget);
-    console.log('[CLike][chat-ui][/kit] msg.targets =', JSON.stringify(msg.targets));
-    console.log('[CLike][chat-ui][/kit] msg.targetReqId =', JSON.stringify(msg.targetReqId));
-    console.log('[CLike][chat-ui][/kit] msg.phases =', JSON.stringify(msg.phases));
+    console.log('[CLike][chat-ui][harperRun] cmd =', JSON.stringify(slash.cmd));
+    console.log('[CLike][chat-ui][harperRun] rawCommand =', JSON.stringify(rawCommand));
+    console.log('[CLike][chat-ui][harperRun] slash.args =', JSON.stringify(slash.args));
+    console.log('[CLike][chat-ui][harperRun] firstTarget =', firstTarget);
+    console.log('[CLike][chat-ui][harperRun] msg.targets =', JSON.stringify(msg.targets));
+    console.log('[CLike][chat-ui][harperRun] msg.targetReqId =', JSON.stringify(msg.targetReqId));
+    console.log('[CLike][chat-ui][harperRun] msg.phases =', JSON.stringify(msg.phases));
+
     vscode.postMessage(msg);
     attachmentsByMode[currentMode()] = [];
     renderAttachmentChips();
 
     return true;
   }
+  
   //EVALS
   if (slashCmd === '/eval' || slashCmd === '/gate') {
     var atts = [];
@@ -1338,7 +1392,7 @@ function handleSlash(slash) {
     vscode.postMessage(msg);
     attachmentsByMode[currentMode()] = [];
     renderAttachmentChips();
-    return;
+    return true;
   }
   // Fallback: slash non riconosciuto → mostro help
   try {
@@ -1445,11 +1499,27 @@ function clearFilesPanel() {
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => setTab(t.dataset.tab)));
 
 mode.addEventListener('change', ()=>{
-  updateBotBadge();
-  post('uiChanged', { mode: mode.value, model: model.value });
+  renderAttachmentChips();
+  post('uiChanged', {
+    mode: mode.value,
+    model: model.value,
+    executionPreference: currentExecution()
+  });
 });
 
-model.addEventListener('change', ()=> post('uiChanged', { mode: mode.value, model: model.value }));
+model.addEventListener('change', ()=> post('uiChanged', {
+  mode: mode.value,
+  model: model.value,
+  executionPreference: currentExecution()
+}));
+
+if (execution) {
+  execution.addEventListener('change', ()=> post('uiChanged', {
+    mode: mode.value,
+    model: model.value,
+    executionPreference: currentExecution()
+  }));
+}
 btnRefresh.addEventListener('click', ()=> post('fetchModels'));
 btnClear.addEventListener('click', () => {
   vscode.postMessage({
@@ -1571,6 +1641,53 @@ btnCancel.addEventListener('click', ()=> post('cancel'));
 
 window.addEventListener('message', (event) => {
   const msg = event.data;
+
+  if (msg.type === 'agentRunSlash') {
+    const command = String(msg.command || '').trim();
+    if (!command) return;
+
+    try {
+      if (
+        command.startsWith('/idea') ||
+        command.startsWith('/spec') ||
+        command.startsWith('/plan') ||
+        command.startsWith('/kit') ||
+        command.startsWith('/eval') ||
+        command.startsWith('/gate') ||
+        command.startsWith('/finalize') ||
+        command.startsWith('/agent-default') ||
+        command.startsWith('/ragIndex') ||
+        command.startsWith('/ragSearch')
+      ) {
+        if (mode && mode.value !== 'harper') {
+          mode.value = 'harper';
+          try { vscode.postMessage({ type: 'uiChanged', mode: mode.value, model: model.value }); } catch {}
+        }
+      }
+
+      if (prompt) {
+        prompt.value = command;
+      }
+
+      const slash = parseSlash(command);
+      if (!slash) {
+        bubble('assistant', 'Invalid agent command: ' + command, 'system');
+        return;
+      }
+
+      bubble('assistant', 'Agent requested: ' + command, 'system');
+      handleSlash(slash);
+
+      if (prompt) {
+        prompt.value = '';
+      }
+    } catch (e) {
+      bubble('assistant', 'Agent command failed in webview: ' + String(e && e.message || e), 'system');
+    }
+
+    return;
+  }
+
   if (msg.type === 'openHelpOverlay') { renderHelpList(); openHelpOverlay(); }
   // Echo → mostra un bubble "assistant" (anche per i riepiloghi post-init)
   if (msg.type === 'echo') {
@@ -1696,6 +1813,9 @@ window.addEventListener('message', (event) => {
     
     if (msg.state.mode)  mode.value  = msg.state.mode;
     if (msg.state.model) model.value = msg.state.model;
+    if (execution) {
+      execution.value = (msg.state && msg.state.executionPreference) || 'auto';
+    }
     
     const helpBtn = document.getElementById('helpBtn');
     if (helpBtn && !helpBtn._bound) {
@@ -1986,7 +2106,7 @@ post('fetchModels');
     <h2>CLike — Slash Commands in Harper Mode</h2>
     <ul id="clikeHelpList"></ul>
     <p style="opacity:.8;margin-top:8px">Suggerimento: puoi allegare file dal workspace e usare i comandi <code>/spec</code>, <code>/plan</code>, <code>/kit</code> per il flusso Harper.</p>
-  </div>
+    </div>
 </div>
 
 </body>

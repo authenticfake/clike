@@ -521,35 +521,45 @@ async function loadMd(projectRootUri, fileName) {
 async function attachCoreBlobs(docUri, coreList) {
   const blobs = {};
   const rootUri = docUri || vscode.Uri.file(path.join('docs', 'harper'));
-  
-  // Utilizza l'API di VS Code per leggere la directory
   const entries = await vscode.workspace.fs.readDirectory(rootUri);
 
-  // Normalizza lista di 'prefix' a partire dai core (IDEA.md -> 'IDEA')
-  const wanted = (coreList || []).map(n => path.parse(n).name); // ['IDEA','SPEC',...]
+  const wanted = (coreList || []).map((name) => {
+    const parsed = path.parse(String(name || '').trim());
+    return {
+      original: String(name || '').trim(),
+      stem: parsed.name,
+      ext: (parsed.ext || '').toLowerCase(),
+    };
+  });
 
-  for (const base of wanted) {
-    // 1) il file dichiarato (es. IDEA.md), se esiste, ha precedenza
-    const declaredEntry = entries.find(([name, type]) => 
-        type === vscode.FileType.File && name.toLowerCase() === `${base.toLowerCase()}.md`);
+  for (const item of wanted) {
+    const stemLower = item.stem.toLowerCase();
+    const declaredExt = item.ext;
+
+    // 1) Read the explicitly requested file only.
+    const declaredEntry = entries.find(([name, type]) => {
+      if (type !== vscode.FileType.File) return false;
+      return name.toLowerCase() === `${stemLower}${declaredExt}`;
+    });
 
     if (declaredEntry) {
-      const name = declaredEntry[0];
-      const fullUri = vscode.Uri.joinPath(rootUri, name);
+      const fileName = declaredEntry[0];
+      const fullUri = vscode.Uri.joinPath(rootUri, fileName);
       const content = await vscode.workspace.fs.readFile(fullUri);
-      blobs[`${base}.md`] = Buffer.from(content).toString('utf8');
+      blobs[fileName] = Buffer.from(content).toString('utf8');
     }
 
-    // 2) autodiscovery: tutti i file che iniziano con 'base' (stesso prefisso), esclusi già presi
-    const baseLower = base.toLowerCase();
-    const baseStem = baseLower.replace(/\.(md|markdown|txt|1st|yaml|yml|json)$/i, "");
-
+    // 2) Prefix autodiscovery for sibling variants of the same stem,
+    //    but never re-add the exact declared file under a fake alias.
     const prefixed = entries.filter(([name, type]) => {
+      if (type !== vscode.FileType.File) return false;
+
       const nameLower = name.toLowerCase();
+      const sameDeclaredFile = nameLower === `${stemLower}${declaredExt}`;
+      if (sameDeclaredFile) return false;
 
       return (
-        type === vscode.FileType.File &&
-        nameLower.startsWith(baseStem) &&
+        nameLower.startsWith(stemLower) &&
         (
           nameLower.endsWith(".md") ||
           nameLower.endsWith(".markdown") ||
@@ -558,17 +568,15 @@ async function attachCoreBlobs(docUri, coreList) {
           nameLower.endsWith(".yaml") ||
           nameLower.endsWith(".yml") ||
           nameLower.endsWith(".json")
-        ) &&
-        nameLower !== baseLower
+        )
       );
     });
-  
-    for (const [name, type] of prefixed) {
+
+    for (const [name] of prefixed) {
       const fullUri = vscode.Uri.joinPath(rootUri, name);
-      const key = name; // manteniamo nome completo (es. IDEA_verAndrea.md)
       try {
         const content = await vscode.workspace.fs.readFile(fullUri);
-        blobs[key] = Buffer.from(content).toString('utf8');
+        blobs[name] = Buffer.from(content).toString('utf8');
       } catch (err) {
         console.warn('attachCoreBlobs read error:', fullUri.fsPath, err);
       }
@@ -1593,6 +1601,8 @@ function defaultCoreForPhase(phase) {
       return ["SPEC.md", "TECH_CONSTRAINTS.yaml"];
     case "kit":
       return ["SPEC.md", "PLAN.md", "plan.json", "TECH_CONSTRAINTS.yaml"];
+    case "eval":
+      return ["SPEC.md", "PLAN.md", "plan.json", "TECH_CONSTRAINTS.yaml"];
     case "finalize":
       return ["SPEC.md", "PLAN.md",  "plan.json", "TECH_CONSTRAINTS.yaml"];
     default:
@@ -1744,22 +1754,6 @@ async function buildRagItemsForIndex(rag_files, out) {
   return items;
 }
 
-async function readWorkspaceFileBytes(pathInWs) {
-  try {
-    const ws = vscode.workspace.workspaceFolders?.[0];
-    if (!ws) return null;
-
-    const input = String(pathInWs || '');
-    const rel = input.replace(/^\.?[\\/]/, '');
-    const absPath = path.isAbsolute(input) ? input : path.join(ws.uri.fsPath, rel);
-    const fileUri = vscode.Uri.file(absPath);
-
-    const data = await vscode.workspace.fs.readFile(fileUri); // Uint8Array
-    return Buffer.from(data);
-  } catch {
-    return null;
-  }
-}
 // Read a workspace-relative OR absolute text file (UTF-8). Returns null if binary/failed.
 async function readWorkspaceTextFile(pathInWs, out) {
   try {
@@ -1992,13 +1986,431 @@ function logCurrentTimeStandard(activity) {
     log(`Clike Time:[${timeString}] --> [${activity}]`);
 }
 
-module.exports = {
+function _findReq(plan, reqId) {
+  const key = String(reqId || '').trim().toUpperCase();
+  const reqs = Array.isArray(plan?.reqs) ? plan.reqs : Array.isArray(plan?.req) ? plan.req : [];
+  return reqs.find(r => String(r?.id || '').trim().toUpperCase() === key) || null;
+}
 
+function buildAgentExecutionContext({
+  phase,
+  reqId,
+  plan,
+  projectMeta = {},
+  requestedPhases = null,
+  ltc = null,
+  howtoPath = null,
+}) {
+  const req = _findReq(plan, reqId) || {};
+  const lane = String(req?.lane || ltc?.lane || 'unknown').trim() || 'unknown';
+  const acceptance = Array.isArray(req?.acceptance) ? req.acceptance : [];
+  const dependsOn = Array.isArray(req?.dependsOn) ? req.dependsOn : [];
+
+  const base = {
+    schema_version: 'v1',
+    context_type: 'agent_execution_context',
+    phase: String(phase || '').trim().toLowerCase(),
+    req: {
+      id: String(reqId || '').trim().toUpperCase(),
+      title: String(req?.title || '').trim(),
+      lane,
+      status: String(req?.status || '').trim().toLowerCase(),
+      acceptance_criteria: acceptance,
+      depends_on: dependsOn,
+    },
+    project: {
+      project_id: String(projectMeta.project_id || '').trim(),
+      project_name: String(projectMeta.project_name || '').trim(),
+      harper_doc_root: String(projectMeta.harper_doc_root || 'docs/harper').trim(),
+      rag_namespace: String(projectMeta.rag_namespace || '').trim(),
+    },
+    repository: {
+      working_directory: '.',
+      source_folder: String(projectMeta.source_folder || 'src').trim(),
+      test_folder: String(projectMeta.test_folder || 'test').trim(),
+    },
+  };
+
+  if (base.phase === 'kit') {
+    return {
+      ...base,
+      requested_phases: Array.isArray(requestedPhases) ? requestedPhases : ['kit'],
+      required_reads: [
+        '.clike/project.json',
+        'docs/harper/plan.json',
+        'docs/harper/PLAN.md',
+      ],
+      allowed_write_roots: [
+        `runs/kit/${base.req.id}/src`,
+        `runs/kit/${base.req.id}/test`,
+        `runs/kit/${base.req.id}/ci`,
+        `runs/kit/${base.req.id}/docs`,
+      ],
+      forbidden_paths: [
+        'docs/harper/PLAN.md',
+        'docs/harper/plan.json',
+        'src',
+        'test',
+      ],
+      expected_outputs: {
+        source_root: `runs/kit/${base.req.id}/src`,
+        test_root: `runs/kit/${base.req.id}/test`,
+        ci_files: [
+          `runs/kit/${base.req.id}/ci/LTC.json`,
+          `runs/kit/${base.req.id}/ci/HOWTO.md`,
+          `runs/kit/${base.req.id}/ci/requirements.txt`,
+        ],
+        docs_files: [
+          `runs/kit/${base.req.id}/docs/README_${base.req.id}.md`,
+          `runs/kit/${base.req.id}/docs/KIT_${base.req.id}.md`,
+        ],
+      },
+      generation_rules: [
+        'Generate repository-aware code (src/ ), tests (test/) and docs aligned to the REQ acceptance criteria.',
+        'Do not write outside allowed_write_roots.',
+        'Do not promote candidate files into canonical src/ or test/ roots.',
+        'README and KIT docs are required candidate artifacts for local KIT parity.',
+      ],
+    };
+  }
+
+  if (base.phase === 'eval') {
+    return {
+      ...base,
+      required_reads: [
+        '.clike/project.json',
+        `runs/kit/${base.req.id}/docs/AGENT_EXECUTION_CONTEXT.json`,
+        `runs/kit/${base.req.id}/ci/LTC.json`,
+        howtoPath || `runs/kit/${base.req.id}/ci/HOWTO.md`,
+      ],
+      allowed_write_roots: [
+        `runs/kit/${base.req.id}/src`,
+        `runs/kit/${base.req.id}/test`,
+        `runs/kit/${base.req.id}/ci`,
+        `runs/kit/${base.req.id}/docs`,
+      ],
+      forbidden_paths: [
+        'docs/harper/PLAN.md',
+        'docs/harper/plan.json',
+        'src',
+        'test',
+      ],
+      eval_contract: {
+        lane,
+        tools: ltc?.tools || {},
+        commands: ltc?.commands || {},
+        reports: ltc?.reports || [],
+        normalize: ltc?.normalize || {},
+        gate_policy: ltc?.gate_policy || {},
+        external_runner: ltc?.external_runner || null,
+        constraints_applied: ltc?.constraints_applied || [],
+      },
+      evaluation_rules: [
+        'Run the execution recipe from LTC/HOWTO.',
+        'If checks fail, fix candidate source/test files only under allowed_write_roots.',
+        'Re-run the relevant checks after each remediation.',
+        'Do not modify canonical workspace src/ or test/ roots.',
+        'Return a concise execution summary with commands run, fixes applied, and remaining failures.',
+      ],
+    };
+  }
+
+  return base;
+}
+
+async function writeAgentExecutionContext(workspaceRootUri, reqId, contextPayload, out) {
+  const log = mkLog(out);
+  const req = String(reqId || '').trim().toUpperCase();
+  if (!workspaceRootUri?.fsPath) {
+    throw new Error('writeAgentExecutionContext: workspace root is required');
+  }
+  if (!req) {
+    throw new Error('writeAgentExecutionContext: reqId is required');
+  }
+
+  const docsDir = path.join(workspaceRootUri.fsPath, 'runs', 'kit', req, 'docs');
+  fs.mkdirSync(docsDir, { recursive: true });
+
+  const filePath = path.join(docsDir, 'AGENT_EXECUTION_CONTEXT.json');
+  fs.writeFileSync(filePath, JSON.stringify(contextPayload, null, 2), 'utf8');
+  log('[agentExecutionContext] wrote', filePath);
+  return filePath;
+}
+
+function buildAgentEvalPrompt({ reqId }) {
+  const targets = Array.isArray(reqId) ? reqId.join(', ') : String(reqId || '').trim();
+  return [
+    'You are a local software-generation agent working inside the current repository workspace.',
+    `Your task is to perform a local pre-pass for /eval on REQ target(s): ${targets}.`,
+    '',
+    'Read these artifacts before acting:',
+    `1. runs/kit/${targets}/ci/LTC.json`,
+    `2. runs/kit/${targets}/docs/AGENT_EXECUTION_CONTEXT.json`,
+    `3. runs/kit/${targets}/ci/HOWTO.md`,
+    `4. runs/kit/${targets}/src/**`,
+    `5. runs/kit/${targets}/test/**`,
+    '',
+    'Rules:',
+    '- Read and follow the execution recipe from AGENT_EXECUTION_CONTEXT.json and LTC.json.',
+    '- Operate only inside candidate roots for the targeted REQ.',
+    '- You may run tests, lint, type checks, and minimal remediation allowed by the execution contract.',
+    '- Do not mutate canonical workspace roots outside the candidate area.',
+    '- Do not perform git operations.',
+    '- Return a concise execution summary on stdout.',
+  ].join('\n');
+}
+
+function buildAgentKitPrompt({ reqId, requestedPhases }) {
+  const phases = Array.isArray(requestedPhases) && requestedPhases.length
+    ? requestedPhases.join(', ')
+    : 'kit';
+
+  return [
+    'You are a local software-generation agent working inside the current repository workspace.',
+    '',
+    'Read local project context before making changes:',
+    '1. .clike/project.json',
+    `2. runs/kit/${reqId}/docs/AGENT_EXECUTION_CONTEXT.json`,
+    '3. docs/harper/plan.json',
+    '4. docs/harper/PLAN.md',
+    '5. docs/harper/SPEC.md',
+    '6. docs/harper/IDEA.md',
+    '7. docs/harper/lane-guides/* if present and relevant',
+    '',
+    `Target REQ: ${reqId}`,
+    `Requested phase(s): ${phases}`,
+    '',
+    'Strict execution rules:',
+    '- Follow AGENT_EXECUTION_CONTEXT.json as the primary execution contract.',
+    '- Do not modify docs/harper/PLAN.md or docs/harper/plan.json.',
+    '- Do not commit, branch, push, open PRs, or modify git metadata.',
+    '- Do not promote candidate files into canonical src/ or test/ roots.',
+    '- Generate source, tests, and docs required by the contract.',
+    '- Return a concise execution summary on stdout.',
+    '',
+    'Required candidate outputs:',
+    `- runs/kit/${reqId}/src/...`,
+    `- runs/kit/${reqId}/test/...`,
+    `- runs/kit/${reqId}/ci/LTC.json`,
+    `- runs/kit/${reqId}/ci/HOWTO.md`,
+    `- runs/kit/${reqId}/ci/requirements.txt`,
+    `- runs/kit/${reqId}/docs/README_${reqId}.md`,
+    `- runs/kit/${reqId}/docs/KIT_${reqId}.md`,
+    '',
+    'Implementation expectations:',
+    '- Produce real repository-aware code and real tests aligned to the acceptance criteria.',
+    '- Keep changes minimal, concrete, and promotable.',
+    '- If candidate files already exist under runs/kit/<REQ-ID>/..., update them instead of duplicating them.',
+    '',
+    'At the end, print a concise summary:',
+    '- files created/updated',
+    '- main decisions taken',
+    '- commands run locally',
+    '- unresolved gaps, if any',
+  ].join('\n');
+}
+
+async function runLocalAgentSync({
+  workspaceRootUri,
+  prompt,
+  executorId = 'claude_code',
+  command = 'claude',
+  argsBeforePrompt = [],
+  promptTransport = '',
+  printModeFlag = '',
+  permissionMode = '',
+  timeoutMinutes = 20,
+  out,
+}) {
+  const normalizedExecutor = String(executorId || '').trim();
+  const finalCommand = String(command || '').trim();
+
+  if (!workspaceRootUri?.fsPath) {
+    throw new Error('Missing workspace root for local agent execution.');
+  }
+
+  if (!finalCommand) {
+    throw new Error(`Missing local agent command for executor=${normalizedExecutor}.`);
+  }
+
+  const argv = [];
+
+  for (const arg of Array.isArray(argsBeforePrompt) ? argsBeforePrompt : []) {
+    const clean = String(arg || '').trim();
+    if (clean) argv.push(clean);
+  }
+
+  const transport = String(promptTransport || '').trim() ||
+    (normalizedExecutor === 'gpt_codex' ? 'stdin' : 'argv_last');
+
+  if (transport === 'argv_last') {
+    argv.push(prompt);
+  }
+
+  const safeArgvForLog = argv.map((arg) => {
+    const s = String(arg || '');
+    if (s.length > 200) return `${s.slice(0, 200)}...<${s.length} chars>`;
+    return s;
+  });
+
+  if (out && typeof out.appendLine === 'function') {
+    out.appendLine(
+      `[CLike] [local-agent:${normalizedExecutor}] command=${finalCommand} argv=${JSON.stringify(safeArgvForLog)} cwd=${workspaceRootUri.fsPath} promptTransport=${transport}`
+    );
+  }
+
+  const timeoutMs = Math.max(1, Number(timeoutMinutes || 20)) * 60 * 1000;
+
+  return await new Promise((resolve, reject) => {
+    const child = cp.spawn(finalCommand, argv, {
+      cwd: workspaceRootUri.fsPath,
+      shell: false,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: {
+        ...process.env,
+        CLICOLOR: '0',
+        NO_COLOR: '1',
+      },
+    });
+
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+
+      try {
+        child.kill('SIGTERM');
+      } catch {
+        // Ignore kill errors.
+      }
+
+      reject(
+        new Error(
+          `${normalizedExecutor} timed out after ${timeoutMinutes} minute(s). ` +
+          `stdout=${stdout.slice(-2000)} stderr=${stderr.slice(-2000)}`
+        )
+      );
+    }, timeoutMs);
+
+    child.stdout.on('data', (chunk) => {
+      const text = chunk.toString();
+      stdout += text;
+      if (out && typeof out.appendLine === 'function') {
+        for (const line of text.split(/\r?\n/)) {
+          if (line.trim()) {
+            out.appendLine(`[CLike] [local-agent:${normalizedExecutor}][stdout] ${line}`);
+          }
+        }
+      }
+    });
+
+    child.stderr.on('data', (chunk) => {
+      const text = chunk.toString();
+      stderr += text;
+      if (out && typeof out.appendLine === 'function') {
+        for (const line of text.split(/\r?\n/)) {
+          if (line.trim()) {
+            out.appendLine(`[CLike] [local-agent:${normalizedExecutor}][stderr] ${line}`);
+          }
+        }
+      }
+    });
+
+    child.on('error', (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(error);
+    });
+
+    child.on('close', (exitCode) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+
+      if (out && typeof out.appendLine === 'function') {
+        out.appendLine(
+          `[CLike] [local-agent:${normalizedExecutor}] exitCode=${exitCode} stdoutChars=${stdout.length} stderrChars=${stderr.length}`
+        );
+      }
+
+      resolve({
+        executorId: normalizedExecutor,
+        command: finalCommand,
+        args: argv,
+        exitCode,
+        stdout,
+        stderr,
+      });
+    });
+
+    if (transport === 'stdin' && child.stdin) {
+      child.stdin.write(prompt);
+      child.stdin.end();
+    } else if (child.stdin) {
+      child.stdin.end();
+    }
+  });
+} 
+async function collectReqCandidateFileArtifacts(projectRootUri, reqId) {
+  const reqNorm = String(reqId || '').trim().toUpperCase();
+  const reqRoot = vscode.Uri.joinPath(projectRootUri, 'runs', 'kit', reqNorm);
+
+  try {
+    await vscode.workspace.fs.stat(reqRoot);
+  } catch {
+    return [];
+  }
+
+  const files = await readTree(reqRoot);
+  const artifacts = [];
+
+  for (const uri of files) {
+    try {
+      const raw = await vscode.workspace.fs.readFile(uri);
+      const rel = path.relative(projectRootUri.fsPath, uri.fsPath).split(path.sep).join('/');
+      if (!rel.startsWith(`runs/kit/${reqNorm}/`)) {
+        continue;
+      }
+
+      artifacts.push({
+        path: rel,
+        content: Buffer.from(raw).toString('utf8'),
+        encoding: 'utf-8',
+      });
+    } catch {
+      // Skip binary/unreadable files in the actuator result.
+    }
+  }
+
+  return artifacts;
+}
+async function collectReqCandidateFiles(projectRootUri, reqId) {
+  const reqRoot = vscode.Uri.joinPath(projectRootUri, 'runs', 'kit', reqId);
+  try {
+    await vscode.workspace.fs.stat(reqRoot);
+  } catch {
+    return [];
+  }
+
+  const files = await readTree(reqRoot);
+  return files
+    .filter(Boolean)
+    .map((u) => u.fsPath || u.path)
+    .filter(Boolean);
+}
+
+
+module.exports = {
   buildHarperBody,
   extractUserMessages,
   defaultCoreForPhase,
   readPlanJson,
   runKitCommand,
+  runLocalAgentSync,
   runEvalGateCommand,
   saveKitCommand,
   saveGateCommand,
@@ -2020,6 +2432,15 @@ module.exports = {
   sanitize,
   logCurrentTimeStandard,
   httpPostJsonLong,
-  ensureReqIdInPlan
+  ensureReqIdInPlan,
+  buildAgentKitPrompt,
+  collectReqCandidateFiles,
+  buildAgentExecutionContext,
+  writeAgentExecutionContext,
+  buildAgentEvalPrompt,
+  collectReqCandidateFiles,
+  collectReqCandidateFiles,
+  collectReqCandidateFileArtifacts,
+  
 
 };

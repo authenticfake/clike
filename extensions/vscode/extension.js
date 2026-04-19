@@ -13,13 +13,83 @@ const { registerCommands } = require('./commands/registerCommands');
 const {  handleGate, handleEval } = require('./commands/harper');
 const {  persistTelemetryVSCode } = require('./telemetry');
 
-const { readPlanJson, getProjectId, promoteReqSources, runPromotionFlow,preIndexRag, normalizeAttachment, safeLog, readWorkspaceTextFile, getFileSizeBytes, getProjectNameFromWorkspace } = require('./utility')
-const { buildHarperBody,  defaultCoreForPhase, runKitCommand,runEvalGateCommand, saveKitCommand,saveEvalCommand,saveGateCommand, normalizeChangedFiles } = require('./utility')
-const {sanitize, logCurrentTimeStandard, httpPostJsonLong, ensureReqIdInPlan} = require('./utility')
+
+const {
+  normalizeExecutionPreference,
+  normalizeLocalAgentExecutor,
+  executionPreferenceRequestsLocalAgent,
+  resolveSelectedLocalAgentExecutor,
+  detectLocalAgentAvailability,
+  getExecutorConfig,
+  buildLocalAgentDisplayLabel,
+  localAgentSupportsPhase,
+  //_d_etectLocalAgentAvailability,
+} = require('./local-agent-executors');
+
+const {
+  readPlanJson,
+  getProjectId,
+  promoteReqSources,
+  runPromotionFlow,
+  preIndexRag,
+  normalizeAttachment,
+  safeLog,
+  readWorkspaceTextFile,
+  getFileSizeBytes,
+  getProjectNameFromWorkspace,
+  runLocalAgentSync,
+  collectReqCandidateFiles,
+  collectReqCandidateFileArtifacts,
+} = require('./utility');
+
+const {
+  buildHarperBody,
+  defaultCoreForPhase,
+  runKitCommand,
+  runEvalGateCommand,
+  saveKitCommand,
+  saveEvalCommand,
+  saveGateCommand,
+  normalizeChangedFiles,
+} = require('./utility');
+
+const {
+  sanitize,
+  logCurrentTimeStandard,
+  httpPostJsonLong,
+  ensureReqIdInPlan,
+} = require('./utility');
+
+
+function isLocalAgentExecutionPreference(value) {
+  const pref = normalizeExecutionPreference(value);
+  return new Set([
+    'prefer_claude_code',
+    'claude_code_only',
+    'prefer_local_agent',
+    'local_agent_only',
+    'hybrid',
+  ]).has(pref);
+}
+
+function isStrictLocalAgentExecutionPreference(value) {
+  const pref = normalizeExecutionPreference(value);
+  return pref === 'claude_code_only' || pref === 'local_agent_only';
+}
+
 const{ toFsPath, mapKitSrcToWorkspaceTarget, clikeGitSync } = require('./git'); // NEW: clikeGitSync
 const { getChatTheme, getWebviewHtml } = require('./chat-ui');
+
 let clikeChatPanel = null;
 let clikeExtensionContext = null;
+let extensionMcpServer = null;
+let extensionMcpState = {
+  started: false,
+  url: null,
+  lastCommand: null,
+  lastAcceptedAt: null,
+  lastError: null,
+};
 let __clike_lastTargetUriCache = null;  
 let selectedPaths = new Set();
 // --- Stato richiesta in corso (per Cancel) ---
@@ -83,7 +153,6 @@ async function writeJson(filePath, obj) {
 }
 function nowIso() { return new Date().toISOString(); }
 
-function log(...args) { console.log(...args); out.appendLine(args.join(' ')); } 
 // --- profile hint for routing (used when model === 'auto') ---
 function computeProfileHint(mode, model) {
   try {
@@ -95,6 +164,43 @@ function computeProfileHint(mode, model) {
     if (m === 'coding') return 'code.strict';
     return null;
   } catch { return null; }
+}
+
+
+function getDefaultExecutionPreference() {
+  try {
+    const cfg = vscode.workspace.getConfiguration('clike');
+    return normalizeExecutionPreference(cfg.get('execution.defaultPreference', 'auto'));
+  } catch {
+    return 'auto';
+  }
+}
+
+function getDefaultLocalAgentExecutor() {
+  try {
+    const cfg = vscode.workspace.getConfiguration('clike');
+    return normalizeLocalAgentExecutor(
+      cfg.get('localAgent.preferredExecutor', 'auto')
+    );
+  } catch {
+    return 'auto';
+  }
+}
+
+function normalizeAgentDefaultInput(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (raw === 'codex') return 'gpt_codex';
+  if (raw === 'claude') return 'claude_code';
+  if (raw === 'auto') return 'auto';
+  return '';
+}
+
+
+async function persistLocalAgentDefault(executorId) {
+  const normalized = normalizeLocalAgentExecutor(executorId);
+  const cfg = vscode.workspace.getConfiguration('clike');
+  await cfg.update('localAgent.preferredExecutor', normalized, vscode.ConfigurationTarget.Workspace);
+  return normalized;
 }
 
 function _looksTextual(p) {
@@ -256,33 +362,144 @@ async function collectLaneGuidesRagItems(workspaceRoot, opts = {}) {
 
 // Collect RAG items for a given REQ under runs/kit/REQ-XXX/src.
 // We index only KIT-generated code, not the global /src folder.
-async function collectKitRagItems(workspaceRoot, reqId,  opts = {}) {
+// async function collectKitRagItems(workspaceRoot, reqId,  opts = {}) {
+//   if (!workspaceRoot) {
+//     return [];
+//   }
+
+//   const maxFiles = opts.maxFiles ?? 400;
+//   const maxBytes = opts.maxBytes ?? 512 * 1024;
+
+//   const rootFsPath = workspaceRoot.fsPath;
+//   const kitSrcDir = path.join(rootFsPath, 'runs', 'kit', reqId, 'src');
+//   const kitSrcUri = vscode.Uri.file(kitSrcDir);
+
+//   let stat;
+//   try {
+//     stat = await vscode.workspace.fs.stat(kitSrcUri);
+//   } catch {
+//     // No KIT src dir yet for this REQ
+//     return [];
+//   }
+
+//   if (!stat || stat.type !== vscode.FileType.Directory) {
+//     return [];
+//   }
+
+//   const items = [];
+
+//   async function walk(dirUri, relBase) {
+//     const entries = await vscode.workspace.fs.readDirectory(dirUri);
+
+//     for (const [name, type] of entries) {
+//       const childUri = vscode.Uri.joinPath(dirUri, name);
+//       const relPath = relBase ? path.posix.join(relBase, name) : name;
+
+//       if (type === vscode.FileType.Directory) {
+//         await walk(childUri, relPath);
+//         if (items.length >= maxFiles) {
+//           return;
+//         }
+//         continue;
+//       }
+
+//       if (type !== vscode.FileType.File) {
+//         continue;
+//       }
+//       // constants.js o all'inizio del tuo file
+//       const CODE_EXTENSIONS = [
+//         // Web & UI
+//         'ts', 'tsx', 'js', 'jsx', 'html', 'htm', 'css', 'scss', 'sass',
+
+//         // Core & Compilati
+//         'java', 'cs', 'go', 'rs', 'swift', 'kt', 'm', 'mm', 'c', 'cpp', 'cc', 'h', 'hpp',
+
+//         // Scripting
+//         'py', 'pyw', 'rb', 'pl', 'php', 'sh', 'bash', 'ps1', 'lua', 'dart',
+
+//         // Configurazione & Dati
+//         'json', 'yml', 'yaml', 'toml', 'ini', 'xml',
+
+//         // Database
+//         'sql', 'pls', 'pck',
+
+//         // Documentazione & Markup
+//         'md', 'markdown', 'rst', 'tex', 'txt',
+
+//         // Mendix (o altri specifici)
+//         'mpr' 
+//       ];
+//       const fileExtension = name.split('.').pop().toLowerCase();
+//       // Only index "code-ish" and text files. Adjust/extensions as needed.
+//       if (!CODE_EXTENSIONS.includes(fileExtension)) {
+//           log("[harperRAG] skip file (not code): " + childUri.fsPath);
+//         continue;
+//       }
+
+//       let data;
+//       try {
+//         data = await vscode.workspace.fs.readFile(childUri);
+//       } catch (err) {
+//         log(`[harperRAG] skip file (read error): ${childUri.fsPath} -> ${err}`);
+//         continue;
+//       }
+
+//       if (!data || !data.byteLength) {
+//         continue;
+//       }
+
+//       const slice = data.byteLength > maxBytes ? data.slice(0, maxBytes) : data;
+//       const b64 = Buffer.from(slice).toString('base64');
+
+//       // Path relative to workspace root, so RAG can later map it back.
+//       const relFromRoot = path.posix.join('runs', 'kit', reqId, 'src', relPath);
+
+//       items.push({
+//         path: relFromRoot,
+//         bytes_b64: b64,
+//       });
+
+//       if (items.length >= maxFiles) {
+//         log(`[harperRAG] kit RAG items truncated at ${maxFiles} files for ${reqId}`);
+//         return;
+//       }
+//     }
+//   }
+
+//   await walk(kitSrcUri, '');
+
+//   log(`[harperRAG] collected ${items.length} kit RAG items for ${reqId}`);
+//   return items;
+// }
+
+// Collect RAG items for a given REQ under runs/kit/REQ-XXX.
+// We index candidate source, tests, CI contracts, docs and reports.
+// We still never index canonical /src or /test here.
+async function collectKitRagItems(workspaceRoot, reqId, opts = {}) {
   if (!workspaceRoot) {
     return [];
   }
 
-  const maxFiles = opts.maxFiles ?? 400;
+  const maxFiles = opts.maxFiles ?? 700;
   const maxBytes = opts.maxBytes ?? 512 * 1024;
-
   const rootFsPath = workspaceRoot.fsPath;
-  const kitSrcDir = path.join(rootFsPath, 'runs', 'kit', reqId, 'src');
-  const kitSrcUri = vscode.Uri.file(kitSrcDir);
+  const reqNorm = String(reqId || '').trim().toUpperCase();
 
-  let stat;
-  try {
-    stat = await vscode.workspace.fs.stat(kitSrcUri);
-  } catch {
-    // No KIT src dir yet for this REQ
-    return [];
-  }
-
-  if (!stat || stat.type !== vscode.FileType.Directory) {
-    return [];
-  }
-
+  const candidateSubroots = ['src', 'test', 'ci', 'docs', 'reports'];
   const items = [];
 
-  async function walk(dirUri, relBase) {
+  const CODE_EXTENSIONS = [
+    'ts', 'tsx', 'js', 'jsx', 'html', 'htm', 'css', 'scss', 'sass',
+    'java', 'cs', 'go', 'rs', 'swift', 'kt', 'm', 'mm', 'c', 'cpp', 'cc', 'h', 'hpp',
+    'py', 'pyw', 'rb', 'pl', 'php', 'sh', 'bash', 'ps1', 'lua', 'dart',
+    'json', 'yml', 'yaml', 'toml', 'ini', 'xml',
+    'sql', 'pls', 'pck',
+    'md', 'markdown', 'rst', 'tex', 'txt',
+    'http', 'curl',
+    'mpr'
+  ];
+
+  async function walk(dirUri, relBase, relRootFromWorkspace) {
     const entries = await vscode.workspace.fs.readDirectory(dirUri);
 
     for (const [name, type] of entries) {
@@ -290,7 +507,11 @@ async function collectKitRagItems(workspaceRoot, reqId,  opts = {}) {
       const relPath = relBase ? path.posix.join(relBase, name) : name;
 
       if (type === vscode.FileType.Directory) {
-        await walk(childUri, relPath);
+        if (name === '__pycache__' || name === '.pytest_cache' || name === 'node_modules') {
+          continue;
+        }
+
+        await walk(childUri, relPath, relRootFromWorkspace);
         if (items.length >= maxFiles) {
           return;
         }
@@ -300,33 +521,13 @@ async function collectKitRagItems(workspaceRoot, reqId,  opts = {}) {
       if (type !== vscode.FileType.File) {
         continue;
       }
-      // constants.js o all'inizio del tuo file
-      const CODE_EXTENSIONS = [
-        // Web & UI
-        'ts', 'tsx', 'js', 'jsx', 'html', 'htm', 'css', 'scss', 'sass',
 
-        // Core & Compilati
-        'java', 'cs', 'go', 'rs', 'swift', 'kt', 'm', 'mm', 'c', 'cpp', 'cc', 'h', 'hpp',
+      const fileExtension = name.includes('.')
+        ? name.split('.').pop().toLowerCase()
+        : '';
 
-        // Scripting
-        'py', 'pyw', 'rb', 'pl', 'php', 'sh', 'bash', 'ps1', 'lua', 'dart',
-
-        // Configurazione & Dati
-        'json', 'yml', 'yaml', 'toml', 'ini', 'xml',
-
-        // Database
-        'sql', 'pls', 'pck',
-
-        // Documentazione & Markup
-        'md', 'markdown', 'rst', 'tex', 'txt',
-
-        // Mendix (o altri specifici)
-        'mpr' 
-      ];
-      const fileExtension = name.split('.').pop().toLowerCase();
-      // Only index "code-ish" and text files. Adjust/extensions as needed.
       if (!CODE_EXTENSIONS.includes(fileExtension)) {
-          log("[harperRAG] skip file (not code): " + childUri.fsPath);
+        log("[harperRAG] skip file (not code/text): " + childUri.fsPath);
         continue;
       }
 
@@ -344,9 +545,7 @@ async function collectKitRagItems(workspaceRoot, reqId,  opts = {}) {
 
       const slice = data.byteLength > maxBytes ? data.slice(0, maxBytes) : data;
       const b64 = Buffer.from(slice).toString('base64');
-
-      // Path relative to workspace root, so RAG can later map it back.
-      const relFromRoot = path.posix.join('runs', 'kit', reqId, 'src', relPath);
+      const relFromRoot = path.posix.join(relRootFromWorkspace, relPath);
 
       items.push({
         path: relFromRoot,
@@ -354,118 +553,36 @@ async function collectKitRagItems(workspaceRoot, reqId,  opts = {}) {
       });
 
       if (items.length >= maxFiles) {
-        log(`[harperRAG] kit RAG items truncated at ${maxFiles} files for ${reqId}`);
+        log(`[harperRAG] kit RAG items truncated at ${maxFiles} files for ${reqNorm}`);
         return;
       }
     }
   }
 
-  await walk(kitSrcUri, '');
+  for (const subroot of candidateSubroots) {
+    const absDir = path.join(rootFsPath, 'runs', 'kit', reqNorm, subroot);
+    const uri = vscode.Uri.file(absDir);
 
-  log(`[harperRAG] collected ${items.length} kit RAG items for ${reqId}`);
+    try {
+      const stat = await vscode.workspace.fs.stat(uri);
+      if (!stat || stat.type !== vscode.FileType.Directory) {
+        continue;
+      }
+    } catch {
+      continue;
+    }
+
+    const relRootFromWorkspace = path.posix.join('runs', 'kit', reqNorm, subroot);
+    await walk(uri, '', relRootFromWorkspace);
+
+    if (items.length >= maxFiles) {
+      break;
+    }
+  }
+
+  log(`[harperRAG] collected ${items.length} kit RAG items for ${reqNorm}`);
   return items;
 }
-
-/*
-// --- generic Harper runner (spec/plan/kit/build) ---
-async function callHarper(cmd, payload, headers) {
-  let res
-  let raw;
-
-  try {
-    const base = vscode.workspace.getConfiguration().get('clike.orchestratorUrl') || 'http://localhost:8080';
-    const url  = `${base}/v1/harper/${cmd}`;
-    res  = await fetch(url, { method: 'POST', headers: headers, body: JSON.stringify(payload) });
-    if (!res.ok) {
-      throw new Error(`callHarper ${cmd} ${res}: ${'error'}`);
-    }
-    return res.json();
-
-  }
-  catch (e) {
-    try {
-      raw = await res?.text();
-    } catch(err) {
-      log("[clike] callHarper — raw error", err)
-    }
-    
-    log("[clike] callHarper — network error", e)
-    log("[clike] callHarper — non-2xx response", {
-      status: res?.status,
-      statusText: res?.statusText,
-      bodyPreview: raw?.slice?.(0, 400)
-    })
-    throw new Error(`callHarper ${cmd} error: ${e.message}`);
-
-  }
- 
-}*/
-
-// const HARPER_REQUEST_TIMEOUT_MS = 720000;
-
-// async function callHarper(cmd, payload, headers, opts = {}) {
-//   const base = vscode.workspace.getConfiguration().get('clike.orchestratorUrl') || 'http://localhost:8080';
-//   const url  = `${base}/v1/harper/${cmd}`;
-  
-//   const timeoutMs = opts.timeoutMs ?? HARPER_REQUEST_TIMEOUT_MS;
-//   const controller = new AbortController();
-//   const timeoutId = setTimeout(() => {
-//     controller.abort();
-//   }, timeoutMs);
-
-//   try {
-//     log(`[harper] calling ${url} with cmd=${cmd}, timeout=${timeoutMs}ms`);
-//     logCurrentTimeStandard('[harper] calling');
-//     const res = await fetch(url, {
-//       method: "POST",
-//       headers:  headers,
-//       body: JSON.stringify(payload),
-//       signal: controller.signal,
-//     });
-//     logCurrentTimeStandard('[harper] done');
-//     if (!res.ok) {
-//       const text = await res.text().catch(() => "<no body>");
-//       log(
-//         `[harper] ${cmd} http error ${res.status}: ${text.slice(0, 500)}`
-//       );
-//       throw new Error(
-//         `orchestrator ${cmd} ${res.status}: ${text.slice(0, 200)}`
-//       );
-//     }
-
-//     const json = await res.json();
-//     return json;
-//   } catch (err) {
-//     logCurrentTimeStandard('[harper] fetch failed');
-//     const isAbort =
-//       err?.name === "AbortError" ||
-//       (typeof err?.message === "string" &&
-//         err.message.toLowerCase().includes("aborted"));
-
-//     const errMsg =
-//       typeof err?.message === "string" ? err.message : String(err);
-
-//     const causeCode =
-//       err?.cause && typeof err.cause === "object" ? err.cause.code : undefined;
-
-//     log(
-//       `[harper] fetch failed for ${cmd}: ${errMsg}` +
-//         (causeCode ? ` (cause.code=${causeCode})` : "") +
-//         (err?.stack ? `\nSTACK: ${err.stack}` : "")
-//     );
-
-//     if (isAbort) {
-//       throw new Error(
-//         `Harper ${cmd} timed out after ${timeoutMs / 1000}s (client abort)`
-//       );
-//     }
-
-//     throw new Error(`Harper ${cmd} fetch failed: ${errMsg}`);
-//   } finally {
-//     clearTimeout(timeoutId);
-//   }
-// }
-
 
 const HARPER_REQUEST_TIMEOUT_MS = 25 * 60 * 1000; // 12 minuti #porcocazzo il timeout ...
 
@@ -527,7 +644,127 @@ async function callHarper(cmd, payload, headers, opts = {}) {
     throw new Error(`Harper ${cmd} fetch failed: ${errMsg}`);
   }
 }
+async function executeLocalAgentPackage({
+  localAgentPackage,
+  phase,
+  reqId,
+  runId,
+  executionPreference,
+  settings,
+  wsroot,
+  headers,
+  harperTimeout,
+  panel,
+  out,
+}) {
+  const reqForAgent = String(localAgentPackage?.req_id || reqId || '').trim().toUpperCase();
+  const phaseForAgent = String(localAgentPackage?.phase || phase || '').trim().toLowerCase();
 
+  if (!reqForAgent) {
+    throw new Error('Invalid local-agent package: missing req_id.');
+  }
+
+  const invocation = localAgentPackage.invocation || {};
+  const selectedExecutor = normalizeLocalAgentExecutor(
+    invocation.executor || localAgentPackage.executor_hint || 'auto'
+  );
+
+  if (!selectedExecutor || selectedExecutor === 'auto') {
+    throw new Error(
+      'Invalid local-agent package: orchestrator did not provide a concrete executor.'
+    );
+  }
+
+  const executorConfig = getExecutorConfig(selectedExecutor, settings);
+  const executorLabel = buildLocalAgentDisplayLabel(selectedExecutor);
+  const availability = detectLocalAgentAvailability(settings);
+  const executorAvailable = !!availability?.[selectedExecutor]?.available;
+
+  if (!executorConfig || !executorConfig.enabled || !executorAvailable) {
+    throw new Error(
+      `Orchestrator selected ${selectedExecutor}, but the local actuator cannot execute it. ` +
+      `availability=${JSON.stringify(availability?.[selectedExecutor] || {})}`
+    );
+  }
+
+  const invocationArgs = Array.isArray(invocation.args) ? invocation.args : [];
+  const promptTransport = String(invocation.prompt_transport || '').trim();
+
+  const packageFiles = Array.isArray(localAgentPackage.package_files)
+    ? localAgentPackage.package_files
+    : [];
+
+  if (packageFiles.length) {
+    await saveGeneratedFiles(packageFiles);
+    log(`[harperRun][agent] wrote orchestrator package files=${packageFiles.length} phase=${phaseForAgent}`);
+  }
+
+  const promptContent = String(localAgentPackage.prompt_content || '').trim();
+  if (!promptContent) {
+    throw new Error('Local agent package does not contain prompt_content.');
+  }
+
+  panel.webview.postMessage({
+    type: 'echo',
+    message: `🤖 ${executorLabel} local ${phaseForAgent.toUpperCase()} package received from orchestrator for ${reqForAgent}.`
+  });
+
+  const agentResult = await runLocalAgentSync({
+    workspaceRootUri: wsroot,
+    prompt: promptContent,
+    executorId: selectedExecutor,
+    command: executorConfig.command,
+    argsBeforePrompt: invocationArgs,
+    promptTransport,
+    timeoutMinutes: Math.ceil(Number(invocation.timeout_seconds || 1800) / 60),
+    out,
+  });
+
+  const candidateFiles = await collectReqCandidateFiles(wsroot, reqForAgent);
+  const candidateArtifacts = await collectReqCandidateFileArtifacts(wsroot, reqForAgent);
+
+  log(
+    `[harperRun][agent] completed executor=${selectedExecutor} ` +
+    `phase=${phaseForAgent} req=${reqForAgent} files=${candidateFiles.length} artifacts=${candidateArtifacts.length}`
+  );
+
+  if (!candidateArtifacts.length) {
+    throw new Error(
+      `${executorLabel} completed without returning readable candidate artifacts under runs/kit/${reqForAgent}/`
+    );
+  }
+
+  const completeBody = {
+    phase: phaseForAgent,
+    req_id: reqForAgent,
+    runId,
+    executionPreference,
+    localAgentExecutor: selectedExecutor,
+    exit_code: agentResult.exitCode,
+    stdout: agentResult.stdout || '',
+    stderr: agentResult.stderr || '',
+    files: candidateArtifacts,
+  };
+
+  const completeGateway = await callHarper('local-agent/complete', completeBody, headers, {
+    timeoutMs: 1000 * 60 * harperTimeout,
+  });
+
+  const completeOut = completeGateway.out;
+
+  if (!completeOut?.ok) {
+    throw new Error(
+      `Orchestrator rejected local-agent result: ${(completeOut?.errors || []).join(' | ') || 'unknown error'}`
+    );
+  }
+
+  panel.webview.postMessage({
+    type: 'echo',
+    message: `✅ ${executorLabel} local ${phaseForAgent.toUpperCase()} normalized by orchestrator for ${reqForAgent}.`
+  });
+
+  return completeOut;
+}
 
 
 
@@ -975,10 +1212,11 @@ function documentInfoFromEditor(editor) {
   return { uriStr: doc.uri.toString(), language: doc.languageId || 'plaintext' };
 }
 
-function cfg() {
-  const c = vscode.workspace.getConfiguration();
 
-  const routes = c.get('clike.routes', {
+function cfg() {
+  const c = vscode.workspace.getConfiguration('clike');
+
+  const routes = c.get('routes', {
     orchestrator: {
       code: '/agent/code',
       ragIndex: '/v1/rag/index',
@@ -996,53 +1234,728 @@ function cfg() {
   });
 
   return {
-    // URL base (presenti)
-    orchestratorUrl: c.get('clike.orchestratorUrl', 'http://localhost:8080').replace(/\/+$/, ''),
-    gatewayUrl:      c.get('clike.gatewayUrl', 'http://localhost:8000').replace(/\/+$/, ''),
+    orchestratorUrl: c.get('orchestratorUrl', 'http://localhost:8080').replace(/\/+$/, ''),
+    gatewayUrl: c.get('gatewayUrl', 'http://localhost:8000').replace(/\/+$/, ''),
 
-    optimizeFor: c.get('clike.optimizeFor', 'capability'),
-    harperTimeout: c.get('clike.harperTimeout', 25),
-    // policy apply
-    requireCleanGit: c.get('clike.apply.requireCleanGit', false),
-    backup:          c.get('clike.apply.backup', true),
-    dryRunPreview:   c.get('clike.apply.dryRunPreview', true),
+    optimizeFor: c.get('optimizeFor', 'capability'),
+    harperTimeout: c.get('harperTimeout', 25),
+    
+    localAgentEnabled: c.get('localAgent.enabled', true),
+    localAgentPreferredExecutor: c.get('localAgent.preferredExecutor', 'auto'),
+    localAgentAllowEval: c.get('localAgent.allowEval', false),
+    localAgentRestrictToKitPhases: c.get('localAgent.restrictToKitPhases', true),
+    localAgentTimeoutMinutes: c.get('localAgent.timeoutMinutes', 20),
 
-    // git helpers (presenti)
-    gitAutoCommit:    c.get('clike.git.autoCommit', true),
-    gitCommitMessage: c.get('clike.git.commitMessage', 'clike: apply patch (AI)'),
-    gitOpenPR:        c.get('clike.git.openPR', true),
+    claudeCodeEnabled: c.get('claudeCode.enabled', false),
+    claudeCodeRestrictToKitPhases: c.get('claudeCode.restrictToKitPhases', true),
+    claudeCodeEnableEval: c.get('claudeCode.enableEval', false),
+    claudeCodeCommand: c.get('claudeCode.command', 'claude'),
+    claudeCodePermissionMode: c.get('claudeCode.permissionMode', 'acceptEdits'),
+    claudeCodePrintModeFlag: c.get('claudeCode.printModeFlag', '-p'),
+    claudeCodeTimeoutMinutes: c.get('claudeCode.timeoutMinutes', 20),
 
-    // Git workflow
-    gitRemote:        c.get('clike.git.remote', 'origin'),
-    gitDefaultBranch: c.get('clike.git.defaultBranch', 'main'),
-    gitConventional:  c.get('clike.git.conventionalCommits', true),
-    gitPushRebase:    c.get('clike.git.pushRebase', true),
+    codexEnabled: c.get('localAgent.codex.enabled', true),
+    codexCommand: c.get('localAgent.codex.command', 'codex'),
+    codexTimeoutMinutes: c.get('localAgent.codex.timeoutMinutes', 20),
 
-    // Branching & PRs
-    gitBranchPrefix:  c.get('clike.git.branchPrefix', 'feature'),
-    gitTagPrefix:     c.get('clike.git.tagPrefix', 'harper'),
-    prPerReqDraft:    c.get('clike.git.prPerReqDraft.enabled', false),
-    prUseGhCli:       c.get('clike.git.prPerReqDraft.useGhCli', true),
-    prBodyPath:       c.get('clike.git.prBodyPath', 'docs/harper/PR_BODY.md'),
-    gitRemoteUrl:     vscode.workspace.getConfiguration('clike.git').get('remoteUrl') || '',
-  
-    gitMergeOnGate:               c.get('clike.git.gitMergeOnGate', true),
-    gitDeleteBranchOnMerge:       c.get('clike.git.gitDeleteBranchOnMerge', false),     
-    gitReturnToFeatureAfterMerge:  c.get('clike.git.gitReturnToFeatureAfterMerge', false), 
-  
+    requireCleanGit: c.get('apply.requireCleanGit', false),
+    backup: c.get('apply.backup', true),
+    dryRunPreview: c.get('apply.dryRunPreview', true),
 
-    // toggle AI → mappati su use.ai.*
-    useAiDocstring: c.get('clike.useAi.docstring', true),
-    useAiRefactor:  c.get('clike.useAi.refactor',  true),
-    useAiTests:     c.get('clike.useAi.tests',     false),
-    useAiFixErrors: c.get('clike.useAi.fixErrors', false),
+    gitAutoCommit: c.get('git.autoCommit', true),
+    gitMergeOnGate: c.get('git.gitMergeOnGate', true),
+    gitDeleteBranchOnMerge: c.get('git.gitDeleteBranchOnMerge', false),
+    gitReturnToFeatureAfterMerge: c.get('git.gitReturnToFeatureAfterMerge', false),
+    gitRemoteUrl: c.get('git.remoteUrl', ''),
+    gitCommitMessage: c.get('git.commitMessage', 'clike: apply patch (AI)'),
+    gitOpenPR: c.get('git.openPR', true),
+    gitRemote: c.get('git.remote', 'origin'),
+    gitDefaultBranch: c.get('git.defaultBranch', 'main'),
+    gitConventionalCommits: c.get('git.conventionalCommits', true),
+    gitPushRebase: c.get('git.pushRebase', true),
+    gitBranchPrefix: c.get('git.branchPrefix', 'feature'),
+    gitTagPrefix: c.get('git.tagPrefix', 'harper'),
+    gitPrPerReqDraftEnabled: c.get('git.prPerReqDraft.enabled', false),
+    gitPrPerReqDraftUseGhCli: c.get('git.prPerReqDraft.useGhCli', true),
+    gitPrBodyPath: c.get('git.prBodyPath', 'docs/harper/PR_BODY.md'),
 
-    allowRawDiffFallback: c.get('clike.apply.allowRawDiffFallback', false),
+    mcpExtensionServerEnabled: c.get('mcp.extensionServerEnabled', true),
+    mcpExtensionServerHost: c.get('mcp.extensionServerHost', '127.0.0.1'),
+    mcpExtensionServerPort: c.get('mcp.extensionServerPort', 55742),
+    mcpExtensionServerToken: c.get('mcp.extensionServerToken', ''),
 
-    routes
+    routes,
+  };
+}
+function sendMcpJson(res, status, body) {
+  const raw = JSON.stringify(body);
+  res.writeHead(status, {
+    'content-type': 'application/json; charset=utf-8',
+    'content-length': Buffer.byteLength(raw),
+    'cache-control': 'no-store',
+  });
+  res.end(raw);
+}
+
+function mcpTextResult(id, payload, isError = false) {
+  return {
+    jsonrpc: '2.0',
+    id,
+    result: {
+      content: [
+        {
+          type: 'text',
+          text: typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2),
+        },
+      ],
+      isError,
+    },
   };
 }
 
+function mcpError(id, code, message, data = null) {
+  return {
+    jsonrpc: '2.0',
+    id,
+    error: {
+      code,
+      message,
+      data,
+    },
+  };
+}
+
+async function readRequestJson(req) {
+  const chunks = [];
+  for await (const chunk of req) {
+    chunks.push(Buffer.from(chunk));
+  }
+
+  const raw = Buffer.concat(chunks).toString('utf8').trim();
+  if (!raw) {
+    return {};
+  }
+
+  return JSON.parse(raw);
+}
+
+function ensureLocalMcpAuthorized(req) {
+  const settings = cfg();
+  const expected = String(settings.mcpExtensionServerToken || '').trim();
+
+  if (!expected) {
+    return true;
+  }
+
+  const header = String(req.headers.authorization || '').trim();
+  return header === `Bearer ${expected}`;
+}
+
+// async function getHarperNextAction() {
+//   const wsroot = getWorkspaceRoot();
+//   if (!wsroot) {
+//     return {
+//       ok: false,
+//       action: 'no_workspace',
+//       message: 'No VS Code workspace is open.',
+//     };
+//   }
+
+//   const plan = await readPlanJson(wsroot);
+//   const reqs = Array.isArray(plan?.reqs) ? plan.reqs : [];
+
+//   if (!reqs.length) {
+//     return {
+//       ok: false,
+//       action: 'no_plan',
+//       message: 'docs/harper/plan.json is missing or has no reqs.',
+//     };
+//   }
+
+//   const done = new Set(
+//     reqs
+//       .filter(r => String(r?.status || '').trim().toLowerCase() === 'done')
+//       .map(r => String(r?.id || '').trim().toUpperCase())
+//       .filter(Boolean)
+//   );
+
+//   const open = reqs.filter(r => String(r?.status || '').trim().toLowerCase() !== 'done');
+
+//   for (const req of open) {
+//     const reqId = String(req?.id || '').trim().toUpperCase();
+//     const deps = Array.isArray(req?.dependsOn)
+//       ? req.dependsOn.map(x => String(x || '').trim().toUpperCase()).filter(Boolean)
+//       : [];
+
+//     const missingDeps = deps.filter(dep => !done.has(dep));
+//     if (!missingDeps.length) {
+//       return {
+//         ok: true,
+//         action: 'run_req',
+//         next_phase: 'kit',
+//         req_id: reqId,
+//         req,
+//         message: `Next eligible REQ is ${reqId}.`,
+//       };
+//     }
+//   }
+
+//   if (!open.length) {
+//     return {
+//       ok: true,
+//       action: 'finalize_only',
+//       next_phase: 'finalize',
+//       req_id: null,
+//       message: 'All REQs are done. Only /finalize is available.',
+//     };
+//   }
+
+//   return {
+//     ok: true,
+//     action: 'blocked',
+//     next_phase: null,
+//     req_id: null,
+//     open_reqs: open.map(r => ({
+//       id: r.id,
+//       status: r.status,
+//       dependsOn: r.dependsOn || [],
+//     })),
+//     message: 'No eligible REQ found because dependencies are not satisfied.',
+//   };
+// }
+
+async function getHarperNextAction() {
+  const wsroot = getWorkspaceRoot();
+  if (!wsroot) {
+    return {
+      ok: false,
+      action: 'no_workspace',
+      message: 'No VS Code workspace is open.',
+    };
+  }
+
+  const plan = await readPlanJson(wsroot);
+  const reqs = Array.isArray(plan?.reqs) ? plan.reqs : [];
+
+  if (!reqs.length) {
+    return {
+      ok: false,
+      action: 'no_plan',
+      message: 'docs/harper/plan.json is missing or has no reqs.',
+    };
+  }
+
+  const firstOpen = reqs.find(req => {
+    const status = String(req?.status || '').trim().toLowerCase();
+    return status === 'open';
+  });
+
+  if (firstOpen) {
+    const reqId = String(firstOpen?.id || '').trim().toUpperCase();
+    const deps = Array.isArray(firstOpen?.dependsOn)
+      ? firstOpen.dependsOn.map(x => String(x || '').trim().toUpperCase()).filter(Boolean)
+      : [];
+
+    return {
+      ok: true,
+      action: 'run_req',
+      selection_policy: 'first_open_in_plan_order',
+      next_phase: 'kit',
+      req_id: reqId,
+      req: firstOpen,
+      dependsOn: deps,
+      message: `Next open REQ is ${reqId}.`,
+    };
+  }
+
+  const inProgress = reqs.find(req => {
+    const status = String(req?.status || '').trim().toLowerCase();
+    return status === 'in_progress';
+  });
+
+  if (inProgress) {
+    const reqId = String(inProgress?.id || '').trim().toUpperCase();
+    const deps = Array.isArray(inProgress?.dependsOn)
+      ? inProgress.dependsOn.map(x => String(x || '').trim().toUpperCase()).filter(Boolean)
+      : [];
+
+    return {
+      ok: true,
+      action: 'run_req',
+      selection_policy: 'first_in_progress_fallback',
+      next_phase: 'kit',
+      req_id: reqId,
+      req: inProgress,
+      dependsOn: deps,
+      message: `No open REQ found. Continuing first in_progress REQ ${reqId}.`,
+    };
+  }
+
+  return {
+    ok: true,
+    action: 'finalize_only',
+    next_phase: 'finalize',
+    req_id: null,
+    selection_policy: 'no_open_or_in_progress_req',
+    message: 'All REQs are done. Only /finalize is available.',
+  };
+}
+
+async function ensureClikeChatPanelForAgent() {
+  if (clikeChatPanel && clikeChatPanel.webview) {
+    return clikeChatPanel;
+  }
+
+  if (!clikeExtensionContext) {
+    throw new Error('CLike extension context is not initialized.');
+  }
+
+  await vscode.commands.executeCommand('clike.openChat');
+
+  if (!clikeChatPanel || !clikeChatPanel.webview) {
+    throw new Error('Unable to open CLike chat panel.');
+  }
+
+  return clikeChatPanel;
+}
+
+async function dispatchAgentSlashCommand(command) {
+  const clean = String(command || '').trim();
+  if (!clean.startsWith('/')) {
+    throw new Error('Agent command must be a slash command.');
+  }
+
+  const allowedPrefixes = [
+    '/agent-default',
+    '/idea',
+    '/spec',
+    '/plan',
+    '/kit',
+    '/eval',
+    '/gate',
+    '/finalize',
+    '/ragIndex',
+    '/ragSearch',
+  ];
+
+  if (!allowedPrefixes.some(prefix => clean === prefix || clean.startsWith(prefix + ' '))) {
+    throw new Error(`Unsupported CLike agent command: ${clean}`);
+  }
+
+  const panel = await ensureClikeChatPanelForAgent();
+
+  extensionMcpState.lastCommand = clean;
+  extensionMcpState.lastAcceptedAt = new Date().toISOString();
+  extensionMcpState.lastError = null;
+
+  panel.webview.postMessage({
+    type: 'agentRunSlash',
+    command: clean,
+  });
+
+  return {
+    ok: true,
+    accepted: true,
+    command: clean,
+    note: 'Command dispatched to CLike chat. The normal extension/orchestrator flow will execute it.',
+  };
+}
+
+async function ragDocsStatus(projectId = '') {
+  const pid = String(projectId || getProjectId() || 'default').trim();
+  const { orchestratorUrl } = cfg();
+
+  try {
+    const res = await postJson(`${orchestratorUrl}/v1/rag/fetch`, {
+      project_id: pid,
+      path_prefix: 'docs',
+      limit_docs: 1,
+      max_chars_per_doc: 200,
+      search_top_k: 50,
+    });
+
+    const count = Number(res?.count || (Array.isArray(res?.docs) ? res.docs.length : 0));
+    return {
+      ok: true,
+      project_id: pid,
+      docs_count: count,
+      empty: count <= 0,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      project_id: pid,
+      docs_count: 0,
+      empty: true,
+      error: String(err?.message || err),
+    };
+  }
+}
+
+async function ragReindexDocsIfEmpty(projectId = '') {
+  const status = await ragDocsStatus(projectId);
+  if (status.ok && !status.empty) {
+    return {
+      ok: true,
+      reindexed: false,
+      status,
+      message: 'RAG docs context already exists.',
+    };
+  }
+
+  const items = await cmdRagReindex('docs/**/*');
+  return {
+    ok: true,
+    reindexed: true,
+    indexed_items: Array.isArray(items) ? items.length : 0,
+    previous_status: status,
+    message: 'RAG docs context was empty or unavailable; docs/**/* reindex submitted.',
+  };
+}
+
+async function runExtensionMcpTool(name, args = {}) {
+  const tool = String(name || '').trim();
+
+  if (tool === 'clike_extension_status') {
+    const next = await getHarperNextAction().catch(err => ({
+      ok: false,
+      error: String(err?.message || err),
+    }));
+
+    return {
+      ok: true,
+      server: 'CLike Extension Operational MCP',
+      mode: 'operational',
+      workspace: getWorkspaceRoot()?.fsPath || null,
+      chat_open: !!(clikeChatPanel && clikeChatPanel.webview),
+      state: extensionMcpState,
+      next_action: next,
+    };
+  }
+
+  if (tool === 'harper_next_action') {
+    return await getHarperNextAction();
+  }
+
+  if (tool === 'harper_run_phase') {
+    const phase = String(args.phase || '').trim().toLowerCase();
+    let reqId = String(args.req_id || '').trim().toUpperCase();
+
+    if (!phase) {
+      throw new Error('phase is required.');
+    }
+
+    const reqPhases = new Set(['kit', 'eval', 'gate']);
+    const noReqPhases = new Set(['idea', 'spec', 'plan', 'finalize']);
+
+    if (!reqPhases.has(phase) && !noReqPhases.has(phase)) {
+      throw new Error(`Unsupported Harper phase: ${phase}`);
+    }
+
+    if (reqPhases.has(phase) && !reqId) {
+      const next = await getHarperNextAction();
+      if (next.action === 'finalize_only') {
+        return next;
+      }
+      if (!next.req_id) {
+        throw new Error(`No eligible REQ available for /${phase}.`);
+      }
+      reqId = next.req_id;
+    }
+
+    const command = reqPhases.has(phase) ? `/${phase} ${reqId}` : `/${phase}`;
+    return await dispatchAgentSlashCommand(command);
+  }
+
+  if (tool === 'harper_kit_next') {
+    const next = await getHarperNextAction();
+    if (next.action === 'finalize_only') {
+      return next;
+    }
+
+    if (!next.req_id) {
+      return next;
+    }
+
+    return await dispatchAgentSlashCommand(`/kit ${next.req_id}`);
+  }
+
+  if (tool === 'harper_continue_loop') {
+    const next = await getHarperNextAction();
+
+    if (next.action === 'finalize_only') {
+      return {
+        ...(await dispatchAgentSlashCommand('/finalize')),
+        next_action: next,
+      };
+    }
+
+    if (!next.req_id) {
+      return next;
+    }
+
+    const phase = String(args.phase || 'kit').trim().toLowerCase();
+    if (!['kit', 'eval', 'gate'].includes(phase)) {
+      throw new Error('phase must be one of: kit, eval, gate.');
+    }
+
+    return {
+      ...(await dispatchAgentSlashCommand(`/${phase} ${next.req_id}`)),
+      next_action: next,
+    };
+  }
+
+  if (tool === 'rag_reindex') {
+    const glob = String(args.glob || 'docs/**/*').trim() || 'docs/**/*';
+    const items = await cmdRagReindex(glob);
+    return {
+      ok: true,
+      glob,
+      indexed_items: Array.isArray(items) ? items.length : 0,
+    };
+  }
+
+  if (tool === 'rag_docs_status') {
+    return await ragDocsStatus(String(args.project_id || ''));
+  }
+
+  if (tool === 'rag_docs_reindex_if_empty') {
+    return await ragReindexDocsIfEmpty(String(args.project_id || ''));
+  }
+
+  throw new Error(`Unknown tool: ${tool}`);
+}
+
+function extensionMcpToolsList() {
+  return [
+    {
+      name: 'clike_extension_status',
+      description: 'Read local CLike extension operational state and next Harper action.',
+      inputSchema: {
+        type: 'object',
+        properties: {},
+      },
+    },
+    {
+      name: 'harper_next_action',
+      description: 'Return the next eligible REQ or say that only finalize is available.',
+      inputSchema: {
+        type: 'object',
+        properties: {},
+      },
+    },
+    {
+      name: 'harper_run_phase',
+      description: 'Dispatch a normal CLike slash phase through the VS Code extension chat flow.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          phase: { type: 'string', enum: ['idea', 'spec', 'plan', 'kit', 'eval', 'gate', 'finalize'] },
+          req_id: { type: 'string' },
+        },
+        required: ['phase'],
+      },
+    },
+    {
+      name: 'harper_kit_next',
+      description: 'Find the next eligible REQ and dispatch /kit <REQ-ID>. If all REQs are done, returns finalize_only.',
+      inputSchema: {
+        type: 'object',
+        properties: {},
+      },
+    },
+    {
+      name: 'harper_continue_loop',
+      description: 'Continue the Harper loop on the next eligible REQ with phase kit/eval/gate, or finalize if all REQs are done.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          phase: { type: 'string', enum: ['kit', 'eval', 'gate'] },
+        },
+      },
+    },
+    {
+      name: 'rag_reindex',
+      description: 'Reindex workspace files into RAG using the extension collector. Default glob is docs/**/*.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          glob: { type: 'string' },
+        },
+      },
+    },
+    {
+      name: 'rag_docs_status',
+      description: 'Check whether docs/* content exists in project RAG.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          project_id: { type: 'string' },
+        },
+      },
+    },
+    {
+      name: 'rag_docs_reindex_if_empty',
+      description: 'If docs RAG context is empty, reindex docs/**/* through the extension.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          project_id: { type: 'string' },
+        },
+      },
+    },
+  ];
+}
+
+async function handleExtensionMcpRpc(body) {
+  const method = String(body?.method || '').trim();
+  const id = body?.id ?? null;
+
+  if (method === 'initialize') {
+    return {
+      jsonrpc: '2.0',
+      id,
+      result: {
+        protocolVersion: '2024-11-05',
+        capabilities: {
+          tools: {},
+        },
+        serverInfo: {
+          name: 'CLike Extension Operational MCP',
+          version: 'v1',
+        },
+        instructions: (
+          'Operational CLike MCP surface. Use it to ask the VS Code extension to run normal CLike slash commands. ' +
+          'The extension never bypasses the orchestrator; it dispatches into the same chat-driven flow used by developers.'
+        ),
+      },
+    };
+  }
+
+  if (method === 'notifications/initialized') {
+    return {
+      jsonrpc: '2.0',
+      id,
+      result: {},
+    };
+  }
+
+  if (method === 'tools/list') {
+    return {
+      jsonrpc: '2.0',
+      id,
+      result: {
+        tools: extensionMcpToolsList(),
+      },
+    };
+  }
+
+  if (method === 'tools/call') {
+    const params = body?.params || {};
+    const name = String(params.name || '').trim();
+    const args = params.arguments || {};
+
+    try {
+      const result = await runExtensionMcpTool(name, args);
+      return mcpTextResult(id, result, false);
+    } catch (err) {
+      extensionMcpState.lastError = String(err?.message || err);
+      return mcpTextResult(id, {
+        ok: false,
+        tool: name,
+        error: String(err?.message || err),
+      }, true);
+    }
+  }
+
+  return mcpError(id, -32601, `Unsupported MCP method: ${method}`);
+}
+
+function startExtensionOperationalMcpServer(context) {
+  const settings = cfg();
+
+  if (!settings.mcpExtensionServerEnabled) {
+    out.appendLine('[CLike][mcp-extension] disabled by settings.');
+    return;
+  }
+
+  if (extensionMcpServer) {
+    return;
+  }
+
+  const host = String(settings.mcpExtensionServerHost || '127.0.0.1');
+  const port = Number(settings.mcpExtensionServerPort || 55742);
+
+  extensionMcpServer = http.createServer(async (req, res) => {
+    try {
+      const url = new URL(req.url || '/', `http://${host}:${port}`);
+
+      if (!ensureLocalMcpAuthorized(req)) {
+        return sendMcpJson(res, 401, { ok: false, error: 'unauthorized' });
+      }
+
+      if (req.method === 'GET' && url.pathname === '/health') {
+        return sendMcpJson(res, 200, {
+          ok: true,
+          service: 'CLike Extension Operational MCP',
+          workspace: getWorkspaceRoot()?.fsPath || null,
+          chat_open: !!(clikeChatPanel && clikeChatPanel.webview),
+          state: extensionMcpState,
+        });
+      }
+
+      if (req.method === 'GET' && url.pathname === '/tools') {
+        return sendMcpJson(res, 200, {
+          ok: true,
+          tools: extensionMcpToolsList(),
+        });
+      }
+
+      if (req.method === 'POST' && (url.pathname === '/mcp' || url.pathname === '/')) {
+        const body = await readRequestJson(req);
+        const response = await handleExtensionMcpRpc(body);
+        return sendMcpJson(res, 200, response);
+      }
+
+      return sendMcpJson(res, 404, {
+        ok: false,
+        error: 'not_found',
+        path: url.pathname,
+      });
+    } catch (err) {
+      extensionMcpState.lastError = String(err?.message || err);
+      return sendMcpJson(res, 500, {
+        ok: false,
+        error: String(err?.message || err),
+      });
+    }
+  });
+
+  extensionMcpServer.listen(port, host, () => {
+    extensionMcpState.started = true;
+    extensionMcpState.url = `http://${host}:${port}/mcp`;
+    out.appendLine(`[CLike][mcp-extension] operational MCP listening at ${extensionMcpState.url}`);
+    vscode.window.setStatusBarMessage(`CLike MCP extension: ${host}:${port}`, 2500);
+  });
+
+  extensionMcpServer.on('error', (err) => {
+    extensionMcpState.started = false;
+    extensionMcpState.lastError = String(err?.message || err);
+    out.appendLine(`[CLike][mcp-extension] server error: ${extensionMcpState.lastError}`);
+  });
+
+  context.subscriptions.push({
+    dispose: () => {
+      try {
+        if (extensionMcpServer) {
+          extensionMcpServer.close();
+          extensionMcpServer = null;
+          extensionMcpState.started = false;
+        }
+      } catch {}
+    },
+  });
+}
 function getActiveEditorOrThrow() {
   const editor = vscode.window.activeTextEditor;
   if (!editor) throw new Error('Nessun editor attivo.');
@@ -1924,6 +2837,8 @@ function activate(context) {
   
   registerCommands(context);
 
+  startExtensionOperationalMcpServer(context);
+
   vscode.window.setStatusBarMessage('Clike: orchestrator+gateway integration ready', 2000);
 }
 
@@ -1938,6 +2853,7 @@ function isTextFile(filePath) {
     }
     return true; // Nessun byte nullo: è TESTO
 }
+
 
 async function cmdOpenChat(context) {
   out.appendLine(`cmdOpenChat ${context}`);
@@ -1961,8 +2877,20 @@ async function cmdOpenChat(context) {
   panel.webview.html = getWebviewHtml(orchestratorUrl, chatTheme);
   panel.webview.postMessage({ type: 'busy', on: false });
   // Stato iniziale (mode/model)
-  const savedState = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto', historyScope:'singleModel' };
-  savedState.historyScope= effectiveHistoryScope(context),
+  const savedState = context.workspaceState.get('clike.uiState') || {
+    mode: 'free',
+    model: 'auto',
+    historyScope: 'singleModel',
+    executionPreference: getDefaultExecutionPreference(),
+    localAgentExecutor: getDefaultLocalAgentExecutor(),
+  };
+  savedState.historyScope = effectiveHistoryScope(context);
+  savedState.executionPreference = normalizeExecutionPreference(
+    savedState.executionPreference || getDefaultExecutionPreference()
+  );
+  savedState.localAgentExecutor = normalizeLocalAgentExecutor(
+    savedState.localAgentExecutor || getDefaultLocalAgentExecutor()
+  );
   panel.webview.postMessage({ type: 'initState', state: savedState });
   out.appendLine(`cmdOpenChat savedState done`);
 
@@ -2006,7 +2934,14 @@ async function cmdOpenChat(context) {
     panel.webview.postMessage({ type: 'busy', on: true });
 
     try {
-      const state = context.workspaceState.get('clike.uiState') || { mode:'free', model:'auto', historyScope:'singleModel' };
+      const state = context.workspaceState.get('clike.uiState') || {
+        mode: 'free',
+        model: 'auto',
+        historyScope: 'singleModel',
+        executionPreference: getDefaultExecutionPreference(),
+        localAgentExecutor: getDefaultLocalAgentExecutor(),
+      };
+      
       const cur = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto' };
       const activeMode  = msg.mode  || cur.mode  || 'free';
       const activeModel = msg.model || cur.model || 'auto';
@@ -2025,6 +2960,23 @@ async function cmdOpenChat(context) {
             panel.webview.postMessage({ type: 'busy', on: false });
             return;
           }
+          const projectId = String(name)
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '')
+            .replace(/^-+|-+$/g, '');
+
+          if (!projectId) {
+            panel.webview.postMessage({ type: 'error', message: 'Unable to derive a valid project_id from project name.' });
+            panel.webview.postMessage({ type: 'busy', on: false });
+            return;
+          }
+
+          const templateVars = {
+            '${project.name}': name,
+            '${project.id}': projectId,
+            '${project.rag_namespace}': projectId,
+          };
 
           // scegli la cartella parent
           let parentUri = null;
@@ -2065,45 +3017,46 @@ async function cmdOpenChat(context) {
           
           const templatesDir = path.join(extRoot, 'templates', 'harper-init');
           const BINARY_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.pdf', '.zip', '.exe', '.dll', '.so', '.dylib', '.woff', '.woff2', '.ttf', '.eot']);
-          function copyRecursive(src, dest, _name) {
-            out.appendLine(`copyRecursive ${src} -> ${dest} ${_name}`);
+          function copyRecursive(src, dest) {
+            out.appendLine(`copyRecursive ${src} -> ${dest}`);
             if (fsSync.statSync(src).isDirectory()) {
               fsSync.mkdirSync(dest, { recursive: true });
               for (const entry of fsSync.readdirSync(src)) {
-                copyRecursive(path.join(src, entry), path.join(dest, entry), _name);
+                copyRecursive(path.join(src, entry), path.join(dest, entry));
               }
             } else {
               if (fsSync.existsSync(dest) && !force) {
                 panel.webview.postMessage({ type: 'busy', on: false });
                 return;
               }
+
               const ext = path.extname(src).toLowerCase();
+              const BINARY_EXTENSIONS = new Set([
+                '.png', '.jpg', '.jpeg', '.gif', '.pdf', '.zip', '.exe', '.dll',
+                '.so', '.dylib', '.woff', '.woff2', '.ttf', '.eot'
+              ]);
 
               if (BINARY_EXTENSIONS.has(ext) || !isTextFile(src)) {
-                 fsSync.copyFileSync(src, dest);
-                 
+                fsSync.copyFileSync(src, dest);
               } else {
-                // 1. Leggi il contenuto del file
                 let content = fsSync.readFileSync(src, 'utf-8');
-                // 2. Esegui la sostituzione
-                content = content.replace(/\${project.name}/g, _name);
-                // 3. Scrivi il nuovo contenuto nel file di destinazione
+                for (const [token, value] of Object.entries(templateVars)) {
+                  content = content.split(token).join(String(value));
+                }
                 fsSync.writeFileSync(dest, content);
               }
-              //fs.copyFileSync(src, dest);
             }
           }
-          copyRecursive(templatesDir, targetDir, name);
+          copyRecursive(templatesDir, targetDir);
 
           // file seed
-          await writeFileUtf8(path.join(targetDir, '.gitignore'),
-              `node_modules/
-              dist/
-              .vscode/
-              .env
-              runs/
-              *.log
-              `);
+          await writeFileUtf8(path.join(targetDir, '.gitignore'),`node_modules/
+          dist/
+          .vscode/
+          .env
+          runs/
+          *.log
+          `);
 
           // handoff per bubble nel nuovo workspace
           const summary = {
@@ -2149,7 +3102,7 @@ async function cmdOpenChat(context) {
           // apri il nuovo workspace in una nuova window
           await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(targetDir), true);
           //await context.workspaceState.update('clike.initSummary', msgText);
-
+x
 
         } catch (e) {
           console.error('[CLike] harperInit failed:', e);
@@ -2165,17 +3118,91 @@ async function cmdOpenChat(context) {
 
           const project_id = getProjectId();
           const { cmd, attachments = [] } = msg;
-
           const state = context.workspaceState.get('clike.uiState') || {
             mode: 'harper',
             model: 'auto',
-            historyScope: 'singleModel'
+            historyScope: 'singleModel',
+            executionPreference: getDefaultExecutionPreference(),
+            localAgentExecutor: getDefaultLocalAgentExecutor(),
           };
 
-          state.phase = msg.cmd;
+          const executionPreference = normalizeExecutionPreference(
+            state.executionPreference || getDefaultExecutionPreference()
+          );
 
-          const activeMode = state.mode || 'harper';
-          const activeModel = state.model || 'auto';
+          const localAgentExecutor = normalizeLocalAgentExecutor(
+            state.localAgentExecutor || getDefaultLocalAgentExecutor()
+          );
+
+          state.executionPreference = executionPreference;
+          state.localAgentExecutor = localAgentExecutor;
+
+          if (String(cmd || '').trim().toLowerCase() === 'agent-default') {
+            const rawValue = msg?.value || msg?.target || msg?.rawTarget || '';
+            log(`[harperRun][agent-default] rawValue=${JSON.stringify(rawValue)}`);
+
+            const requested = normalizeAgentDefaultInput(rawValue);
+            log(`[harperRun][agent-default] normalized=${JSON.stringify(requested)}`);
+
+            if (!requested) {
+              const usage = 'Usage: /agent-default codex|claude|auto';
+              log(`[harperRun][agent-default] invalid value=${JSON.stringify(rawValue)}`);
+
+              panel.webview.postMessage({
+                type: 'echo',
+                message: `⚠ ${usage}`
+              });
+              panel.webview.postMessage({ type: 'busy', on: false });
+              return;
+            }
+
+            const nextExecutor = normalizeLocalAgentExecutor(requested);
+            const nextState = {
+              ...state,
+              mode: 'harper',
+              localAgentExecutor: nextExecutor,
+            };
+
+            await context.workspaceState.update('clike.uiState', nextState);
+            await persistLocalAgentDefault(nextExecutor);
+
+            const label =
+              nextExecutor === 'gpt_codex'
+                ? 'GPT Codex'
+                : nextExecutor === 'claude_code'
+                  ? 'Claude Code'
+                  : 'auto';
+
+            log(`[harperRun][agent-default] updated localAgentExecutor=${nextExecutor}`);
+
+            await appendSessionJSONL('harper', {
+              role: 'system',
+              content: `✔ AGENT-DEFAULT ${label}`,
+              model: state.model || 'auto',
+            });
+
+            panel.webview.postMessage({
+              type: 'echo',
+              message: `✔ AGENT-DEFAULT ${label}`
+            });
+
+            panel.webview.postMessage({
+              type: 'initState',
+              state: {
+                ...nextState,
+                executionPreference: normalizeExecutionPreference(
+                  nextState.executionPreference || getDefaultExecutionPreference()
+                ),
+                localAgentExecutor: nextExecutor,
+              }
+            });
+
+            panel.webview.postMessage({ type: 'busy', on: false });
+            return;
+          }
+
+
+          
           const profileHint = computeProfileHint(activeMode, activeModel);
           const activeProvider = profileHint ? '' : (explicitProviderForModel(activeModel) || '');
           const docRoot = 'docs/harper';
@@ -2276,8 +3303,7 @@ async function cmdOpenChat(context) {
             response_format:'',
             tool_choice:''
           }
-          
-          
+        
           const payload = {
             cmd,
             phase: msg.cmd,
@@ -2285,6 +3311,7 @@ async function cmdOpenChat(context) {
             model: activeModel,
             ...(activeProvider ? { provider: activeProvider } : {}),
             profileHint,
+            executionPreference,
             docRoot,
             core,
             messages: _messages,
@@ -2299,8 +3326,10 @@ async function cmdOpenChat(context) {
           };
           //PATh for PLAN.md
           const wsroot = getWorkspaceRoot();
-          let targetReqId
-          let plan 
+          let targetReqId;
+          let plan;
+          let requestedKitPhases = null;
+
           if (phase === 'kit') {
             plan = await readPlanJson(wsroot);
             if (!plan) {
@@ -2317,12 +3346,12 @@ async function cmdOpenChat(context) {
               return;
             }
 
-            const requestedPhases = Array.isArray(msg?.phases) && msg.phases.length
+            requestedKitPhases = Array.isArray(msg?.phases) && msg.phases.length
               ? msg.phases
               : null;
 
-            if (requestedPhases && requestedPhases.length) {
-              const normalizedPhases = requestedPhases
+            if (requestedKitPhases && requestedKitPhases.length) {
+              const normalizedPhases = requestedKitPhases
                 .map(p => String(p || '').trim().toLowerCase())
                 .filter(Boolean);
 
@@ -2366,7 +3395,7 @@ async function cmdOpenChat(context) {
 
             payload["kit"] = {
               targets: [targetReqId],
-              ...(requestedPhases ? { phases: requestedPhases } : {})
+              ...(requestedKitPhases ? { phases: requestedKitPhases } : {})
             };
           }
           //log(`[harperRun] payload (gen):`,  JSON.stringify(payload.gen));
@@ -2374,26 +3403,89 @@ async function cmdOpenChat(context) {
           // Persisti l’input dell’utente nella sessione del MODE (e mostreremo badge del modello in render)
           await appendSessionJSONL(activeMode, {
             role: 'user',
-            content: `▶ ${cmd.toUpperCase()} ${msg_bubble} | mode=${state.mode} model=${state.model} profile=${profileHint || '—'} core=${JSON.stringify(core)}`,
+            content: `▶ ${cmd.toUpperCase()} ${msg_bubble} | mode=${state.mode} model=${state.model} exec=${executionPreference} profile=${profileHint || '—'} core=${JSON.stringify(core)}`,
             model:  state.model || 'auto',
             attachments: Array.isArray(msg.attachments) ? msg.attachments : []
           });
           // Echo pre-run
           panel.webview.postMessage({
             type: 'echo',
-            message: `▶ ${cmd.toUpperCase()} ${msg_bubble} | mode=${state.mode} model=${state.model} profile=${profileHint || '—'} core=${JSON.stringify(core)} attachments=${attachments.length}`
+            message: `▶ ${cmd.toUpperCase()} ${msg_bubble} | mode=${state.mode} model=${state.model} exec=${executionPreference} profile=${profileHint || '—'} core=${JSON.stringify(core)} attachments=${attachments.length}`
           });
           
-          
+          const settings = cfg();
+          const localAgentAvailability = detectLocalAgentAvailability(settings);
+          log(`[harperRun][agent][settings] ${JSON.stringify({
+            localAgentEnabled: settings.localAgentEnabled,
+            localAgentPreferredExecutor: settings.localAgentPreferredExecutor,
+            claudeCodeEnabled: settings.claudeCodeEnabled,
+            claudeCodeCommand: settings.claudeCodeCommand,
+            codexEnabled: settings.codexEnabled,
+            codexCommand: settings.codexCommand,
+          })}`);
+          log(`[harperRun][agent][availability] ${JSON.stringify(localAgentAvailability)}`);
+          const localAgentRequested = executionPreferenceRequestsLocalAgent(executionPreference);
+          const selectedLocalExecutor = resolveSelectedLocalAgentExecutor(
+            settings,
+            state.localAgentExecutor || 'auto',
+            phase
+          );
+          const localExecutorConfig = selectedLocalExecutor
+            ? getExecutorConfig(selectedLocalExecutor, settings)
+            : null;
+          const localExecutorLabel = buildLocalAgentDisplayLabel(selectedLocalExecutor || 'auto');
+          if (localAgentRequested && !selectedLocalExecutor) {
+            const msgNoExecutor =
+              `No local agent executor detected locally for phase=${phase}. ` +
+              `The request will still be sent to the orchestrator; fallback/package policy is orchestrator-owned.`;
 
+            log(`[harperRun][agent][local] ${msgNoExecutor}`);
+
+            panel.webview.postMessage({
+              type: 'echo',
+              message: `⚠ ${msgNoExecutor}`
+            });
+          }
+          const onlyBaseKitPhase =
+            !requestedKitPhases ||
+            !requestedKitPhases.length ||
+            (requestedKitPhases.length === 1 && String(requestedKitPhases[0] || '').trim().toLowerCase() === 'kit');
           const _headers = { "Content-Type": "application/json" };
+
+            if (phase === 'kit' && localAgentRequested && localExecutorConfig && localExecutorConfig.enabled) {
+            log(
+              `[harperRun][agent] local agent requested; orchestrator will decide package/fallback ` +
+              `req=${targetReqId} exec=${executionPreference} executor=${selectedLocalExecutor}`
+            );
+          }
 
           if (profileHint && typeof profileHint === 'string' && profileHint.trim()) {
             _headers["X-CLike-Profile"] = profileHint.trim();
           }
           //fals is for RAG chucks - TODO: RAG management via attachments is almost oden 70%
           const body = await buildHarperBody(phase, payload, wsroot, out);
-          const keys = Object.keys(body.core_blobs); 
+
+          if (phase === 'kit') {
+            body.localAgentExecutor = normalizeLocalAgentExecutor(
+              state.localAgentExecutor || settings.localAgentPreferredExecutor || 'auto'
+            );
+
+            body.localAgentCapabilities = detectLocalAgentAvailability(settings);
+            body.localAgentTimeoutSeconds = Math.max(
+              60,
+              Number(settings.localAgentTimeoutMinutes || 20) * 60
+            );
+
+            body.localRuntime = {
+              shell: process.env.SHELL || 'zsh',
+              python: 'python3',
+              python_fallbacks: ['python3', 'python'],
+              package_install_policy: 'never_install_global_packages',
+              dependency_strategy: 'use_existing_venv_or_report_blocked',
+            };
+          }
+
+          const keys = Object.keys(body.core_blobs);
           log(`[harperRun] body (keys::core_blobs):`,  keys)
           if (phase==='finalize') {
               try {
@@ -2417,10 +3509,178 @@ async function cmdOpenChat(context) {
           //log(`[harperRun] body (core_blobs):`,  JSON.stringify(body.core_blobs))
           if (activeProvider) _headers["X-CLike-Provider"] = activeProvider
           harperTimeout = cfg().harperTimeout;
-          const outGateway = await callHarper(cmd, body, _headers, { timeoutMs: 1000 * 60 * harperTimeout} );
-          panel.webview.postMessage({ type: 'busy', on: false });
+          let outGateway = await callHarper(cmd, body, _headers, { timeoutMs: 1000 * 60 * harperTimeout} );
+          let _out = outGateway.out;
 
-          const _out  = outGateway.out;
+          log(`[harperRun][agent][response] ${JSON.stringify({
+            hasOut: !!_out,
+            outKeys: _out ? Object.keys(_out) : [],
+            execution: _out?.execution || null,
+            hasLocalAgent: !!_out?.local_agent,
+            localAgentAction: _out?.local_agent?.action || null,
+            rootHasLocalAgent: !!outGateway?.local_agent,
+          })}`);
+
+           const localAgentPackage = _out?.local_agent || outGateway?.local_agent || null;
+
+          if (phase === 'kit' && localAgentPackage?.action === 'local_agent_required') {
+            const reqForAgent = String(localAgentPackage.req_id || targetReqId || '').trim().toUpperCase();
+            
+            
+            
+            const invocation = localAgentPackage.invocation || {};
+            const selectedExecutor = normalizeLocalAgentExecutor(
+              invocation.executor || localAgentPackage.executor_hint || 'auto'
+            );
+
+            if (!selectedExecutor || selectedExecutor === 'auto') {
+              throw new Error(
+                'Invalid local-agent package: orchestrator did not provide a concrete executor.'
+              );
+            }
+
+            const executorConfig = getExecutorConfig(selectedExecutor, settings);
+            const executorLabel = buildLocalAgentDisplayLabel(selectedExecutor);
+
+            const availability = detectLocalAgentAvailability(settings);
+            const executorAvailable = !!availability?.[selectedExecutor]?.available;
+
+            if (!executorConfig || !executorConfig.enabled || !executorAvailable) {
+              throw new Error(
+                `Orchestrator selected ${selectedExecutor}, but the local actuator cannot execute it. ` +
+                `availability=${JSON.stringify(availability?.[selectedExecutor] || {})}`
+              );
+            }
+
+            const invocationArgs = Array.isArray(invocation.args) ? invocation.args : [];
+            const promptTransport = String(invocation.prompt_transport || '').trim();
+
+
+
+
+            if (!selectedExecutor || !executorConfig || !executorConfig.enabled) {
+              const noExecutorMsg =
+                `Orchestrator prepared a local-agent package for ${reqForAgent}, ` +
+                `but no compatible local executor is available.`;
+
+              if (executionPreference === 'local_agent_only') {
+                panel.webview.postMessage({ type: 'busy', on: false });
+                panel.webview.postMessage({ type: 'error', message: noExecutorMsg });
+                return;
+              }
+
+              panel.webview.postMessage({
+                type: 'echo',
+                message: `⚠ ${noExecutorMsg} Falling back to current CLike cloud path.`
+              });
+
+              const fallbackBody = {
+                ...body,
+                executionPreference: 'cloud_only',
+              };
+              outGateway = await callHarper(cmd, fallbackBody, _headers, { timeoutMs: 1000 * 60 * harperTimeout });
+              _out = outGateway.out;
+            } else {
+            
+              try {
+                const packageFiles = Array.isArray(localAgentPackage.package_files)
+                  ? localAgentPackage.package_files
+                  : [];
+
+                if (packageFiles.length) {
+                  await saveGeneratedFiles(packageFiles);
+                  log(`[harperRun][agent] wrote orchestrator package files=${packageFiles.length}`);
+                }
+
+                const promptContent = String(localAgentPackage.prompt_content || '').trim();
+                if (!promptContent) {
+                  throw new Error('Local agent package does not contain prompt_content.');
+                }
+
+                panel.webview.postMessage({
+                  type: 'echo',
+                  message: `🤖 ${executorLabel} local KIT package received from orchestrator for ${reqForAgent}.`
+                });
+
+                const agentResult = await runLocalAgentSync({
+                  workspaceRootUri: wsroot,
+                  prompt: promptContent,
+                  executorId: selectedExecutor,
+                  command: executorConfig.command,
+                  argsBeforePrompt: invocationArgs,
+                  promptTransport,
+                  timeoutMinutes: Math.ceil(Number(invocation.timeout_seconds || 1800) / 60),
+                  out,
+                });
+
+                const candidateFiles = await collectReqCandidateFiles(wsroot, reqForAgent);
+                const candidateArtifacts = await collectReqCandidateFileArtifacts(wsroot, reqForAgent);
+
+                log(
+                  `[harperRun][agent] completed executor=${selectedExecutor} ` +
+                  `req=${reqForAgent} files=${candidateFiles.length} artifacts=${candidateArtifacts.length}`
+                );
+
+                if (!candidateArtifacts.length) {
+                  throw new Error(
+                    `${executorLabel} completed without returning readable candidate artifacts under runs/kit/${reqForAgent}/`
+                  );
+                }
+
+                const completeBody = {
+                  phase: 'kit',
+                  req_id: reqForAgent,
+                  runId,
+                  executionPreference,
+                  localAgentExecutor: selectedExecutor,
+                  exit_code: agentResult.exitCode,
+                  stdout: agentResult.stdout || '',
+                  stderr: agentResult.stderr || '',
+                  files: candidateArtifacts,
+                };
+
+                outGateway = await callHarper('local-agent/complete', completeBody, _headers, {
+                  timeoutMs: 1000 * 60 * harperTimeout,
+                });
+                _out = outGateway.out;
+
+                if (!_out?.ok) {
+                  throw new Error(
+                    `Orchestrator rejected local-agent result: ${(_out?.errors || []).join(' | ') || 'unknown error'}`
+                  );
+                }
+
+                panel.webview.postMessage({
+                  type: 'echo',
+                  message: `✅ ${executorLabel} local KIT normalized by orchestrator for ${reqForAgent}.`
+                });
+              } catch (err) {
+                const failMsg = `[harperRun][agent] ${err?.message || String(err)}`;
+                log(failMsg);
+
+                if (executionPreference === 'local_agent_only') {
+                  panel.webview.postMessage({ type: 'busy', on: false });
+                  panel.webview.postMessage({ type: 'error', message: failMsg });
+                  return;
+                }
+
+                panel.webview.postMessage({
+                  type: 'echo',
+                  message: `⚠ Local agent failed. Falling back to current CLike cloud path. Reason: ${err?.message || String(err)}`
+                });
+
+                const fallbackBody = {
+                  ...body,
+                  executionPreference: 'cloud_only',
+                };
+
+                outGateway = await callHarper(cmd, fallbackBody, _headers, { timeoutMs: 1000 * 60 * harperTimeout });
+                _out = outGateway.out;
+              }
+            }
+          }
+
+          panel.webview.postMessage({ type: 'busy', on: false });
           // 3) POST-RUN: persisti esito (riassunto + eventuale echo/testo)
           const summary = [
             _out?.echo ? `[echo] ${_out.echo}` : null,
@@ -2463,9 +3723,18 @@ async function cmdOpenChat(context) {
 
           
           let written = [];
-          
+          const executionSelected = String(_out?.execution?.selected || '').trim();
+
           if (Array.isArray(_out?.files) && _out.files.length) {
-            written = await saveGeneratedFiles(_out.files);
+          if (executionSelected === 'local_agent') {
+              log(
+                `[harperRun] local_agent produced ${_out.files.length} file artifact(s); ` +
+                `skipping saveGeneratedFiles because the agent already wrote candidate files under runs/kit.`
+              );
+            } else {
+              
+              written = await saveGeneratedFiles(_out.files);
+            }
             panel.webview.postMessage({ type: 'files', data: _out.files });
             log(`[harperRun] written ${written.length} files`);
             const settings = cfg();
@@ -2548,10 +3817,14 @@ async function cmdOpenChat(context) {
         const ws_root= getWorkspaceRoot()
         //log(`[harperEDD] ws_root: ${ws_root}`)
         const runId = (Math.random().toString(16).slice(2) + Date.now().toString(16));
+        const executionPreference = normalizeExecutionPreference(
+          state.executionPreference || getDefaultExecutionPreference()
+        );
         log(`[harperEDD] runId ...`,  runId);
         const mode = (msg.running) ? msg.running : 'auto'
         const modeContent = (msg.modeContent) ? msg.modeContent : 'pass'
         const isManual = msg.running === 'manual' && msg.modeContent === 'pass' ? true : false
+
         const plan = await readPlanJson(ws_root);
        
         if (phase === 'eval' || phase === 'gate') {
@@ -2583,14 +3856,14 @@ async function cmdOpenChat(context) {
         }
         await appendSessionJSONL(activeMode, {
           role: 'user',
-          content: `▶ ${phase.toUpperCase()} ${targets} ${mode} ${modeContent} | mode=${state.mode} model=${state.model}`,
+          content: `▶ ${phase.toUpperCase()} ${targets} ${mode} ${modeContent} | mode=${state.mode} model=${state.model} exec=${executionPreference}`,
           model:  state.model || 'auto',
           attachments: Array.isArray(msg.attachments) ? msg.attachments : []
         });
         // Echo pre-run
         panel.webview.postMessage({
           type: 'echo',
-          message: `▶ ${phase.toUpperCase()} ${targets} ${mode} ${modeContent}| mode=${state.mode} model=${state.model}`
+          message: `▶ ${phase.toUpperCase()} ${targets} ${mode} ${modeContent} | mode=${state.mode} model=${state.model} exec=${executionPreference}`
         });
         const path_ltc_json = msg.path
         log(`[harperEDD] path_ltc_json: ${path_ltc_json}`)
@@ -2613,14 +3886,151 @@ async function cmdOpenChat(context) {
           return;
         }
         var report = {}
-        
+
         var files_git = []
         let callGit =true;
+        const settings = cfg();
+        const localAgentRequested = executionPreferenceRequestsLocalAgent(executionPreference);
+        const localAgentAvailability = detectLocalAgentAvailability(settings);
+        log(`[harperEDD][agent][availability] ${JSON.stringify(localAgentAvailability)}`);
+        const selectedLocalExecutor = resolveSelectedLocalAgentExecutor(
+            settings,
+            state.localAgentExecutor || 'auto',
+            phase
+        );
+        const localExecutorConfig = selectedLocalExecutor
+            ? getExecutorConfig(selectedLocalExecutor, settings)
+            : null;
+        const localExecutorLabel = buildLocalAgentDisplayLabel(selectedLocalExecutor || 'auto');
+
         switch (msg.cmd) {
           case 'eval':
-            log("[harperEDD] Calling eval for req:" + targets + " in: " + ws_root);
-            report = await handleEval(path_ltc_json, ws_root, targets,mode, modeContent ); 
-            reportFile = await saveEvalCommand(ws_root,plan,targets,report,out)
+            if (localAgentRequested) {
+              log(
+                `[harperEDD][agent] local eval pre-pass requested; ` +
+                `canonical CLike eval will still run afterwards req=${targets}`
+              );
+
+              const evalHeaders = { "Content-Type": "application/json" };
+              const evalProjectId = getProjectId();
+              const evalProjectName = getProjectNameFromWorkspace();
+
+              const evalPayload = {
+                cmd: 'eval',
+                phase: 'eval',
+                mode: 'harper',
+                model: state.model || 'auto',
+                profileHint: null,
+                executionPreference,
+                docRoot: 'docs/harper',
+                core: defaultCoreForPhase('eval'),
+                messages: [],
+                gen: {
+                  temperature: 0.2,
+                  max_tokens: 9999,
+                  top_p: 0.9,
+                  stop: ["```.:: END ::.```"],
+                  presence_penalty: 0,
+                  frequency_penalty: 0.2,
+                  seed: 42,
+                  tools: "",
+                  remote: "",
+                  response_format: "",
+                  tool_choice: "",
+                },
+                attachments: [],
+                flags: {
+                  neverSendSourceToCloud: false,
+                  redaction: true,
+                },
+                runId,
+                historyScope: state.historyScope || 'singleModel',
+                project_id: evalProjectId,
+                project_name: evalProjectName,
+                mode_contract: buildModeContract(activeMode, 'eval'),
+                eval: {
+                  targets: [targets],
+                  ltc_path: path_ltc_json,
+                  canonical_eval_after_prepass: true,
+                },
+              };
+
+              const evalBody = await buildHarperBody('eval', evalPayload, ws_root, out);
+
+              evalBody.localAgentExecutor = normalizeLocalAgentExecutor(
+                state.localAgentExecutor || settings.localAgentPreferredExecutor || 'auto'
+              );
+
+              evalBody.localAgentCapabilities = detectLocalAgentAvailability(settings);
+              evalBody.localAgentTimeoutSeconds = Math.max(
+                60,
+                Number(settings.localAgentTimeoutMinutes || 20) * 60
+              );
+
+              evalBody.localRuntime = {
+                shell: process.env.SHELL || 'zsh',
+                python: 'python3',
+                python_fallbacks: ['python3', 'python'],
+                package_install_policy: 'never_install_global_packages',
+                dependency_strategy: 'use_existing_venv_or_report_blocked',
+              };
+
+              try {
+                const evalPrepassGateway = await callHarper('eval', evalBody, evalHeaders, {
+                  timeoutMs: 1000 * 60 * cfg().harperTimeout,
+                });
+
+                const evalPrepassOut = evalPrepassGateway.out;
+                const evalLocalAgentPackage =
+                  evalPrepassOut?.local_agent || evalPrepassGateway?.local_agent || null;
+
+                log(`[harperEDD][agent][eval-response] ${JSON.stringify({
+                  hasOut: !!evalPrepassOut,
+                  execution: evalPrepassOut?.execution || null,
+                  hasLocalAgent: !!evalPrepassOut?.local_agent,
+                  localAgentAction: evalPrepassOut?.local_agent?.action || null,
+                })}`);
+
+                if (evalLocalAgentPackage?.action === 'local_agent_required') {
+                  await executeLocalAgentPackage({
+                    localAgentPackage: evalLocalAgentPackage,
+                    phase: 'eval',
+                    reqId: targets,
+                    runId,
+                    executionPreference,
+                    settings,
+                    wsroot: ws_root,
+                    headers: evalHeaders,
+                    harperTimeout: cfg().harperTimeout,
+                    panel,
+                    out,
+                  });
+                } else {
+                  log(
+                    `[harperEDD][agent] eval pre-pass did not return local_agent package; ` +
+                    `continuing with canonical eval req=${targets}`
+                  );
+                }
+              } catch (err) {
+                const failMsg = `[harperEDD][agent] eval pre-pass failed: ${err?.message || String(err)}`;
+                log(failMsg);
+
+                if (executionPreference === 'local_agent_only') {
+                  panel.webview.postMessage({ type: 'busy', on: false });
+                  panel.webview.postMessage({ type: 'error', message: failMsg });
+                  return;
+                }
+
+                panel.webview.postMessage({
+                  type: 'echo',
+                  message: `⚠ Local eval pre-pass failed. Continuing with canonical CLike eval. Reason: ${err?.message || String(err)}`
+                });
+              }
+            }
+
+            log("[harperEDD] Calling canonical eval for req:" + targets + " in: " + ws_root);
+            report = await handleEval(path_ltc_json, ws_root, targets, mode, modeContent);
+            reportFile = await saveEvalCommand(ws_root, plan, targets, report, out);
             files_git.push(toFsPath(reportFile));
 
             break;
@@ -2667,6 +4077,26 @@ async function cmdOpenChat(context) {
               callGit = false;
             }
             break;
+        }
+        if (phase === 'eval') {
+          try {
+            const evalProjectId = getProjectId();
+            const { orchestratorUrl } = cfg();
+            const urlRag = `${orchestratorUrl}/v1/rag/index`;
+            const evalRagItems = await collectKitRagItems(ws_root, targets, {
+              maxFiles: 700,
+              maxBytes: 512 * 1024,
+            });
+
+            log(`[harperEDD][RAG] indexing ${evalRagItems.length} candidate items after /eval for ${targets}`);
+
+            if (evalRagItems.length) {
+              await preIndexRag(evalProjectId, evalRagItems, urlRag, out);
+              log(`[harperEDD][RAG] indexed ${evalRagItems.length} candidate items after /eval for ${targets}`);
+            }
+          } catch (err) {
+            log(`[harperEDD][RAG] eval indexing skipped: ${err?.message || err}`);
+          }
         }
         log(`[harperEDD] gitSync ${callGit}`)
         if (callGit) {
@@ -2813,11 +4243,23 @@ async function cmdOpenChat(context) {
         try {
           out.appendLine('[CLike] webview_ready');
           // 1) Stato UI salvato (nessun newState qui)
-          const saved = context.workspaceState.get('clike.uiState') || { mode:'free', model:'auto', historyScope:'singleModel' };
+          const saved = context.workspaceState.get('clike.uiState') || {
+            mode: 'free',
+            model: 'auto',
+            historyScope: 'singleModel',
+            executionPreference: getDefaultExecutionPreference(),
+            localAgentExecutor: getDefaultLocalAgentExecutor(),
+          };
           const ui = {
             mode: saved.mode || 'free',
             model: saved.model || 'auto',
-            historyScope: (saved.historyScope === 'allModels') ? 'allModels' : 'singleModel'
+            historyScope: (saved.historyScope === 'allModels') ? 'allModels' : 'singleModel',
+            executionPreference: normalizeExecutionPreference(
+              saved.executionPreference || getDefaultExecutionPreference()
+            ),
+            localAgentExecutor: normalizeLocalAgentExecutor(
+              saved.localAgentExecutor || getDefaultLocalAgentExecutor()
+            ),
           };
           // 2) Invia initState alla webview
           panel.webview.postMessage({ type: 'initState', state: ui });
@@ -2869,7 +4311,16 @@ async function cmdOpenChat(context) {
         } catch (e) {
           out.appendLine('[CLike] webview_ready handler crashed: ' + (e?.message || String(e)));
           // Fallback minimo per non lasciare la webview “vuota�?
-          panel.webview.postMessage({ type: 'initState', state: { mode:'free', model:'auto', historyScope:'singleModel' } });
+          panel.webview.postMessage({
+            type: 'initState',
+            state: {
+              mode: 'free',
+              model: 'auto',
+              historyScope: 'singleModel',
+              executionPreference: getDefaultExecutionPreference(),
+              localAgentExecutor: getDefaultLocalAgentExecutor(),
+            }
+          });
           panel.webview.postMessage({ type: 'hydrateSession', messages: [] });
           panel.webview.postMessage({ type: 'models', models: ['auto'] });
         }
@@ -2916,14 +4367,32 @@ async function cmdOpenChat(context) {
       }
       // 2) CAMBIO UI (Mode/Model)
       if (msg.type === 'uiChanged') {
-        const prev = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto',  historyScope: 'singleModel' };
-        
-        // MERGE: non perdere historyScope (e futuri campi)
+        const prev = context.workspaceState.get('clike.uiState') || {
+          mode: 'free',
+          model: 'auto',
+          historyScope: 'singleModel',
+          executionPreference: getDefaultExecutionPreference(),
+          localAgentExecutor: getDefaultLocalAgentExecutor(),
+        };
+
         const newState = {
           ...prev,
-          ...(typeof msg.mode  !== 'undefined' ? { mode:  msg.mode  } : {}),
-          ...(typeof msg.model !== 'undefined' ? { model: msg.model } : {})
+          ...(typeof msg.mode !== 'undefined' ? { mode: msg.mode } : {}),
+          ...(typeof msg.model !== 'undefined' ? { model: msg.model } : {}),
+          ...(typeof msg.executionPreference !== 'undefined'
+            ? { executionPreference: normalizeExecutionPreference(msg.executionPreference) }
+            : {}),
+          ...(typeof msg.localAgentExecutor !== 'undefined'
+            ? { localAgentExecutor: normalizeLocalAgentExecutor(msg.localAgentExecutor) }
+            : {}),  
         };
+
+        if (!newState.executionPreference) {
+          newState.executionPreference = getDefaultExecutionPreference();
+        }
+        if (!newState.localAgentExecutor) {
+          newState.localAgentExecutor = getDefaultLocalAgentExecutor();
+        }
         await context.workspaceState.update('clike.uiState', newState);
 
         // Se è cambiato SOLO il modello, NON re-idratare la chat
@@ -2951,7 +4420,13 @@ async function cmdOpenChat(context) {
       }
       // 3) CLEAR SESSION (solo mode corrente)
       if (msg.type === 'clearSession') {
-        const st = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto',historyScope: 'singleModel'  };
+        const st = context.workspaceState.get('clike.uiState') 
+              || {  mode: 'free',
+                    model: 'auto',
+                    historyScope: 'singleModel',
+                    executionPreference: getDefaultExecutionPreference(),
+                    localAgentExecutor: getDefaultLocalAgentExecutor(),
+                  };
         const modeCur   = msg.mode  || st.mode  || 'free';
         const modelCur  = msg.model || st.model || 'auto';
 
@@ -2992,7 +4467,11 @@ async function cmdOpenChat(context) {
         const ui = context.workspaceState.get('clike.uiState') || {
           mode: 'free',
           model: 'auto',
-          historyScope: 'singleModel'
+          historyScope: 'singleModel',
+          executionPreference: getDefaultExecutionPreference(),
+          localAgentExecutor: getDefaultLocalAgentExecutor(),
+
+
         };
 
         const modeCur  = msg.mode  || ui.mode  || 'free';
@@ -3034,6 +4513,7 @@ async function cmdOpenChat(context) {
         const cur = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto' };
         const activeMode  = msg.mode  || cur.mode  || 'free';
         const activeModel = msg.model || cur.model || 'auto';
+        
         const activeProvider = explicitProviderForModel(activeModel) || '';
         out.appendLine(`CLike: ${msg.type} (${activeMode} ${activeModel} ${activeProvider})`);
         
@@ -3078,17 +4558,23 @@ async function cmdOpenChat(context) {
         } catch (e) { log(`CLike preIndexRag error: ${e}`); }
 
         // payload
-        const basePayload = { mode: activeMode, 
+        const executionPreference = normalizeExecutionPreference(
+          cur.executionPreference || getDefaultExecutionPreference()
+        );
+
+        const basePayload = {
+            mode: activeMode,
             project_id: projectId,
-            model: activeModel,  
-            ...(activeProvider ? { provider: activeProvider } : {}), 
-            messages, 
-            inline_files, 
-            rag_files, 
-            attachments: atts ,
+            model: activeModel,
+            ...(activeProvider ? { provider: activeProvider } : {}),
+            messages,
+            inline_files,
+            rag_files,
+            attachments: atts,
             max_tokens: 4000,
-            gen:{api:"responses"}, //ore "responses" API's openai 
+            gen: { api: "responses" }, // openai responses API
             profileHint: computeProfileHint(activeMode, activeModel),
+            executionPreference,
             mode_contract: buildModeContract(activeMode),
         };
 
