@@ -24,6 +24,14 @@ from services.repository_manifest import (
     build_repo_structure_evidence,
     build_repo_composition_manifest,
 )
+from services.execution_policy import (
+    normalize_execution_preference,
+    resolve_execution_policy,
+)
+from services.local_agent_package import (
+    build_eval_local_agent_package,
+    build_kit_local_agent_package,
+)
 log = logging.getLogger("service.router")
 
 _KIT_PHASE_SEQUENCE: List[str] = [
@@ -310,6 +318,14 @@ def _infer_contract_paths(contract_like: Dict[str, Any]) -> Dict[str, Any]:
         elif canonical_family.startswith("src/"):
             expected_test_roots = ["test/" + canonical_family[len("src/"):].strip("/")]
 
+    # Backfill create_under from inferred roots when the plan did not provide explicit path directives.
+    if not create_under:
+        create_under = [x for x in (expected_source_roots + expected_test_roots) if str(x).strip()]
+
+    # Backfill must_reuse from canonical family when no explicit reuse root is declared.
+    if not must_reuse and canonical_family:
+        must_reuse = [canonical_family]
+
     return {
         "create_under": create_under,
         "must_reuse": must_reuse,
@@ -348,7 +364,10 @@ def _extract_target_contract(
         "title": str(target.get("title") or "").strip(),
         "lane": str(target.get("lane") or "").strip(),
         "track": str(target.get("track") or "").strip(),
-        "primary_outcome": str(target.get("primaryOutcome") or "").strip(),
+        "primary_outcome": (
+            str(target.get("primaryOutcome") or "").strip()
+            or f"Implement {str(target.get('title') or req_id).strip()}"
+        ),
         "acceptance": list(target.get("acceptance") or []),
         "in_scope": list(target.get("inScope") or []),
         "out_of_scope": list(target.get("outOfScope") or []),
@@ -1232,6 +1251,13 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
 
     target_req_id: Optional[str] = None
 
+    if merged.get("phase") == "eval":
+        eval_opts = merged.get("eval") or {}
+        targets = eval_opts.get("targets") or []
+        if not isinstance(targets, list) or len(targets) != 1 or not isinstance(targets[0], str) or not targets[0].strip():
+            raise ValueError("Harper /eval requires exactly one target REQ-ID in eval.targets, e.g. { eval: { targets: ['REQ-001'] } }")
+        target_req_id = targets[0].strip().upper()
+
     if merged.get("phase") == "kit":
         kit = merged.get("kit") or {}
         targets = kit.get("targets") or []
@@ -1322,6 +1348,180 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
     model_override = merged.get("model")
     profile_hint = merged.get("profileHint")
 
+    execution_preference = normalize_execution_preference(
+        merged.get("executionPreference")
+    )
+    execution_policy = resolve_execution_policy(
+        phase=phase,
+        execution_preference=execution_preference,
+    )
+    merged["executionPreference"] = execution_preference
+    merged["_execution"] = execution_policy
+
+    # Orchestrator-owned local agent package.
+    #
+    # Important:
+    # - Cloud path stays unchanged.
+    # - Gateway is not called when a safe base /kit local package is intentionally selected.
+    # - /eval local-agent is only a pre-pass; canonical CLike eval remains the final judge.
+    # - Follow-up KIT phases remain cloud/orchestrator-owned for now.
+    if phase == "eval" and target_req_id and execution_policy.get("selected") == "local_agent":
+        log.info(
+            "harper.local_agent eval pre-pass package requested req=%s executor=%s reason=%s",
+            target_req_id,
+            merged.get("localAgentExecutor") or "auto",
+            execution_policy.get("reason"),
+        )
+        try:
+            return build_eval_local_agent_package(
+                payload=merged,
+                req_id=target_req_id,
+                execution_policy=execution_policy,
+            )
+        except Exception as exc:
+            log.exception(
+                "harper.local_agent eval package failed req=%s",
+                target_req_id,
+            )
+
+            if execution_preference == "local_agent_only":
+                return {
+                    "ok": False,
+                    "phase": "eval",
+                    "echo": "",
+                    "text": "",
+                    "files": [],
+                    "diffs": [],
+                    "tests": {
+                        "passed": 0,
+                        "failed": 1,
+                        "summary": "local-agent-eval-package-failed",
+                    },
+                    "warnings": [
+                        "execution_selected:local_agent",
+                        "canonical_eval_not_run_yet",
+                    ],
+                    "errors": [str(exc)],
+                    "runId": merged.get("runId"),
+                    "execution": {
+                        "requested": execution_preference,
+                        "selected": "local_agent",
+                        "reason": "local_agent_eval_package_failed",
+                        "phase_supported": True,
+                    },
+                }
+
+            execution_policy = dict(execution_policy)
+            execution_policy["selected"] = "cloud"
+            execution_policy["fallback_applied"] = True
+            execution_policy["reason"] = "local_agent_eval_package_failed_fallback_to_canonical_eval"
+            merged["_execution"] = execution_policy
+
+            log.warning(
+                "harper.local_agent eval fallback_to_canonical req=%s err=%s",
+                target_req_id,
+                exc,
+            )
+
+    if phase == "kit" and target_req_id and execution_policy.get("selected") == "local_agent":
+        selected_kit_phases = set(requested_kit_phases or ["kit"])
+        base_kit_only = selected_kit_phases == {"kit"}
+
+        if base_kit_only:
+            log.info(
+                "harper.local_agent package requested req=%s executor=%s reason=%s",
+                target_req_id,
+                merged.get("localAgentExecutor") or "auto",
+                execution_policy.get("reason"),
+            )
+            try:
+                return build_kit_local_agent_package(
+                    payload=merged,
+                    req_id=target_req_id,
+                    execution_policy=execution_policy,
+                )
+            except Exception as exc:
+                log.exception(
+                    "harper.local_agent orchestrator_call failed req=%s",
+                    target_req_id,
+                )
+
+                if execution_preference == "local_agent_only":
+                    return {
+                        "ok": False,
+                        "phase": "kit",
+                        "echo": "",
+                        "text": "",
+                        "files": [],
+                        "diffs": [],
+                        "tests": {
+                            "passed": 0,
+                            "failed": 1,
+                            "summary": "local-agent-orchestrator-call-failed",
+                        },
+                        "warnings": [
+                            "execution_selected:local_agent",
+                            "local_agent_called_by:orchestrator",
+                        ],
+                        "errors": [str(exc)],
+                        "runId": merged.get("runId"),
+                        "execution": {
+                            "requested": execution_preference,
+                            "selected": "local_agent",
+                            "reason": "local_agent_orchestrator_call_failed",
+                            "phase_supported": True,
+                        },
+                    }
+
+                execution_policy = dict(execution_policy)
+                execution_policy["selected"] = "cloud"
+                execution_policy["fallback_applied"] = True
+                execution_policy["reason"] = "local_agent_runner_failed_fallback_to_cloud"
+                merged["_execution"] = execution_policy
+
+                log.warning(
+                    "harper.local_agent fallback_to_cloud after runner failure req=%s err=%s",
+                    target_req_id,
+                    exc,
+                )
+
+        if execution_preference == "local_agent_only":
+            return {
+                "ok": False,
+                "phase": "kit",
+                "echo": "",
+                "text": "",
+                "files": [],
+                "diffs": [],
+                "tests": {"passed": 0, "failed": 1, "summary": "local-agent-follow-up-phase-blocked"},
+                "warnings": [
+                    "execution_selected:local_agent",
+                    "local_agent_follow_up_phases_blocked",
+                ],
+                "errors": [
+                    "Local agent is currently restricted to base /kit only. "
+                    f"Requested phases: {', '.join(requested_kit_phases or [])}"
+                ],
+                "runId": merged.get("runId"),
+                "execution": {
+                    "requested": execution_preference,
+                    "selected": "local_agent",
+                    "reason": "local_agent_follow_up_phases_blocked",
+                    "phase_supported": False,
+                },
+            }
+
+        execution_policy = dict(execution_policy)
+        execution_policy["selected"] = "cloud"
+        execution_policy["fallback_applied"] = True
+        execution_policy["reason"] = "local_agent_follow_up_phases_fallback_to_cloud"
+        merged["_execution"] = execution_policy
+        log.info(
+            "harper.local_agent fallback_to_cloud req=%s phases=%s",
+            target_req_id,
+            requested_kit_phases,
+        )
+
     try:
         llm_sel = await resolve_llm_selection(
             base_url=str(getattr(settings, "GATEWAY_URL", "http://localhost:8000")).rstrip("/"),
@@ -1344,11 +1544,14 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
         merged["mode_contract"] = llm_sel.get("mode_contract") or {}
 
         log.info(
-            "harper.routing resolved model=%s provider=%s profile=%s override=%s",
+            "harper.routing resolved model=%s provider=%s profile=%s override=%s execution_pref=%s execution_selected=%s execution_reason=%s",
             merged.get("model"),
             merged.get("provider"),
             merged.get("profileHint"),
             model_override,
+            execution_preference,
+            execution_policy.get("selected"),
+            execution_policy.get("reason"),
         )
         
     except Exception as e:
@@ -1389,7 +1592,23 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
         len(out.get("files") or []),
         "yes" if out.get("text") else "no",
     )
+    warnings = list(out.get("warnings") or [])
+    warnings.append(f"execution_requested:{execution_preference}")
+    warnings.append(f"execution_selected:{execution_policy.get('selected')}")
+    warnings.append(f"execution_reason:{execution_policy.get('reason')}")
 
+    if execution_policy.get("fallback_applied"):
+        warnings.append("execution_fallback_applied:true")
+
+    out["warnings"] = warnings
+    out["execution"] = {
+        "requested": execution_preference,
+        "selected": execution_policy.get("selected"),
+        "reason": execution_policy.get("reason"),
+        "phase_supported": execution_policy.get("phase_supported"),
+        "claude_enabled": execution_policy.get("claude_enabled"),
+        "claude_available": execution_policy.get("claude_available"),
+    }
     # --- Optional KIT follow-up phases (manual by default, chained only if requested) ---
     if phase == "kit" and target_req_id:
         selected_phases = set(requested_kit_phases)

@@ -49,6 +49,8 @@ class HarperPhaseRequest(BaseModel):
     mode: str = "harper"
     model: Optional[str] = None
     profileHint: Optional[str] = None
+    executionPreference: Optional[str] = None
+
     docRoot: Optional[str] = "docs/harper"
     core: List[str] = []
     attachments: List[Union[str, Attachment]] = []
@@ -59,7 +61,11 @@ class HarperPhaseRequest(BaseModel):
     repository_context: Optional[Dict[str, Any]] = None
     rag_queries: Optional[List[str]] = None
     gen: Optional[Dict[str, Any]] = None
-   
+    localAgentExecutor: Optional[str] = Field(default="auto", description="")
+    localAgentCapabilities: Optional[Dict[str, Any]] = None
+    localAgentTimeoutSeconds: Optional[int] = None
+    localRuntime: Optional[Dict[str, Any]] = None
+
     idea_md: Optional[str] = None
     spec_md: Optional[str] = None
     plan_md: Optional[str] = None
@@ -69,6 +75,7 @@ class HarperPhaseRequest(BaseModel):
     core_blobs: Optional[Dict[str, str]] = None
     workspace: Optional[dict] = None  # {root, repo, branch}
     kit: Optional[HarperKitOptions] = None
+    eval: Optional[Dict[str, Any]] = None
     rag_strategy: Optional[str] = None
     context_hard_limit: Optional[int] = None
     project_id: Optional[str] = None
@@ -95,6 +102,11 @@ class ExecContext(BaseModel):
         None, alias="profileHint",
         description="Routing hint (e.g., 'plan.fast'|'code.strict') used only when model=='auto'."
     )
+    execution_preference: Optional[str] = Field(
+        None,
+        alias="executionPreference",
+        description="Execution preference: auto | cloud_only | prefer_local_agent | local_agent_only | hybrid. Legacy values prefer_claude_code and claude_code_only are normalized by the client."  
+    )
     doc_root: Optional[str] = Field("docs/harper", alias="docRoot", description="Docs root.")
     core: List[str] = Field(default_factory=list, description="Core docs for this phase.")
     attachments: List[Dict[str, Any]] = Field(default_factory=list, description="User attachments.")
@@ -102,6 +114,10 @@ class ExecContext(BaseModel):
     run_id: Optional[str] = Field(None, alias="runId", description="Correlation id.")
     history_scope: Optional[Literal["singleModel", "allModels"]] = Field(
         None, alias="historyScope", description="Chat history scope."
+    )
+    localAgentExecutor: Optional[str] = Field(
+        default="auto",
+        description="Preferred local agent executor: auto | claude_code | gpt_codex."
     )
 
     # Pydantic v2 config
@@ -216,6 +232,14 @@ class HarperRunResponse(BaseModel):
     release_notes_md: Optional[str] = None
     telemetry: Optional[HarperTelemetry] = None  # token usage, route info, etc.
     usage: Optional[HarperUsage] = None
+
+    # Orchestrator-owned execution metadata.
+    # The extension must treat this as read-only policy/contract information.
+    execution: Optional[Dict[str, Any]] = None
+
+    # Optional local-agent execution package.
+    # Present only when the orchestrator intentionally selected a local actuator.
+    local_agent: Optional[Dict[str, Any]] = None
 
     kit: Optional[HarperKitResult] = None
     rag_strategy: Optional[str] = None

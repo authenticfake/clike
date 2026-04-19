@@ -1,64 +1,66 @@
-# orchestrator/app/routes_eval.py
+from __future__ import annotations
+
+import logging
 import os
 import re
-from fastapi import APIRouter, Body, Query, HTTPException
-from pydantic import BaseModel
 from pathlib import Path
-from typing import Any, Dict, Optional, List
-import logging
+from typing import Any, Dict, Optional
 
-from eval_runner import EvalRunner, EvalReport  # vedi PATCH 2
+from fastapi import APIRouter, Body, HTTPException, Query
+from pydantic import BaseModel
+
+from eval_runner import EvalReport, EvalRunner
 
 router = APIRouter()
 log = logging.getLogger("routes_eval")
 
-# ------- Request models (accettano sia body che query per retro-compat) -------
+
 class EvalRunRequest(BaseModel):
     profile: Optional[str] = None
-    project_root: str = "."
+    project_root: Optional[str] = None
     req_id: Optional[str] = None
     mode: Optional[str] = None
     verdict: Optional[str] = None
-    ltc: Optional[Dict[str, Any]] = None  
-    project_name: Optional[str] = None  
-
-
-
-class GateCheckRequest(BaseModel):
-    
-    profile: Optional[str] = None
-    project_root: Optional[str] = None
-    mode: Optional[str] = "auto"      # "auto" | "manual"
-    verdict: Optional[str] = None     # when mode=="manual"
-    req_id: Optional[str] = None
-    promote: Optional[bool] = False
-    ltc: Optional[Dict[str, Any]] = None  # INLINE LTC SUPPORT
-    project_name: Optional[str] = None  
+    ltc: Optional[Dict[str, Any]] = None
+    project_name: Optional[str] = None
 
     class Config:
         extra = "ignore"
 
 
-_PROJECT_NAME_RE = re.compile(r'^[A-Za-z0-9._-]+$')  # niente slash, niente traversal
+class GateCheckRequest(BaseModel):
+    profile: Optional[str] = None
+    project_root: Optional[str] = None
+    mode: Optional[str] = "auto"
+    verdict: Optional[str] = None
+    req_id: Optional[str] = None
+    promote: Optional[bool] = False
+    ltc: Optional[Dict[str, Any]] = None
+    project_name: Optional[str] = None
+
+    class Config:
+        extra = "ignore"
+
+
+_PROJECT_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+
 
 def _sanitize_project_name(name: Optional[str]) -> Optional[str]:
     if not name:
         return None
-    name = name.strip()
-    if not _PROJECT_NAME_RE.match(name):
+    value = name.strip()
+    if not _PROJECT_NAME_RE.match(value):
         return None
-    return name
+    return value
+
 
 def _resolve_project_root_from_env(project_name: Optional[str]) -> Optional[Path]:
-    """
-    If DEV_FOLDER is set and project_name is safe, return DEV_FOLDER / project_name, if it exists.
-    """
-    dev = os.getenv('DEV_FOLDER', '').strip()
+    dev = os.getenv("DEV_FOLDER", "").strip()
     pname = _sanitize_project_name(project_name)
     if not dev or not pname:
         return None
-    base = Path(dev)
-    candidate = (base / pname)
+
+    candidate = Path(dev) / pname
     try:
         if candidate.exists():
             return candidate.resolve()
@@ -67,42 +69,108 @@ def _resolve_project_root_from_env(project_name: Optional[str]) -> Optional[Path
     return None
 
 
-def _merge_args(profile_q: Optional[str], project_root_q: Optional[str],project_name_q: Optional[str], mode_q: Optional[str], verdict_q: Optional[str], req_id_q: Optional[str], body: Optional[EvalRunRequest]) -> EvalRunRequest:
-    log.info("_merge_args profile_q=%s project_root_q=%s mode_q=%s verdict_q=%s req_id_q=%s", profile_q, project_root_q, mode_q, verdict_q, req_id_q)
+def _resolve_project_root(project_root: Optional[str], project_name: Optional[str]) -> Path:
+    env_root = _resolve_project_root_from_env(project_name)
+    if env_root is not None:
+        return env_root
+
+    if project_root:
+        p = Path(project_root)
+        return (p if p.is_absolute() else Path.cwd() / p).resolve()
+
+    return Path.cwd().resolve()
+
+
+def _manual_verdict(
+    mode: Optional[str],
+    body_verdict: Optional[str],
+    query_verdict: Optional[str],
+) -> Optional[str]:
+    if (mode or "auto").lower() != "manual":
+        return None
+    return body_verdict or query_verdict
+
+
+def _merge_eval_args(
+    *,
+    profile_q: Optional[str],
+    project_root_q: Optional[str],
+    project_name_q: Optional[str],
+    mode_q: Optional[str],
+    verdict_q: Optional[str],
+    req_id_q: Optional[str],
+    body: Optional[EvalRunRequest],
+) -> EvalRunRequest:
     body = body or EvalRunRequest()
-    
-    runRequest = EvalRunRequest(
-        profile = body.profile or profile_q,
-        project_root = body.project_root or project_root_q,
-        mode = (body.mode or mode_q or "auto").lower(),
-        verdict = (body.verdict or verdict_q or None if (body.mode or mode_q) == "manual" else None),
-        req_id = body.req_id or req_id_q,
-        project_name = body.project_name or project_name_q,
-        ltc=(body.ltc if body.ltc else None)
+    mode = (body.mode or mode_q or "auto").lower()
+    return EvalRunRequest(
+        profile=body.profile or profile_q,
+        project_root=body.project_root or project_root_q,
+        mode=mode,
+        verdict=_manual_verdict(mode, body.verdict, verdict_q),
+        req_id=body.req_id or req_id_q,
+        project_name=body.project_name or project_name_q,
+        ltc=body.ltc if body.ltc else None,
+    )
 
-    )   
-    log.info("*** _merge_args runRequest=%s", runRequest)
 
-    return runRequest
-def _merge_args_check(profile_q: Optional[str], project_root_q: Optional[str], project_name_q: Optional[str], mode_q: Optional[str], verdict_q: Optional[str], req_id_q: Optional[str], body: Optional[GateCheckRequest]) -> EvalRunRequest:
-    log.info("_merge_args profile_q=%s project_root_q=%s mode_q=%s verdict_q=%s req_id_q=%s", profile_q, project_root_q, mode_q, verdict_q, req_id_q)
+def _merge_gate_args(
+    *,
+    profile_q: Optional[str],
+    project_root_q: Optional[str],
+    project_name_q: Optional[str],
+    mode_q: Optional[str],
+    verdict_q: Optional[str],
+    req_id_q: Optional[str],
+    promote_q: Optional[bool],
+    body: Optional[GateCheckRequest],
+) -> GateCheckRequest:
     body = body or GateCheckRequest()
-    
-    runRequest = GateCheckRequest(
-        profile = body.profile or profile_q,
-        project_root = body.project_root or project_root_q,
-        mode = (body.mode or mode_q or "auto").lower(),
-        verdict = (body.verdict or verdict_q or None if (body.mode or mode_q) == "manual" else None),
-        req_id = body.req_id or req_id_q,
-        ltc=(body.ltc if body.ltc else None),
-        project_name = body.project_name or project_name_q,
-        promote=body.promote
+    mode = (body.mode or mode_q or "auto").lower()
+    return GateCheckRequest(
+        profile=body.profile or profile_q,
+        project_root=body.project_root or project_root_q,
+        mode=mode,
+        verdict=_manual_verdict(mode, body.verdict, verdict_q),
+        req_id=body.req_id or req_id_q,
+        ltc=body.ltc if body.ltc else None,
+        project_name=body.project_name or project_name_q,
+        promote=bool(body.promote if body.promote is not None else promote_q),
+    )
 
-    )   
-    log.info("*** _merge_args runRequest=%s", runRequest)
 
-    return runRequest
-# ------------------------------- /v1/eval/run -------------------------------
+def _case_payload(case: Any) -> Dict[str, Any]:
+    return {
+        "name": case.name,
+        "passed": case.passed,
+        "code": case.code,
+        "stdout": case.stdout,
+        "stderr": case.stderr,
+        "cmd": case.cmd,
+        "cwd": case.cwd,
+        "expect": case.expect,
+        "blocked": case.blocked,
+        "blocking": case.blocking,
+    }
+
+
+def _eval_payload(rep: EvalReport, req_id: Optional[str]) -> Dict[str, Any]:
+    return {
+        "profile": rep.profile,
+        "req_id": rep.req_id,
+        "mode": rep.mode,
+        "status": rep.status,
+        "passed": rep.status in {"PASS", "PASS_WITH_WARNINGS"},
+        "failed": rep.failed,
+        "passed_count": rep.passed,
+        "blocked_count": rep.blocked,
+        "warning_count": rep.warnings,
+        "junit": rep.junit_path,
+        "json": f"runs/eval/{req_id or rep.req_id or 'REQ-UNKNOWN'}",
+        "cases": [_case_payload(c) for c in rep.cases],
+    }
+
+
 @router.post("/v1/eval/run")
 def eval_run(
     profile: Optional[str] = Query(default=None),
@@ -111,65 +179,54 @@ def eval_run(
     verdict: Optional[str] = Query(default=None),
     req_id: Optional[str] = Query(default=None),
     project_name: Optional[str] = Query(default=None),
-    payload: EvalRunRequest = Body(default=None)
+    payload: Optional[EvalRunRequest] = Body(default=None),
 ):
-    log.info("eval_run profile=%s project_root=%s mode=%s verdict=%s", profile, project_root, mode, verdict)
-    
-    #req = _coalesce_eval_req(req, profile, project_root)
-    args = _merge_args(profile, project_root, project_name,mode, verdict, req_id, payload)
+    args = _merge_eval_args(
+        profile_q=profile,
+        project_root_q=project_root,
+        project_name_q=project_name,
+        mode_q=mode,
+        verdict_q=verdict,
+        req_id_q=req_id,
+        body=payload,
+    )
+
+    log.info(
+        "eval_run profile=%s project_root=%s mode=%s req_id=%s project_name=%s inline_ltc=%s",
+        args.profile,
+        args.project_root,
+        args.mode,
+        args.req_id,
+        args.project_name,
+        bool(args.ltc),
+    )
+
     if not args.ltc and (not args.profile or not args.project_root):
-        raise HTTPException(status_code=422, detail="Provide either 'ltc' (inline) OR 'profile' + 'project_root'")
-    log.info("eval_run profile=%s project_root=%s mode=%s verdict=%s", args.profile, args.project_root, args.mode, args.verdict)
-    
-    # 1) prova con DEV_FOLDER + project_name
-    prj = _resolve_project_root_from_env(args.project_name)
-    # 2) se non risolto, usa project_root (se passato)
-    if prj is None and args.project_root:
-        p = Path(args.project_root)
-        prj = p if p.is_absolute() else (Path.cwd() / p)
-        prj = prj.resolve()
-    
+        raise HTTPException(
+            status_code=422,
+            detail="Provide either 'ltc' inline OR 'profile' + 'project_root'",
+        )
 
-    # 3) se ancora nulla ma c'è un bundle inline (se lo supporti), lo estrai come abbiamo visto a parte
-    # if prj is None and args.bundle_b64: prj = _extract_zip_base64(...)
-
-    # 4) fallback: current working dir (non consigliato, ma evita crash)
-    if prj is None:
-        prj = Path.cwd().resolve()
-
-    
-    prj = prj if prj.is_absolute() else (Path.cwd() / prj).resolve()
-   
+    prj = _resolve_project_root(args.project_root, args.project_name)
     runner = EvalRunner(prj)
 
     try:
-        rep: EvalReport =  runner.run_profile(
-            profile=args.profile,
+        rep = runner.run_profile(
+            profile=args.profile or "LTC.json",
             ltc=args.ltc,
-            mode=args.mode,
+            mode=args.mode or "auto",
             verdict=args.verdict,
             req_id=args.req_id,
         )
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
         log.exception("eval_run unexpected")
-        raise HTTPException(status_code=500, detail=f"eval_run error: {e}")
+        raise HTTPException(status_code=500, detail=f"eval_run error: {exc}") from exc
+
+    return _eval_payload(rep, args.req_id)
 
 
-    return {
-        "profile": rep.profile,
-        "req_id": rep.req_id,
-        "mode": rep.mode,
-        "passed": rep.failed == 0,
-        "failed": rep.failed,
-        "passed_count": rep.passed,
-        "junit": rep.junit_path,
-        "json": 'runs/eval/' + args.req_id,
-        "cases": [{"name": c.name, "passed": c.passed, "code": c.code, "stdout": c.stdout, "stderr": c.stderr} for c in rep.cases],
-    }
-
-# ------------------------------ /v1/gate/check ------------------------------
 @router.post("/v1/gate/check")
 def gate_check(
     profile: Optional[str] = Query(default=None),
@@ -179,52 +236,67 @@ def gate_check(
     req_id: Optional[str] = Query(default=None),
     promote: Optional[bool] = Query(default=False),
     project_name: Optional[str] = Query(default=None),
-
-    payload: GateCheckRequest = Body(default=None),
+    payload: Optional[GateCheckRequest] = Body(default=None),
 ):
-    log.info("gate_check profile=%s project_root=%s mode=%s verdict=%s promote=%s", profile, project_root, mode, verdict, promote)
-    args = _merge_args_check(profile, project_root, project_name, mode, verdict, req_id, payload)
+    args = _merge_gate_args(
+        profile_q=profile,
+        project_root_q=project_root,
+        project_name_q=project_name,
+        mode_q=mode,
+        verdict_q=verdict,
+        req_id_q=req_id,
+        promote_q=promote,
+        body=payload,
+    )
 
-    log.info("gate_check profile=%s project_root=%s req_id=%s promote=%s", args.profile, args.project_root, args.req_id, args.promote)
-    # ... hai già 'req' con i campi merge da query+body
-    if not args.ltc and (not  args.profile or not args.project_root):
-        # accetta EITHER ltc inline OR path+root
-        raise HTTPException(status_code=422, detail="Provide either 'ltc' (inline) OR 'profile' + 'project_root'")
-    
+    log.info(
+        "gate_check profile=%s project_root=%s mode=%s req_id=%s promote=%s inline_ltc=%s",
+        args.profile,
+        args.project_root,
+        args.mode,
+        args.req_id,
+        args.promote,
+        bool(args.ltc),
+    )
 
-    
-    prj = Path(args.project_root)
+    if not args.ltc and (not args.profile or not args.project_root):
+        raise HTTPException(
+            status_code=422,
+            detail="Provide either 'ltc' inline OR 'profile' + 'project_root'",
+        )
+
+    prj = _resolve_project_root(args.project_root, args.project_name)
     runner = EvalRunner(prj)
 
     try:
-        rep: EvalReport = runner.run_profile(
+        rep = runner.run_profile(
+            profile=args.profile or "LTC.json",
             ltc=args.ltc,
-            profile=args.profile,
-            mode=args.mode,
+            mode=args.mode or "auto",
             verdict=args.verdict,
             req_id=args.req_id,
         )
-        log.info("gate_check rep=%s", rep)
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
         log.exception("gate_check unexpected")
-        raise HTTPException(status_code=500, detail=f"gate_check error: {e}")
-    log.info("gate_check rep=%s", rep)
-    gate_result = "PASS" if rep.failed == 0 else "FAIL"
+        raise HTTPException(status_code=500, detail=f"gate_check error: {exc}") from exc
 
-    promote_info = None
-    log.info("gate_check rep mode=%s", rep.mode)
+    hard_gate = "PASS" if rep.status in {"PASS", "PASS_WITH_WARNINGS"} else "FAIL"
 
     return {
-        "gate": gate_result,
+        "gate": hard_gate,
+        "status": rep.status,
         "profile": rep.profile,
         "req_id": rep.req_id,
         "mode": rep.mode,
         "passed": rep.passed,
         "failed": rep.failed,
         "passed_count": rep.passed,
-        "json": 'runs/gate/' + args.req_id,
-        "promote": bool(promote) if args.promote else None,
-        "promote_info": promote_info if args.promote else None,
+        "blocked_count": rep.blocked,
+        "warning_count": rep.warnings,
+        "json": f"runs/gate/{args.req_id or rep.req_id or 'REQ-UNKNOWN'}",
+        "promote": bool(args.promote) if args.promote else None,
+        "promote_info": None,
+        "cases": [_case_payload(c) for c in rep.cases],
     }

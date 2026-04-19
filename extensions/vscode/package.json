@@ -198,6 +198,147 @@
           ],
           "description": "Optimization mode sent to the orchestrator."
         },
+        "clike.execution.defaultPreference": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "cloud_only",
+            "prefer_local_agent",
+            "local_agent_only",
+            "hybrid"
+          ],
+          "description": "Default execution preference used by CLike for compatible tasks. Legacy prefer_claude_code/claude_code_only values are normalized at runtime."
+        },
+        "clike.localAgent.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable local agent execution for compatible Harper flows."
+        },
+        "clike.localAgent.preferredExecutor": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "claude_code",
+            "gpt_codex"
+          ],
+          "description": "Preferred local agent executor when execution preference selects the local path."
+        },
+        "clike.localAgent.allowEval": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable local agent pre-pass for /eval before the canonical CLike eval path."
+        },
+        "clike.localAgent.restrictToKitPhases": {
+          "type": "boolean",
+          "default": true,
+          "description": "Restrict local agent usage to base /kit flows and disable local follow-up phases for now."
+        },
+        "clike.localAgent.timeoutMinutes": {
+          "type": "number",
+          "default": 20,
+          "minimum": 1,
+          "description": "Default timeout in minutes for local agent runs triggered by CLike."
+        },
+        "clike.execution.showInChat": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show execution path details in the CLike chat UI."
+        },
+        "clike.claudeCode.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable Claude Code integration when available locally."
+        },
+        "clike.claudeCode.restrictToKitPhases": {
+          "type": "boolean",
+          "default": true,
+          "description": "Restrict Claude Code usage to compatible /kit flows."
+        },
+        "clike.claudeCode.command": {
+          "type": "string",
+          "default": "claude",
+          "description": "Executable used to invoke Claude Code locally."
+        },
+        "clike.claudeCode.printModeFlag": {
+          "type": "string",
+          "default": "-p",
+          "description": "Flag used for non-interactive Claude Code execution (for example -p or --print depending on your local version)."
+        },
+        "clike.claudeCode.timeoutMinutes": {
+          "type": "number",
+          "default": 20,
+          "minimum": 1,
+          "description": "Timeout in minutes for synchronous Claude Code runs triggered by CLike."
+        },
+        "clike.claudeCode.enableEval": {
+          "type": "boolean",
+          "default": false,
+          "description": "Reserved for the next tranche. Keep false for now: /eval remains owned by CLike."
+        },
+        "clike.claudeCode.permissionMode": {
+          "type": "string",
+          "default": "acceptEdits",
+          "description": "Claude Code permission mode used for local non-interactive execution."
+        },
+        "clike.localAgent.codex.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable GPT Codex local executor integration when available locally."
+        },
+        "clike.localAgent.codex.command": {
+          "type": "string",
+          "default": "codex",
+          "description": "Executable used to invoke GPT Codex locally."
+        },
+        "clike.localAgent.codex.approvalMode": {
+          "type": "string",
+          "default": "",
+          "description": "Reserved. Do not use for now: Codex CLI options vary by version and unsupported flags break execution."
+        },
+        "clike.localAgent.codex.printModeFlag": {
+          "type": "string",
+          "default": "",
+          "description": "Reserved. Codex non-interactive execution is currently invoked as: codex exec <prompt>."
+        },
+        "clike.localAgent.codex.timeoutMinutes": {
+          "type": "number",
+          "default": 20,
+          "minimum": 1,
+          "description": "Timeout in minutes for GPT Codex runs triggered by CLike."
+        },
+        "clike.mcp.clientEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable MCP client integrations inside CLike."
+        },
+        "clike.mcp.serverEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Expose the read-only/service CLike MCP server from the orchestrator."
+        },
+        "clike.mcp.extensionServerEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Expose the local CLike operational MCP-compatible server from the VS Code extension."
+        },
+        "clike.mcp.extensionServerHost": {
+          "type": "string",
+          "default": "127.0.0.1",
+          "description": "Host for the local CLike extension operational MCP-compatible server."
+        },
+        "clike.mcp.extensionServerPort": {
+          "type": "number",
+          "default": 55742,
+          "minimum": 1024,
+          "description": "Port for the local CLike extension operational MCP-compatible server."
+        },
+        "clike.mcp.extensionServerToken": {
+          "type": "string",
+          "default": "",
+          "description": "Optional bearer token required by the local CLike extension operational MCP-compatible server. Empty means localhost-only without token."
+        },
         "clike.apply.backup": {
           "type": "boolean",
           "default": true,

@@ -235,6 +235,8 @@ async def post_plan(req: HarperPhaseRequest):
             errors=out_dict.get("errors") or [],
             runId=out_dict.get("runId"),
             usage=out_dict.get("usage"),
+            execution=out_dict.get("execution"),
+            local_agent=out_dict.get("local_agent"),
             telemetry=out_dict.get("telemetry"),
         )
         log.info("inside try out files len: %s", len(out_dict.get("files")));
@@ -266,9 +268,10 @@ async def post_kit(req: HarperPhaseRequest):
     repo_ctx = payload.get("repository_context") or {}
     kit_opts = payload.get("kit") or {}
     log.info(
-        "run_phase kit (route): targets=%s phases=%s",
+        "run_phase kit (route): targets=%s phases=%s executionPreference=%s",
         kit_opts.get("targets"),
         kit_opts.get("phases") or ["kit"],
+        payload.get("executionPreference"),
     )
 
     log.info(
@@ -305,8 +308,37 @@ async def post_kit(req: HarperPhaseRequest):
             warnings=out_dict.get("warnings") or [],
             errors=out_dict.get("errors") or [],
             runId=out_dict.get("runId"),
+            usage=out_dict.get("usage"),
+            execution=out_dict.get("execution"),
+            local_agent=out_dict.get("local_agent"),
             telemetry=out_dict.get("telemetry"),
         )
+        if out_dict.get("local_agent"):
+            log.info(
+                "run_phase kit (route): returning local_agent package action=%s req=%s executor_hint=%s package_files=%d",
+                (out_dict.get("local_agent") or {}).get("action"),
+                (out_dict.get("local_agent") or {}).get("req_id"),
+                (out_dict.get("local_agent") or {}).get("executor_hint"),
+                len((out_dict.get("local_agent") or {}).get("package_files") or []),
+            )
+        execution = out_dict.get("execution") or {}
+        requested_pref = payload.get("executionPreference")
+        actual_selected = execution.get("selected")
+        actual_reason = execution.get("reason")
+
+        if requested_pref and actual_selected:
+            log.info(
+                "run_phase kit (route): executionPreference=%s selected=%s reason=%s",
+                requested_pref,
+                actual_selected,
+                actual_reason,
+            )
+
+            if actual_selected != "local_agent" and requested_pref in {"prefer_local_agent", "prefer_claude_code"}:
+                out.warnings = list(out.warnings or [])
+                out.warnings.append(
+                    f"Execution preference '{requested_pref}' fell back to '{actual_selected}' ({actual_reason or 'no reason provided'})."
+                )
 
     except RuntimeError as exc:
         msg = str(exc)
@@ -363,10 +395,13 @@ async def post_build_next(req: HarperPhaseRequest):
     # Delego al service che farà SOLO il merge del modello/profilo, senza perdere campi
     out_dict = await svc.run_phase("finalize", payload)
     
+    execution_meta = out_dict.get("execution") or {}
+    execution_selected = execution_meta.get("selected") or "cloud"
+
     out = HarperRunResponse(
         ok=bool(out_dict.get("ok", True)),
         phase=out_dict.get("phase") or "finalize",
-        echo=out_dict.get("echo"),
+        echo=(out_dict.get("echo") or "finalize completed") + f" | execution={execution_selected}",
         text=out_dict.get("text"),
         files=[FileArtifact(**f) for f in (out_dict.get("files") or [])],
         diffs=[DiffEntry(**d) for d in (out_dict.get("diffs") or [])],
@@ -387,4 +422,77 @@ async def post_build_next(req: HarperPhaseRequest):
             pass
 
     return HarperEnvelope(out=out, release_notes_md=release_notes_md)
+
+@router.post("/eval", response_model=HarperEnvelope)
+async def post_eval_prepass(req: HarperPhaseRequest):
+    """
+    Prepare an optional local-agent /eval pre-pass package.
+
+    This endpoint does not replace canonical /v1/eval/run.
+    It only lets the orchestrator prepare a local-agent hardening package.
+    The extension must run canonical eval afterwards.
+    """
+    payload = req.model_dump()
+    payload["phase"] = "eval"
+    payload.setdefault("cmd", "eval")
+
+    eval_opts = payload.get("eval") or {}
+    log.info(
+        "run_phase eval-prepass (route): targets=%s executionPreference=%s",
+        eval_opts.get("targets"),
+        payload.get("executionPreference"),
+    )
+
+    try:
+        out_dict = await svc.run_phase("eval", payload)
+
+        out = HarperRunResponse(
+            ok=bool(out_dict.get("ok", True)),
+            phase=out_dict.get("phase") or "eval",
+            echo=out_dict.get("echo"),
+            text=out_dict.get("text"),
+            files=[FileArtifact(**f) for f in (out_dict.get("files") or [])],
+            diffs=[DiffEntry(**d) for d in (out_dict.get("diffs") or [])],
+            tests=TestSummary(**(out_dict.get("tests") or {})),
+            warnings=out_dict.get("warnings") or [],
+            errors=out_dict.get("errors") or [],
+            runId=out_dict.get("runId"),
+            usage=out_dict.get("usage"),
+            execution=out_dict.get("execution"),
+            local_agent=out_dict.get("local_agent"),
+            telemetry=out_dict.get("telemetry"),
+        )
+
+        if out_dict.get("local_agent"):
+            log.info(
+                "run_phase eval-prepass (route): returning local_agent package action=%s req=%s executor_hint=%s package_files=%d",
+                (out_dict.get("local_agent") or {}).get("action"),
+                (out_dict.get("local_agent") or {}).get("req_id"),
+                (out_dict.get("local_agent") or {}).get("executor_hint"),
+                len((out_dict.get("local_agent") or {}).get("package_files") or []),
+            )
+
+        return HarperEnvelope(out=out)
+
+    except Exception as exc:
+        log.exception("Error in eval pre-pass phase: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+@router.post("/local-agent/complete")
+async def post_local_agent_complete(payload: dict):
+    """
+    Normalize a local-agent actuator result.
+
+    The extension runs the local CLI, then sends stdout/stderr/exit code and
+    produced candidate files back here. The orchestrator remains the owner of
+    output normalization and root validation.
+    """
+    from services.local_agent_package import normalize_local_agent_result
+
+    try:
+        normalized = normalize_local_agent_result(payload)
+        return {"out": normalized}
+    except Exception as exc:
+        log.exception("local-agent complete failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 

@@ -1,0 +1,11 @@
+{
+  "project_id": "${project.id}",
+  "project_name": "${project.name}",
+  "target_src": "runs/kit/$REQ-ID/src",
+  "target_test": "runs/kit/$REQ-ID/test",
+  "source_folder": "src",
+  "test_folder": "test",
+  "harper_doc_root": "docs/harper",
+  "rag_namespace": "${project.rag_namespace}",
+  "clike_version": "v1"
+}

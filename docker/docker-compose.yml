@@ -70,6 +70,7 @@ services:
       - RAG_EMBED_FAMILY=openai_1536
       - RAG_EMBED_MODEL=openai:text-embedding-3-small
       - RAG_SCORE_THRESHOLD=0.30
+      - CLIKE_MCP_SERVER_ENABLED=true
       
     env_file:
       - path: ../.env
