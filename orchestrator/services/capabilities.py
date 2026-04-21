@@ -256,7 +256,7 @@ def _build_manifest(index: Dict[str, Any]) -> str:
         "- Gate implications",
         "",
         "## Discovery Summary",
-
+    ]
     if skills:
         lines.extend(["## Skills", ""])
         for item in skills:
