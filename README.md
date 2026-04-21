@@ -356,6 +356,122 @@ Examples:
 
 ---
 
+## Capabilities, Skills, Packs, and Design Profiles
+
+CLike includes a project-local capability system used to guide AI-native software delivery without making the platform dependent on a specific model, agent, vendor, language, or runtime.
+
+Capabilities live inside the target workspace:
+
+```text
+.clike/
+  project.json
+  capabilities.yaml
+  skills/
+  packs/
+  design-profiles/
+```
+
+During project initialization, CLike copies the default capability templates into the workspace. The orchestrator then reads these files and generates normalized capability context:
+
+```text
+CLIKE_CAPABILITY_MANIFEST.md
+CLIKE_CAPABILITY_INDEX.json
+```
+
+These generated artifacts are the primary capability context for cloud models and local agents. Agents should not randomly inspect `.clike/`; they should use the manifest, the index, and the capabilities selected by PLAN.
+
+### Capability Types
+
+CLike uses three capability types:
+
+| Type | Purpose |
+|---|---|
+| Skills | Atomic operational capabilities |
+| Packs | Scenario-level capability bundles |
+| Design Profiles | UI/UX constraints for frontend or operator-facing requirements |
+
+### Skills
+
+Skills define enforceable engineering behavior.
+
+Examples:
+
+- `backend-contract-boundary`
+- `frontend-state-accessibility`
+- `ai-rag-eval-guardrails`
+- `ml-experiment-reproducibility`
+- `mobile-offline-parity`
+- `mendix-extension-boundary`
+- `industrial-safety-simulator`
+- `local-cloud-parity`
+- `eval-contract-writer`
+- `gate-risk-reviewer`
+
+A skill tells PLAN/KIT/EVAL/GATE what must be done, what must not be done, what evidence is required, and when Gate should block promotion.
+
+### Packs
+
+Packs represent solution scenarios.
+
+Examples:
+
+- `enterprise-solution`
+- `startup-solution`
+- `industrial-solution`
+- `mendix-solution`
+- `mobile-app`
+- `ai-native-agent-platform`
+- `enterprise-onprem`
+- `industrial-manufacturing`
+- `consumer-saas`
+
+A pack does not replace requirements. It helps PLAN select the right constraints and skills for the scenario.
+
+### Design Profiles
+
+Design profiles constrain UI/UX generation.
+
+Examples:
+
+- `enterprise-console`
+- `industrial-control-room`
+- `startup-product-app`
+- `mobile-operator-app`
+- `developer-tooling-console`
+
+Design profiles are only used for UI/UX-scoped REQs. They must not clone external brands or products.
+
+### How Capabilities Flow Through Harper
+
+Capabilities are used across the Harper pipeline:
+
+```text
+IDEA → SPEC → PLAN → KIT → EVAL → GATE → FINALIZE
+```
+
+- SPEC defines business and technical requirements.
+- PLAN selects relevant packs, skills, and design profiles per REQ.
+- KIT applies selected capabilities while generating code, tests, docs, and CI artifacts.
+- EVAL checks whether the expected evidence exists and whether commands pass.
+- GATE promotes only when the REQ has full PASS evidence and policy requirements are satisfied.
+
+Capabilities must not override SPEC, TECH_CONSTRAINTS, repository evidence, explicit user instructions, or canonical Gate policy.
+
+### Reliability Principle
+
+CLike capability governance follows this rule:
+
+```text
+The runner produces evidence.
+The agent diagnoses and repairs.
+Canonical EvalRunner and Gate decide.
+```
+
+Agents and cloud models may help generate, diagnose, and repair candidate artifacts, but they cannot promote code or override Gate.
+
+See [`docs/CAPABILITIES.md`](docs/CAPABILITIES.md) for the full technical documentation.
+
+---
 ## 🚀 Quick Start (Local Dev)
 
 ### Prerequisites

@@ -282,13 +282,15 @@ def gate_check(
         log.exception("gate_check unexpected")
         raise HTTPException(status_code=500, detail=f"gate_check error: {exc}") from exc
 
-    hard_gate = "PASS" if rep.status in {"PASS", "PASS_WITH_WARNINGS"} else "FAIL"
+    hard_gate = "PASS" if rep.status == "PASS" else "FAIL"
 
     reason_code = "GATE_PASS"
     if rep.status == "PASS_WITH_WARNINGS":
         reason_code = "GATE_BLOCKED_WARNINGS_PRESENT"
     elif rep.status == "FAIL":
         reason_code = "GATE_BLOCKED_FAILED_CHECKS"
+    else:
+        reason_code = f"GATE_BLOCKED_STATUS_{rep.status}"
 
     return {
         "gate": hard_gate,
@@ -297,7 +299,7 @@ def gate_check(
         "profile": rep.profile,
         "req_id": rep.req_id,
         "mode": rep.mode,
-        "passed": rep.passed,
+        "passed": rep.status == "PASS",
         "failed": rep.failed,
         "passed_count": rep.passed,
         "blocked_count": rep.blocked,

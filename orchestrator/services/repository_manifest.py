@@ -19,6 +19,8 @@ EXCLUDED_TOP_LEVEL = {
     ".ruff_cache",
     ".venv",
     "venv",
+    "eval-venvs",
+    ".venvs",
     "node_modules",
     "dist",
     "build",

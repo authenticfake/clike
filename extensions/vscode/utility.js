@@ -1044,7 +1044,7 @@ async function saveEvalCommand(projectRootUri, plan, targetReqId, report, out) {
   if (!effectivePlan || !Array.isArray(effectivePlan.reqs)) return;
   
 
-  const report_file = await persistReports(projectRootUri, "eval", report, out)
+  const report_file = await persistReports(projectRootUri, "eval", report, out, targetReqId)
   log(`[saveEvalCommand] persistReports done`);
   // opzionale: se non è ancora in_progress → mettilo
   const req = effectivePlan.reqs.find(r => (r.id || '').toUpperCase() === targetReqId.toUpperCase());
@@ -1057,7 +1057,7 @@ async function saveEvalCommand(projectRootUri, plan, targetReqId, report, out) {
   return report_file
 }
 // In utility.js (o dove hai definito persistReports)
-async function persistReports(projectRootUri, phase, rep, out) {
+async function persistReports(projectRootUri, phase, rep, out, fallbackReqId = '') {
   const vscode = require('vscode');
   const path = require('path');
 
@@ -1079,7 +1079,9 @@ async function persistReports(projectRootUri, phase, rep, out) {
     return;
   }
   // Normalizza naming dai possibili alias
-  const req_id = rep.req_id || rep.reqId || rep.request_id || 'REQ-UNKNOWN';
+  const req_id = String(
+    rep.req_id || rep.reqId || rep.request_id || fallbackReqId || 'REQ-UNKNOWN'
+  ).trim().toUpperCase();
   const profile = rep.profile || rep.profile_path || null;
   const mode = rep.mode || 'auto';
   const passed = rep.passed ;//Number.isInteger(rep.passed) ? rep.passed : 0;
@@ -1183,7 +1185,7 @@ async function saveGateCommand(projectRootUri, plan, targetReqId, report, out) {
   const planJsonUri = vscode.Uri.joinPath(projectRootUri, 'docs', 'harper', 'plan.json');
   const planMdUri = vscode.Uri.joinPath(projectRootUri, 'docs', 'harper', 'PLAN.md');
 
-  const report_file = await persistReports(projectRootUri, "gate", report, out);
+  const report_file = await persistReports(projectRootUri, "gate", report, out, targetReqId);
 
   let filesToCommit = [
     planJsonUri.fsPath,
@@ -2013,6 +2015,10 @@ function buildAgentExecutionContext({
   const lane = String(req?.lane || ltc?.lane || 'unknown').trim() || 'unknown';
   const acceptance = Array.isArray(req?.acceptance) ? req.acceptance : [];
   const dependsOn = Array.isArray(req?.dependsOn) ? req.dependsOn : [];
+  const dependencyKitRoots = dependsOn
+    .map(dep => String(dep || '').trim().toUpperCase())
+    .filter(dep => dep.startsWith('REQ-'))
+    .map(dep => `runs/kit/${dep}`);
 
   const base = {
     schema_version: 'v1',
@@ -2046,6 +2052,16 @@ function buildAgentExecutionContext({
       working_directory: '.',
       source_folder: String(projectMeta.source_folder || 'src').trim(),
       test_folder: String(projectMeta.test_folder || 'test').trim(),
+    },
+    workspace_inspection_policy: {
+      purpose: 'Inspect promoted source/test roots and dependency KIT roots before writing or repairing candidate files.',
+      canonical_promoted_source_roots: ['src'],
+      canonical_promoted_test_roots: ['test', 'tests'],
+      dependency_req_ids: dependsOn,
+      dependency_kit_roots: dependencyKitRoots,
+      target_candidate_root: `runs/kit/${String(reqId || '').trim().toUpperCase()}`,
+      read_policy: 'Read promoted roots and dependency KIT roots when present.',
+      write_policy: 'Write only inside the target candidate root.',
     },
   };
 
@@ -2085,6 +2101,8 @@ function buildAgentExecutionContext({
       },
       generation_rules: [
         'Generate repository-aware code (src/ ), tests (test/) and docs aligned to the REQ acceptance criteria.',
+        'Before writing, inspect workspace_inspection_policy, promoted src/test roots, and dependency KIT roots when present.',
+        'Treat canonical src/test roots as promoted truth and dependency KIT roots as E2E contract evidence.',        
         'Respect req.functional_scope and req.technical_scope when present.',
         'Respect req.domain, req.runtime_profile, req.packs, req.skills, req.design_profiles, req.gate_expectations, req.main_module_boundary, and req.future_compatibility_notes when present.',
         'Use req.main_module_boundary to keep the implementation focused and avoid scattered files.',
@@ -2128,6 +2146,8 @@ function buildAgentExecutionContext({
       },
       evaluation_rules: [
         'Run the execution recipe from LTC/HOWTO.',
+        'Before repairing, inspect workspace_inspection_policy, promoted src/test roots, and dependency KIT roots when present.',
+        'Treat canonical src/test roots as promoted truth and dependency KIT roots as E2E contract evidence.',        
         'If checks fail, fix candidate source/test files only under allowed_write_roots.',
         'Re-run the relevant checks after each remediation.',
         'Do not modify canonical workspace src/ or test/ roots.',

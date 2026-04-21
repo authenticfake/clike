@@ -677,7 +677,7 @@ Use:
 - `blocking: false` for integration or external-infra checks that may be skipped or blocked by missing infrastructure.
 
 If the KIT emits `requirements.txt`, LTC MUST include either:
-- `requirements_file: "runs/kit/<REQ-ID>/requirements.txt"`
+- `requirements_file: "runs/kit/<REQ-ID>/ci/requirements.txt"`
 or rely on CLike EvalRunner inference from the LTC path.
 
 Recommended minimal LTC structure:

@@ -3055,6 +3055,7 @@ async function cmdOpenChat(context) {
           await writeFileUtf8(path.join(targetDir, '.gitignore'),`node_modules/
           dist/
           .vscode/
+          runs/eval/.venvs/
           .env
           runs/
           *.log
@@ -3069,7 +3070,7 @@ async function cmdOpenChat(context) {
             files_created: [
               'README.md',
               '.gitignore',
-                            '.clike/policy.yaml',
+              '.clike/policy.yaml',
               '.clike/capabilities.yaml',
               '.clike/project.json',
               '.clike/skills/local-cloud-parity/SKILL.md',
@@ -3112,7 +3113,7 @@ async function cmdOpenChat(context) {
           // apri il nuovo workspace in una nuova window
           await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(targetDir), true);
           //await context.workspaceState.update('clike.initSummary', msgText);
-x
+
 
         } catch (e) {
           console.error('[CLike] harperInit failed:', e);
@@ -3838,7 +3839,7 @@ x
         const plan = await readPlanJson(ws_root);
        
         if (phase === 'eval' || phase === 'gate') {
-          const explicitTarget = String(msg?.targetRsseqId || '').trim().toUpperCase();
+          const explicitTarget = String(msg?.targetReqId || '').trim().toUpperCase();
 
           if (explicitTarget) {
             targets = explicitTarget;

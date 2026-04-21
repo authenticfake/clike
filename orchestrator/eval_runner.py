@@ -166,7 +166,14 @@ class EvalRunner:
         return raw if raw.is_absolute() else (self.project_root / raw).resolve()
 
     def _venv_dir(self, req_id: Optional[str]) -> Path:
-        return self.project_root / ".clike" / "eval-venvs" / self._safe_req_id(req_id)
+        """
+        Runtime eval virtualenvs must not be created under .clike.
+
+        .clike is project capability/configuration space and may be read-only,
+        versioned, or managed by templates. Eval runtime artifacts belong under
+        runs/eval, which is the canonical writable evaluation area.
+        """
+        return self.project_root / "runs" / "eval" / ".venvs" / self._safe_req_id(req_id)
 
     def _venv_python(self, venv_dir: Path) -> Path:
         if os.name == "nt":
@@ -224,8 +231,23 @@ class EvalRunner:
         cases: List[EvalCase] = []
 
         if not venv_py.exists():
-            venv_dir.parent.mkdir(parents=True, exist_ok=True)
-            create_cmd = f"{shlex.quote(sys.executable)} -m venv {shlex.quote(str(venv_dir))}"
+            try:
+                venv_dir.parent.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                case = EvalCase(
+                    name="env::venv-dir",
+                    passed=False,
+                    code=30,
+                    stdout="",
+                    stderr=f"cannot create eval venv directory {venv_dir.parent}: {exc}",
+                    cmd=None,
+                    cwd=str(cwd),
+                    blocked=True,
+                    blocking=False,
+                )
+                return env, [case]
+
+            create_cmd = f"{shlex.quote(sys.executable)} -m venv {shlex.quote(str(venv_dir))}"        
             create_case = self._run(
                 name="env::venv-create",
                 cmd=create_cmd,
@@ -508,9 +530,14 @@ class EvalRunner:
         )
 
         if not requirements_file:
-            inferred_requirements = profile_path.parent.parent / "requirements.txt"
-            if inferred_requirements.exists():
-                requirements_file = str(inferred_requirements)
+            inferred_candidates = [
+                profile_path.parent / "requirements.txt",
+                profile_path.parent.parent / "requirements.txt",
+            ]
+            for inferred_requirements in inferred_candidates:
+                if inferred_requirements.exists():
+                    requirements_file = str(inferred_requirements)
+                    break
 
         eval_env, setup_cases = self._ensure_eval_venv(
             req_id=eff_req,

@@ -41,17 +41,19 @@ async function handleEval(argument, workspaceRoot, req_id, mode = 'auto', result
 
     res.summary = `Eval ${profile}: ${msg}\nCases: ${casesCount}\nReport: ${res?.json || ''}`;
     return res;
-  } catch (err) {
-    const res = {
-      passed: false,
-      status: 'FAIL',
-      passed_count: 0,
-      failed: 1,
-      blocked_count: 0,
-      warning_count: 0,
-      cases: [],
-      summary: `Eval ${profile || argument}: EVAL ERROR\nReport: ${String(err)}`,
-    };
+    } catch (err) {
+      const normalizedReqId = String(req_id || '').trim().toUpperCase() || 'REQ-UNKNOWN';
+      const res = {
+        req_id: normalizedReqId,
+        passed: false,
+        status: 'FAIL',
+        passed_count: 0,
+        failed: 1,
+        blocked_count: 0,
+        warning_count: 0,
+        cases: [],
+        summary: `Eval ${profile || argument}: EVAL ERROR\nReport: ${String(err)}`,
+      };
 
     vscode.window.showErrorMessage(`EVAL error: ${String(err)}`);
     return res;
