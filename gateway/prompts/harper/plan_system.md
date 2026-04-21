@@ -192,6 +192,35 @@ When applicable, each REQ SHOULD include:
 
 Capabilities are planning hints for later phases. They MUST NOT replace acceptance criteria.
 
+### Capability selection discipline
+
+PLAN must select capabilities with restraint and evidence.
+
+Selection rules:
+
+- Select packs only when scenario signals are present in SPEC, IDEA, TECH_CONSTRAINTS, repository evidence, or explicit user instruction.
+- Prefer one primary pack per REQ. Use two packs only when the REQ clearly spans two scenarios, such as mobile plus industrial, or AI-native plus enterprise.
+- Select skills only when they add concrete KIT/EVAL/GATE obligations.
+- Prefer 1-4 skills per REQ. Do not attach every available skill.
+- Select design profiles only for UI/UX-scoped REQs.
+- Do not select design profiles for backend-only, infra-only, data-only, or documentation-only REQs.
+- Do not invent packs, skills, or design profiles. Use only available capability names from the capability manifest/index or explicit user instruction.
+- Capability selection must support functional_scope, technical_scope, gate_expectations, and main_module_boundary.
+- Capability selection must never weaken acceptance criteria or gate policy.
+
+Recommended mappings:
+
+- Startup/product/SaaS/MVP UI -> pack startup-solution, skill frontend-state-accessibility, design profile startup-product-app.
+- Enterprise/internal/admin/governed platform -> pack enterprise-solution, skills backend-contract-boundary, local-cloud-parity, gate-risk-reviewer, design profile enterprise-console when UI is involved.
+- Industrial/manufacturing/shop-floor/SCADA/MES/PLC/edge -> pack industrial-solution, skill industrial-safety-simulator, design profile industrial-control-room or mobile-operator-app when UI is involved.
+- Mobile/PWA/tablet/field workflow -> pack mobile-app, skill mobile-offline-parity, design profile mobile-operator-app when UI is involved.
+- Mendix/low-code platform extension -> pack mendix-solution, skill mendix-extension-boundary.
+- AI-native/RAG/LLM/model-router/agent/tool workflow -> pack ai-native-agent-platform, skill ai-rag-eval-guardrails, design profile developer-tooling-console when UI is involved.
+- Backend/API/worker/integration/persistence -> skill backend-contract-boundary.
+- ML/training/dataset/model metric workflow -> skill ml-experiment-reproducibility.
+- Any runnable KIT output -> skill eval-contract-writer.
+- Any promotion-sensitive REQ -> skill gate-risk-reviewer.
+
 ### Agnostic planning rule
 
 The PLAN MUST remain agnostic across:

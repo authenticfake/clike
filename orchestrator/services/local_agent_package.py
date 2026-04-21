@@ -30,15 +30,22 @@ def _extract_capability_manifest(payload: Dict[str, Any]) -> Dict[str, Any]:
     manifest = _extract_core_blob(payload, "CLIKE_CAPABILITY_MANIFEST.md")
     index = _extract_core_blob(payload, "CLIKE_CAPABILITY_INDEX.json")
 
-    max_chars = 18_000
-    if len(manifest) > max_chars:
-        manifest = manifest[:max_chars].rstrip() + "\n\n...[truncated]\n"
+    max_manifest_chars = 18_000
+    max_index_chars = 24_000
+
+    if len(manifest) > max_manifest_chars:
+        manifest = manifest[:max_manifest_chars].rstrip() + "\n\n...[truncated]\n"
+
+    if len(index) > max_index_chars:
+        index = index[:max_index_chars].rstrip() + "\n\n...[truncated]\n"
 
     return {
         "available": bool(manifest),
         "manifest_name": "CLIKE_CAPABILITY_MANIFEST.md",
+        "index_name": "CLIKE_CAPABILITY_INDEX.json",
         "index_available": bool(index),
         "content": manifest,
+        "index_content": index,
     }
 
 def _extract_req_from_plan(payload: Dict[str, Any], req_id: str) -> Dict[str, Any]:
@@ -63,6 +70,66 @@ def _extract_req_from_plan(payload: Dict[str, Any], req_id: str) -> Dict[str, An
             return item
 
     return {"id": req_id}
+
+def _extract_req_dependencies(req: Dict[str, Any]) -> List[str]:
+    """
+    Return normalized dependency REQ IDs from the target REQ.
+
+    Supports both current and legacy plan.json field names.
+    """
+    raw = (
+        req.get("dependsOn")
+        or req.get("depends_on")
+        or req.get("dependencies")
+        or []
+    )
+
+    if not isinstance(raw, list):
+        return []
+
+    out: List[str] = []
+    for item in raw:
+        dep = _safe_text(item).upper()
+        if dep and dep.startswith("REQ-") and dep not in out:
+            out.append(dep)
+
+    return out
+
+
+def _build_workspace_inspection_policy(req_id: str, req: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Build the read/write policy used by local agents.
+
+    The agent may inspect promoted code and dependency KITs, but it may write
+    only inside the target candidate KIT root.
+    """
+    dependency_req_ids = _extract_req_dependencies(req)
+
+    return {
+        "purpose": (
+            "Before writing or repairing candidate files, inspect promoted code "
+            "and dependency KITs so the target REQ remains E2E-compatible with "
+            "already validated or previously generated work."
+        ),
+        "canonical_promoted_source_roots": ["src"],
+        "canonical_promoted_test_roots": ["test", "tests"],
+        "dependency_req_ids": dependency_req_ids,
+        "dependency_kit_roots": [f"runs/kit/{dep}" for dep in dependency_req_ids],
+        "target_candidate_root": f"runs/kit/{req_id}",
+        "target_candidate_source_root": f"runs/kit/{req_id}/src",
+        "target_candidate_test_root": f"runs/kit/{req_id}/test",
+        "target_candidate_ci_root": f"runs/kit/{req_id}/ci",
+        "target_candidate_docs_root": f"runs/kit/{req_id}/docs",
+        "read_policy": (
+            "Read canonical promoted roots and dependency KIT roots when present. "
+            "Treat missing roots as explicit assumptions or gaps, not as permission "
+            "to invent incompatible contracts."
+        ),
+        "write_policy": (
+            "Write only inside the target candidate root. Never modify canonical "
+            "src/, test/, tests/, docs/harper, dependency KIT roots, or git metadata."
+        ),
+    }
 
 def _resolve_local_executor(payload: Dict[str, Any]) -> str:
     """
@@ -128,6 +195,7 @@ def build_kit_local_agent_package(
     local_executor = _resolve_local_executor(payload)
 
     req = _extract_req_from_plan(payload, req_id)
+    workspace_inspection_policy = _build_workspace_inspection_policy(req_id, req)
     capability_manifest = _extract_capability_manifest(payload)
 
     allowed_write_roots = [
@@ -202,6 +270,7 @@ def build_kit_local_agent_package(
             "plan_json_path": "docs/harper/plan.json",
             "lane_guides_path": "docs/harper/lane-guides",
         },
+        "workspace_inspection_policy": workspace_inspection_policy,
         "repository_analysis_required": {
             "must_read_plan": True,
             "must_read_plan_json": True,
@@ -209,12 +278,14 @@ def build_kit_local_agent_package(
             "must_inspect_dependency_kits": True,
             "must_inspect_canonical_src": True,
             "must_inspect_canonical_tests": True,
-            "dependency_kit_roots_pattern": "runs/kit/<DEPENDENCY_REQ_ID>",
-            "canonical_source_roots": ["src"],
-            "canonical_test_roots": ["test", "tests"],
+            "dependency_req_ids": workspace_inspection_policy["dependency_req_ids"],
+            "dependency_kit_roots": workspace_inspection_policy["dependency_kit_roots"],
+            "canonical_source_roots": workspace_inspection_policy["canonical_promoted_source_roots"],
+            "canonical_test_roots": workspace_inspection_policy["canonical_promoted_test_roots"],
+            "target_candidate_root": workspace_inspection_policy["target_candidate_root"],
             "purpose": (
                 "Generate candidate code that is directly promotable and consistent "
-                "with already generated dependency KITs and canonical promoted code."
+                "with dependency KITs and canonical promoted code."
             ),
         },
         "allowed_write_roots": allowed_write_roots,
@@ -235,11 +306,12 @@ def build_kit_local_agent_package(
             "Do not modify docs/harper/PLAN.md or docs/harper/plan.json.",
             "Do not run git commands.",
             "Do not commit, branch, push, tag, or open pull requests.",
-            "Respect capability_context from AGENT_EVAL_CONTEXT.json: lane, domain, runtime_profile, packs, skills, design_profiles, gate_expectations, main_module_boundary, future_compatibility_notes, and manifest content when available.",
+            "Respect capability_context from AGENT_EXECUTION_CONTEXT.json: lane, domain, runtime_profile, packs, skills, design_profiles, gate_expectations, main_module_boundary, future_compatibility_notes, and manifest content when available.",
             "Patch operations are allowed only under allowed_write_roots.",
             "Do not create or modify files outside runs/kit/<REQ-ID>/ for this phase.",
+            "Never modify dependency KIT roots; they are read-only context for this target REQ.",
             "Do not install packages globally or into system Python.",
-            "If declared tools/dependencies are missing, you may create a local virtualenv under .clike/eval-venvs or runs/kit/<REQ-ID>/.venv and install only from the REQ requirements file.",
+            "If declared tools/dependencies are missing, you may create a local virtualenv under runs/eval/.venvs or runs/kit/<REQ-ID>/.venv and install only from the REQ requirements file.",
             "Use local_runtime.python from this context for Python commands.",
             "If dependency installation is unavailable, report checks as environment-blocked and run compile/smoke checks.",
             "Never install undeclared packages; only install dependencies listed in the REQ requirements file.",
@@ -271,6 +343,12 @@ def build_kit_local_agent_package(
             "",
             "Strict rules:",
             "- Follow AGENT_EXECUTION_CONTEXT.json as the primary execution contract.",
+             "- Read workspace_inspection_policy before designing the implementation.",
+            "- Inspect promoted src/test roots and dependency KIT roots listed in workspace_inspection_policy before writing.",
+            "- Treat canonical src/test roots as promoted truth and dependency KIT roots as E2E contract evidence.",
+            "- Read and respect capability_context before designing the implementation.",
+            "- Use main_module_boundary to keep the implementation focused and avoid scattered files.",
+            "- Respect capability_context from AGENT_EXECUTION_CONTEXT.json: lane, domain, runtime_profile, packs, skills, design_profiles, gate_expectations, main_module_boundary, future_compatibility_notes, manifest content, and capability index content when available.",
             "- Read capability_context, including capability_context.manifest.content when available.",
             "- Apply selected skills, packs, and design profiles only when relevant to this REQ.",
             "- Do not add decorative architecture just to show that a capability was used.",
@@ -317,8 +395,8 @@ def build_kit_local_agent_package(
             "",
             f"""- Use the local runtime declared in AGENT_EXECUTION_CONTEXT.json.
             - Prefer `python3` when `python` is unavailable.
-            - Do not install packages globally or into the system Python.\n- If declared tools/dependencies are missing, you may create a local virtualenv under `.clike/eval-venvs` or `runs/kit/<REQ-ID>/.venv` and install only from the REQ requirements file.
-            - If pytest, ruff, mypy, or another declared dependency is missing, first use an existing project virtualenv if present; otherwise create a local virtualenv under `.clike/eval-venvs` or `runs/kit/<REQ-ID>/.venv` and install from the REQ requirements file.
+            - Do not install packages globally or into the system Python.\n- If declared tools/dependencies are missing, you may create a local virtualenv under `runs/eval/.venvs` or `runs/kit/<REQ-ID>/.venv` and install only from the REQ requirements file.
+            - If pytest, ruff, mypy, or another declared dependency is missing, first use an existing project virtualenv if present; otherwise create a local virtualenv under `runs/eval/.venvs` or `runs/kit/<REQ-ID>/.venv` and install from the REQ requirements file.
             - If dependencies cannot be installed because the environment is offline, externally managed, or blocked by policy, report the test as environment-blocked and run dependency-free compile/smoke checks instead.
             - Patch operations are allowed only under the allowed_write_roots declared in AGENT_EXECUTION_CONTEXT.json.
             """
@@ -405,6 +483,7 @@ def build_eval_local_agent_package(
     local_executor = _resolve_local_executor(payload)
 
     req = _extract_req_from_plan(payload, req_id)
+    workspace_inspection_policy = _build_workspace_inspection_policy(req_id, req)
     capability_manifest = _extract_capability_manifest(payload)
     local_runtime = payload.get("localRuntime") or {}
     if not isinstance(local_runtime, dict):
@@ -495,6 +574,7 @@ def build_eval_local_agent_package(
             "kit_notes_path": f"runs/kit/{req_id}/docs/KIT_{req_id}.md",
             "readme_path": f"runs/kit/{req_id}/docs/README_{req_id}.md",
         },
+        "workspace_inspection_policy": workspace_inspection_policy,
         "repository_analysis_required": {
             "must_read_plan": True,
             "must_read_plan_json": True,
@@ -505,12 +585,14 @@ def build_eval_local_agent_package(
             "must_inspect_candidate_ci": True,
             "must_inspect_canonical_src": True,
             "must_inspect_canonical_tests": True,
-            "dependency_kit_roots_pattern": "runs/kit/<DEPENDENCY_REQ_ID>",
-            "candidate_source_roots": [f"runs/kit/{req_id}/src"],
-            "candidate_test_roots": [f"runs/kit/{req_id}/test"],
-            "candidate_ci_roots": [f"runs/kit/{req_id}/ci"],
-            "canonical_source_roots": ["src"],
-            "canonical_test_roots": ["test", "tests"],
+            "dependency_req_ids": workspace_inspection_policy["dependency_req_ids"],
+            "dependency_kit_roots": workspace_inspection_policy["dependency_kit_roots"],
+            "candidate_source_roots": [workspace_inspection_policy["target_candidate_source_root"]],
+            "candidate_test_roots": [workspace_inspection_policy["target_candidate_test_root"]],
+            "candidate_ci_roots": [workspace_inspection_policy["target_candidate_ci_root"]],
+            "canonical_source_roots": workspace_inspection_policy["canonical_promoted_source_roots"],
+            "canonical_test_roots": workspace_inspection_policy["canonical_promoted_test_roots"],
+            "target_candidate_root": workspace_inspection_policy["target_candidate_root"],
             "purpose": (
                 "Harden candidate code and tests so canonical CLike eval can execute "
                 "against promotable artifacts consistent with dependency KITs and canonical code."
@@ -564,11 +646,11 @@ def build_eval_local_agent_package(
             "Do not modify docs/harper/PLAN.md or docs/harper/plan.json.",
             "Do not run git commands.",
             "Do not commit, branch, push, tag, or open pull requests.",
-            "Respect capability_context from AGENT_EVAL_CONTEXT.json: lane, domain, runtime_profile, packs, skills, design_profiles, gate_expectations, main_module_boundary, future_compatibility_notes, and manifest content when available.",
+            "Respect capability_context from AGENT_EVAL_CONTEXT.json: lane, domain, runtime_profile, packs, skills, design_profiles, gate_expectations, main_module_boundary, future_compatibility_notes, manifest content, and capability index content when available.",
             "Patch operations are allowed only under allowed_write_roots.",
             "Do not create or modify files outside runs/kit/<REQ-ID>/ for this phase.",
             "Do not install packages globally or into system Python.",
-            "If declared tools/dependencies are missing, you may create a local virtualenv under .clike/eval-venvs or runs/kit/<REQ-ID>/.venv and install only from the REQ requirements file.",
+            "If declared tools/dependencies are missing, you may create a local virtualenv under runs/eval/.venvs or runs/kit/<REQ-ID>/.venv and install only from the REQ requirements file.",
             "Use local_runtime.python from this context for Python commands.",
             "If dependency installation is unavailable, report checks as environment-blocked and run compile/smoke checks.",
             "Never install undeclared packages; only install dependencies listed in the REQ requirements file.",
@@ -632,7 +714,7 @@ def build_eval_local_agent_package(
             "- Do not promote candidate files into canonical workspace roots.",
             "- Use the local runtime declared in AGENT_EVAL_CONTEXT.json.",
             "- Prefer `python3` when `python` is unavailable.",
-            "- Do not install packages globally or into the system Python.\n- If declared tools/dependencies are missing, you may create a local virtualenv under `.clike/eval-venvs` or `runs/kit/<REQ-ID>/.venv` and install only from the REQ requirements file.",
+            "- Do not install packages globally or into the system Python.\n- If declared tools/dependencies are missing, you may create a local virtualenv under `runs/eval/.venvs` or `runs/kit/<REQ-ID>/.venv` and install only from the REQ requirements file.",
             "- If pytest or another dependency is missing, first use an existing project virtualenv if present.",
             "- If dependencies cannot be installed because the environment is offline, externally managed, or blocked by policy, report the check as environment-blocked and run dependency-free compile/smoke checks instead.",
             "- Patch operations are allowed only under allowed_write_roots.",
@@ -641,6 +723,7 @@ def build_eval_local_agent_package(
             f"- Read runs/kit/{req_id}/ci/LTC.json.",
             f"- Read runs/kit/{req_id}/ci/HOWTO.md when present.",
             f"- Inspect runs/kit/{req_id}/src and runs/kit/{req_id}/test.",
+            "- Inspect promoted src/test roots and dependency KIT roots listed in workspace_inspection_policy when present.",
             "- Execute the LTC/HOWTO commands when possible.",
             "- If LTC.json is malformed, incomplete, or not executable, repair LTC.json under runs/kit/<REQ-ID>/ci before changing source code.",
             "- Ensure LTC.json contains a non-empty cases[] execution contract; commands[] may exist only as human-readable aliases.",
@@ -650,8 +733,8 @@ def build_eval_local_agent_package(
             "",
             "At the end, print a concise summary with:",
             "- target REQ and detected dependencies;",
-            "- dependency KITs inspected;",
-            "- canonical src/test roots inspected;",
+            "- dependency KITs inspected, including exact paths or missing-root notes;",
+            "- canonical promoted src/test roots inspected, including exact paths or missing-root notes;",
             "- candidate files created/updated;",
             "- tests extended or added;",
             "- existing contracts reused;",
