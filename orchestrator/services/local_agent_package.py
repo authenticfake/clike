@@ -174,6 +174,382 @@ def _resolve_local_executor(payload: Dict[str, Any]) -> str:
     # send localAgentCapabilities.
     return "gpt_codex"
 
+
+def _capability_index_names(capability_manifest: Dict[str, Any], kind: str) -> List[str]:
+    """Return discovered capability names from CLIKE_CAPABILITY_INDEX.json content."""
+    raw = str(capability_manifest.get("index_content") or "").strip()
+    if not raw:
+        return []
+
+    try:
+        index = json.loads(raw)
+    except Exception:
+        return []
+
+    items = index.get(kind) or []
+    if not isinstance(items, list):
+        return []
+
+    names: List[str] = []
+    for item in items:
+        if isinstance(item, dict):
+            name = _safe_text(item.get("name")).lower()
+            if name and name not in names:
+                names.append(name)
+    return names
+
+
+def _build_capability_integrity(req: Dict[str, Any], capability_manifest: Dict[str, Any]) -> Dict[str, Any]:
+    """Compare selected capabilities with discovered capabilities."""
+    selected_skills = [str(x).strip() for x in (req.get("skills") or []) if str(x).strip()]
+    selected_packs = [str(x).strip() for x in (req.get("packs") or []) if str(x).strip()]
+    selected_design = [str(x).strip() for x in (req.get("design_profiles") or []) if str(x).strip()]
+
+    discovered_skills = _capability_index_names(capability_manifest, "skills")
+    discovered_packs = _capability_index_names(capability_manifest, "packs")
+    discovered_design = _capability_index_names(capability_manifest, "design_profiles")
+
+    missing_skills = [x for x in selected_skills if x.lower() not in discovered_skills]
+    missing_packs = [x for x in selected_packs if x.lower() not in discovered_packs]
+    missing_design = [x for x in selected_design if x.lower() not in discovered_design]
+
+    missing_any = bool(missing_skills or missing_packs or missing_design)
+
+    return {
+        "selected": {
+            "skills": selected_skills,
+            "packs": selected_packs,
+            "design_profiles": selected_design,
+        },
+        "discovered_counts": {
+            "skills": len(discovered_skills),
+            "packs": len(discovered_packs),
+            "design_profiles": len(discovered_design),
+        },
+        "missing_selected_skills": missing_skills,
+        "missing_selected_packs": missing_packs,
+        "missing_selected_design_profiles": missing_design,
+        "missing_any_selected_capability": missing_any,
+        "policy": (
+            "Selected capabilities must be backed by discovered capability files. "
+            "If missing, the agent must report a blocking capability-context gap and must not silently relax obligations."
+        ),
+    }
+
+
+def _build_target_contract(req_id: str, req: Dict[str, Any]) -> Dict[str, Any]:
+    """Build a standalone target contract for the local agent package."""
+    return {
+        "schema_version": "clike.target_contract.v1",
+        "req_id": req_id,
+        "title": req.get("title"),
+        "functional_scope": req.get("functional_scope"),
+        "technical_scope": req.get("technical_scope"),
+        "acceptance": req.get("acceptance") or [],
+        "dependsOn": req.get("dependsOn") or req.get("depends_on") or [],
+        "lane": req.get("lane"),
+        "domain": req.get("domain"),
+        "runtime_profile": req.get("runtime_profile"),
+        "packs": req.get("packs") or [],
+        "skills": req.get("skills") or [],
+        "design_profiles": req.get("design_profiles") or [],
+        "test_profile": req.get("test_profile"),
+        "gate_expectations": req.get("gate_expectations") or [],
+        "main_module_boundary": req.get("main_module_boundary"),
+        "out_of_scope": req.get("out_of_scope") or [],
+        "future_compatibility_notes": req.get("future_compatibility_notes") or [],
+    }
+
+
+def _render_agent_input_audit_md(
+    *,
+    req_id: str,
+    target_contract: Dict[str, Any],
+    file_requirements: Dict[str, Any],
+    capability_integrity: Dict[str, Any],
+    workspace_inspection_policy: Dict[str, Any],
+) -> str:
+    """Render a human-readable audit of what the local agent received."""
+    lines: List[str] = [
+        f"# Agent Input Audit — {req_id}",
+        "",
+        "## Target",
+        f"- REQ: `{req_id}`",
+        f"- Title: {target_contract.get('title') or ''}",
+        f"- Lane: `{target_contract.get('lane')}`",
+        f"- Domain: `{target_contract.get('domain')}`",
+        f"- Runtime profile: `{target_contract.get('runtime_profile')}`",
+        f"- Main module boundary: `{target_contract.get('main_module_boundary')}`",
+        "",
+        "## Selected Capabilities",
+        f"- Packs: `{', '.join(target_contract.get('packs') or []) or 'none'}`",
+        f"- Skills: `{', '.join(target_contract.get('skills') or []) or 'none'}`",
+        f"- Design profiles: `{', '.join(target_contract.get('design_profiles') or []) or 'none'}`",
+        "",
+        "## Capability Integrity",
+        f"- Discovered skills: `{capability_integrity['discovered_counts']['skills']}`",
+        f"- Discovered packs: `{capability_integrity['discovered_counts']['packs']}`",
+        f"- Discovered design profiles: `{capability_integrity['discovered_counts']['design_profiles']}`",
+        f"- Missing selected skills: `{', '.join(capability_integrity['missing_selected_skills']) or 'none'}`",
+        f"- Missing selected packs: `{', '.join(capability_integrity['missing_selected_packs']) or 'none'}`",
+        f"- Missing selected design profiles: `{', '.join(capability_integrity['missing_selected_design_profiles']) or 'none'}`",
+        "",
+        "## Required Candidate Outputs",
+    ]
+
+    for item in file_requirements.get("required") or []:
+        lines.append(f"- `{item}`")
+
+    lines.extend(["", "## Recommended Candidate Outputs"])
+    for item in file_requirements.get("recommended") or []:
+        lines.append(f"- `{item}`")
+
+    lines.extend(["", "## Provider Obligations"])
+    for item in file_requirements.get("provider_obligations") or []:
+        lines.append(f"- {item}")
+
+    lines.extend([
+        "",
+        "## Workspace Inspection",
+        f"- Canonical source roots: `{', '.join(workspace_inspection_policy.get('canonical_promoted_source_roots') or [])}`",
+        f"- Canonical test roots: `{', '.join(workspace_inspection_policy.get('canonical_promoted_test_roots') or [])}`",
+        f"- Dependency KIT roots: `{', '.join(workspace_inspection_policy.get('dependency_kit_roots') or []) or 'none'}`",
+        "",
+        "## Acceptance Criteria",
+    ])
+
+    for item in target_contract.get("acceptance") or []:
+        lines.append(f"- {item}")
+
+    return "\\n".join(lines).strip() + "\\n"
+
+# ----------------------------------------------------------------------
+# Helpers for capability integrity and provider realism
+# ----------------------------------------------------------------------
+def _capability_index_names(capability_manifest: Dict[str, Any], kind: str) -> List[str]:
+    """Return discovered capability names from embedded CLIKE_CAPABILITY_INDEX.json."""
+    raw = str(capability_manifest.get("index_content") or "").strip()
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return []
+    items = data.get(kind) or []
+    if not isinstance(items, list):
+        return []
+    names: List[str] = []
+    for item in items:
+        if isinstance(item, dict):
+            name = _safe_text(item.get("name")).lower()
+            if name and name not in names:
+                names.append(name)
+    return names
+
+def _technical_scope_requires_real_provider_wiring(req: Dict[str, Any]) -> bool:
+    """
+    Return True if the REQ explicitly asks for concrete provider/runtime wiring.
+    Looks for tokens such as boto3, aiobotocore, S3, SQS, SNS, Secrets Manager,
+    CloudWatch, MinIO, Vault, or phrases like 'AWS implementations use' or
+    'On‑prem implementations use' in functional/technical scope and acceptance.
+    """
+    chunks: List[str] = [
+        _safe_text(req.get("technical_scope")),
+        _safe_text(req.get("functional_scope")),
+        _safe_text(req.get("main_module_boundary")),
+    ]
+    acceptance = req.get("acceptance") or []
+    if isinstance(acceptance, list):
+        chunks.extend([_safe_text(x) for x in acceptance])
+    haystack = " ".join(chunks).lower()
+    trigger_tokens = [
+        "boto3", "aiobotocore", "s3", "sqs", "sns",
+        "secrets manager", "cloudwatch",
+        "minio", "vault", "vault‑compatible",
+        "sdk", "aws implementations use", "on‑prem implementations use",
+    ]
+    return any(token in haystack for token in trigger_tokens)
+
+def _build_capability_integrity(req: Dict[str, Any], capability_manifest: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Compare selected capabilities with discovered capability files.
+    If PLAN selects skills, packs or design profiles that are not present,
+    this flags them as missing. Missing selected capabilities constitute a
+    blocking gap.
+    """
+    selected_skills = [str(x).strip() for x in (req.get("skills") or []) if str(x).strip()]
+    selected_packs = [str(x).strip() for x in (req.get("packs") or []) if str(x).strip()]
+    selected_design = [str(x).strip() for x in (req.get("design_profiles") or []) if str(x).strip()]
+    discovered_skills = _capability_index_names(capability_manifest, "skills")
+    discovered_packs = _capability_index_names(capability_manifest, "packs")
+    discovered_design = _capability_index_names(capability_manifest, "design_profiles")
+    missing_skills = [x for x in selected_skills if x.lower() not in discovered_skills]
+    missing_packs = [x for x in selected_packs if x.lower() not in discovered_packs]
+    missing_design = [x for x in selected_design if x.lower() not in discovered_design]
+    return {
+        "selected": {
+            "skills": selected_skills,
+            "packs": selected_packs,
+            "design_profiles": selected_design,
+        },
+        "discovered_counts": {
+            "skills": len(discovered_skills),
+            "packs": len(discovered_packs),
+            "design_profiles": len(discovered_design),
+        },
+        "missing_selected_skills": missing_skills,
+        "missing_selected_packs": missing_packs,
+        "missing_selected_design_profiles": missing_design,
+        "missing_any_selected_capability": bool(missing_skills or missing_packs or missing_design),
+        "policy": (
+            "Selected capabilities are mandatory REQ constraints. "
+            "If a selected capability is missing from the discovered index, "
+            "the agent must report a blocking capability‑context gap and must not "
+            "silently relax the obligation."
+        ),
+    }
+
+def _build_target_contract(req_id: str, req: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Build a standalone target contract for the local agent package.
+    Serializes the core REQ fields so that they are available as a stable artifact.
+    """
+    return {
+        "schema_version": "clike.target_contract.v1",
+        "req_id": req_id,
+        "title": req.get("title"),
+        "functional_scope": req.get("functional_scope"),
+        "technical_scope": req.get("technical_scope"),
+        "acceptance": req.get("acceptance") or [],
+        "dependsOn": req.get("dependsOn") or req.get("depends_on") or [],
+        "lane": req.get("lane"),
+        "domain": req.get("domain"),
+        "runtime_profile": req.get("runtime_profile"),
+        "packs": req.get("packs") or [],
+        "skills": req.get("skills") or [],
+        "design_profiles": req.get("design_profiles") or [],
+        "test_profile": req.get("test_profile"),
+        "gate_policy_ref": req.get("gate_policy_ref"),
+        "gate_expectations": req.get("gate_expectations") or [],
+        "main_module_boundary": req.get("main_module_boundary"),
+        "out_of_scope": req.get("out_of_scope") or [],
+        "future_compatibility_notes": req.get("future_compatibility_notes") or [],
+    }
+
+def _build_file_requirements(
+    req_id: str,
+    req: Dict[str, Any],
+    capability_integrity: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Build standalone file requirements and provider obligations.
+    Introduces provider_realism_required when the REQ names concrete providers/SDKs.
+    """
+    provider_realism_required = _technical_scope_requires_real_provider_wiring(req)
+    required_outputs = [
+        f"runs/kit/{req_id}/src/",
+        f"runs/kit/{req_id}/test/",
+        f"runs/kit/{req_id}/ci/LTC.json",
+        f"runs/kit/{req_id}/ci/HOWTO.md",
+    ]
+    recommended_outputs = [
+        f"runs/kit/{req_id}/ci/requirements.txt",
+        f"runs/kit/{req_id}/docs/README_{req_id}.md",
+        f"runs/kit/{req_id}/docs/KIT_{req_id}.md",
+    ]
+    provider_obligations: List[str] = []
+    if provider_realism_required:
+        provider_obligations.extend(
+            [
+                "Generic in‑memory AWS‑shaped wrappers are not sufficient for this REQ.",
+                "Concrete provider factory boundaries or SDK‑backed adapters are mandatory when technical_scope explicitly names AWS/on‑prem providers or SDKs.",
+                "Local deterministic tests may use fakes, but runtime‑facing code must still expose real provider construction or provider‑ready factory wiring.",
+                "If concrete provider wiring is intentionally deferred, the KIT must explicitly mark the REQ as not promotable and describe the blocking gap.",
+            ]
+        )
+    return {
+        "schema_version": "clike.file_requirements.v1",
+        "req_id": req_id,
+        "required_candidate_outputs": required_outputs,
+        "recommended_candidate_outputs": recommended_outputs,
+        "provider_realism_required": provider_realism_required,
+        "provider_obligations": provider_obligations,
+        "missing_selected_capabilities_blocking": bool(capability_integrity.get("missing_any_selected_capability")),
+        "forbidden": [
+            "Do not write outside runs/kit/<REQ-ID>/.",
+            "Do not modify canonical src/, test/, tests/, docs/harper, or dependency KIT roots.",
+            "Do not satisfy provider‑heavy REQs with decorative or purely in‑memory wrappers when concrete provider/runtime wiring is explicitly required.",
+        ],
+    }
+
+def _render_agent_input_audit_md(
+    *,
+    req_id: str,
+    target_contract: Dict[str, Any],
+    file_requirements: Dict[str, Any],
+    capability_integrity: Dict[str, Any],
+    workspace_inspection_policy: Dict[str, Any],
+) -> str:
+    """
+    Render a human‑readable audit of what the local agent received.
+    Includes REQ summary, selected capabilities, capability integrity,
+    required/recommended outputs, provider obligations, workspace inspection,
+    and acceptance criteria.
+    """
+    lines: List[str] = [
+        f"# Agent Input Audit — {req_id}",
+        "",
+        "## Target",
+        f"- REQ: `{req_id}`",
+        f"- Title: {target_contract.get('title') or ''}",
+        f"- Lane: `{target_contract.get('lane')}`",
+        f"- Domain: `{target_contract.get('domain')}`",
+        f"- Runtime profile: `{target_contract.get('runtime_profile')}`",
+        f"- Main module boundary: `{target_contract.get('main_module_boundary')}`",
+        "",
+        "## Selected Capabilities",
+        f"- Packs: `{', '.join(target_contract.get('packs') or []) or 'none'}`",
+        f"- Skills: `{', '.join(target_contract.get('skills') or []) or 'none'}`",
+        f"- Design profiles: `{', '.join(target_contract.get('design_profiles') or []) or 'none'}`",
+        "",
+        "## Capability Integrity",
+        f"- Discovered skills: `{capability_integrity['discovered_counts']['skills']}`",
+        f"- Discovered packs: `{capability_integrity['discovered_counts']['packs']}`",
+        f"- Discovered design profiles: `{capability_integrity['discovered_counts']['design_profiles']}`",
+        f"- Missing selected skills: `{', '.join(capability_integrity['missing_selected_skills']) or 'none'}`",
+        f"- Missing selected packs: `{', '.join(capability_integrity['missing_selected_packs']) or 'none'}`",
+        f"- Missing selected design profiles: `{', '.join(capability_integrity['missing_selected_design_profiles']) or 'none'}`",
+        f"- Blocking gap: `{capability_integrity['missing_any_selected_capability']}`",
+        "",
+        "## Required Candidate Outputs",
+    ]
+    for item in file_requirements.get("required_candidate_outputs") or []:
+        lines.append(f"- `{item}`")
+    lines.extend(["", "## Recommended Candidate Outputs"])
+    for item in file_requirements.get("recommended_candidate_outputs") or []:
+        lines.append(f"- `{item}`")
+    lines.extend(["", "## Provider Obligations"])
+    obligations = file_requirements.get("provider_obligations") or []
+    if obligations:
+        for item in obligations:
+            lines.append(f"- {item}")
+    else:
+        lines.append("- No extra provider realism obligations declared.")
+    lines.extend(
+        [
+            "",
+            "## Workspace Inspection",
+            f"- Canonical source roots: `{', '.join(workspace_inspection_policy.get('canonical_promoted_source_roots') or [])}`",
+            f"- Canonical test roots: `{', '.join(workspace_inspection_policy.get('canonical_promoted_test_roots') or [])}`",
+            f"- Dependency KIT roots: `{', '.join(workspace_inspection_policy.get('dependency_kit_roots') or []) or 'none'}`",
+            "",
+            "## Acceptance Criteria",
+        ]
+    )
+    for item in target_contract.get("acceptance") or []:
+        lines.append(f"- {item}")
+    return "\n".join(lines).strip() + "\n"
+
 def build_kit_local_agent_package(
     *,
     payload: Dict[str, Any],
@@ -197,6 +573,30 @@ def build_kit_local_agent_package(
     req = _extract_req_from_plan(payload, req_id)
     workspace_inspection_policy = _build_workspace_inspection_policy(req_id, req)
     capability_manifest = _extract_capability_manifest(payload)
+    capability_integrity = _build_capability_integrity(req, capability_manifest)
+    target_contract = _build_target_contract(req_id, req)
+    file_requirements = _build_file_requirements(req_id, req, capability_integrity)
+    # Convert embedded manifest/index into standalone strings
+    standalone_capability_manifest = str(capability_manifest.get("content") or "")
+    standalone_capability_index = str(capability_manifest.get("index_content") or "")
+
+    # Create the agent context audit
+    agent_input_audit = {
+        "schema_version": "clike.agent_input_audit.v1",
+        "req_id": req_id,
+        "target_contract": target_contract,
+        "file_requirements": file_requirements,
+        "capability_integrity": capability_integrity,
+        "workspace_inspection_policy": workspace_inspection_policy,
+    }
+    agent_input_audit_json = json.dumps(agent_input_audit, indent=2, ensure_ascii=False)
+    agent_input_audit_md = _render_agent_input_audit_md(
+        req_id=req_id,
+        target_contract=target_contract,
+        file_requirements=file_requirements,
+        capability_integrity=capability_integrity,
+        workspace_inspection_policy=workspace_inspection_policy,
+    )
 
     allowed_write_roots = [
         f"runs/kit/{req_id}/src",
@@ -256,7 +656,10 @@ def build_kit_local_agent_package(
             "main_module_boundary": req.get("main_module_boundary"),
             "future_compatibility_notes": req.get("future_compatibility_notes") or [],
             "manifest": capability_manifest,
+            "integrity": capability_integrity,
         },
+        "target_contract": target_contract,
+        "file_requirements": file_requirements,
         "project": {
             "project_id": payload.get("project_id"),
             "project_name": payload.get("project_name"),
@@ -328,6 +731,23 @@ def build_kit_local_agent_package(
         ],
     }
 
+    agent_input_audit = {
+        "schema_version": "clike.agent_input_audit.v1",
+        "req_id": req_id,
+        "target_contract": target_contract,
+        "file_requirements": file_requirements,
+        "capability_integrity": capability_integrity,
+        "workspace_inspection_policy": workspace_inspection_policy,
+    }
+    agent_input_audit_json = json.dumps(agent_input_audit, indent=2, ensure_ascii=False)
+    agent_input_audit_md = _render_agent_input_audit_md(
+        req_id=req_id,
+        target_contract=target_contract,
+        file_requirements=file_requirements,
+        capability_integrity=capability_integrity,
+        workspace_inspection_policy=workspace_inspection_policy,
+    )
+
     context_json = json.dumps(context, indent=2, ensure_ascii=False)
 
     prompt = "\n".join(
@@ -336,8 +756,11 @@ def build_kit_local_agent_package(
             "",
             "The orchestrator is the workflow owner. The VS Code extension is only the actuator.",
             "",
-            "Read this file before acting:",
+            "Read these files before acting:",
             f"- runs/kit/{req_id}/docs/AGENT_EXECUTION_CONTEXT.json",
+            f"- runs/kit/{req_id}/docs/TARGET_CONTRACT.json",
+            f"- runs/kit/{req_id}/docs/FILE_REQUIREMENTS.json",
+            f"- runs/kit/{req_id}/docs/AGENT_INPUT_AUDIT.md",
             "",
             f"Target REQ: {req_id}",
             "",
@@ -350,10 +773,10 @@ def build_kit_local_agent_package(
             "- Use main_module_boundary to keep the implementation focused and avoid scattered files.",
             "- Respect capability_context from AGENT_EXECUTION_CONTEXT.json: lane, domain, runtime_profile, packs, skills, design_profiles, gate_expectations, main_module_boundary, future_compatibility_notes, manifest content, and capability index content when available.",
             "- Read capability_context, including capability_context.manifest.content when available.",
-            "- Apply selected skills, packs, and design profiles only when relevant to this REQ.",
+            "- Treat selected skills, packs, and design profiles as mandatory REQ constraints. If a selected capability is missing from the capability manifest/index, report a blocking capability-context gap and do not silently relax the obligation.",
             "- Do not add decorative architecture just to show that a capability was used.",
             "- Use main_module_boundary to keep the implementation focused and avoid scattered files.",
-            "- Follow this compact agentic protocol before writing files: inspect contracts, identify the smallest promotable implementation shape, implement source/tests/docs/LTC as one coherent slice, then run or document executable checks.",
+            "- Follow this compact agentic protocol before writing files: inspect contracts, identify the smallest promotable provider-realistic of implementation shape, implement source/tests/docs/LTC as one coherent slice, then run or document executable checks.",
             f"""- Before writing any code, read docs/harper/PLAN.md and docs/harper/plan.json.
             - Identify the target REQ dependencies from the plan.
             - Inspect existing dependency KIT artifacts under runs/kit/<DEPENDENCY_REQ_ID>/ when present.
@@ -363,6 +786,8 @@ def build_kit_local_agent_package(
             - Do not duplicate modules, adapters, ports, models, services, or test helpers already present in dependency KITs or canonical roots.
             - Generate candidate code that is directly promotable into canonical src/test roots.
             - If a dependency KIT, canonical source root, or canonical test root is missing, explicitly report the gap before generating the implementation.
+            - Treat selected skills, packs, and design profiles as mandatory REQ constraints.
+            - If a selected capability is missing from the capability manifest/index, report a blocking capability‑context gap and do not silently relax the obligation.
             """
             "- Write only under the allowed candidate roots.",
             "- Do not modify canonical src/, test/, tests/ roots.",
@@ -398,6 +823,8 @@ def build_kit_local_agent_package(
             - Do not install packages globally or into the system Python.\n- If declared tools/dependencies are missing, you may create a local virtualenv under `runs/eval/.venvs` or `runs/kit/<REQ-ID>/.venv` and install only from the REQ requirements file.
             - If pytest, ruff, mypy, or another declared dependency is missing, first use an existing project virtualenv if present; otherwise create a local virtualenv under `runs/eval/.venvs` or `runs/kit/<REQ-ID>/.venv` and install from the REQ requirements file.
             - If dependencies cannot be installed because the environment is offline, externally managed, or blocked by policy, report the test as environment-blocked and run dependency-free compile/smoke checks instead.
+            - Environment-blocked fallback never relaxes provider obligations declared in TARGET_CONTRACT.json and FILE_REQUIREMENTS.json.
+            - For provider-heavy REQs, generic in-memory provider-shaped wrappers are not sufficient when concrete provider/runtime wiring is explicitly required by technical_scope.
             - Patch operations are allowed only under the allowed_write_roots declared in AGENT_EXECUTION_CONTEXT.json.
             """
         ]
@@ -458,6 +885,42 @@ def build_kit_local_agent_package(
                     "path": prompt_path,
                     "content": prompt,
                     "mime": "text/markdown",
+                    "encoding": "utf-8",
+                },
+                {
+                    "path": f"runs/kit/{req_id}/docs/TARGET_CONTRACT.json",
+                    "content": json.dumps(target_contract, indent=2, ensure_ascii=False),
+                    "mime": "application/json",
+                    "encoding": "utf-8",
+                },
+                {
+                    "path": f"runs/kit/{req_id}/docs/FILE_REQUIREMENTS.json",
+                    "content": json.dumps(file_requirements, indent=2, ensure_ascii=False),
+                    "mime": "application/json",
+                    "encoding": "utf-8",
+                },
+                {
+                    "path": f"runs/kit/{req_id}/docs/AGENT_INPUT_AUDIT.json",
+                    "content": agent_input_audit_json,
+                    "mime": "application/json",
+                    "encoding": "utf-8",
+                },
+                {
+                    "path": f"runs/kit/{req_id}/docs/AGENT_INPUT_AUDIT.md",
+                    "content": agent_input_audit_md,
+                    "mime": "text/markdown",
+                    "encoding": "utf-8",
+                },
+                {
+                    "path": f"runs/kit/{req_id}/docs/CLIKE_CAPABILITY_MANIFEST.md",
+                    "content": standalone_capability_manifest,
+                    "mime": "text/markdown",
+                    "encoding": "utf-8",
+                },
+                {
+                    "path": f"runs/kit/{req_id}/docs/CLIKE_CAPABILITY_INDEX.json",
+                    "content": standalone_capability_index,
+                    "mime": "application/json",
                     "encoding": "utf-8",
                 },
             ],
@@ -556,6 +1019,7 @@ def build_eval_local_agent_package(
             "main_module_boundary": req.get("main_module_boundary"),
             "future_compatibility_notes": req.get("future_compatibility_notes") or [],
             "manifest": capability_manifest,
+            
         },
         "project": {
             "project_id": payload.get("project_id"),

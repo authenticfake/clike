@@ -193,6 +193,31 @@ function getWebviewHtml(orchestratorUrl, themeName = 'classic') {
     cursor:pointer;
   }
 
+  button:disabled,
+  select:disabled,
+  textarea:disabled,
+  input:disabled {
+    cursor:not-allowed;
+    opacity:.55;
+  }
+
+  body.clike-busy .toolbar,
+  body.clike-busy #attach-toolbar,
+  body.clike-busy .tabs,
+  body.clike-busy #attach-chips,
+  body.clike-busy .bubble-delete {
+    pointer-events:none;
+  }
+
+  body.clike-busy .tab {
+    opacity:.55;
+  }
+
+  body.clike-busy #cancel {
+    pointer-events:auto;
+    opacity:1;
+  }
+
   textarea {
     width:100%;
     min-height:80px;
@@ -815,6 +840,12 @@ const btnChat = el('sendChat');
 const btnGen = el('sendGen');
 const btnApply = el('apply');
 const btnCancel = el('cancel');
+const btnHelp = el('helpBtn');
+const historyScope = el('historyScope');
+const btnAttach = el('btnAttach');
+const btnAttachMenu = el('attach-menu');
+const btnAttachWs = el('attach-menu-ws');
+const btnAttachExt = el('attach-menu-ext');
 const statusEl = el('status');
 const sp = el('sp');
 const chat = el('chat');
@@ -824,6 +855,30 @@ const preFiles = el('files');
 
 let selectedPaths = new Set();
 let lastRun = null;
+let uiBusy = false;
+
+function isBusy() {
+  return uiBusy;
+}
+
+function setNodeDisabled(node, disabled) {
+  if (!node) return;
+
+  if (disabled) {
+    node.dataset.prevDisabled = node.disabled ? '1' : '0';
+    node.disabled = true;
+    return;
+  }
+
+  const prevDisabled = node.dataset.prevDisabled === '1';
+  node.disabled = prevDisabled;
+  delete node.dataset.prevDisabled;
+}
+
+function postAndLock(type, payload = {}) {
+  setBusy(true);
+  vscode.postMessage({ type, ...payload });
+}
 
 function isInitBubble(b) {
   try {
@@ -1470,10 +1525,50 @@ function bubble(role, content, modelName, attachments, ts, opts) {
 
 
 function setBusy(on) {
-  [btnChat, btnGen, btnApply, btnRefresh, btnClear].forEach(b => b.disabled = !!on);
-  btnCancel.disabled = !on;
-  sp.classList.toggle('active', !!on);
-  statusEl.textContent = on ? 'Waiting response…' : 'Ready';
+  const disabled = !!on;
+  uiBusy = disabled;
+
+  document.body.classList.toggle('clike-busy', disabled);
+  document.body.setAttribute('aria-busy', disabled ? 'true' : 'false');
+
+  [
+    mode,
+    model,
+    execution,
+    historyScope,
+    prompt,
+    btnHelp,
+    btnRefresh,
+    btnClear,
+    btnChat,
+    btnGen,
+    btnApply,
+    btnAttach,
+    btnAttachWs,
+    btnAttachExt,
+  ].forEach((node) => setNodeDisabled(node, disabled));
+
+  if (btnAttachMenu && disabled) {
+    btnAttachMenu.style.display = 'none';
+    _attachMenuOpen = false;
+  }
+
+  document.querySelectorAll('.tab').forEach((tab) => {
+    tab.style.pointerEvents = disabled ? 'none' : '';
+    tab.style.opacity = disabled ? '.55' : '';
+  });
+
+  document.querySelectorAll('#attach-chips .chip, .bubble-delete').forEach((node) => {
+    node.style.pointerEvents = disabled ? 'none' : '';
+    node.style.opacity = disabled ? '.55' : '';
+  });
+
+  btnCancel.disabled = !disabled;
+  btnCancel.style.pointerEvents = disabled ? 'auto' : '';
+  btnCancel.style.opacity = disabled ? '1' : '';
+
+  sp.classList.toggle('active', disabled);
+  statusEl.textContent = disabled ? 'Waiting response…' : 'Ready';
 }
 function post(type, payload={}) { vscode.postMessage({type, ...payload}); }
 function setTab(name) {
@@ -1499,6 +1594,7 @@ function clearFilesPanel() {
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => setTab(t.dataset.tab)));
 
 mode.addEventListener('change', ()=>{
+  if (isBusy()) return;
   renderAttachmentChips();
   post('uiChanged', {
     mode: mode.value,
@@ -1507,23 +1603,32 @@ mode.addEventListener('change', ()=>{
   });
 });
 
-model.addEventListener('change', ()=> post('uiChanged', {
-  mode: mode.value,
-  model: model.value,
-  executionPreference: currentExecution()
-}));
-
-if (execution) {
-  execution.addEventListener('change', ()=> post('uiChanged', {
+model.addEventListener('change', ()=> {
+  if (isBusy()) return;
+  post('uiChanged', {
     mode: mode.value,
     model: model.value,
     executionPreference: currentExecution()
-  }));
+  });
+});
+
+if (execution) {
+  execution.addEventListener('change', ()=> {
+    if (isBusy()) return;
+    post('uiChanged', {
+      mode: mode.value,
+      model: model.value,
+      executionPreference: currentExecution()
+    });
+  });
 }
-btnRefresh.addEventListener('click', ()=> post('fetchModels'));
+btnRefresh.addEventListener('click', ()=> {
+  if (isBusy()) return;
+  postAndLock('fetchModels');
+});
 btnClear.addEventListener('click', () => {
-  vscode.postMessage({
-    type: 'clearSession',
+  if (isBusy()) return;
+  postAndLock('clearSession', {
     mode: currentMode(),
     model: document.getElementById('model').value || 'auto'
   });
@@ -1577,6 +1682,17 @@ function runHarperCommandFromEnter() {
   return true;
 }
 
+function dispatchSlashFromInput(slash) {
+  if (!slash) return false;
+
+  try {
+    prompt.value = '';
+  } catch {}
+
+  handleSlash(slash);
+  return true;
+}
+
 btnChat.addEventListener('click', ()=>{
   console.log('[webview] sendChat click');
   const text = prompt.value;
@@ -1586,7 +1702,7 @@ btnChat.addEventListener('click', ()=>{
   console.log('ARG', slash?.args);
 
   if (slash) {        // <-- SLASH → non è una chat normale
-    handleSlash(slash);
+    dispatchSlashFromInput(slash);
     prompt.value = '';
     return;
   }
@@ -1613,8 +1729,7 @@ btnGen.addEventListener('click', ()=>{
   const text = prompt.value;
   const slash = parseSlash(text);
   if (slash) {
-    handleSlash(slash);
-    prompt.value = '';
+    dispatchSlashFromInput(slash);
     return;
   }
   const m = (mode.value === 'free') ? 'coding' : mode.value;   // /v1/generate vuole coding/harper
@@ -1657,8 +1772,8 @@ prompt.addEventListener('keydown', (ev) => {
   ev.preventDefault();
   ev.stopPropagation();
 
-  handleSlash(slash);ner
-  prompt.value = '';
+  dispatchSlashFromInput(slash);
+
 });
 
 btnApply.addEventListener('click', ()=>{

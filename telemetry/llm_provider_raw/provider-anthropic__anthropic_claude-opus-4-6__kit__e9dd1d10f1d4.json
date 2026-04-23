@@ -1,0 +1,10 @@
+{
+  "timestamp": "20260421T213644Z",
+  "project_id": "docufu",
+  "phase": "kit",
+  "provider": "anthropic",
+  "model_label": "anthropic:claude-opus-4-6",
+  "raw": {
+    "body_preview": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.\"},\"request_id\":\"req_011CaHdxk1SMHMTFFP8bNmR4\"}"
+  }
+}

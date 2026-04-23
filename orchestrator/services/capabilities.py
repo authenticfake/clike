@@ -274,7 +274,7 @@ def _build_manifest(index: Dict[str, Any]) -> str:
             "## Skills",
             "",
             "- No local `.clike/skills/*/SKILL.md` files discovered.",
-            "- PLAN may still emit candidate skill names when grounded in SPEC, TECH_CONSTRAINTS, or explicit user intent.",
+            "- If PLAN selects a skill, the selected skill should exist in the local capability index or be explicitly marked as unavailable. KIT must not silently relax missing selected skill obligations.",
             "",
         ])
 
@@ -299,7 +299,7 @@ def _build_manifest(index: Dict[str, Any]) -> str:
             "## Packs",
             "",
             "- No local `.clike/packs/*` files discovered.",
-            "- PLAN may still emit candidate pack names when grounded in SPEC, TECH_CONSTRAINTS, or explicit user intent.",
+            "- If PLAN selects a pack, the selected pack should exist in the local capability index or be explicitly marked as unavailable. KIT must not silently relax missing selected pack obligations.",
             "",
         ])
 
@@ -321,14 +321,14 @@ def _build_manifest(index: Dict[str, Any]) -> str:
             "",
             "- No local `.clike/design-profiles/*/DESIGN.md` files discovered.",
             "- No local `docs/harper/design*/DESIGN.md` files discovered.",
-            "- PLAN should assign design profiles only for UI/UX requirements when grounded by available project context or explicit user intent.",
+            "- If PLAN selects a design profile, the selected design profile should exist in the local capability index or be explicitly marked as unavailable. KIT must not silently relax missing selected design obligations.",
             "",
         ])
 
     lines.extend([
         "## Capability Selection Rules",
-        "- PLAN may select skills, packs, and design profiles as candidate hints per REQ.",
-        "- KIT must treat selected capabilities as constraints only when they are available, grounded, and relevant.",
+        "- PLAN may select skills, packs, and design profiles per REQ, but selected capabilities become binding constraints for KIT/EVAL/GATE.",
+        "- KIT must treat selected capabilities as mandatory REQ constraints when they are selected by PLAN. If a selected capability is missing from the manifest/index, KIT must report a blocking capability-context gap instead of relaxing the obligation.",
         "- EVAL/GATE may later verify skill_adherence, pack_adherence, design_adherence, runtime_profile_adherence, and domain_safety.",
         "- Do not invent unavailable tools or claim unavailable integrations.",
         "- Do not clone protected brands or imply affiliation with external design systems.",
