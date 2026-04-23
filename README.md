@@ -659,18 +659,6 @@ code .
 
 ---
 
-## 🤝 Contributing
-
-Issues and PRs are welcome. Include:
-
-- repro steps;
-- logs with secrets redacted;
-- environment details;
-- CLike phase and REQ-ID;
-- model/executor used.
-
----
-
 ## 📝 License
 
 Apache License 2.0
