@@ -4,7 +4,6 @@
 
 [![Made with Python](https://img.shields.io/badge/Made%20with-Python-3776AB?logo=python)](https://www.python.org/)
 [![VS Code Extension](https://img.shields.io/badge/VS%20Code-Extension-007ACC?logo=visualstudiocode)](extensions/vscode)
-[![Dockerized](https://img.shields.io/badge/Run%20with-Docker-2496ED?logo=docker)](docker)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 > **From intent to impact.**  
@@ -139,6 +138,17 @@ Eval and Gate decide.
 
 ---
 
+## 🔒 Security, Governance, and the Paved Road
+
+- **Auditability** — run artifacts, prompts, outputs, evals, and gate results are traceable.
+- **Isolation** — local agents are constrained by allowed write roots.
+- **Least privilege** — local agents must not perform Git operations or promote files directly.
+- **RAG grounding** — generation is grounded in repository and docs context.
+- **Human-in-the-loop** — the developer remains the final decision maker.
+- **Cloud/local frontier control** — CLike can route cloud execution through the gateway and local execution through extension-actuated CLI tools.
+
+---
+
 ## 🤖 Agent-Centric Operating Model
 
 CLike supports two complementary agentic models.
@@ -153,8 +163,7 @@ Developer
 → Orchestrator
 → Agent execution package
 → Extension local actuator
-→ Claude Code or GPT Codex
-→ Extension collects results
+→ Agent agnostic (Claude Code, GPT Codex,...)
 → Orchestrator normalizes
 → RAG/Git/Eval/Gate continue through CLike
 ```
@@ -166,7 +175,6 @@ The orchestrator owns:
 - local-agent eligibility;
 - executor hints;
 - prompt contracts;
-- `AGENT_EXECUTION_CONTEXT.json`;
 - allowed write roots;
 - expected outputs;
 - fallback policy;
@@ -278,8 +286,6 @@ Type commands directly in the CLike chat input.
 |---|---|
 | `/help` | Shows the quick help overlay. |
 | `/status` | Shows current Harper/project context status. |
-| `/where` | Shows current workspace and Harper doc-root path. |
-| `/switch <name\|path>` | Switches to another Harper project. |
 
 ### Harper workspace
 
@@ -306,9 +312,9 @@ Aliases may normalize internally to executor IDs such as `claude_code` and `gpt_
 |---|---|
 | `/kit` | Runs KIT on the next target REQ. |
 | `/kit REQ-001` | Runs KIT for a specific REQ. |
-| `/kit REQ-001 --integrity` | Runs integrity evaluation phase. |
-| `/kit REQ-001 --hardener` | Runs promotion hardener phase. |
-| `/kit REQ-001 --promotion-eval` | Runs promotion evaluation phase. |
+| `/kit REQ-001 --integrity` | Runs integrity evaluation phase. (optinonal) |
+| `/kit REQ-001 --hardener` | Runs promotion hardener phase. (optinonal) |
+| `/kit REQ-001 --promotion-eval` | Runs promotion evaluation phase. (optinonal) |
 | `/kit REQ-001 --phases=kit,integrity_eval,promotion_hardener,promotion_eval` | Runs an explicit chained KIT pipeline. |
 
 KIT can run through:
@@ -323,6 +329,7 @@ KIT can run through:
 |---|---|
 | `/eval <REQ-ID>` | Evaluates the current KIT output for that REQ. |
 | `/gate <REQ-ID>` | Runs gate checks and promotion logic for that REQ. |
+| `/gate <REQ-ID> manual pass` | Promote at your risks - avoid unuseful guardrail. |
 
 `/eval` can optionally include a local-agent pre-pass, but canonical eval remains CLike-owned.
 
@@ -609,17 +616,6 @@ It is written with a **developer-first** approach:
 > **Operating rule**
 >
 > Do not advance to the next phase until the current output has been reviewed, refined where needed, and explicitly accepted by the developer.
-
----
-
-## 🔒 Security, Governance, and the Paved Road
-
-- **Auditability** — run artifacts, prompts, outputs, evals, and gate results are traceable.
-- **Isolation** — local agents are constrained by allowed write roots.
-- **Least privilege** — local agents must not perform Git operations or promote files directly.
-- **RAG grounding** — generation is grounded in repository and docs context.
-- **Human-in-the-loop** — the developer remains the final decision maker.
-- **Cloud/local frontier control** — CLike can route cloud execution through the gateway and local execution through extension-actuated CLI tools.
 
 ---
 

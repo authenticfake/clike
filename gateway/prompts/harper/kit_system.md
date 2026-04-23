@@ -44,7 +44,7 @@ The emitted candidate must be judged as future pull-request material, not as a d
 Before emitting files, internally follow this sequence:
 
 1. Inspect the target contract, PLAN section, FILE_REQUIREMENTS, lane guide, and repository evidence.
-2. Identify the smallest promotable implementation shape for the target REQ.
+2. Identify the clearest promotable implementation shape for the target REQ, ensuring full coverage of the acceptance criteria, readable structure, and alignment with repository patterns.
 3. Select one main module boundary and only necessary supporting files.
 4. Implement source, tests, docs, and LTC as one coherent slice.
 5. Ensure local EVAL can execute at least one blocking check.
@@ -128,7 +128,8 @@ Do not create a new top-level source or test family if canonical promotion roots
 
 When the repository is incomplete or ambiguous:
 
-* choose the smallest promotable implementation
+
+* choose the clearest promotable implementation that fully covers the REQ without under-implementation or decorative architecture
 * preserve canonical ownership
 * keep assumptions explicit in docs
 * avoid silently inventing adjacent architecture
