@@ -865,7 +865,9 @@ function setNodeDisabled(node, disabled) {
   if (!node) return;
 
   if (disabled) {
-    node.dataset.prevDisabled = node.disabled ? '1' : '0';
+    if (!Object.prototype.hasOwnProperty.call(node.dataset, 'prevDisabled')) {
+      node.dataset.prevDisabled = node.disabled ? '1' : '0';
+    }
     node.disabled = true;
     return;
   }
@@ -880,6 +882,27 @@ function postAndLock(type, payload = {}) {
   vscode.postMessage({ type, ...payload });
 }
 
+function isHarperBlockingSlashCommand(cmd) {
+  return new Set([
+    '/init',
+    '/idea',
+    '/spec',
+    '/plan',
+    '/kit',
+    '/eval',
+    '/gate',
+    '/finalize',
+    '/agent-default'
+  ]).has(String(cmd || '').toLowerCase());
+}
+
+function lockHarperSlashIfNeeded(slash) {
+  if (!slash) return;
+  if (currentMode() !== 'harper') return;
+  if (!isHarperBlockingSlashCommand(slash.cmd)) return;
+
+  setBusy(true);
+}
 function isInitBubble(b) {
   try {
     if (!b) return false;
@@ -1141,6 +1164,7 @@ function handleSlash(slash) {
     try { prompt.value = ''; } catch {}
     return;
   }
+  lockHarperSlashIfNeeded(slash);
   // dry 'Text' and 'Diffs' panels
   try { clearTextPanel(); clearDiffsPanel(); clearFilesPanel(); } catch {}
 
@@ -1627,8 +1651,7 @@ btnRefresh.addEventListener('click', ()=> {
   postAndLock('fetchModels');
 });
 btnClear.addEventListener('click', () => {
-  if (isBusy()) return;
-  postAndLock('clearSession', {
+  post('clearSession', {
     mode: currentMode(),
     model: document.getElementById('model').value || 'auto'
   });
@@ -1689,6 +1712,7 @@ function dispatchSlashFromInput(slash) {
     prompt.value = '';
   } catch {}
 
+ 
   handleSlash(slash);
   return true;
 }
@@ -1843,6 +1867,7 @@ window.addEventListener('message', (event) => {
   if (msg.type === 'openHelpOverlay') { renderHelpList(); openHelpOverlay(); }
   // Echo → mostra un bubble "assistant" (anche per i riepiloghi post-init)
   if (msg.type === 'echo') {
+    setBusy(false);
     console.log('[webview] echo', msg);
     const text = String(msg.message || '');
     try { bubble('assistant', text, 'system'); } catch (e) { console.warn('[webview] bubble echo failed', e); }
@@ -1864,6 +1889,7 @@ window.addEventListener('message', (event) => {
   }
   // Generic text payload (es. RAG search summary)
   if (msg.type === 'text') {
+    setBusy(false);
     const pre = document.getElementById('text');
     if (pre) {
       pre.textContent = String(msg.text || '');
@@ -1873,6 +1899,7 @@ window.addEventListener('message', (event) => {
   }
   // --- RAG results (mostra i risultati di /rag e /ragSearch) ---
   if (msg.type === 'ragResults') {
+    setBusy(false);
     var hits = [];
     try {
       if (Array.isArray(msg.results)) {

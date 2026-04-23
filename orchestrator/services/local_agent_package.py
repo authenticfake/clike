@@ -19,6 +19,64 @@ def _extract_core_blob(payload: Dict[str, Any], suffix: str) -> str:
 
     return ""
 
+def _compact_capability_index_for_agent(raw_index: str, max_chars: int) -> str:
+    """
+    Keep the capability index JSON-valid for local agents.
+
+    Character-level truncation corrupts JSON and makes capability discovery
+    fail closed (zero discovered skills/packs/design profiles). For local-agent
+    packaging we prefer a compact, JSON-safe projection over a broken truncated blob.
+    """
+    text = str(raw_index or "").strip()
+    if not text:
+        return ""
+
+    try:
+        data = json.loads(text)
+    except Exception:
+        # If upstream content is already invalid, preserve it unchanged so the
+        # failure remains diagnosable instead of making it worse.
+        return text
+
+    def _project(items: Any) -> List[Dict[str, Any]]:
+        if not isinstance(items, list):
+            return []
+        projected: List[Dict[str, Any]] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            projected.append(
+                {
+                    "name": item.get("name"),
+                    "path": item.get("path"),
+                    "description": item.get("description"),
+                    "metadata": item.get("metadata") or {},
+                }
+            )
+        return projected
+
+    compact = {
+        "schema_version": data.get("schema_version"),
+        "repo_root": data.get("repo_root"),
+        "skills": _project(data.get("skills")),
+        "packs": _project(data.get("packs")),
+        "design_profiles": _project(data.get("design_profiles")),
+    }
+
+    compact_text = json.dumps(compact, ensure_ascii=False, indent=2)
+    if len(compact_text) <= max_chars:
+        return compact_text
+
+    names_only = {
+        "schema_version": compact.get("schema_version"),
+        "repo_root": compact.get("repo_root"),
+        "skills": [{"name": item.get("name")} for item in compact["skills"]],
+        "packs": [{"name": item.get("name")} for item in compact["packs"]],
+        "design_profiles": [{"name": item.get("name")} for item in compact["design_profiles"]],
+    }
+    return json.dumps(names_only, ensure_ascii=False, indent=2)
+
+
 def _extract_capability_manifest(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
     Return a compact capability manifest for local agents.
@@ -28,7 +86,7 @@ def _extract_capability_manifest(payload: Dict[str, Any]) -> Dict[str, Any]:
     selected capability names without the actual guidance.
     """
     manifest = _extract_core_blob(payload, "CLIKE_CAPABILITY_MANIFEST.md")
-    index = _extract_core_blob(payload, "CLIKE_CAPABILITY_INDEX.json")
+    raw_index = _extract_core_blob(payload, "CLIKE_CAPABILITY_INDEX.json")
 
     max_manifest_chars = 18_000
     max_index_chars = 24_000
@@ -36,8 +94,7 @@ def _extract_capability_manifest(payload: Dict[str, Any]) -> Dict[str, Any]:
     if len(manifest) > max_manifest_chars:
         manifest = manifest[:max_manifest_chars].rstrip() + "\n\n...[truncated]\n"
 
-    if len(index) > max_index_chars:
-        index = index[:max_index_chars].rstrip() + "\n\n...[truncated]\n"
+    index = _compact_capability_index_for_agent(raw_index, max_index_chars)
 
     return {
         "available": bool(manifest),
@@ -237,114 +294,7 @@ def _build_capability_integrity(req: Dict[str, Any], capability_manifest: Dict[s
     }
 
 
-def _build_target_contract(req_id: str, req: Dict[str, Any]) -> Dict[str, Any]:
-    """Build a standalone target contract for the local agent package."""
-    return {
-        "schema_version": "clike.target_contract.v1",
-        "req_id": req_id,
-        "title": req.get("title"),
-        "functional_scope": req.get("functional_scope"),
-        "technical_scope": req.get("technical_scope"),
-        "acceptance": req.get("acceptance") or [],
-        "dependsOn": req.get("dependsOn") or req.get("depends_on") or [],
-        "lane": req.get("lane"),
-        "domain": req.get("domain"),
-        "runtime_profile": req.get("runtime_profile"),
-        "packs": req.get("packs") or [],
-        "skills": req.get("skills") or [],
-        "design_profiles": req.get("design_profiles") or [],
-        "test_profile": req.get("test_profile"),
-        "gate_expectations": req.get("gate_expectations") or [],
-        "main_module_boundary": req.get("main_module_boundary"),
-        "out_of_scope": req.get("out_of_scope") or [],
-        "future_compatibility_notes": req.get("future_compatibility_notes") or [],
-    }
 
-
-def _render_agent_input_audit_md(
-    *,
-    req_id: str,
-    target_contract: Dict[str, Any],
-    file_requirements: Dict[str, Any],
-    capability_integrity: Dict[str, Any],
-    workspace_inspection_policy: Dict[str, Any],
-) -> str:
-    """Render a human-readable audit of what the local agent received."""
-    lines: List[str] = [
-        f"# Agent Input Audit — {req_id}",
-        "",
-        "## Target",
-        f"- REQ: `{req_id}`",
-        f"- Title: {target_contract.get('title') or ''}",
-        f"- Lane: `{target_contract.get('lane')}`",
-        f"- Domain: `{target_contract.get('domain')}`",
-        f"- Runtime profile: `{target_contract.get('runtime_profile')}`",
-        f"- Main module boundary: `{target_contract.get('main_module_boundary')}`",
-        "",
-        "## Selected Capabilities",
-        f"- Packs: `{', '.join(target_contract.get('packs') or []) or 'none'}`",
-        f"- Skills: `{', '.join(target_contract.get('skills') or []) or 'none'}`",
-        f"- Design profiles: `{', '.join(target_contract.get('design_profiles') or []) or 'none'}`",
-        "",
-        "## Capability Integrity",
-        f"- Discovered skills: `{capability_integrity['discovered_counts']['skills']}`",
-        f"- Discovered packs: `{capability_integrity['discovered_counts']['packs']}`",
-        f"- Discovered design profiles: `{capability_integrity['discovered_counts']['design_profiles']}`",
-        f"- Missing selected skills: `{', '.join(capability_integrity['missing_selected_skills']) or 'none'}`",
-        f"- Missing selected packs: `{', '.join(capability_integrity['missing_selected_packs']) or 'none'}`",
-        f"- Missing selected design profiles: `{', '.join(capability_integrity['missing_selected_design_profiles']) or 'none'}`",
-        "",
-        "## Required Candidate Outputs",
-    ]
-
-    for item in file_requirements.get("required") or []:
-        lines.append(f"- `{item}`")
-
-    lines.extend(["", "## Recommended Candidate Outputs"])
-    for item in file_requirements.get("recommended") or []:
-        lines.append(f"- `{item}`")
-
-    lines.extend(["", "## Provider Obligations"])
-    for item in file_requirements.get("provider_obligations") or []:
-        lines.append(f"- {item}")
-
-    lines.extend([
-        "",
-        "## Workspace Inspection",
-        f"- Canonical source roots: `{', '.join(workspace_inspection_policy.get('canonical_promoted_source_roots') or [])}`",
-        f"- Canonical test roots: `{', '.join(workspace_inspection_policy.get('canonical_promoted_test_roots') or [])}`",
-        f"- Dependency KIT roots: `{', '.join(workspace_inspection_policy.get('dependency_kit_roots') or []) or 'none'}`",
-        "",
-        "## Acceptance Criteria",
-    ])
-
-    for item in target_contract.get("acceptance") or []:
-        lines.append(f"- {item}")
-
-    return "\\n".join(lines).strip() + "\\n"
-
-# ----------------------------------------------------------------------
-# Helpers for capability integrity and provider realism
-# ----------------------------------------------------------------------
-def _capability_index_names(capability_manifest: Dict[str, Any], kind: str) -> List[str]:
-    """Return discovered capability names from embedded CLIKE_CAPABILITY_INDEX.json."""
-    raw = str(capability_manifest.get("index_content") or "").strip()
-    if not raw:
-        return []
-    try:
-        data = json.loads(raw)
-    except Exception:
-        return []
-    items = data.get(kind) or []
-    if not isinstance(items, list):
-        return []
-    names: List[str] = []
-    for item in items:
-        if isinstance(item, dict):
-            name = _safe_text(item.get("name")).lower()
-            if name and name not in names:
-                names.append(name)
-    return names
 
 def _technical_scope_requires_real_provider_wiring(req: Dict[str, Any]) -> bool:
     """
@@ -370,44 +320,7 @@ def _technical_scope_requires_real_provider_wiring(req: Dict[str, Any]) -> bool:
     ]
     return any(token in haystack for token in trigger_tokens)
 
-def _build_capability_integrity(req: Dict[str, Any], capability_manifest: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Compare selected capabilities with discovered capability files.
-    If PLAN selects skills, packs or design profiles that are not present,
-    this flags them as missing. Missing selected capabilities constitute a
-    blocking gap.
-    """
-    selected_skills = [str(x).strip() for x in (req.get("skills") or []) if str(x).strip()]
-    selected_packs = [str(x).strip() for x in (req.get("packs") or []) if str(x).strip()]
-    selected_design = [str(x).strip() for x in (req.get("design_profiles") or []) if str(x).strip()]
-    discovered_skills = _capability_index_names(capability_manifest, "skills")
-    discovered_packs = _capability_index_names(capability_manifest, "packs")
-    discovered_design = _capability_index_names(capability_manifest, "design_profiles")
-    missing_skills = [x for x in selected_skills if x.lower() not in discovered_skills]
-    missing_packs = [x for x in selected_packs if x.lower() not in discovered_packs]
-    missing_design = [x for x in selected_design if x.lower() not in discovered_design]
-    return {
-        "selected": {
-            "skills": selected_skills,
-            "packs": selected_packs,
-            "design_profiles": selected_design,
-        },
-        "discovered_counts": {
-            "skills": len(discovered_skills),
-            "packs": len(discovered_packs),
-            "design_profiles": len(discovered_design),
-        },
-        "missing_selected_skills": missing_skills,
-        "missing_selected_packs": missing_packs,
-        "missing_selected_design_profiles": missing_design,
-        "missing_any_selected_capability": bool(missing_skills or missing_packs or missing_design),
-        "policy": (
-            "Selected capabilities are mandatory REQ constraints. "
-            "If a selected capability is missing from the discovered index, "
-            "the agent must report a blocking capability‑context gap and must not "
-            "silently relax the obligation."
-        ),
-    }
+
 
 def _build_target_contract(req_id: str, req: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -565,7 +478,7 @@ def build_kit_local_agent_package(
     - collect stdout/stderr/exit code and candidate files;
     - send the result back to the orchestrator.
     """
-    
+
     req_id = _safe_text(req_id).upper()
     run_id = _safe_text(payload.get("runId")) or f"kit-local-{req_id}"
     local_executor = _resolve_local_executor(payload)
@@ -576,11 +489,10 @@ def build_kit_local_agent_package(
     capability_integrity = _build_capability_integrity(req, capability_manifest)
     target_contract = _build_target_contract(req_id, req)
     file_requirements = _build_file_requirements(req_id, req, capability_integrity)
-    # Convert embedded manifest/index into standalone strings
+
     standalone_capability_manifest = str(capability_manifest.get("content") or "")
     standalone_capability_index = str(capability_manifest.get("index_content") or "")
 
-    # Create the agent context audit
     agent_input_audit = {
         "schema_version": "clike.agent_input_audit.v1",
         "req_id": req_id,
@@ -613,6 +525,7 @@ def build_kit_local_agent_package(
         "docs/harper/plan.json",
         ".git",
     ]
+
     local_runtime = payload.get("localRuntime") or {}
     if not isinstance(local_runtime, dict):
         local_runtime = {}
@@ -628,6 +541,7 @@ def build_kit_local_agent_package(
             local_runtime.get("dependency_strategy") or "create_project_local_venv_or_report_blocked"
         ),
     }
+
     context = {
         "schema_version": "clike.local_agent_execution_context.v1",
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -727,36 +641,20 @@ def build_kit_local_agent_package(
             "Reuse dependency KIT contracts and canonical source contracts whenever they exist.",
             "If a dependency KIT or canonical source root is missing, explicitly report it as an implementation assumption or gap.",
             "Produce repository-aware, dependency-aware, promotable candidate code and tests.",
-            "Prefer minimal, verifiable changes aligned to the REQ acceptance criteria.",
+            "Prefer the clearest, readable, and well-structured implementation that fully satisfies the REQ acceptance criteria, stays aligned with repository patterns, and remains directly promotable without decorative architecture.",
         ],
     }
-
-    agent_input_audit = {
-        "schema_version": "clike.agent_input_audit.v1",
-        "req_id": req_id,
-        "target_contract": target_contract,
-        "file_requirements": file_requirements,
-        "capability_integrity": capability_integrity,
-        "workspace_inspection_policy": workspace_inspection_policy,
-    }
-    agent_input_audit_json = json.dumps(agent_input_audit, indent=2, ensure_ascii=False)
-    agent_input_audit_md = _render_agent_input_audit_md(
-        req_id=req_id,
-        target_contract=target_contract,
-        file_requirements=file_requirements,
-        capability_integrity=capability_integrity,
-        workspace_inspection_policy=workspace_inspection_policy,
-    )
 
     context_json = json.dumps(context, indent=2, ensure_ascii=False)
 
     prompt = "\n".join(
         [
-            "You are a local software-generation agent executing a CLike Harper /kit package.",
+            f"# Local Agent KIT Execution Package — {req_id}",
             "",
-            "The orchestrator is the workflow owner. The VS Code extension is only the actuator.",
+            "You are executing a local-agent candidate generation task owned by the orchestrator.",
+            "The extension is only a local actuator. The orchestrator owns workflow state, policy, and promotion.",
             "",
-            "Read these files before acting:",
+            "Read these files first:",
             f"- runs/kit/{req_id}/docs/AGENT_EXECUTION_CONTEXT.json",
             f"- runs/kit/{req_id}/docs/TARGET_CONTRACT.json",
             f"- runs/kit/{req_id}/docs/FILE_REQUIREMENTS.json",
@@ -766,7 +664,7 @@ def build_kit_local_agent_package(
             "",
             "Strict rules:",
             "- Follow AGENT_EXECUTION_CONTEXT.json as the primary execution contract.",
-             "- Read workspace_inspection_policy before designing the implementation.",
+            "- Read workspace_inspection_policy before designing the implementation.",
             "- Inspect promoted src/test roots and dependency KIT roots listed in workspace_inspection_policy before writing.",
             "- Treat canonical src/test roots as promoted truth and dependency KIT roots as E2E contract evidence.",
             "- Read and respect capability_context before designing the implementation.",
@@ -776,8 +674,8 @@ def build_kit_local_agent_package(
             "- Treat selected skills, packs, and design profiles as mandatory REQ constraints. If a selected capability is missing from the capability manifest/index, report a blocking capability-context gap and do not silently relax the obligation.",
             "- Do not add decorative architecture just to show that a capability was used.",
             "- Use main_module_boundary to keep the implementation focused and avoid scattered files.",
-            "- Follow this compact agentic protocol before writing files: inspect contracts, identify the smallest promotable provider-realistic of implementation shape, implement source/tests/docs/LTC as one coherent slice, then run or document executable checks.",
-            f"""- Before writing any code, read docs/harper/PLAN.md and docs/harper/plan.json.
+            "- Follow this agentic protocol before writing files: inspect contracts, identify the clearest promotable provider-realistic implementation shape that fully covers the REQ, organize source/tests/docs/LTC as one coherent and readable slice, and then run or document executable checks.",
+            """- Before writing any code, read docs/harper/PLAN.md and docs/harper/plan.json.
             - Identify the target REQ dependencies from the plan.
             - Inspect existing dependency KIT artifacts under runs/kit/<DEPENDENCY_REQ_ID>/ when present.
             - Inspect canonical promoted source roots under src/ when present.
@@ -787,8 +685,8 @@ def build_kit_local_agent_package(
             - Generate candidate code that is directly promotable into canonical src/test roots.
             - If a dependency KIT, canonical source root, or canonical test root is missing, explicitly report the gap before generating the implementation.
             - Treat selected skills, packs, and design profiles as mandatory REQ constraints.
-            - If a selected capability is missing from the capability manifest/index, report a blocking capability‑context gap and do not silently relax the obligation.
-            """
+            - If a selected capability is missing from the capability manifest/index, report a blocking capability-context gap and do not silently relax the obligation.
+            """,
             "- Write only under the allowed candidate roots.",
             "- Do not modify canonical src/, test/, tests/ roots.",
             "- Do not modify docs/harper/PLAN.md or docs/harper/plan.json.",
@@ -818,15 +716,16 @@ def build_kit_local_agent_package(
             "- checks blocked by environment, with exact reason;",
             "- unresolved gaps, if any.",
             "",
-            f"""- Use the local runtime declared in AGENT_EXECUTION_CONTEXT.json.
+            """- Use the local runtime declared in AGENT_EXECUTION_CONTEXT.json.
             - Prefer `python3` when `python` is unavailable.
-            - Do not install packages globally or into the system Python.\n- If declared tools/dependencies are missing, you may create a local virtualenv under `runs/eval/.venvs` or `runs/kit/<REQ-ID>/.venv` and install only from the REQ requirements file.
+            - Do not install packages globally or into the system Python.
+            - If declared tools/dependencies are missing, you may create a local virtualenv under `runs/eval/.venvs` or `runs/kit/<REQ-ID>/.venv` and install only from the REQ requirements file.
             - If pytest, ruff, mypy, or another declared dependency is missing, first use an existing project virtualenv if present; otherwise create a local virtualenv under `runs/eval/.venvs` or `runs/kit/<REQ-ID>/.venv` and install from the REQ requirements file.
             - If dependencies cannot be installed because the environment is offline, externally managed, or blocked by policy, report the test as environment-blocked and run dependency-free compile/smoke checks instead.
             - Environment-blocked fallback never relaxes provider obligations declared in TARGET_CONTRACT.json and FILE_REQUIREMENTS.json.
             - For provider-heavy REQs, generic in-memory provider-shaped wrappers are not sufficient when concrete provider/runtime wiring is explicitly required by technical_scope.
             - Patch operations are allowed only under the allowed_write_roots declared in AGENT_EXECUTION_CONTEXT.json.
-            """
+            """,
         ]
     )
 
@@ -869,7 +768,7 @@ def build_kit_local_agent_package(
                 "args": ["exec"] if local_executor == "gpt_codex" else ["-p", "--permission-mode", "acceptEdits"],
                 "prompt_transport": "stdin" if local_executor == "gpt_codex" else "argv_last",
                 "timeout_seconds": int(payload.get("localAgentTimeoutSeconds") or 1800),
-                "cwd": "."
+                "cwd": ".",
             },
             "allowed_write_roots": allowed_write_roots,
             "forbidden_paths": forbidden_paths,
@@ -927,6 +826,7 @@ def build_kit_local_agent_package(
         },
     }
 
+
 def build_eval_local_agent_package(
     *,
     payload: Dict[str, Any],
@@ -937,17 +837,18 @@ def build_eval_local_agent_package(
     Build the orchestrator-owned local agent execution package for /eval pre-pass.
 
     The local agent is not the judge.
-    It is allowed to harden candidate code/tests under runs/kit/<REQ-ID>/ only.
+    It may harden candidate code/tests only under runs/kit/<REQ-ID>/.
     Canonical CLike eval still runs after this pre-pass.
     """
     req_id = _safe_text(req_id).upper()
     run_id = _safe_text(payload.get("runId")) or f"eval-local-{req_id}"
-
     local_executor = _resolve_local_executor(payload)
 
     req = _extract_req_from_plan(payload, req_id)
     workspace_inspection_policy = _build_workspace_inspection_policy(req_id, req)
     capability_manifest = _extract_capability_manifest(payload)
+    capability_integrity = _build_capability_integrity(req, capability_manifest)
+
     local_runtime = payload.get("localRuntime") or {}
     if not isinstance(local_runtime, dict):
         local_runtime = {}
@@ -1008,7 +909,7 @@ def build_eval_local_agent_package(
             "fallback_policy": "extension_may_fallback_to_canonical_eval_only_when_not_local_agent_only",
         },
         "req": req,
-                "capability_context": {
+        "capability_context": {
             "lane": req.get("lane"),
             "domain": req.get("domain"),
             "runtime_profile": req.get("runtime_profile"),
@@ -1019,7 +920,7 @@ def build_eval_local_agent_package(
             "main_module_boundary": req.get("main_module_boundary"),
             "future_compatibility_notes": req.get("future_compatibility_notes") or [],
             "manifest": capability_manifest,
-            
+            "integrity": capability_integrity,
         },
         "project": {
             "project_id": payload.get("project_id"),
@@ -1131,7 +1032,7 @@ def build_eval_local_agent_package(
             "Do not mock the business logic under test.",
             "If a dependency KIT or canonical source root is missing, explicitly report it as an implementation assumption or gap.",
             "Produce repository-aware, dependency-aware, promotable candidate code and tests.",
-            "Prefer minimal, verifiable repairs aligned to the REQ acceptance criteria.",
+            "Prefer the smallest safe repair only when the implementation already covers the REQ correctly; otherwise complete the implementation so it fully satisfies the REQ acceptance criteria with readable, repository-aligned code, structure, and tests.",
         ],
     }
 
@@ -1139,8 +1040,9 @@ def build_eval_local_agent_package(
 
     prompt = "\n".join(
         [
-            "You are a local software-generation agent executing a CLike Harper /eval pre-pass package.",
+            f"# Local Agent EVAL Pre-Pass Package — {req_id}",
             "",
+            "You are a local software-generation agent executing a CLike Harper /eval pre-pass package.",
             "The orchestrator is the workflow owner. The VS Code extension is only the actuator.",
             "The canonical CLike eval remains the final judge and will run after your pre-pass.",
             "",
@@ -1157,7 +1059,6 @@ def build_eval_local_agent_package(
             "- Use main_module_boundary to avoid scattering repairs across unrelated files.",
             "- This is an eval pre-pass: you may execute checks, diagnose failures, harden candidate code/tests, and repair LTC/HOWTO when they are wrong.",
             "- You must not declare the final eval result. Canonical CLike EvalRunner remains the judge.",
-            "- This is an eval pre-pass: you may harden candidate code/tests, but you must not declare the final eval result.",
             "- Before writing anything, read docs/harper/PLAN.md and docs/harper/plan.json.",
             "- Identify the target REQ dependencies from the plan.",
             "- Inspect existing dependency KIT artifacts under runs/kit/<DEPENDENCY_REQ_ID>/ when present.",
@@ -1178,7 +1079,8 @@ def build_eval_local_agent_package(
             "- Do not promote candidate files into canonical workspace roots.",
             "- Use the local runtime declared in AGENT_EVAL_CONTEXT.json.",
             "- Prefer `python3` when `python` is unavailable.",
-            "- Do not install packages globally or into the system Python.\n- If declared tools/dependencies are missing, you may create a local virtualenv under `runs/eval/.venvs` or `runs/kit/<REQ-ID>/.venv` and install only from the REQ requirements file.",
+            "- Do not install packages globally or into the system Python.",
+            "- If declared tools/dependencies are missing, you may create a local virtualenv under `runs/eval/.venvs` or `runs/kit/<REQ-ID>/.venv` and install only from the REQ requirements file.",
             "- If pytest or another dependency is missing, first use an existing project virtualenv if present.",
             "- If dependencies cannot be installed because the environment is offline, externally managed, or blocked by policy, report the check as environment-blocked and run dependency-free compile/smoke checks instead.",
             "- Patch operations are allowed only under allowed_write_roots.",
@@ -1280,7 +1182,8 @@ def build_eval_local_agent_package(
                 },
             ],
         },
-    }
+       }
+
 
 def normalize_local_agent_result(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
