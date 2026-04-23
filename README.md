@@ -588,6 +588,30 @@ GATE decides promotion.
 
 ---
 
+## HOWTO
+
+To get operational quickly with CLike and the Harper workflow, read [docs/HOWTO.md](./docs/HOWTO.md).
+
+The HOWTO is the practical step-by-step guide for taking a project from initialization to finalized delivery:
+
+```text
+/init → /idea → /spec → /plan → (/kit → /eval → /gate)* → /finalize
+```
+
+It is written with a **developer-first** approach:
+
+* the developer remains the **orchestrator** of the phases
+* every generated artifact is **reviewed and validated** before moving on
+* weak alignment is corrected early by refining requirements, context, or source material
+* `/kit`, `/eval`, and `/gate` are treated as an iterative control loop, not as a one-shot generation flow
+
+
+> **Operating rule**
+>
+> Do not advance to the next phase until the current output has been reviewed, refined where needed, and explicitly accepted by the developer.
+
+---
+
 ## 🔒 Security, Governance, and the Paved Road
 
 - **Auditability** — run artifacts, prompts, outputs, evals, and gate results are traceable.
