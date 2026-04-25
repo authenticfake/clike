@@ -87,6 +87,8 @@ def _extract_capability_manifest(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
     manifest = _extract_core_blob(payload, "CLIKE_CAPABILITY_MANIFEST.md")
     raw_index = _extract_core_blob(payload, "CLIKE_CAPABILITY_INDEX.json")
+    selected_context = _extract_core_blob(payload, "CLIKE_SELECTED_CAPABILITY_CONTEXT.md")
+    selected_context_json = _extract_core_blob(payload, "CLIKE_SELECTED_CAPABILITY_CONTEXT.json")
 
     max_manifest_chars = 18_000
     max_index_chars = 24_000
@@ -103,6 +105,11 @@ def _extract_capability_manifest(payload: Dict[str, Any]) -> Dict[str, Any]:
         "index_available": bool(index),
         "content": manifest,
         "index_content": index,
+        "selected_context_name": "CLIKE_SELECTED_CAPABILITY_CONTEXT.md",
+        "selected_context_json_name": "CLIKE_SELECTED_CAPABILITY_CONTEXT.json",
+        "selected_context_available": bool(selected_context),
+        "selected_context_content": selected_context,
+        "selected_context_json_content": selected_context_json,
     }
 
 def _extract_req_from_plan(payload: Dict[str, Any], req_id: str) -> Dict[str, Any]:
@@ -492,6 +499,8 @@ def build_kit_local_agent_package(
 
     standalone_capability_manifest = str(capability_manifest.get("content") or "")
     standalone_capability_index = str(capability_manifest.get("index_content") or "")
+    standalone_selected_capability_context = str(capability_manifest.get("selected_context_content") or "")
+    standalone_selected_capability_context_json = str(capability_manifest.get("selected_context_json_content") or "")
 
     agent_input_audit = {
         "schema_version": "clike.agent_input_audit.v1",
@@ -668,6 +677,7 @@ def build_kit_local_agent_package(
             "- Inspect promoted src/test roots and dependency KIT roots listed in workspace_inspection_policy before writing.",
             "- Treat canonical src/test roots as promoted truth and dependency KIT roots as E2E contract evidence.",
             "- Read and respect capability_context before designing the implementation.",
+            "- Prefer CLIKE_SELECTED_CAPABILITY_CONTEXT.md over the generic full manifest when selected capability guidance exists.",
             "- Use main_module_boundary to keep the implementation focused and avoid scattered files.",
             "- Respect capability_context from AGENT_EXECUTION_CONTEXT.json: lane, domain, runtime_profile, packs, skills, design_profiles, gate_expectations, main_module_boundary, future_compatibility_notes, manifest content, and capability index content when available.",
             "- Read capability_context, including capability_context.manifest.content when available.",
@@ -819,6 +829,18 @@ def build_kit_local_agent_package(
                 {
                     "path": f"runs/kit/{req_id}/docs/CLIKE_CAPABILITY_INDEX.json",
                     "content": standalone_capability_index,
+                    "mime": "application/json",
+                    "encoding": "utf-8",
+                },
+                {
+                    "path": f"runs/kit/{req_id}/docs/CLIKE_SELECTED_CAPABILITY_CONTEXT.md",
+                    "content": standalone_selected_capability_context,
+                    "mime": "text/markdown",
+                    "encoding": "utf-8",
+                },
+                {
+                    "path": f"runs/kit/{req_id}/docs/CLIKE_SELECTED_CAPABILITY_CONTEXT.json",
+                    "content": standalone_selected_capability_context_json,
                     "mime": "application/json",
                     "encoding": "utf-8",
                 },

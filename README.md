@@ -19,6 +19,7 @@
 - 🧠 **Repository-aware generation** — RAG grounds planning, KIT, eval, and agent execution in real workspace context.
 - 🔌 **MCP-ready operating model** — agents can interact with CLike through controlled MCP surfaces.
 
+
 ---
 
 ## ✨ What is CLike?
@@ -30,6 +31,9 @@
 - Human-in-the-loop
 - Multi-model / agent-agnostic
 - Cloud + local agent compatible
+
+👉 AI-native governed engineering platform
+
 
 **Clike** is not just an agent that writes code; it is an AI-native pipeline / platform that orchestrates verifiable capabilities across specs, plans, code, tests, reviews, and release gates.
 
