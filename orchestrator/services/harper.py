@@ -25,7 +25,7 @@ from services.repository_manifest import (
     build_repo_structure_evidence,
     build_repo_composition_manifest,
 )
-from services.capabilities import build_capability_context
+from services.capabilities import build_capability_context, build_selected_capability_context
 from services.execution_policy import (
     normalize_execution_preference,
     resolve_execution_policy,
@@ -1354,6 +1354,14 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
         working_core_blobs["TARGET_CONTRACT.json"] = target_contract_text
         working_core_blobs["FILE_REQUIREMENTS.json"] = file_requirements_text
 
+        selected_capability_blobs = build_selected_capability_context(
+            core_blobs=working_core_blobs,
+            target_req_id=target_req_id,
+            target_contract=target_contract,
+        )
+        if selected_capability_blobs:
+            working_core_blobs.update(selected_capability_blobs)
+
         if promotion_manifest:
             working_core_blobs["REQ_PROMOTION_MANIFEST.md"] = promotion_manifest
             _write_stage_artifact(
@@ -1376,10 +1384,11 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
 
         merged["core_blobs"] = working_core_blobs
         log.info(
-            "harper.kit guardrails ready req=%s target_contract=%s file_requirements=%s required_outputs=%d repo_access=%s repo_structure=%s repo_composition=%s canonical_family=%s source_roots=%s test_roots=%s",
+            "harper.kit guardrails ready req=%s target_contract=%s file_requirements=%s selected_capabilities=%s required_outputs=%d repo_access=%s repo_structure=%s repo_composition=%s canonical_family=%s source_roots=%s test_roots=%s",
             target_req_id,
             "TARGET_CONTRACT.json" in working_core_blobs,
             "FILE_REQUIREMENTS.json" in working_core_blobs,
+            "CLIKE_SELECTED_CAPABILITY_CONTEXT.md" in working_core_blobs,
             len((file_requirements or {}).get("required_outputs") or []),
             "REPO_ACCESS_MANIFEST.md" in working_core_blobs,
             "REPO_STRUCTURE_EVIDENCE.json" in working_core_blobs,
