@@ -856,6 +856,17 @@ const preFiles = el('files');
 let selectedPaths = new Set();
 let lastRun = null;
 let uiBusy = false;
+let harperCommandInFlight = false;
+
+function lockHarperUi() {
+  harperCommandInFlight = true;
+  setBusy(true);
+}
+
+function unlockHarperUi() {
+  harperCommandInFlight = false;
+  setBusy(false);
+}
 
 function isBusy() {
   return uiBusy;
@@ -891,8 +902,7 @@ function isHarperBlockingSlashCommand(cmd) {
     '/kit',
     '/eval',
     '/gate',
-    '/finalize',
-    '/agent-default'
+    '/finalize'
   ]).has(String(cmd || '').toLowerCase());
 }
 
@@ -1417,9 +1427,16 @@ function handleSlash(slash) {
     console.log('[CLike][chat-ui][harperRun] msg.targetReqId =', JSON.stringify(msg.targetReqId));
     console.log('[CLike][chat-ui][harperRun] msg.phases =', JSON.stringify(msg.phases));
 
-    vscode.postMessage(msg);
+    if (slash.cmd === '/agent-default') {
+      post(msg.type, msg);
+    } else {
+      postAndLock(msg.type, msg);
+    }
+
     attachmentsByMode[currentMode()] = [];
     renderAttachmentChips();
+
+    return true;
 
     return true;
   }
@@ -1468,7 +1485,7 @@ function handleSlash(slash) {
     msg.running = slash.args?.testMode ?? null;
     msg.modeContent = slash.args?.modeContent ?? null;
     msg.path=path_ltc_json
-    vscode.postMessage(msg);
+    postAndLock(msg.type, msg);
     attachmentsByMode[currentMode()] = [];
     renderAttachmentChips();
     return true;
@@ -1706,13 +1723,16 @@ function runHarperCommandFromEnter() {
 }
 
 function dispatchSlashFromInput(slash) {
-  if (!slash) return false;
+  if (!slash || isBusy()) return false;
+
+  if (currentMode() === 'harper' && isHarperBlockingSlashCommand(slash.cmd)) {
+    lockHarperUi();
+  }
 
   try {
     prompt.value = '';
   } catch {}
 
- 
   handleSlash(slash);
   return true;
 }
@@ -1852,6 +1872,11 @@ window.addEventListener('message', (event) => {
       }
 
       bubble('assistant', 'Agent requested: ' + command, 'system');
+
+      if (currentMode() === 'harper' && isHarperBlockingSlashCommand(slash.cmd)) {
+        lockHarperUi();
+      }
+
       handleSlash(slash);
 
       if (prompt) {
@@ -1867,7 +1892,6 @@ window.addEventListener('message', (event) => {
   if (msg.type === 'openHelpOverlay') { renderHelpList(); openHelpOverlay(); }
   // Echo → mostra un bubble "assistant" (anche per i riepiloghi post-init)
   if (msg.type === 'echo') {
-    setBusy(false);
     console.log('[webview] echo', msg);
     const text = String(msg.message || '');
     try { bubble('assistant', text, 'system'); } catch (e) { console.warn('[webview] bubble echo failed', e); }
@@ -1889,7 +1913,6 @@ window.addEventListener('message', (event) => {
   }
   // Generic text payload (es. RAG search summary)
   if (msg.type === 'text') {
-    setBusy(false);
     const pre = document.getElementById('text');
     if (pre) {
       pre.textContent = String(msg.text || '');
@@ -1899,7 +1922,6 @@ window.addEventListener('message', (event) => {
   }
   // --- RAG results (mostra i risultati di /rag e /ragSearch) ---
   if (msg.type === 'ragResults') {
-    setBusy(false);
     var hits = [];
     try {
       if (Array.isArray(msg.results)) {
@@ -1975,7 +1997,17 @@ window.addEventListener('message', (event) => {
     return;
   }
 
-  if (msg.type === 'busy') { setBusy(!!msg.on); return; }
+  if (msg.type === 'busy') {
+    if (msg.on) {
+      setBusy(true);
+      return;
+    }
+
+    harperCommandInFlight = false;
+    setBusy(false);
+    return;
+  }
+
   if (msg.type === 'initState' && msg.state) {
     const hs = (msg.state && msg.state.historyScope) || 'singleModel';
     const sel = document.getElementById('historyScope');
@@ -2080,7 +2112,6 @@ window.addEventListener('message', (event) => {
 
   
   if (msg.type === 'chatResult') {
-    setBusy(false);
     const modelName = msg.data?.model || model.value || 'auto';
     const text = (msg.data && (msg.data.text || msg.data.content))
       ? (msg.data.text || msg.data.content)
@@ -2140,7 +2171,6 @@ window.addEventListener('message', (event) => {
     btnApply.disabled = !lastRun?.run_dir && !lastRun?.audit_id;
   }
   if (msg.type === 'generateResult') {
-    setBusy(false);
     const data = msg.data || {};
     var genCitations = [];
     var genRagUsed = false;
@@ -2259,13 +2289,11 @@ window.addEventListener('message', (event) => {
     
   }
   if (msg.type === 'applyResult') {
-    setBusy(false);
     setTab('text');
     preText.textContent = "Applied files:\\n" + JSON.stringify(msg.data?.applied || [], null, 2);
   }
 
   if (msg.type === 'error') {
-    setBusy(false);
     const text = 'Error: ' + String(msg.message || 'unknown');
     //try { bubble('assistant', text, 'system'); } catch {}
     const pre = document.getElementById('text');
