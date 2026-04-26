@@ -15,6 +15,7 @@ build/
 dist/
 out/
 *.log
+*.zip
 *.swp
 *.swo
 *.backup
