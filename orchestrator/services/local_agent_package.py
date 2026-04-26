@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 def _safe_text(value: Any) -> str:
@@ -329,11 +329,96 @@ def _technical_scope_requires_real_provider_wiring(req: Dict[str, Any]) -> bool:
 
 
 
+def _classify_lane_semantics(lane: Any) -> Dict[str, Any]:
+    """Classify the REQ lane without turning it into an implementation language."""
+    value = _safe_text(lane).lower()
+
+    data_concern_lanes = {"sql", "sqlite", "database", "data", "persistence", "migration"}
+    frontend_lanes = {"frontend", "react", "nextjs", "vue", "angular"}
+    backend_lanes = {"backend", "api", "service"}
+    # language_lanes = {
+    #     "python",
+    #     "javascript",
+    #     "typescript",
+    #     "java",
+    #     "dotnet",
+    #     "go",
+    #     "rust",
+    #     "cpp",
+    #     "c",
+    # }
+    language_lanes = {
+    # Programming Languages
+    "python", "javascript", "typescript", "java", "dotnet", 
+    "go", "rust", "cpp", "c", "kotlin", "swift", "php", "ruby",
+    
+    # Industrial/PLC/SCADA specific
+    "ladder_logic", "structured_text", "fbd", "vbscript", 
+    
+    # Enterprise & PLM/Low-Code
+    "mendix", "teamcenter_api", "sql",
+    
+    # Infrastructure & Shell
+    "bash", "powershell", "zsh", "lua", "terraform", "yaml"
+}
+
+    if value in data_concern_lanes:
+        return {
+            "lane_kind": "data_concern",
+            "lane_is_implementation_language": False,
+            "lane_interpretation": (
+                "This lane describes datastore/schema/persistence scope. "
+                "It must be implemented using the project stack declared by SPEC.md, "
+                "PLAN.md, TECH_CONSTRAINTS, and repository evidence."
+            ),
+        }
+
+    if value in frontend_lanes:
+        return {
+            "lane_kind": "frontend_concern",
+            "lane_is_implementation_language": False,
+            "lane_interpretation": (
+                "This lane describes frontend/UI scope. Use the repository frontend stack."
+            ),
+        }
+
+    if value in backend_lanes:
+        return {
+            "lane_kind": "backend_concern",
+            "lane_is_implementation_language": False,
+            "lane_interpretation": (
+                "This lane describes backend/service scope. Use the repository backend stack."
+            ),
+        }
+
+    if value in language_lanes:
+        return {
+            "lane_kind": "implementation_language",
+            "lane_is_implementation_language": True,
+            "lane_interpretation": (
+                "This lane may identify an implementation language, but repository evidence "
+                "and TECH_CONSTRAINTS still take precedence."
+            ),
+        }
+
+    return {
+        "lane_kind": "project_concern",
+        "lane_is_implementation_language": False,
+        "lane_interpretation": (
+            "This lane is a planning concern. Do not infer implementation language from it alone."
+        ),
+    }
+
+
 def _build_target_contract(req_id: str, req: Dict[str, Any]) -> Dict[str, Any]:
     """
     Build a standalone target contract for the local agent package.
-    Serializes the core REQ fields so that they are available as a stable artifact.
+
+    The lane is preserved, but explicitly classified so an agent does not treat
+    lanes such as `sql` as an implementation language.
     """
+    lane_semantics = _classify_lane_semantics(req.get("lane"))
+
     return {
         "schema_version": "clike.target_contract.v1",
         "req_id": req_id,
@@ -343,6 +428,7 @@ def _build_target_contract(req_id: str, req: Dict[str, Any]) -> Dict[str, Any]:
         "acceptance": req.get("acceptance") or [],
         "dependsOn": req.get("dependsOn") or req.get("depends_on") or [],
         "lane": req.get("lane"),
+        "lane_semantics": lane_semantics,
         "domain": req.get("domain"),
         "runtime_profile": req.get("runtime_profile"),
         "packs": req.get("packs") or [],
@@ -354,51 +440,178 @@ def _build_target_contract(req_id: str, req: Dict[str, Any]) -> Dict[str, Any]:
         "main_module_boundary": req.get("main_module_boundary"),
         "out_of_scope": req.get("out_of_scope") or [],
         "future_compatibility_notes": req.get("future_compatibility_notes") or [],
+        "implementation_runtime_policy": (
+            "Infer implementation runtime from SPEC.md, PLAN.md, TECH_CONSTRAINTS, "
+            "TARGET_CONTRACT, FILE_REQUIREMENTS, and repository evidence. "
+            "Do not infer it from lane alone."
+        ),
     }
+
+def _req_text_blob(req: Dict[str, Any]) -> str:
+    """Build a compact text blob from REQ fields for lightweight stack hints."""
+    values: List[str] = [
+        _safe_text(req.get("title")),
+        _safe_text(req.get("functional_scope")),
+        _safe_text(req.get("technical_scope")),
+        _safe_text(req.get("test_profile")),
+        _safe_text(req.get("main_module_boundary")),
+        _safe_text(req.get("lane")),
+    ]
+    values.extend(_safe_text(item) for item in (req.get("acceptance") or []))
+    values.extend(_safe_text(item) for item in (req.get("gate_expectations") or []))
+    return " ".join(values).lower()
+
+
+def _project_contract_text_blob(payload: Dict[str, Any]) -> str:
+    """
+    Build a compact text blob from project-level contracts.
+
+    This prevents a data-concern lane such as `sql` from hiding the real
+    implementation stack declared by SPEC.md, PLAN.md, TECH_CONSTRAINTS, or
+    repository evidence.
+    """
+    parts = [
+        _extract_core_blob(payload, "SPEC.md"),
+        _extract_core_blob(payload, "PLAN.md"),
+        _extract_core_blob(payload, "TECH_CONSTRAINTS.yaml"),
+        _extract_core_blob(payload, "TECH_CONSTRAINTS.yml"),
+        _extract_core_blob(payload, "constraints.json"),
+        _safe_text(payload.get("repo_summary")),
+        _safe_text(payload.get("repository_summary")),
+        _safe_text(payload.get("workspace_summary")),
+    ]
+    return "\n".join(part for part in parts if part).lower()
+
+
+def _build_recommended_outputs(
+    req_id: str,
+    req: Dict[str, Any],
+    payload: Optional[Dict[str, Any]] = None,
+) -> List[str]:
+    """
+    Build runtime-neutral recommended outputs.
+
+    Dependency manifests must follow the project/runtime evidence.
+    """
+    payload = payload or {}
+    blob = f"{_req_text_blob(req)}\n{_project_contract_text_blob(payload)}"
+
+    recommended = [
+        f"runs/kit/{req_id}/docs/README_{req_id}.md",
+        f"runs/kit/{req_id}/docs/KIT_{req_id}.md",
+    ]
+
+    node_markers = (
+        "node",
+        "node.js",
+        "nodejs",
+        "npm",
+        "npm run",
+        "package.json",
+        "javascript",
+        "typescript",
+        "react",
+        "vite",
+        "express",
+        "better-sqlite3",
+    )
+    python_markers = (
+        "python",
+        "pytest",
+        "ruff",
+        "mypy",
+        "fastapi",
+        "pyproject.toml",
+        "requirements.txt",
+    )
+
+    if any(token in blob for token in node_markers):
+        recommended.append(
+            f"runs/kit/{req_id}/ci/package.json when REQ-local npm scripts or dependencies are needed"
+        )
+    elif any(token in blob for token in python_markers):
+        recommended.append(
+            f"runs/kit/{req_id}/ci/requirements.txt only when the target implementation stack is Python"
+        )
+    else:
+        recommended.append(
+            f"runs/kit/{req_id}/ci/<runtime-native-dependency-manifest> only when needed"
+        )
+
+    return recommended
+
 
 def _build_file_requirements(
     req_id: str,
     req: Dict[str, Any],
     capability_integrity: Dict[str, Any],
+    payload: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Build standalone file requirements and provider obligations.
-    Introduces provider_realism_required when the REQ names concrete providers/SDKs.
+
+    Keep the contract runtime-neutral: required outputs are stable, while dependency
+    manifests are runtime-native and optional.
     """
     provider_realism_required = _technical_scope_requires_real_provider_wiring(req)
+
     required_outputs = [
         f"runs/kit/{req_id}/src/",
         f"runs/kit/{req_id}/test/",
         f"runs/kit/{req_id}/ci/LTC.json",
         f"runs/kit/{req_id}/ci/HOWTO.md",
     ]
-    recommended_outputs = [
-        f"runs/kit/{req_id}/ci/requirements.txt",
-        f"runs/kit/{req_id}/docs/README_{req_id}.md",
-        f"runs/kit/{req_id}/docs/KIT_{req_id}.md",
-    ]
+
+    recommended_outputs = _build_recommended_outputs(req_id, req, payload)
+    execution_root_policy = {
+        "runtime_manifest_required": True,
+        "policy": (
+            "If the KIT emits runnable source or tests, it must emit the runtime-native "
+            "manifest needed to run the KIT evaluation harness. Examples: ci/package.json "
+            "for Node/npm, ci/requirements.txt or ci/pyproject.toml for Python. "
+            "This file is functional for KIT/EVAL execution; promotion/merge handling is owned by CLike."
+        ),
+        "launcher_policy": (
+            "If the KIT emits executable backend/frontend/service modules, it must provide "
+            "one coherent launcher/composition entry per executable area when needed: one backend launcher, "
+            "one frontend launcher, and one launcher per separate service. Do not create one launcher per REQ. "
+            "Do not omit launch/composition wiring when the emitted module must be runnable or integrable."
+        ),
+    }
+
     provider_obligations: List[str] = []
     if provider_realism_required:
         provider_obligations.extend(
             [
-                "Generic in‑memory AWS‑shaped wrappers are not sufficient for this REQ.",
-                "Concrete provider factory boundaries or SDK‑backed adapters are mandatory when technical_scope explicitly names AWS/on‑prem providers or SDKs.",
-                "Local deterministic tests may use fakes, but runtime‑facing code must still expose real provider construction or provider‑ready factory wiring.",
+                "Generic in-memory provider-shaped wrappers are not sufficient for this REQ.",
+                "Concrete provider factory boundaries or SDK-backed adapters are mandatory when technical_scope explicitly names providers or SDKs.",
+                "Local deterministic tests may use fakes, but runtime-facing code must expose real provider construction or provider-ready factory wiring.",
                 "If concrete provider wiring is intentionally deferred, the KIT must explicitly mark the REQ as not promotable and describe the blocking gap.",
             ]
         )
+
     return {
         "schema_version": "clike.file_requirements.v1",
         "req_id": req_id,
         "required_candidate_outputs": required_outputs,
         "recommended_candidate_outputs": recommended_outputs,
+        "execution_root_policy": execution_root_policy,
+        "dependency_manifest_policy": (
+            "Use the runtime-native dependency manifest required to run the KIT evaluation harness. "
+            "Examples: ci/package.json for Node/npm, ci/requirements.txt or ci/pyproject.toml for Python, "
+            "pom.xml for Maven, go.mod for Go. Do not emit Python requirements.txt for non-Python projects. "
+            "Do not omit the manifest when generated source/tests require scripts or dependencies."
+        ),
         "provider_realism_required": provider_realism_required,
         "provider_obligations": provider_obligations,
-        "missing_selected_capabilities_blocking": bool(capability_integrity.get("missing_any_selected_capability")),
+        "missing_selected_capabilities_blocking": bool(
+            capability_integrity.get("missing_any_selected_capability")
+        ),
         "forbidden": [
             "Do not write outside runs/kit/<REQ-ID>/.",
             "Do not modify canonical src/, test/, tests/, docs/harper, or dependency KIT roots.",
-            "Do not satisfy provider‑heavy REQs with decorative or purely in‑memory wrappers when concrete provider/runtime wiring is explicitly required.",
+            "Do not infer implementation language from lane alone.",
+            "Do not satisfy provider-heavy REQs with decorative or purely in-memory wrappers when concrete provider/runtime wiring is explicitly required.",
         ],
     }
 
@@ -495,30 +708,44 @@ def build_kit_local_agent_package(
     capability_manifest = _extract_capability_manifest(payload)
     capability_integrity = _build_capability_integrity(req, capability_manifest)
     target_contract = _build_target_contract(req_id, req)
-    file_requirements = _build_file_requirements(req_id, req, capability_integrity)
+    file_requirements = _build_file_requirements(
+        req_id,
+        req,
+        capability_integrity,
+        payload,
+    )
 
     standalone_capability_manifest = str(capability_manifest.get("content") or "")
     standalone_capability_index = str(capability_manifest.get("index_content") or "")
     standalone_selected_capability_context = str(capability_manifest.get("selected_context_content") or "")
     standalone_selected_capability_context_json = str(capability_manifest.get("selected_context_json_content") or "")
 
-    agent_input_audit = {
-        "schema_version": "clike.agent_input_audit.v1",
-        "req_id": req_id,
-        "target_contract": target_contract,
-        "file_requirements": file_requirements,
-        "capability_integrity": capability_integrity,
-        "workspace_inspection_policy": workspace_inspection_policy,
-    }
-    agent_input_audit_json = json.dumps(agent_input_audit, indent=2, ensure_ascii=False)
-    agent_input_audit_md = _render_agent_input_audit_md(
-        req_id=req_id,
-        target_contract=target_contract,
-        file_requirements=file_requirements,
-        capability_integrity=capability_integrity,
-        workspace_inspection_policy=workspace_inspection_policy,
+    include_agent_input_audit = bool(
+        payload.get("includeAgentInputAudit")
+        or payload.get("debugAgentInputAudit")
+        or payload.get("include_agent_input_audit")
     )
 
+    agent_input_audit_json = ""
+    agent_input_audit_md = ""
+
+    if include_agent_input_audit:
+        agent_input_audit = {
+            "schema_version": "clike.agent_input_audit.v1",
+            "req_id": req_id,
+            "target_contract": target_contract,
+            "file_requirements": file_requirements,
+            "capability_integrity": capability_integrity,
+            "workspace_inspection_policy": workspace_inspection_policy,
+        }
+        agent_input_audit_json = json.dumps(agent_input_audit, indent=2, ensure_ascii=False)
+        agent_input_audit_md = _render_agent_input_audit_md(
+            req_id=req_id,
+            target_contract=target_contract,
+            file_requirements=file_requirements,
+            capability_integrity=capability_integrity,
+            workspace_inspection_policy=workspace_inspection_policy,
+        )
     allowed_write_roots = [
         f"runs/kit/{req_id}/src",
         f"runs/kit/{req_id}/test",
@@ -539,18 +766,39 @@ def build_kit_local_agent_package(
     if not isinstance(local_runtime, dict):
         local_runtime = {}
 
+    tool_hints = local_runtime.get("tool_hints") or {}
+    if not isinstance(tool_hints, dict):
+        tool_hints = {}
+
     local_runtime = {
         "shell": str(local_runtime.get("shell") or "zsh"),
-        "python": str(local_runtime.get("python") or "python3"),
-        "python_fallbacks": list(local_runtime.get("python_fallbacks") or ["python3", "python"]),
-        "package_install_policy": str(
-            local_runtime.get("package_install_policy") or "never_install_global_packages"
+        "implementation_runtime_policy": str(
+            local_runtime.get("implementation_runtime_policy")
+            or "infer_from_project_contracts"
         ),
         "dependency_strategy": str(
-            local_runtime.get("dependency_strategy") or "create_project_local_venv_or_report_blocked"
+            local_runtime.get("dependency_strategy")
+            or "use_existing_project_scripts_or_report_blocked"
         ),
-    }
+        "package_install_policy": str(
+            local_runtime.get("package_install_policy")
+            or "never_install_global_packages"
+        ),
+        "tool_hints": {
+            "node": str(tool_hints.get("node") or "node"),
+            "npm": str(tool_hints.get("npm") or "npm"),
+            "python": str(tool_hints.get("python") or "python3"),
+            "java": str(tool_hints.get("java") or "java"),
+            "go": str(tool_hints.get("go") or "go"),
+            "ruby": str(tool_hints.get("ruby") or "ruby"),
+            "rust": str(tool_hints.get("rust") or "rustc"),
+            "php": str(tool_hints.get("php") or "php"),
+            "dotnet": str(tool_hints.get("dotnet") or "dotnet"),
+            "kubectl": str(tool_hints.get("kubectl") or "kubectl"),
 
+        },
+    }
+               
     context = {
         "schema_version": "clike.local_agent_execution_context.v1",
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -620,9 +868,12 @@ def build_kit_local_agent_package(
             "required": [
                 f"runs/kit/{req_id}/ci/LTC.json",
                 f"runs/kit/{req_id}/ci/HOWTO.md",
+                f"runs/kit/{req_id}/ci/<manifest_file_name>  for runtime lanugauge in scope for the KITs",
             ],
             "recommended": [
-                f"runs/kit/{req_id}/ci/requirements.txt",
+                f"runs/kit/{req_id}/ci/package.json for Node/npm KITs when source/tests need npm scripts or dependencies",
+                f"runs/kit/{req_id}/ci/requirements.txt only for Python KITs",
+                
                 f"runs/kit/{req_id}/docs/README_{req_id}.md",
                 f"runs/kit/{req_id}/docs/KIT_{req_id}.md",
             ],
@@ -636,17 +887,22 @@ def build_kit_local_agent_package(
             "Patch operations are allowed only under allowed_write_roots.",
             "Do not create or modify files outside runs/kit/<REQ-ID>/ for this phase.",
             "Never modify dependency KIT roots; they are read-only context for this target REQ.",
-            "Do not install packages globally or into system Python.",
-            "If declared tools/dependencies are missing, you may create a local virtualenv under runs/eval/.venvs or runs/kit/<REQ-ID>/.venv and install only from the REQ requirements file.",
-            "Use local_runtime.python from this context for Python commands.",
-            "If dependency installation is unavailable, report checks as environment-blocked and run compile/smoke checks.",
-            "Never install undeclared packages; only install dependencies listed in the REQ requirements file.",
+            "Do not install packages globally or into the system runtime.",
+            "Do not infer the application implementation language from local_runtime.tool_hints.",
+            "Infer the implementation runtime from SPEC.md, PLAN.md, plan.json, TECH_CONSTRAINTS, TARGET_CONTRACT.json, FILE_REQUIREMENTS.json, and repository evidence.",
+            "Use local_runtime.tool_hints only as optional command hints after the implementation runtime is known.",
+            "If package.json and npm scripts are present, prefer repository-native npm scripts for checks.",
+            "If dependency installation is unavailable, report checks as environment-blocked and run repository-native smoke checks.",
+            "Never install undeclared packages; only use dependencies declared by the project or the generated REQ-local validation contract.",
             "Before generating code, read docs/harper/PLAN.md and docs/harper/plan.json to identify the target REQ dependencies.",
             "Before generating code, inspect existing dependency KIT artifacts under runs/kit/<DEPENDENCY_REQ_ID>/ when they exist.",
             "Before generating code, inspect canonical promoted source roots under src/ when they exist.",
             "Before generating tests, inspect canonical promoted test roots under test/ and tests/ when they exist.",
             "Generated code must be immediately promotable into canonical src/ and test roots without changing public contracts unexpectedly.",
-            "Do not duplicate modules, adapters, ports, models, services, or test helpers already present in dependency KITs or canonical src/test roots.",
+            "If the KIT emits runnable source or tests, emit the runtime-native KIT eval manifest needed to run them, such as ci/package.json for Node/npm or ci/requirements.txt for Python.",
+            "If the KIT emits backend/frontend/service executable modules, provide one coherent launcher or composition entry per executable area when needed: one backend launcher, one frontend launcher, and one per separate service. Do not create one launcher per REQ.",
+            "It is allowed to regenerate files already emitted by previous KITs when they are functionally required for the current KIT; CLike promotion/merge handles reconciliation later.",
+            "Do not duplicate modules, adapters, ports, models, services, or test helpers already present in dependency KITs or canonical src/test roots. If needed you can extend the module/file with all necessary code in the current req, but we need to be sure that the generated code is consistent with the dependency KITs and canonical roots for applying unified diffs later.",
             "Reuse dependency KIT contracts and canonical source contracts whenever they exist.",
             "If a dependency KIT or canonical source root is missing, explicitly report it as an implementation assumption or gap.",
             "Produce repository-aware, dependency-aware, promotable candidate code and tests.",
@@ -667,7 +923,7 @@ def build_kit_local_agent_package(
             f"- runs/kit/{req_id}/docs/AGENT_EXECUTION_CONTEXT.json",
             f"- runs/kit/{req_id}/docs/TARGET_CONTRACT.json",
             f"- runs/kit/{req_id}/docs/FILE_REQUIREMENTS.json",
-            f"- runs/kit/{req_id}/docs/AGENT_INPUT_AUDIT.md",
+            f"- runs/kit/{req_id}/docs/CLIKE_SELECTED_CAPABILITY_CONTEXT.md when present",
             "",
             f"Target REQ: {req_id}",
             "",
@@ -679,11 +935,9 @@ def build_kit_local_agent_package(
             "- Read and respect capability_context before designing the implementation.",
             "- Prefer CLIKE_SELECTED_CAPABILITY_CONTEXT.md over the generic full manifest when selected capability guidance exists.",
             "- Use main_module_boundary to keep the implementation focused and avoid scattered files.",
-            "- Respect capability_context from AGENT_EXECUTION_CONTEXT.json: lane, domain, runtime_profile, packs, skills, design_profiles, gate_expectations, main_module_boundary, future_compatibility_notes, manifest content, and capability index content when available.",
-            "- Read capability_context, including capability_context.manifest.content when available.",
-            "- Treat selected skills, packs, and design profiles as mandatory REQ constraints. If a selected capability is missing from the capability manifest/index, report a blocking capability-context gap and do not silently relax the obligation.",
+            "- Treat selected skills, packs, and design profiles as mandatory REQ constraints only when they affect this REQ.",
+            "- Prefer CLIKE_SELECTED_CAPABILITY_CONTEXT.md over the generic full manifest when selected capability guidance exists.",
             "- Do not add decorative architecture just to show that a capability was used.",
-            "- Use main_module_boundary to keep the implementation focused and avoid scattered files.",
             "- Follow this agentic protocol before writing files: inspect contracts, identify the clearest promotable provider-realistic implementation shape that fully covers the REQ, organize source/tests/docs/LTC as one coherent and readable slice, and then run or document executable checks.",
             """- Before writing any code, read docs/harper/PLAN.md and docs/harper/plan.json.
             - Identify the target REQ dependencies from the plan.
@@ -710,9 +964,11 @@ def build_kit_local_agent_package(
             f"- runs/kit/{req_id}/ci/HOWTO.md",
             "",
             "Recommended candidate outputs:",
-            f"- runs/kit/{req_id}/ci/requirements.txt",
             f"- runs/kit/{req_id}/docs/README_{req_id}.md",
             f"- runs/kit/{req_id}/docs/KIT_{req_id}.md",
+            f"- runs/kit/{req_id}/ci/runtime-dependency manifest **MADATORY**, e.g. ci/package.json for Node/npm or ci/requirements.txt for Python",
+            f"- runs/kit/{req_id}/ci/package.json for Node/npm KITs when source/tests need npm scripts or dependencies",
+            f"- runs/kit/{req_id}/ci/requirements.txt only for Python KITs",
             "",
             "At the end, print a concise summary with:",
             "- target REQ and detected dependencies;",
@@ -726,12 +982,14 @@ def build_kit_local_agent_package(
             "- checks blocked by environment, with exact reason;",
             "- unresolved gaps, if any.",
             "",
-            """- Use the local runtime declared in AGENT_EXECUTION_CONTEXT.json.
-            - Prefer `python3` when `python` is unavailable.
-            - Do not install packages globally or into the system Python.
-            - If declared tools/dependencies are missing, you may create a local virtualenv under `runs/eval/.venvs` or `runs/kit/<REQ-ID>/.venv` and install only from the REQ requirements file.
-            - If pytest, ruff, mypy, or another declared dependency is missing, first use an existing project virtualenv if present; otherwise create a local virtualenv under `runs/eval/.venvs` or `runs/kit/<REQ-ID>/.venv` and install from the REQ requirements file.
-            - If dependencies cannot be installed because the environment is offline, externally managed, or blocked by policy, report the test as environment-blocked and run dependency-free compile/smoke checks instead.
+            """- Use the project/runtime evidence declared in SPEC.md, PLAN.md, plan.json, TECH_CONSTRAINTS, TARGET_CONTRACT.json, FILE_REQUIREMENTS.json, AGENT_EXECUTION_CONTEXT.json, and repository files.
+            - Do not infer the application implementation language from local_runtime.tool_hints.
+            - local_runtime.tool_hints are optional command hints only after the implementation runtime is known.
+            - If package.json and npm scripts are present, prefer repository-native npm scripts such as `npm run test`, `npm run lint`, and `npm run build`.
+            - Use Python only when the SPEC, PLAN, TECH_CONSTRAINTS, TARGET_CONTRACT, FILE_REQUIREMENTS, or repository evidence explicitly identifies Python as the implementation stack.
+            - Do not create a Python virtualenv for non-Python projects.
+            - Do not install packages globally or into the system runtime.
+            - If dependencies cannot be installed because the environment is offline, externally managed, or blocked by policy, report the check as environment-blocked and run repository-native compile/smoke checks instead.
             - Environment-blocked fallback never relaxes provider obligations declared in TARGET_CONTRACT.json and FILE_REQUIREMENTS.json.
             - For provider-heavy REQs, generic in-memory provider-shaped wrappers are not sufficient when concrete provider/runtime wiring is explicitly required by technical_scope.
             - Patch operations are allowed only under the allowed_write_roots declared in AGENT_EXECUTION_CONTEXT.json.
@@ -808,12 +1066,24 @@ def build_kit_local_agent_package(
                     "mime": "application/json",
                     "encoding": "utf-8",
                 },
-                {
-                    "path": f"runs/kit/{req_id}/docs/AGENT_INPUT_AUDIT.json",
-                    "content": agent_input_audit_json,
-                    "mime": "application/json",
-                    "encoding": "utf-8",
-                },
+                (
+                    [
+                        {
+                            "path": f"runs/kit/{req_id}/docs/AGENT_INPUT_AUDIT.json",
+                            "content": agent_input_audit_json,
+                            "mime": "application/json",
+                            "encoding": "utf-8",
+                        },
+                        {
+                            "path": f"runs/kit/{req_id}/docs/AGENT_INPUT_AUDIT.md",
+                            "content": agent_input_audit_md,
+                            "mime": "text/markdown",
+                            "encoding": "utf-8",
+                        },
+                    ]
+                    if include_agent_input_audit
+                    else []
+                ),
                 {
                     "path": f"runs/kit/{req_id}/docs/AGENT_INPUT_AUDIT.md",
                     "content": agent_input_audit_md,
@@ -875,16 +1145,36 @@ def build_eval_local_agent_package(
     if not isinstance(local_runtime, dict):
         local_runtime = {}
 
+    tool_hints = local_runtime.get("tool_hints") or {}
+    if not isinstance(tool_hints, dict):
+        tool_hints = {}
+
     local_runtime = {
         "shell": str(local_runtime.get("shell") or "zsh"),
-        "python": str(local_runtime.get("python") or "python3"),
-        "python_fallbacks": list(local_runtime.get("python_fallbacks") or ["python3", "python"]),
-        "package_install_policy": str(
-            local_runtime.get("package_install_policy") or "never_install_global_packages"
+        "implementation_runtime_policy": str(
+            local_runtime.get("implementation_runtime_policy")
+            or "infer_from_ltc_howto_and_project_contracts"
         ),
         "dependency_strategy": str(
-            local_runtime.get("dependency_strategy") or "create_project_local_venv_or_report_blocked"
+            local_runtime.get("dependency_strategy")
+            or "use_existing_project_scripts_or_report_blocked"
         ),
+        "package_install_policy": str(
+            local_runtime.get("package_install_policy")
+            or "never_install_global_packages"
+        ),
+        "tool_hints": {
+            "node": str(tool_hints.get("node") or "node"),
+            "npm": str(tool_hints.get("npm") or "npm"),
+            "python": str(tool_hints.get("python") or "python3"),
+            "java": str(tool_hints.get("java") or "java"),
+            "go": str(tool_hints.get("go") or "go"),
+            "ruby": str(tool_hints.get("ruby") or "ruby"),
+            "rust": str(tool_hints.get("rust") or "rustc"),
+            "php": str(tool_hints.get("php") or "php"),
+            "dotnet": str(tool_hints.get("dotnet") or "dotnet"),
+            "kubectl": str(tool_hints.get("kubectl") or "kubectl"),
+        },
     }
 
     allowed_write_roots = [
@@ -1036,11 +1326,13 @@ def build_eval_local_agent_package(
             "Respect capability_context from AGENT_EVAL_CONTEXT.json: lane, domain, runtime_profile, packs, skills, design_profiles, gate_expectations, main_module_boundary, future_compatibility_notes, manifest content, and capability index content when available.",
             "Patch operations are allowed only under allowed_write_roots.",
             "Do not create or modify files outside runs/kit/<REQ-ID>/ for this phase.",
-            "Do not install packages globally or into system Python.",
-            "If declared tools/dependencies are missing, you may create a local virtualenv under runs/eval/.venvs or runs/kit/<REQ-ID>/.venv and install only from the REQ requirements file.",
-            "Use local_runtime.python from this context for Python commands.",
-            "If dependency installation is unavailable, report checks as environment-blocked and run compile/smoke checks.",
-            "Never install undeclared packages; only install dependencies listed in the REQ requirements file.",
+            "Do not install packages globally or into the system runtime.",
+            "Do not infer the application implementation language from local_runtime.tool_hints.",
+            "Infer the implementation runtime from SPEC.md, PLAN.md, plan.json, TECH_CONSTRAINTS, TARGET_CONTRACT.json, FILE_REQUIREMENTS.json, and repository evidence.",
+            "Use local_runtime.tool_hints only as optional command hints after the implementation runtime is known.",
+            "If package.json and npm scripts are present, prefer repository-native npm scripts for checks.",
+            "If dependency installation is unavailable, report checks as environment-blocked and run repository-native smoke checks.",
+            "Never install undeclared packages; only use dependencies declared by the project or the generated REQ-local validation contract.",
             "Before changing code, read docs/harper/PLAN.md and docs/harper/plan.json to identify target REQ dependencies.",
             "Before changing code, inspect existing dependency KIT artifacts under runs/kit/<DEPENDENCY_REQ_ID>/ when they exist.",
             "Before changing code, inspect candidate source and test roots for this REQ.",
@@ -1099,11 +1391,15 @@ def build_eval_local_agent_package(
             "- Do not modify docs/harper/PLAN.md or docs/harper/plan.json.",
             "- Do not perform git operations.",
             "- Do not promote candidate files into canonical workspace roots.",
-            "- Use the local runtime declared in AGENT_EVAL_CONTEXT.json.",
-            "- Prefer `python3` when `python` is unavailable.",
-            "- Do not install packages globally or into the system Python.",
-            "- If declared tools/dependencies are missing, you may create a local virtualenv under `runs/eval/.venvs` or `runs/kit/<REQ-ID>/.venv` and install only from the REQ requirements file.",
-            "- If pytest or another dependency is missing, first use an existing project virtualenv if present.",
+            "- Generate files needed to make the KIT runnable and evaluable; promotion/merge reconciliation is owned by CLike, not by the agent.",
+            "- **IMPRTANT** If the KIT needs runtime-dependecy-manifesta as package.json, requirements.txt, pyproject.toml, or another runtime manifest to run tests, emit it under the target KIT root.",
+            "- If launch/composition wiring is needed, emit one coherent backend launcher, one frontend launcher, or one per separate service as applicable. Do not create one launcher per REQ.",
+            "- Use LTC/HOWTO and repository-native tooling to choose the eval runtime.",
+            "- Do not infer the application implementation language from local_runtime.tool_hints.",
+            "- local_runtime.tool_hints are optional command hints only after the eval runtime is known.",
+            "- Do not install packages globally or into the system runtime.",
+            "- Do not create a Python virtualenv for non-Python projects.",
+            "- If package.json and npm scripts are present, prefer repository-native npm scripts for eval checks.",
             "- If dependencies cannot be installed because the environment is offline, externally managed, or blocked by policy, report the check as environment-blocked and run dependency-free compile/smoke checks instead.",
             "- Patch operations are allowed only under allowed_write_roots.",
             "",
@@ -1114,7 +1410,9 @@ def build_eval_local_agent_package(
             "- Inspect promoted src/test roots and dependency KIT roots listed in workspace_inspection_policy when present.",
             "- Execute the LTC/HOWTO commands when possible.",
             "- If LTC.json is malformed, incomplete, or not executable, repair LTC.json under runs/kit/<REQ-ID>/ci before changing source code.",
-            "- Ensure LTC.json contains a non-empty cases[] execution contract; commands[] may exist only as human-readable aliases.",
+            "- Ensure LTC.json contains a non-empty cases[] execution contract.",
+            "- Each LTC cases[] entry must include `run` as the canonical executable command field; `command` may be duplicated as a backward-compatible alias.",
+            "- commands[] may exist only as human-readable aliases and must not be the only executable contract.",
             "- Repair candidate code/tests under allowed_write_roots when checks fail for code reasons.",
             "- If checks are blocked by missing infrastructure, mark or document the blockage instead of faking success.",
             "- Create reports under runs/kit/<REQ-ID>/reports when useful.",

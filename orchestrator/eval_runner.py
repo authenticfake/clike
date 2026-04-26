@@ -90,6 +90,14 @@ class EvalRunner:
                 environment_requirements=environment_requirements or [],
             )
             ok = proc.returncode == expect
+
+            if blocked and not ok:
+                stderr = (
+                    stderr
+                    + "\n[CLike EvalRunner] Classified as environment-blocked: "
+                    "missing tool, unavailable dependency, native binary mismatch, "
+                    "network restriction, or sandbox/runtime incompatibility."
+                )[-4000:]
             return EvalCase(
                 name=name,
                 passed=ok,
@@ -142,14 +150,37 @@ class EvalRunner:
             return True
 
         markers = [
+            # Missing local tools/dependencies.
             "command not found",
+            "not found",
+            "sqlite3: not found",
+            ": not found",
             "no module named",
+
+            # Python/package-manager environment issues.
             "externally-managed-environment",
             "could not find a version that satisfies the requirement",
+
+            # Network/package registry issues.
             "failed to establish a new connection",
             "temporary failure in name resolution",
             "network is unreachable",
             "connection refused",
+
+            # Native dependency / binary ABI mismatch.
+            # Example: better-sqlite3 compiled for a different OS/arch/container.
+            "invalid elf header",
+            "err_dlopen_failed",
+            "node_module_version",
+            "was compiled against a different node.js version",
+            "wrong architecture",
+            "bad cpu type in executable",
+            "mach-o file",
+            "cannot open shared object file",
+            "shared object",
+            "dynamic module",
+
+            # Permission/sandbox issues.
             "permission denied",
         ]
         if any(marker in text for marker in markers):
@@ -326,18 +357,70 @@ class EvalRunner:
             return norm_cases
 
         if isinstance(ltc.get("cases"), list) and ltc["cases"]:
-            for case in ltc["cases"]:
+            for index, case in enumerate(ltc["cases"], start=1):
+                if isinstance(case, str):
+                    run = case.strip()
+                    if not run:
+                        continue
+                    norm_cases.append(
+                        {
+                            "name": f"case::{index}",
+                            "run": run,
+                            "cwd": ltc.get("cwd") or ltc.get("working_directory"),
+                            "expect": 0,
+                            "timeout": None,
+                            "env": {},
+                            "blocking": True,
+                            "environment_requirements": [],
+                        }
+                    )
+                    continue
+
                 if not isinstance(case, dict):
                     continue
+
+                run = (
+                    case.get("run")
+                    or case.get("command")
+                    or case.get("cmd")
+                    or case.get("shell")
+                )
+
+
+                if not run:
+                    norm_cases.append(
+                        {
+                            "name": case.get("id") or case.get("name") or f"case::{index}",
+                            "run": None,
+                            "cwd": case.get("cwd") or case.get("working_dir") or ltc.get("cwd") or ltc.get("working_directory"),
+                            "expect": 0,
+                            "timeout": case.get("timeout"),
+                            "env": case.get("env") or {},
+                            "blocking": bool(case.get("blocking", True)),
+                            "environment_requirements": case.get("environment_requirements") or [],
+                            "invalid_reason": "missing 'run' or 'command'",
+                        }
+                    )
+                    continue
+
+                expected = case.get(
+                    "expected_exit_code",
+                    case.get("expect_exit", case.get("expect", 0)),
+                )
+
+                required = case.get("required", True)
+                blocking = bool(case.get("blocking", required))
+
                 norm_cases.append(
                     {
-                        "name": case.get("name") or case.get("run") or "case",
-                        "run": case.get("run"),
-                        "cwd": case.get("cwd"),
-                        "expect": int(case.get("expect", 0)),
+                        "name": case.get("id") or case.get("name") or case.get("label") or f"case::{index}",
+                        "run": run,
+                        "setup": case.get("setup"),
+                        "cwd": case.get("cwd") or case.get("working_dir") or ltc.get("cwd") or ltc.get("working_directory"),
+                        "expect": int(expected),
                         "timeout": case.get("timeout"),
                         "env": case.get("env") or {},
-                        "blocking": bool(case.get("blocking", True)),
+                        "blocking": blocking,
                         "environment_requirements": case.get("environment_requirements") or [],
                     }
                 )
@@ -362,7 +445,25 @@ class EvalRunner:
             return norm_cases
 
         if isinstance(ltc.get("commands"), list) and ltc["commands"]:
-            for command in ltc["commands"]:
+            for index, command in enumerate(ltc["commands"], start=1):
+                if isinstance(command, str):
+                    run = command.strip()
+                    if not run:
+                        continue
+                    norm_cases.append(
+                        {
+                            "name": f"command::{index}",
+                            "run": run,
+                            "cwd": ltc.get("cwd"),
+                            "expect": 0,
+                            "timeout": None,
+                            "env": {},
+                            "blocking": True,
+                            "environment_requirements": [],
+                        }
+                    )
+                    continue
+
                 if not isinstance(command, dict):
                     continue
 
@@ -382,7 +483,7 @@ class EvalRunner:
                     {
                         "name": command.get("id") or command.get("name") or command.get("label") or run,
                         "run": run,
-                        "cwd": command.get("cwd") or command.get("working_dir"),
+                        "cwd": command.get("cwd") or command.get("working_dir") or ltc.get("cwd"),
                         "expect": int(expected),
                         "timeout": command.get("timeout"),
                         "env": command.get("env") or {},
@@ -520,16 +621,33 @@ class EvalRunner:
         default_cwd = self.project_root / (ltc.get("cwd") or "")
         out_cases: List[EvalCase] = []
 
-        base_env = self._merge_env(top_env, None)
-        runtime = ltc.get("runtime") or {}
-        requirements_file = (
-            runtime.get("requirements_file")
-            or ltc.get("requirements_file")
-            or ltc.get("pip_file")
-            or ltc.get("pip-file")
-        )
+        base_env = self._merge_env(top_env if isinstance(top_env, dict) else {}, None)
 
-        if not requirements_file:
+        raw_runtime = ltc.get("runtime") or {}
+        if isinstance(raw_runtime, dict):
+            runtime = raw_runtime
+            runtime_name = str(
+                raw_runtime.get("name")
+                or raw_runtime.get("runtime")
+                or raw_runtime.get("type")
+                or ""
+            ).strip().lower()
+        else:
+            runtime = {}
+            runtime_name = str(raw_runtime or "").strip().lower()
+
+        requirements_file = None
+
+        # Python dependency manifests are only auto-inferred for Python LTCs.
+        if runtime_name in {"python", "python3", "py"}:
+            requirements_file = (
+                runtime.get("requirements_file")
+                or ltc.get("requirements_file")
+                or ltc.get("pip_file")
+                or ltc.get("pip-file")
+            )
+
+        if not requirements_file and runtime_name in {"python", "python3", "py"}:
             inferred_candidates = [
                 profile_path.parent / "requirements.txt",
                 profile_path.parent.parent / "requirements.txt",
@@ -539,13 +657,17 @@ class EvalRunner:
                     requirements_file = str(inferred_requirements)
                     break
 
-        eval_env, setup_cases = self._ensure_eval_venv(
-            req_id=eff_req,
-            requirements_file=requirements_file,
-            env=base_env,
-            cwd=default_cwd,
-        )
-        out_cases.extend(setup_cases)
+        eval_env = base_env
+        setup_cases: List[EvalCase] = []
+
+        if requirements_file:
+            eval_env, setup_cases = self._ensure_eval_venv(
+                req_id=eff_req,
+                requirements_file=requirements_file,
+                env=base_env,
+                cwd=default_cwd,
+            )
+            out_cases.extend(setup_cases)
 
         pre_cmds = ltc.get("pre") or []
         for i, pre in enumerate(pre_cmds, start=1):
@@ -584,15 +706,85 @@ class EvalRunner:
 
         for case in norm_cases:
             cmd = case.get("run")
+            setup = case.get("setup")
             workdir = self.project_root / case.get("cwd") if case.get("cwd") else self.project_root
             case_env = self._merge_env(eval_env, case.get("env") or {})
             blocking = bool(case.get("blocking", True))
             environment_requirements = list(case.get("environment_requirements") or [])
+            timeout = case.get("timeout")
+            case_name = case.get("name") or "case"
+            try:
+                workdir.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                out_cases.append(
+                    EvalCase(
+                        name=f"{case_name}::cwd",
+                        passed=False,
+                        code=996,
+                        stdout="",
+                        stderr=f"cannot create cwd {workdir}: {exc}",
+                        cmd=None,
+                        cwd=str(workdir),
+                        expect=0,
+                        blocked=True,
+                        blocking=False,
+                    )
+                )
+                continue
+
+            if setup:
+                setup_cmd = str(setup)
+
+                # Make npm --prefix setup robust for KIT-local dependency manifests.
+                # npm does not always create the prefix directory chain before creating
+                # node_modules, so EvalRunner prepares it explicitly.
+                npm_prefix_match = re.search(
+                    r"(?:^|\s)npm\s+(?:install|ci)\s+--prefix\s+([^\s]+)",
+                    setup_cmd,
+                )
+                if npm_prefix_match:
+                    prefix_raw = npm_prefix_match.group(1).strip().strip("'\"")
+                    prefix_path = Path(prefix_raw)
+                    if not prefix_path.is_absolute():
+                        prefix_path = (workdir / prefix_path).resolve()
+                    try:
+                        prefix_path.mkdir(parents=True, exist_ok=True)
+                    except OSError as exc:
+                        out_cases.append(
+                            EvalCase(
+                                name=f"{case_name}::setup",
+                                passed=False,
+                                code=995,
+                                stdout="",
+                                stderr=f"cannot create npm --prefix directory {prefix_path}: {exc}",
+                                cmd=setup_cmd,
+                                cwd=str(workdir),
+                                expect=0,
+                                blocked=True,
+                                blocking=False,
+                            )
+                        )
+                        continue
+
+                setup_case = self._run(
+                    name=f"{case_name}::setup",
+                    cmd=setup_cmd,
+                    cwd=workdir,
+                    expect=0,
+                    env=case_env,
+                    timeout=timeout,
+                    blocking=blocking,
+                    environment_requirements=environment_requirements,
+                )
+                out_cases.append(setup_case)
+
+                if not setup_case.passed:
+                    continue
 
             if not cmd:
                 out_cases.append(
                     EvalCase(
-                        name=case.get("name") or "case",
+                        name=case_name,
                         passed=False,
                         code=997,
                         stdout="",
@@ -607,12 +799,12 @@ class EvalRunner:
 
             out_cases.append(
                 self._run(
-                    name=case.get("name") or "case",
+                    name=case_name,
                     cmd=cmd,
                     cwd=workdir,
                     expect=case.get("expect", 0),
                     env=case_env,
-                    timeout=case.get("timeout"),
+                    timeout=timeout,
                     blocking=blocking,
                     environment_requirements=environment_requirements,
                 )

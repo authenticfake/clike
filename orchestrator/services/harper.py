@@ -858,6 +858,48 @@ def _materialize_file_requirements(
 ) -> Dict[str, Any]:
     req_id = str(contract.get("req_id") or "").strip()
     lane = str(contract.get("lane") or "").strip().lower()
+    project_blob = " ".join(
+        [
+            str(contract.get("technical_scope") or ""),
+            str(contract.get("functional_scope") or ""),
+            str(contract.get("test_profile") or ""),
+            str(contract.get("main_module_boundary") or ""),
+            " ".join(str(x) for x in (contract.get("acceptance") or [])),
+        ]
+    ).lower()
+
+    is_node_like = any(
+        token in project_blob
+        for token in (
+            "node",
+            "node.js",
+            "nodejs",
+            "npm",
+            "package.json",
+            "javascript",
+            "typescript",
+            "express",
+            "react",
+            "vite",
+            "better-sqlite3",
+        )
+    ) or lane in {"node", "js", "js-ts", "javascript", "typescript", "frontend", "react"}
+
+    is_python_like = (
+        not is_node_like
+        and (
+            lane == "python"
+            or any(
+                token in project_blob
+                for token in ("python", "pytest", "ruff", "mypy", "fastapi", "pyproject.toml")
+            )
+        )
+    )
+
+    source_ext = ".js" if is_node_like else ".py"
+    test_ext = ".js" if is_node_like else ".py"
+    test_prefix = "" if is_node_like else "test_"
+
     paths = dict(contract.get("paths") or {})
     canonical_family = str(paths.get("canonical_module_family") or "").strip()
     expected_source_roots = list(paths.get("expected_source_roots") or [])
@@ -921,17 +963,19 @@ def _materialize_file_requirements(
         test_root = source_root
 
     role_to_path_hint = {
-        "primary_contract_or_schema": _stage("src/data/schema/core_lifecycle/contracts.py"),
-        "mapping_or_models": _stage("src/data/schema/core_lifecycle/schema.py"),
-        "migration": _stage("src/data/migrations/versions/<timestamp>_backbone.py"),
-        "primary_implementation": _stage(f"src/{source_root}/implementation.py"),
-        "boundary_contract": _stage(f"src/{source_root}/contracts.py"),
-        "entry_binding": _stage(f"src/{source_root}/binding.py"),
-        "workflow_component": _stage(f"src/{source_root}/workflow.py"),
-        "primary_ui_feature": _stage(f"src/{source_root}/feature.ts"),
-        "adapter_contract": _stage(f"src/{source_root}/adapter_contract.py"),
-        "acceptance_tests": _stage(f"test/{test_root}/test_req_behavior.py"),
-        "integration_smoke": _stage(f"test/{test_root}/test_integration_smoke.py"),
+        "primary_contract_or_schema": _stage(f"src/data/schema/core_lifecycle/contracts{source_ext}"),
+        "mapping_or_models": _stage(f"src/data/schema/core_lifecycle/schema{source_ext}"),
+        "migration": _stage(f"src/data/migrations/versions/<timestamp>_backbone{source_ext}"),
+        "primary_implementation": _stage(f"src/{source_root}/implementation{source_ext}"),
+        "boundary_contract": _stage(f"src/{source_root}/contracts{source_ext}"),
+        "entry_binding": _stage(f"src/{source_root}/index{source_ext}"),
+        "workflow_component": _stage(f"src/{source_root}/workflow{source_ext}"),
+        "primary_ui_feature": _stage(f"src/{source_root}/feature{' .tsx' if False else '.tsx'}"),
+        "adapter_contract": _stage(f"src/{source_root}/adapter_contract{source_ext}"),
+        "acceptance_tests": _stage(f"test/{test_root}/{test_prefix}req_behavior{test_ext}"),
+        "integration_smoke": _stage(f"test/{test_root}/{test_prefix}integration_smoke{test_ext}"),
+        "runtime_manifest": _stage("ci/package.json" if is_node_like else "ci/requirements.txt" if is_python_like else "ci/RUNTIME_MANIFEST.md"),
+        "module_launcher": _stage(f"src/{source_root}/index{source_ext}"),
         "operational_readme": _stage(f"docs/README_{req_id}.md"),
         "kit_notes": _stage(f"docs/KIT_{req_id}.md"),
         "execution_contract": _stage("ci/LTC.json"),
@@ -974,22 +1018,49 @@ def _materialize_file_requirements(
         )
         required_outputs.append(item)
 
-    if lane == "python":
+    required_outputs.append({
+        "role": "runtime_manifest",
+        "path_hint": _stage("ci/package.json" if is_node_like else "ci/requirements.txt" if is_python_like else "ci/RUNTIME_MANIFEST.md"),
+        "kind": "ci",
+        "required": True,
+        "purpose": (
+            "Runtime-native manifest required to run the KIT evaluation harness. "
+            "This is functional for KIT/EVAL execution; CLike promotion/merge owns final reconciliation."
+        ),
+        "must_cover": [
+            "runtime dependencies required by emitted code",
+            "test dependencies required by emitted tests",
+            "scripts or commands referenced by LTC/HOWTO when applicable",
+        ],
+        "must_contain": [
+            "only dependencies and scripts actually needed by emitted files",
+        ],
+        "must_not_contain": [
+            "unrelated speculative dependencies",
+            "Python requirements for non-Python projects",
+        ],
+    })
+
+    if family in {"application_slice", "workflow_slice", "ui_feature"}:
         required_outputs.append({
-            "role": "python_requirements",
-            "path_hint": _stage("ci/requirements.txt"),
-            "kind": "ci",
+            "role": "module_launcher",
+            "path_hint": _stage(f"src/{source_root}/index{source_ext}"),
+            "kind": "source",
             "required": True,
-            "purpose": "Minimal Python dependency set required to run emitted source and tests for this REQ candidate.",
+            "purpose": (
+                "Single coherent launcher/composition entry for the emitted module family when needed. "
+                "Do not create one launcher per REQ; extend or reuse the module-level launcher shape."
+            ),
             "must_cover": [
-                "runtime dependencies for emitted code",
-                "test dependencies for emitted tests",
+                "export or compose emitted module functions/classes",
+                "provide one stable module entry for backend/frontend/service integration",
             ],
             "must_contain": [
-                "only dependencies actually needed by emitted files",
+                "module-level exports or composition wiring",
             ],
             "must_not_contain": [
-                "unrelated speculative dependencies",
+                "standalone per-REQ application bootstrap",
+                "duplicate app/server main unless repository evidence requires it",
             ],
         })
 

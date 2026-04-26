@@ -39,3 +39,76 @@ A UI REQ satisfies this profile only if:
 - error/disconnected/stale-data states are considered;
 - unsafe actions are not made casual;
 - generated docs mention runtime and safety assumptions.
+---
+
+# CLike Promotable UI Generation Overlay
+
+## Purpose
+
+This design profile is a UI generation contract, not a visual mood board.
+
+It must guide `/kit` toward UI code that is usable, testable, accessible, and promotable.
+
+## Mandatory UI States
+
+For interactive UI, generated code must consider:
+
+- loading state;
+- empty state;
+- success/ready state;
+- error state;
+- disabled/submitting state;
+- permission or unavailable state when relevant.
+
+If a state is not applicable, document why.
+
+## Interaction Rules
+
+Generated UI should:
+
+- make system state visible;
+- make errors actionable;
+- avoid silent failures;
+- avoid destructive actions without confirmation;
+- keep primary actions clear;
+- use accessible labels;
+- support keyboard interaction where practical;
+- avoid fake data presented as real data;
+- avoid brand cloning or copied external product layouts.
+
+## Frontend Evidence
+
+When frontend tooling exists, KIT should produce at least one of:
+
+- component state tests;
+- route/page smoke tests;
+- interaction tests;
+- accessibility-oriented assertions;
+- documented manual smoke path when automation is unavailable.
+
+## Code Shape Expectations
+
+Generated frontend should prefer:
+
+- small components;
+- explicit props/state;
+- reusable view models where appropriate;
+- test-friendly state boundaries;
+- no hidden network calls inside presentational components;
+- adapter/client separation for remote calls.
+
+## Gate Impact
+
+GATE should BLOCK promotion when:
+
+- acceptance-critical UI behavior is missing;
+- loading/error/empty states are ignored for interactive flows;
+- errors are invisible;
+- UI cannot be exercised locally;
+- fake data is presented as real;
+- selected design profile is ignored.
+
+GATE may WARN when:
+
+- visual polish is incomplete but behavior and state evidence are present;
+- automated UI tests are unavailable but a clear manual smoke path exists.

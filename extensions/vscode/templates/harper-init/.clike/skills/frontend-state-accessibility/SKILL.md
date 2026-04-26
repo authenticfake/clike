@@ -82,3 +82,131 @@ Gate may allow non-blocking warnings when:
 - A dashboard with hardcoded cards and no data boundary.
 - A form with placeholder-only validation and no error state.
 - A page that visually resembles an external product brand without project-specific rationale.
+---
+
+# CLike Promotable KIT Enforcement Layer
+
+## Purpose
+
+This layer makes the skill operational for CLike `/kit` generation.
+
+The goal is not to produce plausible code. The goal is to produce candidate artifacts that can be evaluated, repaired, and promoted through EVAL and GATE with minimal human rework.
+
+## Promotable Code Obligations
+
+When this skill is selected for a REQ, the KIT must:
+
+- respect `main_module_boundary`;
+- respect `functional_scope` and `technical_scope`;
+- generate the smallest complete implementation slice;
+- prefer repository-native conventions over invented abstractions;
+- produce source files only under the target KIT source root;
+- produce tests only under the target KIT test root;
+- keep canonical `src/`, `test/`, and `tests/` read-only during candidate generation;
+- document any intentional limitation instead of pretending completeness;
+- avoid broad rewrites unless explicitly required by the REQ.
+
+## Required Candidate Artifacts
+
+The KIT should produce or update:
+
+```text
+runs/kit/<REQ-ID>/src/
+runs/kit/<REQ-ID>/test/
+runs/kit/<REQ-ID>/ci/LTC.json
+runs/kit/<REQ-ID>/ci/HOWTO.md
+runs/kit/<REQ-ID>/docs/KIT_<REQ-ID>.md
+```
+
+If the REQ is documentation-only or policy-only, the KIT must explicitly state why source/test artifacts are not required.
+
+## Code Shape Expectations
+
+Generated code should favor:
+
+- explicit boundaries;
+- dependency injection or constructor/function injection where practical;
+- small cohesive modules;
+- deterministic local behavior;
+- typed schemas/contracts when the stack supports them;
+- error paths that are visible and testable;
+- safe defaults;
+- clear adapter seams for external systems.
+
+Generated code must avoid:
+
+- hidden global state;
+- hardcoded environment assumptions;
+- silent fallbacks;
+- fake success;
+- speculative framework layers;
+- broad unrelated refactors;
+- acceptance criteria implemented only in prose.
+
+## Test Expectations
+
+Tests must map to acceptance criteria.
+
+Prefer:
+
+- deterministic unit tests;
+- contract tests around adapters and payloads;
+- failure-path tests;
+- local fake/simulator tests for external dependencies;
+- smoke checks only when deeper tests are not possible.
+
+Avoid:
+
+- placeholder tests;
+- tests that only import modules when behavior is required;
+- tests that require production credentials;
+- network-dependent blocking tests unless explicitly scoped.
+
+## LTC Expectations
+
+`ci/LTC.json` must be valid JSON and include enough information for EvalRunner or a local agent to execute checks.
+
+It should include:
+
+- target `req_id`;
+- lane/runtime profile when known;
+- blocking local commands;
+- optional external commands;
+- report paths when available;
+- environment-blocked status for unavailable infrastructure;
+- gate-relevant policy hints.
+
+## HOWTO Expectations
+
+`ci/HOWTO.md` must be clear enough for a developer to run without guessing.
+
+It should include:
+
+- where to run commands from;
+- prerequisites;
+- local commands;
+- expected result;
+- troubleshooting;
+- required environment variables;
+- optional external validation steps;
+- limitations and non-goals.
+
+## Gate Impact
+
+GATE should BLOCK promotion when this selected skill is materially violated.
+
+Blocking examples:
+
+- source is not mapped to the target REQ;
+- acceptance-critical behavior has no test or executable evidence;
+- LTC/HOWTO are missing for runnable code;
+- production services or credentials are required for local blocking checks;
+- selected capability obligations are ignored;
+- generated files modify forbidden canonical roots;
+- code claims completeness without evidence.
+
+GATE may WARN when:
+
+- optional external validation is not available but a deterministic local contract check exists;
+- documentation is thin but executable evidence is complete;
+- future hardening is correctly documented as out of scope.
