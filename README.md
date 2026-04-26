@@ -26,6 +26,11 @@
 
 👉 AI-native governed engineering platform
 
+### Why it matters
+- **Flow state by default** — minimize context switches; everything lives inside VS Code.
+- **Agentic & self‑healing** — AI assistants perform actions and auto‑remediate (diffs, patches, tests).
+- **Enterprise paved road** — governance, auditability, and reproducibility are built‑in, not bolted on.
+
 **Clike** is 
 - Harper-governed
 - RAG-grounded
@@ -70,13 +75,14 @@ Eval and Gate decide.
 ## ✨ Where the Idea Comes From
 
 - **Harper / Codegen Hero's Journey**  
-  Harper introduces an iterative software-generation journey: start from an idea, create a SPEC, derive a PLAN, generate a KIT, evaluate, harden, and promote in short feedback loops.
+  Harper introduces an iterative software-generation journey: start from an idea, create a SPEC, derive a PLAN, generate a KIT, evaluate, harden, and promote in short feedback loops. -
+[Haprer](https://harper.blog/posts/) 
 
 - **Vibe Coding**  
-  Vibe Coding emphasizes intent, flow, rapid prototyping, and cognitive offloading. The developer works at the outcome level while the system helps produce implementation artifacts.
+  Vibe Coding emphasizes intent, flow, rapid prototyping, and cognitive offloading. The developer works at the outcome level while the system helps produce implementation artifacts. - [Gartner Vibe](https://www.gartner.com/document-reader/document/6494971?ref=pubsite)
 
 - **AI-Native Software Engineering**  
-  CLike applies agentic workflows, human-in-the-loop governance, RAG grounding, quality gates, and automated validation to make AI-generated software reviewable and promotable.
+  CLike applies agentic workflows, human-in-the-loop governance, RAG grounding, quality gates, and automated validation to make AI-generated software reviewable and promotable. - [Gartner AI](https://www.gartner.com/document-reader/document/6076795?ref=pubsite)
 
 ---
 
@@ -341,6 +347,30 @@ Examples:
 
 ---
 
+## HOWTO
+
+To get operational quickly with CLike and the Harper workflow, read [docs/HOWTO.md](./docs/HOWTO.md).
+
+The HOWTO is the practical step-by-step guide for taking a project from initialization to finalized delivery:
+
+```text
+/init → /idea → /spec → /plan → (/kit → /eval → /gate)* → /finalize
+```
+
+It is written with a **developer-first** approach:
+
+* the developer remains the **orchestrator** of the phases
+* every generated artifact is **reviewed and validated** before moving on
+* weak alignment is corrected early by refining requirements, context, or source material
+* `/kit`, `/eval`, and `/gate` are treated as an iterative control loop, not as a one-shot generation flow
+
+
+> **Operating rule**
+>
+> Do not advance to the next phase until the current output has been reviewed, refined where needed, and explicitly accepted by the developer.
+
+---
+
 ## Capabilities, Skills, Packs, and Design Profiles
 
 CLike includes a project-local capability system used to guide AI-native software delivery without making the platform dependent on a specific model, agent, vendor, language, or runtime.
@@ -570,30 +600,6 @@ KIT can generate.
 EVAL must verify.
 GATE decides promotion.
 ```
-
----
-
-## HOWTO
-
-To get operational quickly with CLike and the Harper workflow, read [docs/HOWTO.md](./docs/HOWTO.md).
-
-The HOWTO is the practical step-by-step guide for taking a project from initialization to finalized delivery:
-
-```text
-/init → /idea → /spec → /plan → (/kit → /eval → /gate)* → /finalize
-```
-
-It is written with a **developer-first** approach:
-
-* the developer remains the **orchestrator** of the phases
-* every generated artifact is **reviewed and validated** before moving on
-* weak alignment is corrected early by refining requirements, context, or source material
-* `/kit`, `/eval`, and `/gate` are treated as an iterative control loop, not as a one-shot generation flow
-
-
-> **Operating rule**
->
-> Do not advance to the next phase until the current output has been reviewed, refined where needed, and explicitly accepted by the developer.
 
 ---
 
