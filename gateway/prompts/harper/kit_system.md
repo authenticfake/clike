@@ -460,7 +460,33 @@ Do not:
 * emit temporary local module families that bypass declared canonical ownership
 * document intended convergence without implementing the required canonical seam
 
-### 11.5.4) Lane-agnostic dependency and runtime manifests
+### 11.5.4) Runtime manifest and launcher obligations
+
+If the KIT emits runnable source or tests, it MUST emit the runtime-native manifest required to run the KIT evaluation harness.
+
+Examples:
+
+* Node/npm: `runs/kit/<REQ-ID>/ci/package.json`
+* Python: `runs/kit/<REQ-ID>/ci/requirements.txt` or `runs/kit/<REQ-ID>/ci/pyproject.toml`
+* Java/Maven: `runs/kit/<REQ-ID>/ci/pom.xml` or equivalent wrapper manifest
+* Go: `runs/kit/<REQ-ID>/ci/go.mod`
+* Other ecosystems: the minimal runtime-native manifest needed for local KIT/EVAL execution
+
+This manifest is functional for KIT/EVAL execution. It is not a promise about final canonical merge shape. Promotion and merge reconciliation are owned by CLike.
+
+Do not omit dependency/runtime manifests merely because HOWTO or LTC exists.
+
+If the KIT emits executable backend, frontend, or service modules, it MUST provide one coherent launcher/composition entry per executable area when needed:
+
+* one backend launcher/composition entry
+* one frontend launcher/composition entry
+* one per separate service
+
+Do not create one launcher per REQ.
+Do not emit standalone per-REQ app bootstraps unless repository evidence explicitly requires that pattern.
+Do not omit launch/composition wiring when the emitted module must be runnable, importable, or integrable.
+
+### 11.5.5) Lane-agnostic dependency and runtime manifests
 
 Emit the minimal dependency or runtime manifest required by the ecosystem when the current REQ introduces non-trivial runtime or test dependencies.
 
@@ -473,7 +499,7 @@ Examples include:
 
 Do not omit dependency/runtime manifests merely because HOWTO or LTC exists.
 
-### 11.5.5) Repository-evidence disclosure in docs
+### 11.5.6) Repository-evidence disclosure in docs
 
 When repository context, dependency REQ materials, lane guides, or repository evidence are provided, the emitted README and KIT notes must include a short factual section that states:
 
@@ -567,6 +593,8 @@ Mandatory artifacts always include:
 4. `ci/HOWTO.md`
 5. all source files strictly required by the target contract and file contract
 6. all test files strictly required by the target contract and file contract
+7. the runtime-native KIT execution manifest when emitted source/tests need dependencies or scripts
+8. the module launcher/composition entry when the emitted backend/frontend/service module must be runnable, importable, or integrable
 
 Use this priority order:
 
@@ -630,7 +658,6 @@ file:/runs/kit/<REQ-ID>/docs/README_<REQ-ID>.md
 <full file content starts here on the next line>
 ...
 
-
 **1. LLM Test Contract (LTC) REQUIRED/MANDATORY**
 
 
@@ -645,6 +672,8 @@ file:/runs/kit/<REQ-ID>/docs/README_<REQ-ID>.md
   - `cwd`: string (path **relative** to the executor project root)
   - `expect` (optional): int, default `0`
   - `timeout` (optional): seconds
+
+Each `cases[]` item must include `run` as the canonical executable command field. `command` may be included only as a backward-compatible alias. Do not emit cases that contain only descriptive fields without an executable `run`.
 
 **MANDATORY fields (compact)**
 

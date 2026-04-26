@@ -3489,10 +3489,30 @@ async function cmdOpenChat(context) {
 
             body.localRuntime = {
               shell: process.env.SHELL || 'zsh',
-              python: 'python3',
-              python_fallbacks: ['python3', 'python'],
+
+              // Runtime-neutral contract.
+              // The orchestrator and the local agent must infer the implementation
+              // stack from SPEC.md, PLAN.md, plan.json, TECH_CONSTRAINTS and
+              // repository evidence. Do not force Python as the application runtime.
+              implementation_runtime_policy: 'infer_from_project_contracts',
+              dependency_strategy: 'use_existing_project_scripts_or_report_blocked',
               package_install_policy: 'never_install_global_packages',
-              dependency_strategy: 'use_existing_venv_or_report_blocked',
+
+              // Optional tool hints only. These are helpers, not implementation rules.
+              tool_hints: {
+                node: 'node',
+                npm: 'npm',
+                python: 'python3',
+                java: 'java',
+                go: 'go',
+                ruby: 'ruby',
+                rust: 'rustc',
+                php: 'php',
+                dotnet: 'dotnet',
+                kubectl: 'kubectl',
+
+
+              },
             };
           }
 
@@ -3984,11 +4004,29 @@ async function cmdOpenChat(context) {
 
               evalBody.localRuntime = {
                 shell: process.env.SHELL || 'zsh',
-                python: 'python3',
-                python_fallbacks: ['python3', 'python'],
+
+                // Runtime-neutral contract.
+                // Eval must follow the LTC/HOWTO and repository-native commands.
+                implementation_runtime_policy: 'infer_from_ltc_howto_and_project_contracts',
+                dependency_strategy: 'use_existing_project_scripts_or_report_blocked',
                 package_install_policy: 'never_install_global_packages',
-                dependency_strategy: 'use_existing_venv_or_report_blocked',
+
+                // Optional tool hints only. These are helpers, not implementation rules.
+                tool_hints: {
+                    node: 'node',
+                    npm: 'npm',
+                    python: 'python3',
+                    java: 'java',
+                    go: 'go',
+                    ruby: 'ruby',
+                    rust: 'rustc',
+                    php: 'php',
+                    dotnet: 'dotnet',
+                    kubectl: 'kubectl',
+                },
               };
+
+              
 
               try {
                 const evalPrepassGateway = await callHarper('eval', evalBody, evalHeaders, {

@@ -24,6 +24,8 @@
 
 ## ✨ What is CLike?
 
+👉 AI-native governed engineering platform
+
 **Clike** is 
 - Harper-governed
 - RAG-grounded
@@ -31,9 +33,6 @@
 - Human-in-the-loop
 - Multi-model / agent-agnostic
 - Cloud + local agent compatible
-
-👉 AI-native governed engineering platform
-
 
 **Clike** is not just an agent that writes code; it is an AI-native pipeline / platform that orchestrates verifiable capabilities across specs, plans, code, tests, reviews, and release gates.
 
@@ -82,52 +81,27 @@ Eval and Gate decide.
 ---
 
 ## 🧱 Architecture at a Glance
+```
++-----------------------+       +-------------------------+       +--------------------+       +------------------------+
+|  VS CODE EXTENSION    |       |  ORCHESTRATOR (FastAPI) |       |  GATEWAY (FastAPI) |       | CLOUD PROVIDERS.       |
++-----------------------+       +-------------------------+       +--------------------+       +------------------------+
+| - Chat UI             | ----> | - Harper workflow brain | ----> | - Cloud model abs. | ----> | - OpenAI               |
+| - Slash commands      |       | - Execution strategy    |       | - OpenAI/Anth. rout|  |    | - Anthropic            |
+| - Workspace access    |       | - Agent exec. packages  |       | - Embeddings       |  |    | - ...                  |
+| - Local file writes   | <---+ | - Eval/Gate semantics   |       | - Provider normal. |  |    |                        |
+| - Git integration     |     | | - RAG endpoints         |       +----------^---------+  |    +------------------------+
+| - RAG collector       |     | | - Orchestrator MCP srv. |                               |
+| - Local agent actuator|     | +------------^------------+                               |							
+| - Extension MCP server|     |              |                 +------------+             |
++-----------------------+     |              |                 |    RAG     |             |
+            ^                 |              |<--------------> +------------|             |     +------------------------+
+            |                 |              |                 |  Vector DB |             |     | LOCAL PROVIDERS.       |
+            |                 v              |                 +------------+             +--- >+------------------------+
+            |       +-----------------------------------+                                       | - OLLAMA               |
+            +-------|              AGENTS               |                                       | - DeepSeek             | 
+                    | (Autonomous execution units)      |										+------------------------+
+                    +-----------------------------------+						
 
-```text
-+-------------------------------+
-| Developer / External Agent    |
-+---------------+---------------+
-                |
-                v
-+-------------------------------+
-| VS Code Extension             |
-| - Chat UI                     |
-| - Slash commands              |
-| - Workspace access            |
-| - Local file writes           |
-| - Git integration             |
-| - RAG collector               |
-| - Local agent actuator        |
-| - Extension MCP server        |
-+---------------+---------------+
-                |
-                v
-+-------------------------------+
-| Orchestrator (FastAPI)        |
-| - Harper workflow brain       |
-| - Execution strategy          |
-| - Agent execution packages    |
-| - Eval/Gate semantics         |
-| - RAG endpoints               |
-| - Orchestrator MCP server     |
-+---------------+---------------+
-                |
-                v
-+-------------------------------+
-| Gateway (FastAPI)             |
-| - Cloud model abstraction     |
-| - OpenAI / Anthropic routing  |
-| - Embeddings                  |
-| - Provider normalization      |
-+---------------+---------------+
-                |
-                v
-+-------------------------------+
-| Providers / Vector DB         |
-| - OpenAI / Anthropic          |
-| - Local-compatible backends   |
-| - Qdrant / Vector store       |
-+-------------------------------+
 ```
 
 ### Key directories

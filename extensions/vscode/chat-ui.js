@@ -1610,6 +1610,13 @@ function setBusy(on) {
 
   sp.classList.toggle('active', disabled);
   statusEl.textContent = disabled ? 'Waiting response…' : 'Ready';
+  if (!disabled && prompt) {
+  setTimeout(() => {
+    try {
+      prompt.focus();
+    } catch {}
+  }, 0);
+}
 }
 function post(type, payload={}) { vscode.postMessage({type, ...payload}); }
 function setTab(name) {
