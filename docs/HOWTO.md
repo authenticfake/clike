@@ -704,38 +704,6 @@ Remember these operating principles:
 This is not a passive generation flow.
 It is a **developer-led orchestration workflow** supported by CLike.
 
-````
-
-## Sezione Markdown da inserire nel README
-
-```md
-## HOWTO
-
-> **Developer-first reminder**
->
-> In CLike, the developer has the primary role in **validating every phase** and **refining generated documents**.
->
-> If alignment with the requirements is still weak, the developer can progressively add more detail to the requirement or source material so the process becomes more efficient as the work advances.
-
-For a step-by-step operational guide, see [docs/HOWTO.md](./docs/HOWTO.md).
-
-The HOWTO covers the recommended end-to-end workflow for a new project such as **CoffeeBuddy**:
-
-```text
-/init → /idea → /spec → /plan → (/kit → /eval → /gate)* → /finalize
-````
-
-It also explains:
-
-* how to initialize a project
-* when to read `README_1st.md`
-* how to prepare Git before starting Harper work
-* how to choose model and execution mode for `/idea` and `/spec`
-* how to run `/kit` in either **agentic** mode or **cloud-only** mode
-* when to use `/agent-default codex|claude|auto`
-* how to iterate requirement by requirement through `/kit`, `/eval`, and `/gate`
-* why the developer must review, validate, and refine each generated artifact before moving forward
-* how to close the work with `/finalize`
 
 > **Approach reminder**
 >
