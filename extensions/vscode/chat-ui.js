@@ -907,11 +907,12 @@ function isHarperBlockingSlashCommand(cmd) {
 }
 
 function lockHarperSlashIfNeeded(slash) {
-  if (!slash) return;
-  if (currentMode() !== 'harper') return;
-  if (!isHarperBlockingSlashCommand(slash.cmd)) return;
+  if (!slash) return false;
+  if (currentMode() !== 'harper') return false;
+  if (!isHarperBlockingSlashCommand(slash.cmd)) return false;
 
-  setBusy(true);
+  lockHarperUi();
+  return true;
 }
 function isInitBubble(b) {
   try {
@@ -1443,6 +1444,8 @@ function handleSlash(slash) {
   
   //EVALS
   if (slashCmd === '/eval' || slashCmd === '/gate') {
+    var modeVal = (mode && mode.value) ? mode.value : 'harper';
+    var key = modeVal;
     var atts = [];
     try {
       if (typeof attachmentsByMode !== 'undefined' && attachmentsByMode && attachmentsByMode[key]) {
@@ -1728,19 +1731,15 @@ function runHarperCommandFromEnter() {
   prompt.value = '';
   return true;
 }
-
 function dispatchSlashFromInput(slash) {
   if (!slash || isBusy()) return false;
 
-  if (currentMode() === 'harper' && isHarperBlockingSlashCommand(slash.cmd)) {
-    lockHarperUi();
-  }
+  handleSlash(slash);
 
   try {
     prompt.value = '';
   } catch {}
 
-  handleSlash(slash);
   return true;
 }
 
@@ -2119,6 +2118,7 @@ window.addEventListener('message', (event) => {
 
   
   if (msg.type === 'chatResult') {
+    //unlockHarperUi();
     const modelName = msg.data?.model || model.value || 'auto';
     const text = (msg.data && (msg.data.text || msg.data.content))
       ? (msg.data.text || msg.data.content)

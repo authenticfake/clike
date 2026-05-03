@@ -890,6 +890,42 @@ def _build_kit_user_message(
 
     if file_requirements:
         parts.append("## FILE REQUIREMENTS")
+
+        runtime_manifest_policy = file_requirements.get("runtime_manifest_policy") or {}
+        if runtime_manifest_policy:
+            parts.extend([
+                "- Runtime eval manifest policy:",
+                f"  - Required: {bool(runtime_manifest_policy.get('required', False))}",
+                f"  - Scope: {runtime_manifest_policy.get('scope') or 'KIT_EVAL_ONLY'}",
+                f"  - Policy: {runtime_manifest_policy.get('policy') or 'n/a'}",
+            ])
+            examples = [str(x).strip() for x in (runtime_manifest_policy.get("examples") or []) if str(x).strip()]
+            must_not = [str(x).strip() for x in (runtime_manifest_policy.get("must_not") or []) if str(x).strip()]
+            if examples:
+                parts.append("  - Examples only:")
+                parts.extend([f"    - {x}" for x in examples])
+            if must_not:
+                parts.append("  - Must not:")
+                parts.extend([f"    - {x}" for x in must_not])
+
+        launcher_policy = file_requirements.get("solution_launcher_policy") or {}
+        if launcher_policy:
+            parts.extend([
+                "- Solution launcher/composition policy:",
+                f"  - Required when executable area exists: {bool(launcher_policy.get('required_when_executable_area_exists', False))}",
+                f"  - Scope: {launcher_policy.get('scope') or 'SOLUTION_COMPOSITION_ROOT'}",
+                f"  - Execution areas detected: {', '.join(str(x) for x in (launcher_policy.get('execution_areas_detected') or [])) or 'not pre-detected; infer from repository evidence'}",
+                f"  - Policy: {launcher_policy.get('policy') or 'n/a'}",
+            ])
+            must_cover = [str(x).strip() for x in (launcher_policy.get("must_cover") or []) if str(x).strip()]
+            must_not = [str(x).strip() for x in (launcher_policy.get("must_not") or []) if str(x).strip()]
+            if must_cover:
+                parts.append("  - Must cover:")
+                parts.extend([f"    - {x}" for x in must_cover])
+            if must_not:
+                parts.append("  - Must not:")
+                parts.extend([f"    - {x}" for x in must_not])
+
         for item in list(file_requirements.get("required_outputs") or []):
             path_hint = str(item.get("path_hint") or "").strip()
             kind = str(item.get("kind") or "").strip()

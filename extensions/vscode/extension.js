@@ -584,7 +584,7 @@ async function collectKitRagItems(workspaceRoot, reqId, opts = {}) {
   return items;
 }
 
-const HARPER_REQUEST_TIMEOUT_MS = 25 * 60 * 1000; // 12 minuti #porcocazzo il timeout ...
+const HARPER_REQUEST_TIMEOUT_MS = 35 * 60 * 1000; // 35 minuti #porcocazzo il timeout ...maybe too long
 
 async function callHarper(cmd, payload, headers, opts = {}) {
   const base =
@@ -1246,7 +1246,7 @@ function cfg() {
     localAgentPreferredExecutor: c.get('localAgent.preferredExecutor', 'auto'),
     localAgentAllowEval: c.get('localAgent.allowEval', false),
     localAgentRestrictToKitPhases: c.get('localAgent.restrictToKitPhases', true),
-    localAgentTimeoutMinutes: c.get('localAgent.timeoutMinutes', 20),
+    localAgentTimeoutMinutes: c.get('localAgent.timeoutMinutes', 30),
 
     claudeCodeEnabled: c.get('claudeCode.enabled', false),
     claudeCodeRestrictToKitPhases: c.get('claudeCode.restrictToKitPhases', true),
@@ -1254,11 +1254,11 @@ function cfg() {
     claudeCodeCommand: c.get('claudeCode.command', 'claude'),
     claudeCodePermissionMode: c.get('claudeCode.permissionMode', 'acceptEdits'),
     claudeCodePrintModeFlag: c.get('claudeCode.printModeFlag', '-p'),
-    claudeCodeTimeoutMinutes: c.get('claudeCode.timeoutMinutes', 20),
+    claudeCodeTimeoutMinutes: c.get('claudeCode.timeoutMinutes', 30),
 
     codexEnabled: c.get('localAgent.codex.enabled', true),
     codexCommand: c.get('localAgent.codex.command', 'codex'),
-    codexTimeoutMinutes: c.get('localAgent.codex.timeoutMinutes', 20),
+    codexTimeoutMinutes: c.get('localAgent.codex.timeoutMinutes', 35),
 
     requireCleanGit: c.get('apply.requireCleanGit', false),
     backup: c.get('apply.backup', true),
@@ -3703,9 +3703,16 @@ async function cmdOpenChat(context) {
                 const fallbackBody = {
                   ...body,
                   executionPreference: 'cloud_only',
+                  localAgentFallbackReason: err?.message || String(err),
+                  runtimeSelectionGuardrails: [
+                    'Do not infer implementation language from lane alone.',
+                    'Use TECH_CONSTRAINTS.yaml and SPEC.md as the primary runtime source of truth.',
+                    'If the project declares Node.js, Express, React, Vite, npm, JavaScript, or TypeScript, emit that ecosystem and ci/package.json.',
+                    'Use Python only when project evidence explicitly identifies Python as the implementation stack.',
+                  ],
                 };
 
-                outGateway = await callHarper(cmd, fallbackBody, _headers, { timeoutMs: 1000 * 60 * harperTimeout });
+                outGateway = await callHarper(cmd, fallbackBody, _headers, { timeoutMs: 1000 * 60 * harperTimeout });                
                 _out = outGateway.out;
               }
             }
@@ -4094,13 +4101,36 @@ async function cmdOpenChat(context) {
 
             break;
           }
-          case 'gate': 
-            report = await handleGate(
-              path_ltc_json,
-              ws_root,
-              targets,
-              opts = { promote: false, reqId: targets, mode: mode, result: modeContent }
-            );
+          case 'gate':
+            if (isManual) {
+              report = {
+                req_id: targets,
+                status: 'PASS',
+                gate: 'pass',
+                reason_code: 'manual_override',
+                summary: `Manual gate override accepted for ${targets}.`,
+                passed: 1,
+                failed: 0,
+                passed_count: 1,
+                blocked_count: 0,
+                warning_count: 0,
+                cases: [
+                  {
+                    name: 'manual_gate_override',
+                    passed: true,
+                    cmd: `/gate ${targets} manual pass`,
+                    stdout: `Manual gate override accepted for ${targets}.`
+                  }
+                ]
+              };
+            } else {
+              report = await handleGate(
+                path_ltc_json,
+                ws_root,
+                targets,
+                { promote: false, reqId: targets, mode: mode, result: modeContent }
+              );
+            }
 
             const { report_file, filesToCommit, planFiles } = await saveGateCommand(
               ws_root,
@@ -4138,6 +4168,7 @@ async function cmdOpenChat(context) {
             }
             break;
         }
+        
         if (phase === 'eval') {
           try {
             const evalProjectId = getProjectId();

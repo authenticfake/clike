@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -156,6 +159,24 @@ class EvalRunner:
             "sqlite3: not found",
             ": not found",
             "no module named",
+            "cannot find module",
+            "cannot find package",
+            "err_module_not_found",
+            "module_not_found",
+            "err_unknown_builtin_module",
+            "node:sqlite",
+            "better-sqlite3 is required",
+            "requires a node runtime that exposes",
+            "could not locate the bindings file",
+
+            # Python/package-manager environment issues.
+            "cannot find module",
+            "cannot find package",
+            "err_module_not_found",
+            "module_not_found",
+            "could not locate the bindings file",
+            "node-gyp",
+            "gyp err!",
 
             # Python/package-manager environment issues.
             "externally-managed-environment",
@@ -179,9 +200,17 @@ class EvalRunner:
             "cannot open shared object file",
             "shared object",
             "dynamic module",
+            "node-gyp",
+            "gyp err!",
+            "prebuild-install",
+            "make: not found",
+            "python: not found",
 
             # Permission/sandbox issues.
             "permission denied",
+            "read-only file system",
+            "erofs:",
+            "enoent: no such file or directory",
         ]
         if any(marker in text for marker in markers):
             return True
@@ -192,19 +221,69 @@ class EvalRunner:
         raw = req_id or "REQ-UNKNOWN"
         return re.sub(r"[^A-Za-z0-9_.-]+", "_", raw)
 
+    def _is_writable_dir(self, path: Path) -> bool:
+        """
+        Return True only if the directory can be created and written to.
+
+        This is intentionally stronger than os.access because Podman/bind mounts
+        may look accessible but fail at actual write time.
+        """
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+            probe = path / ".clike-write-probe"
+            probe.write_text("ok\n", encoding="utf-8")
+            probe.unlink(missing_ok=True)
+            return True
+        except OSError:
+            return False
+        except Exception:
+            return False
+
+    def _eval_base_dir(self) -> Path:
+        """
+        Resolve the writable eval base directory.
+
+        Preferred:
+        - CLIKE_EVAL_ROOT when explicitly provided
+        - <project>/runs/eval when writable
+
+        Fallback:
+        - system temp directory, useful when the project is mounted read-only
+          inside Podman or other restricted runners.
+        """
+        explicit = os.getenv("CLIKE_EVAL_ROOT", "").strip()
+        candidates: List[Path] = []
+
+        if explicit:
+            candidates.append(Path(explicit))
+
+        candidates.append(self.project_root / "runs" / "eval")
+
+        project_key = re.sub(r"[^A-Za-z0-9_.-]+", "_", self.project_root.name or "project")
+        candidates.append(Path(tempfile.gettempdir()) / "clike-eval" / project_key)
+
+        for candidate in candidates:
+            resolved = candidate if candidate.is_absolute() else (self.project_root / candidate)
+            if self._is_writable_dir(resolved):
+                return resolved.resolve()
+
+        raise OSError(
+            "No writable eval directory found. Tried: "
+            + ", ".join(str(candidate) for candidate in candidates)
+        )
+
+
+
     def _resolve_req_file(self, req_file: str) -> Path:
         raw = Path(req_file)
         return raw if raw.is_absolute() else (self.project_root / raw).resolve()
 
     def _venv_dir(self, req_id: Optional[str]) -> Path:
         """
-        Runtime eval virtualenvs must not be created under .clike.
-
-        .clike is project capability/configuration space and may be read-only,
-        versioned, or managed by templates. Eval runtime artifacts belong under
-        runs/eval, which is the canonical writable evaluation area.
+        Runtime eval virtualenvs must not be created under .clike or any path
+        that may be read-only in a containerized runner.
         """
-        return self.project_root / "runs" / "eval" / ".venvs" / self._safe_req_id(req_id)
+        return self._eval_base_dir() / ".venvs" / self._safe_req_id(req_id)
 
     def _venv_python(self, venv_dir: Path) -> Path:
         if os.name == "nt":
@@ -335,6 +414,141 @@ class EvalRunner:
         cases.append(install_case)
         return venv_env, cases
 
+    def _resolve_node_manifest(
+        self,
+        *,
+        runtime: Dict[str, Any],
+        ltc: Dict[str, Any],
+        profile_path: Path,
+    ) -> Optional[Path]:
+        """
+        Resolve a KIT-local Node/npm manifest without forcing Node as a default.
+
+        The manifest is considered only when the LTC/runtime declares a Node-like
+        runtime or when a package.json exists next to the LTC profile.
+        """
+        explicit = (
+            runtime.get("manifest_file")
+            or runtime.get("package_json")
+            or runtime.get("package-json")
+            or ltc.get("manifest_file")
+            or ltc.get("package_json")
+            or ltc.get("package-json")
+        )
+        if explicit:
+            path = Path(str(explicit))
+            return path if path.is_absolute() else (self.project_root / path).resolve()
+
+        candidates = [
+            profile_path.parent / "package.json",
+            profile_path.parent.parent / "package.json",
+        ]
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate.resolve()
+        return None
+
+    def _ensure_node_dependencies(
+        self,
+        *,
+        req_id: Optional[str],
+        package_json: Path,
+        env: Dict[str, str],
+        cwd: Path,
+    ) -> tuple[Dict[str, str], List[EvalCase]]:
+        """
+        Install Node/npm dependencies for KIT eval in the manifest directory.
+
+        This is scoped to the KIT-local ci/package.json. It never installs global
+        packages and never writes under canonical src roots. In restricted runners
+        or Podman environments, native dependency failures are reported as
+        environment-blocked warnings instead of being misclassified as code defects.
+        """
+        cases: List[EvalCase] = []
+
+        if not package_json.exists():
+            return env, [
+                EvalCase(
+                    name="env::npm-manifest",
+                    passed=False,
+                    code=3,
+                    stdout="",
+                    stderr=f"package.json not found: {package_json}",
+                    cmd=None,
+                    cwd=str(cwd),
+                    blocked=True,
+                    blocking=False,
+                )
+            ]
+
+        manifest_dir = package_json.parent
+        node_modules = manifest_dir / "node_modules"
+        lock_file = manifest_dir / "package-lock.json"
+        marker_basis = f"{self._requirements_hash(package_json)}:{self._requirements_hash(lock_file) if lock_file.exists() else 'no-lock'}"
+        marker = manifest_dir / f".npm-{marker_basis}.installed"
+
+        node_env = dict(env)
+        node_env["CLIKE_EVAL_NPM_PREFIX"] = str(manifest_dir)
+
+        if node_modules.exists() and marker.exists():
+            cases.append(
+                EvalCase(
+                    name="env::npm-install",
+                    passed=True,
+                    code=0,
+                    stdout=f"npm dependencies already installed in {manifest_dir}",
+                    stderr="",
+                    cmd=None,
+                    cwd=str(cwd),
+                    blocking=False,
+                )
+            )
+            return node_env, cases
+
+        try:
+            manifest_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            return node_env, [
+                EvalCase(
+                    name="env::npm-dir",
+                    passed=False,
+                    code=30,
+                    stdout="",
+                    stderr=f"cannot create npm manifest directory {manifest_dir}: {exc}",
+                    cmd=None,
+                    cwd=str(cwd),
+                    blocked=True,
+                    blocking=False,
+                )
+            ]
+
+        install_cmd = (
+            f"npm {'ci' if lock_file.exists() else 'install'} "
+            f"--prefix {shlex.quote(str(manifest_dir))} "
+            "--no-audit --no-fund"
+        )
+
+        install_case = self._run(
+            name="env::npm-install",
+            cmd=install_cmd,
+            cwd=cwd,
+            expect=0,
+            env=node_env,
+            blocking=False,
+            environment_requirements=["npm", "network", "native-dependencies"],
+        )
+
+        if install_case.passed:
+            try:
+                marker.write_text("ok\n", encoding="utf-8")
+            except Exception as exc:
+                install_case.stderr = (install_case.stderr + f"\nmarker write warning: {exc}")[-4000:]
+        else:
+            install_case.blocked = True
+
+        cases.append(install_case)
+        return node_env, cases
+
     def _normalize_cases(self, ltc: Dict[str, Any]) -> List[Dict[str, Any]]:
         norm_cases: List[Dict[str, Any]] = []
 
@@ -342,6 +556,10 @@ class EvalRunner:
             for check in ltc["checks"]:
                 if not isinstance(check, dict):
                     continue
+
+                required = check.get("required", True)
+                blocking = bool(check.get("blocking", required))
+
                 norm_cases.append(
                     {
                         "name": check.get("id") or check.get("name") or check.get("command") or "check",
@@ -350,7 +568,7 @@ class EvalRunner:
                         "expect": int(check.get("expect", check.get("expect_exit", 0))),
                         "timeout": check.get("timeout"),
                         "env": check.get("env") or {},
-                        "blocking": bool(check.get("blocking", True)),
+                        "blocking": blocking,
                         "environment_requirements": check.get("environment_requirements") or [],
                     }
                 )
@@ -535,6 +753,364 @@ class EvalRunner:
 
         return norm_cases
 
+    def _eval_dir(self, req_id: Optional[str]) -> Path:
+        return self._eval_base_dir() / self._safe_req_id(req_id)
+
+    def _path_relative_to_project(self, path: Path) -> Optional[str]:
+        try:
+            return path.resolve().relative_to(self.project_root).as_posix()
+        except Exception:
+            return None
+
+    def _resolve_kit_root(
+        self,
+        *,
+        profile_path: Path,
+        req_id: Optional[str],
+    ) -> Optional[Path]:
+        """
+        Resolve the candidate KIT root from the LTC profile path.
+
+        Expected shape:
+        runs/kit/<REQ-ID>/ci/LTC.json
+        """
+        try:
+            current = profile_path.resolve()
+        except Exception:
+            current = profile_path
+
+        for parent in [current.parent, *current.parents]:
+            if parent.name == "ci" and parent.parent.name:
+                candidate = parent.parent
+                if (candidate / "ci").exists() and (candidate / "src").exists():
+                    return candidate.resolve()
+
+        if req_id:
+            candidate = self.project_root / "runs" / "kit" / self._safe_req_id(req_id)
+            if candidate.exists():
+                return candidate.resolve()
+
+        return None
+
+    def _prepare_eval_workspace(
+        self,
+        *,
+        req_id: Optional[str],
+        profile_path: Path,
+    ) -> tuple[Path, Path, Path, Dict[str, str], Optional[Path], List[str]]:
+        """
+        Create a writable eval workspace.
+
+        runs/kit/<REQ-ID> is treated as candidate input.
+        runs/eval/<REQ-ID>/work/<REQ-ID> is the writable execution copy.
+        runs/eval/<REQ-ID>/reports is the report output root.
+        """
+
+        eval_dir = self._eval_dir(req_id)
+        work_root = eval_dir / "work"
+        reports_root = eval_dir / "reports"
+        logs_root = eval_dir / "logs"
+        dependency_roots: List[str] = []
+
+        for path in (work_root, reports_root, logs_root, eval_dir / ".npm-cache"):
+            try:
+                path.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                raise OSError(
+                    f"Cannot create writable eval workspace path {path}. "
+                    f"Resolved eval base was {self._eval_base_dir()}. "
+                    f"Original error: {exc}"
+                ) from exc
+
+        kit_root = self._resolve_kit_root(profile_path=profile_path, req_id=req_id)
+        if not kit_root:
+            return work_root, reports_root, logs_root, {}, None, dependency_roots
+
+        work_kit_root = work_root / kit_root.name
+        if work_kit_root.exists():
+            shutil.rmtree(work_kit_root)
+
+        shutil.copytree(
+            kit_root,
+            work_kit_root,
+            ignore=shutil.ignore_patterns(
+                "node_modules",
+                ".npm-*",
+                ".venv",
+                "__pycache__",
+                ".pytest_cache",
+                "reports",
+            ),
+        )
+        
+        plan_path = self.project_root / "docs" / "harper" / "plan.json"
+        try:
+            plan_data = json.loads(plan_path.read_text(encoding="utf-8")) if plan_path.exists() else {}
+            reqs = plan_data.get("reqs") or plan_data.get("req") or []
+            current_req = next(
+                (
+                    item
+                    for item in reqs
+                    if isinstance(item, dict) and str(item.get("id") or "") == kit_root.name
+                ),
+                None,
+            )
+            depends_on = list(current_req.get("dependsOn") or []) if isinstance(current_req, dict) else []
+
+            deps_root = work_root / "_deps"
+            deps_root.mkdir(parents=True, exist_ok=True)
+
+            for dep_id in depends_on:
+                dep_safe = self._safe_req_id(str(dep_id))
+                dep_kit = self.project_root / "runs" / "kit" / dep_safe
+                if not dep_kit.exists():
+                    continue
+
+                dep_work = deps_root / dep_safe
+                if dep_work.exists():
+                    shutil.rmtree(dep_work)
+
+                shutil.copytree(
+                    dep_kit,
+                    dep_work,
+                    ignore=shutil.ignore_patterns(
+                        "node_modules",
+                        ".npm-*",
+                        ".venv",
+                        "__pycache__",
+                        ".pytest_cache",
+                        "reports",
+                    ),
+                )
+                dependency_roots.append(str(dep_work))
+        except Exception:
+            dependency_roots = []
+            
+        path_map: Dict[str, str] = {
+            str(kit_root): str(work_kit_root),
+        }
+
+        rel_kit_root = self._path_relative_to_project(kit_root)
+        if rel_kit_root:
+            path_map[rel_kit_root] = str(work_kit_root)
+
+        # Compatibility shim for CI scripts that still infer:
+        #   <eval-base>/runs/kit/<REQ-ID>
+        # from __dirname instead of using CLIKE_EVAL_KIT_DIR.
+        # This keeps already generated KITs runnable while future KITs migrate
+        # to explicit env vars.
+        compat_kit_root = self._eval_base_dir() / "runs" / "kit" / kit_root.name
+        try:
+            compat_kit_root.parent.mkdir(parents=True, exist_ok=True)
+            if compat_kit_root.exists() or compat_kit_root.is_symlink():
+                if compat_kit_root.is_symlink() or compat_kit_root.is_file():
+                    compat_kit_root.unlink()
+                else:
+                    shutil.rmtree(compat_kit_root)
+            try:
+                compat_kit_root.symlink_to(work_kit_root, target_is_directory=True)
+            except OSError:
+                shutil.copytree(work_kit_root, compat_kit_root)
+        except Exception:
+            # Best-effort compatibility only. The canonical path rewrite above
+            # remains the source of truth.
+            pass
+
+        return work_root, reports_root, logs_root, path_map, work_kit_root, dependency_roots
+
+    def _rewrite_for_eval_workspace(self, value: Any, path_map: Dict[str, str]) -> Any:
+        if not isinstance(value, str) or not path_map:
+            return value
+
+        rewritten = value
+        for source, target in sorted(path_map.items(), key=lambda item: len(item[0]), reverse=True):
+            rewritten = rewritten.replace(source, target)
+        return rewritten
+
+    def _resolve_workdir(self, raw_cwd: Optional[str], path_map: Dict[str, str]) -> Path:
+        if not raw_cwd:
+            return self.project_root
+
+        rewritten = self._rewrite_for_eval_workspace(raw_cwd, path_map)
+        path = Path(str(rewritten))
+        return path if path.is_absolute() else (self.project_root / path).resolve()
+
+    def _resolve_node_manifest(
+        self,
+        *,
+        runtime: Dict[str, Any],
+        ltc: Dict[str, Any],
+        profile_path: Path,
+        path_map: Dict[str, str],
+    ) -> Optional[Path]:
+        """
+        Resolve a KIT-local Node/npm manifest without forcing Node as a default.
+        """
+        explicit = (
+            runtime.get("manifest")
+            or runtime.get("manifest_file")
+            or runtime.get("package_json")
+            or runtime.get("package-json")
+            or ltc.get("manifest")
+            or ltc.get("manifest_file")
+            or ltc.get("package_json")
+            or ltc.get("package-json")
+        )
+
+        if explicit:
+            rewritten = self._rewrite_for_eval_workspace(str(explicit), path_map)
+            path = Path(rewritten)
+            return path if path.is_absolute() else (self.project_root / path).resolve()
+
+        candidates = [
+            profile_path.parent / "package.json",
+            profile_path.parent.parent / "package.json",
+        ]
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate.resolve()
+
+        return None
+
+    def _ensure_node_dependencies(
+        self,
+        *,
+        req_id: Optional[str],
+        package_json: Path,
+        env: Dict[str, str],
+        cwd: Path,
+    ) -> tuple[Dict[str, str], List[EvalCase]]:
+        """
+        Install Node/npm dependencies in the writable eval copy.
+
+        Never install under canonical src roots. Never rely on global modules.
+        """
+        cases: List[EvalCase] = []
+
+        if not package_json.exists():
+            return env, [
+                EvalCase(
+                    name="env::npm-manifest",
+                    passed=False,
+                    code=3,
+                    stdout="",
+                    stderr=f"package.json not found: {package_json}",
+                    cmd=None,
+                    cwd=str(cwd),
+                    blocked=True,
+                    blocking=False,
+                )
+            ]
+
+        manifest_dir = package_json.parent
+        node_modules = manifest_dir / "node_modules"
+        lock_file = manifest_dir / "package-lock.json"
+        lock_hash = self._requirements_hash(lock_file) if lock_file.exists() else "no-lock"
+        marker = manifest_dir / f".npm-{self._requirements_hash(package_json)}-{lock_hash}.installed"
+
+        node_env = dict(env)
+        npm_cache = self._eval_dir(req_id) / ".npm-cache"
+        npm_cache.mkdir(parents=True, exist_ok=True)
+        node_env["npm_config_cache"] = str(npm_cache)
+        node_env["NPM_CONFIG_CACHE"] = str(npm_cache)
+        node_env["CLIKE_EVAL_NPM_PREFIX"] = str(manifest_dir)
+
+        if node_modules.exists() and marker.exists():
+            cases.append(
+                EvalCase(
+                    name="env::npm-install",
+                    passed=True,
+                    code=0,
+                    stdout=f"npm dependencies already installed in {manifest_dir}",
+                    stderr="",
+                    cmd=None,
+                    cwd=str(cwd),
+                    blocking=False,
+                )
+            )
+            return node_env, cases
+
+        try:
+            manifest_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            return node_env, [
+                EvalCase(
+                    name="env::npm-dir",
+                    passed=False,
+                    code=30,
+                    stdout="",
+                    stderr=f"cannot create npm manifest directory {manifest_dir}: {exc}",
+                    cmd=None,
+                    cwd=str(cwd),
+                    blocked=True,
+                    blocking=False,
+                )
+            ]
+
+        install_mode = "ci" if lock_file.exists() else "install"
+        install_cmd = (
+            f"npm {install_mode} "
+            f"--prefix {shlex.quote(str(manifest_dir))} "
+            "--no-audit --no-fund"
+        )
+
+        install_case = self._run(
+            name="env::npm-install",
+            cmd=install_cmd,
+            cwd=cwd,
+            expect=0,
+            env=node_env,
+            blocking=False,
+            environment_requirements=["npm", "network", "native-dependencies"],
+        )
+
+        if install_case.passed:
+            try:
+                marker.write_text("ok\n", encoding="utf-8")
+            except Exception as exc:
+                install_case.stderr = (install_case.stderr + f"\nmarker write warning: {exc}")[-4000:]
+        else:
+            install_case.blocked = True
+
+        cases.append(install_case)
+        return node_env, cases
+
+    def _case_depends_on_failed_setup(self, cmd: Optional[str]) -> bool:
+        if not cmd:
+            return False
+
+        text = cmd.lower()
+        dependency_sensitive_markers = [
+            "npm run test",
+            "npm run build",
+            "npm run test:coverage",
+            "npm run coverage",
+            "npm run security:deps",
+            "node --test",
+            "better-sqlite3",
+        ]
+        return any(marker in text for marker in dependency_sensitive_markers)
+
+    def _blocked_due_to_setup(
+        self,
+        *,
+        case_name: str,
+        cmd: Optional[str],
+        cwd: Path,
+        reason: str,
+    ) -> EvalCase:
+        return EvalCase(
+            name=case_name,
+            passed=False,
+            code=994,
+            stdout="",
+            stderr=reason,
+            cmd=cmd,
+            cwd=str(cwd),
+            expect=0,
+            blocked=True,
+            blocking=False,
+        )
     def _report_from_cases(
         self,
         *,
@@ -569,6 +1145,7 @@ class EvalRunner:
             blocked=blocked,
             warnings=warnings,
             status=status,
+            json_path=str(self._eval_dir(req_id)),
         )
 
     def run_profile(
@@ -582,6 +1159,7 @@ class EvalRunner:
         profile_path = Path(profile or "LTC.json")
         if not profile_path.is_absolute():
             profile_path = self.project_root / profile_path
+        profile_path = profile_path.resolve()
 
         if mode.lower() == "manual":
             if verdict not in ("pass", "fail"):
@@ -617,11 +1195,46 @@ class EvalRunner:
             )
 
         eff_req = req_id or ltc.get("req_id")
-        top_env = ltc.get("env") or {}
-        default_cwd = self.project_root / (ltc.get("cwd") or "")
         out_cases: List[EvalCase] = []
 
-        base_env = self._merge_env(top_env if isinstance(top_env, dict) else {}, None)
+        work_root, reports_root, logs_root, path_map, work_kit_root, dependency_roots = self._prepare_eval_workspace(
+            req_id=eff_req,
+            profile_path=profile_path,
+        )
+
+        active_profile_path = Path(
+            self._rewrite_for_eval_workspace(str(profile_path), path_map)
+        ).resolve()
+
+        raw_runtime_for_cwd = ltc.get("runtime") or {}
+        runtime_working_directory = ""
+        if isinstance(raw_runtime_for_cwd, dict):
+            runtime_working_directory = str(
+                raw_runtime_for_cwd.get("working_directory")
+                or raw_runtime_for_cwd.get("workdir")
+                or raw_runtime_for_cwd.get("cwd")
+                or ""
+            ).strip()
+
+        default_cwd = self._resolve_workdir(
+            ltc.get("cwd") or runtime_working_directory or "",
+            path_map,
+        )
+
+        top_env = ltc.get("env") or {}
+        eval_path_env = {
+            "CLIKE_EVAL_REQ_ID": str(eff_req or ""),
+            "CLIKE_EVAL_WORK_DIR": str(work_root),
+            "CLIKE_EVAL_REPORT_DIR": str(reports_root),
+            "CLIKE_EVAL_LOG_DIR": str(logs_root),
+            "CLIKE_EVAL_KIT_DIR": str(work_kit_root or ""),
+            "CLIKE_EVAL_DEPENDENCY_KIT_DIRS": os.pathsep.join(dependency_roots) if "dependency_roots" in locals() else "",
+            "CLIKE_EVAL_ORIGINAL_PROFILE": str(profile_path),
+            "CLIKE_EVAL_ACTIVE_PROFILE": str(active_profile_path),
+            "npm_config_cache": str(self._eval_dir(eff_req) / ".npm-cache"),
+            "NPM_CONFIG_CACHE": str(self._eval_dir(eff_req) / ".npm-cache"),
+        }
+        base_env = self._merge_env(top_env if isinstance(top_env, dict) else {}, eval_path_env)
 
         raw_runtime = ltc.get("runtime") or {}
         if isinstance(raw_runtime, dict):
@@ -630,6 +1243,8 @@ class EvalRunner:
                 raw_runtime.get("name")
                 or raw_runtime.get("runtime")
                 or raw_runtime.get("type")
+                or raw_runtime.get("ecosystem")
+                or raw_runtime.get("language")
                 or ""
             ).strip().lower()
         else:
@@ -638,7 +1253,6 @@ class EvalRunner:
 
         requirements_file = None
 
-        # Python dependency manifests are only auto-inferred for Python LTCs.
         if runtime_name in {"python", "python3", "py"}:
             requirements_file = (
                 runtime.get("requirements_file")
@@ -647,10 +1261,13 @@ class EvalRunner:
                 or ltc.get("pip-file")
             )
 
+        if requirements_file:
+            requirements_file = self._rewrite_for_eval_workspace(str(requirements_file), path_map)
+
         if not requirements_file and runtime_name in {"python", "python3", "py"}:
             inferred_candidates = [
-                profile_path.parent / "requirements.txt",
-                profile_path.parent.parent / "requirements.txt",
+                active_profile_path.parent / "requirements.txt",
+                active_profile_path.parent.parent / "requirements.txt",
             ]
             for inferred_requirements in inferred_candidates:
                 if inferred_requirements.exists():
@@ -658,7 +1275,6 @@ class EvalRunner:
                     break
 
         eval_env = base_env
-        setup_cases: List[EvalCase] = []
 
         if requirements_file:
             eval_env, setup_cases = self._ensure_eval_venv(
@@ -669,12 +1285,50 @@ class EvalRunner:
             )
             out_cases.extend(setup_cases)
 
+        node_runtime_names = {
+            "node",
+            "nodejs",
+            "node.js",
+            "javascript",
+            "typescript",
+            "js",
+            "js-ts",
+            "npm",
+            "react",
+            "vite",
+        }
+
+        package_json = None
+        if runtime_name in node_runtime_names or (active_profile_path.parent / "package.json").exists():
+            package_json = self._resolve_node_manifest(
+                runtime=runtime,
+                ltc=ltc,
+                profile_path=active_profile_path,
+                path_map=path_map,
+            )
+
+        if package_json:
+            eval_env, setup_cases = self._ensure_node_dependencies(
+                req_id=eff_req,
+                package_json=package_json,
+                env=eval_env,
+                cwd=default_cwd,
+            )
+            out_cases.extend(setup_cases)
+
+        setup_failed = any(
+            (not case.passed) and case.blocked
+            for case in out_cases
+            if case.name.startswith("env::")
+        )
+
         pre_cmds = ltc.get("pre") or []
         for i, pre in enumerate(pre_cmds, start=1):
+            pre_cmd = str(self._rewrite_for_eval_workspace(pre, path_map))
             out_cases.append(
                 self._run(
                     name=f"pre::{i}",
-                    cmd=pre,
+                    cmd=pre_cmd,
                     cwd=default_cwd,
                     expect=0,
                     env=eval_env,
@@ -705,14 +1359,16 @@ class EvalRunner:
             )
 
         for case in norm_cases:
-            cmd = case.get("run")
-            setup = case.get("setup")
-            workdir = self.project_root / case.get("cwd") if case.get("cwd") else self.project_root
+            raw_cmd = case.get("run")
+            cmd = self._rewrite_for_eval_workspace(raw_cmd, path_map)
+            setup = self._rewrite_for_eval_workspace(case.get("setup"), path_map)
+            workdir = self._resolve_workdir(case.get("cwd"), path_map) if case.get("cwd") else default_cwd
             case_env = self._merge_env(eval_env, case.get("env") or {})
             blocking = bool(case.get("blocking", True))
             environment_requirements = list(case.get("environment_requirements") or [])
             timeout = case.get("timeout")
             case_name = case.get("name") or "case"
+
             try:
                 workdir.mkdir(parents=True, exist_ok=True)
             except OSError as exc:
@@ -732,12 +1388,24 @@ class EvalRunner:
                 )
                 continue
 
+            if setup_failed and self._case_depends_on_failed_setup(str(cmd or "")):
+                out_cases.append(
+                    self._blocked_due_to_setup(
+                        case_name=case_name,
+                        cmd=str(cmd or ""),
+                        cwd=workdir,
+                        reason=(
+                            "Skipped because dependency setup failed earlier. "
+                            "This is classified as environment-blocked to avoid reporting "
+                            "downstream dependency/runtime failures as application code defects."
+                        ),
+                    )
+                )
+                continue
+
             if setup:
                 setup_cmd = str(setup)
 
-                # Make npm --prefix setup robust for KIT-local dependency manifests.
-                # npm does not always create the prefix directory chain before creating
-                # node_modules, so EvalRunner prepares it explicitly.
                 npm_prefix_match = re.search(
                     r"(?:^|\s)npm\s+(?:install|ci)\s+--prefix\s+([^\s]+)",
                     setup_cmd,
@@ -800,7 +1468,7 @@ class EvalRunner:
             out_cases.append(
                 self._run(
                     name=case_name,
-                    cmd=cmd,
+                    cmd=str(cmd),
                     cwd=workdir,
                     expect=case.get("expect", 0),
                     env=case_env,
