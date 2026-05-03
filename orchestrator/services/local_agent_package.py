@@ -541,6 +541,7 @@ def _build_recommended_outputs(
     return recommended
 
 
+
 def _build_file_requirements(
     req_id: str,
     req: Dict[str, Any],
@@ -550,12 +551,25 @@ def _build_file_requirements(
     """
     Build standalone file requirements and provider obligations.
 
-    Keep the contract runtime-neutral: required outputs are stable, while dependency
-    manifests are runtime-native and optional.
+    The contract is runtime-agnostic: it requires runnable composition and
+    runtime-native manifests without forcing Node, Python, React, Express, Vite,
+    or any specific framework. SPEC, PLAN, TECH_CONSTRAINTS and repository
+    evidence remain the source of truth.
     """
+    payload = payload or {}
     provider_realism_required = _technical_scope_requires_real_provider_wiring(req)
 
-    required_outputs = [
+    evidence_blob = f"{_req_text_blob(req)}\n{_project_contract_text_blob(payload)}"
+
+    execution_areas: List[str] = []
+    if any(token in evidence_blob for token in ("backend", "api", "rest",  "mendix-be", "server")):
+        execution_areas.append("backend")
+    if any(token in evidence_blob for token in ("frontend", "ui", "react",  "angular",  "mendix-fe", "vite", "browser")):
+        execution_areas.append("frontend")
+    if not execution_areas and any(token in evidence_blob for token in ("web_application", "web application", "fullstack", "full-stack")):
+        execution_areas.extend(["backend", "frontend"])
+
+    required_candidate_outputs = [
         f"runs/kit/{req_id}/src/",
         f"runs/kit/{req_id}/test/",
         f"runs/kit/{req_id}/ci/LTC.json",
@@ -563,21 +577,147 @@ def _build_file_requirements(
     ]
 
     recommended_outputs = _build_recommended_outputs(req_id, req, payload)
-    execution_root_policy = {
-        "runtime_manifest_required": True,
+
+    runtime_manifest_policy = {
+        "required": True,
+        "scope": "KIT_EVAL_ONLY",
         "policy": (
-            "If the KIT emits runnable source or tests, it must emit the runtime-native "
-            "manifest needed to run the KIT evaluation harness. Examples: ci/package.json "
-            "for Node/npm, ci/requirements.txt or ci/pyproject.toml for Python. "
-            "This file is functional for KIT/EVAL execution; promotion/merge handling is owned by CLike."
+            "If the KIT emits runnable source or tests, emit the runtime-native "
+            "dependency manifest needed by the KIT evaluation harness under "
+            f"runs/kit/{req_id}/ci/. This manifest is not the canonical application "
+            "runtime manifest unless promotion later reconciles it explicitly."
         ),
-        "launcher_policy": (
-            "If the KIT emits executable backend/frontend/service modules, it must provide "
-            "one coherent launcher/composition entry per executable area when needed: one backend launcher, "
-            "one frontend launcher, and one launcher per separate service. Do not create one launcher per REQ. "
-            "Do not omit launch/composition wiring when the emitted module must be runnable or integrable."
-        ),
+        "examples": [
+            f"runs/kit/{req_id}/ci/package.json for Node/npm ecosystems",
+            f"runs/kit/{req_id}/ci/requirements.txt or ci/pyproject.toml for Python ecosystems",
+            f"runs/kit/{req_id}/ci/pom.xml for Maven ecosystems",
+            f"runs/kit/{req_id}/ci/go.mod for Go ecosystems",
+            f"runs/kit/{req_id}/ci/RUNTIME_MANIFEST.md when the ecosystem has no standard manifest",
+        ],
+        "must_not": [
+            f"Do not create runtime manifests under runs/kit/{req_id}/src/**.",
+            "Do not emit Python requirements for non-Python implementations.",
+            "Do not emit npm manifests for non-Node implementations.",
+            "Do not add unrelated speculative dependencies.",
+        ],
     }
+
+    solution_launcher_policy = {
+        "required_when_executable_area_exists": True,
+        "scope": "SOLUTION_COMPOSITION_ROOT",
+        "execution_areas_detected": execution_areas,
+        "policy": (
+            "When emitted code exposes an executable application area, generate or "
+            "regenerate one coherent composition root per execution area. A launcher "
+            "belongs to the solution area, not to the individual REQ. Do not create "
+            "REQ-local app mains. Reuse existing repository launcher conventions when "
+            "present; otherwise infer the minimal runtime-native launcher shape from "
+            "SPEC, PLAN and TECH_CONSTRAINTS."
+        ),
+        "must_cover": [
+            "backend application composition when backend/API/server modules exist",
+            "frontend application composition when frontend/UI/browser modules exist",
+            "stable exports/imports that wire generated feature modules into the executable area",
+            "local runnable entry points documented in HOWTO and referenced by LTC where relevant",
+        ],
+        "must_not": [
+            "Do not create one launcher per REQ.",
+            "Do not hide runnable composition inside feature-only modules.",
+            "Do not confuse KIT/EVAL manifests under ci/ with promotion-ready runtime manifests under candidate execution area roots.",
+            "Do not put eval-only scripts, temp overlay paths, or REQ-specific eval paths in promotion-ready runtime manifests.",
+            "Do not bypass existing canonical launcher files when repository evidence already provides them.",
+        ],
+        "runtime_native_examples_only": {
+            "node_express_backend": [
+                f"runs/kit/{req_id}/src/backend/app.js",
+                f"runs/kit/{req_id}/src/backend/server.js",
+            ],
+            "react_vite_frontend": [
+                f"runs/kit/{req_id}/src/frontend/index.html",
+                f"runs/kit/{req_id}/src/frontend/src/main.jsx",
+                f"runs/kit/{req_id}/src/frontend/src/App.jsx",
+            ],
+            "python_fastapi_backend": [
+                f"runs/kit/{req_id}/src/backend/app.py",
+                f"runs/kit/{req_id}/src/backend/main.py",
+            ],
+        },
+    }
+
+    required_outputs = [
+        {
+            "role": "source_root",
+            "path_hint": f"runs/kit/{req_id}/src/",
+            "kind": "source",
+            "required": True,
+            "purpose": "Candidate source files for the target REQ, directly promotable into canonical src roots.",
+            "must_cover": ["REQ acceptance criteria", "declared canonical module boundaries"],
+        },
+        {
+            "role": "test_root",
+            "path_hint": f"runs/kit/{req_id}/test/",
+            "kind": "test",
+            "required": True,
+            "purpose": "Candidate tests for the target REQ, directly promotable into canonical test roots.",
+            "must_cover": ["acceptance criteria", "regression-sensitive behavior", "runtime smoke where applicable"],
+        },
+        {
+            "role": "execution_contract",
+            "path_hint": f"runs/kit/{req_id}/ci/LTC.json",
+            "kind": "ci",
+            "required": True,
+            "purpose": "Executable local test contract for /eval.",
+            "must_cover": ["tests", "lint or syntax checks", "build or runtime smoke when the implementation is runnable"],
+        },
+        {
+            "role": "execution_howto",
+            "path_hint": f"runs/kit/{req_id}/ci/HOWTO.md",
+            "kind": "ci_doc",
+            "required": True,
+            "purpose": "Copy-paste execution guide aligned with LTC.",
+            "must_cover": ["local setup", "container or restricted-runner notes when applicable", "troubleshooting"],
+        },
+        {
+            "role": "runtime_eval_manifest",
+            "path_hint": f"runs/kit/{req_id}/ci/<runtime-native-dependency-manifest>",
+            "kind": "ci",
+            "required": True,
+            "purpose": "Runtime-native manifest for KIT/EVAL dependencies and scripts.",
+            "must_cover": runtime_manifest_policy["examples"],
+            "must_not_contain": runtime_manifest_policy["must_not"],
+        },
+        {
+            "role": "execution_area_runtime_manifest",
+            "path_hint": f"runs/kit/{req_id}/src/<execution-area>/<ecosystem-native-runtime-manifest>",
+            "kind": "source",
+            "required": bool(execution_areas),
+            "purpose": (
+                "Promotion-ready runtime manifest for a runnable execution area. "
+                "This is distinct from the ci/ eval manifest and must be inferred "
+                "from SPEC, PLAN, TECH_CONSTRAINTS, FILE_REQUIREMENTS, and repository evidence."
+            ),
+            "must_cover": [
+                "runtime dependencies required by the promoted execution area",
+                "runtime scripts or launch metadata relative to the execution area root",
+                "ecosystem-native manifest or module descriptor when the ecosystem uses one",
+            ],
+            "must_not_contain": [
+                "runs/kit paths",
+                "ci-only paths",
+                "temporary eval overlay paths",
+                "REQ-specific eval scripts",
+            ],
+        },
+        {
+            "role": "solution_composition_root",
+            "path_hint": f"runs/kit/{req_id}/src/<execution-area-composition-root>",
+            "kind": "source",
+            "required": bool(execution_areas),
+            "purpose": "One coherent launcher/composition root per executable area, solution-scoped rather than REQ-scoped.",
+            "must_cover": solution_launcher_policy["must_cover"],
+            "must_not_contain": solution_launcher_policy["must_not"],
+        },
+    ]
 
     provider_obligations: List[str] = []
     if provider_realism_required:
@@ -591,11 +731,13 @@ def _build_file_requirements(
         )
 
     return {
-        "schema_version": "clike.file_requirements.v1",
+        "schema_version": "clike.file_requirements.v2",
         "req_id": req_id,
-        "required_candidate_outputs": required_outputs,
+        "required_candidate_outputs": required_candidate_outputs,
         "recommended_candidate_outputs": recommended_outputs,
-        "execution_root_policy": execution_root_policy,
+        "required_outputs": required_outputs,
+        "runtime_manifest_policy": runtime_manifest_policy,
+        "solution_launcher_policy": solution_launcher_policy,
         "dependency_manifest_policy": (
             "Use the runtime-native dependency manifest required to run the KIT evaluation harness. "
             "Examples: ci/package.json for Node/npm, ci/requirements.txt or ci/pyproject.toml for Python, "
@@ -611,6 +753,9 @@ def _build_file_requirements(
             "Do not write outside runs/kit/<REQ-ID>/.",
             "Do not modify canonical src/, test/, tests/, docs/harper, or dependency KIT roots.",
             "Do not infer implementation language from lane alone.",
+            "Do not create one application launcher per REQ.",
+            "Do not put eval-only manifests or eval-only scripts under runs/kit/<REQ-ID>/src/**.",
+            "Do not omit promotion-ready runtime manifests for runnable execution areas merely because a ci/ eval manifest exists.",
             "Do not satisfy provider-heavy REQs with decorative or purely in-memory wrappers when concrete provider/runtime wiring is explicitly required.",
         ],
     }
@@ -868,7 +1013,8 @@ def build_kit_local_agent_package(
             "required": [
                 f"runs/kit/{req_id}/ci/LTC.json",
                 f"runs/kit/{req_id}/ci/HOWTO.md",
-                f"runs/kit/{req_id}/ci/<manifest_file_name>  for runtime lanugauge in scope for the KITs",
+                f"runs/kit/{req_id}/ci/<ecosystem-native-eval-manifest>",
+                f"runs/kit/{req_id}/src/<execution-area>/<ecosystem-native-runtime-manifest> when the REQ creates or updates a runnable execution area",
             ],
             "recommended": [
                 f"runs/kit/{req_id}/ci/package.json for Node/npm KITs when source/tests need npm scripts or dependencies",
@@ -899,8 +1045,12 @@ def build_kit_local_agent_package(
             "Before generating code, inspect canonical promoted source roots under src/ when they exist.",
             "Before generating tests, inspect canonical promoted test roots under test/ and tests/ when they exist.",
             "Generated code must be immediately promotable into canonical src/ and test roots without changing public contracts unexpectedly.",
-            "If the KIT emits runnable source or tests, emit the runtime-native KIT eval manifest needed to run them, such as ci/package.json for Node/npm or ci/requirements.txt for Python.",
-            "If the KIT emits backend/frontend/service executable modules, provide one coherent launcher or composition entry per executable area when needed: one backend launcher, one frontend launcher, and one per separate service. Do not create one launcher per REQ.",
+            "If the KIT emits runnable source or tests, emit the runtime-native KIT eval manifest under runs/kit/<REQ-ID>/ci/, such as ci/package.json for Node/npm, ci/requirements.txt or ci/pyproject.toml for Python, pom.xml for Maven, go.mod for Go, or the ecosystem-native equivalent.",
+            "If the KIT emits backend/frontend/service executable modules, provide one coherent solution-scoped launcher/composition entry per execution area when needed: one backend launcher, one frontend launcher, and one per separate service. Do not create one launcher per REQ.",
+            "Launcher/composition files must live under the canonical execution area inside the candidate src tree, not under a REQ-local feature-only namespace unless the repository already uses that convention.",
+            "Keep KIT/EVAL manifests under runs/kit/<REQ-ID>/ci/.",
+            "If the KIT creates or updates a runnable execution area, also emit the ecosystem-native promotion-ready runtime manifest under runs/kit/<REQ-ID>/src/<execution-area>/.",
+            "Do not hardcode runs/kit, ci/, temporary overlay paths, or REQ-specific eval paths in promotion-ready runtime manifests.",
             "It is allowed to regenerate files already emitted by previous KITs when they are functionally required for the current KIT; CLike promotion/merge handles reconciliation later.",
             "Do not duplicate modules, adapters, ports, models, services, or test helpers already present in dependency KITs or canonical src/test roots. If needed you can extend the module/file with all necessary code in the current req, but we need to be sure that the generated code is consistent with the dependency KITs and canonical roots for applying unified diffs later.",
             "Reuse dependency KIT contracts and canonical source contracts whenever they exist.",
@@ -986,8 +1136,15 @@ def build_kit_local_agent_package(
             - Do not infer the application implementation language from local_runtime.tool_hints.
             - local_runtime.tool_hints are optional command hints only after the implementation runtime is known.
             - If package.json and npm scripts are present, prefer repository-native npm scripts such as `npm run test`, `npm run lint`, and `npm run build`.
+            - Keep KIT/EVAL manifests under `runs/kit/<REQ-ID>/ci/`.
+            - If you create or update a runnable execution area, also emit the ecosystem-native promotion-ready runtime manifest under that execution area's candidate source root.
+            - Runtime manifests must use paths relative to their own execution area root and must not contain runs/kit, ci/, temporary overlay paths, or REQ-specific eval paths.
             - Use Python only when the SPEC, PLAN, TECH_CONSTRAINTS, TARGET_CONTRACT, FILE_REQUIREMENTS, or repository evidence explicitly identifies Python as the implementation stack.
-            - Do not create a Python virtualenv for non-Python projects.
+            
+            - A backend lane does not mean Python.
+            - If SPEC.md or TECH_CONSTRAINTS.yaml declares Node.js, Express, React, Vite, npm, JavaScript, or TypeScript, emit JavaScript/TypeScript ecosystem files and a KIT-local ci/package.json.
+            - Use Python only when the SPEC, PLAN, TECH_CONSTRAINTS, TARGET_CONTRACT, FILE_REQUIREMENTS, or repository evidence explicitly identifies Python as the implementation stack.
+            - Do not create Python files and virtualenv for non-Python projects merely because Python is available locally.
             - Do not install packages globally or into the system runtime.
             - If dependencies cannot be installed because the environment is offline, externally managed, or blocked by policy, report the check as environment-blocked and run repository-native compile/smoke checks instead.
             - Environment-blocked fallback never relaxes provider obligations declared in TARGET_CONTRACT.json and FILE_REQUIREMENTS.json.
@@ -1549,9 +1706,13 @@ def normalize_local_agent_result(payload: Dict[str, Any]) -> Dict[str, Any]:
     ]
 
     ok = True
-    if exit_code not in (0, "0", None):
-        ok = False
-        errors.append(f"local_agent_exit_code:{exit_code}")
+    exit_code_non_zero = exit_code not in (0, "0", None)
+
+    if exit_code_non_zero:
+        warnings.append(f"local_agent_exit_code:{exit_code}")
+        warnings.append(
+            "local_agent_non_zero_exit_will_be_accepted_if_candidate_artifacts_are_valid"
+        )
 
     if bad_paths:
         ok = False
@@ -1561,6 +1722,12 @@ def normalize_local_agent_result(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not normalized_files:
         ok = False
         errors.append(f"no_candidate_files_returned_for:{req_id}")
+        if exit_code_non_zero:
+            errors.append(f"local_agent_exit_code:{exit_code}")
+    elif exit_code_non_zero:
+        warnings.append(
+            "local_agent_exit_code_accepted_because_candidate_files_were_returned"
+        )
 
     return {
         "ok": ok,

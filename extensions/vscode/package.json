@@ -237,7 +237,7 @@
         },
         "clike.localAgent.timeoutMinutes": {
           "type": "number",
-          "default": 20,
+          "default": 30,
           "minimum": 1,
           "description": "Default timeout in minutes for local agent runs triggered by CLike."
         },
@@ -268,7 +268,7 @@
         },
         "clike.claudeCode.timeoutMinutes": {
           "type": "number",
-          "default": 20,
+          "default": 30,
           "minimum": 1,
           "description": "Timeout in minutes for synchronous Claude Code runs triggered by CLike."
         },
@@ -304,7 +304,7 @@
         },
         "clike.localAgent.codex.timeoutMinutes": {
           "type": "number",
-          "default": 20,
+          "default": 30,
           "minimum": 1,
           "description": "Timeout in minutes for GPT Codex runs triggered by CLike."
         },

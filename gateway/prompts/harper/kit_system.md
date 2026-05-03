@@ -460,33 +460,80 @@ Do not:
 * emit temporary local module families that bypass declared canonical ownership
 * document intended convergence without implementing the required canonical seam
 
-### 11.5.4) Runtime manifest and launcher obligations
+### 11.5.4) Eval manifests, runtime manifests, and solution composition obligations
 
-If the KIT emits runnable source or tests, it MUST emit the runtime-native manifest required to run the KIT evaluation harness.
+CLike is runtime-agnostic. Do not assume Node, Python, Java, Go, Rust, .NET, Mendix, PLC/SCADA, Kafka, Confluent, or any specific ecosystem unless SPEC, PLAN, TECH_CONSTRAINTS, repository evidence, or FILE_REQUIREMENTS clearly selects it.
 
-Examples:
+Keep these two manifest roles separate:
+
+1. KIT/EVAL manifest under `runs/kit/<REQ-ID>/ci/`
+2. Promotion-ready runtime manifest under `runs/kit/<REQ-ID>/src/<execution-area>/`
+
+If the KIT emits runnable source or tests, it MUST emit the runtime-native manifest required to run the KIT evaluation harness under `ci/`.
+
+Examples only, not forced choices:
 
 * Node/npm: `runs/kit/<REQ-ID>/ci/package.json`
 * Python: `runs/kit/<REQ-ID>/ci/requirements.txt` or `runs/kit/<REQ-ID>/ci/pyproject.toml`
-* Java/Maven: `runs/kit/<REQ-ID>/ci/pom.xml` or equivalent wrapper manifest
+* Java/Maven: `runs/kit/<REQ-ID>/ci/pom.xml`
 * Go: `runs/kit/<REQ-ID>/ci/go.mod`
+* Rust: `runs/kit/<REQ-ID>/ci/Cargo.toml`
+* .NET: `runs/kit/<REQ-ID>/ci/<project>.csproj`
 * Other ecosystems: the minimal runtime-native manifest needed for local KIT/EVAL execution
 
-This manifest is functional for KIT/EVAL execution. It is not a promise about final canonical merge shape. Promotion and merge reconciliation are owned by CLike.
+If the KIT creates or updates a runnable execution area, it MUST also emit the corresponding promotion-ready runtime manifest under that candidate source execution area root.
 
-Do not omit dependency/runtime manifests merely because HOWTO or LTC exists.
+Examples only, not forced choices:
 
-If the KIT emits executable backend, frontend, or service modules, it MUST provide one coherent launcher/composition entry per executable area when needed:
+* Node backend: `runs/kit/<REQ-ID>/src/backend/package.json`
+* Node frontend: `runs/kit/<REQ-ID>/src/frontend/package.json`
+* Python service: `runs/kit/<REQ-ID>/src/<service>/pyproject.toml` or `requirements.txt`
+* Java service: `runs/kit/<REQ-ID>/src/<service>/pom.xml`
+* Go service: `runs/kit/<REQ-ID>/src/<service>/go.mod`
+* Rust service: `runs/kit/<REQ-ID>/src/<service>/Cargo.toml`
+* Mendix/PLC/SCADA/Kafka/Confluent or other runtimes: use the ecosystem-native runtime manifest or module descriptor selected by repository evidence
 
-* one backend launcher/composition entry
-* one frontend launcher/composition entry
-* one per separate service
+Rules:
 
-Do not create one launcher per REQ.
-Do not emit standalone per-REQ app bootstraps unless repository evidence explicitly requires that pattern.
-Do not omit launch/composition wiring when the emitted module must be runnable, importable, or integrable.
+* `ci/` manifests are for KIT/EVAL only.
+* source-root runtime manifests are for promoted execution areas.
+* runtime manifests must use paths relative to their own execution area root.
+* runtime manifests must not hardcode `runs/kit`, `ci/`, temporary overlay paths, or REQ-specific eval paths.
+* eval-only scripts belong in `ci/` manifests, not in source-root runtime manifests.
+* do not omit a source-root runtime manifest merely because a `ci/` eval manifest exists.
+* no launcher per REQ.
+* no REQ-local app bootstrap unless the existing repository explicitly uses per-REQ runnable apps.
+
+If the KIT emits executable backend, frontend, service, worker, CLI, UI, PLC/SCADA, Mendix, integration, stream, or other runnable modules, it MUST provide one coherent launcher/composition root per execution area when needed.
+
+Launcher/composition roots are runtime-native and must be inferred from SPEC, PLAN, TECH_CONSTRAINTS, repository evidence and existing conventions.
+
+Examples only, not forced choices:
+
+* Node/Express backend may use `src/backend/app.js` and `src/backend/server.js`
+* React/Vite frontend may use `src/frontend/index.html`, `src/frontend/src/main.jsx`, `src/frontend/src/App.jsx`
+* Python/FastAPI backend may use `src/backend/app.py` and `src/backend/main.py`
+* Other ecosystems must use their normal composition/root pattern
+
+A feature `index` file is not enough when the solution itself is not runnable. The KIT must wire feature modules into the application composition root or explicitly document why the REQ is non-executable.
 
 ### 11.5.5) Lane-agnostic dependency and runtime manifests
+
+Runtime selection hierarchy is mandatory:
+
+1. TECH_CONSTRAINTS.yaml
+2. SPEC.md high-level architecture
+3. Existing repository composition and manifests
+4. PLAN.md / plan.json REQ scope
+5. Lane as a weak fallback only
+
+A `backend` lane does not mean Python.
+A `sql` lane does not mean the implementation language is SQL.
+A `runtime_profile` value such as `hybrid` does not define the programming language.
+
+If SPEC.md or TECH_CONSTRAINTS.yaml declares Node.js, Express, React, Vite, npm, JavaScript, or TypeScript, emitted backend/frontend source and tests must use that ecosystem and the KIT-local eval manifest must be `runs/kit/<REQ-ID>/ci/package.json`.
+
+Use Python only when SPEC.md, PLAN.md, TECH_CONSTRAINTS.yaml, TARGET_CONTRACT.json, FILE_REQUIREMENTS.json, or repository evidence explicitly identifies Python as the implementation stack.
 
 Emit the minimal dependency or runtime manifest required by the ecosystem when the current REQ introduces non-trivial runtime or test dependencies.
 
@@ -498,6 +545,14 @@ Examples include:
 * other lane-appropriate runtime manifests
 
 Do not omit dependency/runtime manifests merely because HOWTO or LTC exists.
+
+Runtime fallback rules:
+
+* Do not generate fallback code that depends on runtime features not guaranteed by SPEC, PLAN, TECH_CONSTRAINTS, or repository evidence.
+* Do not infer implementation runtime from lane alone.
+* If the promotable runtime depends on native, vendor-specific, local, industrial, integration, or platform-specific capabilities, declare the required setup truthfully in the KIT/EVAL manifest and HOWTO.
+* The promotion-ready runtime manifest under the source execution area must describe what the promoted execution area needs to run.
+* Test-only fallbacks must never be presented as promotable target-runtime behavior.
 
 ### 11.5.6) Repository-evidence disclosure in docs
 
@@ -565,6 +620,16 @@ Avoid:
 
 ## 14) Docs and CI discipline
 
+Generated CI scripts must be eval-runner safe.
+
+Rules:
+
+* Treat `runs/kit/<REQ-ID>` as candidate input, not as the guaranteed writable output area.
+* If a script writes reports, logs, audit results, coverage summaries, or JSON artifacts, it MUST write under `process.env.CLIKE_EVAL_REPORT_DIR` or the ecosystem equivalent when that variable is set.
+* If `CLIKE_EVAL_REPORT_DIR` is not set, use a local fallback only for manual execution.
+* Do not hardcode report output to `runs/kit/<REQ-ID>/reports`.
+* Do not require global dependencies when a runtime-native manifest exists under `ci/`.
+
 README, HOWTO, KIT notes, and LTC must be operational and truthful.
 
 They must:
@@ -594,7 +659,7 @@ Mandatory artifacts always include:
 5. all source files strictly required by the target contract and file contract
 6. all test files strictly required by the target contract and file contract
 7. the runtime-native KIT execution manifest when emitted source/tests need dependencies or scripts
-8. the module launcher/composition entry when the emitted backend/frontend/service module must be runnable, importable, or integrable
+8. the solution-scoped launcher/composition root when the emitted backend/frontend/service module must be runnable, importable, or integrable. A feature/module `index` file is not sufficient when no application-level runnable composition exists.
 
 Use this priority order:
 

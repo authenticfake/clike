@@ -255,6 +255,59 @@ def _slugify_text(value: str) -> str:
     return text or "req_slice"
 
 
+_REPO_PATH_RE = re.compile(r"\b(?:src|test|tests)/[A-Za-z0-9_./-]+")
+
+
+def _extract_repo_path_mentions(
+    value: Any,
+    allowed_prefixes: tuple[str, ...] = ("src/", "test/", "tests/"),
+) -> List[str]:
+    """
+    Extract clean repository paths from natural-language PLAN fields.
+
+    Example:
+    "src/backend/modules/bandi with supporting UI in src/frontend/features/bandi"
+    becomes:
+    ["src/backend/modules/bandi", "src/frontend/features/bandi"]
+    """
+    text = str(value or "").replace("\\", "/")
+    paths: List[str] = []
+
+    for match in _REPO_PATH_RE.findall(text):
+        candidate = match.strip().strip(".,;:()[]{}")
+        candidate = candidate.rstrip("/")
+        if not candidate:
+            continue
+        if allowed_prefixes and not candidate.startswith(allowed_prefixes):
+            continue
+        if candidate not in paths:
+            paths.append(candidate)
+
+    return paths
+
+
+def _normalize_repo_path_list(
+    values: Any,
+    allowed_prefixes: tuple[str, ...] = ("src/", "test/", "tests/"),
+) -> List[str]:
+    normalized: List[str] = []
+
+    raw_values = values if isinstance(values, list) else [values]
+    for raw in raw_values or []:
+        extracted = _extract_repo_path_mentions(raw, allowed_prefixes)
+        if extracted:
+            for path in extracted:
+                if path not in normalized:
+                    normalized.append(path)
+            continue
+
+        candidate = str(raw or "").strip().replace("\\", "/").strip("/")
+        if candidate and candidate.startswith(allowed_prefixes) and candidate not in normalized:
+            normalized.append(candidate)
+
+    return normalized
+
+
 def _infer_contract_paths(contract_like: Dict[str, Any]) -> Dict[str, Any]:
     """
     Best-effort path inference when plan.json does not provide explicit structured paths.
@@ -266,11 +319,20 @@ def _infer_contract_paths(contract_like: Dict[str, Any]) -> Dict[str, Any]:
     4. otherwise let the model decide later
     """
     paths = dict(contract_like.get("paths") or {})
-    canonical_family = str(paths.get("canonical_module_family") or "").strip()
-    expected_source_roots = list(paths.get("expected_source_roots") or [])
-    expected_test_roots = list(paths.get("expected_test_roots") or [])
-    create_under = list(paths.get("create_under") or [])
-    must_reuse = list(paths.get("must_reuse") or [])
+
+    raw_canonical_family = str(paths.get("canonical_module_family") or "").strip()
+    raw_expected_source_roots = list(paths.get("expected_source_roots") or [])
+    raw_expected_test_roots = list(paths.get("expected_test_roots") or [])
+    raw_create_under = list(paths.get("create_under") or [])
+    raw_must_reuse = list(paths.get("must_reuse") or [])
+
+    canonical_candidates = _extract_repo_path_mentions(raw_canonical_family, ("src/",))
+    canonical_family = canonical_candidates[0] if canonical_candidates else raw_canonical_family
+
+    expected_source_roots = _normalize_repo_path_list(raw_expected_source_roots, ("src/",))
+    expected_test_roots = _normalize_repo_path_list(raw_expected_test_roots, ("test/", "tests/"))
+    create_under = _normalize_repo_path_list(raw_create_under, ("src/", "test/", "tests/"))
+    must_reuse = _normalize_repo_path_list(raw_must_reuse, ("src/",))
 
     title = str(contract_like.get("title") or "").strip()
     primary_outcome = str(contract_like.get("primary_outcome") or "").strip()
@@ -549,7 +611,17 @@ def _resolve_requirement_family(contract: Dict[str, Any], lane_policy: Dict[str,
     if canonical_family.startswith("src/data/") or any(r.startswith("src/data/") for r in source_roots):
         return "schema_backbone"
 
-    if canonical_family.startswith("src/frontend/") or any(r.startswith("src/frontend/") for r in source_roots):
+    has_backend_root = canonical_family.startswith("src/backend/") or any(
+        r.startswith("src/backend/") for r in source_roots
+    )
+    has_frontend_root = canonical_family.startswith("src/frontend/") or any(
+        r.startswith("src/frontend/") for r in source_roots
+    )
+
+    if has_backend_root:
+        return "application_slice"
+
+    if has_frontend_root:
         return "ui_feature"
 
     if canonical_family.startswith("src/infra/") or any(r.startswith("src/infra/") for r in source_roots):
@@ -855,9 +927,27 @@ def _materialize_file_requirements(
     contract: Dict[str, Any],
     family: str,
     artifact_roles: List[Dict[str, Any]],
+    core_blobs: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     req_id = str(contract.get("req_id") or "").strip()
     lane = str(contract.get("lane") or "").strip().lower()
+    core_runtime_evidence = " ".join(
+        str(content or "")
+        for name, content in (core_blobs or {}).items()
+        if str(name or "").lower().endswith(
+            (
+                "spec.md",
+                "plan.md",
+                "plan.json",
+                "tech_constraints.yaml",
+                "tech_constraints.yml",
+                "constraints.json",
+                "repo_composition_manifest.md",
+                "repo_structure_evidence.json",
+            )
+        )
+    )
+
     project_blob = " ".join(
         [
             str(contract.get("technical_scope") or ""),
@@ -865,6 +955,7 @@ def _materialize_file_requirements(
             str(contract.get("test_profile") or ""),
             str(contract.get("main_module_boundary") or ""),
             " ".join(str(x) for x in (contract.get("acceptance") or [])),
+            core_runtime_evidence,
         ]
     ).lower()
 
@@ -896,9 +987,17 @@ def _materialize_file_requirements(
         )
     )
 
-    source_ext = ".js" if is_node_like else ".py"
-    test_ext = ".js" if is_node_like else ".py"
-    test_prefix = "" if is_node_like else "test_"
+    if is_python_like:
+        source_ext = ".py"
+        test_ext = ".py"
+        test_prefix = "test_"
+    else:
+        # Never default to Python. If runtime evidence is incomplete, use the
+        # web/application-friendly JS shape and let SPEC/TECH/PLAN evidence
+        # tighten it. This avoids silently producing Python for Node/React projects.
+        source_ext = ".js"
+        test_ext = ".js"
+        test_prefix = ""
 
     paths = dict(contract.get("paths") or {})
     canonical_family = str(paths.get("canonical_module_family") or "").strip()
@@ -974,7 +1073,7 @@ def _materialize_file_requirements(
         "adapter_contract": _stage(f"src/{source_root}/adapter_contract{source_ext}"),
         "acceptance_tests": _stage(f"test/{test_root}/{test_prefix}req_behavior{test_ext}"),
         "integration_smoke": _stage(f"test/{test_root}/{test_prefix}integration_smoke{test_ext}"),
-        "runtime_manifest": _stage("ci/package.json" if is_node_like else "ci/requirements.txt" if is_python_like else "ci/RUNTIME_MANIFEST.md"),
+        "runtime_manifest": _stage("ci/requirements.txt" if is_python_like else "ci/package.json"),
         "module_launcher": _stage(f"src/{source_root}/index{source_ext}"),
         "operational_readme": _stage(f"docs/README_{req_id}.md"),
         "kit_notes": _stage(f"docs/KIT_{req_id}.md"),
@@ -1025,10 +1124,10 @@ def _materialize_file_requirements(
         "required": True,
         "purpose": (
             "Runtime-native manifest required to run the KIT evaluation harness. "
-            "This is functional for KIT/EVAL execution; CLike promotion/merge owns final reconciliation."
+            "This is functional for KIT/EVAL execution and is distinct from promotion-ready runtime manifests."
         ),
         "must_cover": [
-            "runtime dependencies required by emitted code",
+            "runtime dependencies required by emitted code during KIT/EVAL",
             "test dependencies required by emitted tests",
             "scripts or commands referenced by LTC/HOWTO when applicable",
         ],
@@ -1037,9 +1136,36 @@ def _materialize_file_requirements(
         ],
         "must_not_contain": [
             "unrelated speculative dependencies",
-            "Python requirements for non-Python projects",
+            "implementation runtime inferred from lane alone",
         ],
     })
+
+    if family in {"application_slice", "workflow_slice", "ui_feature"}:
+        required_outputs.append({
+            "role": "execution_area_runtime_manifest",
+            "path_hint": _stage("src/<execution-area>/<ecosystem-native-runtime-manifest>"),
+            "kind": "source",
+            "required": True,
+            "purpose": (
+                "Promotion-ready runtime manifest or module descriptor for the runnable execution area. "
+                "This is not an eval manifest and must be inferred from SPEC, PLAN, TECH_CONSTRAINTS, "
+                "FILE_REQUIREMENTS, and repository evidence."
+            ),
+            "must_cover": [
+                "runtime dependencies required after promotion",
+                "runtime scripts or launch metadata relative to the execution area root",
+                "ecosystem-native manifest, descriptor, or equivalent runtime declaration",
+            ],
+            "must_contain": [
+                "promotion-ready runtime metadata only",
+            ],
+            "must_not_contain": [
+                "runs/kit paths",
+                "ci-only paths",
+                "temporary eval overlay paths",
+                "REQ-specific eval scripts",
+            ],
+        })
 
     if family in {"application_slice", "workflow_slice", "ui_feature"}:
         required_outputs.append({
@@ -1089,7 +1215,8 @@ def _build_file_requirements(contract: Dict[str, Any], core_blobs: Dict[str, Any
     lane_policy = _load_lane_guide_policy(contract, core_blobs)
     family = _resolve_requirement_family(contract, lane_policy)
     artifact_roles = _derive_artifact_roles(contract, family, lane_policy)
-    return _materialize_file_requirements(contract, family, artifact_roles)
+    return _materialize_file_requirements(contract, family, artifact_roles, core_blobs)
+
 
 def _read_json_stage_file_from_files(
     files: List[Dict[str, Any]],

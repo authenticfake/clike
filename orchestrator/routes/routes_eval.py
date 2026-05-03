@@ -166,7 +166,7 @@ def _eval_payload(rep: EvalReport, req_id: Optional[str]) -> Dict[str, Any]:
         "blocked_count": rep.blocked,
         "warning_count": rep.warnings,
         "junit": rep.junit_path,
-        "json": f"runs/eval/{req_id or rep.req_id or 'REQ-UNKNOWN'}",
+        "json": rep.json_path or f"runs/eval/{req_id or rep.req_id or 'REQ-UNKNOWN'}",
         "cases": [_case_payload(c) for c in rep.cases],
     }
 

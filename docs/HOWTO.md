@@ -1,4 +1,4 @@
-# HOWTO
+# Clike HOWTO
 
 > **Developer-first reminder**
 >
