@@ -1,4 +1,4 @@
-# CLike VS Code Extension
+# CLike - yet anther ai tool
 
 > AI-native software engineering assistant for day-to-day coding, Harper-style solutioning, local-agent execution, RAG, Git-aware promotion, and MCP-driven agent interaction inside VS Code.
 

@@ -788,14 +788,105 @@ def _derive_artifact_roles(
             {
                 "role": "adapter_contract",
                 "required": True,
-                "purpose": "Define runtime/profile adapter contracts and validation rules.",
+                "purpose": "Define provider-independent runtime/profile ports, DTOs, and validation rules.",
                 "must_cover": acceptance,
                 "must_contain": [
-                    "adapter or profile contract",
+                    "provider-independent adapter ports or contracts",
+                    "typed request/response DTOs or equivalent language-native contracts",
                     "parity or validation rules",
                 ],
                 "must_not_contain": [
                     "business-logic forks by provider",
+                    "provider SDK types exposed through business-facing contracts",
+                ],
+            },
+            {
+                "role": "profile_config_contract",
+                "required": True,
+                "purpose": "Define runtime profile configuration, provider selection, required settings, and restricted-egress policy.",
+                "must_cover": acceptance,
+                "must_contain": [
+                    "profile selection for all profiles declared by SPEC/PLAN",
+                    "required provider configuration validation before business operations execute",
+                    "restricted endpoint or egress validation when required",
+                ],
+                "must_not_contain": [
+                    "silent defaults that hide missing provider configuration",
+                    "environment-specific business behavior",
+                ],
+            },
+            {
+                "role": "provider_sdk_dependencies",
+                "required": True,
+                "purpose": "Declare official or widely adopted SDK/runtime dependencies required by concrete provider adapters.",
+                "must_cover": acceptance,
+                "must_contain": [
+                    "official or widely adopted SDKs when concrete providers are named",
+                    "only dependencies required by emitted runtime-facing adapter code and tests",
+                ],
+                "must_not_contain": [
+                    "hand-rolled provider protocol implementations when SDKs exist",
+                    "unrelated speculative dependencies",
+                ],
+            },
+            {
+                "role": "provider_client_factory",
+                "required": True,
+                "purpose": "Create SDK-backed provider clients behind the adapter boundary when concrete providers are named.",
+                "must_cover": acceptance,
+                "must_contain": [
+                    "SDK-backed provider client construction or a clearly bounded factory",
+                    "lazy imports or optional dependency handling when appropriate for local/on-prem runs",
+                    "fail-fast behavior for missing SDKs or required provider config",
+                ],
+                "must_not_contain": [
+                    "raw SDK construction in business modules",
+                    "Any-only provider injection as the sole runtime-facing implementation",
+                ],
+            },
+            {
+                "role": "adapter_implementations",
+                "required": True,
+                "purpose": "Implement concrete provider adapters behind provider-independent contracts.",
+                "must_cover": acceptance,
+                "must_contain": [
+                    "AWS adapter implementation when AWS providers are in scope",
+                    "on-prem adapter implementation when on-prem providers are in scope",
+                    "equivalent business-facing behavior across profiles",
+                ],
+                "must_not_contain": [
+                    "decorative in-memory adapters as primary provider implementations",
+                    "provider SDK leakage outside adapter modules",
+                ],
+            },
+            {
+                "role": "profile_service_factory",
+                "required": True,
+                "purpose": "Resolve a validated runtime profile into a cohesive set of provider-independent services.",
+                "must_cover": acceptance,
+                "must_contain": [
+                    "single profile service factory or composition function",
+                    "provider-independent return shape consumed by later business REQs",
+                    "clear failure path before business operations execute",
+                ],
+                "must_not_contain": [
+                    "per-provider business APIs",
+                    "REQ-local application launcher unless the REQ owns an executable area",
+                ],
+            },
+            {
+                "role": "provider_realism_tests",
+                "required": True,
+                "purpose": "Prove that concrete providers use SDK-backed wiring or explicitly fail when dependencies/configuration are missing.",
+                "must_cover": acceptance,
+                "must_contain": [
+                    "SDK wiring or SDK import boundary tests",
+                    "missing configuration failure tests",
+                    "no SDK types exposed through business-facing contracts",
+                ],
+                "must_not_contain": [
+                    "assertion-light tests",
+                    "tests that only instantiate in-memory fakes",
                 ],
             },
         ])
@@ -1070,7 +1161,13 @@ def _materialize_file_requirements(
         "entry_binding": _stage(f"src/{source_root}/index{source_ext}"),
         "workflow_component": _stage(f"src/{source_root}/workflow{source_ext}"),
         "primary_ui_feature": _stage(f"src/{source_root}/feature{' .tsx' if False else '.tsx'}"),
-        "adapter_contract": _stage(f"src/{source_root}/adapter_contract{source_ext}"),
+        "adapter_contract": _stage(f"src/{source_root}/contracts{source_ext}"),
+        "profile_config_contract": _stage(f"src/{source_root}/config{source_ext}"),
+        "provider_sdk_dependencies": _stage("ci/requirements.txt" if is_python_like else "ci/package.json" if is_node_like else "ci/RUNTIME_MANIFEST.md"),
+        "provider_client_factory": _stage(f"src/{source_root}/factory{source_ext}"),
+        "adapter_implementations": _stage(f"src/{source_root}/adapters{source_ext}"),
+        "profile_service_factory": _stage(f"src/{source_root}/factory{source_ext}"),
+        "provider_realism_tests": _stage(f"test/{test_root}/{test_prefix}provider_realism{test_ext}"),
         "acceptance_tests": _stage(f"test/{test_root}/{test_prefix}req_behavior{test_ext}"),
         "integration_smoke": _stage(f"test/{test_root}/{test_prefix}integration_smoke{test_ext}"),
         "runtime_manifest": _stage("ci/requirements.txt" if is_python_like else "ci/package.json"),
@@ -1110,9 +1207,9 @@ def _materialize_file_requirements(
         item["path_hint"] = path_hint
         item["kind"] = (
             "doc" if role_name in {"operational_readme", "kit_notes"}
-            else "ci" if role_name == "execution_contract"
+            else "ci" if role_name in {"execution_contract", "runtime_manifest", "provider_sdk_dependencies"}
             else "ci_doc" if role_name == "execution_howto"
-            else "test" if role_name in {"acceptance_tests", "integration_smoke"}
+            else "test" if role_name in {"acceptance_tests", "integration_smoke", "provider_realism_tests"}
             else "source"
         )
         required_outputs.append(item)
@@ -1149,12 +1246,13 @@ def _materialize_file_requirements(
             "purpose": (
                 "Promotion-ready runtime manifest or module descriptor for the runnable execution area. "
                 "This is not an eval manifest and must be inferred from SPEC, PLAN, TECH_CONSTRAINTS, "
-                "FILE_REQUIREMENTS, and repository evidence."
+                "FILE_REQUIREMENTS, and repository evidence. If required=true, a ci/ dependency manifest alone is not sufficient."
             ),
             "must_cover": [
                 "runtime dependencies required after promotion",
                 "runtime scripts or launch metadata relative to the execution area root",
                 "ecosystem-native manifest, descriptor, or equivalent runtime declaration",
+                "clear local install/run instructions for the selected runtime when the REQ creates or updates a promotable execution area",
             ],
             "must_contain": [
                 "promotion-ready runtime metadata only",
@@ -1170,16 +1268,19 @@ def _materialize_file_requirements(
     if family in {"application_slice", "workflow_slice", "ui_feature"}:
         required_outputs.append({
             "role": "module_launcher",
-            "path_hint": _stage(f"src/{source_root}/index{source_ext}"),
+            "path_hint": _stage("src/<execution-area-composition-root>"),
             "kind": "source",
             "required": True,
             "purpose": (
-                "Single coherent launcher/composition entry for the emitted module family when needed. "
-                "Do not create one launcher per REQ; extend or reuse the module-level launcher shape."
+                "Single coherent launcher/composition entry for the emitted execution area when required. "
+                "Do not create one launcher per REQ; extend or reuse the module-level launcher shape. "
+                "When required, this artifact may live outside the feature main_module_boundary but must stay under the candidate src root."
             ),
             "must_cover": [
                 "export or compose emitted module functions/classes",
                 "provide one stable module entry for backend/frontend/service integration",
+                "provide a minimal local runnable entry point when the REQ owns a backend/frontend/service/worker/CLI execution area",
+                "wire or expose the emitted feature module through the execution area without duplicating business logic",
             ],
             "must_contain": [
                 "module-level exports or composition wiring",
@@ -1209,6 +1310,30 @@ def _materialize_file_requirements(
             "future_compatibility_notes": contract.get("future_compatibility_notes") or [],
         },
         "required_outputs": required_outputs,
+        "provider_sdk_policy": {
+            "official_or_consolidated_sdks_preferred": True,
+            "policy": (
+                "When a REQ names concrete providers or runtime services, official or widely adopted ecosystem SDKs "
+                "must be used inside adapter/infrastructure boundaries unless SPEC explicitly forbids them. "
+                "Do not reimplement provider protocols, auth/signing, wire formats, or client behavior when a mature SDK exists."
+            ),
+            "boundary_rules": [
+                "Provider SDK imports are allowed inside runtime adapter, provider factory, infrastructure, or integration boundary modules.",
+                "Business-facing contracts must remain provider-independent.",
+                "Business modules must not instantiate provider SDK clients directly.",
+                "Tests may use SDK stubs, official mock helpers, or deterministic fake clients, but runtime-facing code must expose real SDK-backed wiring when provider realism is required.",
+            ],
+            "examples_by_ecosystem": {
+                "python_aws": ["boto3", "botocore"],
+                "python_postgres": ["sqlalchemy", "psycopg"],
+                "python_vault": ["hvac"],
+                "python_redis": ["redis"],
+                "python_kafka": ["confluent-kafka", "aiokafka"],
+                "node_aws": ["@aws-sdk/client-s3", "@aws-sdk/client-sqs", "@aws-sdk/client-sns", "@aws-sdk/client-secrets-manager"],
+                "java_aws": ["AWS SDK for Java v2"],
+                "go_aws": ["AWS SDK for Go v2"],
+            },
+        },
     }
 
 def _build_file_requirements(contract: Dict[str, Any], core_blobs: Dict[str, Any]) -> Dict[str, Any]:

@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import hashlib
 import json
 import logging
@@ -149,6 +148,8 @@ class EvalRunner:
         environment_requirements: List[str],
     ) -> bool:
         text = f"{stdout}\n{stderr}".lower()
+        if "cannot find module './" in text or 'cannot find module "../' in text:
+            return False
         if code == 127:
             return True
 
@@ -168,16 +169,6 @@ class EvalRunner:
             "better-sqlite3 is required",
             "requires a node runtime that exposes",
             "could not locate the bindings file",
-
-            # Python/package-manager environment issues.
-            "cannot find module",
-            "cannot find package",
-            "err_module_not_found",
-            "module_not_found",
-            "could not locate the bindings file",
-            "node-gyp",
-            "gyp err!",
-
             # Python/package-manager environment issues.
             "externally-managed-environment",
             "could not find a version that satisfies the requirement",
@@ -187,7 +178,6 @@ class EvalRunner:
             "temporary failure in name resolution",
             "network is unreachable",
             "connection refused",
-
             # Native dependency / binary ABI mismatch.
             # Example: better-sqlite3 compiled for a different OS/arch/container.
             "invalid elf header",
@@ -277,6 +267,140 @@ class EvalRunner:
     def _resolve_req_file(self, req_file: str) -> Path:
         raw = Path(req_file)
         return raw if raw.is_absolute() else (self.project_root / raw).resolve()
+
+    def _copy_tree_overlay(self, src: Path, dst: Path) -> None:
+        """
+        Copy a tree into an overlay destination.
+
+        Later copies win. This keeps the implementation intentionally simple:
+        promoted roots first, dependency KIT roots next, current KIT last.
+        """
+        if not src.exists():
+            return
+
+        if src.is_file():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            return
+
+        for item in src.rglob("*"):
+            rel = item.relative_to(src)
+            target = dst / rel
+            if item.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(item, target)
+
+    def _load_plan_dependencies(self, req_id: Optional[str]) -> List[str]:
+        if not req_id:
+            return []
+
+        plan_path = self.project_root / "docs" / "harper" / "plan.json"
+        try:
+            plan_data = json.loads(plan_path.read_text(encoding="utf-8")) if plan_path.exists() else {}
+        except Exception:
+            return []
+
+        reqs = plan_data.get("reqs") or plan_data.get("req") or []
+        current_req = next(
+            (
+                item
+                for item in reqs
+                if isinstance(item, dict) and str(item.get("id") or "") == str(req_id)
+            ),
+            None,
+        )
+        if not isinstance(current_req, dict):
+            return []
+
+        return [str(dep).strip() for dep in (current_req.get("dependsOn") or []) if str(dep).strip()]
+
+    
+
+    def _prepare_eval_overlay_workspace(
+        self,
+        *,
+        req_id: Optional[str],
+        profile_path: Path,
+    ) -> tuple[Optional[Path], List[str], Dict[str, str]]:
+        """
+        Build a dependency-aware eval overlay.
+
+        Composition order:
+        1. promoted src/test/tests
+        2. dependency KIT src/test/tests in PLAN order
+        3. current KIT src/test/tests
+
+        This mirrors Harper dependency semantics without introducing runtime-specific logic.
+        """
+        kit_root = self._resolve_kit_root(profile_path=profile_path, req_id=req_id)
+        if not kit_root:
+            return None, [], {}
+
+        eval_root = self._eval_dir(req_id)
+        overlay = eval_root / "overlay" / "workspace"
+
+        if overlay.exists():
+            shutil.rmtree(overlay)
+        overlay.mkdir(parents=True, exist_ok=True)
+
+        dependency_roots: List[str] = []
+
+        # Promoted canonical roots first.
+        self._copy_tree_overlay(self.project_root / "src", overlay / "src")
+        self._copy_tree_overlay(self.project_root / "test", overlay / "test")
+        self._copy_tree_overlay(self.project_root / "tests", overlay / "tests")
+
+        # Dependency KIT roots next.
+        for dep_id in self._load_plan_dependencies(req_id):
+            dep_root = self.project_root / "runs" / "kit" / self._safe_req_id(dep_id)
+            if not dep_root.exists():
+                continue
+
+            dependency_roots.append(str(dep_root))
+            self._copy_tree_overlay(dep_root / "src", overlay / "src")
+            self._copy_tree_overlay(dep_root / "test", overlay / "test")
+            self._copy_tree_overlay(dep_root / "tests", overlay / "tests")
+
+        # Current KIT wins last.
+        self._copy_tree_overlay(kit_root / "src", overlay / "src")
+        self._copy_tree_overlay(kit_root / "test", overlay / "test")
+        self._copy_tree_overlay(kit_root / "tests", overlay / "tests")
+
+        path_map = {
+            "src": str(overlay / "src"),
+            "test": str(overlay / "test"),
+            "tests": str(overlay / "tests"),
+            str(self.project_root / "src"): str(overlay / "src"),
+            str(self.project_root / "test"): str(overlay / "test"),
+            str(self.project_root / "tests"): str(overlay / "tests"),
+        }
+        return overlay, dependency_roots, path_map
+
+    def _resolve_eval_path(self, value: Optional[str], path_map: Dict[str, str]) -> Path:
+        if not value:
+            return self.project_root
+
+        raw = str(value)
+        for source, target in sorted(path_map.items(), key=lambda item: len(item[0]), reverse=True):
+            if raw == source or raw.startswith(source + "/"):
+                raw = raw.replace(source, target, 1)
+                break
+
+        path = Path(raw)
+        return path if path.is_absolute() else (self.project_root / path).resolve()
+
+    def _runtime_working_directory(self, ltc: Dict[str, Any]) -> str:
+        runtime = ltc.get("runtime") or {}
+        if not isinstance(runtime, dict):
+            return ""
+        return str(
+            runtime.get("working_directory")
+            or runtime.get("workdir")
+            or runtime.get("cwd")
+            or ""
+        ).strip()
 
     def _venv_dir(self, req_id: Optional[str]) -> Path:
         """
@@ -414,140 +538,6 @@ class EvalRunner:
         cases.append(install_case)
         return venv_env, cases
 
-    def _resolve_node_manifest(
-        self,
-        *,
-        runtime: Dict[str, Any],
-        ltc: Dict[str, Any],
-        profile_path: Path,
-    ) -> Optional[Path]:
-        """
-        Resolve a KIT-local Node/npm manifest without forcing Node as a default.
-
-        The manifest is considered only when the LTC/runtime declares a Node-like
-        runtime or when a package.json exists next to the LTC profile.
-        """
-        explicit = (
-            runtime.get("manifest_file")
-            or runtime.get("package_json")
-            or runtime.get("package-json")
-            or ltc.get("manifest_file")
-            or ltc.get("package_json")
-            or ltc.get("package-json")
-        )
-        if explicit:
-            path = Path(str(explicit))
-            return path if path.is_absolute() else (self.project_root / path).resolve()
-
-        candidates = [
-            profile_path.parent / "package.json",
-            profile_path.parent.parent / "package.json",
-        ]
-        for candidate in candidates:
-            if candidate.exists():
-                return candidate.resolve()
-        return None
-
-    def _ensure_node_dependencies(
-        self,
-        *,
-        req_id: Optional[str],
-        package_json: Path,
-        env: Dict[str, str],
-        cwd: Path,
-    ) -> tuple[Dict[str, str], List[EvalCase]]:
-        """
-        Install Node/npm dependencies for KIT eval in the manifest directory.
-
-        This is scoped to the KIT-local ci/package.json. It never installs global
-        packages and never writes under canonical src roots. In restricted runners
-        or Podman environments, native dependency failures are reported as
-        environment-blocked warnings instead of being misclassified as code defects.
-        """
-        cases: List[EvalCase] = []
-
-        if not package_json.exists():
-            return env, [
-                EvalCase(
-                    name="env::npm-manifest",
-                    passed=False,
-                    code=3,
-                    stdout="",
-                    stderr=f"package.json not found: {package_json}",
-                    cmd=None,
-                    cwd=str(cwd),
-                    blocked=True,
-                    blocking=False,
-                )
-            ]
-
-        manifest_dir = package_json.parent
-        node_modules = manifest_dir / "node_modules"
-        lock_file = manifest_dir / "package-lock.json"
-        marker_basis = f"{self._requirements_hash(package_json)}:{self._requirements_hash(lock_file) if lock_file.exists() else 'no-lock'}"
-        marker = manifest_dir / f".npm-{marker_basis}.installed"
-
-        node_env = dict(env)
-        node_env["CLIKE_EVAL_NPM_PREFIX"] = str(manifest_dir)
-
-        if node_modules.exists() and marker.exists():
-            cases.append(
-                EvalCase(
-                    name="env::npm-install",
-                    passed=True,
-                    code=0,
-                    stdout=f"npm dependencies already installed in {manifest_dir}",
-                    stderr="",
-                    cmd=None,
-                    cwd=str(cwd),
-                    blocking=False,
-                )
-            )
-            return node_env, cases
-
-        try:
-            manifest_dir.mkdir(parents=True, exist_ok=True)
-        except OSError as exc:
-            return node_env, [
-                EvalCase(
-                    name="env::npm-dir",
-                    passed=False,
-                    code=30,
-                    stdout="",
-                    stderr=f"cannot create npm manifest directory {manifest_dir}: {exc}",
-                    cmd=None,
-                    cwd=str(cwd),
-                    blocked=True,
-                    blocking=False,
-                )
-            ]
-
-        install_cmd = (
-            f"npm {'ci' if lock_file.exists() else 'install'} "
-            f"--prefix {shlex.quote(str(manifest_dir))} "
-            "--no-audit --no-fund"
-        )
-
-        install_case = self._run(
-            name="env::npm-install",
-            cmd=install_cmd,
-            cwd=cwd,
-            expect=0,
-            env=node_env,
-            blocking=False,
-            environment_requirements=["npm", "network", "native-dependencies"],
-        )
-
-        if install_case.passed:
-            try:
-                marker.write_text("ok\n", encoding="utf-8")
-            except Exception as exc:
-                install_case.stderr = (install_case.stderr + f"\nmarker write warning: {exc}")[-4000:]
-        else:
-            install_case.blocked = True
-
-        cases.append(install_case)
-        return node_env, cases
 
     def _normalize_cases(self, ltc: Dict[str, Any]) -> List[Dict[str, Any]]:
         norm_cases: List[Dict[str, Any]] = []
@@ -886,6 +876,13 @@ class EvalRunner:
         except Exception:
             dependency_roots = []
             
+        overlay_workspace, overlay_dependency_roots, overlay_path_map = self._prepare_eval_overlay_workspace(
+            req_id=req_id,
+            profile_path=profile_path,
+        )
+        if overlay_dependency_roots:
+            dependency_roots = overlay_dependency_roots
+
         path_map: Dict[str, str] = {
             str(kit_root): str(work_kit_root),
         }
@@ -894,8 +891,42 @@ class EvalRunner:
         if rel_kit_root:
             path_map[rel_kit_root] = str(work_kit_root)
 
-        # Compatibility shim for CI scripts that still infer:
-        #   <eval-base>/runs/kit/<REQ-ID>
+        if overlay_workspace:
+            # Runtime-agnostic eval workspace contract.
+            #
+            # EvalRunner owns dependency-aware workspace composition. Generated
+            # CI scripts may consume these paths, but must not create a second
+            # overlay when one of the workspace variables below is available.
+            path_map.update(
+                {
+                    "src": str(overlay_workspace / "src"),
+                    "test": str(overlay_workspace / "test"),
+                    "tests": str(overlay_workspace / "tests"),
+                    str(self.project_root / "src"): str(overlay_workspace / "src"),
+                    str(self.project_root / "test"): str(overlay_workspace / "test"),
+                    str(self.project_root / "tests"): str(overlay_workspace / "tests"),
+
+                    # Preferred runtime-neutral aliases.
+                    "CLIKE_EVAL_WORKSPACE": str(overlay_workspace),
+                    "CLIKE_EVAL_WORKSPACE_ROOT": str(overlay_workspace),
+                    "CLIKE_EVAL_PROJECT_ROOT": str(self.project_root),
+                    "CLIKE_EVAL_CANDIDATE_KIT_DIR": str(work_kit_root),
+
+                    # Backward-compatible official overlay names.
+                    "CLIKE_EVAL_OVERLAY_WORKSPACE": str(overlay_workspace),
+                    "CLIKE_EVAL_OVERLAY_SRC": str(overlay_workspace / "src"),
+                    "CLIKE_EVAL_OVERLAY_TEST": str(overlay_workspace / "test"),
+                    "CLIKE_EVAL_OVERLAY_TESTS": str(overlay_workspace / "tests"),
+
+                    # Legacy aliases for existing generated scripts.
+                    "CLIKE_OVERLAY_WORKSPACE": str(overlay_workspace),
+                    "CLIKE_OVERLAY_SRC": str(overlay_workspace / "src"),
+                    "CLIKE_OVERLAY_TEST": str(overlay_workspace / "test"),
+                    "CLIKE_OVERLAY_TESTS": str(overlay_workspace / "tests"),
+                }
+            )
+
+        # Compatibility shim for CI scripts that still infer:        #   <eval-base>/runs/kit/<REQ-ID>
         # from __dirname instead of using CLIKE_EVAL_KIT_DIR.
         # This keeps already generated KITs runnable while future KITs migrate
         # to explicit env vars.
@@ -927,6 +958,46 @@ class EvalRunner:
             rewritten = rewritten.replace(source, target)
         return rewritten
 
+    def _rewrite_command_for_eval_workspace(self, command: str, path_map: Dict[str, str]) -> str:
+        """
+        Rewrite filesystem paths inside shell commands without rewriting script names.
+
+        Important:
+        - `npm run test` must stay `npm run test`.
+        - `npm run lint` must stay `npm run lint`.
+        - `npm run build` must stay `npm run build`.
+        - path-like tokens such as `src/foo.js`, `./test/foo.test.js`,
+          `runs/kit/<REQ>/src`, or absolute project paths may be rewritten.
+
+        This prevents CLike overlay mapping from corrupting package-manager
+        script names that happen to be called `test`, `lint`, or `build`.
+        """
+        if not command:
+            return command
+
+        rewritten = str(command)
+
+        for source, target in sorted(path_map.items(), key=lambda item: len(item[0]), reverse=True):
+            if not source or source.startswith("CLIKE_"):
+                continue
+
+            # Bare logical roots are not shell-command paths unless followed by a slash.
+            # This avoids corrupting commands like `npm run test`.
+            if source in {"src", "test", "tests"}:
+                rewritten = re.sub(
+                    rf"(?<![\w./:-]){re.escape(source)}/",
+                    f"{target}/",
+                    rewritten,
+                )
+                rewritten = rewritten.replace(f"./{source}/", f"{target}/")
+                rewritten = rewritten.replace(f"../{source}/", f"{target}/")
+                continue
+
+            # Rewrite explicit absolute or staged paths only.
+            if "/" in source or "\\" in source:
+                rewritten = rewritten.replace(source, target)
+
+        return rewritten
     def _resolve_workdir(self, raw_cwd: Optional[str], path_map: Dict[str, str]) -> Path:
         if not raw_cwd:
             return self.project_root
@@ -1195,6 +1266,7 @@ class EvalRunner:
             )
 
         eff_req = req_id or ltc.get("req_id")
+        top_env = ltc.get("env") or {}
         out_cases: List[EvalCase] = []
 
         work_root, reports_root, logs_root, path_map, work_kit_root, dependency_roots = self._prepare_eval_workspace(
@@ -1206,35 +1278,55 @@ class EvalRunner:
             self._rewrite_for_eval_workspace(str(profile_path), path_map)
         ).resolve()
 
-        raw_runtime_for_cwd = ltc.get("runtime") or {}
-        runtime_working_directory = ""
-        if isinstance(raw_runtime_for_cwd, dict):
-            runtime_working_directory = str(
-                raw_runtime_for_cwd.get("working_directory")
-                or raw_runtime_for_cwd.get("workdir")
-                or raw_runtime_for_cwd.get("cwd")
-                or ""
-            ).strip()
-
+        runtime_working_directory = self._runtime_working_directory(ltc)
         default_cwd = self._resolve_workdir(
             ltc.get("cwd") or runtime_working_directory or "",
             path_map,
         )
 
-        top_env = ltc.get("env") or {}
+        overlay_workspace_raw = path_map.get("CLIKE_EVAL_OVERLAY_WORKSPACE", "")
+        overlay_src_raw = path_map.get("CLIKE_EVAL_OVERLAY_SRC", "")
+        overlay_test_raw = path_map.get("CLIKE_EVAL_OVERLAY_TEST", "")
+        overlay_tests_raw = path_map.get("CLIKE_EVAL_OVERLAY_TESTS", "")
+
         eval_path_env = {
-            "CLIKE_EVAL_REQ_ID": str(eff_req or ""),
             "CLIKE_EVAL_WORK_DIR": str(work_root),
             "CLIKE_EVAL_REPORT_DIR": str(reports_root),
             "CLIKE_EVAL_LOG_DIR": str(logs_root),
             "CLIKE_EVAL_KIT_DIR": str(work_kit_root or ""),
-            "CLIKE_EVAL_DEPENDENCY_KIT_DIRS": os.pathsep.join(dependency_roots) if "dependency_roots" in locals() else "",
+            "CLIKE_EVAL_CANDIDATE_KIT_DIR": str(work_kit_root or ""),
+            "CLIKE_EVAL_PROJECT_ROOT": str(self.project_root),
+            "CLIKE_EVAL_DEPENDENCY_KIT_DIRS": os.pathsep.join(dependency_roots),
+
+            # Preferred runtime-neutral workspace contract.
+            # Generated CI scripts should use these first.
+            "CLIKE_EVAL_WORKSPACE": overlay_workspace_raw,
+            "CLIKE_EVAL_WORKSPACE_ROOT": overlay_workspace_raw,
+
+            # Official dependency-aware overlay prepared by CLike EvalRunner.
+            "CLIKE_EVAL_OVERLAY_WORKSPACE": overlay_workspace_raw,
+            "CLIKE_EVAL_OVERLAY_SRC": overlay_src_raw,
+            "CLIKE_EVAL_OVERLAY_TEST": overlay_test_raw,
+            "CLIKE_EVAL_OVERLAY_TESTS": overlay_tests_raw,
+
+            # Compatibility aliases for REQ-local CI scripts.
+            # Scripts must prefer these paths when present and create their own overlay
+            # only as a manual-execution fallback outside canonical CLike eval.
+            "CLIKE_OVERLAY_WORKSPACE": overlay_workspace_raw,
+            "CLIKE_OVERLAY_SRC": overlay_src_raw,
+            "CLIKE_OVERLAY_TEST": overlay_test_raw,
+            "CLIKE_OVERLAY_TESTS": overlay_tests_raw,
+
             "CLIKE_EVAL_ORIGINAL_PROFILE": str(profile_path),
             "CLIKE_EVAL_ACTIVE_PROFILE": str(active_profile_path),
             "npm_config_cache": str(self._eval_dir(eff_req) / ".npm-cache"),
             "NPM_CONFIG_CACHE": str(self._eval_dir(eff_req) / ".npm-cache"),
         }
-        base_env = self._merge_env(top_env if isinstance(top_env, dict) else {}, eval_path_env)
+
+        base_env = self._merge_env(
+            top_env if isinstance(top_env, dict) else {},
+            eval_path_env,
+        )
 
         raw_runtime = ltc.get("runtime") or {}
         if isinstance(raw_runtime, dict):
@@ -1250,6 +1342,15 @@ class EvalRunner:
         else:
             runtime = {}
             runtime_name = str(raw_runtime or "").strip().lower()
+
+        if not runtime_name:
+            runtime_name = str(
+                ltc.get("lane")
+                or ltc.get("profile")
+                or ltc.get("ecosystem")
+                or ltc.get("language")
+                or ""
+            ).strip().lower()
 
         requirements_file = None
 
@@ -1267,9 +1368,35 @@ class EvalRunner:
         if not requirements_file and runtime_name in {"python", "python3", "py"}:
             inferred_candidates = [
                 active_profile_path.parent / "requirements.txt",
+                active_profile_path.parent.parent / "ci" / "requirements.txt",
                 active_profile_path.parent.parent / "requirements.txt",
             ]
+
+            if work_kit_root:
+                inferred_candidates.extend(
+                    [
+                        work_kit_root / "ci" / "requirements.txt",
+                        work_kit_root / "requirements.txt",
+                    ]
+                )
+
+            if eff_req:
+                inferred_candidates.append(
+                    self.project_root
+                    / "runs"
+                    / "kit"
+                    / self._safe_req_id(str(eff_req))
+                    / "ci"
+                    / "requirements.txt"
+                )
+
+            seen_requirements: set[str] = set()
             for inferred_requirements in inferred_candidates:
+                key = str(inferred_requirements)
+                if key in seen_requirements:
+                    continue
+                seen_requirements.add(key)
+
                 if inferred_requirements.exists():
                     requirements_file = str(inferred_requirements)
                     break
@@ -1360,7 +1487,7 @@ class EvalRunner:
 
         for case in norm_cases:
             raw_cmd = case.get("run")
-            cmd = self._rewrite_for_eval_workspace(raw_cmd, path_map)
+            cmd = self._rewrite_command_for_eval_workspace(raw_cmd, path_map)
             setup = self._rewrite_for_eval_workspace(case.get("setup"), path_map)
             workdir = self._resolve_workdir(case.get("cwd"), path_map) if case.get("cwd") else default_cwd
             case_env = self._merge_env(eval_env, case.get("env") or {})

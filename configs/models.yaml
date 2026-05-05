@@ -73,6 +73,24 @@ models:
     context_window: 128000
     tags: [cheap]
 
+  - id: openai:gpt-5.5-pro
+    name: gpt-5.5-pro
+    provider: openai
+    base_url: https://api.openai.com/v1
+    remote_name: gpt-5.5-pro-2026-04-23
+    api_key_env: OPENAI_API_KEY
+    modality: responses
+    capability: frontier
+    latency: medium
+    cost: high
+    pricing:
+      input_per_1k: 0.03
+      output_per_1k: 0.18
+    privacy: low
+    enabled: true
+    context_window: 1000000
+    tags: [quality, reasoning]
+
   - id: openai:gpt-5.4-pro
     name: gpt-5.4-pro
     provider: openai
@@ -86,6 +104,24 @@ models:
     pricing:
       input_per_1k: 0.03
       output_per_1k: 0.18
+    privacy: low
+    enabled: true
+    context_window: 1000000
+    tags: [quality, reasoning]
+
+  - id: openai:gpt-5.5
+    name: gpt-5.5
+    provider: openai
+    base_url: https://api.openai.com/v1
+    remote_name: gpt-5.5-2026-04-23
+    api_key_env: OPENAI_API_KEY
+    modality: responses
+    capability: high
+    latency: medium
+    cost: medium
+    pricing:
+      input_per_1k: 0.005
+      output_per_1k: 0.030
     privacy: low
     enabled: true
     context_window: 1000000
@@ -141,7 +177,7 @@ models:
       input_per_1k: 0.00125
       output_per_1k: 0.01
     privacy: low
-    enabled: true
+    enabled: false
     context_window: 128000
     tags: [code, quality, reasoning]
 
@@ -177,7 +213,7 @@ models:
       input_per_1k: 0.00025
       output_per_1k: 0.002
     privacy: low
-    enabled: true
+    enabled: false
     context_window: 128000
     tags: [code, quality, reasoning, cheap]
 
@@ -314,7 +350,7 @@ models:
       output_per_1k: 0.025
     context_window: 1000000
     privacy: low
-    enabled: true
+    enabled: false
     tags: [quality, reasoning]
 
 profiles:
@@ -325,7 +361,7 @@ profiles:
       prefer_providers: [openai, anthropic]
 
   code.strict:
-    model: openai:gpt-5.1-codex-max
+    model: openai:gpt-5.5
     select:
       any_tags: [code, quality]
       avoid_tags: [cheap]

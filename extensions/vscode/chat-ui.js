@@ -40,7 +40,7 @@ function getWebviewHtml(orchestratorUrl, themeName = 'classic') {
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: data:; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>CLike Chat</title>
+<title>Chat CLike</title>
 <style>
   :root {
     --bg:#0f1419;
@@ -1839,7 +1839,17 @@ btnApply.addEventListener('click', ()=>{
   setBusy(true);
   post('apply', { run_dir: lastRun.run_dir, audit_id: lastRun.audit_id, selection });
 });
-btnCancel.addEventListener('click', ()=> post('cancel'));
+btnCancel.addEventListener('click', () => {
+  try {
+    vscode.postMessage({ type: 'cancel' });
+  } catch {}
+
+  try {
+    harperCommandInFlight = false;
+    setBusy(false);
+    bubble('assistant', 'Cancelled by user.', 'system');
+  } catch {}
+});
 
 window.addEventListener('message', (event) => {
   const msg = event.data;

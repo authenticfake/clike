@@ -574,6 +574,9 @@ def _build_file_requirements(
         f"runs/kit/{req_id}/test/",
         f"runs/kit/{req_id}/ci/LTC.json",
         f"runs/kit/{req_id}/ci/HOWTO.md",
+        f"runs/kit/{req_id}/ci/<ecosystem-native-eval-manifest>",
+        f"runs/kit/{req_id}/src/<execution-area>/<ecosystem-native-runtime-manifest> when the REQ creates or updates a runnable execution area",
+
     ]
 
     recommended_outputs = _build_recommended_outputs(req_id, req, payload)
@@ -581,11 +584,32 @@ def _build_file_requirements(
     runtime_manifest_policy = {
         "required": True,
         "scope": "KIT_EVAL_ONLY",
+        "runtime_manifest_required": True,
         "policy": (
-            "If the KIT emits runnable source or tests, emit the runtime-native "
-            "dependency manifest needed by the KIT evaluation harness under "
-            f"runs/kit/{req_id}/ci/. This manifest is not the canonical application "
-            "runtime manifest unless promotion later reconciles it explicitly."
+            "If the KIT emits runnable source or tests, it must emit the runtime-native "
+            "manifest needed to run the KIT evaluation harness under ci/. This file is "
+            "functional for KIT/EVAL execution and is distinct from any promotion-ready "
+            "runtime manifest under the candidate source execution area."
+        ),
+        "runtime_area_manifest_policy": (
+            "If the KIT creates or updates a runnable execution area, it must also emit "
+            "the ecosystem-native promotion-ready runtime manifest under "
+            "runs/kit/<REQ-ID>/src/<execution-area>/. CLike is runtime-agnostic: the model "
+            "must infer the manifest type from SPEC, PLAN, TECH_CONSTRAINTS, FILE_REQUIREMENTS, "
+            "and repository evidence. The manifest choice must be easy to run locally and consistent "
+            "with the selected ecosystem; do not force pyproject.toml, package.json, pom.xml, go.mod, "
+            "or any other manifest unless the execution area actually requires it."
+        ),
+        "launcher_policy": (
+            "If the KIT emits executable backend/frontend/service modules, it must provide "
+            "one coherent launcher/composition entry per executable area only when the REQ owns "
+            "composition or when no existing launcher exists. Do not create one launcher per REQ. "
+            "Do not replace an existing composition root when the REQ only contributes feature modules."
+        ),
+        "reuse_before_create_policy": (
+            "Before creating shared contracts, adapters, launchers, manifests, enums, or helpers, "
+            "inspect dependency KITs and canonical promoted roots. Reuse or extend existing concepts "
+            "before creating new ones."
         ),
         "examples": [
             f"runs/kit/{req_id}/ci/package.json for Node/npm ecosystems",
@@ -595,7 +619,7 @@ def _build_file_requirements(
             f"runs/kit/{req_id}/ci/RUNTIME_MANIFEST.md when the ecosystem has no standard manifest",
         ],
         "must_not": [
-            f"Do not create runtime manifests under runs/kit/{req_id}/src/**.",
+            f"Do not create eval-only runtime manifests under runs/kit/{req_id}/src/**.",
             "Do not emit Python requirements for non-Python implementations.",
             "Do not emit npm manifests for non-Node implementations.",
             "Do not add unrelated speculative dependencies.",
@@ -713,8 +737,14 @@ def _build_file_requirements(
             "path_hint": f"runs/kit/{req_id}/src/<execution-area-composition-root>",
             "kind": "source",
             "required": bool(execution_areas),
-            "purpose": "One coherent launcher/composition root per executable area, solution-scoped rather than REQ-scoped.",
-            "must_cover": solution_launcher_policy["must_cover"],
+            "purpose": (
+                "One coherent launcher/composition root per executable area, solution-scoped rather than REQ-scoped. "
+                "When required, this file may live outside main_module_boundary, but only under the allowed candidate src root."
+            ),
+            "must_cover": solution_launcher_policy["must_cover"] + [
+                "create the minimal runnable composition root when this role is required and no existing canonical launcher is available",
+                "wire or expose the emitted feature module through the execution area without duplicating business logic",
+            ],
             "must_not_contain": solution_launcher_policy["must_not"],
         },
     ]
@@ -724,8 +754,12 @@ def _build_file_requirements(
         provider_obligations.extend(
             [
                 "Generic in-memory provider-shaped wrappers are not sufficient for this REQ.",
-                "Concrete provider factory boundaries or SDK-backed adapters are mandatory when technical_scope explicitly names providers or SDKs.",
-                "Local deterministic tests may use fakes, but runtime-facing code must expose real provider construction or provider-ready factory wiring.",
+                "Official or widely adopted ecosystem SDKs are preferred inside adapter/infrastructure boundaries when concrete providers are named.",
+                "Do not reimplement provider protocols, auth/signing, wire formats, or client behavior when a mature SDK exists.",
+                "Concrete provider factories or SDK-backed adapters are mandatory when technical_scope explicitly names providers, runtime services, or SDK-backed infrastructure.",
+                "Provider SDK imports are allowed inside adapter, provider factory, infrastructure, or integration boundary modules.",
+                "Business-facing contracts must remain provider-independent and must not expose provider SDK types unless SPEC explicitly requires it.",
+                "Local deterministic tests may use fakes, SDK stubs, or official mock helpers, but runtime-facing code must expose real provider construction or SDK-backed factory wiring.",
                 "If concrete provider wiring is intentionally deferred, the KIT must explicitly mark the REQ as not promotable and describe the blocking gap.",
             ]
         )
@@ -746,6 +780,30 @@ def _build_file_requirements(
         ),
         "provider_realism_required": provider_realism_required,
         "provider_obligations": provider_obligations,
+        "provider_sdk_policy": {
+            "official_or_consolidated_sdks_preferred": True,
+            "policy": (
+                "When a REQ names concrete providers or runtime services, official or widely adopted ecosystem SDKs "
+                "must be used inside adapter/infrastructure boundaries unless SPEC explicitly forbids them."
+            ),
+            "boundary_rules": [
+                "Do not reimplement provider protocols, auth/signing, wire formats, or client behavior when a mature SDK exists.",
+                "Provider SDK imports are allowed inside adapter, provider factory, infrastructure, or integration boundary modules.",
+                "Business-facing contracts must remain provider-independent.",
+                "Business modules must not instantiate provider SDK clients directly.",
+                "Tests may use SDK stubs, official mock helpers, or deterministic fake clients, but runtime-facing code must expose real SDK-backed wiring when provider realism is required.",
+            ],
+            "examples_by_ecosystem": {
+                "python_aws": ["boto3", "botocore"],
+                "python_postgres": ["sqlalchemy", "psycopg"],
+                "python_vault": ["hvac"],
+                "python_redis": ["redis"],
+                "python_kafka": ["confluent-kafka", "aiokafka"],
+                "node_aws": ["@aws-sdk/client-s3", "@aws-sdk/client-sqs", "@aws-sdk/client-sns", "@aws-sdk/client-secrets-manager"],
+                "java_aws": ["AWS SDK for Java v2"],
+                "go_aws": ["AWS SDK for Go v2"],
+            },
+        },
         "missing_selected_capabilities_blocking": bool(
             capability_integrity.get("missing_any_selected_capability")
         ),
@@ -1040,16 +1098,26 @@ def build_kit_local_agent_package(
             "If package.json and npm scripts are present, prefer repository-native npm scripts for checks.",
             "If dependency installation is unavailable, report checks as environment-blocked and run repository-native smoke checks.",
             "Never install undeclared packages; only use dependencies declared by the project or the generated REQ-local validation contract.",
-            "Before generating code, read docs/harper/PLAN.md and docs/harper/plan.json to identify the target REQ dependencies.",
+            "Before generating code, read docs/harper/PLAN.md and docs/harper/plan.json to identify the target REQ dependencies and whether the REQ owns or merely contributes to an execution area.",
             "Before generating code, inspect existing dependency KIT artifacts under runs/kit/<DEPENDENCY_REQ_ID>/ when they exist.",
             "Before generating code, inspect canonical promoted source roots under src/ when they exist.",
             "Before generating tests, inspect canonical promoted test roots under test/ and tests/ when they exist.",
+            "Reuse before create: extend or integrate existing dependency KIT and promoted contracts/modules before creating new shared concepts, duplicate adapters, duplicate enums, duplicate launchers, or duplicate composition roots.",
+            "Generated CI scripts must consume the official CLike eval workspace when present: CLIKE_EVAL_WORKSPACE, CLIKE_EVAL_WORKSPACE_ROOT, CLIKE_EVAL_OVERLAY_WORKSPACE, or CLIKE_OVERLAY_WORKSPACE.",
+            "Generated CI scripts must not create a second temporary overlay when an official CLike eval workspace is available.",
+            "Generated helpers such as createOverlayWorkspace, prepareWorkspace, buildWorkspace, composeWorkspace, or runtime-specific equivalents must first check the CLike eval workspace env contract and return it directly when available.",
+            "Generated CI scripts must not recopy src/test/tests or reconstruct dependency KIT composition when CLike EvalRunner has already provided CLIKE_EVAL_WORKSPACE or CLIKE_EVAL_OVERLAY_WORKSPACE.",
+            "Fallback overlay creation is allowed only for manual execution outside canonical CLike EvalRunner.",
+            "This eval workspace rule is runtime-agnostic and applies to Node/JS/TS, Python, Java, Go, Rust, .NET, IaC, Mendix, PLC/SCADA, and custom enterprise runners.",
+            "Package-manager script names must remain literal: commands such as npm run test, npm run lint, and npm run build must never be rewritten into npm run <absolute-path>.",
             "Generated code must be immediately promotable into canonical src/ and test roots without changing public contracts unexpectedly.",
-            "If the KIT emits runnable source or tests, emit the runtime-native KIT eval manifest under runs/kit/<REQ-ID>/ci/, such as ci/package.json for Node/npm, ci/requirements.txt or ci/pyproject.toml for Python, pom.xml for Maven, go.mod for Go, or the ecosystem-native equivalent.",
-            "If the KIT emits backend/frontend/service executable modules, provide one coherent solution-scoped launcher/composition entry per execution area when needed: one backend launcher, one frontend launcher, and one per separate service. Do not create one launcher per REQ.",
+            "If the KIT emits runnable source or tests, emit the runtime-native KIT eval manifest needed to run them, such as ci/package.json for Node/npm or ci/requirements.txt for Python.",
+            "If the KIT creates or updates a runnable execution area, also emit the ecosystem-native promotion-ready runtime manifest under runs/kit/<REQ-ID>/src/<execution-area>/.",
+            "Composition root ownership is explicit: only create or replace a backend/frontend/service launcher when the REQ owns that execution area composition or when repository evidence shows no existing composition root. Otherwise contribute feature modules and update integration seams without stealing the launcher.",
+            "If FILE_REQUIREMENTS.json marks execution_area_runtime_manifest or solution_composition_root as required=true, omitting that artifact is a blocking KIT defect: either emit the artifact or explicitly mark the KIT non-promotable with the missing role and reason.",
+            "If the KIT emits backend/frontend/service executable modules, provide one coherent launcher or composition entry per executable area only when the REQ owns composition or no existing launcher exists. Do not create one launcher per REQ.",
             "Launcher/composition files must live under the canonical execution area inside the candidate src tree, not under a REQ-local feature-only namespace unless the repository already uses that convention.",
             "Keep KIT/EVAL manifests under runs/kit/<REQ-ID>/ci/.",
-            "If the KIT creates or updates a runnable execution area, also emit the ecosystem-native promotion-ready runtime manifest under runs/kit/<REQ-ID>/src/<execution-area>/.",
             "Do not hardcode runs/kit, ci/, temporary overlay paths, or REQ-specific eval paths in promotion-ready runtime manifests.",
             "It is allowed to regenerate files already emitted by previous KITs when they are functionally required for the current KIT; CLike promotion/merge handles reconciliation later.",
             "Do not duplicate modules, adapters, ports, models, services, or test helpers already present in dependency KITs or canonical src/test roots. If needed you can extend the module/file with all necessary code in the current req, but we need to be sure that the generated code is consistent with the dependency KITs and canonical roots for applying unified diffs later.",
@@ -1084,7 +1152,8 @@ def build_kit_local_agent_package(
             "- Treat canonical src/test roots as promoted truth and dependency KIT roots as E2E contract evidence.",
             "- Read and respect capability_context before designing the implementation.",
             "- Prefer CLIKE_SELECTED_CAPABILITY_CONTEXT.md over the generic full manifest when selected capability guidance exists.",
-            "- Use main_module_boundary to keep the implementation focused and avoid scattered files.",
+            "- Use main_module_boundary to keep feature implementation focused and avoid scattered files.",
+            "- If FILE_REQUIREMENTS.json requires execution_area_runtime_manifest, solution_composition_root, or module_launcher, those execution-area artifacts may be created outside main_module_boundary but must stay under the allowed candidate src root and must remain solution-scoped, not REQ-scoped.",
             "- Treat selected skills, packs, and design profiles as mandatory REQ constraints only when they affect this REQ.",
             "- Prefer CLIKE_SELECTED_CAPABILITY_CONTEXT.md over the generic full manifest when selected capability guidance exists.",
             "- Do not add decorative architecture just to show that a capability was used.",
@@ -1112,6 +1181,10 @@ def build_kit_local_agent_package(
             f"- runs/kit/{req_id}/test/...",
             f"- runs/kit/{req_id}/ci/LTC.json",
             f"- runs/kit/{req_id}/ci/HOWTO.md",
+            "- Every FILE_REQUIREMENTS.json required_outputs item with required=true is mandatory.",
+            "- If execution_area_runtime_manifest is required=true, emit the ecosystem-native promotion-ready runtime manifest under the candidate src execution area/root, not only under ci/.",
+            "- If solution_composition_root or module_launcher is required=true, emit one coherent runnable composition root/launcher for the execution area, even when that file lives outside main_module_boundary.",
+            "- If any required output cannot be emitted safely, mark the KIT non-promotable and list the missing role in unresolved gaps.",
             "",
             "Recommended candidate outputs:",
             f"- runs/kit/{req_id}/docs/README_{req_id}.md",
@@ -1137,6 +1210,11 @@ def build_kit_local_agent_package(
             - local_runtime.tool_hints are optional command hints only after the implementation runtime is known.
             - If package.json and npm scripts are present, prefer repository-native npm scripts such as `npm run test`, `npm run lint`, and `npm run build`.
             - Keep KIT/EVAL manifests under `runs/kit/<REQ-ID>/ci/`.
+            - Generated CI scripts must consume the official CLike eval workspace when present: CLIKE_EVAL_WORKSPACE, CLIKE_EVAL_WORKSPACE_ROOT, CLIKE_EVAL_OVERLAY_WORKSPACE, or CLIKE_OVERLAY_WORKSPACE.
+            - Generated helpers such as createOverlayWorkspace, prepareWorkspace, buildWorkspace, composeWorkspace, or runtime-specific equivalents must first check the CLike eval workspace env contract and return it directly when available.
+            - Do not create a second temporary overlay, recopy src/test/tests, or reconstruct dependency KIT composition when CLike EvalRunner has already provided an eval workspace.
+            - Fallback overlay creation is allowed only for manual execution outside canonical CLike EvalRunner.
+            - This rule is runtime-agnostic and applies to Node/JS/TS, Python, Java, Go, Rust, .NET, IaC, Mendix, PLC/SCADA, and custom enterprise runners.
             - If you create or update a runnable execution area, also emit the ecosystem-native promotion-ready runtime manifest under that execution area's candidate source root.
             - Runtime manifests must use paths relative to their own execution area root and must not contain runs/kit, ci/, temporary overlay paths, or REQ-specific eval paths.
             - Use Python only when the SPEC, PLAN, TECH_CONSTRAINTS, TARGET_CONTRACT, FILE_REQUIREMENTS, or repository evidence explicitly identifies Python as the implementation stack.
@@ -1558,6 +1636,10 @@ def build_eval_local_agent_package(
             "- Do not create a Python virtualenv for non-Python projects.",
             "- If package.json and npm scripts are present, prefer repository-native npm scripts for eval checks.",
             "- If dependencies cannot be installed because the environment is offline, externally managed, or blocked by policy, report the check as environment-blocked and run dependency-free compile/smoke checks instead.",
+            "- When repairing CI scripts, preserve the CLike eval workspace contract: scripts must consume CLIKE_EVAL_WORKSPACE, CLIKE_EVAL_WORKSPACE_ROOT, CLIKE_EVAL_OVERLAY_WORKSPACE, or CLIKE_OVERLAY_WORKSPACE when present.",
+            "- Do not repair eval failures by creating an unconditional second overlay workspace.",
+            "- Helpers such as createOverlayWorkspace, prepareWorkspace, buildWorkspace, composeWorkspace, or runtime-specific equivalents must return the CLike-provided eval workspace directly when available.",
+            "- Fallback overlay creation is allowed only for manual execution outside canonical CLike EvalRunner.",
             "- Patch operations are allowed only under allowed_write_roots.",
             "",
             "Required eval actions:",

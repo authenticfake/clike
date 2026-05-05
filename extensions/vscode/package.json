@@ -131,7 +131,7 @@
             "Studio dark console (più denso, focus contenuti)",
             "Paper light (notebook chiaro)"
           ], 
-          "description": "Theme for the Clike chat UI."
+          "description": "Theme for the Chat CLike UI."
         },
         "clike.harperTimeout": {
           "type": "number",
@@ -217,7 +217,7 @@
         },
         "clike.localAgent.preferredExecutor": {
           "type": "string",
-          "default": "auto",
+          "default": "gpt_codex",
           "enum": [
             "auto",
             "claude_code",
