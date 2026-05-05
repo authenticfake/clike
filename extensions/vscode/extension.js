@@ -1240,7 +1240,7 @@ function cfg() {
     gatewayUrl: c.get('gatewayUrl', 'http://localhost:8000').replace(/\/+$/, ''),
 
     optimizeFor: c.get('optimizeFor', 'capability'),
-    harperTimeout: c.get('harperTimeout', 25),
+    harperTimeout: c.get('harperTimeout', 35),
     
     localAgentEnabled: c.get('localAgent.enabled', true),
     localAgentPreferredExecutor: c.get('localAgent.preferredExecutor', 'auto'),
@@ -1559,7 +1559,7 @@ async function dispatchAgentSlashCommand(command) {
     ok: true,
     accepted: true,
     command: clean,
-    note: 'Command dispatched to CLike chat. The normal extension/orchestrator flow will execute it.',
+    note: 'Command dispatched to chat clike. The normal extension/orchestrator flow will execute it.',
   };
 }
 
@@ -3971,7 +3971,7 @@ async function cmdOpenChat(context) {
                   temperature: 0.2,
                   max_tokens: 9999,
                   top_p: 0.9,
-                  stop: ["```.:: END ::.```"],
+                  stop: ["````END```"],
                   presence_penalty: 0,
                   frequency_penalty: 0.2,
                   seed: 42,

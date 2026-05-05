@@ -450,72 +450,137 @@ Not allowed:
 * fake provider behavior presented as target-runtime behavior
 * README claims that the architecture is promotable when the main path is still local-only
 
-### 11.5.3) Must-reuse means implement in canonical family now
+### 11.5.3) Must-reuse means reuse before create
 
-If PLAN.md, plan.json, repository evidence, or promotion manifests declare canonical module families or must-reuse families, implement through those families now.
+If PLAN.md, plan.json, repository evidence, dependency KITs, or promotion manifests declare canonical module families or must-reuse families, implement through those families now.
+
+Before creating new shared concepts, inspect and reuse:
+
+* promoted `src/`
+* promoted `test/` `
+* dependency KIT `src/`
+* dependency KIT `test/`
+* shared contracts
+* existing launchers and composition roots
+* existing runtime manifests and module descriptors
 
 Do not:
 
 * keep the logic local to the REQ and only mention future reuse later
 * emit temporary local module families that bypass declared canonical ownership
+* duplicate contracts, status enums, adapters, helpers, or launchers already present in dependencies
+* replace composition roots unless the REQ owns that execution area composition
 * document intended convergence without implementing the required canonical seam
 
-### 11.5.4) Eval manifests, runtime manifests, and solution composition obligations
+
+### 11.5.4) Runtime manifest, composition ownership, and reuse obligations
 
 CLike is runtime-agnostic. Do not assume Node, Python, Java, Go, Rust, .NET, Mendix, PLC/SCADA, Kafka, Confluent, or any specific ecosystem unless SPEC, PLAN, TECH_CONSTRAINTS, repository evidence, or FILE_REQUIREMENTS clearly selects it.
 
-Keep these two manifest roles separate:
+Keep these manifest roles separate:
 
 1. KIT/EVAL manifest under `runs/kit/<REQ-ID>/ci/`
 2. Promotion-ready runtime manifest under `runs/kit/<REQ-ID>/src/<execution-area>/`
 
 If the KIT emits runnable source or tests, it MUST emit the runtime-native manifest required to run the KIT evaluation harness under `ci/`.
 
-Examples only, not forced choices:
-
-* Node/npm: `runs/kit/<REQ-ID>/ci/package.json`
-* Python: `runs/kit/<REQ-ID>/ci/requirements.txt` or `runs/kit/<REQ-ID>/ci/pyproject.toml`
-* Java/Maven: `runs/kit/<REQ-ID>/ci/pom.xml`
-* Go: `runs/kit/<REQ-ID>/ci/go.mod`
-* Rust: `runs/kit/<REQ-ID>/ci/Cargo.toml`
-* .NET: `runs/kit/<REQ-ID>/ci/<project>.csproj`
-* Other ecosystems: the minimal runtime-native manifest needed for local KIT/EVAL execution
-
 If the KIT creates or updates a runnable execution area, it MUST also emit the corresponding promotion-ready runtime manifest under that candidate source execution area root.
 
-Examples only, not forced choices:
+Examples are illustrative only:
 
-* Node backend: `runs/kit/<REQ-ID>/src/backend/package.json`
-* Node frontend: `runs/kit/<REQ-ID>/src/frontend/package.json`
-* Python service: `runs/kit/<REQ-ID>/src/<service>/pyproject.toml` or `requirements.txt`
-* Java service: `runs/kit/<REQ-ID>/src/<service>/pom.xml`
-* Go service: `runs/kit/<REQ-ID>/src/<service>/go.mod`
-* Rust service: `runs/kit/<REQ-ID>/src/<service>/Cargo.toml`
-* Mendix/PLC/SCADA/Kafka/Confluent or other runtimes: use the ecosystem-native runtime manifest or module descriptor selected by repository evidence
+* Node backend: `ci/package.json` + `src/backend/package.json`
+* Node frontend: `ci/package.json` + `src/frontend/package.json`
+* Python service: `ci/requirements.txt` + `src/<service>/pyproject.toml` or `requirements.txt`
+* Java service: `ci/pom.xml` + `src/<service>/pom.xml`
+* Go service: `ci/go.mod` + `src/<service>/go.mod`
+* Other runtimes: use the ecosystem-native manifest or module descriptor selected by repository evidence
 
-Rules:
+Runtime manifests must use paths relative to their own execution area root.
+Runtime manifests must not hardcode `runs/kit`, `ci/`, temporary overlay paths, or REQ-specific eval paths.
+Eval-only scripts belong in `ci/` manifests, not in source-root runtime manifests.
 
-* `ci/` manifests are for KIT/EVAL only.
-* source-root runtime manifests are for promoted execution areas.
-* runtime manifests must use paths relative to their own execution area root.
-* runtime manifests must not hardcode `runs/kit`, `ci/`, temporary overlay paths, or REQ-specific eval paths.
-* eval-only scripts belong in `ci/` manifests, not in source-root runtime manifests.
-* do not omit a source-root runtime manifest merely because a `ci/` eval manifest exists.
-* no launcher per REQ.
-* no REQ-local app bootstrap unless the existing repository explicitly uses per-REQ runnable apps.
+Composition root ownership is explicit:
 
-If the KIT emits executable backend, frontend, service, worker, CLI, UI, PLC/SCADA, Mendix, integration, stream, or other runnable modules, it MUST provide one coherent launcher/composition root per execution area when needed.
+* create or replace a backend/frontend/service launcher only when the REQ owns that execution area composition, or when no existing launcher exists
+* otherwise contribute feature modules and integration seams without stealing or duplicating the launcher
+* do not create one launcher per REQ
+* do not emit standalone per-REQ app bootstraps unless repository evidence explicitly requires that pattern
 
-Launcher/composition roots are runtime-native and must be inferred from SPEC, PLAN, TECH_CONSTRAINTS, repository evidence and existing conventions.
+Reuse before create:
 
-Examples only, not forced choices:
+* inspect dependency KIT roots and promoted `src/`, `test/`, and `tests/` roots before generating new shared concepts
+* reuse or extend existing contracts, enums, adapters, helpers, stores, file handlers, and launchers before creating new ones
+* do not duplicate contracts or status values already present in dependency KITs or promoted roots
 
-* Node/Express backend may use `src/backend/app.js` and `src/backend/server.js`
-* React/Vite frontend may use `src/frontend/index.html`, `src/frontend/src/main.jsx`, `src/frontend/src/App.jsx`
-* Python/FastAPI backend may use `src/backend/app.py` and `src/backend/main.py`
-* Other ecosystems must use their normal composition/root pattern
+Generated CI scripts must consume the official CLike eval workspace when present.
 
-A feature `index` file is not enough when the solution itself is not runnable. The KIT must wire feature modules into the application composition root or explicitly document why the REQ is non-executable.
+CLike EvalRunner is the only component allowed to compose the effective evaluation
+workspace. It may expose the composed workspace through these environment variables:
+
+Preferred runtime-neutral variables:
+
+* `CLIKE_EVAL_WORKSPACE`
+* `CLIKE_EVAL_WORKSPACE_ROOT`
+
+Backward-compatible official overlay variables:
+
+* `CLIKE_EVAL_OVERLAY_WORKSPACE`
+* `CLIKE_EVAL_OVERLAY_SRC`
+* `CLIKE_EVAL_OVERLAY_TEST`
+* `CLIKE_EVAL_OVERLAY_TESTS`
+
+Compatibility aliases may also be present:
+
+* `CLIKE_OVERLAY_WORKSPACE`
+* `CLIKE_OVERLAY_SRC`
+* `CLIKE_OVERLAY_TEST`
+* `CLIKE_OVERLAY_TESTS`
+
+Generated CI scripts MUST follow this order:
+
+1. If `CLIKE_EVAL_WORKSPACE`, `CLIKE_EVAL_WORKSPACE_ROOT`, `CLIKE_EVAL_OVERLAY_WORKSPACE`, or `CLIKE_OVERLAY_WORKSPACE` exists and points to a real directory, use it as the effective workspace root.
+2. Do not create another temporary overlay in that case.
+3. Do not recopy `src`, `test`, or `tests` from the repository root in that case.
+4. Do not reconstruct dependency KIT composition inside generated scripts.
+5. Fallback overlay creation is allowed only for manual execution outside canonical CLike EvalRunner.
+6. This rule is runtime-agnostic and applies to Node/JS/TS, Python, Java, Go, Rust, .NET, IaC, Mendix, PLC/SCADA, and custom enterprise runners.
+
+Generated helper functions such as `createOverlayWorkspace`, `prepareWorkspace`,
+`buildWorkspace`, `composeWorkspace`, or runtime-specific equivalents MUST first
+check the CLike eval workspace environment contract above and return it directly
+when available.
+
+Bad pattern:
+
+```text
+create temp overlay
+copy root src/test/tests
+copy current KIT only
+run tests
+```
+
+Good pattern:
+```text
+reuse CLike eval workspace if present
+fallback to manual local overlay only outside EvalRunner
+run tests/build/lint/security against the effective workspace
+```
+Package-manager script names must remain literal. Never rewrite or generate commands like:
+
+* `npm run <absolute-path>`
+* `npm run <overlay-path>`
+* `npm run /tmp/.../test`
+
+Correct examples:
+
+* `npm run test`
+* `npm run lint`
+* `npm run build`
+
+If the KIT emits executable backend, frontend, service, worker, CLI, UI, PLC/SCADA, Mendix, integration, stream, or other runnable modules, it MUST provide one coherent launcher/composition root per execution area when ownership rules require it.
+
+A feature `index` file is not enough when the solution itself is not runnable. The KIT must wire feature modules into the application composition root when it owns composition, or document the existing composition root it extends.
+
 
 ### 11.5.5) Lane-agnostic dependency and runtime manifests
 

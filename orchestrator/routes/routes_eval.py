@@ -1,10 +1,10 @@
 from __future__ import annotations
-
+import json
 import logging
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Body, HTTPException, Query
 from pydantic import BaseModel
@@ -79,6 +79,145 @@ def _resolve_project_root(project_root: Optional[str], project_name: Optional[st
         return (p if p.is_absolute() else Path.cwd() / p).resolve()
 
     return Path.cwd().resolve()
+
+
+_RUNTIME_MANIFEST_NAMES = {
+    "package.json",
+    "pyproject.toml",
+    "requirements.txt",
+    "setup.py",
+    "setup.cfg",
+    "pom.xml",
+    "build.gradle",
+    "build.gradle.kts",
+    "go.mod",
+    "Cargo.toml",
+    "Gemfile",
+    "composer.json",
+    "mix.exs",
+    "pubspec.yaml",
+    "deno.json",
+    "RUNTIME_MANIFEST.md",
+    "Makefile",
+    "CMakeLists.txt",
+}
+
+_COMPOSITION_ROOT_NAMES = {
+    "app.py",
+    "main.py",
+    "server.py",
+    "asgi.py",
+    "wsgi.py",
+    "index.js",
+    "main.js",
+    "server.js",
+    "app.js",
+    "index.ts",
+    "main.ts",
+    "server.ts",
+    "app.ts",
+    "index.tsx",
+    "main.tsx",
+    "App.tsx",
+    "index.jsx",
+    "main.jsx",
+    "App.jsx",
+    "index.html",
+    "main.go",
+    "Program.cs",
+    "Startup.cs",
+    "Main.java",
+    "Application.java",
+    "main.rs",
+    "lib.rs",
+    "main.rb",
+    "config.ru",
+}
+
+
+def _load_file_requirements(project_root: Path, req_id: Optional[str]) -> Optional[Dict[str, Any]]:
+    if not req_id:
+        return None
+
+    candidates = [
+        project_root / "runs" / "kit" / req_id / "ci" / "FILE_REQUIREMENTS.json",
+        project_root / "runs" / "kit" / req_id / "docs" / "FILE_REQUIREMENTS.json",
+    ]
+    for candidate in candidates:
+        try:
+            if candidate.exists():
+                return json.loads(candidate.read_text(encoding="utf-8"))
+        except Exception:
+            log.warning("gate.file_requirements unreadable path=%s", candidate, exc_info=True)
+            return None
+    return None
+
+
+def _has_runtime_manifest_under_candidate(req_root: Path) -> bool:
+    search_roots = [req_root / "src"]
+    # Some ecosystems keep the promotion-ready manifest at the candidate package root.
+    search_roots.append(req_root)
+
+    for root in search_roots:
+        if not root.exists():
+            continue
+        for path in root.rglob("*"):
+            if not path.is_file():
+                continue
+            if "ci" in path.relative_to(req_root).parts:
+                continue
+            if path.name in _RUNTIME_MANIFEST_NAMES:
+                return True
+            if path.suffix.lower() in {".csproj", ".fsproj", ".vbproj", ".sln", ".mpr"}:
+                return True
+    return False
+
+
+def _has_composition_root_under_candidate(req_root: Path) -> bool:
+    src_root = req_root / "src"
+    if not src_root.exists():
+        return False
+
+    for path in src_root.rglob("*"):
+        if not path.is_file():
+            continue
+        if path.name in _COMPOSITION_ROOT_NAMES:
+            return True
+        if path.name.endswith("Application.java"):
+            return True
+        if path.suffix.lower() in {".mpr"}:
+            return True
+    return False
+
+
+def _required_output_blockers(project_root: Path, req_id: Optional[str]) -> List[Dict[str, str]]:
+    file_requirements = _load_file_requirements(project_root, req_id)
+    if not file_requirements or not req_id:
+        return []
+
+    req_root = project_root / "runs" / "kit" / req_id
+    required_outputs = file_requirements.get("required_outputs") or []
+    blockers: List[Dict[str, str]] = []
+
+    for item in required_outputs:
+        if not item or item.get("required") is not True:
+            continue
+
+        role = str(item.get("role") or "").strip()
+
+        if role == "execution_area_runtime_manifest" and not _has_runtime_manifest_under_candidate(req_root):
+            blockers.append({
+                "role": role,
+                "reason": "FILE_REQUIREMENTS requires a promotion-ready runtime manifest for a runnable execution area, but no ecosystem-native manifest was found outside ci/.",
+            })
+
+        if role in {"solution_composition_root", "module_launcher"} and not _has_composition_root_under_candidate(req_root):
+            blockers.append({
+                "role": role,
+                "reason": "FILE_REQUIREMENTS requires a runnable composition root/launcher, but no cross-language composition entry was found under candidate src/.",
+            })
+
+    return blockers
 
 
 def _manual_verdict(
@@ -282,10 +421,14 @@ def gate_check(
         log.exception("gate_check unexpected")
         raise HTTPException(status_code=500, detail=f"gate_check error: {exc}") from exc
 
-    hard_gate = "PASS" if rep.status == "PASS" else "FAIL"
+    structural_blockers = _required_output_blockers(prj, args.req_id or rep.req_id)
+    effective_status = "FAIL" if structural_blockers else rep.status
+    hard_gate = "PASS" if effective_status == "PASS" else "FAIL"
 
     reason_code = "GATE_PASS"
-    if rep.status == "PASS_WITH_WARNINGS":
+    if structural_blockers:
+        reason_code = "GATE_BLOCKED_REQUIRED_OUTPUTS_MISSING"
+    elif rep.status == "PASS_WITH_WARNINGS":
         reason_code = "GATE_BLOCKED_WARNINGS_PRESENT"
     elif rep.status == "FAIL":
         reason_code = "GATE_BLOCKED_FAILED_CHECKS"
@@ -294,12 +437,14 @@ def gate_check(
 
     return {
         "gate": hard_gate,
-        "status": rep.status,
+        "status": effective_status,
+        "raw_eval_status": rep.status,
         "reason_code": reason_code,
+        "structural_blockers": structural_blockers,
         "profile": rep.profile,
         "req_id": rep.req_id,
         "mode": rep.mode,
-        "passed": rep.status == "PASS",
+        "passed": effective_status == "PASS",
         "failed": rep.failed,
         "passed_count": rep.passed,
         "blocked_count": rep.blocked,
