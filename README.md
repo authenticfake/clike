@@ -347,7 +347,10 @@ Examples:
 
 ---
 
-## HOWTO
+## HOW-TO 
+
+READ FIRST --> 
+[docs/Clike HARPER RUN.md — (Process & Artifacts )](./docs/Clike%20HARPER%20RUN.md)
 
 To get operational quickly with CLike and the Harper workflow, read [docs/HOWTO.md](./docs/HOWTO.md).
 
