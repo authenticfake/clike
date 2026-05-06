@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import re
+
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -304,30 +306,200 @@ def _build_capability_integrity(req: Dict[str, Any], capability_manifest: Dict[s
 
 
 def _technical_scope_requires_real_provider_wiring(req: Dict[str, Any]) -> bool:
-    """
-    Return True if the REQ explicitly asks for concrete provider/runtime wiring.
-    Looks for tokens such as boto3, aiobotocore, S3, SQS, SNS, Secrets Manager,
-    CloudWatch, MinIO, Vault, or phrases like 'AWS implementations use' or
-    'On‑prem implementations use' in functional/technical scope and acceptance.
-    """
-    chunks: List[str] = [
-        _safe_text(req.get("technical_scope")),
-        _safe_text(req.get("functional_scope")),
-        _safe_text(req.get("main_module_boundary")),
-    ]
-    acceptance = req.get("acceptance") or []
-    if isinstance(acceptance, list):
-        chunks.extend([_safe_text(x) for x in acceptance])
-    haystack = " ".join(chunks).lower()
-    trigger_tokens = [
-        "boto3", "aiobotocore", "s3", "sqs", "sns",
-        "secrets manager", "cloudwatch",
-        "minio", "vault", "vault‑compatible",
-        "sdk", "aws implementations use", "on‑prem implementations use",
-    ]
-    return any(token in haystack for token in trigger_tokens)
+    blob = _req_text_blob(req)
+    provider_tokens = (
+        "aws",
+        "azure",
+        "gcp",
+        "microsoft",
+        "google",
+        "apigee",
+        "wso2",
+        "s3",
+        "sqs",
+        "sns",
+        "secrets manager",
+        "cloudwatch",
+        "opentelemetry",
+        "prometheus",
+        "vault",
+        "minio",
+        "ceph",
+        "sdk",
+        "provider",
+        "adapter",
+        "runtime profile",
+        "on-prem",
+        "onprem",
+    )
+    return any(token in blob for token in provider_tokens)
 
 
+def _add_obligation_name(items: List[str], value: Any) -> None:
+    """Add a normalized obligation name while preserving display readability."""
+    text = _safe_text(value).strip().strip("'\"")
+    if not text:
+        return
+
+    text = re.sub(r"\s+", " ", text)
+    lowered = text.lower()
+
+    ignored = {
+        "true",
+        "false",
+        "dev",
+        "uat",
+        "prod",
+        "tests",
+        "lint",
+        "types",
+        "security",
+        "build",
+        "backend",
+        "frontend",
+        "infra",
+        "data",
+        "enterprise",
+        "hybrid",
+    }
+    if lowered in ignored or len(text) < 3:
+        return
+
+    if lowered not in {item.lower() for item in items}:
+        items.append(text)
+
+
+def _collect_structured_obligation_names(value: Any) -> List[str]:
+    """Collect explicit dependency/tool names from structured contract fields.
+
+    This is the preferred path. Future PLAN/spec generation should populate
+    fields such as external_runtime_obligations instead of relying on text
+    heuristics.
+    """
+    found: List[str] = []
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            name = node.get("name") or node.get("tool") or node.get("library") or node.get("engine") or node.get("sdk")
+            if name:
+                _add_obligation_name(found, name)
+            for child in node.values():
+                walk(child)
+            return
+
+        if isinstance(node, list):
+            for child in node:
+                walk(child)
+            return
+
+        if isinstance(node, str):
+            for part in re.split(r"\s*(?:\+|/|,|;|\band\b|\bor\b)\s*", node):
+                _add_obligation_name(found, part)
+
+    walk(value)
+    return found
+
+
+def _collect_explicit_req_obligations(req: Dict[str, Any]) -> List[str]:
+    """Collect obligations explicitly attached to the current REQ."""
+    fields = (
+        "external_runtime_obligations",
+        "external_library_obligations",
+        "runtime_obligations",
+        "runtime_libraries",
+        "external_libraries",
+        "libraries",
+        "engines",
+        "tools",
+        "sdks",
+        "model_runtimes",
+    )
+
+    found: List[str] = []
+    for field in fields:
+        for item in _collect_structured_obligation_names(req.get(field)):
+            _add_obligation_name(found, item)
+    return found
+
+
+def _collect_tech_constraints_obligations(payload: Dict[str, Any], req_blob: str) -> List[str]:
+    """Extract relevant named tools from TECH_CONSTRAINTS without hardcoding a catalog.
+
+    TECH_CONSTRAINTS is declarative. Values from technology_stack-like sections
+    become obligations only when they are also relevant to the current REQ text.
+    """
+    raw = (
+        _extract_core_blob(payload, "TECH_CONSTRAINTS.yaml")
+        or _extract_core_blob(payload, "TECH_CONSTRAINTS.yml")
+        or _extract_core_blob(payload, "constraints.json")
+    )
+    if not raw:
+        return []
+
+    relevant_text = str(req_blob or "").lower()
+    found: List[str] = []
+
+    for raw_line in str(raw).splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+
+        value = ""
+        if ":" in line:
+            _, value = line.split(":", 1)
+        elif line.startswith("-"):
+            value = line[1:]
+
+        value = value.strip().strip("'\"")
+        if not value:
+            continue
+
+        # Split common declarative values such as "Tesseract + PaddleOCR/docTR".
+        for part in re.split(r"\s*(?:\+|/|,|;|\band\b|\bor\b)\s*", value):
+            candidate = part.strip().strip("'\"")
+            if not candidate:
+                continue
+            lowered = candidate.lower()
+
+            # Avoid applying the entire platform stack to every REQ.
+            if lowered in relevant_text:
+                _add_obligation_name(found, candidate)
+
+    return found
+
+
+def _extract_named_tools_from_req_text(req: Dict[str, Any]) -> List[str]:
+    """Deprecated no-op fallback for narrative text extraction.
+
+    External runtime obligations must come from structured REQ fields or
+    TECH_CONSTRAINTS values relevant to the current REQ. Broad narrative
+    extraction produced noisy obligations such as "Deliver", "Processing",
+    "Successful", and "Sensitive", so it is intentionally disabled.
+    """
+    return []
+
+
+def _named_external_runtime_obligations(req: Dict[str, Any], payload: Dict[str, Any]) -> List[str]:
+    """Return external libraries/engines that must become implementation obligations.
+
+    Definitive source order:
+    1. structured REQ fields,
+    2. TECH_CONSTRAINTS values relevant to the current REQ.
+
+    Deprecated: closed hardcoded known_terms catalogs and broad narrative text
+    extraction. SPEC/PLAN text remains model context, not a noisy obligation
+    source of truth.
+    """
+    found: List[str] = []
+
+    for item in _collect_explicit_req_obligations(req):
+        _add_obligation_name(found, item)
+
+    req_blob = _req_text_blob(req)
+    for item in _collect_tech_constraints_obligations(payload, req_blob):
+        _add_obligation_name(found, item)
+
+    return found
 
 def _classify_lane_semantics(lane: Any) -> Dict[str, Any]:
     """Classify the REQ lane without turning it into an implementation language."""
@@ -483,6 +655,27 @@ def _project_contract_text_blob(payload: Dict[str, Any]) -> str:
     return "\n".join(part for part in parts if part).lower()
 
 
+def _has_any_term(blob: str, terms: tuple[str, ...]) -> bool:
+    """Return true when any term appears as a token or explicit phrase.
+
+    Execution-area detection must not use raw substring checks. Short tokens
+    such as "api" and "ui" commonly appear inside unrelated words and can
+    incorrectly require launchers for library/foundation REQs.
+    """
+    text = str(blob or "").lower()
+    for term in terms:
+        normalized = str(term or "").strip().lower()
+        if not normalized:
+            continue
+        if " " in normalized or "-" in normalized or "/" in normalized:
+            if normalized in text:
+                return True
+            continue
+        if re.search(rf"(?<![a-z0-9_]){re.escape(normalized)}(?![a-z0-9_])", text):
+            return True
+    return False
+
+
 def _build_recommended_outputs(
     req_id: str,
     req: Dict[str, Any],
@@ -558,16 +751,91 @@ def _build_file_requirements(
     """
     payload = payload or {}
     provider_realism_required = _technical_scope_requires_real_provider_wiring(req)
+    named_external_runtime_obligations = _named_external_runtime_obligations(req, payload)
 
-    evidence_blob = f"{_req_text_blob(req)}\n{_project_contract_text_blob(payload)}"
+    req_blob = _req_text_blob(req)
+    project_blob = _project_contract_text_blob(payload)
+    evidence_blob = f"{req_blob}\n{project_blob}"
 
+    owns_composition = req.get("owns_execution_area_composition")
     execution_areas: List[str] = []
-    if any(token in evidence_blob for token in ("backend", "api", "rest",  "mendix-be", "server")):
+
+    backend_terms = (
+        "backend",
+        "rest api",
+        "api endpoint",
+        "http endpoint",
+        "route",
+        "router",
+        "handler",
+        "controller",
+        "server",
+        "fastapi",
+        "express",
+        "worker",
+        "consumer",
+        "cli",
+        "mendix-be",
+    )
+    frontend_terms = (
+        "frontend",
+        "user interface",
+        "browser app",
+        "react",
+        "angular",
+        "vite",
+        "mendix-fe",
+    )
+    fullstack_terms = (
+        "web_application",
+        "web application",
+        "fullstack",
+        "full-stack",
+    )
+
+    foundation_terms = (
+        "adapter",
+        "adapters",
+        "profile",
+        "profiles",
+        "provider",
+        "providers",
+        "runtime profile",
+        "storage",
+        "queue",
+        "eventing",
+        "secrets",
+        "observability",
+        "schema",
+        "contract",
+        "contracts",
+        "migration",
+        "foundation",
+    )
+
+    executable_terms = backend_terms + frontend_terms + fullstack_terms
+
+    looks_like_foundation_slice = (
+        owns_composition is not True
+        and _has_any_term(req_blob, foundation_terms)
+        and not _has_any_term(req_blob, executable_terms)
+    )
+
+    # Execution-area ownership is a property of the current REQ, not of the
+    # whole project. Project-level SPEC/PLAN text may mention future backend,
+    # frontend, API, UI, Mendix, PLC, SCADA, or other executable areas; that
+    # must not make a library/foundation REQ require launchers or
+    # promotion-ready runtime manifests.
+    if owns_composition is not False and not looks_like_foundation_slice:
+        if _has_any_term(req_blob, backend_terms):
+            execution_areas.append("backend")
+        if _has_any_term(req_blob, frontend_terms):
+            execution_areas.append("frontend")
+        if not execution_areas and _has_any_term(req_blob, fullstack_terms):
+            execution_areas.extend(["backend", "frontend"])
+
+    if owns_composition is True and not execution_areas:
         execution_areas.append("backend")
-    if any(token in evidence_blob for token in ("frontend", "ui", "react",  "angular",  "mendix-fe", "vite", "browser")):
-        execution_areas.append("frontend")
-    if not execution_areas and any(token in evidence_blob for token in ("web_application", "web application", "fullstack", "full-stack")):
-        execution_areas.extend(["backend", "frontend"])
 
     required_candidate_outputs = [
         f"runs/kit/{req_id}/src/",
@@ -633,10 +901,11 @@ def _build_file_requirements(
         "policy": (
             "When emitted code exposes an executable application area, generate or "
             "regenerate one coherent composition root per execution area. A launcher "
-            "belongs to the solution area, not to the individual REQ. Do not create "
-            "REQ-local app mains. Reuse existing repository launcher conventions when "
-            "present; otherwise infer the minimal runtime-native launcher shape from "
-            "SPEC, PLAN and TECH_CONSTRAINTS."
+            "belongs to the execution area, not to the individual REQ and not to a "
+            "feature/domain namespace. One launcher per execution area is allowed "
+            "and expected when required. Do not create REQ-local app mains. Reuse existing "
+            "repository launcher conventions when present; otherwise infer the minimal "
+            "runtime-native launcher shape from SPEC, PLAN and TECH_CONSTRAINTS."
         ),
         "must_cover": [
             "backend application composition when backend/API/server modules exist",
@@ -644,9 +913,11 @@ def _build_file_requirements(
             "stable exports/imports that wire generated feature modules into the executable area",
             "local runnable entry points documented in HOWTO and referenced by LTC where relevant",
         ],
-        "must_not": [
+         "must_not": [
             "Do not create one launcher per REQ.",
+            "Do not create one launcher per feature/domain namespace; one launcher per execution area such as backend, frontend, worker, or CLI is allowed and expected when required.",
             "Do not hide runnable composition inside feature-only modules.",
+            "Do not place new launchers under domain namespaces such as src/<domain>/api/app.* unless the repository already uses that convention.",
             "Do not confuse KIT/EVAL manifests under ci/ with promotion-ready runtime manifests under candidate execution area roots.",
             "Do not put eval-only scripts, temp overlay paths, or REQ-specific eval paths in promotion-ready runtime manifests.",
             "Do not bypass existing canonical launcher files when repository evidence already provides them.",
@@ -664,6 +935,8 @@ def _build_file_requirements(
             "python_fastapi_backend": [
                 f"runs/kit/{req_id}/src/backend/app.py",
                 f"runs/kit/{req_id}/src/backend/main.py",
+                f"runs/kit/{req_id}/src/app.py only when the repository uses a flat source-root launcher convention",
+
             ],
         },
     }
@@ -709,6 +982,33 @@ def _build_file_requirements(
             "purpose": "Runtime-native manifest for KIT/EVAL dependencies and scripts.",
             "must_cover": runtime_manifest_policy["examples"],
             "must_not_contain": runtime_manifest_policy["must_not"],
+        },
+        {
+            "role": "external_library_obligation",
+            "path_hint": f"runs/kit/{req_id}/src/<canonical-module-family>/<runtime-native-adapters-or-engines>",
+            "kind": "source",
+            "required": bool(named_external_runtime_obligations),
+            "purpose": (
+                "Production-facing adapter/factory implementation for explicit external libraries, SDKs, "
+                "engines, or tools named by SPEC, PLAN, TECH_CONSTRAINTS, or this REQ. "
+                "Do not stop at Protocol/interface-only code when named libraries are in scope."
+            ),
+            "named_obligations": named_external_runtime_obligations,
+            "must_cover": [
+                "adapter or factory modules for every named obligation that is relevant to this REQ",
+                "lazy import or runtime-native optional dependency handling when the library is heavy or environment-specific",
+                "fail-fast errors with clear setup guidance when required runtime libraries are unavailable",
+                "deterministic local tests using fixtures/fakes only around external engine execution, not around business orchestration",
+                "runtime-native dependency declaration in ci manifest, source manifest, optional extras, or equivalent ecosystem descriptor when applicable",
+                "narrow ecosystem-native static-analysis handling at the external adapter/import boundary when a mature external library lacks typing, stubs, metadata, or analyzer support",
+            ],
+            "must_not_contain": [
+                "Protocol-only or interface-only implementation when named libraries are explicitly required",
+                "external model downloads or network service startup in blocking local eval",
+                "sensitive extracted text, prompt content, or document payloads in logs",
+                "business logic coupled directly to provider SDKs or engine-specific APIs",
+                "global static-analysis disables for external library typing/analyzer gaps; suppress or wrap only at the adapter/import boundary with the narrowest ecosystem-native mechanism",
+            ],
         },
         {
             "role": "execution_area_runtime_manifest",
@@ -780,6 +1080,29 @@ def _build_file_requirements(
         ),
         "provider_realism_required": provider_realism_required,
         "provider_obligations": provider_obligations,
+        "external_library_obligations": named_external_runtime_obligations,
+        "external_library_policy": {
+            "required": bool(named_external_runtime_obligations),
+            "policy": (
+                "Explicit external libraries, engines, SDKs, tools, or model runtimes named by SPEC, PLAN, "
+                "TECH_CONSTRAINTS, structured REQ fields, or the current REQ are implementation obligations. "
+                "The KIT must emit production-facing adapters/factories and dependency declarations, while "
+                "tests may use deterministic fixtures to avoid downloads or external services."
+            ),
+            "detection_policy": (
+                "Structured external_runtime_obligations are preferred. TECH_CONSTRAINTS values relevant to "
+                "the current REQ are binding. Text-name extraction is deprecated fallback only."
+            ),
+            "boundary_rules": [
+                "Do not reimplement mature external tools when an official or widely adopted library exists.",
+                "Keep business orchestration independent from engine-specific APIs.",
+                "Use adapters/factories to isolate heavy OCR, parser, classifier, vector, model, storage, queue, or provider runtimes.",
+                "Use deterministic fixtures/fakes only for external execution boundaries in tests.",
+                "Handle untyped or analyzer-unsupported external libraries with the narrowest ecosystem-native suppression or wrapper at the adapter/import boundary only.",
+                "Never disable lint, type, or security checks globally to hide external library typing/analyzer gaps.",
+                "If a named library is intentionally deferred, mark the KIT non-promotable and list the missing obligation.",
+            ],
+        },
         "provider_sdk_policy": {
             "official_or_consolidated_sdks_preferred": True,
             "policy": (
@@ -1116,7 +1439,10 @@ def build_kit_local_agent_package(
             "Composition root ownership is explicit: only create or replace a backend/frontend/service launcher when the REQ owns that execution area composition or when repository evidence shows no existing composition root. Otherwise contribute feature modules and update integration seams without stealing the launcher.",
             "If FILE_REQUIREMENTS.json marks execution_area_runtime_manifest or solution_composition_root as required=true, omitting that artifact is a blocking KIT defect: either emit the artifact or explicitly mark the KIT non-promotable with the missing role and reason.",
             "If the KIT emits backend/frontend/service executable modules, provide one coherent launcher or composition entry per executable area only when the REQ owns composition or no existing launcher exists. Do not create one launcher per REQ.",
-            "Launcher/composition files must live under the canonical execution area inside the candidate src tree, not under a REQ-local feature-only namespace unless the repository already uses that convention.",
+            "Launcher/composition files must live under the canonical execution area inside the candidate src tree, not under a REQ-local feature-only namespace or domain namespace unless the repository already uses that convention.",
+            "For backend execution areas, prefer src/backend/<runtime-native-entrypoint> when no existing launcher convention is present; use src/<entrypoint> only for flat source-root conventions.",
+            "Do not create launchers under domain namespaces such as src/<domain>/api/app.* unless that is the existing repository convention.",
+            "Do not hardcode public bind addresses such as 0.0.0.0 in local launcher defaults; use loopback defaults or explicit runtime configuration.",
             "Keep KIT/EVAL manifests under runs/kit/<REQ-ID>/ci/.",
             "Do not hardcode runs/kit, ci/, temporary overlay paths, or REQ-specific eval paths in promotion-ready runtime manifests.",
             "It is allowed to regenerate files already emitted by previous KITs when they are functionally required for the current KIT; CLike promotion/merge handles reconciliation later.",
@@ -1153,7 +1479,8 @@ def build_kit_local_agent_package(
             "- Read and respect capability_context before designing the implementation.",
             "- Prefer CLIKE_SELECTED_CAPABILITY_CONTEXT.md over the generic full manifest when selected capability guidance exists.",
             "- Use main_module_boundary to keep feature implementation focused and avoid scattered files.",
-            "- If FILE_REQUIREMENTS.json requires execution_area_runtime_manifest, solution_composition_root, or module_launcher, those execution-area artifacts may be created outside main_module_boundary but must stay under the allowed candidate src root and must remain solution-scoped, not REQ-scoped.",
+            "- If FILE_REQUIREMENTS.json requires execution_area_runtime_manifest, solution_composition_root, or module_launcher, those execution-area artifacts may be created outside main_module_boundary but must stay under the allowed candidate src root and must remain execution-area-scoped, not REQ-scoped or domain-namespace-scoped.",
+            "- For backend execution areas, prefer a stable execution-area root such as src/backend/app.* and src/backend/main.* when no repository convention already exists; do not create new launchers under src/<domain>/api/ just because the feature exposes an API router.",
             "- Treat selected skills, packs, and design profiles as mandatory REQ constraints only when they affect this REQ.",
             "- Prefer CLIKE_SELECTED_CAPABILITY_CONTEXT.md over the generic full manifest when selected capability guidance exists.",
             "- Do not add decorative architecture just to show that a capability was used.",
@@ -1184,6 +1511,8 @@ def build_kit_local_agent_package(
             "- Every FILE_REQUIREMENTS.json required_outputs item with required=true is mandatory.",
             "- If execution_area_runtime_manifest is required=true, emit the ecosystem-native promotion-ready runtime manifest under the candidate src execution area/root, not only under ci/.",
             "- If solution_composition_root or module_launcher is required=true, emit one coherent runnable composition root/launcher for the execution area, even when that file lives outside main_module_boundary.",
+            "- If external_library_obligation is required=true, emit production-facing adapters/factories and dependency declarations for the named libraries; deterministic tests may fake external execution, but source code must not stop at Protocol/interface-only boundaries.",
+            "- When external libraries lack typing, stubs, metadata, or analyzer support, use the narrowest ecosystem-native suppression or wrapper only at the adapter/import boundary; never disable lint/type/security globally.",
             "- If any required output cannot be emitted safely, mark the KIT non-promotable and list the missing role in unresolved gaps.",
             "",
             "Recommended candidate outputs:",
