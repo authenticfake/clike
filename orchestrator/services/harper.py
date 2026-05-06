@@ -649,6 +649,103 @@ def _resolve_requirement_family(contract: Dict[str, Any], lane_policy: Dict[str,
     return "application_slice"
 
 
+def _add_obligation_name(items: List[str], value: Any) -> None:
+    text = str(value or "").strip().strip("'\"")
+    if not text:
+        return
+
+    text = re.sub(r"\s+", " ", text)
+    lowered = text.lower()
+
+    ignored = {
+        "true",
+        "false",
+        "dev",
+        "uat",
+        "prod",
+        "tests",
+        "lint",
+        "types",
+        "security",
+        "build",
+        "backend",
+        "frontend",
+        "infra",
+        "data",
+        "enterprise",
+        "hybrid",
+    }
+    if lowered in ignored or len(text) < 3:
+        return
+
+    if lowered not in {item.lower() for item in items}:
+        items.append(text)
+
+
+def _collect_structured_obligation_names(value: Any) -> List[str]:
+    found: List[str] = []
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            name = node.get("name") or node.get("tool") or node.get("library") or node.get("engine") or node.get("sdk")
+            if name:
+                _add_obligation_name(found, name)
+            for child in node.values():
+                walk(child)
+            return
+
+        if isinstance(node, list):
+            for child in node:
+                walk(child)
+            return
+
+        if isinstance(node, str):
+            for part in re.split(r"\s*(?:\+|/|,|;|\band\b|\bor\b)\s*", node):
+                _add_obligation_name(found, part)
+
+    walk(value)
+    return found
+
+
+def _extract_named_tools_from_contract_text(contract: Dict[str, Any]) -> List[str]:
+    """Deprecated no-op fallback for narrative contract text extraction.
+
+    Cloud KIT should rely on structured external_runtime_obligations-like
+    fields. SPEC/PLAN/TECH_CONSTRAINTS remain context for the model, but broad
+    narrative text must not become noisy required obligations.
+    """
+    return []
+
+
+def _named_external_runtime_obligations_from_contract(contract: Dict[str, Any]) -> List[str]:
+    """Extract explicit external library/engine obligations from the current REQ contract.
+
+    Definitive source: structured external_runtime_obligations-like fields.
+
+    Deprecated: closed hardcoded known_terms catalogs and broad narrative text
+    extraction.
+    """
+    found: List[str] = []
+
+    fields = (
+        "external_runtime_obligations",
+        "external_library_obligations",
+        "runtime_obligations",
+        "runtime_libraries",
+        "external_libraries",
+        "libraries",
+        "engines",
+        "tools",
+        "sdks",
+        "model_runtimes",
+    )
+    for field in fields:
+        for item in _collect_structured_obligation_names(contract.get(field)):
+            _add_obligation_name(found, item)
+
+    return found
+
+
 def _derive_artifact_roles(
     contract: Dict[str, Any],
     family: str,
@@ -906,6 +1003,36 @@ def _derive_artifact_roles(
                 ],
             },
         ])
+    named_external_runtime_obligations = _named_external_runtime_obligations_from_contract(contract)
+    if named_external_runtime_obligations:
+        roles.append({
+            "role": "external_library_obligation",
+            "required": True,
+            "purpose": (
+                "Implement production-facing adapters/factories for explicit external libraries, SDKs, "
+                "engines, or tools named by structured REQ fields, SPEC, PLAN, or TECH_CONSTRAINTS-derived "
+                "contracts. Do not stop at Protocol/interface-only code when named libraries are in scope."
+            ),
+            "detection_policy": (
+                "Structured external_runtime_obligations are preferred. Text-name extraction is deprecated fallback only."
+            ),
+            "named_obligations": named_external_runtime_obligations,
+            "must_cover": [
+                "adapter or factory modules for each relevant named obligation",
+                "lazy import or runtime-native optional dependency handling for heavy or environment-specific libraries",
+                "fail-fast setup errors when a required named runtime is unavailable",
+                "deterministic tests that use fixtures/fakes only around external engine execution",
+                "runtime-native dependency declaration in ci manifest, source manifest, optional extras, or equivalent ecosystem descriptor when applicable",
+                "narrow ecosystem-native static-analysis handling at the external adapter/import boundary when a mature external library lacks typing, stubs, metadata, or analyzer support",
+            ],
+            "must_not_contain": [
+                "Protocol-only or interface-only implementation when named libraries are explicitly required",
+                "external model downloads or network service startup in blocking local eval",
+                "sensitive extracted text, prompt content, or document payloads in logs",
+                "business logic coupled directly to provider SDKs or engine-specific APIs",
+                "global static-analysis disables for external library typing/analyzer gaps; suppress or wrap only at the adapter/import boundary with the narrowest ecosystem-native mechanism",
+            ],
+        })
 
     # test roles
     roles.append({
@@ -1168,6 +1295,7 @@ def _materialize_file_requirements(
         "adapter_implementations": _stage(f"src/{source_root}/adapters{source_ext}"),
         "profile_service_factory": _stage(f"src/{source_root}/factory{source_ext}"),
         "provider_realism_tests": _stage(f"test/{test_root}/{test_prefix}provider_realism{test_ext}"),
+        "external_library_obligation": _stage(f"src/{source_root}/engines{source_ext}"),
         "acceptance_tests": _stage(f"test/{test_root}/{test_prefix}req_behavior{test_ext}"),
         "integration_smoke": _stage(f"test/{test_root}/{test_prefix}integration_smoke{test_ext}"),
         "runtime_manifest": _stage("ci/requirements.txt" if is_python_like else "ci/package.json"),
@@ -1273,8 +1401,9 @@ def _materialize_file_requirements(
             "required": True,
             "purpose": (
                 "Single coherent launcher/composition entry for the emitted execution area when required. "
-                "Do not create one launcher per REQ; extend or reuse the module-level launcher shape. "
-                "When required, this artifact may live outside the feature main_module_boundary but must stay under the candidate src root."
+                "Do not create one launcher per REQ or per feature/domain namespace; one launcher per execution area such as backend, frontend, worker, or CLI is allowed and expected when required. Extend or reuse the module-level launcher shape. "
+                "When required, this artifact may live outside the feature main_module_boundary but must stay under the candidate src root "
+                "and should live under a stable execution-area root rather than under a domain namespace unless repository evidence already uses that convention."
             ),
             "must_cover": [
                 "export or compose emitted module functions/classes",
@@ -1288,6 +1417,8 @@ def _materialize_file_requirements(
             "must_not_contain": [
                 "standalone per-REQ application bootstrap",
                 "duplicate app/server main unless repository evidence requires it",
+                "launcher under a feature/domain namespace such as src/<domain>/api/app.* unless that is the existing repository convention; backend/frontend/worker/CLI execution-area launchers are allowed when required",
+                "hardcoded public bind addresses such as 0.0.0.0 in local launcher defaults; use loopback defaults or explicit runtime configuration",
             ],
         })
 

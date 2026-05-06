@@ -1345,12 +1345,18 @@ class EvalRunner:
 
         if not runtime_name:
             runtime_name = str(
-                ltc.get("lane")
+                ltc.get("implementation_runtime")
+                or ltc.get("runtime_language")
+                or ltc.get("runtime_ecosystem")
+                or ltc.get("lane")
                 or ltc.get("profile")
                 or ltc.get("ecosystem")
                 or ltc.get("language")
                 or ""
             ).strip().lower()
+
+        if runtime_name.startswith("python"):
+            runtime_name = "python"
 
         requirements_file = None
 
@@ -1403,11 +1409,35 @@ class EvalRunner:
 
         eval_env = base_env
 
+        eval_env = base_env
+
+        if runtime_name in {"python", "python3", "py"}:
+            overlay_python_paths = [
+                str(path)
+                for path in [
+                    Path(overlay_src_raw).resolve() if overlay_src_raw else None,
+                    self.project_root / "src",
+                ]
+                if path
+            ]
+
+            existing_pythonpath = eval_env.get("PYTHONPATH", "").strip()
+            if existing_pythonpath:
+                overlay_python_paths.append(existing_pythonpath)
+
+            if overlay_python_paths:
+                python_path_value = os.pathsep.join(overlay_python_paths)
+                eval_env = {
+                    **eval_env,
+                    "PYTHONPATH": python_path_value,
+                    "MYPYPATH": python_path_value,
+                }
+
         if requirements_file:
             eval_env, setup_cases = self._ensure_eval_venv(
                 req_id=eff_req,
                 requirements_file=requirements_file,
-                env=base_env,
+                env=eval_env,
                 cwd=default_cwd,
             )
             out_cases.extend(setup_cases)
