@@ -58,7 +58,7 @@ CLike is not just a chat panel. It is a governed software-generation pipeline.
 The core workflow is:
 
 ```text
-IDEA → SPEC → PLAN → KIT → EVAL → GATE → FINALIZE
+IDEA → SPEC → PLAN → KIT → EVAL → GATE → FINALIZE (*)
 ```
 
 The main operating principle is:
