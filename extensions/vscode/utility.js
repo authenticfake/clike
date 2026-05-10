@@ -2357,15 +2357,20 @@ async function runLocalAgentSync({
       }
     });
 
-    child.stderr.on('data', (chunk) => {
+    child.stderr.on("data", (chunk) => {
       const text = chunk.toString();
-      stderr += text;
-      if (out && typeof out.appendLine === 'function') {
-        for (const line of text.split(/\r?\n/)) {
-          if (line.trim()) {
-            out.appendLine(`[CLike] [local-agent:${normalizedExecutor}][stderr] ${line}`);
-          }
+
+      for (const line of text.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (!trimmed) {
+          continue;
         }
+
+        const isErrorLike =
+          /\b(error|failed|failure|fatal|panic|traceback|exception|denied|timeout|cannot|not found|permission)\b/i.test(trimmed);
+
+        const channel = isErrorLike ? "stderr:error" : "stderr:diagnostic";
+        out.appendLine(`[CLike] [local-agent:${normalizedExecutor}][${channel}] ${trimmed}`);
       }
     });
 
