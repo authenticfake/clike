@@ -278,13 +278,21 @@ class EvalRunner:
         if not src.exists():
             return
 
+        ignored_names = {"__pycache__", "__MACOSX", ".DS_Store", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
+
         if src.is_file():
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
+            if src.name not in ignored_names and src.suffix not in {".pyc", ".pyo"}:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dst)
             return
 
         for item in src.rglob("*"):
             rel = item.relative_to(src)
+            if any(part in ignored_names for part in rel.parts):
+                continue
+            if item.suffix in {".pyc", ".pyo"}:
+                continue
+
             target = dst / rel
             if item.is_dir():
                 target.mkdir(parents=True, exist_ok=True)
@@ -376,6 +384,9 @@ class EvalRunner:
             str(self.project_root / "test"): str(overlay / "test"),
             str(self.project_root / "tests"): str(overlay / "tests"),
         }
+
+        if not kit_root:
+            return None, [], {}
         return overlay, dependency_roots, path_map
 
     def _resolve_eval_path(self, value: Optional[str], path_map: Dict[str, str]) -> Path:
@@ -523,8 +534,8 @@ class EvalRunner:
             cwd=cwd,
             expect=0,
             env=venv_env,
-            blocking=False,
-            environment_requirements=["pip", "network", "requirements"],
+            blocking=True,
+            environment_requirements=["pip", "network", "python-dependencies"],
         )
 
         if install_case.passed:
@@ -533,7 +544,8 @@ class EvalRunner:
             except Exception as exc:
                 install_case.stderr = (install_case.stderr + f"\nmarker write warning: {exc}")[-4000:]
         else:
-            install_case.blocked = True
+            install_case.blocked = False
+            install_case.blocking = True
 
         cases.append(install_case)
         return venv_env, cases
@@ -802,7 +814,16 @@ class EvalRunner:
         logs_root = eval_dir / "logs"
         dependency_roots: List[str] = []
 
-        for path in (work_root, reports_root, logs_root, eval_dir / ".npm-cache"):
+        for path in (
+            work_root,
+            reports_root,
+            logs_root,
+            eval_dir / ".npm-cache",
+            eval_dir / ".ruff-cache",
+            eval_dir / ".mypy-cache",
+            eval_dir / ".pycache",
+            eval_dir / ".cache",
+        ):
             try:
                 path.mkdir(parents=True, exist_ok=True)
             except OSError as exc:
@@ -828,7 +849,13 @@ class EvalRunner:
                 ".npm-*",
                 ".venv",
                 "__pycache__",
+                "__MACOSX",
+                ".DS_Store",
+                "*.pyc",
+                "*.pyo",
                 ".pytest_cache",
+                ".mypy_cache",
+                ".ruff_cache",
                 "reports",
             ),
         )
@@ -868,7 +895,13 @@ class EvalRunner:
                         ".npm-*",
                         ".venv",
                         "__pycache__",
+                        "__MACOSX",
+                        ".DS_Store",
+                        "*.pyc",
+                        "*.pyo",
                         ".pytest_cache",
+                        ".mypy_cache",
+                        ".ruff_cache",
                         "reports",
                     ),
                 )
@@ -876,10 +909,30 @@ class EvalRunner:
         except Exception:
             dependency_roots = []
             
-        overlay_workspace, overlay_dependency_roots, overlay_path_map = self._prepare_eval_overlay_workspace(
-            req_id=req_id,
-            profile_path=profile_path,
-        )
+        overlay_workspace = None
+        overlay_dependency_roots: List[str] = []
+        overlay_path_map: Dict[str, str] = {}
+
+        try:
+            overlay_result = self._prepare_eval_overlay_workspace(
+                req_id=req_id,
+                profile_path=profile_path,
+            )
+            if isinstance(overlay_result, tuple) and len(overlay_result) == 3:
+                overlay_workspace, overlay_dependency_roots, overlay_path_map = overlay_result
+            else:
+                log.warning(
+                    "prepare_eval_overlay_workspace returned invalid result for %s: %r",
+                    req_id,
+                    overlay_result,
+                )
+        except Exception as exc:
+            log.warning(
+                "prepare_eval_overlay_workspace failed for %s: %s",
+                req_id,
+                exc,
+            )
+
         if overlay_dependency_roots:
             dependency_roots = overlay_dependency_roots
 
@@ -947,6 +1000,12 @@ class EvalRunner:
             # remains the source of truth.
             pass
 
+        if path_map is None:
+            path_map = {}
+
+        if dependency_roots is None:
+            dependency_roots = []
+
         return work_root, reports_root, logs_root, path_map, work_kit_root, dependency_roots
 
     def _rewrite_for_eval_workspace(self, value: Any, path_map: Dict[str, str]) -> Any:
@@ -969,8 +1028,12 @@ class EvalRunner:
         - path-like tokens such as `src/foo.js`, `./test/foo.test.js`,
           `runs/kit/<REQ>/src`, or absolute project paths may be rewritten.
 
-        This prevents CLike overlay mapping from corrupting package-manager
-        script names that happen to be called `test`, `lint`, or `build`.
+        Node/TypeScript special case:
+        when CLike installs dependencies through an explicit package_json, the
+        installed package prefix is exposed as CLIKE_EVAL_NPM_PREFIX. Dependency
+        backed npm scripts must run from that same prefix, otherwise eval may
+        install into overlay/src/frontend but execute from work/REQ/src/frontend,
+        causing false `tsc/vitest/next not found` failures.
         """
         if not command:
             return command
@@ -997,6 +1060,76 @@ class EvalRunner:
             if "/" in source or "\\" in source:
                 rewritten = rewritten.replace(source, target)
 
+        dependency_scripts = {
+            "test",
+            "test:a11y",
+            "test:accessibility",
+            "test:coverage",
+            "coverage",
+            "typecheck",
+            "lint",
+            "build",
+            "security:deps",
+        }
+
+        def _align_npm_prefix(match: re.Match[str]) -> str:
+            lead = match.group("lead") or ""
+            script = match.group("script")
+            tail = match.group("tail") or ""
+            if script not in dependency_scripts:
+                return match.group(0)
+            return f'{lead}npm --prefix "$CLIKE_EVAL_NPM_PREFIX" run {script}{tail}'
+        
+        def _align_npm_prefix_short_script(match: re.Match[str]) -> str:
+            lead = match.group("lead") or ""
+            script = match.group("script")
+            tail = match.group("tail") or ""
+            if script not in dependency_scripts:
+                return match.group(0)
+            return f'{lead}npm --prefix "$CLIKE_EVAL_NPM_PREFIX" run {script}{tail}'
+
+        rewritten = re.sub(
+            r"(?P<lead>(?:^|\s))npm\s+--prefix\s+(?P<prefix>\"[^\"]+\"|'[^']+'|\S+)\s+(?P<script>test|test:a11y|test:accessibility|typecheck|lint|build|coverage|security:deps)(?P<tail>(?:\s+[^;&|]+)*)?",
+            _align_npm_prefix_short_script,
+            rewritten,
+        )
+
+        rewritten = re.sub(
+            r"(?P<lead>(?:^|\s))npm\s+--prefix\s+(?P<prefix>\"[^\"]+\"|'[^']+'|\S+)\s+run\s+(?P<script>[\w:.-]+)(?P<tail>(?:\s+[^;&|]+)*)?",
+            _align_npm_prefix,
+            rewritten,
+        )
+        if "python3 -m ruff check" in rewritten and "--no-cache" not in rewritten:
+            rewritten = rewritten.replace(
+                "python3 -m ruff check",
+                "python3 -m ruff check --no-cache",
+            )
+
+        if "python -m ruff check" in rewritten and "--no-cache" not in rewritten:
+            rewritten = rewritten.replace(
+                "python -m ruff check",
+                "python -m ruff check --no-cache",
+            )
+        if " -m mypy " in rewritten and "--no-incremental" not in rewritten:
+            rewritten = rewritten.replace(
+                " -m mypy ",
+                " -m mypy --no-incremental ",
+                1,
+            )
+
+        if " -m mypy " in rewritten and "--cache-dir" not in rewritten:
+            rewritten = rewritten.replace(
+                " -m mypy ",
+                ' -m mypy --cache-dir "$MYPY_CACHE_DIR" ',
+                1,
+            )
+
+        if " -m mypy " in rewritten and "--follow-imports" not in rewritten:
+            rewritten = rewritten.replace(
+                " -m mypy ",
+                " -m mypy --follow-imports=skip ",
+                1,
+            )
         return rewritten
     def _resolve_workdir(self, raw_cwd: Optional[str], path_map: Dict[str, str]) -> Path:
         if not raw_cwd:
@@ -1029,9 +1162,39 @@ class EvalRunner:
         )
 
         if explicit:
-            rewritten = self._rewrite_for_eval_workspace(str(explicit), path_map)
+            explicit_text = str(explicit)
+
+            # Resolve explicit package manifests without applying bare logical-root
+            # rewrites such as "src" -> overlay/src. Those rewrites are safe for
+            # shell commands, but they corrupt already-resolved paths like:
+            # runs/kit/REQ-008/src/frontend/package.json
+            rewritten = explicit_text
+            for source, target in sorted(path_map.items(), key=lambda item: len(item[0]), reverse=True):
+                if not source or source.startswith("CLIKE_") or source in {"src", "test", "tests"}:
+                    continue
+                if "/" in source or "\\" in source:
+                    rewritten = rewritten.replace(source, target)
+
             path = Path(rewritten)
-            return path if path.is_absolute() else (self.project_root / path).resolve()
+            path = path if path.is_absolute() else (self.project_root / path).resolve()
+
+            # If the explicit manifest points to the candidate KIT src tree and
+            # an overlay workspace exists, install dependencies into the overlay
+            # execution area because generated commands run from overlay/src/...
+            work_kit_raw = path_map.get("CLIKE_EVAL_CANDIDATE_KIT_DIR")
+            overlay_raw = path_map.get("CLIKE_EVAL_OVERLAY_WORKSPACE")
+            if work_kit_raw and overlay_raw:
+                work_kit = Path(work_kit_raw)
+                overlay = Path(overlay_raw)
+                try:
+                    rel_to_src = path.relative_to(work_kit / "src")
+                    overlay_manifest = overlay / "src" / rel_to_src
+                    if overlay_manifest.exists():
+                        return overlay_manifest.resolve()
+                except ValueError:
+                    pass
+
+            return path
 
         candidates = [
             profile_path.parent / "package.json",
@@ -1068,8 +1231,8 @@ class EvalRunner:
                     stderr=f"package.json not found: {package_json}",
                     cmd=None,
                     cwd=str(cwd),
-                    blocked=True,
-                    blocking=False,
+                    blocked=False,
+                    blocking=True,
                 )
             ]
 
@@ -1085,6 +1248,13 @@ class EvalRunner:
         node_env["npm_config_cache"] = str(npm_cache)
         node_env["NPM_CONFIG_CACHE"] = str(npm_cache)
         node_env["CLIKE_EVAL_NPM_PREFIX"] = str(manifest_dir)
+        existing_node_path = node_env.get("NODE_PATH", "")
+        package_node_modules = str(manifest_dir / "node_modules")
+        node_env["NODE_PATH"] = (
+            package_node_modules
+            if not existing_node_path
+            else f"{package_node_modules}{os.pathsep}{existing_node_path}"
+        )
 
         if node_modules.exists() and marker.exists():
             cases.append(
@@ -1131,7 +1301,7 @@ class EvalRunner:
             cwd=cwd,
             expect=0,
             env=node_env,
-            blocking=False,
+            blocking=True,
             environment_requirements=["npm", "network", "native-dependencies"],
         )
 
@@ -1141,7 +1311,8 @@ class EvalRunner:
             except Exception as exc:
                 install_case.stderr = (install_case.stderr + f"\nmarker write warning: {exc}")[-4000:]
         else:
-            install_case.blocked = True
+            install_case.blocked = False
+            install_case.blocking = True
 
         cases.append(install_case)
         return node_env, cases
@@ -1153,11 +1324,18 @@ class EvalRunner:
         text = cmd.lower()
         dependency_sensitive_markers = [
             "npm run test",
+            "npm run typecheck",
+            "npm run lint",
             "npm run build",
             "npm run test:coverage",
             "npm run coverage",
             "npm run security:deps",
             "node --test",
+            "next build",
+            "next lint",
+            "tsc --noemit",
+            "tsc --noEmit",
+            "vitest",
             "better-sqlite3",
         ]
         return any(marker in text for marker in dependency_sensitive_markers)
@@ -1269,10 +1447,52 @@ class EvalRunner:
         top_env = ltc.get("env") or {}
         out_cases: List[EvalCase] = []
 
-        work_root, reports_root, logs_root, path_map, work_kit_root, dependency_roots = self._prepare_eval_workspace(
-            req_id=eff_req,
-            profile_path=profile_path,
-        )
+        try:
+            workspace_result = self._prepare_eval_workspace(
+                req_id=eff_req,
+                profile_path=profile_path,
+            )
+        except Exception as exc:
+            return self._report_from_cases(
+                profile_path=profile_path,
+                req_id=eff_req,
+                mode="auto",
+                cases=[
+                    EvalCase(
+                        name="env::prepare-workspace",
+                        passed=False,
+                        code=997,
+                        stdout="",
+                        stderr=f"prepare eval workspace failed: {exc}",
+                        cmd=None,
+                        cwd=str(self.project_root),
+                        blocked=False,
+                        blocking=True,
+                    )
+                ],
+            )
+
+        if not isinstance(workspace_result, tuple) or len(workspace_result) != 6:
+            return self._report_from_cases(
+                profile_path=profile_path,
+                req_id=eff_req,
+                mode="auto",
+                cases=[
+                    EvalCase(
+                        name="env::prepare-workspace",
+                        passed=False,
+                        code=997,
+                        stdout="",
+                        stderr=f"prepare eval workspace returned invalid result: {workspace_result!r}",
+                        cmd=None,
+                        cwd=str(self.project_root),
+                        blocked=False,
+                        blocking=True,
+                    )
+                ],
+            )
+
+        work_root, reports_root, logs_root, path_map, work_kit_root, dependency_roots = workspace_result
 
         active_profile_path = Path(
             self._rewrite_for_eval_workspace(str(profile_path), path_map)
@@ -1319,6 +1539,13 @@ class EvalRunner:
 
             "CLIKE_EVAL_ORIGINAL_PROFILE": str(profile_path),
             "CLIKE_EVAL_ACTIVE_PROFILE": str(active_profile_path),
+
+            # Keep ecosystem tool caches inside the writable eval workspace.
+            # Project roots may be read-only in containerized/sandboxed eval.
+            "RUFF_CACHE_DIR": str(self._eval_dir(eff_req) / ".ruff-cache"),
+            "MYPY_CACHE_DIR": str(self._eval_dir(eff_req) / ".mypy-cache"),
+            "PYTHONPYCACHEPREFIX": str(self._eval_dir(eff_req) / ".pycache"),
+
             "npm_config_cache": str(self._eval_dir(eff_req) / ".npm-cache"),
             "NPM_CONFIG_CACHE": str(self._eval_dir(eff_req) / ".npm-cache"),
         }
@@ -1474,7 +1701,7 @@ class EvalRunner:
             out_cases.extend(setup_cases)
 
         setup_failed = any(
-            (not case.passed) and case.blocked
+            (not case.passed) and (case.blocked or case.blocking)
             for case in out_cases
             if case.name.startswith("env::")
         )

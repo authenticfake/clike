@@ -1017,17 +1017,19 @@ def _derive_artifact_roles(
                 "Structured external_runtime_obligations are preferred. Text-name extraction is deprecated fallback only."
             ),
             "named_obligations": named_external_runtime_obligations,
-            "must_cover": [
-                "adapter or factory modules for each relevant named obligation",
-                "lazy import or runtime-native optional dependency handling for heavy or environment-specific libraries",
-                "fail-fast setup errors when a required named runtime is unavailable",
-                "deterministic tests that use fixtures/fakes only around external engine execution",
+           "must_cover": [
+                "adapter or factory modules for every named obligation that is relevant to this REQ",
+                "lazy import or runtime-native optional dependency handling when the library is heavy or environment-specific",
+                "fail-fast errors with clear setup guidance when required runtime libraries are unavailable",
+                "deterministic local tests using fixtures/fakes only around external engine execution, not around business orchestration",
                 "runtime-native dependency declaration in ci manifest, source manifest, optional extras, or equivalent ecosystem descriptor when applicable",
+                "heavy AI/model/runtime libraries must be declared as source runtime optional extras or optional smoke dependencies, not as blocking ci/eval dependencies, when deterministic fake-client tests cover the local eval path",
                 "narrow ecosystem-native static-analysis handling at the external adapter/import boundary when a mature external library lacks typing, stubs, metadata, or analyzer support",
-            ],
+             ],
             "must_not_contain": [
                 "Protocol-only or interface-only implementation when named libraries are explicitly required",
                 "external model downloads or network service startup in blocking local eval",
+                "heavy AI/model/runtime packages in blocking ci/eval manifests when deterministic fake-client tests are sufficient",
                 "sensitive extracted text, prompt content, or document payloads in logs",
                 "business logic coupled directly to provider SDKs or engine-specific APIs",
                 "global static-analysis disables for external library typing/analyzer gaps; suppress or wrap only at the adapter/import boundary with the narrowest ecosystem-native mechanism",
