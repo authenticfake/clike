@@ -55,6 +55,13 @@ function localAgentSupportsPhase(executorId, phase, settings) {
     return normalized === 'claude_code' || normalized === 'gpt_codex';
   }
 
+  if (p === 'finalize') {
+    // /finalize uses the local agent as the solution integration actuator.
+    // The orchestrator owns the contract; the agent may patch the real workspace
+    // only inside explicit solution write roots.
+    return normalized === 'claude_code' || normalized === 'gpt_codex';
+  }
+
   return false;
 }
 

@@ -2082,19 +2082,720 @@ def build_eval_local_agent_package(
         },
        }
 
+def _normalize_relative_path(value: Any) -> str:
+    """Normalize a workspace-relative path without allowing absolute traversal."""
+    path = _safe_text(value).replace("\\", "/").strip().strip("'\"")
+    path = re.sub(r"/+", "/", path).lstrip("/")
+    parts = []
+    for part in path.split("/"):
+        if not part or part == ".":
+            continue
+        if part == "..":
+            return ""
+        parts.append(part)
+    return "/".join(parts)
+
+
+def _is_safe_finalize_root(value: Any) -> bool:
+    """Return true when a declared finalize root is safe enough to expose to agents."""
+    path = _normalize_relative_path(value)
+    if not path:
+        return False
+
+    forbidden_parts = {
+        ".git",
+        "node_modules",
+        ".venv",
+        "__pycache__",
+        "__MACOSX",
+        ".next",
+        "dist",
+        "build",
+        ".ruff_cache",
+        ".mypy_cache",
+        "secrets",
+        "credentials",
+    }
+
+    if path in {".env", ".env.local", ".env.production", ".DS_Store"}:
+        return False
+
+    if any(part in forbidden_parts for part in path.split("/")):
+        return False
+
+    forbidden_fragments = (
+        "private_key",
+        "id_rsa",
+        "id_ed25519",
+        "credential",
+        "secret",
+    )
+    lowered = path.lower()
+    return not any(fragment in lowered for fragment in forbidden_fragments)
+
+
+def _collect_declared_finalize_roots_from_node(node: Any) -> List[str]:
+    """Collect finalize roots from structured payload/plan fields."""
+    root_field_names = {
+        "solution_roots",
+        "canonical_solution_roots",
+        "finalize_write_roots",
+        "allowed_finalize_roots",
+        "platform_roots",
+        "runtime_roots",
+        "deployment_roots",
+        "artifact_roots",
+        "source_roots",
+        "script_roots",
+        "docs_roots",
+        "manifest_roots",
+    }
+
+    found: List[str] = []
+
+    def add(value: Any) -> None:
+        path = _normalize_relative_path(value)
+        if path and _is_safe_finalize_root(path) and path not in found:
+            found.append(path)
+
+    def walk(value: Any, key_hint: str = "") -> None:
+        if isinstance(value, dict):
+            for key, child in value.items():
+                key_norm = _safe_text(key).lower()
+                if key_norm in root_field_names:
+                    walk(child, key_norm)
+                else:
+                    walk(child, key_norm)
+            return
+
+        if isinstance(value, list):
+            for item in value:
+                walk(item, key_hint)
+            return
+
+        if isinstance(value, str) and key_hint in root_field_names:
+            for part in re.split(r"\s*(?:,|;|\n)\s*", value):
+                add(part)
+
+    walk(node)
+    return found
+
+
+def _extract_declared_finalize_roots(payload: Dict[str, Any]) -> List[str]:
+    """
+    Extract solution roots declared by the project contract.
+
+    This keeps /finalize agnostic: enterprise/vendor roots such as mendix/,
+    plc/, scada/, kafka/, cloudera/, informatica/, deploy/, infra/, packages/,
+    model/, connectors/, schemas/, jobs/, or pipelines/ should come from
+    plan.json, payload metadata, TECH_CONSTRAINTS-derived structured fields,
+    or future repository manifests, not from hardcoded runtime assumptions.
+    """
+    found: List[str] = []
+
+    def add_many(items: List[str]) -> None:
+        for item in items:
+            path = _normalize_relative_path(item)
+            if path and _is_safe_finalize_root(path) and path not in found:
+                found.append(path)
+
+    add_many(_collect_declared_finalize_roots_from_node(payload))
+
+    plan_json_text = _extract_core_blob(payload, "plan.json")
+    if plan_json_text:
+        try:
+            plan = json.loads(plan_json_text)
+            add_many(_collect_declared_finalize_roots_from_node(plan))
+        except Exception:
+            pass
+
+    return found
+
+
+def _build_finalize_write_policy(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Build write policy for /finalize.
+
+    Default roots cover common software repositories. Declared roots extend the
+    policy for vendor/platform solutions without hardcoding those platforms as
+    universal defaults.
+    """
+    default_allowed_write_roots = [
+        "src",
+        "scripts",
+        "docs/harper",
+        "README.md",
+        ".env.example",
+
+        # Runtime/deployment roots. These are platform-neutral containers for
+        # safe-by-default provisioning plans, deploy templates, validation
+        # scripts, and vendor/package descriptors. They do not imply a specific
+        # cloud, language, framework, or IaC tool.
+        "infra",
+        "deploy",
+        "ops",
+        "config",
+        "configs",
+        "schemas",
+        "connectors",
+        "jobs",
+        "pipelines",
+        "packages",
+        "model",
+        "models",
+
+        # Ecosystem-native root manifests. The agent/cloud must use only the
+        # manifests supported by TECH_CONSTRAINTS, PLAN/SPEC, and repository evidence.
+        "package.json",
+        "package-lock.json",
+        "pnpm-lock.yaml",
+        "yarn.lock",
+        "pyproject.toml",
+        "requirements.txt",
+        "pom.xml",
+        "build.gradle",
+        "settings.gradle",
+        "go.mod",
+        "go.sum",
+        "Cargo.toml",
+        "Cargo.lock",
+        "docker-compose.yml",
+        "Dockerfile",
+        "Makefile",
+    ]
+
+    declared_roots = _extract_declared_finalize_roots(payload)
+
+    allowed_write_roots: List[str] = []
+    for item in [*default_allowed_write_roots, *declared_roots]:
+        path = _normalize_relative_path(item)
+        if path and _is_safe_finalize_root(path) and path not in allowed_write_roots:
+            allowed_write_roots.append(path)
+
+    forbidden_paths = [
+        ".git",
+        "node_modules",
+        ".venv",
+        "__pycache__",
+        "__MACOSX",
+        ".DS_Store",
+        ".next",
+        "dist",
+        "build",
+        ".ruff_cache",
+        ".mypy_cache",
+        "secrets",
+        ".env",
+        ".env.local",
+        ".env.production",
+        "credentials",
+        "credential",
+        "private_key",
+        "id_rsa",
+        "id_ed25519",
+    ]
+
+    return {
+        "schema_version": "clike.finalize_write_policy.v1",
+        "policy": (
+            "Finalize may write only inside detected or declared canonical solution roots. "
+            "Default roots are intentionally minimal. Platform/vendor-native roots must be "
+            "declared by plan.json, payload metadata, TECH_CONSTRAINTS-derived structured fields, "
+            "repository manifests, skills, packs, or design profiles."
+        ),
+        "default_allowed_write_roots": default_allowed_write_roots,
+        "declared_allowed_write_roots": declared_roots,
+        "allowed_write_roots": allowed_write_roots,
+        "forbidden_paths": forbidden_paths,
+    }
+
+
+def build_finalize_local_agent_package(
+    *,
+    payload: Dict[str, Any],
+    execution_policy: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Build the orchestrator-owned local agent execution package for /finalize.
+
+    /finalize is solution-scoped, not REQ-scoped. The local agent may patch the
+    real workspace only inside explicit solution write roots, with reuse-first
+    and language-agnostic constraints.
+    """
+    run_id = _safe_text(payload.get("runId")) or "finalize-local"
+    local_executor = _resolve_local_executor(payload)
+
+    capability_manifest = _extract_capability_manifest(payload)
+
+    local_runtime = payload.get("localRuntime") or {}
+    if not isinstance(local_runtime, dict):
+        local_runtime = {}
+
+    tool_hints = local_runtime.get("tool_hints") or {}
+    if not isinstance(tool_hints, dict):
+        tool_hints = {}
+
+    local_runtime = {
+        "shell": str(local_runtime.get("shell") or "zsh"),
+        "implementation_runtime_policy": str(
+            local_runtime.get("implementation_runtime_policy")
+            or "infer_from_project_contracts"
+        ),
+        "dependency_strategy": str(
+            local_runtime.get("dependency_strategy")
+            or "use_existing_project_scripts_or_report_blocked"
+        ),
+        "package_install_policy": str(
+            local_runtime.get("package_install_policy")
+            or "never_install_global_packages"
+        ),
+        "tool_hints": {
+            "node": str(tool_hints.get("node") or "node"),
+            "npm": str(tool_hints.get("npm") or "npm"),
+            "python": str(tool_hints.get("python") or "python3"),
+            "java": str(tool_hints.get("java") or "java"),
+            "go": str(tool_hints.get("go") or "go"),
+            "ruby": str(tool_hints.get("ruby") or "ruby"),
+            "rust": str(tool_hints.get("rust") or "rustc"),
+            "php": str(tool_hints.get("php") or "php"),
+            "dotnet": str(tool_hints.get("dotnet") or "dotnet"),
+            "kubectl": str(tool_hints.get("kubectl") or "kubectl"),
+        },
+    }
+
+    finalize_write_policy = _build_finalize_write_policy(payload)
+    allowed_write_roots = finalize_write_policy["allowed_write_roots"]
+    forbidden_paths = finalize_write_policy["forbidden_paths"]
+
+    final_outputs = {
+        "required_common": [
+            "README.md",
+            ".env.example when runtime configuration exists or is expected",
+            "docs/harper/HOWTO_RUN.md",
+            "docs/harper/SANITY_CHECKS.md",
+            "docs/harper/INFRA_READINESS.md when infra, deployment, cloud, vendor platform, runtime operations, or provisioning evidence exists",
+            "docs/harper/RELEASE_NOTES.md",
+            "docs/harper/TODO_NEXT.md",
+            "docs/harper/PR_BODY.md",
+        ],
+        "required_scripts_when_runnable_code_exists": [
+            "scripts/check_solution_local.sh",
+            "scripts/check_solution_local.ps1",
+            "runtime-specific run scripts for backend/frontend/workers only when those execution areas exist",
+        ],
+        "conditional_solution_artifacts": [
+            "composition root per execution area when missing or incomplete",
+            "settings/env loader when runtime configuration exists",
+            "dependency/repository factory when existing modules need wiring",
+            "DB/session factory when datastore access exists",
+            "local-dev profile when the solution has runnable services",
+            "route/API parity check when backend HTTP and frontend API calls both exist",
+            "ecosystem-native manifests only when the detected stack needs them",
+            "docs/harper/INFRA_READINESS.md when infra/deploy/vendor-platform evidence exists",
+            "scripts/check_infra_prereqs.sh and scripts/check_infra_prereqs.ps1 when infra/deploy evidence exists",
+            "scripts/provision_plan.sh and scripts/provision_plan.ps1 when provisioning evidence exists and a safe plan/validate mode can be expressed",
+            "scripts/check_deployment.sh and scripts/check_deployment.ps1 when deployment evidence exists",
+            "infra/, deploy/, ops/, config/, schemas/, connectors/, jobs/, pipelines/, packages/, model/, or models/ artifacts only when supported by TECH_CONSTRAINTS, PLAN/SPEC, or repository evidence",
+        ],
+    }
+
+    finalize_contract = {
+        "schema_version": "clike.finalize_contract.v1",
+        "phase": "finalize",
+        "scope": "solution",
+        "language_agnostic": True,
+        "reuse_policy": {
+            "reuse_before_create": True,
+            "patch_before_replace": True,
+            "complete_before_regenerate": True,
+            "wire_existing_components_before_creating_new_ones": True,
+            "no_massive_regeneration": True,
+            "no_unnecessary_refactor": True,
+        },
+        "cloud_agent_compatibility": {
+            "shared_final_artifact_contract": True,
+            "cloud_finalize_role": "documentation_finalize_and_architecture_reasoning",
+            "local_agent_finalize_role": "workspace_solution_integration_and_runnability_hardening",
+            "no_fake_success": True,
+        },
+        "infra_readiness": {
+            "enabled_when_evidence_exists": True,
+            "source_of_truth_order": [
+                "TECH_CONSTRAINTS.yaml / TECH_CONSTRAINTS.yml / constraints.json",
+                "docs/harper/PLAN.md",
+                "docs/harper/plan.json",
+                "docs/harper/SPEC.md",
+                "repository source tree and manifests",
+                "selected skills, packs, and design profiles",
+            ],
+            "detect_do_not_assume": True,
+            "safe_by_default": True,
+            "provider_agnostic": True,
+            "supported_detection_targets_examples_only": [
+                "aws",
+                "azure",
+                "gcp",
+                "kubernetes",
+                "docker-compose",
+                "terraform",
+                "pulumi",
+                "cloudformation",
+                "bicep",
+                "helm",
+                "confluent-kafka",
+                "cloudera",
+                "mendix",
+                "informatica",
+                "plc",
+                "scada",
+                "on-prem",
+                "hybrid",
+                "vendor-managed-platform",
+            ],
+            "allowed_actions": [
+                "detect_infra_stack_from_contracts_and_sources",
+                "create_or_update_docs_harper_INFRA_READINESS_md",
+                "create_or_update_safe_prereq_check_scripts",
+                "create_or_update_validate_or_plan_scripts",
+                "create_or_update_deploy_runbooks",
+                "create_or_update_env_or_parameter_examples",
+                "create_or_update_provider_or_platform_templates_when_evidenced",
+                "document_blocked_checks_with_exact_missing_tool_or_context",
+            ],
+            "forbidden_actions": [
+                "do_not_run_terraform_apply",
+                "do_not_run_cloud_mutating_commands",
+                "do_not_create_or_delete_live_cloud_resources",
+                "do_not_write_real_secrets_or_credentials",
+                "do_not_invent_cloud_account_region_tenant_project_or_networking",
+                "do_not_grant_wildcard_admin_permissions",
+                "do_not_assume_terraform_aws_kubernetes_or_docker_when_not_evidenced",
+            ],
+            "required_evidence_when_infra_exists": [
+                "detected provider/platform/runtime",
+                "required operator tools",
+                "required environment variables or parameter files",
+                "provisioning mode: none, manual, dry-run, plan, validate, vendor-tool, or managed-platform",
+                "safe validation commands",
+                "blocked checks and exact reasons",
+                "deployment risks and rollback notes",
+            ],
+        },
+        "solution_sanity_gates": [
+            {
+                "name": "manifest_parse_gate",
+                "policy": "Parse only manifests that exist: pyproject.toml, package.json, pom.xml, go.mod, Cargo.toml, csproj/sln, yaml/json.",
+            },
+            {
+                "name": "app_import_or_boot_gate",
+                "policy": "Use detected ecosystem checks: Python import/app boot, npm scripts, go test/build, cargo check, dotnet build, Java build, or equivalent.",
+            },
+            {
+                "name": "backend_route_gate",
+                "policy": "When backend HTTP exists, verify exposed routes using the framework adapter detected from repository evidence; FastAPI is only one adapter.",
+            },
+            {
+                "name": "frontend_manifest_gate",
+                "policy": "When frontend exists, validate package/runtime manifest and available typecheck/lint/build scripts.",
+            },
+            {
+                "name": "frontend_build_gate",
+                "policy": "Run typecheck/lint/build only when scripts and dependencies are present; otherwise document environment-blocked evidence.",
+            },
+            {
+                "name": "route_parity_gate",
+                "policy": "When backend and frontend exist, compare frontend API calls with backend exposed routes using non-fragile framework-aware extraction.",
+            },
+            {
+                "name": "script_presence_gate",
+                "policy": "Create or validate Linux/macOS and PowerShell local scripts when runnable code exists.",
+            },
+            {
+                "name": "junk_artifact_gate",
+                "policy": "Block __MACOSX, .DS_Store, __pycache__, *.pyc, node_modules, .next, .venv, .ruff_cache, .mypy_cache.",
+            },
+            {
+                "name": "docs_truthfulness_gate",
+                "policy": "HOWTO_RUN and README must not declare commands, ports, env vars, routes, or services unsupported by actual files.",
+            },
+            {
+                "name": "provider_boundary_gate",
+                "policy": "If provider SDKs exist and the project requires adapter boundaries, business services must not import provider SDKs directly.",
+            },
+            {
+                "name": "infra_readiness_gate",
+                "policy": (
+                    "When TECH_CONSTRAINTS, PLAN/SPEC, manifests, sources, or selected capabilities show infra, cloud, "
+                    "deployment, vendor-platform, PLC/SCADA, Mendix, Informatica, Kafka, Cloudera, Kubernetes, or IaC scope, "
+                    "produce docs/harper/INFRA_READINESS.md and safe-by-default validation/provisioning plan scripts. "
+                    "Do not run mutating cloud commands, terraform apply, destructive operations, or secret writes."
+                ),
+            },        ],
+        "required_outputs": final_outputs,
+    }
+
+    context = {
+        "schema_version": "clike.local_agent_finalize_context.v1",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "phase": "finalize",
+        "run_id": run_id,
+        "req_id": "SOLUTION",
+        "executor_hint": local_executor,
+        "workflow_owner": "orchestrator",
+        "extension_role": "local_actuator_only",
+        "agent_role": "solution_integrator_and_runnability_hardener",
+        "local_runtime": local_runtime,
+        "execution": {
+            "requested": execution_policy.get("requested"),
+            "selected": execution_policy.get("selected"),
+            "reason": execution_policy.get("reason"),
+            "fallback_policy": "extension_may_fallback_to_cloud_finalize_only_when_not_local_agent_only",
+        },
+        "project": {
+            "project_id": payload.get("project_id"),
+            "project_name": payload.get("project_name"),
+            "doc_root": payload.get("docRoot") or "docs/harper",
+            "workspace": payload.get("workspace") or {},
+        },
+        "inputs": {
+            "idea_md_path": "docs/harper/IDEA.md",
+            "spec_md_path": "docs/harper/SPEC.md",
+            "plan_md_path": "docs/harper/PLAN.md",
+            "plan_json_path": "docs/harper/plan.json",
+            "tech_constraints_paths": [
+                "docs/harper/TECH_CONSTRAINTS.yaml",
+                "TECH_CONSTRAINTS.yaml",
+                "docs/harper/constraints.json",
+            ],
+            "promoted_source_roots": ["src"],
+            "promoted_test_roots": ["test", "tests"],
+            "runtime_and_infra_evidence_roots": [
+                "infra",
+                "deploy",
+                "ops",
+                "config",
+                "configs",
+                "schemas",
+                "connectors",
+                "jobs",
+                "pipelines",
+                "packages",
+                "model",
+                "models",
+            ],
+            "historical_kit_roots_read_only": ["runs/kit"],
+            "gate_eval_evidence_roots_read_only": ["runs/eval", "runs/gate"],
+        },
+        "capability_context": {
+            "manifest": capability_manifest,
+        },
+        "finalize_contract": finalize_contract,
+        "solution_write_policy": finalize_write_policy,
+        "allowed_write_roots": allowed_write_roots,
+        "forbidden_paths": forbidden_paths,
+        "hard_rules": [
+            "Do not run git commands.",
+            "Do not commit, branch, push, tag, or open pull requests.",
+            "Do not write secrets, credentials, private keys, or real .env files.",
+            "Do not write under .git, node_modules, .venv, __pycache__, __MACOSX, .next, dist, build, .ruff_cache, or .mypy_cache.",
+            "Do not rewrite the solution from scratch.",
+            "Do not duplicate business logic, repositories, services, adapters, routers, or launchers already present.",
+            "Do not create a parallel composition root if a valid one already exists; patch or complete the existing one.",
+            "Do not create a new launcher when an existing launcher can be made correct with a small patch.",
+            "Do not force Python, FastAPI, Node, Next.js, PostgreSQL, Docker, or any specific stack.",
+            "Infer languages, frameworks, package managers, runtime profiles, and services from repository manifests, source files, PLAN/SPEC, and TECH_CONSTRAINTS.",
+            "Python/FastAPI and Node/Next are reference adapters only, not defaults.",
+            "Cloud and agent finalize must share the same final artifact names and meanings.",
+            "Do not claim runnability unless sanity checks were run or explicitly marked environment-blocked with exact reasons.",
+            "Docs must reflect real files,f real scripts, real routes, real env vars, and real manifests.",
+            "If a runnable E2E solution cannot be completed safely, document the blocking gap in TODO_NEXT.md and PR_BODY.md instead of faking success.",
+            "If infra, cloud, deployment, vendor platform, PLC/SCADA, Mendix, Informatica, Kafka, Cloudera, Kubernetes, or IaC scope is detected, create or update infra readiness documentation and safe validation/plan scripts only when supported by TECH_CONSTRAINTS, PLAN/SPEC, repository evidence, or selected capabilities.",
+            "Do not run or generate scripts that perform live cloud mutation by default. Scripts must be safe-by-default and prefer validate, plan, dry-run, describe, lint, schema check, package integrity check, or vendor-tool validation modes.",
+            "Never run terraform apply, pulumi up, cloud resource create/delete/update commands, destructive commands, secret writes, or privileged IAM changes from finalize.",
+            "Do not invent provider account IDs, regions, tenants, projects, clusters, namespaces, VPCs, subnets, security groups, service principals, managed identities, credentials, or network topology. Use placeholders in examples and document missing values as operator-provided configuration.",
+            "Do not assume AWS, Azure, GCP, Kubernetes, Terraform, Docker, Cloudera, Confluent Kafka, PLC, SCADA, Mendix, Informatica, or any vendor platform unless evidenced by TECH_CONSTRAINTS, PLAN/SPEC, repository files, manifests, or selected capabilities.",
+        ], 
+    }
+
+    context_json = json.dumps(context, indent=2, ensure_ascii=False)
+
+    prompt = "\n".join(
+        [
+            "# Local Agent FINALIZE Execution Package — SOLUTION",
+            "",
+            "You are executing a CLike Harper /finalize package.",
+            "The orchestrator owns workflow state and policy. The VS Code extension is only the local actuator.",
+            "",
+            "Read this file before acting:",
+            "- runs/finalize/AGENT_FINALIZE_CONTEXT.json",
+            "",
+            "Mission:",
+            "- Make the promoted solution as runnable as possible with small, conservative, repository-aware patches.",
+            "- Reuse before create; patch before replace; complete before regenerate.",
+            "- Produce truthful final documentation and local sanity scripts.",
+            "- Keep the implementation language/framework/runtime agnostic.",
+            "",
+            "Required first-pass inspection:",
+            "- Read docs/harper/IDEA.md, SPEC.md, PLAN.md, plan.json, TECH_CONSTRAINTS.yaml, TECH_CONSTRAINTS.yml, and constraints.json when present.",
+            "- Treat TECH_CONSTRAINTS and repository evidence as the primary source of truth for runtime, provider, deployment, infra, and vendor-platform decisions.",
+            "- Inspect src/, test/, tests/, scripts/, README.md, .env.example, root manifests, and docs/harper.",
+            "- Inspect infra/deploy/ops/config/configs/schemas/connectors/jobs/pipelines/packages/model/models roots when present.",
+            "- Inspect runs/kit only as read-only historical evidence; do not rewrite historical KIT artifacts unless explicitly required by the context.",
+            "- Detect execution areas: backend, frontend, worker, CLI, service, IaC, data platform, integration platform, vendor platform, document-only, or mixed.",
+            "- Detect manifests and descriptors: package.json, pyproject.toml, requirements.txt, pom.xml, go.mod, Cargo.toml, csproj/sln, Dockerfile, docker-compose.yml, Makefile, Terraform, Pulumi, CloudFormation, Bicep, Helm, Kubernetes YAML, Kafka connector configs, schema descriptors, Mendix metadata, Informatica descriptors, PLC/SCADA package/config exports, or equivalents.",
+            "- Detect infra/deployment scope only from evidence. Do not assume cloud, Kubernetes, Terraform, Docker, Kafka, Cloudera, Mendix, Informatica, PLC, SCADA, or any vendor platform.",
+            "",
+             "Allowed writes:",
+            "- Only write inside allowed_write_roots from AGENT_FINALIZE_CONTEXT.json.",
+            "- Treat allowed_write_roots as detected or declared canonical solution roots, not as Python/Node-specific folders.",
+            "- Platform/vendor-native roots such as Mendix, PLC, SCADA, Kafka, Cloudera, Informatica, ETL/ELT, IaC, deployment, connector, schema, package, or model roots are allowed only when declared by the project contract or present in allowed_write_roots.",
+            "- Write real workspace files for final solution integration; do not stage output under runs/kit.",
+            "",
+            "Mandatory finalize outputs when applicable:",
+            "- README.md",
+            "- .env.example when runtime configuration exists or is expected",
+            "- docs/harper/HOWTO_RUN.md",
+            "- docs/harper/SANITY_CHECKS.md",
+            "- docs/harper/RELEASE_NOTES.md",
+            "- docs/harper/TODO_NEXT.md",
+            "- docs/harper/PR_BODY.md",
+            "- scripts/check_solution_local.sh and scripts/check_solution_local.ps1 when runnable code exists",
+            "- runtime-specific run scripts for backend/frontend/workers only when those execution areas exist",
+            "",
+            "Solution integration duties, only when applicable:",
+            "- Complete a composition root if existing modules are not wired.",
+            "- Add or complete settings/env loader if runtime config exists.",
+            "- Add or complete dependency/repository factory only if existing modules require wiring.",
+            "- Add or complete DB/session factory only if datastore access exists.",
+            "- Add or complete local-dev profile only if the solution has runnable services.",
+            "- Add route/API parity check only if backend HTTP and frontend API calls both exist.",
+            "- If infra/deploy/vendor-platform scope is evidenced, create or update docs/harper/INFRA_READINESS.md with provider/platform detection, required tools, required parameters, safe validation commands, blocked checks, deployment risks, and rollback notes.",
+            "- If provisioning/deployment scope is evidenced, create or update safe-by-default plan/validate/check scripts. Do not create apply/mutate/destroy scripts as the default path.",
+            "- If vendor/platform descriptors exist, validate or document package/config/schema integrity using stack-native non-mutating checks.",
+            "- Clean junk artifacts only inside allowed paths.",
+            "",
+            "Sanity gates to run or document as environment-blocked:",
+            "- manifest_parse_gate",
+            "- app_import_or_boot_gate",
+            "- backend_route_gate when backend HTTP exists",
+            "- frontend_manifest_gate when frontend exists",
+            "- frontend_build_gate when frontend exists and scripts are available",
+            "- route_parity_gate when backend and frontend exist",
+            "- script_presence_gate",
+            "- junk_artifact_gate",
+            "- docs_truthfulness_gate",
+            "- provider_boundary_gate when provider SDK boundaries are relevant",
+            "- infra_readiness_gate when infra, cloud, deployment, vendor-platform, PLC/SCADA, Mendix, Informatica, Kafka, Cloudera, Kubernetes, Docker, or IaC evidence exists",
+            "",
+            "At the end, print a concise summary with:",
+            "- detected stack and execution areas;",
+            "- existing components reused;",
+            "- files created/updated;",
+            "- scripts/checks run;",
+            "- checks passed;",
+            "- checks blocked by environment with exact reason;",
+            "- unresolved gaps, if any.",
+        ]
+    )
+
+    context_path = "runs/finalize/AGENT_FINALIZE_CONTEXT.json"
+    prompt_path = "runs/finalize/AGENT_FINALIZE_PROMPT.md"
+
+    return {
+        "ok": True,
+        "phase": "finalize",
+        "echo": "Local agent finalize package prepared for SOLUTION",
+        "text": "",
+        "files": [],
+        "diffs": [],
+        "tests": {"passed": 0, "failed": 0, "summary": "local-agent-finalize-package-prepared"},
+        "warnings": [
+            "execution_package:local_agent_required",
+            "extension_role:local_actuator_only",
+            "solution_finalize_requires_workspace_mutation",
+        ],
+        "errors": [],
+        "runId": run_id,
+        "execution": {
+            "requested": execution_policy.get("requested"),
+            "selected": execution_policy.get("selected"),
+            "reason": execution_policy.get("reason"),
+            "phase_supported": execution_policy.get("phase_supported"),
+        },
+        "local_agent": {
+            "action": "local_agent_required",
+            "package_id": f"{run_id}:SOLUTION:finalize",
+            "phase": "finalize",
+            "req_id": "SOLUTION",
+            "executor_hint": local_executor,
+            "context_path": context_path,
+            "prompt_path": prompt_path,
+            "prompt_content": prompt,
+            "invocation": {
+                "schema_version": "clike.local_agent_invocation.v1",
+                "executor": local_executor,
+                "command_ref": local_executor,
+                "args": ["exec"] if local_executor == "gpt_codex" else ["-p", "--permission-mode", "acceptEdits"],
+                "prompt_transport": "stdin" if local_executor == "gpt_codex" else "argv_last",
+                "timeout_seconds": int(payload.get("localAgentTimeoutSeconds") or 1800),
+                "cwd": ".",
+            },
+            "allowed_write_roots": allowed_write_roots,
+            "forbidden_paths": forbidden_paths,
+            "expected_outputs": final_outputs,
+            "package_files": [
+                {
+                    "path": context_path,
+                    "content": context_json,
+                    "mime": "application/json",
+                    "encoding": "utf-8",
+                },
+                {
+                    "path": prompt_path,
+                    "content": prompt,
+                    "mime": "text/markdown",
+                    "encoding": "utf-8",
+                },
+            ],
+        },
+    }
+
 
 def normalize_local_agent_result(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
     Normalize the extension actuator result back into a Harper-compatible envelope.
     """
-    phase = _safe_text(payload.get("phase")) or "kit"
-    req_id = _safe_text(payload.get("req_id")).upper()
+    phase = (_safe_text(payload.get("phase")) or "kit").lower()
+    req_id = (_safe_text(payload.get("req_id")) or ("SOLUTION" if phase == "finalize" else "")).upper()
     run_id = _safe_text(payload.get("runId")) or _safe_text(payload.get("run_id"))
 
     files = payload.get("files") or []
     stdout = _safe_text(payload.get("stdout"))
     stderr = _safe_text(payload.get("stderr"))
     exit_code = payload.get("exit_code")
+
+    def _finalize_allowed_path(file_path: str) -> bool:
+        p = _normalize_relative_path(file_path)
+        if not p or not _is_safe_finalize_root(p):
+            return False
+
+        dynamic_roots = payload.get("allowed_write_roots") or payload.get("finalizeAllowedWriteRoots") or []
+        if not isinstance(dynamic_roots, list):
+            dynamic_roots = []
+
+        fallback_roots = _build_finalize_write_policy({})["allowed_write_roots"]
+        allowed_roots = []
+
+        for item in [*fallback_roots, *dynamic_roots]:
+            root = _normalize_relative_path(item)
+            if root and _is_safe_finalize_root(root) and root not in allowed_roots:
+                allowed_roots.append(root)
+
+        for root in allowed_roots:
+            if p == root or p.startswith(f"{root}/"):
+                return True
+
+        return False
 
     expected_prefix = f"runs/kit/{req_id}/"
     bad_paths: List[str] = []
@@ -2103,13 +2804,16 @@ def normalize_local_agent_result(payload: Dict[str, Any]) -> Dict[str, Any]:
     for item in files:
         if not isinstance(item, dict):
             continue
-        file_path = _safe_text(item.get("path"))
+        file_path = _safe_text(item.get("path")).replace("\\", "/").lstrip("/")
         content = item.get("content")
         if not file_path:
             continue
-        if not file_path.startswith(expected_prefix):
+
+        allowed = _finalize_allowed_path(file_path) if phase == "finalize" else file_path.startswith(expected_prefix)
+        if not allowed:
             bad_paths.append(file_path)
             continue
+
         if isinstance(content, str):
             normalized_files.append(
                 {
@@ -2140,12 +2844,28 @@ def normalize_local_agent_result(payload: Dict[str, Any]) -> Dict[str, Any]:
         errors.append("local_agent_wrote_outside_allowed_roots")
         warnings.append("blocked_paths:" + ",".join(bad_paths[:20]))
 
+        if phase == "finalize":
+            returned_paths = {item.get("path") for item in normalized_files}
+            required_docs = {
+                "README.md",
+                "docs/harper/HOWTO_RUN.md",
+                "docs/harper/SANITY_CHECKS.md",
+                "docs/harper/RELEASE_NOTES.md",
+                "docs/harper/TODO_NEXT.md",
+                "docs/harper/PR_BODY.md",
+        }
+        missing_docs = sorted(path for path in required_docs if path not in returned_paths)
+        if missing_docs:
+            ok = False
+            errors.append("finalize_required_outputs_missing")
+            warnings.append("missing_finalize_outputs:" + ",".join(missing_docs))
+
     if not normalized_files:
         ok = False
         errors.append(f"no_candidate_files_returned_for:{req_id}")
         if exit_code_non_zero:
             errors.append(f"local_agent_exit_code:{exit_code}")
-    elif exit_code_non_zero:
+    elif exit_code_non_zero and ok:
         warnings.append(
             "local_agent_exit_code_accepted_because_candidate_files_were_returned"
         )

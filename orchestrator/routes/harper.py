@@ -409,7 +409,10 @@ async def post_build_next(req: HarperPhaseRequest):
         warnings=out_dict.get("warnings") or [],
         errors=out_dict.get("errors") or [],
         runId=out_dict.get("runId"),
-        telemetry=out_dict.get("telemetry")
+        usage=out_dict.get("usage"),
+        execution=out_dict.get("execution"),
+        local_agent=out_dict.get("local_agent"),
+        telemetry=out_dict.get("telemetry"),
     )
     # Retro-compat: spec_md, se disponibile (primo file markdown) oppure None
     release_notes_md = None

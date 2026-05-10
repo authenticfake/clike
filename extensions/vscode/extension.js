@@ -40,6 +40,8 @@ const {
   runLocalAgentSync,
   collectReqCandidateFiles,
   collectReqCandidateFileArtifacts,
+  collectFinalizeCandidateFiles,
+  collectFinalizeCandidateFileArtifacts,
 } = require('./utility');
 
 const {
@@ -657,8 +659,11 @@ async function executeLocalAgentPackage({
   panel,
   out,
 }) {
-  const reqForAgent = String(localAgentPackage?.req_id || reqId || '').trim().toUpperCase();
   const phaseForAgent = String(localAgentPackage?.phase || phase || '').trim().toLowerCase();
+  const isFinalize = phaseForAgent === 'finalize';
+  const reqForAgent = isFinalize
+    ? String(localAgentPackage?.req_id || reqId || 'SOLUTION').trim().toUpperCase()
+    : String(localAgentPackage?.req_id || reqId || '').trim().toUpperCase();
 
   if (!reqForAgent) {
     throw new Error('Invalid local-agent package: missing req_id.');
@@ -710,7 +715,7 @@ async function executeLocalAgentPackage({
       `🤖 ${executorLabel} local ${phaseForAgent.toUpperCase()} package received for ${reqForAgent}. ` +
       `CLike remains the workflow owner; the agent is the local actuator/hardener.`
   });
-  
+
   const agentResult = await runLocalAgentSync({
     workspaceRootUri: wsroot,
     prompt: promptContent,
@@ -722,8 +727,13 @@ async function executeLocalAgentPackage({
     out,
   });
 
-  const candidateFiles = await collectReqCandidateFiles(wsroot, reqForAgent);
-  const candidateArtifacts = await collectReqCandidateFileArtifacts(wsroot, reqForAgent);
+  const candidateFiles = isFinalize
+    ? await collectFinalizeCandidateFiles(wsroot)
+    : await collectReqCandidateFiles(wsroot, reqForAgent);
+
+  const candidateArtifacts = isFinalize
+    ? await collectFinalizeCandidateFileArtifacts(wsroot)
+    : await collectReqCandidateFileArtifacts(wsroot, reqForAgent);
 
   log(
     `[harperRun][agent] completed executor=${selectedExecutor} ` +
@@ -731,8 +741,11 @@ async function executeLocalAgentPackage({
   );
 
   if (!candidateArtifacts.length) {
+    const expectedRoot = isFinalize
+      ? 'README.md, docs/harper, scripts, src, or runtime manifests'
+      : `runs/kit/${reqForAgent}/`;
     throw new Error(
-      `${executorLabel} completed without returning readable candidate artifacts under runs/kit/${reqForAgent}/`
+      `${executorLabel} completed without returning readable candidate artifacts under ${expectedRoot}`
     );
   }
 
@@ -742,6 +755,12 @@ async function executeLocalAgentPackage({
     runId,
     executionPreference,
     localAgentExecutor: selectedExecutor,
+    allowed_write_roots: Array.isArray(localAgentPackage.allowed_write_roots)
+      ? localAgentPackage.allowed_write_roots
+      : [],
+    forbidden_paths: Array.isArray(localAgentPackage.forbidden_paths)
+      ? localAgentPackage.forbidden_paths
+      : [],
     exit_code: agentResult.exitCode,
     stdout: agentResult.stdout || '',
     stderr: agentResult.stderr || '',
@@ -3463,10 +3482,10 @@ async function cmdOpenChat(context) {
             (requestedKitPhases.length === 1 && String(requestedKitPhases[0] || '').trim().toLowerCase() === 'kit');
           const _headers = { "Content-Type": "application/json" };
 
-            if (phase === 'kit' && localAgentRequested && localExecutorConfig && localExecutorConfig.enabled) {
+          if ((phase === 'kit' || phase === 'finalize') && localAgentRequested && localExecutorConfig && localExecutorConfig.enabled) {
             log(
               `[harperRun][agent] local agent requested; orchestrator will decide package/fallback ` +
-              `req=${targetReqId} exec=${executionPreference} executor=${selectedLocalExecutor}`
+              `phase=${phase} req=${targetReqId || 'SOLUTION'} exec=${executionPreference} executor=${selectedLocalExecutor}`
             );
           }
 
@@ -3476,7 +3495,7 @@ async function cmdOpenChat(context) {
           //fals is for RAG chucks - TODO: RAG management via attachments is almost oden 70%
           const body = await buildHarperBody(phase, payload, wsroot, out);
 
-          if (phase === 'kit') {
+          if (phase === 'kit' || phase === 'finalize') {
             body.localAgentExecutor = normalizeLocalAgentExecutor(
               selectedLocalExecutor || state.localAgentExecutor || settings.localAgentPreferredExecutor || 'auto'
             );
@@ -3510,32 +3529,47 @@ async function cmdOpenChat(context) {
                 php: 'php',
                 dotnet: 'dotnet',
                 kubectl: 'kubectl',
-
-
               },
             };
           }
 
+          if (phase === 'finalize' && localAgentRequested) {
+            body.rag_strategy = 'off';
+            body.rag_top_k = 0;
+            body.context_hard_limit = Math.min(Number(body.context_hard_limit || 12500), 12500);
+          }
+
           const keys = Object.keys(body.core_blobs);
           log(`[harperRun] body (keys::core_blobs):`,  keys)
-          if (phase==='finalize') {
+          if (phase === 'finalize') {
+            if (localAgentRequested) {
+              log('[finalize] Skipping automatic RAG pre-index because local agent execution was requested. The agent will inspect the workspace directly.');
+              panel.webview.postMessage({
+                type: 'echo',
+                message: 'ℹ FINALIZE RAG pre-index skipped: local agent will inspect the workspace directly.'
+              });
+            } else {
               try {
                 const items = await collectFinalizeRagItems(wsroot);
 
                 if (items.length) {
-                   
-                   const res = await preIndexRag(project_id, items, urlRag, out);
-                   log((`CLike preIndexRag: ${JSON.stringify(res)} ${res}`));
+                  const res = await preIndexRag(project_id, items, urlRag, out, { timeoutMs: 15000 });
+                  log((`CLike preIndexRag: ${JSON.stringify(res)} ${res}`));
                 } else {
-                  vscode.window.showErrorMessage(`[finalize] No any source files found!!!`);
-                  panel.webview.postMessage({ type: 'busy', on: false });
-                  return
+                  log('[finalize] No source files found for RAG indexing; continuing because finalize also supports document-only and agent-driven workspace inspection.');
+                  panel.webview.postMessage({
+                    type: 'echo',
+                    message: 'ℹ FINALIZE RAG source indexing skipped: no source files found. Continuing with core docs and workspace inspection.'
+                  });
                 }
               } catch (e) {
-                log(`ℹ️ RAG index skipped (${e?.message || e})`);
-                panel.webview.postMessage({ type: 'busy', on: false });
-                return
+                log(`ℹ️ RAG index skipped (${e?.message || e}); continuing finalize.`);
+                panel.webview.postMessage({
+                  type: 'echo',
+                  message: `ℹ FINALIZE RAG indexing skipped: ${e?.message || e}. Continuing.`
+                });
               }
+            }
           }
           //log(`[harperRun] body (core_blobs):`,  JSON.stringify(body.core_blobs))
           if (activeProvider) _headers["X-CLike-Provider"] = activeProvider
@@ -3554,167 +3588,51 @@ async function cmdOpenChat(context) {
 
            const localAgentPackage = _out?.local_agent || outGateway?.local_agent || null;
 
-          if (phase === 'kit' && localAgentPackage?.action === 'local_agent_required') {
-            const reqForAgent = String(localAgentPackage.req_id || targetReqId || '').trim().toUpperCase();
-            
-            
-            
-            const invocation = localAgentPackage.invocation || {};
-            const selectedExecutor = normalizeLocalAgentExecutor(
-              invocation.executor || localAgentPackage.executor_hint || 'auto'
-            );
-
-            if (!selectedExecutor || selectedExecutor === 'auto') {
-              throw new Error(
-                'Invalid local-agent package: orchestrator did not provide a concrete executor.'
-              );
-            }
-
-            const executorConfig = getExecutorConfig(selectedExecutor, settings);
-            const executorLabel = buildLocalAgentDisplayLabel(selectedExecutor);
-
-            const availability = detectLocalAgentAvailability(settings);
-            const executorAvailable = !!availability?.[selectedExecutor]?.available;
-
-            if (!executorConfig || !executorConfig.enabled || !executorAvailable) {
-              throw new Error(
-                `Orchestrator selected ${selectedExecutor}, but the local actuator cannot execute it. ` +
-                `availability=${JSON.stringify(availability?.[selectedExecutor] || {})}`
-              );
-            }
-
-            const invocationArgs = Array.isArray(invocation.args) ? invocation.args : [];
-            const promptTransport = String(invocation.prompt_transport || '').trim();
-
-
-
-
-            if (!selectedExecutor || !executorConfig || !executorConfig.enabled) {
-              const noExecutorMsg =
-                `Orchestrator prepared a local-agent package for ${reqForAgent}, ` +
-                `but no compatible local executor is available.`;
+          if ((phase === 'kit' || phase === 'finalize') && localAgentPackage?.action === 'local_agent_required') {
+            try {
+              _out = await executeLocalAgentPackage({
+                localAgentPackage,
+                phase,
+                reqId: phase === 'finalize' ? 'SOLUTION' : targetReqId,
+                runId,
+                executionPreference,
+                settings,
+                wsroot,
+                headers: _headers,
+                harperTimeout,
+                panel,
+                out,
+              });
+            } catch (err) {
+              const failMsg = `[harperRun][agent] ${err?.message || String(err)}`;
+              log(failMsg);
 
               if (executionPreference === 'local_agent_only') {
                 panel.webview.postMessage({ type: 'busy', on: false });
-                panel.webview.postMessage({ type: 'error', message: noExecutorMsg });
+                panel.webview.postMessage({ type: 'error', message: failMsg });
                 return;
               }
 
               panel.webview.postMessage({
                 type: 'echo',
-                message: `⚠ ${noExecutorMsg} Falling back to current CLike cloud path.`
+                message: `⚠ Local agent failed. Falling back to current CLike cloud path. Reason: ${err?.message || String(err)}`
               });
 
               const fallbackBody = {
                 ...body,
                 executionPreference: 'cloud_only',
+                localAgentFallbackReason: err?.message || String(err),
+                runtimeSelectionGuardrails: [
+                  'Do not infer implementation language from lane alone.',
+                  'Use TECH_CONSTRAINTS.yaml and SPEC.md as the primary runtime source of truth.',
+                  'Use repository manifests and existing launchers before creating new runtime entrypoints.',
+                  'Use Python only when project evidence explicitly identifies Python as the implementation stack.',
+                  'Use Node/npm only when package.json or project evidence identifies a Node ecosystem.',
+                ],
               };
+
               outGateway = await callHarper(cmd, fallbackBody, _headers, { timeoutMs: 1000 * 60 * harperTimeout });
               _out = outGateway.out;
-            } else {
-            
-              try {
-                const packageFiles = Array.isArray(localAgentPackage.package_files)
-                  ? localAgentPackage.package_files
-                  : [];
-
-                if (packageFiles.length) {
-                  await saveGeneratedFiles(packageFiles);
-                  log(`[harperRun][agent] wrote orchestrator package files=${packageFiles.length}`);
-                }
-
-                const promptContent = String(localAgentPackage.prompt_content || '').trim();
-                if (!promptContent) {
-                  throw new Error('Local agent package does not contain prompt_content.');
-                }
-
-                panel.webview.postMessage({
-                  type: 'echo',
-                  message: `🤖 ${executorLabel} local KIT package received from orchestrator for ${reqForAgent}.`
-                });
-
-                const agentResult = await runLocalAgentSync({
-                  workspaceRootUri: wsroot,
-                  prompt: promptContent,
-                  executorId: selectedExecutor,
-                  command: executorConfig.command,
-                  argsBeforePrompt: invocationArgs,
-                  promptTransport,
-                  timeoutMinutes: Math.ceil(Number(invocation.timeout_seconds || 1800) / 60),
-                  out,
-                });
-
-                const candidateFiles = await collectReqCandidateFiles(wsroot, reqForAgent);
-                const candidateArtifacts = await collectReqCandidateFileArtifacts(wsroot, reqForAgent);
-
-                log(
-                  `[harperRun][agent] completed executor=${selectedExecutor} ` +
-                  `req=${reqForAgent} files=${candidateFiles.length} artifacts=${candidateArtifacts.length}`
-                );
-
-                if (!candidateArtifacts.length) {
-                  throw new Error(
-                    `${executorLabel} completed without returning readable candidate artifacts under runs/kit/${reqForAgent}/`
-                  );
-                }
-
-                const completeBody = {
-                  phase: 'kit',
-                  req_id: reqForAgent,
-                  runId,
-                  executionPreference,
-                  localAgentExecutor: selectedExecutor,
-                  exit_code: agentResult.exitCode,
-                  stdout: agentResult.stdout || '',
-                  stderr: agentResult.stderr || '',
-                  files: candidateArtifacts,
-                };
-
-                outGateway = await callHarper('local-agent/complete', completeBody, _headers, {
-                  timeoutMs: 1000 * 60 * harperTimeout,
-                });
-                _out = outGateway.out;
-
-                if (!_out?.ok) {
-                  throw new Error(
-                    `Orchestrator rejected local-agent result: ${(_out?.errors || []).join(' | ') || 'unknown error'}`
-                  );
-                }
-
-                panel.webview.postMessage({
-                  type: 'echo',
-                  message: `✅ ${executorLabel} local KIT normalized by orchestrator for ${reqForAgent}.`
-                });
-              } catch (err) {
-                const failMsg = `[harperRun][agent] ${err?.message || String(err)}`;
-                log(failMsg);
-
-                if (executionPreference === 'local_agent_only') {
-                  panel.webview.postMessage({ type: 'busy', on: false });
-                  panel.webview.postMessage({ type: 'error', message: failMsg });
-                  return;
-                }
-
-                panel.webview.postMessage({
-                  type: 'echo',
-                  message: `⚠ Local agent failed. Falling back to current CLike cloud path. Reason: ${err?.message || String(err)}`
-                });
-
-                const fallbackBody = {
-                  ...body,
-                  executionPreference: 'cloud_only',
-                  localAgentFallbackReason: err?.message || String(err),
-                  runtimeSelectionGuardrails: [
-                    'Do not infer implementation language from lane alone.',
-                    'Use TECH_CONSTRAINTS.yaml and SPEC.md as the primary runtime source of truth.',
-                    'If the project declares Node.js, Express, React, Vite, npm, JavaScript, or TypeScript, emit that ecosystem and ci/package.json.',
-                    'Use Python only when project evidence explicitly identifies Python as the implementation stack.',
-                  ],
-                };
-
-                outGateway = await callHarper(cmd, fallbackBody, _headers, { timeoutMs: 1000 * 60 * harperTimeout });                
-                _out = outGateway.out;
-              }
             }
           }
 
@@ -3764,13 +3682,12 @@ async function cmdOpenChat(context) {
           const executionSelected = String(_out?.execution?.selected || '').trim();
 
           if (Array.isArray(_out?.files) && _out.files.length) {
-          if (executionSelected === 'local_agent') {
+            if (executionSelected === 'local_agent') {
               log(
                 `[harperRun] local_agent produced ${_out.files.length} file artifact(s); ` +
-                `skipping saveGeneratedFiles because the agent already wrote candidate files under runs/kit.`
+                `skipping saveGeneratedFiles because the agent already wrote workspace files.`
               );
             } else {
-              
               written = await saveGeneratedFiles(_out.files);
             }
             panel.webview.postMessage({ type: 'files', data: _out.files });
