@@ -1337,7 +1337,8 @@ async function buildHarperBody(phase, payload, projectRootUri, out) {
       payload["rag_top_k"] = 150;
   }
    if (phase === 'finalize') {
-      payload["rag_top_k"] = 250;
+      payload["rag_top_k"] = 40;
+      payload["context_hard_limit"] = 18000;
    }
   return payload;
 }
@@ -1792,36 +1793,53 @@ async function readWorkspaceTextFile(pathInWs, out) {
   }
 }
 
-async function postJson(url, body, { signal } = {}) {
+async function postJson(url, body, { signal, timeoutMs = 30000 } = {}) {
   const f = (typeof fetch === 'function')
     ? fetch
     : ((...args) => import('node-fetch').then(({ default: ff }) => ff(...args)));
-  const res = await f(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-    signal
-  });
-  if (!res.ok) {
-    const txt = await res.text().catch(() => '');
-    throw new Error(`POST ${url} -> ${res.status} ${txt}`);
+
+  const controller = signal ? null : new AbortController();
+  const effectiveSignal = signal || controller.signal;
+  const timer = controller
+    ? setTimeout(() => controller.abort(), Math.max(1000, Number(timeoutMs) || 30000))
+    : null;
+
+  try {
+    const res = await f(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: effectiveSignal
+    });
+
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error(`POST ${url} -> ${res.status} ${txt}`);
+    }
+
+    return await res.json();
+  } finally {
+    if (timer) clearTimeout(timer);
   }
-  return await res.json();
 }
 
 // Pre-index RAG items before chat/generate. Non-blocking on failure.
-async function preIndexRag(projectId, rag_files,url ,out) {
+async function preIndexRag(projectId, rag_files, url, out, options = {}) {
   const log = mkLog(out);
-  //log('preIndexRag:', projectId, rag_files, url);
+  const timeoutMs = Math.max(1000, Number(options.timeoutMs || 30000));
+
   const items = await buildRagItemsForIndex(rag_files, out);
-  //log('preIndexRag items:', items);
   if (!items.length) return { ok: true, upserts: 0 };
-  
+
   try {
-    return await postJson(url, { project_id: projectId, items });
+    return await postJson(url, { project_id: projectId, items }, { timeoutMs });
   } catch (e) {
+    const msg = e?.name === 'AbortError'
+      ? `RAG preIndex timed out after ${timeoutMs}ms`
+      : String(e?.message || e);
+    log(`[RAG] preIndex skipped: ${msg}`);
     console.warn('[RAG] preIndex failed', e);
-    return { ok: false, upserts: 0, error: String(e) };
+    return { ok: false, upserts: 0, error: msg };
   }
 }
 
@@ -2458,6 +2476,154 @@ async function collectReqCandidateFiles(projectRootUri, reqId) {
     .filter(Boolean);
 }
 
+function isFinalizeAllowedPath(relPath) {
+  const p = String(relPath || '').replace(/\\/g, '/').replace(/^\/+/, '');
+
+  if (!p) return false;
+
+  const forbiddenParts = new Set([
+    '.git',
+    'node_modules',
+    '.venv',
+    '__pycache__',
+    '__MACOSX',
+    '.next',
+    'dist',
+    'build',
+    '.ruff_cache',
+    '.mypy_cache',
+  ]);
+
+  if (p === '.DS_Store' || p.endsWith('/.DS_Store') || p.endsWith('.pyc')) {
+    return false;
+  }
+
+  for (const part of p.split('/')) {
+    if (forbiddenParts.has(part)) {
+      return false;
+    }
+  }
+
+  if (p === 'README.md') return true;
+  if (p === '.env.example') return true;
+  if (p.startsWith('src/')) return true;
+  if (p.startsWith('scripts/')) return true;
+  if (p.startsWith('docs/harper/')) return true;
+
+  const platformRoots = [
+    'infra/',
+    'deploy/',
+    'ops/',
+    'config/',
+    'configs/',
+    'schemas/',
+    'connectors/',
+    'jobs/',
+    'pipelines/',
+    'packages/',
+    'model/',
+    'models/',
+  ];
+
+  if (platformRoots.some((root) => p.startsWith(root))) return true;
+
+  const manifestNames = new Set([
+    'package.json',
+    'package-lock.json',
+    'pnpm-lock.yaml',
+    'yarn.lock',
+    'pyproject.toml',
+    'requirements.txt',
+    'pom.xml',
+    'build.gradle',
+    'settings.gradle',
+    'go.mod',
+    'go.sum',
+    'Cargo.toml',
+    'Cargo.lock',
+    'docker-compose.yml',
+    'Dockerfile',
+    'Makefile',
+  ]);
+
+  if (manifestNames.has(path.basename(p))) return true;
+  if (p.endsWith('.csproj') || p.endsWith('.sln')) return true;
+
+  return false;
+}
+
+function collectGitChangedFinalizePaths(rootPath) {
+  try {
+    const raw = cp.execSync('git status --porcelain', {
+      cwd: rootPath,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+
+    return raw
+      .split(/\r?\n/)
+      .map((line) => line.trimEnd())
+      .filter(Boolean)
+      .map((line) => {
+        const candidate = line.slice(3).trim();
+        const renamed = candidate.includes(' -> ')
+          ? candidate.split(' -> ').pop().trim()
+          : candidate;
+        return renamed.replace(/\\/g, '/');
+      })
+      .filter(isFinalizeAllowedPath);
+  } catch {
+    return [];
+  }
+}
+
+async function collectFinalizeCandidateFileArtifacts(projectRootUri) {
+  const rootPath = projectRootUri?.fsPath || projectRootUri?.path || '';
+  if (!rootPath) return [];
+
+  const expected = [
+    'README.md',
+    '.env.example',
+    'docs/harper/HOWTO_RUN.md',
+    'docs/harper/SANITY_CHECKS.md',
+    'docs/harper/INFRA_READINESS.md',
+    'docs/harper/RELEASE_NOTES.md',
+    'docs/harper/TODO_NEXT.md',
+    'docs/harper/PR_BODY.md',
+    'scripts/check_solution_local.sh',
+    'scripts/check_solution_local.ps1',
+  ];
+
+  const changed = collectGitChangedFinalizePaths(rootPath);
+  const paths = [...new Set([...changed, ...expected].filter(isFinalizeAllowedPath))];
+
+  const artifacts = [];
+
+  for (const relPath of paths) {
+    const absPath = path.join(rootPath, relPath);
+    try {
+      const stat = await vscode.workspace.fs.stat(vscode.Uri.file(absPath));
+      if (stat.type !== vscode.FileType.File) continue;
+      if (stat.size > 512 * 1024) continue;
+
+      const raw = await vscode.workspace.fs.readFile(vscode.Uri.file(absPath));
+      artifacts.push({
+        path: relPath.replace(/\\/g, '/'),
+        content: Buffer.from(raw).toString('utf8'),
+        encoding: 'utf-8',
+      });
+    } catch {
+      // Missing optional finalize artifacts are handled by the orchestrator normalizer.
+    }
+  }
+
+  return artifacts;
+}
+
+async function collectFinalizeCandidateFiles(projectRootUri) {
+  const artifacts = await collectFinalizeCandidateFileArtifacts(projectRootUri);
+  return artifacts.map((item) => item.path);
+}
 
 module.exports = {
   buildHarperBody,
@@ -2494,8 +2660,7 @@ module.exports = {
   writeAgentExecutionContext,
   buildAgentEvalPrompt,
   collectReqCandidateFiles,
-  collectReqCandidateFiles,
   collectReqCandidateFileArtifacts,
-  
-
+  collectFinalizeCandidateFiles,
+  collectFinalizeCandidateFileArtifacts,
 };
