@@ -2211,6 +2211,198 @@ def _extract_declared_finalize_roots(payload: Dict[str, Any]) -> List[str]:
 
     return found
 
+def _finalize_evidence_blob(payload: Dict[str, Any]) -> str:
+    """Build an evidence blob for finalize detection from contracts and source summaries."""
+    parts = [
+        _extract_core_blob(payload, "TECH_CONSTRAINTS.yaml"),
+        _extract_core_blob(payload, "TECH_CONSTRAINTS.yml"),
+        _extract_core_blob(payload, "constraints.json"),
+        _extract_core_blob(payload, "SPEC.md"),
+        _extract_core_blob(payload, "PLAN.md"),
+        _extract_core_blob(payload, "plan.json"),
+        _safe_text(payload.get("repo_summary")),
+        _safe_text(payload.get("repository_summary")),
+        _safe_text(payload.get("workspace_summary")),
+        _safe_text(payload.get("project_summary")),
+    ]
+    return "\n".join(part for part in parts if part).lower()
+
+
+def _detect_finalize_infra_profile(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Detect infra/deploy/vendor-platform scope from evidence.
+
+    This is intentionally provider-agnostic: providers and platforms are not
+    defaults. They become obligations only when TECH_CONSTRAINTS, PLAN/SPEC,
+    plan.json, source evidence, manifests, or selected capabilities mention them.
+    """
+    blob = _finalize_evidence_blob(payload)
+
+    detectors = {
+        "aws": (
+            "aws",
+            "amazon web services",
+            "ecs",
+            "fargate",
+            "lambda",
+            "ecr",
+            "rds",
+            "cloudformation",
+            "cloudwatch",
+            "secrets manager",
+            "s3",
+            "sqs",
+            "sns",
+            "vpc",
+            "iam role",
+        ),
+        "azure": (
+            "azure",
+            "azurerm",
+            "resource group",
+            "app service",
+            "container apps",
+            "aks",
+            "key vault",
+            "service bus",
+            "azure sql",
+            "managed identity",
+            "bicep",
+            "arm template",
+        ),
+        "gcp": (
+            "gcp",
+            "google cloud",
+            "cloud run",
+            "gke",
+            "artifact registry",
+            "cloud sql",
+            "pub/sub",
+            "secret manager",
+            "iam service account",
+        ),
+        "kubernetes": (
+            "kubernetes",
+            "k8s",
+            "kubectl",
+            "helm",
+            "namespace",
+            "deployment.yaml",
+            "service.yaml",
+            "ingress",
+        ),
+        "terraform": (
+            "terraform",
+            ".tf",
+            "tfvars",
+            "terraform plan",
+            "terraform validate",
+        ),
+        "docker_compose": (
+            "docker compose",
+            "docker-compose",
+            "compose.yml",
+            "compose.yaml",
+        ),
+        "confluent_kafka": (
+            "confluent",
+            "kafka",
+            "schema registry",
+            "kafka connect",
+            "connector config",
+            "topic",
+            "consumer group",
+        ),
+        "cloudera": (
+            "cloudera",
+            "hdfs",
+            "hive",
+            "impala",
+            "oozie",
+            "spark job",
+            "yarn queue",
+        ),
+        "mendix": (
+            "mendix",
+            "microflow",
+            "nanoflow",
+            "domain model",
+            "mx model",
+            "mda",
+        ),
+        "informatica": (
+            "informatica",
+            "powercenter",
+            "iics",
+            "mapping",
+            "workflow",
+            "parameter file",
+            "connection object",
+        ),
+        "plc_scada": (
+            "plc",
+            "scada",
+            "ladder logic",
+            "structured text",
+            "hmi",
+            "tag map",
+            "alarm definition",
+            "historian",
+        ),
+    }
+
+    detected: List[str] = []
+    for name, terms in detectors.items():
+        if _has_any_term(blob, tuple(terms)):
+            detected.append(name)
+
+    infra_detected = bool(detected)
+
+    safe_required_outputs = []
+    if infra_detected:
+        safe_required_outputs = [
+            "docs/harper/INFRA_READINESS.md",
+            "scripts/check_infra_prereqs.sh",
+            "scripts/check_infra_prereqs.ps1",
+            "scripts/provision_plan.sh",
+            "scripts/provision_plan.ps1",
+            "scripts/check_deployment.sh",
+            "scripts/check_deployment.ps1",
+        ]
+
+    return {
+        "schema_version": "clike.finalize_infra_profile.v1",
+        "infra_detected": infra_detected,
+        "detected_targets": detected,
+        "detection_policy": (
+            "Detected only from TECH_CONSTRAINTS, PLAN/SPEC, plan.json, source evidence, "
+            "repository summaries, manifests, or selected capabilities. No provider, vendor, "
+            "language, framework, or IaC tool is assumed as a default."
+        ),
+        "safe_required_outputs": safe_required_outputs,
+        "safe_actions_only": [
+            "detect",
+            "document",
+            "validate",
+            "plan",
+            "dry-run",
+            "describe",
+            "lint",
+            "schema-check",
+            "package-integrity-check",
+            "vendor-tool-check",
+        ],
+        "forbidden_actions": [
+            "terraform apply",
+            "pulumi up",
+            "cloud resource create/update/delete",
+            "destructive operations",
+            "secret writes",
+            "privileged IAM changes",
+            "real deployment without explicit user approval",
+        ],
+    }
+
 
 def _build_finalize_write_policy(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -2364,6 +2556,7 @@ def build_finalize_local_agent_package(
     }
 
     finalize_write_policy = _build_finalize_write_policy(payload)
+    infra_profile = _detect_finalize_infra_profile(payload)
     allowed_write_roots = finalize_write_policy["allowed_write_roots"]
     forbidden_paths = finalize_write_policy["forbidden_paths"]
 
@@ -2373,7 +2566,7 @@ def build_finalize_local_agent_package(
             ".env.example when runtime configuration exists or is expected",
             "docs/harper/HOWTO_RUN.md",
             "docs/harper/SANITY_CHECKS.md",
-            "docs/harper/INFRA_READINESS.md when infra, deployment, cloud, vendor platform, runtime operations, or provisioning evidence exists",
+            "docs/harper/INFRA_READINESS.md when infra_profile.infra_detected is true",
             "docs/harper/RELEASE_NOTES.md",
             "docs/harper/TODO_NEXT.md",
             "docs/harper/PR_BODY.md",
@@ -2383,6 +2576,7 @@ def build_finalize_local_agent_package(
             "scripts/check_solution_local.ps1",
             "runtime-specific run scripts for backend/frontend/workers only when those execution areas exist",
         ],
+        "required_scripts_when_infra_profile_detected": infra_profile["safe_required_outputs"],
         "conditional_solution_artifacts": [
             "composition root per execution area when missing or incomplete",
             "settings/env loader when runtime configuration exists",
@@ -2418,6 +2612,31 @@ def build_finalize_local_agent_package(
             "local_agent_finalize_role": "workspace_solution_integration_and_runnability_hardening",
             "no_fake_success": True,
         },
+        "infra_profile": infra_profile,
+        "infra_readiness_policy": {
+            "enabled_when": "infra_profile.infra_detected == true",
+            "detect_do_not_assume": True,
+            "source_of_truth_order": [
+                "TECH_CONSTRAINTS.yaml / TECH_CONSTRAINTS.yml / constraints.json",
+                "docs/harper/PLAN.md",
+                "docs/harper/plan.json",
+                "docs/harper/SPEC.md",
+                "repository source tree and manifests",
+                "selected skills, packs, and design profiles",
+            ],
+            "required_when_detected": [
+                "docs/harper/INFRA_READINESS.md",
+                "scripts/check_infra_prereqs.sh",
+                "scripts/check_infra_prereqs.ps1",
+                "scripts/provision_plan.sh",
+                "scripts/provision_plan.ps1",
+                "scripts/check_deployment.sh",
+                "scripts/check_deployment.ps1",
+            ],
+            "safe_by_default": True,
+            "forbidden": infra_profile["forbidden_actions"],
+        },
+        
         "infra_readiness": {
             "enabled_when_evidence_exists": True,
             "source_of_truth_order": [
@@ -2525,6 +2744,15 @@ def build_finalize_local_agent_package(
             {
                 "name": "infra_readiness_gate",
                 "policy": (
+                    "When infra_profile.infra_detected is true, finalize must produce INFRA_READINESS.md "
+                    "and safe-by-default prereq/plan/deployment-check scripts. The scripts must use only "
+                    "non-mutating commands by default and must not assume a provider/tool not evidenced by "
+                    "TECH_CONSTRAINTS, PLAN/SPEC, plan.json, repository files, or selected capabilities."
+                ),
+            },
+            {
+                "name": "infra_readiness_gate",
+                "policy": (
                     "When TECH_CONSTRAINTS, PLAN/SPEC, manifests, sources, or selected capabilities show infra, cloud, "
                     "deployment, vendor-platform, PLC/SCADA, Mendix, Informatica, Kafka, Cloudera, Kubernetes, or IaC scope, "
                     "produce docs/harper/INFRA_READINESS.md and safe-by-default validation/provisioning plan scripts. "
@@ -2590,6 +2818,7 @@ def build_finalize_local_agent_package(
             "manifest": capability_manifest,
         },
         "finalize_contract": finalize_contract,
+        "infra_profile": infra_profile,
         "solution_write_policy": finalize_write_policy,
         "allowed_write_roots": allowed_write_roots,
         "forbidden_paths": forbidden_paths,
@@ -2609,6 +2838,11 @@ def build_finalize_local_agent_package(
             "Do not claim runnability unless sanity checks were run or explicitly marked environment-blocked with exact reasons.",
             "Docs must reflect real files,f real scripts, real routes, real env vars, and real manifests.",
             "If a runnable E2E solution cannot be completed safely, document the blocking gap in TODO_NEXT.md and PR_BODY.md instead of faking success.",
+            "If infra_profile.infra_detected is true, create or update docs/harper/INFRA_READINESS.md and the safe_required_outputs listed in infra_profile.",
+            "Infra scripts must be provider/platform-native only when that provider/platform is evidenced by TECH_CONSTRAINTS, PLAN/SPEC, plan.json, repository files, or selected capabilities.",
+            "Infra scripts must be safe-by-default: use validate, plan, dry-run, describe, lint, schema-check, package-integrity-check, or equivalent non-mutating vendor-tool commands.",
+            "Do not run or generate default scripts that mutate live cloud or vendor infrastructure. Do not run terraform apply, pulumi up, cloud create/update/delete operations, destructive commands, secret writes, or privileged IAM changes.",
+            "Do not invent provider account IDs, regions, tenants, projects, clusters, namespaces, VPCs, subnets, security groups, service principals, managed identities, credentials, or network topology.",
             "If infra, cloud, deployment, vendor platform, PLC/SCADA, Mendix, Informatica, Kafka, Cloudera, Kubernetes, or IaC scope is detected, create or update infra readiness documentation and safe validation/plan scripts only when supported by TECH_CONSTRAINTS, PLAN/SPEC, repository evidence, or selected capabilities.",
             "Do not run or generate scripts that perform live cloud mutation by default. Scripts must be safe-by-default and prefer validate, plan, dry-run, describe, lint, schema check, package integrity check, or vendor-tool validation modes.",
             "Never run terraform apply, pulumi up, cloud resource create/delete/update commands, destructive commands, secret writes, or privileged IAM changes from finalize.",
@@ -2627,7 +2861,7 @@ def build_finalize_local_agent_package(
             "The orchestrator owns workflow state and policy. The VS Code extension is only the local actuator.",
             "",
             "Read this file before acting:",
-            "- runs/finalize/AGENT_FINALIZE_CONTEXT.json",
+            "- runs/finalize/docs/AGENT_FINALIZE_CONTEXT.json",
             "",
             "Mission:",
             "- Make the promoted solution as runnable as possible with small, conservative, repository-aware patches.",
@@ -2656,22 +2890,26 @@ def build_finalize_local_agent_package(
             "- .env.example when runtime configuration exists or is expected",
             "- docs/harper/HOWTO_RUN.md",
             "- docs/harper/SANITY_CHECKS.md",
+            "- docs/harper/INFRA_READINESS.md when infra_profile.infra_detected is true",
             "- docs/harper/RELEASE_NOTES.md",
             "- docs/harper/TODO_NEXT.md",
             "- docs/harper/PR_BODY.md",
             "- scripts/check_solution_local.sh and scripts/check_solution_local.ps1 when runnable code exists",
             "- runtime-specific run scripts for backend/frontend/workers only when those execution areas exist",
-            "",
+            "- scripts/check_infra_prereqs.sh and scripts/check_infra_prereqs.ps1 when infra_profile.infra_detected is true",
+            "- scripts/provision_plan.sh and scripts/provision_plan.ps1 when infra_profile.infra_detected is true",
+            "- scripts/check_deployment.sh and scripts/check_deployment.ps1 when infra_profile.infra_detected is true",            "",
             "Solution integration duties, only when applicable:",
             "- Complete a composition root if existing modules are not wired.",
             "- Add or complete settings/env loader if runtime config exists.",
             "- Add or complete dependency/repository factory only if existing modules require wiring.",
             "- Add or complete DB/session factory only if datastore access exists.",
-            "- Add or complete local-dev profile only if the solution has runnable services.",
+            "- Add or complete local-dev profile only if runnable services exist.",
             "- Add route/API parity check only if backend HTTP and frontend API calls both exist.",
-            "- If infra/deploy/vendor-platform scope is evidenced, create or update docs/harper/INFRA_READINESS.md with provider/platform detection, required tools, required parameters, safe validation commands, blocked checks, deployment risks, and rollback notes.",
-            "- If provisioning/deployment scope is evidenced, create or update safe-by-default plan/validate/check scripts. Do not create apply/mutate/destroy scripts as the default path.",
-            "- If vendor/platform descriptors exist, validate or document package/config/schema integrity using stack-native non-mutating checks.",
+            "- If infra_profile.infra_detected is true, use infra_profile.detected_targets to create stack-native but safe-by-default infra readiness docs and scripts.",
+            "- For cloud/vendor/platform infra, prefer prereq checks, validate, plan, dry-run, describe, lint, schema-check, package-integrity-check, or vendor-tool verification commands.",
+            "- Do not assume Terraform just because cloud is detected. Use Terraform only if evidenced by TECH_CONSTRAINTS, PLAN/SPEC, plan.json, repository files, or existing manifests.",
+            "- Do not assume AWS/Azure/GCP/Kubernetes/Docker/Kafka/Mendix/Informatica/PLC/SCADA unless present in infra_profile.detected_targets or directly evidenced by files.",
             "- Clean junk artifacts only inside allowed paths.",
             "",
             "Sanity gates to run or document as environment-blocked:",
@@ -2698,8 +2936,8 @@ def build_finalize_local_agent_package(
         ]
     )
 
-    context_path = "runs/finalize/AGENT_FINALIZE_CONTEXT.json"
-    prompt_path = "runs/finalize/AGENT_FINALIZE_PROMPT.md"
+    context_path = "runs/finalize/docs/AGENT_FINALIZE_CONTEXT.json"
+    prompt_path = "runs/finalize/docs/AGENT_FINALIZE_PROMPT.md"
 
     return {
         "ok": True,

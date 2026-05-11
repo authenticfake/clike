@@ -2510,6 +2510,7 @@ function isFinalizeAllowedPath(relPath) {
   if (p.startsWith('scripts/')) return true;
   if (p.startsWith('docs/harper/')) return true;
 
+
   const platformRoots = [
     'infra/',
     'deploy/',
@@ -2592,6 +2593,12 @@ async function collectFinalizeCandidateFileArtifacts(projectRootUri) {
     'docs/harper/PR_BODY.md',
     'scripts/check_solution_local.sh',
     'scripts/check_solution_local.ps1',
+    'scripts/check_infra_prereqs.sh',
+    'scripts/check_infra_prereqs.ps1',
+    'scripts/provision_plan.sh',
+    'scripts/provision_plan.ps1',
+    'scripts/check_deployment.sh',
+    'scripts/check_deployment.ps1',
   ];
 
   const changed = collectGitChangedFinalizePaths(rootPath);
