@@ -81,6 +81,36 @@ _DOC_PHASE_FILE_HEADER_RE = re.compile(
     re.IGNORECASE,
 )
 
+_FINALIZE_FILE_HEADER_RE = re.compile(
+    r"^/?("
+    r"README\.md|"
+    r"\.env\.example|"
+    r"docs/harper/[A-Za-z0-9._./-]+|"
+    r"scripts/[A-Za-z0-9._./-]+|"
+    r"src/[A-Za-z0-9._./-]+|"
+    r"infra/[A-Za-z0-9._./-]+|"
+    r"deploy/[A-Za-z0-9._./-]+|"
+    r"ops/[A-Za-z0-9._./-]+|"
+    r"config/[A-Za-z0-9._./-]+|"
+    r"configs/[A-Za-z0-9._./-]+|"
+    r"schemas/[A-Za-z0-9._./-]+|"
+    r"migrations/[A-Za-z0-9._./-]+|"
+    r"db/[A-Za-z0-9._./-]+|"
+    r"database/[A-Za-z0-9._./-]+|"
+    r"connectors/[A-Za-z0-9._./-]+|"
+    r"jobs/[A-Za-z0-9._./-]+|"
+    r"pipelines/[A-Za-z0-9._./-]+|"
+    r"packages/[A-Za-z0-9._./-]+|"
+    r"model/[A-Za-z0-9._./-]+|"
+    r"models/[A-Za-z0-9._./-]+|"
+    r"package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|"
+    r"pyproject\.toml|requirements\.txt|pom\.xml|build\.gradle|settings\.gradle|"
+    r"go\.mod|go\.sum|Cargo\.toml|Cargo\.lock|docker-compose\.yml|Dockerfile|Makefile|"
+    r"[A-Za-z0-9._-]+\.csproj|[A-Za-z0-9._-]+\.sln"
+    r")$",
+    re.IGNORECASE,
+)
+
 # --- Model parameters per phase (output budget & style) ----------------------
 PHASE_MODEL_PARAMS = {
     "idea":                 {"max_tokens": 23500, "temperature": 0.2, "top_p": 1.0},
@@ -130,9 +160,12 @@ def _is_valid_file_header_path(raw_path: str, *, phase: str | None = None) -> bo
     if phase_norm == "plan":
         return bool(_PLAN_FILE_HEADER_RE.match(p))
 
-    if phase_norm in {"idea", "spec", "finalize", "build"}:
-        return bool(_DOC_PHASE_FILE_HEADER_RE.match(p)) or bool(_KIT_FILE_HEADER_RE.match(p))
+    if phase_norm == "finalize":
+        return bool(_FINALIZE_FILE_HEADER_RE.match(p)) or bool(_KIT_FILE_HEADER_RE.match(p))
 
+    if phase_norm in {"idea", "spec", "build"}:
+        return bool(_DOC_PHASE_FILE_HEADER_RE.match(p)) or bool(_KIT_FILE_HEADER_RE.match(p))
+    
     # Conservative default: allow both canonical docs and kit staging files.
     return (
         bool(_KIT_FILE_HEADER_RE.match(p))

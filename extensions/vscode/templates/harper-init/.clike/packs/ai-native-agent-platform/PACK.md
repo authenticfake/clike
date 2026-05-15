@@ -25,11 +25,15 @@ Do not use this pack for ordinary CRUD applications with no AI/model/tool orches
 Recommended skills:
 
 - ai-rag-eval-guardrails
+- enterprise-solution-architecture when the AI feature is part of an enterprise product
+- mvp-e2e-promotability for runnable AI feature slices
 - backend-contract-boundary
+- secure-config-secrets for provider keys, prompt redaction, tools, egress, or runtime config
 - eval-contract-writer
 - gate-risk-reviewer
 - local-cloud-parity
 - frontend-state-accessibility when UI is involved
+- backoffice-workflow-ux when AI is exposed inside an operator or admin console
 
 Recommended design profiles:
 

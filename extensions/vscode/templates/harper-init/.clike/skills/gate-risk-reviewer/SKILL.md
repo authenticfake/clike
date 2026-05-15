@@ -105,6 +105,20 @@ A promotable REQ should have:
 - capability adherence notes;
 - no unresolved blocking risks.
 
+## Solution and MVP Blocking Conditions
+
+When `mvp-e2e-promotability`, `enterprise-solution-architecture`, `backoffice-workflow-ux`, `secure-config-secrets`, or enterprise packs are selected, Gate must additionally block when:
+
+- the REQ claims MVP/E2E behavior but lacks an executable local or documented external validation path;
+- a multi-capability backoffice UI is implemented only as a decorative single-page dashboard without justified scope;
+- frontend/backend route parity is broken for acceptance-critical calls;
+- runnable code lacks local scripts, exact commands, or HOWTO evidence;
+- FINALIZE claims solution runnability without composition root, manifest validation, script validation, or route/API checks where applicable;
+- security-sensitive config lacks `.env.example` or equivalent documentation;
+- local-dev auth/config is presented as production-ready;
+- secrets, tokens, provider keys, production endpoints, or raw prompts are hardcoded or logged;
+- selected skill, pack, or design-profile obligations are ignored without upstream correction.
+
 ## Blocking Conditions
 
 Gate must BLOCK promotion when any of these are true:

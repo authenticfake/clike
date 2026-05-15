@@ -318,6 +318,10 @@ Canonical eval is exposed by the Orchestrator at:
 POST /v1/eval/run
 ```
 
+**Engine**
+- LLM Cloud Provider
+- Agent
+
 **Inputs**
 - `profile`: validation profile.
 - `req_id`: target REQ.
@@ -341,6 +345,10 @@ POST /v1/eval/run
 ---
 
 ## 5) GATE Phase
+
+**Engine**
+- LLM Cloud Provider
+- Agent 
 
 **Inputs**
 - `docs/harper/plan.json`
@@ -371,6 +379,10 @@ POST /v1/gate/check
 ---
 
 ## 6) FINALIZE Phase
+
+**Engine**
+- LLM Cloud Provider
+- Agent
 
 **Inputs**
 - Final `docs/harper/plan.json`

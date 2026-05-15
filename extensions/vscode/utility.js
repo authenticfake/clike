@@ -2518,6 +2518,9 @@ function isFinalizeAllowedPath(relPath) {
     'config/',
     'configs/',
     'schemas/',
+    'migrations/',
+    'db/',
+    'database/',
     'connectors/',
     'jobs/',
     'pipelines/',
@@ -2578,6 +2581,157 @@ function collectGitChangedFinalizePaths(rootPath) {
   }
 }
 
+function collectFinalizeSupportPaths(rootPath) {
+  const results = [];
+  const srcRoot = path.join(rootPath, 'src');
+
+  const wantedBasenames = new Set([
+    'app.py',
+    'main.py',
+    'server.py',
+    'wsgi.py',
+    'asgi.py',
+    'db.py',
+    'database.py',
+    'settings.py',
+    'config.py',
+    'env.py',
+    'auth.py',
+    'auth_config.py',
+    'identity.py',
+
+    'app.js',
+    'app.ts',
+    'server.js',
+    'server.ts',
+    'main.js',
+    'main.ts',
+    'index.js',
+    'index.ts',
+    'db.js',
+    'db.ts',
+    'database.js',
+    'database.ts',
+    'config.js',
+    'config.ts',
+    'env.js',
+    'env.ts',
+    'auth.js',
+    'auth.ts',
+    'identity.js',
+    'identity.ts',
+
+    'Application.java',
+    'Main.java',
+    'application.yml',
+    'application.yaml',
+    'application.properties',
+
+    'Program.cs',
+    'Startup.cs',
+    'appsettings.json',
+
+    'main.go',
+    'config.go',
+    'database.go',
+    'auth.go',
+
+    'Cargo.toml',
+    'main.rs',
+    'lib.rs',
+
+    'composer.json',
+    'artisan',
+    'index.php',
+    'config.php',
+  ]);
+
+  const forbiddenParts = new Set([
+    '.git',
+    'node_modules',
+    '.venv',
+    '__pycache__',
+    '__MACOSX',
+    '.next',
+    'dist',
+    'build',
+    '.ruff_cache',
+    '.mypy_cache',
+  ]);
+
+  function walk(dirPath, depth) {
+    if (depth > 7) return;
+
+    let entries;
+    try {
+      entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      const abs = path.join(dirPath, entry.name);
+      const rel = path.relative(rootPath, abs).replace(/\\/g, '/');
+
+      if (!rel || rel.split('/').some((part) => forbiddenParts.has(part))) {
+        continue;
+      }
+
+      if (entry.isDirectory()) {
+        walk(abs, depth + 1);
+        continue;
+      }
+
+      if (!entry.isFile()) {
+        continue;
+      }
+
+      const base = path.basename(rel);
+      const isRuntimeOrBoundaryFile =
+        rel.startsWith('src/') && wantedBasenames.has(base);
+
+      const isStackManifest =
+        rel === 'package.json' ||
+        rel.endsWith('/package.json') ||
+        rel === 'pyproject.toml' ||
+        rel.endsWith('/pyproject.toml') ||
+        rel === 'requirements.txt' ||
+        rel.endsWith('/requirements.txt') ||
+        rel === 'pom.xml' ||
+        rel.endsWith('/pom.xml') ||
+        rel === 'build.gradle' ||
+        rel.endsWith('/build.gradle') ||
+        rel === 'build.gradle.kts' ||
+        rel.endsWith('/build.gradle.kts') ||
+        rel === 'go.mod' ||
+        rel.endsWith('/go.mod') ||
+        rel === 'Cargo.toml' ||
+        rel.endsWith('/Cargo.toml') ||
+        rel === 'composer.json' ||
+        rel.endsWith('/composer.json') ||
+        rel === 'global.json' ||
+        rel.endsWith('/global.json') ||
+        rel === 'appsettings.json' ||
+        rel.endsWith('/appsettings.json');
+
+      if ((isRuntimeOrBoundaryFile || isStackManifest) && isFinalizeAllowedPath(rel)) {
+        results.push(rel);
+      }
+    }
+  }
+
+  try {
+    if (fs.existsSync(srcRoot)) {
+      walk(srcRoot, 0);
+    }
+  } catch {
+    return [];
+  }
+
+  return [...new Set(results)];
+}
+
+
 async function collectFinalizeCandidateFileArtifacts(projectRootUri) {
   const rootPath = projectRootUri?.fsPath || projectRootUri?.path || '';
   if (!rootPath) return [];
@@ -2593,16 +2747,31 @@ async function collectFinalizeCandidateFileArtifacts(projectRootUri) {
     'docs/harper/PR_BODY.md',
     'scripts/check_solution_local.sh',
     'scripts/check_solution_local.ps1',
+    'scripts/run_backend_local.sh',
+    'scripts/run_backend_local.ps1',
+    'scripts/run_frontend_local.sh',
+    'scripts/run_frontend_local.ps1',
+    'scripts/run_worker_local.sh',
+    'scripts/run_worker_local.ps1',
     'scripts/check_infra_prereqs.sh',
     'scripts/check_infra_prereqs.ps1',
     'scripts/provision_plan.sh',
     'scripts/provision_plan.ps1',
     'scripts/check_deployment.sh',
     'scripts/check_deployment.ps1',
+    'scripts/check_runtime_services.sh',
+    'scripts/check_runtime_services.ps1',
+    'scripts/cloud_inventory.sh',
+    'scripts/cloud_inventory.ps1',
+    'scripts/provision_cloud_plan.sh',
+    'scripts/provision_cloud_plan.ps1',
+    'scripts/provision_cloud_apply.sh',
+    'scripts/provision_cloud_apply.ps1',
   ];
 
   const changed = collectGitChangedFinalizePaths(rootPath);
-  const paths = [...new Set([...changed, ...expected].filter(isFinalizeAllowedPath))];
+  const support = collectFinalizeSupportPaths(rootPath);
+  const paths = [...new Set([...changed, ...expected, ...support].filter(isFinalizeAllowedPath))];
 
   const artifacts = [];
 
@@ -2670,4 +2839,4 @@ module.exports = {
   collectReqCandidateFileArtifacts,
   collectFinalizeCandidateFiles,
   collectFinalizeCandidateFileArtifacts,
-};
+}

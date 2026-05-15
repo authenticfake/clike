@@ -27,6 +27,10 @@ policy:
   external_plugins_require_human_approval: true
 
 notes:
+ notes:
   - "Workspace capabilities override built-in templates."
-  - "Capabilities guide PLAN, KIT, EVAL, and GATE."
+  - "Capabilities guide IDEA, SPEC, PLAN, KIT, EVAL, GATE, and FINALIZE."
   - "Capabilities do not override SPEC, TECH_CONSTRAINTS, repository evidence, or explicit user instructions."
+  - "Prefer reuse-before-create, patch-before-rewrite, and complete-before-regenerate."
+  - "A code project is not final until it has a verifiable local run/check path or an explicit documented reason why local run is not applicable."
+  - "Selected skills, packs, and design profiles must be treated as testable obligations, not decorative labels."

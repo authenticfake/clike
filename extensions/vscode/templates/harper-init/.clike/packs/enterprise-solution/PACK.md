@@ -1,47 +1,103 @@
-# Pack: Enterprise Solution
+---
+name: enterprise-solution
+description: Use for enterprise-grade applications requiring governance, auditability, integration safety, runtime configurability, security posture, MVP promotability, and release evidence.
+domains: ["enterprise", "developer-tooling", "ai-native"]
+default_runtime_profiles: ["local", "cloud", "local-cloud", "on-prem", "hybrid", "air-gapped"]
+recommended_skills:
+  - enterprise-solution-architecture
+  - mvp-e2e-promotability
+  - backend-contract-boundary
+  - local-cloud-parity
+  - secure-config-secrets
+  - eval-contract-writer
+  - gate-risk-reviewer
+recommended_design_profiles:
+  - enterprise-console
+gate_required: true
+---
+
+# Enterprise Solution Pack
 
 ## Intent
 
-Guide CLike generation for enterprise-grade applications that require governance, auditability, integration safety, runtime configurability, security posture, and release evidence.
+Guide CLike generation for enterprise-grade applications that require governance, auditability, integration safety, runtime configurability, security posture, local runnability, and release evidence.
 
-This pack is scenario-level guidance. It selects constraints and capabilities; it does not replace SPEC, PLAN, TECH_CONSTRAINTS, or Gate policy.
+This pack is scenario-level guidance. It selects constraints and capabilities; it does not replace SPEC, PLAN, TECH_CONSTRAINTS, repository evidence, or explicit user instructions.
 
 ## Scenario signals
 
-- Enterprise users, departments, operators, administrators, compliance teams, or internal business platforms.
-- Integration with identity providers, enterprise APIs, queues, databases, storage, SSO, audit logs, or CI/CD.
-- Requirements mentioning auditability, traceability, RBAC, least privilege, on-prem, hybrid, private network, internal gateway, policy, or approvals.
-- Runtime profiles such as local, cloud, on-prem, hybrid, air-gapped, or enterprise runner.
+Use this pack when the requirement mentions:
 
-## Use when
-
-Use this pack when the product is intended for enterprise deployment, internal platforms, regulated environments, or multi-team business systems.
-
-## Do not use when
-
-Do not use this pack for quick throwaway prototypes, consumer-only landing pages, or isolated scripts with no enterprise runtime, compliance, or integration concerns.
+- enterprise users;
+- departments;
+- operators;
+- administrators;
+- compliance teams;
+- internal business platforms;
+- document/workflow systems;
+- identity providers;
+- RBAC;
+- queues;
+- databases;
+- object storage;
+- SSO;
+- audit logs;
+- CI/CD;
+- on-prem;
+- hybrid;
+- private network;
+- policy;
+- approvals;
+- regulated data;
+- AI assistance in business workflows.
 
 ## Required capabilities
 
 Recommended skills:
 
-- backend-contract-boundary
-- local-cloud-parity
-- eval-contract-writer
-- gate-risk-reviewer
-- ai-rag-eval-guardrails when AI/LLM/RAG is involved
-- frontend-state-accessibility when UI/UX is involved
+- `enterprise-solution-architecture` for coherent enterprise slicing and integration;
+- `mvp-e2e-promotability` for runnable MVP slices;
+- `backend-contract-boundary` for backend/API/service work;
+- `frontend-state-accessibility` when UI/UX is involved;
+- `backoffice-workflow-ux` when operator/backoffice workflows are involved;
+- `local-cloud-parity` for runtime or external dependencies;
+- `secure-config-secrets` for configuration, secrets, auth, providers, or deployment;
+- `ai-rag-eval-guardrails` when AI/LLM/RAG is involved;
+- `eval-contract-writer` for executable validation;
+- `gate-risk-reviewer` for promotion safety.
 
 Recommended design profiles:
 
-- enterprise-console for dashboards, admin panels, and operator-facing enterprise UI
+- `enterprise-console` for dashboards, admin panels, workflow consoles, and operator-facing enterprise UI;
+- `developer-tooling-console` for developer-facing enterprise tooling.
+
+Do not select every skill automatically. Select only those justified by the REQ, lane, runtime profile, design profile, and acceptance criteria.
+
+## Requirement shaping
+
+When this pack is selected, SPEC and PLAN should avoid vague enterprise mega-REQs.
+
+Prefer dependency-aware MVP slices such as:
+
+1. canonical contracts and persistence;
+2. runtime profile/adapters;
+3. primary backend capability;
+4. workflow, RBAC, and audit;
+5. archive/search/export/reporting;
+6. frontend shell/navigation;
+7. configuration/admin capability;
+8. AI assistant or automation;
+9. solution finalize/integration.
+
+Each REQ should be independently promotable and should contribute to a coherent E2E solution.
 
 ## Runtime assumptions
 
-- Local execution must remain possible through fakes, simulators, or in-memory adapters when external systems are unavailable.
+- Local execution must remain possible through fakes, simulators, embedded stores, in-memory adapters, or local services when external systems are unavailable.
 - Production runtime may be cloud, on-prem, hybrid, or air-gapped.
 - Runtime configuration must be explicit and environment-driven.
 - External checks may be non-blocking locally when enterprise infrastructure is unavailable, but they must be documented.
+- A set of promoted modules without an entrypoint/composition root is not a complete enterprise solution.
 
 ## Security/compliance assumptions
 
@@ -51,6 +107,7 @@ Recommended design profiles:
 - Identity and authorization boundaries must be explicit when touched by a REQ.
 - Generated artifacts must avoid leaking proprietary or sensitive data.
 - Security checks should be included when tooling is available or required by TECH_CONSTRAINTS.
+- Local-dev auth must not be presented as production auth.
 
 ## Architecture constraints
 
@@ -60,12 +117,49 @@ Recommended design profiles:
 - Prefer small, testable modules with clear boundaries.
 - Avoid decorative architecture and unnecessary abstractions.
 - Preserve backward compatibility unless the REQ explicitly authorizes a breaking change.
+- Reuse existing code before creating new layers.
+- Patch existing composition before creating parallel composition.
+- Avoid one launcher per feature when a project-level launcher is required.
+
+## KIT expectations
+
+When this pack is selected, KIT generation must:
+
+- keep the implementation slice narrow and promotable;
+- obey repository conventions before adding new layers;
+- generate executable evidence;
+- separate deterministic local validation from optional external validation;
+- document runtime assumptions;
+- preserve future compatibility for dependent REQs;
+- avoid fake completeness and broad speculative architecture;
+- produce capability adherence notes when skills/design profiles are selected.
+
+## FINALIZE expectations
+
+FINALIZE should close the gap between promoted slices and runnable solution.
+
+When applicable, FINALIZE should create or validate:
+
+- solution composition root;
+- settings/env loader;
+- dependency/repository factory;
+- DB/session factory;
+- local-dev profile;
+- Linux/macOS scripts;
+- Windows PowerShell scripts;
+- route/API parity checks;
+- manifest validity checks;
+- README/HOWTO/SANITY/RELEASE/TODO/PR_BODY;
+- junk artifact cleanup;
+- truthful out-of-scope and next-step documentation.
 
 ## Eval expectations
 
 - Unit tests for deterministic logic.
 - Boundary tests for APIs, adapters, queues, persistence, or auth behavior when touched.
 - Lint/type/build checks according to the project lane.
+- Frontend route/page/build checks when UI exists.
+- Route parity checks when backend and frontend exist.
 - External integration checks must be marked opt-in or non-blocking unless infrastructure is available.
 - HOWTO must document local and enterprise execution separately.
 
@@ -73,72 +167,19 @@ Recommended design profiles:
 
 Gate should block promotion when:
 
-- Required checks fail.
-- Required evidence is missing.
-- Public contracts changed without tests or documentation.
-- Secrets or environment-specific values are hardcoded.
-- Runtime parity is not represented for infra-facing REQs.
-- PASS_WITH_WARNINGS is the final status.
+- required checks fail;
+- required evidence is missing;
+- public contracts changed without tests or documentation;
+- secrets or environment-specific values are hardcoded;
+- runtime parity is not represented for infra-facing REQs;
+- a selected enterprise/backoffice/design skill is ignored;
+- local run path is missing for runnable code;
+- frontend/backend route parity is broken;
+- FINALIZE claims runnability without executable scripts/checks;
+- `PASS_WITH_WARNINGS` is the final status.
 
 Gate may allow non-blocking warnings when:
 
-- Enterprise-only external runners are unavailable locally.
-- Full security/compliance tooling is documented but outside the current local environment.
----
-
-# CLike Promotable KIT Pack Overlay
-
-## Purpose
-
-This pack is a scenario-level orchestrator for CLike `/kit`.
-
-It should help the model choose the right constraints, not generate decorative architecture.
-
-## Default Promotable Skills
-
-For code-producing REQs, prefer selecting relevant skills from:
-
-- `promotable-code-boundary` when available;
-- `backend-contract-boundary` for backend/API/service work;
-- `frontend-state-accessibility` for UI work;
-- `local-cloud-parity` for runtime or external dependencies;
-- `eval-contract-writer` for executable validation;
-- `gate-risk-reviewer` for promotion safety;
-- `secure-config-secrets` when available for credentials/config/runtime;
-- `observability-diagnostics` when available for supportability;
-- scenario-specific skills already listed by this pack.
-
-Do not select every skill automatically. Select only those justified by the REQ, lane, runtime profile, and acceptance criteria.
-
-## KIT Behavior
-
-When this pack is selected, KIT generation must:
-
-- keep the implementation slice narrow and promotable;
-- obey repository conventions before adding new layers;
-- generate executable evidence;
-- separate local deterministic validation from optional external validation;
-- document runtime assumptions;
-- preserve future compatibility for dependent REQs;
-- avoid fake completeness and broad speculative architecture.
-
-## Required Evidence
-
-The KIT should provide:
-
-- source mapped to the REQ;
-- tests mapped to acceptance criteria;
-- `ci/LTC.json`;
-- `ci/HOWTO.md`;
-- capability adherence notes in KIT documentation;
-- external infrastructure assumptions when relevant.
-
-## Gate Bias
-
-This pack biases GATE toward safe promotion.
-
-Promotion should require full `PASS`.
-
-`PASS_WITH_WARNINGS` must not promote.
-
-Warnings are acceptable only when the missing evidence is explicitly non-blocking, external, and documented with a deterministic local fallback.
+- enterprise-only external runners are unavailable locally;
+- full security/compliance tooling is documented but outside the current local environment;
+- production hardening is explicitly deferred and local MVP evidence is complete.

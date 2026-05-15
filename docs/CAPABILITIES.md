@@ -164,6 +164,11 @@ Each skill should use this structure:
 | `mobile-offline-parity` | Ensures mobile and PWA work handles offline, reconnect, device, and sync states |
 | `mendix-extension-boundary` | Ensures Mendix-related code respects platform boundaries and manual validation requirements |
 | `industrial-safety-simulator` | Ensures industrial/edge/PLC/SCADA work is simulator-first and safety-bounded |
+| `mvp-e2e-promotability` | Convert requirements into narrow but end-to-end promotable MVP slices instead of shallow demos or decorative code. |
+| `backoffice-workflow-ux` | Generate enterprise backoffice workflows with route-based capability pages, scalable lists, task flows, filters, actions, and role-aware UX. |
+| `enterprise-solution-architecture` | Keep enterprise solutions coherent across requirements, runtime profiles, integration boundaries, observability, audit, and release readiness. |
+| `secure-config-secrets` | nforce safe configuration, secret handling, auth boundaries, restricted egress, and security evidence for promotable software. |
+
 
 ### Example: Backend REQ
 

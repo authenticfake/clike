@@ -1,9 +1,15 @@
 ---
 name: enterprise-onprem
-description: Use for enterprise, regulated, on-prem, hybrid, air-gapped, or internal platform scenarios.
+description: Use for enterprise, regulated, on-prem, hybrid, air-gapped, or internal platform scenarios requiring parity, secure config, local runnability, and promotion evidence.
 domains: ["enterprise"]
 default_runtime_profiles: ["local", "on-prem", "hybrid", "air-gapped", "local-cloud"]
-recommended_skills: ["local-cloud-parity", "eval-contract-writer", "gate-risk-reviewer"]
+recommended_skills:
+  - enterprise-solution-architecture
+  - mvp-e2e-promotability
+  - local-cloud-parity
+  - secure-config-secrets
+  - eval-contract-writer
+  - gate-risk-reviewer
 gate_required: true
 ---
 
@@ -11,7 +17,9 @@ gate_required: true
 
 ## Intent
 
-This pack guides CLike when generating software for enterprise environments where governance, auditability, controlled deployment, reproducibility, and runtime constraints matter.
+This pack guides CLike when generating software for enterprise environments where governance, auditability, controlled deployment, reproducibility, local runnability, on-prem support, and runtime constraints matter.
+
+It should keep solutions AWS/cloud-capable when required, but never cloud-only unless the SPEC explicitly requires it.
 
 ## Planning Constraints
 
@@ -22,81 +30,87 @@ This pack guides CLike when generating software for enterprise environments wher
 - Do not hardcode credentials or endpoint-specific assumptions.
 - Document runtime assumptions clearly.
 - Keep generated implementation promotable and reviewable.
+- Preserve business API and lifecycle parity across runtime profiles.
+- Split broad enterprise requirements into dependency-aware MVP slices.
 
 ## KIT Constraints
 
-- Generated code must be modular but not over-engineered.
-- Runtime profile behavior must be explicit.
-- Unit tests must avoid real external calls.
-- Integration tests must be opt-in when external systems are required.
-- HOWTO must include local execution steps and enterprise/runtime notes.
-- If an enterprise runner such as Jenkins, GitLab CI, Azure DevOps, or SonarQube is required, document how artifacts are expected to be collected.
+Generated code must:
+
+- be modular but not over-engineered;
+- expose runtime profile behavior explicitly;
+- provide local deterministic validation when external systems are unavailable;
+- keep provider SDKs behind adapters when profiles require portability;
+- avoid cloud/on-prem differences in business logic;
+- keep local tests free from real credentials and production endpoints;
+- provide HOWTO instructions for local and external/runtime-profile validation;
+- produce executable evidence, not only architecture prose;
+- avoid fake production readiness when only local fake adapters are implemented.
+
+## Required Local Run Evidence
+
+For runnable code, the candidate should provide or preserve:
+
+- local run command;
+- local check command;
+- `.env.example` or equivalent;
+- safe local defaults;
+- fake/in-memory/local adapters where infrastructure is unavailable;
+- optional external validation steps;
+- clear statement of what is validated locally.
+
+## FINALIZE Expectations
+
+For code projects, FINALIZE should create or validate:
+
+- composition root;
+- settings/env loader;
+- runtime profile loader;
+- dependency/repository factory;
+- DB/session factory when applicable;
+- local-dev profile;
+- Linux/macOS scripts;
+- Windows PowerShell scripts;
+- route/API parity check when backend/frontend exist;
+- manifest parse checks;
+- HOWTO_RUN and SANITY_CHECKS aligned with actual scripts;
+- junk artifact cleanup.
+
+## Security Expectations
+
+- Use `secure-config-secrets` when configuration, secrets, auth, provider SDKs, DB, storage, queues, AI, or deployment are touched.
+- Local-dev credentials must be sample-only and documented.
+- Production config must fail fast when required values are missing.
+- Logs and audit payloads must redact secrets and sensitive content.
+- Restricted egress assumptions must be documented and, where practical, tested.
 
 ## Gate Expectations
 
-- tests
-- lint
-- types where applicable
-- security where applicable
-- runtime_profile_adherence
-- skill_adherence
-- documentation completeness
-- future compatibility safety
----
+Gate should require:
 
-# CLike Promotable KIT Pack Overlay
+- tests;
+- lint where applicable;
+- types where applicable;
+- security where applicable;
+- manifest validity;
+- local deterministic validation;
+- runtime_profile_adherence;
+- skill_adherence;
+- documentation completeness;
+- future compatibility safety.
 
-## Purpose
+Gate should BLOCK promotion when:
 
-This pack is a scenario-level orchestrator for CLike `/kit`.
+- local validation requires production infrastructure;
+- provider/runtime-specific logic leaks into business code;
+- secrets or endpoints are hardcoded;
+- runtime profile assumptions are implicit;
+- local run commands are missing for runnable code;
+- selected capabilities are ignored;
+- `PASS_WITH_WARNINGS` is final status.
 
-It should help the model choose the right constraints, not generate decorative architecture.
+Gate may WARN when:
 
-## Default Promotable Skills
-
-For code-producing REQs, prefer selecting relevant skills from:
-
-- `promotable-code-boundary` when available;
-- `backend-contract-boundary` for backend/API/service work;
-- `frontend-state-accessibility` for UI work;
-- `local-cloud-parity` for runtime or external dependencies;
-- `eval-contract-writer` for executable validation;
-- `gate-risk-reviewer` for promotion safety;
-- `secure-config-secrets` when available for credentials/config/runtime;
-- `observability-diagnostics` when available for supportability;
-- scenario-specific skills already listed by this pack.
-
-Do not select every skill automatically. Select only those justified by the REQ, lane, runtime profile, and acceptance criteria.
-
-## KIT Behavior
-
-When this pack is selected, KIT generation must:
-
-- keep the implementation slice narrow and promotable;
-- obey repository conventions before adding new layers;
-- generate executable evidence;
-- separate local deterministic validation from optional external validation;
-- document runtime assumptions;
-- preserve future compatibility for dependent REQs;
-- avoid fake completeness and broad speculative architecture.
-
-## Required Evidence
-
-The KIT should provide:
-
-- source mapped to the REQ;
-- tests mapped to acceptance criteria;
-- `ci/LTC.json`;
-- `ci/HOWTO.md`;
-- capability adherence notes in KIT documentation;
-- external infrastructure assumptions when relevant.
-
-## Gate Bias
-
-This pack biases GATE toward safe promotion.
-
-Promotion should require full `PASS`.
-
-`PASS_WITH_WARNINGS` must not promote.
-
-Warnings are acceptable only when the missing evidence is explicitly non-blocking, external, and documented with a deterministic local fallback.
+- external enterprise runners are unavailable but local deterministic checks pass;
+- full production hardening is documented as future work;
+- optional runtime profile smoke checks are environment-blocked with a clear reason.

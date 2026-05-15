@@ -1424,13 +1424,18 @@ def build_kit_local_agent_package(
             "For Node/TypeScript frontend KITs with a runnable package under src/frontend, LTC.json must set top-level package_json to runs/kit/<REQ-ID>/src/frontend/package.json so CLike installs the actual frontend dependencies before typecheck, test, lint, or build.",
             "For Node/TypeScript frontend KITs, Vitest/Jest/ESLint/TypeScript config files imported by npm scripts must live inside the same package root as package.json, for example runs/kit/<REQ-ID>/src/frontend/vitest.config.ts. Tests may live in runs/kit/<REQ-ID>/test, but configs must not live outside the package root when they import package dependencies such as vitest/config.",
             "For Node/TypeScript frontend KITs, every package imported by test setup files, Vitest/Jest config files, component tests, accessibility tests, or test utilities must be declared in the runnable package devDependencies. For example, if test/setup.ts imports @testing-library/jest-dom/vitest, src/frontend/package.json must include @testing-library/jest-dom in devDependencies.",
+            "For Node/TypeScript frontend KITs, avoid brittle UI test selectors such as getAllByLabelText(...)[1] or getAllByRole(...)[n] when route composition can change. Prefer scoped queries with within(container), unique accessible names, test-specific render roots, or explicit route/page components.",
             "Generated commands may execute from CLIKE_EVAL_WORKSPACE/src/frontend, but dependency installation must target the same execution-area manifest resolved by CLike.",
+            "For Node/TypeScript frontend KITs where tests live outside the runnable package root, for example runs/kit/<REQ-ID>/test while package_json points to runs/kit/<REQ-ID>/src/frontend/package.json, the test runner config must make external test dependencies resolvable from the runnable package. Prefer one of these safe patterns: place tests under the runnable package root, or add explicit Vitest/Jest aliases for every external test import such as @testing-library/react, @testing-library/user-event, @testing-library/jest-dom, jest-axe, and any generated test utility packages.",
+            "Do not assume that installing dependencies under src/frontend/node_modules makes imports from runs/kit/<REQ-ID>/test automatically resolvable. CLike EvalRunner may execute tests from an overlay workspace where dependency installation and test source roots are intentionally separated.",
             "If dependency installation is unavailable, report checks as environment-blocked and run repository-native smoke checks.",
             "Never install undeclared packages; only use dependencies declared by the project or the generated REQ-local validation contract.",
             "Before generating code, read docs/harper/PLAN.md and docs/harper/plan.json to identify the target REQ dependencies and whether the REQ owns or merely contributes to an execution area.",
             "Before generating code, inspect existing dependency KIT artifacts under runs/kit/<DEPENDENCY_REQ_ID>/ when they exist.",
             "Before generating code, inspect canonical promoted source roots under src/ when they exist.",
             "Before generating tests, inspect canonical promoted test roots under test/ and tests/ when they exist.",
+            "When the target REQ intentionally changes or extends behavior already covered by promoted tests, reconcile those regression tests inside the current candidate test root. Do not modify canonical test/ or tests/ roots. Instead, create an updated same-relative-path candidate test file when the CLike overlay must shadow stale promoted expectations.",
+            "For additive frontend/backoffice REQs, do not leave promoted UI tests stale when the REQ adds routes, navigation entries, RBAC-visible sections, form fields, or capability pages. Update candidate tests to prove backward compatibility plus the intentional new behavior.",
             "Reuse before create: extend or integrate existing dependency KIT and promoted contracts/modules before creating new shared concepts, duplicate adapters, duplicate enums, duplicate launchers, or duplicate composition roots.",
             "Generated CI scripts must consume the official CLike eval workspace when checking runtime source/test behavior.",
             "Generated static file-contract checks that validate KIT-local ci/docs artifacts must resolve the KIT root relative to the script location, not from CLIKE_EVAL_WORKSPACE, because the overlay workspace may intentionally omit ci/docs files.",
@@ -1482,8 +1487,8 @@ def build_kit_local_agent_package(
             "- Follow AGENT_EXECUTION_CONTEXT.json as the primary execution contract.",
             "- Read workspace_inspection_policy before designing the implementation.",
             "- Inspect promoted src/test roots and dependency KIT roots listed in workspace_inspection_policy before writing.",
-            "- Treat canonical src/test roots as promoted truth and dependency KIT roots as E2E contract evidence.",
-            "- Read and respect capability_context before designing the implementation.",
+            "- Inspect promoted tests that CLike EvalRunner will include in the dependency-aware overlay. If the current REQ intentionally extends behavior covered by those tests, emit updated candidate tests under runs/kit/<REQ-ID>/test with the same relative path when needed so the overlay shadows stale expectations without modifying canonical tests.",
+            "- Treat canonical src/test roots as promoted truth and dependency KIT roots as E2E contract evidence.",            "- Read and respect capability_context before designing the implementation.",
             "- Prefer CLIKE_SELECTED_CAPABILITY_CONTEXT.md over the generic full manifest when selected capability guidance exists.",
             "- Use main_module_boundary to keep feature implementation focused and avoid scattered files.",
             "- If FILE_REQUIREMENTS.json requires execution_area_runtime_manifest, solution_composition_root, or module_launcher, those execution-area artifacts may be created outside main_module_boundary but must stay under the allowed candidate src root and must remain execution-area-scoped, not REQ-scoped or domain-namespace-scoped.",
@@ -1513,6 +1518,7 @@ def build_kit_local_agent_package(
             "Required candidate outputs:",
             f"- runs/kit/{req_id}/src/...",
             f"- runs/kit/{req_id}/test/...",
+            "- If promoted tests become stale because the REQ intentionally changes additive behavior, emit an updated same-relative-path candidate test under runs/kit/<REQ-ID>/test/ so the official overlay evaluates the new contract without editing canonical test roots.",
             f"- runs/kit/{req_id}/ci/LTC.json",
             f"- runs/kit/{req_id}/ci/HOWTO.md",
             "- Every FILE_REQUIREMENTS.json required_outputs item with required=true is mandatory.",
@@ -1522,6 +1528,7 @@ def build_kit_local_agent_package(
             "- Keep blocking ci/eval manifests lightweight: hosted SDKs and quality tools may be installed for smoke tests, but heavy AI/model/runtime packages must be source optional extras or optional smoke dependencies unless the REQ explicitly requires a real integration eval environment.",
             "- When external libraries lack typing, stubs, metadata, or analyzer support, use the narrowest ecosystem-native suppression or wrapper only at the adapter/import boundary; never disable lint/type/security globally.",
             "- If a Node/TypeScript KIT has a separate runnable package under src/frontend or another execution-area root, set LTC.json top-level package_json to that package.json; ci/package.json may remain a lightweight CI script runner but must not be the only installed dependency manifest when frontend scripts need next, tsc, vitest, eslint, or similar tools.",
+            "- If Node/TypeScript tests are outside the runnable package root, ensure the test runner config resolves all external imports used by those tests. For Vitest, add explicit aliases through createRequire/import.meta.url or move tests under the package root. At minimum, any imported @testing-library/*, jest-axe, axe, user-event, or generated test utility package must resolve from the package_json installation root.",
             "- If a static check validates KIT-local ci/docs files, resolve the KIT root from the static-check script directory. Use CLIKE_EVAL_WORKSPACE only for source/test runtime checks.",
             "- If any required output cannot be emitted safely, mark the KIT non-promotable and list the missing role in unresolved gaps.",
             "",
@@ -1540,6 +1547,7 @@ def build_kit_local_agent_package(
             "- existing contracts reused;",
             "- commands run;",
             "- tests/lint/type checks executed;",
+            "- stale promoted tests reconciled, including exact same-relative-path candidate overrides or explicit note that none were needed;",
             "- checks passed;",
             "- checks blocked by environment, with exact reason;",
             "- unresolved gaps, if any.",
@@ -1974,6 +1982,7 @@ def build_eval_local_agent_package(
             "- Do not install packages globally or into the system runtime.",
             "- Do not create a Python virtualenv for non-Python projects.",
             "- If package.json and npm scripts are present, prefer repository-native npm scripts for eval checks.",
+            "- For Node/TypeScript eval failures like `Failed to resolve import \"<package>\" from \"../../test/...\"`, first inspect whether tests live outside the runnable package root while dependencies were installed under CLIKE_EVAL_NPM_PREFIX. Repair the candidate eval contract by adding the missing devDependency and/or adding explicit Vitest/Jest aliases in the runnable package test config. Do not fake success and do not remove meaningful tests just to pass eval.",
             "- If dependencies cannot be installed because the environment is offline, externally managed, or blocked by policy, report the check as environment-blocked and run dependency-free compile/smoke checks instead.",
             "- When repairing CI scripts, preserve the CLike eval workspace contract: scripts must consume CLIKE_EVAL_WORKSPACE, CLIKE_EVAL_WORKSPACE_ROOT, CLIKE_EVAL_OVERLAY_WORKSPACE, or CLIKE_OVERLAY_WORKSPACE when present.",
             "- Do not repair eval failures by creating an unconditional second overlay workspace.",
@@ -1987,13 +1996,15 @@ def build_eval_local_agent_package(
             f"- Inspect runs/kit/{req_id}/src and runs/kit/{req_id}/test.",
             "- Inspect promoted src/test roots and dependency KIT roots listed in workspace_inspection_policy when present.",
             "- Execute the LTC/HOWTO commands when possible.",
+            "- For frontend tests, verify that every imported testing package is declared and resolvable from the executable package root. Common packages include @testing-library/react, @testing-library/user-event, @testing-library/jest-dom, jest-axe, vitest, jsdom, and any framework-specific test helpers.",
             "- If LTC.json is malformed, incomplete, or not executable, repair LTC.json under runs/kit/<REQ-ID>/ci before changing source code.",
             "- Ensure LTC.json contains a non-empty cases[] execution contract.",
             "- Each LTC cases[] entry must include `run` as the canonical executable command field; `command` may be duplicated as a backward-compatible alias.",
             "- commands[] may exist only as human-readable aliases and must not be the only executable contract.",
             "- Repair candidate code/tests under allowed_write_roots when checks fail for code reasons.",
-            "- If checks are blocked by missing infrastructure, mark or document the blockage instead of faking success.",
-            "- Create reports under runs/kit/<REQ-ID>/reports when useful.",
+            "- If EVAL fails in promoted/canonical tests because the current REQ intentionally added behavior such as a new route, navigation item, RBAC-visible section, capability page, or form field, do not modify canonical tests. Copy or recreate the impacted test under runs/kit/<REQ-ID>/test with the same relative path and update only the stale expectations while preserving regression coverage.",
+            "- If a frontend test fails because it relies on brittle positional selectors such as getAllByLabelText(...)[1] or getAllByRole(...)[n], repair the candidate test to use scoped queries, unique accessible names, or a narrower rendered component/root. Do not remove meaningful assertions just to pass eval.",
+            "- If checks are blocked by missing infrastructure, mark or document the blockage instead of faking success.",            "- Create reports under runs/kit/<REQ-ID>/reports when useful.",
             "",
             "At the end, print a concise summary with:",
             "- target REQ and detected dependencies;",
@@ -2004,6 +2015,7 @@ def build_eval_local_agent_package(
             "- existing contracts reused;",
             "- commands run;",
             "- tests/lint/type checks executed;",
+            "- stale promoted tests reconciled, including exact same-relative-path candidate overrides or explicit note that none were needed;",
             "- checks passed;",
             "- checks blocked by environment, with exact reason;",
             "- unresolved gaps, if any.",
@@ -2232,9 +2244,9 @@ def _detect_finalize_infra_profile(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
     Detect infra/deploy/vendor-platform scope from evidence.
 
-    This is intentionally provider-agnostic: providers and platforms are not
-    defaults. They become obligations only when TECH_CONSTRAINTS, PLAN/SPEC,
-    plan.json, source evidence, manifests, or selected capabilities mention them.
+    Providers and platforms are never defaults. Vendor platforms require
+    vendor-anchored evidence; generic words such as workflow, mapping,
+    namespace, or parameter file must not trigger a vendor detector alone.
     """
     blob = _finalize_evidence_blob(payload)
 
@@ -2249,7 +2261,7 @@ def _detect_finalize_infra_profile(payload: Dict[str, Any]) -> Dict[str, Any]:
             "rds",
             "cloudformation",
             "cloudwatch",
-            "secrets manager",
+            "aws secrets manager",
             "s3",
             "sqs",
             "sns",
@@ -2259,12 +2271,12 @@ def _detect_finalize_infra_profile(payload: Dict[str, Any]) -> Dict[str, Any]:
         "azure": (
             "azure",
             "azurerm",
-            "resource group",
-            "app service",
-            "container apps",
+            "azure resource group",
+            "azure app service",
+            "azure container apps",
             "aks",
-            "key vault",
-            "service bus",
+            "azure key vault",
+            "azure service bus",
             "azure sql",
             "managed identity",
             "bicep",
@@ -2278,7 +2290,7 @@ def _detect_finalize_infra_profile(payload: Dict[str, Any]) -> Dict[str, Any]:
             "artifact registry",
             "cloud sql",
             "pub/sub",
-            "secret manager",
+            "google secret manager",
             "iam service account",
         ),
         "kubernetes": (
@@ -2286,10 +2298,10 @@ def _detect_finalize_infra_profile(payload: Dict[str, Any]) -> Dict[str, Any]:
             "k8s",
             "kubectl",
             "helm",
-            "namespace",
+            "kubernetes namespace",
             "deployment.yaml",
             "service.yaml",
-            "ingress",
+            "ingress.yaml",
         ),
         "terraform": (
             "terraform",
@@ -2297,6 +2309,7 @@ def _detect_finalize_infra_profile(payload: Dict[str, Any]) -> Dict[str, Any]:
             "tfvars",
             "terraform plan",
             "terraform validate",
+            "opentofu",
         ),
         "docker_compose": (
             "docker compose",
@@ -2304,13 +2317,19 @@ def _detect_finalize_infra_profile(payload: Dict[str, Any]) -> Dict[str, Any]:
             "compose.yml",
             "compose.yaml",
         ),
+        "podman_compose": (
+            "podman compose",
+            "podman-compose",
+            "compose.yml",
+            "compose.yaml",
+        ),
         "confluent_kafka": (
             "confluent",
+            "apache kafka",
             "kafka",
             "schema registry",
             "kafka connect",
             "connector config",
-            "topic",
             "consumer group",
         ),
         "cloudera": (
@@ -2324,20 +2343,23 @@ def _detect_finalize_infra_profile(payload: Dict[str, Any]) -> Dict[str, Any]:
         ),
         "mendix": (
             "mendix",
-            "microflow",
-            "nanoflow",
-            "domain model",
+            "mendix microflow",
+            "mendix nanoflow",
+            "mendix domain model",
             "mx model",
             "mda",
         ),
         "informatica": (
             "informatica",
+            "informatica powercenter",
             "powercenter",
+            "informatica cloud",
+            "informatica iics",
             "iics",
-            "mapping",
-            "workflow",
-            "parameter file",
-            "connection object",
+            "informatica mapping",
+            "informatica workflow",
+            "informatica parameter file",
+            "informatica connection object",
         ),
         "plc_scada": (
             "plc",
@@ -2352,9 +2374,30 @@ def _detect_finalize_infra_profile(payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
     detected: List[str] = []
+    detection_details: Dict[str, List[str]] = {}
+
     for name, terms in detectors.items():
-        if _has_any_term(blob, tuple(terms)):
-            detected.append(name)
+        matched_terms = [term for term in terms if _has_any_term(blob, (term,))]
+        if not matched_terms:
+            continue
+
+        # Vendor-platform detectors must be anchored by vendor-specific evidence.
+        if name == "informatica" and not _has_any_term(
+            blob,
+            (
+                "informatica",
+                "powercenter",
+                "iics",
+                "informatica cloud",
+            ),
+        ):
+            continue
+
+        if name == "mendix" and not _has_any_term(blob, ("mendix", "mx model", "mda")):
+            continue
+
+        detected.append(name)
+        detection_details[name] = matched_terms[:10]
 
     infra_detected = bool(detected)
 
@@ -2370,14 +2413,28 @@ def _detect_finalize_infra_profile(payload: Dict[str, Any]) -> Dict[str, Any]:
             "scripts/check_deployment.ps1",
         ]
 
+        if any(target in detected for target in ("aws", "azure", "gcp")):
+            safe_required_outputs.extend(
+                [
+                    "scripts/cloud_inventory.sh",
+                    "scripts/cloud_inventory.ps1",
+                    "scripts/provision_cloud_plan.sh",
+                    "scripts/provision_cloud_plan.ps1",
+                    "scripts/provision_cloud_apply.sh",
+                    "scripts/provision_cloud_apply.ps1",
+                ]
+            )
+
     return {
         "schema_version": "clike.finalize_infra_profile.v1",
         "infra_detected": infra_detected,
         "detected_targets": detected,
+        "detection_details": detection_details,
         "detection_policy": (
             "Detected only from TECH_CONSTRAINTS, PLAN/SPEC, plan.json, source evidence, "
             "repository summaries, manifests, or selected capabilities. No provider, vendor, "
-            "language, framework, or IaC tool is assumed as a default."
+            "language, framework, or IaC tool is assumed as a default. Vendor platforms require "
+            "vendor-anchored evidence; generic workflow/mapping/namespace terms are insufficient."
         ),
         "safe_required_outputs": safe_required_outputs,
         "safe_actions_only": [
@@ -2400,6 +2457,272 @@ def _detect_finalize_infra_profile(payload: Dict[str, Any]) -> Dict[str, Any]:
             "secret writes",
             "privileged IAM changes",
             "real deployment without explicit user approval",
+        ],
+    }
+
+
+def _detect_finalize_runtime_service_profile(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Detect runtime services from TECH_CONSTRAINTS, PLAN/SPEC, plan.json and repository evidence.
+
+    The primary contract is category-based and agnostic: database, auth, broker,
+    cache, object_storage, secrets. Product/vendor/engine names are captured as
+    service_details, never as the primary required-service identity.
+    """
+    blob = _finalize_evidence_blob(payload)
+
+    engine_detectors = {
+        "postgresql": (
+            "postgresql",
+            "postgres",
+            "pgvector",
+            "jdbc:postgresql",
+            "asyncpg",
+            "psycopg",
+        ),
+        "mysql": (
+            "mysql",
+            "mariadb",
+            "jdbc:mysql",
+        ),
+        "sqlserver": (
+            "sql server",
+            "mssql",
+            "jdbc:sqlserver",
+        ),
+        "oracle": (
+            "oracle database",
+            "oracle db",
+            "jdbc:oracle",
+        ),
+        "sqlite": (
+            "sqlite",
+            "sqlite3",
+        ),
+        "mongodb": (
+            "mongodb",
+            "mongodb atlas",
+        ),
+        "minio": (
+            "minio",
+            "minio server",
+        ),
+    }
+
+    auth_provider_detectors = {
+        "keycloak": (
+            "keycloak",
+            "keycloak_realm",
+            "keycloak_client_id",
+        ),
+        "oidc": (
+            "oidc",
+            "openid connect",
+            "jwks",
+            "issuer url",
+            "oidc_issuer_url",
+            "oidc_client_id",
+        ),
+        "oauth2": (
+            "oauth2",
+            "oauth 2",
+        ),
+        "saml": (
+            "saml",
+            "saml metadata",
+            "saml_entity_id",
+        ),
+    }
+
+    service_details: Dict[str, Any] = {
+        "database": {"engines": [], "evidence": []},
+        "auth": {"providers": [], "evidence": []},
+        "broker": {"providers": [], "evidence": []},
+        "cache": {"providers": [], "evidence": []},
+        "object_storage": {"providers": [], "evidence": []},
+        "secrets": {"providers": [], "evidence": []},
+    }
+
+    for engine, terms in engine_detectors.items():
+        matched = [term for term in terms if _has_any_term(blob, (term,))]
+        if matched:
+            service_details["database"]["engines"].append(engine)
+            service_details["database"]["evidence"].extend(matched[:5])
+
+    generic_database_terms = (
+        "database_url",
+        "docuzen_database_url",
+        "sqlalchemy",
+        "alembic",
+        "jdbc:",
+        "datasource",
+        "connection string",
+        "db_host",
+        "db_name",
+    )
+    generic_database_matches = [
+        term for term in generic_database_terms if _has_any_term(blob, (term,))
+    ]
+    if generic_database_matches:
+        service_details["database"]["evidence"].extend(generic_database_matches[:5])
+
+    for provider, terms in auth_provider_detectors.items():
+        matched = [term for term in terms if _has_any_term(blob, (term,))]
+        if matched:
+            service_details["auth"]["providers"].append(provider)
+            service_details["auth"]["evidence"].extend(matched[:5])
+
+    broker_detectors = {
+        "kafka": ("kafka", "confluent", "schema registry", "kafka connect", "bootstrap servers"),
+        "rabbitmq": ("rabbitmq", "amqp", "amazon mq"),
+        "sqs": ("sqs", "sqs_queue_url"),
+        "sns": ("sns", "sns_topic_arn"),
+    }
+    for provider, terms in broker_detectors.items():
+        matched = [term for term in terms if _has_any_term(blob, (term,))]
+        if matched:
+            service_details["broker"]["providers"].append(provider)
+            service_details["broker"]["evidence"].extend(matched[:5])
+
+    cache_detectors = {
+        "redis": ("redis", "redis_url", "redis_host"),
+        "valkey": ("valkey",),
+        "elasticache": ("elasticache",),
+    }
+    for provider, terms in cache_detectors.items():
+        matched = [term for term in terms if _has_any_term(blob, (term,))]
+        if matched:
+            service_details["cache"]["providers"].append(provider)
+            service_details["cache"]["evidence"].extend(matched[:5])
+
+    object_storage_detectors = {
+        "s3": ("s3", "s3_bucket", "s3_endpoint_url"),
+        "s3-compatible": ("s3-compatible", "object storage", "bucket"),
+        "minio": ("minio",),
+        "blob-storage": ("blob storage",),
+    }
+    for provider, terms in object_storage_detectors.items():
+        matched = [term for term in terms if _has_any_term(blob, (term,))]
+        if matched:
+            service_details["object_storage"]["providers"].append(provider)
+            service_details["object_storage"]["evidence"].extend(matched[:5])
+
+    secrets_detectors = {
+        "aws-secrets-manager": ("aws secrets manager", "aws_secret_id"),
+        "vault": ("vault", "vault_addr", "vault_secret_path"),
+        "external-secrets": ("external secrets", "secret provider"),
+        "key-vault": ("key vault",),
+        "secret-manager": ("secret manager",),
+    }
+    for provider, terms in secrets_detectors.items():
+        matched = [term for term in terms if _has_any_term(blob, (term,))]
+        if matched:
+            service_details["secrets"]["providers"].append(provider)
+            service_details["secrets"]["evidence"].extend(matched[:5])
+
+    detected_services = [
+        name
+        for name, details in service_details.items()
+        if any(details.get(key) for key in ("engines", "providers", "evidence"))
+    ]
+
+    categories = {name: (name in detected_services) for name in service_details}
+
+    required_outputs: List[str] = []
+    if detected_services:
+        required_outputs.extend(
+            [
+                ".env.example with runtime service placeholders",
+                "docs/harper/HOWTO_RUN.md runtime services setup section",
+                "docs/harper/SANITY_CHECKS.md runtime service checks",
+                "docs/harper/INFRA_READINESS.md runtime services section",
+                "scripts/check_runtime_services.sh",
+                "scripts/check_runtime_services.ps1",
+            ]
+        )
+
+    return {
+        "schema_version": "clike.finalize_runtime_service_profile.v1",
+        "services_detected": bool(detected_services),
+        "detected_services": detected_services,
+        "categories": categories,
+        "service_details": service_details,
+        "required_outputs_when_detected": sorted(set(required_outputs)),
+        "policy": (
+            "When runtime services are evidenced, finalize must make the solution boundary-ready: "
+            "configuration placeholders, truthful docs, safe non-mutating checks, and integration seams. "
+            "Engine/vendor names are details, not the primary service contract."
+        ),
+        "boundary_rules": [
+            "Detect services from TECH_CONSTRAINTS, PLAN/SPEC, plan.json, repository evidence, manifests, and selected capabilities only.",
+            "Do not assume a database engine, auth provider, broker, cache, object store, or secret manager without evidence.",
+            "If a database is evidenced, in-memory persistence is not a production-complete boundary.",
+            "If enterprise auth is evidenced, hardcoded/no-auth local behavior is not a production-complete auth boundary.",
+            "Finalize may create local-dev templates and safe checks, but must not write real secrets or provision live services automatically.",
+            "Use generic service placeholders by default and add engine/provider-specific placeholders only when that engine/provider is evidenced.",
+        ],
+    }
+
+
+def _detect_finalize_cloud_provisioning_profile(
+    payload: Dict[str, Any],
+    infra_profile: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Detect cloud provisioning obligations from evidence.
+
+    This remains provider-agnostic: cloud provisioning is enabled only when
+    TECH_CONSTRAINTS, PLAN/SPEC, plan.json, repository evidence, or selected
+    capabilities identify a cloud provider or deployment target.
+    """
+    detected_targets = set(infra_profile.get("detected_targets") or [])
+    cloud_targets = [
+        item for item in ("aws", "azure", "gcp")
+        if item in detected_targets
+    ]
+
+    cloud_detected = bool(cloud_targets)
+
+    required_outputs: List[str] = []
+    if cloud_detected:
+        required_outputs = [
+            "docs/harper/INFRA_READINESS.md",
+            "scripts/cloud_inventory.sh",
+            "scripts/cloud_inventory.ps1",
+            "scripts/provision_cloud_plan.sh",
+            "scripts/provision_cloud_plan.ps1",
+            "scripts/provision_cloud_apply.sh",
+            "scripts/provision_cloud_apply.ps1",
+            "scripts/check_deployment.sh",
+            "scripts/check_deployment.ps1",
+        ]
+
+    return {
+        "schema_version": "clike.finalize_cloud_provisioning_profile.v1",
+        "cloud_detected": cloud_detected,
+        "detected_cloud_targets": cloud_targets,
+        "required_outputs_when_cloud_detected": required_outputs,
+        "policy": (
+            "When cloud is evidenced, finalize must produce a safe cloud provisioning package even if no infra/ or deploy/ root exists yet: "
+            "inventory, plan, guarded apply, deployment checks, and INFRA_READINESS documentation. "
+            "The scripts must be provider-native only for detected providers and must not assume a provider by default. "
+            "When concrete IaC manifests are absent, the plan script must produce an operator-actionable provisioning plan using placeholders instead of silently downgrading to a tools-only check."
+        ),
+        "script_policy": {
+            "inventory": "Inventory scripts may run non-mutating describe/list/show/status commands to discover what currently exists.",
+            "plan": "Plan scripts may validate templates, show planned actions, or generate operator-visible commands without mutating live resources.",
+            "apply_guarded": (
+                "Apply scripts are allowed only as guarded operator tools. They must fail closed unless "
+                "CLIKE_ALLOW_CLOUD_MUTATION=1 is set, and they must print the detected provider/account/project/tenant before running."
+            ),
+            "deployment_check": "Deployment check scripts may run non-mutating health, describe, status, logs, or endpoint checks.",
+        },
+        "forbidden_defaults": [
+            "Do not run mutating cloud commands automatically.",
+            "Do not embed real account IDs, project IDs, tenant IDs, subscription IDs, secrets, tokens, credentials, VPC IDs, subnet IDs, or security group IDs.",
+            "Do not grant wildcard admin privileges.",
+            "Do not assume Terraform, Kubernetes, Docker, or any cloud provider unless evidenced.",
+            "Do not make apply the default path; plan/inventory/check must be the default path.",
         ],
     }
 
@@ -2429,6 +2752,9 @@ def _build_finalize_write_policy(payload: Dict[str, Any]) -> Dict[str, Any]:
         "config",
         "configs",
         "schemas",
+        "migrations",
+        "db",
+        "database",
         "connectors",
         "jobs",
         "pipelines",
@@ -2557,6 +2883,11 @@ def build_finalize_local_agent_package(
 
     finalize_write_policy = _build_finalize_write_policy(payload)
     infra_profile = _detect_finalize_infra_profile(payload)
+    runtime_service_profile = _detect_finalize_runtime_service_profile(payload)
+    cloud_provisioning_profile = _detect_finalize_cloud_provisioning_profile(
+        payload,
+        infra_profile,
+    )
     allowed_write_roots = finalize_write_policy["allowed_write_roots"]
     forbidden_paths = finalize_write_policy["forbidden_paths"]
 
@@ -2577,6 +2908,13 @@ def build_finalize_local_agent_package(
             "runtime-specific run scripts for backend/frontend/workers only when those execution areas exist",
         ],
         "required_scripts_when_infra_profile_detected": infra_profile["safe_required_outputs"],
+        "required_scripts_when_runtime_services_detected": [
+            "scripts/check_runtime_services.sh",
+            "scripts/check_runtime_services.ps1",
+        ] if runtime_service_profile["services_detected"] else [],
+        "required_scripts_when_cloud_detected": cloud_provisioning_profile[
+            "required_outputs_when_cloud_detected"
+        ],
         "conditional_solution_artifacts": [
             "composition root per execution area when missing or incomplete",
             "settings/env loader when runtime configuration exists",
@@ -2612,7 +2950,128 @@ def build_finalize_local_agent_package(
             "local_agent_finalize_role": "workspace_solution_integration_and_runnability_hardening",
             "no_fake_success": True,
         },
+        "readme_merge_policy": {
+            "required": True,
+            "sources": [
+                "README.md when present",
+                "docs/harper/IDEA.md when present",
+                "docs/harper/SPEC.md when present",
+                "docs/harper/PLAN.md when present",
+            ],
+            "policy": (
+                "README.md must be the final human-facing project overview. It must preserve useful existing README content "
+                "and merge it with IDEA/SPEC/PLAN facts: vision, scope, architecture, runtime, configuration, local run, "
+                "infra/deploy readiness, checks, and known gaps. Do not overwrite useful README content blindly."
+            ),
+        },
+        "env_completeness_policy": {
+            "required": True,
+            "policy": (
+                ".env.example or ecosystem-native equivalent must include every runtime, auth, database, broker, cache, "
+                "object storage, secret manager, cloud, and deployment variable required by the final solution. Values must be "
+                "safe placeholders only. Missing real values must be documented as operator-provided configuration."
+            ),
+            "examples_only": [
+                "DATABASE_URL",
+                "DB_HOST",
+                "DB_PORT",
+                "DB_NAME",
+                "DB_USER",
+                "DB_PASSWORD",
+                "SQLALCHEMY_DATABASE_URL",
+                "JDBC_DATABASE_URL",
+                "AUTH_PROVIDER",
+                "AUTH_ISSUER_URL",
+                "AUTH_CLIENT_ID",
+                "AUTH_CLIENT_SECRET",
+                "AUTH_AUDIENCE",
+                "AUTH_JWKS_URL",
+                "OIDC_ISSUER_URL",
+                "OIDC_CLIENT_ID",
+                "OIDC_CLIENT_SECRET",
+                "OIDC_AUDIENCE",
+                "OIDC_JWKS_URL",
+                "SAML_METADATA_URL",
+                "SAML_ENTITY_ID",
+                "SAML_ACS_URL",
+                "KAFKA_BOOTSTRAP_SERVERS",
+                "AWS_REGION",
+                "AWS_ACCOUNT_ID",
+                "AZURE_SUBSCRIPTION_ID",
+                "GCP_PROJECT_ID",
+            ],
+        },
+        "source_completion_policy": {
+            "enabled": True,
+            "policy": (
+                "Finalize may patch source files under allowed_write_roots when required to make the final solution coherent, "
+                "runnable, configurable, or boundary-complete. This includes wiring real DB/auth/service boundaries, settings/env loading, "
+                "composition roots, runtime manifests, and local run scripts. Changes must be minimal, repository-aware, evidence-based, "
+                "and driven by TECH_CONSTRAINTS.yaml, SPEC, PLAN, plan.json, manifests, and repository structure. Finalize is a runnable-solution "
+                "hardening step: when executable backend/frontend/worker/CLI/service areas are evidenced, it must make the evidenced canonical "
+                "entrypoints and launchers runnable instead of producing documentation-only readiness."
+            ),
+            "runnability_rules": [
+                "Detect runtime areas, languages, frameworks, manifests, entrypoints, launchers, build commands, and test commands from TECH_CONSTRAINTS.yaml, SPEC, PLAN, plan.json, manifests, and repository evidence.",
+                "Reuse existing canonical composition roots and launchers before creating new ones.",
+                "Do not create a parallel demo/dev runtime as the primary finalize runtime when an evidenced canonical runtime can be completed.",
+                "If no canonical runtime exists but an execution area is evidenced, create the stack-native minimal runtime entrypoint required by the evidenced stack.",
+                "If a database service is evidenced, local run must remain database-configurable. Do not silently replace the evidenced database boundary with in-memory persistence.",
+                "If auth is evidenced, local login may be bypassed only through an explicit local/dev configuration seam. Do not require interactive login for local smoke boot unless the project contract explicitly requires it.",
+                "Business routers/controllers/handlers should be mounted when their dependencies can be wired safely. If a dependency is unavailable, expose controlled configuration-required failures instead of crashing import/boot.",
+                "README/HOWTO/SANITY may claim runnability only for commands backed by real files and checked or clearly environment-blocked scripts.",
+            ],
+            "must_not": [
+                "Do not rewrite the whole solution.",
+                "Do not create parallel duplicated services, adapters, controllers, handlers, routers, launchers, or composition roots.",
+                "Do not create a parallel dev/demo runtime when the canonical runtime can be patched.",
+                "Do not replace external service boundaries with in-memory state when external services are evidenced.",
+                "Do not hardcode credential-like database URLs, tokens, provider accounts, or real endpoints in source defaults.",
+                "Do not assume Python, FastAPI, Node, Java, .NET, Go, Rust, PHP, SQLAlchemy, Express, Spring, or any stack unless evidenced.",
+                "Do not fake runnability in docs without source/config/scripts support.",
+                "Do not claim that source behavior was unchanged when finalize emits or collects source/config/runtime files.",
+                "Do not claim that manifests, run scripts, route evidence, or runtime boundaries are missing when they are present in emitted or collected artifacts.",
+            ],
+        },
+         "finalize_runnability_policy": {
+            "enabled": True,
+            "goal": (
+                "After /finalize, the solution should be locally runnable as far as repository evidence allows. "
+                "Local runnability means stack-native canonical launchers exist, evidenced entrypoints do not crash, documented run scripts exist, "
+                "database configuration is explicit when a database is evidenced, and missing external services fail with controlled, truthful messages."
+            ),
+            "runtime_detection_rule": (
+                "TECH_CONSTRAINTS.yaml, SPEC, PLAN, plan.json, manifests, scripts, and repository structure decide language, framework, "
+                "entrypoints, launchers, package managers, DB tooling, auth tooling, and deployment tooling. CLike must be constraint-driven, not convention-driven."
+            ),
+            "canonical_runtime_rule": (
+                "Patch the evidenced canonical composition root and launcher for each execution area. Create a new runtime only when no evidenced canonical runtime exists, "
+                "and only using the stack-native conventions of the detected technology profile."
+            ),
+            "database_rule": (
+                "When a database service is evidenced, the final solution must include a source-level DB boundary/configuration seam and "
+                "a local database configuration path. Missing live credentials may block runtime service checks, but must not justify replacing "
+                "the database with implicit in-memory persistence."
+            ),
+            "auth_rule": (
+                "When auth is evidenced, the final solution must include an auth configuration seam. Local/dev login bypass is allowed only "
+                "when explicit in configuration and documented as non-production."
+            ),
+            "business_router_rule": (
+                "When backend routers/controllers/handlers and services are evidenced, finalize should mount them through the canonical composition root. "
+                "Unavailable dependencies should produce controlled configuration-required errors instead of import-time crashes."
+            ),
+            "forbidden_patterns": [
+                "parallel dev/demo runtime as primary runtime",
+                "in-memory persistence as implicit replacement for evidenced database",
+                "README claiming runnable APIs that are not mounted or guarded",
+                "TODO_NEXT containing core runtime/launcher/DB/auth wiring that finalize could safely complete",
+                "stack-specific files or commands emitted without evidence from TECH_CONSTRAINTS.yaml, manifests, or repository structure",
+            ],
+        },
         "infra_profile": infra_profile,
+        "runtime_service_profile": runtime_service_profile,
+        "cloud_provisioning_profile": cloud_provisioning_profile,
         "infra_readiness_policy": {
             "enabled_when": "infra_profile.infra_detected == true",
             "detect_do_not_assume": True,
@@ -2635,6 +3094,29 @@ def build_finalize_local_agent_package(
             ],
             "safe_by_default": True,
             "forbidden": infra_profile["forbidden_actions"],
+        },
+        "runtime_service_boundary_policy": {
+            "enabled_when": "runtime_service_profile.services_detected == true",
+            "detect_do_not_assume": True,
+            "source_of_truth_order": [
+                "TECH_CONSTRAINTS.yaml / TECH_CONSTRAINTS.yml / constraints.json",
+                "docs/harper/PLAN.md",
+                "docs/harper/plan.json",
+                "docs/harper/SPEC.md",
+                "repository source tree and manifests",
+                "selected skills, packs, and design profiles",
+            ],
+            "required_when_detected": runtime_service_profile["required_outputs_when_detected"],
+            "rules": runtime_service_profile["boundary_rules"],
+        },
+        "cloud_provisioning_policy": {
+            "enabled_when": "cloud_provisioning_profile.cloud_detected == true",
+            "detect_do_not_assume": True,
+            "required_when_detected": cloud_provisioning_profile[
+                "required_outputs_when_cloud_detected"
+            ],
+            "script_policy": cloud_provisioning_profile["script_policy"],
+            "forbidden_defaults": cloud_provisioning_profile["forbidden_defaults"],
         },
         
         "infra_readiness": {
@@ -2751,14 +3233,24 @@ def build_finalize_local_agent_package(
                 ),
             },
             {
-                "name": "infra_readiness_gate",
+                "name": "runtime_service_boundary_gate",
                 "policy": (
-                    "When TECH_CONSTRAINTS, PLAN/SPEC, manifests, sources, or selected capabilities show infra, cloud, "
-                    "deployment, vendor-platform, PLC/SCADA, Mendix, Informatica, Kafka, Cloudera, Kubernetes, or IaC scope, "
-                    "produce docs/harper/INFRA_READINESS.md and safe-by-default validation/provisioning plan scripts. "
-                    "Do not run mutating cloud commands, terraform apply, destructive operations, or secret writes."
+                    "When runtime_service_profile.services_detected is true, finalize must produce service boundary "
+                    "configuration, environment placeholders, docs, and safe non-mutating checks. If an external DB, "
+                    "auth provider, broker, cache, object store, or secret manager is evidenced, finalize must not "
+                    "leave the solution documented as production-complete with only in-memory state or missing service configuration."
                 ),
-            },        ],
+            },
+            {
+                "name": "cloud_provisioning_gate",
+                "policy": (
+                    "When cloud_provisioning_profile.cloud_detected is true, finalize must produce cloud inventory, "
+                    "provision plan, guarded apply, and deployment check scripts for the detected provider. The scripts "
+                    "must be provider-native only for evidenced providers and must fail closed for mutating actions unless "
+                    "an explicit operator-controlled environment variable enables them."
+                ),
+            },     
+        ],
         "required_outputs": final_outputs,
     }
 
@@ -2819,6 +3311,8 @@ def build_finalize_local_agent_package(
         },
         "finalize_contract": finalize_contract,
         "infra_profile": infra_profile,
+        "runtime_service_profile": runtime_service_profile,
+        "cloud_provisioning_profile": cloud_provisioning_profile,
         "solution_write_policy": finalize_write_policy,
         "allowed_write_roots": allowed_write_roots,
         "forbidden_paths": forbidden_paths,
@@ -2828,15 +3322,20 @@ def build_finalize_local_agent_package(
             "Do not write secrets, credentials, private keys, or real .env files.",
             "Do not write under .git, node_modules, .venv, __pycache__, __MACOSX, .next, dist, build, .ruff_cache, or .mypy_cache.",
             "Do not rewrite the solution from scratch.",
-            "Do not duplicate business logic, repositories, services, adapters, routers, or launchers already present.",
+            "Do not duplicate business logic, repositories, services, adapters, routers, controllers, handlers, or launchers already present.",
             "Do not create a parallel composition root if a valid one already exists; patch or complete the existing one.",
+            "Do not create a parallel dev/demo runtime as the primary finalize runtime when the evidenced canonical runtime can be patched.",
             "Do not create a new launcher when an existing launcher can be made correct with a small patch.",
+            "Detect canonical composition roots, launchers, package managers, build commands, and run commands from TECH_CONSTRAINTS.yaml, SPEC, PLAN, plan.json, manifests, scripts, and repository structure.",
+            "Do not assume Python, FastAPI, app.py, main.py, db.py, SQLAlchemy, Node, Express, Spring, .NET, Go, Rust, PHP, or any framework/runtime unless evidenced.",
+            "If a database service is evidenced, local run must stay database-configurable. Do not replace the evidenced database boundary with implicit in-memory persistence unless the project contract explicitly allows mock-only mode.",
+            "If auth is evidenced, local login bypass is allowed only through an explicit local/dev auth configuration seam; do not require interactive login for local smoke boot unless the project contract explicitly requires it.",
             "Do not force Python, FastAPI, Node, Next.js, PostgreSQL, Docker, or any specific stack.",
             "Infer languages, frameworks, package managers, runtime profiles, and services from repository manifests, source files, PLAN/SPEC, and TECH_CONSTRAINTS.",
             "Python/FastAPI and Node/Next are reference adapters only, not defaults.",
             "Cloud and agent finalize must share the same final artifact names and meanings.",
             "Do not claim runnability unless sanity checks were run or explicitly marked environment-blocked with exact reasons.",
-            "Docs must reflect real files,f real scripts, real routes, real env vars, and real manifests.",
+            "Docs must reflect real files, real scripts, real routes, real env vars, and real manifests.",
             "If a runnable E2E solution cannot be completed safely, document the blocking gap in TODO_NEXT.md and PR_BODY.md instead of faking success.",
             "If infra_profile.infra_detected is true, create or update docs/harper/INFRA_READINESS.md and the safe_required_outputs listed in infra_profile.",
             "Infra scripts must be provider/platform-native only when that provider/platform is evidenced by TECH_CONSTRAINTS, PLAN/SPEC, plan.json, repository files, or selected capabilities.",
@@ -2847,7 +3346,16 @@ def build_finalize_local_agent_package(
             "Do not run or generate scripts that perform live cloud mutation by default. Scripts must be safe-by-default and prefer validate, plan, dry-run, describe, lint, schema check, package integrity check, or vendor-tool validation modes.",
             "Never run terraform apply, pulumi up, cloud resource create/delete/update commands, destructive commands, secret writes, or privileged IAM changes from finalize.",
             "Do not invent provider account IDs, regions, tenants, projects, clusters, namespaces, VPCs, subnets, security groups, service principals, managed identities, credentials, or network topology. Use placeholders in examples and document missing values as operator-provided configuration.",
-            "Do not assume AWS, Azure, GCP, Kubernetes, Terraform, Docker, Cloudera, Confluent Kafka, PLC, SCADA, Mendix, Informatica, or any vendor platform unless evidenced by TECH_CONSTRAINTS, PLAN/SPEC, repository files, manifests, or selected capabilities.",
+            "Do not assume AWS, Azure, GCP, Kubernetes, Terraform, Docker, Cloudera, Confluent Kafka, PLC, SCADA, Mendix, Informatica, or any vendor platform unless vendor-anchored evidence exists in TECH_CONSTRAINTS, PLAN/SPEC, repository files, manifests, or selected capabilities. Generic words such as workflow, mapping, namespace, parameter file, or connection object are not enough to infer a vendor platform.",
+            "If runtime_service_profile.services_detected is true, create or update runtime service boundary docs, env placeholders, and safe checks listed in runtime_service_profile.required_outputs_when_detected.",
+            "If runtime_service_profile detects a database service, do not document in-memory persistence as production-complete and do not park the DB boundary in TODO_NEXT merely because real credentials are missing. Provide safe generic DB configuration placeholders, DB readiness checks, and a stack-native DB boundary/configuration seam whenever source changes are allowed. Add engine-specific details only when runtime_service_profile.service_details.database.engines provides evidence.",
+            "If runtime_service_profile detects an auth service, do not document no-auth or hardcoded-auth behavior as production-complete and do not park auth configuration in TODO_NEXT merely because real credentials are missing. Provide auth environment placeholders, issuer/client/JWKS/audience/realm or SAML metadata guidance as applicable, safe auth readiness checks, and a stack-native auth configuration seam whenever source changes are allowed. Add provider-specific details only when runtime_service_profile.service_details.auth.providers provides evidence.",
+            "If cloud_provisioning_profile.cloud_detected is true, create or update every output listed in cloud_provisioning_profile.required_outputs_when_cloud_detected.",
+            "Cloud inventory scripts must discover current state using non-mutating provider-native commands such as describe/list/show/status equivalents.",
+            "Cloud provision plan scripts must prepare or validate the provisioning path without mutating live infrastructure by default.",
+            "Cloud apply scripts are allowed only as guarded operator scripts and must fail closed unless CLIKE_ALLOW_CLOUD_MUTATION=1 is set.",
+            "README.md must preserve useful existing README content and merge it with IDEA/SPEC/PLAN facts, runtime evidence, configuration, local run, infra/deploy readiness, checks, and known gaps.",
+            ".env.example or ecosystem-native equivalent must include every evidenced runtime/auth/database/broker/cache/object-storage/secrets/cloud/deploy variable with safe placeholders.",
         ], 
     }
 
@@ -2864,10 +3372,15 @@ def build_finalize_local_agent_package(
             "- runs/finalize/docs/AGENT_FINALIZE_CONTEXT.json",
             "",
             "Mission:",
-            "- Make the promoted solution as runnable as possible with small, conservative, repository-aware patches.",
+            "- Make the promoted solution locally runnable as far as repository evidence allows, with small, conservative, completed, well formed code, repository-aware patches.",
+            "- Patch source/config/runtime files under allowed_write_roots when required to make the solution coherent, configurable, boundary-complete, and runnable. Do not limit finalize to documentation if source wiring is incomplete.",
+            "- Detect the stack-native runtime profile from TECH_CONSTRAINTS.yaml, SPEC, PLAN, plan.json, manifests, scripts, and repository structure. Complete the evidenced canonical entrypoints and launchers for that profile instead of assuming a language or framework.",
+            "- Prefer completing canonical runtime files over creating parallel demo files. Do not emit stack-specific files or commands unless the stack is evidenced.",
+            "- Treat README.md as a final merged project overview: preserve useful existing README content and merge it with IDEA.md, SPEC.md, PLAN.md, runtime evidence, configuration, local run, infra/deploy readiness, checks, and known gaps.",
             "- Reuse before create; patch before replace; complete before regenerate.",
             "- Produce truthful final documentation and local sanity scripts.",
-            "- Keep the implementation language/framework/runtime agnostic.",
+            "- Final README, HOWTO_RUN, RELEASE_NOTES, PR_BODY, SANITY_CHECKS, and TODO_NEXT must describe the final accepted artifact set, not an earlier fallback or conservative partial snapshot. If source files, manifests, run scripts, or routes are emitted or collected, documentation must reflect them truthfully.",
+            "- Keep the implementation language/framework/runtime agnostic and constraint-driven.",
             "",
             "Required first-pass inspection:",
             "- Read docs/harper/IDEA.md, SPEC.md, PLAN.md, plan.json, TECH_CONSTRAINTS.yaml, TECH_CONSTRAINTS.yml, and constraints.json when present.",
@@ -2887,7 +3400,7 @@ def build_finalize_local_agent_package(
             "",
             "Mandatory finalize outputs when applicable:",
             "- README.md",
-            "- .env.example when runtime configuration exists or is expected",
+            "- .env.example or ecosystem-native equivalent when runtime configuration exists or is expected, including placeholders for DB/auth/broker/cache/object-storage/secrets/cloud/deploy variables evidenced by TECH_CONSTRAINTS, PLAN/SPEC, plan.json, sources, or manifests",
             "- docs/harper/HOWTO_RUN.md",
             "- docs/harper/SANITY_CHECKS.md",
             "- docs/harper/INFRA_READINESS.md when infra_profile.infra_detected is true",
@@ -2898,18 +3411,32 @@ def build_finalize_local_agent_package(
             "- runtime-specific run scripts for backend/frontend/workers only when those execution areas exist",
             "- scripts/check_infra_prereqs.sh and scripts/check_infra_prereqs.ps1 when infra_profile.infra_detected is true",
             "- scripts/provision_plan.sh and scripts/provision_plan.ps1 when infra_profile.infra_detected is true",
-            "- scripts/check_deployment.sh and scripts/check_deployment.ps1 when infra_profile.infra_detected is true",            "",
-            "Solution integration duties, only when applicable:",
-            "- Complete a composition root if existing modules are not wired.",
+            "- scripts/check_deployment.sh and scripts/check_deployment.ps1 when infra_profile.infra_detected is true",
+            "- scripts/check_runtime_services.sh and scripts/check_runtime_services.ps1 when runtime_service_profile.services_detected is true",
+            "- scripts/cloud_inventory.sh and scripts/cloud_inventory.ps1 when cloud_provisioning_profile.cloud_detected is true",
+            "- scripts/provision_cloud_plan.sh and scripts/provision_cloud_plan.ps1 when cloud_provisioning_profile.cloud_detected is true",
+            "- scripts/provision_cloud_apply.sh and scripts/provision_cloud_apply.ps1 when cloud_provisioning_profile.cloud_detected is true",
+            "- scripts/check_deployment.sh and scripts/check_deployment.ps1 when cloud_provisioning_profile.cloud_detected is true",
+            "",
+             "Solution integration duties, only when applicable:",
+            "- Complete the canonical composition root if existing modules are not wired. Do not create a parallel dev/demo composition root when the canonical root can be patched.",
+            "- Detect stack-native composition roots, launchers, manifests, run commands, build commands, and test commands from TECH_CONSTRAINTS.yaml, SPEC, PLAN, plan.json, scripts, manifests, and repository structure.",
             "- Add or complete settings/env loader if runtime config exists.",
-            "- Add or complete dependency/repository factory only if existing modules require wiring.",
-            "- Add or complete DB/session factory only if datastore access exists.",
-            "- Add or complete local-dev profile only if runnable services exist.",
+            "- Add or complete dependency/repository/service factory only if existing modules require wiring.",
+            "- Add or complete a stack-native DB configuration/session/client boundary only if datastore access exists.",
+            "- When a database service is evidenced, local run must remain database-configurable. Missing live credentials may block runtime checks, but must not silently downgrade the app to implicit in-memory persistence.",
+            "- Add or complete explicit local/dev auth configuration only if auth is evidenced. Local login bypass is allowed only when configuration makes it explicit and non-production.",
             "- Add route/API parity check only if backend HTTP and frontend API calls both exist.",
             "- If infra_profile.infra_detected is true, use infra_profile.detected_targets to create stack-native but safe-by-default infra readiness docs and scripts.",
+            "- If runtime_service_profile.services_detected is true, use runtime_service_profile.detected_services and categories to create or update DB/auth/broker/cache/object-storage/secrets boundary docs, env placeholders, and safe checks.",
+            "- If a database service is detected, provide a real database boundary: stack-native connection/config placeholders, DB readiness checks, and migration/init guidance when evidenced. Do not leave production docs describing only in-memory persistence unless explicitly allowed by the project contract. Do not move the DB boundary to TODO_NEXT merely because real credentials are unavailable; use safe placeholders and source/config seams.",
+            "- For Python projects, if a database service is detected and no source-level DB boundary exists, create or update a small stack-native boundary module such as src/**/db.py or src/**/database.py. When SQLAlchemy is evidenced, prefer an env-driven engine/session boundary with database_url(), engine/session factory, and session_scope()/get_session(). Do not hardcode PostgreSQL-specific behavior unless the engine is evidenced.",
+            "- For database-backed projects, if a database service is detected and no source-level DB boundary exists, create or update a small stack-native boundary module or configuration file dedicated to data persistence. When an ORM or data mapper is evidenced, prefer an env-driven connection/session boundary with a connection string parser, connection/session factory, and session context manager. Do not hardcode engine-specific behavior unless that specific database engine is evidenced.",
+            "- If an auth service is detected, provide a real authentication configuration boundary: issuer/client/JWKS/audience/realm/SAML metadata placeholders as applicable, auth readiness checks, and truthful blocked checks when the provider is unavailable. Do not move auth configuration to TODO_NEXT merely because real credentials are unavailable; use safe placeholders and source/config seams.",
+            "- If cloud_provisioning_profile.cloud_detected is true, use cloud_provisioning_profile.detected_cloud_targets to generate cloud inventory, provision plan, guarded apply, and deployment check scripts. Generate these scripts even when no infra/ or deploy/ root exists yet; in that case, produce an operator-actionable placeholder-driven plan rather than a tools-only blocked report.",
             "- For cloud/vendor/platform infra, prefer prereq checks, validate, plan, dry-run, describe, lint, schema-check, package-integrity-check, or vendor-tool verification commands.",
             "- Do not assume Terraform just because cloud is detected. Use Terraform only if evidenced by TECH_CONSTRAINTS, PLAN/SPEC, plan.json, repository files, or existing manifests.",
-            "- Do not assume AWS/Azure/GCP/Kubernetes/Docker/Kafka/Mendix/Informatica/PLC/SCADA unless present in infra_profile.detected_targets or directly evidenced by files.",
+            "- Do not assume AWS/Azure/GCP/Kubernetes/Docker/Kafka/Mendix/Informatica/PLC/SCADA unless present in infra_profile.detected_targets with vendor-anchored detection evidence or directly evidenced by files. Generic words such as workflow, mapping, namespace, parameter file, or connection object are not enough to infer a vendor platform.",
             "- Clean junk artifacts only inside allowed paths.",
             "",
             "Sanity gates to run or document as environment-blocked:",
@@ -2924,6 +3451,8 @@ def build_finalize_local_agent_package(
             "- docs_truthfulness_gate",
             "- provider_boundary_gate when provider SDK boundaries are relevant",
             "- infra_readiness_gate when infra, cloud, deployment, vendor-platform, PLC/SCADA, Mendix, Informatica, Kafka, Cloudera, Kubernetes, Docker, or IaC evidence exists",
+            "- runtime_service_boundary_gate when DB, auth, broker, cache, object storage, or secret manager evidence exists",
+            "- cloud_provisioning_gate when AWS, Azure, GCP, or another cloud provider is evidenced",
             "",
             "At the end, print a concise summary with:",
             "- detected stack and execution areas;",
@@ -2981,6 +3510,9 @@ def build_finalize_local_agent_package(
             "allowed_write_roots": allowed_write_roots,
             "forbidden_paths": forbidden_paths,
             "expected_outputs": final_outputs,
+            "infra_profile": infra_profile,
+            "runtime_service_profile": runtime_service_profile,
+            "cloud_provisioning_profile": cloud_provisioning_profile,
             "package_files": [
                 {
                     "path": context_path,
@@ -3082,21 +3614,362 @@ def normalize_local_agent_result(payload: Dict[str, Any]) -> Dict[str, Any]:
         errors.append("local_agent_wrote_outside_allowed_roots")
         warnings.append("blocked_paths:" + ",".join(bad_paths[:20]))
 
-        if phase == "finalize":
-            returned_paths = {item.get("path") for item in normalized_files}
-            required_docs = {
+    if phase == "finalize":
+        returned_paths = {
+            str(item.get("path") or "").replace("\\", "/").lstrip("/")
+            for item in normalized_files
+        }
+        content_by_path = {
+            str(item.get("path") or "").replace("\\", "/").lstrip("/"): str(item.get("content") or "")
+            for item in normalized_files
+        }
+
+        combined_finalize_text = "\n".join(
+            content_by_path.get(path, "")
+            for path in (
                 "README.md",
                 "docs/harper/HOWTO_RUN.md",
                 "docs/harper/SANITY_CHECKS.md",
-                "docs/harper/RELEASE_NOTES.md",
                 "docs/harper/TODO_NEXT.md",
                 "docs/harper/PR_BODY.md",
+            )
+        )
+        combined_finalize_text_lower = combined_finalize_text.lower()
+
+        parallel_demo_runtime_terms = (
+            "dev_app.py",
+            "demo_app.py",
+            "sample_app.py",
+            "mock_app.py",
+            "fake_app.py",
+            "dev_server.js",
+            "demo_server.js",
+            "sample_server.js",
+            "mock_server.js",
+            "fake_server.js",
+            "dev_server.ts",
+            "demo_server.ts",
+            "sample_server.ts",
+            "mock_server.ts",
+            "fake_server.ts",
+        )
+
+        parallel_demo_paths = sorted(
+            path
+            for path in returned_paths
+            if any(path.endswith(term) or path == term for term in parallel_demo_runtime_terms)
+        )
+        if parallel_demo_paths:
+            ok = False
+            errors.append("finalize_parallel_demo_runtime_forbidden")
+            warnings.append(
+                "parallel_demo_runtime_is_not_allowed_as_primary_finalize_runtime:"
+                + ",".join(parallel_demo_paths)
+            )
+
+        referenced_demo_terms = [
+            term for term in parallel_demo_runtime_terms if term in combined_finalize_text_lower
+        ]
+        if referenced_demo_terms:
+            ok = False
+            errors.append("finalize_docs_reference_parallel_demo_runtime")
+            warnings.append(
+                "finalize_docs_must_reference_canonical_stack_native_runtime_not_parallel_demo:"
+                + ",".join(sorted(set(referenced_demo_terms)))
+            )
+
+        required_paths = {
+            "README.md",
+            "docs/harper/HOWTO_RUN.md",
+            "docs/harper/SANITY_CHECKS.md",
+            "docs/harper/RELEASE_NOTES.md",
+            "docs/harper/TODO_NEXT.md",
+            "docs/harper/PR_BODY.md",
         }
-        missing_docs = sorted(path for path in required_docs if path not in returned_paths)
-        if missing_docs:
+
+        infra_profile = payload.get("infra_profile") or {}
+        runtime_service_profile = payload.get("runtime_service_profile") or {}
+        cloud_provisioning_profile = payload.get("cloud_provisioning_profile") or {}
+
+        infra_detected = bool(infra_profile.get("infra_detected"))
+        runtime_services_detected = bool(runtime_service_profile.get("services_detected"))
+        cloud_detected = bool(cloud_provisioning_profile.get("cloud_detected"))
+
+        detected_services = {
+            str(item or "").strip()
+            for item in (runtime_service_profile.get("detected_services") or [])
+            if str(item or "").strip()
+        }
+        service_details = runtime_service_profile.get("service_details") or {}
+        categories = runtime_service_profile.get("categories") or {}
+
+        database_detected = (
+            "database" in detected_services
+            or bool(categories.get("database"))
+            or bool((service_details.get("database") or {}).get("engines"))
+        )
+        auth_detected = (
+            "auth" in detected_services
+            or bool(categories.get("auth"))
+            or bool((service_details.get("auth") or {}).get("providers"))
+        )
+
+        if infra_detected:
+            required_paths.update(
+                {
+                    "docs/harper/INFRA_READINESS.md",
+                    "scripts/check_infra_prereqs.sh",
+                    "scripts/check_infra_prereqs.ps1",
+                    "scripts/provision_plan.sh",
+                    "scripts/provision_plan.ps1",
+                    "scripts/check_deployment.sh",
+                    "scripts/check_deployment.ps1",
+                }
+            )
+
+        if runtime_services_detected:
+            required_paths.update(
+                {
+                    ".env.example",
+                    "docs/harper/INFRA_READINESS.md",
+                    "scripts/check_runtime_services.sh",
+                    "scripts/check_runtime_services.ps1",
+                }
+            )
+
+        if cloud_detected:
+            required_paths.update(
+                {
+                    ".env.example",
+                    "docs/harper/INFRA_READINESS.md",
+                    "scripts/cloud_inventory.sh",
+                    "scripts/cloud_inventory.ps1",
+                    "scripts/provision_cloud_plan.sh",
+                    "scripts/provision_cloud_plan.ps1",
+                    "scripts/provision_cloud_apply.sh",
+                    "scripts/provision_cloud_apply.ps1",
+                    "scripts/check_deployment.sh",
+                    "scripts/check_deployment.ps1",
+                }
+            )
+
+        missing_paths = sorted(path for path in required_paths if path not in returned_paths)
+        if missing_paths:
             ok = False
             errors.append("finalize_required_outputs_missing")
-            warnings.append("missing_finalize_outputs:" + ",".join(missing_docs))
+            warnings.append("missing_finalize_outputs:" + ",".join(missing_paths))
+
+        env_example = content_by_path.get(".env.example", "")
+        env_upper = env_example.upper()
+
+        if database_detected:
+            database_env_markers = (
+                "DATABASE_URL",
+                "DB_HOST",
+                "DB_PORT",
+                "DB_NAME",
+                "DB_USER",
+                "DB_PASSWORD",
+                "SQLALCHEMY_DATABASE_URL",
+                "JDBC_DATABASE_URL",
+            )
+            if not any(marker in env_upper for marker in database_env_markers):
+                ok = False
+                errors.append("finalize_database_env_placeholders_missing")
+                warnings.append(
+                    "missing_database_env_placeholders:"
+                    + ",".join(database_env_markers)
+                )
+
+        if auth_detected:
+            auth_env_markers = (
+                "AUTH_PROVIDER",
+                "AUTH_ISSUER_URL",
+                "AUTH_CLIENT_ID",
+                "AUTH_CLIENT_SECRET",
+                "AUTH_AUDIENCE",
+                "AUTH_JWKS_URL",
+                "OIDC_ISSUER_URL",
+                "OIDC_CLIENT_ID",
+                "OIDC_CLIENT_SECRET",
+                "OIDC_JWKS_URL",
+                "SAML_METADATA_URL",
+                "SAML_ENTITY_ID",
+            )
+            if not any(marker in env_upper for marker in auth_env_markers):
+                ok = False
+                errors.append("finalize_auth_env_placeholders_missing")
+                warnings.append(
+                    "missing_auth_env_placeholders:"
+                    + ",".join(auth_env_markers)
+                )
+
+            source_auth_evidence = any(
+                path.startswith("src/")
+                and any(
+                    marker in content.lower()
+                    for marker in (
+                        "auth_provider",
+                        "auth_mode",
+                        "auth_issuer",
+                        "issuer_url",
+                        "client_id",
+                        "client_secret",
+                        "jwks",
+                        "oidc",
+                        "oauth",
+                        "saml",
+                        "identity",
+                        "rbac",
+                        "required_group",
+                        "required_groups",
+                        "local_auth",
+                        "auth_bypass",
+                        "login_bypass",
+                        "disabled-local",
+                        "local-disabled",
+                    )
+                )
+                for path, content in content_by_path.items()
+            )
+
+            todo_text = content_by_path.get("docs/harper/TODO_NEXT.md", "").lower()
+            auth_boundary_parked_patterns = (
+                "implement auth boundary",
+                "implement authentication boundary",
+                "add auth boundary",
+                "add authentication boundary",
+                "create auth boundary",
+                "create authentication boundary",
+                "wire auth configuration",
+                "wire authentication configuration",
+                "add auth configuration seam",
+                "add authentication configuration seam",
+                "auth boundary missing",
+                "authentication boundary missing",
+                "auth not implemented",
+                "authentication not implemented",
+                "configure auth later",
+                "configure authentication later",
+            )
+            auth_parked_in_todo = any(pattern in todo_text for pattern in auth_boundary_parked_patterns)
+
+            if auth_parked_in_todo and not source_auth_evidence:
+                ok = False
+                errors.append("finalize_auth_boundary_parked_in_todo")
+                warnings.append(
+                    "auth_boundary_must_be_configured_with_placeholders_not_moved_to_TODO_NEXT"
+                )
+
+            if auth_detected and not source_auth_evidence:
+                ok = False
+                errors.append("finalize_auth_source_boundary_missing")
+                warnings.append(
+                    "auth_source_boundary_missing:finalize_must_patch_or_return_stack_native_auth_config_seam_when_auth_is_detected"
+                )
+
+            source_auth_evidence = any(
+                path.startswith("src/")
+                and any(
+                    marker in content.lower()
+                    for marker in (
+                        "auth_provider",
+                        "auth_mode",
+                        "auth_issuer_url",
+                        "auth_client_id",
+                        "auth_jwks_url",
+                        "oidc_issuer",
+                        "oidc_client",
+                        "jwks",
+                        "saml_metadata",
+                        "required_groups",
+                        "disabled-local",
+                        "local-disabled",
+                    )
+                )
+                for path, content in content_by_path.items()
+            )
+            if not source_auth_evidence:
+                ok = False
+                errors.append("finalize_auth_source_boundary_missing")
+                warnings.append(
+                    "auth_source_boundary_missing:finalize_must_patch_or_return_stack_native_auth_config_seam_when_auth_is_detected"
+                )
+
+        if cloud_detected:
+            apply_script = "\n".join(
+                [
+                    content_by_path.get("scripts/provision_cloud_apply.sh", ""),
+                    content_by_path.get("scripts/provision_cloud_apply.ps1", ""),
+                ]
+            )
+            if "CLIKE_ALLOW_CLOUD_MUTATION" not in apply_script:
+                ok = False
+                errors.append("finalize_cloud_apply_guard_missing")
+                warnings.append(
+                    "provision_cloud_apply_must_fail_closed_without_CLIKE_ALLOW_CLOUD_MUTATION"
+                )
+
+        if database_detected:
+            source_db_evidence = any(
+                path.startswith("src/")
+                and any(
+                    marker in content.lower()
+                    for marker in (
+                        "database_url",
+                        "db_url",
+                        "connection_string",
+                        "datasource",
+                        "create_engine",
+                        "sessionmaker",
+                        "session_scope",
+                        "get_session",
+                        "sqlalchemy",
+                        "jdbc",
+                    )
+                )
+                for path, content in content_by_path.items()
+            )
+            if not source_db_evidence:
+                todo_text = content_by_path.get("docs/harper/TODO_NEXT.md", "").lower()
+                parked_in_todo = (
+                    "database" in todo_text
+                    or "database-backed" in todo_text
+                    or "database backed" in todo_text
+                    or "db boundary" in todo_text
+                    or "persistence configuration" in todo_text
+                    or "db configuration" in todo_text
+                )
+                if parked_in_todo:
+                    ok = False
+                    errors.append("finalize_database_boundary_parked_in_todo")
+                    warnings.append(
+                        "database_boundary_must_be_created_or_reused_with_placeholders_not_moved_to_TODO_NEXT"
+                    )
+                else:
+                    ok = False
+                    errors.append("finalize_database_source_boundary_missing")
+                    warnings.append(
+                        "database_source_boundary_missing:finalize_must_patch_or_return_stack_native_db_boundary_when_database_is_detected"
+                    )
+
+            credential_like_db_defaults = [
+                path
+                for path, content in content_by_path.items()
+                if path.startswith("src/")
+                and "DEFAULT_DATABASE_URL" in content
+                and "://" in content
+                and "@" in content
+                and "<" not in content
+                and "placeholder" not in content.lower()
+            ]
+            if credential_like_db_defaults:
+                ok = False
+                errors.append("finalize_database_credential_like_default_forbidden")
+                warnings.append(
+                    "database_boundary_must_not_hardcode_credential_like_default_urls:"
+                    + ",".join(credential_like_db_defaults[:10])
+                )
 
     if not normalized_files:
         ok = False
