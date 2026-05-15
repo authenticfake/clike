@@ -307,7 +307,7 @@ A pragmatic mapping is:
 - `/plan` → `Cloud Only`
 - `/kit REQ-xxx` → `Prefer Agent` or `Agent Only`
 - `/eval` → usually follow the validation strategy of the implementation loop
-- `/finalize` → `Cloud Only`
+- `/finalize` → `Prefer Agent` or `Agent Only` or `Cloud Only` - Preferred: `Prefer Agent`
 
 ### Safe default
 
@@ -803,9 +803,11 @@ In most documentation-oriented and closing scenarios, use:
 
 - `Cloud Only`
 
-or, second choice:
+or
+- `Prefer Agent` or `Agent Only`
 
-- `Auto`
+Preferred: `Prefer Agent`
+
 
 ### Main outputs
 

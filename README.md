@@ -39,8 +39,6 @@
 - Multi-model / agent-agnostic
 - Cloud + local agent compatible
 
-**Clike** is not just an agent that writes code; it is an AI-native pipeline / platform that orchestrates verifiable capabilities across specs, plans, code, tests, reviews, and release gates.
-
 **CLike** is an AI-native platform that merges the **Harper-style** pipeline with the **Vibe Coding** philosophy and operationalizes it through:
 
 - a VS Code extension;
@@ -53,12 +51,11 @@
 - eval-driven governance;
 - MCP surfaces for agent interoperability.
 
-CLike is not just a chat panel. It is a governed software-generation pipeline.
 
 The core workflow is:
 
 ```text
-IDEA → SPEC → PLAN → KIT → EVAL → GATE → FINALIZE (*)
+IDEA → SPEC → PLAN → KIT → EVAL → GATE → FINALIZE
 ```
 
 The main operating principle is:
@@ -97,16 +94,16 @@ Eval and Gate decide.
 | - Local file writes   | <---+ | - Eval/Gate semantics   |       | - Provider normal. |  |    |                        |
 | - Git integration     |     | | - RAG endpoints         |       +----------^---------+  |    +------------------------+
 | - RAG collector       |     | | - Orchestrator MCP srv. |                               |
-| - Local agent actuator|     | +------------^------------+                               |							
+| - Local agent actuator|     | +------------^------------+                               |	
 | - Extension MCP server|     |              |                 +------------+             |
 +-----------------------+     |              |                 |    RAG     |             |
             ^                 |              |<--------------> +------------|             |     +------------------------+
             |                 |              |                 |  Vector DB |             |     | LOCAL PROVIDERS.       |
             |                 v              |                 +------------+             +--- >+------------------------+
             |       +-----------------------------------+                                       | - OLLAMA               |
-            +-------|              AGENTS               |                                       | - DeepSeek             | 
-                    | (Autonomous execution units)      |				          	            +------------------------+
-                    +-----------------------------------+						
+            +-------|              AGENTS               |                                       | - DeepSeek             |
+                    | (Autonomous execution units)      |				          	                    +------------------------+
+                    +-----------------------------------+						                                                      
 
 ```
 
@@ -321,7 +318,7 @@ KIT can run through:
 
 | Command | Description |
 |---|---|
-| `/finalize` | Runs the final closure step for Harper workflows. |
+| `/finalize` | Runs the final closure step for Harper workflows vai agent or cloud. |
 
 When there are no open or in-progress REQs, Model 2 tools report `finalize_only`.
 
@@ -424,6 +421,11 @@ Examples:
 - `local-cloud-parity`
 - `eval-contract-writer`
 - `gate-risk-reviewer`
+- `mvp-e2e-promotability`
+- `backoffice-workflow-ux`
+- `enterprise-solution-architecture`
+- `secure-config-secrets`
+
 
 A skill tells PLAN/KIT/EVAL/GATE what must be done, what must not be done, what evidence is required, and when Gate should block promotion.
 

@@ -164,11 +164,74 @@ If tests are shallow:
 - add failure-path tests;
 - add contract tests around boundaries.
 
+If promoted or dependency tests become stale because the current REQ intentionally extends behavior:
+
+- do not modify canonical `test/` or `tests/` roots during KIT;
+- add an updated same-relative-path test under `runs/kit/<REQ-ID>/test/` so the official eval overlay shadows stale expectations;
+- preserve the original regression intent while updating expected additive behavior;
+- prefer scoped queries and unique accessible names over positional selectors;
+- do not delete meaningful assertions to hide regressions.
+
 If external services are unavailable:
 
 - split local deterministic checks from opt-in external checks;
 - keep local checks blocking;
 - mark external checks as non-blocking or environment-blocked.
+
+## MVP and Solution Runnability Evidence
+
+When `mvp-e2e-promotability`, `enterprise-solution-architecture`, `backoffice-workflow-ux`, or an enterprise pack is selected, validation artifacts must include evidence appropriate to the selected scope.
+
+For backend/API work, prefer:
+
+- app import or boot check;
+- route/API smoke check;
+- service behavior tests;
+- failure-path tests;
+- local fake/in-memory adapter checks when external infrastructure is unavailable.
+
+For frontend/UI work, prefer:
+
+- route/page smoke checks;
+- component state tests;
+- build/type/lint checks;
+- API client boundary checks;
+- accessibility-oriented assertions where tooling exists.
+
+For Node/TypeScript frontend work:
+
+- install dependencies through the runnable package manifest used by the execution area;
+- keep Vitest/Jest/ESLint/TypeScript config files inside the same runnable package root when they import package dependencies;
+- when tests live outside the package root, make all external test imports explicitly resolvable through runner aliases or equivalent package-root resolution;
+- declare every imported test dependency in devDependencies, including @testing-library/react, @testing-library/user-event, @testing-library/jest-dom, jest-axe, jsdom, vitest, and framework-specific test helpers;
+- do not remove meaningful tests to hide dependency-resolution failures.
+
+For Node/TypeScript frontend work:
+
+- install dependencies through the runnable package manifest used by the execution area;
+- keep Vitest/Jest/ESLint/TypeScript config files inside the same runnable package root when they import package dependencies;
+- when tests live outside the package root, make all external test imports explicitly resolvable through runner aliases or equivalent package-root resolution;
+- declare every imported test dependency in devDependencies, including @testing-library/react, @testing-library/user-event, @testing-library/jest-dom, jest-axe, jsdom, vitest, and framework-specific test helpers;
+- do not remove meaningful tests to hide dependency-resolution failures.
+
+For full-stack work, prefer:
+
+- local backend run/check command;
+- local frontend run/build command;
+- route parity check when frontend calls backend APIs;
+- `.env.example` validation;
+- HOWTO commands aligned with actual scripts.
+
+For FINALIZE, validation artifacts should verify:
+
+- manifest parse;
+- script presence;
+- backend/frontend boot or build;
+- route/API parity when applicable;
+- junk artifact cleanup;
+- docs truthfulness against actual commands.
+
+Do not claim MVP or solution runnability without executable evidence.
 
 ## Gate Impact
 

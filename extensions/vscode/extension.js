@@ -509,7 +509,21 @@ async function collectKitRagItems(workspaceRoot, reqId, opts = {}) {
       const relPath = relBase ? path.posix.join(relBase, name) : name;
 
       if (type === vscode.FileType.Directory) {
-        if (name === '__pycache__' || name === '.pytest_cache' || name === 'node_modules') {
+        if ([
+          '__pycache__',
+          '__MACOSX',
+          '.pytest_cache',
+          '.ruff_cache',
+          '.mypy_cache',
+          '.next',
+          '.turbo',
+          '.cache',
+          'node_modules',
+          'dist',
+          'build',
+          'out',
+          'coverage',
+        ].includes(name)) {
           continue;
         }
 
@@ -586,8 +600,136 @@ async function collectKitRagItems(workspaceRoot, reqId, opts = {}) {
   return items;
 }
 
-const HARPER_REQUEST_TIMEOUT_MS = 35 * 60 * 1000; // 35 minuti #porcocazzo il timeout ...maybe too long
+const LOCAL_AGENT_COMPLETE_MAX_FILES = 500;
+const LOCAL_AGENT_COMPLETE_MAX_TOTAL_CHARS = 8 * 1024 * 1024;
 
+const LOCAL_AGENT_EXCLUDED_ARTIFACT_SEGMENTS = new Set([
+  '.git',
+  '.venv',
+  'node_modules',
+  '.next',
+  'dist',
+  'build',
+  'out',
+  'coverage',
+  '.turbo',
+  '.cache',
+  '.pytest_cache',
+  '.ruff_cache',
+  '.mypy_cache',
+  '__pycache__',
+  '__MACOSX',
+]);
+
+const LOCAL_AGENT_EXCLUDED_ARTIFACT_FILENAMES = new Set([
+  '.DS_Store',
+  'tsconfig.tsbuildinfo',
+]);
+
+function localAgentArtifactPath(artifact) {
+  return String(artifact?.path || artifact?.file || artifact?.name || '').replace(/\\/g, '/');
+}
+
+function localAgentArtifactSizeChars(artifact) {
+  if (!artifact || typeof artifact !== 'object') return 0;
+
+  if (typeof artifact.content === 'string') {
+    return artifact.content.length;
+  }
+
+  if (typeof artifact.text === 'string') {
+    return artifact.text.length;
+  }
+
+  if (typeof artifact.bytes_b64 === 'string') {
+    return artifact.bytes_b64.length;
+  }
+
+  if (typeof artifact.content_base64 === 'string') {
+    return artifact.content_base64.length;
+  }
+
+  try {
+    return JSON.stringify(artifact).length;
+  } catch {
+    return 0;
+  }
+}
+
+function shouldSendLocalAgentCompleteArtifact(artifact) {
+  const relPath = localAgentArtifactPath(artifact);
+  if (!relPath) return false;
+
+  const parts = relPath.split('/').filter(Boolean);
+  const filename = parts[parts.length - 1] || '';
+
+  if (LOCAL_AGENT_EXCLUDED_ARTIFACT_FILENAMES.has(filename)) {
+    return false;
+  }
+
+  if (parts.some((part) => LOCAL_AGENT_EXCLUDED_ARTIFACT_SEGMENTS.has(part))) {
+    return false;
+  }
+
+  return true;
+}
+
+function pruneLocalAgentCompleteArtifacts(artifacts, phaseForAgent, reqForAgent) {
+  const phase = String(phaseForAgent || '').trim().toLowerCase();
+  const req = String(reqForAgent || '').trim().toUpperCase();
+
+  const filtered = (Array.isArray(artifacts) ? artifacts : []).filter((artifact) => {
+    if (!shouldSendLocalAgentCompleteArtifact(artifact)) {
+      return false;
+    }
+
+    const relPath = localAgentArtifactPath(artifact);
+
+    if (phase === 'eval') {
+      const reqPrefix = `runs/kit/${req}/`;
+      if (!relPath.startsWith(reqPrefix)) {
+        return false;
+      }
+
+      return (
+        relPath.startsWith(`${reqPrefix}ci/`) ||
+        relPath.startsWith(`${reqPrefix}docs/`) ||
+        relPath.startsWith(`${reqPrefix}reports/`) ||
+        relPath.startsWith(`${reqPrefix}test/`)
+      );
+    }
+
+    return true;
+  });
+
+  const kept = [];
+  let totalChars = 0;
+
+  for (const artifact of filtered) {
+    if (kept.length >= LOCAL_AGENT_COMPLETE_MAX_FILES) {
+      break;
+    }
+
+    const sizeChars = localAgentArtifactSizeChars(artifact);
+    if (totalChars + sizeChars > LOCAL_AGENT_COMPLETE_MAX_TOTAL_CHARS) {
+      break;
+    }
+
+    kept.push(artifact);
+    totalChars += sizeChars;
+  }
+
+  return {
+    files: kept,
+    original_count: Array.isArray(artifacts) ? artifacts.length : 0,
+    filtered_count: filtered.length,
+    kept_count: kept.length,
+    total_chars: totalChars,
+    truncated: kept.length < filtered.length,
+  };
+}
+
+const HARPER_REQUEST_TIMEOUT_MS = 35 * 60 * 1000; // 35 minuti #porcocazzo il timeout ...maybe too long
 async function callHarper(cmd, payload, headers, opts = {}) {
   const base =
     vscode.workspace.getConfiguration().get("clike.orchestratorUrl") ||
@@ -749,6 +891,29 @@ async function executeLocalAgentPackage({
     );
   }
 
+  const completeArtifacts = pruneLocalAgentCompleteArtifacts(
+    candidateArtifacts,
+    phaseForAgent,
+    reqForAgent
+  );
+
+  log(
+    `[harperRun][agent] local-agent/complete artifact pruning ` +
+    `phase=${phaseForAgent} req=${reqForAgent} ` +
+    `original=${completeArtifacts.original_count} ` +
+    `filtered=${completeArtifacts.filtered_count} ` +
+    `kept=${completeArtifacts.kept_count} ` +
+    `chars=${completeArtifacts.total_chars} ` +
+    `truncated=${completeArtifacts.truncated}`
+  );
+
+  if (!completeArtifacts.files.length) {
+    throw new Error(
+      `${executorLabel} completed but no safe local-agent/complete artifacts remained after filtering. ` +
+      `original=${completeArtifacts.original_count}`
+    );
+  }
+
   const completeBody = {
     phase: phaseForAgent,
     req_id: reqForAgent,
@@ -761,10 +926,20 @@ async function executeLocalAgentPackage({
     forbidden_paths: Array.isArray(localAgentPackage.forbidden_paths)
       ? localAgentPackage.forbidden_paths
       : [],
+    infra_profile: localAgentPackage.infra_profile || null,
+    runtime_service_profile: localAgentPackage.runtime_service_profile || null,
+    cloud_provisioning_profile: localAgentPackage.cloud_provisioning_profile || null,
     exit_code: agentResult.exitCode,
     stdout: agentResult.stdout || '',
     stderr: agentResult.stderr || '',
-    files: candidateArtifacts,
+    files: completeArtifacts.files,
+    artifact_pruning: {
+      original_count: completeArtifacts.original_count,
+      filtered_count: completeArtifacts.filtered_count,
+      kept_count: completeArtifacts.kept_count,
+      total_chars: completeArtifacts.total_chars,
+      truncated: completeArtifacts.truncated,
+    },
   };
 
   const completeGateway = await callHarper('local-agent/complete', completeBody, headers, {
@@ -2887,6 +3062,26 @@ async function cmdOpenChat(context) {
 
   clikeChatPanel = panel;
 
+  const originalPostMessage = panel.webview.postMessage.bind(panel.webview);
+  panel.webview.postMessage = (message, ...args) => {
+    try {
+      if (
+        message &&
+        message.type === 'busy' &&
+        message.on === false &&
+        clikeHarperBlockingRun &&
+        message.force !== true
+      ) {
+        out.appendLine('[CLike][busy] suppressed premature busy=false during Harper blocking run');
+        return Promise.resolve(true);
+      }
+    } catch {
+      // Fall through to the original postMessage.
+    }
+
+    return originalPostMessage(message, ...args);
+  };
+
   panel.onDidDispose(() => {
     if (clikeChatPanel === panel) {
       clikeChatPanel = null;
@@ -3574,6 +3769,8 @@ async function cmdOpenChat(context) {
           //log(`[harperRun] body (core_blobs):`,  JSON.stringify(body.core_blobs))
           if (activeProvider) _headers["X-CLike-Provider"] = activeProvider
           harperTimeout = cfg().harperTimeout;
+          clikeHarperBlockingRun = true;
+          panel.webview.postMessage({ type: 'busy', on: true });
           let outGateway = await callHarper(cmd, body, _headers, { timeoutMs: 1000 * 60 * harperTimeout} );
           let _out = outGateway.out;
 
@@ -3613,21 +3810,38 @@ async function cmdOpenChat(context) {
                 return;
               }
 
+              const errText = err?.message || String(err);
+              const rejectedByNormalizer = /^Orchestrator rejected local-agent result:/i.test(errText);
+
+              if (phase === 'finalize' && rejectedByNormalizer) {
+                panel.webview.postMessage({ type: 'busy', on: false });
+                panel.webview.postMessage({
+                  type: 'error',
+                  message:
+                    `FINALIZE local agent produced candidate artifacts but CLike rejected them during normalization. ` +
+                    `Cloud fallback is blocked to avoid overwriting stronger local-agent source artifacts with weaker cloud documentation. ` +
+                    `Reason: ${errText}`
+                });
+                return;
+              }
+
               panel.webview.postMessage({
                 type: 'echo',
-                message: `⚠ Local agent failed. Falling back to current CLike cloud path. Reason: ${err?.message || String(err)}`
+                message: `⚠ Local agent failed. Falling back to current CLike cloud path. Reason: ${errText}`
               });
 
               const fallbackBody = {
                 ...body,
                 executionPreference: 'cloud_only',
-                localAgentFallbackReason: err?.message || String(err),
+                localAgentFallbackReason: errText,
                 runtimeSelectionGuardrails: [
                   'Do not infer implementation language from lane alone.',
-                  'Use TECH_CONSTRAINTS.yaml and SPEC.md as the primary runtime source of truth.',
+                  'Use TECH_CONSTRAINTS.yaml, SPEC.md, PLAN.md, plan.json, manifests, scripts, and repository structure as the primary runtime source of truth.',
                   'Use repository manifests and existing launchers before creating new runtime entrypoints.',
                   'Use Python only when project evidence explicitly identifies Python as the implementation stack.',
                   'Use Node/npm only when package.json or project evidence identifies a Node ecosystem.',
+                  'If this is a fallback after a local-agent failure, generated documentation must explicitly say it is fallback output and must not contradict source files, manifests, run scripts, or boundaries already present in the workspace.',
+                  'Do not claim source behavior was unchanged if source/config/runtime files are present in collected artifacts or known workspace evidence.',
                 ],
               };
 
@@ -3763,8 +3977,10 @@ async function cmdOpenChat(context) {
           panel.webview.postMessage({ type: 'busy', on: false }) 
           panel.webview.postMessage({ type: 'error', message: (e?.message || String(e)) });
         }
-        panel.webview.postMessage({ type: 'busy', on: false }) 
+        clikeHarperBlockingRun = false;
+        panel.webview.postMessage({ type: 'busy', on: false, force: true });
       }
+      //Harper Evals
       //Harper Evals
       if (msg.type === 'harperEDD' ) {
         let targets, targetReqId
@@ -3841,6 +4057,9 @@ async function cmdOpenChat(context) {
           return;
         }
         var report = {}
+
+        clikeHarperBlockingRun = true;
+        panel.webview.postMessage({ type: 'busy', on: true });
 
         var files_git = []
         let callGit =true;
@@ -4135,9 +4354,12 @@ async function cmdOpenChat(context) {
           model:  state.model || 'auto',
         });
         panel.webview.postMessage({ type: 'echo', message: "✔ " + report.summary } );
-        panel.webview.postMessage({ type: 'busy', on: false });
+        clikeHarperBlockingRun = false;
+        panel.webview.postMessage({ type: 'busy', on: false, force: true });
 
       } 
+
+      
      
       if (msg.type === 'ragIndex') {
       // opzionale: msg.glob (stringa). Riusiamo la logica del comando palette.
@@ -4681,7 +4903,7 @@ async function cmdOpenChat(context) {
         if (!Array.isArray(lastFiles) || !lastFiles.length) {
           panel.webview.postMessage({ type: 'error', message: 'Nothing to apply: no run_dir/audit_id and no cached files.' });
           panel.webview.postMessage({ type: 'busy', on: false });
-;
+
         }
 
         // Filtra per i path selezionati (se presenti), altrimenti applica tutto
@@ -4865,9 +5087,12 @@ async function cmdOpenChat(context) {
       }
 
     } catch (err) {
-      
+      if (clikeHarperBlockingRun) {
+        clikeHarperBlockingRun = false;
+      }
+
       panel.webview.postMessage({ type: 'error', message: String(err) });
-      panel.webview.postMessage({ type: 'busy', on: false });
+      panel.webview.postMessage({ type: 'busy', on: false, force: true });
     }
     panel.webview.postMessage({ type: 'busy', on: false });
   });
