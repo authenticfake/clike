@@ -294,12 +294,28 @@ def _case_payload(case: Any) -> Dict[str, Any]:
 
 
 def _eval_payload(rep: EvalReport, req_id: Optional[str]) -> Dict[str, Any]:
+    blocking_failures = [
+        c.name for c in rep.cases
+        if not c.passed and c.blocking
+    ]
+    environment_blocked = [
+        c.name for c in rep.cases
+        if not c.passed and c.blocked
+    ]
+    quality_passed = rep.status == "PASS" and not blocking_failures
+    promotable = quality_passed and not environment_blocked and rep.blocked == 0 and rep.warnings == 0
+
     return {
         "profile": rep.profile,
         "req_id": rep.req_id,
         "mode": rep.mode,
         "status": rep.status,
-        "passed": rep.status in {"PASS", "PASS_WITH_WARNINGS"},
+        "passed": promotable,
+        "execution_ok": not environment_blocked,
+        "quality_passed": quality_passed,
+        "promotable": promotable,
+        "blocking_failures": blocking_failures,
+        "environment_blocked": environment_blocked,
         "failed": rep.failed,
         "passed_count": rep.passed,
         "blocked_count": rep.blocked,

@@ -85,13 +85,15 @@ class EvalRunner:
             )
             stderr = proc.stderr or ""
             stdout = proc.stdout or ""
-            blocked = self._is_environment_blocked(
-                code=proc.returncode,
-                stdout=stdout,
-                stderr=stderr,
-                environment_requirements=environment_requirements or [],
-            )
             ok = proc.returncode == expect
+            blocked = False
+            if not ok:
+                blocked = self._is_environment_blocked(
+                    code=proc.returncode,
+                    stdout=stdout,
+                    stderr=stderr,
+                    environment_requirements=environment_requirements or [],
+                )
 
             if blocked and not ok:
                 stderr = (
@@ -148,6 +150,10 @@ class EvalRunner:
         environment_requirements: List[str],
     ) -> bool:
         text = f"{stdout}\n{stderr}".lower()
+
+        if code not in {126, 127} and self._looks_like_executed_diagnostic_failure(text):
+            return False
+
         if "cannot find module './" in text or 'cannot find module "../' in text:
             return False
         if code == 127:
@@ -206,6 +212,23 @@ class EvalRunner:
             return True
 
         return bool(environment_requirements) and code in {126, 127}
+
+    def _looks_like_executed_diagnostic_failure(self, text: str) -> bool:
+        """Return True when a quality tool ran and emitted actionable diagnostics."""
+        diagnostic_markers = [
+            r"error ts\d+:",
+            r"\btsc\b.*--noemit",
+            r"\beslint\b.*\b(error|errors)\b",
+            r"\bprettier\b.*\b(error|errors|failed)\b",
+            r"\bpytest\b.*\bfailed\b",
+            r"\bvitest\b.*\bfailed\b",
+            r"\bjest\b.*\bfailed\b",
+            r"\bnode --test\b.*\bfail\b",
+            r"found \d+ vulnerabilit",
+            r"\bcritical\b.*\bvulnerabilit",
+            r"\bhigh\b.*\bvulnerabilit",
+        ]
+        return any(re.search(marker, text, flags=re.IGNORECASE | re.DOTALL) for marker in diagnostic_markers)
 
     def _safe_req_id(self, req_id: Optional[str]) -> str:
         raw = req_id or "REQ-UNKNOWN"
@@ -697,7 +720,7 @@ class EvalRunner:
                 )
 
                 required = command.get("required", True)
-                blocking = bool(required)
+                blocking = bool(command.get("blocking", required))
 
                 norm_cases.append(
                     {
@@ -733,7 +756,7 @@ class EvalRunner:
                         "expect": int(raw.get("expect", 0)) if isinstance(raw, dict) else 0,
                         "timeout": raw.get("timeout") if isinstance(raw, dict) else None,
                         "env": raw.get("env") if isinstance(raw, dict) else {},
-                        "blocking": bool(raw.get("required", True)) if isinstance(raw, dict) else True,
+                        "blocking": bool(raw.get("blocking", raw.get("required", True))) if isinstance(raw, dict) else True,                       
                         "environment_requirements": raw.get("environment_requirements") if isinstance(raw, dict) else [],
                     }
                 )
@@ -1371,15 +1394,15 @@ class EvalRunner:
         passed = sum(1 for case in cases if case.passed)
         blocked = sum(1 for case in cases if case.blocked)
         hard_failed = sum(
-            1 for case in cases if not case.passed and not case.blocked and case.blocking
+            1 for case in cases if not case.passed and case.blocking
         )
         warnings = sum(
-            1 for case in cases if not case.passed and (case.blocked or not case.blocking)
+            1 for case in cases if not case.passed and not case.blocking
         )
 
         if hard_failed > 0:
             status = "FAIL"
-        elif warnings > 0 or blocked > 0:
+        elif warnings > 0:
             status = "PASS_WITH_WARNINGS"
         else:
             status = "PASS"

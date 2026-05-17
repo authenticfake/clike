@@ -2543,6 +2543,22 @@ def _detect_finalize_runtime_service_profile(payload: Dict[str, Any]) -> Dict[st
         "secrets": {"providers": [], "evidence": []},
     }
 
+    migration_tool_details: Dict[str, Any] = {"tools": [], "evidence": []}
+    migration_tool_detectors = {
+        "alembic": ("alembic", "alembic.ini", "script_location", "env.py", "versions/"),
+        "flyway": ("flyway", "flyway.conf", "db/migration", "V1__", "baselineOnMigrate"),
+        "liquibase": ("liquibase", "changelog", "databaseChangeLog", "liquibase.properties"),
+        "prisma": ("prisma", "schema.prisma", "prisma migrate"),
+        "knex": ("knex", "knexfile", "knex migrate"),
+        "ef-core": ("entity framework", "ef migrations", "dotnet ef", "DbContext"),
+        "rails": ("rails db:migrate", "ActiveRecord::Migration"),
+    }
+    for tool, terms in migration_tool_detectors.items():
+        matched = [term for term in terms if _has_any_term(blob, (term,))]
+        if matched:
+            migration_tool_details["tools"].append(tool)
+            migration_tool_details["evidence"].extend(matched[:5])
+
     for engine, terms in engine_detectors.items():
         matched = [term for term in terms if _has_any_term(blob, (term,))]
         if matched:
@@ -2647,6 +2663,15 @@ def _detect_finalize_runtime_service_profile(payload: Dict[str, Any]) -> Dict[st
         "detected_services": detected_services,
         "categories": categories,
         "service_details": service_details,
+        "migration_tool_profile": {
+            "tools_detected": bool(migration_tool_details["tools"]),
+            "detected_tools": sorted(set(migration_tool_details["tools"])),
+            "evidence": sorted(set(migration_tool_details["evidence"])),
+            "policy": (
+                "When a migration tool is evidenced, finalize must emit or preserve the stack-native migration configuration "
+                "and migration environment files required to run migrations. Do not assume a migration tool without evidence."
+            ),
+        },
         "required_outputs_when_detected": sorted(set(required_outputs)),
         "policy": (
             "When runtime services are evidenced, finalize must make the solution boundary-ready: "
@@ -3430,6 +3455,7 @@ def build_finalize_local_agent_package(
             "- If infra_profile.infra_detected is true, use infra_profile.detected_targets to create stack-native but safe-by-default infra readiness docs and scripts.",
             "- If runtime_service_profile.services_detected is true, use runtime_service_profile.detected_services and categories to create or update DB/auth/broker/cache/object-storage/secrets boundary docs, env placeholders, and safe checks.",
             "- If a database service is detected, provide a real database boundary: stack-native connection/config placeholders, DB readiness checks, and migration/init guidance when evidenced. Do not leave production docs describing only in-memory persistence unless explicitly allowed by the project contract. Do not move the DB boundary to TODO_NEXT merely because real credentials are unavailable; use safe placeholders and source/config seams.",
+            "- If a migration tool is evidenced, emit or preserve the stack-native migration runner configuration and migration environment file required by that tool. For Alembic only when evidenced, emit root alembic.ini plus the evidenced migrations env.py under the migrations root, reusing existing profile/env modules such as src/**/profiles/env.py when present.",
             "- For Python projects, if a database service is detected and no source-level DB boundary exists, create or update a small stack-native boundary module such as src/**/db.py or src/**/database.py. When SQLAlchemy is evidenced, prefer an env-driven engine/session boundary with database_url(), engine/session factory, and session_scope()/get_session(). Do not hardcode PostgreSQL-specific behavior unless the engine is evidenced.",
             "- For database-backed projects, if a database service is detected and no source-level DB boundary exists, create or update a small stack-native boundary module or configuration file dedicated to data persistence. When an ORM or data mapper is evidenced, prefer an env-driven connection/session boundary with a connection string parser, connection/session factory, and session context manager. Do not hardcode engine-specific behavior unless that specific database engine is evidenced.",
             "- If an auth service is detected, provide a real authentication configuration boundary: issuer/client/JWKS/audience/realm/SAML metadata placeholders as applicable, auth readiness checks, and truthful blocked checks when the provider is unavailable. Do not move auth configuration to TODO_NEXT merely because real credentials are unavailable; use safe placeholders and source/config seams.",

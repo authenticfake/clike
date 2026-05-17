@@ -23,6 +23,7 @@ Do not claim solution runnability, route parity, composition completion, local b
 - If cloud provider evidence exists, cloud finalize must emit cloud inventory, provision plan, guarded apply, and deployment check scripts. Mutating scripts must fail closed unless `CLIKE_ALLOW_CLOUD_MUTATION=1` is set.
 - README.md must be a merge between useful existing README content and IDEA/SPEC/PLAN facts: vision, scope, architecture, runtime, configuration, local run, infra/deploy readiness, checks, and known gaps.
 - Cloud finalize may emit source/config/runtime file patches when required to make the solution coherent, configurable, boundary-complete, and runnable. It must keep patches minimal, repository-aware, and evidence-based.
+- If a migration tool is evidenced, cloud finalize must emit or preserve the stack-native migration runner configuration and migration environment file required by that tool. For Alembic only when evidenced, this means root `alembic.ini` plus the evidenced migrations `env.py` under the migrations root, reusing existing profile/env modules such as `src/**/profiles/env.py` when present. Do not assume Alembic unless evidenced.
 - Prefer completing evidenced canonical app/launcher/runtime files over creating parallel dev/demo apps. Detect the canonical runtime from TECH_CONSTRAINTS.yaml, SPEC, PLAN, plan.json, manifests, scripts, and repository structure.
 - Do not emit a parallel demo/dev runtime as the primary finalize runtime when the evidenced canonical runtime can be patched. Do not assume Python, FastAPI, Node, Java, .NET, Go, Rust, PHP, or any stack unless evidenced.
 - If a database service is evidenced, local run must remain database-configurable. Do not replace the evidenced database boundary with implicit in-memory persistence. Missing live credentials may block runtime service checks, but must not justify fake in-memory production completeness.
@@ -103,7 +104,8 @@ You are Finalize. Produce the final files for a CLike run.
 
 20) `BEGIN_FILE scripts/check_deployment.ps1` … `END_FILE` when deployment checks can be expressed from evidence.
 
-21) Additional `BEGIN_FILE src/...`, `BEGIN_FILE infra/...`, `BEGIN_FILE deploy/...`, `BEGIN_FILE schemas/...`, `BEGIN_FILE migrations/...`, `BEGIN_FILE db/...`, `BEGIN_FILE connectors/...`, or root manifest blocks only when required to make the final solution coherent and directly supported by repository evidence. When runnability is evidenced but incomplete, prefer emitting minimal patches for the stack-native canonical composition/launcher files detected from TECH_CONSTRAINTS.yaml, SPEC, PLAN, plan.json, manifests, scripts, and repository structure. Do not create a parallel dev/demo runtime.
+21) Additional `BEGIN_FILE src/...`, `BEGIN_FILE infra/...`, `BEGIN_FILE deploy/...`, `BEGIN_FILE schemas/...`, `BEGIN_FILE migrations/...`, `BEGIN_FILE db/...`, `BEGIN_FILE connectors/...`, root manifests, or stack-native migration config blocks such as `BEGIN_FILE alembic.ini` only when required to make the final solution coherent and directly supported by repository evidence.
+When runnability is evidenced but incomplete, prefer emitting minimal patches for the stack-native canonical composition/launcher files detected from TECH_CONSTRAINTS.yaml, SPEC, PLAN, plan.json, manifests, scripts, and repository structure. Do not create a parallel dev/demo runtime.
 
 BEGIN_FILE README.md
 ### README.md (root, GitHub grade)
