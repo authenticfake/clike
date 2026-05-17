@@ -301,7 +301,7 @@ auto
 
 ### KIT flow
 
-The extension supports base KIT execution plus optional follow-up phases.
+The extension supports both cloud-native and local-agent KIT execution models.
 
 | Command | Description |
 |---|---|
@@ -312,8 +312,110 @@ The extension supports base KIT execution plus optional follow-up phases.
 | `/kit REQ-001 --promotion-eval` | Runs `promotion_eval`. |
 | `/kit REQ-001 --phases=kit,integrity_eval,promotion_hardener,promotion_eval` | Runs an explicit chained multi-phase KIT pipeline. |
 
-KIT may execute through:
+KIT execution can run through:
 
+- cloud execution;
+- local-agent execution;
+- hybrid execution.
+
+### Cloud KIT execution
+
+Cloud KIT routes execution through:
+- OpenAI models;
+- Anthropic models;
+- Gateway-routed providers;
+- future compatible cloud backends.
+
+Cloud execution is optimized for:
+- larger contextual reasoning;
+- multi-pass orchestration;
+- repository-wide synthesis;
+- architectural generation;
+- iterative refinement;
+- richer planning interaction.
+
+Cloud KIT may internally execute:
+- multiple reasoning loops;
+- chained refinement passes;
+- RAG expansion;
+- broader contextual analysis;
+- structured synthesis iterations.
+
+This execution mode is ideal for:
+- architecture-heavy requirements;
+- greenfield scaffolding;
+- broad repository reasoning;
+- high-context generation flows.
+
+### Local-agent KIT execution
+
+Local-agent KIT delegates implementation execution to:
+- Claude Code;
+- GPT Codex;
+- future local coding agents.
+
+The extension acts as the local execution actuator while the Orchestrator remains responsible for:
+- workflow governance;
+- runtime contracts;
+- REQ lifecycle;
+- evaluation;
+- promotion.
+
+Typical flow:
+
+```text
+Developer
+→ VS Code Extension
+→ Orchestrator
+→ Agent execution package
+→ Extension local actuator
+→ Claude Code or GPT Codex
+→ Candidate artifacts
+→ Orchestrator normalization
+→ Eval/Gate continue through CLike
+```
+
+The local agent receives structured execution context files such as:
+
+```text
+runs/kit/<REQ-ID>/docs/AGENT_EXECUTION_CONTEXT.json
+runs/kit/<REQ-ID>/docs/AGENT_PROMPT.md
+runs/kit/<REQ-ID>/docs/TARGET_CONTRACT.json
+runs/kit/<REQ-ID>/docs/FILE_REQUIREMENTS.json
+```
+
+Candidate artifacts must remain inside allowed candidate roots:
+
+```text
+runs/kit/<REQ-ID>/src
+runs/kit/<REQ-ID>/test
+runs/kit/<REQ-ID>/ci
+runs/kit/<REQ-ID>/docs
+runs/kit/<REQ-ID>/reports
+```
+
+Canonical repository roots remain protected.
+
+### Execution preferences
+
+Execution strategy may be configured through:
+- `cloud_only`
+- `local_agent_only`
+- `prefer_local_agent`
+- `prefer_claude_code`
+- `prefer_gpt_codex`
+- `hybrid`
+- `auto`
+
+The Orchestrator may dynamically select the best execution strategy depending on:
+- phase;
+- repository state;
+- runtime availability;
+- execution policy;
+- model capability;
+- workspace constraints.
+
+KIT may execute through:
 - cloud path;
 - local Claude Code path;
 - local GPT Codex path.
@@ -325,13 +427,154 @@ KIT may execute through:
 | `/eval <REQ-ID>` | Evaluates the current KIT output for that REQ. |
 | `/gate <REQ-ID>` | Runs gate checks and promotion logic for that REQ. |
 
-`/eval` can optionally run a local-agent pre-pass, but canonical eval remains CLike-owned.
+`/eval` supports:
+- cloud evaluation;
+- optional local-agent pre-pass evaluation;
+- hybrid evaluation flows.
+
+The authoritative eval and gate lifecycle always remains CLike-owned.
+
+### Cloud eval
+
+Cloud eval is optimized for:
+- repository-wide validation;
+- semantic analysis;
+- architecture consistency checks;
+- contract validation;
+- structured evaluation reporting;
+- broader contextual reasoning.
+
+Cloud evaluation may internally perform:
+- iterative analysis loops;
+- chained reasoning passes;
+- multi-stage validation;
+- RAG-assisted contextual inspection.
+
+Typical flow:
+
+```text
+Extension
+→ Orchestrator
+→ Cloud evaluation pipeline
+→ Structured eval report
+→ Gate preparation
+```
+
+### Local-agent eval pre-pass
+
+Local-agent eval acts as an optional pre-analysis step.
+
+Supported local evaluators include:
+- Claude Code;
+- GPT Codex;
+- future local agents.
+
+Typical flow:
+
+```text
+Extension
+→ Local agent
+→ Preliminary repository analysis
+→ Findings returned
+→ Canonical CLike eval continues
+```
+
+Local-agent eval may assist with:
+- implementation sanity checks;
+- repository inspection;
+- repair suggestions;
+- local reasoning loops.
+
+The canonical eval result remains governed by CLike.
+
+### Gate behavior
+
+`/gate` remains fully governance-owned by CLike.
+
+Gate is responsible for:
+- promotion validation;
+- lifecycle enforcement;
+- contract compliance;
+- eval verification;
+- quality policy enforcement;
+- promotability validation.
+
+Promotion occurs only when gate policies pass successfully.
+
+Gate may consume:
+- cloud eval outputs;
+- local-agent findings;
+- LTC artifacts;
+- repository state;
+- generated reports;
+- canonical workspace context.
+
+`/eval` can optionally run a local-agent pre-pass, but canonical eval and gate remain CLike-owned.
 
 ### Finalization
 
 | Command | Description |
 |---|---|
 | `/finalize` | Runs final gates and closure step for Harper workflows. |
+
+`/finalize` remains fully orchestration-owned by CLike.
+
+The finalize lifecycle is responsible for:
+- final governance validation;
+- unresolved REQ checks;
+- promotion integrity verification;
+- workflow closure;
+- lifecycle state completion;
+- optional repository-level summarization.
+
+### Cloud finalize
+
+Cloud finalize is optimized for:
+- repository-wide reasoning;
+- cross-REQ analysis;
+- architectural consistency validation;
+- release-oriented synthesis;
+- broader contextual orchestration.
+
+Cloud finalize may internally perform:
+- iterative reasoning passes;
+- repository-wide inspection;
+- contextual synthesis loops;
+- final validation refinement.
+
+Typical flow:
+
+```text
+Extension
+→ Orchestrator
+→ Cloud finalize pipeline
+→ Final governance checks
+→ Workflow closure
+```
+
+### Local-agent participation
+
+Local agents do not own finalize.
+
+They may optionally contribute:
+- final repair loops;
+- unresolved issue suggestions;
+- repository cleanup recommendations;
+- implementation refinement proposals.
+
+The authoritative finalize lifecycle always remains CLike-owned.
+
+### Finalization philosophy
+
+CLike intentionally separates:
+- reasoning orchestration;
+- implementation execution;
+- governance lifecycle ownership.
+
+This allows:
+- cloud models to maximize orchestration and reasoning depth;
+- local agents to maximize repository-aware implementation efficiency;
+- CLike to retain governance, promotion, eval, and lifecycle control.
 
 ### RAG
 

@@ -1123,6 +1123,8 @@ async function persistReports(projectRootUri, phase, rep, out, fallbackReqId = '
       cmd: c.cmd || c.run || undefined,
       cwd: c.cwd || undefined,
       expect: typeof c.expect === 'number' ? c.expect : undefined,
+      blocked: !!c.blocked,
+      blocking: c.blocking !== false,
       stdout: c.stdout || undefined,
       stderr: c.stderr || undefined
     }))
