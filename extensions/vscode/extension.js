@@ -491,7 +491,7 @@ async function collectKitRagItems(workspaceRoot, reqId, opts = {}) {
   const items = [];
 
   const CODE_EXTENSIONS = [
-    'ts', 'tsx', 'js', 'jsx', 'html', 'htm', 'css', 'scss', 'sass',
+    'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'html', 'htm', 'css', 'scss', 'sass',
     'java', 'cs', 'go', 'rs', 'swift', 'kt', 'm', 'mm', 'c', 'cpp', 'cc', 'h', 'hpp',
     'py', 'pyw', 'rb', 'pl', 'php', 'sh', 'bash', 'ps1', 'lua', 'dart',
     'json', 'yml', 'yaml', 'toml', 'ini', 'xml',
@@ -3271,6 +3271,8 @@ async function cmdOpenChat(context) {
           .vscode/
           runs/eval/.venvs/
           .env
+          runs/**/local-eval-workspaces/
+          local-eval-workspaces/
           runs/
           *.log
           `);
@@ -3954,8 +3956,12 @@ async function cmdOpenChat(context) {
             log(`[harperRAG] indexing ${allItems.length} KIT items for REQ(s): ${normalizedReq}`);
 
             if (allItems.length) {
-              await preIndexRag(project_id, allItems, urlRag, out);
-              log(`[harperRAG] indexed ${allItems.length} KIT items for REQ(s): ${normalizedReq}`);
+              const ragIndexResult = await preIndexRag(project_id, allItems, urlRag, out);
+              if (ragIndexResult && ragIndexResult.ok) {
+                log(`[harperRAG] indexed ${allItems.length} KIT items for REQ(s): ${normalizedReq}`);
+              } else {
+                log(`[harperRAG] KIT RAG indexing skipped for REQ(s): ${normalizedReq} -> ${ragIndexResult?.error || 'unknown error'}`);
+              }
 
             } else {
               log('[harperRAG] no KIT RAG items collected (nothing to index)');

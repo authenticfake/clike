@@ -28,6 +28,7 @@ Do not use this skill for purely frontend visual work, static documentation, or 
 - Keep external systems behind adapters or ports.
 - Preserve backward compatibility unless the REQ explicitly allows a breaking change.
 - Use typed errors or stable error responses where the stack supports them.
+- When tests or CI scripts assert error semantics, access custom error metadata only through the active language's safe narrowing, casting, matching, downcast, typed-exception, or adapter mechanism.
 - Include local deterministic tests for domain and boundary behavior.
 - Mark real external service checks as opt-in unless infrastructure is available.
 

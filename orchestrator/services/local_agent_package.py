@@ -114,6 +114,113 @@ def _extract_capability_manifest(payload: Dict[str, Any]) -> Dict[str, Any]:
         "selected_context_json_content": selected_context_json,
     }
 
+def _capability_manifest_for_agent_context(
+    req_id: str,
+    capability_manifest: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Keep AGENT_*_CONTEXT.json compact.
+
+    The full capability files are already written as standalone package files.
+    Re-embedding them inside AGENT_*_CONTEXT.json creates huge duplicated prompts
+    and weakens agent focus. The context should expose availability and paths;
+    the agent prompt tells the agent which files to read.
+    """
+    return {
+        "available": bool(capability_manifest.get("available")),
+        "manifest_name": capability_manifest.get("manifest_name") or "CLIKE_CAPABILITY_MANIFEST.md",
+        "manifest_path": f"runs/kit/{req_id}/docs/CLIKE_CAPABILITY_MANIFEST.md",
+        "index_name": capability_manifest.get("index_name") or "CLIKE_CAPABILITY_INDEX.json",
+        "index_available": bool(capability_manifest.get("index_available")),
+        "index_path": f"runs/kit/{req_id}/docs/CLIKE_CAPABILITY_INDEX.json",
+        "selected_context_name": capability_manifest.get("selected_context_name") or "CLIKE_SELECTED_CAPABILITY_CONTEXT.md",
+        "selected_context_available": bool(capability_manifest.get("selected_context_available")),
+        "selected_context_path": f"runs/kit/{req_id}/docs/CLIKE_SELECTED_CAPABILITY_CONTEXT.md",
+        "selected_context_json_name": capability_manifest.get("selected_context_json_name") or "CLIKE_SELECTED_CAPABILITY_CONTEXT.json",
+        "selected_context_json_path": f"runs/kit/{req_id}/docs/CLIKE_SELECTED_CAPABILITY_CONTEXT.json",
+        "usage": (
+            "Read the selected capability context file first when available. "
+            "Do not rely on duplicated embedded capability content in AGENT_*_CONTEXT.json."
+        ),
+    }
+
+
+def _dedupe_rules(rules: Any) -> List[str]:
+    """Deduplicate prompt/context rules while preserving first occurrence order."""
+    if not isinstance(rules, list):
+        return []
+
+    seen: set[str] = set()
+    out: List[str] = []
+
+    for item in rules:
+        text = _safe_text(item)
+        if not text:
+            continue
+
+        normalized = re.sub(r"\s+", " ", text).strip().lower()
+        normalized = normalized.removeprefix("- ").strip()
+
+        if normalized in seen:
+            continue
+
+        seen.add(normalized)
+        out.append(text)
+
+    return out
+
+
+def _render_compact_local_agent_prompt(
+    *,
+    phase: str,
+    req_id: str,
+    context_path: str,
+) -> str:
+    """Render a compact agent prompt and keep detailed policy in AGENT_*_CONTEXT.json."""
+    phase_label = phase.upper()
+    action = "generate the candidate KIT" if phase == "kit" else "harden the candidate KIT before canonical eval"
+
+    return "\n".join(
+        [
+            f"# Local Agent {phase_label} Package — {req_id}",
+            "",
+            "You are executing a CLike Harper local-agent package.",
+            "The orchestrator owns workflow state, policy, and promotion.",
+            "The VS Code extension is only the local actuator.",
+            "",
+            f"Target REQ: {req_id}",
+            f"Task: {action}.",
+            "",
+            "Read first:",
+            f"- {context_path}",
+            f"- runs/kit/{req_id}/docs/TARGET_CONTRACT.json when present",
+            f"- runs/kit/{req_id}/docs/FILE_REQUIREMENTS.json when present",
+            f"- runs/kit/{req_id}/docs/CLIKE_SELECTED_CAPABILITY_CONTEXT.md when present",
+            f"- runs/kit/{req_id}/docs/CLIKE_CAPABILITY_INDEX.json when present",
+            "",
+            "Execution rules:",
+            "Execution rules:",
+            "- Follow AGENT_*_CONTEXT.json as the source of truth.",
+            "- For EVAL hardening, if a REQ-local ci/package.json exists, run `npm install --prefix runs/kit/<REQ-ID>/ci --no-audit --no-fund` before declaring npm, TypeScript, lint, test, or security checks environment-blocked. This is a local declared dependency install, not a global install.",
+            "- For EVAL hardening, do not report TypeScript/tsc as environment-blocked until the REQ-local install command has been attempted and failed with concrete network, registry, filesystem, or policy evidence.",
+            "- Write only under allowed_write_roots.",
+            "- Do not modify canonical src/, test/, tests/, docs/harper, dependency KIT roots, or git metadata.",
+            "- Inspect dependency KITs and canonical roots before writing or repairing candidate files.",
+            "- Reuse existing contracts before creating new modules, helpers, adapters, or test utilities.",
+            "- Run the smallest relevant checks and report exact commands and outcomes.",
+            "- For EVAL hardening, repair from the actual failing diagnostics, not from generic policy. Read the failing command stdout/stderr, identify exact file:line diagnostics, patch only those candidate-owned files, then rerun the same failing command.",
+            "- Do not return the hardening pass as complete while the same blocking command still reports candidate-owned diagnostics of the same class, such as TS2339, TS18046, lint errors, syntax errors, or raw-secret findings in candidate-owned files.",
+            "- Continue focused repair/rerun cycles up to max_repair_cycles_inside_agent when the same check keeps failing with remaining candidate-owned diagnostics.",
+            "- For typecheck failures, repair candidate-owned source/tests/CI instead of reporting success or environment-blocked when the declared local dependencies can be installed.",
+            "- For union response shape failures, decide whether the missing field is part of the stable public contract. If yes, repair the service/producer response shape. If no, repair the test with explicit narrowing before field access.",
+            "- For caught errors typed as unknown, use a typed helper/adapter before asserting classification, retryable, status/statusCode, or domain failure categories.",
+            "- Do not weaken tests, type checks, security checks, gate policy, or public contracts to hide failures.",
+            "",
+            "Return a concise summary with files changed, commands run, checks passed/failed, and unresolved gaps.",
+        ]
+    )
+
+
 def _extract_req_from_plan(payload: Dict[str, Any], req_id: str) -> Dict[str, Any]:
     plan_json_text = _extract_core_blob(payload, "plan.json")
     if not plan_json_text:
@@ -682,56 +789,22 @@ def _build_recommended_outputs(
     payload: Optional[Dict[str, Any]] = None,
 ) -> List[str]:
     """
-    Build runtime-neutral recommended outputs.
+    Build role-based recommended outputs without inferring a language or ecosystem.
 
-    Dependency manifests must follow the project/runtime evidence.
+    CLike core must not choose package.json, requirements.txt, pyproject.toml,
+    go.mod, pom.xml, Cargo.toml, build.gradle, or any ecosystem-specific manifest
+    from keyword catalogs. The active runtime is inferred by the agent from
+    SPEC, PLAN, TECH_CONSTRAINTS, FILE_REQUIREMENTS, LTC/HOWTO, and repository
+    evidence.
     """
-    payload = payload or {}
-    blob = f"{_req_text_blob(req)}\n{_project_contract_text_blob(payload)}"
-
-    recommended = [
+    return [
         f"runs/kit/{req_id}/docs/README_{req_id}.md",
         f"runs/kit/{req_id}/docs/KIT_{req_id}.md",
+        (
+            f"runs/kit/{req_id}/ci/<runtime-native-eval-manifest> "
+            "when REQ-local eval commands require declared tools, scripts, or dependencies"
+        ),
     ]
-
-    node_markers = (
-        "node",
-        "node.js",
-        "nodejs",
-        "npm",
-        "npm run",
-        "package.json",
-        "javascript",
-        "typescript",
-        "react",
-        "vite",
-        "express",
-        "better-sqlite3",
-    )
-    python_markers = (
-        "python",
-        "pytest",
-        "ruff",
-        "mypy",
-        "fastapi",
-        "pyproject.toml",
-        "requirements.txt",
-    )
-
-    if any(token in blob for token in node_markers):
-        recommended.append(
-            f"runs/kit/{req_id}/ci/package.json when REQ-local npm scripts or dependencies are needed"
-        )
-    elif any(token in blob for token in python_markers):
-        recommended.append(
-            f"runs/kit/{req_id}/ci/requirements.txt only when the target implementation stack is Python"
-        )
-    else:
-        recommended.append(
-            f"runs/kit/{req_id}/ci/<runtime-native-dependency-manifest> only when needed"
-        )
-
-    return recommended
 
 
 
@@ -1247,6 +1320,7 @@ def build_kit_local_agent_package(
     standalone_capability_index = str(capability_manifest.get("index_content") or "")
     standalone_selected_capability_context = str(capability_manifest.get("selected_context_content") or "")
     standalone_selected_capability_context_json = str(capability_manifest.get("selected_context_json_content") or "")
+    context_capability_manifest = _capability_manifest_for_agent_context(req_id, capability_manifest)
 
     include_agent_input_audit = bool(
         payload.get("includeAgentInputAudit")
@@ -1354,8 +1428,9 @@ def build_kit_local_agent_package(
             "gate_expectations": req.get("gate_expectations") or [],
             "main_module_boundary": req.get("main_module_boundary"),
             "future_compatibility_notes": req.get("future_compatibility_notes") or [],
-            "manifest": capability_manifest,
+            "manifest": context_capability_manifest,
             "integrity": capability_integrity,
+
         },
         "target_contract": target_contract,
         "file_requirements": file_requirements,
@@ -1402,6 +1477,7 @@ def build_kit_local_agent_package(
             "recommended": [
                 f"runs/kit/{req_id}/ci/package.json for Node/npm KITs when source/tests need npm scripts or dependencies",
                 f"runs/kit/{req_id}/ci/requirements.txt only for Python KITs",
+                f"runs/kit/{req_id}/ci/pom.xml only for Java KITs",
                 
                 f"runs/kit/{req_id}/docs/README_{req_id}.md",
                 f"runs/kit/{req_id}/docs/KIT_{req_id}.md",
@@ -1438,6 +1514,15 @@ def build_kit_local_agent_package(
             "For additive frontend/backoffice REQs, do not leave promoted UI tests stale when the REQ adds routes, navigation entries, RBAC-visible sections, form fields, or capability pages. Update candidate tests to prove backward compatibility plus the intentional new behavior.",
             "Reuse before create: extend or integrate existing dependency KIT and promoted contracts/modules before creating new shared concepts, duplicate adapters, duplicate enums, duplicate launchers, or duplicate composition roots.",
             "Generated CI scripts must consume the official CLike eval workspace when checking runtime source/test behavior.",
+            "Generated raw-secret scanners must scan only candidate-owned evidence: runs/kit/<REQ-ID>/src, runs/kit/<REQ-ID>/test, runs/kit/<REQ-ID>/tests, runs/kit/<REQ-ID>/docs, and candidate-owned ci scripts/contracts.",
+            "Generated raw-secret scanners must never scan installed dependency, vendor, generated, cache, report, or temporary workspace directories such as node_modules, .git, .cache, .tmp, coverage, dist, build, local-eval-workspaces, __pycache__, .venv, .next, package-manager caches, or generated overlay workspaces.",
+            "Do not weaken secret patterns to hide findings. If a raw-secret finding is under candidate-owned source/test/docs/ci files, keep it blocking. If findings are only under dependency/vendor/generated directories, repair the scanner scope instead.",
+            "Dependency vulnerability, license, or supply-chain checks belong to separate SCA/audit gates such as npm audit, not to raw-secret scanning of node_modules README files.",
+            "Generated Node CI scripts, but for all CI scripts indipendent from language-specific tools (i.e.:python, java, ts, js, go, rust,  c, cpp, c#,...), that use mkdtemp, temporary overlays, local-eval-workspaces, or report directories must prefer CLIKE_EVAL_TEMP_ROOT when present, then create the parent directory first with mkdir(..., { recursive: true }) before writing or calling mkdtemp.",
+            "For typed or statically checked runtimes, generated source, tests, and CI scripts must access custom exception/error metadata only after using the language-native narrowing, casting, matching, or typed-exception mechanism.",
+            "Generated candidate tests must preserve assertions on error semantics, but must assert through a narrowed or adapted error value instead of directly reading fields from a generic exception/error/object.",
+            "Generated CI utility scripts must use small safe helper/adaptor functions for platform-specific error metadata such as code, errno, syscall, path, status/statusCode, cause, provider codes, classification, retryable, or domain failure categories.",
+            "Do not disable type checking, relax compiler/linter settings, remove meaningful assertions, or widen all failures to untyped catch-all values merely to pass EVAL. Repair candidate-owned code/tests/CI with language-idiomatic typed error handling.",
             "Generated static file-contract checks that validate KIT-local ci/docs artifacts must resolve the KIT root relative to the script location, not from CLIKE_EVAL_WORKSPACE, because the overlay workspace may intentionally omit ci/docs files.",
             "Generated CI scripts must not create a second temporary overlay when an official CLike eval workspace is available.",
             "Generated helpers such as createOverlayWorkspace, prepareWorkspace, buildWorkspace, composeWorkspace, or runtime-specific equivalents must first check the CLike eval workspace env contract and return it directly when available.",
@@ -1446,7 +1531,11 @@ def build_kit_local_agent_package(
             "This eval workspace rule is runtime-agnostic and applies to Node/JS/TS, Python, Java, Go, Rust, .NET, IaC, Mendix, PLC/SCADA, and custom enterprise runners.",
             "Package-manager script names must remain literal: commands such as npm run test, npm run lint, and npm run build must never be rewritten into npm run <absolute-path>.",
             "Generated code must be immediately promotable into canonical src/ and test roots without changing public contracts unexpectedly.",
-            "If the KIT emits runnable source or tests, emit the runtime-native KIT eval manifest needed to run them, such as ci/package.json for Node/npm or ci/requirements.txt for Python.",
+            "For typed or statically checked runtimes, generated source, tests, and CI scripts must access custom exception/error metadata only after using the language-native narrowing, casting, matching, typed-exception, or adapter mechanism.",
+            "Generated candidate tests must preserve assertions on error semantics, but must assert through a narrowed or adapted error value instead of directly reading fields from a generic exception/error/object.",
+            "Generated CI utility scripts must use small safe helper/adaptor functions for platform-specific error metadata such as code, errno, syscall, path, status/statusCode, cause, provider codes, classification, retryable, or domain failure categories.",
+            "Do not disable type checking, relax compiler/linter settings, remove meaningful assertions, or widen all failures to untyped catch-all values merely to pass EVAL. Repair candidate-owned code/tests/CI with language-idiomatic typed error handling.",
+            "If the KIT emits runnable source or tests, emit the runtime-native KIT eval manifest needed to run them, such as ci/package.json for Node/npm or ci/requirements.txt for Python.",            
             "If the KIT creates or updates a runnable execution area, also emit the ecosystem-native promotion-ready runtime manifest under runs/kit/<REQ-ID>/src/<execution-area>/.",
             "Composition root ownership is explicit: only create or replace a backend/frontend/service launcher when the REQ owns that execution area composition or when repository evidence shows no existing composition root. Otherwise contribute feature modules and update integration seams without stealing the launcher.",
             "If FILE_REQUIREMENTS.json marks execution_area_runtime_manifest or solution_composition_root as required=true, omitting that artifact is a blocking KIT defect: either emit the artifact or explicitly mark the KIT non-promotable with the missing role and reason.",
@@ -1466,6 +1555,7 @@ def build_kit_local_agent_package(
         ],
     }
 
+    context["hard_rules"] = _dedupe_rules(context.get("hard_rules") or [])
     context_json = json.dumps(context, indent=2, ensure_ascii=False)
 
     prompt = "\n".join(
@@ -1535,7 +1625,7 @@ def build_kit_local_agent_package(
             "Recommended candidate outputs:",
             f"- runs/kit/{req_id}/docs/README_{req_id}.md",
             f"- runs/kit/{req_id}/docs/KIT_{req_id}.md",
-            f"- runs/kit/{req_id}/ci/runtime-dependency manifest **MADATORY**, e.g. ci/package.json for Node/npm or ci/requirements.txt for Python",
+            f"- runs/kit/{req_id}/ci/runtime-dependency manifest **MANDATORY**, e.g. ci/package.json for Node/npm or ci/requirements.txt for Python",
             f"- runs/kit/{req_id}/ci/package.json for Node/npm KITs when source/tests need npm scripts or dependencies",
             f"- runs/kit/{req_id}/ci/requirements.txt only for Python KITs",
             "",
@@ -1558,14 +1648,21 @@ def build_kit_local_agent_package(
             - If package.json and npm scripts are present, prefer repository-native npm scripts such as `npm run test`, `npm run lint`, and `npm run build`.
             - Keep KIT/EVAL manifests under `runs/kit/<REQ-ID>/ci/`.
             - Generated CI scripts must consume the official CLike eval workspace when present: CLIKE_EVAL_WORKSPACE, CLIKE_EVAL_WORKSPACE_ROOT, CLIKE_EVAL_OVERLAY_WORKSPACE, or CLIKE_OVERLAY_WORKSPACE.
+            - Generated raw-secret scanners must scan only candidate-owned source, tests, docs, and CI scripts/contracts. They must exclude installed dependencies, vendor folders, generated overlays, caches, reports, and temporary workspaces, including node_modules, local-eval-workspaces, dist, build, coverage, .cache, .tmp, .git, __pycache__, .venv, and package-manager caches.
+            - Do not weaken secret regexes or remove meaningful security checks. If findings are inside candidate-owned files, keep the check blocking. If findings are only inside node_modules or generated/vendor/temp folders, repair the scanner scope.
+            - Node CI scripts that call mkdtemp or create local overlay/report/temp workspaces must call mkdir(parent, { recursive: true }) before mkdtemp or before writing files under that parent.
+            - Secret scanning is not dependency auditing. Do not scan node_modules README files for raw secrets; use a separate dependency/SCA gate for npm audit or equivalent checks.
             - Generated helpers such as createOverlayWorkspace, prepareWorkspace, buildWorkspace, composeWorkspace, or runtime-specific equivalents must first check the CLike eval workspace env contract and return it directly when available.
             - Do not create a second temporary overlay, recopy src/test/tests, or reconstruct dependency KIT composition when CLike EvalRunner has already provided an eval workspace.
             - Fallback overlay creation is allowed only for manual execution outside canonical CLike EvalRunner.
             - This rule is runtime-agnostic and applies to Node/JS/TS, Python, Java, Go, Rust, .NET, IaC, Mendix, PLC/SCADA, and custom enterprise runners.
+            - For typed or statically checked runtimes, do not read custom exception/error metadata from a generic error value. Narrow, cast, pattern-match, downcast, or adapt the error through the language-native mechanism before asserting fields such as code, classification, retryable, status/statusCode, errno, syscall, path, cause, provider error codes, or domain failure categories.
+            - Preserve meaningful failure-path assertions. Do not remove assertions, disable type checks, relax compiler/linter configuration, or hide failures by converting everything to untyped catch-all values.
+            - Use idiomatic mechanisms for the detected runtime: type guards/JSDoc narrowing for JavaScript or TypeScript, isinstance/custom exceptions for Python, errors.As/errors.Is for Go, checked/custom exception classes for Java, pattern matching or typed error variants for Rust, and typed exception filters/custom exception types for .NET.
+            - If generated CI utility code needs platform-specific error metadata, create a small local safe accessor/helper instead of reading implementation-specific fields directly from a generic error object.
             - If you create or update a runnable execution area, also emit the ecosystem-native promotion-ready runtime manifest under that execution area's candidate source root.
             - Runtime manifests must use paths relative to their own execution area root and must not contain runs/kit, ci/, temporary overlay paths, or REQ-specific eval paths.
-            - Use Python only when the SPEC, PLAN, TECH_CONSTRAINTS, TARGET_CONTRACT, FILE_REQUIREMENTS, or repository evidence explicitly identifies Python as the implementation stack.
-            
+            - Use Python only when the SPEC, PLAN, TECH_CONSTRAINTS, TARGET_CONTRACT, FILE_REQUIREMENTS, or repository evidence explicitly identifies Python as the implementation stack
             - A backend lane does not mean Python.
             - If SPEC.md or TECH_CONSTRAINTS.yaml declares Node.js, Express, React, Vite, npm, JavaScript, or TypeScript, emit JavaScript/TypeScript ecosystem files and a KIT-local ci/package.json.
             - Use Python only when the SPEC, PLAN, TECH_CONSTRAINTS, TARGET_CONTRACT, FILE_REQUIREMENTS, or repository evidence explicitly identifies Python as the implementation stack.
@@ -1581,6 +1678,11 @@ def build_kit_local_agent_package(
 
     context_path = f"runs/kit/{req_id}/docs/AGENT_EXECUTION_CONTEXT.json"
     prompt_path = f"runs/kit/{req_id}/docs/AGENT_PROMPT.md"
+    prompt = _render_compact_local_agent_prompt(
+        phase="kit",
+        req_id=req_id,
+        context_path=context_path,
+    )
 
     return {
         "ok": True,
@@ -1666,12 +1768,7 @@ def build_kit_local_agent_package(
                     if include_agent_input_audit
                     else []
                 ),
-                {
-                    "path": f"runs/kit/{req_id}/docs/AGENT_INPUT_AUDIT.md",
-                    "content": agent_input_audit_md,
-                    "mime": "text/markdown",
-                    "encoding": "utf-8",
-                },
+
                 {
                     "path": f"runs/kit/{req_id}/docs/CLIKE_CAPABILITY_MANIFEST.md",
                     "content": standalone_capability_manifest,
@@ -1708,11 +1805,12 @@ def build_eval_local_agent_package(
     execution_policy: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
-    Build the orchestrator-owned local agent execution package for /eval pre-pass.
+    Build the orchestrator-owned local agent execution package for /eval hardening.
 
     The local agent is not the judge.
-    It may harden candidate code/tests only under runs/kit/<REQ-ID>/.
-    Canonical CLike eval still runs after this pre-pass.
+    It must execute the REQ-local LTC/HOWTO checks when possible, repair
+    deterministic candidate failures under runs/kit/<REQ-ID>/, rerun the
+    repaired checks, and leave canonical CLike EvalRunner as the final judge.
     """
     req_id = _safe_text(req_id).upper()
     run_id = _safe_text(payload.get("runId")) or f"eval-local-{req_id}"
@@ -1722,6 +1820,12 @@ def build_eval_local_agent_package(
     workspace_inspection_policy = _build_workspace_inspection_policy(req_id, req)
     capability_manifest = _extract_capability_manifest(payload)
     capability_integrity = _build_capability_integrity(req, capability_manifest)
+
+    standalone_capability_manifest = str(capability_manifest.get("content") or "")
+    standalone_capability_index = str(capability_manifest.get("index_content") or "")
+    standalone_selected_capability_context = str(capability_manifest.get("selected_context_content") or "")
+    standalone_selected_capability_context_json = str(capability_manifest.get("selected_context_json_content") or "")
+    context_capability_manifest = _capability_manifest_for_agent_context(req_id, capability_manifest)
 
     local_runtime = payload.get("localRuntime") or {}
     if not isinstance(local_runtime, dict):
@@ -1758,7 +1862,6 @@ def build_eval_local_agent_package(
             "kubectl": str(tool_hints.get("kubectl") or "kubectl"),
         },
     }
-
     allowed_write_roots = [
         f"runs/kit/{req_id}/src",
         f"runs/kit/{req_id}/test",
@@ -1813,7 +1916,7 @@ def build_eval_local_agent_package(
             "gate_expectations": req.get("gate_expectations") or [],
             "main_module_boundary": req.get("main_module_boundary"),
             "future_compatibility_notes": req.get("future_compatibility_notes") or [],
-            "manifest": capability_manifest,
+            "manifest": context_capability_manifest,
             "integrity": capability_integrity,
         },
         "project": {
@@ -1867,11 +1970,50 @@ def build_eval_local_agent_package(
                 f"runs/kit/{req_id}/src",
                 f"runs/kit/{req_id}/test",
             ],
-            "recommended": [
-                f"runs/kit/{req_id}/ci/requirements.txt",
-                f"runs/kit/{req_id}/docs/README_{req_id}.md",
-                f"runs/kit/{req_id}/docs/KIT_{req_id}.md",
+            "recommended": _build_recommended_outputs(req_id, req, payload),
+        },
+        "eval_hardening_policy": {
+            "enabled": True,
+            "role": "pre_canonical_eval_repair",
+            "must_execute_ltc_cases": True,
+            "must_repair_deterministic_failures": True,
+            "must_rerun_failed_or_repaired_checks": True,
+            "max_repair_cycles_inside_agent": 3,
+            "allowed_failure_after_repair": [
+                "environment_blocked",
+                "missing_external_infrastructure",
+                "explicit_unresolved_gap_with_evidence"
             ],
+            "forbidden_repairs": [
+                "removing meaningful assertions",
+                "weakening gate_policy",
+                "marking code failures as environment-blocked",
+                "disabling typecheck globally",
+                "removing tests to pass eval",
+                "creating unconditional secondary overlays",
+                "modifying canonical src/test/tests roots"
+            ],
+            "typescript_checkjs_guidance": {
+                "applies_when": [
+                    "TS2339",
+                    "TS18046",
+                    "catch variable is unknown",
+                    "dynamic Error.code access",
+                    "JSDoc checkJs validation failures"
+                ],
+                "required_behavior": [
+                    "repair candidate tests or CI scripts with narrow JSDoc casts or local helper guards",
+                    "preserve meaningful assertions",
+                    "do not relax tsconfig to hide source/test failures",
+                    "do not remove checkJs from product source",
+                    "do not use @ts-nocheck on candidate source or tests"
+                ],
+                "allowed_exception": (
+                    "@ts-nocheck is allowed only for generated CI utility scripts when the failure is "
+                    "inside the validator script itself and the script is already syntax-checked separately."
+                )
+            },
+            "success_condition": "After repair, rerun the same LTC/HOWTO checks that failed or were modified. If they pass, report the commands and files changed. If they still fail with candidate-owned diagnostics and repair cycles remain, continue focused repair. If repair cycles are exhausted, report the exact unresolved file:line diagnostics without hiding them."
         },
         "allowed_test_doubles_policy": {
             "allowed": True,
@@ -1899,8 +2041,16 @@ def build_eval_local_agent_package(
             ),
         },
         "hard_rules": [
-            "This is an eval pre-pass, not the canonical eval judge.",
-            "After this pre-pass, CLike canonical /eval must still run and decide pass/fail.",
+            "This is an eval hardening pass, not the canonical eval judge.",
+            "For typecheck failures where tests access fields that are missing on one variant of a union response, do not silence the checker with broad casts. First decide whether the field is part of the stable public contract. If yes, repair the producer/service response so every success variant exposes the stable field. If no, repair the test with explicit narrowing before accessing variant-specific fields.",
+            "For workflow orchestration responses, fields such as workflowRun, job, idempotency, artifacts, and trace must have a stable documented success contract when acceptance criteria require trace continuity, idempotency reuse, and job/artifact linkage. Prefer repairing the producer shape over weakening tests when downstream REQs depend on those fields.",
+            "For caught errors typed as unknown, repair with a narrow helper or typed error adapter and preserve assertions on classification, retryable, status/statusCode, and domain failure categories.",
+            "When a typecheck diagnostic reports exact candidate-owned file:line locations, those diagnostics are the repair queue. Patch the listed files and rerun the same command until it passes or max_repair_cycles_inside_agent is exhausted.",
+            "Do not stop after partially reducing diagnostics when the same blocking command still fails on candidate-owned files and repair cycles remain.",
+            "Before returning, execute the REQ-local LTC/HOWTO checks when possible.",
+            "If a check fails for deterministic candidate code, test, or CI reasons, repair the smallest related files under allowed_write_roots.",
+            "After a repair, rerun the failed or modified checks once and record the commands and outcomes.",
+            "After this hardening pass, CLike canonical /eval must still run and decide pass/fail.",
             "Do not modify canonical src/, test/, tests/ roots.",
             "Do not modify docs/harper/PLAN.md or docs/harper/plan.json.",
             "Do not run git commands.",
@@ -1921,6 +2071,10 @@ def build_eval_local_agent_package(
             "Before changing tests, inspect canonical promoted test roots under test/ and tests/ when they exist.",
             "Before changing code, inspect canonical promoted source roots under src/ when they exist.",
             "Generated or repaired code must be immediately promotable into canonical src/test roots without changing public contracts unexpectedly.",
+            "For typed or statically checked runtimes, if EVAL/typecheck fails because candidate source, tests, or CI scripts access fields on generic object shapes such as {}, object, unknown, Any, untyped dictionaries, or Readonly<{}>, repair the candidate file by preserving an explicit language-native shape at the producer/helper boundary.",
+            "When repairing schema normalization, payload validation, adapter response mapping, or immutable/frozen object creation, prefer a small local DTO/typedef/interface/type alias/dataclass/record/struct return shape over downstream casts scattered at each field access.",
+            "Preserve runtime behavior and public contracts. Do not remove fields, remove assertions, disable type checking, relax compiler/linter settings, or convert the whole module to untyped code.",
+            "Treat generic-object field-access failures as deterministic repairable candidate defects, not as environment-blocked checks.",
             "Do not duplicate modules, adapters, ports, models, services, or test helpers already present in dependency KITs or canonical src/test roots.",
             "Reuse dependency KIT contracts and canonical source contracts whenever they exist.",
             "If tests are insufficient, extend tests under runs/kit/<REQ-ID>/test only.",
@@ -1932,15 +2086,17 @@ def build_eval_local_agent_package(
         ],
     }
 
+    context["hard_rules"] = _dedupe_rules(context.get("hard_rules") or [])
     context_json = json.dumps(context, indent=2, ensure_ascii=False)
 
     prompt = "\n".join(
         [
-            f"# Local Agent EVAL Pre-Pass Package — {req_id}",
+            f"# Local Agent EVAL Hardening Package — {req_id}",
             "",
-            "You are a local software-generation agent executing a CLike Harper /eval pre-pass package.",
+            "You are a local software-generation agent executing a CLike Harper /eval hardening package.",
             "The orchestrator is the workflow owner. The VS Code extension is only the actuator.",
-            "The canonical CLike eval remains the final judge and will run after your pre-pass.",
+            "Your job is to make the candidate KIT evaluable before canonical CLike EvalRunner runs.",
+            "The canonical CLike eval remains the final judge and will run after your hardening pass.",
             "",
             "Read this file before acting:",
             f"- runs/kit/{req_id}/docs/AGENT_EVAL_CONTEXT.json",
@@ -1953,9 +2109,15 @@ def build_eval_local_agent_package(
             "- Use selected skills, packs, runtime profile, design profile, and gate expectations as repair constraints.",
             "- Apply capability guidance only when relevant to this REQ; do not create decorative fixes.",
             "- Use main_module_boundary to avoid scattering repairs across unrelated files.",
-            "- This is an eval pre-pass: you may execute checks, diagnose failures, harden candidate code/tests, and repair LTC/HOWTO when they are wrong.",
+            "- This is an eval hardening pass: you must execute the REQ-local LTC/HOWTO checks when possible.",
+            "- Top priority for typecheck repair: if tests access fields missing from one branch of a union response, do not hide the issue with broad casts. Determine whether the field belongs to the stable public contract. If yes, repair the service/producer response shape. If no, repair the test with explicit narrowing before field access.",
+            "- For workflow orchestration responses, workflowRun, job, idempotency, artifacts, and trace are contract-sensitive fields. Preserve idempotency and trace assertions; do not remove them to pass typecheck.",
+            "- For unknown caught errors, use a narrow typed helper/adapter before asserting classification, retryable, status/statusCode, or domain failure categories.",
+            "- Read AGENT_EVAL_CONTEXT.json and follow allowed_write_roots/forbidden_paths strictly.",
+            "- If checks fail for deterministic candidate source, test, or CI reasons, you must repair the smallest related files under allowed_write_roots.",
+            "- After repairing, you must rerun the failed or modified checks once before returning.",
+            "- You must not weaken LTC.json, gate_policy, tsconfig, tests, or assertions to hide real failures.",
             "- You must not declare the final eval result. Canonical CLike EvalRunner remains the judge.",
-            "- Before writing anything, read docs/harper/PLAN.md and docs/harper/plan.json.",
             "- Identify the target REQ dependencies from the plan.",
             "- Inspect existing dependency KIT artifacts under runs/kit/<DEPENDENCY_REQ_ID>/ when present.",
             "- Inspect candidate source roots under runs/kit/<REQ-ID>/src.",
@@ -1974,35 +2136,73 @@ def build_eval_local_agent_package(
             "- Do not perform git operations.",
             "- Do not promote candidate files into canonical workspace roots.",
             "- Generate files needed to make the KIT runnable and evaluable; promotion/merge reconciliation is owned by CLike, not by the agent.",
-            "- **IMPRTANT** If the KIT needs runtime-dependecy-manifesta as package.json, requirements.txt, pyproject.toml, or another runtime manifest to run tests, emit it under the target KIT root.",
+            "- **IMPORTANT** If the KIT needs runtime-dependency manifests such as package.json, requirements.txt, pyproject.toml, or another runtime manifest to run tests, emit them under the target KIT root.",
             "- If launch/composition wiring is needed, emit one coherent backend launcher, one frontend launcher, or one per separate service as applicable. Do not create one launcher per REQ.",
             "- Use LTC/HOWTO and repository-native tooling to choose the eval runtime.",
             "- Do not infer the application implementation language from local_runtime.tool_hints.",
             "- local_runtime.tool_hints are optional command hints only after the eval runtime is known.",
             "- Do not install packages globally or into the system runtime.",
             "- Do not create a Python virtualenv for non-Python projects.",
-            "- If package.json and npm scripts are present, prefer repository-native npm scripts for eval checks.",
-            "- For Node/TypeScript eval failures like `Failed to resolve import \"<package>\" from \"../../test/...\"`, first inspect whether tests live outside the runnable package root while dependencies were installed under CLIKE_EVAL_NPM_PREFIX. Repair the candidate eval contract by adding the missing devDependency and/or adding explicit Vitest/Jest aliases in the runnable package test config. Do not fake success and do not remove meaningful tests just to pass eval.",
+            "- Prefer repository-native or REQ-local eval commands declared by LTC/HOWTO and the runtime-native eval manifest.",
+            "- Before declaring tool, dependency, typecheck, lint, test, syntax, build, or security checks environment-blocked, inspect the REQ-local ci/ directory for a runtime-native eval manifest and attempt the ecosystem-native local setup command for that manifest.",
+            "- A REQ-local setup command is allowed only inside the candidate KIT or eval workspace. Do not install packages globally or into the system runtime.",
+            "- If dependency setup fails, report the concrete blocker: network, registry, filesystem, sandbox, policy, unsupported runtime, missing toolchain, or invalid manifest.",
+            "- For dependency-resolution failures, repair the candidate eval contract by adding the missing declared dependency, resolver configuration, or test-runner configuration in the runtime-native way. Do not fake success and do not remove meaningful tests just to pass eval.",
+            "- For typed-language or statically checked runtime failures involving exception/error metadata, repair candidate tests and CI scripts by narrowing, casting, pattern-matching, or adapting error values through language-native safe helpers before accessing custom fields.",
+            "- Do not access implementation-specific error fields directly unless the error value has been explicitly narrowed to a compatible type.",
+            "- Examples of custom or platform-specific error metadata include code, classification, retryable, status/statusCode, errno, syscall, path, cause, provider error codes, and domain-specific failure categories.",
+            "- Preserve meaningful assertions on error semantics. Do not remove assertions, do not disable type checks, do not relax compiler/linter configuration, and do not hide failures by widening everything to untyped/any/object unless the language has no safer local mechanism.",
+            "- Use the idiomatic mechanism for the active language and tooling: type guards or JSDoc narrowing for JavaScript/TypeScript, isinstance or typed exception classes for Python, errors.As/errors.Is for Go, checked/custom exception classes for Java, pattern matching or Result error variants for Rust, and typed exception filters or custom exception types for .NET.",
+            "- If the failure is inside generated CI utility code, repair the CI utility with a small local adapter/helper that extracts error metadata safely without weakening product source or tests.",
+            "- When a candidate test fails because `catch (error)` is `unknown`, add a local JSDoc typedef/helper near the test, for example `asWorkflowTestError(error)`, and assert on the narrowed variable instead of `error` directly.",
+            "- When a generated CI utility script fails because `Error` lacks Node/system fields such as `code`, `errno`, `syscall`, or `path`, add a small helper such as `getErrorCode(error)` or `asNodeSystemError(error)` and use that helper instead of direct `error.code` access.",
+            "- If TS2339/TS18046 appears in candidate-owned test files or CI scripts, treat it as a deterministic repairable candidate defect, not as an environment-blocked check.",
+            "- After repairing TS2339/TS18046, rerun the smallest failed command, usually `npm run typecheck`, before returning.",
+            "- For generated CI utility scripts only, `// @ts-nocheck` is allowed as a last resort when the failure is inside the validator script itself, the script is already covered by a syntax check, and product source/tests remain typechecked.",
             "- If dependencies cannot be installed because the environment is offline, externally managed, or blocked by policy, report the check as environment-blocked and run dependency-free compile/smoke checks instead.",
+            "- If a type/lint/static-analysis check fails because candidate tests or CI scripts access custom exception/error metadata from a generic error value, repair the candidate-owned file using the language-native narrowing/casting/matching/typed-exception/adaptor mechanism and rerun the smallest failed command.",
+            "- Preserve all meaningful assertions on error semantics, including retryability, classification, status/statusCode, provider codes, system error codes, cause, and domain failure categories.",
+            "- Do not remove the failure-path test, do not suppress the type checker globally, do not relax compiler/linter configuration, and do not convert the entire file to untyped/unsafe code merely to pass EVAL.",
+            "- This repair rule is runtime-agnostic. Apply the idiomatic mechanism for the detected language and tooling rather than hardcoding a JavaScript-only pattern.",
             "- When repairing CI scripts, preserve the CLike eval workspace contract: scripts must consume CLIKE_EVAL_WORKSPACE, CLIKE_EVAL_WORKSPACE_ROOT, CLIKE_EVAL_OVERLAY_WORKSPACE, or CLIKE_OVERLAY_WORKSPACE when present.",
+            "- If check-no-secrets reports findings only under node_modules, package manager caches, local-eval-workspaces, dist, build, coverage, .cache, .tmp, .git, __pycache__, .venv, or generated overlay workspaces, repair the secret-scan script to exclude those dependency/vendor/generated/temp directories and rerun the check. Do not weaken secret patterns for candidate-owned files.",
+            "- If check-no-secrets reports findings under candidate-owned source, tests, docs, or CI scripts/contracts, keep the check blocking and repair the candidate-owned file instead of suppressing the finding.",
+            "- If a Node CI script fails with ENOENT from mkdtemp or from writing under local-eval-workspaces, repair the script by creating the parent directory recursively before mkdtemp/write operations, then rerun the failed command.",
+            "- Do not classify mkdtemp ENOENT under a generated candidate CI script as a missing external tool. It is a deterministic repairable candidate CI defect.",
+            "- For default targeted /eval, CI scripts must evaluate the current REQ candidate tests under runs/kit/<REQ-ID>/test, while using promoted/dependency source roots only as imports. Do not typecheck or secret-scan promoted/dependency tests unless the user explicitly requested a full regression/all-REQ eval.",
+            "- For Node test runners, do not pass unexpanded glob strings such as `test/**/*.test.mjs` directly to node --test. Expand test files in the script first, then invoke node --test with concrete file paths.",
             "- Do not repair eval failures by creating an unconditional second overlay workspace.",
-            "- Helpers such as createOverlayWorkspace, prepareWorkspace, buildWorkspace, composeWorkspace, or runtime-specific equivalents must return the CLike-provided eval workspace directly when available.",
-            "- Fallback overlay creation is allowed only for manual execution outside canonical CLike EvalRunner.",
-            "- Patch operations are allowed only under allowed_write_roots.",
+            "- Helpers such as createOverlayWorkspace, prepareWorkspace, buildWorkspace, composeWorkspace, "
+            "or runtime-specific equivalents should prefer the CLike-provided eval workspace only when it contains "
+            "the expected runnable source/test roots.",
+            "- If the provided eval workspace is missing expected tests or source roots, fallback workspace creation is allowed "
+            "and should be treated as a repair of an incomplete eval contract, not as a second unconditional overlay.",            "- Patch operations are allowed only under allowed_write_roots.",
             "",
             "Required eval actions:",
             f"- Read runs/kit/{req_id}/ci/LTC.json.",
             f"- Read runs/kit/{req_id}/ci/HOWTO.md when present.",
             f"- Inspect runs/kit/{req_id}/src and runs/kit/{req_id}/test.",
             "- Inspect promoted src/test roots and dependency KIT roots listed in workspace_inspection_policy when present.",
-            "- Execute the LTC/HOWTO commands when possible.",
-            "- For frontend tests, verify that every imported testing package is declared and resolvable from the executable package root. Common packages include @testing-library/react, @testing-library/user-event, @testing-library/jest-dom, jest-axe, vitest, jsdom, and any framework-specific test helpers.",
-            "- If LTC.json is malformed, incomplete, or not executable, repair LTC.json under runs/kit/<REQ-ID>/ci before changing source code.",
+            "- Execute the LTC/HOWTO commands when possible before making changes.",
+            "- Before reporting that checks are blocked, inspect the REQ-local ci/ folder for a runtime-native eval manifest and run the ecosystem-native local dependency/setup command in that specific candidate/eval workspace.",
+            "- The setup command must be inferred from the manifest and repository evidence, not from hardcoded language preference in CLike.",
+            "- After local dependency/setup succeeds, rerun generated security, syntax, tests, typecheck, lint, or build commands against the same execution area that canonical CLike EvalRunner will use.",
+            "- If a security scanner fails only because it scanned installed dependencies or generated temporary workspaces, repair the scanner scope and rerun it.",
+            "- If typecheck/test/syntax scripts create temporary workspaces, verify they create their parent directories recursively before mkdtemp or writes.",
+            "- If any LTC/HOWTO command fails for deterministic candidate code/test/ci reasons, repair the smallest directly related files under allowed_write_roots.",
+            "- After every repair, rerun the failed command or the smallest equivalent command once before returning.",
+            "- If the command still fails, write the exact remaining failure and why it is not safely repairable.",
+            "- For any test runner, verify that every imported or referenced test dependency is declared and resolvable from the runtime-native eval manifest or executable package root. Repair dependency declarations or resolver configuration in the ecosystem-native way.",            "- If LTC.json is malformed, incomplete, or not executable, repair LTC.json under runs/kit/<REQ-ID>/ci before changing source code.",
             "- Ensure LTC.json contains a non-empty cases[] execution contract.",
             "- Each LTC cases[] entry must include `run` as the canonical executable command field; `command` may be duplicated as a backward-compatible alias.",
             "- commands[] may exist only as human-readable aliases and must not be the only executable contract.",
-            "- Repair candidate code/tests under allowed_write_roots when checks fail for code reasons.",
-            "- If EVAL fails in promoted/canonical tests because the current REQ intentionally added behavior such as a new route, navigation item, RBAC-visible section, capability page, or form field, do not modify canonical tests. Copy or recreate the impacted test under runs/kit/<REQ-ID>/test with the same relative path and update only the stale expectations while preserving regression coverage.",
+            "- This rule is runtime-agnostic and applies to Node/JS/TS, Python, Java, Go, Rust, .NET, IaC, Mendix, PLC/SCADA, and custom enterprise runners.",
+            "- For typed or statically checked runtimes, do not let normalized DTOs, schema outputs, parsed payloads, frozen objects, validation results, or adapter responses collapse to generic object shapes when their fields are used later.",
+            "- If generated code reads fields from a normalized object, validation helper output, parsed JSON payload, adapter response, or immutable/frozen object, preserve an explicit shape using the runtime-native mechanism.",
+            "- Examples of fields that require preserved shapes include source, contentType, bytes, metadata, id, status, traceId, classification, retryable, statusCode, provider codes, and domain failure categories.",
+            "- In JavaScript/TypeScript with checkJs, Object.freeze({...}) and validation helpers must have JSDoc typedef/interface-compatible return shapes when downstream code accesses their fields. Avoid returning or inferring Readonly<{}> for objects with real fields.",
+            "- In other runtimes, use the equivalent idiom: dataclass/TypedDict/protocol for Python, struct for Go/Rust, record/class/interface for Java/.NET, or typed maps only when the value shape is explicit.",
+            "- If you create or update a runnable execution area, also emit the ecosystem-native promotion-ready runtime manifest under that execution area's candidate source root.",
             "- If a frontend test fails because it relies on brittle positional selectors such as getAllByLabelText(...)[1] or getAllByRole(...)[n], repair the candidate test to use scoped queries, unique accessible names, or a narrower rendered component/root. Do not remove meaningful assertions just to pass eval.",
             "- If checks are blocked by missing infrastructure, mark or document the blockage instead of faking success.",            "- Create reports under runs/kit/<REQ-ID>/reports when useful.",
             "",
@@ -2024,6 +2224,11 @@ def build_eval_local_agent_package(
 
     context_path = f"runs/kit/{req_id}/docs/AGENT_EVAL_CONTEXT.json"
     prompt_path = f"runs/kit/{req_id}/docs/AGENT_EVAL_PROMPT.md"
+    prompt = _render_compact_local_agent_prompt(
+        phase="eval",
+        req_id=req_id,
+        context_path=context_path,
+    )
 
     return {
         "ok": True,
@@ -2088,6 +2293,30 @@ def build_eval_local_agent_package(
                     "path": prompt_path,
                     "content": prompt,
                     "mime": "text/markdown",
+                    "encoding": "utf-8",
+                },
+                {
+                    "path": f"runs/kit/{req_id}/docs/CLIKE_CAPABILITY_MANIFEST.md",
+                    "content": standalone_capability_manifest,
+                    "mime": "text/markdown",
+                    "encoding": "utf-8",
+                },
+                {
+                    "path": f"runs/kit/{req_id}/docs/CLIKE_CAPABILITY_INDEX.json",
+                    "content": standalone_capability_index,
+                    "mime": "application/json",
+                    "encoding": "utf-8",
+                },
+                {
+                    "path": f"runs/kit/{req_id}/docs/CLIKE_SELECTED_CAPABILITY_CONTEXT.md",
+                    "content": standalone_selected_capability_context,
+                    "mime": "text/markdown",
+                    "encoding": "utf-8",
+                },
+                {
+                    "path": f"runs/kit/{req_id}/docs/CLIKE_SELECTED_CAPABILITY_CONTEXT.json",
+                    "content": standalone_selected_capability_context_json,
+                    "mime": "application/json",
                     "encoding": "utf-8",
                 },
             ],

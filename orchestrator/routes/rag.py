@@ -2,7 +2,6 @@
 from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from pydantic import BaseModel
 
 from typing import List, Dict, Any, Optional
 import logging
@@ -371,10 +370,36 @@ async def rag_index(req: RagIndexRequest):
         log.info("RAG index: no indexable docs")
         return {"ok": True, "count": 0}
 
-    out = await store.index_texts(docs)
+    try:
+        out = await store.index_texts(docs)
+    except Exception as e:
+        log.warning(
+            "RAG index skipped project=%s docs=%d error_type=%s error=%s",
+            req.project_id,
+            len(docs),
+            type(e).__name__,
+            str(e)[:500],
+        )
+        return {
+            "ok": False,
+            "skipped": True,
+            "count": 0,
+            "upserts": 0,
+            "indexed_paths": 0,
+            "error_type": type(e).__name__,
+            "error": str(e)[:500],
+        }
+
     log.info("RAG out %s", out)
     if not out.get("ok"):
-        raise HTTPException(500, detail=out.get("error", "index failed"))
+        return {
+            "ok": False,
+            "skipped": True,
+            "count": 0,
+            "upserts": 0,
+            "indexed_paths": 0,
+            "error": out.get("error", "index failed"),
+        }
     return out
 
 
