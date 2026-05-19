@@ -62,6 +62,12 @@ async def embeddings(req: Request):
     api_key_env = m.get("api_key_env")
     api_key = os.getenv(api_key_env) if api_key_env else None
 
+    if provider in ("openai", "deepseek", "vllm") and api_key_env and not api_key:
+        raise HTTPException(
+            400,
+            f"missing required embeddings API key env: {api_key_env}",
+        )
+
     logger.debug(
         "[emb] provider=%s model=%s remote=%s base=%s input_len=%d",
         provider,

@@ -164,6 +164,14 @@ If tests are shallow:
 - add failure-path tests;
 - add contract tests around boundaries.
 
+If tests assert exception/error semantics:
+
+- preserve assertions on retryability, classification, status/statusCode, provider codes, system codes, cause, and domain failure categories;
+- use the active language's safe narrowing, casting, matching, downcast, typed-exception, or adapter mechanism before reading custom exception/error metadata;
+- do not remove failure-path assertions merely to satisfy static analysis;
+- do not disable type checking, linting, compiler checks, or static-analysis rules globally;
+- keep the repair local to the candidate source, test, or CI utility file.
+
 If promoted or dependency tests become stale because the current REQ intentionally extends behavior:
 
 - do not modify canonical `test/` or `tests/` roots during KIT;

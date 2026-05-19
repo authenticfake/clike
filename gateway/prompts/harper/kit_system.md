@@ -514,6 +514,14 @@ Reuse before create:
 
 Generated CI scripts must consume the official CLike eval workspace when present.
 
+Generated source, tests, and CI scripts must be safe under the active runtime's type, lint, compile, and static-analysis rules.
+
+For typed or statically checked runtimes, do not read custom exception/error metadata from a generic error value. Narrow, cast, pattern-match, downcast, or adapt the error through the language-native mechanism before asserting fields such as `code`, `classification`, `retryable`, `status`, `statusCode`, `errno`, `syscall`, `path`, `cause`, provider error codes, or domain failure categories.
+
+Preserve meaningful failure-path assertions. Do not remove assertions, disable type checks, relax compiler/linter configuration, or hide failures by converting everything to untyped catch-all values.
+
+Use idiomatic mechanisms for the detected runtime: type guards/JSDoc narrowing for JavaScript or TypeScript, `isinstance` or custom exceptions for Python, `errors.As`/`errors.Is` for Go, checked/custom exception classes for Java, pattern matching or typed error variants for Rust, and typed exception filters/custom exception types for .NET.
+
 CLike EvalRunner is the only component allowed to compose the effective evaluation
 workspace. It may expose the composed workspace through these environment variables:
 
@@ -538,12 +546,17 @@ Compatibility aliases may also be present:
 
 Generated CI scripts MUST follow this order:
 
-1. If `CLIKE_EVAL_WORKSPACE`, `CLIKE_EVAL_WORKSPACE_ROOT`, `CLIKE_EVAL_OVERLAY_WORKSPACE`, or `CLIKE_OVERLAY_WORKSPACE` exists and points to a real directory, use it as the effective workspace root.
-2. Do not create another temporary overlay in that case.
-3. Do not recopy `src`, `test`, or `tests` from the repository root in that case.
-4. Do not reconstruct dependency KIT composition inside generated scripts.
-5. Fallback overlay creation is allowed only for manual execution outside canonical CLike EvalRunner.
-6. This rule is runtime-agnostic and applies to Node/JS/TS, Python, Java, Go, Rust, .NET, IaC, Mendix, PLC/SCADA, and custom enterprise runners.
+1. If `CLIKE_EVAL_WORKSPACE`, `CLIKE_EVAL_WORKSPACE_ROOT`, `CLIKE_EVAL_OVERLAY_WORKSPACE`, or `CLIKE_OVERLAY_WORKSPACE` exists and points to a real directory, validate that the expected source/test roots exist before using it.
+2. Prefer explicit roots when present: `CLIKE_EVAL_SOURCE_ROOT`, `CLIKE_EVAL_SRC_ROOT`, `CLIKE_EVAL_TEST_ROOT`, `CLIKE_EVAL_TESTS_ROOT`, `CLIKE_EVAL_OVERLAY_SRC`, `CLIKE_EVAL_OVERLAY_TEST`, and `CLIKE_EVAL_OVERLAY_TESTS`.
+3. Treat both `test/` and `tests/` as valid test roots. Do not hard-fail only because one convention is empty when the other exists.
+4. If the provided eval workspace exists but does not contain the expected tests, fall back to the local manual workspace creation path instead of failing on an empty glob.
+5. Do not create another temporary overlay when the canonical CLike workspace is valid.
+6. Do not recopy `src`, `test`, or `tests` from the repository root when the canonical CLike workspace is valid.
+7. Do not reconstruct dependency KIT composition inside generated scripts.
+8. Fallback overlay creation is allowed only for manual execution outside canonical CLike EvalRunner or when the provided workspace is incomplete.
+9. If fallback overlay creation is used, create every parent directory recursively before `mkdtemp`, copy, report, cache, or write operations.
+10. Exclude fallback overlay directories, `local-eval-workspaces`, and generated temp/report/cache directories from raw-secret scans.
+11. This rule is runtime-agnostic and applies to Node/JS/TS, Python, Java, Go, Rust, .NET, IaC, Mendix, PLC/SCADA, and custom enterprise runners.
 
 Generated helper functions such as `createOverlayWorkspace`, `prepareWorkspace`,
 `buildWorkspace`, `composeWorkspace`, or runtime-specific equivalents MUST first
@@ -694,6 +707,12 @@ Rules:
 * If `CLIKE_EVAL_REPORT_DIR` is not set, use a local fallback only for manual execution.
 * Do not hardcode report output to `runs/kit/<REQ-ID>/reports`.
 * Do not require global dependencies when a runtime-native manifest exists under `ci/`.
+* Raw-secret scanners must scan only candidate-owned source, tests, docs, and CI scripts/contracts.
+* Raw-secret scanners must exclude installed dependency, vendor, generated, cache, report, and temporary workspace directories such as `node_modules`, `.git`, `.cache`, `.tmp`, `coverage`, `dist`, `build`, `local-eval-workspaces`, `__pycache__`, `.venv`, `.next`, package-manager caches, and generated overlay workspaces.
+* Do not weaken secret patterns to hide real findings. Findings under candidate-owned files remain blocking; findings only under dependency/vendor/generated/temp directories require scanner-scope repair.
+* Dependency vulnerability and supply-chain checks belong to separate SCA/audit gates, not to raw-secret scanning of `node_modules` README files.
+* CI scripts (for node and for all lungaiages) that use `mkdtemp`, temporary overlays, `local-eval-workspaces`, report directories, or generated workspaces MUST prefer `CLIKE_EVAL_TEMP_ROOT` when present, then create the parent directory first with `mkdir(..., { recursive: true })` before calling `mkdtemp` or writing files.
+
 
 README, HOWTO, KIT notes, and LTC must be operational and truthful.
 

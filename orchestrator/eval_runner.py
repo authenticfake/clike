@@ -141,6 +141,169 @@ class EvalRunner:
                 blocking=blocking,
             )
 
+    def _collect_eval_test_files(self, root: Path) -> List[Path]:
+        """Collect concrete test files for runtimes that do not expand globs."""
+        if not root.exists():
+            return []
+
+        patterns = (
+            "*.test.mjs",
+            "*.test.js",
+            "*.spec.mjs",
+            "*.spec.js",
+            "*.spec.py",
+            "*.test.py",
+            "*.py",
+        )
+
+        files: List[Path] = []
+        seen: set[str] = set()
+        for pattern in patterns:
+            for path in root.rglob(pattern):
+                resolved = str(path.resolve())
+                if resolved in seen:
+                    continue
+                seen.add(resolved)
+                files.append(path.resolve())
+
+        return sorted(files, key=lambda item: str(item))
+
+    def _recover_node_test_glob_failure(
+        self,
+        *,
+        result: EvalCase,
+        cmd: str,
+        cwd: Path,
+        env: Dict[str, str],
+        work_kit_root: Optional[Path],
+        timeout: Optional[int],
+        blocking: bool,
+    ) -> EvalCase:
+        """
+        Recover generated Node test scripts that pass an unexpanded glob to node --test.
+
+        Some generated CI scripts invoke node --test with a literal argument such
+        as test/**/*.test.mjs. On runners where Node does not expand that glob,
+        the test case fails even though concrete test files exist. EvalRunner can
+        safely recover by running the same Node test runner against explicit files.
+        """
+        if result.passed or not work_kit_root:
+            return result
+
+        text = f"{result.stdout}\n{result.stderr}"
+        if "Could not find" not in text or "**/*.test." not in text:
+            return result
+
+        if "run-tests" not in cmd and "node --test" not in cmd:
+            return result
+
+        test_files: List[Path] = []
+        test_files.extend(self._collect_eval_test_files(work_kit_root / "test"))
+        test_files.extend(self._collect_eval_test_files(work_kit_root / "tests"))
+
+        if not test_files:
+            return result
+
+        fallback_cmd = "node --test " + " ".join(shlex.quote(str(path)) for path in test_files)
+
+        recovered = self._run(
+            name=result.name,
+            cmd=fallback_cmd,
+            cwd=work_kit_root,
+            expect=result.expect if result.expect is not None else 0,
+            env=env,
+            timeout=timeout,
+            blocking=blocking,
+            environment_requirements=[],
+        )
+
+        if recovered.passed:
+            recovered.cmd = f"{result.cmd}\n[CLike EvalRunner fallback] {fallback_cmd}"
+            recovered.stdout = (
+                (result.stdout or "")
+                + "\n[CLike EvalRunner] Recovered Node test glob failure by executing concrete test files.\n"
+                + (recovered.stdout or "")
+            )[-4000:]
+            recovered.stderr = (recovered.stderr or "")[-4000:]
+            recovered.cwd = str(cwd)
+
+        return recovered
+
+    def _raw_secret_findings_are_dependency_only(self, stderr: str) -> bool:
+        """
+        Return True only when a generated raw-secret scanner failed exclusively
+        because it scanned installed/generated dependency trees.
+
+        This is intentionally narrow:
+        - candidate-owned source/test/docs/ci findings remain blocking;
+        - mixed findings remain blocking;
+        - non raw-secret scanner failures remain blocking.
+        """
+        text = str(stderr or "")
+        if "Potential raw secrets found:" not in text:
+            return False
+
+        finding_lines = [
+            line.strip()
+            for line in text.splitlines()
+            if line.strip() and not line.strip().startswith("Potential raw secrets found:")
+        ]
+
+        if not finding_lines:
+            return False
+
+        excluded_markers = (
+            "/node_modules/",
+            "/.npm-cache/",
+            "/local-eval-workspaces/",
+            "/coverage/",
+            "/dist/",
+            "/build/",
+            "/.cache/",
+            "/.tmp/",
+            "/__pycache__/",
+            "/.venv/",
+            "/.next/",
+        )
+
+        return all(any(marker in line for marker in excluded_markers) for line in finding_lines)
+
+    def _normalize_raw_secret_scan_result(self, result: EvalCase) -> EvalCase:
+        """
+        Generated check-no-secrets scripts must not scan installed dependencies.
+
+        If an already-generated KIT still scans dependency/generated folders and
+        reports findings only there, treat it as a recovered scanner-scope issue.
+        Do not suppress candidate-owned findings.
+        """
+        if result.passed:
+            return result
+
+        cmd = str(result.cmd or "")
+        if "check-no-secrets" not in cmd:
+            return result
+
+        if not self._raw_secret_findings_are_dependency_only(result.stderr):
+            return result
+
+        return EvalCase(
+            name=result.name,
+            passed=True,
+            code=0,
+            stdout=(
+                (result.stdout or "")
+                + "\n[CLike EvalRunner] Recovered raw-secret scanner false positive: "
+                "all findings were under dependency/generated/temp directories. "
+                "Candidate-owned files remain subject to blocking secret scanning.\n"
+            )[-4000:],
+            stderr="",
+            cmd=result.cmd,
+            cwd=result.cwd,
+            expect=result.expect,
+            blocked=False,
+            blocking=result.blocking,
+        )
+
     def _is_environment_blocked(
         self,
         *,
@@ -156,6 +319,13 @@ class EvalRunner:
 
         if "cannot find module './" in text or 'cannot find module "../' in text:
             return False
+
+        # A generated CI script that calls mkdtemp under a local eval workspace
+        # without creating the parent directory is not an environment blockage.
+        # It is a deterministic, repairable candidate CI defect.
+        if "mkdtemp" in text and "enoent" in text and "local-eval-workspaces" in text:
+            return False
+
         if code == 127:
             return True
 
@@ -398,6 +568,56 @@ class EvalRunner:
         self._copy_tree_overlay(kit_root / "src", overlay / "src")
         self._copy_tree_overlay(kit_root / "test", overlay / "test")
         self._copy_tree_overlay(kit_root / "tests", overlay / "tests")
+
+        # Eval workspace contract hardening.
+        #
+        # If CLike exposes CLIKE_EVAL_WORKSPACE to generated CI scripts, that
+        # workspace must be directly runnable. Existing generated scripts may
+        # run test globs from either "test/" or "tests/"; both conventions are
+        # valid, so the canonical overlay must bridge them.
+        overlay_test = overlay / "test"
+        overlay_tests = overlay / "tests"
+
+        try:
+            overlay_test_has_cases = overlay_test.exists() and any(overlay_test.rglob("*.test.*"))
+            overlay_tests_has_cases = overlay_tests.exists() and any(overlay_tests.rglob("*.test.*"))
+
+            if overlay_test_has_cases and not overlay_tests_has_cases:
+                shutil.copytree(overlay_test, overlay_tests, dirs_exist_ok=True)
+
+            if overlay_tests_has_cases and not overlay_test_has_cases:
+                shutil.copytree(overlay_tests, overlay_test, dirs_exist_ok=True)
+
+            # Last-resort current KIT enforcement. This protects canonical eval
+            # from diverging from local-agent pre-pass when the overlay was
+            # partially composed or one test convention was skipped upstream.
+            overlay_test_has_cases = overlay_test.exists() and any(overlay_test.rglob("*.test.*"))
+            overlay_tests_has_cases = overlay_tests.exists() and any(overlay_tests.rglob("*.test.*"))
+
+            if not overlay_test_has_cases and (kit_root / "test").exists():
+                self._copy_tree_overlay(kit_root / "test", overlay_test)
+
+            if not overlay_tests_has_cases and (kit_root / "tests").exists():
+                self._copy_tree_overlay(kit_root / "tests", overlay_tests)
+
+            overlay_test_has_cases = overlay_test.exists() and any(overlay_test.rglob("*.test.*"))
+            overlay_tests_has_cases = overlay_tests.exists() and any(overlay_tests.rglob("*.test.*"))
+
+            if overlay_test_has_cases and not overlay_tests_has_cases:
+                shutil.copytree(overlay_test, overlay_tests, dirs_exist_ok=True)
+
+            if overlay_tests_has_cases and not overlay_test_has_cases:
+                shutil.copytree(overlay_tests, overlay_test, dirs_exist_ok=True)
+
+            log.info(
+                "eval overlay prepared for %s: workspace=%s test_cases=%s tests_cases=%s",
+                req_id,
+                overlay,
+                overlay_test_has_cases,
+                overlay_tests_has_cases,
+            )
+        except Exception as exc:
+            log.warning("Could not harden eval overlay test roots for %s: %s", req_id, exc)
 
         path_map = {
             "src": str(overlay / "src"),
@@ -932,75 +1152,131 @@ class EvalRunner:
         except Exception:
             dependency_roots = []
             
-        overlay_workspace = None
-        overlay_dependency_roots: List[str] = []
-        overlay_path_map: Dict[str, str] = {}
+        # Canonical eval workspace for generated KIT scripts.
+        #
+        # Do not expose a second overlay workspace to already-generated CI
+        # scripts. REQ-local scripts commonly execute from work/<REQ>/ci and
+        # resolve ../src or ../test. Therefore the safest runtime contract is:
+        #
+        #   CLIKE_EVAL_WORKSPACE = work/<REQ>
+        #
+        # and work/<REQ> must contain the composed dependency-aware src/test
+        # tree:
+        #
+        #   promoted src/test/tests
+        #   + dependency KIT src/test/tests
+        #   + current KIT src/test/tests
+        #
+        # Current KIT wins last. ci/docs remain from the current KIT copy.
+        composed_root = work_root / "_composed" / kit_root.name
 
         try:
-            overlay_result = self._prepare_eval_overlay_workspace(
-                req_id=req_id,
-                profile_path=profile_path,
+            if composed_root.exists():
+                shutil.rmtree(composed_root)
+            composed_root.mkdir(parents=True, exist_ok=True)
+
+            for logical_root in ("src", "test", "tests"):
+                composed_logical_root = composed_root / logical_root
+
+                if logical_root == "src":
+                    # Source must be dependency-aware:
+                    # promoted src + dependency KIT src + current KIT src.
+                    self._copy_tree_overlay(
+                        self.project_root / logical_root,
+                        composed_logical_root,
+                    )
+
+                    for dep_work_raw in dependency_roots:
+                        dep_work = Path(dep_work_raw)
+                        self._copy_tree_overlay(
+                            dep_work / logical_root,
+                            composed_logical_root,
+                        )
+
+                    self._copy_tree_overlay(
+                        kit_root / logical_root,
+                        composed_logical_root,
+                    )
+                else:
+                    # Default /eval is target-scoped.
+                    #
+                    # Do not place promoted/dependency tests under work/<REQ>/test
+                    # unless the caller explicitly requested a full regression mode.
+                    # Generated REQ-local CI scripts commonly scan work/<REQ>/test
+                    # for tests, secrets, and typecheck inputs. Mixing dependency
+                    # tests here causes false failures in downstream REQs.
+                    self._copy_tree_overlay(
+                        kit_root / logical_root,
+                        composed_logical_root,
+                    )
+
+                if composed_logical_root.exists():
+                    target_logical_root = work_kit_root / logical_root
+                    if target_logical_root.exists():
+                        shutil.rmtree(target_logical_root)
+                    shutil.copytree(
+                        composed_logical_root,
+                        target_logical_root,
+                        dirs_exist_ok=True,
+                    )
+
+            log.info(
+                "prepared composed eval work kit for %s: work_kit=%s dependencies=%s",
+                req_id,
+                work_kit_root,
+                dependency_roots,
             )
-            if isinstance(overlay_result, tuple) and len(overlay_result) == 3:
-                overlay_workspace, overlay_dependency_roots, overlay_path_map = overlay_result
-            else:
-                log.warning(
-                    "prepare_eval_overlay_workspace returned invalid result for %s: %r",
-                    req_id,
-                    overlay_result,
-                )
+
         except Exception as exc:
             log.warning(
-                "prepare_eval_overlay_workspace failed for %s: %s",
+                "Could not prepare composed eval work kit for %s: %s",
                 req_id,
                 exc,
             )
 
-        if overlay_dependency_roots:
-            dependency_roots = overlay_dependency_roots
+        eval_temp_root = work_kit_root / "ci" / "local-eval-workspaces"
+        try:
+            eval_temp_root.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
 
         path_map: Dict[str, str] = {
             str(kit_root): str(work_kit_root),
+            str(self.project_root / "src"): str(work_kit_root / "src"),
+            str(self.project_root / "test"): str(work_kit_root / "test"),
+            str(self.project_root / "tests"): str(work_kit_root / "tests"),
+            "src": str(work_kit_root / "src"),
+            "test": str(work_kit_root / "test"),
+            "tests": str(work_kit_root / "tests"),
+
+            # Runtime-neutral eval workspace contract.
+            # Important: point all workspace aliases to the composed work KIT,
+            # not to a separate overlay/workspace tree.
+            "CLIKE_EVAL_WORKSPACE": str(work_kit_root),
+            "CLIKE_EVAL_WORKSPACE_ROOT": str(work_kit_root),
+            "CLIKE_EVAL_PROJECT_ROOT": str(self.project_root),
+            "CLIKE_EVAL_CANDIDATE_KIT_DIR": str(work_kit_root),
+            "CLIKE_EVAL_SOURCE_ROOT": str(work_kit_root / "src"),
+            "CLIKE_EVAL_SRC_ROOT": str(work_kit_root / "src"),
+            "CLIKE_EVAL_TEST_ROOT": str(work_kit_root / "test"),
+            "CLIKE_EVAL_TESTS_ROOT": str(work_kit_root / "tests"),
+            "CLIKE_EVAL_TEMP_ROOT": str(eval_temp_root),
+
+            # Backward-compatible aliases used by already-generated scripts.
+            # They intentionally point to the same composed work KIT.
+            "CLIKE_EVAL_OVERLAY_WORKSPACE": str(work_kit_root),
+            "CLIKE_EVAL_OVERLAY_SRC": str(work_kit_root / "src"),
+            "CLIKE_EVAL_OVERLAY_TEST": str(work_kit_root / "test"),
+            "CLIKE_EVAL_OVERLAY_TESTS": str(work_kit_root / "tests"),
+            "CLIKE_OVERLAY_WORKSPACE": str(work_kit_root),
+            "CLIKE_OVERLAY_SRC": str(work_kit_root / "src"),
+            "CLIKE_OVERLAY_TEST": str(work_kit_root / "test"),
+            "CLIKE_OVERLAY_TESTS": str(work_kit_root / "tests"),
         }
 
         rel_kit_root = self._path_relative_to_project(kit_root)
         if rel_kit_root:
             path_map[rel_kit_root] = str(work_kit_root)
-
-        if overlay_workspace:
-            # Runtime-agnostic eval workspace contract.
-            #
-            # EvalRunner owns dependency-aware workspace composition. Generated
-            # CI scripts may consume these paths, but must not create a second
-            # overlay when one of the workspace variables below is available.
-            path_map.update(
-                {
-                    "src": str(overlay_workspace / "src"),
-                    "test": str(overlay_workspace / "test"),
-                    "tests": str(overlay_workspace / "tests"),
-                    str(self.project_root / "src"): str(overlay_workspace / "src"),
-                    str(self.project_root / "test"): str(overlay_workspace / "test"),
-                    str(self.project_root / "tests"): str(overlay_workspace / "tests"),
-
-                    # Preferred runtime-neutral aliases.
-                    "CLIKE_EVAL_WORKSPACE": str(overlay_workspace),
-                    "CLIKE_EVAL_WORKSPACE_ROOT": str(overlay_workspace),
-                    "CLIKE_EVAL_PROJECT_ROOT": str(self.project_root),
-                    "CLIKE_EVAL_CANDIDATE_KIT_DIR": str(work_kit_root),
-
-                    # Backward-compatible official overlay names.
-                    "CLIKE_EVAL_OVERLAY_WORKSPACE": str(overlay_workspace),
-                    "CLIKE_EVAL_OVERLAY_SRC": str(overlay_workspace / "src"),
-                    "CLIKE_EVAL_OVERLAY_TEST": str(overlay_workspace / "test"),
-                    "CLIKE_EVAL_OVERLAY_TESTS": str(overlay_workspace / "tests"),
-
-                    # Legacy aliases for existing generated scripts.
-                    "CLIKE_OVERLAY_WORKSPACE": str(overlay_workspace),
-                    "CLIKE_OVERLAY_SRC": str(overlay_workspace / "src"),
-                    "CLIKE_OVERLAY_TEST": str(overlay_workspace / "test"),
-                    "CLIKE_OVERLAY_TESTS": str(overlay_workspace / "tests"),
-                }
-            )
 
         # Compatibility shim for CI scripts that still infer:        #   <eval-base>/runs/kit/<REQ-ID>
         # from __dirname instead of using CLIKE_EVAL_KIT_DIR.
@@ -1542,9 +1818,14 @@ class EvalRunner:
             "CLIKE_EVAL_DEPENDENCY_KIT_DIRS": os.pathsep.join(dependency_roots),
 
             # Preferred runtime-neutral workspace contract.
+            # Preferred runtime-neutral workspace contract.
             # Generated CI scripts should use these first.
             "CLIKE_EVAL_WORKSPACE": overlay_workspace_raw,
             "CLIKE_EVAL_WORKSPACE_ROOT": overlay_workspace_raw,
+            "CLIKE_EVAL_SOURCE_ROOT": overlay_src_raw,
+            "CLIKE_EVAL_SRC_ROOT": overlay_src_raw,
+            "CLIKE_EVAL_TEST_ROOT": overlay_test_raw,
+            "CLIKE_EVAL_TESTS_ROOT": overlay_tests_raw,
 
             # Official dependency-aware overlay prepared by CLike EvalRunner.
             "CLIKE_EVAL_OVERLAY_WORKSPACE": overlay_workspace_raw,
@@ -1776,6 +2057,8 @@ class EvalRunner:
             timeout = case.get("timeout")
             case_name = case.get("name") or "case"
 
+
+
             try:
                 workdir.mkdir(parents=True, exist_ok=True)
             except OSError as exc:
@@ -1810,9 +2093,9 @@ class EvalRunner:
                 )
                 continue
 
+
             if setup:
                 setup_cmd = str(setup)
-
                 npm_prefix_match = re.search(
                     r"(?:^|\s)npm\s+(?:install|ci)\s+--prefix\s+([^\s]+)",
                     setup_cmd,
@@ -1872,18 +2155,30 @@ class EvalRunner:
                 )
                 continue
 
-            out_cases.append(
-                self._run(
-                    name=case_name,
-                    cmd=str(cmd),
-                    cwd=workdir,
-                    expect=case.get("expect", 0),
-                    env=case_env,
-                    timeout=timeout,
-                    blocking=blocking,
-                    environment_requirements=environment_requirements,
-                )
+            result = self._run(
+                name=case_name,
+                cmd=str(cmd),
+                cwd=workdir,
+                expect=case.get("expect", 0),
+                env=case_env,
+                timeout=timeout,
+                blocking=blocking,
+                environment_requirements=environment_requirements,
             )
+
+            result = self._recover_node_test_glob_failure(
+                result=result,
+                cmd=str(cmd),
+                cwd=workdir,
+                env=case_env,
+                work_kit_root=work_kit_root,
+                timeout=timeout,
+                blocking=blocking,
+            )
+
+            result = self._normalize_raw_secret_scan_result(result)
+
+            out_cases.append(result)
 
         return self._report_from_cases(
             profile_path=profile_path,

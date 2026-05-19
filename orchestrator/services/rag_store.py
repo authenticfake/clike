@@ -3,6 +3,8 @@ import os, re, json, time, hashlib, logging, uuid
 import traceback
 from typing import List, Dict, Any, Optional, Tuple
 import httpx
+import asyncio
+
 
 def _rag_base_url(base_url: str | None = None) -> str:
     return (base_url or os.getenv("RAG_BASE_URL", "http://localhost:8080/v1/rag")).rstrip("/")
@@ -50,6 +52,43 @@ def _split_chunks(text: str, tokens:int=CHUNK_TOKENS, overlap:int=CHUNK_OVERLAP)
             break
         i = max(i + unit - step, i + 1)
     return out
+
+
+_TRANSIENT_HTTPX_ERRORS = (
+    httpx.ReadError,
+    httpx.RemoteProtocolError,
+    httpx.ConnectError,
+    httpx.ConnectTimeout,
+    httpx.ReadTimeout,
+    httpx.PoolTimeout,
+)
+
+
+async def _request_with_retry(
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    *,
+    json_body: Optional[Dict[str, Any]] = None,
+    attempts: int = 3,
+    base_delay_seconds: float = 0.25,
+) -> httpx.Response:
+    """Run a Qdrant HTTP request with a small retry budget for transient I/O errors."""
+    last_error: Optional[BaseException] = None
+
+    for attempt in range(max(1, attempts)):
+        try:
+            response = await client.request(method, url, json=json_body)
+            return response
+        except _TRANSIENT_HTTPX_ERRORS as exc:
+            last_error = exc
+            if attempt >= attempts - 1:
+                break
+
+            await asyncio.sleep(base_delay_seconds * (attempt + 1))
+
+    assert last_error is not None
+    raise last_error
 
 class EmbeddingClient:
     """
@@ -121,15 +160,26 @@ class RagStore:
         # crea collection se non esiste
         try:
             async with httpx.AsyncClient(timeout=15) as client:
-                r = await client.get(f"{self.q}/collections/{self.c}")
+                r = await _request_with_retry(
+                    client,
+                    "GET",
+                    f"{self.q}/collections/{self.c}",
+                    attempts=2,
+                )
                 if r.is_success:
                     return
-                # create
+
                 body = {
                     "vectors": {"size": EMB_DIM, "distance": "Cosine"},
                     "on_disk_payload": True,
                 }
-                r = await client.put(f"{self.q}/collections/{self.c}", json=body)
+                r = await _request_with_retry(
+                    client,
+                    "PUT",
+                    f"{self.q}/collections/{self.c}",
+                    json_body=body,
+                    attempts=3,
+                )
                 r.raise_for_status()
                 log.info("RAG created collection %s", self.c)
         except Exception as e:
@@ -185,12 +235,15 @@ class RagStore:
                             ]
                         }
                     }
-                    r_del = await client.post(
+                    r_del = await _request_with_retry(
+                        client,
+                        "POST",
                         f"{self.q}/collections/{self.c}/points/delete?wait=true",
-                        json=delete_body,
+                        json_body=delete_body,
+                        attempts=3,
                     )
                     if r_del.status_code >= 400:
-                        log.error("RAG delete failed status=%s body=%s", r_del.status_code, r_del.text)
+                        log.error("RAG delete failed status=%s body=%s", r_del.status_code, r_del.text[:500])
                         r_del.raise_for_status()
 
             points = []
@@ -211,11 +264,38 @@ class RagStore:
                     }
                 )
 
-            r_up = await client.put(
-                f"{self.q}/collections/{self.c}/points?wait=true",
-                json={"points": points},
+            batch_size = max(1, int(os.getenv("RAG_QDRANT_UPSERT_BATCH_SIZE", "64")))
+            upserted = 0
+
+            for start in range(0, len(points), batch_size):
+                batch = points[start:start + batch_size]
+                r_up = await _request_with_retry(
+                    client,
+                    "PUT",
+                    f"{self.q}/collections/{self.c}/points?wait=true",
+                    json_body={"points": batch},
+                    attempts=3,
+                )
+                if r_up.status_code >= 400:
+                    log.error(
+                        "RAG upsert failed status=%s body=%s batch=%s/%s collection=%s",
+                        r_up.status_code,
+                        r_up.text[:500],
+                        start,
+                        len(points),
+                        self.c,
+                    )
+                    r_up.raise_for_status()
+
+                upserted += len(batch)
+
+            log.info(
+                "RAG upsert completed collection=%s points=%d paths=%d batch_size=%d",
+                self.c,
+                upserted,
+                len(paths_to_replace),
+                batch_size,
             )
-            r_up.raise_for_status()
 
         return {
             "ok": True,
