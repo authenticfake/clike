@@ -340,6 +340,9 @@ Ask:
 
 A sharp plan makes `/kit` dramatically more effective.
 
+👉 Read how to extend PLAN for new REQs
+[CLike_Harper_Extend_Feature.md](./CLike_Harper_Extend_Feature.md)
+
 ---
 
 ## Step 7 — Build a Requirement with `/kit`

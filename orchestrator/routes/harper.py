@@ -259,6 +259,62 @@ async def post_plan(req: HarperPhaseRequest):
     return HarperEnvelope(out=out, plan_md=plan_md)
 
 
+@router.post("/extend", response_model=HarperEnvelope)
+async def post_extend(req: HarperPhaseRequest):
+    """
+    Harper EXTEND phase.
+
+    Append new REQs to an existing PLAN.md/plan.json without rewriting
+    consolidated requirements. SPEC.md and lane-guides may be updated only
+    when the extension introduces new capability scope or lane guidance.
+    """
+    payload = req.model_dump()
+    payload["phase"] = "extend"
+    payload.setdefault("cmd", "extend")
+    payload["attachments"] = _normalize_attachments(req.attachments)
+
+    repo_ctx = payload.get("repository_context") or {}
+    extend_opts = payload.get("extend") or payload.get("gen") or {}
+
+    log.info(
+        "run_phase extend (route): plan_md=%s spec_md=%s core=%d attachments=%d anchor=%s explicit_req=%s git_detected=%s repo_root=%s branch=%s",
+        bool(payload.get("plan_md")),
+        bool(payload.get("spec_md")),
+        len(payload.get("core") or []),
+        len(payload.get("attachments") or []),
+        extend_opts.get("anchorReq") or extend_opts.get("anchor_req"),
+        extend_opts.get("explicitReq") or extend_opts.get("explicit_req"),
+        repo_ctx.get("git_detected"),
+        repo_ctx.get("repo_root"),
+        repo_ctx.get("branch"),
+    )
+
+    try:
+        out_dict = await svc.run_phase("extend", payload)
+        out = HarperRunResponse(
+            ok=bool(out_dict.get("ok", True)),
+            phase=out_dict.get("phase") or "extend",
+            echo=out_dict.get("echo"),
+            text=out_dict.get("text"),
+            files=[FileArtifact(**f) for f in (out_dict.get("files") or [])],
+            diffs=[DiffEntry(**d) for d in (out_dict.get("diffs") or [])],
+            tests=TestSummary(**(out_dict.get("tests") or {})),
+            warnings=out_dict.get("warnings") or [],
+            errors=out_dict.get("errors") or [],
+            runId=out_dict.get("runId"),
+            usage=out_dict.get("usage"),
+            execution=out_dict.get("execution"),
+            local_agent=out_dict.get("local_agent"),
+            telemetry=out_dict.get("telemetry"),
+        )
+        return HarperEnvelope(out=out)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:
+        log.exception("Error in extend phase: %s", exc)
+        raise HTTPException(status_code=500, detail="Error in extend phase") from exc
+
+
 @router.post("/kit", response_model=HarperEnvelope)
 async def post_kit(req: HarperPhaseRequest):
     payload = req.model_dump()
