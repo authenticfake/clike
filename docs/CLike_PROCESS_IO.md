@@ -128,6 +128,10 @@ Each phase lists **Inputs**, **LLM / Agent Responsibilities**, **Outputs**, and 
 - Extension operational MCP `harper_next_action`
 - Orchestrator MCP `harper_req_*` tools
 
+
+👉 Read how to extend PLAN for new REQs
+[CLike_Harper_Extend_Feature.md](./CLike_Harper_Extend_Feature.md)
+
 ---
 
 ### 1.4 KIT Phase

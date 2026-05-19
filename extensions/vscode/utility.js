@@ -1339,9 +1339,16 @@ async function buildHarperBody(phase, payload, projectRootUri, out) {
       payload["rag_top_k"] = 150;
   }
    if (phase === 'finalize') {
-      payload["rag_top_k"] = 40;
+      payload["rag_top_k"] = 50;
       payload["context_hard_limit"] = 18000;
    }
+
+   if (phase === 'extend') {
+      payload["rag_strategy"] = "off";
+      payload["rag_top_k"] = 50;
+      payload["context_hard_limit"] = 18000;
+   }
+
   return payload;
 }
 // PATCH 1 — utilities per PLAN/REQ (in alto vicino ad altre utility)
@@ -1618,6 +1625,8 @@ function defaultCoreForPhase(phase) {
       return ["SPEC.md", "PLAN.md", "plan.json", "TECH_CONSTRAINTS.yaml"];
     case "finalize":
       return ["SPEC.md", "PLAN.md",  "plan.json", "TECH_CONSTRAINTS.yaml"];
+    case "extend":
+      return ["SPEC.md", "PLAN.md", "plan.json", "TECH_CONSTRAINTS.yaml"];
     default:
       return ["IDEA.md"];
   }

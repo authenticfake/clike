@@ -788,6 +788,55 @@ async function callHarper(cmd, payload, headers, opts = {}) {
     throw new Error(`Harper ${cmd} fetch failed: ${errMsg}`);
   }
 }
+async function collectExtendCandidateFileArtifacts(workspaceRootUri) {
+  const rootFsPath = workspaceRootUri.fsPath || workspaceRootUri.path;
+  const docsRoot = path.join(rootFsPath, 'docs', 'harper');
+  const baseUri = vscode.Uri.file(docsRoot);
+  const out = [];
+
+  async function walk(dirUri, rel = '') {
+    let entries;
+    try {
+      entries = await vscode.workspace.fs.readDirectory(dirUri);
+    } catch {
+      return;
+    }
+
+    for (const [name, type] of entries) {
+      if (!name || name === '.DS_Store') continue;
+
+      const childUri = vscode.Uri.joinPath(dirUri, name);
+      const relPath = rel ? `${rel}/${name}` : name;
+
+      if (type === vscode.FileType.Directory) {
+        if (['.git', 'node_modules', '.venv', '__pycache__', '__MACOSX'].includes(name)) {
+          continue;
+        }
+        await walk(childUri, relPath);
+        continue;
+      }
+
+      if (type !== vscode.FileType.File) continue;
+
+      let data;
+      try {
+        data = await vscode.workspace.fs.readFile(childUri);
+      } catch {
+        continue;
+      }
+
+      out.push({
+        path: `docs/harper/${relPath}`.replace(/\\/g, '/'),
+        content: Buffer.from(data).toString('utf8'),
+        encoding: 'utf-8',
+      });
+    }
+  }
+
+  await walk(baseUri);
+  return out;
+}
+
 async function executeLocalAgentPackage({
   localAgentPackage,
   phase,
@@ -803,7 +852,8 @@ async function executeLocalAgentPackage({
 }) {
   const phaseForAgent = String(localAgentPackage?.phase || phase || '').trim().toLowerCase();
   const isFinalize = phaseForAgent === 'finalize';
-  const reqForAgent = isFinalize
+  const isExtend = phaseForAgent === 'extend';
+  const reqForAgent = (isFinalize || isExtend)
     ? String(localAgentPackage?.req_id || reqId || 'SOLUTION').trim().toUpperCase()
     : String(localAgentPackage?.req_id || reqId || '').trim().toUpperCase();
 
@@ -871,11 +921,15 @@ async function executeLocalAgentPackage({
 
   const candidateFiles = isFinalize
     ? await collectFinalizeCandidateFiles(wsroot)
-    : await collectReqCandidateFiles(wsroot, reqForAgent);
+    : isExtend
+      ? []
+      : await collectReqCandidateFiles(wsroot, reqForAgent);
 
   const candidateArtifacts = isFinalize
     ? await collectFinalizeCandidateFileArtifacts(wsroot)
-    : await collectReqCandidateFileArtifacts(wsroot, reqForAgent);
+    : isExtend
+      ? await collectExtendCandidateFileArtifacts(wsroot)
+      : await collectReqCandidateFileArtifacts(wsroot, reqForAgent);
 
   log(
     `[harperRun][agent] completed executor=${selectedExecutor} ` +
@@ -885,7 +939,9 @@ async function executeLocalAgentPackage({
   if (!candidateArtifacts.length) {
     const expectedRoot = isFinalize
       ? 'README.md, docs/harper, scripts, src, or runtime manifests'
-      : `runs/kit/${reqForAgent}/`;
+      : isExtend
+        ? 'docs/harper/'
+        : `runs/kit/${reqForAgent}/`;
     throw new Error(
       `${executorLabel} completed without returning readable candidate artifacts under ${expectedRoot}`
     );
@@ -3678,8 +3734,7 @@ async function cmdOpenChat(context) {
             !requestedKitPhases.length ||
             (requestedKitPhases.length === 1 && String(requestedKitPhases[0] || '').trim().toLowerCase() === 'kit');
           const _headers = { "Content-Type": "application/json" };
-
-          if ((phase === 'kit' || phase === 'finalize') && localAgentRequested && localExecutorConfig && localExecutorConfig.enabled) {
+          if ((phase === 'kit' || phase === 'finalize' || phase === 'extend') && localAgentRequested && localExecutorConfig && localExecutorConfig.enabled) {
             log(
               `[harperRun][agent] local agent requested; orchestrator will decide package/fallback ` +
               `phase=${phase} req=${targetReqId || 'SOLUTION'} exec=${executionPreference} executor=${selectedLocalExecutor}`
@@ -3692,7 +3747,28 @@ async function cmdOpenChat(context) {
           //fals is for RAG chucks - TODO: RAG management via attachments is almost oden 70%
           const body = await buildHarperBody(phase, payload, wsroot, out);
 
-          if (phase === 'kit' || phase === 'finalize') {
+          if (phase === 'extend') {
+            body.extend = {
+              anchorReq: msg.anchorReq || '',
+              explicitReq: msg.explicitReq || '',
+              fromAttachment: !!msg.fromAttachment,
+              rawInput: msg.rawInput || '',
+              alias: msg.alias || null,
+              preserveExistingRequirements: true,
+              updateSpecIfNeeded: true,
+              updateLaneGuidesIfNeeded: true,
+              emitAudit: true,
+            };
+
+            body.gen = {
+              ...(body.gen || {}),
+              anchorReq: msg.anchorReq || '',
+              explicitReq: msg.explicitReq || '',
+              rawInput: msg.rawInput || '',
+            };
+          }
+
+          if (phase === 'kit' || phase === 'finalize' || phase === 'extend') {
             body.localAgentExecutor = normalizeLocalAgentExecutor(
               selectedLocalExecutor || state.localAgentExecutor || settings.localAgentPreferredExecutor || 'auto'
             );
@@ -3787,12 +3863,12 @@ async function cmdOpenChat(context) {
 
            const localAgentPackage = _out?.local_agent || outGateway?.local_agent || null;
 
-          if ((phase === 'kit' || phase === 'finalize') && localAgentPackage?.action === 'local_agent_required') {
+          if ((phase === 'kit' || phase === 'finalize' || phase === 'extend') && localAgentPackage?.action === 'local_agent_required') {
             try {
               _out = await executeLocalAgentPackage({
                 localAgentPackage,
                 phase,
-                reqId: phase === 'finalize' ? 'SOLUTION' : targetReqId,
+                reqId: (phase === 'finalize' || phase === 'extend') ? 'SOLUTION' : targetReqId,
                 runId,
                 executionPreference,
                 settings,
@@ -3807,7 +3883,8 @@ async function cmdOpenChat(context) {
               log(failMsg);
 
               if (executionPreference === 'local_agent_only') {
-                panel.webview.postMessage({ type: 'busy', on: false });
+                clikeHarperBlockingRun = false;
+                panel.webview.postMessage({ type: 'busy', on: false, force: true });
                 panel.webview.postMessage({ type: 'error', message: failMsg });
                 return;
               }
@@ -3816,7 +3893,8 @@ async function cmdOpenChat(context) {
               const rejectedByNormalizer = /^Orchestrator rejected local-agent result:/i.test(errText);
 
               if (phase === 'finalize' && rejectedByNormalizer) {
-                panel.webview.postMessage({ type: 'busy', on: false });
+                clikeHarperBlockingRun = false;
+                panel.webview.postMessage({ type: 'busy', on: false, force: true });
                 panel.webview.postMessage({
                   type: 'error',
                   message:

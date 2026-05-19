@@ -204,6 +204,8 @@ def _render_compact_local_agent_prompt(
             "- For EVAL hardening, if a REQ-local ci/package.json exists, run `npm install --prefix runs/kit/<REQ-ID>/ci --no-audit --no-fund` before declaring npm, TypeScript, lint, test, or security checks environment-blocked. This is a local declared dependency install, not a global install.",
             "- For EVAL hardening, do not report TypeScript/tsc as environment-blocked until the REQ-local install command has been attempted and failed with concrete network, registry, filesystem, or policy evidence.",
             "- Write only under allowed_write_roots.",
+            "- Do not run git commands.",
+            "- Before final output, normalize every created or modified text file by stripping trailing whitespace and ensuring a final newline.",
             "- Do not modify canonical src/, test/, tests/, docs/harper, dependency KIT roots, or git metadata.",
             "- Inspect dependency KITs and canonical roots before writing or repairing candidate files.",
             "- Reuse existing contracts before creating new modules, helpers, adapters, or test utilities.",
@@ -214,6 +216,7 @@ def _render_compact_local_agent_prompt(
             "- For typecheck failures, repair candidate-owned source/tests/CI instead of reporting success or environment-blocked when the declared local dependencies can be installed.",
             "- For union response shape failures, decide whether the missing field is part of the stable public contract. If yes, repair the service/producer response shape. If no, repair the test with explicit narrowing before field access.",
             "- For caught errors typed as unknown, use a typed helper/adapter before asserting classification, retryable, status/statusCode, or domain failure categories.",
+            "- For Node/JavaScript checkJs tests, assert.throws() and assert.rejects() callbacks receive unknown errors. After `error instanceof SomeError`, add `const typedError = /** @type {SomeError} */ (error);` and read custom fields only from typedError.",
             "- Do not weaken tests, type checks, security checks, gate policy, or public contracts to hide failures.",
             "",
             "Return a concise summary with files changed, commands run, checks passed/failed, and unresolved gaps.",
@@ -1478,6 +1481,7 @@ def build_kit_local_agent_package(
                 f"runs/kit/{req_id}/ci/package.json for Node/npm KITs when source/tests need npm scripts or dependencies",
                 f"runs/kit/{req_id}/ci/requirements.txt only for Python KITs",
                 f"runs/kit/{req_id}/ci/pom.xml only for Java KITs",
+                f"runs/kit/{req_id}/ci/package.json only for Node KITs",
                 
                 f"runs/kit/{req_id}/docs/README_{req_id}.md",
                 f"runs/kit/{req_id}/docs/KIT_{req_id}.md",
@@ -1487,6 +1491,7 @@ def build_kit_local_agent_package(
             "Do not modify canonical src/, test/, tests/ roots.",
             "Do not modify docs/harper/PLAN.md or docs/harper/plan.json.",
             "Do not run git commands.",
+            "Before final output, normalize every created or modified text file by stripping trailing whitespace and ensuring a final newline.", 
             "Do not commit, branch, push, tag, or open pull requests.",
             "Respect capability_context from AGENT_EXECUTION_CONTEXT.json: lane, domain, runtime_profile, packs, skills, design_profiles, gate_expectations, main_module_boundary, future_compatibility_notes, and manifest content when available.",
             "Patch operations are allowed only under allowed_write_roots.",
@@ -1509,6 +1514,7 @@ def build_kit_local_agent_package(
             "Before generating code, read docs/harper/PLAN.md and docs/harper/plan.json to identify the target REQ dependencies and whether the REQ owns or merely contributes to an execution area.",
             "Before generating code, inspect existing dependency KIT artifacts under runs/kit/<DEPENDENCY_REQ_ID>/ when they exist.",
             "Before generating code, inspect canonical promoted source roots under src/ when they exist.",
+            "If a dependency REQ appears both in canonical promoted src/ and in runs/kit/<DEPENDENCY_REQ_ID>/src, treat canonical src/ as the promoted source of truth. Use dependency KIT roots only as read-only historical/evidence context unless the dependency is not promoted yet or the execution context explicitly marks it as required.",
             "Before generating tests, inspect canonical promoted test roots under test/ and tests/ when they exist.",
             "When the target REQ intentionally changes or extends behavior already covered by promoted tests, reconcile those regression tests inside the current candidate test root. Do not modify canonical test/ or tests/ roots. Instead, create an updated same-relative-path candidate test file when the CLike overlay must shadow stale promoted expectations.",
             "For additive frontend/backoffice REQs, do not leave promoted UI tests stale when the REQ adds routes, navigation entries, RBAC-visible sections, form fields, or capability pages. Update candidate tests to prove backward compatibility plus the intentional new behavior.",
@@ -1520,6 +1526,7 @@ def build_kit_local_agent_package(
             "Dependency vulnerability, license, or supply-chain checks belong to separate SCA/audit gates such as npm audit, not to raw-secret scanning of node_modules README files.",
             "Generated Node CI scripts, but for all CI scripts indipendent from language-specific tools (i.e.:python, java, ts, js, go, rust,  c, cpp, c#,...), that use mkdtemp, temporary overlays, local-eval-workspaces, or report directories must prefer CLIKE_EVAL_TEMP_ROOT when present, then create the parent directory first with mkdir(..., { recursive: true }) before writing or calling mkdtemp.",
             "For typed or statically checked runtimes, generated source, tests, and CI scripts must access custom exception/error metadata only after using the language-native narrowing, casting, matching, or typed-exception mechanism.",
+            "For Node/JavaScript tests checked by TypeScript checkJs, callbacks passed to assert.throws() or assert.rejects() receive an unknown error value. After asserting `error instanceof SomeError`, always introduce a JSDoc cast such as `const typedError = /** @type {SomeError} */ (error);` and read custom fields such as `issues`, `code`, `classification`, `retryable`, `statusCode`, or `metadata` only from the typed variable.",
             "Generated candidate tests must preserve assertions on error semantics, but must assert through a narrowed or adapted error value instead of directly reading fields from a generic exception/error/object.",
             "Generated CI utility scripts must use small safe helper/adaptor functions for platform-specific error metadata such as code, errno, syscall, path, status/statusCode, cause, provider codes, classification, retryable, or domain failure categories.",
             "Do not disable type checking, relax compiler/linter settings, remove meaningful assertions, or widen all failures to untyped catch-all values merely to pass EVAL. Repair candidate-owned code/tests/CI with language-idiomatic typed error handling.",
@@ -1578,7 +1585,7 @@ def build_kit_local_agent_package(
             "- Read workspace_inspection_policy before designing the implementation.",
             "- Inspect promoted src/test roots and dependency KIT roots listed in workspace_inspection_policy before writing.",
             "- Inspect promoted tests that CLike EvalRunner will include in the dependency-aware overlay. If the current REQ intentionally extends behavior covered by those tests, emit updated candidate tests under runs/kit/<REQ-ID>/test with the same relative path when needed so the overlay shadows stale expectations without modifying canonical tests.",
-            "- Treat canonical src/test roots as promoted truth and dependency KIT roots as E2E contract evidence.",            "- Read and respect capability_context before designing the implementation.",
+            "- Treat canonical src/test roots as promoted truth. Dependency KIT roots are read-only E2E contract evidence/fallback and must not override canonical src/test when the same dependency is already promoted.",
             "- Prefer CLIKE_SELECTED_CAPABILITY_CONTEXT.md over the generic full manifest when selected capability guidance exists.",
             "- Use main_module_boundary to keep feature implementation focused and avoid scattered files.",
             "- If FILE_REQUIREMENTS.json requires execution_area_runtime_manifest, solution_composition_root, or module_launcher, those execution-area artifacts may be created outside main_module_boundary but must stay under the allowed candidate src root and must remain execution-area-scoped, not REQ-scoped or domain-namespace-scoped.",
@@ -2045,6 +2052,7 @@ def build_eval_local_agent_package(
             "For typecheck failures where tests access fields that are missing on one variant of a union response, do not silence the checker with broad casts. First decide whether the field is part of the stable public contract. If yes, repair the producer/service response so every success variant exposes the stable field. If no, repair the test with explicit narrowing before accessing variant-specific fields.",
             "For workflow orchestration responses, fields such as workflowRun, job, idempotency, artifacts, and trace must have a stable documented success contract when acceptance criteria require trace continuity, idempotency reuse, and job/artifact linkage. Prefer repairing the producer shape over weakening tests when downstream REQs depend on those fields.",
             "For caught errors typed as unknown, repair with a narrow helper or typed error adapter and preserve assertions on classification, retryable, status/statusCode, and domain failure categories.",
+            "For Node/JavaScript checkJs failures inside assert.throws() or assert.rejects() callbacks, do not weaken the test and do not cast before validation. First assert `error instanceof ExpectedError`, then add `const typedError = /** @type {ExpectedError} */ (error);` and access custom fields such as `issues`, `code`, `classification`, `retryable`, `statusCode`, or `metadata` through the typed variable.",
             "When a typecheck diagnostic reports exact candidate-owned file:line locations, those diagnostics are the repair queue. Patch the listed files and rerun the same command until it passes or max_repair_cycles_inside_agent is exhausted.",
             "Do not stop after partially reducing diagnostics when the same blocking command still fails on candidate-owned files and repair cycles remain.",
             "Before returning, execute the REQ-local LTC/HOWTO checks when possible.",
@@ -2054,6 +2062,7 @@ def build_eval_local_agent_package(
             "Do not modify canonical src/, test/, tests/ roots.",
             "Do not modify docs/harper/PLAN.md or docs/harper/plan.json.",
             "Do not run git commands.",
+            "Before final output, normalize every created or modified text file by stripping trailing whitespace and ensuring a final newline.",
             "Do not commit, branch, push, tag, or open pull requests.",
             "Respect capability_context from AGENT_EVAL_CONTEXT.json: lane, domain, runtime_profile, packs, skills, design_profiles, gate_expectations, main_module_boundary, future_compatibility_notes, manifest content, and capability index content when available.",
             "Patch operations are allowed only under allowed_write_roots.",
@@ -2113,6 +2122,7 @@ def build_eval_local_agent_package(
             "- Top priority for typecheck repair: if tests access fields missing from one branch of a union response, do not hide the issue with broad casts. Determine whether the field belongs to the stable public contract. If yes, repair the service/producer response shape. If no, repair the test with explicit narrowing before field access.",
             "- For workflow orchestration responses, workflowRun, job, idempotency, artifacts, and trace are contract-sensitive fields. Preserve idempotency and trace assertions; do not remove them to pass typecheck.",
             "- For unknown caught errors, use a narrow typed helper/adapter before asserting classification, retryable, status/statusCode, or domain failure categories.",
+            "- For Node/JavaScript checkJs tests, assert.throws() and assert.rejects() callbacks receive unknown errors. Repair them by asserting `error instanceof ExpectedError`, then introducing a JSDoc cast such as `const typedError = /** @type {ExpectedError} */ (error);` and reading custom fields only from the typed variable.",
             "- Read AGENT_EVAL_CONTEXT.json and follow allowed_write_roots/forbidden_paths strictly.",
             "- If checks fail for deterministic candidate source, test, or CI reasons, you must repair the smallest related files under allowed_write_roots.",
             "- After repairing, you must rerun the failed or modified checks once before returning.",
@@ -3185,6 +3195,96 @@ def build_finalize_local_agent_package(
         ],
     }
 
+    readme_release_contract = {
+        "schema_version": "clike.finalize_readme_release_contract.v1",
+        "purpose": (
+            "Make local-agent /finalize produce the same polished, release-grade README.md style "
+            "as the cloud finalize path, while keeping every claim evidence-based."
+        ),
+        "visual_style": [
+            "README.md must use polished release-grade Markdown, not a minimal checklist.",
+            "Use a clean H1 title followed by a badge row.",
+            "Use a concise executive summary blockquote immediately after the badges.",
+            "Use stable H2 sections with short, substantive paragraphs.",
+            "Prefer Markdown tables for release scope, requirements coverage, configuration, sanity checks, and generated artifacts.",
+            "Use fenced code blocks for runnable commands.",
+            "Use a repository tree block when it helps explain the final artifact layout.",
+            "Avoid raw dumps, noisy bullet spam, placeholder text, and vague marketing language.",
+        ],
+        "badge_policy": {
+            "required": True,
+            "style": "shields.io markdown image badges",
+            "required_badges": [
+                "status",
+                "Clike",
+                "Harper phase",
+                "eval",
+                "gate",
+                "runtime",
+            ],
+            "evidence_rules": [
+                "Badge values must be derived from finalize context, eval/gate reports, PLAN.md, plan.json, runtime manifests, scripts, or generated artifacts.",
+                "Do not claim eval-passing or gate-passing unless passing evidence is available.",
+                "If eval or gate evidence is missing, use neutral not-verified/not-run badges.",
+                "If runtime cannot be detected from manifests or source evidence, use a neutral runtime-unknown badge.",
+            ],
+            "examples": [
+                "![Status](https://img.shields.io/badge/status-finalized-brightgreen)",
+                "![Clike](https://img.shields.io/badge/clike-blue)",
+                "![Harper](https://img.shields.io/badge/Harper-blue)",
+                "![Eval](https://img.shields.io/badge/eval-passing-brightgreen)",
+                "![Gate](https://img.shields.io/badge/gate-not--verified-lightgrey)",
+                "![Runtime](https://img.shields.io/badge/runtime-detected-lightgrey)",
+            ],
+        },
+        "required_readme_sections": [
+            "Project Overview",
+            "Release Scope",
+            "Architecture",
+            "Repository Structure",
+            "Requirements Coverage",
+            "Configuration",
+            "How to Run",
+            "How to Test",
+            "Sanity Checks",
+            "Generated Artifacts",
+            "Operational Notes",
+            "Known Limitations",
+            "Next Steps",
+        ],
+        "content_rules": [
+            "README.md must reflect the final accepted artifact set, not stale KIT output or earlier fallback docs.",
+            "Requirement coverage must be based on PLAN.md, plan.json, gate/eval evidence, or finalized artifacts.",
+            "Configuration must list only evidenced environment variables and safe placeholders.",
+            "How to Run and How to Test must include only commands backed by real files/scripts/manifests, or clearly mark them as environment-blocked.",
+            "Known Limitations must be concrete and evidence-based.",
+            "Next Steps must be practical and aligned with TODO_NEXT.md.",
+            "Do not invent routes, ports, services, providers, credentials, deployment targets, eval results, or gate results.",
+            "Do not leave placeholder sections such as TBD, TODO, lorem ipsum, or fill this in.",
+        ],
+        "recommended_readme_skeleton": [
+            "# <Project Name>",
+            "",
+            "![Status](https://img.shields.io/badge/status-finalized-brightgreen) ![Clike](https://img.shields.io/badge/clike-blue) ![Harper](https://img.shields.io/badge/Harper-blue) ![Eval](https://img.shields.io/badge/eval-not--verified-lightgrey) ![Gate](https://img.shields.io/badge/gate-not--verified-lightgrey) ![Runtime](https://img.shields.io/badge/runtime-detected-lightgrey)",
+            "",
+            "> Concise executive summary of what the finalized solution provides.",
+            "",
+            "## Project Overview",
+            "## Release Scope",
+            "## Architecture",
+            "## Repository Structure",
+            "## Requirements Coverage",
+            "## Configuration",
+            "## How to Run",
+            "## How to Test",
+            "## Sanity Checks",
+            "## Generated Artifacts",
+            "## Operational Notes",
+            "## Known Limitations",
+            "## Next Steps",
+        ],
+    }
+
     finalize_contract = {
         "schema_version": "clike.finalize_contract.v1",
         "phase": "finalize",
@@ -3218,6 +3318,7 @@ def build_finalize_local_agent_package(
                 "infra/deploy readiness, checks, and known gaps. Do not overwrite useful README content blindly."
             ),
         },
+        "readme_release_contract": readme_release_contract,
         "env_completeness_policy": {
             "required": True,
             "policy": (
@@ -3572,6 +3673,7 @@ def build_finalize_local_agent_package(
         "forbidden_paths": forbidden_paths,
         "hard_rules": [
             "Do not run git commands.",
+            "Before final output, normalize every created or modified text file by stripping trailing whitespace and ensuring a final newline.", 
             "Do not commit, branch, push, tag, or open pull requests.",
             "Do not write secrets, credentials, private keys, or real .env files.",
             "Do not write under .git, node_modules, .venv, __pycache__, __MACOSX, .next, dist, build, .ruff_cache, or .mypy_cache.",
@@ -3609,6 +3711,8 @@ def build_finalize_local_agent_package(
             "Cloud provision plan scripts must prepare or validate the provisioning path without mutating live infrastructure by default.",
             "Cloud apply scripts are allowed only as guarded operator scripts and must fail closed unless CLIKE_ALLOW_CLOUD_MUTATION=1 is set.",
             "README.md must preserve useful existing README content and merge it with IDEA/SPEC/PLAN facts, runtime evidence, configuration, local run, infra/deploy readiness, checks, and known gaps.",
+            "README.md must follow finalize_contract.readme_release_contract: cloud-style badge row, polished release-grade Markdown, required sections, evidence-based content, useful tables, fenced commands, and no minimal checklist-style README.",
+            "README badges must be evidence-based: do not claim eval-passing, gate-passing, runtime, provider, route, or deployment status unless supported by available reports, manifests, scripts, PLAN/SPEC, or finalized artifacts.",
             ".env.example or ecosystem-native equivalent must include every evidenced runtime/auth/database/broker/cache/object-storage/secrets/cloud/deploy variable with safe placeholders.",
         ], 
     }
@@ -3631,6 +3735,10 @@ def build_finalize_local_agent_package(
             "- Detect the stack-native runtime profile from TECH_CONSTRAINTS.yaml, SPEC, PLAN, plan.json, manifests, scripts, and repository structure. Complete the evidenced canonical entrypoints and launchers for that profile instead of assuming a language or framework.",
             "- Prefer completing canonical runtime files over creating parallel demo files. Do not emit stack-specific files or commands unless the stack is evidenced.",
             "- Treat README.md as a final merged project overview: preserve useful existing README content and merge it with IDEA.md, SPEC.md, PLAN.md, runtime evidence, configuration, local run, infra/deploy readiness, checks, and known gaps.",
+            "- README.md must use the same polished release-grade Markdown style as the cloud finalize path: H1 title, badge row, executive summary blockquote, stable H2 sections, useful tables, fenced commands, repository tree where helpful, concrete operational notes, and no placeholder text.",
+            "- README.md badges are required but must be evidence-based: use passing eval/gate badges only when reports prove it; otherwise use neutral not-verified/not-run badges.",
+            "- README.md must include these sections when applicable: Project Overview, Release Scope, Architecture, Repository Structure, Requirements Coverage, Configuration, How to Run, How to Test, Sanity Checks, Generated Artifacts, Operational Notes, Known Limitations, and Next Steps.",
+            "- Do not produce a minimal checklist-style README. Produce a polished final release document suitable for technical stakeholder review.",
             "- Reuse before create; patch before replace; complete before regenerate.",
             "- Produce truthful final documentation and local sanity scripts.",
             "- Final README, HOWTO_RUN, RELEASE_NOTES, PR_BODY, SANITY_CHECKS, and TODO_NEXT must describe the final accepted artifact set, not an earlier fallback or conservative partial snapshot. If source files, manifests, run scripts, or routes are emitted or collected, documentation must reflect them truthfully.",
@@ -3663,6 +3771,19 @@ def build_finalize_local_agent_package(
             "- docs/harper/PR_BODY.md",
             "- scripts/check_solution_local.sh and scripts/check_solution_local.ps1 when runnable code exists",
             "- runtime-specific run scripts for backend/frontend/workers only when those execution areas exist",
+            "",
+            "README.md release-grade format:",
+            "- Start with '# <Project Name>'.",
+            "- Add a single badge row using shields.io Markdown image badges.",
+            "- Include at least status, Harper phase, eval, gate, and runtime badges.",
+            "- Add a concise executive summary blockquote after the badge row.",
+            "- Use the required section order from finalize_contract.readme_release_contract.required_readme_sections.",
+            "- Use tables for release scope, requirements coverage, configuration, sanity checks, and generated artifacts when useful.",
+            "- Use fenced code blocks for commands.",
+            "- Keep every claim tied to repository evidence, PLAN/SPEC, eval/gate reports, manifests, scripts, or finalized artifacts.",
+            "- Use neutral badges such as eval-not--verified or gate-not--verified when evidence is missing.",
+            "- Never invent passing gates, runtime status, providers, routes, ports, credentials, or deployment targets.",
+            "",
             "- scripts/check_infra_prereqs.sh and scripts/check_infra_prereqs.ps1 when infra_profile.infra_detected is true",
             "- scripts/provision_plan.sh and scripts/provision_plan.ps1 when infra_profile.infra_detected is true",
             "- scripts/check_deployment.sh and scripts/check_deployment.ps1 when infra_profile.infra_detected is true",
@@ -3786,18 +3907,302 @@ def build_finalize_local_agent_package(
     }
 
 
+def build_extend_local_agent_package(
+    *,
+    payload: Dict[str, Any],
+    execution_policy: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Build the local-agent execution package for Harper /extend.
+
+    /extend is a documentation/planning mutation phase. It must append new REQs
+    to existing Harper planning artifacts without modifying consolidated REQs or
+    touching source/test/KIT/eval roots.
+    """
+    run_id = _safe_text(payload.get("runId")) or "extend-local"
+    local_executor = _resolve_local_executor(payload)
+
+    extend_opts = dict(payload.get("extend") or payload.get("gen") or {})
+    anchor_req = _safe_text(
+        extend_opts.get("anchorReq")
+        or extend_opts.get("anchor_req")
+        or payload.get("anchorReq")
+        or payload.get("anchor_req")
+    ).upper()
+    explicit_req = _safe_text(
+        extend_opts.get("explicitReq")
+        or extend_opts.get("explicit_req")
+        or payload.get("explicitReq")
+        or payload.get("explicit_req")
+    ).upper()
+    raw_input = _safe_text(
+        extend_opts.get("rawInput")
+        or extend_opts.get("raw_input")
+        or payload.get("rawInput")
+        or payload.get("raw_input")
+    )
+
+    allowed_write_roots = [
+        "docs/harper/PLAN.md",
+        "docs/harper/plan.json",
+        "docs/harper/SPEC.md",
+        "docs/harper/TECH_CONSTRAINTS.yaml",
+        "docs/harper/lane-guides",
+        "docs/harper",
+    ]
+
+    forbidden_paths = [
+        ".git",
+        "src",
+        "test",
+        "tests",
+        "runs/kit",
+        "runs/eval",
+        "runs/gate",
+        "node_modules",
+        ".venv",
+        "__pycache__",
+        "__MACOSX",
+    ]
+
+    context = {
+        "schema_version": "clike.agent.extend_context.v1",
+        "phase": "extend",
+        "run_id": run_id,
+        "anchor_req": anchor_req,
+        "explicit_req": explicit_req,
+        "raw_input": raw_input,
+        "input_sources": {
+            "inline_text_present": bool(raw_input),
+            "attachments_present": bool(payload.get("attachments")),
+            "attachment_count": len(payload.get("attachments") or []),
+        },
+        "mission": {
+            "purpose": "Append new requirements to existing Harper planning artifacts without regenerating the plan.",
+            "append_only_by_default": True,
+            "preserve_existing_requirements": True,
+            "update_plan_md": True,
+            "update_plan_json": True,
+            "update_spec_if_needed": True,
+            "update_lane_guides_if_needed": True,
+            "emit_extend_audit": True,
+        },
+        "required_reads": [
+            "docs/harper/PLAN.md",
+            "docs/harper/plan.json",
+            "docs/harper/SPEC.md when present",
+            "docs/harper/TECH_CONSTRAINTS.yaml when present",
+            "docs/harper/lane-guides/*.md when present",
+            ".clike/project.json when present",
+            ".clike/capabilities.yaml when present",
+            ".clike/capabilities.yml when present",
+            ".clike/skills/** when relevant",
+            ".clike/packs/** when relevant",
+            ".clike/design-profiles/** when relevant",
+        ],
+        "allowed_write_roots": allowed_write_roots,
+        "forbidden_paths": forbidden_paths,
+        "output_contract": {
+            "always": [
+                "docs/harper/PLAN.md",
+                "docs/harper/plan.json",
+                "docs/harper/EXTEND_<YYYY-MM-DD>_<FIRST_REQ>_<LAST_REQ>.md",
+            ],
+            "conditional": [
+                "docs/harper/SPEC.md only when new capability scope is introduced",
+                "docs/harper/lane-guides/<concern>.md only when lane guidance is introduced or extended",
+            ],
+        },
+        "hard_rules": [
+            "Do not run git commands.",
+            "Before final output, normalize every created or modified text file by stripping trailing whitespace and ensuring a final newline.",
+            "Do not modify src/, test/, tests/, runs/kit/, runs/eval/, or runs/gate/.",
+            "Do not regenerate PLAN.md from scratch.",
+            "Do not rewrite, renumber, delete, or semantically modify existing consolidated REQs.",
+            "Append new REQs after the requested anchor when provided.",
+            "If no anchor is provided, detect the last REQ in plan.json/PLAN.md and append after it.",
+            "Keep REQ IDs unique and contiguous unless the user explicitly supplied IDs.",
+            "Mirror the existing plan.json requirement object shape instead of inventing a new schema.",
+            "Update dependency graph and milestone/backlog sections only by appending the new REQs.",
+            "Update SPEC.md only when the extension introduces new product/system capability scope, terms, constraints, integration boundaries, or user-visible behavior.",
+            "Update lane-guides only when the extension introduces a new concern lane or materially extends existing lane guidance.",
+            "Lane is a capability concern, not an implementation language.",
+            "Do not infer implementation language from lane.",
+            "Emit a Harper Extend audit file under docs/harper/EXTEND_<date>_<first_req>_<last_req>.md.",
+            "The audit must list input sources, anchor, added REQs, updated files, preserved REQs, dependency decisions, validation results, and unresolved risks.",
+        ],
+        "validation_expectations": [
+            "PLAN.md exists after the change.",
+            "plan.json parses after the change.",
+            "All new REQ IDs appear in both PLAN.md and plan.json.",
+            "All new REQs have acceptance criteria.",
+            "All dependencies resolve to existing or newly added REQs.",
+            "Existing REQs are preserved.",
+            "No source/test/KIT/eval files are changed.",
+            "An EXTEND audit report is written.",
+        ],
+    }
+
+    context_json = json.dumps(context, indent=2, ensure_ascii=False)
+    context_path = "docs/harper/AGENT_EXTEND_CONTEXT.json"
+    prompt_path = "docs/harper/AGENT_EXTEND_PROMPT.md"
+
+    prompt = "\n".join(
+        [
+            "# Local Agent EXTEND Execution Package — Harper Plan Extension",
+            "",
+            "You are executing a CLike Harper /extend package.",
+            "The orchestrator owns workflow state and policy. The local agent is only the workspace documentation actuator.",
+            "",
+            "Read before acting:",
+            "- docs/harper/AGENT_EXTEND_CONTEXT.json",
+            "",
+            "Mission:",
+            "- Extend the current Harper plan by appending new requirements.",
+            "- Preserve existing consolidated REQs exactly unless the user explicitly requested a separate revise operation.",
+            "- Update PLAN.md and plan.json so they remain aligned.",
+            "- Update SPEC.md only if the new REQs introduce new capability scope, domain terms, constraints, integrations, or user-visible behavior.",
+            "- Update or create lane-guides only if new concern guidance is needed.",
+            "- Emit docs/harper/EXTEND_<YYYY-MM-DD>_<FIRST_REQ>_<LAST_REQ>.md.",
+            "",
+            "Allowed writes:",
+            "- docs/harper/PLAN.md",
+            "- docs/harper/plan.json",
+            "- docs/harper/SPEC.md",
+            "- docs/harper/lane-guides/*.md",
+            "- docs/harper/EXTEND_*.md",
+            "",
+            "Forbidden writes:",
+            "- src/",
+            "- test/",
+            "- tests/",
+            "- runs/kit/",
+            "- runs/eval/",
+            "- runs/gate/",
+            "- .git/",
+            "",
+            "Append-only rules:",
+            "- Do not regenerate the plan from scratch.",
+            "- Do not modify existing REQ acceptance criteria.",
+            "- Do not renumber existing REQs.",
+            "- Do not change status/gate/promotion metadata of existing REQs.",
+            "- Add new dependencies only for new REQs.",
+            "- If shared sections need updates, append minimal new entries only.",
+            "",
+            "Input:",
+            f"- anchor_req: {anchor_req or '<auto-detect-last-req>'}",
+            f"- explicit_req: {explicit_req or '<none>'}",
+            f"- raw_input: {raw_input or '<see chat/attachments/core context>'}",
+            "",
+            "At the end, print:",
+            "- files changed;",
+            "- added REQ IDs;",
+            "- preserved REQ range;",
+            "- SPEC updated yes/no and why;",
+            "- lane-guides updated yes/no and why;",
+            "- validation performed;",
+            "- unresolved gaps.",
+        ]
+    )
+
+    return {
+        "ok": True,
+        "phase": "extend",
+        "echo": "Local agent extend package prepared for Harper plan extension",
+        "text": "",
+        "files": [],
+        "diffs": [],
+        "tests": {"passed": 0, "failed": 0, "summary": "local-agent-extend-package-prepared"},
+        "warnings": [
+            "execution_package:local_agent_required",
+            "extension_role:local_actuator_only",
+            "extend_requires_harper_docs_mutation",
+        ],
+        "errors": [],
+        "runId": run_id,
+        "execution": {
+            "requested": execution_policy.get("requested"),
+            "selected": execution_policy.get("selected"),
+            "reason": execution_policy.get("reason"),
+            "phase_supported": execution_policy.get("phase_supported"),
+        },
+        "local_agent": {
+            "action": "local_agent_required",
+            "package_id": f"{run_id}:SOLUTION:extend",
+            "phase": "extend",
+            "req_id": "SOLUTION",
+            "executor_hint": local_executor,
+            "context_path": context_path,
+            "prompt_path": prompt_path,
+            "prompt_content": prompt,
+            "invocation": {
+                "schema_version": "clike.local_agent_invocation.v1",
+                "executor": local_executor,
+                "command_ref": local_executor,
+                "args": ["exec"] if local_executor == "gpt_codex" else ["-p", "--permission-mode", "acceptEdits"],
+                "prompt_transport": "stdin" if local_executor == "gpt_codex" else "argv_last",
+                "timeout_seconds": int(payload.get("localAgentTimeoutSeconds") or 1800),
+                "cwd": ".",
+            },
+            "allowed_write_roots": allowed_write_roots,
+            "forbidden_paths": forbidden_paths,
+            "expected_outputs": context["output_contract"],
+            "package_files": [
+                {
+                    "path": context_path,
+                    "content": context_json,
+                    "mime": "application/json",
+                    "encoding": "utf-8",
+                },
+                {
+                    "path": prompt_path,
+                    "content": prompt,
+                    "mime": "text/markdown",
+                    "encoding": "utf-8",
+                },
+            ],
+        },
+    }
+
+
 def normalize_local_agent_result(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
     Normalize the extension actuator result back into a Harper-compatible envelope.
     """
     phase = (_safe_text(payload.get("phase")) or "kit").lower()
-    req_id = (_safe_text(payload.get("req_id")) or ("SOLUTION" if phase == "finalize" else "")).upper()
+    req_id = (_safe_text(payload.get("req_id")) or ("SOLUTION" if phase in {"finalize", "extend"} else "")).upper()
     run_id = _safe_text(payload.get("runId")) or _safe_text(payload.get("run_id"))
 
     files = payload.get("files") or []
     stdout = _safe_text(payload.get("stdout"))
     stderr = _safe_text(payload.get("stderr"))
     exit_code = payload.get("exit_code")
+
+    def _extend_allowed_path(file_path: str) -> bool:
+        p = _normalize_relative_path(file_path)
+        if not p:
+            return False
+
+        if p in {
+            "docs/harper/PLAN.md",
+            "docs/harper/plan.json",
+            "docs/harper/SPEC.md",
+        }:
+            return True
+
+        if p.startswith("docs/harper/lane-guides/") and p.endswith(".md"):
+            return True
+
+        if p.startswith("docs/harper/EXTEND_") and p.endswith(".md"):
+            return True
+
+        if p in {
+            "docs/harper/AGENT_EXTEND_CONTEXT.json",
+            "docs/harper/AGENT_EXTEND_PROMPT.md",
+        }:
+            return True
+
+        return False
 
     def _finalize_allowed_path(file_path: str) -> bool:
         p = _normalize_relative_path(file_path)
@@ -3833,8 +4238,12 @@ def normalize_local_agent_result(payload: Dict[str, Any]) -> Dict[str, Any]:
         content = item.get("content")
         if not file_path:
             continue
-
-        allowed = _finalize_allowed_path(file_path) if phase == "finalize" else file_path.startswith(expected_prefix)
+        if phase == "finalize":
+            allowed = _finalize_allowed_path(file_path)
+        elif phase == "extend":
+            allowed = _extend_allowed_path(file_path)
+        else:
+            allowed = file_path.startswith(expected_prefix)
         if not allowed:
             bad_paths.append(file_path)
             continue
@@ -4027,6 +4436,11 @@ def normalize_local_agent_result(payload: Dict[str, Any]) -> Dict[str, Any]:
                 "DB_PASSWORD",
                 "SQLALCHEMY_DATABASE_URL",
                 "JDBC_DATABASE_URL",
+                "POSTGRES_URL",
+                "POSTGRES_URL_REF",
+                "POSTGRES_CONNECTION",
+                "POSTGRES_CONNECTION_REF",
+                "POSTGRES_CONNECTION_SECRET_REF",
             )
             if not any(marker in env_upper for marker in database_env_markers):
                 ok = False
@@ -4044,9 +4458,12 @@ def normalize_local_agent_result(payload: Dict[str, Any]) -> Dict[str, Any]:
                 "AUTH_CLIENT_SECRET",
                 "AUTH_AUDIENCE",
                 "AUTH_JWKS_URL",
+                "OIDC_ISSUER",
                 "OIDC_ISSUER_URL",
+                "OIDC_AUDIENCE",
                 "OIDC_CLIENT_ID",
                 "OIDC_CLIENT_SECRET",
+                "OIDC_JWKS_URI",
                 "OIDC_JWKS_URL",
                 "SAML_METADATA_URL",
                 "SAML_ENTITY_ID",
@@ -4130,14 +4547,22 @@ def normalize_local_agent_result(payload: Dict[str, Any]) -> Dict[str, Any]:
                     for marker in (
                         "auth_provider",
                         "auth_mode",
+                        "auth_issuer",
                         "auth_issuer_url",
                         "auth_client_id",
+                        "auth_audience",
+                        "auth_jwks_uri",
                         "auth_jwks_url",
+                        "oidc",
                         "oidc_issuer",
+                        "oidc_audience",
                         "oidc_client",
+                        "oidc_jwks_uri",
                         "jwks",
                         "saml_metadata",
                         "required_groups",
+                        "identity",
+                        "rbac",
                         "disabled-local",
                         "local-disabled",
                     )
@@ -4174,6 +4599,9 @@ def normalize_local_agent_result(payload: Dict[str, Any]) -> Dict[str, Any]:
                         "database_url",
                         "db_url",
                         "connection_string",
+                        "connectionsecretref",
+                        "connection_secret_ref",
+                        "connectionref",
                         "datasource",
                         "create_engine",
                         "sessionmaker",
@@ -4181,6 +4609,11 @@ def normalize_local_agent_result(payload: Dict[str, Any]) -> Dict[str, Any]:
                         "get_session",
                         "sqlalchemy",
                         "jdbc",
+                        "postgres",
+                        "postgresql",
+                        "createpostgresprovider",
+                        "database provider",
+                        "db provider",
                     )
                 )
                 for path, content in content_by_path.items()

@@ -518,6 +518,8 @@ Generated source, tests, and CI scripts must be safe under the active runtime's 
 
 For typed or statically checked runtimes, do not read custom exception/error metadata from a generic error value. Narrow, cast, pattern-match, downcast, or adapt the error through the language-native mechanism before asserting fields such as `code`, `classification`, `retryable`, `status`, `statusCode`, `errno`, `syscall`, `path`, `cause`, provider error codes, or domain failure categories.
 
+For Node/JavaScript tests checked by TypeScript `checkJs`, callbacks passed to `assert.throws()` or `assert.rejects()` receive an `unknown` error value. After asserting `error instanceof SomeError`, always introduce a JSDoc cast such as `const typedError = /** @type {SomeError} */ (error);` and read custom fields such as `issues`, `code`, `classification`, `retryable`, `statusCode`, or `metadata` only from the typed variable. Do not cast before validation.
+
 Preserve meaningful failure-path assertions. Do not remove assertions, disable type checks, relax compiler/linter configuration, or hide failures by converting everything to untyped catch-all values.
 
 Use idiomatic mechanisms for the detected runtime: type guards/JSDoc narrowing for JavaScript or TypeScript, `isinstance` or custom exceptions for Python, `errors.As`/`errors.Is` for Go, checked/custom exception classes for Java, pattern matching or typed error variants for Rust, and typed exception filters/custom exception types for .NET.

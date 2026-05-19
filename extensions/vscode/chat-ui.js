@@ -505,6 +505,8 @@ var HELP_COMMANDS = [
   {cmd:'/idea', desc:'Formalizes the IDEA.md (optional)'},
   {cmd:'/spec [file|text]', desc:'Generates/Updates SPEC.md from the IDEA'},
   {cmd:'/plan [spec_path]', desc:'Generates/Updates PLAN.md from the SPEC'},
+  {cmd:'/extend [REQ-ID] "<title>" | --after REQ-ID [--from attachment]', desc:'Appends new REQs to PLAN.md/plan.json without modifying consolidated REQs'},
+  {cmd:'/add-req', desc:'Alias for /extend'},
   {cmd:'/kit [REQ-ID] [--integrity|--hardener|--promotion-eval|--phases=...]', desc:'Runs base KIT by default, or explicit follow-up KIT phases on an existing/generated candidate'},
   {cmd:'/eval <REQ-ID>', desc:'Performs an eval of KIT'},
   {cmd:'/gate <REQ-ID>', desc:'Performs a gate of KIT'},
@@ -984,6 +986,71 @@ function parseSlash(s) {
     console.log('cmd evals targets:', targets);
     return { cmd, args: { targets, testMode, modeContent } };
   }
+  if (cmd === '/extend' || cmd === '/add-req') {
+    const rest = parts.slice(1).map(x => String(x).trim()).filter(Boolean);
+
+    const normalizeReqToken = (value) => {
+      return String(value || '')
+        .trim()
+        .toUpperCase()
+        .replace(/[–—]/g, '-')
+        .replace(/[,;]+$/, '');
+    };
+
+    let anchorReq = '';
+    let explicitReq = '';
+    let fromAttachment = false;
+    const freeTextTokens = [];
+
+    for (let i = 0; i < rest.length; i += 1) {
+      const token = rest[i];
+      const lower = token.toLowerCase();
+
+      if (lower === '--from' && String(rest[i + 1] || '').toLowerCase() === 'attachment') {
+        fromAttachment = true;
+        i += 1;
+        continue;
+      }
+
+      if (lower === '--from=attachment') {
+        fromAttachment = true;
+        continue;
+      }
+
+      if (lower === '--after') {
+        anchorReq = normalizeReqToken(rest[i + 1] || '');
+        i += 1;
+        continue;
+      }
+
+      if (lower.startsWith('--after=')) {
+        anchorReq = normalizeReqToken(token.split('=').slice(1).join('='));
+        continue;
+      }
+
+      const normalized = normalizeReqToken(token);
+      if (!explicitReq && /^REQ-\d+$/i.test(normalized)) {
+        explicitReq = normalized;
+        continue;
+      }
+
+      freeTextTokens.push(token);
+    }
+
+    const rawInput = freeTextTokens.join(' ').trim();
+
+    return {
+      cmd: '/extend',
+      args: {
+        anchorReq,
+        explicitReq,
+        fromAttachment,
+        rawInput,
+        alias: cmd === '/add-req' ? 'add-req' : null,
+      },
+    };
+  }
+
   if (cmd === '/kit') {
     // Supported syntax:
     //   /kit
@@ -1354,6 +1421,7 @@ function handleSlash(slash) {
     slash.cmd === '/idea' ||
     slash.cmd === '/spec' ||
     slash.cmd === '/plan' ||
+    slash.cmd === '/extend' ||
     slash.cmd === '/kit' ||
     slash.cmd === '/finalize' ||
     slash.cmd === '/agent-default'
@@ -1416,6 +1484,12 @@ function handleSlash(slash) {
       msg.targets = slash.args?.targets ?? null;
       msg.targetReqId = firstTarget || null;
       msg.phases = slash.args?.phases ?? null;
+    } else if (slash.cmd === '/extend') {
+      msg.anchorReq = slash.args?.anchorReq || '';
+      msg.explicitReq = slash.args?.explicitReq || '';
+      msg.fromAttachment = !!slash.args?.fromAttachment;
+      msg.rawInput = slash.args?.rawInput || '';
+      msg.alias = slash.args?.alias || null;
     } else if (slash.cmd === '/idea') {
       msg.name = slash.args.name || '';
     } 

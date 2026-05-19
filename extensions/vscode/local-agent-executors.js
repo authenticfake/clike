@@ -62,6 +62,12 @@ function localAgentSupportsPhase(executorId, phase, settings) {
     return normalized === 'claude_code' || normalized === 'gpt_codex';
   }
 
+  if (p === 'extend') {
+    // /extend uses the local agent as a Harper documentation actuator.
+    // It may patch only docs/harper planning artifacts, preserving existing REQs.
+    return normalized === 'claude_code' || normalized === 'gpt_codex';
+  }
+
   return false;
 }
 
@@ -81,6 +87,8 @@ function getExecutorConfig(executorId, settings) {
       supports: {
         kit: true,
         eval: true,
+        finalize: true,
+        extend: true,
         followUpKitPhases: false,
         nonInteractive: true,
         permissionMode: true,
@@ -103,6 +111,8 @@ function getExecutorConfig(executorId, settings) {
       supports: {
         kit: true,
         eval: true,
+        finalize: true,
+        extend: true,
         followUpKitPhases: false,
         nonInteractive: true,
         permissionMode: false,

@@ -11,6 +11,15 @@
 
 ---
 
+### 🚀 **Project Status & Release Info**
+
+| 📅 **Last Updated** | 🧪 **Current Testing** | 📦 **Latest Release** |
+| --- | --- | --- |
+| May 19, 2026 | Added command for extending requirements (/extend). First draft implemented; testing has not started yet. [docs/CLike_Harper_Extend_Feature.md](./docs/CLike_Harper_Extend_Feature.md)| `v0.9.874` |
+
+
+---
+
 ## ✨ Highlights
 
 - 🌀 **Flow state by default** — no context switching, full VS Code integration.
@@ -341,6 +350,9 @@ Examples:
 /ragIndex runs/kit/REQ-001/**/*
 /ragSearch runtime profile adapters
 ```
+
+👉 Read how to extend REQs
+[docs/CLike_Harper_Extend_Feature.md](./docs/CLike_Harper_Extend_Feature.md)
 
 ---
 

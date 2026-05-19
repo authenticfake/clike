@@ -493,6 +493,10 @@ A good plan should:
 This is the last cheap place to sharpen scope.  
 If REQs are too large, too vague, or too tangled, fix them here.
 
+
+👉 Read how to extend PLAN for new REQs
+[CLike_Harper_Extend_Feature.md](./CLike_Harper_Extend_Feature.md)
+
 ---
 
 ## Phase 4 — `/kit` → code + tests + docs

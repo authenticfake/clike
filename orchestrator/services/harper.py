@@ -32,6 +32,7 @@ from services.execution_policy import (
 )
 from services.local_agent_package import (
     build_eval_local_agent_package,
+    build_extend_local_agent_package,
     build_finalize_local_agent_package,
     build_kit_local_agent_package,
 )
@@ -1933,6 +1934,58 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
             log.warning(
                 "harper.local_agent eval fallback_to_canonical req=%s err=%s",
                 target_req_id,
+                exc,
+            )
+
+    if phase == "extend" and execution_policy.get("selected") == "local_agent":
+        log.info(
+            "harper.local_agent extend package requested executor=%s reason=%s",
+            merged.get("localAgentExecutor") or "auto",
+            execution_policy.get("reason"),
+        )
+        try:
+            return build_extend_local_agent_package(
+                payload=merged,
+                execution_policy=execution_policy,
+            )
+        except Exception as exc:
+            log.exception("harper.local_agent extend package failed")
+
+            if execution_preference == "local_agent_only":
+                return {
+                    "ok": False,
+                    "phase": "extend",
+                    "echo": "",
+                    "text": "",
+                    "files": [],
+                    "diffs": [],
+                    "tests": {
+                        "passed": 0,
+                        "failed": 1,
+                        "summary": "local-agent-extend-package-failed",
+                    },
+                    "warnings": [
+                        "execution_selected:local_agent",
+                        "extend_not_run",
+                    ],
+                    "errors": [str(exc)],
+                    "runId": merged.get("runId"),
+                    "execution": {
+                        "requested": execution_preference,
+                        "selected": "local_agent",
+                        "reason": "local_agent_extend_package_failed",
+                        "phase_supported": True,
+                    },
+                }
+
+            execution_policy = dict(execution_policy)
+            execution_policy["selected"] = "cloud"
+            execution_policy["fallback_applied"] = True
+            execution_policy["reason"] = "local_agent_extend_package_failed_fallback_to_cloud"
+            merged["_execution"] = execution_policy
+
+            log.warning(
+                "harper.local_agent extend fallback_to_cloud err=%s",
                 exc,
             )
 

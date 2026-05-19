@@ -1,4 +1,4 @@
-# CLike - yet anther ai tool
+# CLike - Yet Anther Ai Tool
 
 > AI-native software engineering assistant for day-to-day coding, Harper-style solutioning, local-agent execution, RAG, Git-aware promotion, and MCP-driven agent interaction inside VS Code.
 

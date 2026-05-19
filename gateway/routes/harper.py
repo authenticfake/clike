@@ -45,6 +45,7 @@ PROMPT_PROMOTION_HARDENER_SYSTEM_PATH = os.getenv("PROMPT_PROMOTION_HARDENER_SYS
 PROMPT_PROMOTION_EVAL_SYSTEM_PATH = os.getenv("PROMPT_PROMOTION_EVAL_SYSTEM_PATH", "/app/prompts/harper/promotion_eval.md")
 PROMPT_BUILD_SYSTEM_PATH = os.getenv("PROMPT_BIULD_SYSTEM_PATH", "/app/prompts/harper/build_system.md")
 PROMPT_FINALIZE_SYSTEM_PATH = os.getenv("PROMPT_FINALIZE_SYSTEM_PATH", "/app/prompts/harper/finalize_system.md")
+PROMPT_EXTEND_SYSTEM_PATH = os.getenv("PROMPT_EXTEND_SYSTEM_PATH", "/app/prompts/harper/extend_system.md")
 
 TELEMETRY_DIR = os.getenv("HARPER_TELEMETRY_DIR", "/workspace/telemetry")  # scrive qui i .jsonl
 STUB_DIR = os.getenv("HARPER_STUB_DIR", "/workspace/gateway/stub")  # scrive qui i .jsonl
@@ -123,7 +124,9 @@ PHASE_MODEL_PARAMS = {
     "eval":     {"max_tokens": 6500, "temperature": 0.1, "top_p": 1.0},
     "gate":     {"max_tokens": 6000, "temperature": 0.1, "top_p": 1.0},
     "finalize": {"max_tokens": 31000, "temperature": 0.1, "top_p": 1.0},
+    "extend": {"max_tokens": 26000, "temperature": 0.1, "top_p": 1.0},
 }
+
 # --- RAG helpers: filter out docs and non-source hits -----------------------
 
 _DOC_EXTS: set[str] = {".md", ".markdown", ".rst", ".txt", ".adoc", ".tex", ".pdf", ".doc",".docx", ".xlsx", "xls", ".ppt", ".pptx" }
@@ -159,6 +162,9 @@ def _is_valid_file_header_path(raw_path: str, *, phase: str | None = None) -> bo
 
     if phase_norm == "plan":
         return bool(_PLAN_FILE_HEADER_RE.match(p))
+
+    if phase_norm == "extend":
+        return bool(_DOC_PHASE_FILE_HEADER_RE.match(p))
 
     if phase_norm == "finalize":
         return bool(_FINALIZE_FILE_HEADER_RE.match(p)) or bool(_KIT_FILE_HEADER_RE.match(p))
@@ -1091,6 +1097,7 @@ def _compose_system_messages(
         "kit": PROMPT_KIT_SYSTEM_PATH,
         "integrity_eval": PROMPT_INTEGRITY_EVAL_SYSTEM_PATH,
         "finalize": PROMPT_FINALIZE_SYSTEM_PATH,
+        "extend": PROMPT_EXTEND_SYSTEM_PATH,
         "promotion_hardener": PROMPT_PROMOTION_HARDENER_SYSTEM_PATH,
         "promotion_eval": PROMPT_PROMOTION_EVAL_SYSTEM_PATH,
     }
@@ -1160,6 +1167,12 @@ def _compose_system_messages(
             "TARGET_CONTRACT.json",
             "FILE_REQUIREMENTS.json",
             "INTEGRITY_EVAL.json",
+        ),
+        "extend": (
+            "SPEC.md",
+            "PLAN.md",
+            "plan.json",
+            "TECH_CONSTRAINTS.yaml",
         ),
     }
 
