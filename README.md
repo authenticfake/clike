@@ -15,7 +15,7 @@
 
 | 📅 **Last Updated** | 🧪 **Current Testing** | 📦 **Latest Release** |
 | --- | --- | --- |
-| May 19, 2026 | Added command for extending requirements (/extend). First draft implemented; testing has not started yet. [docs/CLike_Harper_Extend_Feature.md](./docs/CLike_Harper_Extend_Feature.md)| `v0.9.874` |
+| May 19, 2026 | Added command for extending requirements (/extend). First draft implemented; testing started yet. [docs/CLike_Harper_Extend_Feature.md](./docs/CLike_Harper_Extend_Feature.md)| `v0.9.874` |
 
 
 ---
@@ -27,6 +27,7 @@
 - 🛡️ **Eval-driven quality gates** — KIT/EVAL/GATE loops promote only reviewable, testable artifacts.
 - 🧠 **Repository-aware generation** — RAG grounds planning, KIT, eval, and agent execution in real workspace context.
 - 🔌 **MCP-ready operating model** — agents can interact with CLike through controlled MCP surfaces.
+
 
 
 ---

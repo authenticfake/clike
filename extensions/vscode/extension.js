@@ -3290,7 +3290,7 @@ async function cmdOpenChat(context) {
           const templatesDir = path.join(extRoot, 'templates', 'harper-init');
           const BINARY_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.pdf', '.zip', '.exe', '.dll', '.so', '.dylib', '.woff', '.woff2', '.ttf', '.eot']);
           function copyRecursive(src, dest) {
-            out.appendLine(`copyRecursive ${src} -> ${dest}`);
+            //out.appendLine(`copyRecursive ${src} -> ${dest}`);
             if (fsSync.statSync(src).isDirectory()) {
               fsSync.mkdirSync(dest, { recursive: true });
               for (const entry of fsSync.readdirSync(src)) {
@@ -3925,7 +3925,7 @@ async function cmdOpenChat(context) {
                 ],
               };
 
-              outGateway = await callHarper(cmd, fallbackBody, _headers, { timeoutMs: 1000 * 60 * harperTimeout });
+              outGateway  = await callHarper(cmd, fallbackBody, _headers, { timeoutMs: 1000 * 60 * harperTimeout });
               _out = outGateway.out;
             }
           }
