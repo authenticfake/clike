@@ -82,8 +82,12 @@ function parseMethodologyFlags(tokens, phase) {
     const phaseRules = BMAD_PHASE_ROLES[phase] || null;
     const allowed = new Set((phaseRules && phaseRules.allowedAgents) || []);
     if (!phaseRules || phaseRules.clikeOnly || !allowed.has(agent)) {
-      const allowedText = allowed.size ? Array.from(allowed).join(', ') : 'none';
-      error = `BMAD agent '${agent}' is not allowed for phase '${phase}'. Allowed agents: ${allowedText}.`;
+      if (phase === 'gate' && phaseRules && phaseRules.clikeOnly) {
+        error = '/gate is CLike-owned and methodology flags are unsupported in this MVP.';
+      } else {
+        const allowedText = allowed.size ? Array.from(allowed).join(', ') : 'none';
+        error = `BMAD agent '${agent}' is not allowed for phase '${phase}'. Allowed agents: ${allowedText}.`;
+      }
     }
   }
 
