@@ -29,6 +29,14 @@ The current webview parser supports the following slash commands.
 - `/gate <REQ-ID>`
 - `/finalize`
 
+Optional governed methodology flags are supported on Harper phase commands:
+- `--methodology bmad`
+- `--methodology=bmad`
+- `--agent developer`
+- `--agent=developer`
+
+`--agent` requires `--methodology`. Methodology identity is separate from `profileHint` and local agent executor selection.
+
 ### RAG commands
 - `/rag <query>`
 - `/rag +<N>`
@@ -166,6 +174,28 @@ These flows are repository-file oriented and not Harper-phase oriented.
 ## Execution preference
 
 The extension passes an execution preference with compatible Harper flows.
+
+## Methodology Profile
+
+Round 1 supports BMAD as a CLike-governed methodology profile. BMAD is not an executor and does not create a parallel pipeline.
+
+Supported BMAD roles:
+- `analyst`
+- `pm`
+- `architect`
+- `developer`
+- `ux`
+- `qa`
+- `tech-writer`
+
+Phase defaults:
+- `idea` -> `analyst`
+- `spec` -> `pm`
+- `plan` -> `architect`
+- `kit` -> `developer`
+- `eval` -> `qa` advisory only
+- `gate` -> CLike-only, no BMAD authority
+- `finalize` -> `tech-writer`
 
 ### Current normalized values
 - `auto`

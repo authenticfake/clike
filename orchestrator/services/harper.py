@@ -36,6 +36,7 @@ from services.local_agent_package import (
     build_finalize_local_agent_package,
     build_kit_local_agent_package,
 )
+from services.methodologies import resolve_methodology_context
 log = logging.getLogger("service.router")
 
 _KIT_PHASE_SEQUENCE: List[str] = [
@@ -1725,6 +1726,23 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
     merged.setdefault("flags", {})
     merged = await _normalize_message(merged)
 
+    methodology_context = resolve_methodology_context(
+        phase=phase,
+        methodology=merged.get("methodology"),
+        agent=merged.get("agent"),
+    )
+    if methodology_context:
+        merged["methodology"] = methodology_context.get("methodology")
+        merged["agent"] = methodology_context.get("agent")
+        merged["methodology_context"] = methodology_context
+        log.info(
+            "harper.methodology resolved methodology=%s phase=%s agent=%s authority=%s advisory_only=%s",
+            methodology_context.get("methodology"),
+            phase,
+            methodology_context.get("agent") or "none",
+            methodology_context.get("authority"),
+            methodology_context.get("advisory_only"),
+        )
 
     repo_ctx = merged.get("repository_context") or {}
     core_blobs = dict(merged.get("core_blobs") or {})

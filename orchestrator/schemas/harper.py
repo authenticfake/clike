@@ -50,6 +50,9 @@ class HarperPhaseRequest(BaseModel):
     model: Optional[str] = None
     profileHint: Optional[str] = None
     executionPreference: Optional[str] = None
+    methodology: Optional[str] = None
+    agent: Optional[str] = None
+    methodology_context: Optional[Dict[str, Any]] = None
 
     docRoot: Optional[str] = "docs/harper"
     core: List[str] = []
@@ -106,6 +109,18 @@ class ExecContext(BaseModel):
         None,
         alias="executionPreference",
         description="Execution preference: auto | cloud_only | prefer_local_agent | local_agent_only | hybrid. Legacy values prefer_claude_code and claude_code_only are normalized by the client."  
+    )
+    methodology: Optional[str] = Field(
+        None,
+        description="Optional governed methodology profile id. Methodology is not an executor.",
+    )
+    agent: Optional[str] = Field(
+        None,
+        description="Optional methodology role identity. This is separate from localAgentExecutor.",
+    )
+    methodology_context: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Resolved methodology metadata owned by CLike.",
     )
     doc_root: Optional[str] = Field("docs/harper", alias="docRoot", description="Docs root.")
     core: List[str] = Field(default_factory=list, description="Core docs for this phase.")

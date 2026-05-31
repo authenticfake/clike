@@ -1308,6 +1308,9 @@ class HarperRunRequest(BaseModel):
     model: str
     profile: Optional[str] = None
     profileHint: Optional[str] = None
+    methodology: Optional[str] = None
+    agent: Optional[str] = None
+    methodology_context: Optional[Dict[str, Any]] = None
     docRoot: str
     core: List[str] = []
     attachments: List[Union[str, Attachment]] = []

@@ -1,0 +1,56 @@
+{
+  "id": "bmad",
+  "name": "BMAD",
+  "version": "clike-built-in-round-1",
+  "description": "Compact CLike-owned BMAD methodology profile metadata. BMAD is a governed methodology profile, not an executor or a parallel pipeline.",
+  "governance": {
+    "runtime": "clike",
+    "methodology_is_executor": false,
+    "prompt_injection_enabled": false,
+    "artifact_importer_enabled": false
+  },
+  "agents": {
+    "analyst": {
+      "id": "analyst",
+      "title": "Analyst",
+      "summary": "Frames product intent, problem context, users, outcomes, constraints, and discovery assumptions.",
+      "profile_path": "agents/analyst.md"
+    },
+    "pm": {
+      "id": "pm",
+      "title": "Product Manager",
+      "summary": "Translates intent into requirements, acceptance criteria, product boundaries, and prioritization signals.",
+      "profile_path": "agents/pm.md"
+    },
+    "architect": {
+      "id": "architect",
+      "title": "Architect",
+      "summary": "Shapes technical plan structure, dependencies, architecture boundaries, integration seams, and delivery slices.",
+      "profile_path": "agents/architect.md"
+    },
+    "developer": {
+      "id": "developer",
+      "title": "Developer",
+      "summary": "Focuses on implementation-ready candidate work under CLike governance and candidate-first isolation.",
+      "profile_path": "agents/developer.md"
+    },
+    "ux": {
+      "id": "ux",
+      "title": "UX",
+      "summary": "Focuses on user journeys, interaction requirements, accessibility, and experience acceptance criteria.",
+      "profile_path": "agents/ux.md"
+    },
+    "qa": {
+      "id": "qa",
+      "title": "QA",
+      "summary": "Advises on test evidence, quality risks, acceptance coverage, and deterministic validation signals.",
+      "profile_path": "agents/qa.md"
+    },
+    "tech-writer": {
+      "id": "tech-writer",
+      "title": "Technical Writer",
+      "summary": "Prepares release-facing summaries, documentation clarity, and evidence-based finalization notes.",
+      "profile_path": "agents/tech-writer.md"
+    }
+  }
+}

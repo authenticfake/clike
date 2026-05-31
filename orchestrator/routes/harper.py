@@ -11,6 +11,7 @@ from schemas.harper import (
     ResolveResponse, HarperPhaseRequest, TestSummary
 )
 from services.router import _load_cfg, resolve, resolve_explain
+from services.methodologies.errors import MethodologyError
 router = APIRouter(prefix="/v1/harper", tags=["harper"])
 log = logging.getLogger("orchestrator.harper")
 
@@ -185,6 +186,8 @@ async def post_idea(req: HarperPhaseRequest):
         )
 
     
+    except MethodologyError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         log.info( "Error in idea phase %s", e)
         raise HTTPException(status_code=500, detail="Error in idea phase")    
@@ -241,6 +244,8 @@ async def post_plan(req: HarperPhaseRequest):
         )
         log.info("inside try out files len: %s", len(out_dict.get("files")));
 
+    except MethodologyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
     except Exception as e:
@@ -308,6 +313,8 @@ async def post_extend(req: HarperPhaseRequest):
             telemetry=out_dict.get("telemetry"),
         )
         return HarperEnvelope(out=out)
+    except MethodologyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
@@ -396,6 +403,8 @@ async def post_kit(req: HarperPhaseRequest):
                     f"Execution preference '{requested_pref}' fell back to '{actual_selected}' ({actual_reason or 'no reason provided'})."
                 )
 
+    except MethodologyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
         msg = str(exc)
 
@@ -533,6 +542,8 @@ async def post_eval_prepass(req: HarperPhaseRequest):
 
         return HarperEnvelope(out=out)
 
+    except MethodologyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         log.exception("Error in eval pre-pass phase: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -554,4 +565,3 @@ async def post_local_agent_complete(payload: dict):
     except Exception as exc:
         log.exception("local-agent complete failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-

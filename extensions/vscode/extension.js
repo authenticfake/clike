@@ -3607,6 +3607,10 @@ async function cmdOpenChat(context) {
             project_name: projectName,
             mode_contract: buildModeContract(activeMode, msg.cmd),
           };
+          if (msg.methodology) payload.methodology = msg.methodology;
+          if (msg.agent) payload.agent = msg.agent;
+          if (msg.methodology_context) payload.methodology_context = msg.methodology_context;
+
           //PATh for PLAN.md
           const wsroot = getWorkspaceRoot();
           let targetReqId;
@@ -4216,6 +4220,9 @@ async function cmdOpenChat(context) {
                   canonical_eval_after_prepass: true,
                 },
               };
+              if (msg.methodology) evalPayload.methodology = msg.methodology;
+              if (msg.agent) evalPayload.agent = msg.agent;
+              if (msg.methodology_context) evalPayload.methodology_context = msg.methodology_context;
 
               const evalBody = await buildHarperBody('eval', evalPayload, ws_root, out);
 

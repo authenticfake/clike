@@ -1,4 +1,5 @@
 const vscode = require('vscode');
+const { buildBrowserSlashParserSource } = require('./slash-parser');
 const out = vscode.window.createOutputChannel('Clike.theme');
 
 /**
@@ -1183,6 +1184,7 @@ function parseSlash(s) {
   return { cmd, args: {} };
 }
 
+${buildBrowserSlashParserSource()}
 
 function getHelpItems() {
   var fallback = HELP_COMMANDS;
@@ -1220,6 +1222,17 @@ function getHelpListSafe() {
 
 function handleSlash(slash) {
   if (!slash) return;
+
+  if (slash.error) {
+    const text = 'Error: ' + String(slash.error || 'Invalid slash command.');
+    try { bubble('assistant', text, 'system'); } catch {}
+    try {
+      const pre = document.getElementById('text');
+      if (pre) pre.textContent = text;
+      setTab('text');
+    } catch {}
+    return true;
+  }
 
   const slashCmd = String(slash.cmd || '').toLowerCase();
   const isHarperOnlyCommand = new Set([
@@ -1474,6 +1487,10 @@ function handleSlash(slash) {
       attachments: atts,
       rawCommand: rawCommand || null
     };
+    if (slash.args?.methodology) msg.methodology = slash.args.methodology;
+    if (slash.args?.agent) msg.agent = slash.args.agent;
+    if (slash.args?.methodology_context) msg.methodology_context = slash.args.methodology_context;
+
     if (slash.cmd === '/agent-default') {
       msg.value = slash.args?.value || '';
       console.log('[CLike][chat-ui][/agent-default] value =', JSON.stringify(msg.value));
@@ -1556,6 +1573,9 @@ function handleSlash(slash) {
       attachments: atts,
       argument: firstTarget || ''
     };
+    if (slash.args?.methodology) msg.methodology = slash.args.methodology;
+    if (slash.args?.agent) msg.agent = slash.args.agent;
+    if (slash.args?.methodology_context) msg.methodology_context = slash.args.methodology_context;
 
     msg.targets = slash.args?.targets ?? null;
     msg.targetReqId = firstTarget || null;
