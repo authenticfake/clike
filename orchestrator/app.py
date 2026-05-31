@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.responses import JSONResponse
 
 import os, logging
 from routes.agent import router as agent_router
@@ -13,6 +14,7 @@ from routes.harper import router as harper_router
 from routes import router as router_router
 from routes import rag as rag_routes
 from routes import routes_eval as eval_router
+from services.methodologies.errors import MethodologyError
 try:
     from mcp_server import mcp as clike_mcp
 except Exception:
@@ -94,6 +96,10 @@ class LogRequestsMiddleware(BaseHTTPMiddleware):
     
 app.add_middleware(LogRequestsMiddleware)
 
+@app.exception_handler(MethodologyError)
+async def methodology_error_handler(request: Request, exc: MethodologyError):
+    return JSONResponse(status_code=400, content={"detail": str(exc)})
+
 # include routers
 app.include_router(health_router)
 app.include_router(agent_router)
@@ -103,6 +109,5 @@ app.include_router(v1_router)
 app.include_router(harper_router)
 app.include_router(router_router.router)
 app.include_router(eval_router.router)
-
 
 
