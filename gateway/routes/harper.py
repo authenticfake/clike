@@ -16,6 +16,7 @@ import httpx
 from utils.sanitize import sanitize_for_path
 from utils.utils import   collect_rag_materials_http, decide_inline_or_rag
 from utils.rag_store import RagStore
+from utils.methodology_prompt import render_methodology_context_for_cloud_prompt
 from routes.chat import ANTHROPIC_API_KEY, ANTHROPIC_BASE, DEEPSEEK_BASE, OLLAMA_BASE, OPENAI_API_KEY, DEEPSEEK_API_KEY, OPENAI_BASE, VLLM_BASE, _json
 from providers import openai_compat as oai
 from providers import anthropic as anth
@@ -515,6 +516,7 @@ def _normalize_repo_url(url: str | None) -> str | None:
 def _inject_repo_url_in_system(system_text: str, repo_url: str | None) -> str:
     url = _normalize_repo_url(repo_url) or "https:/afucompany.it/"
     return system_text.replace(_REPO_PLACEHOLDER, url)
+
 
 def _clip_text_to_tokens(text: str, max_tokens: int) -> str:
     """Taglia per stare sotto max_tokens (approssimazione char→token già usata altrove)."""
@@ -1087,6 +1089,7 @@ def _compose_system_messages(
     run_id: str | None,
     repo_url: str | None,
     targets: Optional[list[str]],
+    methodology_context: Optional[dict] = None,
 ) -> list[dict]:
     log.info("Compose system messages for phase %s", phase)
 
@@ -1113,6 +1116,8 @@ def _compose_system_messages(
         "- Keep output concise but testable; Acceptance Criteria are mandatory.\n"
         "- Maintain human-in-control tone; do not invent facts.\n"
     )
+
+    methodology_text = render_methodology_context_for_cloud_prompt(methodology_context)
 
     constraints_chunks: list[str] = []
     other_core: dict[str, str] = {}
@@ -1211,6 +1216,7 @@ def _compose_system_messages(
 
     user = (
         f"{foreground}\n\n"
+        f"{methodology_text}"
         f"### Route\n\n"
         f"{idea_txt}"
         f"{refs}\n\n"
@@ -2181,7 +2187,8 @@ async def run(req: HarperRunRequest,  request: Request):
                             model_route_label,
                             req.runId,
                             repourl,
-                            targets)
+                            targets,
+                            req.methodology_context)
 
     #RAG context loading     
     result = await loadAttachments(rag_enabled, project_id, phase, messages, inline_files, rag_files, attachments, model_route_label, req.runId)

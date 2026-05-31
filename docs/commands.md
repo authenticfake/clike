@@ -197,6 +197,12 @@ Phase defaults:
 - `gate` -> CLike-only, no BMAD authority
 - `finalize` -> `tech-writer`
 
+Round 2 injection boundaries:
+- Cloud Harper runs receive resolved `methodology_context` only through Gateway cloud prompt composition.
+- Local-agent runs receive resolved `methodology_context` through `local_agent_package` in `AGENT_*_CONTEXT.json` and `AGENT_*_PROMPT.md`.
+- Gateway is not used as a local-agent prompt builder.
+- Methodology guidance cannot expand `allowed_write_roots` or override `forbidden_paths`.
+
 ### Current normalized values
 - `auto`
 - `cloud_only`
