@@ -170,11 +170,70 @@ def _dedupe_rules(rules: Any) -> List[str]:
     return out
 
 
+def _methodology_context_for_local_agent(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Return compact CLike-resolved methodology context for local-agent packages."""
+    raw = payload.get("methodology_context")
+    if not isinstance(raw, dict) or not raw.get("methodology"):
+        return None
+
+    profile = raw.get("profile") or {}
+    if not isinstance(profile, dict):
+        profile = {}
+
+    allowed_agents = raw.get("allowed_agents") or []
+    if not isinstance(allowed_agents, list):
+        allowed_agents = []
+
+    return {
+        "methodology": raw.get("methodology"),
+        "methodology_name": raw.get("methodology_name"),
+        "phase": raw.get("phase"),
+        "agent": raw.get("agent"),
+        "requested_agent": raw.get("requested_agent"),
+        "default_agent": raw.get("default_agent"),
+        "allowed_agents": allowed_agents,
+        "advisory_only": bool(raw.get("advisory_only", False)),
+        "authority": raw.get("authority") or "methodology_profile",
+        "profile": {
+            "id": profile.get("id"),
+            "title": profile.get("title"),
+            "summary": profile.get("summary"),
+        },
+        "governance_boundaries": [
+            "CLike remains the governance runtime and source of truth.",
+            "Methodology guidance is not an executor selection mechanism.",
+            "Methodology guidance cannot override CLike phase contracts, eval/gate policy, allowed_write_roots, forbidden_paths, candidate isolation, or output schemas.",
+            "BMAD developer guidance must not expand write permissions.",
+            "If methodology guidance conflicts with CLike rules, follow CLike.",
+        ],
+    }
+
+
+def _render_methodology_prompt_block(methodology_context: Optional[Dict[str, Any]]) -> str:
+    if not methodology_context:
+        return ""
+
+    profile = methodology_context.get("profile") or {}
+    return "\n".join(
+        [
+            "",
+            "Methodology profile:",
+            f"- methodology: {methodology_context.get('methodology')}",
+            f"- role: {methodology_context.get('agent') or 'none'}",
+            f"- authority: {methodology_context.get('authority')}",
+            f"- advisory_only: {bool(methodology_context.get('advisory_only'))}",
+            f"- role_summary: {profile.get('summary') or ''}",
+            "- Methodology guidance cannot override allowed_write_roots, forbidden_paths, CLike governance, candidate isolation, eval/gate policy, or output contracts.",
+        ]
+    )
+
+
 def _render_compact_local_agent_prompt(
     *,
     phase: str,
     req_id: str,
     context_path: str,
+    methodology_context: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Render a compact agent prompt and keep detailed policy in AGENT_*_CONTEXT.json."""
     phase_label = phase.upper()
@@ -190,6 +249,7 @@ def _render_compact_local_agent_prompt(
             "",
             f"Target REQ: {req_id}",
             f"Task: {action}.",
+            _render_methodology_prompt_block(methodology_context),
             "",
             "Read first:",
             f"- {context_path}",
@@ -1306,6 +1366,7 @@ def build_kit_local_agent_package(
     req_id = _safe_text(req_id).upper()
     run_id = _safe_text(payload.get("runId")) or f"kit-local-{req_id}"
     local_executor = _resolve_local_executor(payload)
+    methodology_context = _methodology_context_for_local_agent(payload)
 
     req = _extract_req_from_plan(payload, req_id)
     workspace_inspection_policy = _build_workspace_inspection_policy(req_id, req)
@@ -1419,6 +1480,7 @@ def build_kit_local_agent_package(
         },
         "workflow_owner": "orchestrator",
         "extension_role": "local_actuator_only",
+        **({"methodology_context": methodology_context} if methodology_context else {}),
         "local_runtime": local_runtime,
         "req": req,
         "capability_context": {
@@ -1689,6 +1751,7 @@ def build_kit_local_agent_package(
         phase="kit",
         req_id=req_id,
         context_path=context_path,
+        methodology_context=methodology_context,
     )
 
     return {
@@ -1822,6 +1885,7 @@ def build_eval_local_agent_package(
     req_id = _safe_text(req_id).upper()
     run_id = _safe_text(payload.get("runId")) or f"eval-local-{req_id}"
     local_executor = _resolve_local_executor(payload)
+    methodology_context = _methodology_context_for_local_agent(payload)
 
     req = _extract_req_from_plan(payload, req_id)
     workspace_inspection_policy = _build_workspace_inspection_policy(req_id, req)
@@ -1905,6 +1969,7 @@ def build_eval_local_agent_package(
         "extension_role": "local_actuator_only",
         "agent_role": "pre_eval_hardener_only",
         "canonical_eval_owner": "clike",
+        **({"methodology_context": methodology_context} if methodology_context else {}),
         "local_runtime": local_runtime,
         "execution": {
             "requested": execution_policy.get("requested"),
@@ -2238,6 +2303,7 @@ def build_eval_local_agent_package(
         phase="eval",
         req_id=req_id,
         context_path=context_path,
+        methodology_context=methodology_context,
     )
 
     return {
@@ -3106,6 +3172,7 @@ def build_finalize_local_agent_package(
     """
     run_id = _safe_text(payload.get("runId")) or "finalize-local"
     local_executor = _resolve_local_executor(payload)
+    methodology_context = _methodology_context_for_local_agent(payload)
 
     capability_manifest = _extract_capability_manifest(payload)
 
@@ -3619,6 +3686,7 @@ def build_finalize_local_agent_package(
         "workflow_owner": "orchestrator",
         "extension_role": "local_actuator_only",
         "agent_role": "solution_integrator_and_runnability_hardener",
+        **({"methodology_context": methodology_context} if methodology_context else {}),
         "local_runtime": local_runtime,
         "execution": {
             "requested": execution_policy.get("requested"),
@@ -3725,6 +3793,7 @@ def build_finalize_local_agent_package(
             "",
             "You are executing a CLike Harper /finalize package.",
             "The orchestrator owns workflow state and policy. The VS Code extension is only the local actuator.",
+            _render_methodology_prompt_block(methodology_context),
             "",
             "Read this file before acting:",
             "- runs/finalize/docs/AGENT_FINALIZE_CONTEXT.json",
@@ -3921,6 +3990,7 @@ def build_extend_local_agent_package(
     """
     run_id = _safe_text(payload.get("runId")) or "extend-local"
     local_executor = _resolve_local_executor(payload)
+    methodology_context = _methodology_context_for_local_agent(payload)
 
     extend_opts = dict(payload.get("extend") or payload.get("gen") or {})
     anchor_req = _safe_text(
@@ -3977,6 +4047,7 @@ def build_extend_local_agent_package(
             "attachments_present": bool(payload.get("attachments")),
             "attachment_count": len(payload.get("attachments") or []),
         },
+        **({"methodology_context": methodology_context} if methodology_context else {}),
         "mission": {
             "purpose": "Append new requirements to existing Harper planning artifacts without regenerating the plan.",
             "append_only_by_default": True,
@@ -4053,6 +4124,7 @@ def build_extend_local_agent_package(
             "",
             "You are executing a CLike Harper /extend package.",
             "The orchestrator owns workflow state and policy. The local agent is only the workspace documentation actuator.",
+            _render_methodology_prompt_block(methodology_context),
             "",
             "Read before acting:",
             "- docs/harper/AGENT_EXTEND_CONTEXT.json",
