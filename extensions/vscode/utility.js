@@ -1115,6 +1115,8 @@ async function persistReports(projectRootUri, phase, rep, out, fallbackReqId = '
       passed_count: rep.passed_count,
       blocked_count: rep.blocked_count,
       warning_count: rep.warning_count,
+      bmad_advisory: rep.bmad_advisory || undefined,
+      advisory: rep.advisory || undefined,
       summary: rep.summary || undefined,
       cases: cases.map(c => ({
       name: c.name,

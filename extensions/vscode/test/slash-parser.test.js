@@ -70,3 +70,8 @@ test('invalid BMAD phase-agent mapping returns a clear error', () => {
   const parsed = parseSlash('/kit REQ-006 --methodology bmad --agent architect');
   assert.match(parsed.error, /not allowed for phase 'kit'/);
 });
+
+test('gate cannot be overridden by BMAD methodology flags', () => {
+  const parsed = parseSlash('/gate REQ-001 --methodology bmad --agent qa');
+  assert.match(parsed.error, /\/gate is CLike-owned/);
+});
