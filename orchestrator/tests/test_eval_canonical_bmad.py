@@ -32,6 +32,17 @@ class EvalCanonicalBmadTests(unittest.TestCase):
         self.assertNotIn("methodology", source.lower())
         self.assertNotIn("bmad", source.lower())
 
+    def test_gate_check_request_remains_methodology_free(self):
+        match = re.search(r"class GateCheckRequest\(BaseModel\):.*?(?=\n\nclass |\n\n_|\Z)", SOURCE, flags=re.S)
+        self.assertIsNotNone(match)
+        source = match.group(0)
+
+        self.assertIn("profile: Optional[str]", source)
+        self.assertIn("req_id: Optional[str]", source)
+        self.assertNotIn("methodology", source.lower())
+        self.assertNotIn("agent", source.lower())
+        self.assertNotIn("methodology_context", source.lower())
+
     def test_eval_payload_promotable_is_derived_from_eval_report_only(self):
         source = _function_source("_eval_payload")
 

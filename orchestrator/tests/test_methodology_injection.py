@@ -209,6 +209,12 @@ class MethodologyInjectionTests(unittest.TestCase):
         self.assertIn("- companion_artifacts:", rendered)
         self.assertIn("CLike remains the governance runtime", rendered)
 
+    def test_cloud_prompt_renderer_omits_bmad_block_without_context(self):
+        module = _load_gateway_methodology_prompt_module()
+
+        self.assertEqual(module.render_methodology_context_for_cloud_prompt(None), "")
+        self.assertEqual(module.render_methodology_context_for_cloud_prompt({}), "")
+
     def test_gateway_harper_run_passes_resolved_methodology_context_to_cloud_composer(self):
         source = (REPO_ROOT / "gateway" / "routes" / "harper.py").read_text(encoding="utf-8")
 
@@ -421,6 +427,16 @@ class MethodologyInjectionTests(unittest.TestCase):
         self.assertIn("BMAD_EVAL_REPAIR_NOTES.md", local_agent["prompt_content"])
         self.assertIn("canonical EvalRunner remains authoritative", local_agent["prompt_content"])
 
+    def test_eval_local_agent_package_has_no_bmad_block_without_context(self):
+        payload = _rich_kit_payload()
+        payload["eval"] = {"targets": ["REQ-001"]}
+
+        package = _eval_package(payload)
+        context = _package_context_file(package, "AGENT_EVAL_CONTEXT.json")
+
+        self.assertNotIn("methodology_context", context)
+        self.assertNotIn("Methodology profile:", package["local_agent"]["prompt_content"])
+
 
 class OrchestratorMethodologyOwnershipTests(unittest.IsolatedAsyncioTestCase):
     async def test_client_supplied_methodology_context_is_ignored_for_cloud_gateway_payload(self):
@@ -618,6 +634,34 @@ class OrchestratorMethodologyOwnershipTests(unittest.IsolatedAsyncioTestCase):
         context = _context_file(package)
         self.assertEqual(context["methodology_context"]["methodology"], "bmad")
         self.assertEqual(context["companion_documents"]["bmad"]["documents"][0]["path"], "docs/harper/bmad/spec/PRD_DRAFT.md")
+
+    async def test_gateway_is_not_called_for_eval_local_agent_package_generation(self):
+        payload = _rich_kit_payload()
+        payload.update(
+            {
+                "eval": {"targets": ["REQ-001"]},
+                "executionPreference": "local_agent_only",
+                "methodology": "bmad",
+                "agent": "qa",
+            }
+        )
+
+        with patch.object(
+            harper,
+            "resolve_execution_policy",
+            return_value={
+                "requested": "local_agent_only",
+                "selected": "local_agent",
+                "reason": "test",
+                "phase_supported": True,
+            },
+        ), patch.object(harper, "_post_json", side_effect=AssertionError("Gateway must not be called")):
+            package = await harper.run_phase("eval", payload)
+
+        self.assertEqual(package["local_agent"]["action"], "local_agent_required")
+        context = _package_context_file(package, "AGENT_EVAL_CONTEXT.json")
+        self.assertEqual(context["methodology_context"]["methodology"], "bmad")
+        self.assertEqual(context["methodology_context"]["agent"], "qa")
 
 
 if __name__ == "__main__":

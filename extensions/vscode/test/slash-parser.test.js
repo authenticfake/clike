@@ -5,6 +5,59 @@ const path = require('node:path');
 
 const { GATE_METHODOLOGY_FLAGS_ERROR, parseSlash } = require('../slash-parser');
 
+test('legacy Harper slash commands parse without methodology fields', () => {
+  const cases = [
+    ['/idea', { cmd: '/idea', args: { name: undefined } }],
+    ['/spec', { cmd: '/spec', args: { targets: '' } }],
+    ['/plan', { cmd: '/plan', args: { targets: '' } }],
+    ['/kit REQ-001', { cmd: '/kit', args: { targets: ['REQ-001'], phases: null } }],
+    ['/kit REQ-001 --integrity', { cmd: '/kit', args: { targets: ['REQ-001'], phases: ['integrity_eval'] } }],
+    ['/kit REQ-001 --hardener', { cmd: '/kit', args: { targets: ['REQ-001'], phases: ['promotion_hardener'] } }],
+    ['/kit REQ-001 --promotion-eval', { cmd: '/kit', args: { targets: ['REQ-001'], phases: ['promotion_eval'] } }],
+    ['/kit REQ-001 --phases=kit,integrity_eval', { cmd: '/kit', args: { targets: ['REQ-001'], phases: ['kit', 'integrity_eval'] } }],
+    ['/eval REQ-001', { cmd: '/eval', args: { targets: ['REQ-001'], testMode: undefined, modeContent: undefined } }],
+    ['/eval REQ-001 manual pass', { cmd: '/eval', args: { targets: ['REQ-001'], testMode: 'manual', modeContent: 'pass' } }],
+    ['/gate REQ-001', { cmd: '/gate', args: { targets: ['REQ-001'], testMode: undefined, modeContent: undefined } }],
+    ['/gate REQ-001 manual pass', { cmd: '/gate', args: { targets: ['REQ-001'], testMode: 'manual', modeContent: 'pass' } }],
+    ['/finalize', { cmd: '/finalize', args: {} }],
+  ];
+
+  for (const [input, expected] of cases) {
+    const parsed = parseSlash(input);
+    assert.deepEqual(parsed, expected, input);
+    assert.equal(parsed.args.methodology, undefined, input);
+    assert.equal(parsed.args.agent, undefined, input);
+    assert.equal(parsed.args.methodology_context, undefined, input);
+  }
+});
+
+test('BMAD Harper slash commands parse supported phase-agent mappings', () => {
+  const cases = [
+    ['/idea --methodology bmad --agent analyst', '/idea', undefined, 'analyst'],
+    ['/spec --methodology bmad --agent pm', '/spec', undefined, 'pm'],
+    ['/spec --methodology bmad --agent ux', '/spec', undefined, 'ux'],
+    ['/plan --methodology bmad --agent architect', '/plan', undefined, 'architect'],
+    ['/plan --methodology bmad --agent pm', '/plan', undefined, 'pm'],
+    ['/kit REQ-001 --methodology bmad --agent developer', '/kit', ['REQ-001'], 'developer'],
+    ['/kit REQ-001 --repair --methodology bmad --agent developer', '/kit', ['REQ-001'], 'developer'],
+    ['/eval REQ-001 --methodology bmad --agent qa', '/eval', ['REQ-001'], 'qa'],
+    ['/eval REQ-001 --methodology bmad --agent developer', '/eval', ['REQ-001'], 'developer'],
+    ['/finalize --methodology bmad --agent tech-writer', '/finalize', undefined, 'tech-writer'],
+  ];
+
+  for (const [input, cmd, targets, agent] of cases) {
+    const parsed = parseSlash(input);
+    assert.equal(parsed.error, undefined, input);
+    assert.equal(parsed.cmd, cmd, input);
+    assert.equal(parsed.args.methodology, 'bmad', input);
+    assert.equal(parsed.args.agent, agent, input);
+    assert.deepEqual(parsed.args.methodology_context, { methodology: 'bmad', agent }, input);
+    if (targets) assert.deepEqual(parsed.args.targets, targets, input);
+  }
+
+  assert.equal(parseSlash('/kit REQ-001 --repair --methodology bmad --agent developer').args.repair, true);
+});
+
 test('legacy kit slash parsing remains unchanged without methodology flags', () => {
   assert.deepEqual(parseSlash('/kit REQ-001 --hardener'), {
     cmd: '/kit',
