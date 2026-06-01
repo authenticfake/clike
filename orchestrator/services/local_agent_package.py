@@ -238,6 +238,31 @@ def _render_compact_local_agent_prompt(
     """Render a compact agent prompt and keep detailed policy in AGENT_*_CONTEXT.json."""
     phase_label = phase.upper()
     action = "generate the candidate KIT" if phase == "kit" else "harden the candidate KIT before canonical eval"
+    kit_read_first = []
+    kit_rules = []
+
+    if phase == "kit":
+        kit_read_first = [
+            "- docs/harper/IDEA.md when present",
+            "- docs/harper/SPEC.md",
+            "- docs/harper/PLAN.md",
+            "- docs/harper/plan.json",
+            "- docs/harper/TECH_CONSTRAINTS.yaml before choosing libraries, runtime assumptions, architecture, deployment, provider, or command strategy",
+            "- docs/harper/bmad/** when present",
+            "- docs/harper/ux/** when present",
+        ]
+        kit_rules = [
+            "- Implement only the current REQ from AGENT_EXECUTION_CONTEXT.json.",
+            "- Inspect promoted src/ and test roots as read-only context.",
+            "- Inspect dependency REQ candidate outputs listed in AGENT_EXECUTION_CONTEXT.json when relevant.",
+            "- Write only to runs/kit/<REQ-ID>/src, runs/kit/<REQ-ID>/test, runs/kit/<REQ-ID>/ci, and runs/kit/<REQ-ID>/docs.",
+            "- Do not write to canonical src/, test/, or tests/.",
+            "- Do not mutate docs/harper/PLAN.md or docs/harper/plan.json.",
+            "- Do not promote candidate files.",
+            "- Produce candidate files satisfying TARGET_CONTRACT.json and FILE_REQUIREMENTS.json.",
+            "- TECH_CONSTRAINTS.yaml is authoritative. Do not assume Python, Node, cloud provider, database, queue, UI framework, IaC tool, or deployment target unless evidenced by TECH_CONSTRAINTS, SPEC, PLAN, plan.json, repository manifests, or existing source.",
+            "- When repair_context.repair is true, focus on failed checks without broad unrelated rewrites.",
+        ]
 
     return "\n".join(
         [
@@ -257,8 +282,8 @@ def _render_compact_local_agent_prompt(
             f"- runs/kit/{req_id}/docs/FILE_REQUIREMENTS.json when present",
             f"- runs/kit/{req_id}/docs/CLIKE_SELECTED_CAPABILITY_CONTEXT.md when present",
             f"- runs/kit/{req_id}/docs/CLIKE_CAPABILITY_INDEX.json when present",
+            *kit_read_first,
             "",
-            "Execution rules:",
             "Execution rules:",
             "- Follow AGENT_*_CONTEXT.json as the source of truth.",
             "- For EVAL hardening, if a REQ-local ci/package.json exists, run `npm install --prefix runs/kit/<REQ-ID>/ci --no-audit --no-fund` before declaring npm, TypeScript, lint, test, or security checks environment-blocked. This is a local declared dependency install, not a global install.",
@@ -270,6 +295,7 @@ def _render_compact_local_agent_prompt(
             "- Inspect dependency KITs and canonical roots before writing or repairing candidate files.",
             "- Reuse existing contracts before creating new modules, helpers, adapters, or test utilities.",
             "- Run the smallest relevant checks and report exact commands and outcomes.",
+            *kit_rules,
             "- For EVAL hardening, repair from the actual failing diagnostics, not from generic policy. Read the failing command stdout/stderr, identify exact file:line diagnostics, patch only those candidate-owned files, then rerun the same failing command.",
             "- Do not return the hardening pass as complete while the same blocking command still reports candidate-owned diagnostics of the same class, such as TS2339, TS18046, lint errors, syntax errors, or raw-secret findings in candidate-owned files.",
             "- Continue focused repair/rerun cycles up to max_repair_cycles_inside_agent when the same check keeps failing with remaining candidate-owned diagnostics.",
@@ -306,6 +332,112 @@ def _extract_req_from_plan(payload: Dict[str, Any], req_id: str) -> Dict[str, An
             return item
 
     return {"id": req_id}
+
+
+def _extract_plan_json(payload: Dict[str, Any]) -> Dict[str, Any]:
+    plan_json_text = _extract_core_blob(payload, "plan.json")
+    if not plan_json_text:
+        return {}
+
+    try:
+        data = json.loads(plan_json_text)
+    except Exception:
+        return {}
+
+    return data if isinstance(data, dict) else {}
+
+
+def _extract_plan_reqs(plan: Dict[str, Any]) -> List[Dict[str, Any]]:
+    reqs = plan.get("reqs") or plan.get("req") or plan.get("requirements") or []
+    return [item for item in reqs if isinstance(item, dict)] if isinstance(reqs, list) else []
+
+
+def _build_related_reqs(req_id: str, req: Dict[str, Any], plan: Dict[str, Any]) -> List[Dict[str, Any]]:
+    req_id_norm = _safe_text(req_id).upper()
+    dependencies = set(_extract_req_dependencies(req))
+    related: List[Dict[str, Any]] = []
+
+    for item in _extract_plan_reqs(plan):
+        item_id = _safe_text(item.get("id")).upper()
+        if not item_id or item_id == req_id_norm:
+            continue
+
+        item_dependencies = set(_extract_req_dependencies(item))
+        if item_id in dependencies or req_id_norm in item_dependencies:
+            related.append(
+                {
+                    "id": item.get("id"),
+                    "title": item.get("title"),
+                    "status": item.get("status"),
+                    "lane": item.get("lane"),
+                    "dependsOn": item.get("dependsOn") or item.get("depends_on") or item.get("dependencies") or [],
+                    "relationship": "dependency" if item_id in dependencies else "dependent",
+                }
+            )
+
+    return related
+
+
+def _compact_snippet(text: str, max_chars: int = 4000) -> str:
+    value = str(text or "").strip()
+    if len(value) <= max_chars:
+        return value
+    return value[:max_chars].rstrip() + "\n\n...[truncated]"
+
+
+def _core_doc_reference(payload: Dict[str, Any], path: str, suffix: str, max_chars: int = 4000) -> Dict[str, Any]:
+    content = _extract_core_blob(payload, suffix)
+    return {
+        "path": path,
+        "present": bool(content),
+        "snippet": _compact_snippet(content, max_chars) if content else "",
+    }
+
+
+def _companion_documents_from_core_blobs(payload: Dict[str, Any], root_prefix: str) -> List[Dict[str, Any]]:
+    core_blobs = payload.get("core_blobs") or {}
+    prefix = f"companion::{root_prefix}".lower()
+    docs: List[Dict[str, Any]] = []
+
+    for key in sorted(core_blobs.keys()):
+        key_text = str(key or "").strip()
+        if not key_text.lower().startswith(prefix):
+            continue
+
+        path = key_text[len("companion::") :]
+        content = str(core_blobs.get(key) or "")
+        docs.append(
+            {
+                "key": key_text,
+                "path": path,
+                "bytes": len(content.encode("utf-8")),
+                "snippet": _compact_snippet(content, 2500),
+            }
+        )
+
+    return docs
+
+
+def _kit_repair_context(req_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    kit_options = payload.get("kit") or {}
+    repair = bool(isinstance(kit_options, dict) and kit_options.get("repair"))
+    paths = [
+        f"runs/eval/{req_id}",
+        f"runs/eval/{req_id}/reports",
+        f"runs/kit/{req_id}/docs/AGENT_EVAL_CONTEXT.json",
+        f"runs/kit/{req_id}/docs/AGENT_EVAL_PROMPT.md",
+        f"runs/kit/{req_id}/reports",
+    ]
+    return {
+        "repair": repair,
+        "previous_eval_context_paths": paths if repair else [],
+        "guidance": (
+            "When repair is true, inspect previous eval reports and focus on failed checks. "
+            "Do not perform broad unrelated rewrites."
+        )
+        if repair
+        else "",
+    }
 
 def _extract_req_dependencies(req: Dict[str, Any]) -> List[str]:
     """
@@ -1368,7 +1500,10 @@ def build_kit_local_agent_package(
     local_executor = _resolve_local_executor(payload)
     methodology_context = _methodology_context_for_local_agent(payload)
 
+    plan_json = _extract_plan_json(payload)
     req = _extract_req_from_plan(payload, req_id)
+    dependencies = _extract_req_dependencies(req)
+    related_reqs = _build_related_reqs(req_id, req, plan_json)
     workspace_inspection_policy = _build_workspace_inspection_policy(req_id, req)
     capability_manifest = _extract_capability_manifest(payload)
     capability_integrity = _build_capability_integrity(req, capability_manifest)
@@ -1412,6 +1547,10 @@ def build_kit_local_agent_package(
             capability_integrity=capability_integrity,
             workspace_inspection_policy=workspace_inspection_policy,
         )
+
+    bmad_companion_docs = _companion_documents_from_core_blobs(payload, "docs/harper/bmad/")
+    ux_companion_docs = _companion_documents_from_core_blobs(payload, "docs/harper/ux/")
+    repair_context = _kit_repair_context(req_id, payload)
     allowed_write_roots = [
         f"runs/kit/{req_id}/src",
         f"runs/kit/{req_id}/test",
@@ -1483,6 +1622,49 @@ def build_kit_local_agent_package(
         **({"methodology_context": methodology_context} if methodology_context else {}),
         "local_runtime": local_runtime,
         "req": req,
+        "current_req": {
+            "req_id": req_id,
+            "req": req,
+            "acceptance_criteria": list(req.get("acceptance") or []),
+            "dependencies": dependencies,
+            "related_reqs": related_reqs,
+        },
+        "plan_slice": {
+            "plan_json_path": "docs/harper/plan.json",
+            "target_req": req,
+            "dependencies": dependencies,
+            "related_reqs": related_reqs,
+        },
+        "source_documents": {
+            "idea": _core_doc_reference(payload, "docs/harper/IDEA.md", "IDEA.md", 2500),
+            "spec": _core_doc_reference(payload, "docs/harper/SPEC.md", "SPEC.md", 3500),
+            "plan": _core_doc_reference(payload, "docs/harper/PLAN.md", "PLAN.md", 3500),
+            "plan_json": {
+                "path": "docs/harper/plan.json",
+                "present": bool(plan_json),
+                "relevant_slice": {
+                    "target_req": req,
+                    "dependencies": dependencies,
+                    "related_reqs": related_reqs,
+                },
+            },
+            "tech_constraints": _core_doc_reference(
+                payload,
+                "docs/harper/TECH_CONSTRAINTS.yaml",
+                "TECH_CONSTRAINTS.yaml",
+                6000,
+            ),
+        },
+        "companion_documents": {
+            "bmad": {
+                "root": "docs/harper/bmad",
+                "documents": bmad_companion_docs,
+            },
+            "ux": {
+                "root": "docs/harper/ux",
+                "documents": ux_companion_docs,
+            },
+        },
         "capability_context": {
             "lane": req.get("lane"),
             "domain": req.get("domain"),
@@ -1499,6 +1681,18 @@ def build_kit_local_agent_package(
         },
         "target_contract": target_contract,
         "file_requirements": file_requirements,
+        "candidate_output_roots": {
+            "root": f"runs/kit/{req_id}",
+            "src": f"runs/kit/{req_id}/src",
+            "test": f"runs/kit/{req_id}/test",
+            "ci": f"runs/kit/{req_id}/ci",
+            "docs": f"runs/kit/{req_id}/docs",
+        },
+        "candidate_contract_paths": {
+            "target_contract": f"runs/kit/{req_id}/docs/TARGET_CONTRACT.json",
+            "file_requirements": f"runs/kit/{req_id}/docs/FILE_REQUIREMENTS.json",
+        },
+        "repair_context": repair_context,
         "project": {
             "project_id": payload.get("project_id"),
             "project_name": payload.get("project_name"),
@@ -1510,7 +1704,10 @@ def build_kit_local_agent_package(
             "spec_md_path": "docs/harper/SPEC.md",
             "plan_md_path": "docs/harper/PLAN.md",
             "plan_json_path": "docs/harper/plan.json",
+            "tech_constraints_path": "docs/harper/TECH_CONSTRAINTS.yaml",
             "lane_guides_path": "docs/harper/lane-guides",
+            "bmad_companion_root": "docs/harper/bmad",
+            "ux_companion_root": "docs/harper/ux",
         },
         "workspace_inspection_policy": workspace_inspection_policy,
         "repository_analysis_required": {
@@ -1524,6 +1721,8 @@ def build_kit_local_agent_package(
             "dependency_kit_roots": workspace_inspection_policy["dependency_kit_roots"],
             "canonical_source_roots": workspace_inspection_policy["canonical_promoted_source_roots"],
             "canonical_test_roots": workspace_inspection_policy["canonical_promoted_test_roots"],
+            "promoted_source_roots_read_only": workspace_inspection_policy["canonical_promoted_source_roots"],
+            "promoted_test_roots_read_only": workspace_inspection_policy["canonical_promoted_test_roots"],
             "target_candidate_root": workspace_inspection_policy["target_candidate_root"],
             "purpose": (
                 "Generate candidate code that is directly promotable and consistent "
@@ -1562,6 +1761,12 @@ def build_kit_local_agent_package(
             "Do not install packages globally or into the system runtime.",
             "Do not infer the application implementation language from local_runtime.tool_hints.",
             "Infer the implementation runtime from SPEC.md, PLAN.md, plan.json, TECH_CONSTRAINTS, TARGET_CONTRACT.json, FILE_REQUIREMENTS.json, and repository evidence.",
+            "Read docs/harper/IDEA.md, SPEC.md, PLAN.md, plan.json, and TECH_CONSTRAINTS.yaml before implementing the current REQ.",
+            "TECH_CONSTRAINTS.yaml is authoritative for libraries, runtime assumptions, architecture, deployment, provider, command strategy, databases, queues, UI frameworks, IaC tools, and deployment targets.",
+            "Do not assume Python, Node, cloud provider, database, queue, UI framework, IaC tool, or deployment target unless evidenced by TECH_CONSTRAINTS, SPEC, PLAN, plan.json, repository manifests, or existing source.",
+            "Inspect docs/harper/bmad/** and docs/harper/ux/** when AGENT_EXECUTION_CONTEXT.json lists companion documents.",
+            "Implement only the current REQ and keep unrelated candidate files unchanged unless repair_context explicitly requires a focused fix.",
+            "When repair_context.repair is true, focus on failed checks and avoid broad unrelated rewrites.",
             "Use local_runtime.tool_hints only as optional command hints after the implementation runtime is known.",
             "If package.json and npm scripts are present, prefer repository-native npm scripts for checks.",
             "For Node/TypeScript frontend KITs with a runnable package under src/frontend, LTC.json must set top-level package_json to runs/kit/<REQ-ID>/src/frontend/package.json so CLike installs the actual frontend dependencies before typecheck, test, lint, or build.",
