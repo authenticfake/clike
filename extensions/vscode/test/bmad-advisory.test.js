@@ -75,6 +75,43 @@ test('/eval REQ-001 --methodology bmad --agent qa attaches advisory after canoni
   assert.ok(report.bmad_advisory.diagnostic_classifications.includes('typecheck_failure'));
 });
 
+test('BMAD advisory does not mutate canonical verdict fields', () => {
+  const canonicalReport = canonicalFailingReport();
+  const originalVerdictFields = {
+    status: canonicalReport.status,
+    passed: canonicalReport.passed,
+    promotable: canonicalReport.promotable,
+    failed: canonicalReport.failed,
+    blocking_failures: canonicalReport.blocking_failures,
+    gate: canonicalReport.gate,
+    gate_status: canonicalReport.gate_status,
+    blocked_count: canonicalReport.blocked_count,
+    warning_count: canonicalReport.warning_count,
+  };
+
+  const report = attachBmadQaAdvisory(
+    canonicalReport,
+    'REQ-001',
+    { methodology: 'bmad', phase: 'eval', agent: 'qa', advisory_only: true }
+  );
+
+  assert.deepEqual(
+    {
+      status: report.status,
+      passed: report.passed,
+      promotable: report.promotable,
+      failed: report.failed,
+      blocking_failures: report.blocking_failures,
+      gate: report.gate,
+      gate_status: report.gate_status,
+      blocked_count: report.blocked_count,
+      warning_count: report.warning_count,
+    },
+    originalVerdictFields
+  );
+  assert.ok(report.bmad_advisory);
+});
+
 test('/eval REQ-001 --methodology bmad defaults to QA advisory', () => {
   const parsed = parseSlash('/eval REQ-001 --methodology bmad');
   const context = buildEffectiveEvalMethodologyContext(parsed.args.methodology_context);

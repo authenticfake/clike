@@ -45,6 +45,30 @@ class MethodologyResolverTests(unittest.TestCase):
         self.assertEqual(context["requested_agent"], "pm")
         self.assertEqual(context["allowed_agents"], ["architect", "pm"])
 
+    def test_allowed_explicit_roles_per_phase(self):
+        cases = [
+            ("idea", "analyst"),
+            ("spec", "pm"),
+            ("spec", "ux"),
+            ("plan", "architect"),
+            ("plan", "pm"),
+            ("kit", "developer"),
+            ("eval", "qa"),
+            ("eval", "developer"),
+            ("finalize", "tech-writer"),
+        ]
+
+        for phase, agent in cases:
+            with self.subTest(phase=phase, agent=agent):
+                context = resolve_methodology_context(
+                    phase=phase,
+                    methodology="bmad",
+                    agent=agent,
+                )
+
+                self.assertEqual(context["agent"], agent)
+                self.assertIn(agent, context["allowed_agents"])
+
     def test_phase_agent_allowances_match_bmad_profile(self):
         self.assertEqual(
             resolve_methodology_context(phase="idea", methodology="bmad")["agent"],
@@ -77,6 +101,20 @@ class MethodologyResolverTests(unittest.TestCase):
         self.assertIn("data contracts", focus_text)
         self.assertIn("what later reqs may assume", focus_text)
         self.assertIn("TECH_CONSTRAINTS.yaml", context["required_context"])
+
+    def test_workflow_metadata_and_governance_boundaries_exist(self):
+        context = resolve_methodology_context(phase="kit", methodology="bmad")
+
+        self.assertIn("workflow_summary", context)
+        self.assertTrue(context["workflow_summary"])
+        self.assertGreaterEqual(len(context["workflow_focus"]), 1)
+        self.assertGreaterEqual(len(context["required_context"]), 1)
+        self.assertGreaterEqual(len(context["companion_artifacts"]), 1)
+        self.assertGreaterEqual(len(context["governance_boundaries"]), 1)
+        boundaries = " ".join(context["governance_boundaries"]).lower()
+        self.assertIn("allowed_write_roots", boundaries)
+        self.assertIn("forbidden_paths", boundaries)
+        self.assertIn("eval/gate", boundaries)
 
     def test_agent_without_methodology_is_rejected(self):
         with self.assertRaisesRegex(MissingMethodologyError, "--agent requires --methodology"):
