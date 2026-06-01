@@ -1501,6 +1501,7 @@ function handleSlash(slash) {
       msg.targets = slash.args?.targets ?? null;
       msg.targetReqId = firstTarget || null;
       msg.phases = slash.args?.phases ?? null;
+      msg.repair = !!slash.args?.repair;
     } else if (slash.cmd === '/extend') {
       msg.anchorReq = slash.args?.anchorReq || '';
       msg.explicitReq = slash.args?.explicitReq || '';
