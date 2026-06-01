@@ -30,6 +30,16 @@ The orchestrator is the single resolver for `methodology_context`. Clients may p
 | `gate` | none | none | CLike-only authority |
 | `finalize` | `tech-writer` | `tech-writer` | Release and documentation guidance |
 
+## PLAN Phase Profile
+
+For `/plan`, BMAD `architect` and `pm` roles guide requirement shaping while CLike owns the canonical `PLAN.md` and `plan.json` artifacts.
+
+The PLAN phase should produce REQs that are implementation-ready for `/kit`. Each REQ should include or clearly imply Functional Scope, Technical Scope, Non-Functional Requirements, Security Requirements, Compliance and Privacy Requirements when applicable, Observability and Operations, Integration Contracts, Data Contracts, Dependencies, Acceptance Criteria, Test Strategy, Risk and Mitigation, TECH_CONSTRAINTS obligations, the main module boundary, what this REQ builds now, what this REQ intentionally defers, and what downstream REQs may assume.
+
+`plan.json` should preserve machine-readable detail sufficient for `/kit`, including `id`, `title`, `status`, `lane`, `dependsOn`, `acceptance`, `functional_scope`, `technical_scope`, `non_functional_requirements`, `security_requirements`, `compliance_requirements`, `operational_requirements`, `integration_contracts`, `data_contracts`, `test_strategy`, `risk_notes`, `main_module_boundary`, `runtime_profile` when known, and `gate_expectations` when relevant.
+
+BMAD methodology guidance must not choose a technology stack by default. Python, Node, cloud provider, runtime, database, queue, identity, deployment target, and framework choices must come from TECH_CONSTRAINTS, SPEC, repository evidence, or explicit user input.
+
 ## Methodology Is Not Execution
 
 Methodology identity is separate from:
@@ -41,4 +51,3 @@ Methodology identity is separate from:
 - eval/gate verdicts
 
 BMAD enriches the work style for a phase. It does not decide where execution runs, what model is used, what files can be written, or whether a REQ is promotable.
-

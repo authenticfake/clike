@@ -20,6 +20,14 @@ CLike remains authoritative for:
 
 BMAD guidance cannot override any of these.
 
+## PLAN Ownership
+
+BMAD `architect` and `pm` guidance may help make `/plan` output implementation-ready, but CLike owns `docs/harper/PLAN.md` and `docs/harper/plan.json`.
+
+Planning must convert TECH_CONSTRAINTS into REQ obligations. If TECH_CONSTRAINTS requires cloud/on-prem parity, air-gapped mode, provider portability, internal registry usage, identity constraints, or deployment-specific behavior, those requirements must appear in REQ scope, acceptance criteria, test strategy, and downstream assumptions rather than future notes.
+
+BMAD profile guidance cannot hardcode a stack or runtime. Technology choices must be grounded in SPEC, TECH_CONSTRAINTS, repository evidence, or explicit user input, and the resulting `plan.json` must remain machine-readable for `/kit`.
+
 ## Cloud Path
 
 For cloud Harper runs, the orchestrator resolves `methodology_context` and sends it to Gateway. Gateway injects the resolved context into the cloud LLM prompt.
@@ -56,4 +64,3 @@ BMAD QA cannot:
 - affect gate
 
 Gate is CLike-only. BMAD flags are unsupported for gate in the current MVP.
-

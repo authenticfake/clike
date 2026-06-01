@@ -283,6 +283,8 @@ Each REQ must satisfy its scope fully for the intended production slice, not a d
 
 These directives must be reflected both in `PLAN.md` and in `plan.json`.
 
+Each REQ must be /kit implementation-legible. That means a later `/kit` run can implement the REQ without inventing missing functional behavior, technical ownership, runtime assumptions, security rules, contracts, or test obligations.
+
 Do not define REQs in a way that forces `/kit` to guess:
 
 - missing ownership
@@ -506,9 +508,12 @@ Return this section strictly as a **canonical Markdown table** using pipes with 
 `### Functional Scope — <REQ-ID>`
 - Describe the business, user, operational, industrial, enterprise, or system behavior delivered by this REQ.
 - Explain the broader scenario this REQ belongs to.
+- Explain what this REQ builds now.
 - Explain what this REQ delivers now.
+- Explain what this REQ intentionally defers.
 - Explain what is intentionally deferred to later REQs.
 - Explain what future REQs may safely assume after this REQ is complete.
+- Identify what downstream REQs may assume without revalidating or rebuilding.
 - Keep this section dense and implementation-useful.
 - Target approximately 30 lines for standard REQs, more for complex/domain-critical REQs, less for simple REQs.
 
@@ -516,16 +521,55 @@ Return this section strictly as a **canonical Markdown table** using pipes with 
 - Describe affected components, canonical module family, expected main module boundary, integration points, contracts, runtime profiles, test expectations, documentation expectations, and gate implications.
 - Explain local/cloud/on-prem/edge/air-gapped expectations when relevant.
 - Explain which abstractions, adapters, interfaces, events, APIs, persistence models, or configuration seams must be stable.
+- Include Runtime and Deployment Constraints grounded in SPEC, IDEA, TECH_CONSTRAINTS, repository evidence, or explicit user input.
 - Identify candidate lane, domain, runtime profile, skills, packs, and design profile when applicable.
 - Keep this section dense and implementation-useful.
 - Target approximately 30 lines for standard REQs, more for complex/domain-critical REQs, less for simple REQs.
+
+`### Non-Functional Requirements — <REQ-ID>`
+- State performance, reliability, maintainability, accessibility, usability, scalability, portability, compatibility, and resilience expectations when applicable.
+- Include explicit TECH_CONSTRAINTS obligations that affect non-functional behavior.
+- Do not defer cloud/on-prem parity, air-gapped mode, provider portability, internal registry usage, identity constraints, or deployment-specific behavior when TECH_CONSTRAINTS requires them.
+
+`### Security Requirements — <REQ-ID>`
+- State authentication, authorization, input validation, secret handling, data protection, audit, deny behavior, and abuse-case obligations when applicable.
+- Identify security checks that `/kit`, `/eval`, and `/gate` should preserve.
+- Do not weaken security obligations into future notes when they are required by SPEC, IDEA, TECH_CONSTRAINTS, repository evidence, or explicit user input.
+
+`### Compliance and Privacy Requirements — <REQ-ID>`
+- State applicable data classification, retention, consent, auditability, privacy, regulated workflow, or jurisdiction constraints when applicable.
+- If no compliance or privacy constraint is evidenced, state the assumption and do not invent one.
+
+`### Observability and Operations — <REQ-ID>`
+- State logging, metrics, tracing, health checks, runbook, failure visibility, deployment, rollback, and operational support expectations when applicable.
+- Include cloud/on-prem, air-gapped, internal registry, identity, or deployment-profile obligations from TECH_CONSTRAINTS when present.
+
+`### Integration Contracts — <REQ-ID>`
+- State APIs, events, queues, adapters, protocols, service boundaries, external system seams, or integration assumptions.
+- Identify contract owners and what later REQs may rely on.
+- Use implementation-neutral language unless technology choices are evidenced.
+
+`### Data Contracts — <REQ-ID>`
+- State canonical entities, schemas, fields, lifecycle states, validation invariants, persistence expectations, and audit-relevant data when applicable.
+- Identify contracts that must remain stable for downstream REQs.
+- Use compact detail, but do not leave `/kit` to invent core domain structures.
 
 `### Acceptance — <REQ-ID>`
 - A separate bullet list with at least 5 items.
 - Each item must be observable and falsifiable.
 - Acceptance criteria must cover both Functional Scope and Technical Scope.
+- Acceptance criteria must cover Non-Functional Requirements, Security Requirements, Observability and Operations, Integration Contracts, and Data Contracts when applicable.
 - Include local/cloud/on-prem/runtime parity criteria when applicable.
 - Include documentation and gate expectations when applicable.
+
+`### Test Strategy — <REQ-ID>`
+- State unit, integration, contract, E2E, security, accessibility, operational, migration, and runtime-profile tests when applicable.
+- Include checks that verify TECH_CONSTRAINTS obligations.
+- Name the behavior under test instead of using generic labels.
+
+`### Risk and Mitigation — <REQ-ID>`
+- State delivery, architecture, security, data, operational, compliance, dependency, and integration risks when applicable.
+- Pair each meaningful risk with a mitigation that `/kit`, `/eval`, or `/gate` can inspect.
 
 `### Out of Scope — <REQ-ID>`
 - Explicitly list behavior that must not be implemented by the current REQ.
@@ -624,6 +668,12 @@ Use this exact structure:
       "title": "string",
       "functional_scope": "Concise but complete functional summary aligned with PLAN.md Functional Scope.",
       "technical_scope": "Concise but complete technical summary aligned with PLAN.md Technical Scope.",
+      "non_functional_requirements": ["performance, reliability, accessibility, maintainability, portability, scalability, or resilience obligations"],
+      "security_requirements": ["authentication, authorization, validation, secret handling, audit, deny behavior, or abuse-case obligations"],
+      "compliance_requirements": ["privacy, retention, jurisdiction, regulated workflow, or auditability obligations when applicable"],
+      "operational_requirements": ["logging, metrics, tracing, health, deployment, rollback, runbook, runtime-profile, or air-gap obligations"],
+      "integration_contracts": ["APIs, events, queues, adapters, protocols, external systems, or service boundaries"],
+      "data_contracts": ["canonical entities, schemas, fields, states, validation invariants, and persistence expectations"],
       "acceptance": ["bullet 1", "bullet 2", "bullet 3", "bullet 4", "bullet 5"],
       "dependsOn": ["REQ-00x", "..."],
       "track": "App" | "Infra" | "Data" | "Integration" | "Industrial" | "AI-Native",
@@ -638,6 +688,8 @@ Use this exact structure:
       "gate_policy_ref": "docs/harper/lane-guides/<lane>.md",
       "gate_expectations": ["tests", "lint", "types", "security", "skill_adherence", "runtime_profile_adherence"],
       "main_module_boundary": "Expected canonical module/package/namespace or implementation area.",
+      "test_strategy": ["Specific tests or checks required for this REQ."],
+      "risk_notes": ["Risk and mitigation notes tied to implementation, security, operations, data, compliance, or dependencies."],
       "out_of_scope": ["Explicit deferred behavior."],
       "future_compatibility_notes": ["Contracts or boundaries that later REQs may rely on."]
     }
@@ -645,8 +697,9 @@ Use this exact structure:
 }
 
 ### Hard rules
-- Every REQ **must** include: lane, test_profile, gate_policy_ref.
-- Every REQ **should** include: functional_scope, technical_scope, domain, runtime_profile, packs, skills, design_profiles, gate_expectations, main_module_boundary, out_of_scope, future_compatibility_notes.
+- Every REQ **must** include: id, title, status, lane, dependsOn, acceptance, functional_scope, technical_scope, non_functional_requirements, security_requirements, compliance_requirements, operational_requirements, integration_contracts, data_contracts, test_strategy, risk_notes, main_module_boundary, test_profile, gate_policy_ref.
+- Every REQ **should** include: domain, runtime_profile, packs, skills, design_profiles, gate_expectations, out_of_scope, future_compatibility_notes.
+- Include `runtime_profile` when known. Include `gate_expectations` when relevant.
 - The new capability fields are additive and backward-compatible. Do not remove existing required fields.
 - If a field is not applicable, use an empty array or `"not_applicable"`.
 - Do not invent fake tools, fake services, fake protocols, fake packs, fake skills, or fake design profiles. Use capability hints only when grounded in SPEC, IDEA, TECH_CONSTRAINTS, repository evidence, or explicit user intent.
