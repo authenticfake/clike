@@ -36,6 +36,8 @@ class HarperKitOptions(BaseModel):
     - rescope: if True, incorporate Product Owner notes into plan.json view
     """
     targets: Optional[List[str]] = Field(default=None)
+    phases: Optional[List[str]] = Field(default=None)
+    repair: Optional[bool] = Field(default=False)
     batch: Optional[int] = Field(default=None, ge=1)
     req_ids: Optional[List[str]] = Field(default=None)  # backward-compat alias
     rescope: Optional[bool] = Field(default=False)

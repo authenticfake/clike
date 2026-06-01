@@ -3683,7 +3683,8 @@ async function cmdOpenChat(context) {
 
             payload["kit"] = {
               targets: [targetReqId],
-              ...(requestedKitPhases ? { phases: requestedKitPhases } : {})
+              ...(requestedKitPhases ? { phases: requestedKitPhases } : {}),
+              ...(msg.repair ? { repair: true } : {})
             };
           }
           //log(`[harperRun] payload (gen):`,  JSON.stringify(payload.gen));
@@ -4074,6 +4075,17 @@ async function cmdOpenChat(context) {
       if (msg.type === 'harperEDD' ) {
         let targets, targetReqId
         const phase = msg.cmd;
+        const gateMethodologyError = 'Gate is CLike-owned. Methodology flags are not accepted for /gate in MVP.';
+        if (
+          phase === 'gate' &&
+          (msg.methodology || msg.agent || msg.methodology_context)
+        ) {
+          log('[harperEDD][gate] rejected methodology context for CLike-owned gate');
+          vscode.window.showErrorMessage(gateMethodologyError);
+          panel.webview.postMessage({ type: 'error', message: gateMethodologyError });
+          panel.webview.postMessage({ type: 'busy', on: false });
+          return;
+        }
         const ws_root= getWorkspaceRoot()
         //log(`[harperEDD] ws_root: ${ws_root}`)
         const runId = (Math.random().toString(16).slice(2) + Date.now().toString(16));

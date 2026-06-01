@@ -19,6 +19,8 @@ const BMAD_PHASE_ROLES = {
   finalize: { defaultAgent: 'tech-writer', allowedAgents: ['tech-writer'] },
 };
 
+const GATE_METHODOLOGY_FLAGS_ERROR = 'Gate is CLike-owned. Methodology flags are not accepted for /gate in MVP.';
+
 function tokenizeSlash(input) {
   const text = String(input || '').trim();
   if (!text.startsWith('/')) return [];
@@ -42,29 +44,35 @@ function parseMethodologyFlags(tokens, phase) {
   let methodology = null;
   let agent = null;
   let error = null;
+  let sawMethodologyFlag = false;
+  let sawAgentFlag = false;
 
   for (let i = 0; i < tokens.length; i += 1) {
     const token = String(tokens[i] || '').trim();
     const lower = token.toLowerCase();
 
     if (lower === '--methodology') {
+      sawMethodologyFlag = true;
       methodology = String(tokens[i + 1] || '').trim().toLowerCase();
       i += 1;
       continue;
     }
 
     if (lower.startsWith('--methodology=')) {
+      sawMethodologyFlag = true;
       methodology = token.split('=').slice(1).join('=').trim().toLowerCase();
       continue;
     }
 
     if (lower === '--agent') {
+      sawAgentFlag = true;
       agent = String(tokens[i + 1] || '').trim().toLowerCase();
       i += 1;
       continue;
     }
 
     if (lower.startsWith('--agent=')) {
+      sawAgentFlag = true;
       agent = token.split('=').slice(1).join('=').trim().toLowerCase();
       continue;
     }
@@ -72,7 +80,9 @@ function parseMethodologyFlags(tokens, phase) {
     rest.push(token);
   }
 
-  if (agent && !methodology) {
+  if (phase === 'gate' && (sawMethodologyFlag || sawAgentFlag)) {
+    error = GATE_METHODOLOGY_FLAGS_ERROR;
+  } else if (agent && !methodology) {
     error = '--agent requires --methodology.';
   } else if (methodology && !SUPPORTED_METHODOLOGIES.has(methodology)) {
     error = `Unsupported methodology: ${methodology}. Supported methodologies: bmad.`;
@@ -83,7 +93,7 @@ function parseMethodologyFlags(tokens, phase) {
     const allowed = new Set((phaseRules && phaseRules.allowedAgents) || []);
     if (!phaseRules || phaseRules.clikeOnly || !allowed.has(agent)) {
       if (phase === 'gate' && phaseRules && phaseRules.clikeOnly) {
-        error = '/gate is CLike-owned and methodology flags are unsupported in this MVP.';
+        error = GATE_METHODOLOGY_FLAGS_ERROR;
       } else {
         const allowedText = allowed.size ? Array.from(allowed).join(', ') : 'none';
         error = `BMAD agent '${agent}' is not allowed for phase '${phase}'. Allowed agents: ${allowedText}.`;
@@ -210,10 +220,15 @@ function parseSlash(input) {
     const candidateTokens = [];
     const phaseTokens = [];
     let inlinePhases = null;
+    let repair = false;
 
     for (const token of rest) {
       const lower = token.toLowerCase();
 
+      if (lower === '--repair') {
+        repair = true;
+        continue;
+      }
       if (lower === '--integrity') {
         phaseTokens.push('integrity_eval');
         continue;
@@ -257,7 +272,11 @@ function parseSlash(input) {
       phases = Array.from(new Set(phaseTokens));
     }
 
-    return finish({ targets, phases });
+    return finish({
+      targets,
+      phases,
+      ...(repair ? { repair: true } : {}),
+    });
   }
 
   if (cmd === '/plan' || cmd === '/spec') {
@@ -309,6 +328,7 @@ const CLIKE_SLASH_PARSER = (() => {
   const SUPPORTED_METHODOLOGIES = new Set(${JSON.stringify(Array.from(SUPPORTED_METHODOLOGIES))});
   const SUPPORTED_BMAD_AGENTS = new Set(${JSON.stringify(Array.from(SUPPORTED_BMAD_AGENTS))});
   const BMAD_PHASE_ROLES = ${JSON.stringify(BMAD_PHASE_ROLES)};
+  const GATE_METHODOLOGY_FLAGS_ERROR = ${JSON.stringify(GATE_METHODOLOGY_FLAGS_ERROR)};
   ${parseMethodologyFlags.toString()}
   ${withMethodologyArgs.toString()}
   ${parseSlash.toString()}
@@ -322,6 +342,7 @@ function parseSlash(s) {
 
 module.exports = {
   BMAD_PHASE_ROLES,
+  GATE_METHODOLOGY_FLAGS_ERROR,
   SUPPORTED_BMAD_AGENTS,
   SUPPORTED_METHODOLOGIES,
   parseSlash,
