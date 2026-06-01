@@ -1,56 +1,191 @@
 {
   "id": "bmad",
   "name": "BMAD",
-  "version": "clike-built-in-round-1",
-  "description": "Compact CLike-owned BMAD methodology profile metadata. BMAD is a governed methodology profile, not an executor or a parallel pipeline.",
+  "version": "clike-built-in-round-6",
+  "description": "Compact CLike-owned BMAD-aware methodology profile metadata. This profile enriches Harper phase behavior without adding a BMAD runtime, external CLI, or parallel pipeline.",
   "governance": {
     "runtime": "clike",
     "methodology_is_executor": false,
-    "prompt_injection_enabled": false,
-    "artifact_importer_enabled": false
+    "runtime_dependency_enabled": false,
+    "external_bmad_cli_enabled": false,
+    "profile_context_injection_enabled": true,
+    "artifact_importer_enabled": false,
+    "official_bmad_runtime_content_vendored": false,
+    "canonical_eval_owner": "clike",
+    "canonical_gate_owner": "clike"
+  },
+  "supported_agents": [
+    "analyst",
+    "pm",
+    "architect",
+    "developer",
+    "ux",
+    "qa",
+    "tech-writer"
+  ],
+  "phase_mapping": {
+    "idea": {
+      "default_agent": "analyst",
+      "allowed_agents": ["analyst"]
+    },
+    "spec": {
+      "default_agent": "pm",
+      "allowed_agents": ["pm", "ux"]
+    },
+    "plan": {
+      "default_agent": "architect",
+      "allowed_agents": ["architect", "pm"]
+    },
+    "kit": {
+      "default_agent": "developer",
+      "allowed_agents": ["developer"]
+    },
+    "eval": {
+      "default_agent": "qa",
+      "allowed_agents": ["qa", "developer"],
+      "advisory_only": true
+    },
+    "gate": {
+      "clike_only": true,
+      "allowed_agents": []
+    },
+    "finalize": {
+      "default_agent": "tech-writer",
+      "allowed_agents": ["tech-writer"]
+    }
   },
   "agents": {
     "analyst": {
       "id": "analyst",
       "title": "Analyst",
-      "summary": "Frames product intent, problem context, users, outcomes, constraints, and discovery assumptions.",
+      "summary": "Frames product intent through brainstorming, research framing, briefs, PRFAQ challenge, and project context without bypassing CLike IDEA governance.",
       "profile_path": "agents/analyst.md"
     },
     "pm": {
       "id": "pm",
       "title": "Product Manager",
-      "summary": "Translates intent into requirements, acceptance criteria, product boundaries, and prioritization signals.",
+      "summary": "Turns intent into PRD-quality requirements, epics, stories, acceptance criteria, readiness checks, and scope corrections for SPEC and PLAN.",
       "profile_path": "agents/pm.md"
     },
     "architect": {
       "id": "architect",
       "title": "Architect",
-      "summary": "Shapes technical plan structure, dependencies, architecture boundaries, integration seams, and delivery slices.",
+      "summary": "Shapes architecture, dependency graph, technical scope, integration boundaries, security, operations, and implementation readiness for /kit.",
       "profile_path": "agents/architect.md"
     },
     "developer": {
       "id": "developer",
       "title": "Developer",
-      "summary": "Focuses on implementation-ready candidate work under CLike governance and candidate-first isolation.",
+      "summary": "Prepares candidate-first implementation through dev stories, quick dev focus, QA test generation, code review, sprint planning, story creation, and forensic investigation.",
       "profile_path": "agents/developer.md"
     },
     "ux": {
       "id": "ux",
       "title": "UX",
-      "summary": "Focuses on user journeys, interaction requirements, accessibility, and experience acceptance criteria.",
+      "summary": "Defines UX design, DESIGN/EXPERIENCE guidance, accessibility, interaction states, journeys, and empty/error/loading states.",
       "profile_path": "agents/ux.md"
     },
     "qa": {
       "id": "qa",
       "title": "QA",
-      "summary": "Advises on test evidence, quality risks, acceptance coverage, and deterministic validation signals.",
+      "summary": "Provides advisory-only root-cause hypotheses, missing tests, risks, contract gaps, repair strategy, and checks to rerun without replacing EvalRunner.",
       "profile_path": "agents/qa.md"
     },
     "tech-writer": {
       "id": "tech-writer",
       "title": "Technical Writer",
-      "summary": "Prepares release-facing summaries, documentation clarity, and evidence-based finalization notes.",
+      "summary": "Documents the project, writes and validates docs, explains concepts, generates Mermaid where useful, and keeps finalize artifacts CLike-owned.",
       "profile_path": "agents/tech-writer.md"
     }
+  },
+  "workflows": {
+    "idea": {
+      "summary": "Clarify product intent, user context, assumptions, research questions, PRFAQ pressure points, and project brief material.",
+      "focus": [
+        "brainstorm the opportunity and user problem",
+        "frame market, domain, and technical research",
+        "create or refine a concise project brief",
+        "challenge assumptions through PRFAQ-style questions",
+        "enrich IDEA.md without creating canonical downstream artifacts"
+      ],
+      "required_context": ["user intent", "existing IDEA.md", "business goals", "constraints", "known risks"],
+      "companion_artifacts": ["docs/harper/bmad/idea/BRIEF.md", "docs/harper/bmad/idea/PRFAQ_NOTES.md"],
+      "workflow_path": "workflows/idea.md"
+    },
+    "spec": {
+      "summary": "Convert validated intent into PRD-grade behavior, UX, acceptance criteria, risks, and implementation readiness inputs.",
+      "focus": [
+        "create, update, and validate PRD-level requirements",
+        "separate scope, non-scope, assumptions, and dependencies",
+        "define acceptance criteria that can become testable REQs",
+        "capture UX expectations when the UX role is selected",
+        "feed SPEC/PLAN without bypassing CLike canonical artifacts"
+      ],
+      "required_context": ["IDEA.md", "TECH_CONSTRAINTS.yaml", "domain notes", "UX notes when present"],
+      "companion_artifacts": ["docs/harper/bmad/spec/PRD_DRAFT.md", "docs/harper/ux/DESIGN.md"],
+      "workflow_path": "workflows/spec.md"
+    },
+    "plan": {
+      "summary": "Create implementation-legible REQs with dependencies, acceptance criteria, technical obligations, risk, and test strategy.",
+      "focus": [
+        "define functional and non-functional scope",
+        "capture security, compliance, privacy, observability, and operations obligations",
+        "declare integration and data contracts",
+        "map dependencies and what later REQs may assume",
+        "make /kit build responsibilities explicit"
+      ],
+      "required_context": ["SPEC.md", "PLAN.md", "plan.json", "TECH_CONSTRAINTS.yaml", "repository context"],
+      "companion_artifacts": ["docs/harper/bmad/plan/REQ_READINESS.md", "docs/harper/bmad/plan/DEPENDENCY_NOTES.md"],
+      "workflow_path": "workflows/plan.md"
+    },
+    "kit": {
+      "summary": "Generate candidate-first implementation and tests for exactly the current REQ under CLike write boundaries.",
+      "focus": [
+        "turn current REQ into implementation-ready candidate files",
+        "inspect dependencies and promoted roots as read-only evidence",
+        "produce source, tests, CI, docs, LTC, and HOWTO artifacts",
+        "preserve candidate isolation and CLike write boundaries",
+        "repair only focused failures when repair intent is present"
+      ],
+      "required_context": ["current REQ", "TARGET_CONTRACT.json", "FILE_REQUIREMENTS.json", "TECH_CONSTRAINTS.yaml", "dependency KIT roots"],
+      "companion_artifacts": ["runs/kit/<REQ-ID>/docs/KIT_<REQ-ID>.md", "runs/kit/<REQ-ID>/reports/BMAD_DEV_NOTES.md"],
+      "workflow_path": "workflows/kit.md"
+    },
+    "eval": {
+      "summary": "Provide advisory QA/developer repair guidance around canonical eval evidence without deciding pass/fail.",
+      "focus": [
+        "inspect canonical eval output and candidate LTC/HOWTO",
+        "form root-cause hypotheses",
+        "identify missing tests, contract gaps, risks, and repair strategy",
+        "suggest checks to rerun",
+        "never replace EvalRunner or alter promotable status"
+      ],
+      "required_context": ["EvalRunner report", "LTC.json", "HOWTO.md", "candidate files", "TECH_CONSTRAINTS.yaml"],
+      "companion_artifacts": ["runs/kit/<REQ-ID>/reports/BMAD_EVAL_REPAIR_NOTES.md"],
+      "workflow_path": "workflows/eval.md"
+    },
+    "finalize": {
+      "summary": "Produce evidence-based final documentation and release-facing clarity from CLike-owned artifacts.",
+      "focus": [
+        "document project and implementation evidence",
+        "write and validate final docs",
+        "generate Mermaid diagrams when they clarify architecture or flow",
+        "explain concepts for maintainers",
+        "keep finalize outputs tied to CLike eval/gate evidence"
+      ],
+      "required_context": ["PLAN.md", "plan.json", "eval reports", "gate reports", "candidate/final artifacts"],
+      "companion_artifacts": ["README.md", "docs/harper/FINALIZE_NOTES.md", "docs/harper/ARCHITECTURE.md"],
+      "workflow_path": "workflows/finalize.md"
+    }
+  },
+  "companion_artifact_suggestions": {
+    "bmad_root": "docs/harper/bmad",
+    "ux_root": "docs/harper/ux",
+    "allowed_extensions": [".md", ".markdown", ".txt", ".yaml", ".yml", ".json"],
+    "notes": [
+      "Companion artifacts are optional CLike-owned context.",
+      "Companion artifacts cannot override canonical IDEA, SPEC, PLAN, KIT, EVAL, GATE, or FINALIZE artifacts.",
+      "Companion artifacts must not expand write permissions or change eval/gate decisions."
+    ]
   }
 }

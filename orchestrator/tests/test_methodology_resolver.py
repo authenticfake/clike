@@ -28,6 +28,11 @@ class MethodologyResolverTests(unittest.TestCase):
                 self.assertEqual(context["phase"], phase)
                 self.assertEqual(context["agent"], expected_agent)
                 self.assertEqual(context["default_agent"], expected_agent)
+                self.assertIn("workflow_summary", context)
+                self.assertIsInstance(context["workflow_focus"], list)
+                self.assertIsInstance(context["required_context"], list)
+                self.assertIsInstance(context["companion_artifacts"], list)
+                self.assertIsInstance(context["governance_boundaries"], list)
 
     def test_bmad_explicit_agent_resolution(self):
         context = resolve_methodology_context(
@@ -39,6 +44,39 @@ class MethodologyResolverTests(unittest.TestCase):
         self.assertEqual(context["agent"], "pm")
         self.assertEqual(context["requested_agent"], "pm")
         self.assertEqual(context["allowed_agents"], ["architect", "pm"])
+
+    def test_phase_agent_allowances_match_bmad_profile(self):
+        self.assertEqual(
+            resolve_methodology_context(phase="idea", methodology="bmad")["agent"],
+            "analyst",
+        )
+        self.assertEqual(
+            resolve_methodology_context(phase="spec", methodology="bmad", agent="ux")["agent"],
+            "ux",
+        )
+        self.assertEqual(
+            resolve_methodology_context(phase="plan", methodology="bmad", agent="pm")["agent"],
+            "pm",
+        )
+        self.assertEqual(
+            resolve_methodology_context(phase="kit", methodology="bmad")["agent"],
+            "developer",
+        )
+        self.assertEqual(
+            resolve_methodology_context(phase="finalize", methodology="bmad")["agent"],
+            "tech-writer",
+        )
+
+    def test_plan_workflow_metadata_is_implementation_legible(self):
+        context = resolve_methodology_context(phase="plan", methodology="bmad")
+        focus_text = " ".join(context["workflow_focus"]).lower()
+
+        self.assertIn("functional", focus_text)
+        self.assertIn("security", focus_text)
+        self.assertIn("integration", focus_text)
+        self.assertIn("data contracts", focus_text)
+        self.assertIn("what later reqs may assume", focus_text)
+        self.assertIn("TECH_CONSTRAINTS.yaml", context["required_context"])
 
     def test_agent_without_methodology_is_rejected(self):
         with self.assertRaisesRegex(MissingMethodologyError, "--agent requires --methodology"):

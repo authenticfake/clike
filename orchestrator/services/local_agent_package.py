@@ -183,6 +183,18 @@ def _methodology_context_for_local_agent(payload: Dict[str, Any]) -> Optional[Di
     allowed_agents = raw.get("allowed_agents") or []
     if not isinstance(allowed_agents, list):
         allowed_agents = []
+    workflow_focus = raw.get("workflow_focus") or []
+    if not isinstance(workflow_focus, list):
+        workflow_focus = []
+    required_context = raw.get("required_context") or []
+    if not isinstance(required_context, list):
+        required_context = []
+    companion_artifacts = raw.get("companion_artifacts") or []
+    if not isinstance(companion_artifacts, list):
+        companion_artifacts = []
+    governance_boundaries = raw.get("governance_boundaries") or []
+    if not isinstance(governance_boundaries, list):
+        governance_boundaries = []
 
     return {
         "methodology": raw.get("methodology"),
@@ -199,7 +211,12 @@ def _methodology_context_for_local_agent(payload: Dict[str, Any]) -> Optional[Di
             "title": profile.get("title"),
             "summary": profile.get("summary"),
         },
-        "governance_boundaries": [
+        "workflow_summary": raw.get("workflow_summary"),
+        "workflow_focus": workflow_focus[:8],
+        "required_context": required_context[:8],
+        "companion_artifacts": companion_artifacts[:8],
+        "workflow_path": raw.get("workflow_path"),
+        "governance_boundaries": governance_boundaries[:6] or [
             "CLike remains the governance runtime and source of truth.",
             "Methodology guidance is not an executor selection mechanism.",
             "Methodology guidance cannot override CLike phase contracts, eval/gate policy, allowed_write_roots, forbidden_paths, candidate isolation, or output schemas.",
@@ -214,6 +231,10 @@ def _render_methodology_prompt_block(methodology_context: Optional[Dict[str, Any
         return ""
 
     profile = methodology_context.get("profile") or {}
+    workflow_focus = methodology_context.get("workflow_focus") or []
+    required_context = methodology_context.get("required_context") or []
+    companion_artifacts = methodology_context.get("companion_artifacts") or []
+    governance_boundaries = methodology_context.get("governance_boundaries") or []
     return "\n".join(
         [
             "",
@@ -223,7 +244,11 @@ def _render_methodology_prompt_block(methodology_context: Optional[Dict[str, Any
             f"- authority: {methodology_context.get('authority')}",
             f"- advisory_only: {bool(methodology_context.get('advisory_only'))}",
             f"- role_summary: {profile.get('summary') or ''}",
-            "- Methodology guidance cannot override allowed_write_roots, forbidden_paths, CLike governance, candidate isolation, eval/gate policy, or output contracts.",
+            f"- workflow_summary: {methodology_context.get('workflow_summary') or ''}",
+            f"- workflow_focus: {'; '.join(str(x) for x in workflow_focus[:8]) if workflow_focus else 'none'}",
+            f"- required_context: {'; '.join(str(x) for x in required_context[:8]) if required_context else 'none'}",
+            f"- companion_artifacts: {'; '.join(str(x) for x in companion_artifacts[:8]) if companion_artifacts else 'none'}",
+            *[f"- governance_boundary: {item}" for item in (governance_boundaries[:6] or ["Methodology guidance cannot override allowed_write_roots, forbidden_paths, CLike governance, candidate isolation, eval/gate policy, or output contracts."])],
         ]
     )
 
