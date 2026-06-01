@@ -2,6 +2,8 @@
 
 The BMAD methodology profile is a CLike-owned integration layer that maps Harper phases to BMAD-style roles. The profile is intentionally compact and operational. It is metadata and guidance, not an executor.
 
+BMAD exists inside CLike to improve how phases reason, not to replace the Harper workflow. A role can emphasize discovery, product clarity, architecture, implementation focus, UX quality, QA repair guidance, or documentation polish. CLike still owns the artifacts and the decisions that make work governed and promotable.
+
 ## Supported Methodology
 
 - `bmad`
@@ -16,7 +18,7 @@ Methodology-aware requests may include:
 - `agent`
 - `methodology_context`
 
-The orchestrator is the single resolver for `methodology_context`. Clients may pass user intent, but resolved authority, defaults, and phase mapping belong to the orchestrator.
+The orchestrator is the single resolver for `methodology_context`. Clients may pass user intent through `methodology` and `agent`, but resolved authority, defaults, advisory flags, workflow focus, and phase mapping belong to the orchestrator. Client-supplied `methodology_context` is not trusted as authority.
 
 ## Phase Mapping
 
@@ -40,6 +42,14 @@ The PLAN phase should produce REQs that are implementation-ready for `/kit`. Eac
 
 BMAD methodology guidance must not choose a technology stack by default. Python, Node, cloud provider, runtime, database, queue, identity, deployment target, and framework choices must come from TECH_CONSTRAINTS, SPEC, repository evidence, or explicit user input.
 
+## Prompt And Package Injection
+
+For cloud Harper runs, the resolved methodology context is sent to Gateway so the cloud prompt can include compact role and workflow guidance.
+
+For local-agent execution, the resolved methodology context is written into local-agent package files such as `AGENT_*_CONTEXT.json` and `AGENT_*_PROMPT.md`. Gateway is not used for local-agent prompt construction.
+
+In both cases, prompt guidance is compact. CLike-owned BMAD profiles are intentionally bounded and do not copy or vendor external BMAD runtime content.
+
 ## Methodology Is Not Execution
 
 Methodology identity is separate from:
@@ -51,3 +61,7 @@ Methodology identity is separate from:
 - eval/gate verdicts
 
 BMAD enriches the work style for a phase. It does not decide where execution runs, what model is used, what files can be written, or whether a REQ is promotable.
+
+## Current MVP Boundaries
+
+The current integration does not implement a BMAD runtime, BMAD artifact importer, TEA/Test Architect, Party Mode, or MCP write tools. It does not call `npx bmad-method` and does not add a hard dependency on BMAD packages.

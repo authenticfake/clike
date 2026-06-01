@@ -1,6 +1,6 @@
 # 🚀 CLike — AI-Native Pipeline for Product Engineers
 
-![Logo di Clike](images/icons/clike_128x128.png)
+![CLike logo](images/icons/clike_128x128.png)
 
 [![Made with Python](https://img.shields.io/badge/Made%20with-Python-3776AB?logo=python)](https://www.python.org/)
 [![VS Code Extension](https://img.shields.io/badge/VS%20Code-Extension-007ACC?logo=visualstudiocode)](extensions/vscode)
@@ -80,6 +80,8 @@ Eval and Gate decide.
 ### BMAD-aware Methodology Profiles
 
 CLike supports BMAD as an optional governed methodology profile. BMAD enriches Harper phase behavior with role-aware guidance, while CLike keeps ownership of canonical artifacts, eval, gate, telemetry, audit, and promotion.
+
+Methodology is not executor: BMAD can guide how `/idea`, `/spec`, `/plan`, `/kit`, `/eval`, and `/finalize` reason, but cloud LLMs, Claude Code, Codex CLI, and other backends remain execution choices governed by CLike.
 
 BMAD is not a hard dependency: CLike does not call `npx bmad-method`, does not vendor BMAD code, and does not create a parallel BMAD pipeline. Cloud guidance is injected through Gateway prompt composition; local-agent guidance is injected through `local_agent_package`.
 

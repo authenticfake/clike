@@ -179,7 +179,7 @@ The extension passes an execution preference with compatible Harper flows.
 
 ## Methodology Profile
 
-Round 1 supports BMAD as a CLike-governed methodology profile. BMAD is not an executor and does not create a parallel pipeline.
+BMAD is supported as a CLike-governed methodology profile. BMAD is not an executor and does not create a parallel pipeline. It enriches Harper phase behavior with role guidance while CLike keeps authority over canonical artifacts, local-agent packages, eval, gate, telemetry, audit, and promotion.
 
 Supported BMAD roles:
 - `analyst`
@@ -199,7 +199,7 @@ Phase defaults:
 - `gate` -> CLike-only, no BMAD authority
 - `finalize` -> `tech-writer`
 
-Round 2 injection boundaries:
+Injection boundaries:
 - Cloud Harper runs receive resolved `methodology_context` only through Gateway cloud prompt composition.
 - Local-agent runs receive resolved `methodology_context` through `local_agent_package` in `AGENT_*_CONTEXT.json` and `AGENT_*_PROMPT.md`.
 - Gateway is not used as a local-agent prompt builder.
