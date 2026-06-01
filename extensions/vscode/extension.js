@@ -81,7 +81,10 @@ function isStrictLocalAgentExecutionPreference(value) {
 
 const{ toFsPath, mapKitSrcToWorkspaceTarget, clikeGitSync } = require('./git'); // NEW: clikeGitSync
 const { getChatTheme, getWebviewHtml } = require('./chat-ui');
-const { attachBmadQaAdvisory } = require('./bmad-advisory');
+const {
+  attachBmadQaAdvisory,
+  buildEffectiveEvalMethodologyContext,
+} = require('./bmad-advisory');
 
 let clikeChatPanel = null;
 let clikeExtensionContext = null;
@@ -4336,7 +4339,13 @@ async function cmdOpenChat(context) {
             }
             log("[harperEDD] Calling canonical eval for req:" + targets + " in: " + ws_root);
             report = await handleEval(path_ltc_json, ws_root, targets, mode, modeContent);
-            report = attachBmadQaAdvisory(report, targets, msg.methodology_context);
+            const evalMethodologyContext = buildEffectiveEvalMethodologyContext(
+              msg.methodology_context || {
+                methodology: msg.methodology,
+                agent: msg.agent,
+              }
+            );
+            report = attachBmadQaAdvisory(report, targets, evalMethodologyContext);
             if (report?.bmad_advisory) {
               panel.webview.postMessage({
                 type: 'echo',
