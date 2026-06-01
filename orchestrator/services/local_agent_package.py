@@ -240,6 +240,7 @@ def _render_compact_local_agent_prompt(
     action = "generate the candidate KIT" if phase == "kit" else "harden the candidate KIT before canonical eval"
     kit_read_first = []
     kit_rules = []
+    eval_rules = []
 
     if phase == "kit":
         kit_read_first = [
@@ -262,6 +263,19 @@ def _render_compact_local_agent_prompt(
             "- Produce candidate files satisfying TARGET_CONTRACT.json and FILE_REQUIREMENTS.json.",
             "- TECH_CONSTRAINTS.yaml is authoritative. Do not assume Python, Node, cloud provider, database, queue, UI framework, IaC tool, or deployment target unless evidenced by TECH_CONSTRAINTS, SPEC, PLAN, plan.json, repository manifests, or existing source.",
             "- When repair_context.repair is true, focus on failed checks without broad unrelated rewrites.",
+        ]
+    elif phase == "eval":
+        eval_rules = [
+            "- You are not the judge; canonical EvalRunner remains authoritative.",
+            "- Run or inspect LTC/HOWTO checks when possible.",
+            "- Identify the first deterministic failure before editing.",
+            "- Repair only candidate-owned files under allowed_write_roots.",
+            "- Do not weaken tests, LTC, typecheck, lint, security checks, or gate policy.",
+            "- Do not mark candidate code failures as environment-blocked.",
+            "- Environment blockers require exact evidence such as missing toolchain, network, registry, filesystem, sandbox, or policy failure.",
+            "- Rerun the same failing command after repair.",
+            "- Produce concise evidence useful for canonical EvalRunner.",
+            "- Write repair notes under runs/kit/<REQ-ID>/reports/BMAD_EVAL_REPAIR_NOTES.md when useful.",
         ]
 
     return "\n".join(
@@ -296,6 +310,7 @@ def _render_compact_local_agent_prompt(
             "- Reuse existing contracts before creating new modules, helpers, adapters, or test utilities.",
             "- Run the smallest relevant checks and report exact commands and outcomes.",
             *kit_rules,
+            *eval_rules,
             "- For EVAL hardening, repair from the actual failing diagnostics, not from generic policy. Read the failing command stdout/stderr, identify exact file:line diagnostics, patch only those candidate-owned files, then rerun the same failing command.",
             "- Do not return the hardening pass as complete while the same blocking command still reports candidate-owned diagnostics of the same class, such as TS2339, TS18046, lint errors, syntax errors, or raw-secret findings in candidate-owned files.",
             "- Continue focused repair/rerun cycles up to max_repair_cycles_inside_agent when the same check keeps failing with remaining candidate-owned diagnostics.",
@@ -394,6 +409,19 @@ def _core_doc_reference(payload: Dict[str, Any], path: str, suffix: str, max_cha
     }
 
 
+def _parse_json_core_blob(payload: Dict[str, Any], suffix: str) -> Optional[Dict[str, Any]]:
+    text = _extract_core_blob(payload, suffix)
+    if not text:
+        return None
+
+    try:
+        data = json.loads(text)
+    except Exception:
+        return None
+
+    return data if isinstance(data, dict) else None
+
+
 def _companion_documents_from_core_blobs(payload: Dict[str, Any], root_prefix: str) -> List[Dict[str, Any]]:
     core_blobs = payload.get("core_blobs") or {}
     prefix = f"companion::{root_prefix}".lower()
@@ -437,6 +465,16 @@ def _kit_repair_context(req_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         )
         if repair
         else "",
+    }
+
+
+def _previous_eval_report_references(req_id: str) -> Dict[str, Any]:
+    return {
+        "root": f"runs/eval/{req_id}",
+        "reports_root": f"runs/eval/{req_id}/reports",
+        "glob": f"runs/eval/{req_id}/**/*.json",
+        "read_only": True,
+        "usage": "Read previous eval reports when present. Do not write under runs/eval from local-agent packages.",
     }
 
 def _extract_req_dependencies(req: Dict[str, Any]) -> List[str]:
@@ -2092,10 +2130,17 @@ def build_eval_local_agent_package(
     local_executor = _resolve_local_executor(payload)
     methodology_context = _methodology_context_for_local_agent(payload)
 
+    plan_json = _extract_plan_json(payload)
     req = _extract_req_from_plan(payload, req_id)
+    dependencies = _extract_req_dependencies(req)
+    related_reqs = _build_related_reqs(req_id, req, plan_json)
     workspace_inspection_policy = _build_workspace_inspection_policy(req_id, req)
     capability_manifest = _extract_capability_manifest(payload)
     capability_integrity = _build_capability_integrity(req, capability_manifest)
+    target_contract = _parse_json_core_blob(payload, "TARGET_CONTRACT.json")
+    file_requirements = _parse_json_core_blob(payload, "FILE_REQUIREMENTS.json")
+    bmad_companion_docs = _companion_documents_from_core_blobs(payload, "docs/harper/bmad/")
+    ux_companion_docs = _companion_documents_from_core_blobs(payload, "docs/harper/ux/")
 
     standalone_capability_manifest = str(capability_manifest.get("content") or "")
     standalone_capability_index = str(capability_manifest.get("index_content") or "")
@@ -2183,6 +2228,49 @@ def build_eval_local_agent_package(
             "fallback_policy": "extension_may_fallback_to_canonical_eval_only_when_not_local_agent_only",
         },
         "req": req,
+        "current_req": {
+            "req_id": req_id,
+            "req": req,
+            "acceptance_criteria": list(req.get("acceptance") or []),
+            "dependencies": dependencies,
+            "related_reqs": related_reqs,
+        },
+        "plan_slice": {
+            "plan_json_path": "docs/harper/plan.json",
+            "target_req": req,
+            "dependencies": dependencies,
+            "related_reqs": related_reqs,
+        },
+        "source_documents": {
+            "idea": _core_doc_reference(payload, "docs/harper/IDEA.md", "IDEA.md", 2500),
+            "spec": _core_doc_reference(payload, "docs/harper/SPEC.md", "SPEC.md", 3500),
+            "plan": _core_doc_reference(payload, "docs/harper/PLAN.md", "PLAN.md", 3500),
+            "plan_json": {
+                "path": "docs/harper/plan.json",
+                "present": bool(plan_json),
+                "relevant_slice": {
+                    "target_req": req,
+                    "dependencies": dependencies,
+                    "related_reqs": related_reqs,
+                },
+            },
+            "tech_constraints": _core_doc_reference(
+                payload,
+                "docs/harper/TECH_CONSTRAINTS.yaml",
+                "TECH_CONSTRAINTS.yaml",
+                6000,
+            ),
+        },
+        "companion_documents": {
+            "bmad": {
+                "root": "docs/harper/bmad",
+                "documents": bmad_companion_docs,
+            },
+            "ux": {
+                "root": "docs/harper/ux",
+                "documents": ux_companion_docs,
+            },
+        },
         "capability_context": {
             "lane": req.get("lane"),
             "domain": req.get("domain"),
@@ -2208,12 +2296,54 @@ def build_eval_local_agent_package(
             "plan_md_path": "docs/harper/PLAN.md",
             "plan_json_path": "docs/harper/plan.json",
             "lane_guides_path": "docs/harper/lane-guides",
+            "tech_constraints_path": "docs/harper/TECH_CONSTRAINTS.yaml",
+            "bmad_companion_root": "docs/harper/bmad",
+            "ux_companion_root": "docs/harper/ux",
             "ltc_json_path": f"runs/kit/{req_id}/ci/LTC.json",
             "howto_md_path": f"runs/kit/{req_id}/ci/HOWTO.md",
             "kit_notes_path": f"runs/kit/{req_id}/docs/KIT_{req_id}.md",
             "readme_path": f"runs/kit/{req_id}/docs/README_{req_id}.md",
         },
         "workspace_inspection_policy": workspace_inspection_policy,
+        "candidate_roots": {
+            "root": f"runs/kit/{req_id}",
+            "src": f"runs/kit/{req_id}/src",
+            "test": f"runs/kit/{req_id}/test",
+            "ci": f"runs/kit/{req_id}/ci",
+            "docs": f"runs/kit/{req_id}/docs",
+            "reports": f"runs/kit/{req_id}/reports",
+        },
+        "candidate_eval_inputs": {
+            "ltc_path": f"runs/kit/{req_id}/ci/LTC.json",
+            "howto_path": f"runs/kit/{req_id}/ci/HOWTO.md",
+            "target_contract_paths": [
+                f"runs/kit/{req_id}/ci/TARGET_CONTRACT.json",
+                f"runs/kit/{req_id}/docs/TARGET_CONTRACT.json",
+            ],
+            "file_requirements_paths": [
+                f"runs/kit/{req_id}/ci/FILE_REQUIREMENTS.json",
+                f"runs/kit/{req_id}/docs/FILE_REQUIREMENTS.json",
+            ],
+            "target_contract": target_contract,
+            "file_requirements": file_requirements,
+        },
+        "previous_eval_reports": _previous_eval_report_references(req_id),
+        "local_repair_policy": {
+            "scope": "candidate_owned_files_only",
+            "allowed_write_roots": allowed_write_roots,
+            "notes_output_path": f"runs/kit/{req_id}/reports/BMAD_EVAL_REPAIR_NOTES.md",
+            "canonical_eval_remains_required": True,
+            "environment_blockers_require_exact_evidence": True,
+            "do_not_weaken": [
+                "tests",
+                "LTC.json",
+                "HOWTO.md",
+                "typecheck",
+                "lint",
+                "security checks",
+                "gate policy",
+            ],
+        },
         "repository_analysis_required": {
             "must_read_plan": True,
             "must_read_plan_json": True,
@@ -2231,6 +2361,9 @@ def build_eval_local_agent_package(
             "candidate_ci_roots": [workspace_inspection_policy["target_candidate_ci_root"]],
             "canonical_source_roots": workspace_inspection_policy["canonical_promoted_source_roots"],
             "canonical_test_roots": workspace_inspection_policy["canonical_promoted_test_roots"],
+            "promoted_source_roots_read_only": workspace_inspection_policy["canonical_promoted_source_roots"],
+            "promoted_test_roots_read_only": workspace_inspection_policy["canonical_promoted_test_roots"],
+            "dependency_kit_roots_read_only": workspace_inspection_policy["dependency_kit_roots"],
             "target_candidate_root": workspace_inspection_policy["target_candidate_root"],
             "purpose": (
                 "Harden candidate code and tests so canonical CLike eval can execute "
@@ -2247,7 +2380,10 @@ def build_eval_local_agent_package(
                 f"runs/kit/{req_id}/src",
                 f"runs/kit/{req_id}/test",
             ],
-            "recommended": _build_recommended_outputs(req_id, req, payload),
+            "recommended": [
+                *_build_recommended_outputs(req_id, req, payload),
+                f"runs/kit/{req_id}/reports/BMAD_EVAL_REPAIR_NOTES.md",
+            ],
         },
         "eval_hardening_policy": {
             "enabled": True,
@@ -2328,6 +2464,10 @@ def build_eval_local_agent_package(
             "Before returning, execute the REQ-local LTC/HOWTO checks when possible.",
             "If a check fails for deterministic candidate code, test, or CI reasons, repair the smallest related files under allowed_write_roots.",
             "After a repair, rerun the failed or modified checks once and record the commands and outcomes.",
+            "Run or inspect LTC/HOWTO checks when possible, identify the first deterministic failure, and repair only candidate-owned files under allowed_write_roots.",
+            "Do not mark candidate code failures as environment-blocked. Environment blockers require exact evidence such as missing toolchain, network, registry, filesystem, sandbox, or policy failure.",
+            "Rerun the same failing command after repair and produce concise evidence useful for canonical EvalRunner.",
+            f"Write a structured advisory or repair summary to runs/kit/{req_id}/reports/BMAD_EVAL_REPAIR_NOTES.md when BMAD methodology context is present or when repair guidance is useful.",
             "After this hardening pass, CLike canonical /eval must still run and decide pass/fail.",
             "Do not modify canonical src/, test/, tests/ roots.",
             "Do not modify docs/harper/PLAN.md or docs/harper/plan.json.",
@@ -2389,6 +2529,14 @@ def build_eval_local_agent_package(
             "- Apply capability guidance only when relevant to this REQ; do not create decorative fixes.",
             "- Use main_module_boundary to avoid scattering repairs across unrelated files.",
             "- This is an eval hardening pass: you must execute the REQ-local LTC/HOWTO checks when possible.",
+            "- You are not the judge; canonical EvalRunner remains authoritative.",
+            "- Run or inspect LTC/HOWTO checks when possible and identify the first deterministic failure.",
+            "- Repair only candidate-owned files under allowed_write_roots.",
+            "- Do not weaken tests, LTC, typecheck, lint, security checks, or gate policy.",
+            "- Do not mark candidate code failures as environment-blocked; environment blockers require exact evidence.",
+            "- Rerun the same failing command after repair.",
+            "- Produce concise evidence useful for canonical EvalRunner.",
+            f"- Write repair notes under runs/kit/{req_id}/reports/BMAD_EVAL_REPAIR_NOTES.md when useful.",
             "- Top priority for typecheck repair: if tests access fields missing from one branch of a union response, do not hide the issue with broad casts. Determine whether the field belongs to the stable public contract. If yes, repair the service/producer response shape. If no, repair the test with explicit narrowing before field access.",
             "- For workflow orchestration responses, workflowRun, job, idempotency, artifacts, and trace are contract-sensitive fields. Preserve idempotency and trace assertions; do not remove them to pass typecheck.",
             "- For unknown caught errors, use a narrow typed helper/adapter before asserting classification, retryable, status/statusCode, or domain failure categories.",

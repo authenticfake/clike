@@ -54,7 +54,7 @@ except ModuleNotFoundError:
     sys.modules["yaml"] = yaml_stub
 
 from services import harper
-from services.local_agent_package import build_kit_local_agent_package
+from services.local_agent_package import build_eval_local_agent_package, build_kit_local_agent_package
 from services.methodologies.resolver import resolve_methodology_context
 
 
@@ -131,12 +131,38 @@ def _rich_kit_payload():
         ),
         "companion::docs/harper/bmad/spec/PRD_DRAFT.md": "# PRD Draft\nBMAD product notes.",
         "companion::docs/harper/ux/wireframes/FLOW.md": "# UX Flow\nUser journey notes.",
+        "TARGET_CONTRACT.json": json.dumps(
+            {
+                "req_id": "REQ-001",
+                "acceptance": ["Thing works", "Thing is tested"],
+            }
+        ),
+        "FILE_REQUIREMENTS.json": json.dumps(
+            {
+                "required_outputs": [
+                    {"path": "runs/kit/REQ-001/src/example.js", "required": True}
+                ]
+            }
+        ),
     }
     return payload
 
 
 def _kit_package(payload):
     return build_kit_local_agent_package(
+        payload=payload,
+        req_id="REQ-001",
+        execution_policy={
+            "requested": "prefer_local_agent",
+            "selected": "local_agent",
+            "reason": "test",
+            "phase_supported": True,
+        },
+    )
+
+
+def _eval_package(payload):
+    return build_eval_local_agent_package(
         payload=payload,
         req_id="REQ-001",
         execution_policy={
@@ -297,6 +323,90 @@ class MethodologyInjectionTests(unittest.TestCase):
         self.assertIn("docs/harper/plan.json", local_agent["forbidden_paths"])
         self.assertIn("AGENT_EXECUTION_CONTEXT.json", local_agent["prompt_content"])
         self.assertIn("TECH_CONSTRAINTS.yaml is authoritative", local_agent["prompt_content"])
+
+    def test_eval_agent_context_includes_bmad_repair_inputs_without_expanding_write_roots(self):
+        payload = _rich_kit_payload()
+        payload["eval"] = {"targets": ["REQ-001"]}
+        payload["methodology_context"] = resolve_methodology_context(
+            phase="eval",
+            methodology="bmad",
+            agent="qa",
+        )
+
+        package = _eval_package(payload)
+        context = _package_context_file(package, "AGENT_EVAL_CONTEXT.json")
+        local_agent = package["local_agent"]
+
+        self.assertEqual(context["methodology_context"]["methodology"], "bmad")
+        self.assertEqual(context["methodology_context"]["agent"], "qa")
+        self.assertEqual(context["current_req"]["req_id"], "REQ-001")
+        self.assertEqual(context["current_req"]["acceptance_criteria"], ["Thing works", "Thing is tested"])
+        self.assertEqual(context["current_req"]["dependencies"], ["REQ-000"])
+        self.assertTrue(context["source_documents"]["tech_constraints"]["present"])
+        self.assertEqual(context["source_documents"]["tech_constraints"]["path"], "docs/harper/TECH_CONSTRAINTS.yaml")
+        self.assertEqual(context["source_documents"]["idea"]["path"], "docs/harper/IDEA.md")
+        self.assertEqual(context["source_documents"]["spec"]["path"], "docs/harper/SPEC.md")
+        self.assertEqual(context["source_documents"]["plan"]["path"], "docs/harper/PLAN.md")
+        self.assertEqual(context["source_documents"]["plan_json"]["path"], "docs/harper/plan.json")
+        self.assertEqual(
+            context["companion_documents"]["bmad"]["documents"][0]["path"],
+            "docs/harper/bmad/spec/PRD_DRAFT.md",
+        )
+        self.assertEqual(
+            context["companion_documents"]["ux"]["documents"][0]["path"],
+            "docs/harper/ux/wireframes/FLOW.md",
+        )
+        self.assertEqual(context["candidate_roots"]["src"], "runs/kit/REQ-001/src")
+        self.assertEqual(context["candidate_roots"]["test"], "runs/kit/REQ-001/test")
+        self.assertEqual(context["candidate_roots"]["ci"], "runs/kit/REQ-001/ci")
+        self.assertEqual(context["candidate_roots"]["docs"], "runs/kit/REQ-001/docs")
+        self.assertEqual(context["candidate_eval_inputs"]["ltc_path"], "runs/kit/REQ-001/ci/LTC.json")
+        self.assertEqual(context["candidate_eval_inputs"]["howto_path"], "runs/kit/REQ-001/ci/HOWTO.md")
+        self.assertEqual(
+            context["candidate_eval_inputs"]["target_contract_paths"],
+            [
+                "runs/kit/REQ-001/ci/TARGET_CONTRACT.json",
+                "runs/kit/REQ-001/docs/TARGET_CONTRACT.json",
+            ],
+        )
+        self.assertEqual(
+            context["candidate_eval_inputs"]["file_requirements_paths"],
+            [
+                "runs/kit/REQ-001/ci/FILE_REQUIREMENTS.json",
+                "runs/kit/REQ-001/docs/FILE_REQUIREMENTS.json",
+            ],
+        )
+        self.assertEqual(context["candidate_eval_inputs"]["target_contract"]["req_id"], "REQ-001")
+        self.assertIn("required_outputs", context["candidate_eval_inputs"]["file_requirements"])
+        self.assertEqual(context["previous_eval_reports"]["root"], "runs/eval/REQ-001")
+        self.assertIs(context["previous_eval_reports"]["read_only"], True)
+        self.assertEqual(
+            context["repository_analysis_required"]["promoted_source_roots_read_only"],
+            ["src"],
+        )
+        self.assertEqual(
+            context["repository_analysis_required"]["promoted_test_roots_read_only"],
+            ["test", "tests"],
+        )
+        self.assertEqual(
+            context["repository_analysis_required"]["dependency_kit_roots_read_only"],
+            ["runs/kit/REQ-000"],
+        )
+        self.assertEqual(
+            local_agent["allowed_write_roots"],
+            [
+                "runs/kit/REQ-001/src",
+                "runs/kit/REQ-001/test",
+                "runs/kit/REQ-001/ci",
+                "runs/kit/REQ-001/docs",
+                "runs/kit/REQ-001/reports",
+            ],
+        )
+        for forbidden in ["src", "test", "tests", "docs/harper/PLAN.md", "docs/harper/plan.json"]:
+            self.assertIn(forbidden, local_agent["forbidden_paths"])
+        self.assertIn("runs/kit/REQ-001/reports/BMAD_EVAL_REPAIR_NOTES.md", context["local_repair_policy"]["notes_output_path"])
+        self.assertIn("BMAD_EVAL_REPAIR_NOTES.md", local_agent["prompt_content"])
+        self.assertIn("canonical EvalRunner remains authoritative", local_agent["prompt_content"])
 
 
 class OrchestratorMethodologyOwnershipTests(unittest.IsolatedAsyncioTestCase):
