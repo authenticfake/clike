@@ -94,6 +94,47 @@ def _base_payload():
     }
 
 
+def _rich_kit_payload():
+    payload = _base_payload()
+    payload["kit"] = {"targets": ["REQ-001"], "repair": True}
+    payload["core_blobs"] = {
+        "IDEA.md": "# Idea\nBuild governed delivery.",
+        "SPEC.md": "# Spec\nThe app must support the thing.",
+        "PLAN.md": "# Plan\nREQ-000 then REQ-001.",
+        "TECH_CONSTRAINTS.yaml": "tech_constraints:\n  runtime: node\n  ui: react\n",
+        "plan.json": json.dumps(
+            {
+                "reqs": [
+                    {
+                        "id": "REQ-000",
+                        "title": "Foundation",
+                        "acceptance": ["Foundation works"],
+                        "lane": "App",
+                        "dependsOn": [],
+                    },
+                    {
+                        "id": "REQ-001",
+                        "title": "Build the thing",
+                        "acceptance": ["Thing works", "Thing is tested"],
+                        "lane": "App",
+                        "dependsOn": ["REQ-000"],
+                    },
+                    {
+                        "id": "REQ-002",
+                        "title": "Use the thing",
+                        "acceptance": ["Usage works"],
+                        "lane": "App",
+                        "dependsOn": ["REQ-001"],
+                    },
+                ]
+            }
+        ),
+        "companion::docs/harper/bmad/spec/PRD_DRAFT.md": "# PRD Draft\nBMAD product notes.",
+        "companion::docs/harper/ux/wireframes/FLOW.md": "# UX Flow\nUser journey notes.",
+    }
+    return payload
+
+
 def _kit_package(payload):
     return build_kit_local_agent_package(
         payload=payload,
@@ -186,6 +227,76 @@ class MethodologyInjectionTests(unittest.TestCase):
             baseline["local_agent"]["forbidden_paths"],
             with_bmad["local_agent"]["forbidden_paths"],
         )
+
+    def test_kit_agent_execution_context_includes_bounded_project_and_companion_context(self):
+        payload = _rich_kit_payload()
+        payload["methodology_context"] = resolve_methodology_context(
+            phase="kit",
+            methodology="bmad",
+            agent="developer",
+        )
+
+        package = _kit_package(payload)
+        context = _context_file(package)
+        local_agent = package["local_agent"]
+
+        self.assertEqual(context["methodology_context"]["methodology"], "bmad")
+        self.assertEqual(context["current_req"]["req_id"], "REQ-001")
+        self.assertEqual(context["current_req"]["acceptance_criteria"], ["Thing works", "Thing is tested"])
+        self.assertEqual(context["current_req"]["dependencies"], ["REQ-000"])
+        self.assertTrue(context["source_documents"]["tech_constraints"]["present"])
+        self.assertEqual(context["source_documents"]["tech_constraints"]["path"], "docs/harper/TECH_CONSTRAINTS.yaml")
+        self.assertTrue(context["source_documents"]["idea"]["present"])
+        self.assertTrue(context["source_documents"]["spec"]["present"])
+        self.assertTrue(context["source_documents"]["plan"]["present"])
+        self.assertTrue(context["source_documents"]["plan_json"]["present"])
+        self.assertEqual(context["source_documents"]["plan_json"]["path"], "docs/harper/plan.json")
+        self.assertEqual(
+            context["companion_documents"]["bmad"]["documents"][0]["path"],
+            "docs/harper/bmad/spec/PRD_DRAFT.md",
+        )
+        self.assertEqual(
+            context["companion_documents"]["ux"]["documents"][0]["path"],
+            "docs/harper/ux/wireframes/FLOW.md",
+        )
+        self.assertEqual(context["repair_context"]["repair"], True)
+        self.assertIn("runs/eval/REQ-001", context["repair_context"]["previous_eval_context_paths"])
+        self.assertEqual(
+            context["repository_analysis_required"]["promoted_source_roots_read_only"],
+            ["src"],
+        )
+        self.assertEqual(
+            context["repository_analysis_required"]["promoted_test_roots_read_only"],
+            ["test", "tests"],
+        )
+        self.assertEqual(
+            context["workspace_inspection_policy"]["dependency_kit_roots"],
+            ["runs/kit/REQ-000"],
+        )
+        self.assertEqual(
+            context["candidate_output_roots"]["src"],
+            "runs/kit/REQ-001/src",
+        )
+        self.assertEqual(
+            context["candidate_contract_paths"]["target_contract"],
+            "runs/kit/REQ-001/docs/TARGET_CONTRACT.json",
+        )
+        self.assertEqual(
+            local_agent["allowed_write_roots"],
+            [
+                "runs/kit/REQ-001/src",
+                "runs/kit/REQ-001/test",
+                "runs/kit/REQ-001/ci",
+                "runs/kit/REQ-001/docs",
+            ],
+        )
+        self.assertIn("src", local_agent["forbidden_paths"])
+        self.assertIn("test", local_agent["forbidden_paths"])
+        self.assertIn("tests", local_agent["forbidden_paths"])
+        self.assertIn("docs/harper/PLAN.md", local_agent["forbidden_paths"])
+        self.assertIn("docs/harper/plan.json", local_agent["forbidden_paths"])
+        self.assertIn("AGENT_EXECUTION_CONTEXT.json", local_agent["prompt_content"])
+        self.assertIn("TECH_CONSTRAINTS.yaml is authoritative", local_agent["prompt_content"])
 
 
 class OrchestratorMethodologyOwnershipTests(unittest.IsolatedAsyncioTestCase):
@@ -353,6 +464,37 @@ class OrchestratorMethodologyOwnershipTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertNotIn("methodology_context", context)
         self.assertNotIn("Methodology profile:", package["local_agent"]["prompt_content"])
+
+    async def test_gateway_is_not_called_for_kit_local_agent_package_generation(self):
+        payload = _rich_kit_payload()
+        payload.update(
+            {
+                "executionPreference": "local_agent_only",
+                "methodology": "bmad",
+                "agent": "developer",
+            }
+        )
+
+        with patch.object(
+            harper,
+            "resolve_execution_policy",
+            return_value={
+                "requested": "local_agent_only",
+                "selected": "local_agent",
+                "reason": "test",
+                "phase_supported": True,
+            },
+        ), patch.object(
+            harper,
+            "_write_stage_artifact",
+            return_value=None,
+        ), patch.object(harper, "_post_json", side_effect=AssertionError("Gateway must not be called")):
+            package = await harper.run_phase("kit", payload)
+
+        self.assertEqual(package["local_agent"]["action"], "local_agent_required")
+        context = _context_file(package)
+        self.assertEqual(context["methodology_context"]["methodology"], "bmad")
+        self.assertEqual(context["companion_documents"]["bmad"]["documents"][0]["path"], "docs/harper/bmad/spec/PRD_DRAFT.md")
 
 
 if __name__ == "__main__":

@@ -169,3 +169,16 @@ test('extension propagates kit repair and rejects methodology context for gate d
   assert.match(source, /Gate is CLike-owned\. Methodology flags are not accepted for \/gate in MVP\./);
   assert.match(source, /\.\.\.\(msg\.repair \? \{ repair: true \} : \{\}\)/);
 });
+
+test('utility collects bounded Harper companion docs and includes IDEA for downstream phases', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'utility.js'), 'utf8');
+
+  assert.match(source, /case "kit":\s+return \["IDEA\.md", "SPEC\.md", "PLAN\.md", "plan\.json", "TECH_CONSTRAINTS\.yaml"\]/);
+  assert.match(source, /case "eval":\s+return \["IDEA\.md", "SPEC\.md", "PLAN\.md", "plan\.json", "TECH_CONSTRAINTS\.yaml"\]/);
+  assert.match(source, /case "finalize":\s+return \["IDEA\.md", "SPEC\.md", "PLAN\.md",\s+"plan\.json", "TECH_CONSTRAINTS\.yaml"\]/);
+  assert.match(source, /const HARPER_COMPANION_ROOTS = \['bmad', 'ux'\]/);
+  assert.match(source, /const HARPER_COMPANION_MAX_FILES = 40/);
+  assert.match(source, /const HARPER_COMPANION_MAX_BYTES_PER_FILE = 64 \* 1024/);
+  assert.match(source, /companion::\$\{relPath\}/);
+  assert.match(source, /Object\.assign\(core_blobs, await collectHarperCompanionCoreBlobs\(_docRoot, phase\)\)/);
+});

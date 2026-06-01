@@ -1582,6 +1582,7 @@ def _filter_core_blobs_for_target_req(
         "spec.md",
         "plan.md",
         "plan.json",
+        "idea.md",
         "tech_constraints.yaml",
         "target_contract.json",
         "file_requirements.json",
@@ -1599,6 +1600,10 @@ def _filter_core_blobs_for_target_req(
     for raw_name, value in core_blobs.items():
         name = str(raw_name or "").strip()
         lname = name.lower()
+
+        if lname.startswith("companion::docs/harper/bmad/") or lname.startswith("companion::docs/harper/ux/"):
+            kept[name] = value
+            continue
 
         if name in always_keep_exact:
             kept[name] = value

@@ -586,6 +586,97 @@ async function attachCoreBlobs(docUri, coreList) {
   return blobs;
 }
 
+const HARPER_COMPANION_ROOTS = ['bmad', 'ux'];
+const HARPER_COMPANION_EXTENSIONS = new Set(['.md', '.markdown', '.txt', '.yaml', '.yml', '.json']);
+const HARPER_COMPANION_PHASES = new Set(['spec', 'plan', 'kit', 'eval', 'finalize']);
+const HARPER_COMPANION_MAX_FILES = 40;
+const HARPER_COMPANION_MAX_BYTES_PER_FILE = 64 * 1024;
+
+function isIgnoredCompanionSegment(segment) {
+  const name = String(segment || '').trim();
+  return (
+    !name ||
+    name.startsWith('.') ||
+    name === 'node_modules' ||
+    name === '__pycache__' ||
+    name === '.git'
+  );
+}
+
+function looksBinaryBuffer(buffer) {
+  if (!buffer || !buffer.length) return false;
+  const sample = buffer.slice(0, Math.min(buffer.length, 1024));
+  return sample.includes(0);
+}
+
+async function collectHarperCompanionCoreBlobs(docRootUri, phase) {
+  if (!HARPER_COMPANION_PHASES.has(String(phase || '').toLowerCase())) {
+    return {};
+  }
+
+  const blobs = {};
+  let count = 0;
+
+  async function walk(rootName, currentUri, relativeParts) {
+    if (count >= HARPER_COMPANION_MAX_FILES) return;
+
+    let entries = [];
+    try {
+      entries = await vscode.workspace.fs.readDirectory(currentUri);
+    } catch {
+      return;
+    }
+
+    entries.sort(([leftName], [rightName]) => String(leftName).localeCompare(String(rightName)));
+
+    for (const [name, fileType] of entries) {
+      if (count >= HARPER_COMPANION_MAX_FILES) return;
+      if (isIgnoredCompanionSegment(name)) continue;
+
+      const nextParts = [...relativeParts, name];
+      const childUri = vscode.Uri.joinPath(currentUri, name);
+
+      if (fileType === vscode.FileType.Directory) {
+        await walk(rootName, childUri, nextParts);
+        continue;
+      }
+
+      if (fileType !== vscode.FileType.File) continue;
+
+      const ext = path.extname(name).toLowerCase();
+      if (!HARPER_COMPANION_EXTENSIONS.has(ext)) continue;
+
+      let stat = null;
+      try {
+        stat = await vscode.workspace.fs.stat(childUri);
+      } catch {
+        continue;
+      }
+      if (!stat || stat.size > HARPER_COMPANION_MAX_BYTES_PER_FILE) continue;
+
+      let raw = null;
+      try {
+        raw = await vscode.workspace.fs.readFile(childUri);
+      } catch {
+        continue;
+      }
+      if (looksBinaryBuffer(Buffer.from(raw))) continue;
+
+      const relPath = ['docs', 'harper', rootName, ...nextParts].join('/');
+      const key = `companion::${relPath}`;
+      blobs[key] = Buffer.from(raw).toString('utf8');
+      count += 1;
+    }
+  }
+
+  for (const rootName of HARPER_COMPANION_ROOTS) {
+    const rootUri = vscode.Uri.joinPath(docRootUri, rootName);
+    await walk(rootName, rootUri, []);
+  }
+
+  return blobs;
+}
+
 function execSyncSafe(cmd, cwd) {
   try {
     return cp.execSync(cmd, { cwd, stdio: ['ignore', 'pipe', 'ignore'] })
@@ -1294,6 +1385,7 @@ async function buildHarperBody(phase, payload, projectRootUri, out) {
   }
   //4) core blobs
   const core_blobs = await attachCoreBlobs(_docRoot, payload["core"] || []);
+  Object.assign(core_blobs, await collectHarperCompanionCoreBlobs(_docRoot, phase));
   payload["idea_md"] = idea_md;
   payload["core_blobs"] = core_blobs;
 
@@ -1622,11 +1714,11 @@ function defaultCoreForPhase(phase) {
     case "plan":
       return ["SPEC.md", "TECH_CONSTRAINTS.yaml"];
     case "kit":
-      return ["SPEC.md", "PLAN.md", "plan.json", "TECH_CONSTRAINTS.yaml"];
+      return ["IDEA.md", "SPEC.md", "PLAN.md", "plan.json", "TECH_CONSTRAINTS.yaml"];
     case "eval":
-      return ["SPEC.md", "PLAN.md", "plan.json", "TECH_CONSTRAINTS.yaml"];
+      return ["IDEA.md", "SPEC.md", "PLAN.md", "plan.json", "TECH_CONSTRAINTS.yaml"];
     case "finalize":
-      return ["SPEC.md", "PLAN.md",  "plan.json", "TECH_CONSTRAINTS.yaml"];
+      return ["IDEA.md", "SPEC.md", "PLAN.md",  "plan.json", "TECH_CONSTRAINTS.yaml"];
     case "extend":
       return ["SPEC.md", "PLAN.md", "plan.json", "TECH_CONSTRAINTS.yaml"];
     default:
