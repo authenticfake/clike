@@ -1725,6 +1725,7 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
     merged.setdefault("cmd", phase)
     merged.setdefault("flags", {})
     merged = await _normalize_message(merged)
+    merged.pop("methodology_context", None)
 
     methodology_context = resolve_methodology_context(
         phase=phase,

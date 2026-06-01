@@ -37,6 +37,8 @@ Optional governed methodology flags are supported on Harper phase commands:
 
 `--agent` requires `--methodology`. Methodology identity is separate from `profileHint` and local agent executor selection.
 
+Full BMAD command semantics are documented in `docs/integrations/bmad/COMMANDS.md`.
+
 ### RAG commands
 - `/rag <query>`
 - `/rag +<N>`
@@ -202,6 +204,8 @@ Round 2 injection boundaries:
 - Local-agent runs receive resolved `methodology_context` through `local_agent_package` in `AGENT_*_CONTEXT.json` and `AGENT_*_PROMPT.md`.
 - Gateway is not used as a local-agent prompt builder.
 - Methodology guidance cannot expand `allowed_write_roots` or override `forbidden_paths`.
+
+For the complete governance model, see `docs/integrations/bmad/GOVERNANCE_MODEL.md`.
 
 ### Current normalized values
 - `auto`

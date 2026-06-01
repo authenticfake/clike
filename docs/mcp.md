@@ -32,10 +32,13 @@ The current code explicitly excludes:
 - Git mutation
 - arbitrary shell
 - arbitrary filesystem writes
+- MCP write tools
 - raw provider proxying
 - UI or session mutation
 
 This restriction is important and should remain explicit in official docs.
+
+BMAD-aware methodology profiles do not change this boundary. Future MCP write tools are documented only as roadmap material in `docs/integrations/bmad/FUTURE_MCP_WRITE_TOOLS.md`.
 
 ## Current exposed MCP tools
 
