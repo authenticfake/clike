@@ -77,6 +77,14 @@ Cloud models and local agents execute.
 Eval and Gate decide.
 ```
 
+### BMAD-aware Methodology Profiles
+
+CLike supports BMAD as an optional governed methodology profile. BMAD enriches Harper phase behavior with role-aware guidance, while CLike keeps ownership of canonical artifacts, eval, gate, telemetry, audit, and promotion.
+
+BMAD is not a hard dependency: CLike does not call `npx bmad-method`, does not vendor BMAD code, and does not create a parallel BMAD pipeline. Cloud guidance is injected through Gateway prompt composition; local-agent guidance is injected through `local_agent_package`.
+
+See [docs/integrations/bmad/README.md](./docs/integrations/bmad/README.md).
+
 ---
 
 ## ✨ Where the Idea Comes From
