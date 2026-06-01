@@ -203,6 +203,10 @@ class MethodologyInjectionTests(unittest.TestCase):
         self.assertIn("### Governed Methodology Profile", rendered)
         self.assertIn("- methodology: bmad", rendered)
         self.assertIn("- role: developer", rendered)
+        self.assertIn("- workflow_summary:", rendered)
+        self.assertIn("- workflow_focus:", rendered)
+        self.assertIn("- required_context:", rendered)
+        self.assertIn("- companion_artifacts:", rendered)
         self.assertIn("CLike remains the governance runtime", rendered)
 
     def test_gateway_harper_run_passes_resolved_methodology_context_to_cloud_composer(self):
@@ -224,7 +228,16 @@ class MethodologyInjectionTests(unittest.TestCase):
 
         self.assertEqual(context["methodology_context"]["methodology"], "bmad")
         self.assertEqual(context["methodology_context"]["agent"], "developer")
+        self.assertIn("workflow_summary", context["methodology_context"])
+        self.assertIn("workflow_focus", context["methodology_context"])
+        self.assertIn("required_context", context["methodology_context"])
+        self.assertIn("companion_artifacts", context["methodology_context"])
+        self.assertIn("governance_boundaries", context["methodology_context"])
         self.assertIn("Methodology profile:", package["local_agent"]["prompt_content"])
+        self.assertIn("workflow_focus:", package["local_agent"]["prompt_content"])
+        self.assertIn("required_context:", package["local_agent"]["prompt_content"])
+        self.assertIn("companion_artifacts:", package["local_agent"]["prompt_content"])
+        self.assertIn("governance_boundary:", package["local_agent"]["prompt_content"])
         self.assertIn("allowed_write_roots", package["local_agent"]["prompt_content"])
 
     def test_methodology_context_is_absent_when_omitted(self):

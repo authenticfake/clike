@@ -58,6 +58,38 @@ def _normalize(value: Optional[str]) -> Optional[str]:
     return text or None
 
 
+def _compact_workflow_context(manifest: Dict[str, Any], phase_name: str) -> Dict[str, Any]:
+    workflow = dict((manifest.get("workflows") or {}).get(phase_name) or {})
+    companion = manifest.get("companion_artifact_suggestions") or {}
+    governance = manifest.get("governance") or {}
+
+    return {
+        "workflow_summary": workflow.get("summary"),
+        "workflow_focus": list(workflow.get("focus") or [])[:8],
+        "required_context": list(workflow.get("required_context") or [])[:8],
+        "companion_artifacts": list(workflow.get("companion_artifacts") or [])[:8],
+        "workflow_path": workflow.get("workflow_path"),
+        "companion_artifact_suggestions": {
+            "bmad_root": companion.get("bmad_root"),
+            "ux_root": companion.get("ux_root"),
+            "notes": list(companion.get("notes") or [])[:3],
+        },
+        "governance_boundaries": [
+            "CLike remains the governance runtime and source of truth.",
+            "Methodology guidance is not an executor selection mechanism.",
+            "Methodology guidance cannot override CLike phase contracts, eval/gate policy, allowed_write_roots, forbidden_paths, candidate isolation, or output schemas.",
+            "BMAD profiles do not add a BMAD runtime, external CLI call, hard dependency, importer, TEA, Party Mode, or MCP write tools.",
+            "If methodology guidance conflicts with CLike rules, follow CLike.",
+        ],
+        "governance": {
+            "runtime_dependency_enabled": bool(governance.get("runtime_dependency_enabled", False)),
+            "external_bmad_cli_enabled": bool(governance.get("external_bmad_cli_enabled", False)),
+            "profile_context_injection_enabled": bool(governance.get("profile_context_injection_enabled", True)),
+            "artifact_importer_enabled": bool(governance.get("artifact_importer_enabled", False)),
+        },
+    }
+
+
 def resolve_methodology_context(
     *,
     phase: str,
@@ -92,7 +124,8 @@ def resolve_methodology_context(
         )
 
     manifest = _load_manifest("bmad")
-    phase_rules = dict(BMAD_PHASE_ROLES.get(phase_name) or {})
+    phase_rules = dict((manifest.get("phase_mapping") or {}).get(phase_name) or BMAD_PHASE_ROLES.get(phase_name) or {})
+    workflow_context = _compact_workflow_context(manifest, phase_name)
 
     if phase_rules.get("clike_only"):
         if agent_id:
@@ -112,6 +145,7 @@ def resolve_methodology_context(
             "authority": "clike_only",
             "profile": None,
             "version": manifest.get("version"),
+            **workflow_context,
         }
 
     allowed_agents = list(phase_rules.get("allowed_agents") or [])
@@ -140,4 +174,5 @@ def resolve_methodology_context(
         "authority": "advisory" if phase_rules.get("advisory_only") else "methodology_profile",
         "profile": profile,
         "version": manifest.get("version"),
+        **workflow_context,
     }
