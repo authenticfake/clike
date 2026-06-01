@@ -1,21 +1,10 @@
 # BMAD Integration
 
-BMAD support in CLike is implemented as a governed methodology profile. It enriches Harper phase behavior with role-aware guidance, but it does not replace CLike workflow ownership.
+BMAD support in CLike is implemented as a governed methodology profile. It gives Harper phases a richer role-driven working style, while CLike remains the runtime that owns lifecycle control, artifact contracts, execution boundaries, eval, gate, telemetry, audit, and promotion.
 
-CLike remains responsible for:
-- canonical Harper artifacts
-- orchestration and phase state
-- eval, gate, telemetry, audit, and promotion
-- cloud/local execution policy
-- candidate-first isolation and write-root governance
+The integration exists because methodology and execution are different concerns. A methodology can tell the system how to reason about a phase: an analyst can frame the idea, a product manager can tighten acceptance criteria, an architect can make implementation slices more precise, a developer can focus a candidate KIT run, and QA can explain likely repair paths. None of those roles become executors, and none of them receive governance authority.
 
-BMAD contributes:
-- methodology identity with `--methodology bmad`
-- role identity with `--agent <role>`
-- phase-to-role defaults
-- cloud prompt guidance through Gateway when a cloud Harper run is used
-- local-agent guidance through `local_agent_package` when Claude Code or Codex CLI is used
-- QA advisory guidance after canonical eval
+CLike remains responsible for canonical Harper artifacts, orchestration and phase state, eval, gate, telemetry, audit, promotion, cloud/local execution policy, candidate-first isolation, allowed write roots, and forbidden paths. BMAD contributes methodology identity with `--methodology bmad`, role identity with `--agent <role>`, phase-to-role defaults, cloud prompt guidance when Gateway is used, local-agent guidance when Claude Code or Codex CLI is used, and QA advisory guidance after canonical eval.
 
 BMAD is not a hard dependency. CLike does not call `npx bmad-method`, does not vendor BMAD code, and does not create a parallel BMAD pipeline.
 
@@ -34,17 +23,20 @@ BMAD is not a hard dependency. CLike does not call `npx bmad-method`, does not v
 
 ## Execution Boundaries
 
-Cloud path:
+For cloud Harper runs, the orchestrator resolves the methodology context and sends it to Gateway. Gateway is cloud-only prompt composition. It renders the resolved methodology context into the cloud LLM prompt, but it does not resolve methodology identity and it is not a universal methodology prompt builder.
 
 ```text
-Orchestrator -> Gateway -> cloud LLM prompt
+VS Code -> Orchestrator -> methodology resolver -> Gateway -> cloud LLM prompt
 ```
 
-Local-agent path:
+For local-agent runs, the orchestrator resolves the same methodology context and injects it into the local-agent package. The package is the boundary that creates `AGENT_*_CONTEXT.json` and `AGENT_*_PROMPT.md` for Claude Code or Codex CLI. Local-agent prompt construction is not routed through Gateway.
 
 ```text
-Orchestrator -> local_agent_package -> AGENT_*_CONTEXT / AGENT_*_PROMPT -> Claude Code or Codex CLI
+VS Code -> Orchestrator -> methodology resolver -> local_agent_package -> AGENT_*_CONTEXT / AGENT_*_PROMPT -> Claude Code or Codex CLI
 ```
 
-Gateway is only for cloud LLM prompt composition. Gateway is not a universal methodology prompt builder and is not used to construct local-agent prompts.
+EvalRunner remains authoritative for eval. BMAD QA can attach operational advisory guidance after canonical eval, but it cannot decide pass/fail, change promotability, promote code, or affect gate. Gate is CLike-only and does not accept methodology authority in the current MVP.
 
+## Roadmap Boundaries
+
+The current MVP does not implement a BMAD artifact importer, TEA/Test Architect, Party Mode, or MCP write tools. Those topics are documented as future roadmap areas only. Any future implementation must preserve CLike governance, controlled roots, auditability, dry-run or approval behavior where relevant, and the existing eval/gate authority model.
