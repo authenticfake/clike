@@ -6,7 +6,7 @@ The integration exists because methodology and execution are different concerns.
 
 CLike remains responsible for canonical Harper artifacts, orchestration and phase state, eval, gate, telemetry, audit, promotion, cloud/local execution policy, candidate-first isolation, allowed write roots, and forbidden paths. BMAD contributes methodology identity with `--methodology bmad`, role identity with `--agent <role>`, phase-to-role defaults, cloud prompt guidance when Gateway is used, local-agent guidance when Claude Code or Codex CLI is used, and QA advisory guidance after canonical eval.
 
-BMAD is not a hard dependency. CLike does not call `npx bmad-method`, does not vendor BMAD code, and does not create a parallel BMAD pipeline.
+BMAD is not a hard dependency. CLike does not invoke the official BMAD package-runner command, does not vendor BMAD code, and does not create a parallel BMAD pipeline.
 
 ## Current Documents
 
@@ -15,6 +15,10 @@ BMAD is not a hard dependency. CLike does not call `npx bmad-method`, does not v
 - [Commands](COMMANDS.md)
 - [Agents](AGENTS.md)
 - [UX Profile](UX_PROFILE.md)
+- [Provenance](PROVENANCE.md)
+- [Profile Sync Report](PROFILE_SYNC_REPORT.md)
+- [Scorecard](SCORECARD.md)
+- [Verification](VERIFICATION.md)
 - [Future Importer](FUTURE_IMPORTER.md)
 - [Future TEA](FUTURE_TEA.md)
 - [Future Party Mode](FUTURE_PARTY_MODE.md)
@@ -39,4 +43,4 @@ EvalRunner remains authoritative for eval. BMAD QA can attach operational adviso
 
 ## Roadmap Boundaries
 
-The current MVP does not implement a BMAD artifact importer, TEA/Test Architect, Party Mode, or MCP write tools. Those topics are documented as future roadmap areas only. Any future implementation must preserve CLike governance, controlled roots, auditability, dry-run or approval behavior where relevant, and the existing eval/gate authority model.
+The current MVP does not implement BMAD runtime execution, `npx bmad-method` runtime invocation, the BMAD importer, TEA/Test Architect, Party Mode, MCP write tools, multi-agent `/spec --agents pm,ux`, or automatic latest BMAD tracking at runtime. Those topics are documented as future roadmap areas only. Any future implementation must preserve CLike governance, controlled roots, auditability, dry-run or approval behavior where relevant, and the existing eval/gate authority model.

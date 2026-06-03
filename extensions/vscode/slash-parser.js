@@ -20,6 +20,40 @@ const BMAD_PHASE_ROLES = {
 };
 
 const GATE_METHODOLOGY_FLAGS_ERROR = 'Gate is CLike-owned. Methodology flags are not accepted for /gate in MVP.';
+const HARPER_SLASH_COMMANDS = Object.freeze([
+  'idea',
+  'spec',
+  'plan',
+  'kit',
+  'eval',
+  'gate',
+  'finalize',
+  'extend',
+  'add-req',
+]);
+const HARPER_SLASH_COMMAND_SET = new Set(HARPER_SLASH_COMMANDS);
+
+function getSlashCommandName(input) {
+  const match = String(input || '').trim().match(/^\/([A-Za-z][A-Za-z0-9-]*)\b/);
+  return match ? match[1].toLowerCase() : '';
+}
+
+function getHarperSlashCommandName(input) {
+  const command = getSlashCommandName(input);
+  return HARPER_SLASH_COMMAND_SET.has(command) ? command : '';
+}
+
+function isHarperSlashText(input) {
+  return Boolean(getHarperSlashCommandName(input));
+}
+
+function shouldBlockHarperSlashFromGenericChatMessage(message) {
+  return Boolean(
+    message &&
+    String(message.type || '') === 'sendChat' &&
+    isHarperSlashText(message.prompt)
+  );
+}
 
 function tokenizeSlash(input) {
   const text = String(input || '').trim();
@@ -322,6 +356,11 @@ function buildBrowserSlashParserSource() {
 const CLIKE_SLASH_PARSER = (() => {
   const module = { exports: {} };
   const exports = module.exports;
+  const HARPER_SLASH_COMMANDS = ${JSON.stringify(HARPER_SLASH_COMMANDS)};
+  const HARPER_SLASH_COMMAND_SET = new Set(HARPER_SLASH_COMMANDS);
+  ${getSlashCommandName.toString()}
+  ${getHarperSlashCommandName.toString()}
+  ${isHarperSlashText.toString()}
   ${tokenizeSlash.toString()}
   ${normalizeReqToken.toString()}
   ${normalizePhaseFromCommand.toString()}
@@ -332,10 +371,16 @@ const CLIKE_SLASH_PARSER = (() => {
   ${parseMethodologyFlags.toString()}
   ${withMethodologyArgs.toString()}
   ${parseSlash.toString()}
-  return { parseSlash };
+  return { parseSlash, isHarperSlashText, getHarperSlashCommandName };
 })();
 function parseSlash(s) {
   return CLIKE_SLASH_PARSER.parseSlash(s);
+}
+function isHarperSlashText(s) {
+  return CLIKE_SLASH_PARSER.isHarperSlashText(s);
+}
+function getHarperSlashCommandName(s) {
+  return CLIKE_SLASH_PARSER.getHarperSlashCommandName(s);
 }
 `;
 }
@@ -343,9 +388,14 @@ function parseSlash(s) {
 module.exports = {
   BMAD_PHASE_ROLES,
   GATE_METHODOLOGY_FLAGS_ERROR,
+  HARPER_SLASH_COMMANDS,
   SUPPORTED_BMAD_AGENTS,
   SUPPORTED_METHODOLOGIES,
+  getHarperSlashCommandName,
+  getSlashCommandName,
+  isHarperSlashText,
   parseSlash,
   parseMethodologyFlags,
+  shouldBlockHarperSlashFromGenericChatMessage,
   buildBrowserSlashParserSource,
 };

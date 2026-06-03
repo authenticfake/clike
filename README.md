@@ -15,6 +15,7 @@
 
 | 📅 **Last Updated** | 🧪 **Current Testing** | 📦 **Latest Release** |
 | --- | --- | --- |
+| June 2, 2026 | BMAD-aware methodology profile MVP documented and under regression testing: governed methodology context, companion artifacts, SPEC PM/UX safety, server-side companion discovery, cloud prompt verification, local-agent package verification, eval/gate boundaries, and deterministic scorecards. Real local checks: `python -m compileall orchestrator gateway`; `PYTHONPATH=orchestrator:. pytest -q orchestrator/tests/test_methodology_resolver.py orchestrator/tests/test_methodology_injection.py orchestrator/tests/test_eval_canonical_bmad.py orchestrator/tests/test_bmad_companion_collector.py orchestrator/tests/test_bmad_safety_boundaries.py orchestrator/tests/test_bmad_quality_contracts.py orchestrator/tests/test_bmad_quality_scorecard.py`; `PYTHONPATH=orchestrator:. pytest -q gateway/tests/test_methodology_prompt.py`; `node --test extensions/vscode/test/slash-parser.test.js extensions/vscode/test/bmad-advisory.test.js`.|
 | May 19, 2026 | Added command for extending requirements (/extend). First draft implemented; testing started yet. [docs/CLike_Harper_Extend_Feature.md](./docs/CLike_Harper_Extend_Feature.md)| `v0.9.874` |
 
 
@@ -79,11 +80,15 @@ Eval and Gate decide.
 
 ### BMAD-aware Methodology Profiles
 
-CLike supports BMAD as an optional governed methodology profile. BMAD enriches Harper phase behavior with role-aware guidance, while CLike keeps ownership of canonical artifacts, eval, gate, telemetry, audit, and promotion.
+BMAD is a CLike-owned methodology profile. CLike owns the Harper lifecycle: `IDEA -> SPEC -> PLAN -> KIT -> EVAL -> GATE -> FINALIZE`. BMAD can enrich selected phases with role-aware guidance, but it does not replace Harper governance.
 
-Methodology is not executor: BMAD can guide how `/idea`, `/spec`, `/plan`, `/kit`, `/eval`, and `/finalize` reason, but cloud LLMs, Claude Code, Codex CLI, and other backends remain execution choices governed by CLike.
+BMAD companion artifacts are additive and non-authoritative. They may live under controlled roots such as `docs/harper/bmad/**`, `docs/harper/ux/**`, or candidate KIT docs roots, and they can help later phases understand product, UX, architecture, implementation, or QA context. Canonical Harper artifacts still win on conflict.
 
-BMAD is not a hard dependency: CLike does not call `npx bmad-method`, does not vendor BMAD code, and does not create a parallel BMAD pipeline. Cloud guidance is injected through Gateway prompt composition; local-agent guidance is injected through `local_agent_package`.
+Methodology is not executor: BMAD can guide how `/idea`, `/spec`, `/plan`, `/kit`, `/eval`, and `/finalize` reason, but cloud LLMs, Claude Code, Codex CLI, and other backends remain execution choices governed by CLike. EvalRunner and Gate remain CLike-owned; BMAD QA is advisory only and cannot decide pass/fail, promotability, or promotion.
+
+BMAD is not a hard dependency. CLike does not include a BMAD runtime dependency, does not run `npx bmad-method`, does not vendor BMAD runtime code, and does not create a parallel BMAD pipeline. Cloud guidance is injected through Gateway prompt composition; local-agent guidance is injected through `local_agent_package`.
+
+Current out of scope roadmap items include BMAD runtime execution, `npx bmad-method` runtime invocation, the BMAD importer, TEA, Party Mode, MCP write tools, multi-agent `/spec --agents pm,ux`, and automatic latest BMAD tracking at runtime.
 
 See [docs/integrations/bmad/README.md](./docs/integrations/bmad/README.md).
 

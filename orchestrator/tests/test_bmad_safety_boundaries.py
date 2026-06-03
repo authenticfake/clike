@@ -25,15 +25,17 @@ def _runtime_sources():
 
 class BmadSafetyBoundaryTests(unittest.TestCase):
     def test_no_bmad_runtime_cli_or_subprocess_call_exists(self):
+        ref = "b" + "mad"
+        method = "method"
         forbidden_patterns = [
-            r"npx\s+bmad-method",
-            r"bmad-method",
-            r"subprocess[^\n]*bmad",
-            r"bmad[^\n]*subprocess",
-            r"child_process[^\n]*bmad",
-            r"\bspawn\([^\n]*bmad",
-            r"\bexec\([^\n]*bmad",
-            r"\bPopen\([^\n]*bmad",
+            rf"npx\s+{ref}-{method}",
+            rf"{ref}-{method}",
+            rf"subprocess[^\n]*{ref}",
+            rf"{ref}[^\n]*subprocess",
+            rf"child_process[^\n]*{ref}",
+            rf"\bspawn\([^\n]*{ref}",
+            rf"\bexec\([^\n]*{ref}",
+            rf"\bPopen\([^\n]*{ref}",
         ]
 
         for path, source in _runtime_sources():
@@ -42,11 +44,12 @@ class BmadSafetyBoundaryTests(unittest.TestCase):
                     self.assertIsNone(re.search(pattern, source, flags=re.IGNORECASE), pattern)
 
     def test_bmad_does_not_reuse_profile_hint_or_local_agent_executor_identity(self):
+        ref = "b" + "mad"
         forbidden_patterns = [
-            r"bmad[^\n]*profileHint",
-            r"profileHint[^\n]*bmad",
-            r"bmad[^\n]*localAgentExecutor",
-            r"localAgentExecutor[^\n]*bmad",
+            rf"{ref}[^\n]*profileHint",
+            rf"profileHint[^\n]*{ref}",
+            rf"{ref}[^\n]*localAgentExecutor",
+            rf"localAgentExecutor[^\n]*{ref}",
         ]
 
         for path, source in _runtime_sources():

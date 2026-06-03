@@ -1980,7 +1980,7 @@ function normalizeAttachment(a) {
 
   return { name, path, origin, content, bytes_b64, dataUrlHeader: header, sizeBytes };
 }
-// Pretty JSON logger to avoid [object Object]
+// Pretty JSON logger for structured values.
 function safeLog(prefix, obj) {
   try { log(prefix, JSON.stringify(obj, null, 2)); }
   catch { log(prefix, obj); }

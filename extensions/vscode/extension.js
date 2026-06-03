@@ -61,6 +61,10 @@ const {
   httpPostJsonLong,
   ensureReqIdInPlan,
 } = require('./utility');
+const {
+  getHarperSlashCommandName,
+  shouldBlockHarperSlashFromGenericChatMessage,
+} = require('./slash-parser');
 
 
 function isLocalAgentExecutionPreference(value) {
@@ -85,9 +89,15 @@ const {
   attachBmadQaAdvisory,
   buildEffectiveEvalMethodologyContext,
 } = require('./bmad-advisory');
+const {
+  validateCanonicalHarperArtifact,
+  rejectedHarperArtifactPath,
+  formatHarperError,
+} = require('./harper-canonical-validation');
 
 let clikeChatPanel = null;
 let clikeExtensionContext = null;
+let clikeHarperBlockingRun = false;
 let extensionMcpServer = null;
 let extensionMcpState = {
   started: false,
@@ -1273,13 +1283,30 @@ async function clearSession(mode) {
   try { await vscode.workspace.fs.delete(sessionFileUri(mode)); } catch {}
 }
 
-async function saveGeneratedFiles(files) {
+async function saveGeneratedFiles(files, opts = {}) {
   if (!Array.isArray(files) || !files.length) return [];
   const root = getWorkspaceRoot();
   const written = [];
   for (const f of files) {
     if (!f || !f.path || typeof f.content !== 'string') continue;
-    const uri = vscode.Uri.joinPath(root, f.path.replace(/^\.?\//,''));
+    const relativePath = f.path.replace(/^\.?\//,'');
+    const validation = validateCanonicalHarperArtifact(relativePath, f.content);
+    if (validation && !validation.ok) {
+      const rejectedPath = rejectedHarperArtifactPath({
+        phase: opts.phase,
+        runId: opts.runId,
+        filePath: relativePath,
+      });
+      const rejectedUri = vscode.Uri.joinPath(root, rejectedPath);
+      const rejectedFolder = vscode.Uri.joinPath(rejectedUri, '..');
+      try { await vscode.workspace.fs.createDirectory(rejectedFolder); } catch {}
+      await vscode.workspace.fs.writeFile(rejectedUri, Buffer.from(f.content, 'utf8'));
+      const message = `CLike rejected malformed canonical artifact ${relativePath}; kept existing file and saved rejected content to ${rejectedPath}.`;
+      log(`[harperWriteGuard] invalid_canonical_artifact path=${relativePath} checks=${(validation.failed_checks || []).join(',')}`);
+      try { vscode.window.showWarningMessage(message); } catch {}
+      continue;
+    }
+    const uri = vscode.Uri.joinPath(root, relativePath);
     const folder = vscode.Uri.joinPath(uri, '..');
     try { await vscode.workspace.fs.createDirectory(folder); } catch {}
     if (typeof f.content === 'string') {
@@ -3939,6 +3966,39 @@ async function cmdOpenChat(context) {
             }
           }
 
+          const harperFailed =
+            _out &&
+            (
+              _out.ok === false ||
+              Boolean(_out.error_code) ||
+              (Array.isArray(_out.errors) && _out.errors.length > 0)
+            );
+          if (harperFailed) {
+            panel.webview.postMessage({ type: 'busy', on: false });
+            const message = formatHarperError(_out);
+            log(`[harperRun] failed ${message.replace(/\n/g, ' | ')}`);
+            try {
+              vscode.window.showWarningMessage(
+                _out.error_code === 'invalid_canonical_artifact'
+                  ? 'CLike blocked malformed canonical Harper output. See chat for validation details.'
+                  : 'CLike Harper phase failed. See chat for details.'
+              );
+            } catch {}
+            panel.webview.postMessage({ type: 'error', message });
+            const commandLabel = String(cmd || '').toUpperCase();
+            const failureCode = _out.error_code || 'harper_error';
+            await appendSessionJSONL(activeMode, {
+              ts: Date.now(),
+              role: 'system',
+              content: `✖ ${commandLabel} failed — ${failureCode}`,
+              model: state.model || 'auto',
+              attachments: Array.isArray(msg.attachments) ? msg.attachments : []
+            });
+            clikeHarperBlockingRun = false;
+            panel.webview.postMessage({ type: 'busy', on: false, force: true });
+            return;
+          }
+
           panel.webview.postMessage({ type: 'busy', on: false });
           // 3) POST-RUN: persisti esito (riassunto + eventuale echo/testo)
           const summary = [
@@ -3991,7 +4051,7 @@ async function cmdOpenChat(context) {
                 `skipping saveGeneratedFiles because the agent already wrote workspace files.`
               );
             } else {
-              written = await saveGeneratedFiles(_out.files);
+              written = await saveGeneratedFiles(_out.files, { phase, runId });
             }
             panel.webview.postMessage({ type: 'files', data: _out.files });
             log(`[harperRun] written ${written.length} files`);
@@ -4064,11 +4124,11 @@ async function cmdOpenChat(context) {
             panel.webview.postMessage({ type: 'echo', message: `⚠ Warnings: ${_out.warnings.join(' | ')}` });
           }
           if (Array.isArray(_out?.errors) && _out.errors.length) {
-            panel.webview.postMessage({ type: 'error', message: _out.errors.join(' | ') });
+            panel.webview.postMessage({ type: 'error', message: formatHarperError(_out) });
           }
         } catch (e) {
           panel.webview.postMessage({ type: 'busy', on: false }) 
-          panel.webview.postMessage({ type: 'error', message: (e?.message || String(e)) });
+          panel.webview.postMessage({ type: 'error', message: formatHarperError(e) });
         }
         clikeHarperBlockingRun = false;
         panel.webview.postMessage({ type: 'busy', on: false, force: true });
@@ -4574,7 +4634,11 @@ async function cmdOpenChat(context) {
 
             // opzionale utility
       if (msg.type === 'echo') {
-        await appendSessionJSONL(state.mode, { role:'assistant', content:String(msg.message||''), model:'system' });
+        await appendSessionJSONL(state.mode, {
+          role: 'assistant',
+          content: typeof msg.message === 'string' ? msg.message : JSON.stringify(msg.message || '', null, 2),
+          model: 'system'
+        });
         
       }
       if (msg.type === 'where') {
@@ -4860,6 +4924,18 @@ async function cmdOpenChat(context) {
         inflightController = new AbortController();
         panel.webview.postMessage({ type: 'busy', on: true });
 
+        if (shouldBlockHarperSlashFromGenericChatMessage(msg)) {
+          const commandName = getHarperSlashCommandName(msg.prompt) || 'unknown';
+          out.appendLine(`[CLike] Blocked Harper slash command from generic chat route: /${commandName}`);
+          panel.webview.postMessage({
+            type: 'error',
+            message: 'Harper slash command was blocked from generic chat routing. Please retry; this is a routing guard.',
+          });
+          panel.webview.postMessage({ type: 'busy', on: false, force: true });
+          inflightController = null;
+          return;
+        }
+
         const cur = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto' };
         const activeMode  = msg.mode  || cur.mode  || 'free';
         const activeModel = msg.model || cur.model || 'auto';
@@ -4969,7 +5045,7 @@ async function cmdOpenChat(context) {
             // generate: opzionale autowrite (se l’hai abilitato in cfgChat)
             const { autoWrite } = cfgChat?.() || { autoWrite: false };
             if (autoWrite && Array.isArray(res.files) && res.files.length) {
-              const paths = await saveGeneratedFiles(res.files);
+              const paths = await saveGeneratedFiles(res.files, { phase: 'apply', runId: res.runId || res.run_id });
              
             }
             // Cache locale dei file dell’ultimo generate (serve per Apply fallback)
@@ -5038,7 +5114,7 @@ async function cmdOpenChat(context) {
         }
 
         try {
-          const paths = await saveGeneratedFiles(chosen);
+          const paths = await saveGeneratedFiles(chosen, { phase: 'apply', runId: lastRun?.runId || lastRun?.run_id || lastRun?.audit_id });
           // Pulizia cache per non ri-applicare accidentalmente
           try { await context.workspaceState.update('clike.lastFiles', []); } catch {}
           panel.webview.postMessage({ type: 'applyResult', data: { applied: paths } });
@@ -5211,7 +5287,7 @@ async function cmdOpenChat(context) {
         clikeHarperBlockingRun = false;
       }
 
-      panel.webview.postMessage({ type: 'error', message: String(err) });
+      panel.webview.postMessage({ type: 'error', message: formatHarperError(err) });
       panel.webview.postMessage({ type: 'busy', on: false, force: true });
     }
     panel.webview.postMessage({ type: 'busy', on: false });

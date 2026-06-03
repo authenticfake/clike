@@ -1228,11 +1228,22 @@ function getHelpListSafe() {
   return HELP_COMMANDS;
 }
 
+function stringifyUiErrorMessage(value) {
+  if (typeof value === 'string') return value;
+  if (value instanceof Error) return value.message || String(value);
+  try {
+    return JSON.stringify(value || 'unknown', null, 2);
+  } catch {
+    return String(value || 'unknown');
+  }
+}
+
 function handleSlash(slash) {
   if (!slash) return;
 
   if (slash.error) {
-    const text = 'Error: ' + String(slash.error || 'Invalid slash command.');
+    const errorText = stringifyUiErrorMessage(slash.error || 'Invalid slash command.');
+    const text = 'Error: ' + errorText;
     try { bubble('assistant', text, 'system'); } catch {}
     try {
       const pre = document.getElementById('text');
@@ -1243,22 +1254,15 @@ function handleSlash(slash) {
   }
 
   const slashCmd = String(slash.cmd || '').toLowerCase();
-  const isHarperOnlyCommand = new Set([
+  const isHarperModeOnlyCommand = new Set([
     '/init',
     '/status',
     '/where',
     '/switch',
-    '/idea',
-    '/spec',
-    '/plan',
-    '/kit',
-    '/eval',
-    '/gate',
     '/agent-default',
-    '/finalize'
   ]).has(slashCmd);
 
-  if (isHarperOnlyCommand && currentMode() !== 'harper') {
+  if (isHarperModeOnlyCommand && currentMode() !== 'harper') {
     bubble('assistant', 'This command is available only in Harper mode.', 'system');
     try { prompt.value = ''; } catch {}
     return;
@@ -1443,6 +1447,7 @@ function handleSlash(slash) {
     slash.cmd === '/spec' ||
     slash.cmd === '/plan' ||
     slash.cmd === '/extend' ||
+    slash.cmd === '/add-req' ||
     slash.cmd === '/kit' ||
     slash.cmd === '/finalize' ||
     slash.cmd === '/agent-default'
@@ -1491,7 +1496,7 @@ function handleSlash(slash) {
 
     const msg = {
       type: 'harperRun',
-      cmd: slash.cmd.slice(1),
+      cmd: slash.cmd === '/add-req' ? 'extend' : slash.cmd.slice(1),
       attachments: atts,
       rawCommand: rawCommand || null
     };
@@ -1510,7 +1515,7 @@ function handleSlash(slash) {
       msg.targetReqId = firstTarget || null;
       msg.phases = slash.args?.phases ?? null;
       msg.repair = !!slash.args?.repair;
-    } else if (slash.cmd === '/extend') {
+    } else if (slash.cmd === '/extend' || slash.cmd === '/add-req') {
       msg.anchorReq = slash.args?.anchorReq || '';
       msg.explicitReq = slash.args?.explicitReq || '';
       msg.fromAttachment = !!slash.args?.fromAttachment;
@@ -1846,10 +1851,41 @@ function dispatchSlashFromInput(slash) {
   return true;
 }
 
+function dispatchHarperSlashText(text) {
+  if (!isHarperSlashText(text)) return false;
+
+  const slash = parseSlash(text);
+  if (!slash) {
+    handleSlash({
+      cmd: '/' + (getHarperSlashCommandName(text) || 'harper'),
+      error: 'Invalid Harper command.'
+    });
+    try { prompt.value = ''; } catch {}
+    return true;
+  }
+
+  if (slash.error) {
+    handleSlash({
+      ...slash,
+      error: 'Invalid Harper command: ' + stringifyUiErrorMessage(slash.error)
+    });
+    try { prompt.value = ''; } catch {}
+    return true;
+  }
+
+  dispatchSlashFromInput(slash);
+  return true;
+}
+
 btnChat.addEventListener('click', ()=>{
   console.log('[webview] sendChat click');
   const text = prompt.value;
   if (!text.trim()) return;
+
+  if (dispatchHarperSlashText(text)) {
+    return;
+  }
+
   const slash = parseSlash(text);
   console.log('CMD', slash?.cmd);
   console.log('ARG', slash?.args);
@@ -1880,6 +1916,10 @@ btnGen.addEventListener('click', ()=>{
   console.log('[webview] sendGen click');
 
   const text = prompt.value;
+  if (dispatchHarperSlashText(text)) {
+    return;
+  }
+
   const slash = parseSlash(text);
   if (slash) {
     dispatchSlashFromInput(slash);
@@ -1906,8 +1946,6 @@ btnGen.addEventListener('click', ()=>{
 });
 
 prompt.addEventListener('keydown', (ev) => {
-  if (currentMode() !== 'harper') return;
-
   const isEnter = ev.key === 'Enter' || ev.key === 'Return';
   if (!isEnter) return;
 
@@ -1916,6 +1954,15 @@ prompt.addEventListener('keydown', (ev) => {
   }
 
   const text = String(prompt.value || '');
+  if (isHarperSlashText(text)) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    dispatchHarperSlashText(text);
+    return;
+  }
+
+  if (currentMode() !== 'harper') return;
+
   const slash = parseSlash(text);
 
   if (!slash) {
@@ -1970,6 +2017,8 @@ window.addEventListener('message', (event) => {
         command.startsWith('/eval') ||
         command.startsWith('/gate') ||
         command.startsWith('/finalize') ||
+        command.startsWith('/extend') ||
+        command.startsWith('/add-req') ||
         command.startsWith('/agent-default') ||
         command.startsWith('/ragIndex') ||
         command.startsWith('/ragSearch')
@@ -2012,7 +2061,7 @@ window.addEventListener('message', (event) => {
   // Echo → mostra un bubble "assistant" (anche per i riepiloghi post-init)
   if (msg.type === 'echo') {
     console.log('[webview] echo', msg);
-    const text = String(msg.message || '');
+    const text = stringifyUiErrorMessage(msg.message || '');
     try { bubble('assistant', text, 'system'); } catch (e) { console.warn('[webview] bubble echo failed', e); }
     const pre = document.getElementById('text');
     if (pre) pre.textContent = text;
@@ -2414,7 +2463,7 @@ window.addEventListener('message', (event) => {
   }
 
   if (msg.type === 'error') {
-    const text = 'Error: ' + String(msg.message || 'unknown');
+    const text = 'Error: ' + stringifyUiErrorMessage(msg.message || 'unknown');
     //try { bubble('assistant', text, 'system'); } catch {}
     const pre = document.getElementById('text');
     if (pre) pre.textContent = text;
