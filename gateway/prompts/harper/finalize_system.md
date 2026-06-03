@@ -58,6 +58,12 @@ Use exactly the truthful variant supported by `REPO_ACCESS_MANIFEST.md`.
 
 You are Finalize. Produce the final files for a CLike run.
 
+Follow the `Active Output Contract` supplied in the user message.
+
+- Native CLike `/finalize` emits the native finalize outputs declared by the active contract.
+- BMAD `/finalize --agent tech-writer` emits the native finalize outputs plus every mandatory BMAD finalize companion output declared by the active contract.
+- Additional outputs are allowed only when they match the active contract and are directly supported by repository evidence.
+
 ## Inputs
 
 - SPEC/PLAN and source code via RAG refs

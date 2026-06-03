@@ -58,6 +58,22 @@ test('BMAD Harper slash commands parse supported phase-agent mappings', () => {
   assert.equal(parseSlash('/kit REQ-001 --repair --methodology bmad --agent developer').args.repair, true);
 });
 
+test('BMAD spec PM and UX agents parse as distinct methodology roles', () => {
+  const pm = parseSlash('/spec --methodology bmad --agent pm');
+  assert.equal(pm.error, undefined);
+  assert.equal(pm.cmd, '/spec');
+  assert.equal(pm.args.methodology, 'bmad');
+  assert.equal(pm.args.agent, 'pm');
+  assert.deepEqual(pm.args.methodology_context, { methodology: 'bmad', agent: 'pm' });
+
+  const ux = parseSlash('/spec --methodology bmad --agent ux');
+  assert.equal(ux.error, undefined);
+  assert.equal(ux.cmd, '/spec');
+  assert.equal(ux.args.methodology, 'bmad');
+  assert.equal(ux.args.agent, 'ux');
+  assert.deepEqual(ux.args.methodology_context, { methodology: 'bmad', agent: 'ux' });
+});
+
 test('legacy kit slash parsing remains unchanged without methodology flags', () => {
   assert.deepEqual(parseSlash('/kit REQ-001 --hardener'), {
     cmd: '/kit',

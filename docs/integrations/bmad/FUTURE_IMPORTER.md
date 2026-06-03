@@ -48,4 +48,4 @@ The importer must not directly promote artifacts. Imported content must still pa
 
 ## Non-Goals For Current MVP
 
-The current MVP does not call `npx bmad-method`, does not load BMAD runtime packages, does not vendor BMAD code, and does not implement an importer.
+The current MVP does not invoke the official BMAD package-runner command, does not load BMAD runtime packages, does not vendor BMAD code, and does not implement an importer.

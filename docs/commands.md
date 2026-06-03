@@ -179,7 +179,7 @@ The extension passes an execution preference with compatible Harper flows.
 
 ## Methodology Profile
 
-BMAD is supported as a CLike-governed methodology profile. BMAD is not an executor and does not create a parallel pipeline. It enriches Harper phase behavior with role guidance while CLike keeps authority over canonical artifacts, local-agent packages, eval, gate, telemetry, audit, and promotion.
+BMAD is a CLike-owned methodology profile. BMAD is not an executor and does not create a parallel pipeline. It enriches Harper phase behavior with role guidance while CLike keeps authority over canonical artifacts, companion artifacts, local-agent packages, eval, gate, telemetry, audit, and promotion.
 
 Supported BMAD roles:
 - `analyst`
@@ -198,6 +198,28 @@ Phase defaults:
 - `eval` -> `qa` advisory only
 - `gate` -> CLike-only, no BMAD authority
 - `finalize` -> `tech-writer`
+
+Common command forms:
+
+```text
+/idea --methodology bmad --agent analyst
+/spec --methodology bmad --agent pm
+/spec --methodology bmad --agent ux
+/plan --methodology bmad --agent architect
+/plan --methodology bmad --agent pm
+/kit REQ-001 --methodology bmad --agent developer
+/kit REQ-001 --repair --methodology bmad --agent developer
+/eval REQ-001 --methodology bmad --agent qa
+/eval REQ-001 --methodology bmad --agent developer
+/finalize --methodology bmad --agent tech-writer
+```
+
+SPEC has an explicit PM/UX ownership split:
+
+- `/spec --methodology bmad --agent pm` may produce canonical `docs/harper/SPEC.md` through normal CLike SPEC governance and companion PM artifacts under `docs/harper/bmad/spec/**`.
+- `/spec --methodology bmad --agent ux` is companion-only in the current MVP. It may produce UX artifacts under `docs/harper/ux/**`, including `SPEC_UX_APPENDIX.md`, but must not overwrite canonical `docs/harper/SPEC.md`.
+
+Gate remains CLike-owned. `/gate REQ-001 --methodology bmad` and `/gate REQ-001 --methodology bmad --agent qa` are rejected by the slash parser in the current MVP.
 
 Injection boundaries:
 - Cloud Harper runs receive resolved `methodology_context` only through Gateway cloud prompt composition.

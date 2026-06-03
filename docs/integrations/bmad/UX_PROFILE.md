@@ -8,14 +8,17 @@ The UX role is available during `spec`:
 /spec --methodology bmad --agent ux
 ```
 
-This command keeps CLike ownership of `SPEC.md` while asking the methodology profile to emphasize user experience. The role should help express who the user is, what journey they are completing, what states they encounter, what feedback they receive, and how errors or empty states should behave.
+This command keeps CLike ownership of `SPEC.md` while asking the methodology profile to emphasize user experience. In the current MVP, SPEC UX is companion-only: it must not overwrite canonical `docs/harper/SPEC.md`. The role should help express who the user is, what journey they are completing, what states they encounter, what feedback they receive, and how errors or empty states should behave.
 
 ## Companion UX Artifacts
 
-Controlled companion artifacts may live under `docs/harper/ux/**`. Two common future-facing examples are:
+Controlled companion artifacts may live under `docs/harper/ux/**`. Current BMAD UX companion outputs include:
 
 - `docs/harper/ux/DESIGN.md`
 - `docs/harper/ux/EXPERIENCE.md`
+- `docs/harper/ux/USER_JOURNEYS.md`
+- `docs/harper/ux/INTERACTION_STATES.md`
+- `docs/harper/ux/SPEC_UX_APPENDIX.md`
 
 These files can provide design rationale, journey notes, state inventories, accessibility expectations, terminology decisions, and interaction details. They are companion context, not replacements for canonical Harper artifacts.
 

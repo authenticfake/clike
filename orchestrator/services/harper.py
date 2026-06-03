@@ -37,6 +37,10 @@ from services.local_agent_package import (
     build_kit_local_agent_package,
 )
 from services.methodologies import resolve_methodology_context
+from services.methodologies.companion_collector import (
+    CompanionArtifactCollector,
+    companion_core_blob_key,
+)
 log = logging.getLogger("service.router")
 
 _KIT_PHASE_SEQUENCE: List[str] = [
@@ -70,10 +74,39 @@ async def _post_json(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
             r.raise_for_status()
         except httpx.HTTPStatusError as exc:
             body_text = ""
+            structured_body: Dict[str, Any] | None = None
             try:
                 body_text = r.text
             except Exception:
                 body_text = "<unavailable>"
+            try:
+                parsed = r.json()
+                if isinstance(parsed, dict):
+                    structured_body = parsed
+                    detail = parsed.get("detail")
+                    if isinstance(detail, dict):
+                        structured_body = detail
+            except Exception:
+                structured_body = None
+
+            if (
+                isinstance(structured_body, dict)
+                and structured_body.get("error_code") == "invalid_canonical_artifact"
+            ):
+                log.warning(
+                    "Gateway returned structured validation failure status=%s url=%s",
+                    r.status_code,
+                    url,
+                )
+                structured_body.setdefault("ok", False)
+                structured_body.setdefault("phase", payload.get("phase"))
+                structured_body.setdefault("files", [])
+                structured_body.setdefault("partial_files", [])
+                structured_body.setdefault("diagnostic_files", structured_body.get("partial_files") or [])
+                structured_body.setdefault("warnings", [])
+                structured_body.setdefault("errors", [])
+                structured_body.setdefault("runId", payload.get("runId"))
+                return structured_body
 
             log.error(
                 "Gateway error status=%s url=%s body=%s",
@@ -1601,7 +1634,11 @@ def _filter_core_blobs_for_target_req(
         name = str(raw_name or "").strip()
         lname = name.lower()
 
-        if lname.startswith("companion::docs/harper/bmad/") or lname.startswith("companion::docs/harper/ux/"):
+        if (
+            lname.startswith("companion::docs/harper/bmad/")
+            or lname.startswith("companion::docs/harper/ux/")
+            or lname.startswith(f"companion::runs/kit/{str(target_req_id).lower()}/docs/")
+        ):
             kept[name] = value
             continue
 
@@ -1712,6 +1749,80 @@ def _merge_file_lists_by_path(base_files: List[Dict[str, Any]], override_files: 
     return list(merged.values())
 
 
+def _workspace_root_from_payload(payload: Dict[str, Any]) -> Optional[Path]:
+    repo_ctx = payload.get("repository_context") or {}
+    if not isinstance(repo_ctx, dict):
+        repo_ctx = {}
+
+    raw = (
+        repo_ctx.get("repo_root")
+        or repo_ctx.get("workspace_folder")
+        or repo_ctx.get("root")
+        or payload.get("workspaceRoot")
+        or payload.get("workspace_root")
+        or getattr(settings, "WORKSPACE_ROOT", None)
+    )
+    if not raw:
+        return None
+
+    try:
+        root = Path(str(raw)).expanduser().resolve()
+    except Exception:
+        return None
+    return root if root.exists() and root.is_dir() else None
+
+
+def _doc_root_from_payload(payload: Dict[str, Any], workspace_root: Path) -> Path:
+    raw = payload.get("docRoot") or payload.get("doc_root") or "docs/harper"
+    path = Path(str(raw)).expanduser()
+    return (path if path.is_absolute() else workspace_root / path).resolve()
+
+
+def _inject_server_discovered_companion_artifacts(
+    *,
+    merged: Dict[str, Any],
+    core_blobs: Dict[str, Any],
+    phase: str,
+    req_id: Optional[str],
+) -> Dict[str, Any]:
+    methodology_context = merged.get("methodology_context")
+    if not isinstance(methodology_context, dict) or methodology_context.get("methodology") != "bmad":
+        return core_blobs
+
+    workspace_root = _workspace_root_from_payload(merged)
+    if workspace_root is None:
+        return core_blobs
+
+    collector = CompanionArtifactCollector(
+        workspace_root=workspace_root,
+        doc_root=_doc_root_from_payload(merged, workspace_root),
+        phase=phase,
+        methodology_context=methodology_context,
+        req_id=req_id,
+    )
+    discovered = collector.collect()
+    if not discovered:
+        return core_blobs
+
+    updated_context = dict(methodology_context)
+    updated_context["discovered_companion_artifacts"] = discovered
+    merged["methodology_context"] = updated_context
+
+    updated_core_blobs = dict(core_blobs or {})
+    for item in discovered:
+        key = companion_core_blob_key(str(item.get("path") or ""))
+        if key != "companion::":
+            updated_core_blobs[key] = str(item.get("snippet") or "")
+
+    log.info(
+        "harper.methodology companion artifacts discovered phase=%s req=%s count=%d",
+        phase,
+        req_id or "none",
+        len(discovered),
+    )
+    return updated_core_blobs
+
+
 async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
     # --- Normalizzazione in dict ---
     if hasattr(req_payload, "model_dump"):
@@ -1787,6 +1898,15 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
             raise ValueError("Harper /eval requires exactly one target REQ-ID in eval.targets, e.g. { eval: { targets: ['REQ-001'] } }")
         target_req_id = targets[0].strip().upper()
 
+    if merged.get("phase") != "kit":
+        core_blobs = _inject_server_discovered_companion_artifacts(
+            merged=merged,
+            core_blobs=core_blobs,
+            phase=phase,
+            req_id=target_req_id,
+        )
+        merged["core_blobs"] = core_blobs
+
     if merged.get("phase") == "kit":
         kit = merged.get("kit") or {}
         targets = kit.get("targets") or []
@@ -1795,6 +1915,13 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
 
         target_req_id = targets[0].strip()
         requested_kit_phases = _normalize_requested_kit_phases(kit)
+        core_blobs = _inject_server_discovered_companion_artifacts(
+            merged=merged,
+            core_blobs=core_blobs,
+            phase=phase,
+            req_id=target_req_id,
+        )
+        merged["core_blobs"] = core_blobs
 
         filtered_core_blobs = _filter_core_blobs_for_target_req(
             core_blobs,

@@ -1,8 +1,8 @@
 {
   "id": "bmad",
   "name": "BMAD",
-  "version": "clike-built-in-round-6",
-  "description": "Compact CLike-owned BMAD-aware methodology profile metadata. This profile enriches Harper phase behavior without adding a BMAD runtime, external CLI, or parallel pipeline.",
+  "version": "clike-built-in-profile-v7",
+  "description": "CLike-owned BMAD-aware methodology profile metadata. This profile enriches Harper phase behavior and companion artifact production without adding a BMAD runtime, external CLI, or parallel pipeline.",
   "governance": {
     "runtime": "clike",
     "methodology_is_executor": false,
@@ -13,6 +13,53 @@
     "official_bmad_runtime_content_vendored": false,
     "canonical_eval_owner": "clike",
     "canonical_gate_owner": "clike"
+  },
+  "provenance": {
+    "profile_owner": "CLike",
+    "profile_type": "clike-owned-bmad-aware-methodology-profile",
+    "reference_name": "BMAD Method",
+    "reference_repository": "https://github.com/bmad-code-org/BMAD-METHOD",
+    "reference_docs": "https://github.com/bmad-code-org/BMAD-METHOD/tree/main/docs",
+    "review_policy": "manual-review-only",
+    "auto_track_latest_at_runtime": false,
+    "reviewed_version": "manual-review-pending",
+    "reviewed_commit": "manual-review-pending",
+    "reviewed_at": "manual-review-pending",
+    "reviewed_by": "manual-review-pending",
+    "mapping_report_path": "docs/integrations/bmad/PROFILE_SYNC_REPORT.md",
+    "fixture_workspace_strategy": "optional-manual-comparison-only",
+    "runtime_dependency_enabled": false,
+    "external_bmad_cli_enabled": false,
+    "official_bmad_runtime_content_vendored": false
+  },
+  "reference_review_policy": {
+    "clike_does_not_auto_track_bmad_latest_at_runtime": true,
+    "review_flow": [
+      "select BMAD latest or pinned release",
+      "manual review",
+      "fixture workspace comparison",
+      "PROFILE_SYNC_REPORT.md mapping",
+      "CLike-owned profile update",
+      "tests",
+      "merge"
+    ],
+    "adopted_concepts": [
+      "agent responsibilities",
+      "workflow sequence",
+      "artifact expectations",
+      "handoff rules",
+      "checklist patterns",
+      "customization model",
+      "project-context model"
+    ],
+    "excluded_concepts": [
+      "runtime dependency",
+      "CLI execution",
+      "uncontrolled writes",
+      "gate authority",
+      "copied official prompts",
+      "latest auto-pulled in production"
+    ]
   },
   "supported_agents": [
     "analyst",
@@ -109,7 +156,12 @@
         "enrich IDEA.md without creating canonical downstream artifacts"
       ],
       "required_context": ["user intent", "existing IDEA.md", "business goals", "constraints", "known risks"],
-      "companion_artifacts": ["docs/harper/bmad/idea/BRIEF.md", "docs/harper/bmad/idea/PRFAQ_NOTES.md"],
+      "companion_artifacts": [
+        "docs/harper/bmad/idea/BRIEF.md",
+        "docs/harper/bmad/idea/PRFAQ_NOTES.md",
+        "docs/harper/bmad/idea/ASSUMPTIONS.md",
+        "docs/harper/bmad/idea/RESEARCH_QUESTIONS.md"
+      ],
       "workflow_path": "workflows/idea.md"
     },
     "spec": {
@@ -122,7 +174,17 @@
         "feed SPEC/PLAN without bypassing CLike canonical artifacts"
       ],
       "required_context": ["IDEA.md", "TECH_CONSTRAINTS.yaml", "domain notes", "UX notes when present"],
-      "companion_artifacts": ["docs/harper/bmad/spec/PRD_DRAFT.md", "docs/harper/ux/DESIGN.md"],
+      "companion_artifacts": [
+        "docs/harper/bmad/spec/PRD.md",
+        "docs/harper/bmad/spec/EPICS.md",
+        "docs/harper/bmad/spec/ACCEPTANCE_MODEL.md",
+        "docs/harper/bmad/spec/SCOPE_DECISIONS.md",
+        "docs/harper/ux/DESIGN.md",
+        "docs/harper/ux/EXPERIENCE.md",
+        "docs/harper/ux/USER_JOURNEYS.md",
+        "docs/harper/ux/INTERACTION_STATES.md",
+        "docs/harper/ux/SPEC_UX_APPENDIX.md"
+      ],
       "workflow_path": "workflows/spec.md"
     },
     "plan": {
@@ -135,7 +197,15 @@
         "make /kit build responsibilities explicit"
       ],
       "required_context": ["SPEC.md", "PLAN.md", "plan.json", "TECH_CONSTRAINTS.yaml", "repository context"],
-      "companion_artifacts": ["docs/harper/bmad/plan/REQ_READINESS.md", "docs/harper/bmad/plan/DEPENDENCY_NOTES.md"],
+      "companion_artifacts": [
+        "docs/harper/bmad/architecture/ARCHITECTURE.md",
+        "docs/harper/bmad/architecture/DECISIONS.md",
+        "docs/harper/bmad/architecture/INTEGRATION_BOUNDARIES.md",
+        "docs/harper/bmad/architecture/RISKS.md",
+        "docs/harper/bmad/plan/STORIES.md",
+        "docs/harper/bmad/plan/STORY_MAP.md",
+        "docs/harper/bmad/plan/IMPLEMENTATION_READINESS.md"
+      ],
       "workflow_path": "workflows/plan.md"
     },
     "kit": {
@@ -148,7 +218,12 @@
         "repair only focused failures when repair intent is present"
       ],
       "required_context": ["current REQ", "TARGET_CONTRACT.json", "FILE_REQUIREMENTS.json", "TECH_CONSTRAINTS.yaml", "dependency KIT roots"],
-      "companion_artifacts": ["runs/kit/<REQ-ID>/docs/KIT_<REQ-ID>.md", "runs/kit/<REQ-ID>/reports/BMAD_DEV_NOTES.md"],
+      "companion_artifacts": [
+        "runs/kit/<REQ-ID>/docs/BMAD_DEV_STORY.md",
+        "runs/kit/<REQ-ID>/docs/IMPLEMENTATION_NOTES.md",
+        "runs/kit/<REQ-ID>/docs/SELF_REVIEW.md",
+        "runs/kit/<REQ-ID>/docs/RUNBOOK.md"
+      ],
       "workflow_path": "workflows/kit.md"
     },
     "eval": {
@@ -161,7 +236,12 @@
         "never replace EvalRunner or alter promotable status"
       ],
       "required_context": ["EvalRunner report", "LTC.json", "HOWTO.md", "candidate files", "TECH_CONSTRAINTS.yaml"],
-      "companion_artifacts": ["runs/kit/<REQ-ID>/reports/BMAD_EVAL_REPAIR_NOTES.md"],
+      "companion_artifacts": [
+        "runs/kit/<REQ-ID>/docs/BMAD_QA_ADVISORY.md",
+        "runs/kit/<REQ-ID>/docs/FIX_GUIDANCE.md",
+        "runs/kit/<REQ-ID>/docs/MISSING_TESTS.md",
+        "runs/kit/<REQ-ID>/docs/RISK_REVIEW.md"
+      ],
       "workflow_path": "workflows/eval.md"
     },
     "finalize": {
@@ -174,8 +254,294 @@
         "keep finalize outputs tied to CLike eval/gate evidence"
       ],
       "required_context": ["PLAN.md", "plan.json", "eval reports", "gate reports", "candidate/final artifacts"],
-      "companion_artifacts": ["README.md", "docs/harper/FINALIZE_NOTES.md", "docs/harper/ARCHITECTURE.md"],
+      "companion_artifacts": [
+        "README.md",
+        "docs/harper/FINALIZE_NOTES.md",
+        "docs/harper/bmad/finalize/DOC_REVIEW.md",
+        "docs/harper/bmad/finalize/RELEASE_NARRATIVE.md",
+        "docs/harper/bmad/finalize/STAKEHOLDER_SUMMARY.md"
+      ],
       "workflow_path": "workflows/finalize.md"
+    }
+  },
+  "quality_contracts": {
+    "principles": [
+      "BMAD success means better canonical Harper artifacts and KIT readiness, not more files.",
+      "Quality contracts are deterministic review aids and do not claim automatic quality improvement.",
+      "TECH_CONSTRAINTS.yaml remains authoritative for runtime, provider, deployment, identity, dependency, and command assumptions.",
+      "Contracts must not hardcode a programming language, framework, cloud provider, database, queue, UI stack, IaC tool, or deployment target."
+    ],
+    "spec": {
+      "artifact": "docs/harper/SPEC.md",
+      "checks": [
+        "completeness",
+        "testability",
+        "acceptance criteria precision",
+        "functional requirement clarity",
+        "UX/user journey quality",
+        "non-functional requirements",
+        "security/privacy/compliance",
+        "observability/operations",
+        "scope and non-goals",
+        "traceability to IDEA and companion artifacts"
+      ],
+      "review_expectation": "SPEC.md should be complete enough for PLAN to derive implementation-ready REQs without inventing product behavior, runtime assumptions, or governance exceptions."
+    },
+    "plan": {
+      "artifact": "docs/harper/PLAN.md",
+      "checks": [
+        "REQ granularity",
+        "implementation readiness",
+        "dependency modeling",
+        "architecture boundary clarity",
+        "risk/mitigation clarity",
+        "runtime/lane consistency",
+        "TECH_CONSTRAINTS adherence",
+        "test strategy",
+        "eval/gate readiness"
+      ],
+      "review_expectation": "PLAN.md should explain what each REQ builds now, what it defers, what downstream REQs may assume, and why the slice is ready for /kit."
+    },
+    "plan_json_req": {
+      "artifact": "docs/harper/plan.json",
+      "required_fields": [
+        "id",
+        "title",
+        "status",
+        "dependsOn",
+        "lane",
+        "domain",
+        "runtime_profile",
+        "functional_scope",
+        "technical_scope",
+        "non_functional_requirements",
+        "security_requirements",
+        "operational_requirements",
+        "integration_contracts",
+        "data_contracts",
+        "acceptance",
+        "test_strategy",
+        "risk_notes",
+        "main_module_boundary",
+        "gate_expectations",
+        "kit_readiness"
+      ],
+      "review_expectation": "Each plan.json REQ should preserve enough machine-readable detail for /kit, eval, gate review, and downstream dependency reasoning."
+    },
+    "lane_guide": {
+      "artifact": "docs/harper/lane-guides/<lane>.md",
+      "required_fields": [
+        "lane purpose",
+        "runtime constraints",
+        "expected files",
+        "test commands",
+        "lint/type/build/security commands when applicable",
+        "contract boundaries",
+        "integration points",
+        "forbidden shortcuts",
+        "eval/gate expectations"
+      ],
+      "review_expectation": "Lane guides should make runtime-neutral implementation and verification expectations explicit without inventing stack choices not supported by TECH_CONSTRAINTS, SPEC, PLAN, plan.json, repository evidence, or user input."
+    }
+  },
+  "artifact_policy": {
+    "idea/analyst": {
+      "canonical_outputs": ["docs/harper/IDEA.md"],
+      "mandatory_companion_outputs": [
+        "docs/harper/bmad/idea/BRIEF.md",
+        "docs/harper/bmad/idea/PRFAQ_NOTES.md",
+        "docs/harper/bmad/idea/ASSUMPTIONS.md",
+        "docs/harper/bmad/idea/RESEARCH_QUESTIONS.md"
+      ],
+      "allowed_companion_root_globs": ["docs/harper/bmad/idea/**"],
+      "forbidden_outputs": [
+        "docs/harper/SPEC.md",
+        "docs/harper/PLAN.md",
+        "docs/harper/plan.json",
+        "src/**",
+        "test/**",
+        "tests/**"
+      ],
+      "authority": "canonical-harper-artifact-with-companion-context",
+      "conflict_resolution": "canonical-wins",
+      "downstream_consumers": ["spec/pm", "spec/ux", "plan/architect", "plan/pm"],
+      "open_ended_generation_allowed": true
+    },
+    "spec/pm": {
+      "canonical_outputs": ["docs/harper/SPEC.md"],
+      "mandatory_companion_outputs": [
+        "docs/harper/bmad/spec/PRD.md",
+        "docs/harper/bmad/spec/EPICS.md",
+        "docs/harper/bmad/spec/ACCEPTANCE_MODEL.md",
+        "docs/harper/bmad/spec/SCOPE_DECISIONS.md"
+      ],
+      "allowed_companion_root_globs": ["docs/harper/bmad/spec/**"],
+      "forbidden_outputs": [
+        "docs/harper/PLAN.md",
+        "docs/harper/plan.json",
+        "src/**",
+        "test/**",
+        "tests/**"
+      ],
+      "authority": "canonical-harper-artifact-with-companion-context",
+      "conflict_resolution": "canonical-wins",
+      "downstream_consumers": ["plan/architect", "plan/pm", "kit/developer", "eval/qa"],
+      "open_ended_generation_allowed": true
+    },
+    "spec/ux": {
+      "canonical_outputs": [],
+      "companion_only": true,
+      "mandatory_companion_outputs": [
+        "docs/harper/ux/DESIGN.md",
+        "docs/harper/ux/EXPERIENCE.md",
+        "docs/harper/ux/USER_JOURNEYS.md",
+        "docs/harper/ux/INTERACTION_STATES.md",
+        "docs/harper/ux/SPEC_UX_APPENDIX.md"
+      ],
+      "allowed_companion_root_globs": ["docs/harper/ux/**"],
+      "forbidden_outputs": [
+        "docs/harper/SPEC.md",
+        "docs/harper/PLAN.md",
+        "docs/harper/plan.json",
+        "src/**",
+        "test/**",
+        "tests/**"
+      ],
+      "authority": "companion-context-only",
+      "conflict_resolution": "canonical-wins",
+      "downstream_consumers": ["spec/pm", "plan/architect", "plan/pm", "kit/developer"],
+      "open_ended_generation_allowed": true
+    },
+    "plan/architect": {
+      "canonical_outputs": ["docs/harper/PLAN.md", "docs/harper/plan.json", "docs/harper/lane-guides/**"],
+      "mandatory_companion_outputs": [
+        "docs/harper/bmad/architecture/ARCHITECTURE.md",
+        "docs/harper/bmad/architecture/DECISIONS.md",
+        "docs/harper/bmad/architecture/INTEGRATION_BOUNDARIES.md",
+        "docs/harper/bmad/architecture/RISKS.md"
+      ],
+      "allowed_companion_root_globs": ["docs/harper/bmad/architecture/**"],
+      "forbidden_outputs": [
+        "docs/harper/IDEA.md",
+        "docs/harper/SPEC.md",
+        "src/**",
+        "test/**",
+        "tests/**"
+      ],
+      "authority": "canonical-harper-artifact-with-companion-context",
+      "conflict_resolution": "canonical-wins",
+      "downstream_consumers": ["kit/developer", "eval/qa", "finalize/tech-writer"],
+      "open_ended_generation_allowed": true
+    },
+    "plan/pm": {
+      "canonical_outputs": ["docs/harper/PLAN.md", "docs/harper/plan.json", "docs/harper/lane-guides/**"],
+      "mandatory_companion_outputs": [
+        "docs/harper/bmad/plan/STORIES.md",
+        "docs/harper/bmad/plan/STORY_MAP.md",
+        "docs/harper/bmad/plan/IMPLEMENTATION_READINESS.md"
+      ],
+      "allowed_companion_root_globs": ["docs/harper/bmad/plan/**"],
+      "forbidden_outputs": [
+        "docs/harper/IDEA.md",
+        "docs/harper/SPEC.md",
+        "src/**",
+        "test/**",
+        "tests/**"
+      ],
+      "authority": "canonical-harper-artifact-with-companion-context",
+      "conflict_resolution": "canonical-wins",
+      "downstream_consumers": ["kit/developer", "eval/qa", "finalize/tech-writer"],
+      "open_ended_generation_allowed": true
+    },
+    "kit/developer": {
+      "canonical_outputs": [
+        "runs/kit/<REQ-ID>/src/**",
+        "runs/kit/<REQ-ID>/test/**",
+        "runs/kit/<REQ-ID>/ci/**",
+        "runs/kit/<REQ-ID>/docs/TARGET_CONTRACT.json",
+        "runs/kit/<REQ-ID>/docs/FILE_REQUIREMENTS.json"
+      ],
+      "mandatory_companion_outputs": [
+        "runs/kit/<REQ-ID>/docs/BMAD_DEV_STORY.md",
+        "runs/kit/<REQ-ID>/docs/IMPLEMENTATION_NOTES.md",
+        "runs/kit/<REQ-ID>/docs/SELF_REVIEW.md",
+        "runs/kit/<REQ-ID>/docs/RUNBOOK.md"
+      ],
+      "allowed_companion_root_globs": ["runs/kit/<REQ-ID>/docs/**"],
+      "forbidden_outputs": [
+        "docs/harper/PLAN.md",
+        "docs/harper/plan.json",
+        "src/**",
+        "test/**",
+        "tests/**"
+      ],
+      "authority": "candidate-first-governed-output",
+      "conflict_resolution": "canonical-wins",
+      "downstream_consumers": ["eval/qa", "eval/developer", "finalize/tech-writer"],
+      "open_ended_generation_allowed": true
+    },
+    "eval/qa": {
+      "canonical_outputs": [],
+      "mandatory_companion_outputs": [
+        "runs/kit/<REQ-ID>/docs/BMAD_QA_ADVISORY.md",
+        "runs/kit/<REQ-ID>/docs/FIX_GUIDANCE.md",
+        "runs/kit/<REQ-ID>/docs/MISSING_TESTS.md",
+        "runs/kit/<REQ-ID>/docs/RISK_REVIEW.md"
+      ],
+      "allowed_companion_root_globs": ["runs/kit/<REQ-ID>/docs/**"],
+      "forbidden_outputs": [
+        "runs/eval/<REQ-ID>/**",
+        "docs/harper/PLAN.md",
+        "docs/harper/plan.json",
+        "src/**",
+        "test/**",
+        "tests/**"
+      ],
+      "authority": "advisory-companion-context-only",
+      "conflict_resolution": "canonical-wins",
+      "downstream_consumers": ["kit/developer", "eval/developer", "finalize/tech-writer"],
+      "open_ended_generation_allowed": true
+    },
+    "eval/developer": {
+      "canonical_outputs": [],
+      "mandatory_companion_outputs": [
+        "runs/kit/<REQ-ID>/docs/BMAD_QA_ADVISORY.md",
+        "runs/kit/<REQ-ID>/docs/FIX_GUIDANCE.md",
+        "runs/kit/<REQ-ID>/docs/MISSING_TESTS.md",
+        "runs/kit/<REQ-ID>/docs/RISK_REVIEW.md"
+      ],
+      "allowed_companion_root_globs": ["runs/kit/<REQ-ID>/docs/**"],
+      "forbidden_outputs": [
+        "runs/eval/<REQ-ID>/**",
+        "docs/harper/PLAN.md",
+        "docs/harper/plan.json",
+        "src/**",
+        "test/**",
+        "tests/**"
+      ],
+      "authority": "advisory-companion-context-only",
+      "conflict_resolution": "canonical-wins",
+      "downstream_consumers": ["kit/developer", "finalize/tech-writer"],
+      "open_ended_generation_allowed": true
+    },
+    "finalize/tech-writer": {
+      "canonical_outputs": ["README.md", "docs/harper/FINALIZE_NOTES.md"],
+      "mandatory_companion_outputs": [
+        "docs/harper/bmad/finalize/DOC_REVIEW.md",
+        "docs/harper/bmad/finalize/RELEASE_NARRATIVE.md",
+        "docs/harper/bmad/finalize/STAKEHOLDER_SUMMARY.md"
+      ],
+      "allowed_companion_root_globs": ["docs/harper/bmad/finalize/**"],
+      "forbidden_outputs": [
+        "docs/harper/PLAN.md",
+        "docs/harper/plan.json",
+        "runs/eval/**",
+        ".git/**"
+      ],
+      "authority": "canonical-finalize-artifact-with-companion-context",
+      "conflict_resolution": "canonical-wins",
+      "downstream_consumers": ["human-review", "audit", "release"],
+      "open_ended_generation_allowed": true
     }
   },
   "companion_artifact_suggestions": {

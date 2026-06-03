@@ -90,6 +90,58 @@ def _compact_workflow_context(manifest: Dict[str, Any], phase_name: str) -> Dict
     }
 
 
+def _artifact_policy_context(
+    manifest: Dict[str, Any],
+    phase_name: str,
+    agent_id: Optional[str],
+) -> Optional[Dict[str, Any]]:
+    if not agent_id:
+        return None
+
+    policy = dict((manifest.get("artifact_policy") or {}).get(f"{phase_name}/{agent_id}") or {})
+    if not policy:
+        return None
+
+    return {
+        "canonical_outputs": list(policy.get("canonical_outputs") or []),
+        "companion_only": bool(policy.get("companion_only", False)),
+        "mandatory_companion_outputs": list(policy.get("mandatory_companion_outputs") or []),
+        "allowed_companion_root_globs": list(policy.get("allowed_companion_root_globs") or []),
+        "forbidden_outputs": list(policy.get("forbidden_outputs") or []),
+        "authority": policy.get("authority"),
+        "conflict_resolution": policy.get("conflict_resolution"),
+        "downstream_consumers": list(policy.get("downstream_consumers") or []),
+        "open_ended_generation_allowed": bool(policy.get("open_ended_generation_allowed", False)),
+    }
+
+
+def _quality_contract_context(manifest: Dict[str, Any], phase_name: str) -> Optional[Dict[str, Any]]:
+    contracts = manifest.get("quality_contracts") or {}
+    if not isinstance(contracts, dict):
+        return None
+
+    phase_contracts: Dict[str, Any] = {}
+    if phase_name == "spec":
+        phase_contracts["spec"] = contracts.get("spec")
+    elif phase_name == "plan":
+        phase_contracts["plan"] = contracts.get("plan")
+        phase_contracts["plan_json_req"] = contracts.get("plan_json_req")
+        phase_contracts["lane_guide"] = contracts.get("lane_guide")
+
+    compact_phase_contracts = {
+        key: value
+        for key, value in phase_contracts.items()
+        if isinstance(value, dict)
+    }
+    if not compact_phase_contracts:
+        return None
+
+    return {
+        "principles": list(contracts.get("principles") or [])[:6],
+        **compact_phase_contracts,
+    }
+
+
 def resolve_methodology_context(
     *,
     phase: str,
@@ -161,6 +213,8 @@ def resolve_methodology_context(
 
     agents = manifest.get("agents") or {}
     profile = dict(agents.get(resolved_agent) or {})
+    artifact_policy = _artifact_policy_context(manifest, phase_name, resolved_agent)
+    quality_contracts = _quality_contract_context(manifest, phase_name)
 
     return {
         "methodology": "bmad",
@@ -173,6 +227,8 @@ def resolve_methodology_context(
         "advisory_only": bool(phase_rules.get("advisory_only", False)),
         "authority": "advisory" if phase_rules.get("advisory_only") else "methodology_profile",
         "profile": profile,
+        "artifact_policy": artifact_policy,
+        **({"quality_contracts": quality_contracts} if quality_contracts else {}),
         "version": manifest.get("version"),
         **workflow_context,
     }

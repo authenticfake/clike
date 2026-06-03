@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import sys
+import tempfile
 import types
 import unittest
 from pathlib import Path
@@ -69,6 +70,14 @@ def _load_gateway_methodology_prompt_module():
     return module
 
 
+def _load_gateway_artifact_policy_module():
+    path = REPO_ROOT / "gateway" / "utils" / "artifact_policy.py"
+    spec = importlib.util.spec_from_file_location("gateway_artifact_policy", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _base_payload():
     return {
         "runId": "test-run",
@@ -102,6 +111,7 @@ def _rich_kit_payload():
         "SPEC.md": "# Spec\nThe app must support the thing.",
         "PLAN.md": "# Plan\nREQ-000 then REQ-001.",
         "TECH_CONSTRAINTS.yaml": "tech_constraints:\n  runtime: node\n  ui: react\n",
+        "docs/harper/lane-guides/app.md": "# App Lane\nUse the app lane policy.",
         "plan.json": json.dumps(
             {
                 "reqs": [
@@ -146,6 +156,12 @@ def _rich_kit_payload():
         ),
     }
     return payload
+
+
+def _write_workspace_file(root: Path, relative_path: str, content: str) -> None:
+    path = root / relative_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
 
 
 def _kit_package(payload):
@@ -201,6 +217,10 @@ class MethodologyInjectionTests(unittest.TestCase):
         rendered = module.render_methodology_context_for_cloud_prompt(context)
 
         self.assertIn("### Governed Methodology Profile", rendered)
+        self.assertIn("### BMAD Companion Artifact Contract", rendered)
+        self.assertIn("### BMAD Companion Artifact Inventory", rendered)
+        self.assertIn("### BMAD Governance Boundaries", rendered)
+        self.assertIn("### BMAD Downstream Handoff", rendered)
         self.assertIn("- methodology: bmad", rendered)
         self.assertIn("- role: developer", rendered)
         self.assertIn("- workflow_summary:", rendered)
@@ -215,11 +235,104 @@ class MethodologyInjectionTests(unittest.TestCase):
         self.assertEqual(module.render_methodology_context_for_cloud_prompt(None), "")
         self.assertEqual(module.render_methodology_context_for_cloud_prompt({}), "")
 
+    def test_cloud_prompt_renderer_includes_companion_inventory(self):
+        module = _load_gateway_methodology_prompt_module()
+        rendered = module.render_methodology_context_for_cloud_prompt(
+            {
+                "methodology": "bmad",
+                "phase": "kit",
+                "agent": "developer",
+                "discovered_companion_artifacts": [
+                    {
+                        "path": "docs/harper/bmad/idea/DEEP_DIVE_X.md",
+                        "source_group": "bmad_project",
+                        "size_bytes": 100,
+                        "sha256": "abcdef1234567890",
+                        "truncated": True,
+                    }
+                ],
+            }
+        )
+
+        self.assertIn("BMAD Companion Artifact Inventory", rendered)
+        self.assertIn("docs/harper/bmad/idea/DEEP_DIVE_X.md", rendered)
+        self.assertIn("truncated: True", rendered)
+
+    def test_cloud_prompt_renderer_includes_spec_ux_companion_only_policy(self):
+        module = _load_gateway_methodology_prompt_module()
+        context = resolve_methodology_context(
+            phase="spec",
+            methodology="bmad",
+            agent="ux",
+        )
+
+        rendered = module.render_methodology_context_for_cloud_prompt(context)
+
+        self.assertIn("SPEC UX artifact policy:", rendered)
+        self.assertIn("- companion-only: true", rendered)
+        self.assertIn("PM-owned canonical SPEC remains authoritative", rendered)
+        self.assertIn("UX must produce companion artifacts only", rendered)
+        self.assertIn("UX artifacts are consumed by /plan", rendered)
+        self.assertIn("docs/harper/SPEC.md", rendered)
+
+    def test_gateway_artifact_policy_filters_spec_ux_outputs(self):
+        module = _load_gateway_artifact_policy_module()
+        context = resolve_methodology_context(
+            phase="spec",
+            methodology="bmad",
+            agent="ux",
+        )
+        warnings = []
+
+        filtered = module.filter_files_by_methodology_artifact_policy(
+            [
+                {"path": "docs/harper/SPEC.md", "content": "# Wrong"},
+                {"path": "docs/harper/ux/DESIGN.md", "content": "# Design"},
+                {"path": "docs/harper/bmad/spec/PRD.md", "content": "# PRD"},
+            ],
+            phase="spec",
+            methodology_context=context,
+            warnings=warnings,
+        )
+
+        self.assertEqual([item["path"] for item in filtered], ["docs/harper/ux/DESIGN.md"])
+        self.assertTrue(any("bmad_spec_ux_companion_only" in item for item in warnings))
+        self.assertTrue(any("docs/harper/SPEC.md" in item for item in warnings))
+
+    def test_gateway_artifact_policy_allows_spec_pm_outputs(self):
+        module = _load_gateway_artifact_policy_module()
+        context = resolve_methodology_context(
+            phase="spec",
+            methodology="bmad",
+            agent="pm",
+        )
+        warnings = []
+
+        filtered = module.filter_files_by_methodology_artifact_policy(
+            [
+                {"path": "docs/harper/SPEC.md", "content": "# Spec"},
+                {"path": "docs/harper/bmad/spec/PRD.md", "content": "# PRD"},
+                {"path": "docs/harper/ux/DESIGN.md", "content": "# Design"},
+            ],
+            phase="spec",
+            methodology_context=context,
+            warnings=warnings,
+        )
+
+        self.assertEqual(
+            [item["path"] for item in filtered],
+            ["docs/harper/SPEC.md", "docs/harper/bmad/spec/PRD.md"],
+        )
+        self.assertTrue(any("docs/harper/ux/DESIGN.md" in item for item in warnings))
+
     def test_gateway_harper_run_passes_resolved_methodology_context_to_cloud_composer(self):
         source = (REPO_ROOT / "gateway" / "routes" / "harper.py").read_text(encoding="utf-8")
 
-        self.assertIn("render_methodology_context_for_cloud_prompt(methodology_context)", source)
+        self.assertIn("render_methodology_context_for_cloud_prompt(", source)
+        self.assertIn("build_active_output_contract(", source)
+        self.assertIn("validate_files_against_active_output_contract(", source)
         self.assertIn("req.methodology_context", source)
+        self.assertIn("filter_files_by_methodology_artifact_policy(", source)
 
     def test_bmad_context_is_injected_for_local_agent_package(self):
         payload = _base_payload()
@@ -234,6 +347,8 @@ class MethodologyInjectionTests(unittest.TestCase):
 
         self.assertEqual(context["methodology_context"]["methodology"], "bmad")
         self.assertEqual(context["methodology_context"]["agent"], "developer")
+        self.assertEqual(context["active_output_contract"]["methodology"], "bmad")
+        self.assertIn("runs/kit/REQ-001/docs/BMAD_DEV_STORY.md", context["active_output_contract"]["required_outputs"])
         self.assertIn("workflow_summary", context["methodology_context"])
         self.assertIn("workflow_focus", context["methodology_context"])
         self.assertIn("required_context", context["methodology_context"])
@@ -245,6 +360,7 @@ class MethodologyInjectionTests(unittest.TestCase):
         self.assertIn("companion_artifacts:", package["local_agent"]["prompt_content"])
         self.assertIn("governance_boundary:", package["local_agent"]["prompt_content"])
         self.assertIn("allowed_write_roots", package["local_agent"]["prompt_content"])
+        self.assertIn("Active output contract:", package["local_agent"]["prompt_content"])
 
     def test_methodology_context_is_absent_when_omitted(self):
         package = _kit_package(_base_payload())
@@ -252,6 +368,7 @@ class MethodologyInjectionTests(unittest.TestCase):
 
         self.assertNotIn("methodology_context", context)
         self.assertNotIn("Methodology profile:", package["local_agent"]["prompt_content"])
+        self.assertEqual(context["active_output_contract"]["methodology"], "native_clike")
 
     def test_allowed_and_forbidden_paths_are_unchanged_when_bmad_is_enabled(self):
         baseline = _kit_package(_base_payload())
@@ -273,6 +390,28 @@ class MethodologyInjectionTests(unittest.TestCase):
             with_bmad["local_agent"]["forbidden_paths"],
         )
 
+        eval_baseline_payload = _rich_kit_payload()
+        eval_baseline_payload["eval"] = {"targets": ["REQ-001"]}
+        eval_baseline = _eval_package(eval_baseline_payload)
+
+        eval_bmad_payload = _rich_kit_payload()
+        eval_bmad_payload["eval"] = {"targets": ["REQ-001"]}
+        eval_bmad_payload["methodology_context"] = resolve_methodology_context(
+            phase="eval",
+            methodology="bmad",
+            agent="qa",
+        )
+        eval_with_bmad = _eval_package(eval_bmad_payload)
+
+        self.assertEqual(
+            eval_baseline["local_agent"]["allowed_write_roots"],
+            eval_with_bmad["local_agent"]["allowed_write_roots"],
+        )
+        self.assertEqual(
+            eval_baseline["local_agent"]["forbidden_paths"],
+            eval_with_bmad["local_agent"]["forbidden_paths"],
+        )
+
     def test_kit_agent_execution_context_includes_bounded_project_and_companion_context(self):
         payload = _rich_kit_payload()
         payload["methodology_context"] = resolve_methodology_context(
@@ -286,6 +425,11 @@ class MethodologyInjectionTests(unittest.TestCase):
         local_agent = package["local_agent"]
 
         self.assertEqual(context["methodology_context"]["methodology"], "bmad")
+        self.assertEqual(context["active_output_contract"]["methodology"], "bmad")
+        self.assertIn(
+            "runs/kit/REQ-001/docs/BMAD_DEV_STORY.md",
+            context["active_output_contract"]["required_outputs"],
+        )
         self.assertEqual(context["current_req"]["req_id"], "REQ-001")
         self.assertEqual(context["current_req"]["acceptance_criteria"], ["Thing works", "Thing is tested"])
         self.assertEqual(context["current_req"]["dependencies"], ["REQ-000"])
@@ -296,6 +440,11 @@ class MethodologyInjectionTests(unittest.TestCase):
         self.assertTrue(context["source_documents"]["plan"]["present"])
         self.assertTrue(context["source_documents"]["plan_json"]["present"])
         self.assertEqual(context["source_documents"]["plan_json"]["path"], "docs/harper/plan.json")
+        self.assertTrue(context["source_documents"]["lane_guides"]["present"])
+        self.assertEqual(
+            context["source_documents"]["lane_guides"]["documents"][0]["path"],
+            "docs/harper/lane-guides/app.md",
+        )
         self.assertEqual(
             context["companion_documents"]["bmad"]["documents"][0]["path"],
             "docs/harper/bmad/spec/PRD_DRAFT.md",
@@ -327,6 +476,19 @@ class MethodologyInjectionTests(unittest.TestCase):
             "runs/kit/REQ-001/docs/TARGET_CONTRACT.json",
         )
         self.assertEqual(
+            context["expected_outputs"]["bmad"]["mandatory_companion_outputs"],
+            [
+                "runs/kit/REQ-001/docs/BMAD_DEV_STORY.md",
+                "runs/kit/REQ-001/docs/IMPLEMENTATION_NOTES.md",
+                "runs/kit/REQ-001/docs/SELF_REVIEW.md",
+                "runs/kit/REQ-001/docs/RUNBOOK.md",
+            ],
+        )
+        self.assertEqual(
+            local_agent["expected_outputs"]["bmad"]["mandatory_companion_outputs"],
+            context["expected_outputs"]["bmad"]["mandatory_companion_outputs"],
+        )
+        self.assertEqual(
             local_agent["allowed_write_roots"],
             [
                 "runs/kit/REQ-001/src",
@@ -342,6 +504,12 @@ class MethodologyInjectionTests(unittest.TestCase):
         self.assertIn("docs/harper/plan.json", local_agent["forbidden_paths"])
         self.assertIn("AGENT_EXECUTION_CONTEXT.json", local_agent["prompt_content"])
         self.assertIn("TECH_CONSTRAINTS.yaml is authoritative", local_agent["prompt_content"])
+        self.assertIn("Parse BMAD companion artifacts", local_agent["prompt_content"])
+        self.assertIn("Active output contract:", local_agent["prompt_content"])
+        self.assertIn("active_output_contract", local_agent)
+        self.assertIn("Read BMAD/UX companion docs before code generation", local_agent["prompt_content"])
+        self.assertIn("Do not treat companion docs as canonical", local_agent["prompt_content"])
+        self.assertIn("never run Git operations", local_agent["prompt_content"])
 
     def test_eval_agent_context_includes_bmad_repair_inputs_without_expanding_write_roots(self):
         payload = _rich_kit_payload()
@@ -358,6 +526,11 @@ class MethodologyInjectionTests(unittest.TestCase):
 
         self.assertEqual(context["methodology_context"]["methodology"], "bmad")
         self.assertEqual(context["methodology_context"]["agent"], "qa")
+        self.assertEqual(context["active_output_contract"]["methodology"], "bmad")
+        self.assertIn(
+            "runs/kit/REQ-001/docs/BMAD_QA_ADVISORY.md",
+            context["active_output_contract"]["required_outputs"],
+        )
         self.assertEqual(context["current_req"]["req_id"], "REQ-001")
         self.assertEqual(context["current_req"]["acceptance_criteria"], ["Thing works", "Thing is tested"])
         self.assertEqual(context["current_req"]["dependencies"], ["REQ-000"])
@@ -367,6 +540,7 @@ class MethodologyInjectionTests(unittest.TestCase):
         self.assertEqual(context["source_documents"]["spec"]["path"], "docs/harper/SPEC.md")
         self.assertEqual(context["source_documents"]["plan"]["path"], "docs/harper/PLAN.md")
         self.assertEqual(context["source_documents"]["plan_json"]["path"], "docs/harper/plan.json")
+        self.assertTrue(context["source_documents"]["lane_guides"]["present"])
         self.assertEqual(
             context["companion_documents"]["bmad"]["documents"][0]["path"],
             "docs/harper/bmad/spec/PRD_DRAFT.md",
@@ -399,6 +573,33 @@ class MethodologyInjectionTests(unittest.TestCase):
         self.assertIn("required_outputs", context["candidate_eval_inputs"]["file_requirements"])
         self.assertEqual(context["previous_eval_reports"]["root"], "runs/eval/REQ-001")
         self.assertIs(context["previous_eval_reports"]["read_only"], True)
+        self.assertIs(context["repair_intent"]["requested"], True)
+        self.assertEqual(
+            context["bmad_developer_docs"]["expected_paths"],
+            [
+                "runs/kit/REQ-001/docs/BMAD_DEV_STORY.md",
+                "runs/kit/REQ-001/docs/IMPLEMENTATION_NOTES.md",
+                "runs/kit/REQ-001/docs/SELF_REVIEW.md",
+                "runs/kit/REQ-001/docs/RUNBOOK.md",
+            ],
+        )
+        self.assertEqual(
+            context["bmad_qa_advisory_output_targets"]["mandatory_companion_outputs"],
+            [
+                "runs/kit/REQ-001/docs/BMAD_QA_ADVISORY.md",
+                "runs/kit/REQ-001/docs/FIX_GUIDANCE.md",
+                "runs/kit/REQ-001/docs/MISSING_TESTS.md",
+                "runs/kit/REQ-001/docs/RISK_REVIEW.md",
+            ],
+        )
+        self.assertEqual(
+            context["expected_eval_inputs"]["bmad"]["mandatory_companion_outputs"],
+            context["bmad_qa_advisory_output_targets"]["mandatory_companion_outputs"],
+        )
+        self.assertEqual(
+            local_agent["expected_outputs"]["bmad"]["mandatory_companion_outputs"],
+            context["bmad_qa_advisory_output_targets"]["mandatory_companion_outputs"],
+        )
         self.assertEqual(
             context["repository_analysis_required"]["promoted_source_roots_read_only"],
             ["src"],
@@ -425,7 +626,12 @@ class MethodologyInjectionTests(unittest.TestCase):
             self.assertIn(forbidden, local_agent["forbidden_paths"])
         self.assertIn("runs/kit/REQ-001/reports/BMAD_EVAL_REPAIR_NOTES.md", context["local_repair_policy"]["notes_output_path"])
         self.assertIn("BMAD_EVAL_REPAIR_NOTES.md", local_agent["prompt_content"])
+        self.assertIn("Active output contract:", local_agent["prompt_content"])
+        self.assertIn("active_output_contract", local_agent)
         self.assertIn("canonical EvalRunner remains authoritative", local_agent["prompt_content"])
+        self.assertIn("Use BMAD QA docs for repair guidance", local_agent["prompt_content"])
+        self.assertIn("Never mutate canonical eval verdict fields", local_agent["prompt_content"])
+        self.assertIn("never run Git operations", local_agent["prompt_content"])
 
     def test_eval_local_agent_package_has_no_bmad_block_without_context(self):
         payload = _rich_kit_payload()
@@ -533,6 +739,125 @@ class OrchestratorMethodologyOwnershipTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("methodology", captured[0])
         self.assertNotIn("agent", captured[0])
         self.assertNotIn("methodology_context", captured[0])
+
+    async def test_gateway_invalid_canonical_artifact_result_is_returned_not_raised(self):
+        async def fake_post_json(path, payload):
+            return {
+                "ok": False,
+                "phase": payload.get("phase"),
+                "error_code": "invalid_canonical_artifact",
+                "text": "IDEA.md failed canonical validation and was not written.",
+                "files": [],
+                "partial_files": [
+                    {
+                        "path": "docs/harper/bmad/idea/BRIEF.md",
+                        "content": "# Brief",
+                    }
+                ],
+                "diagnostic_files": [
+                    {
+                        "path": "docs/harper/bmad/idea/BRIEF.md",
+                        "content": "# Brief",
+                    }
+                ],
+                "diffs": [],
+                "tests": {"passed": 0, "failed": 1, "summary": "invalid_canonical_artifact"},
+                "warnings": [],
+                "errors": [
+                    {
+                        "path": "docs/harper/IDEA.md",
+                        "failed_checks": ["missing_idea_h1"],
+                        "diagnostic": "IDEA.md failed canonical Harper structure validation.",
+                        "error_code": "invalid_canonical_artifact",
+                    }
+                ],
+                "rejected": [
+                    {
+                        "path": "docs/harper/IDEA.md",
+                        "failed_checks": ["missing_idea_h1"],
+                    }
+                ],
+                "runId": payload.get("runId"),
+            }
+
+        async def fake_resolve_llm_selection(**kwargs):
+            return {}
+
+        payload = _base_payload()
+        with patch.object(harper, "_post_json", side_effect=fake_post_json), patch.object(
+            harper,
+            "resolve_llm_selection",
+            side_effect=fake_resolve_llm_selection,
+        ):
+            out = await harper.run_phase("idea", payload)
+
+        self.assertIs(out["ok"], False)
+        self.assertEqual(out["error_code"], "invalid_canonical_artifact")
+        self.assertEqual(out["files"], [])
+        self.assertEqual(out["partial_files"][0]["path"], "docs/harper/bmad/idea/BRIEF.md")
+        self.assertEqual(out["errors"][0]["failed_checks"], ["missing_idea_h1"])
+
+    async def test_server_discovered_companion_docs_are_injected_into_cloud_payload(self):
+        captured = []
+
+        async def fake_post_json(path, payload):
+            captured.append({"path": path, "payload": dict(payload)})
+            return {
+                "ok": True,
+                "phase": payload.get("phase"),
+                "echo": "",
+                "text": "",
+                "files": [],
+                "diffs": [],
+                "tests": {"passed": 0, "failed": 0, "summary": "test"},
+                "warnings": [],
+                "errors": [],
+                "runId": payload.get("runId"),
+            }
+
+        async def fake_resolve_llm_selection(**kwargs):
+            return {}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_workspace_file(root, "docs/harper/bmad/idea/BRIEF.md", "# Brief\nServer brief.")
+            _write_workspace_file(root, "docs/harper/bmad/idea/DEEP_DIVE_X.md", "# Deep Dive\nServer wins.")
+            _write_workspace_file(root, "docs/harper/ux/DESIGN.md", "# Design\nServer UX.")
+
+            payload = _base_payload()
+            payload.update(
+                {
+                    "repository_context": {"repo_root": str(root), "workspace_folder": str(root)},
+                    "methodology": "bmad",
+                    "agent": "pm",
+                }
+            )
+            payload["core_blobs"]["companion::docs/harper/bmad/idea/DEEP_DIVE_X.md"] = "client stale"
+
+            with patch.object(harper, "_post_json", side_effect=fake_post_json), patch.object(
+                harper,
+                "resolve_llm_selection",
+                side_effect=fake_resolve_llm_selection,
+            ):
+                await harper.run_phase("spec", payload)
+
+        self.assertEqual(captured[0]["path"], "/v1/harper/run")
+        sent = captured[0]["payload"]
+        artifact_paths = {
+            item["path"]
+            for item in sent["methodology_context"]["discovered_companion_artifacts"]
+        }
+        self.assertIn("docs/harper/bmad/idea/BRIEF.md", artifact_paths)
+        self.assertIn("docs/harper/bmad/idea/DEEP_DIVE_X.md", artifact_paths)
+        self.assertIn("docs/harper/ux/DESIGN.md", artifact_paths)
+        self.assertIn(
+            "Server wins.",
+            sent["core_blobs"]["companion::docs/harper/bmad/idea/DEEP_DIVE_X.md"],
+        )
+        self.assertNotIn(
+            "client stale",
+            sent["core_blobs"]["companion::docs/harper/bmad/idea/DEEP_DIVE_X.md"],
+        )
 
     async def test_local_agent_package_receives_only_resolved_methodology_context(self):
         payload = _base_payload()
@@ -662,6 +987,128 @@ class OrchestratorMethodologyOwnershipTests(unittest.IsolatedAsyncioTestCase):
         context = _package_context_file(package, "AGENT_EVAL_CONTEXT.json")
         self.assertEqual(context["methodology_context"]["methodology"], "bmad")
         self.assertEqual(context["methodology_context"]["agent"], "qa")
+
+    async def test_server_discovered_companion_docs_reach_local_kit_and_eval_contexts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_workspace_file(root, "docs/harper/bmad/idea/BRIEF.md", "# Brief\nServer brief.")
+            _write_workspace_file(root, "docs/harper/bmad/idea/DEEP_DIVE_X.md", "# Deep Dive\nServer wins.")
+            _write_workspace_file(root, "docs/harper/ux/DESIGN.md", "# Design\nServer UX.")
+            _write_workspace_file(root, "runs/kit/REQ-001/docs/BMAD_DEV_STORY.md", "# Dev Story\nServer REQ docs.")
+
+            kit_payload = _rich_kit_payload()
+            kit_payload.update(
+                {
+                    "repository_context": {"repo_root": str(root), "workspace_folder": str(root)},
+                    "executionPreference": "local_agent_only",
+                    "methodology": "bmad",
+                    "agent": "developer",
+                }
+            )
+            kit_payload["core_blobs"]["companion::docs/harper/bmad/idea/DEEP_DIVE_X.md"] = "client stale"
+
+            with patch.object(
+                harper,
+                "resolve_execution_policy",
+                return_value={
+                    "requested": "local_agent_only",
+                    "selected": "local_agent",
+                    "reason": "test",
+                    "phase_supported": True,
+                },
+            ), patch.object(
+                harper,
+                "_write_stage_artifact",
+                return_value=None,
+            ), patch.object(harper, "_post_json", side_effect=AssertionError("Gateway must not be called")):
+                kit_package = await harper.run_phase("kit", kit_payload)
+
+            kit_context = _context_file(kit_package)
+            bmad_paths = {
+                item["path"]: item["snippet"]
+                for item in kit_context["companion_documents"]["bmad"]["documents"]
+            }
+            ux_paths = {
+                item["path"]
+                for item in kit_context["companion_documents"]["ux"]["documents"]
+            }
+            req_doc_paths = {
+                item["path"]
+                for item in kit_context["companion_documents"]["req_docs"]["documents"]
+            }
+
+            self.assertIn("docs/harper/bmad/idea/BRIEF.md", bmad_paths)
+            self.assertIn("docs/harper/bmad/idea/DEEP_DIVE_X.md", bmad_paths)
+            self.assertIn("Server wins.", bmad_paths["docs/harper/bmad/idea/DEEP_DIVE_X.md"])
+            self.assertIn("docs/harper/ux/DESIGN.md", ux_paths)
+            self.assertIn("runs/kit/REQ-001/docs/BMAD_DEV_STORY.md", req_doc_paths)
+            self.assertIn(
+                "docs/harper/bmad/idea/DEEP_DIVE_X.md",
+                {
+                    item["path"]
+                    for item in kit_context["methodology_context"]["discovered_companion_artifacts"]
+                },
+            )
+            self.assertIn(
+                "docs/harper/bmad/idea/DEEP_DIVE_X.md",
+                {
+                    item["path"]
+                    for item in kit_context["discovered_companion_artifact_inventory"]
+                },
+            )
+            self.assertIn(
+                "runs/kit/REQ-001/docs/BMAD_DEV_STORY.md",
+                kit_context["expected_outputs"]["bmad"]["mandatory_companion_outputs"],
+            )
+
+            eval_payload = _rich_kit_payload()
+            eval_payload.update(
+                {
+                    "repository_context": {"repo_root": str(root), "workspace_folder": str(root)},
+                    "eval": {"targets": ["REQ-001"]},
+                    "executionPreference": "local_agent_only",
+                    "methodology": "bmad",
+                    "agent": "qa",
+                }
+            )
+            with patch.object(
+                harper,
+                "resolve_execution_policy",
+                return_value={
+                    "requested": "local_agent_only",
+                    "selected": "local_agent",
+                    "reason": "test",
+                    "phase_supported": True,
+                },
+            ), patch.object(harper, "_post_json", side_effect=AssertionError("Gateway must not be called")):
+                eval_package = await harper.run_phase("eval", eval_payload)
+
+            eval_context = _package_context_file(eval_package, "AGENT_EVAL_CONTEXT.json")
+            self.assertIn(
+                "runs/kit/REQ-001/docs/BMAD_DEV_STORY.md",
+                {
+                    item["path"]
+                    for item in eval_context["companion_documents"]["req_docs"]["documents"]
+                },
+            )
+            self.assertIn(
+                "docs/harper/ux/DESIGN.md",
+                {
+                    item["path"]
+                    for item in eval_context["companion_documents"]["ux"]["documents"]
+                },
+            )
+            self.assertIn(
+                "docs/harper/bmad/idea/DEEP_DIVE_X.md",
+                {
+                    item["path"]
+                    for item in eval_context["discovered_companion_artifact_inventory"]
+                },
+            )
+            self.assertIn(
+                "runs/kit/REQ-001/docs/BMAD_QA_ADVISORY.md",
+                eval_context["bmad_qa_advisory_output_targets"]["mandatory_companion_outputs"],
+            )
 
 
 if __name__ == "__main__":

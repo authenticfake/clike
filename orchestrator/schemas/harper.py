@@ -237,10 +237,14 @@ class HarperRunResponse(BaseModel):
     echo: Optional[str] = None
     text: Optional[str] = None
     files: List[FileArtifact] = []
+    partial_files: List[FileArtifact] = []
+    diagnostic_files: List[FileArtifact] = []
     diffs: List[DiffEntry] = []
     tests: TestSummary = TestSummary()
-    warnings: List[str] = []
-    errors: List[str] = []
+    warnings: List[Any] = []
+    errors: List[Any] = []
+    error_code: Optional[str] = None
+    rejected: List[Dict[str, Any]] = []
     runId: Optional[str] = None
     idea_md: Optional[str] = None
     spec_md: Optional[str] = None
