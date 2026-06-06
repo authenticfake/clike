@@ -299,6 +299,25 @@ class MethodologyResolverTests(unittest.TestCase):
         self.assertIn("forbidden_paths", boundaries)
         self.assertIn("eval/gate", boundaries)
 
+    def test_kit_developer_selects_bmad_skill_context(self):
+        explicit = resolve_methodology_context(
+            phase="kit",
+            methodology="bmad",
+            agent="developer",
+        )
+        defaulted = resolve_methodology_context(phase="kit", methodology="bmad")
+
+        for context in [explicit, defaulted]:
+            self.assertEqual(context["agent"], "developer")
+            self.assertEqual(
+                [item["id"] for item in context["selected_skill_references"]],
+                ["dev-story-execution", "story-readiness"],
+            )
+            self.assertIn("selected_skill_context", context)
+            self.assertIn("skill_reference_policy", context)
+
+        self.assertIsNone(resolve_methodology_context(phase="kit"))
+
     def test_spec_ux_artifact_policy_is_companion_only_and_forbids_spec(self):
         context = resolve_methodology_context(phase="spec", methodology="bmad", agent="ux")
         policy = context["artifact_policy"]

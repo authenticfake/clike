@@ -16,3 +16,11 @@ class UnsupportedMethodologyAgentError(MethodologyError):
 
 class MethodologyPhaseAgentError(MethodologyError):
     """Raised when a methodology agent is not allowed for the requested phase."""
+
+
+class BmadSelectedSkillsMissingError(MethodologyError):
+    """Raised when manifest-selected BMAD vendor skills are absent from runtime context."""
+
+
+class ClikeSelectedCapabilitiesMissingError(MethodologyError):
+    """Raised when REQ-selected CLike capabilities are absent from runtime context."""

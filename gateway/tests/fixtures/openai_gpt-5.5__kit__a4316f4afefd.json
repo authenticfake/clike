@@ -1,0 +1,16 @@
+{
+  "timestamp": "20260603T215253Z",
+  "project_id": "coffebuddy_bmad",
+  "phase": "kit",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.5",
+  "llm_result": {
+    "ok": true,
+    "text": "file:/runs/kit/REQ-001/src/coffeebuddy.runtime/contracts.py\n# contracts\n\nfile:/runs/kit/REQ-001/src/coffeebuddy.runtime/config.py\n# config\n\nfile:/runs/kit/REQ-001/src/coffeebuddy.runtime/adapters.py\n# adapters\n\nfile:/runs/kit/REQ-001/src/coffeebuddy.runtime/factory.py\n# factory\n\nfile:/runs/kit/REQ-001/test/coffeebuddy.runtime/test_req_behavior.py\n# tests\n\nfile:/runs/kit/REQ-001/test/coffeebuddy.runtime/test_provider_realism.py\n# provider realism\n\nfile:/runs/kit/REQ-001/ci/requirements.txt\npytest\n\nfile:/runs/kit/REQ-001/ci/LTC.json\n{\"commands\":{\"tests\":\"pytest\"}}\n\nfile:/runs/kit/REQ-001/ci/HOWTO.md\n# HOWTO\n\nfile:/runs/kit/REQ-001/docs/README_REQ-001.md\n# README REQ-001\n\nfile:/runs/kit/REQ-001/docs/KIT_REQ-001.md\n# KIT REQ-001\n",
+    "files": [],
+    "usage": {},
+    "finish_reason": null,
+    "raw": {},
+    "errors": []
+  }
+}

@@ -44,6 +44,7 @@ except ModuleNotFoundError:
     class BaseSettings:
         pass
 
+    pydantic_settings_stub.SettingsConfigDict = dict
     pydantic_settings_stub.BaseSettings = BaseSettings
     sys.modules["pydantic_settings"] = pydantic_settings_stub
 
@@ -60,6 +61,17 @@ from services.methodologies.resolver import resolve_methodology_context
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+TEMPLATE_VENDOR_ROOT = REPO_ROOT / "extensions/vscode/templates/harper-init/.clike/skills/vendor/bmad"
+
+
+def _bmad_vendor_core_blobs():
+    blobs = {
+        ".clike/skills/vendor/bmad/manifest.json": (TEMPLATE_VENDOR_ROOT / "manifest.json").read_text(encoding="utf-8")
+    }
+    for path in sorted(TEMPLATE_VENDOR_ROOT.glob("*/SKILL.md")):
+        rel = path.relative_to(REPO_ROOT / "extensions/vscode/templates/harper-init").as_posix()
+        blobs[rel] = path.read_text(encoding="utf-8")
+    return blobs
 
 
 def _load_gateway_methodology_prompt_module():
@@ -98,7 +110,8 @@ def _base_payload():
                         }
                     ]
                 }
-            )
+            ),
+            **_bmad_vendor_core_blobs(),
         },
     }
 
@@ -154,6 +167,7 @@ def _rich_kit_payload():
                 ]
             }
         ),
+        **_bmad_vendor_core_blobs(),
     }
     return payload
 
@@ -190,6 +204,90 @@ def _eval_package(payload):
     )
 
 
+class HarperCapabilityExtractionTests(unittest.TestCase):
+    def _contract_for_req(self, req):
+        return harper._extract_target_contract(
+            {"plan.json": json.dumps({"reqs": [req]})},
+            "REQ-001",
+        )
+
+    def test_target_contract_extracts_top_level_capabilities(self):
+        contract = self._contract_for_req(
+            {
+                "id": "REQ-001",
+                "title": "Build",
+                "acceptance": [],
+                "packs": ["enterprise-python"],
+                "skills": ["provider-realism"],
+                "design_profiles": ["ops-console"],
+            }
+        )
+
+        self.assertEqual(contract["packs"], ["enterprise-python"])
+        self.assertEqual(contract["skills"], ["provider-realism"])
+        self.assertEqual(contract["design_profiles"], ["ops-console"])
+
+    def test_target_contract_extracts_nested_capabilities(self):
+        contract = self._contract_for_req(
+            {
+                "id": "REQ-001",
+                "title": "Build",
+                "acceptance": [],
+                "capabilities": {
+                    "packs": ["enterprise-onprem"],
+                    "skills": ["secure-config-secrets"],
+                    "design_profiles": ["enterprise-console"],
+                },
+            }
+        )
+
+        self.assertEqual(contract["packs"], ["enterprise-onprem"])
+        self.assertEqual(contract["skills"], ["secure-config-secrets"])
+        self.assertEqual(contract["design_profiles"], ["enterprise-console"])
+
+    def test_target_contract_top_level_non_empty_capabilities_win(self):
+        contract = self._contract_for_req(
+            {
+                "id": "REQ-001",
+                "title": "Build",
+                "acceptance": [],
+                "packs": ["top-pack"],
+                "skills": ["top-skill"],
+                "design_profiles": ["top-design"],
+                "capabilities": {
+                    "packs": ["nested-pack"],
+                    "skills": ["nested-skill"],
+                    "design_profiles": ["nested-design"],
+                },
+            }
+        )
+
+        self.assertEqual(contract["packs"], ["top-pack"])
+        self.assertEqual(contract["skills"], ["top-skill"])
+        self.assertEqual(contract["design_profiles"], ["top-design"])
+
+    def test_target_contract_empty_top_level_capabilities_fall_back_to_nested(self):
+        contract = self._contract_for_req(
+            {
+                "id": "REQ-001",
+                "title": "Build",
+                "acceptance": [],
+                "packs": [],
+                "skills": [],
+                "design_profiles": [],
+                "capabilities": {
+                    "packs": ["nested-pack"],
+                    "skills": ["nested-skill"],
+                    "designProfiles": ["nested-design"],
+                },
+            }
+        )
+
+        self.assertEqual(contract["packs"], ["nested-pack"])
+        self.assertEqual(contract["skills"], ["nested-skill"])
+        self.assertEqual(contract["design_profiles"], ["nested-design"])
+
+
 def _package_context_file(package, suffix):
     files = package["local_agent"]["package_files"]
     match = [
@@ -221,6 +319,9 @@ class MethodologyInjectionTests(unittest.TestCase):
         self.assertIn("### BMAD Companion Artifact Inventory", rendered)
         self.assertIn("### BMAD Governance Boundaries", rendered)
         self.assertIn("### BMAD Downstream Handoff", rendered)
+        self.assertIn("### BMAD Skill Reference Context", rendered)
+        self.assertIn("dev-story-execution", rendered)
+        self.assertIn("story-readiness", rendered)
         self.assertIn("- methodology: bmad", rendered)
         self.assertIn("- role: developer", rendered)
         self.assertIn("- workflow_summary:", rendered)
@@ -361,6 +462,18 @@ class MethodologyInjectionTests(unittest.TestCase):
         self.assertIn("governance_boundary:", package["local_agent"]["prompt_content"])
         self.assertIn("allowed_write_roots", package["local_agent"]["prompt_content"])
         self.assertIn("Active output contract:", package["local_agent"]["prompt_content"])
+        self.assertIn("selected_skill_references", context)
+        self.assertIn("selected_skill_context", context)
+        self.assertIn("skill_reference_policy", context)
+        self.assertEqual(
+            [item["id"] for item in context["selected_skill_references"]],
+            ["dev-story-execution", "story-readiness"],
+        )
+        self.assertIn("### BMAD Skill Reference Context", package["local_agent"]["prompt_content"])
+        self.assertIn("dev-story-execution", package["local_agent"]["prompt_content"])
+        self.assertIn("story-readiness", package["local_agent"]["prompt_content"])
+        self.assertIn("never execute BMAD runtime", package["local_agent"]["prompt_content"])
+        self.assertIn("Never expand write roots", package["local_agent"]["prompt_content"])
 
     def test_methodology_context_is_absent_when_omitted(self):
         package = _kit_package(_base_payload())
@@ -368,6 +481,8 @@ class MethodologyInjectionTests(unittest.TestCase):
 
         self.assertNotIn("methodology_context", context)
         self.assertNotIn("Methodology profile:", package["local_agent"]["prompt_content"])
+        self.assertNotIn("selected_skill_references", context)
+        self.assertNotIn("BMAD Skill Reference Context", package["local_agent"]["prompt_content"])
         self.assertEqual(context["active_output_contract"]["methodology"], "native_clike")
 
     def test_allowed_and_forbidden_paths_are_unchanged_when_bmad_is_enabled(self):
@@ -426,6 +541,13 @@ class MethodologyInjectionTests(unittest.TestCase):
 
         self.assertEqual(context["methodology_context"]["methodology"], "bmad")
         self.assertEqual(context["active_output_contract"]["methodology"], "bmad")
+        self.assertEqual(
+            [item["id"] for item in context["selected_skill_references"]],
+            ["dev-story-execution", "story-readiness"],
+        )
+        self.assertIn("### BMAD Skill Reference Context", local_agent["prompt_content"])
+        self.assertIn("dev-story-execution", local_agent["prompt_content"])
+        self.assertIn("story-readiness", local_agent["prompt_content"])
         self.assertIn(
             "runs/kit/REQ-001/docs/BMAD_DEV_STORY.md",
             context["active_output_contract"]["required_outputs"],
@@ -691,7 +813,13 @@ class OrchestratorMethodologyOwnershipTests(unittest.IsolatedAsyncioTestCase):
         ):
             await harper.run_phase("spec", payload)
 
-        resolve_mock.assert_called_once_with(phase="spec", methodology="bmad", agent="pm")
+        resolve_mock.assert_called_once()
+        _, resolve_kwargs = resolve_mock.call_args
+        self.assertEqual(resolve_kwargs.get("phase"), "spec")
+        self.assertEqual(resolve_kwargs.get("methodology"), "bmad")
+        self.assertEqual(resolve_kwargs.get("agent"), "pm")
+        self.assertTrue(resolve_kwargs.get("require_bmad_core_blobs"))
+        self.assertIn(".clike/skills/vendor/bmad/manifest.json", resolve_kwargs.get("core_blobs") or {})
         self.assertEqual(captured[0]["path"], "/v1/harper/run")
         sent = captured[0]["payload"]
         self.assertEqual(sent["methodology"], "bmad")
@@ -958,7 +1086,85 @@ class OrchestratorMethodologyOwnershipTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(package["local_agent"]["action"], "local_agent_required")
         context = _context_file(package)
         self.assertEqual(context["methodology_context"]["methodology"], "bmad")
+        self.assertEqual(context["methodology_context"]["phase"], "kit")
+        self.assertEqual(context["methodology_context"]["agent"], "developer")
+        self.assertEqual(
+            [item["id"] for item in context["selected_skill_references"]],
+            ["dev-story-execution", "story-readiness"],
+        )
+        self.assertIn("selected_skill_context", context)
+        self.assertIn("skill_reference_policy", context)
+        self.assertIn("### BMAD Skill Reference Context", package["local_agent"]["prompt_content"])
+        self.assertIn("dev-story-execution", package["local_agent"]["prompt_content"])
+        self.assertIn("story-readiness", package["local_agent"]["prompt_content"])
         self.assertEqual(context["companion_documents"]["bmad"]["documents"][0]["path"], "docs/harper/bmad/spec/PRD_DRAFT.md")
+
+    async def test_kit_cloud_gateway_payload_receives_selected_bmad_skill_context(self):
+        captured = []
+
+        async def fake_post_json(path, payload):
+            captured.append({"path": path, "payload": dict(payload)})
+            return {
+                "ok": True,
+                "phase": payload.get("phase"),
+                "echo": "",
+                "text": "",
+                "files": [],
+                "diffs": [],
+                "tests": {"passed": 0, "failed": 0, "summary": "test"},
+                "warnings": [],
+                "errors": [],
+                "runId": payload.get("runId"),
+            }
+
+        async def fake_resolve_llm_selection(**kwargs):
+            return {}
+
+        payload = _rich_kit_payload()
+        payload.update(
+            {
+                "executionPreference": "cloud_only",
+                "methodology": "bmad",
+                "agent": "developer",
+            }
+        )
+
+        with patch.object(
+            harper,
+            "_write_stage_artifact",
+            return_value=None,
+        ), patch.object(harper, "_post_json", side_effect=fake_post_json), patch.object(
+            harper,
+            "resolve_llm_selection",
+            side_effect=fake_resolve_llm_selection,
+        ):
+            await harper.run_phase("kit", payload)
+
+        self.assertEqual(captured[0]["path"], "/v1/harper/run")
+        sent = captured[0]["payload"]
+        methodology_context = sent["methodology_context"]
+        self.assertEqual(sent["methodology"], "bmad")
+        self.assertEqual(sent["agent"], "developer")
+        self.assertEqual(methodology_context["methodology"], "bmad")
+        self.assertEqual(methodology_context["phase"], "kit")
+        self.assertEqual(methodology_context["agent"], "developer")
+        self.assertEqual(
+            [item["id"] for item in methodology_context["selected_skill_references"]],
+            ["dev-story-execution", "story-readiness"],
+        )
+        self.assertIn("selected_skill_context", methodology_context)
+        self.assertIn("skill_reference_policy", methodology_context)
+        self.assertIn("context_envelope", sent)
+        self.assertEqual(sent["context_envelope"]["phase"], "kit")
+        self.assertEqual(sent["context_envelope"]["methodology"], "bmad")
+        self.assertEqual(sent["context_envelope"]["agent"], "developer")
+        self.assertEqual(
+            [
+                item["id"]
+                for item in sent["context_envelope"]["bmad_methodology_skills"]["selected_skill_references"]
+            ],
+            ["dev-story-execution", "story-readiness"],
+        )
 
     async def test_gateway_is_not_called_for_eval_local_agent_package_generation(self):
         payload = _rich_kit_payload()

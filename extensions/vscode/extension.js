@@ -66,6 +66,12 @@ const {
   shouldBlockHarperSlashFromGenericChatMessage,
 } = require('./slash-parser');
 
+const {
+  buildCodexArgsForLocalAgent,
+  assertLocalAgentWritePreflight,
+  validateLocalAgentRequiredOutputs,
+} = require('./local-agent-write-policy');
+
 
 function isLocalAgentExecutionPreference(value) {
   const pref = normalizeExecutionPreference(value);
@@ -900,6 +906,8 @@ async function executeLocalAgentPackage({
 
   const invocationArgs = Array.isArray(invocation.args) ? invocation.args : [];
   const promptTransport = String(invocation.prompt_transport || '').trim();
+  let launcherArgs = invocationArgs;
+  let selectedCodexSandboxMode = '';
 
   const packageFiles = Array.isArray(localAgentPackage.package_files)
     ? localAgentPackage.package_files
@@ -915,6 +923,31 @@ async function executeLocalAgentPackage({
     throw new Error('Local agent package does not contain prompt_content.');
   }
 
+  if (selectedExecutor === 'gpt_codex') {
+    const codexLaunch = buildCodexArgsForLocalAgent({
+      argsBeforePrompt: invocationArgs,
+      phase: phaseForAgent,
+      reqId: reqForAgent,
+      configuredSandboxMode: settings.codexSandboxMode || 'auto',
+      allowedWriteRoots: localAgentPackage.allowed_write_roots || [],
+    });
+    launcherArgs = codexLaunch.args;
+    selectedCodexSandboxMode = codexLaunch.sandboxMode;
+
+    assertLocalAgentWritePreflight({
+      phase: phaseForAgent,
+      reqId: reqForAgent,
+      executorId: selectedExecutor,
+      sandboxMode: selectedCodexSandboxMode,
+      allowedWriteRoots: localAgentPackage.allowed_write_roots || [],
+    });
+
+    log(
+      `[harperRun][agent] codex sandbox=${selectedCodexSandboxMode} ` +
+      `source=${codexLaunch.sandboxModeSource} phase=${phaseForAgent} req=${reqForAgent}`
+    );
+  }
+
   panel.webview.postMessage({
     type: 'echo',
     message:
@@ -927,7 +960,7 @@ async function executeLocalAgentPackage({
     prompt: promptContent,
     executorId: selectedExecutor,
     command: executorConfig.command,
-    argsBeforePrompt: invocationArgs,
+    argsBeforePrompt: launcherArgs,
     promptTransport,
     timeoutMinutes: Math.ceil(Number(invocation.timeout_seconds || 1800) / 60),
     out,
@@ -982,6 +1015,14 @@ async function executeLocalAgentPackage({
       `${executorLabel} completed but no safe local-agent/complete artifacts remained after filtering. ` +
       `original=${completeArtifacts.original_count}`
     );
+  }
+
+  if (['kit', 'eval', 'finalize'].includes(phaseForAgent)) {
+    validateLocalAgentRequiredOutputs({
+      phase: phaseForAgent,
+      reqId: reqForAgent,
+      artifacts: completeArtifacts.files,
+    });
   }
 
   const completeBody = {
@@ -1539,6 +1580,7 @@ function cfg() {
 
     codexEnabled: c.get('localAgent.codex.enabled', true),
     codexCommand: c.get('localAgent.codex.command', 'codex'),
+    codexSandboxMode: c.get('localAgent.codex.sandboxMode', 'auto'),
     codexTimeoutMinutes: c.get('localAgent.codex.timeoutMinutes', 35),
 
     requireCleanGit: c.get('apply.requireCleanGit', false),
@@ -3379,6 +3421,17 @@ async function cmdOpenChat(context) {
               '.clike/skills/local-cloud-parity/SKILL.md',
               '.clike/skills/eval-contract-writer/SKILL.md',
               '.clike/skills/gate-risk-reviewer/SKILL.md',
+              '.clike/skills/vendor/bmad/README.md',
+              '.clike/skills/vendor/bmad/manifest.json',
+              '.clike/skills/vendor/bmad/prd-shaping/SKILL.md',
+              '.clike/skills/vendor/bmad/epic-framing/SKILL.md',
+              '.clike/skills/vendor/bmad/acceptance-modeling/SKILL.md',
+              '.clike/skills/vendor/bmad/ux-flow-modeling/SKILL.md',
+              '.clike/skills/vendor/bmad/architecture-readiness/SKILL.md',
+              '.clike/skills/vendor/bmad/story-readiness/SKILL.md',
+              '.clike/skills/vendor/bmad/dev-story-execution/SKILL.md',
+              '.clike/skills/vendor/bmad/qa-risk-review/SKILL.md',
+              '.clike/skills/vendor/bmad/release-narrative/SKILL.md',
               '.clike/packs/enterprise-onprem/PACK.md',
               '.clike/packs/industrial-manufacturing/PACK.md',
               '.clike/packs/consumer-saas/PACK.md',

@@ -591,6 +591,11 @@ const HARPER_COMPANION_EXTENSIONS = new Set(['.md', '.markdown', '.txt', '.yaml'
 const HARPER_COMPANION_PHASES = new Set(['spec', 'plan', 'kit', 'eval', 'finalize']);
 const HARPER_COMPANION_MAX_FILES = 40;
 const HARPER_COMPANION_MAX_BYTES_PER_FILE = 64 * 1024;
+const CLIKE_CAPABILITY_MAX_FILES = 120;
+const CLIKE_CAPABILITY_MAX_BYTES_PER_FILE = 96 * 1024;
+const BMAD_VENDOR_SKILL_ROOT = '.clike/skills/vendor/bmad';
+const BMAD_VENDOR_SKILL_MAX_FILES = 40;
+const BMAD_VENDOR_SKILL_MAX_BYTES_PER_FILE = 96 * 1024;
 
 function isIgnoredCompanionSegment(segment) {
   const name = String(segment || '').trim();
@@ -672,6 +677,133 @@ async function collectHarperCompanionCoreBlobs(docRootUri, phase) {
   for (const rootName of HARPER_COMPANION_ROOTS) {
     const rootUri = vscode.Uri.joinPath(docRootUri, rootName);
     await walk(rootName, rootUri, []);
+  }
+
+  return blobs;
+}
+
+async function collectClikeCapabilityCoreBlobs(projectRootUri) {
+  const blobs = {};
+  let count = 0;
+
+  async function readIfSmall(relativeParts) {
+    if (count >= CLIKE_CAPABILITY_MAX_FILES) return;
+    const relPath = relativeParts.join('/');
+    const uri = vscode.Uri.joinPath(projectRootUri, ...relativeParts);
+
+    let stat = null;
+    try {
+      stat = await vscode.workspace.fs.stat(uri);
+    } catch {
+      return;
+    }
+    if (!stat || stat.type !== vscode.FileType.File || stat.size > CLIKE_CAPABILITY_MAX_BYTES_PER_FILE) {
+      return;
+    }
+
+    let raw = null;
+    try {
+      raw = await vscode.workspace.fs.readFile(uri);
+    } catch {
+      return;
+    }
+    const buffer = Buffer.from(raw);
+    if (looksBinaryBuffer(buffer)) return;
+
+    blobs[relPath] = buffer.toString('utf8');
+    count += 1;
+  }
+
+  async function readImmediateCapabilityDirs(rootParts, fileNames) {
+    if (count >= CLIKE_CAPABILITY_MAX_FILES) return;
+    const rootUri = vscode.Uri.joinPath(projectRootUri, ...rootParts);
+    let entries = [];
+    try {
+      entries = await vscode.workspace.fs.readDirectory(rootUri);
+    } catch {
+      return;
+    }
+
+    entries.sort(([left], [right]) => String(left).localeCompare(String(right)));
+    for (const [name, fileType] of entries) {
+      if (count >= CLIKE_CAPABILITY_MAX_FILES) break;
+      if (fileType !== vscode.FileType.Directory) continue;
+      if (isIgnoredCompanionSegment(name)) continue;
+      if (rootParts.join('/') === '.clike/skills' && name === 'vendor') continue;
+
+      for (const fileName of fileNames) {
+        await readIfSmall([...rootParts, name, fileName]);
+      }
+    }
+  }
+
+  await readIfSmall(['.clike', 'capabilities.yaml']);
+  await readImmediateCapabilityDirs(['.clike', 'skills'], ['SKILL.md']);
+  await readImmediateCapabilityDirs(['.clike', 'packs'], ['PACK.md', 'README.md']);
+  await readImmediateCapabilityDirs(['.clike', 'design-profiles'], ['DESIGN.md']);
+
+  return blobs;
+}
+
+function payloadRequestsBmadMethodology(payload) {
+  const methodology = String(payload?.methodology || payload?.methodology_context?.methodology || '')
+    .trim()
+    .toLowerCase();
+  return methodology === 'bmad';
+}
+
+async function collectBmadVendorSkillCoreBlobs(projectRootUri, payload) {
+  if (!payloadRequestsBmadMethodology(payload)) {
+    return {};
+  }
+
+  const blobs = {};
+  let count = 0;
+  const rootUri = vscode.Uri.joinPath(projectRootUri, ...BMAD_VENDOR_SKILL_ROOT.split('/'));
+
+  async function readIfSmall(uri, relPath) {
+    if (count >= BMAD_VENDOR_SKILL_MAX_FILES) return;
+    let stat = null;
+    try {
+      stat = await vscode.workspace.fs.stat(uri);
+    } catch {
+      return;
+    }
+    if (!stat || stat.size > BMAD_VENDOR_SKILL_MAX_BYTES_PER_FILE) return;
+    let raw = null;
+    try {
+      raw = await vscode.workspace.fs.readFile(uri);
+    } catch {
+      return;
+    }
+    const buffer = Buffer.from(raw);
+    if (looksBinaryBuffer(buffer)) return;
+    blobs[relPath] = buffer.toString('utf8');
+    count += 1;
+  }
+
+  await readIfSmall(
+    vscode.Uri.joinPath(rootUri, 'manifest.json'),
+    `${BMAD_VENDOR_SKILL_ROOT}/manifest.json`
+  );
+
+  let entries = [];
+  try {
+    entries = await vscode.workspace.fs.readDirectory(rootUri);
+  } catch {
+    return blobs;
+  }
+
+  entries.sort(([left], [right]) => String(left).localeCompare(String(right)));
+  for (const [name, fileType] of entries) {
+    if (count >= BMAD_VENDOR_SKILL_MAX_FILES) break;
+    if (fileType !== vscode.FileType.Directory) continue;
+    if (isIgnoredCompanionSegment(name)) continue;
+    const skillUri = vscode.Uri.joinPath(rootUri, name, 'SKILL.md');
+    await readIfSmall(
+      skillUri,
+      `${BMAD_VENDOR_SKILL_ROOT}/${name}/SKILL.md`
+    );
   }
 
   return blobs;
@@ -1386,6 +1518,8 @@ async function buildHarperBody(phase, payload, projectRootUri, out) {
   //4) core blobs
   const core_blobs = await attachCoreBlobs(_docRoot, payload["core"] || []);
   Object.assign(core_blobs, await collectHarperCompanionCoreBlobs(_docRoot, phase));
+  Object.assign(core_blobs, await collectClikeCapabilityCoreBlobs(projectRootUri));
+  Object.assign(core_blobs, await collectBmadVendorSkillCoreBlobs(projectRootUri, payload));
   payload["idea_md"] = idea_md;
   payload["core_blobs"] = core_blobs;
 
@@ -2910,6 +3044,8 @@ module.exports = {
   buildHarperBody,
   extractUserMessages,
   defaultCoreForPhase,
+  collectClikeCapabilityCoreBlobs,
+  collectBmadVendorSkillCoreBlobs,
   readPlanJson,
   runKitCommand,
   runLocalAgentSync,

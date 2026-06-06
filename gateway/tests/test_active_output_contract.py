@@ -42,6 +42,48 @@ def _bmad_contract(phase: str, agent: str, req_id: str | None = None):
     )
 
 
+def _kit_file_requirements(req_id: str = "REQ-001"):
+    return {
+        "required_outputs": [
+            {
+                "path_hint": f"runs/kit/{req_id}/src/coffeebuddy.runtime/contracts.py",
+                "kind": "source",
+                "required": True,
+            },
+            {
+                "path_hint": f"runs/kit/{req_id}/test/coffeebuddy.runtime/test_req_behavior.py",
+                "kind": "test",
+                "required": True,
+            },
+            {
+                "path_hint": f"runs/kit/{req_id}/ci/requirements.txt",
+                "kind": "ci",
+                "required": True,
+            },
+            {
+                "path_hint": f"runs/kit/{req_id}/docs/README_{req_id}.md",
+                "kind": "doc",
+                "required": True,
+            },
+            {
+                "path_hint": f"runs/kit/{req_id}/docs/KIT_{req_id}.md",
+                "kind": "doc",
+                "required": True,
+            },
+            {
+                "path_hint": f"runs/kit/{req_id}/ci/LTC.json",
+                "kind": "ci",
+                "required": True,
+            },
+            {
+                "path_hint": f"runs/kit/{req_id}/ci/HOWTO.md",
+                "kind": "ci_doc",
+                "required": True,
+            },
+        ]
+    }
+
+
 def test_native_idea_cloud_contract_requires_only_idea():
     contract = build_active_output_contract(phase="idea", runner="cloud")
 
@@ -161,12 +203,52 @@ def test_bmad_plan_pm_contract_allows_plan_companions():
 
 
 def test_bmad_kit_developer_cloud_contract_replaces_req_id():
-    contract = _bmad_contract("kit", "developer", req_id="REQ-001")
+    context = resolve_methodology_context(phase="kit", methodology="bmad", agent="developer")
+    contract = build_active_output_contract(
+        phase="kit",
+        runner="cloud",
+        methodology_context=context,
+        req_id="REQ-001",
+        file_requirements=_kit_file_requirements(),
+    )
 
     assert "runs/kit/REQ-001/src/**" in contract["required_outputs"]
     assert "runs/kit/REQ-001/test/**" in contract["required_outputs"]
+    assert "runs/kit/REQ-001/docs/TARGET_CONTRACT.json" in contract["required_outputs"]
+    assert "runs/kit/REQ-001/docs/FILE_REQUIREMENTS.json" in contract["required_outputs"]
+    assert "runs/kit/REQ-001/docs/README_REQ-001.md" in contract["required_outputs"]
+    assert "runs/kit/REQ-001/docs/KIT_REQ-001.md" in contract["required_outputs"]
+    assert "runs/kit/REQ-001/ci/LTC.json" in contract["required_outputs"]
+    assert "runs/kit/REQ-001/ci/HOWTO.md" in contract["required_outputs"]
+    assert "runs/kit/REQ-001/src/coffeebuddy.runtime/contracts.py" in contract["required_outputs"]
+    assert "runs/kit/REQ-001/test/coffeebuddy.runtime/test_req_behavior.py" in contract["required_outputs"]
+    assert "runs/kit/REQ-001/ci/requirements.txt" in contract["required_outputs"]
     assert "runs/kit/REQ-001/docs/BMAD_DEV_STORY.md" in contract["required_outputs"]
+    assert "runs/kit/REQ-001/docs/IMPLEMENTATION_NOTES.md" in contract["required_outputs"]
+    assert "runs/kit/REQ-001/docs/SELF_REVIEW.md" in contract["required_outputs"]
     assert "runs/kit/REQ-001/docs/RUNBOOK.md" in contract["required_outputs"]
+
+
+def test_native_kit_cloud_contract_requires_native_contract_docs_and_file_requirements():
+    contract = build_active_output_contract(
+        phase="kit",
+        runner="cloud",
+        req_id="REQ-001",
+        file_requirements=_kit_file_requirements(),
+    )
+
+    assert contract["methodology"] == "native_clike"
+    assert "runs/kit/REQ-001/docs/TARGET_CONTRACT.json" in contract["required_outputs"]
+    assert "runs/kit/REQ-001/docs/FILE_REQUIREMENTS.json" in contract["required_outputs"]
+    assert "runs/kit/REQ-001/docs/README_REQ-001.md" in contract["required_outputs"]
+    assert "runs/kit/REQ-001/docs/KIT_REQ-001.md" in contract["required_outputs"]
+    assert "runs/kit/REQ-001/ci/LTC.json" in contract["required_outputs"]
+    assert "runs/kit/REQ-001/ci/HOWTO.md" in contract["required_outputs"]
+    assert "runs/kit/REQ-001/src/coffeebuddy.runtime/contracts.py" in contract["required_outputs"]
+    assert "runs/kit/REQ-001/test/coffeebuddy.runtime/test_req_behavior.py" in contract["required_outputs"]
+    assert "runs/kit/REQ-001/ci/requirements.txt" in contract["required_outputs"]
+    assert "runs/kit/REQ-001/docs/BMAD_DEV_STORY.md" not in contract["required_outputs"]
+    assert contract["strict_missing_required_outputs"] is True
 
 
 def test_bmad_eval_qa_cloud_contract_is_advisory_docs_only():
@@ -282,6 +364,55 @@ def test_rendered_native_idea_prompt_contract_has_no_bmad_block():
     assert "docs/harper/IDEA.md" in rendered
     assert "BMAD Companion Artifact Contract" not in rendered
     assert "docs/harper/bmad/idea/BRIEF.md" not in rendered
+
+
+def test_rendered_bmad_kit_developer_prompt_lists_p0_required_outputs():
+    context = resolve_methodology_context(phase="kit", methodology="bmad", agent="developer")
+    contract = build_active_output_contract(
+        phase="kit",
+        runner="cloud",
+        methodology_context=context,
+        req_id="REQ-001",
+        file_requirements=_kit_file_requirements(),
+    )
+
+    rendered = render_methodology_context_for_cloud_prompt(context, active_output_contract=contract)
+
+    assert "### BMAD Skill Reference Context" in rendered
+    assert "dev-story-execution" in rendered
+    assert "story-readiness" in rendered
+    assert "### ACTIVE KIT REQUIRED OUTPUTS" in rendered
+    assert "If any is missing, Gateway will reject the entire KIT response." in rendered
+    assert "These files are P0 mandatory outputs." in rendered
+    for path in [
+        "runs/kit/REQ-001/docs/TARGET_CONTRACT.json",
+        "runs/kit/REQ-001/docs/FILE_REQUIREMENTS.json",
+        "runs/kit/REQ-001/docs/BMAD_DEV_STORY.md",
+        "runs/kit/REQ-001/docs/IMPLEMENTATION_NOTES.md",
+        "runs/kit/REQ-001/docs/SELF_REVIEW.md",
+        "runs/kit/REQ-001/docs/RUNBOOK.md",
+    ]:
+        assert path in rendered
+
+
+def test_rendered_native_kit_prompt_lists_native_outputs_without_bmad_docs():
+    contract = build_active_output_contract(
+        phase="kit",
+        runner="cloud",
+        req_id="REQ-001",
+        file_requirements=_kit_file_requirements(),
+    )
+
+    rendered = render_methodology_context_for_cloud_prompt(None, active_output_contract=contract)
+
+    assert "### ACTIVE KIT REQUIRED OUTPUTS" in rendered
+    assert "runs/kit/REQ-001/docs/TARGET_CONTRACT.json" in rendered
+    assert "runs/kit/REQ-001/docs/FILE_REQUIREMENTS.json" in rendered
+    assert "BMAD Skill Reference Context" not in rendered
+    assert "dev-story-execution" not in rendered
+    assert "story-readiness" not in rendered
+    assert "runs/kit/REQ-001/docs/BMAD_DEV_STORY.md" not in rendered
+    assert "BMAD developer companion docs are required" not in rendered
 
 
 def test_static_prompt_files_do_not_contain_unconditional_native_single_file_restrictions():

@@ -23,6 +23,62 @@ def _render_bullets(items: Iterable[Any], *, empty: str = "- none", limit: int =
     return [f"- {item}" for item in values] if values else [empty]
 
 
+def _render_active_kit_required_outputs(active_output_contract: dict) -> List[str]:
+    if str(active_output_contract.get("phase") or "").strip().lower() != "kit":
+        return []
+
+    required_outputs = _as_list(active_output_contract.get("required_outputs"))
+    if not required_outputs:
+        return []
+
+    kit_root = "runs/kit/<REQ-ID>/"
+    for item in required_outputs:
+        text = str(item)
+        if text.startswith("runs/kit/"):
+            parts = text.split("/")
+            if len(parts) >= 3:
+                kit_root = f"runs/kit/{parts[2]}/"
+                break
+
+    bmad_docs = [
+        item
+        for item in required_outputs
+        if str(item).endswith(
+            (
+                "BMAD_DEV_STORY.md",
+                "IMPLEMENTATION_NOTES.md",
+                "SELF_REVIEW.md",
+                "RUNBOOK.md",
+            )
+        )
+    ]
+
+    lines = [
+        "### ACTIVE KIT REQUIRED OUTPUTS",
+        "- The following files are mandatory for this exact run. Emit every one of them fully.",
+        "- If any is missing, Gateway will reject the entire KIT response.",
+        "- These files are P0 mandatory outputs.",
+        "- Emit them before optional extras.",
+        "- If token budget is tight, reduce prose and optional code comments, but never omit required outputs.",
+        "- TARGET_CONTRACT.json and FILE_REQUIREMENTS.json must be emitted under the KIT docs root as exact run contract artifacts.",
+        "- Do not emit outside " + kit_root,
+        "- required_outputs_for_this_run:",
+        *_render_bullets(required_outputs, limit=80),
+    ]
+
+    if bmad_docs:
+        lines.extend(
+            [
+                "- BMAD developer companion docs are required for this BMAD developer run:",
+                *_render_bullets(bmad_docs, limit=12),
+                "- BMAD companion docs are advisory and do not override canonical CLike contracts, EvalRunner, or Gate.",
+            ]
+        )
+
+    lines.append("")
+    return lines
+
+
 def _group_discovered_artifacts(discovered_artifacts: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
     grouped: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
     for item in discovered_artifacts[:MAX_INVENTORY_ITEMS]:
@@ -79,6 +135,7 @@ def _render_active_output_contract(active_output_contract: Optional[dict]) -> Li
     required_context = _as_list(active_output_contract.get("required_context_sections"))
 
     return [
+        *_render_active_kit_required_outputs(active_output_contract),
         "### Active Output Contract",
         "- Emit or update every required output declared by this contract.",
         "- Emit each output as a BEGIN_FILE / END_FILE block.",
@@ -111,6 +168,85 @@ def _render_active_output_contract(active_output_contract: Optional[dict]) -> Li
         *_render_bullets(required_context),
         "",
     ]
+
+
+def _render_bmad_skill_reference_context(methodology_context: dict) -> List[str]:
+    if methodology_context.get("methodology") != "bmad":
+        return []
+
+    references = _as_list(methodology_context.get("selected_skill_references"))
+    context = methodology_context.get("selected_skill_context") or {}
+    if not isinstance(context, dict):
+        context = {}
+    policy = methodology_context.get("skill_reference_policy") or {}
+    if not isinstance(policy, dict):
+        policy = {}
+    if not references:
+        return []
+
+    snippets = _as_list(context.get("snippets"))
+    vendor_inventory = context.get("vendor_inventory_summary") or {}
+    if not isinstance(vendor_inventory, dict):
+        vendor_inventory = {}
+
+    lines = [
+        "### BMAD Skill Reference Context",
+        "- These are CLike-owned BMAD skill mappings selected by methodology, phase, and agent.",
+        f"- source_root: {context.get('source_root') or '.clike/skills/vendor/bmad'}",
+        f"- source_transport: {context.get('source_transport') or 'core_blobs'}",
+        "- Vendor BMAD skill files are reference material only.",
+        "- BMAD runtime is not executed.",
+        "- Canonical CLike artifacts remain authoritative.",
+        "- Skill guidance must improve canonical outputs and companion artifacts.",
+        "- Skill guidance must not override Eval/Gate.",
+        "- Do not emit arbitrary output paths.",
+        "- Do not expand write roots.",
+        f"- runtime_import_enabled: {bool(policy.get('runtime_import_enabled', False))}",
+        f"- external_skill_execution_enabled: {bool(policy.get('external_skill_execution_enabled', False))}",
+        f"- external_bmad_cli_enabled: {bool(policy.get('external_bmad_cli_enabled', False))}",
+        f"- network_fetch_enabled: {bool(policy.get('network_fetch_enabled', False))}",
+        "- selected_skill_ids:",
+        *_render_bullets([item.get("id") for item in references if isinstance(item, dict)], limit=12),
+        "- normalized_mapping_paths:",
+        *_render_bullets([item.get("path") for item in references if isinstance(item, dict)], limit=12),
+        "- required_outputs:",
+        *_render_bullets(_as_list(context.get("required_outputs")), limit=18),
+        "- companion_outputs:",
+        *_render_bullets(_as_list(context.get("companion_outputs")), limit=18),
+        "- quality_checks:",
+        *_render_bullets(_as_list(context.get("quality_checks")), limit=18),
+        "- forbidden_behavior:",
+        *_render_bullets(_as_list(context.get("forbidden_behavior")), limit=18),
+        "- governance_boundaries:",
+        *_render_bullets(_as_list(context.get("governance_boundaries")), limit=12),
+    ]
+    if vendor_inventory:
+        lines.extend(
+            [
+                "- vendor_inventory_summary:",
+                f"  present: {bool(vendor_inventory.get('present'))}",
+                f"  workspace_vendor_reference_root: {vendor_inventory.get('workspace_vendor_reference_root') or policy.get('workspace_vendor_reference_root') or '.clike/skills/vendor/bmad'}",
+                f"  imported_file_count: {vendor_inventory.get('imported_file_count', 0)}",
+                "  runtime_execution_enabled: false",
+                "  external_bmad_cli_enabled: false",
+                "  network_fetch_enabled: false",
+            ]
+        )
+    if snippets:
+        lines.append("- bounded_snippets:")
+        for item in snippets[:8]:
+            if not isinstance(item, dict):
+                continue
+            snippet = str(item.get("snippet") or "").strip()
+            lines.append(f"  - id: {item.get('id')}")
+            lines.append(f"    path: {item.get('path')}")
+            if snippet:
+                lines.append("    snippet: |")
+                lines.extend([f"      {line}" for line in snippet.splitlines()[:40]])
+            if item.get("truncated"):
+                lines.append("    truncated: true")
+    lines.append("")
+    return lines
 
 
 def render_methodology_context_for_cloud_prompt(
@@ -192,6 +328,8 @@ def render_methodology_context_for_cloud_prompt(
         *_render_bullets(forbidden_outputs),
         "",
     ]
+
+    lines.extend(_render_bmad_skill_reference_context(methodology_context))
 
     lines.append("### BMAD Companion Artifact Inventory")
     if not discovered_artifacts:

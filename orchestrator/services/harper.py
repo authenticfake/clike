@@ -26,6 +26,7 @@ from services.repository_manifest import (
     build_repo_composition_manifest,
 )
 from services.capabilities import build_capability_context, build_selected_capability_context
+from services.context_envelope import build_context_envelope
 from services.execution_policy import (
     normalize_execution_preference,
     resolve_execution_policy,
@@ -36,10 +37,20 @@ from services.local_agent_package import (
     build_finalize_local_agent_package,
     build_kit_local_agent_package,
 )
-from services.methodologies import resolve_methodology_context
+from services.methodologies import ensure_bmad_skill_context, resolve_methodology_context
+from services.methodologies.errors import ClikeSelectedCapabilitiesMissingError
+from services.methodologies.active_output_contract import (
+    build_active_output_contract as build_orchestrator_active_output_contract,
+)
 from services.methodologies.companion_collector import (
     CompanionArtifactCollector,
     companion_core_blob_key,
+)
+from utils.namespace_paths import (
+    is_python_runtime_context,
+    materialize_repo_path,
+    namespace_materialization_context,
+    python_module_boundary_to_package_path,
 )
 log = logging.getLogger("service.router")
 
@@ -362,20 +373,39 @@ def _infer_contract_paths(contract_like: Dict[str, Any]) -> Dict[str, Any]:
     raw_create_under = list(paths.get("create_under") or [])
     raw_must_reuse = list(paths.get("must_reuse") or [])
 
-    canonical_candidates = _extract_repo_path_mentions(raw_canonical_family, ("src/",))
-    canonical_family = canonical_candidates[0] if canonical_candidates else raw_canonical_family
-
-    expected_source_roots = _normalize_repo_path_list(raw_expected_source_roots, ("src/",))
-    expected_test_roots = _normalize_repo_path_list(raw_expected_test_roots, ("test/", "tests/"))
-    create_under = _normalize_repo_path_list(raw_create_under, ("src/", "test/", "tests/"))
-    must_reuse = _normalize_repo_path_list(raw_must_reuse, ("src/",))
-
     title = str(contract_like.get("title") or "").strip()
     primary_outcome = str(contract_like.get("primary_outcome") or "").strip()
     lane = str(contract_like.get("lane") or "").strip().lower()
+    runtime_profile = str(contract_like.get("runtime_profile") or contract_like.get("runtimeProfile") or "").strip().lower()
     track = str(contract_like.get("track") or "").strip().lower()
     acceptance_blob = " ".join(str(x) for x in (contract_like.get("acceptance") or []))
     blob = f"{title} {primary_outcome} {acceptance_blob}".lower()
+    ecosystem = "python" if is_python_runtime_context(lane=lane, runtime_profile=runtime_profile, text=blob) else None
+
+    canonical_candidates = _extract_repo_path_mentions(raw_canonical_family, ("src/",))
+    canonical_family = canonical_candidates[0] if canonical_candidates else raw_canonical_family
+    if canonical_family and ecosystem == "python":
+        if not canonical_family.startswith("src/") and "/" not in canonical_family:
+            canonical_family = "src/" + python_module_boundary_to_package_path(canonical_family)
+        else:
+            canonical_family = materialize_repo_path(canonical_family, ecosystem=ecosystem)
+
+    expected_source_roots = [
+        materialize_repo_path(path, ecosystem=ecosystem)
+        for path in _normalize_repo_path_list(raw_expected_source_roots, ("src/",))
+    ]
+    expected_test_roots = [
+        materialize_repo_path(path, ecosystem=ecosystem)
+        for path in _normalize_repo_path_list(raw_expected_test_roots, ("test/", "tests/"))
+    ]
+    create_under = [
+        materialize_repo_path(path, ecosystem=ecosystem)
+        for path in _normalize_repo_path_list(raw_create_under, ("src/", "test/", "tests/"))
+    ]
+    must_reuse = [
+        materialize_repo_path(path, ecosystem=ecosystem)
+        for path in _normalize_repo_path_list(raw_must_reuse, ("src/",))
+    ]
 
     # 1) Explicit path hints from create_under / must_reuse
     if not canonical_family:
@@ -433,6 +463,10 @@ def _infer_contract_paths(contract_like: Dict[str, Any]) -> Dict[str, Any]:
         "canonical_module_family": canonical_family,
         "expected_source_roots": expected_source_roots,
         "expected_test_roots": expected_test_roots,
+        "namespace_materialization": namespace_materialization_context(
+            main_module_boundary=contract_like.get("main_module_boundary"),
+            ecosystem=ecosystem,
+        ),
         "new_modules_allowed": bool(paths.get("new_modules_allowed") or paths.get("newModulesAllowed") or False),
     }
 
@@ -462,6 +496,21 @@ def _extract_target_contract(
         or target.get("mainModuleBoundary")
         or ""
     ).strip()
+    nested_capabilities = target.get("capabilities") if isinstance(target.get("capabilities"), dict) else {}
+
+    def _capability_list(*keys: str, nested_key: str) -> List[str]:
+        for key in keys:
+            values = target.get(key)
+            if isinstance(values, list) and values:
+                return list(values)
+        nested_keys = [nested_key]
+        if nested_key == "design_profiles":
+            nested_keys.append("designProfiles")
+        for key in nested_keys:
+            nested_values = nested_capabilities.get(key)
+            if isinstance(nested_values, list):
+                return list(nested_values)
+        return []
 
     contract = {
         "version": "1.0.0",
@@ -473,9 +522,9 @@ def _extract_target_contract(
         "track": str(target.get("track") or "").strip(),
         "domain": str(target.get("domain") or "").strip(),
         "runtime_profile": str(target.get("runtime_profile") or target.get("runtimeProfile") or "").strip(),
-        "packs": list(target.get("packs") or []),
-        "skills": list(target.get("skills") or []),
-        "design_profiles": list(target.get("design_profiles") or target.get("designProfiles") or []),
+        "packs": _capability_list("packs", nested_key="packs"),
+        "skills": _capability_list("skills", nested_key="skills"),
+        "design_profiles": _capability_list("design_profiles", "designProfiles", nested_key="design_profiles"),
         "gate_expectations": list(target.get("gate_expectations") or target.get("gateExpectations") or []),
         "main_module_boundary": main_module_boundary,
         "future_compatibility_notes": list(
@@ -1247,6 +1296,7 @@ def _materialize_file_requirements(
         source_ext = ".py"
         test_ext = ".py"
         test_prefix = "test_"
+        ecosystem = "python"
     else:
         # Never default to Python. If runtime evidence is incomplete, use the
         # web/application-friendly JS shape and let SPEC/TECH/PLAN evidence
@@ -1254,13 +1304,31 @@ def _materialize_file_requirements(
         source_ext = ".js"
         test_ext = ".js"
         test_prefix = ""
+        ecosystem = None
 
     paths = dict(contract.get("paths") or {})
     canonical_family = str(paths.get("canonical_module_family") or "").strip()
-    expected_source_roots = list(paths.get("expected_source_roots") or [])
-    expected_test_roots = list(paths.get("expected_test_roots") or [])
-    create_under = list(paths.get("create_under") or [])
-    must_reuse = list(paths.get("must_reuse") or [])
+    if canonical_family and is_python_like:
+        if not canonical_family.startswith("src/") and "/" not in canonical_family:
+            canonical_family = "src/" + python_module_boundary_to_package_path(canonical_family)
+        else:
+            canonical_family = materialize_repo_path(canonical_family, ecosystem=ecosystem)
+    expected_source_roots = [
+        materialize_repo_path(str(path or ""), ecosystem=ecosystem)
+        for path in list(paths.get("expected_source_roots") or [])
+    ]
+    expected_test_roots = [
+        materialize_repo_path(str(path or ""), ecosystem=ecosystem)
+        for path in list(paths.get("expected_test_roots") or [])
+    ]
+    create_under = [
+        materialize_repo_path(str(path or ""), ecosystem=ecosystem)
+        for path in list(paths.get("create_under") or [])
+    ]
+    must_reuse = [
+        materialize_repo_path(str(path or ""), ecosystem=ecosystem)
+        for path in list(paths.get("must_reuse") or [])
+    ]
 
     if not canonical_family:
         for candidate in create_under + must_reuse:
@@ -1468,6 +1536,11 @@ def _materialize_file_requirements(
         "canonical_module_family": canonical_family,
         "expected_source_roots": expected_source_roots,
         "expected_test_roots": expected_test_roots,
+        "namespace_materialization": namespace_materialization_context(
+            main_module_boundary=contract.get("main_module_boundary"),
+            ecosystem=ecosystem,
+            req_id=req_id,
+        ),
         "capability_context": {
             "domain": contract.get("domain"),
             "runtime_profile": contract.get("runtime_profile"),
@@ -1638,6 +1711,7 @@ def _filter_core_blobs_for_target_req(
             lname.startswith("companion::docs/harper/bmad/")
             or lname.startswith("companion::docs/harper/ux/")
             or lname.startswith(f"companion::runs/kit/{str(target_req_id).lower()}/docs/")
+            or lname.startswith(".clike/skills/vendor/bmad/")
         ):
             kept[name] = value
             continue
@@ -1657,6 +1731,91 @@ def _filter_core_blobs_for_target_req(
             continue
 
     return kept
+
+
+def _load_capability_index_names(core_blobs: Dict[str, Any], kind: str) -> List[str]:
+    raw = str(core_blobs.get("CLIKE_CAPABILITY_INDEX.json") or "").strip()
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return []
+    items = data.get(kind) if isinstance(data, dict) else []
+    if not isinstance(items, list):
+        return []
+    names: List[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+def _selected_capability_missing_ids(context_envelope: Dict[str, Any]) -> List[str]:
+    selected = (context_envelope.get("clike_capabilities") or {}).get("context_json") or {}
+    missing: List[str] = []
+    if not isinstance(selected, dict):
+        return missing
+    for key in ("packs", "skills", "design_profiles"):
+        group = selected.get(key) or {}
+        if not isinstance(group, dict):
+            continue
+        for item in group.get("missing") or []:
+            text = str(item or "").strip()
+            if text and text not in missing:
+                missing.append(text)
+    return missing
+
+
+def _raise_if_selected_capabilities_missing(
+    *,
+    phase: str,
+    req_id: Optional[str],
+    methodology_context: Optional[Dict[str, Any]],
+    target_contract: Optional[Dict[str, Any]],
+    core_blobs: Dict[str, Any],
+    context_envelope: Dict[str, Any],
+) -> None:
+    if not isinstance(target_contract, dict):
+        return
+
+    declared_packs = [str(x).strip() for x in (target_contract.get("packs") or []) if str(x or "").strip()]
+    declared_skills = [str(x).strip() for x in (target_contract.get("skills") or []) if str(x or "").strip()]
+    declared_design = [
+        str(x).strip()
+        for x in (target_contract.get("design_profiles") or [])
+        if str(x or "").strip()
+    ]
+    if not (declared_packs or declared_skills or declared_design):
+        return
+
+    clike = context_envelope.get("clike_capabilities") or {}
+    selected_any = bool(
+        clike.get("selected_packs")
+        or clike.get("selected_skills")
+        or clike.get("selected_design_profiles")
+    )
+    if selected_any:
+        return
+
+    raise ClikeSelectedCapabilitiesMissingError(
+        "CLIKE_SELECTED_CAPABILITIES_MISSING: "
+        f"req_id={req_id or 'none'} phase={phase} "
+        f"methodology={(methodology_context or {}).get('methodology') or 'native'} "
+        f"selected_packs_declared={declared_packs} "
+        f"selected_skills_declared={declared_skills} "
+        f"selected_design_profiles_declared={declared_design} "
+        "source_transport=core_blobs "
+        f"capability_index_present={'CLIKE_CAPABILITY_INDEX.json' in core_blobs} "
+        f"selected_capability_context_present={'CLIKE_SELECTED_CAPABILITY_CONTEXT.json' in core_blobs} "
+        f"missing_capability_ids={_selected_capability_missing_ids(context_envelope)} "
+        f"available_packs={_load_capability_index_names(core_blobs, 'packs')} "
+        f"available_skills={_load_capability_index_names(core_blobs, 'skills')} "
+        f"available_design_profiles={_load_capability_index_names(core_blobs, 'design_profiles')}"
+    )
 
 
 def _inject_candidate_blobs(
@@ -1847,18 +2006,25 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
         phase=phase,
         methodology=merged.get("methodology"),
         agent=merged.get("agent"),
+        core_blobs=merged.get("core_blobs") or {},
+        require_bmad_core_blobs=True,
     )
     if methodology_context:
         merged["methodology"] = methodology_context.get("methodology")
         merged["agent"] = methodology_context.get("agent")
         merged["methodology_context"] = methodology_context
         log.info(
-            "harper.methodology resolved methodology=%s phase=%s agent=%s authority=%s advisory_only=%s",
+            "harper.methodology resolved methodology=%s phase=%s agent=%s authority=%s advisory_only=%s selected_bmad_skills=%s",
             methodology_context.get("methodology"),
             phase,
             methodology_context.get("agent") or "none",
             methodology_context.get("authority"),
             methodology_context.get("advisory_only"),
+            [
+                item.get("id")
+                for item in (methodology_context.get("selected_skill_references") or [])
+                if isinstance(item, dict)
+            ],
         )
 
     repo_ctx = merged.get("repository_context") or {}
@@ -1876,7 +2042,7 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
     if repo_composition_manifest:
         core_blobs["REPO_COMPOSITION_MANIFEST.md"] = repo_composition_manifest
 
-    capability_blobs = build_capability_context(repo_ctx)
+    capability_blobs = build_capability_context(repo_ctx, core_blobs=core_blobs)
     if capability_blobs:
         core_blobs.update(capability_blobs)
         log.info(
@@ -1890,6 +2056,8 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
     target_req_id: Optional[str] = None
+    namespace_materialization: Dict[str, Any] = {}
+    target_contract: Optional[Dict[str, Any]] = None
 
     if merged.get("phase") == "eval":
         eval_opts = merged.get("eval") or {}
@@ -1947,6 +2115,7 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
             raise ValueError(f"TARGET_CONTRACT cannot be derived for {target_req_id}")
 
         file_requirements = _build_file_requirements(target_contract, working_core_blobs)
+        namespace_materialization = dict((file_requirements or {}).get("namespace_materialization") or {})
 
 
         target_contract_text = json.dumps(
@@ -2022,6 +2191,85 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
     )
     merged["executionPreference"] = execution_preference
     merged["_execution"] = execution_policy
+
+    if not namespace_materialization:
+        try:
+            file_requirements_blob = (merged.get("core_blobs") or {}).get("FILE_REQUIREMENTS.json")
+            if file_requirements_blob:
+                parsed_requirements = json.loads(str(file_requirements_blob or "{}"))
+                if isinstance(parsed_requirements, dict):
+                    namespace_materialization = dict(parsed_requirements.get("namespace_materialization") or {})
+        except Exception:
+            namespace_materialization = {}
+
+    if isinstance(merged.get("methodology_context"), dict):
+        methodology_context = merged["methodology_context"]
+
+    envelope_active_contract = build_orchestrator_active_output_contract(
+        phase=phase,
+        runner=str(execution_policy.get("selected") or "cloud"),
+        methodology_context=methodology_context,
+        req_id=target_req_id,
+    )
+    context_envelope = build_context_envelope(
+        phase=phase,
+        req_id=target_req_id,
+        execution_mode=str(execution_policy.get("selected") or "cloud"),
+        core_blobs=merged.get("core_blobs") or {},
+        methodology_context=methodology_context,
+        active_output_contract=envelope_active_contract,
+        namespace_materialization=namespace_materialization,
+        require_bmad_core_blobs=True,
+    )
+    if methodology_context and methodology_context.get("methodology") == "bmad":
+        envelope_bmad = context_envelope.get("bmad_methodology_skills") or {}
+        methodology_context = ensure_bmad_skill_context(
+            {
+                **methodology_context,
+                "selected_skill_references": envelope_bmad.get("selected_skill_references") or methodology_context.get("selected_skill_references") or [],
+                "selected_skill_context": envelope_bmad.get("selected_skill_context") or methodology_context.get("selected_skill_context") or {},
+                "skill_reference_policy": envelope_bmad.get("skill_reference_policy") or methodology_context.get("skill_reference_policy") or {},
+            },
+            phase=phase,
+            agent=methodology_context.get("agent"),
+            core_blobs=merged.get("core_blobs") or {},
+            require_bmad_core_blobs=True,
+        )
+        merged["methodology_context"] = methodology_context
+        merged["methodology"] = methodology_context.get("methodology")
+        merged["agent"] = methodology_context.get("agent")
+        context_envelope = build_context_envelope(
+            phase=phase,
+            req_id=target_req_id,
+            execution_mode=str(execution_policy.get("selected") or "cloud"),
+            core_blobs=merged.get("core_blobs") or {},
+            methodology_context=methodology_context,
+            active_output_contract=envelope_active_contract,
+            namespace_materialization=namespace_materialization,
+            require_bmad_core_blobs=True,
+        )
+    merged["context_envelope"] = context_envelope
+    _raise_if_selected_capabilities_missing(
+        phase=phase,
+        req_id=target_req_id,
+        methodology_context=methodology_context,
+        target_contract=target_contract,
+        core_blobs=merged.get("core_blobs") or {},
+        context_envelope=context_envelope,
+    )
+    log.info(
+        "harper.context_envelope phase=%s req=%s execution=%s clike_packs=%s clike_skills=%s bmad_skills=%s",
+        phase,
+        target_req_id or "none",
+        execution_policy.get("selected") or "cloud",
+        context_envelope.get("clike_capabilities", {}).get("selected_packs") or [],
+        context_envelope.get("clike_capabilities", {}).get("selected_skills") or [],
+        [
+            item.get("id")
+            for item in context_envelope.get("bmad_methodology_skills", {}).get("selected_skill_references", [])
+            if isinstance(item, dict)
+        ],
+    )
 
     # Orchestrator-owned local agent package.
     #

@@ -1,4 +1,8 @@
 node_modules/
+telemetry/rejected/
+telemetry/llm_provider_raw/
+telemetry/clike_raw/
+telemetry/prompt_debug/
 .DS_Store
 .env
 clike_mvp.code-workspace

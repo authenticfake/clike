@@ -302,6 +302,17 @@
           "default": "",
           "description": "Reserved. Codex non-interactive execution is currently invoked as: codex exec <prompt>."
         },
+        "clike.localAgent.codex.sandboxMode": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "read-only",
+            "workspace-write",
+            "danger-full-access"
+          ],
+          "description": "Codex CLI sandbox mode. auto uses workspace-write for write-required local-agent phases and read-only for inspect-only phases."
+        },
         "clike.localAgent.codex.timeoutMinutes": {
           "type": "number",
           "default": 30,

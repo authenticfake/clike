@@ -1,6 +1,6 @@
 # orchestrator/config.py
 import os
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import HttpUrl  # oppure: from pydantic import AnyUrl as HttpUrl
 
 
@@ -17,6 +17,12 @@ def _default_models_cfg_path() -> str:
     return os.path.abspath(os.path.join(here, "..", "configs", "models.yaml"))
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
     # Upstream Gateway
     GATEWAY_URL: HttpUrl = os.getenv("GATEWAY_URL", "http://localhost:8000")
     EMBED_MODEL: str = os.getenv("EMBED_MODEL", "nomic-embed-text")
@@ -81,9 +87,5 @@ class Settings(BaseSettings):
         if v is None:
             return default
         return str(v).lower() in ("1", "true", "yes", "on")
-
-    class Config:
-        env_file = ".env"
-
 
 settings = Settings()

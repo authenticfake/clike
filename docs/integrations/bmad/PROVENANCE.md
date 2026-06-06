@@ -49,6 +49,26 @@ Gateway remains cloud prompt composition only. Local-agent prompts remain built 
 
 The current implementation also keeps automatic latest BMAD tracking at runtime out of scope. A maintainer may manually review a selected upstream BMAD release or commit, but production CLike runs do not fetch, compare, install, or execute BMAD at runtime.
 
+## Skill Reference Seed
+
+CLike seeds reference-only BMAD skill material into new workspaces from the VS Code Harper init template:
+
+```text
+extensions/vscode/templates/harper-init/.clike/skills/vendor/bmad
+```
+
+After `/init`, the workspace copy lives at:
+
+```text
+.clike/skills/vendor/bmad
+```
+
+The seed is pinned and auditable through its `manifest.json`. It is not active for native Harper runs and is not an executable skill system. It exists so a workspace can carry reviewed reference material alongside the project without granting that material prompt authority, write authority, EvalRunner authority, or Gate authority.
+
+BMAD methodology runs use CLike-owned vendor skill material from `.clike/skills/vendor/bmad`, selected by `skill_selection` in the vendor manifest transported through request `core_blobs`. The Orchestrator resolves those blobs into `methodology_context.selected_skill_references` and `methodology_context.selected_skill_context`. Gateway may render bounded summaries into the cloud prompt, and local-agent packages may include the same materialized context in `AGENT_EXECUTION_CONTEXT.json` or `AGENT_EVAL_CONTEXT.json`. Vendor files are not executed and are not treated as independent authority.
+
+Updates use `tools/bmad_skill_sync.py` against a local reviewed source directory. Runtime phases do not fetch latest BMAD content, do not run BMAD CLI, and do not update the seed automatically. Any imported material remains reference-only until maintainers explicitly adapt it into normalized CLike mappings.
+
 ## Future Roadmap Boundaries
 
 The following items are not current behavior:

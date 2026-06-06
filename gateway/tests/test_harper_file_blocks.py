@@ -467,3 +467,90 @@ END_FILE
 
     assert [item["path"] for item in files] == ["docs/harper/bmad/architecture/ARCHITECTURE.md"]
     assert "BEGIN_FILE src/should_not_be_allowed.py" in remainder
+
+
+def test_prompt_debug_serializes_bmad_kit_selected_skill_evidence(tmp_path):
+    previous = harper.TELEMETRY_DIR
+    harper.TELEMETRY_DIR = str(tmp_path)
+    try:
+        harper._write_prompt_debug(
+            project_id="project",
+            run_id="run",
+            phase="kit",
+            provider="test",
+            model="test-model",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "### BMAD Skill Reference Context\n- dev-story-execution\n- story-readiness",
+                }
+            ],
+            core_blobs={},
+            targets=["REQ-001"],
+            methodology_context={
+                "methodology": "bmad",
+                "phase": "kit",
+                "agent": "developer",
+                "selected_skill_references": [
+                    {"id": "dev-story-execution", "path": ".clike/skills/vendor/bmad/dev-story-execution/SKILL.md"},
+                    {"id": "story-readiness", "path": ".clike/skills/vendor/bmad/story-readiness/SKILL.md"},
+                ],
+                "selected_skill_context": {"quality_checks": ["acceptance coverage"]},
+                "skill_reference_policy": {
+                    "cloud_context_enabled": True,
+                    "local_agent_context_enabled": True,
+                    "external_bmad_cli_enabled": False,
+                },
+            },
+        )
+    finally:
+        harper.TELEMETRY_DIR = previous
+
+    debug_path = tmp_path / "prompt_debug/project__run__kit.json"
+    data = __import__("json").loads(debug_path.read_text(encoding="utf-8"))
+
+    assert data["methodology_context"]["methodology"] == "bmad"
+    assert data["methodology_context"]["agent"] == "developer"
+    assert [item["id"] for item in data["selected_skill_references"]] == [
+        "dev-story-execution",
+        "story-readiness",
+    ]
+    assert "BMAD Skill Reference Context" in data["messages"][0]["content"]
+
+
+def test_gateway_enriches_stale_bmad_context_from_context_envelope():
+    context = harper._methodology_context_with_envelope_skills(
+        {
+            "methodology": "bmad",
+            "phase": "kit",
+            "agent": "developer",
+            "selected_skill_references": [],
+            "selected_skill_context": {},
+        },
+        {
+            "methodology": "bmad",
+            "phase": "kit",
+            "agent": "developer",
+            "bmad_methodology_skills": {
+                "selected_skill_references": [
+                    {"id": "dev-story-execution", "path": ".clike/skills/vendor/bmad/dev-story-execution/SKILL.md"},
+                    {"id": "story-readiness", "path": ".clike/skills/vendor/bmad/story-readiness/SKILL.md"},
+                ],
+                "selected_skill_context": {
+                    "snippets": [{"id": "dev-story-execution", "snippet": "Use dev story evidence."}],
+                    "quality_checks": ["acceptance coverage"],
+                },
+                "skill_reference_policy": {"cloud_context_enabled": True},
+            },
+        },
+        methodology="bmad",
+        agent="developer",
+        phase="kit",
+    )
+
+    assert [item["id"] for item in context["selected_skill_references"]] == [
+        "dev-story-execution",
+        "story-readiness",
+    ]
+    assert context["selected_skill_context"]["snippets"]
+    assert context["skill_reference_policy"]["cloud_context_enabled"] is True
