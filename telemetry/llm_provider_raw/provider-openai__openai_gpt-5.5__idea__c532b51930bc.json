@@ -1,0 +1,87 @@
+{
+  "timestamp": "20260602T194606Z",
+  "project_id": "coffebuddy_bmad",
+  "phase": "idea",
+  "provider": "openai",
+  "model_label": "openai:gpt-5.5",
+  "raw": {
+    "id": "resp_031e74f402636109006a1f32e0424881919ceebc3423f41dde",
+    "object": "response",
+    "created_at": 1780429536,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": 1780429564,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "You are an expert Business Translator / Business Analyst for Harper `/idea`.\n\nYour job is to synthesize a concise, testable canonical Harper `IDEA.md` from the provided attachments and chat context. CLike owns the canonical Harper artifact. Methodology profiles such as BMAD may add companion artifacts, but they must not redefine the canonical IDEA schema.\n\nPrimary objective: produce a stable `docs/harper/IDEA.md` that can start the Harper pipeline: `/spec -> /plan -> /kit -> /eval -> /gate -> /finalize`.\n\n---\n\n## Principles\n\n- Attachment-first: use the latest user attachments as the primary source of truth. Do not invent facts.\n- Chat as hints: use chat content only to clarify intent or fill obvious gaps; mark assumptions explicitly.\n- Concise canonical artifact: `docs/harper/IDEA.md` must be coherent, downstream-ready, and not a PRD, architecture document, or SPEC draft.\n- Stable schema: the canonical IDEA primary headings are fixed. Do not reorder them and do not replace them with methodology-specific sections.\n- No hallucinated stack: do not assume Python, Node, cloud provider, database, queue, UI framework, IaC tool, deployment target, API endpoint, project key, or vendor unless supported by input evidence.\n- Valid constraints: Technology Constraints must contain exactly one valid fenced YAML block under `## Technology Constraints`.\n- BMAD separation: for BMAD runs, put extra methodology depth in companion files only.\n\n---\n\n## Knowledge Inputs\n\nUse inputs in this order:\n\n1. Attached files from the current chat.\n2. Relevant Harper chat history.\n3. Explicit repository or RAG context supplied by CLike.\n\nIgnore system messages. Do not fetch external web content unless it is provided as an attachment or pasted text.\n\n---\n\n## Project Name Derivation\n\nUse the first available source:\n\n1. Clear attachment title or top heading.\n2. Explicit user-provided target name.\n3. Main filename, with separators stripped and title-cased.\n\n---\n\n## File Emission Contract\n\nFollow the Active Output Contract supplied in the user message.\n\nFor native CLike `/idea`, emit:\n- `docs/harper/IDEA.md`\n\nFor BMAD `/idea`, emit:\n- `docs/harper/IDEA.md`\n- `docs/harper/bmad/idea/BRIEF.md`\n- `docs/harper/bmad/idea/PRFAQ_NOTES.md`\n- `docs/harper/bmad/idea/ASSUMPTIONS.md`\n- `docs/harper/bmad/idea/RESEARCH_QUESTIONS.md`\n\nDo not satisfy BMAD by generating companion files only. `docs/harper/IDEA.md` is required and must pass canonical Harper validation.\n\nCanonical IDEA.md is stable Harper schema. BMAD must not change, replace, reorder, or extend the primary IDEA.md schema with BMAD-only sections.\n\nFor BMAD runs, put extra methodology depth in companion files only.\n\nThe `docs/harper/IDEA.md` file must be valid even if every BMAD companion file is ignored.\n\nEmit no prose outside file blocks.\n\n---\n\n## Canonical IDEA.md Schema\n\n`docs/harper/IDEA.md` must always use this exact primary structure and prefer these plain headings:\n\n```markdown\n# IDEA — <Project Name>\n\n## Vision\n\n## Problem Statement\n\n## Target Users & Context\n\n## Value & Outcomes\n\n## Out of Scope\n\n## Technology Constraints\n\n## Risks & Assumptions\n\n## Success Metrics\n```\n\nValidator-compatible aliases may be accepted downstream, but prefer the stable headings above:\n- `## Value & Outcomes`, not `## Value & Outcomes (with initial targets)`.\n- `## Out of Scope`, not `## Out of Scope (slice-1)`.\n- `## Technology Constraints`, not `## Technology Constraints (SPEC-ready)`.\n\n### Section Guidance\n\n`## Vision`\n- 2-4 concise sentences.\n- State the immediate business value, target user experience, differentiator, and first demonstrable slice.\n\n`## Problem Statement`\n- Explain who has the problem, when it happens, the measurable pain, current workaround, and slice-1 solved condition.\n\n`## Target Users & Context`\n- Identify primary users, secondary stakeholders, operating context, expected scale when evidenced, accessibility/i18n context when evidenced.\n\n`## Value & Outcomes`\n- List user-visible outcomes with initial metric targets when evidence supports them.\n- Mark estimated targets as assumptions.\n\n`## Out of Scope`\n- List explicit exclusions and deferred work for the first slice.\n\n`## Technology Constraints`\n- Include one valid fenced YAML block under this heading.\n- Use only constraints supported by attachments, chat, repository evidence, or explicit assumptions.\n- Do not copy placeholder providers, endpoints, project keys, or framework choices.\n- Keep YAML compact. Unknown is acceptable when evidence is missing.\n\n`## Risks & Assumptions`\n- Separate business, technical, delivery, UX, data, compliance, and dependency assumptions when relevant.\n\n`## Success Metrics`\n- Include measurable early-slice indicators such as time-to-first-action, task success, critical error rate, lead time, adoption, or pilot satisfaction when relevant.\n\n---\n\n## Technology Constraints YAML Guidance\n\nInclude one valid fenced YAML block under Technology Constraints. Use compact keys and values that are supported by evidence or explicit assumptions.\n\nExample shape only; do not copy placeholder values:\n\n```yaml\ntech_constraints:\n  version: 1\n  metadata:\n    name: \"evidenced project name\"\n    domain: \"evidenced domain or unknown\"\n  classification:\n    solution_type: \"evidenced type or unknown\"\n    deployment_context: \"evidenced context or unknown\"\n    data_sensitivity: \"evidenced sensitivity or unknown\"\n  assumptions:\n    - \"explicitly labeled assumption when needed\"\n  evaluation:\n    required_checks:\n      - \"tests\"\n```\n\n---\n\n## BMAD Companion Placement\n\nFor BMAD runs, do not put BMAD-only deep sections inside `docs/harper/IDEA.md`.\n\nPlace methodology depth here:\n\n- Deployment portability reasoning -> `docs/harper/bmad/idea/BRIEF.md` or `docs/harper/bmad/idea/ASSUMPTIONS.md`.\n- Technology constraints profile reasoning -> `docs/harper/bmad/idea/ASSUMPTIONS.md`.\n- Strategic fit -> `docs/harper/bmad/idea/BRIEF.md`.\n- `/spec` handoff readiness -> `docs/harper/bmad/idea/BRIEF.md`.\n- PRFAQ material -> `docs/harper/bmad/idea/PRFAQ_NOTES.md`.\n- Research gaps -> `docs/harper/bmad/idea/RESEARCH_QUESTIONS.md`.\n\nCompanion artifacts are additive and non-authoritative. Canonical IDEA wins on conflict.\n\n---\n\n## Canonical IDEA Sections To Avoid\n\nDo not add these as primary sections in `docs/harper/IDEA.md`:\n\n- Non-Goals\n- Constraints\n- PRFAQ\n- Research Questions\n- BMAD assumptions deep dive\n- Architecture notes\n- SPEC draft\n- PRD material\n\nIf those concepts are useful, place them in BMAD companion artifacts.\n\n---\n\n## Quality Bar\n\n- `docs/harper/IDEA.md` starts with `# IDEA — <Project Name>`.\n- Every primary heading in the canonical schema appears exactly once and in order.\n- Technology Constraints contains exactly one valid fenced YAML block.\n- No `BEGIN_FILE`, `END_FILE`, unresolved placeholders, or prompt template text appears inside file content.\n- Canonical IDEA remains concise and downstream-ready.\n- BMAD companion files carry extended analysis, not canonical schema changes.\n\n---\n\n## Failure Modes To Avoid\n\n- Starting `IDEA.md` with YAML, a code fence, or a heading other than `# IDEA — <Project Name>`.\n- Omitting canonical headings because companion files contain richer BMAD material.\n- Moving canonical IDEA content into companion files only.\n- Adding BMAD-only sections as primary IDEA headings.\n- Leaving invalid YAML or placeholder values in Technology Constraints.\n- Inventing vendors, APIs, endpoints, project keys, or frameworks.\n\n---\n\n## Final Instruction\n\nProduce the file blocks required by the active output contract. The canonical `docs/harper/IDEA.md` must pass native Harper canonical validation. BMAD companion files extend the run but never replace the canonical IDEA schema.",
+    "max_output_tokens": 33500,
+    "max_tool_calls": null,
+    "model": "gpt-5.5-2026-04-23",
+    "moderation": null,
+    "output": [
+      {
+        "id": "rs_031e74f402636109006a1f32e125ec8191807a62dc4b7471a0",
+        "type": "reasoning",
+        "content": [],
+        "summary": []
+      },
+      {
+        "id": "msg_031e74f402636109006a1f32eaf6188191bd7b064d345264fe",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "```file:docs/harper/IDEA.md\n# IDEA — CoffeeBuddy\n\n## Vision\n\nCoffeeBuddy streamlines office coffee runs inside the corporate network by letting teammates submit Slack-based orders, receive reminders, and get a fair runner assignment. The experience should feel native to Slack, reduce coordination friction, and remember preferences without relying on public cloud services. The first demonstrable slice is an on-prem Slack coffee-run workflow that starts a run, collects structured orders, assigns a runner, and produces a summary.\n\n## Problem Statement\n\nOffice teammates currently coordinate coffee runs through ad-hoc Slack threads where messages get buried, orders are inconsistent, and pickup responsibility is informal. The measurable pain is avoidable coordination time, missed or ambiguous orders, and perceived unfairness in who becomes runner. Current workarounds are manual Slack threads, repeated preference typing, and volunteer-based runner selection. Slice 1 is solved when a team can complete a structured coffee run from Slack with confirmation, reminder, fair runner assignment, and final order summary.\n\n## Target Users & Context\n\n- Primary users: office teammates placing coffee orders and the teammate assigned as runner.\n- Secondary stakeholders: office managers and team leads seeking lower coordination overhead and fairer runner rotation.\n- IT/compliance stakeholders: teams responsible for keeping traffic, identity, secrets, data, and observability inside approved enterprise infrastructure.\n- Operating context: enterprise Slack workspace, on-prem Kubernetes, internal identity and gateway paths only.\n- Data context: Slack user/workspace/channel identifiers, coffee orders, preferences, runner history, and operational/audit events.\n\n## Value & Outcomes\n\n- Reduce coffee-run coordination time to under 2 minutes per run.\n- Reduce missed or mistaken orders by collecting structured order details and producing a consolidated summary.\n- Improve repeat-use convenience by remembering user preferences.\n- Improve perceived fairness through transparent runner assignment based on recent participation history.\n- Support regulated enterprise constraints by running fully on-prem with internal gateways, identity, secrets, storage, messaging, and observability.\n\n## Out of Scope\n\n- Payments.\n- Delivery logistics.\n- External coffee vendor integrations.\n- Public cloud deployment.\n- Mobile app.\n- Complex admin UI beyond internal configuration or API needs for the first slice.\n\n## Technology Constraints\n\n```yaml\ntech_constraints:\n  version: 1\n  metadata:\n    name: \"CoffeeBuddy\"\n    domain: \"enterprise office coordination\"\n  classification:\n    solution_type: \"Slack-integrated workflow service\"\n    deployment_context: \"on-prem Kubernetes\"\n    data_sensitivity: \"employee Slack IDs, coffee preferences, coffee order history, runner history\"\n  runtime:\n    language: \"python\"\n    platform: \"kubernetes\"\n    ingress:\n      - \"nginx\"\n      - \"Kong Gateway\"\n    interfaces:\n      - \"Slack events\"\n      - \"Slack slash commands\"\n      - \"internal REST\"\n    storage:\n      relational: \"Postgres\"\n    messaging:\n      stream: \"Apache Kafka\"\n    auth:\n      identity_provider:\n        - \"Ory Hydra\"\n        - \"Ory Kratos\"\n      protocol: \"OIDC\"\n    secrets: \"HashiCorp Vault\"\n    observability:\n      metrics: \"Prometheus\"\n      dashboards: \"Grafana\"\n    ci: \"Jenkins\"\n  network:\n    public_cloud_backend: false\n    routes: \"internal-only except approved Slack event ingress path\"\n  evaluation:\n    required_checks:\n      - \"Slack request signature verification\"\n      - \"coffee run workflow tests\"\n      - \"runner assignment fairness tests\"\n      - \"Slack rate-limit retry/backoff tests\"\n      - \"Prometheus metrics exposure check\"\n```\n\n## Risks & Assumptions\n\n- Business assumption: Slack Enterprise usage is approved internally.\n- Business risk: users may reject automatic runner assignment unless the reason is transparent and opt-out behavior is supported.\n- Technical assumption: Slack commands, events, and interactions can be securely proxied to on-prem infrastructure through approved gateway routes.\n- Technical risk: Slack rate limits or event delivery failures may delay reminders or summaries; mitigation is Kafka buffering, idempotent processing, retry, and backoff.\n- Delivery risk: proving the Slack-to-on-prem ingress path may be the highest-risk first step.\n- UX assumption: users will accept structured Slack modals or interactive messages if preferences reduce repeated typing.\n- Data assumption: Slack user IDs and optional OIDC mappings are sufficient for user identity in the first slice.\n- Compliance risk: coffee preferences and participation history may still be considered employee data; mitigation is minimization, retention controls, internal-only storage, and auditability.\n- Dependency assumption: Postgres, Kafka, Kong Gateway, NGINX ingress, Ory Hydra/Kratos, Vault, Prometheus, Grafana, and Jenkins are acceptable enterprise standards for this project.\n\n## Success Metrics\n\n- Time from first `/coffee` action to order confirmation is under 2 minutes for the first slice.\n- Weekly active coffee runs per active user increases after pilot launch.\n- Missed or late order rate decreases compared with ad-hoc Slack-thread coordination.\n- Runner assignment distribution is explainable and balanced across eligible participants over time.\n- Slack API failure and rate-limit events are observable and retried without duplicate orders.\n- Pilot users report that CoffeeBuddy is faster and clearer than manual Slack threads.\n\nAcceptance criteria for the first slice:\n- A user can start a coffee run from Slack.\n- Teammates can submit structured orders before cutoff.\n- The system confirms submitted orders.\n- The system sends a reminder before cutoff.\n- The system assigns or confirms a fair runner.\n- The runner receives a consolidated order summary.\n- Preferences and runner history are persisted.\n- Metrics are exposed for created runs, submitted orders, reminders, Slack failures, and runner assignments.\n```"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": "24h",
+    "reasoning": {
+      "context": "current_turn",
+      "effort": "medium",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": true,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 9940,
+      "input_tokens_details": {
+        "cached_tokens": 9472
+      },
+      "output_tokens": 1687,
+      "output_tokens_details": {
+        "reasoning_tokens": 516
+      },
+      "total_tokens": 11627
+    },
+    "user": null,
+    "metadata": {}
+  }
+}

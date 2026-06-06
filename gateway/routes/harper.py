@@ -16,6 +16,22 @@ import httpx
 from utils.sanitize import sanitize_for_path
 from utils.utils import   collect_rag_materials_http, decide_inline_or_rag
 from utils.rag_store import RagStore
+from utils.active_output_contract import (
+    build_active_output_contract,
+    output_path_matches,
+    validate_files_against_active_output_contract,
+)
+from utils.artifact_policy import filter_files_by_methodology_artifact_policy
+from utils.harper_canonical_validation import (
+    attach_rejected_artifact_debug_refs,
+    validate_canonical_harper_files,
+    validate_current_canonical_core_blobs,
+)
+from utils.methodology_prompt import (
+    render_current_canonical_validation_for_cloud_prompt,
+    render_methodology_context_for_cloud_prompt,
+)
+from utils.selected_skill_context_prompt import compose_cloud_selected_phase_skill_context
 from routes.chat import ANTHROPIC_API_KEY, ANTHROPIC_BASE, DEEPSEEK_BASE, OLLAMA_BASE, OPENAI_API_KEY, DEEPSEEK_API_KEY, OPENAI_BASE, VLLM_BASE, _json
 from providers import openai_compat as oai
 from providers import anthropic as anth
@@ -51,22 +67,6 @@ TELEMETRY_DIR = os.getenv("HARPER_TELEMETRY_DIR", "/workspace/telemetry")  # scr
 STUB_DIR = os.getenv("HARPER_STUB_DIR", "/workspace/gateway/stub")  # scrive qui i .jsonl
 
 _REPO_PLACEHOLDER = "[x]"
-_FILE_BLOCK_FENCED_RE = re.compile(
-    r"(?:^|\n)```[^\n]*\n\s*file:([^\n]+)\n(.*?)\n```",
-    re.DOTALL | re.IGNORECASE
-)
-_FILE_BLOCK_PLAIN_RE = re.compile(
-    r"(?:^|\n)file:([^\n]+)\n(.*?)(?=(?:\nfile:[^\n]+\n)|\Z)",
-    re.DOTALL | re.IGNORECASE
-)
-_FILE_BLOCK_BEGIN_RE = re.compile(
-    r"(?:^|\n)BEGIN_FILE\s+([^\n]+)\n(.*?)(?:\nEND_FILE|$)",
-    re.DOTALL | re.IGNORECASE
-)
-_FILE_BLOCK_FENCED_INLINE_RE = re.compile(
-    r"(?:^|\n)```file:([^\n]+)\n(.*?)\n```",
-    re.DOTALL | re.IGNORECASE
-)
 
 _KIT_FILE_HEADER_RE = re.compile(
     r"^/?runs/kit/REQ-[A-Za-z0-9._-]+/(src|test|docs|ci)/[^\s][^\r\n]*$"
@@ -114,9 +114,9 @@ _FINALIZE_FILE_HEADER_RE = re.compile(
 
 # --- Model parameters per phase (output budget & style) ----------------------
 PHASE_MODEL_PARAMS = {
-    "idea":                 {"max_tokens": 23500, "temperature": 0.2, "top_p": 1.0},
-    "spec":                 {"max_tokens": 29500, "temperature": 0.2, "top_p": 1.0},
-    "plan":                 {"max_tokens": 45000, "temperature": 0.2, "top_p": 0.8},  # raise to 6500 only if many lanes
+    "idea":                 {"max_tokens": 33500, "temperature": 0.2, "top_p": 1.0},
+    "spec":                 {"max_tokens": 39500, "temperature": 0.2, "top_p": 1.0},
+    "plan":                 {"max_tokens": 55000, "temperature": 0.2, "top_p": 0.8},  # raise to 6500 only if many lanes
     "kit":                  {"max_tokens": 48000, "temperature": 0.1, "top_p": 1.0},
     "integrity_eval":       {"max_tokens": 17000, "temperature": 0.1, "top_p": 1.0},
     "promotion_hardener":   {"max_tokens": 22000, "temperature": 0.1, "top_p": 1.0},
@@ -132,7 +132,12 @@ PHASE_MODEL_PARAMS = {
 _DOC_EXTS: set[str] = {".md", ".markdown", ".rst", ".txt", ".adoc", ".tex", ".pdf", ".doc",".docx", ".xlsx", "xls", ".ppt", ".pptx" }
 _VALID_FILE_HEADER_RE = re.compile(r"^/?runs/kit/REQ-[A-Za-z0-9._-]+/(src|test|docs|ci)/[^\s][^\r\n]*$")
 
-def _is_valid_file_header_path(raw_path: str, *, phase: str | None = None) -> bool:
+def _is_valid_file_header_path(
+    raw_path: str,
+    *,
+    phase: str | None = None,
+    extra_allowed_patterns: list[str] | None = None,
+) -> bool:
     p = str(raw_path or "").strip().lstrip("/")
     phase_norm = str(phase or "").strip().lower()
 
@@ -156,6 +161,9 @@ def _is_valid_file_header_path(raw_path: str, *, phase: str | None = None) -> bo
     for frag in bad_fragments:
         if frag.lower() in lowered:
             return False
+
+    if extra_allowed_patterns and any(output_path_matches(p, pattern) for pattern in extra_allowed_patterns):
+        return True
 
     if phase_norm == "kit":
         return bool(_KIT_FILE_HEADER_RE.match(p))
@@ -516,6 +524,7 @@ def _inject_repo_url_in_system(system_text: str, repo_url: str | None) -> str:
     url = _normalize_repo_url(repo_url) or "https:/afucompany.it/"
     return system_text.replace(_REPO_PLACEHOLDER, url)
 
+
 def _clip_text_to_tokens(text: str, max_tokens: int) -> str:
     """Taglia per stare sotto max_tokens (approssimazione char→token già usata altrove)."""
     if not text or max_tokens <= 0:
@@ -608,7 +617,12 @@ def _enforce_single_req_output(files_list: list[dict], target_req: str | None) -
 
 def _dedupe_by_path(files_list: list[dict]) -> list[dict]:
     """
-    Deduplica per path canonico. Se ci sono duplicati, tiene il contenuto più lungo.
+    Deduplica per path canonico.
+
+    Explicit file blocks win over fallback/remainder content. For duplicate
+    explicit blocks, the later block wins so retries/corrections are
+    deterministic. For equal-priority non-explicit entries, keep the longer
+    content to preserve the previous best-effort behavior.
     """
     seen: dict[str, dict] = {}
     for f in files_list or []:
@@ -619,15 +633,177 @@ def _dedupe_by_path(files_list: list[dict]) -> list[dict]:
             # salta file senza path
             continue
         best = seen.get(canon)
-        if (best is None) or (len(content) > len(best.get("content") or "")):
+
+        def _source_priority(item: dict | None) -> int:
+            source = str((item or {}).get("source") or "").lower()
+            if source == "explicit":
+                return 30
+            if source == "provider":
+                return 20
+            if source in {"fallback", "remainder"}:
+                return 0
+            return 10
+
+        replace = False
+        if best is None:
+            replace = True
+        else:
+            current_priority = _source_priority(f)
+            best_priority = _source_priority(best)
+            if current_priority > best_priority:
+                replace = True
+            elif current_priority == best_priority:
+                if str(f.get("source") or "").lower() == "explicit":
+                    replace = True
+                elif len(content) > len(best.get("content") or ""):
+                    replace = True
+
+        if replace:
             ff = dict(f)
             ff["path"] = canon
             seen[canon] = ff
     return list(seen.values())
 
 
+def _line_spans(text: str) -> list[tuple[int, int, str]]:
+    spans: list[tuple[int, int, str]] = []
+    pos = 0
+    for line in text.splitlines(keepends=True):
+        end = pos + len(line)
+        spans.append((pos, end, line))
+        pos = end
+    return spans
 
-def _extract_file_blocks(text: str, *, allow_plain: bool = True, phase: str | None = None) -> tuple[list[dict], str]:
+
+def _normalize_file_block_path(raw_path: str) -> str:
+    raw = str(raw_path or "").strip()
+    if raw.lower().startswith("file:"):
+        raw = raw[5:].strip()
+    raw = raw.replace("\\", "/")
+
+    if re.match(r"^[A-Za-z]:/", raw) or raw.startswith("~"):
+        return ""
+
+    normalized = _canonicalize_path(raw)
+    parts = [part for part in normalized.split("/") if part]
+    if any(part == ".." for part in parts):
+        return ""
+    return normalized
+
+
+def _is_covered(pos: int, intervals: list[tuple[int, int]]) -> bool:
+    return any(start <= pos < end for start, end in intervals)
+
+
+def _find_closing_fence(lines: list[tuple[int, int, str]], start_index: int, fence: str) -> int | None:
+    for index in range(start_index, len(lines)):
+        if lines[index][2].strip() == fence:
+            return index
+    return None
+
+
+def _append_file_block(
+    *,
+    files: list[dict],
+    intervals: list[tuple[int, int]],
+    warnings_local: list[str],
+    raw_path: str,
+    content: str,
+    start: int,
+    end: int,
+    phase: str | None,
+    block_format: str,
+    extra_allowed_patterns: list[str] | None = None,
+) -> None:
+    norm_path = _normalize_file_block_path(raw_path)
+    if not _is_valid_file_header_path(norm_path, phase=phase, extra_allowed_patterns=extra_allowed_patterns):
+        warnings_local.append(f"invalid_file_header:{norm_path[:160] or str(raw_path or '').strip()[:160]}")
+        return
+    intervals.append((start, end))
+    files.append({
+        "path": norm_path,
+        "content": content or "",
+        "mime": _guess_mime(norm_path),
+        "encoding": "utf-8",
+        "source": "explicit",
+        "block_format": block_format,
+    })
+    log.info("harper.file_blocks accepted path=%s size=%d", norm_path, len(content or ""))
+
+
+def _methodology_file_header_allow_patterns(methodology_context: dict | None) -> list[str]:
+    if not isinstance(methodology_context, dict) or methodology_context.get("methodology") != "bmad":
+        return []
+    policy = methodology_context.get("artifact_policy") or {}
+    if not isinstance(policy, dict):
+        return []
+    phase_name = str(methodology_context.get("phase") or "").strip().lower()
+    agent_name = str(methodology_context.get("agent") or "").strip().lower()
+
+    allowed_prefixes_by_role = {
+        ("idea", "analyst"): ("docs/harper/bmad/idea/",),
+        ("spec", "pm"): ("docs/harper/bmad/spec/",),
+        ("spec", "ux"): ("docs/harper/ux/",),
+        ("plan", "architect"): ("docs/harper/bmad/architecture/",),
+        ("plan", "pm"): ("docs/harper/bmad/plan/",),
+        ("finalize", "tech-writer"): ("docs/harper/bmad/finalize/",),
+    }
+    allowed_prefixes = allowed_prefixes_by_role.get((phase_name, agent_name), ())
+    native_prefixes_by_phase = {
+        "idea": ("docs/harper/IDEA.md",),
+        "spec": ("docs/harper/SPEC.md",),
+        "plan": ("docs/harper/PLAN.md", "docs/harper/plan.json", "docs/harper/lane-guides/"),
+        "finalize": (
+            "README.md",
+            ".env.example",
+            "docs/harper/",
+            "scripts/",
+            "src/",
+            "infra/",
+            "deploy/",
+            "ops/",
+            "config/",
+            "configs/",
+            "schemas/",
+            "migrations/",
+            "db/",
+            "database/",
+            "connectors/",
+            "jobs/",
+            "pipelines/",
+            "packages/",
+            "model/",
+            "models/",
+        ),
+    }
+    native_canonical_prefixes = native_prefixes_by_phase.get(phase_name, ())
+
+    def _pattern_is_bounded(pattern: str) -> bool:
+        normalized = _canonicalize_path(str(pattern or ""))
+        if not normalized:
+            return False
+        if normalized.startswith(native_canonical_prefixes):
+            return True
+        return any(normalized.startswith(prefix) for prefix in allowed_prefixes)
+
+    return [
+        str(item)
+        for item in [
+            *(policy.get("canonical_outputs") or []),
+            *(policy.get("mandatory_companion_outputs") or []),
+            *(policy.get("allowed_companion_root_globs") or []),
+        ]
+        if str(item or "").strip() and _pattern_is_bounded(str(item))
+    ]
+
+
+def _extract_file_blocks(
+    text: str,
+    *,
+    allow_plain: bool = True,
+    phase: str | None = None,
+    extra_allowed_patterns: list[str] | None = None,
+) -> tuple[list[dict], str]:
     """
     Extract file blocks from model output.
 
@@ -651,6 +827,10 @@ def _extract_file_blocks(text: str, *, allow_plain: bool = True, phase: str | No
          BEGIN_FILE runs/kit/REQ-XXX/...
          <content>
          END_FILE
+
+    Fenced file blocks are parsed statefully. If the opener uses N backticks,
+    only a line containing exactly N backticks closes the outer file block.
+    Inner fences with fewer backticks remain part of the file content.
     """
     files: list[dict] = []
 
@@ -665,49 +845,127 @@ def _extract_file_blocks(text: str, *, allow_plain: bool = True, phase: str | No
     intervals: list[tuple[int, int]] = []
     warnings_local: list[str] = []
 
-    def _append_if_valid(raw_path: str, content: str, start: int, end: int) -> None:
-        norm_path = str(raw_path or "").strip().lstrip("/")
-        if not _is_valid_file_header_path(norm_path, phase=phase):
-            warnings_local.append(f"invalid_file_header:{norm_path[:160]}")
-            return
-        intervals.append((start, end))
-        files.append({
-            "path": norm_path,
-            "content": (content or "").strip("\n"),
-            "mime": _guess_mime(norm_path),
-            "encoding": "utf-8",
-        })
-        log.info("harper.file_blocks accepted path=%s size=%d", norm_path, len((content or "").strip("\n")))
+    lines = _line_spans(text)
+    index = 0
+    while index < len(lines):
+        line_start, line_end, line = lines[index]
+        stripped = line.strip()
+        upper = stripped.upper()
 
-    # A) FENCED
-    for m in _FILE_BLOCK_FENCED_RE.finditer(text):
-        start, end = m.span()
-        raw_path = (m.group(1) or "").strip()
-        content = (m.group(2) or "")
-        _append_if_valid(raw_path, content, start, end)
+        if upper.startswith("BEGIN_FILE "):
+            raw_path = stripped[len("BEGIN_FILE "):].strip()
+            close_index = None
+            for candidate in range(index + 1, len(lines)):
+                if lines[candidate][2].strip().upper() == "END_FILE":
+                    close_index = candidate
+                    break
+            content_start = line_end
+            content_end = lines[close_index][0] if close_index is not None else len(text)
+            block_end = lines[close_index][1] if close_index is not None else len(text)
+            _append_file_block(
+                files=files,
+                intervals=intervals,
+                warnings_local=warnings_local,
+                raw_path=raw_path,
+                content=text[content_start:content_end],
+                start=line_start,
+                end=block_end,
+                phase=phase,
+                block_format="begin_file",
+                extra_allowed_patterns=extra_allowed_patterns,
+            )
+            index = (close_index + 1) if close_index is not None else len(lines)
+            continue
 
-    # A2) INLINE FENCED
-    for m in _FILE_BLOCK_FENCED_INLINE_RE.finditer(text):
-        start, end = m.span()
-        raw_path = (m.group(1) or "").strip()
-        content = (m.group(2) or "")
-        _append_if_valid(raw_path, content, start, end)
+        fence_match = re.match(r"^(?P<fence>`{3,})(?P<info>[^\r\n]*)$", line.rstrip("\r\n"))
+        if fence_match:
+            fence = fence_match.group("fence")
+            info = (fence_match.group("info") or "").strip()
+            raw_path: str | None = None
+            content_start: int | None = None
+            search_from = index + 1
+            block_format = "fenced_inline"
+
+            if info.lower().startswith("file:"):
+                raw_path = info
+                content_start = line_end
+            elif index + 1 < len(lines):
+                next_start, next_end, next_line = lines[index + 1]
+                next_stripped = next_line.strip()
+                if next_stripped.lower().startswith("file:"):
+                    raw_path = next_stripped
+                    content_start = next_end
+                    search_from = index + 2
+                    block_format = "fenced_file_line"
+
+            if raw_path is not None and content_start is not None:
+                close_index = _find_closing_fence(lines, search_from, fence)
+                content_end = lines[close_index][0] if close_index is not None else len(text)
+                block_end = lines[close_index][1] if close_index is not None else len(text)
+                _append_file_block(
+                    files=files,
+                    intervals=intervals,
+                    warnings_local=warnings_local,
+                    raw_path=raw_path,
+                    content=text[content_start:content_end],
+                    start=line_start,
+                    end=block_end,
+                    phase=phase,
+                    block_format=block_format,
+                    extra_allowed_patterns=extra_allowed_patterns,
+                )
+                index = (close_index + 1) if close_index is not None else len(lines)
+                continue
+
+        index += 1
 
     # B) PLAIN
     if allow_plain:
-        for m in _FILE_BLOCK_PLAIN_RE.finditer(text):
-            start, end = m.span()
-            raw_path = (m.group(1) or "").strip()
-            content = (m.group(2) or "")
-            content = re.sub(r"\n```+\s*\Z", "\n", content)
-            _append_if_valid(raw_path, content, start, end)
+        index = 0
+        while index < len(lines):
+            line_start, line_end, line = lines[index]
+            if _is_covered(line_start, intervals):
+                index += 1
+                continue
+            stripped = line.strip()
+            if not stripped.lower().startswith("file:"):
+                index += 1
+                continue
 
-    # C) BEGIN_FILE
-    for m in _FILE_BLOCK_BEGIN_RE.finditer(text):
-        start, end = m.span()
-        raw_path = (m.group(1) or "").strip()
-        content = (m.group(2) or "")
-        _append_if_valid(raw_path, content, start, end)
+            raw_path = stripped
+            content_start = line_end
+            content_end = len(text)
+            block_end = len(text)
+            next_index = len(lines)
+            for candidate in range(index + 1, len(lines)):
+                candidate_start, _, candidate_line = lines[candidate]
+                if _is_covered(candidate_start, intervals):
+                    content_end = candidate_start
+                    block_end = candidate_start
+                    next_index = candidate
+                    break
+                if candidate_line.strip().lower().startswith("file:"):
+                    content_end = candidate_start
+                    block_end = candidate_start
+                    next_index = candidate
+                    break
+
+            content = text[content_start:content_end]
+            if content.endswith("\n```") or content.endswith("\r\n```"):
+                content = re.sub(r"\r?\n```+\s*\Z", "\n", content)
+            _append_file_block(
+                files=files,
+                intervals=intervals,
+                warnings_local=warnings_local,
+                raw_path=raw_path,
+                content=content,
+                start=line_start,
+                end=block_end,
+                phase=phase,
+                block_format="plain_file",
+                extra_allowed_patterns=extra_allowed_patterns,
+            )
+            index = next_index
 
     
     if warnings_local:
@@ -729,6 +987,38 @@ def _extract_file_blocks(text: str, *, allow_plain: bool = True, phase: str | No
     remainder = "".join(remainder_parts).strip()
 
     return files, remainder
+
+
+def _log_canonical_rejection_candidate(path: str, content: str) -> None:
+    text = str(content or "")
+    lower = text.lower()
+    first_non_empty = ""
+    for line in text.splitlines():
+        if line.strip():
+            first_non_empty = line.strip()
+            break
+    stripped = text.lstrip()
+    log.warning(
+        "harper.canonical_validation rejected path=%s first_non_empty_line=%r starts_with_yaml=%s contains_idea_h1=%s contains_vision_heading=%s content_length=%d",
+        path,
+        first_non_empty[:200],
+        stripped.lower().startswith("yaml") or stripped.lower().startswith("tech_constraints:"),
+        stripped.startswith("# IDEA — ") or stripped.startswith("# IDEA - "),
+        "## Vision" in text,
+        len(text),
+    )
+    if _canonicalize_path(path).startswith("docs/harper/lane-guides/"):
+        log.warning(
+            "harper.lane_guide_validation rejected path=%s first_non_empty_line=%r contains_purpose_and_scope=%s contains_expected_files_and_boundaries=%s contains_test_and_validation_commands=%s contains_eval_gate_expectations=%s content_length=%d",
+            path,
+            first_non_empty[:200],
+            "purpose and scope" in lower,
+            "expected files and boundaries" in lower,
+            "test and validation commands" in lower,
+            "eval/gate expectations" in lower,
+            len(text),
+        )
+
 
 def approx_tokens_from_chars(text: str) -> int:
     # euristica stabile usata nel resto del repo (≈ 4 chars/token)
@@ -823,6 +1113,7 @@ def _load_target_contract_from_core_blobs(core_blobs: dict | None) -> dict | Non
 def _load_file_requirements_from_core_blobs(core_blobs: dict | None) -> dict | None:
     return _load_json_blob(core_blobs, "file_requirements.json")
 
+
 def _filter_core_blobs_for_kit(
     core_blobs: dict | None,
     target_req: str | None,
@@ -847,12 +1138,23 @@ def _filter_core_blobs_for_kit(
         "REPO_ACCESS_MANIFEST",
         "REPO_STRUCTURE_EVIDENCE",
         "REPO_COMPOSITION_MANIFEST",
+        "CLIKE_CAPABILITY_MANIFEST",
+        "CLIKE_CAPABILITY_INDEX",
+        "CLIKE_SELECTED_CAPABILITY_CONTEXT",
         "candidate::",
     )
 
     for name, content in core_blobs.items():
         key = str(name or "").strip()
         lkey = key.lower()
+
+        if (
+            lkey.startswith("companion::docs/harper/bmad/")
+            or lkey.startswith("companion::docs/harper/ux/")
+            or (target_req and lkey.startswith(f"companion::runs/kit/{target_req.lower()}/docs/"))
+        ):
+            kept[key] = str(content or "")
+            continue
 
         if any(lkey.endswith(sfx) for sfx in always_keep_suffixes):
             kept[key] = str(content or "")
@@ -872,12 +1174,60 @@ def _filter_core_blobs_for_kit(
     return kept
 
 
+def _load_selected_capability_json_from_core(core_blobs: dict | None) -> dict:
+    for name, content in (core_blobs or {}).items():
+        if str(name or "").lower().endswith("clike_selected_capability_context.json"):
+            try:
+                data = json.loads(str(content or ""))
+                return data if isinstance(data, dict) else {}
+            except Exception:
+                return {}
+    return {}
+
+
+def _selected_capability_names(group: dict) -> list[str]:
+    if not isinstance(group, dict):
+        return []
+    selected = [str(x).strip() for x in (group.get("selected") or []) if str(x or "").strip()]
+    if selected:
+        return selected
+    resolved = group.get("resolved") if isinstance(group.get("resolved"), list) else []
+    return [
+        str(item.get("name")).strip()
+        for item in resolved
+        if isinstance(item, dict) and str(item.get("name") or "").strip()
+    ]
+
+
+def _selected_capability_names_from_context(selected: dict, key: str, legacy_key: str) -> list[str]:
+    names = _selected_capability_names(selected.get(key) or {})
+    if names:
+        return names
+    return [str(x).strip() for x in (selected.get(legacy_key) or []) if str(x or "").strip()]
+
+
+def _render_namespace_materialization_for_cloud(file_requirements: dict | None) -> str:
+    namespace_context = (file_requirements or {}).get("namespace_materialization") or {}
+    if not isinstance(namespace_context, dict) or not namespace_context.get("rules"):
+        return ""
+    lines = [
+        "## Namespace Materialization",
+        f"- ecosystem: {namespace_context.get('ecosystem') or 'unknown'}",
+        f"- import_namespace: {namespace_context.get('import_namespace') or 'none'}",
+        f"- package_path: {namespace_context.get('package_path') or 'none'}",
+        f"- source_root: {namespace_context.get('source_root') or 'none'}",
+        *[f"- {rule}" for rule in (namespace_context.get("rules") or [])],
+    ]
+    return "\n".join(lines).strip()
+
+
 
 def _build_kit_user_message(
     phase: str,
     user: str,
     core_blobs: dict | None,
     targets: list[str] | None,
+    active_contract_text: str | None = None,
 ) -> str:
     if (phase or "").lower() != "kit":
         return user
@@ -892,7 +1242,11 @@ def _build_kit_user_message(
     for name, content in filtered_core.items():
         refs.append(f"- {name} ({len(str(content or ''))} chars)")
 
-    parts = [
+    parts = []
+    if str(active_contract_text or "").strip():
+        parts.extend([str(active_contract_text or "").strip(), ""])
+
+    parts.extend([
         "## KIT EXECUTION MODE",
         f"- Current target REQ-ID: {target_req}",
         "- TARGET_CONTRACT.json is authoritative for scope, lane, paths, and acceptance.",
@@ -900,7 +1254,7 @@ def _build_kit_user_message(
         "- REQ_PROMOTION_MANIFEST.md is authoritative for staging-vs-canonical promotion discipline.",
         "- Dependencies are read-only context only.",
         "",
-    ]
+    ])
 
     if target_contract:
         lane = str(target_contract.get("lane") or "").strip()
@@ -926,6 +1280,10 @@ def _build_kit_user_message(
         parts.append("- Acceptance criteria:")
         parts.extend([f"  - {x}" for x in acceptance] or ["  - none"])
         parts.append("")
+
+    namespace_text = _render_namespace_materialization_for_cloud(file_requirements)
+    if namespace_text:
+        parts.extend([namespace_text, ""])
 
     if file_requirements:
         parts.append("## FILE REQUIREMENTS")
@@ -1004,7 +1362,9 @@ def _build_kit_user_message(
     parts.extend([
         "",
         "## OUTPUT CONTRACT",
-        "- Emit only `file:/path` file blocks with complete file contents.",
+        "- Emit each output as a BEGIN_FILE / END_FILE block using workspace-relative paths.",
+        "- Use exactly: BEGIN_FILE runs/kit/<REQ-ID>/... then full file content then END_FILE.",
+        "- Existing fenced file:/path blocks may be parsed for compatibility, but BEGIN_FILE / END_FILE is preferred.",
         "- No prose outside file blocks.",
     ])
 
@@ -1017,6 +1377,10 @@ def _output_checklist_for_phase(phase: str) -> str:
     if p in ("spec", "plan"):
         return (
             "### OUTPUT CONFORMITY CHECKLIST\n"
+            "- Emit each output as a BEGIN_FILE / END_FILE block using workspace-relative paths.\n"
+            "- Markdown file contents may contain fenced code blocks such as YAML; preserve those internal fences as file content.\n"
+            "- Do not wrap Markdown files in triple-backtick file blocks when the file itself contains fenced code blocks.\n"
+            "- Do not emit prose outside BEGIN_FILE / END_FILE blocks.\n"
             f"- Top-level heading is `# {p.upper()}`.\n"
             "- All major sections use `## Section` headings (no numbered titles).\n"
             "- Required diagrams (if any) use fenced code blocks (e.g., Mermaid). No ASCII art.\n"
@@ -1026,19 +1390,32 @@ def _output_checklist_for_phase(phase: str) -> str:
     if p == "finalize":
         return (
             "### OUTPUT CONFORMITY CHECKLIST\n"
+            "- Emit each output as a BEGIN_FILE / END_FILE block using workspace-relative paths.\n"
+            "- Markdown file contents may contain fenced code blocks such as YAML; preserve those internal fences as file content.\n"
+            "- Do not wrap Markdown files in triple-backtick file blocks when the file itself contains fenced code blocks.\n"
+            "- Do not emit prose outside BEGIN_FILE / END_FILE blocks.\n"
             f"- Top-level heading is `# {p.upper()}`.\n"
-            "- Emit one or more `file:/path/...` block.\n"
             "- If additional metadata (tags/version) is included, keep it at the end in a clearly labeled section.\n"
             "- No ASCII art; diagrams (if any) use proper fenced blocks.\n"
             "- Clean Markdown bullets (one space after `-` or `*`).\n"
         )
 
-    # KIT (file-based outputs)
+    if p == "kit":
+        return (
+            "### OUTPUT CONFORMITY CHECKLIST\n"
+            "- Emit each output as a BEGIN_FILE / END_FILE block using workspace-relative paths.\n"
+            "- Respect the module/package and namespace structure defined in PLAN.md and plan.json during KIT.\n"
+            "- Do not emit prose outside BEGIN_FILE / END_FILE blocks, except a short append-only iteration log if explicitly specified.\n"
+            "- Existing fenced file:/path blocks may still be parsed for compatibility, but BEGIN_FILE / END_FILE is preferred.\n"
+        )
+
     return (
         "### OUTPUT CONFORMITY CHECKLIST\n"
-        "- Emit one or more `file:/path` blocks with complete file contents.\n"
-        "- Respect the module/package and namespace structure defined in PLAN.md and plan.json during KIT.\n"
-        "- No trailing prose outside fenced blocks, except a short append-only iteration log if explicitly specified.\n"
+        "- Emit each output as a BEGIN_FILE / END_FILE block using workspace-relative paths.\n"
+        "- Markdown file contents may contain fenced code blocks such as YAML; preserve those internal fences as file content.\n"
+        "- Do not wrap Markdown files in triple-backtick file blocks when the file itself contains fenced code blocks.\n"
+        "- Do not emit prose outside BEGIN_FILE / END_FILE blocks.\n"
+        "- Existing fenced file:/path blocks may still be parsed for compatibility, but BEGIN_FILE / END_FILE is preferred.\n"
     )
 
 def _append_kit_target_to_user(
@@ -1087,6 +1464,7 @@ def _compose_system_messages(
     run_id: str | None,
     repo_url: str | None,
     targets: Optional[list[str]],
+    methodology_context: Optional[dict] = None,
 ) -> list[dict]:
     log.info("Compose system messages for phase %s", phase)
 
@@ -1114,10 +1492,55 @@ def _compose_system_messages(
         "- Maintain human-in-control tone; do not invent facts.\n"
     )
 
+    target_req_id = str((targets or [None])[0] or "").strip() or None
+    kit_file_requirements = (
+        _load_file_requirements_from_core_blobs(core_blobs)
+        if (phase or "").lower() == "kit"
+        else None
+    )
+    active_output_contract = build_active_output_contract(
+        phase=phase,
+        runner="cloud",
+        methodology_context=methodology_context,
+        req_id=target_req_id,
+        file_requirements=kit_file_requirements,
+    )
+    methodology_text = render_methodology_context_for_cloud_prompt(
+        methodology_context,
+        active_output_contract=active_output_contract,
+    )
+    cloud_selected_skill_context = compose_cloud_selected_phase_skill_context(
+        core_blobs,
+        methodology_context,
+        active_output_contract=active_output_contract,
+    )
+
+    if cloud_selected_skill_context:
+        system = (
+            system.rstrip()
+            + "\n\n"
+            + cloud_selected_skill_context
+            + "\n"
+        )
+
+    validation_context = validate_current_canonical_core_blobs(core_blobs)
+    trusted_core_blobs = validation_context.get("trusted_core_blobs") or {}
+    current_invalid_canonical = validation_context.get("invalid_canonical") or []
+    trusted_idea_md = idea_md
+    if idea_md and (phase or "").lower() == "spec":
+        idea_validation_context = validate_current_canonical_core_blobs(
+            {"docs/harper/IDEA.md": idea_md}
+        )
+        if idea_validation_context.get("invalid_canonical"):
+            current_invalid_canonical.extend(
+                idea_validation_context.get("invalid_canonical") or []
+            )
+            trusted_idea_md = None
+
     constraints_chunks: list[str] = []
     other_core: dict[str, str] = {}
-    if core_blobs:
-        for name, content in core_blobs.items():
+    if trusted_core_blobs:
+        for name, content in trusted_core_blobs.items():
             lname = (name or "").lower()
             if lname.startswith("tech_constraints"):
                 if isinstance(content, str) and content.strip():
@@ -1204,13 +1627,22 @@ def _compose_system_messages(
         constraints_text = "\n\n---\n\n".join(constraints_chunks)
         suffix_parts.append("### Technology Constraints (YAML)\n```yaml\n" + constraints_text + "\n```")
 
+    if current_invalid_canonical:
+        suffix_parts.append(
+            "\n\n"
+            + render_current_canonical_validation_for_cloud_prompt(
+                current_invalid_canonical
+            ).strip()
+        )
+
     suffix = "".join(suffix_parts)
     idea_txt = ""
-    if idea_md and phase.lower() == "spec":
-        idea_txt = f"### IDEA.md (verbatim)\n{idea_md}\n\n"
+    if trusted_idea_md and phase.lower() == "spec":
+        idea_txt = f"### IDEA.md (verbatim)\n{trusted_idea_md}\n\n"
 
     user = (
         f"{foreground}\n\n"
+        f"{methodology_text}"
         f"### Route\n\n"
         f"{idea_txt}"
         f"{refs}\n\n"
@@ -1226,6 +1658,7 @@ def _compose_system_messages(
             user=user,
             core_blobs=core_blobs,
             targets=targets,
+            active_contract_text=methodology_text,
         )
         user = _append_kit_target_to_user(
             user,
@@ -1308,6 +1741,10 @@ class HarperRunRequest(BaseModel):
     model: str
     profile: Optional[str] = None
     profileHint: Optional[str] = None
+    methodology: Optional[str] = None
+    agent: Optional[str] = None
+    methodology_context: Optional[Dict[str, Any]] = None
+    context_envelope: Optional[Dict[str, Any]] = None
     docRoot: str
     core: List[str] = []
     attachments: List[Union[str, Attachment]] = []
@@ -1455,8 +1892,24 @@ def _write_prompt_debug(
     messages: list[dict],
     core_blobs: dict | None,
     targets: list[str] | None,
+    methodology_context: dict | None = None,
+    context_envelope: dict | None = None,
 ) -> None:
     try:
+        methodology_debug: dict[str, Any] = {}
+        if isinstance(methodology_context, dict):
+            selected_skill_references = methodology_context.get("selected_skill_references") or []
+            selected_skill_context = methodology_context.get("selected_skill_context") or {}
+            skill_reference_policy = methodology_context.get("skill_reference_policy") or {}
+            methodology_debug = {
+                "methodology": methodology_context.get("methodology"),
+                "phase": methodology_context.get("phase"),
+                "agent": methodology_context.get("agent"),
+                "selected_skill_references": selected_skill_references if isinstance(selected_skill_references, list) else [],
+                "selected_skill_context": selected_skill_context if isinstance(selected_skill_context, dict) else {},
+                "skill_reference_policy": skill_reference_policy if isinstance(skill_reference_policy, dict) else {},
+            }
+
         summary = {
             "project_id": project_id,
             "run_id": run_id,
@@ -1467,11 +1920,60 @@ def _write_prompt_debug(
             "core_blob_keys": sorted(list((core_blobs or {}).keys())),
             "messages": messages or [],
         }
+        selected_capability_json = _load_selected_capability_json_from_core(core_blobs)
+        if selected_capability_json:
+            summary["selected_clike_capabilities"] = {
+                "selected_packs": _selected_capability_names(selected_capability_json.get("packs") or {}),
+                "selected_skills": _selected_capability_names(selected_capability_json.get("skills") or {}),
+                "selected_design_profiles": _selected_capability_names(selected_capability_json.get("design_profiles") or {}),
+                "source": "CLIKE_SELECTED_CAPABILITY_CONTEXT",
+            }
+        if isinstance(context_envelope, dict) and context_envelope:
+            summary["context_envelope"] = context_envelope
+        if methodology_debug:
+            summary["methodology_context"] = methodology_debug
+            summary["selected_skill_references"] = methodology_debug.get("selected_skill_references") or []
         path = _prompt_debug_path(project_id, run_id, phase)
         path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
         log.info("harper.prompt_debug saved to %s", path)
     except Exception as exc:
         log.warning("harper.prompt_debug failed: %s", exc)
+
+def _methodology_context_with_envelope_skills(
+    methodology_context: dict | None,
+    context_envelope: dict | None,
+    *,
+    methodology: str | None,
+    agent: str | None,
+    phase: str | None,
+) -> dict | None:
+    base = dict(methodology_context) if isinstance(methodology_context, dict) else {}
+    envelope = context_envelope if isinstance(context_envelope, dict) else {}
+    envelope_bmad = envelope.get("bmad_methodology_skills") if isinstance(envelope.get("bmad_methodology_skills"), dict) else {}
+
+    is_bmad = (
+        str(base.get("methodology") or methodology or envelope.get("methodology") or "").strip().lower()
+        == "bmad"
+    )
+    if not is_bmad:
+        return methodology_context if isinstance(methodology_context, dict) else None
+
+    base.setdefault("methodology", "bmad")
+    base.setdefault("phase", phase or envelope.get("phase"))
+    base.setdefault("agent", agent or envelope.get("agent"))
+
+    envelope_refs = envelope_bmad.get("selected_skill_references") or []
+    envelope_context = envelope_bmad.get("selected_skill_context") or {}
+    envelope_policy = envelope_bmad.get("skill_reference_policy") or {}
+
+    if isinstance(envelope_refs, list) and envelope_refs and not base.get("selected_skill_references"):
+        base["selected_skill_references"] = envelope_refs
+    if isinstance(envelope_context, dict) and envelope_context and not base.get("selected_skill_context"):
+        base["selected_skill_context"] = envelope_context
+    if isinstance(envelope_policy, dict) and envelope_policy and not base.get("skill_reference_policy"):
+        base["skill_reference_policy"] = envelope_policy
+
+    return base
 
 def _dump_llm_provider_raw(
     *,
@@ -2169,6 +2671,13 @@ async def run(req: HarperRunRequest,  request: Request):
         )    
     model_route_label = _route_label(req.model, req.profileHint)
     log.info("model_route_label (too long) %s", model_route_label)
+    req.methodology_context = _methodology_context_with_envelope_skills(
+        req.methodology_context,
+        req.context_envelope,
+        methodology=req.methodology,
+        agent=req.agent,
+        phase=phase,
+    )
 
     messages = _compose_system_messages(
                             phase,
@@ -2178,7 +2687,8 @@ async def run(req: HarperRunRequest,  request: Request):
                             model_route_label,
                             req.runId,
                             repourl,
-                            targets)
+                            targets,
+                            req.methodology_context)
 
     #RAG context loading     
     result = await loadAttachments(rag_enabled, project_id, phase, messages, inline_files, rag_files, attachments, model_route_label, req.runId)
@@ -2370,6 +2880,8 @@ async def run(req: HarperRunRequest,  request: Request):
         messages=messages,
         core_blobs=core_blobs,
         targets=targets,
+        methodology_context=req.methodology_context,
+        context_envelope=req.context_envelope,
     )
 
     telemetry: dict[str, object] = {
@@ -2560,41 +3072,43 @@ async def run(req: HarperRunRequest,  request: Request):
     if provider_files:
         log.info("harper.files from provider: %d", len(provider_files))
         for pf in provider_files:
-            p = (pf.get("path") or "").lstrip().lstrip("/")
+            raw_provider_path = pf.get("path") or ""
+            p = _normalize_file_block_path(raw_provider_path)
             c = pf.get("content") or ""
             if not p:
+                if str(raw_provider_path or "").strip():
+                    warnings.append(f"ignored_invalid_provider_file_path:{str(raw_provider_path)[:160]}")
+                    continue
                 p = default_doc_path  # fallback per non perdere contenuti
             files.append({
                 "path": p,
                 "content": c,
                 "mime": _guess_mime(p),
                 "encoding": "utf-8",
+                "source": "provider",
             })
 
-        # Se nel testo rimane del contenuto "fuori" dai blocchi file, salvalo nel doc di fase
+        # Provider-extracted files are authoritative. Free-form text left outside
+        # those blocks is commentary/diagnostics, not another canonical artifact.
         remainder_txt = (system_md_txt or "").strip()
         if remainder_txt:
-            files.append({
-                "path": default_doc_path,
-                "content": remainder_txt,
-                "mime": "text/markdown",
-                "encoding": "utf-8",
-            })
+            warnings.append("ignored_remainder_outside_provider_file_blocks")
 
     else:
         structured_phases = {"kit", "integrity_eval", "promotion_hardener", "promotion_eval"}
         #allow_plain = phase not in structured_phases
         allow_plain = True
-        gen_files, remainder = _extract_file_blocks(system_md_txt, allow_plain=allow_plain, phase=phase)
+        header_allow_patterns = _methodology_file_header_allow_patterns(req.methodology_context)
+        gen_files, remainder = _extract_file_blocks(
+            system_md_txt,
+            allow_plain=allow_plain,
+            phase=phase,
+            extra_allowed_patterns=header_allow_patterns,
+        )
         if gen_files:
             files.extend(gen_files)
             if remainder:
-                files.append({
-                    "path": default_doc_path,
-                    "content": remainder,
-                    "mime": "text/markdown",
-                    "encoding": "utf-8",
-                })
+                warnings.append("ignored_remainder_outside_file_blocks")
         else:
             structured_only_phases = {"integrity_eval", "promotion_hardener", "promotion_eval"}
             if phase in structured_only_phases:
@@ -2606,6 +3120,7 @@ async def run(req: HarperRunRequest,  request: Request):
                     "content": system_md_txt,
                     "mime": "text/markdown",
                     "encoding": "utf-8",
+                    "source": "fallback",
                 }) 
 
 
@@ -2628,6 +3143,155 @@ async def run(req: HarperRunRequest,  request: Request):
     for _f in files:
          _f["path"] = _canonicalize_path(_f.get("path") or "")
 
+    files = filter_files_by_methodology_artifact_policy(
+        files,
+        phase=phase,
+        methodology_context=req.methodology_context,
+        warnings=warnings,
+    )
+
+    evidence_text = "\n\n".join(
+        str(value or "")
+        for value in (core_blobs or {}).values()
+        if isinstance(value, str)
+    )
+    canonical_validation = validate_canonical_harper_files(files, evidence_text=evidence_text)
+    rejected_canonical = canonical_validation.get("rejected") or []
+    if rejected_canonical:
+        partial_files = canonical_validation.get("accepted_files") or []
+        for source_file in canonical_validation.get("rejected_source_files") or []:
+            _log_canonical_rejection_candidate(
+                str(source_file.get("path") or ""),
+                str(source_file.get("content") or ""),
+            )
+        rejected_canonical = attach_rejected_artifact_debug_refs(
+            rejected_canonical,
+            telemetry_root=TELEMETRY_DIR,
+            project_id=project_id,
+            run_id=req.runId,
+            phase=phase,
+            files=partial_files + (canonical_validation.get("rejected_source_files") or []),
+        )
+        structured_errors = [
+            {
+                "path": item.get("path"),
+                "failed_checks": item.get("failed_checks") or [],
+                "diagnostic": item.get("diagnostic")
+                or "Canonical artifact failed validation.",
+                "error_code": "invalid_canonical_artifact",
+                "debug_path": item.get("debug_path"),
+                "rejected_artifact_ref": item.get("rejected_artifact_ref"),
+            }
+            for item in rejected_canonical
+        ]
+        errors.extend(structured_errors)
+        telemetry = {
+            "timestamp": time.time(),
+            "project_name": project_id,
+            "docRoot": req.docRoot,
+            "phase_params": {
+                "temperature": gen_temperature,
+                "max_tokens": gen_max_tokens,
+                "top_p": gen_top_p,
+            },
+            "files": [],
+            "partial_files": [
+                {"path": f["path"], "bytes": len(f.get("content") or "")}
+                for f in partial_files
+            ],
+            "text_len": text_len,
+            "files_len": 0,
+            "partial_files_len": len(partial_files),
+            "usage": llm_usage or {},
+            "provider": provider,
+            "validation_failed": True,
+            "error_code": "invalid_canonical_artifact",
+            "rejected": rejected_canonical,
+        }
+        _write_telemetry(project_id, {
+            "project_id": project_id,
+            "project_name": project_id,
+            "run_id": req.runId,
+            "phase": phase,
+            "error_code": "invalid_canonical_artifact",
+            "rejected": rejected_canonical,
+            "timestamp": telemetry["timestamp"],
+            "files": [],
+            "partial_files": telemetry["partial_files"],
+            "files_len": 0,
+            "partial_files_len": len(partial_files),
+            "provider": provider,
+            "usage": llm_usage or {},
+        })
+        failed_paths = ", ".join(str(item.get("path") or "") for item in rejected_canonical)
+        return {
+            "ok": False,
+            "phase": phase,
+            "error_code": "invalid_canonical_artifact",
+            "echo": f"{model_route_label} :: {phase.upper()} validation failed",
+            "text": (
+                f"{failed_paths or 'Canonical artifact'} failed canonical validation and was not written."
+            ),
+            "diffs": [],
+            "files": [],
+            "partial_files": partial_files,
+            "diagnostic_files": partial_files,
+            "tests": {"passed": 0, "failed": 1, "summary": "invalid_canonical_artifact"},
+            "warnings": warnings,
+            "errors": errors,
+            "rejected": rejected_canonical,
+            "runId": req.runId or "n/a",
+            "usage": llm_usage,
+            "telemetry": telemetry,
+        }
+
+    active_output_contract = build_active_output_contract(
+        phase=phase,
+        runner="cloud",
+        methodology_context=req.methodology_context,
+        req_id=str((targets or [None])[0] or "").strip() or None,
+        file_requirements=(
+            _load_file_requirements_from_core_blobs(core_blobs)
+            if (phase or "").lower() == "kit"
+            else None
+        ),
+    )
+    active_contract_validation = validate_files_against_active_output_contract(
+        files,
+        active_output_contract,
+    )
+    if active_contract_validation.get("forbidden_outputs"):
+        detail = (
+            "forbidden_outputs: "
+            + ", ".join(str(item) for item in active_contract_validation["forbidden_outputs"])
+        )
+        warnings.append(detail)
+        raise HTTPException(502, detail)
+    if active_contract_validation.get("disallowed_outputs"):
+        detail = (
+            "disallowed_outputs: "
+            + ", ".join(str(item) for item in active_contract_validation["disallowed_outputs"])
+        )
+        warnings.append(detail)
+        raise HTTPException(502, detail)
+    if active_contract_validation.get("missing_required_outputs"):
+        missing_required = list(active_contract_validation["missing_required_outputs"])
+        log.warning(
+            "harper.active_output_contract missing_required_outputs phase=%s req_id=%s methodology=%s agent=%s count_missing=%d first_missing=%s",
+            phase,
+            str((targets or [None])[0] or "").strip() or None,
+            active_output_contract.get("methodology"),
+            active_output_contract.get("agent"),
+            len(missing_required),
+            missing_required[:10],
+        )
+        detail = (
+            "missing_required_outputs: "
+            + ", ".join(str(item) for item in missing_required)
+        )
+        warnings.append(detail)
+        if active_output_contract.get("strict_missing_required_outputs"):
+            raise HTTPException(502, detail)
 
     # --- plan.json derivation from PLAN.md (only for phase=plan) ---
     if phase == "plan":

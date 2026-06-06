@@ -195,6 +195,103 @@ def _discover_design_profiles(repo_root: Path) -> List[Dict[str, Any]]:
     return items
 
 
+def _path_parent_name(rel_path: str, marker: str, default: str = "") -> str:
+    parts = [part for part in str(rel_path or "").replace("\\", "/").split("/") if part]
+    try:
+        idx = parts.index(marker)
+    except ValueError:
+        return default
+    if idx + 1 < len(parts):
+        return parts[idx + 1]
+    return default
+
+
+def _capability_blob_items(core_blobs: Optional[Dict[str, Any]], *, kind: str) -> List[Dict[str, Any]]:
+    blobs = dict(core_blobs or {})
+    items: List[Dict[str, Any]] = []
+
+    for raw_path, raw_content in sorted(blobs.items(), key=lambda item: str(item[0])):
+        rel = str(raw_path or "").replace("\\", "/").lstrip("/")
+        lower = rel.lower()
+        text = str(raw_content or "")
+        if not text.strip():
+            continue
+
+        if kind == "skill":
+            if not lower.startswith(".clike/skills/") or not lower.endswith("/skill.md"):
+                continue
+            if lower.startswith(".clike/skills/vendor/bmad/"):
+                continue
+            fallback = _path_parent_name(rel, "skills")
+            meta = _extract_frontmatter(text)
+            items.append(
+                {
+                    "kind": "skill",
+                    "name": _safe_str(meta.get("name")) or fallback,
+                    "description": _safe_str(meta.get("description")),
+                    "path": rel,
+                    "metadata": meta,
+                    "preview": text[:MAX_ITEM_PREVIEW_CHARS],
+                }
+            )
+
+        elif kind == "pack":
+            if not lower.startswith(".clike/packs/") or not (
+                lower.endswith("/pack.md") or lower.endswith("/readme.md")
+            ):
+                continue
+            fallback = _path_parent_name(rel, "packs")
+            meta = _extract_frontmatter(text)
+            items.append(
+                {
+                    "kind": "pack",
+                    "name": _safe_str(meta.get("name")) or fallback,
+                    "description": _safe_str(meta.get("description")),
+                    "path": rel,
+                    "docs": [rel],
+                    "metadata": meta,
+                    "preview": text[:MAX_ITEM_PREVIEW_CHARS],
+                }
+            )
+
+        elif kind == "design_profile":
+            if not lower.startswith(".clike/design-profiles/") or not lower.endswith("/design.md"):
+                continue
+            fallback = _path_parent_name(rel, "design-profiles")
+            meta = _extract_frontmatter(text)
+            items.append(
+                {
+                    "kind": "design_profile",
+                    "name": _safe_str(meta.get("name")) or fallback,
+                    "description": _safe_str(meta.get("description")),
+                    "path": rel,
+                    "metadata": meta,
+                    "preview": text[:MAX_ITEM_PREVIEW_CHARS],
+                }
+            )
+
+    return items
+
+
+def build_capability_context_from_core_blobs(core_blobs: Optional[Dict[str, Any]]) -> Dict[str, str]:
+    """Build capability manifest/index from project-visible `.clike` core blobs."""
+    index = {
+        "schema_version": "clike.capability_index.v1",
+        "repo_root": "core_blobs",
+        "source_transport": "core_blobs",
+        "skills": _capability_blob_items(core_blobs, kind="skill"),
+        "packs": _capability_blob_items(core_blobs, kind="pack"),
+        "design_profiles": _capability_blob_items(core_blobs, kind="design_profile"),
+    }
+    if not (index["skills"] or index["packs"] or index["design_profiles"]):
+        return {}
+
+    return {
+        "CLIKE_CAPABILITY_MANIFEST.md": _build_manifest(index),
+        "CLIKE_CAPABILITY_INDEX.json": json.dumps(index, ensure_ascii=False, indent=2),
+    }
+
+
 def _build_manifest(index: Dict[str, Any]) -> str:
     skills = list(index.get("skills") or [])
     packs = list(index.get("packs") or [])
@@ -514,7 +611,10 @@ def build_selected_capability_context(
         "CLIKE_SELECTED_CAPABILITY_CONTEXT.json": json.dumps(selected, ensure_ascii=False, indent=2),
     }
 
-def build_capability_context(repository_context: Optional[Dict[str, Any]]) -> Dict[str, str]:
+def build_capability_context(
+    repository_context: Optional[Dict[str, Any]],
+    core_blobs: Optional[Dict[str, Any]] = None,
+) -> Dict[str, str]:
     """
     Build capability core blobs for Harper phases.
 
@@ -523,7 +623,7 @@ def build_capability_context(repository_context: Optional[Dict[str, Any]]) -> Di
     """
     repo_root = _repo_root_from_context(repository_context)
     if not repo_root:
-        return {}
+        return build_capability_context_from_core_blobs(core_blobs)
 
     index = {
         "schema_version": "clike.capability_index.v1",
@@ -535,7 +635,10 @@ def build_capability_context(repository_context: Optional[Dict[str, Any]]) -> Di
 
     manifest = _build_manifest(index)
 
-    return {
+    discovered = {
         "CLIKE_CAPABILITY_MANIFEST.md": manifest,
         "CLIKE_CAPABILITY_INDEX.json": json.dumps(index, ensure_ascii=False, indent=2),
     }
+    if index["skills"] or index["packs"] or index["design_profiles"]:
+        return discovered
+    return build_capability_context_from_core_blobs(core_blobs) or discovered

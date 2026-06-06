@@ -1,4 +1,5 @@
 const vscode = require('vscode');
+const { buildBrowserSlashParserSource } = require('./slash-parser');
 const out = vscode.window.createOutputChannel('Clike.theme');
 
 /**
@@ -503,15 +504,23 @@ var HELP_COMMANDS = [
   {cmd:'/where', desc:'Shows the Harper workspace/doc-root path'},
   {cmd:'/switch <name|path>', desc:'Switches to another Harper project'},
   {cmd:'/idea', desc:'Formalizes the IDEA.md (optional)'},
+  {cmd:'/idea --methodology bmad --agent analyst', desc:'Frames IDEA.md with BMAD analyst guidance'},
   {cmd:'/spec [file|text]', desc:'Generates/Updates SPEC.md from the IDEA'},
+  {cmd:'/spec --methodology bmad --agent pm', desc:'Builds SPEC guidance with BMAD product management focus'},
   {cmd:'/plan [spec_path]', desc:'Generates/Updates PLAN.md from the SPEC'},
   {cmd:'/extend [REQ-ID] "<title>" | --after REQ-ID [--from attachment]', desc:'Appends new REQs to PLAN.md/plan.json without modifying consolidated REQs'},
   {cmd:'/add-req', desc:'Alias for /extend'},
   {cmd:'/kit [REQ-ID] [--integrity|--hardener|--promotion-eval|--phases=...]', desc:'Runs base KIT by default, or explicit follow-up KIT phases on an existing/generated candidate'},
+  {cmd:'/kit REQ-001 --repair --methodology bmad --agent developer', desc:'Runs a governed BMAD developer repair pass inside KIT candidate roots'},
   {cmd:'/eval <REQ-ID>', desc:'Performs an eval of KIT'},
+  {cmd:'/eval REQ-001 --methodology bmad --agent qa', desc:'Runs canonical eval, then attaches BMAD QA advisory guidance'},
   {cmd:'/gate <REQ-ID>', desc:'Performs a gate of KIT'},
+  {cmd:'/plan --methodology bmad --agent architect', desc:'Plans with BMAD architecture guidance while CLike owns PLAN.md and plan.json'},
+  {cmd:'/plan --methodology bmad --agent pm', desc:'Plans with BMAD product slicing and acceptance guidance'},
+  {cmd:'/spec --methodology bmad --agent ux', desc:'Builds SPEC guidance with UX journeys, states, and accessibility focus'},
   {cmd:'/agent-default codex|claude|auto', desc:'Sets the preferred local agent executor for Harper local flows'},
   {cmd:'/finalize', desc:'Final gates and project closure (Harper)'},
+  {cmd:'/finalize --methodology bmad --agent tech-writer', desc:'Finalizes with BMAD documentation guidance'},
   {cmd:'/rag <query>', desc:'Searches the RAG and shows top results'},
   {cmd:'/rag +<N>', desc:'Adds RAG result #N from the last search to the attached files'},
   {cmd:'/rag list', desc:'Shows current attached files (inline + RAG)'},
@@ -520,14 +529,14 @@ var HELP_COMMANDS = [
   {cmd:'/ragSearch <query>', desc:'Searches the RAG and shows top results'}
 ];
 
-// --- bootstrap sync: seleziona modello SOLO quando tutto è pronto ---
+// --- Bootstrap sync: select the model only when the UI is fully ready ---
 const boot = { gotInit:false, gotModels:false, gotHydrate:false, done:false, savedModel:null };
-// Ultimi risultati di /rag per consentire /rag +N
+// Last /rag results, used by /rag +N.
 let lastRagHits = [];
 
 function finalizeBootIfReady() {
   if (boot.done) return;
-  // Aspetta TUTTO: stato iniziale + modelli + prima hydrate
+  // Wait for all initial state, models, and first hydration.
   if (!(boot.gotInit && boot.gotModels && boot.gotHydrate)) return;
 
   // Elenco modelli disponibili nella combo
@@ -931,9 +940,9 @@ function updateBotBadge() {
   const isHarper = mode.value === 'harper';
  // badge.style.display = isHarper ? 'inline-block' : 'none';
   badge.style.display = 'inline-block'
-  // Placeholder e label pulsanti coerenti
+  // Keep placeholders and button labels consistent.
   if (isHarper) {
-    prompt.placeholder = 'Harper bot — digita /help per i comandi…';
+    prompt.placeholder = 'Harper bot — type /help for commands...';
   } else {
     prompt.placeholder = 'Type your prompt...';
   }
@@ -1183,6 +1192,7 @@ function parseSlash(s) {
   return { cmd, args: {} };
 }
 
+${buildBrowserSlashParserSource()}
 
 function getHelpItems() {
   var fallback = HELP_COMMANDS;
@@ -1218,26 +1228,41 @@ function getHelpListSafe() {
   return HELP_COMMANDS;
 }
 
+function stringifyUiErrorMessage(value) {
+  if (typeof value === 'string') return value;
+  if (value instanceof Error) return value.message || String(value);
+  try {
+    return JSON.stringify(value || 'unknown', null, 2);
+  } catch {
+    return String(value || 'unknown');
+  }
+}
+
 function handleSlash(slash) {
   if (!slash) return;
 
+  if (slash.error) {
+    const errorText = stringifyUiErrorMessage(slash.error || 'Invalid slash command.');
+    const text = 'Error: ' + errorText;
+    try { bubble('assistant', text, 'system'); } catch {}
+    try {
+      const pre = document.getElementById('text');
+      if (pre) pre.textContent = text;
+      setTab('text');
+    } catch {}
+    return true;
+  }
+
   const slashCmd = String(slash.cmd || '').toLowerCase();
-  const isHarperOnlyCommand = new Set([
+  const isHarperModeOnlyCommand = new Set([
     '/init',
     '/status',
     '/where',
     '/switch',
-    '/idea',
-    '/spec',
-    '/plan',
-    '/kit',
-    '/eval',
-    '/gate',
     '/agent-default',
-    '/finalize'
   ]).has(slashCmd);
 
-  if (isHarperOnlyCommand && currentMode() !== 'harper') {
+  if (isHarperModeOnlyCommand && currentMode() !== 'harper') {
     bubble('assistant', 'This command is available only in Harper mode.', 'system');
     try { prompt.value = ''; } catch {}
     return;
@@ -1251,7 +1276,7 @@ function handleSlash(slash) {
     var items = getHelpListSafe();
     var listText = '';
     try {
-      // Prendi una lista sicura: prima window.HELP_COMMANDS, altrimenti fallback locale
+      // Use a safe list: prefer window.HELP_COMMANDS, otherwise use the local fallback.
       var items;
       try {
         items = (typeof window !== 'undefined' && Array.isArray(window.HELP_COMMANDS))
@@ -1260,7 +1285,7 @@ function handleSlash(slash) {
       } catch (e0) {
         items = (typeof HELP_COMMANDS !== 'undefined' && Array.isArray(HELP_COMMANDS)) ? HELP_COMMANDS : [];
       }
-      // Normalizza in un vero array senza toccare .length di oggetti strani
+      // Normalize to a real array without touching .length on unusual objects.
       var arr;
       try {
         if (Array.isArray(items)) {
@@ -1305,18 +1330,18 @@ function handleSlash(slash) {
       try { prompt.value = ''; } catch {}
       return true;
     }
-    // 2) /rag +N → aggiunge l’N-esimo hit come RAG attachment
+    // 2) /rag +N adds the Nth hit as a RAG attachment.
     if (a.action === 'addByIndex' && Number.isFinite(a.index)) {
       const idx = a.index - 1;
       const hit = Array.isArray(lastRagHits) ? lastRagHits[idx] : null;
       const index = a.index || 1;
       if (!hit) {
         
-        bubble('assistant', "Nessun risultato #"+index+" disponibile. Esegui prima /rag <query>.", "system");
+        bubble('assistant', "No result #"+index+" is available. Run /rag <query> first.", "system");
         return true;
       }
       const doc_index = "doc" + index;
-      // Normalizza hit → attachment RAG by id|path
+      // Normalize the hit to a RAG attachment by id or path.
       const id    = (hit.id || hit.doc_id || null);
       const path = (hit.path || hit.source_path || null);
       const name = hit.title || path || id || doc_index;  
@@ -1336,18 +1361,18 @@ function handleSlash(slash) {
       const pathSuffix = x.path ? ' (path)' : '';
       return (i + 1) + '. ' + nameOrId + idSuffix + pathSuffix;
     });
-      bubble('assistant', lines.length ? "Allegati:\\n"+ lines.join('\\n') : 'Nessun allegato.', 'system');
+      bubble('assistant', lines.length ? "Attachments:\\n"+ lines.join('\\n') : 'No attachments.', 'system');
       return true;
     }
-    // 4) /rag clear → svuota allegati
+    // 4) /rag clear clears attachments.
     if (a.action === 'clear') {
       attachmentsByMode[currentMode()] = [];
       renderAttachmentChips();
-      bubble('assistant', 'Allegati svuotati.', 'system');
+      bubble('assistant', 'Attachments cleared.', 'system');
       return true;
     }
     // help/fallback
-    bubble('assistant', 'Uso: /rag <query> | /rag +N | /rag list | /rag clear', 'system');
+    bubble('assistant', 'Usage: /rag <query> | /rag +N | /rag list | /rag clear', 'system');
     return true;
   }
 
@@ -1422,6 +1447,7 @@ function handleSlash(slash) {
     slash.cmd === '/spec' ||
     slash.cmd === '/plan' ||
     slash.cmd === '/extend' ||
+    slash.cmd === '/add-req' ||
     slash.cmd === '/kit' ||
     slash.cmd === '/finalize' ||
     slash.cmd === '/agent-default'
@@ -1470,10 +1496,14 @@ function handleSlash(slash) {
 
     const msg = {
       type: 'harperRun',
-      cmd: slash.cmd.slice(1),
+      cmd: slash.cmd === '/add-req' ? 'extend' : slash.cmd.slice(1),
       attachments: atts,
       rawCommand: rawCommand || null
     };
+    if (slash.args?.methodology) msg.methodology = slash.args.methodology;
+    if (slash.args?.agent) msg.agent = slash.args.agent;
+    if (slash.args?.methodology_context) msg.methodology_context = slash.args.methodology_context;
+
     if (slash.cmd === '/agent-default') {
       msg.value = slash.args?.value || '';
       console.log('[CLike][chat-ui][/agent-default] value =', JSON.stringify(msg.value));
@@ -1484,7 +1514,8 @@ function handleSlash(slash) {
       msg.targets = slash.args?.targets ?? null;
       msg.targetReqId = firstTarget || null;
       msg.phases = slash.args?.phases ?? null;
-    } else if (slash.cmd === '/extend') {
+      msg.repair = !!slash.args?.repair;
+    } else if (slash.cmd === '/extend' || slash.cmd === '/add-req') {
       msg.anchorReq = slash.args?.anchorReq || '';
       msg.explicitReq = slash.args?.explicitReq || '';
       msg.fromAttachment = !!slash.args?.fromAttachment;
@@ -1556,6 +1587,9 @@ function handleSlash(slash) {
       attachments: atts,
       argument: firstTarget || ''
     };
+    if (slash.args?.methodology) msg.methodology = slash.args.methodology;
+    if (slash.args?.agent) msg.agent = slash.args.agent;
+    if (slash.args?.methodology_context) msg.methodology_context = slash.args.methodology_context;
 
     msg.targets = slash.args?.targets ?? null;
     msg.targetReqId = firstTarget || null;
@@ -1703,17 +1737,17 @@ function setTab(name) {
   document.getElementById('panel-files').style.display = name==='files' ? 'block':'none';
 }
 function clearTextPanel() {
-  // svuota il contenuto del tab Text e selezionalo
+  // Clear the Text tab and select it.
   preText.textContent = '';
   setTab('text');
 }
 function clearDiffsPanel() {
-  // svuota il contenuto del tab Diffs e selezionalo
+  // Clear the Diffs tab and select it.
   preDiffs.textContent = '';
   setTab('diffs');
 }
 function clearFilesPanel() {
-  // svuota il contenuto del tab Fils e selezionalo
+  // Clear the Files tab.
   preFiles.innerHTML = '';
 }
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => setTab(t.dataset.tab)));
@@ -1817,10 +1851,41 @@ function dispatchSlashFromInput(slash) {
   return true;
 }
 
+function dispatchHarperSlashText(text) {
+  if (!isHarperSlashText(text)) return false;
+
+  const slash = parseSlash(text);
+  if (!slash) {
+    handleSlash({
+      cmd: '/' + (getHarperSlashCommandName(text) || 'harper'),
+      error: 'Invalid Harper command.'
+    });
+    try { prompt.value = ''; } catch {}
+    return true;
+  }
+
+  if (slash.error) {
+    handleSlash({
+      ...slash,
+      error: 'Invalid Harper command: ' + stringifyUiErrorMessage(slash.error)
+    });
+    try { prompt.value = ''; } catch {}
+    return true;
+  }
+
+  dispatchSlashFromInput(slash);
+  return true;
+}
+
 btnChat.addEventListener('click', ()=>{
   console.log('[webview] sendChat click');
   const text = prompt.value;
   if (!text.trim()) return;
+
+  if (dispatchHarperSlashText(text)) {
+    return;
+  }
+
   const slash = parseSlash(text);
   console.log('CMD', slash?.cmd);
   console.log('ARG', slash?.args);
@@ -1835,9 +1900,9 @@ btnChat.addEventListener('click', ()=>{
   bubble('user', text,model.value, atts);
   setBusy(true);
   prompt.value = '';
-  clearTextPanel();        // <— svuota tab Text
-  clearDiffsPanel();        // <— svuota tab Diffs
-  clearFilesPanel();        // <— svuota tab Files
+  clearTextPanel();        // Clear the Text tab.
+  clearDiffsPanel();        // Clear the Diffs tab.
+  clearFilesPanel();        // Clear the Files tab.
   const selectedOpt = model.options[model.selectedIndex];
   const _provider = (selectedOpt && selectedOpt.dataset && selectedOpt.dataset.provider) || inferProvider(model.value);
     console.log('sendChat event');
@@ -1851,12 +1916,16 @@ btnGen.addEventListener('click', ()=>{
   console.log('[webview] sendGen click');
 
   const text = prompt.value;
+  if (dispatchHarperSlashText(text)) {
+    return;
+  }
+
   const slash = parseSlash(text);
   if (slash) {
     dispatchSlashFromInput(slash);
     return;
   }
-  const m = (mode.value === 'free') ? 'coding' : mode.value;   // /v1/generate vuole coding/harper
+  const m = (mode.value === 'free') ? 'coding' : mode.value;   // /v1/generate expects coding/harper.
 
   const atts = attachmentsByMode[m] ? [...attachmentsByMode[m]] : [];
   const selectedOpt = model.options[model.selectedIndex];
@@ -1866,9 +1935,9 @@ btnGen.addEventListener('click', ()=>{
   bubble('user', text,model.value, atts);
   setBusy(true);
   prompt.value = '';
-  clearTextPanel();        // <— svuota tab Text
-  clearDiffsPanel();        // <— svuota tab Diffs
-  clearFilesPanel();        // <— svuota tab Files
+  clearTextPanel();        // Clear the Text tab.
+  clearDiffsPanel();        // Clear the Diffs tab.
+  clearFilesPanel();        // Clear the Files tab.
   setTab('diffs');
 
   post('sendGenerate', { mode: m, model: model.value, provider:_provider, prompt: text, attachments: atts });
@@ -1877,8 +1946,6 @@ btnGen.addEventListener('click', ()=>{
 });
 
 prompt.addEventListener('keydown', (ev) => {
-  if (currentMode() !== 'harper') return;
-
   const isEnter = ev.key === 'Enter' || ev.key === 'Return';
   if (!isEnter) return;
 
@@ -1887,6 +1954,15 @@ prompt.addEventListener('keydown', (ev) => {
   }
 
   const text = String(prompt.value || '');
+  if (isHarperSlashText(text)) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    dispatchHarperSlashText(text);
+    return;
+  }
+
+  if (currentMode() !== 'harper') return;
+
   const slash = parseSlash(text);
 
   if (!slash) {
@@ -1941,6 +2017,8 @@ window.addEventListener('message', (event) => {
         command.startsWith('/eval') ||
         command.startsWith('/gate') ||
         command.startsWith('/finalize') ||
+        command.startsWith('/extend') ||
+        command.startsWith('/add-req') ||
         command.startsWith('/agent-default') ||
         command.startsWith('/ragIndex') ||
         command.startsWith('/ragSearch')
@@ -1983,7 +2061,7 @@ window.addEventListener('message', (event) => {
   // Echo → mostra un bubble "assistant" (anche per i riepiloghi post-init)
   if (msg.type === 'echo') {
     console.log('[webview] echo', msg);
-    const text = String(msg.message || '');
+    const text = stringifyUiErrorMessage(msg.message || '');
     try { bubble('assistant', text, 'system'); } catch (e) { console.warn('[webview] bubble echo failed', e); }
     const pre = document.getElementById('text');
     if (pre) pre.textContent = text;
@@ -2162,11 +2240,11 @@ window.addEventListener('message', (event) => {
         ? inferProvider(name)
         : (m.provider || 'unknown');
       const o = document.createElement('option');
-      o.value = name; // il value resta il nome modello
+      o.value = name; // Keep the model name as the option value.
       //o.textContent = (provider && provider !== 'unknown') ? (provider + ':' + name) : name;
       o.textContent = name;
      
-      o.dataset.provider = provider; // <-- portiamo il provider nella option
+      o.dataset.provider = provider; // Carry the provider on the option.
       // LA NUOVA CONDIZIONE QUI:
       if (name === prev) {
         o.selected = true;
@@ -2385,7 +2463,7 @@ window.addEventListener('message', (event) => {
   }
 
   if (msg.type === 'error') {
-    const text = 'Error: ' + String(msg.message || 'unknown');
+    const text = 'Error: ' + stringifyUiErrorMessage(msg.message || 'unknown');
     //try { bubble('assistant', text, 'system'); } catch {}
     const pre = document.getElementById('text');
     if (pre) pre.textContent = text;
@@ -2403,7 +2481,7 @@ post('fetchModels');
     <span id="clikeHelpClose">✖</span>
     <h2>CLike — Slash Commands in Harper Mode</h2>
     <ul id="clikeHelpList"></ul>
-    <p style="opacity:.8;margin-top:8px">Suggerimento: puoi allegare file dal workspace e usare i comandi <code>/spec</code>, <code>/plan</code>, <code>/kit</code> per il flusso Harper.</p>
+    <p style="opacity:.8;margin-top:8px">Tip: you can attach workspace files and use <code>/spec</code>, <code>/plan</code>, and <code>/kit</code> for the Harper flow.</p>
     </div>
 </div>
 

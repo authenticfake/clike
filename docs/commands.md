@@ -29,6 +29,16 @@ The current webview parser supports the following slash commands.
 - `/gate <REQ-ID>`
 - `/finalize`
 
+Optional governed methodology flags are supported on Harper phase commands:
+- `--methodology bmad`
+- `--methodology=bmad`
+- `--agent developer`
+- `--agent=developer`
+
+`--agent` requires `--methodology`. Methodology identity is separate from `profileHint` and local agent executor selection.
+
+Full BMAD command semantics are documented in `docs/integrations/bmad/COMMANDS.md`.
+
 ### RAG commands
 - `/rag <query>`
 - `/rag +<N>`
@@ -166,6 +176,58 @@ These flows are repository-file oriented and not Harper-phase oriented.
 ## Execution preference
 
 The extension passes an execution preference with compatible Harper flows.
+
+## Methodology Profile
+
+BMAD is a CLike-owned methodology profile. BMAD is not an executor and does not create a parallel pipeline. It enriches Harper phase behavior with role guidance while CLike keeps authority over canonical artifacts, companion artifacts, local-agent packages, eval, gate, telemetry, audit, and promotion.
+
+Supported BMAD roles:
+- `analyst`
+- `pm`
+- `architect`
+- `developer`
+- `ux`
+- `qa`
+- `tech-writer`
+
+Phase defaults:
+- `idea` -> `analyst`
+- `spec` -> `pm`
+- `plan` -> `architect`
+- `kit` -> `developer`
+- `eval` -> `qa` advisory only
+- `gate` -> CLike-only, no BMAD authority
+- `finalize` -> `tech-writer`
+
+Common command forms:
+
+```text
+/idea --methodology bmad --agent analyst
+/spec --methodology bmad --agent pm
+/spec --methodology bmad --agent ux
+/plan --methodology bmad --agent architect
+/plan --methodology bmad --agent pm
+/kit REQ-001 --methodology bmad --agent developer
+/kit REQ-001 --repair --methodology bmad --agent developer
+/eval REQ-001 --methodology bmad --agent qa
+/eval REQ-001 --methodology bmad --agent developer
+/finalize --methodology bmad --agent tech-writer
+```
+
+SPEC has an explicit PM/UX ownership split:
+
+- `/spec --methodology bmad --agent pm` may produce canonical `docs/harper/SPEC.md` through normal CLike SPEC governance and companion PM artifacts under `docs/harper/bmad/spec/**`.
+- `/spec --methodology bmad --agent ux` is companion-only in the current MVP. It may produce UX artifacts under `docs/harper/ux/**`, including `SPEC_UX_APPENDIX.md`, but must not overwrite canonical `docs/harper/SPEC.md`.
+
+Gate remains CLike-owned. `/gate REQ-001 --methodology bmad` and `/gate REQ-001 --methodology bmad --agent qa` are rejected by the slash parser in the current MVP.
+
+Injection boundaries:
+- Cloud Harper runs receive resolved `methodology_context` only through Gateway cloud prompt composition.
+- Local-agent runs receive resolved `methodology_context` through `local_agent_package` in `AGENT_*_CONTEXT.json` and `AGENT_*_PROMPT.md`.
+- Gateway is not used as a local-agent prompt builder.
+- Methodology guidance cannot expand `allowed_write_roots` or override `forbidden_paths`.
+
+For the complete governance model, see `docs/integrations/bmad/GOVERNANCE_MODEL.md`.
 
 ### Current normalized values
 - `auto`
