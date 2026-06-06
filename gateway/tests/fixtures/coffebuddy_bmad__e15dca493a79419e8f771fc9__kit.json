@@ -1,0 +1,18 @@
+{
+  "project_id": "coffebuddy_bmad",
+  "run_id": "e15dca493a79419e8f771fc9",
+  "phase": "kit",
+  "provider": "openai",
+  "model": "gpt-5.5-2026-04-23",
+  "targets": ["REQ-001"],
+  "messages": [
+    {
+      "role": "system",
+      "content": "# Harper /kit — System Prompt\n\nUse TARGET_CONTRACT.json and FILE_REQUIREMENTS.json as authoritative inputs."
+    },
+    {
+      "role": "user",
+      "content": "## KIT EXECUTION MODE\n- Current target REQ-ID: REQ-001\n- TARGET_CONTRACT.json is authoritative for scope, lane, paths, and acceptance.\n- FILE_REQUIREMENTS.json is authoritative for required emitted files and their content expectations.\n\n## FILE REQUIREMENTS\n- Output file (source) [required]: runs/kit/REQ-001/src/coffeebuddy.runtime/contracts.py\n- Output file (source) [required]: runs/kit/REQ-001/src/coffeebuddy.runtime/config.py\n- Output file (test) [required]: runs/kit/REQ-001/test/coffeebuddy.runtime/test_req_behavior.py\n- Output file (ci) [required]: runs/kit/REQ-001/ci/LTC.json\n- Output file (ci_doc) [required]: runs/kit/REQ-001/ci/HOWTO.md\n- Output file (doc) [required]: runs/kit/REQ-001/docs/README_REQ-001.md\n- Output file (doc) [required]: runs/kit/REQ-001/docs/KIT_REQ-001.md\n\n## OUTPUT CONTRACT\n- Emit only file:/path file blocks with complete file contents.\n- No prose outside file blocks."
+    }
+  ]
+}

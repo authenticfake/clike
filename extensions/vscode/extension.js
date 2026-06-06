@@ -61,6 +61,16 @@ const {
   httpPostJsonLong,
   ensureReqIdInPlan,
 } = require('./utility');
+const {
+  getHarperSlashCommandName,
+  shouldBlockHarperSlashFromGenericChatMessage,
+} = require('./slash-parser');
+
+const {
+  buildCodexArgsForLocalAgent,
+  assertLocalAgentWritePreflight,
+  validateLocalAgentRequiredOutputs,
+} = require('./local-agent-write-policy');
 
 
 function isLocalAgentExecutionPreference(value) {
@@ -81,9 +91,19 @@ function isStrictLocalAgentExecutionPreference(value) {
 
 const{ toFsPath, mapKitSrcToWorkspaceTarget, clikeGitSync } = require('./git'); // NEW: clikeGitSync
 const { getChatTheme, getWebviewHtml } = require('./chat-ui');
+const {
+  attachBmadQaAdvisory,
+  buildEffectiveEvalMethodologyContext,
+} = require('./bmad-advisory');
+const {
+  validateCanonicalHarperArtifact,
+  rejectedHarperArtifactPath,
+  formatHarperError,
+} = require('./harper-canonical-validation');
 
 let clikeChatPanel = null;
 let clikeExtensionContext = null;
+let clikeHarperBlockingRun = false;
 let extensionMcpServer = null;
 let extensionMcpState = {
   started: false,
@@ -886,6 +906,8 @@ async function executeLocalAgentPackage({
 
   const invocationArgs = Array.isArray(invocation.args) ? invocation.args : [];
   const promptTransport = String(invocation.prompt_transport || '').trim();
+  let launcherArgs = invocationArgs;
+  let selectedCodexSandboxMode = '';
 
   const packageFiles = Array.isArray(localAgentPackage.package_files)
     ? localAgentPackage.package_files
@@ -901,6 +923,31 @@ async function executeLocalAgentPackage({
     throw new Error('Local agent package does not contain prompt_content.');
   }
 
+  if (selectedExecutor === 'gpt_codex') {
+    const codexLaunch = buildCodexArgsForLocalAgent({
+      argsBeforePrompt: invocationArgs,
+      phase: phaseForAgent,
+      reqId: reqForAgent,
+      configuredSandboxMode: settings.codexSandboxMode || 'auto',
+      allowedWriteRoots: localAgentPackage.allowed_write_roots || [],
+    });
+    launcherArgs = codexLaunch.args;
+    selectedCodexSandboxMode = codexLaunch.sandboxMode;
+
+    assertLocalAgentWritePreflight({
+      phase: phaseForAgent,
+      reqId: reqForAgent,
+      executorId: selectedExecutor,
+      sandboxMode: selectedCodexSandboxMode,
+      allowedWriteRoots: localAgentPackage.allowed_write_roots || [],
+    });
+
+    log(
+      `[harperRun][agent] codex sandbox=${selectedCodexSandboxMode} ` +
+      `source=${codexLaunch.sandboxModeSource} phase=${phaseForAgent} req=${reqForAgent}`
+    );
+  }
+
   panel.webview.postMessage({
     type: 'echo',
     message:
@@ -913,7 +960,7 @@ async function executeLocalAgentPackage({
     prompt: promptContent,
     executorId: selectedExecutor,
     command: executorConfig.command,
-    argsBeforePrompt: invocationArgs,
+    argsBeforePrompt: launcherArgs,
     promptTransport,
     timeoutMinutes: Math.ceil(Number(invocation.timeout_seconds || 1800) / 60),
     out,
@@ -968,6 +1015,14 @@ async function executeLocalAgentPackage({
       `${executorLabel} completed but no safe local-agent/complete artifacts remained after filtering. ` +
       `original=${completeArtifacts.original_count}`
     );
+  }
+
+  if (['kit', 'eval', 'finalize'].includes(phaseForAgent)) {
+    validateLocalAgentRequiredOutputs({
+      phase: phaseForAgent,
+      reqId: reqForAgent,
+      artifacts: completeArtifacts.files,
+    });
   }
 
   const completeBody = {
@@ -1269,13 +1324,30 @@ async function clearSession(mode) {
   try { await vscode.workspace.fs.delete(sessionFileUri(mode)); } catch {}
 }
 
-async function saveGeneratedFiles(files) {
+async function saveGeneratedFiles(files, opts = {}) {
   if (!Array.isArray(files) || !files.length) return [];
   const root = getWorkspaceRoot();
   const written = [];
   for (const f of files) {
     if (!f || !f.path || typeof f.content !== 'string') continue;
-    const uri = vscode.Uri.joinPath(root, f.path.replace(/^\.?\//,''));
+    const relativePath = f.path.replace(/^\.?\//,'');
+    const validation = validateCanonicalHarperArtifact(relativePath, f.content);
+    if (validation && !validation.ok) {
+      const rejectedPath = rejectedHarperArtifactPath({
+        phase: opts.phase,
+        runId: opts.runId,
+        filePath: relativePath,
+      });
+      const rejectedUri = vscode.Uri.joinPath(root, rejectedPath);
+      const rejectedFolder = vscode.Uri.joinPath(rejectedUri, '..');
+      try { await vscode.workspace.fs.createDirectory(rejectedFolder); } catch {}
+      await vscode.workspace.fs.writeFile(rejectedUri, Buffer.from(f.content, 'utf8'));
+      const message = `CLike rejected malformed canonical artifact ${relativePath}; kept existing file and saved rejected content to ${rejectedPath}.`;
+      log(`[harperWriteGuard] invalid_canonical_artifact path=${relativePath} checks=${(validation.failed_checks || []).join(',')}`);
+      try { vscode.window.showWarningMessage(message); } catch {}
+      continue;
+    }
+    const uri = vscode.Uri.joinPath(root, relativePath);
     const folder = vscode.Uri.joinPath(uri, '..');
     try { await vscode.workspace.fs.createDirectory(folder); } catch {}
     if (typeof f.content === 'string') {
@@ -1508,6 +1580,7 @@ function cfg() {
 
     codexEnabled: c.get('localAgent.codex.enabled', true),
     codexCommand: c.get('localAgent.codex.command', 'codex'),
+    codexSandboxMode: c.get('localAgent.codex.sandboxMode', 'auto'),
     codexTimeoutMinutes: c.get('localAgent.codex.timeoutMinutes', 35),
 
     requireCleanGit: c.get('apply.requireCleanGit', false),
@@ -3348,6 +3421,17 @@ async function cmdOpenChat(context) {
               '.clike/skills/local-cloud-parity/SKILL.md',
               '.clike/skills/eval-contract-writer/SKILL.md',
               '.clike/skills/gate-risk-reviewer/SKILL.md',
+              '.clike/skills/vendor/bmad/README.md',
+              '.clike/skills/vendor/bmad/manifest.json',
+              '.clike/skills/vendor/bmad/prd-shaping/SKILL.md',
+              '.clike/skills/vendor/bmad/epic-framing/SKILL.md',
+              '.clike/skills/vendor/bmad/acceptance-modeling/SKILL.md',
+              '.clike/skills/vendor/bmad/ux-flow-modeling/SKILL.md',
+              '.clike/skills/vendor/bmad/architecture-readiness/SKILL.md',
+              '.clike/skills/vendor/bmad/story-readiness/SKILL.md',
+              '.clike/skills/vendor/bmad/dev-story-execution/SKILL.md',
+              '.clike/skills/vendor/bmad/qa-risk-review/SKILL.md',
+              '.clike/skills/vendor/bmad/release-narrative/SKILL.md',
               '.clike/packs/enterprise-onprem/PACK.md',
               '.clike/packs/industrial-manufacturing/PACK.md',
               '.clike/packs/consumer-saas/PACK.md',
@@ -3607,6 +3691,10 @@ async function cmdOpenChat(context) {
             project_name: projectName,
             mode_contract: buildModeContract(activeMode, msg.cmd),
           };
+          if (msg.methodology) payload.methodology = msg.methodology;
+          if (msg.agent) payload.agent = msg.agent;
+          if (msg.methodology_context) payload.methodology_context = msg.methodology_context;
+
           //PATh for PLAN.md
           const wsroot = getWorkspaceRoot();
           let targetReqId;
@@ -3678,7 +3766,8 @@ async function cmdOpenChat(context) {
 
             payload["kit"] = {
               targets: [targetReqId],
-              ...(requestedKitPhases ? { phases: requestedKitPhases } : {})
+              ...(requestedKitPhases ? { phases: requestedKitPhases } : {}),
+              ...(msg.repair ? { repair: true } : {})
             };
           }
           //log(`[harperRun] payload (gen):`,  JSON.stringify(payload.gen));
@@ -3930,6 +4019,39 @@ async function cmdOpenChat(context) {
             }
           }
 
+          const harperFailed =
+            _out &&
+            (
+              _out.ok === false ||
+              Boolean(_out.error_code) ||
+              (Array.isArray(_out.errors) && _out.errors.length > 0)
+            );
+          if (harperFailed) {
+            panel.webview.postMessage({ type: 'busy', on: false });
+            const message = formatHarperError(_out);
+            log(`[harperRun] failed ${message.replace(/\n/g, ' | ')}`);
+            try {
+              vscode.window.showWarningMessage(
+                _out.error_code === 'invalid_canonical_artifact'
+                  ? 'CLike blocked malformed canonical Harper output. See chat for validation details.'
+                  : 'CLike Harper phase failed. See chat for details.'
+              );
+            } catch {}
+            panel.webview.postMessage({ type: 'error', message });
+            const commandLabel = String(cmd || '').toUpperCase();
+            const failureCode = _out.error_code || 'harper_error';
+            await appendSessionJSONL(activeMode, {
+              ts: Date.now(),
+              role: 'system',
+              content: `✖ ${commandLabel} failed — ${failureCode}`,
+              model: state.model || 'auto',
+              attachments: Array.isArray(msg.attachments) ? msg.attachments : []
+            });
+            clikeHarperBlockingRun = false;
+            panel.webview.postMessage({ type: 'busy', on: false, force: true });
+            return;
+          }
+
           panel.webview.postMessage({ type: 'busy', on: false });
           // 3) POST-RUN: persisti esito (riassunto + eventuale echo/testo)
           const summary = [
@@ -3982,7 +4104,7 @@ async function cmdOpenChat(context) {
                 `skipping saveGeneratedFiles because the agent already wrote workspace files.`
               );
             } else {
-              written = await saveGeneratedFiles(_out.files);
+              written = await saveGeneratedFiles(_out.files, { phase, runId });
             }
             panel.webview.postMessage({ type: 'files', data: _out.files });
             log(`[harperRun] written ${written.length} files`);
@@ -4055,11 +4177,11 @@ async function cmdOpenChat(context) {
             panel.webview.postMessage({ type: 'echo', message: `⚠ Warnings: ${_out.warnings.join(' | ')}` });
           }
           if (Array.isArray(_out?.errors) && _out.errors.length) {
-            panel.webview.postMessage({ type: 'error', message: _out.errors.join(' | ') });
+            panel.webview.postMessage({ type: 'error', message: formatHarperError(_out) });
           }
         } catch (e) {
           panel.webview.postMessage({ type: 'busy', on: false }) 
-          panel.webview.postMessage({ type: 'error', message: (e?.message || String(e)) });
+          panel.webview.postMessage({ type: 'error', message: formatHarperError(e) });
         }
         clikeHarperBlockingRun = false;
         panel.webview.postMessage({ type: 'busy', on: false, force: true });
@@ -4069,6 +4191,17 @@ async function cmdOpenChat(context) {
       if (msg.type === 'harperEDD' ) {
         let targets, targetReqId
         const phase = msg.cmd;
+        const gateMethodologyError = 'Gate is CLike-owned. Methodology flags are not accepted for /gate in MVP.';
+        if (
+          phase === 'gate' &&
+          (msg.methodology || msg.agent || msg.methodology_context)
+        ) {
+          log('[harperEDD][gate] rejected methodology context for CLike-owned gate');
+          vscode.window.showErrorMessage(gateMethodologyError);
+          panel.webview.postMessage({ type: 'error', message: gateMethodologyError });
+          panel.webview.postMessage({ type: 'busy', on: false });
+          return;
+        }
         const ws_root= getWorkspaceRoot()
         //log(`[harperEDD] ws_root: ${ws_root}`)
         const runId = (Math.random().toString(16).slice(2) + Date.now().toString(16));
@@ -4216,6 +4349,9 @@ async function cmdOpenChat(context) {
                   canonical_eval_after_prepass: true,
                 },
               };
+              if (msg.methodology) evalPayload.methodology = msg.methodology;
+              if (msg.agent) evalPayload.agent = msg.agent;
+              if (msg.methodology_context) evalPayload.methodology_context = msg.methodology_context;
 
               const evalBody = await buildHarperBody('eval', evalPayload, ws_root, out);
 
@@ -4316,6 +4452,19 @@ async function cmdOpenChat(context) {
             }
             log("[harperEDD] Calling canonical eval for req:" + targets + " in: " + ws_root);
             report = await handleEval(path_ltc_json, ws_root, targets, mode, modeContent);
+            const evalMethodologyContext = buildEffectiveEvalMethodologyContext(
+              msg.methodology_context || {
+                methodology: msg.methodology,
+                agent: msg.agent,
+              }
+            );
+            report = attachBmadQaAdvisory(report, targets, evalMethodologyContext);
+            if (report?.bmad_advisory) {
+              panel.webview.postMessage({
+                type: 'echo',
+                message: `ℹ BMAD QA advisory only. Canonical CLike EvalRunner remains authoritative. Suggested next command: ${report.bmad_advisory.suggested_next_command}`
+              });
+            }
             reportFile = await saveEvalCommand(ws_root, plan, targets, report, out);
             files_git.push(toFsPath(reportFile));
 
@@ -4538,7 +4687,11 @@ async function cmdOpenChat(context) {
 
             // opzionale utility
       if (msg.type === 'echo') {
-        await appendSessionJSONL(state.mode, { role:'assistant', content:String(msg.message||''), model:'system' });
+        await appendSessionJSONL(state.mode, {
+          role: 'assistant',
+          content: typeof msg.message === 'string' ? msg.message : JSON.stringify(msg.message || '', null, 2),
+          model: 'system'
+        });
         
       }
       if (msg.type === 'where') {
@@ -4824,6 +4977,18 @@ async function cmdOpenChat(context) {
         inflightController = new AbortController();
         panel.webview.postMessage({ type: 'busy', on: true });
 
+        if (shouldBlockHarperSlashFromGenericChatMessage(msg)) {
+          const commandName = getHarperSlashCommandName(msg.prompt) || 'unknown';
+          out.appendLine(`[CLike] Blocked Harper slash command from generic chat route: /${commandName}`);
+          panel.webview.postMessage({
+            type: 'error',
+            message: 'Harper slash command was blocked from generic chat routing. Please retry; this is a routing guard.',
+          });
+          panel.webview.postMessage({ type: 'busy', on: false, force: true });
+          inflightController = null;
+          return;
+        }
+
         const cur = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto' };
         const activeMode  = msg.mode  || cur.mode  || 'free';
         const activeModel = msg.model || cur.model || 'auto';
@@ -4933,7 +5098,7 @@ async function cmdOpenChat(context) {
             // generate: opzionale autowrite (se l’hai abilitato in cfgChat)
             const { autoWrite } = cfgChat?.() || { autoWrite: false };
             if (autoWrite && Array.isArray(res.files) && res.files.length) {
-              const paths = await saveGeneratedFiles(res.files);
+              const paths = await saveGeneratedFiles(res.files, { phase: 'apply', runId: res.runId || res.run_id });
              
             }
             // Cache locale dei file dell’ultimo generate (serve per Apply fallback)
@@ -5002,7 +5167,7 @@ async function cmdOpenChat(context) {
         }
 
         try {
-          const paths = await saveGeneratedFiles(chosen);
+          const paths = await saveGeneratedFiles(chosen, { phase: 'apply', runId: lastRun?.runId || lastRun?.run_id || lastRun?.audit_id });
           // Pulizia cache per non ri-applicare accidentalmente
           try { await context.workspaceState.update('clike.lastFiles', []); } catch {}
           panel.webview.postMessage({ type: 'applyResult', data: { applied: paths } });
@@ -5175,7 +5340,7 @@ async function cmdOpenChat(context) {
         clikeHarperBlockingRun = false;
       }
 
-      panel.webview.postMessage({ type: 'error', message: String(err) });
+      panel.webview.postMessage({ type: 'error', message: formatHarperError(err) });
       panel.webview.postMessage({ type: 'busy', on: false, force: true });
     }
     panel.webview.postMessage({ type: 'busy', on: false });

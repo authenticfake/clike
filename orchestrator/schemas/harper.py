@@ -36,6 +36,8 @@ class HarperKitOptions(BaseModel):
     - rescope: if True, incorporate Product Owner notes into plan.json view
     """
     targets: Optional[List[str]] = Field(default=None)
+    phases: Optional[List[str]] = Field(default=None)
+    repair: Optional[bool] = Field(default=False)
     batch: Optional[int] = Field(default=None, ge=1)
     req_ids: Optional[List[str]] = Field(default=None)  # backward-compat alias
     rescope: Optional[bool] = Field(default=False)
@@ -50,6 +52,9 @@ class HarperPhaseRequest(BaseModel):
     model: Optional[str] = None
     profileHint: Optional[str] = None
     executionPreference: Optional[str] = None
+    methodology: Optional[str] = None
+    agent: Optional[str] = None
+    methodology_context: Optional[Dict[str, Any]] = None
 
     docRoot: Optional[str] = "docs/harper"
     core: List[str] = []
@@ -106,6 +111,18 @@ class ExecContext(BaseModel):
         None,
         alias="executionPreference",
         description="Execution preference: auto | cloud_only | prefer_local_agent | local_agent_only | hybrid. Legacy values prefer_claude_code and claude_code_only are normalized by the client."  
+    )
+    methodology: Optional[str] = Field(
+        None,
+        description="Optional governed methodology profile id. Methodology is not an executor.",
+    )
+    agent: Optional[str] = Field(
+        None,
+        description="Optional methodology role identity. This is separate from localAgentExecutor.",
+    )
+    methodology_context: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Resolved methodology metadata owned by CLike.",
     )
     doc_root: Optional[str] = Field("docs/harper", alias="docRoot", description="Docs root.")
     core: List[str] = Field(default_factory=list, description="Core docs for this phase.")
@@ -220,10 +237,14 @@ class HarperRunResponse(BaseModel):
     echo: Optional[str] = None
     text: Optional[str] = None
     files: List[FileArtifact] = []
+    partial_files: List[FileArtifact] = []
+    diagnostic_files: List[FileArtifact] = []
     diffs: List[DiffEntry] = []
     tests: TestSummary = TestSummary()
-    warnings: List[str] = []
-    errors: List[str] = []
+    warnings: List[Any] = []
+    errors: List[Any] = []
+    error_code: Optional[str] = None
+    rejected: List[Dict[str, Any]] = []
     runId: Optional[str] = None
     idea_md: Optional[str] = None
     spec_md: Optional[str] = None
