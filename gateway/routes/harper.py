@@ -31,6 +31,7 @@ from utils.methodology_prompt import (
     render_current_canonical_validation_for_cloud_prompt,
     render_methodology_context_for_cloud_prompt,
 )
+from utils.selected_skill_context_prompt import compose_cloud_selected_phase_skill_context
 from routes.chat import ANTHROPIC_API_KEY, ANTHROPIC_BASE, DEEPSEEK_BASE, OLLAMA_BASE, OPENAI_API_KEY, DEEPSEEK_API_KEY, OPENAI_BASE, VLLM_BASE, _json
 from providers import openai_compat as oai
 from providers import anthropic as anth
@@ -1112,6 +1113,7 @@ def _load_target_contract_from_core_blobs(core_blobs: dict | None) -> dict | Non
 def _load_file_requirements_from_core_blobs(core_blobs: dict | None) -> dict | None:
     return _load_json_blob(core_blobs, "file_requirements.json")
 
+
 def _filter_core_blobs_for_kit(
     core_blobs: dict | None,
     target_req: str | None,
@@ -1136,6 +1138,9 @@ def _filter_core_blobs_for_kit(
         "REPO_ACCESS_MANIFEST",
         "REPO_STRUCTURE_EVIDENCE",
         "REPO_COMPOSITION_MANIFEST",
+        "CLIKE_CAPABILITY_MANIFEST",
+        "CLIKE_CAPABILITY_INDEX",
+        "CLIKE_SELECTED_CAPABILITY_CONTEXT",
         "candidate::",
     )
 
@@ -1169,12 +1174,60 @@ def _filter_core_blobs_for_kit(
     return kept
 
 
+def _load_selected_capability_json_from_core(core_blobs: dict | None) -> dict:
+    for name, content in (core_blobs or {}).items():
+        if str(name or "").lower().endswith("clike_selected_capability_context.json"):
+            try:
+                data = json.loads(str(content or ""))
+                return data if isinstance(data, dict) else {}
+            except Exception:
+                return {}
+    return {}
+
+
+def _selected_capability_names(group: dict) -> list[str]:
+    if not isinstance(group, dict):
+        return []
+    selected = [str(x).strip() for x in (group.get("selected") or []) if str(x or "").strip()]
+    if selected:
+        return selected
+    resolved = group.get("resolved") if isinstance(group.get("resolved"), list) else []
+    return [
+        str(item.get("name")).strip()
+        for item in resolved
+        if isinstance(item, dict) and str(item.get("name") or "").strip()
+    ]
+
+
+def _selected_capability_names_from_context(selected: dict, key: str, legacy_key: str) -> list[str]:
+    names = _selected_capability_names(selected.get(key) or {})
+    if names:
+        return names
+    return [str(x).strip() for x in (selected.get(legacy_key) or []) if str(x or "").strip()]
+
+
+def _render_namespace_materialization_for_cloud(file_requirements: dict | None) -> str:
+    namespace_context = (file_requirements or {}).get("namespace_materialization") or {}
+    if not isinstance(namespace_context, dict) or not namespace_context.get("rules"):
+        return ""
+    lines = [
+        "## Namespace Materialization",
+        f"- ecosystem: {namespace_context.get('ecosystem') or 'unknown'}",
+        f"- import_namespace: {namespace_context.get('import_namespace') or 'none'}",
+        f"- package_path: {namespace_context.get('package_path') or 'none'}",
+        f"- source_root: {namespace_context.get('source_root') or 'none'}",
+        *[f"- {rule}" for rule in (namespace_context.get("rules") or [])],
+    ]
+    return "\n".join(lines).strip()
+
+
 
 def _build_kit_user_message(
     phase: str,
     user: str,
     core_blobs: dict | None,
     targets: list[str] | None,
+    active_contract_text: str | None = None,
 ) -> str:
     if (phase or "").lower() != "kit":
         return user
@@ -1189,7 +1242,11 @@ def _build_kit_user_message(
     for name, content in filtered_core.items():
         refs.append(f"- {name} ({len(str(content or ''))} chars)")
 
-    parts = [
+    parts = []
+    if str(active_contract_text or "").strip():
+        parts.extend([str(active_contract_text or "").strip(), ""])
+
+    parts.extend([
         "## KIT EXECUTION MODE",
         f"- Current target REQ-ID: {target_req}",
         "- TARGET_CONTRACT.json is authoritative for scope, lane, paths, and acceptance.",
@@ -1197,7 +1254,7 @@ def _build_kit_user_message(
         "- REQ_PROMOTION_MANIFEST.md is authoritative for staging-vs-canonical promotion discipline.",
         "- Dependencies are read-only context only.",
         "",
-    ]
+    ])
 
     if target_contract:
         lane = str(target_contract.get("lane") or "").strip()
@@ -1223,6 +1280,10 @@ def _build_kit_user_message(
         parts.append("- Acceptance criteria:")
         parts.extend([f"  - {x}" for x in acceptance] or ["  - none"])
         parts.append("")
+
+    namespace_text = _render_namespace_materialization_for_cloud(file_requirements)
+    if namespace_text:
+        parts.extend([namespace_text, ""])
 
     if file_requirements:
         parts.append("## FILE REQUIREMENTS")
@@ -1301,7 +1362,9 @@ def _build_kit_user_message(
     parts.extend([
         "",
         "## OUTPUT CONTRACT",
-        "- Emit only `file:/path` file blocks with complete file contents.",
+        "- Emit each output as a BEGIN_FILE / END_FILE block using workspace-relative paths.",
+        "- Use exactly: BEGIN_FILE runs/kit/<REQ-ID>/... then full file content then END_FILE.",
+        "- Existing fenced file:/path blocks may be parsed for compatibility, but BEGIN_FILE / END_FILE is preferred.",
         "- No prose outside file blocks.",
     ])
 
@@ -1430,16 +1493,35 @@ def _compose_system_messages(
     )
 
     target_req_id = str((targets or [None])[0] or "").strip() or None
+    kit_file_requirements = (
+        _load_file_requirements_from_core_blobs(core_blobs)
+        if (phase or "").lower() == "kit"
+        else None
+    )
     active_output_contract = build_active_output_contract(
         phase=phase,
         runner="cloud",
         methodology_context=methodology_context,
         req_id=target_req_id,
+        file_requirements=kit_file_requirements,
     )
     methodology_text = render_methodology_context_for_cloud_prompt(
         methodology_context,
         active_output_contract=active_output_contract,
     )
+    cloud_selected_skill_context = compose_cloud_selected_phase_skill_context(
+        core_blobs,
+        methodology_context,
+        active_output_contract=active_output_contract,
+    )
+
+    if cloud_selected_skill_context:
+        system = (
+            system.rstrip()
+            + "\n\n"
+            + cloud_selected_skill_context
+            + "\n"
+        )
 
     validation_context = validate_current_canonical_core_blobs(core_blobs)
     trusted_core_blobs = validation_context.get("trusted_core_blobs") or {}
@@ -1576,6 +1658,7 @@ def _compose_system_messages(
             user=user,
             core_blobs=core_blobs,
             targets=targets,
+            active_contract_text=methodology_text,
         )
         user = _append_kit_target_to_user(
             user,
@@ -1661,6 +1744,7 @@ class HarperRunRequest(BaseModel):
     methodology: Optional[str] = None
     agent: Optional[str] = None
     methodology_context: Optional[Dict[str, Any]] = None
+    context_envelope: Optional[Dict[str, Any]] = None
     docRoot: str
     core: List[str] = []
     attachments: List[Union[str, Attachment]] = []
@@ -1808,8 +1892,24 @@ def _write_prompt_debug(
     messages: list[dict],
     core_blobs: dict | None,
     targets: list[str] | None,
+    methodology_context: dict | None = None,
+    context_envelope: dict | None = None,
 ) -> None:
     try:
+        methodology_debug: dict[str, Any] = {}
+        if isinstance(methodology_context, dict):
+            selected_skill_references = methodology_context.get("selected_skill_references") or []
+            selected_skill_context = methodology_context.get("selected_skill_context") or {}
+            skill_reference_policy = methodology_context.get("skill_reference_policy") or {}
+            methodology_debug = {
+                "methodology": methodology_context.get("methodology"),
+                "phase": methodology_context.get("phase"),
+                "agent": methodology_context.get("agent"),
+                "selected_skill_references": selected_skill_references if isinstance(selected_skill_references, list) else [],
+                "selected_skill_context": selected_skill_context if isinstance(selected_skill_context, dict) else {},
+                "skill_reference_policy": skill_reference_policy if isinstance(skill_reference_policy, dict) else {},
+            }
+
         summary = {
             "project_id": project_id,
             "run_id": run_id,
@@ -1820,11 +1920,60 @@ def _write_prompt_debug(
             "core_blob_keys": sorted(list((core_blobs or {}).keys())),
             "messages": messages or [],
         }
+        selected_capability_json = _load_selected_capability_json_from_core(core_blobs)
+        if selected_capability_json:
+            summary["selected_clike_capabilities"] = {
+                "selected_packs": _selected_capability_names(selected_capability_json.get("packs") or {}),
+                "selected_skills": _selected_capability_names(selected_capability_json.get("skills") or {}),
+                "selected_design_profiles": _selected_capability_names(selected_capability_json.get("design_profiles") or {}),
+                "source": "CLIKE_SELECTED_CAPABILITY_CONTEXT",
+            }
+        if isinstance(context_envelope, dict) and context_envelope:
+            summary["context_envelope"] = context_envelope
+        if methodology_debug:
+            summary["methodology_context"] = methodology_debug
+            summary["selected_skill_references"] = methodology_debug.get("selected_skill_references") or []
         path = _prompt_debug_path(project_id, run_id, phase)
         path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
         log.info("harper.prompt_debug saved to %s", path)
     except Exception as exc:
         log.warning("harper.prompt_debug failed: %s", exc)
+
+def _methodology_context_with_envelope_skills(
+    methodology_context: dict | None,
+    context_envelope: dict | None,
+    *,
+    methodology: str | None,
+    agent: str | None,
+    phase: str | None,
+) -> dict | None:
+    base = dict(methodology_context) if isinstance(methodology_context, dict) else {}
+    envelope = context_envelope if isinstance(context_envelope, dict) else {}
+    envelope_bmad = envelope.get("bmad_methodology_skills") if isinstance(envelope.get("bmad_methodology_skills"), dict) else {}
+
+    is_bmad = (
+        str(base.get("methodology") or methodology or envelope.get("methodology") or "").strip().lower()
+        == "bmad"
+    )
+    if not is_bmad:
+        return methodology_context if isinstance(methodology_context, dict) else None
+
+    base.setdefault("methodology", "bmad")
+    base.setdefault("phase", phase or envelope.get("phase"))
+    base.setdefault("agent", agent or envelope.get("agent"))
+
+    envelope_refs = envelope_bmad.get("selected_skill_references") or []
+    envelope_context = envelope_bmad.get("selected_skill_context") or {}
+    envelope_policy = envelope_bmad.get("skill_reference_policy") or {}
+
+    if isinstance(envelope_refs, list) and envelope_refs and not base.get("selected_skill_references"):
+        base["selected_skill_references"] = envelope_refs
+    if isinstance(envelope_context, dict) and envelope_context and not base.get("selected_skill_context"):
+        base["selected_skill_context"] = envelope_context
+    if isinstance(envelope_policy, dict) and envelope_policy and not base.get("skill_reference_policy"):
+        base["skill_reference_policy"] = envelope_policy
+
+    return base
 
 def _dump_llm_provider_raw(
     *,
@@ -2522,6 +2671,13 @@ async def run(req: HarperRunRequest,  request: Request):
         )    
     model_route_label = _route_label(req.model, req.profileHint)
     log.info("model_route_label (too long) %s", model_route_label)
+    req.methodology_context = _methodology_context_with_envelope_skills(
+        req.methodology_context,
+        req.context_envelope,
+        methodology=req.methodology,
+        agent=req.agent,
+        phase=phase,
+    )
 
     messages = _compose_system_messages(
                             phase,
@@ -2724,6 +2880,8 @@ async def run(req: HarperRunRequest,  request: Request):
         messages=messages,
         core_blobs=core_blobs,
         targets=targets,
+        methodology_context=req.methodology_context,
+        context_envelope=req.context_envelope,
     )
 
     telemetry: dict[str, object] = {
@@ -3092,6 +3250,11 @@ async def run(req: HarperRunRequest,  request: Request):
         runner="cloud",
         methodology_context=req.methodology_context,
         req_id=str((targets or [None])[0] or "").strip() or None,
+        file_requirements=(
+            _load_file_requirements_from_core_blobs(core_blobs)
+            if (phase or "").lower() == "kit"
+            else None
+        ),
     )
     active_contract_validation = validate_files_against_active_output_contract(
         files,
@@ -3112,9 +3275,19 @@ async def run(req: HarperRunRequest,  request: Request):
         warnings.append(detail)
         raise HTTPException(502, detail)
     if active_contract_validation.get("missing_required_outputs"):
+        missing_required = list(active_contract_validation["missing_required_outputs"])
+        log.warning(
+            "harper.active_output_contract missing_required_outputs phase=%s req_id=%s methodology=%s agent=%s count_missing=%d first_missing=%s",
+            phase,
+            str((targets or [None])[0] or "").strip() or None,
+            active_output_contract.get("methodology"),
+            active_output_contract.get("agent"),
+            len(missing_required),
+            missing_required[:10],
+        )
         detail = (
             "missing_required_outputs: "
-            + ", ".join(str(item) for item in active_contract_validation["missing_required_outputs"])
+            + ", ".join(str(item) for item in missing_required)
         )
         warnings.append(detail)
         if active_output_contract.get("strict_missing_required_outputs"):

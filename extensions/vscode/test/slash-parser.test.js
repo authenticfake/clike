@@ -251,3 +251,20 @@ test('utility collects bounded Harper companion docs and includes IDEA for downs
   assert.match(source, /companion::\$\{relPath\}/);
   assert.match(source, /Object\.assign\(core_blobs, await collectHarperCompanionCoreBlobs\(_docRoot, phase\)\)/);
 });
+
+test('utility includes BMAD vendor skill blobs only for BMAD methodology requests', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'utility.js'), 'utf8');
+
+  assert.match(source, /collectClikeCapabilityCoreBlobs\(projectRootUri\)/);
+  assert.match(source, /Object\.assign\(core_blobs, await collectClikeCapabilityCoreBlobs\(projectRootUri\)\)/);
+  assert.match(source, /'\.clike', 'capabilities\.yaml'/);
+  assert.match(source, /\['\.clike', 'skills'\], \['SKILL\.md'\]/);
+  assert.match(source, /rootParts\.join\('\/'\) === '\.clike\/skills' && name === 'vendor'/);
+  assert.match(source, /const BMAD_VENDOR_SKILL_ROOT = '\.clike\/skills\/vendor\/bmad'/);
+  assert.match(source, /function payloadRequestsBmadMethodology\(payload\)/);
+  assert.match(source, /methodology === 'bmad'/);
+  assert.match(source, /collectBmadVendorSkillCoreBlobs\(projectRootUri, payload\)/);
+  assert.match(source, /`\$\{BMAD_VENDOR_SKILL_ROOT\}\/manifest\.json`/);
+  assert.match(source, /`\$\{BMAD_VENDOR_SKILL_ROOT\}\/\$\{name\}\/SKILL\.md`/);
+  assert.match(source, /Object\.assign\(core_blobs, await collectBmadVendorSkillCoreBlobs\(projectRootUri, payload\)\)/);
+});

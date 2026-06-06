@@ -8,6 +8,14 @@ NATIVE_CLOUD_REQUIRED_OUTPUTS: Dict[str, List[str]] = {
     "idea": ["docs/harper/IDEA.md"],
     "spec": ["docs/harper/SPEC.md"],
     "plan": ["docs/harper/PLAN.md", "docs/harper/plan.json", "docs/harper/lane-guides/**"],
+    "kit": [
+        "runs/kit/<REQ-ID>/docs/TARGET_CONTRACT.json",
+        "runs/kit/<REQ-ID>/docs/FILE_REQUIREMENTS.json",
+        "runs/kit/<REQ-ID>/docs/README_<REQ-ID>.md",
+        "runs/kit/<REQ-ID>/docs/KIT_<REQ-ID>.md",
+        "runs/kit/<REQ-ID>/ci/LTC.json",
+        "runs/kit/<REQ-ID>/ci/HOWTO.md",
+    ],
     "finalize": [
         "README.md",
         "docs/harper/HOWTO_RUN.md",
@@ -86,6 +94,7 @@ def output_path_matches(path: str, pattern: str) -> bool:
         return False
     regex = re.escape(normalized_pattern)
     regex = regex.replace(re.escape("<req-id>"), r"req-[a-z0-9._-]+")
+    regex = re.sub(r"<[^>]+>", r"[^/]+", regex)
     regex = regex.replace(re.escape("**"), r".*")
     return re.fullmatch(regex, normalized_path) is not None
 
@@ -106,12 +115,30 @@ def _dedupe(items: List[str]) -> List[str]:
     return result
 
 
+def _file_requirement_required_outputs(file_requirements: Optional[Dict[str, Any]]) -> List[str]:
+    if not isinstance(file_requirements, dict):
+        return []
+
+    required: List[str] = []
+    for item in file_requirements.get("required_outputs") or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("required") is False:
+            continue
+        path = normalize_output_path(str(item.get("path_hint") or ""))
+        if not path:
+            continue
+        required.append(path)
+    return required
+
+
 def build_active_output_contract(
     *,
     phase: str,
     runner: str,
     methodology_context: Optional[Dict[str, Any]] = None,
     req_id: Optional[str] = None,
+    file_requirements: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     phase_name = str(phase or "").strip().lower()
     runner_name = str(runner or "cloud").strip().lower()
@@ -119,24 +146,30 @@ def build_active_output_contract(
     policy = context.get("artifact_policy") if isinstance(context.get("artifact_policy"), dict) else {}
     methodology = "bmad" if context.get("methodology") == "bmad" and policy else "native_clike"
 
+    file_requirement_outputs = _file_requirement_required_outputs(file_requirements)
+
     if methodology == "bmad":
         companion_only = bool(policy.get("companion_only"))
-        native_required = [] if companion_only else list(NATIVE_CLOUD_REQUIRED_OUTPUTS.get(phase_name) or [])
+        native_required = [] if companion_only else _replace_req_id(
+            list(NATIVE_CLOUD_REQUIRED_OUTPUTS.get(phase_name) or []),
+            req_id,
+        )
         native_optional = [] if companion_only else list(NATIVE_CLOUD_OPTIONAL_OUTPUTS.get(phase_name) or [])
         native_forbidden = list(NATIVE_FORBIDDEN_OUTPUTS.get(phase_name) or [])
         canonical = _replace_req_id(list(policy.get("canonical_outputs") or []), req_id)
         mandatory = _replace_req_id(list(policy.get("mandatory_companion_outputs") or []), req_id)
         optional = _dedupe([*native_optional, *_replace_req_id(list(policy.get("allowed_companion_root_globs") or []), req_id)])
         forbidden = _dedupe([*native_forbidden, *_replace_req_id(list(policy.get("forbidden_outputs") or []), req_id)])
-        required = _dedupe([*native_required, *canonical, *mandatory])
+        required = _dedupe([*native_required, *file_requirement_outputs, *canonical, *mandatory])
         conflict_resolution = str(policy.get("conflict_resolution") or "canonical-wins")
         strict_missing = phase_name in {"idea", "spec", "plan", "finalize", "kit"} and runner_name == "cloud"
     else:
-        required = list(NATIVE_CLOUD_REQUIRED_OUTPUTS.get(phase_name) or [])
+        native_required = _replace_req_id(list(NATIVE_CLOUD_REQUIRED_OUTPUTS.get(phase_name) or []), req_id)
+        required = _dedupe([*native_required, *file_requirement_outputs])
         optional = list(NATIVE_CLOUD_OPTIONAL_OUTPUTS.get(phase_name) or [])
         forbidden = list(NATIVE_FORBIDDEN_OUTPUTS.get(phase_name) or [])
         conflict_resolution = "native-clike-contract-wins"
-        strict_missing = phase_name in {"idea", "spec", "plan"} and runner_name == "cloud"
+        strict_missing = phase_name in {"idea", "spec", "plan", "kit"} and runner_name == "cloud"
 
     return {
         "phase": phase_name,

@@ -1,0 +1,214 @@
+{
+  "vendor": "bmad",
+  "methodology": "bmad",
+  "name": "BMAD",
+  "version": "clike-built-in-profile-v7",
+  "purpose": "reference-only CLike-owned BMAD methodology skill material seeded by the CLike VS Code extension",
+  "workspace_vendor_reference_root": ".clike/skills/vendor/bmad",
+  "runtime_execution_enabled": false,
+  "external_bmad_cli_enabled": false,
+  "network_fetch_enabled": false,
+  "activated_by": "methodology=bmad",
+  "native_harper_active": false,
+  "reviewed_status": "clike_owned_normalized_mapping",
+  "skill_reference_policy": {
+    "enabled": true,
+    "workspace_vendor_reference_root": ".clike/skills/vendor/bmad",
+    "template_vendor_reference_root": "extensions/vscode/templates/harper-init/.clike/skills/vendor/bmad",
+    "activation": "methodology=bmad",
+    "runtime_import_enabled": false,
+    "external_skill_execution_enabled": false,
+    "external_bmad_cli_enabled": false,
+    "network_fetch_enabled": false,
+    "official_bmad_runtime_content_vendored": false,
+    "sync_mode": "manual_or_container_controlled",
+    "review_required_before_activation": true,
+    "cloud_context_enabled": true,
+    "local_agent_context_enabled": true
+  },
+  "supported_agents": [
+    "analyst",
+    "pm",
+    "architect",
+    "developer",
+    "ux",
+    "qa",
+    "tech-writer"
+  ],
+  "phase_mapping": {
+    "idea": {
+      "default_agent": "analyst",
+      "allowed_agents": [
+        "analyst"
+      ]
+    },
+    "spec": {
+      "default_agent": "pm",
+      "allowed_agents": [
+        "pm",
+        "ux"
+      ]
+    },
+    "plan": {
+      "default_agent": "architect",
+      "allowed_agents": [
+        "architect",
+        "pm"
+      ]
+    },
+    "kit": {
+      "default_agent": "developer",
+      "allowed_agents": [
+        "developer"
+      ]
+    },
+    "eval": {
+      "default_agent": "qa",
+      "allowed_agents": [
+        "qa",
+        "developer"
+      ],
+      "advisory_only": true
+    },
+    "gate": {
+      "clike_only": true,
+      "allowed_agents": []
+    },
+    "finalize": {
+      "default_agent": "tech-writer",
+      "allowed_agents": [
+        "tech-writer"
+      ]
+    }
+  },
+  "skill_selection": {
+    "idea/analyst": [
+      "prd-shaping"
+    ],
+    "spec/pm": [
+      "prd-shaping",
+      "epic-framing",
+      "acceptance-modeling"
+    ],
+    "spec/ux": [
+      "ux-flow-modeling"
+    ],
+    "plan/architect": [
+      "architecture-readiness",
+      "story-readiness"
+    ],
+    "plan/pm": [
+      "epic-framing",
+      "story-readiness"
+    ],
+    "kit/developer": [
+      "dev-story-execution",
+      "story-readiness"
+    ],
+    "eval/qa": [
+      "qa-risk-review"
+    ],
+    "finalize/tech-writer": [
+      "release-narrative"
+    ]
+  },
+  "skills": {
+    "prd-shaping": {
+      "path": ".clike/skills/vendor/bmad/prd-shaping/SKILL.md",
+      "runtime_execution_enabled": false
+    },
+    "epic-framing": {
+      "path": ".clike/skills/vendor/bmad/epic-framing/SKILL.md",
+      "runtime_execution_enabled": false
+    },
+    "acceptance-modeling": {
+      "path": ".clike/skills/vendor/bmad/acceptance-modeling/SKILL.md",
+      "runtime_execution_enabled": false
+    },
+    "ux-flow-modeling": {
+      "path": ".clike/skills/vendor/bmad/ux-flow-modeling/SKILL.md",
+      "runtime_execution_enabled": false
+    },
+    "architecture-readiness": {
+      "path": ".clike/skills/vendor/bmad/architecture-readiness/SKILL.md",
+      "runtime_execution_enabled": false
+    },
+    "story-readiness": {
+      "path": ".clike/skills/vendor/bmad/story-readiness/SKILL.md",
+      "runtime_execution_enabled": false
+    },
+    "dev-story-execution": {
+      "path": ".clike/skills/vendor/bmad/dev-story-execution/SKILL.md",
+      "runtime_execution_enabled": false
+    },
+    "qa-risk-review": {
+      "path": ".clike/skills/vendor/bmad/qa-risk-review/SKILL.md",
+      "runtime_execution_enabled": false
+    },
+    "release-narrative": {
+      "path": ".clike/skills/vendor/bmad/release-narrative/SKILL.md",
+      "runtime_execution_enabled": false
+    }
+  },
+  "governance_boundaries": [
+    "CLike remains the governance runtime and source of truth.",
+    "BMAD skills are methodology guidance only.",
+    "BMAD runtime is not executed.",
+    "External BMAD CLI calls are disabled.",
+    "Network fetch is disabled.",
+    "CLike contracts, EvalRunner, Gate, write roots, and active output contracts remain authoritative."
+  ],
+  "imported_files": [
+    {
+      "relative_path": "prd-shaping/SKILL.md",
+      "bytes": 2725,
+      "sha256": "7283f1834179c8354b803da016b6cc5427de420ba03b364e142d70bdb0db3803"
+    },
+    {
+      "relative_path": "epic-framing/SKILL.md",
+      "bytes": 2500,
+      "sha256": "e120a8aeae94608dc072d22684a33ce07c35b032a742458ad792b2a4a3bf7dfc"
+    },
+    {
+      "relative_path": "acceptance-modeling/SKILL.md",
+      "bytes": 2435,
+      "sha256": "4837f133da4974fac0f6dba11c3541269b38df4b91fba0fef6ec5d61d9db45c1"
+    },
+    {
+      "relative_path": "ux-flow-modeling/SKILL.md",
+      "bytes": 2346,
+      "sha256": "ee30a2848f3e581a2e737ed4942234bfaaae76f5c701824dad4c0ac5a83694ab"
+    },
+    {
+      "relative_path": "architecture-readiness/SKILL.md",
+      "bytes": 2665,
+      "sha256": "f8042b7ae59eb3f26ca855bf5991cb12f460464c8340c9424b276d50507f849e"
+    },
+    {
+      "relative_path": "story-readiness/SKILL.md",
+      "bytes": 2417,
+      "sha256": "c648c8ae006d5f28f75c283ce0288f862c14bb770ffe629c29a4e11f7d146570"
+    },
+    {
+      "relative_path": "dev-story-execution/SKILL.md",
+      "bytes": 2657,
+      "sha256": "06635ee371a3aa4608f3c2eb3d3e577095128051d5e13231fbea3b059b889de8"
+    },
+    {
+      "relative_path": "qa-risk-review/SKILL.md",
+      "bytes": 2324,
+      "sha256": "cb5ad92ff302a94373aab41f42cd3a04bf4f9da915d4cb092c477f65ddf83363"
+    },
+    {
+      "relative_path": "release-narrative/SKILL.md",
+      "bytes": 2306,
+      "sha256": "66fb47e249abb09ca0b4fcd16f24735ef270ebf106b7c5e80c2eb695b33be4cf"
+    }
+  ],
+  "notes": [
+    "This directory is seeded into new workspaces by the VS Code extension.",
+    "Files in this directory are reference material only.",
+    "Cloud transport uses request core_blobs.",
+    "CLike selected capabilities and BMAD methodology skills are separate and composable."
+  ]
+}

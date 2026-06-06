@@ -11,6 +11,7 @@ from .errors import (
     UnsupportedMethodologyAgentError,
     UnsupportedMethodologyError,
 )
+from .bmad_skill_loader import load_bmad_vendor_manifest_from_core_blobs, select_bmad_skill_context
 
 
 SUPPORTED_METHODOLOGIES = {"bmad"}
@@ -56,6 +57,10 @@ def _load_manifest(methodology: str) -> Dict[str, Any]:
 def _normalize(value: Optional[str]) -> Optional[str]:
     text = str(value or "").strip().lower()
     return text or None
+
+
+def _phase_rules(manifest: Dict[str, Any], phase_name: str) -> Dict[str, Any]:
+    return dict((manifest.get("phase_mapping") or {}).get(phase_name) or BMAD_PHASE_ROLES.get(phase_name) or {})
 
 
 def _compact_workflow_context(manifest: Dict[str, Any], phase_name: str) -> Dict[str, Any]:
@@ -147,6 +152,8 @@ def resolve_methodology_context(
     phase: str,
     methodology: Optional[str] = None,
     agent: Optional[str] = None,
+    core_blobs: Optional[Dict[str, Any]] = None,
+    require_bmad_core_blobs: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """Resolve a governed methodology context without changing execution policy."""
     phase_name = _normalize(phase) or ""
@@ -169,14 +176,20 @@ def resolve_methodology_context(
             f"Unsupported methodology: {methodology_id}. Supported methodologies: bmad."
         )
 
-    if agent_id and agent_id not in SUPPORTED_BMAD_AGENTS:
+    manifest = load_bmad_vendor_manifest_from_core_blobs(core_blobs) or _load_manifest("bmad")
+    supported_agents = {
+        str(item).strip().lower()
+        for item in (manifest.get("supported_agents") or [])
+        if str(item or "").strip()
+    } or SUPPORTED_BMAD_AGENTS
+
+    if agent_id and agent_id not in supported_agents:
         raise UnsupportedMethodologyAgentError(
             "Unsupported BMAD agent: "
-            f"{agent_id}. Supported agents: {', '.join(sorted(SUPPORTED_BMAD_AGENTS))}."
+            f"{agent_id}. Supported agents: {', '.join(sorted(supported_agents))}."
         )
 
-    manifest = _load_manifest("bmad")
-    phase_rules = dict((manifest.get("phase_mapping") or {}).get(phase_name) or BMAD_PHASE_ROLES.get(phase_name) or {})
+    phase_rules = _phase_rules(manifest, phase_name)
     workflow_context = _compact_workflow_context(manifest, phase_name)
 
     if phase_rules.get("clike_only"):
@@ -186,6 +199,13 @@ def resolve_methodology_context(
                 "Gate remains CLike-only."
             )
 
+        skill_context = select_bmad_skill_context(
+            methodology="bmad",
+            phase=phase_name,
+            agent=None,
+            core_blobs=core_blobs,
+            require_core_blobs=require_bmad_core_blobs,
+        )
         return {
             "methodology": "bmad",
             "methodology_name": manifest.get("name", "BMAD"),
@@ -197,6 +217,9 @@ def resolve_methodology_context(
             "authority": "clike_only",
             "profile": None,
             "version": manifest.get("version"),
+            "selected_skill_references": skill_context.get("selected_skill_references") or [],
+            "selected_skill_context": skill_context.get("selected_skill_context") or {},
+            "skill_reference_policy": skill_context.get("skill_reference_policy") or {},
             **workflow_context,
         }
 
@@ -215,8 +238,15 @@ def resolve_methodology_context(
     profile = dict(agents.get(resolved_agent) or {})
     artifact_policy = _artifact_policy_context(manifest, phase_name, resolved_agent)
     quality_contracts = _quality_contract_context(manifest, phase_name)
+    skill_context = select_bmad_skill_context(
+        methodology="bmad",
+        phase=phase_name,
+        agent=resolved_agent,
+        core_blobs=core_blobs,
+        require_core_blobs=require_bmad_core_blobs,
+    )
 
-    return {
+    context = {
         "methodology": "bmad",
         "methodology_name": manifest.get("name", "BMAD"),
         "phase": phase_name,
@@ -229,6 +259,90 @@ def resolve_methodology_context(
         "profile": profile,
         "artifact_policy": artifact_policy,
         **({"quality_contracts": quality_contracts} if quality_contracts else {}),
+        "selected_skill_references": skill_context.get("selected_skill_references") or [],
+        "selected_skill_context": skill_context.get("selected_skill_context") or {},
+        "skill_reference_policy": skill_context.get("skill_reference_policy") or {},
         "version": manifest.get("version"),
         **workflow_context,
     }
+    return ensure_bmad_skill_context(
+        context,
+        phase=phase_name,
+        agent=resolved_agent,
+        core_blobs=core_blobs,
+        require_bmad_core_blobs=require_bmad_core_blobs,
+    )
+
+
+def ensure_bmad_skill_context(
+    methodology_context: Optional[Dict[str, Any]],
+    *,
+    phase: Optional[str] = None,
+    agent: Optional[str] = None,
+    core_blobs: Optional[Dict[str, Any]] = None,
+    require_bmad_core_blobs: bool = False,
+) -> Optional[Dict[str, Any]]:
+    """Return a BMAD context enriched from the manifest-owned skill policy.
+
+    This is intentionally server-side and manifest-driven. It repairs compact or
+    stale BMAD contexts that contain the methodology profile but lost selected
+    skill fields before reaching cloud prompt rendering or local-agent packages.
+    """
+    if not isinstance(methodology_context, dict):
+        return methodology_context
+
+    if _normalize(methodology_context.get("methodology")) != "bmad":
+        return methodology_context
+
+    manifest = load_bmad_vendor_manifest_from_core_blobs(core_blobs) or _load_manifest("bmad")
+    phase_name = (
+        _normalize(phase)
+        or _normalize(methodology_context.get("phase"))
+        or ""
+    )
+    phase_rules = _phase_rules(manifest, phase_name)
+
+    if phase_rules.get("clike_only"):
+        skill_context = select_bmad_skill_context(
+            methodology="bmad",
+            phase=phase_name,
+            agent=None,
+            core_blobs=core_blobs,
+            require_core_blobs=require_bmad_core_blobs,
+        )
+        enriched = dict(methodology_context)
+        enriched["phase"] = phase_name
+        enriched["agent"] = None
+        enriched["selected_skill_references"] = skill_context.get("selected_skill_references") or []
+        enriched["selected_skill_context"] = skill_context.get("selected_skill_context") or {}
+        enriched["skill_reference_policy"] = skill_context.get("skill_reference_policy") or {}
+        return enriched
+
+    resolved_agent = (
+        _normalize(agent)
+        or _normalize(methodology_context.get("agent"))
+        or _normalize(methodology_context.get("requested_agent"))
+        or _normalize(phase_rules.get("default_agent"))
+    )
+
+    if not phase_name or not resolved_agent:
+        return methodology_context
+
+    skill_context = select_bmad_skill_context(
+        methodology="bmad",
+        phase=phase_name,
+        agent=resolved_agent,
+        core_blobs=core_blobs,
+        require_core_blobs=require_bmad_core_blobs,
+    )
+
+    enriched = dict(methodology_context)
+    enriched["phase"] = phase_name
+    enriched["agent"] = resolved_agent
+    enriched.setdefault("methodology_name", manifest.get("name", "BMAD"))
+    enriched.setdefault("default_agent", phase_rules.get("default_agent"))
+    enriched.setdefault("allowed_agents", list(phase_rules.get("allowed_agents") or []))
+    enriched["selected_skill_references"] = skill_context.get("selected_skill_references") or []
+    enriched["selected_skill_context"] = skill_context.get("selected_skill_context") or {}
+    enriched["skill_reference_policy"] = skill_context.get("skill_reference_policy") or {}
+    return enriched

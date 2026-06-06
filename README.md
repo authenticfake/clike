@@ -88,6 +88,8 @@ Methodology is not executor: BMAD can guide how `/idea`, `/spec`, `/plan`, `/kit
 
 BMAD is not a hard dependency. CLike does not include a BMAD runtime dependency, does not run `npx bmad-method`, does not vendor BMAD runtime code, and does not create a parallel BMAD pipeline. Cloud guidance is injected through Gateway prompt composition; local-agent guidance is injected through `local_agent_package`.
 
+BMAD skill reference material is seeded by the VS Code Harper init template at `extensions/vscode/templates/harper-init/.clike/skills/vendor/bmad` and appears in initialized workspaces under `.clike/skills/vendor/bmad`. That workspace material is auditable input, not executable authority. When `methodology=bmad` is selected, the extension transports the vendor manifest and selected `SKILL.md` material through `core_blobs`; the Orchestrator resolves selected skills from those blobs and Gateway/local-agent packages render the resulting context. Native Harper runs do not activate BMAD skill context.
+
 Current out of scope roadmap items include BMAD runtime execution, `npx bmad-method` runtime invocation, the BMAD importer, TEA, Party Mode, MCP write tools, multi-agent `/spec --agents pm,ux`, and automatic latest BMAD tracking at runtime.
 
 See [docs/integrations/bmad/README.md](./docs/integrations/bmad/README.md).

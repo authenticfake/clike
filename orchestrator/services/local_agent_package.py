@@ -6,7 +6,15 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from services.capabilities import build_capability_context, build_selected_capability_context
+from services.context_envelope import build_context_envelope
+from services.methodologies.errors import ClikeSelectedCapabilitiesMissingError
 from services.methodologies.active_output_contract import build_active_output_contract
+from services.methodologies.resolver import ensure_bmad_skill_context, resolve_methodology_context
+from utils.namespace_paths import (
+    is_python_runtime_context,
+    namespace_materialization_context,
+)
 
 
 def _safe_text(value: Any) -> str:
@@ -147,6 +155,190 @@ def _capability_manifest_for_agent_context(
     }
 
 
+def _req_capability_list(req: Dict[str, Any], *keys: str, nested_key: str) -> List[str]:
+    nested = req.get("capabilities") if isinstance(req.get("capabilities"), dict) else {}
+    for key in keys:
+        values = req.get(key)
+        if isinstance(values, list) and values:
+            return [str(item) for item in values if str(item or "").strip()]
+    nested_keys = [nested_key]
+    if nested_key == "design_profiles":
+        nested_keys.append("designProfiles")
+    for key in nested_keys:
+        values = nested.get(key)
+        if isinstance(values, list):
+            return [str(item) for item in values if str(item or "").strip()]
+    return []
+
+
+def _selected_capability_summary(req: Dict[str, Any], capability_manifest: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "selected_packs": _req_capability_list(req, "packs", nested_key="packs"),
+        "selected_skills": _req_capability_list(req, "skills", nested_key="skills"),
+        "selected_design_profiles": _req_capability_list(
+            req,
+            "design_profiles",
+            "designProfiles",
+            nested_key="design_profiles",
+        ),
+        "context_available": bool(capability_manifest.get("selected_context_available")),
+        "context_markdown_path": "CLIKE_SELECTED_CAPABILITY_CONTEXT.md",
+        "context_json_path": "CLIKE_SELECTED_CAPABILITY_CONTEXT.json",
+        "capability_context_paths": {
+            "selected_markdown": "CLIKE_SELECTED_CAPABILITY_CONTEXT.md",
+            "selected_json": "CLIKE_SELECTED_CAPABILITY_CONTEXT.json",
+            "manifest": "CLIKE_CAPABILITY_MANIFEST.md",
+            "index": "CLIKE_CAPABILITY_INDEX.json",
+        },
+        "source": "CLIKE_SELECTED_CAPABILITY_CONTEXT",
+    }
+
+
+def _ensure_selected_capability_context(
+    payload: Dict[str, Any],
+    *,
+    req_id: str,
+    target_contract: Dict[str, Any],
+) -> Dict[str, Any]:
+    core_blobs = dict(payload.get("core_blobs") or {})
+    declared = bool(
+        target_contract.get("packs")
+        or target_contract.get("skills")
+        or target_contract.get("design_profiles")
+    )
+    if not declared:
+        return payload
+
+    if _selected_capability_context_has_selection(core_blobs.get("CLIKE_SELECTED_CAPABILITY_CONTEXT.json")):
+        return payload
+
+    if not core_blobs.get("CLIKE_CAPABILITY_INDEX.json"):
+        capability_blobs = build_capability_context(None, core_blobs=core_blobs)
+        if capability_blobs:
+            core_blobs.update(capability_blobs)
+
+    selected_blobs = build_selected_capability_context(
+        core_blobs=core_blobs,
+        target_req_id=req_id,
+        target_contract=target_contract,
+    )
+    if selected_blobs:
+        updated = dict(payload)
+        updated["core_blobs"] = {**core_blobs, **selected_blobs}
+        return updated
+    return payload
+
+
+def _selected_capability_context_has_selection(raw_context: Any) -> bool:
+    try:
+        data = json.loads(str(raw_context or ""))
+    except Exception:
+        return False
+    if not isinstance(data, dict):
+        return False
+    if data.get("selected_packs") or data.get("selected_skills") or data.get("selected_design_profiles"):
+        return True
+    for key in ("packs", "skills", "design_profiles"):
+        group = data.get(key) if isinstance(data.get(key), dict) else {}
+        if group.get("selected") or group.get("resolved"):
+            return True
+    return False
+
+
+def _raise_if_selected_capabilities_missing_for_agent(
+    *,
+    phase: str,
+    req_id: str,
+    methodology_context: Optional[Dict[str, Any]],
+    selected_capabilities: Dict[str, Any],
+    capability_manifest: Dict[str, Any],
+    capability_integrity: Dict[str, Any],
+    context_envelope: Dict[str, Any],
+) -> None:
+    declared_packs = list(selected_capabilities.get("selected_packs") or [])
+    declared_skills = list(selected_capabilities.get("selected_skills") or [])
+    declared_design = list(selected_capabilities.get("selected_design_profiles") or [])
+    if not (declared_packs or declared_skills or declared_design):
+        return
+
+    clike = context_envelope.get("clike_capabilities") or {}
+    if clike.get("selected_packs") or clike.get("selected_skills") or clike.get("selected_design_profiles"):
+        return
+
+    raise ClikeSelectedCapabilitiesMissingError(
+        "CLIKE_SELECTED_CAPABILITIES_MISSING: "
+        f"req_id={req_id} phase={phase} "
+        f"methodology={(methodology_context or {}).get('methodology') or 'native'} "
+        f"selected_packs_declared={declared_packs} "
+        f"selected_skills_declared={declared_skills} "
+        f"selected_design_profiles_declared={declared_design} "
+        "source_transport=core_blobs "
+        f"capability_index_present={bool(capability_manifest.get('index_available'))} "
+        f"selected_capability_context_present={bool(capability_manifest.get('selected_context_available'))} "
+        f"missing_capability_ids={(capability_integrity.get('missing_selected_packs') or []) + (capability_integrity.get('missing_selected_skills') or []) + (capability_integrity.get('missing_selected_design_profiles') or [])} "
+        f"available_packs={_capability_index_names(capability_manifest, 'packs')} "
+        f"available_skills={_capability_index_names(capability_manifest, 'skills')} "
+        f"available_design_profiles={_capability_index_names(capability_manifest, 'design_profiles')}"
+    )
+
+
+def _runtime_ecosystem_for_req(req: Dict[str, Any], payload: Dict[str, Any]) -> str:
+    text = "\n".join(
+        [
+            _safe_text(req.get("title")),
+            _safe_text(req.get("functional_scope")),
+            _safe_text(req.get("technical_scope")),
+            _safe_text(req.get("test_profile")),
+            _safe_text(req.get("main_module_boundary")),
+            _safe_text(_extract_core_blob(payload, "SPEC.md")),
+            _safe_text(_extract_core_blob(payload, "PLAN.md")),
+            _safe_text(_extract_core_blob(payload, "TECH_CONSTRAINTS.yaml")),
+            _safe_text(_extract_core_blob(payload, "TECH_CONSTRAINTS.yml")),
+            _safe_text(_extract_core_blob(payload, "FILE_REQUIREMENTS.json")),
+        ]
+    )
+    if is_python_runtime_context(
+        lane=req.get("lane"),
+        runtime_profile=req.get("runtime_profile"),
+        text=text,
+    ):
+        return "python"
+    return "unknown"
+
+
+def _render_selected_capability_prompt_block(selected_capabilities: Dict[str, Any]) -> str:
+    if not isinstance(selected_capabilities, dict) or not selected_capabilities.get("context_available"):
+        return ""
+    return "\n".join(
+        [
+            "",
+            "### CLike Selected Capability Context",
+            f"- selected_packs: {'; '.join(str(x) for x in selected_capabilities.get('selected_packs') or []) or 'none'}",
+            f"- selected_skills: {'; '.join(str(x) for x in selected_capabilities.get('selected_skills') or []) or 'none'}",
+            f"- selected_design_profiles: {'; '.join(str(x) for x in selected_capabilities.get('selected_design_profiles') or []) or 'none'}",
+            "- Read CLIKE_SELECTED_CAPABILITY_CONTEXT.md before implementation or repair.",
+            "- CLike selected capabilities are REQ-scoped implementation, test, documentation, and evidence constraints.",
+            "- Capability guidance must not override SPEC, TECH_CONSTRAINTS, TARGET_CONTRACT.json, FILE_REQUIREMENTS.json, allowed_write_roots, EvalRunner, or Gate.",
+        ]
+    )
+
+
+def _render_namespace_materialization_prompt_block(namespace_context: Dict[str, Any]) -> str:
+    if not isinstance(namespace_context, dict) or not namespace_context.get("rules"):
+        return ""
+    return "\n".join(
+        [
+            "",
+            "### Namespace Materialization",
+            f"- ecosystem: {namespace_context.get('ecosystem') or 'unknown'}",
+            f"- import_namespace: {namespace_context.get('import_namespace') or 'none'}",
+            f"- package_path: {namespace_context.get('package_path') or 'none'}",
+            f"- source_root: {namespace_context.get('source_root') or 'none'}",
+            *[f"- {rule}" for rule in (namespace_context.get("rules") or [])],
+        ]
+    )
+
+
 def _dedupe_rules(rules: Any) -> List[str]:
     """Deduplicate prompt/context rules while preserving first occurrence order."""
     if not isinstance(rules, list):
@@ -172,11 +364,35 @@ def _dedupe_rules(rules: Any) -> List[str]:
     return out
 
 
-def _methodology_context_for_local_agent(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def _methodology_context_for_local_agent(
+    payload: Dict[str, Any],
+    *,
+    phase_hint: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
     """Return compact CLike-resolved methodology context for local-agent packages."""
     raw = payload.get("methodology_context")
     if not isinstance(raw, dict) or not raw.get("methodology"):
-        return None
+        methodology = _safe_text(payload.get("methodology")).lower()
+        if methodology != "bmad":
+            return None
+        phase = _safe_text(phase_hint or payload.get("phase") or payload.get("cmd") or "")
+        agent = _safe_text(payload.get("agent") or "")
+        raw = resolve_methodology_context(
+            phase=phase,
+            methodology=methodology,
+            agent=agent or None,
+            core_blobs=payload.get("core_blobs") or {},
+            require_bmad_core_blobs=True,
+        )
+        if not isinstance(raw, dict) or not raw.get("methodology"):
+            return None
+    raw = ensure_bmad_skill_context(
+        raw,
+        phase=raw.get("phase") or phase_hint or payload.get("phase") or payload.get("cmd"),
+        agent=raw.get("agent") or payload.get("agent"),
+        core_blobs=payload.get("core_blobs") or {},
+        require_bmad_core_blobs=True,
+    ) or raw
 
     profile = raw.get("profile") or {}
     if not isinstance(profile, dict):
@@ -203,6 +419,15 @@ def _methodology_context_for_local_agent(payload: Dict[str, Any]) -> Optional[Di
     artifact_policy = raw.get("artifact_policy") or {}
     if not isinstance(artifact_policy, dict):
         artifact_policy = {}
+    selected_skill_references = raw.get("selected_skill_references") or []
+    if not isinstance(selected_skill_references, list):
+        selected_skill_references = []
+    selected_skill_context = raw.get("selected_skill_context") or {}
+    if not isinstance(selected_skill_context, dict):
+        selected_skill_context = {}
+    skill_reference_policy = raw.get("skill_reference_policy") or {}
+    if not isinstance(skill_reference_policy, dict):
+        skill_reference_policy = {}
 
     return {
         "methodology": raw.get("methodology"),
@@ -241,6 +466,29 @@ def _methodology_context_for_local_agent(payload: Dict[str, Any]) -> Optional[Di
             "BMAD developer guidance must not expand write permissions.",
             "If methodology guidance conflicts with CLike rules, follow CLike.",
         ],
+        "selected_skill_references": selected_skill_references[:12],
+        "selected_skill_context": {
+            "snippets": list(selected_skill_context.get("snippets") or [])[:8],
+            "required_outputs": list(selected_skill_context.get("required_outputs") or [])[:24],
+            "companion_outputs": list(selected_skill_context.get("companion_outputs") or [])[:24],
+            "quality_checks": list(selected_skill_context.get("quality_checks") or [])[:24],
+            "forbidden_behavior": list(selected_skill_context.get("forbidden_behavior") or [])[:24],
+            "governance_boundaries": list(selected_skill_context.get("governance_boundaries") or [])[:12],
+            **({"vendor_inventory_summary": selected_skill_context.get("vendor_inventory_summary")} if selected_skill_context.get("vendor_inventory_summary") else {}),
+        },
+        "skill_reference_policy": {
+            "enabled": bool(skill_reference_policy.get("enabled", False)),
+            "workspace_vendor_reference_root": skill_reference_policy.get("workspace_vendor_reference_root"),
+            "template_vendor_reference_root": skill_reference_policy.get("template_vendor_reference_root"),
+            "vendor_skill_root": skill_reference_policy.get("vendor_skill_root") or skill_reference_policy.get("workspace_vendor_reference_root"),
+            "activation": skill_reference_policy.get("activation"),
+            "runtime_import_enabled": bool(skill_reference_policy.get("runtime_import_enabled", False)),
+            "external_skill_execution_enabled": bool(skill_reference_policy.get("external_skill_execution_enabled", False)),
+            "external_bmad_cli_enabled": bool(skill_reference_policy.get("external_bmad_cli_enabled", False)),
+            "network_fetch_enabled": bool(skill_reference_policy.get("network_fetch_enabled", False)),
+            "cloud_context_enabled": bool(skill_reference_policy.get("cloud_context_enabled", False)),
+            "local_agent_context_enabled": bool(skill_reference_policy.get("local_agent_context_enabled", False)),
+        },
     }
 
 
@@ -253,6 +501,15 @@ def _render_methodology_prompt_block(methodology_context: Optional[Dict[str, Any
     required_context = methodology_context.get("required_context") or []
     companion_artifacts = methodology_context.get("companion_artifacts") or []
     governance_boundaries = methodology_context.get("governance_boundaries") or []
+    selected_skill_references = methodology_context.get("selected_skill_references") or []
+    selected_skill_context = methodology_context.get("selected_skill_context") or {}
+    if not isinstance(selected_skill_context, dict):
+        selected_skill_context = {}
+    skill_ids = [
+        str(item.get("id") or "")
+        for item in selected_skill_references
+        if isinstance(item, dict) and str(item.get("id") or "").strip()
+    ]
     return "\n".join(
         [
             "",
@@ -266,6 +523,24 @@ def _render_methodology_prompt_block(methodology_context: Optional[Dict[str, Any
             f"- workflow_focus: {'; '.join(str(x) for x in workflow_focus[:8]) if workflow_focus else 'none'}",
             f"- required_context: {'; '.join(str(x) for x in required_context[:8]) if required_context else 'none'}",
             f"- companion_artifacts: {'; '.join(str(x) for x in companion_artifacts[:8]) if companion_artifacts else 'none'}",
+            *(
+                [
+                    "### BMAD Skill Reference Context",
+                    "BMAD skill context:",
+                    f"- selected_skill_ids: {'; '.join(skill_ids) if skill_ids else 'none'}",
+                    f"- source_root: {selected_skill_context.get('source_root') or '.clike/skills/vendor/bmad'}",
+                    f"- source_transport: {selected_skill_context.get('source_transport') or 'core_blobs'}",
+                    "- Read selected_skill_context from AGENT_*_CONTEXT.json before implementation or repair.",
+                    "- Treat BMAD skills as methodology guidance only.",
+                    "- Never execute BMAD runtime or call " + "npx bmad-" + "method.",
+                    "- Never expand write roots, modify canonical source/test roots, or decide Eval/Gate outcomes.",
+                    "- Use selected skills to improve implementation readiness, acceptance coverage, repair quality, and documentation.",
+                    f"- quality_checks: {'; '.join(str(x) for x in (selected_skill_context.get('quality_checks') or [])[:8]) if selected_skill_context.get('quality_checks') else 'none'}",
+                    f"- forbidden_behavior: {'; '.join(str(x) for x in (selected_skill_context.get('forbidden_behavior') or [])[:8]) if selected_skill_context.get('forbidden_behavior') else 'none'}",
+                ]
+                if selected_skill_references
+                else []
+            ),
             *[f"- governance_boundary: {item}" for item in (governance_boundaries[:6] or ["Methodology guidance cannot override allowed_write_roots, forbidden_paths, CLike governance, candidate isolation, eval/gate policy, or output contracts."])],
         ]
     )
@@ -278,6 +553,8 @@ def _render_compact_local_agent_prompt(
     context_path: str,
     methodology_context: Optional[Dict[str, Any]] = None,
     active_output_contract: Optional[Dict[str, Any]] = None,
+    selected_capabilities: Optional[Dict[str, Any]] = None,
+    namespace_materialization: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Render a compact agent prompt and keep detailed policy in AGENT_*_CONTEXT.json."""
     phase_label = phase.upper()
@@ -291,6 +568,10 @@ def _render_compact_local_agent_prompt(
     if is_bmad:
         bmad_rules = [
             "- Parse BMAD companion artifacts listed in companion_documents.bmad and UX artifacts listed in companion_documents.ux before code generation or repair.",
+            "- Read selected BMAD skill context from AGENT_*_CONTEXT.json before implementation or repair.",
+            "- Treat BMAD skills as methodology guidance only; never execute BMAD runtime and never call `" + "npx bmad-" + "method`.",
+            "- BMAD skill guidance must not expand write roots, modify canonical source/test roots, decide eval/gate, or override CLike contracts.",
+            "- Use selected skills to improve implementation readiness, acceptance coverage, repair quality, and documentation.",
             "- Use BMAD and UX companion docs to guide implementation and repair decisions when they clarify product intent, UX expectations, architecture, risks, or handoff notes.",
             "- Do not treat companion docs as canonical when they conflict with SPEC.md, PLAN.md, plan.json, TARGET_CONTRACT.json, FILE_REQUIREMENTS.json, EvalRunner evidence, or CLike write boundaries.",
             "- Produce BMAD expected outputs from AGENT_*_CONTEXT.json when useful for downstream phases; if a BMAD output would not be useful, explain why.",
@@ -378,6 +659,8 @@ def _render_compact_local_agent_prompt(
             f"Target REQ: {req_id}",
             f"Task: {action}.",
             _render_methodology_prompt_block(methodology_context),
+            _render_selected_capability_prompt_block(selected_capabilities or {}),
+            _render_namespace_materialization_prompt_block(namespace_materialization or {}),
             *contract_lines,
             "",
             "Read first:",
@@ -775,9 +1058,9 @@ def _capability_index_names(capability_manifest: Dict[str, Any], kind: str) -> L
 
 def _build_capability_integrity(req: Dict[str, Any], capability_manifest: Dict[str, Any]) -> Dict[str, Any]:
     """Compare selected capabilities with discovered capabilities."""
-    selected_skills = [str(x).strip() for x in (req.get("skills") or []) if str(x).strip()]
-    selected_packs = [str(x).strip() for x in (req.get("packs") or []) if str(x).strip()]
-    selected_design = [str(x).strip() for x in (req.get("design_profiles") or []) if str(x).strip()]
+    selected_skills = _req_capability_list(req, "skills", nested_key="skills")
+    selected_packs = _req_capability_list(req, "packs", nested_key="packs")
+    selected_design = _req_capability_list(req, "design_profiles", "designProfiles", nested_key="design_profiles")
 
     discovered_skills = _capability_index_names(capability_manifest, "skills")
     discovered_packs = _capability_index_names(capability_manifest, "packs")
@@ -1111,9 +1394,9 @@ def _build_target_contract(req_id: str, req: Dict[str, Any]) -> Dict[str, Any]:
         "lane_semantics": lane_semantics,
         "domain": req.get("domain"),
         "runtime_profile": req.get("runtime_profile"),
-        "packs": req.get("packs") or [],
-        "skills": req.get("skills") or [],
-        "design_profiles": req.get("design_profiles") or [],
+        "packs": _req_capability_list(req, "packs", nested_key="packs"),
+        "skills": _req_capability_list(req, "skills", nested_key="skills"),
+        "design_profiles": _req_capability_list(req, "design_profiles", "designProfiles", nested_key="design_profiles"),
         "test_profile": req.get("test_profile"),
         "gate_policy_ref": req.get("gate_policy_ref"),
         "gate_expectations": req.get("gate_expectations") or [],
@@ -1704,16 +1987,21 @@ def build_kit_local_agent_package(
     req_id = _safe_text(req_id).upper()
     run_id = _safe_text(payload.get("runId")) or f"kit-local-{req_id}"
     local_executor = _resolve_local_executor(payload)
-    methodology_context = _methodology_context_for_local_agent(payload)
+    methodology_context = _methodology_context_for_local_agent(payload, phase_hint="kit")
 
     plan_json = _extract_plan_json(payload)
     req = _extract_req_from_plan(payload, req_id)
     dependencies = _extract_req_dependencies(req)
     related_reqs = _build_related_reqs(req_id, req, plan_json)
     workspace_inspection_policy = _build_workspace_inspection_policy(req_id, req)
+    target_contract = _build_target_contract(req_id, req)
+    payload = _ensure_selected_capability_context(
+        payload,
+        req_id=req_id,
+        target_contract=target_contract,
+    )
     capability_manifest = _extract_capability_manifest(payload)
     capability_integrity = _build_capability_integrity(req, capability_manifest)
-    target_contract = _build_target_contract(req_id, req)
     file_requirements = _build_file_requirements(
         req_id,
         req,
@@ -1768,6 +2056,36 @@ def build_kit_local_agent_package(
         runner="local_agent",
         methodology_context=methodology_context,
         req_id=req_id,
+    )
+    selected_capabilities = _selected_capability_summary(req, capability_manifest)
+    runtime_ecosystem = _runtime_ecosystem_for_req(req, payload)
+    namespace_materialization = (
+        dict(file_requirements.get("namespace_materialization") or {})
+        if isinstance(file_requirements, dict)
+        else {}
+    ) or namespace_materialization_context(
+        main_module_boundary=req.get("main_module_boundary"),
+        ecosystem=runtime_ecosystem,
+        req_id=req_id,
+    )
+    context_envelope = build_context_envelope(
+        phase="kit",
+        req_id=req_id,
+        execution_mode="local_agent",
+        core_blobs=payload.get("core_blobs") or {},
+        methodology_context=methodology_context,
+        active_output_contract=active_output_contract,
+        namespace_materialization=namespace_materialization,
+        require_bmad_core_blobs=True,
+    )
+    _raise_if_selected_capabilities_missing_for_agent(
+        phase="kit",
+        req_id=req_id,
+        methodology_context=methodology_context,
+        selected_capabilities=selected_capabilities,
+        capability_manifest=capability_manifest,
+        capability_integrity=capability_integrity,
+        context_envelope=context_envelope,
     )
     repair_context = _kit_repair_context(req_id, payload)
     allowed_write_roots = [
@@ -1839,7 +2157,16 @@ def build_kit_local_agent_package(
         "workflow_owner": "orchestrator",
         "extension_role": "local_actuator_only",
         "active_output_contract": active_output_contract,
+        "context_envelope": context_envelope,
+        "selected_clike_capabilities": selected_capabilities,
+        "selected_clike_packs": selected_capabilities["selected_packs"],
+        "selected_clike_skills": selected_capabilities["selected_skills"],
+        "selected_clike_design_profiles": selected_capabilities["selected_design_profiles"],
+        "namespace_materialization": namespace_materialization,
         **({"methodology_context": methodology_context} if methodology_context else {}),
+        **({"selected_skill_references": methodology_context.get("selected_skill_references") or []} if methodology_context and methodology_context.get("methodology") == "bmad" else {}),
+        **({"selected_skill_context": methodology_context.get("selected_skill_context") or {}} if methodology_context and methodology_context.get("methodology") == "bmad" else {}),
+        **({"skill_reference_policy": methodology_context.get("skill_reference_policy") or {}} if methodology_context and methodology_context.get("methodology") == "bmad" else {}),
         **({"discovered_companion_artifact_inventory": methodology_context.get("discovered_companion_artifacts") or []} if methodology_context and methodology_context.get("discovered_companion_artifacts") else {}),
         "local_runtime": local_runtime,
         "req": req,
@@ -1899,9 +2226,9 @@ def build_kit_local_agent_package(
             "lane": req.get("lane"),
             "domain": req.get("domain"),
             "runtime_profile": req.get("runtime_profile"),
-            "packs": req.get("packs") or [],
-            "skills": req.get("skills") or [],
-            "design_profiles": req.get("design_profiles") or [],
+            "packs": _req_capability_list(req, "packs", nested_key="packs"),
+            "skills": _req_capability_list(req, "skills", nested_key="skills"),
+            "design_profiles": _req_capability_list(req, "design_profiles", "designProfiles", nested_key="design_profiles"),
             "gate_expectations": req.get("gate_expectations") or [],
             "main_module_boundary": req.get("main_module_boundary"),
             "future_compatibility_notes": req.get("future_compatibility_notes") or [],
@@ -2077,6 +2404,9 @@ def build_kit_local_agent_package(
             f"- runs/kit/{req_id}/docs/CLIKE_SELECTED_CAPABILITY_CONTEXT.md when present",
             "",
             f"Target REQ: {req_id}",
+            _render_methodology_prompt_block(methodology_context),
+            _render_selected_capability_prompt_block(selected_capabilities),
+            _render_namespace_materialization_prompt_block(namespace_materialization),
             "",
             "Strict rules:",
             "- Follow AGENT_EXECUTION_CONTEXT.json as the primary execution contract.",
@@ -2189,6 +2519,8 @@ def build_kit_local_agent_package(
         context_path=context_path,
         methodology_context=methodology_context,
         active_output_contract=active_output_contract,
+        selected_capabilities=selected_capabilities,
+        namespace_materialization=namespace_materialization,
     )
 
     return {
@@ -2323,16 +2655,21 @@ def build_eval_local_agent_package(
     req_id = _safe_text(req_id).upper()
     run_id = _safe_text(payload.get("runId")) or f"eval-local-{req_id}"
     local_executor = _resolve_local_executor(payload)
-    methodology_context = _methodology_context_for_local_agent(payload)
+    methodology_context = _methodology_context_for_local_agent(payload, phase_hint="eval")
 
     plan_json = _extract_plan_json(payload)
     req = _extract_req_from_plan(payload, req_id)
     dependencies = _extract_req_dependencies(req)
     related_reqs = _build_related_reqs(req_id, req, plan_json)
     workspace_inspection_policy = _build_workspace_inspection_policy(req_id, req)
+    target_contract = _parse_json_core_blob(payload, "TARGET_CONTRACT.json") or _build_target_contract(req_id, req)
+    payload = _ensure_selected_capability_context(
+        payload,
+        req_id=req_id,
+        target_contract=target_contract,
+    )
     capability_manifest = _extract_capability_manifest(payload)
     capability_integrity = _build_capability_integrity(req, capability_manifest)
-    target_contract = _parse_json_core_blob(payload, "TARGET_CONTRACT.json")
     file_requirements = _parse_json_core_blob(payload, "FILE_REQUIREMENTS.json")
     bmad_companion_docs = _companion_documents_from_core_blobs(payload, "docs/harper/bmad/")
     ux_companion_docs = _companion_documents_from_core_blobs(payload, "docs/harper/ux/")
@@ -2348,6 +2685,36 @@ def build_eval_local_agent_package(
         runner="local_agent",
         methodology_context=methodology_context,
         req_id=req_id,
+    )
+    selected_capabilities = _selected_capability_summary(req, capability_manifest)
+    runtime_ecosystem = _runtime_ecosystem_for_req(req, payload)
+    namespace_materialization = (
+        dict(file_requirements.get("namespace_materialization") or {})
+        if isinstance(file_requirements, dict)
+        else {}
+    ) or namespace_materialization_context(
+        main_module_boundary=req.get("main_module_boundary"),
+        ecosystem=runtime_ecosystem,
+        req_id=req_id,
+    )
+    context_envelope = build_context_envelope(
+        phase="eval",
+        req_id=req_id,
+        execution_mode="local_agent",
+        core_blobs=payload.get("core_blobs") or {},
+        methodology_context=methodology_context,
+        active_output_contract=active_output_contract,
+        namespace_materialization=namespace_materialization,
+        require_bmad_core_blobs=True,
+    )
+    _raise_if_selected_capabilities_missing_for_agent(
+        phase="eval",
+        req_id=req_id,
+        methodology_context=methodology_context,
+        selected_capabilities=selected_capabilities,
+        capability_manifest=capability_manifest,
+        capability_integrity=capability_integrity,
+        context_envelope=context_envelope,
     )
 
     standalone_capability_manifest = str(capability_manifest.get("content") or "")
@@ -2428,7 +2795,16 @@ def build_eval_local_agent_package(
         "agent_role": "pre_eval_hardener_only",
         "canonical_eval_owner": "clike",
         "active_output_contract": active_output_contract,
+        "context_envelope": context_envelope,
+        "selected_clike_capabilities": selected_capabilities,
+        "selected_clike_packs": selected_capabilities["selected_packs"],
+        "selected_clike_skills": selected_capabilities["selected_skills"],
+        "selected_clike_design_profiles": selected_capabilities["selected_design_profiles"],
+        "namespace_materialization": namespace_materialization,
         **({"methodology_context": methodology_context} if methodology_context else {}),
+        **({"selected_skill_references": methodology_context.get("selected_skill_references") or []} if methodology_context and methodology_context.get("methodology") == "bmad" else {}),
+        **({"selected_skill_context": methodology_context.get("selected_skill_context") or {}} if methodology_context and methodology_context.get("methodology") == "bmad" else {}),
+        **({"skill_reference_policy": methodology_context.get("skill_reference_policy") or {}} if methodology_context and methodology_context.get("methodology") == "bmad" else {}),
         **({"discovered_companion_artifact_inventory": methodology_context.get("discovered_companion_artifacts") or []} if methodology_context and methodology_context.get("discovered_companion_artifacts") else {}),
         "local_runtime": local_runtime,
         "execution": {
@@ -2494,9 +2870,9 @@ def build_eval_local_agent_package(
             "lane": req.get("lane"),
             "domain": req.get("domain"),
             "runtime_profile": req.get("runtime_profile"),
-            "packs": req.get("packs") or [],
-            "skills": req.get("skills") or [],
-            "design_profiles": req.get("design_profiles") or [],
+            "packs": _req_capability_list(req, "packs", nested_key="packs"),
+            "skills": _req_capability_list(req, "skills", nested_key="skills"),
+            "design_profiles": _req_capability_list(req, "design_profiles", "designProfiles", nested_key="design_profiles"),
             "gate_expectations": req.get("gate_expectations") or [],
             "main_module_boundary": req.get("main_module_boundary"),
             "future_compatibility_notes": req.get("future_compatibility_notes") or [],
@@ -2904,6 +3280,8 @@ def build_eval_local_agent_package(
         context_path=context_path,
         methodology_context=methodology_context,
         active_output_contract=active_output_contract,
+        selected_capabilities=selected_capabilities,
+        namespace_materialization=namespace_materialization,
     )
 
     return {
@@ -3774,7 +4152,7 @@ def build_finalize_local_agent_package(
     """
     run_id = _safe_text(payload.get("runId")) or "finalize-local"
     local_executor = _resolve_local_executor(payload)
-    methodology_context = _methodology_context_for_local_agent(payload)
+    methodology_context = _methodology_context_for_local_agent(payload, phase_hint="finalize")
 
     capability_manifest = _extract_capability_manifest(payload)
 
@@ -4289,6 +4667,19 @@ def build_finalize_local_agent_package(
         "extension_role": "local_actuator_only",
         "agent_role": "solution_integrator_and_runnability_hardener",
         **({"methodology_context": methodology_context} if methodology_context else {}),
+        **({"selected_skill_references": methodology_context.get("selected_skill_references") or []} if methodology_context and methodology_context.get("methodology") == "bmad" else {}),
+        **({"selected_skill_context": methodology_context.get("selected_skill_context") or {}} if methodology_context and methodology_context.get("methodology") == "bmad" else {}),
+        **({"skill_reference_policy": methodology_context.get("skill_reference_policy") or {}} if methodology_context and methodology_context.get("methodology") == "bmad" else {}),
+        "context_envelope": build_context_envelope(
+            phase="finalize",
+            req_id="SOLUTION",
+            execution_mode="local_agent",
+            core_blobs=payload.get("core_blobs") or {},
+            methodology_context=methodology_context,
+            active_output_contract={},
+            namespace_materialization={},
+            require_bmad_core_blobs=True,
+        ),
         "local_runtime": local_runtime,
         "execution": {
             "requested": execution_policy.get("requested"),
@@ -4592,7 +4983,7 @@ def build_extend_local_agent_package(
     """
     run_id = _safe_text(payload.get("runId")) or "extend-local"
     local_executor = _resolve_local_executor(payload)
-    methodology_context = _methodology_context_for_local_agent(payload)
+    methodology_context = _methodology_context_for_local_agent(payload, phase_hint="extend")
 
     extend_opts = dict(payload.get("extend") or payload.get("gen") or {})
     anchor_req = _safe_text(

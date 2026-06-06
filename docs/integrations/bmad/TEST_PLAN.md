@@ -7,7 +7,15 @@ The BMAD integration is tested as methodology metadata and guidance, not as an e
 Run Python compilation for touched orchestrator and gateway modules:
 
 ```text
-python -m compileall orchestrator gateway
+python3 -m compileall orchestrator gateway tools
+```
+
+Verify the actual VS Code Harper init template seed:
+
+```text
+find extensions/vscode -path "*skills/vendor/bmad*" -type f | sort
+python3 -m json.tool extensions/vscode/templates/harper-init/.clike/skills/vendor/bmad/manifest.json
+python3 -m json.tool orchestrator/methodologies/bmad/manifest.json
 ```
 
 Run targeted Python tests from the repository root:
@@ -16,14 +24,19 @@ Run targeted Python tests from the repository root:
 PYTHONPATH=orchestrator:. pytest -q orchestrator/tests/test_methodology_resolver.py
 PYTHONPATH=orchestrator:. pytest -q orchestrator/tests/test_active_output_contract.py
 PYTHONPATH=orchestrator:. pytest -q orchestrator/tests/test_methodology_injection.py
+PYTHONPATH=orchestrator:. pytest -q orchestrator/tests/test_context_envelope.py
+PYTHONPATH=orchestrator:. pytest -q orchestrator/tests/test_local_agent_package.py
+PYTHONPATH=orchestrator:. pytest -q orchestrator/tests/test_namespace_materialization.py
 PYTHONPATH=orchestrator:. pytest -q orchestrator/tests/test_eval_canonical_bmad.py
 PYTHONPATH=orchestrator:. pytest -q orchestrator/tests/test_bmad_companion_collector.py
 PYTHONPATH=orchestrator:. pytest -q orchestrator/tests/test_bmad_safety_boundaries.py
 PYTHONPATH=orchestrator:. pytest -q orchestrator/tests/test_bmad_quality_contracts.py
 PYTHONPATH=orchestrator:. pytest -q orchestrator/tests/test_bmad_quality_scorecard.py
+PYTHONPATH=orchestrator:. pytest -q orchestrator/tests/test_bmad_skill_mapping.py
 PYTHONPATH=orchestrator:. pytest -q gateway/tests/test_harper_canonical_artifact_validation.py
 PYTHONPATH=orchestrator:. pytest -q gateway/tests/test_methodology_prompt.py
 PYTHONPATH=orchestrator:. pytest -q gateway/tests/test_active_output_contract.py
+PYTHONPATH=orchestrator:. pytest -q orchestrator/tests -k "capability or capabilities"
 ```
 
 Run the full orchestrator pytest suite:
@@ -36,6 +49,7 @@ Run VS Code extension tests:
 
 ```text
 node --test extensions/vscode/test/slash-parser.test.js extensions/vscode/test/bmad-advisory.test.js
+node --test extensions/vscode/test/harper-dispatch.test.js
 node --test extensions/vscode/test/harper-write-guard.test.js
 ```
 
@@ -44,6 +58,11 @@ Run prompt-debug verification after a cloud BMAD run:
 ```text
 rg -n "Active Output Contract|BMAD Companion Artifact Inventory|BMAD Companion Artifact Contract|BMAD Quality Contract|SPEC_UX_APPENDIX.md" .telemetry gateway/stub runs
 rg -n "Active Output Contract|BMAD Companion Artifact Contract|docs/harper/bmad/idea/BRIEF.md|docs/harper/bmad/idea/PRFAQ_NOTES.md|docs/harper/bmad/idea/ASSUMPTIONS.md|docs/harper/bmad/idea/RESEARCH_QUESTIONS.md" telemetry/prompt_debug gateway/runs runs .clike
+rg -n "BMAD Skill Reference Context|selected_skill_ids|prd-shaping|epic-framing|acceptance-modeling" telemetry/prompt_debug gateway/stub runs
+rg -n "BMAD Skill Reference Context|selected_skill_references|dev-story-execution|story-readiness" telemetry/prompt_debug gateway/stub runs
+rg -n "CLike Selected Capability Context|context_envelope|selected_clike_capabilities|CLIKE_SELECTED_CAPABILITY_CONTEXT" telemetry/prompt_debug gateway/stub runs
+rg -n "CLIKE_SELECTED_CAPABILITIES_MISSING|BMAD_SELECTED_SKILLS_MISSING" telemetry/prompt_debug gateway/stub runs
+rg -n "Namespace Materialization|coffeebuddy/runtime|Do not create `src/coffeebuddy.runtime`" telemetry/prompt_debug gateway/stub runs
 ```
 
 Run local-agent package verification after BMAD KIT and EVAL local-agent runs:
@@ -51,7 +70,15 @@ Run local-agent package verification after BMAD KIT and EVAL local-agent runs:
 ```text
 rg -n "active_output_contract|methodology_context|companion_documents|discovered_companion_artifact_inventory|BMAD_DEV_STORY.md" runs/kit/*/docs/AGENT_EXECUTION_CONTEXT.json
 rg -n "active_output_contract|methodology_context|companion_documents|BMAD_QA_ADVISORY.md|canonical_eval_owner|canonical EvalRunner remains authoritative" runs/kit/*/docs/AGENT_EVAL_CONTEXT.json runs/kit/*/docs/AGENT_EVAL_PROMPT.md
+rg -n "selected_skill_references|skill_reference_policy|BMAD skill context" runs/kit/*/docs/AGENT_EXECUTION_CONTEXT.json runs/kit/*/docs/AGENT_PROMPT.md runs/kit/*/docs/AGENT_EVAL_CONTEXT.json runs/kit/*/docs/AGENT_EVAL_PROMPT.md
+rg -n "BMAD Skill Reference Context|dev-story-execution|story-readiness" runs/kit/*/docs/AGENT_EXECUTION_CONTEXT.json runs/kit/*/docs/AGENT_PROMPT.md
+rg -n "CLike Selected Capability Context|selected_clike_capabilities|context_envelope|CLIKE_SELECTED_CAPABILITY_CONTEXT" runs/kit/*/docs/AGENT_EXECUTION_CONTEXT.json runs/kit/*/docs/AGENT_PROMPT.md
+rg -n "Namespace Materialization|coffeebuddy/runtime|Do not create `src/coffeebuddy.runtime`" runs/kit/*/docs/AGENT_EXECUTION_CONTEXT.json runs/kit/*/docs/AGENT_PROMPT.md
+jq '.methodology_context.selected_skill_references, .context_envelope.bmad_methodology_skills.selected_skill_references, .selected_skill_references' runs/kit/*/docs/AGENT_EXECUTION_CONTEXT.json
+jq '.context_envelope.clike_capabilities.selected_packs, .context_envelope.clike_capabilities.selected_skills, .context_envelope.clike_capabilities.selected_design_profiles' runs/kit/*/docs/AGENT_EXECUTION_CONTEXT.json
 ```
+
+Verify the local-agent context boundary for native runs by confirming the same files do not contain BMAD skill fields when no methodology is selected.
 
 Run prompt conflict and contract greps:
 
@@ -65,6 +92,15 @@ Run runtime forbidden-invocation grep checks from the repository root. This grep
 
 ```text
 rg -n "npx\\s+bmad-method|bmad-method install|subprocess\\.(run|Popen).*bmad|os\\.system\\(.*bmad|child_process\\.(exec|spawn).*bmad" orchestrator gateway extensions --glob '!**/tests/**'
+```
+
+Run skill reference policy grep checks:
+
+```text
+rg -n "BMAD Skill Reference Context|selected_skill_references|skill_reference_policy|external_skill_execution_enabled|runtime_import_enabled" orchestrator gateway docs extensions
+rg -n "CLike Selected Capability Context|CLIKE_SELECTED_CAPABILITY_CONTEXT|CLIKE_SELECTED_CAPABILITIES_MISSING" orchestrator gateway docs extensions
+rg -n "runtime_execution_enabled.*false|external_bmad_cli_enabled.*false|network_fetch_enabled.*false" docs extensions orchestrator
+rg -n "methodology=bmad|native Harper remains unchanged|external_skill_execution_enabled.*false|runtime_import_enabled.*false" docs/integrations/bmad extensions orchestrator/methodologies/bmad
 ```
 
 Run methodology/executor separation grep checks. These should not show BMAD role identity being routed through executor or profile-hint fields:
@@ -113,6 +149,15 @@ Manual smoke matrix:
 | SPEC UX | `/spec --methodology bmad --agent ux` | canonical `docs/harper/SPEC.md` is not produced by UX; UX files stay under `docs/harper/ux/**`, including `SPEC_UX_APPENDIX.md` when useful |
 | KIT local agent | `/kit REQ-001 --methodology bmad --agent developer` with local-agent execution | `AGENT_EXECUTION_CONTEXT.json` includes methodology context, companion documents, discovered inventory when present, BMAD expected outputs, unchanged write roots, and forbidden paths |
 | EVAL local agent | `/eval REQ-001 --methodology bmad --agent qa` with local-agent hardening | `AGENT_EVAL_CONTEXT.json` includes BMAD advisory targets and canonical EvalRunner authority warning |
+| BMAD skills | `/spec --methodology bmad --agent pm` | prompt debug includes `BMAD Skill Reference Context` with `prd-shaping`, `epic-framing`, and `acceptance-modeling`; native `/spec` does not include the section |
+| BMAD KIT skills cloud | `/kit REQ-001 --methodology bmad --agent developer` | prompt debug includes `BMAD Skill Reference Context`, `selected_skill_references`, `dev-story-execution`, and `story-readiness`; native `/kit REQ-001` does not include the section |
+| CLike capabilities cloud | `/kit REQ-001` for a REQ with selected packs/skills/design profiles | prompt debug includes `CLike Selected Capability Context`, `context_envelope.clike_capabilities`, and selected capability names; BMAD runs include this section alongside BMAD skills |
+| CLike capability guardrail | `/kit REQ-001` for a REQ with declared capabilities but no resolvable capability index | Orchestrator fails before cloud or local-agent execution with `CLIKE_SELECTED_CAPABILITIES_MISSING` |
+| Extension core blobs | any Harper request from a workspace with `.clike/**` capabilities | request `core_blobs` includes normal `.clike/packs/**`, `.clike/skills/**`, `.clike/design-profiles/**`; BMAD requests additionally include `.clike/skills/vendor/bmad/**`; native requests do not include BMAD vendor blobs |
+| Python namespace materialization | `/kit REQ-001` for a Python REQ with `main_module_boundary=coffeebuddy.runtime` | prompt and local-agent package say `coffeebuddy/runtime`, warn not to create `src/coffeebuddy.runtime`, and generated FILE_REQUIREMENTS path hints use package directories |
+| BMAD KIT skills local agent | `/kit REQ-001 --methodology bmad --agent developer` with local-agent execution | `AGENT_EXECUTION_CONTEXT.json` and `AGENT_PROMPT.md` include `dev-story-execution`, `story-readiness`, selected skill context, skill policy, BMAD-runtime prohibition, and unchanged write boundaries |
+| BMAD manifest propagation | cloud or local-agent BMAD run | `methodology_context.selected_skill_references`, `context_envelope.bmad_methodology_skills.selected_skill_references`, and local-agent top-level `selected_skill_references` match the `skill_selection` entry from `orchestrator/methodologies/bmad/manifest.json` |
+| BMAD vendor seed | `/init Sample` | new workspace contains `.clike/skills/vendor/bmad/README.md` and `.clike/skills/vendor/bmad/manifest.json` |
 | Gate | `/gate REQ-001 --methodology bmad --agent qa` | rejected before BMAD can enter gate authority |
 | Scorecard | `PYTHONPATH=orchestrator:. pytest -q orchestrator/tests/test_bmad_quality_scorecard.py` | fixture BMAD IDEA scores higher than native fixture, without claiming live model quality |
 

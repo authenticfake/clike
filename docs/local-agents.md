@@ -70,7 +70,52 @@ The extension checks:
 - `clike.localAgent.codex.command`
 - `clike.localAgent.codex.approvalMode`
 - `clike.localAgent.codex.printModeFlag`
+- `clike.localAgent.codex.sandboxMode`
 - `clike.localAgent.codex.timeoutMinutes`
+
+`clike.localAgent.codex.sandboxMode` defaults to `auto`. In `auto`, CLike launches
+Codex with `--sandbox workspace-write` for phases that must generate files and
+with `--sandbox read-only` for inspect-only work. The supported explicit values
+are `read-only`, `workspace-write`, and `danger-full-access`; `workspace-write`
+is the expected mode for normal candidate generation.
+
+## Codex write mode
+
+KIT, eval repair/hardening, and finalize local-agent runs are write-required
+tasks. CLike must not launch Codex for those phases in `read-only` mode because
+the agent is expected to create or patch controlled candidate artifacts.
+
+For `/kit`, Codex may write only inside the CLike candidate tree for the active
+REQ:
+- `runs/kit/<REQ-ID>/src/**`
+- `runs/kit/<REQ-ID>/test/**`
+- `runs/kit/<REQ-ID>/ci/**`
+- `runs/kit/<REQ-ID>/docs/**`
+
+Canonical workspace roots remain forbidden local-agent outputs:
+- `src/**`
+- `test/**`
+- `tests/**`
+- `docs/harper/**`
+- `.git/**`
+
+If the selected Codex sandbox mode is not write-capable for a write-required
+phase, CLike aborts before launching Codex with
+`LOCAL_AGENT_WRITE_MODE_UNAVAILABLE`. The diagnostic includes the phase, REQ,
+executor, selected sandbox, and allowed write roots. This is intentionally a
+fail-fast condition; a read-only Codex launch cannot produce a valid KIT
+candidate.
+
+After Codex exits, CLike validates the collected candidate artifacts before
+submitting them to `/local-agent/complete`. For KIT, a result that contains only
+the local-agent input package under `runs/kit/<REQ-ID>/docs/**` is rejected with
+`LOCAL_AGENT_REQUIRED_OUTPUTS_MISSING`. At minimum, the candidate must include
+readable artifacts under the required `src`, `test`, and `ci` KIT roots unless a
+future active contract explicitly marks those output families as unsupported.
+
+To diagnose a read-only launch, inspect the extension output line that starts
+with `[CLike] [local-agent:gpt_codex]`. A valid write-required Codex KIT launch
+shows an argument list containing `--sandbox` and `workspace-write`.
 
 ## Current phase support
 

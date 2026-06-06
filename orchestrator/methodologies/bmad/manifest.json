@@ -61,6 +61,32 @@
       "latest auto-pulled in production"
     ]
   },
+  "skill_reference_policy": {
+    "enabled": true,
+    "workspace_vendor_reference_root": ".clike/skills/vendor/bmad",
+    "template_vendor_reference_root": "extensions/vscode/templates/harper-init/.clike/skills/vendor/bmad",
+    "vendor_skill_root": ".clike/skills/vendor/bmad",
+    "activation": "methodology=bmad",
+    "runtime_import_enabled": false,
+    "external_skill_execution_enabled": false,
+    "external_bmad_cli_enabled": false,
+    "network_fetch_enabled": false,
+    "official_bmad_runtime_content_vendored": false,
+    "sync_mode": "manual_or_container_controlled",
+    "review_required_before_activation": true,
+    "cloud_context_enabled": true,
+    "local_agent_context_enabled": true
+  },
+  "skill_selection": {
+    "idea/analyst": ["prd-shaping"],
+    "spec/pm": ["prd-shaping", "epic-framing", "acceptance-modeling"],
+    "spec/ux": ["ux-flow-modeling"],
+    "plan/architect": ["architecture-readiness", "story-readiness"],
+    "plan/pm": ["epic-framing", "story-readiness"],
+    "kit/developer": ["dev-story-execution", "story-readiness"],
+    "eval/qa": ["qa-risk-review"],
+    "finalize/tech-writer": ["release-narrative"]
+  },
   "supported_agents": [
     "analyst",
     "pm",
