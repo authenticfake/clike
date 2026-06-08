@@ -930,7 +930,12 @@ class EvalRunner:
                 if not isinstance(command, dict):
                     continue
 
-                run = command.get("run") or command.get("command")
+                run = (
+                    command.get("run")
+                    or command.get("command")
+                    or command.get("cmd")
+                    or command.get("shell")
+                )
                 if not run:
                     continue
 

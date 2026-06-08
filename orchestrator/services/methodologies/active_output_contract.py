@@ -4,6 +4,9 @@ from typing import Any, Dict, List, Optional
 
 
 NATIVE_LOCAL_REQUIRED_OUTPUTS: Dict[str, List[str]] = {
+    "idea": ["docs/harper/IDEA.md"],
+    "spec": ["docs/harper/SPEC.md"],
+    "plan": ["docs/harper/PLAN.md", "docs/harper/plan.json", "docs/harper/lane-guides/**"],
     "kit": [
         "runs/kit/<REQ-ID>/src/**",
         "runs/kit/<REQ-ID>/test/**",
@@ -15,6 +18,9 @@ NATIVE_LOCAL_REQUIRED_OUTPUTS: Dict[str, List[str]] = {
 }
 
 NATIVE_CONTEXT_SECTIONS: Dict[str, List[str]] = {
+    "idea": ["attachments", "Harper chat history", "repository/RAG context"],
+    "spec": ["IDEA.md", "Harper chat history", "RAG attachments", "TECH_CONSTRAINTS.yaml"],
+    "plan": ["SPEC.md", "TECH_CONSTRAINTS.yaml", "prior PLAN.md", "prior plan.json", "Harper chat history"],
     "kit": ["current REQ", "SPEC.md", "PLAN.md", "plan.json", "TECH_CONSTRAINTS.yaml", "TARGET_CONTRACT.json", "FILE_REQUIREMENTS.json"],
     "eval": ["canonical eval evidence", "LTC.json", "HOWTO.md", "candidate files", "TECH_CONSTRAINTS.yaml"],
 }
@@ -66,6 +72,19 @@ def build_active_output_contract(
         forbidden = []
         conflict_resolution = "native-clike-contract-wins"
 
+    context_sections = list(NATIVE_CONTEXT_SECTIONS.get(phase_name) or [])
+    if runner_name == "local_agent":
+        # Local-agent document phases are regenerative: same-phase prior outputs
+        # are overwrite targets only, never source input. Drop them from the
+        # advertised context so the agent does not reconcile stale outputs.
+        # (Cloud keeps reconcile behavior — its runner is not "local_agent".)
+        same_phase_prior = {
+            "prior PLAN.md",
+            "prior plan.json",
+            "prior SPEC.md",
+        }
+        context_sections = [s for s in context_sections if s not in same_phase_prior]
+
     return {
         "phase": phase_name,
         "runner": runner_name,
@@ -74,7 +93,7 @@ def build_active_output_contract(
         "required_outputs": _dedupe([*(native if methodology == "bmad" else []), *canonical, *mandatory]),
         "allowed_optional_output_globs": optional,
         "forbidden_output_globs": forbidden,
-        "required_context_sections": list(NATIVE_CONTEXT_SECTIONS.get(phase_name) or []),
+        "required_context_sections": context_sections,
         "strict_missing_required_outputs": False,
         "conflict_resolution": conflict_resolution,
     }
