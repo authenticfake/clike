@@ -5,6 +5,8 @@ from typing import Any, Dict
 # Local agent execution is intentionally restricted.
 #
 # Recovery rule:
+# - /idea, /spec, /plan are early Harper document phases. They may use a
+#   local-agent document package that writes only their canonical Harper outputs.
 # - /kit base phase can use a local agent execution package.
 # - /eval may use a local-agent pre-pass, but canonical CLike EvalRunner remains the final judge.
 # - /finalize may use a local-agent solution integration package because it needs
@@ -12,6 +14,9 @@ from typing import Any, Dict
 #   real workspace inspection, composition wiring, local scripts, and runnability evidence.
 # - kit follow-up phases are orchestrator/cloud-owned until the local contract is stable.
 _ALLOWED_LOCAL_AGENT_PHASES = {
+    "idea",
+    "spec",
+    "plan",
     "kit",
     "eval",
     "finalize",

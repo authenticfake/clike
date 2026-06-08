@@ -1316,6 +1316,77 @@ class OrchestratorMethodologyOwnershipTests(unittest.IsolatedAsyncioTestCase):
                 eval_context["bmad_qa_advisory_output_targets"]["mandatory_companion_outputs"],
             )
 
+    async def test_document_phase_returns_local_agent_package_without_cloud_call(self):
+        for phase, expected_output in (
+            ("idea", "docs/harper/IDEA.md"),
+            ("spec", "docs/harper/SPEC.md"),
+            ("plan", "docs/harper/PLAN.md"),
+        ):
+            cloud_calls = []
+
+            async def fake_post_json(path, payload):
+                cloud_calls.append(path)
+                return {"ok": True, "phase": payload.get("phase")}
+
+            async def fake_resolve_llm_selection(**kwargs):
+                return {}
+
+            payload = _base_payload()
+            payload["executionPreference"] = "prefer_local_agent"
+            # /idea requires at least one current-run attachment as source of truth.
+            if phase == "idea":
+                payload["attachments"] = [
+                    {"name": "IDEA.md", "path": ".clike/uploads/IDEA.md", "mime": "text/markdown"}
+                ]
+
+            with patch.object(harper, "_post_json", side_effect=fake_post_json), patch.object(
+                harper,
+                "resolve_llm_selection",
+                side_effect=fake_resolve_llm_selection,
+            ):
+                out = await harper.run_phase(phase, payload)
+
+            self.assertEqual(cloud_calls, [], f"cloud was called for {phase}")
+            self.assertEqual(out["phase"], phase)
+            self.assertEqual(out["local_agent"]["action"], "local_agent_required")
+            self.assertEqual(out["execution"]["selected"], "local_agent")
+            self.assertIn(
+                expected_output,
+                out["local_agent"]["expected_outputs"]["always"],
+            )
+
+    async def test_document_phase_local_agent_only_failure_does_not_fall_back_to_cloud(self):
+        cloud_calls = []
+
+        async def fake_post_json(path, payload):
+            cloud_calls.append(path)
+            return {"ok": True, "phase": payload.get("phase")}
+
+        async def fake_resolve_llm_selection(**kwargs):
+            return {}
+
+        def boom(**kwargs):
+            raise RuntimeError("document package build failed")
+
+        payload = _base_payload()
+        payload["executionPreference"] = "local_agent_only"
+
+        with patch.object(harper, "_post_json", side_effect=fake_post_json), patch.object(
+            harper,
+            "resolve_llm_selection",
+            side_effect=fake_resolve_llm_selection,
+        ), patch.object(
+            harper,
+            "build_document_phase_local_agent_package",
+            side_effect=boom,
+        ):
+            out = await harper.run_phase("spec", payload)
+
+        self.assertEqual(cloud_calls, [], "local_agent_only must not call cloud on failure")
+        self.assertIs(out["ok"], False)
+        self.assertEqual(out["execution"]["selected"], "local_agent")
+        self.assertEqual(out["execution"]["reason"], "local_agent_spec_package_failed")
+
 
 if __name__ == "__main__":
     unittest.main()

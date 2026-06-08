@@ -4,7 +4,7 @@ import json
 import re
 
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from services.capabilities import build_capability_context, build_selected_capability_context
 from services.context_envelope import build_context_envelope
@@ -5004,14 +5004,33 @@ def build_extend_local_agent_package(
         or payload.get("rawInput")
         or payload.get("raw_input")
     )
+    from_attachment = bool(
+        extend_opts.get("fromAttachment")
+        or extend_opts.get("from_attachment")
+        or payload.get("fromAttachment")
+        or payload.get("from_attachment")
+    )
 
+    attachment_manifest, attachment_package_files = _materialize_attachments(payload, "extend")
+
+    # --from attachment requires at least one current-run attachment. Fail safely
+    # if the builder is called directly without one (the extension also blocks
+    # this earlier, before any orchestrator call).
+    if from_attachment and not attachment_manifest["present"]:
+        raise ValueError(
+            "Cannot run /extend --from attachment without at least one attached source file. "
+            "Attach a source document and retry."
+        )
+
+    # Narrow, phase-owned write roots only. EXTEND files use a dynamic date/REQ
+    # name, so the EXTEND_*.md glob is advertised; normalization is the real gate.
     allowed_write_roots = [
+        "docs/harper/IDEA.md",
+        "docs/harper/SPEC.md",
         "docs/harper/PLAN.md",
         "docs/harper/plan.json",
-        "docs/harper/SPEC.md",
-        "docs/harper/TECH_CONSTRAINTS.yaml",
         "docs/harper/lane-guides",
-        "docs/harper",
+        "docs/harper/EXTEND_*.md",
     ]
 
     forbidden_paths = [
@@ -5035,28 +5054,32 @@ def build_extend_local_agent_package(
         "anchor_req": anchor_req,
         "explicit_req": explicit_req,
         "raw_input": raw_input,
+        "from_attachment": from_attachment,
         "input_sources": {
             "inline_text_present": bool(raw_input),
-            "attachments_present": bool(payload.get("attachments")),
-            "attachment_count": len(payload.get("attachments") or []),
+            "attachments_present": attachment_manifest["present"],
+            "attachment_count": attachment_manifest["count"],
         },
+        "attachments": attachment_manifest,
         **({"methodology_context": methodology_context} if methodology_context else {}),
         "mission": {
             "purpose": "Append new requirements to existing Harper planning artifacts without regenerating the plan.",
             "append_only_by_default": True,
             "preserve_existing_requirements": True,
+            "update_idea_if_needed": True,
+            "update_spec_if_needed": True,
             "update_plan_md": True,
             "update_plan_json": True,
-            "update_spec_if_needed": True,
             "update_lane_guides_if_needed": True,
             "emit_extend_audit": True,
         },
         "required_reads": [
+            "docs/harper/IDEA.md when present",
+            "docs/harper/SPEC.md when present",
             "docs/harper/PLAN.md",
             "docs/harper/plan.json",
-            "docs/harper/SPEC.md when present",
-            "docs/harper/TECH_CONSTRAINTS.yaml when present",
             "docs/harper/lane-guides/*.md when present",
+            "docs/harper/TECH_CONSTRAINTS.yaml when present",
             ".clike/project.json when present",
             ".clike/capabilities.yaml when present",
             ".clike/capabilities.yml when present",
@@ -5073,6 +5096,7 @@ def build_extend_local_agent_package(
                 "docs/harper/EXTEND_<YYYY-MM-DD>_<FIRST_REQ>_<LAST_REQ>.md",
             ],
             "conditional": [
+                "docs/harper/IDEA.md only when the new requirement changes vision, target users, value/outcomes, out-of-scope, idea-level technology constraints, risks, assumptions, or success metrics",
                 "docs/harper/SPEC.md only when new capability scope is introduced",
                 "docs/harper/lane-guides/<concern>.md only when lane guidance is introduced or extended",
             ],
@@ -5087,13 +5111,16 @@ def build_extend_local_agent_package(
             "If no anchor is provided, detect the last REQ in plan.json/PLAN.md and append after it.",
             "Keep REQ IDs unique and contiguous unless the user explicitly supplied IDs.",
             "Mirror the existing plan.json requirement object shape instead of inventing a new schema.",
+            "Preserve plan.json capability richness: do not degrade packs, skills, design_profiles, implementation_directives, expected_source_roots, expected_test_roots, or kit/eval/gate metadata; when selected capabilities exist, populate them on new REQs rather than defaulting to not_applicable.",
             "Update dependency graph and milestone/backlog sections only by appending the new REQs.",
+            "Update IDEA.md only when the new requirement changes vision, target users, value/outcomes, out-of-scope boundaries, idea-level technology constraints, risks, assumptions, or success metrics; preserve the canonical IDEA schema and all existing valid content.",
             "Update SPEC.md only when the extension introduces new product/system capability scope, terms, constraints, integration boundaries, or user-visible behavior.",
             "Update lane-guides only when the extension introduces a new concern lane or materially extends existing lane guidance.",
             "Lane is a capability concern, not an implementation language.",
             "Do not infer implementation language from lane.",
+            "Return full file artifacts (complete updated content), never partial patches.",
             "Emit a Harper Extend audit file under docs/harper/EXTEND_<date>_<first_req>_<last_req>.md.",
-            "The audit must list input sources, anchor, added REQs, updated files, preserved REQs, dependency decisions, validation results, and unresolved risks.",
+            "The audit must list command, input sources, anchor, explicit REQ-ID if any, added REQs, updated files, preserved REQs, dependency decisions, capability/skills/packs/design-profile decisions, IDEA/SPEC/PLAN/plan.json/lane-guides updated yes/no and why, validation results, and unresolved risks.",
         ],
         "validation_expectations": [
             "PLAN.md exists after the change.",
@@ -5108,8 +5135,30 @@ def build_extend_local_agent_package(
     }
 
     context_json = json.dumps(context, indent=2, ensure_ascii=False)
-    context_path = "docs/harper/AGENT_EXTEND_CONTEXT.json"
-    prompt_path = "docs/harper/AGENT_EXTEND_PROMPT.md"
+    # Package internals live under run-scoped technical paths. docs/harper must
+    # contain only canonical Harper artifacts, never AGENT_* package internals.
+    context_path = "runs/extend/docs/AGENT_EXTEND_CONTEXT.json"
+    prompt_path = "runs/extend/docs/AGENT_EXTEND_PROMPT.md"
+
+    attachment_prompt_lines: List[str] = []
+    if attachment_manifest["present"]:
+        attachment_prompt_lines = [
+            "",
+            f"Attachments ({attachment_manifest['count']}) — current-run source (workspace-local copies):",
+            *[
+                "- "
+                + " ".join(
+                    part
+                    for part in (
+                        item.get("workspace_path") or item.get("name") or "",
+                        f"({item['mime']})" if item.get("mime") else "",
+                    )
+                    if part
+                )
+                for item in attachment_manifest["items"]
+            ],
+            "- Read every workspace_path listed above. Do NOT read original_path — it is metadata only and may be outside the workspace.",
+        ]
 
     prompt = "\n".join(
         [
@@ -5120,30 +5169,42 @@ def build_extend_local_agent_package(
             _render_methodology_prompt_block(methodology_context),
             "",
             "Read before acting:",
-            "- docs/harper/AGENT_EXTEND_CONTEXT.json",
-            "",
-            "Mission:",
-            "- Extend the current Harper plan by appending new requirements.",
-            "- Preserve existing consolidated REQs exactly unless the user explicitly requested a separate revise operation.",
-            "- Update PLAN.md and plan.json so they remain aligned.",
-            "- Update SPEC.md only if the new REQs introduce new capability scope, domain terms, constraints, integrations, or user-visible behavior.",
-            "- Update or create lane-guides only if new concern guidance is needed.",
-            "- Emit docs/harper/EXTEND_<YYYY-MM-DD>_<FIRST_REQ>_<LAST_REQ>.md.",
-            "",
-            "Allowed writes:",
+            f"- {context_path}",
+            "- docs/harper/IDEA.md when present",
+            "- docs/harper/SPEC.md when present",
             "- docs/harper/PLAN.md",
             "- docs/harper/plan.json",
-            "- docs/harper/SPEC.md",
-            "- docs/harper/lane-guides/*.md",
-            "- docs/harper/EXTEND_*.md",
+            "- docs/harper/lane-guides/*.md when present",
+            "- docs/harper/TECH_CONSTRAINTS.yaml when present",
+            *attachment_prompt_lines,
+            *_render_canonical_parity_block("extend", "EXTEND"),
+            "",
+            "Mission:",
+            "- Extend the current Harper plan by appending new requirements; /extend is a mutation/append phase, not a regeneration.",
+            "- Existing IDEA.md, SPEC.md, PLAN.md, plan.json, and lane-guides are valid source inputs to preserve and update — read them, do not discard them.",
+            "- Preserve existing consolidated REQs exactly; never rewrite, renumber, or delete them.",
+            "- Always update PLAN.md and plan.json so they remain aligned, and always emit the EXTEND audit report.",
+            "- Update IDEA.md only if the new requirement changes vision, target users, value/outcomes, out-of-scope, idea-level technology constraints, risks, assumptions, or success metrics (preserve the canonical IDEA schema).",
+            "- Update SPEC.md only if the new REQs introduce new capability scope, domain terms, constraints, integrations, acceptance criteria, or user-visible behavior.",
+            "- Update or create lane-guides only if new concern guidance is needed.",
+            "- Return FULL file artifacts (complete updated content), never partial patches.",
+            "",
+            "Skills / capabilities discipline:",
+            "- Treat selected skills, packs, and design profiles (from methodology context / .clike capabilities) as BINDING planning constraints, not decorative context.",
+            "- Populate packs/skills/design_profiles on new plan.json REQs where applicable; never blanket-default to not_applicable when capabilities are selected; never invent fake capabilities.",
+            "",
+            "Allowed writes:",
+            "- docs/harper/IDEA.md (conditional)",
+            "- docs/harper/SPEC.md (conditional)",
+            "- docs/harper/PLAN.md",
+            "- docs/harper/plan.json",
+            "- docs/harper/lane-guides/*.md (conditional)",
+            "- docs/harper/EXTEND_*.md (mandatory audit report)",
             "",
             "Forbidden writes:",
-            "- src/",
-            "- test/",
-            "- tests/",
-            "- runs/kit/",
-            "- runs/eval/",
-            "- runs/gate/",
+            "- any other docs/harper path (including AGENT_* package files)",
+            "- src/, test/, tests/",
+            "- runs/kit/, runs/eval/, runs/gate/",
             "- .git/",
             "",
             "Append-only rules:",
@@ -5151,22 +5212,23 @@ def build_extend_local_agent_package(
             "- Do not modify existing REQ acceptance criteria.",
             "- Do not renumber existing REQs.",
             "- Do not change status/gate/promotion metadata of existing REQs.",
-            "- Add new dependencies only for new REQs.",
+            "- Preserve the existing plan.json object shape and capability richness (packs/skills/design_profiles/implementation_directives/expected_source_roots/expected_test_roots/kit-eval-gate metadata).",
+            "- Add new dependencies only for new REQs; dependencies must resolve to existing or newly added REQs.",
             "- If shared sections need updates, append minimal new entries only.",
             "",
             "Input:",
             f"- anchor_req: {anchor_req or '<auto-detect-last-req>'}",
             f"- explicit_req: {explicit_req or '<none>'}",
+            f"- from_attachment: {from_attachment}",
             f"- raw_input: {raw_input or '<see chat/attachments/core context>'}",
             "",
-            "At the end, print:",
-            "- files changed;",
-            "- added REQ IDs;",
-            "- preserved REQ range;",
-            "- SPEC updated yes/no and why;",
-            "- lane-guides updated yes/no and why;",
-            "- validation performed;",
-            "- unresolved gaps.",
+            "EXTEND audit report (docs/harper/EXTEND_<YYYY-MM-DD>_<FIRST_REQ>_<LAST_REQ>.md) must include:",
+            "- Command; Input Sources; Anchor; Explicit REQ-ID if provided; Added Requirements; Updated Files; Preserved Requirements;",
+            "- Dependency Decisions; Capability/skills/packs/design-profile decisions;",
+            "- IDEA.md updated yes/no and why; SPEC.md updated yes/no and why; PLAN.md updated yes/no; plan.json updated yes/no; lane-guides updated yes/no and why;",
+            "- Validation performed; Risks / Follow-up.",
+            "",
+            "Before returning, validate: plan.json is valid JSON; every new REQ appears in PLAN.md and plan.json; every new REQ has acceptance criteria; new dependencies resolve; existing REQs preserved; no forbidden paths emitted.",
         ]
     )
 
@@ -5225,9 +5287,893 @@ def build_extend_local_agent_package(
                     "mime": "text/markdown",
                     "encoding": "utf-8",
                 },
+                # Current-run attachments materialized into the workspace so the
+                # agent reads them from its cwd (no external-path approval).
+                *attachment_package_files,
             ],
         },
     }
+
+
+# Early Harper document phases (/idea, /spec, /plan) reuse one generic
+# local-agent document builder. Only the per-phase output files, allowed write
+# paths, canonical reads, and prompt guidance differ. Everything else
+# (envelope shape, methodology context, executor resolution, fallback handling)
+# is shared with the existing local-agent phases.
+_DOCUMENT_PHASE_FORBIDDEN_PATHS = [
+    ".git",
+    "src",
+    "test",
+    "tests",
+    "runs/kit",
+    "runs/eval",
+    "runs/gate",
+    "node_modules",
+    ".venv",
+    "__pycache__",
+    "__MACOSX",
+]
+
+_DOCUMENT_PHASE_SPECS: Dict[str, Dict[str, Any]] = {
+    "idea": {
+        "schema_version": "clike.agent.idea_context.v1",
+        "title": "IDEA",
+        "allowed_write_roots": ["docs/harper/IDEA.md"],
+        "required_reads": [
+            "current-run attachments listed in this package context (the ONLY source of truth for /idea)",
+            "Harper chat history only to clarify user intent, never as a source document",
+            ".clike/project.json when present (project metadata only, not idea source)",
+        ],
+        "output_contract": {
+            "always": ["docs/harper/IDEA.md"],
+            "conditional": [],
+        },
+        "mission": {
+            "purpose": "Synthesize a concise, testable canonical Harper IDEA.md strictly from current-run attachments and chat intent.",
+            "canonical_output": "docs/harper/IDEA.md",
+        },
+        "hard_rules": [
+            "Write only docs/harper/IDEA.md. Do not write any other docs/harper path.",
+            "docs/harper/IDEA.md must start with `# IDEA — <Project Name>`.",
+            "Use the canonical IDEA schema headings exactly once and in order: Vision, Problem Statement, Target Users & Context, Value & Outcomes, Out of Scope, Technology Constraints, Risks & Assumptions, Success Metrics.",
+            "Technology Constraints must contain exactly one valid fenced YAML block.",
+            "Use ONLY the current-run attachments listed in this package as /idea source material.",
+            "Do not read or reuse stale workspace files: do not read ORI.IDEA.md, prior IDEA* variants, stale .clike/uploads files, or prior-session files unless they are explicitly listed in the current attachment manifest.",
+            "Treat any existing docs/harper/IDEA.md only as the overwrite target, never as a source of truth.",
+            "Attachment-first: do not invent facts, vendors, APIs, endpoints, project keys, or frameworks.",
+            "Do not hallucinate a stack (Python, Node, cloud provider, database, queue, UI framework, IaC tool, deployment target) unless evidenced.",
+            "Keep IDEA.md concise and downstream-ready; it is not a PRD, architecture doc, or SPEC draft.",
+            "Do not run git commands.",
+            "Do not modify src/, test/, tests/, runs/kit/, runs/eval/, or runs/gate/.",
+        ],
+        "validation_expectations": [
+            "docs/harper/IDEA.md exists after the change.",
+            "It starts with `# IDEA — <Project Name>`.",
+            "Every canonical heading appears exactly once and in order.",
+            "Technology Constraints contains exactly one valid fenced YAML block.",
+            "No template markers (BEGIN_FILE/END_FILE) or placeholders remain in file content.",
+        ],
+        "prompt_lines": [
+            "Mission:",
+            "- Produce the canonical docs/harper/IDEA.md for this idea.",
+            "- Use attachments as the primary source of truth; use chat only to clarify intent.",
+            "- Mark estimated values as explicit assumptions; never invent vendors, endpoints, or frameworks.",
+            "",
+            "Canonical IDEA.md schema (headings exactly once, in this order):",
+            "- `# IDEA — <Project Name>` as the first line.",
+            "- ## Vision",
+            "- ## Problem Statement",
+            "- ## List of business requirements or user stories",
+            "- ## Target Users & Context",
+            "- ## Value & Outcomes",
+            "- ## Out of Scope",
+            "- ## Technology Constraints (exactly one valid fenced YAML block)",
+            "- ## Risks & Assumptions",
+            "- ## Success Metrics",
+            "",
+            "Allowed writes:",
+            "- docs/harper/IDEA.md (only)",
+        ],
+    },
+    "spec": {
+        "schema_version": "clike.agent.spec_context.v1",
+        "title": "SPEC",
+        "allowed_write_roots": ["docs/harper/SPEC.md"],
+        "required_reads": [
+            "docs/harper/IDEA.md (and any IDEA* prefix variants) when present",
+            "docs/harper/TECH_CONSTRAINTS.yaml when present",
+            "Harper chat history when relevant",
+        ],
+        "output_contract": {
+            "always": ["docs/harper/SPEC.md"],
+            "conditional": [],
+        },
+        "mission": {
+            "purpose": "Regenerate a concise, testable Harper SPEC.md for the featurelet strictly from IDEA inputs.",
+            "canonical_output": "docs/harper/SPEC.md",
+        },
+        "hard_rules": [
+            "Write only docs/harper/SPEC.md. Do not write any other docs/harper path.",
+            "/spec is regenerative: build docs/harper/SPEC.md from IDEA inputs only.",
+            "Do not read docs/harper/SPEC.md or any SPEC* variant as input. Existing SPEC files are stale outputs from a previous /spec run, not source material.",
+            "Treat any existing docs/harper/SPEC.md as the overwrite target only; regenerate it from IDEA, never reconcile with the old SPEC output.",
+            "The first line must be `# SPEC — <Project Name>`, taken from the IDEA.md title by replacing the leading word IDEA with SPEC.",
+            "Use the canonical SPEC sections with `##` headings in order: Summary, Goals, Non-Goals, Users & Context, Functional Requirements, Non-Functional Requirements, High-Level Architecture, Interfaces, Data Model (logical), Key Workflows, Security & Compliance, Deployment & Operations, Risks & Mitigations, Assumptions, Success Metrics, Acceptance Criteria, Out Of Scope, Note from Harper Orchestrator (Super User) to be applied.",
+            "Acceptance Criteria are mandatory: at least 5 observable, falsifiable bullets.",
+            "Translate the business requirements and user stories from IDEA.md (see section 'List of business requirements or user stories') into comprehensive technical specifications and architectural design.",
+            "Do not invent facts; respect TECH_CONSTRAINTS as authoritative when present.",
+            "End the output with a final line containing exactly SPEC_END.",
+            "Do not run git commands.",
+            "Do not modify src/, test/, tests/, runs/kit/, runs/eval/, or runs/gate/.",
+        ],
+        "validation_expectations": [
+            "docs/harper/SPEC.md exists after the change.",
+            "Its first line is `# SPEC — <Project Name>`.",
+            "All canonical SPEC sections are present with `##` headings, no numbered headings.",
+            "Acceptance Criteria has at least 5 observable bullets.",
+            "The file ends with SPEC_END.",
+        ],
+        "prompt_lines": [
+            "Mission:",
+            "- Regenerate the canonical docs/harper/SPEC.md derived from docs/harper/IDEA.md.",
+            "- Keep it concise but testable. Acceptance Criteria are mandatory (>=5 observable bullets).",
+            "- Treat TECH_CONSTRAINTS as authoritative when present.",
+            "",
+            "Source discipline (regenerative phase):",
+            "- Read docs/harper/IDEA.md (and any IDEA* prefix variants) and TECH_CONSTRAINTS.yaml as the source of truth.",
+            "- Do NOT read docs/harper/SPEC.md or any SPEC* variant as input; they are stale outputs of a previous /spec run.",
+            "- docs/harper/SPEC.md is an overwrite target only. Regenerate it fresh from IDEA; never reuse or reconcile the old SPEC content.",
+            "",
+            "Hard requirements:",
+            "- First line: `# SPEC — <Project Name>` (replace the leading IDEA with SPEC from the IDEA.md title).",
+            "- Use `##` section headings exactly; no numbered headings.",
+            "- End the file with a line containing exactly SPEC_END.",
+            "",
+            "Allowed writes:",
+            "- docs/harper/SPEC.md (only)",
+        ],
+    },
+    "plan": {
+        "schema_version": "clike.agent.plan_context.v1",
+        "title": "PLAN",
+        "allowed_write_roots": [
+            "docs/harper/PLAN.md",
+            "docs/harper/plan.json",
+            "docs/harper/lane-guides",
+        ],
+        "required_reads": [
+            "docs/harper/SPEC.md (and any SPEC* prefix variants)",
+            "docs/harper/TECH_CONSTRAINTS.yaml when present",
+            "Harper chat history when relevant",
+        ],
+        "output_contract": {
+            "always": ["docs/harper/PLAN.md", "docs/harper/plan.json"],
+            "conditional": [
+                "docs/harper/lane-guides/<lane>.md for every detected lane",
+            ],
+        },
+        "mission": {
+            "purpose": "Regenerate a concrete, execution-ready plan (PLAN.md, plan.json, lane guides) strictly from SPEC inputs.",
+            "canonical_outputs": ["docs/harper/PLAN.md", "docs/harper/plan.json"],
+        },
+        "hard_rules": [
+            "Write only docs/harper/PLAN.md, docs/harper/plan.json, and docs/harper/lane-guides/<lane>.md. Do not write any other docs/harper path.",
+            "/plan is regenerative: build PLAN.md, plan.json, and lane guides from SPEC inputs only.",
+            "Do not read docs/harper/PLAN.md, docs/harper/plan.json, docs/harper/lane-guides/**, or any PLAN*/plan* variant as input. Existing plan files are stale outputs from a previous /plan run, not source material.",
+            "Treat any existing docs/harper/PLAN.md, docs/harper/plan.json, and docs/harper/lane-guides/** as overwrite targets only; regenerate them from SPEC, never reconcile with the old plan output.",
+            "docs/harper/PLAN.md must start with `# PLAN — <Project Name>` (from the SPEC.md title by replacing SPEC with PLAN).",
+            "plan.json is mandatory and must always be emitted as a single valid JSON object.",
+            "Emit docs/harper/lane-guides/<lane>.md for every lane detected from TECH_CONSTRAINTS.yaml.",
+            "Every REQ in PLAN.md must appear in plan.json and vice versa.",
+            "If token budget is tight, reduce PLAN.md prose but never skip plan.json or required lane guides.",
+            "Do not run git commands.",
+            "Do not modify src/, test/, tests/, runs/kit/, runs/eval/, or runs/gate/.",
+        ],
+        "validation_expectations": [
+            "docs/harper/PLAN.md exists and starts with `# PLAN — <Project Name>`.",
+            "docs/harper/plan.json exists and parses as a single valid JSON object.",
+            "snapshot.total equals the number of reqs in plan.json.",
+            "Every REQ in PLAN.md appears in plan.json and vice versa.",
+            "A docs/harper/lane-guides/<lane>.md exists for every detected lane.",
+        ],
+        "prompt_lines": [
+            "Mission:",
+            "- Regenerate docs/harper/PLAN.md, docs/harper/plan.json, and one docs/harper/lane-guides/<lane>.md per detected lane.",
+            "- Derive a minimal, dependency-aware, /kit-ready plan with stable REQ-IDs from the SPEC.",
+            "- Match or exceed the cloud /plan artifacts in structure, completeness, and machine-readable richness. plan.json is the machine-readable source of truth required by downstream /kit, /eval, and /gate.",
+            "",
+            "Source discipline (regenerative phase):",
+            "- Read docs/harper/SPEC.md (and any SPEC* prefix variants) and TECH_CONSTRAINTS.yaml as the source of truth.",
+            "- Do NOT read docs/harper/PLAN.md, docs/harper/plan.json, docs/harper/lane-guides/**, or any PLAN*/plan* variant as input; they are stale outputs of a previous /plan run.",
+            "- PLAN.md, plan.json, and lane-guides are overwrite targets only. Regenerate them fresh from the SPEC; never reuse or reconcile the old plan content.",
+            "",
+            "Skills / capabilities discipline:",
+            "- Treat selected skills, packs, and design profiles (from the active output contract / methodology context) as BINDING planning constraints, not decorative context.",
+            "- Reflect them per REQ in plan.json (skills, packs, design_profiles) and in the relevant PLAN.md REQ sections; never invent fake skills, packs, or design profiles.",
+            "",
+            "Hard requirements:",
+            "- PLAN.md first line: `# PLAN — <Project Name>` (replace the leading SPEC with PLAN from the SPEC.md title).",
+            "- plan.json is mandatory: a single valid JSON object where snapshot.total == len(reqs).",
+            "- Every REQ must appear in both PLAN.md and plan.json; PLAN.md is the human view, plan.json is the machine-readable source of truth.",
+            "- Detect lanes from TECH_CONSTRAINTS.yaml and emit docs/harper/lane-guides/<lane>.md for every detected lane. If no lanes are detected, state the rationale under PLAN.md → Notes.",
+            "- If token budget is tight, reduce PLAN.md prose but never skip plan.json or required lane guides.",
+            "",
+            "PLAN.md required sections (in order; substantive, not heading-only):",
+            "- ## Plan Snapshot (counts, progress, checklist)",
+            "- ## Tracks & Scope Boundaries",
+            "- ## Module/Package & Namespace Plan (per KIT)",
+            "- ## REQ-IDs Table (canonical Markdown table: ID | Title | Acceptance (<=3 bullets) | DependsOn [IDs] | Track | Status)",
+            "- Per REQ after the table: ### Functional Scope — <REQ-ID>, ### Technical Scope — <REQ-ID>, ### Non-Functional Requirements — <REQ-ID>, ### Security Requirements — <REQ-ID>, ### Compliance and Privacy Requirements — <REQ-ID>, ### Observability and Operations — <REQ-ID>, ### Integration Contracts — <REQ-ID>, ### Data Contracts — <REQ-ID>, ### Acceptance — <REQ-ID> (>=5 observable, falsifiable bullets)",
+            "- ## Dependency Graph (textual adjacency list)",
+            "- ## Iteration Strategy",
+            "- ## Test Strategy (per-REQ mandatory tests: happy path, auth-deny where applicable, failure path, persistence/audit, idempotency where applicable)",
+            "- ## KIT Readiness (per REQ): root namespace/module, expected runs/kit/<REQ-ID>/src and /test roots, key files, contracts later REQs may rely on",
+            "- ## Notes (assumptions, risks & mitigations; lane rationale if no lanes)",
+            "- End the file with a final line containing exactly PLAN_END.",
+            "",
+            "plan.json schema (single valid JSON object; per-REQ fields must be populated, not placeholders):",
+            "- snapshot: { total, open, in_progress, done, deferred, progressPct } with snapshot.total == len(reqs).",
+            "- reqs[]: each REQ MUST include id, title, status, lane, dependsOn, acceptance (>=5 non-empty bullets), functional_scope, technical_scope, non_functional_requirements, security_requirements, compliance_requirements, operational_requirements, integration_contracts, data_contracts, test_strategy, risk_notes, main_module_boundary, test_profile, gate_policy_ref (docs/harper/lane-guides/<lane>.md).",
+            "- reqs[] SHOULD also include: track, domain, runtime_profile, packs, skills, design_profiles, gate_expectations, out_of_scope, future_compatibility_notes.",
+            "- Use an empty array or \"not_applicable\" when a field does not apply; never invent fake tools/services/packs/skills/profiles.",
+            "",
+            "Lane guide required sections (per detected lane, substantive — never empty/decorative):",
+            "- ## Lane Guide — <lane>",
+            "- ### Purpose and Scope (what the lane owns, which REQs use it)",
+            "- ### Expected Files and Boundaries",
+            "- ### Tools (tests, lint, types, security, build)",
+            "- ### Test and Validation Commands (local + containerized)",
+            "- ### Eval/Gate Expectations (+ commands)",
+            "- ### Default Gate Policy",
+            "- ### TECH_CONSTRAINTS Integration",
+            "- ### Forbidden Shortcuts",
+            "",
+            "Allowed writes:",
+            "- docs/harper/PLAN.md",
+            "- docs/harper/plan.json",
+            "- docs/harper/lane-guides/<lane>.md",
+        ],
+    },
+}
+
+# Canonical phase expectations derived verbatim from the gateway phase system
+# prompts (gateway/prompts/harper/{idea,spec,plan}_system.md). The orchestrator
+# and the gateway run in separate containers, so instead of reading the gateway
+# files at runtime we embed a bounded set of canonical anchors and inject them
+# into the local-agent document prompt. This keeps the local-agent path
+# isofunctional with the cloud path (same quality bar, same output contract).
+# Tests cross-check that each anchor still exists in the gateway prompt file so
+# this stays derived from — not divergent with — the canonical cloud prompt.
+_DOCUMENT_PHASE_CANONICAL_EXPECTATIONS: Dict[str, List[str]] = {
+    "idea": [
+        "# IDEA — <Project Name>",
+        "Attachment-first",
+        "Technology Constraints contains exactly one valid fenced YAML block",
+        "Every primary heading in the canonical schema appears exactly once and in order",
+        "No `BEGIN_FILE`, `END_FILE`, unresolved placeholders, or prompt template text",
+    ],
+    "spec": [
+        "# SPEC — <Project Name>",
+        "Acceptance Criteria are mandatory",
+        "At least **5** bullets",
+        "Each bullet must be observable & falsifiable",
+        "SPEC_END",
+    ],
+    "plan": [
+        "# PLAN — <Project Name>",
+        "stable **REQ-IDs**",
+        "plan.json",
+        "Each REQ must be **/kit-ready**",
+        "minimal, dependency-aware",
+        "machine-readable source of truth",
+        "for every detected lane",
+        "Acceptance bullets ≥ 5",
+        "snapshot.total == len(reqs)",
+    ],
+    "extend": [
+        "EXTEND appends new requirements to an existing Harper plan",
+        "Do not regenerate the plan from scratch.",
+        "Preserve the existing `plan.json` object shape",
+        "Emit an EXTEND audit report.",
+        "Each new REQ appears in both PLAN.md and plan.json.",
+    ],
+}
+
+
+def _render_canonical_parity_block(phase_norm: str, title: str) -> List[str]:
+    """Inject gateway-derived canonical expectations so local output meets or
+    exceeds the cloud artifact's expressive power and machine-readability."""
+    expectations = _DOCUMENT_PHASE_CANONICAL_EXPECTATIONS.get(phase_norm) or []
+    if not expectations:
+        return []
+    return [
+        "",
+        f"## Canonical Harper {title} contract (cloud parity — authoritative)",
+        f"These expectations are the canonical cloud /{phase_norm} contract. The local",
+        "artifact must be isofunctional with the cloud artifact and never weaker:",
+        *[f"- {item}" for item in expectations],
+        "Match or exceed the cloud artifact: be more explicit, more traceable to the",
+        "previous phase, richer in acceptance criteria/constraints/risks/verification",
+        "hooks, and downstream-ready — but never skeletal and never heading-only.",
+    ]
+
+
+def _safe_attachment_filename(name: str, fallback_index: int) -> str:
+    """Sanitize an attachment name into a safe workspace-local file name."""
+    base = _safe_text(name).replace("\\", "/").split("/")[-1]
+    base = re.sub(r"[^A-Za-z0-9._-]+", "_", base).strip("._")
+    if not base:
+        base = f"attachment_{fallback_index}"
+    return base[:180]
+
+
+def _materialize_attachments(
+    payload: Dict[str, Any], phase_norm: str
+) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    """
+    Materialize current-run attachments into workspace-local run-package files so
+    the local agent can read them from its cwd without any external-path Read
+    approval.
+
+    Returns (manifest, package_files):
+    - manifest: compact, content-free; each item exposes name, original_path
+      (metadata only), workspace_path (the run-local copy), mime, size, and
+      whether the content was materialized.
+    - package_files: file entries the extension writes into the workspace before
+      invoking the agent (same mechanism as the AGENT_* context/prompt files).
+    """
+    raw_attachments = payload.get("attachments")
+    if not isinstance(raw_attachments, list):
+        raw_attachments = []
+
+    attach_root = f"runs/{phase_norm}/attachments"
+    items: List[Dict[str, Any]] = []
+    package_files: List[Dict[str, Any]] = []
+    used_names: set = set()
+
+    for index, attachment in enumerate(raw_attachments):
+        if not isinstance(attachment, dict):
+            continue
+
+        name = _safe_text(attachment.get("name"))
+        original_path = _safe_text(attachment.get("path"))
+
+        item: Dict[str, Any] = {}
+        if name:
+            item["name"] = name
+        if original_path:
+            # Metadata only. The agent must never read this directly.
+            item["original_path"] = original_path
+
+        mime = _safe_text(attachment.get("mime") or attachment.get("type"))
+        if mime:
+            item["mime"] = mime
+        size = attachment.get("size")
+        if isinstance(size, (int, float)) and not isinstance(size, bool):
+            item["size"] = int(size)
+
+        # Resolve the inline content the extension forwarded for this attachment.
+        content = attachment.get("content")
+        content_base64 = attachment.get("bytes_b64") or attachment.get("content_base64")
+
+        if isinstance(content, str) or isinstance(content_base64, str):
+            safe_name = _safe_attachment_filename(name or original_path, index)
+            # Avoid collisions when two attachments share a base name.
+            candidate = safe_name
+            dup = 1
+            while candidate in used_names:
+                stem, dot, ext = safe_name.partition(".")
+                candidate = f"{stem}_{dup}{dot}{ext}" if dot else f"{safe_name}_{dup}"
+                dup += 1
+            used_names.add(candidate)
+
+            workspace_path = f"{attach_root}/{candidate}"
+            item["workspace_path"] = workspace_path
+            item["materialized"] = True
+
+            if isinstance(content, str):
+                package_files.append(
+                    {
+                        "path": workspace_path,
+                        "content": content,
+                        "mime": mime or "text/plain",
+                        "encoding": "utf-8",
+                    }
+                )
+            else:
+                package_files.append(
+                    {
+                        "path": workspace_path,
+                        "content_base64": content_base64,
+                        "mime": mime or "application/octet-stream",
+                        "encoding": "base64",
+                    }
+                )
+        else:
+            # No inline content available to copy into the workspace.
+            item["materialized"] = False
+
+        if item:
+            items.append(item)
+
+    manifest = {
+        "present": bool(items),
+        "count": len(items),
+        "items": items,
+    }
+    return manifest, package_files
+
+
+def _capability_index_names(core_blobs: Dict[str, Any], kind: str) -> List[str]:
+    """Available capability names of a kind from CLIKE_CAPABILITY_INDEX.json."""
+    raw = str((core_blobs or {}).get("CLIKE_CAPABILITY_INDEX.json") or "").strip()
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return []
+    items = data.get(kind) if isinstance(data, dict) else []
+    names: List[str] = []
+    for item in items or []:
+        if isinstance(item, dict):
+            name = _safe_text(item.get("name"))
+            if name and name not in names:
+                names.append(name)
+    return names
+
+
+def _build_plan_capability_context(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Surface the CLike capability context to the local-agent /plan agent so it can
+    populate per-REQ packs/skills/design_profiles instead of defaulting to
+    "not_applicable". Mirrors the cloud path, which exposes the capability
+    manifest/index in the prompt; here we embed the names in the agent context
+    (the in-memory blobs are not on disk for the agent to read).
+    """
+    core_blobs = payload.get("core_blobs") or {}
+    envelope = payload.get("context_envelope") or {}
+    clike = envelope.get("clike_capabilities") if isinstance(envelope, dict) else {}
+    clike = clike if isinstance(clike, dict) else {}
+
+    available = {
+        "packs": _capability_index_names(core_blobs, "packs"),
+        "skills": _capability_index_names(core_blobs, "skills"),
+        "design_profiles": _capability_index_names(core_blobs, "design_profiles"),
+    }
+    selected = {
+        "packs": [str(x) for x in (clike.get("selected_packs") or []) if str(x or "").strip()],
+        "skills": [str(x) for x in (clike.get("selected_skills") or []) if str(x or "").strip()],
+        "design_profiles": [
+            str(x) for x in (clike.get("selected_design_profiles") or []) if str(x or "").strip()
+        ],
+    }
+    has_capabilities = any(available.values()) or any(selected.values())
+    return {
+        "available": available,
+        "selected": selected,
+        "manifest_present": "CLIKE_CAPABILITY_MANIFEST.md" in core_blobs,
+        "index_present": "CLIKE_CAPABILITY_INDEX.json" in core_blobs,
+        "has_capabilities": has_capabilities,
+    }
+
+
+def build_document_phase_local_agent_package(
+    *,
+    phase: str,
+    payload: Dict[str, Any],
+    execution_policy: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Build the orchestrator-owned local-agent package for early Harper document
+    phases /idea, /spec, /plan.
+
+    These phases produce canonical Harper documents only. The orchestrator owns
+    workflow state, policy, and validation; the local agent is the bounded
+    document actuator. The package shape is identical to the other local-agent
+    phases (kit/eval/finalize/extend); only the phase-owned outputs, allowed
+    write paths, canonical reads, and prompt guidance differ.
+    """
+    phase_norm = str(phase or "").strip().lower()
+    spec = _DOCUMENT_PHASE_SPECS.get(phase_norm)
+    if not spec:
+        raise ValueError(f"Unsupported document phase for local agent: {phase!r}")
+
+    run_id = _safe_text(payload.get("runId")) or f"{phase_norm}-local"
+    local_executor = _resolve_local_executor(payload)
+    methodology_context = _methodology_context_for_local_agent(payload, phase_hint=phase_norm)
+    active_output_contract = build_active_output_contract(
+        phase=phase_norm,
+        runner="local_agent",
+        methodology_context=methodology_context,
+    )
+
+    allowed_write_roots = list(spec["allowed_write_roots"])
+    forbidden_paths = list(_DOCUMENT_PHASE_FORBIDDEN_PATHS)
+    title = spec["title"]
+    attachment_manifest, attachment_package_files = _materialize_attachments(payload, phase_norm)
+
+    # /idea source-of-truth is current-run attachments only. Fail safely if the
+    # builder is called directly without attachments (the VS Code extension also
+    # blocks this earlier, before any orchestrator call).
+    if phase_norm == "idea" and not attachment_manifest["present"]:
+        raise ValueError(
+            "Cannot run /idea without at least one attached source file. "
+            "Attach an IDEA/source document and retry."
+        )
+
+    # /plan must populate per-REQ packs/skills/design_profiles from the CLike
+    # capability context (cloud parity). Expose it to the agent and add the
+    # capability source files to the reads. Plan-only: /idea and /spec are
+    # unchanged.
+    plan_capability_context: Optional[Dict[str, Any]] = None
+    required_reads = list(spec["required_reads"])
+    if phase_norm == "plan":
+        plan_capability_context = _build_plan_capability_context(payload)
+        if plan_capability_context["has_capabilities"]:
+            required_reads = required_reads + [
+                ".clike/capabilities.yaml or .clike/capabilities.yml when present",
+                ".clike/packs/** when present",
+                ".clike/skills/** when present",
+                ".clike/design-profiles/** when present",
+            ]
+
+    context = {
+        "schema_version": spec["schema_version"],
+        "phase": phase_norm,
+        "run_id": run_id,
+        "input_sources": {
+            "idea_md_present": bool(payload.get("idea_md")),
+            "spec_md_present": bool(payload.get("spec_md")),
+            "plan_md_present": bool(payload.get("plan_md")),
+            "attachments_present": attachment_manifest["present"],
+            "attachment_count": attachment_manifest["count"],
+        },
+        "attachments": attachment_manifest,
+        **({"capabilities": plan_capability_context} if plan_capability_context else {}),
+        **({"methodology_context": methodology_context} if methodology_context else {}),
+        "mission": spec["mission"],
+        "required_reads": required_reads,
+        "allowed_write_roots": allowed_write_roots,
+        "forbidden_paths": forbidden_paths,
+        "output_contract": spec["output_contract"],
+        "active_output_contract": active_output_contract,
+        "hard_rules": list(spec["hard_rules"]),
+        "validation_expectations": list(spec["validation_expectations"]),
+    }
+
+    context_json = json.dumps(context, indent=2, ensure_ascii=False)
+    # Package internals live under run-scoped technical paths. The canonical
+    # docs/harper directory must contain only canonical Harper artifacts.
+    context_path = f"runs/{phase_norm}/docs/AGENT_{title}_CONTEXT.json"
+    prompt_path = f"runs/{phase_norm}/docs/AGENT_{title}_PROMPT.md"
+
+    attachment_prompt_lines: List[str] = []
+    if attachment_manifest["present"]:
+        attachment_prompt_lines = [
+            "",
+            f"Attachments ({attachment_manifest['count']}) — current-run source of truth (workspace-local copies):",
+            *[
+                "- "
+                + " ".join(
+                    part
+                    for part in (
+                        item.get("workspace_path") or item.get("name") or "",
+                        f"({item['mime']})" if item.get("mime") else "",
+                    )
+                    if part
+                )
+                for item in attachment_manifest["items"]
+            ],
+            "- Read every workspace_path listed above before producing output. Multiple attachments are allowed and all must be read.",
+            "- workspace_path entries are inside the current working directory; read those. Do NOT read original_path — it is metadata only and may be outside the workspace.",
+        ]
+        if phase_norm == "idea":
+            attachment_prompt_lines += [
+                "- These current-run materialized attachments are the ONLY source of truth for /idea; do not rely only on RAG.",
+                "- Do not use stale workspace files or old uploads. Do not read ORI.IDEA.md or any IDEA* variant unless it is explicitly listed above as a current-run attachment workspace_path.",
+                "- Any existing docs/harper/IDEA.md is the overwrite target only, never a source.",
+            ]
+        else:
+            attachment_prompt_lines.append(
+                f"- Attachments are the primary source of truth for /{phase_norm}; do not rely only on RAG.",
+            )
+
+    capability_prompt_lines: List[str] = []
+    if plan_capability_context and plan_capability_context["has_capabilities"]:
+        avail = plan_capability_context["available"]
+        sel = plan_capability_context["selected"]
+
+        def _cap_line(label: str, kind: str) -> str:
+            chosen = sel.get(kind) or avail.get(kind) or []
+            return f"- {label}: {', '.join(chosen) if chosen else '(none available)'}"
+
+        capability_prompt_lines = [
+            "",
+            "CLike capability context (BINDING planning constraints — populate per REQ):",
+            _cap_line("available/selected packs", "packs"),
+            _cap_line("available/selected skills", "skills"),
+            _cap_line("available/selected design_profiles", "design_profiles"),
+            "- For every REQ in plan.json, set packs/skills/design_profiles to the applicable capabilities above (arrays of names). Read .clike/capabilities.yaml and .clike/{packs,skills,design-profiles}/** to choose correctly.",
+            "- Do NOT default packs/skills/design_profiles to \"not_applicable\" when capabilities are available; use \"not_applicable\" only when no listed capability genuinely applies to that REQ.",
+            "- Never invent capabilities that are not in the lists above.",
+        ]
+
+    prompt = "\n".join(
+        [
+            f"# Local Agent {title} Execution Package — Harper {title}",
+            "",
+            f"You are executing a CLike Harper /{phase_norm} package.",
+            "The orchestrator owns workflow state, policy, and validation. The local agent is only the workspace document actuator.",
+            _render_methodology_prompt_block(methodology_context),
+            "",
+            "Read before acting:",
+            f"- {context_path}",
+            *[f"- {item}" for item in required_reads],
+            *attachment_prompt_lines,
+            *capability_prompt_lines,
+            *_render_canonical_parity_block(phase_norm, title),
+            "",
+            *spec["prompt_lines"],
+            "",
+            "Forbidden writes:",
+            "- any docs/harper path other than the allowed writes above",
+            "- src/, test/, tests/",
+            "- runs/kit/, runs/eval/, runs/gate/",
+            "- .git/",
+            "",
+            "Execution rules:",
+            "- Follow AGENT_*_CONTEXT.json as the source of truth.",
+            "- Do not run git commands.",
+            "- Before final output, normalize every created or modified text file by stripping trailing whitespace and ensuring a final newline.",
+            "- Do not invent facts, vendors, APIs, endpoints, project keys, or frameworks not evidenced by inputs.",
+            "",
+            "At the end, print a concise summary with files changed, validation performed, and unresolved gaps.",
+        ]
+    )
+
+    return {
+        "ok": True,
+        "phase": phase_norm,
+        "echo": f"Local agent {phase_norm} package prepared for Harper {title}",
+        "text": "",
+        "files": [],
+        "diffs": [],
+        "tests": {"passed": 0, "failed": 0, "summary": f"local-agent-{phase_norm}-package-prepared"},
+        "warnings": [
+            "execution_package:local_agent_required",
+            "extension_role:local_actuator_only",
+            f"{phase_norm}_requires_harper_docs_mutation",
+        ],
+        "errors": [],
+        "runId": run_id,
+        "execution": {
+            "requested": execution_policy.get("requested"),
+            "selected": execution_policy.get("selected"),
+            "reason": execution_policy.get("reason"),
+            "phase_supported": execution_policy.get("phase_supported"),
+        },
+        "local_agent": {
+            "action": "local_agent_required",
+            "package_id": f"{run_id}:SOLUTION:{phase_norm}",
+            "phase": phase_norm,
+            "req_id": "SOLUTION",
+            "executor_hint": local_executor,
+            "context_path": context_path,
+            "prompt_path": prompt_path,
+            "prompt_content": prompt,
+            "invocation": {
+                "schema_version": "clike.local_agent_invocation.v1",
+                "executor": local_executor,
+                "command_ref": local_executor,
+                "args": ["exec"] if local_executor == "gpt_codex" else ["-p", "--permission-mode", "acceptEdits"],
+                "prompt_transport": "stdin" if local_executor == "gpt_codex" else "argv_last",
+                "timeout_seconds": int(payload.get("localAgentTimeoutSeconds") or 1800),
+                "cwd": ".",
+            },
+            "allowed_write_roots": allowed_write_roots,
+            "forbidden_paths": forbidden_paths,
+            "active_output_contract": active_output_contract,
+            "expected_outputs": context["output_contract"],
+            # Surface available capabilities so completion can detect plan.json
+            # that degrades every REQ to "not_applicable" despite real options.
+            **(
+                {"available_capabilities": plan_capability_context["available"]}
+                if plan_capability_context and plan_capability_context["has_capabilities"]
+                else {}
+            ),
+            "package_files": [
+                {
+                    "path": context_path,
+                    "content": context_json,
+                    "mime": "application/json",
+                    "encoding": "utf-8",
+                },
+                {
+                    "path": prompt_path,
+                    "content": prompt,
+                    "mime": "text/markdown",
+                    "encoding": "utf-8",
+                },
+                # Current-run attachments are materialized into the workspace so
+                # the agent reads them from its cwd (no external-path approval).
+                *attachment_package_files,
+            ],
+        },
+    }
+
+
+def _markdown_section_body(text: str, heading_variants: List[str]) -> Optional[str]:
+    """Return the body after the first matching `## Heading`, up to the next `##`.
+
+    Returns None when no variant heading is present.
+    """
+    for heading in heading_variants:
+        pattern = re.compile(r"^\s*" + re.escape(heading) + r"\s*$", re.IGNORECASE | re.MULTILINE)
+        match = pattern.search(text)
+        if not match:
+            continue
+        rest = text[match.end():]
+        nxt = re.search(r"^\s*##\s+", rest, re.MULTILINE)
+        return rest[: nxt.start()] if nxt else rest
+    return None
+
+
+def _count_markdown_bullets(section_text: str) -> int:
+    count = 0
+    for line in (section_text or "").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("- ") or stripped.startswith("* ") or re.match(r"^\d+[.)]\s+", stripped):
+            count += 1
+    return count
+
+
+def _validate_document_phase_completeness(
+    phase: str,
+    content_by_path: Dict[str, str],
+    available_capabilities: Optional[Dict[str, Any]] = None,
+) -> Tuple[List[str], List[str]]:
+    """Deterministic non-skeletal validation for document-phase outputs.
+
+    Thresholds mirror the canonical gateway phase prompts so the local-agent
+    artifacts stay isofunctional with the cloud path (and never heading-only).
+    Returns (errors, warnings); errors is non-empty only when an output is
+    structurally incomplete.
+    """
+    warnings: List[str] = []
+    incomplete = False
+
+    if phase == "idea":
+        content = content_by_path.get("docs/harper/IDEA.md", "") or ""
+        canonical_sections = [
+            ["## Vision"],
+            ["## Problem Statement"],
+            ["## Target Users & Context"],
+            ["## Value & Outcomes", "## Value & Outcomes (with initial targets)"],
+            ["## Out of Scope", "## Out of Scope (slice-1)"],
+            ["## Technology Constraints", "## Technology Constraints (SPEC-ready)"],
+            ["## Risks & Assumptions"],
+            ["## Success Metrics"],
+        ]
+        for variants in canonical_sections:
+            body = _markdown_section_body(content, variants)
+            if body is None:
+                incomplete = True
+                warnings.append(f"idea:missing_section:{variants[0]}")
+            elif len(body.strip()) < 30:
+                incomplete = True
+                warnings.append(f"idea:empty_section:{variants[0]}")
+        if not re.search(r"^```ya?ml\s*$", content, re.IGNORECASE | re.MULTILINE):
+            incomplete = True
+            warnings.append("idea:missing_fenced_yaml_under_technology_constraints")
+
+    elif phase == "spec":
+        content = content_by_path.get("docs/harper/SPEC.md", "") or ""
+        acceptance_body = _markdown_section_body(content, ["## Acceptance Criteria"])
+        if acceptance_body is None:
+            incomplete = True
+            warnings.append("spec:missing_section:## Acceptance Criteria")
+        else:
+            bullets = _count_markdown_bullets(acceptance_body)
+            if bullets < 5:
+                incomplete = True
+                warnings.append(f"spec:acceptance_criteria_below_minimum:{bullets}")
+        for variants in (["## Functional Requirements"], ["## Non-Functional Requirements"]):
+            body = _markdown_section_body(content, variants)
+            if body is None or len(body.strip()) < 30:
+                incomplete = True
+                warnings.append(f"spec:empty_or_missing_section:{variants[0]}")
+        if "SPEC_END" not in content:
+            incomplete = True
+            warnings.append("spec:missing_SPEC_END")
+
+    elif phase == "plan":
+        plan_md = content_by_path.get("docs/harper/PLAN.md", "") or ""
+        plan_json_text = content_by_path.get("docs/harper/plan.json", "") or ""
+
+        if not re.search(r"\bREQ-\d+", plan_md):
+            incomplete = True
+            warnings.append("plan:missing_req_ids_in_plan_md")
+        if not re.search(r"verification|checkpoint|acceptance", plan_md, re.IGNORECASE):
+            incomplete = True
+            warnings.append("plan:missing_verification_checkpoints_in_plan_md")
+
+        try:
+            plan_data = json.loads(plan_json_text)
+        except Exception:
+            incomplete = True
+            warnings.append("plan:plan_json_invalid_json")
+            plan_data = None
+
+        if isinstance(plan_data, dict):
+            reqs = plan_data.get("reqs") or plan_data.get("requirements") or plan_data.get("items")
+            json_req_ids: set = set()
+            # Track whether any REQ populated each capability field with a real
+            # value (not "not_applicable"/empty), to detect blanket degradation.
+            capability_populated = {"packs": False, "skills": False, "design_profiles": False}
+
+            def _capability_is_populated(value: Any) -> bool:
+                if isinstance(value, list):
+                    return any(
+                        str(v).strip() and str(v).strip().lower() != "not_applicable" for v in value
+                    )
+                if isinstance(value, str):
+                    return bool(value.strip()) and value.strip().lower() != "not_applicable"
+                return False
+
+            if not isinstance(reqs, list) or not reqs:
+                incomplete = True
+                warnings.append("plan:plan_json_missing_reqs")
+            else:
+                for index, req in enumerate(reqs):
+                    if not isinstance(req, dict):
+                        incomplete = True
+                        warnings.append(f"plan:plan_json_req_{index}_not_object")
+                        continue
+                    rid = _safe_text(req.get("id"))
+                    if rid:
+                        json_req_ids.add(rid.upper())
+                    acceptance = req.get("acceptance")
+                    if acceptance is None:
+                        acceptance = req.get("acceptance_criteria")
+                    has_acceptance = bool(
+                        (isinstance(acceptance, list) and any(str(a).strip() for a in acceptance))
+                        or (isinstance(acceptance, str) and acceptance.strip())
+                    )
+                    if not has_acceptance:
+                        incomplete = True
+                        warnings.append(f"plan:plan_json_req_{rid or index}_empty_acceptance")
+                    for kind in capability_populated:
+                        if _capability_is_populated(req.get(kind)):
+                            capability_populated[kind] = True
+
+            # Every REQ-ID referenced in PLAN.md must exist in plan.json
+            # (plan.json is the machine-readable source of truth for /kit).
+            plan_md_req_ids = {m.upper() for m in re.findall(r"\bREQ-\d+", plan_md)}
+            missing_in_json = sorted(plan_md_req_ids - json_req_ids)
+            if missing_in_json:
+                incomplete = True
+                warnings.append(
+                    "plan:plan_md_reqs_missing_from_plan_json:" + ",".join(missing_in_json[:20])
+                )
+
+            # Capability degradation: every REQ defaulted a field to
+            # "not_applicable"/empty while real capabilities were available.
+            # Warning-level (non-blocking) to avoid false rejects when no listed
+            # capability genuinely applies.
+            if isinstance(available_capabilities, dict) and isinstance(reqs, list) and reqs:
+                for kind in ("packs", "skills", "design_profiles"):
+                    available = available_capabilities.get(kind) or []
+                    if available and not capability_populated[kind]:
+                        warnings.append(
+                            f"plan:all_reqs_{kind}_not_applicable_despite_available_capabilities"
+                        )
+        elif plan_data is not None:
+            incomplete = True
+            warnings.append("plan:plan_json_not_object")
+
+    errors = ["document_phase_output_incomplete"] if incomplete else []
+    return errors, warnings
 
 
 def normalize_local_agent_result(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -5248,10 +6194,13 @@ def normalize_local_agent_result(payload: Dict[str, Any]) -> Dict[str, Any]:
         if not p:
             return False
 
+        # Canonical Harper docs /extend may mutate. IDEA.md/SPEC.md are
+        # conditional; PLAN.md/plan.json always; EXTEND_*.md is the audit report.
         if p in {
+            "docs/harper/IDEA.md",
+            "docs/harper/SPEC.md",
             "docs/harper/PLAN.md",
             "docs/harper/plan.json",
-            "docs/harper/SPEC.md",
         }:
             return True
 
@@ -5261,11 +6210,25 @@ def normalize_local_agent_result(payload: Dict[str, Any]) -> Dict[str, Any]:
         if p.startswith("docs/harper/EXTEND_") and p.endswith(".md"):
             return True
 
-        if p in {
-            "docs/harper/AGENT_EXTEND_CONTEXT.json",
-            "docs/harper/AGENT_EXTEND_PROMPT.md",
-        }:
-            return True
+        # AGENT_* package internals and any other docs/harper path are rejected
+        # (package internals now live under runs/extend/, not docs/harper).
+        return False
+
+    def _document_phase_allowed_path(doc_phase: str, file_path: str) -> bool:
+        p = _normalize_relative_path(file_path)
+        if not p:
+            return False
+
+        if doc_phase == "idea":
+            return p == "docs/harper/IDEA.md"
+
+        if doc_phase == "spec":
+            return p == "docs/harper/SPEC.md"
+
+        if doc_phase == "plan":
+            if p in {"docs/harper/PLAN.md", "docs/harper/plan.json"}:
+                return True
+            return p.startswith("docs/harper/lane-guides/") and p.endswith(".md")
 
         return False
 
@@ -5307,6 +6270,8 @@ def normalize_local_agent_result(payload: Dict[str, Any]) -> Dict[str, Any]:
             allowed = _finalize_allowed_path(file_path)
         elif phase == "extend":
             allowed = _extend_allowed_path(file_path)
+        elif phase in {"idea", "spec", "plan"}:
+            allowed = _document_phase_allowed_path(phase, file_path)
         else:
             allowed = file_path.startswith(expected_prefix)
         if not allowed:
@@ -5724,11 +6689,95 @@ def normalize_local_agent_result(payload: Dict[str, Any]) -> Dict[str, Any]:
                     + ",".join(credential_like_db_defaults[:10])
                 )
 
+    document_phase_required_outputs = {
+        "idea": ["docs/harper/IDEA.md"],
+        "spec": ["docs/harper/SPEC.md"],
+        "plan": ["docs/harper/PLAN.md", "docs/harper/plan.json"],
+    }
+    if phase in document_phase_required_outputs:
+        returned_paths = {
+            _normalize_relative_path(item.get("path")) for item in normalized_files
+        }
+        missing_outputs = [
+            required
+            for required in document_phase_required_outputs[phase]
+            if required not in returned_paths
+        ]
+        if missing_outputs:
+            ok = False
+            errors.append("document_phase_required_outputs_missing")
+            warnings.append("missing_required_outputs:" + ",".join(missing_outputs))
+            if exit_code_non_zero:
+                errors.append(f"local_agent_exit_code:{exit_code}")
+        else:
+            # Required outputs are present; enforce the canonical quality bar so
+            # local-agent documents are substantive, not skeletal heading-only.
+            content_by_path = {
+                _normalize_relative_path(item.get("path")): str(item.get("content") or "")
+                for item in normalized_files
+            }
+            completeness_errors, completeness_warnings = _validate_document_phase_completeness(
+                phase, content_by_path, payload.get("available_capabilities")
+            )
+            # Always surface advisory warnings (e.g. capability degradation),
+            # even when there is no hard completeness error.
+            warnings.extend(completeness_warnings)
+            if completeness_errors:
+                ok = False
+                errors.extend(completeness_errors)
+
+    if phase == "extend":
+        returned_paths = {
+            _normalize_relative_path(item.get("path")) for item in normalized_files
+        }
+        content_by_path = {
+            _normalize_relative_path(item.get("path")): str(item.get("content") or "")
+            for item in normalized_files
+        }
+        has_audit = any(
+            p.startswith("docs/harper/EXTEND_") and p.endswith(".md") for p in returned_paths
+        )
+        missing_outputs = []
+        if "docs/harper/PLAN.md" not in returned_paths:
+            missing_outputs.append("docs/harper/PLAN.md")
+        if "docs/harper/plan.json" not in returned_paths:
+            missing_outputs.append("docs/harper/plan.json")
+        if not has_audit:
+            missing_outputs.append("docs/harper/EXTEND_<date>_<first_req>_<last_req>.md")
+
+        if missing_outputs:
+            ok = False
+            errors.append("extend_required_outputs_missing")
+            warnings.append("missing_required_outputs:" + ",".join(missing_outputs))
+            if exit_code_non_zero:
+                errors.append(f"local_agent_exit_code:{exit_code}")
+        else:
+            # Mutated plan must remain valid: plan.json parses, has reqs with
+            # acceptance, and every PLAN.md REQ-ID exists in plan.json.
+            ext_errors, ext_warnings = _validate_document_phase_completeness(
+                "plan", content_by_path, payload.get("available_capabilities")
+            )
+            audit_text = next(
+                (content_by_path[p] for p in returned_paths if p.startswith("docs/harper/EXTEND_")),
+                "",
+            )
+            if len(audit_text.strip()) < 40:
+                ext_errors = list(ext_errors) + ["document_phase_output_incomplete"]
+                ext_warnings = list(ext_warnings) + ["extend:audit_report_empty_or_too_short"]
+            # Always surface advisory warnings, even without a hard error.
+            warnings.extend(ext_warnings)
+            if ext_errors:
+                ok = False
+                errors.append("extend_output_incomplete")
+
     if not normalized_files:
         ok = False
-        errors.append(f"no_candidate_files_returned_for:{req_id}")
-        if exit_code_non_zero:
-            errors.append(f"local_agent_exit_code:{exit_code}")
+        # Document phases report missing required outputs above; the generic kit
+        # REQ-ID message would be misleading (req_id is SOLUTION, not a kit REQ).
+        if phase not in document_phase_required_outputs and phase != "extend":
+            errors.append(f"no_candidate_files_returned_for:{req_id}")
+            if exit_code_non_zero:
+                errors.append(f"local_agent_exit_code:{exit_code}")
     elif exit_code_non_zero and ok:
         warnings.append(
             "local_agent_exit_code_accepted_because_candidate_files_were_returned"

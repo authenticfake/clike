@@ -119,6 +119,36 @@ shows an argument list containing `--sandbox` and `workspace-write`.
 
 ## Current phase support
 
+Execution-agent (local-agent) support now covers the early Harper document
+phases as well as the existing actuator phases:
+- `/idea`
+- `/spec`
+- `/plan`
+- `/kit`
+- `/eval`
+- `/finalize`
+- `/extend`
+
+All phases share the same architecture: orchestrator execution policy,
+`run_phase` dispatch, the local-agent package envelope, the
+`/local-agent/complete` normalization step, the extension actuator, and the
+phase-aware write policy. Cloud and local execution remain semantically
+equivalent; CLike governance stays canonical and validates every result. The
+agent performs bounded work; CLike validates and governs.
+
+### Early document phases (`/idea`, `/spec`, `/plan`)
+These phases produce only their canonical Harper documents. The write policy is
+narrow:
+- `/idea` local agent writes `docs/harper/IDEA.md`.
+- `/spec` local agent writes `docs/harper/SPEC.md`.
+- `/plan` local agent writes `docs/harper/PLAN.md` and `docs/harper/plan.json`
+  (plus `docs/harper/lane-guides/<lane>.md` for each detected lane).
+
+`docs/harper/` remains protected: any other `docs/harper/` path, and all of
+`src/`, `test/`, `tests/`, and `.git/`, stay forbidden for these phases.
+Methodology/BMAD context is passed through when enabled, but BMAD is never
+mandatory and the canonical Harper outputs above are always required.
+
 ### KIT
 Both local executors currently support:
 - base `kit`

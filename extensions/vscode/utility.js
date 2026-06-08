@@ -2,6 +2,7 @@ const vscode = require('vscode');
 const cp = require('child_process');
 const path = require('path');
 const { gatherRagChunks } = require('./rag.js');
+const { buildLocalAgentEnv } = require('./local-agent-executors');
 
 const out = vscode.window.createOutputChannel('Clike.utility');
 const crypto = require('crypto');
@@ -2573,11 +2574,10 @@ async function runLocalAgentSync({
       cwd: workspaceRootUri.fsPath,
       shell: false,
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: {
-        ...process.env,
-        CLICOLOR: '0',
-        NO_COLOR: '1',
-      },
+      // Local agents authenticate via their own CLI login/session. Inherit the
+      // standard shell env (PATH/HOME/etc.) but strip cloud provider keys by
+      // default so local-agent execution never depends on gateway cloud keys.
+      env: buildLocalAgentEnv(process.env),
     });
 
     let stdout = '';
