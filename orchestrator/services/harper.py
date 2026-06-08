@@ -25,7 +25,13 @@ from services.repository_manifest import (
     build_repo_structure_evidence,
     build_repo_composition_manifest,
 )
-from services.capabilities import build_capability_context, build_selected_capability_context
+from services.capabilities import (
+    build_capability_context,
+    build_capability_coverage,
+    build_capability_metadata_map,
+    build_selected_capability_context,
+    enrich_plan_json_text,
+)
 from services.context_envelope import build_context_envelope
 from services.execution_policy import (
     normalize_execution_preference,
@@ -2682,6 +2688,38 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
         "claude_enabled": execution_policy.get("claude_enabled"),
         "claude_available": execution_policy.get("claude_available"),
     }
+
+    # --- Deterministic capability enrichment for cloud /plan (parity with the
+    # local-agent normalizer). Expands per-REQ selected capability names into a
+    # structured `capabilities` block; defensive (no-op on any error). ---
+    if phase == "plan":
+        try:
+            raw_index = (merged.get("core_blobs") or {}).get("CLIKE_CAPABILITY_INDEX.json")
+            capability_index = json.loads(raw_index) if raw_index else None
+            capability_metadata = build_capability_metadata_map(capability_index)
+            for f in out.get("files") or []:
+                path = str(f.get("path") or "")
+                if path.endswith("plan.json") and isinstance(f.get("content"), str):
+                    f["content"] = enrich_plan_json_text(f["content"], capability_metadata)
+                    # Read-only coverage diagnostic surfaced into the result so the
+                    # (already capability-aware) /eval and /gate phases can cite
+                    # expected checks and block on uncovered/unresolved capabilities.
+                    try:
+                        coverage = build_capability_coverage(json.loads(f["content"]), capability_metadata)
+                        out["capability_coverage"] = coverage
+                        if coverage.get("unresolved_capability_ids"):
+                            out.setdefault("warnings", []).append(
+                                "capability_unresolved:" + ",".join(coverage["unresolved_capability_ids"][:20])
+                            )
+                        if coverage.get("reqs_without_capabilities"):
+                            out.setdefault("warnings", []).append(
+                                "capability_uncovered_reqs:" + ",".join(coverage["reqs_without_capabilities"][:20])
+                            )
+                    except Exception:  # pragma: no cover - defensive
+                        pass
+        except Exception as exc:  # pragma: no cover - defensive
+            log.warning("harper.plan capability enrichment skipped: %s", exc)
+
     # --- Optional KIT follow-up phases (manual by default, chained only if requested) ---
     if phase == "kit" and target_req_id:
         selected_phases = set(requested_kit_phases)

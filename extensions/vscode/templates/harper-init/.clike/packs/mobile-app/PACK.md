@@ -1,3 +1,19 @@
+---
+name: mobile-app
+description: Mobile app scenario: offline/sync states, touch ergonomics, interrupted-flow recovery.
+obligations:
+  - Handle offline/sync states
+  - Optimize for touch and interrupted flows
+eval_checks:
+  - offline-handled
+  - touch-targets-adequate
+  - interrupted-flow-recovered
+gate_implications:
+  - block-if-no-offline-handling
+evidence_required:
+  - Mobile state tests
+---
+
 # Pack: Mobile App
 
 ## Intent

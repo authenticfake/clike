@@ -1,3 +1,23 @@
+---
+name: ai-native-agent-platform
+description: AI-native agent platform scenario: provider abstraction, governed actions, eval/RAG/HITL evidence.
+obligations:
+  - Abstract model/provider behind boundaries
+  - Keep human-in-the-loop for state-changing agent actions
+  - Record prompt/eval/RAG provenance
+eval_checks:
+  - provider-abstraction-present
+  - eval-and-gate-evidence-present
+  - rag-provenance-recorded
+  - hitl-on-state-changes
+gate_implications:
+  - block-if-ungoverned-autonomous-writes
+  - block-if-missing-eval-evidence
+evidence_required:
+  - Eval/gate artifacts
+  - Provenance logs
+---
+
 # Pack: AI-Native Agent Platform
 
 ## Intent

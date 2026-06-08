@@ -6,6 +6,20 @@ lanes: ["python", "typescript", "java", "dotnet", "go", "rust", "iac", "frontend
 domains: ["consumer", "startup", "enterprise", "industrial", "manufacturing", "ai-native", "developer-tooling"]
 runtime_profiles: ["local", "cloud", "local-cloud", "on-prem", "edge", "hybrid", "air-gapped"]
 gate_required: true
+obligations:
+  - Emit deterministic validation commands
+  - Write LTC with explicit pass/fail criteria
+  - Never claim tests passed without evidence
+eval_checks:
+  - deterministic-validation-commands-present
+  - ltc-pass-fail-criteria-defined
+  - no-fake-test-claims
+gate_implications:
+  - block-if-non-deterministic-eval
+  - block-if-fake-test-evidence
+evidence_required:
+  - runs/kit/<REQ-ID>/ci/LTC.json
+  - HOWTO run section
 ---
 
 # Eval Contract Writer Skill
@@ -261,3 +275,4 @@ Gate may WARN when:
 ## Success Definition
 
 This skill is satisfied when a developer, local agent, cloud worker, or EvalRunner can understand and execute the validation path without guessing.
+

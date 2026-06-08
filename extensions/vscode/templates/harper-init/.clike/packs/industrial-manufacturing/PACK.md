@@ -5,6 +5,18 @@ domains: ["industrial", "manufacturing"]
 default_runtime_profiles: ["local", "on-prem", "edge", "plant", "cloud", "hybrid", "air-gapped"]
 recommended_skills: ["local-cloud-parity", "eval-contract-writer", "gate-risk-reviewer"]
 gate_required: true
+obligations:
+  - Model safe states and operator confidence cues
+  - Handle stale/disconnected states
+eval_checks:
+  - safe-state-default
+  - stale-state-handled
+  - operator-confirmation-on-critical-actions
+gate_implications:
+  - block-if-unsafe-default-state
+  - block-if-no-disconnected-state-handling
+evidence_required:
+  - Safety/state tests
 ---
 
 # Industrial Manufacturing Pack
@@ -100,3 +112,11 @@ Promotion should require full `PASS`.
 `PASS_WITH_WARNINGS` must not promote.
 
 Warnings are acceptable only when the missing evidence is explicitly non-blocking, external, and documented with a deterministic local fallback.
+
+## Use when
+
+Use for manufacturing/industrial systems with operator-facing control, safety states, and field/plant conditions.
+
+## Do not use when
+
+Do not use for pure web/consumer apps with no operational safety or control surface.

@@ -1,3 +1,22 @@
+---
+name: ai-rag-eval-guardrails
+description: Guardrails for AI/RAG features: provenance, prompt-injection defense, output validation before business action, and eval evidence.
+obligations:
+  - Record retrieval provenance and context scope
+  - Validate model output before any business action
+  - Guard against prompt injection overriding system policy
+eval_checks:
+  - retrieval-provenance-recorded
+  - prompt-injection-guarded
+  - output-validated-before-action
+gate_implications:
+  - block-if-ungoverned-model-writes
+  - block-if-missing-rag-provenance
+evidence_required:
+  - Eval artifacts under reports
+  - Retrieval provenance logs
+---
+
 # Skill: AI RAG Eval Guardrails
 
 ## Intent

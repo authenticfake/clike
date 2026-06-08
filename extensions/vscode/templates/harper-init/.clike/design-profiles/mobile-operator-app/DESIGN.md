@@ -1,3 +1,23 @@
+---
+name: mobile-operator-app
+description: Mobile operator app UX: offline/sync/conflict states, large tap targets, interrupted-workflow recovery.
+ui_obligations:
+  - offline-sync-conflict-states
+  - large-tap-targets
+  - interrupted-workflow-recovery
+  - minimal-typing
+accessibility_expectations:
+  - large-targets
+  - readable-in-field-conditions
+  - keyboard-and-screenreader-support
+eval_checks:
+  - offline-states-tested
+  - recovery-flow-tested
+gate_implications:
+  - block-if-no-offline-states
+  - block-if-data-loss-on-interruption
+---
+
 # Design Profile: Mobile Operator App
 
 ## Intent

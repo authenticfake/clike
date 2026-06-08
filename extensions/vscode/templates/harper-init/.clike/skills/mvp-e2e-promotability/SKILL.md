@@ -6,6 +6,20 @@ lanes: ["python", "typescript", "java", "dotnet", "go", "rust", "frontend", "bac
 domains: ["enterprise", "startup", "consumer", "industrial", "ai-native", "developer-tooling"]
 runtime_profiles: ["local", "cloud", "local-cloud", "on-prem", "hybrid", "air-gapped"]
 gate_required: true
+obligations:
+  - Deliver a narrow end-to-end promotable slice
+  - Provide a local smoke path
+  - Avoid decorative-only implementation
+eval_checks:
+  - end-to-end-slice-tested
+  - local-smoke-path-present
+  - no-decorative-only-implementation
+gate_implications:
+  - block-if-decorative-only-slice
+  - block-if-no-e2e-evidence
+evidence_required:
+  - E2E/smoke evidence
+  - Promotion notes
 ---
 
 # MVP E2E Promotability Skill

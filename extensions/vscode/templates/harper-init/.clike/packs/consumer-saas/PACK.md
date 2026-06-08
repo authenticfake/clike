@@ -5,6 +5,19 @@ domains: ["consumer", "startup"]
 default_runtime_profiles: ["local", "cloud", "local-cloud"]
 recommended_skills: ["local-cloud-parity", "eval-contract-writer", "gate-risk-reviewer"]
 gate_required: true
+obligations:
+  - Provide onboarding and account/project boundaries
+  - Surface user-facing error states
+  - Track product analytics where relevant
+eval_checks:
+  - onboarding-flow-tested
+  - account-boundaries-enforced
+  - user-error-states-present
+gate_implications:
+  - block-if-broken-account-isolation
+  - block-if-missing-user-error-states
+evidence_required:
+  - Onboarding/account tests
 ---
 
 # Consumer SaaS Pack
@@ -97,3 +110,11 @@ Promotion should require full `PASS`.
 `PASS_WITH_WARNINGS` must not promote.
 
 Warnings are acceptable only when the missing evidence is explicitly non-blocking, external, and documented with a deterministic local fallback.
+
+## Use when
+
+Use for consumer or B2B SaaS products with onboarding, multi-tenant account/project boundaries, and user-facing UI.
+
+## Do not use when
+
+Do not use for on-prem/air-gapped enterprise platforms or backend-only services with no user-facing surface.

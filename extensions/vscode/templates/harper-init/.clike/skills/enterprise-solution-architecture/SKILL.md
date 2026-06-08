@@ -6,6 +6,18 @@ lanes: ["python", "typescript", "java", "dotnet", "go", "rust", "frontend", "bac
 domains: ["enterprise", "developer-tooling", "ai-native", "industrial"]
 runtime_profiles: ["local", "cloud", "local-cloud", "on-prem", "hybrid", "air-gapped"]
 gate_required: true
+obligations:
+  - Define bounded modules and clear ownership
+  - Make integration contracts explicit and stable
+eval_checks:
+  - bounded-modules-defined
+  - integration-contracts-explicit
+gate_implications:
+  - block-if-uncontrolled-coupling
+  - block-if-missing-integration-contracts
+evidence_required:
+  - Module/ownership map
+  - Integration contracts
 ---
 
 # Enterprise Solution Architecture Skill
@@ -135,3 +147,4 @@ Gate may WARN when:
 ## Success definition
 
 The skill is satisfied when each promoted slice contributes to a coherent enterprise solution that can be run locally, evaluated deterministically, and extended without hidden rewrites.
+

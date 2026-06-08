@@ -1,3 +1,21 @@
+---
+name: ml-experiment-reproducibility
+description: Pin seeds/config/dataset versions and provide a deterministic rerun path.
+obligations:
+  - Pin seeds, config, and dataset versions
+  - Provide a deterministic rerun path
+eval_checks:
+  - seed-and-config-recorded
+  - deterministic-rerun-path
+  - dataset-version-pinned
+gate_implications:
+  - block-if-non-reproducible-experiment
+  - block-if-unpinned-dataset
+evidence_required:
+  - Reproducibility manifest
+  - Rerun instructions
+---
+
 # Skill: ML Experiment Reproducibility
 
 ## Intent

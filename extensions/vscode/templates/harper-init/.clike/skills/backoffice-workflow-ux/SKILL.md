@@ -6,6 +6,17 @@ lanes: ["frontend", "typescript", "python", "backend", "ai-native"]
 domains: ["enterprise", "developer-tooling", "ai-native"]
 runtime_profiles: ["local", "cloud", "local-cloud", "on-prem", "hybrid"]
 gate_required: true
+obligations:
+  - Implement list/detail workflow states (loading/empty/error/success)
+  - Respect backend as source of truth for authorization and data
+eval_checks:
+  - ui-states-tested
+  - workflow-flow-tested
+gate_implications:
+  - block-if-missing-error-empty-states
+  - block-if-ui-bypasses-backend-authority
+evidence_required:
+  - Component tests for workflow states
 ---
 
 # Backoffice Workflow UX Skill
@@ -157,3 +168,4 @@ Gate may WARN when:
 - a route exists but advanced filtering is deferred and documented;
 - accessibility automation is unavailable but semantic controls are present;
 - configuration UI is UI-local only and persistence is explicitly out of scope.
+

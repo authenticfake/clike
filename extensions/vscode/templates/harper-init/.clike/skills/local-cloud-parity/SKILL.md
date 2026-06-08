@@ -6,6 +6,20 @@ lanes: ["python", "typescript", "java", "dotnet", "go", "rust", "iac", "frontend
 domains: ["consumer", "startup", "enterprise", "industrial", "manufacturing", "ai-native"]
 runtime_profiles: ["local", "cloud", "local-cloud", "on-prem", "edge", "hybrid", "air-gapped"]
 gate_required: true
+obligations:
+  - Provide config-driven endpoints
+  - Keep a working local run path
+  - Document parity notes between local and cloud
+eval_checks:
+  - local-run-path-present
+  - config-driven-endpoints
+  - parity-smoke-tested
+gate_implications:
+  - block-if-hidden-environment-assumptions
+  - block-if-no-local-run-path
+evidence_required:
+  - Local smoke instructions
+  - Parity notes
 ---
 
 # Local/Cloud Parity Skill
@@ -166,3 +180,4 @@ Gate may WARN when:
 ## Success Definition
 
 This skill is satisfied when the generated candidate can be evaluated locally without real external infrastructure and still preserves a clear, documented, testable path to production/cloud/on-prem execution.
+

@@ -31,7 +31,6 @@ from utils.methodology_prompt import (
     render_current_canonical_validation_for_cloud_prompt,
     render_methodology_context_for_cloud_prompt,
 )
-from utils.selected_skill_context_prompt import compose_cloud_selected_phase_skill_context
 from routes.chat import ANTHROPIC_API_KEY, ANTHROPIC_BASE, DEEPSEEK_BASE, OLLAMA_BASE, OPENAI_API_KEY, DEEPSEEK_API_KEY, OPENAI_BASE, VLLM_BASE, _json
 from providers import openai_compat as oai
 from providers import anthropic as anth
@@ -1110,9 +1109,87 @@ def _load_target_contract_from_core_blobs(core_blobs: dict | None) -> dict | Non
     return _load_json_blob(core_blobs, "target_contract.json")
 
 
-def _load_file_requirements_from_core_blobs(core_blobs: dict | None) -> dict | None:
-    return _load_json_blob(core_blobs, "file_requirements.json")
 
+def _load_text_blob(core_blobs: dict | None, suffix: str) -> str:
+    if not core_blobs:
+        return ""
+
+    suffix = str(suffix or "").strip().lower()
+    for name, content in (core_blobs or {}).items():
+        key = str(name or "").strip().lower()
+        if key.endswith(suffix):
+            return str(content or "").strip()
+
+    return ""
+
+
+def _render_clike_selected_capability_context_for_cloud(core_blobs: dict | None) -> str:
+    """
+    Render the already resolved, phase/REQ-scoped CLike capability context for cloud prompts.
+
+    The Orchestrator is responsible for generating CLIKE_SELECTED_CAPABILITY_CONTEXT.md
+    from the current REQ/phase selected packs, skills, and design profiles.
+
+    Gateway must not rescan .clike and must not infer capabilities.
+    It only injects the selected context that the Orchestrator already materialized.
+    """
+    selected_context = _load_text_blob(core_blobs, "CLIKE_SELECTED_CAPABILITY_CONTEXT.md")
+    if not selected_context:
+        return ""
+
+    # Normalize the heading so the cloud prompt has the same marker used by local-agent prompts.
+    normalized = selected_context.strip()
+    if normalized.startswith("# CLike Selected Capability Context"):
+        normalized = normalized.replace("# CLike Selected Capability Context", "", 1).strip()
+
+    return (
+        "### CLike Selected Capability Context\n"
+        "- source: CLIKE_SELECTED_CAPABILITY_CONTEXT.md\n"
+        "- source_transport: core_blobs\n"
+        "- scope: selected CLike packs, skills, and design profiles for the current target REQ/phase only\n"
+        "- rule: apply these selected CLike capabilities to source, tests, docs, LTC, HOWTO, and gate evidence when relevant\n"
+        "- rule: do not scan all `.clike` skills opportunistically; use only this selected context\n\n"
+        f"{normalized}"
+    ).strip()
+
+
+def _compose_cloud_selected_skill_context(
+    *,
+    core_blobs: dict | None,
+    methodology_context: dict | None,
+    active_output_contract: dict | None,
+) -> str:
+    """
+    Compose the cloud-visible selected skill context.
+
+    Required invariant:
+    - CLike selected capabilities are always injected when materialized.
+    - BMAD methodology skills are injected only when methodology=bmad.
+    - CLike and BMAD remain separate prompt sections.
+    """
+    parts: list[str] = []
+
+    clike_context = _render_clike_selected_capability_context_for_cloud(core_blobs)
+    if clike_context:
+        parts.append(clike_context)
+
+    methodology_text = render_methodology_context_for_cloud_prompt(
+        methodology_context,
+        active_output_contract=active_output_contract,
+    )
+    if str(methodology_text or "").strip():
+        parts.append(str(methodology_text).strip())
+
+    if not parts:
+        return ""
+
+    return (
+        "## Cloud Selected Phase Skill Context\n\n"
+        "The following context is already resolved by CLike for this exact cloud run.\n"
+        "Inject only selected phase/REQ-scoped skills into the model prompt.\n"
+        "Do not treat full core_blobs catalogs as selected skills.\n\n"
+        + "\n\n".join(parts)
+    ).strip()
 
 def _filter_core_blobs_for_kit(
     core_blobs: dict | None,
@@ -1185,6 +1262,13 @@ def _load_selected_capability_json_from_core(core_blobs: dict | None) -> dict:
     return {}
 
 
+def _load_selected_capability_markdown_from_core(core_blobs: dict | None) -> str:
+    for name, content in (core_blobs or {}).items():
+        if str(name or "").lower().endswith("clike_selected_capability_context.md"):
+            return str(content or "")
+    return ""
+
+
 def _selected_capability_names(group: dict) -> list[str]:
     if not isinstance(group, dict):
         return []
@@ -1204,6 +1288,42 @@ def _selected_capability_names_from_context(selected: dict, key: str, legacy_key
     if names:
         return names
     return [str(x).strip() for x in (selected.get(legacy_key) or []) if str(x or "").strip()]
+
+
+def _render_clike_selected_capability_context_for_cloud(core_blobs: dict | None) -> str:
+    
+    selected = _load_selected_capability_json_from_core(core_blobs)
+    markdown = _load_selected_capability_markdown_from_core(core_blobs)
+    if not selected and not markdown:
+        return ""
+
+    packs = _selected_capability_names_from_context(selected, "packs", "selected_packs")
+    skills = _selected_capability_names_from_context(selected, "skills", "selected_skills")
+    design_profiles = _selected_capability_names_from_context(
+        selected,
+        "design_profiles",
+        "selected_design_profiles",
+    )
+    lines = [
+        "### CLike Selected Capability Context",
+        "- This context is generated by CLike for the current REQ.",
+        "- Selected packs, skills, and design profiles are REQ-scoped implementation, test, documentation, and evidence constraints.",
+        "- Capability guidance does not override SPEC, TECH_CONSTRAINTS, TARGET_CONTRACT.json, FILE_REQUIREMENTS.json, EvalRunner, Gate, or allowed write roots.",
+        f"- selected CLike packs: {'; '.join(packs) if packs else 'none'}",
+        f"- selected CLike skills: {'; '.join(skills) if skills else 'none'}",
+        f"- selected CLike design profiles: {'; '.join(design_profiles) if design_profiles else 'none'}",
+    ]
+    bounded_markdown = markdown.strip()
+    if bounded_markdown:
+        lines.extend(
+            [
+                "- selected capability markdown:",
+                "```markdown",
+                bounded_markdown[:8000].rstrip() + ("\n...[truncated]" if len(bounded_markdown) > 8000 else ""),
+                "```",
+            ]
+        )
+    return "\n".join(lines).strip()
 
 
 def _render_namespace_materialization_for_cloud(file_requirements: dict | None) -> str:
@@ -1280,6 +1400,10 @@ def _build_kit_user_message(
         parts.append("- Acceptance criteria:")
         parts.extend([f"  - {x}" for x in acceptance] or ["  - none"])
         parts.append("")
+
+    selected_capability_text = _render_clike_selected_capability_context_for_cloud(filtered_core)
+    if selected_capability_text:
+        parts.extend([selected_capability_text, ""])
 
     namespace_text = _render_namespace_materialization_for_cloud(file_requirements)
     if namespace_text:
@@ -1509,9 +1633,9 @@ def _compose_system_messages(
         methodology_context,
         active_output_contract=active_output_contract,
     )
-    cloud_selected_skill_context = compose_cloud_selected_phase_skill_context(
-        core_blobs,
-        methodology_context,
+    cloud_selected_skill_context = _compose_cloud_selected_skill_context(
+        core_blobs=core_blobs,
+        methodology_context=methodology_context,
         active_output_contract=active_output_contract,
     )
 
@@ -1642,7 +1766,6 @@ def _compose_system_messages(
 
     user = (
         f"{foreground}\n\n"
-        f"{methodology_text}"
         f"### Route\n\n"
         f"{idea_txt}"
         f"{refs}\n\n"
@@ -1658,7 +1781,7 @@ def _compose_system_messages(
             user=user,
             core_blobs=core_blobs,
             targets=targets,
-            active_contract_text=methodology_text,
+            active_contract_text=None,
         )
         user = _append_kit_target_to_user(
             user,
@@ -2617,7 +2740,7 @@ async def run(req: HarperRunRequest,  request: Request):
         lane = str(target_contract.get("lane") or "").strip()
         title = str(target_contract.get("title") or "").strip()
         required_outputs = file_requirements.get("required_outputs") or []
-
+ 
         minimal_issues = []
         if not req_id:
             minimal_issues.append("TARGET_CONTRACT.req_id is empty")
