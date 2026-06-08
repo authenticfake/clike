@@ -70,7 +70,48 @@ const {
   buildCodexArgsForLocalAgent,
   assertLocalAgentWritePreflight,
   validateLocalAgentRequiredOutputs,
+  evaluateDocumentPhaseInputPreflight,
+  evaluateExtendInputPreflight,
+  classifyBlockedLocalAgentOutput,
 } = require('./local-agent-write-policy');
+
+// Harper phases that can run through the orchestrator-owned local-agent package
+// path. Early document phases (idea/spec/plan) and the existing
+// kit/finalize/extend actuator phases share the exact same dispatch.
+const LOCAL_AGENT_ELIGIBLE_PHASES = new Set([
+  'idea',
+  'spec',
+  'plan',
+  'kit',
+  'finalize',
+  'extend',
+]);
+
+// Local-agent phases that are not REQ-scoped. They operate on the solution as a
+// whole and use 'SOLUTION' as the agent req id.
+const NO_REQ_LOCAL_AGENT_PHASES = new Set([
+  'idea',
+  'spec',
+  'plan',
+  'finalize',
+  'extend',
+]);
+
+// Local-agent phases whose only outputs are canonical Harper documents under
+// docs/harper. They share the extend-style collection/validation flow.
+const DOCUMENT_LOCAL_AGENT_PHASES = new Set(['idea', 'spec', 'plan']);
+
+function isLocalAgentEligiblePhase(phase) {
+  return LOCAL_AGENT_ELIGIBLE_PHASES.has(String(phase || '').trim().toLowerCase());
+}
+
+function isNoReqLocalAgentPhase(phase) {
+  return NO_REQ_LOCAL_AGENT_PHASES.has(String(phase || '').trim().toLowerCase());
+}
+
+function isDocumentLocalAgentPhase(phase) {
+  return DOCUMENT_LOCAL_AGENT_PHASES.has(String(phase || '').trim().toLowerCase());
+}
 
 
 function isLocalAgentExecutionPreference(value) {
@@ -857,6 +898,62 @@ async function collectExtendCandidateFileArtifacts(workspaceRootUri) {
   return out;
 }
 
+// Early Harper document phases (idea/spec/plan) only ever produce their
+// canonical Harper documents. Collect just those phase-owned outputs so the
+// write policy validates real agent output and not pre-existing artifacts or
+// the orchestrator package context/prompt files.
+const DOCUMENT_PHASE_CANDIDATE_OUTPUTS = {
+  idea: ['docs/harper/IDEA.md'],
+  spec: ['docs/harper/SPEC.md'],
+  plan: ['docs/harper/PLAN.md', 'docs/harper/plan.json'],
+};
+const DOCUMENT_PHASE_CANDIDATE_DIRS = {
+  idea: [],
+  spec: [],
+  plan: ['docs/harper/lane-guides'],
+};
+
+async function collectDocumentPhaseCandidateFileArtifacts(workspaceRootUri, phase) {
+  const p = String(phase || '').trim().toLowerCase();
+  const rootFsPath = workspaceRootUri.fsPath || workspaceRootUri.path;
+  const out = [];
+
+  async function readFileArtifact(relPath) {
+    const fileUri = vscode.Uri.file(path.join(rootFsPath, relPath));
+    try {
+      const data = await vscode.workspace.fs.readFile(fileUri);
+      out.push({
+        path: relPath.replace(/\\/g, '/'),
+        content: Buffer.from(data).toString('utf8'),
+        encoding: 'utf-8',
+      });
+    } catch {
+      // Missing file: the orchestrator/write-policy enforces required outputs.
+    }
+  }
+
+  for (const relPath of DOCUMENT_PHASE_CANDIDATE_OUTPUTS[p] || []) {
+    await readFileArtifact(relPath);
+  }
+
+  for (const relDir of DOCUMENT_PHASE_CANDIDATE_DIRS[p] || []) {
+    const dirUri = vscode.Uri.file(path.join(rootFsPath, relDir));
+    let entries;
+    try {
+      entries = await vscode.workspace.fs.readDirectory(dirUri);
+    } catch {
+      continue;
+    }
+    for (const [name, type] of entries) {
+      if (!name || name === '.DS_Store') continue;
+      if (type !== vscode.FileType.File) continue;
+      await readFileArtifact(`${relDir}/${name}`);
+    }
+  }
+
+  return out;
+}
+
 async function executeLocalAgentPackage({
   localAgentPackage,
   phase,
@@ -873,7 +970,8 @@ async function executeLocalAgentPackage({
   const phaseForAgent = String(localAgentPackage?.phase || phase || '').trim().toLowerCase();
   const isFinalize = phaseForAgent === 'finalize';
   const isExtend = phaseForAgent === 'extend';
-  const reqForAgent = (isFinalize || isExtend)
+  const isDocumentPhase = isDocumentLocalAgentPhase(phaseForAgent);
+  const reqForAgent = (isFinalize || isExtend || isDocumentPhase)
     ? String(localAgentPackage?.req_id || reqId || 'SOLUTION').trim().toUpperCase()
     : String(localAgentPackage?.req_id || reqId || '').trim().toUpperCase();
 
@@ -966,17 +1064,19 @@ async function executeLocalAgentPackage({
     out,
   });
 
-  const candidateFiles = isFinalize
+  const candidateFiles = (isFinalize)
     ? await collectFinalizeCandidateFiles(wsroot)
-    : isExtend
+    : (isExtend || isDocumentPhase)
       ? []
       : await collectReqCandidateFiles(wsroot, reqForAgent);
 
   const candidateArtifacts = isFinalize
     ? await collectFinalizeCandidateFileArtifacts(wsroot)
-    : isExtend
-      ? await collectExtendCandidateFileArtifacts(wsroot)
-      : await collectReqCandidateFileArtifacts(wsroot, reqForAgent);
+    : isDocumentPhase
+      ? await collectDocumentPhaseCandidateFileArtifacts(wsroot, phaseForAgent)
+      : isExtend
+        ? await collectExtendCandidateFileArtifacts(wsroot)
+        : await collectReqCandidateFileArtifacts(wsroot, reqForAgent);
 
   log(
     `[harperRun][agent] completed executor=${selectedExecutor} ` +
@@ -984,9 +1084,26 @@ async function executeLocalAgentPackage({
   );
 
   if (!candidateArtifacts.length) {
+    // The agent may have exited 0 yet been blocked (auth/login) or unable to read
+    // a required source. Surface that precise cause instead of a generic empty
+    // result, and never treat a blocked run as successful artifact generation.
+    const blocked = classifyBlockedLocalAgentOutput({
+      stdout: agentResult.stdout || '',
+      stderr: agentResult.stderr || '',
+    });
+    if (blocked) {
+      log(
+        `[harperRun][agent] local-agent blocked phase=${phaseForAgent} ` +
+        `code=${blocked.code} evidence=${JSON.stringify(blocked.evidence)}`
+      );
+      const blockedError = new Error(`${blocked.code}: ${blocked.message}`);
+      blockedError.code = blocked.code;
+      throw blockedError;
+    }
+
     const expectedRoot = isFinalize
       ? 'README.md, docs/harper, scripts, src, or runtime manifests'
-      : isExtend
+      : (isExtend || isDocumentPhase)
         ? 'docs/harper/'
         : `runs/kit/${reqForAgent}/`;
     throw new Error(
@@ -1017,7 +1134,7 @@ async function executeLocalAgentPackage({
     );
   }
 
-  if (['kit', 'eval', 'finalize'].includes(phaseForAgent)) {
+  if (['kit', 'eval', 'finalize', 'idea', 'spec', 'plan', 'extend'].includes(phaseForAgent)) {
     validateLocalAgentRequiredOutputs({
       phase: phaseForAgent,
       reqId: reqForAgent,
@@ -1040,6 +1157,7 @@ async function executeLocalAgentPackage({
     infra_profile: localAgentPackage.infra_profile || null,
     runtime_service_profile: localAgentPackage.runtime_service_profile || null,
     cloud_provisioning_profile: localAgentPackage.cloud_provisioning_profile || null,
+    available_capabilities: localAgentPackage.available_capabilities || null,
     exit_code: agentResult.exitCode,
     stdout: agentResult.stdout || '',
     stderr: agentResult.stderr || '',
@@ -1329,9 +1447,13 @@ async function saveGeneratedFiles(files, opts = {}) {
   const root = getWorkspaceRoot();
   const written = [];
   for (const f of files) {
-    if (!f || !f.path || typeof f.content !== 'string') continue;
+    // Accept text (content) or binary (content_base64) payloads. Binary
+    // attachments are materialized as base64 and must not be silently dropped.
+    if (!f || !f.path || (typeof f.content !== 'string' && typeof f.content_base64 !== 'string')) continue;
     const relativePath = f.path.replace(/^\.?\//,'');
-    const validation = validateCanonicalHarperArtifact(relativePath, f.content);
+    const validation = (typeof f.content === 'string')
+      ? validateCanonicalHarperArtifact(relativePath, f.content)
+      : null;
     if (validation && !validation.ok) {
       const rejectedPath = rejectedHarperArtifactPath({
         phase: opts.phase,
@@ -3621,8 +3743,59 @@ async function cmdOpenChat(context) {
             log(`[harperRun] normalized kit target='${targets}' explicit=${JSON.stringify(explicitTarget)} raw=${JSON.stringify(rawTargets)} rawCommand=${JSON.stringify(rawCommand)} rawCommandTarget=${JSON.stringify(rawCommandTarget)}`);
           }
           const projectName = getProjectNameFromWorkspace() || project_name; //name form workspace not from chat input!!!
+
+          // Document-phase input preflight: block invalid /idea, /spec, /plan
+          // runs BEFORE any orchestrator interaction (no RAG index, no HTTP, no
+          // local agent, no cloud fallback). CLike owns this gate.
+          if (isDocumentLocalAgentPhase(phase)) {
+            const wsrootPre = getWorkspaceRoot();
+            let ideaPresent = false;
+            let specPresent = false;
+            if (wsrootPre) {
+              if (phase === 'spec') {
+                try {
+                  await vscode.workspace.fs.stat(vscode.Uri.joinPath(wsrootPre, 'docs', 'harper', 'IDEA.md'));
+                  ideaPresent = true;
+                } catch { /* missing */ }
+              } else if (phase === 'plan') {
+                try {
+                  await vscode.workspace.fs.stat(vscode.Uri.joinPath(wsrootPre, 'docs', 'harper', 'SPEC.md'));
+                  specPresent = true;
+                } catch { /* missing */ }
+              }
+            }
+            const preflight = evaluateDocumentPhaseInputPreflight({
+              phase,
+              attachmentCount: Array.isArray(attachments) ? attachments.length : 0,
+              ideaPresent,
+              specPresent,
+            });
+            if (!preflight.ok) {
+              log(`[harperRun] document-phase preflight blocked phase=${phase} code=${preflight.code}`);
+              try { vscode.window.showErrorMessage(preflight.message); } catch {}
+              panel.webview.postMessage({ type: 'error', message: preflight.message });
+              panel.webview.postMessage({ type: 'busy', on: false, force: true });
+              return;
+            }
+          }
+
+          // /extend --from attachment requires at least one current attachment.
+          // Block BEFORE any orchestrator interaction.
+          if (phase === 'extend') {
+            const extendPreflight = evaluateExtendInputPreflight({
+              fromAttachment: !!msg.fromAttachment,
+              attachmentCount: Array.isArray(attachments) ? attachments.length : 0,
+            });
+            if (!extendPreflight.ok) {
+              log(`[harperRun] extend preflight blocked code=${extendPreflight.code}`);
+              try { vscode.window.showErrorMessage(extendPreflight.message); } catch {}
+              panel.webview.postMessage({ type: 'error', message: extendPreflight.message });
+              panel.webview.postMessage({ type: 'busy', on: false, force: true });
+              return;
+            }
+          }
           //RAG
-          try { 
+          try {
             //log(`CLike preIndexRag: ${JSON.stringify(attachments)}`);
             const { inline_files, rag_files } =  partitionAttachments(attachments);
             log(`CLike rag_files size: ${rag_files.length} and inline_files size: ${inline_files.length}`);
@@ -3823,7 +3996,7 @@ async function cmdOpenChat(context) {
             !requestedKitPhases.length ||
             (requestedKitPhases.length === 1 && String(requestedKitPhases[0] || '').trim().toLowerCase() === 'kit');
           const _headers = { "Content-Type": "application/json" };
-          if ((phase === 'kit' || phase === 'finalize' || phase === 'extend') && localAgentRequested && localExecutorConfig && localExecutorConfig.enabled) {
+          if (isLocalAgentEligiblePhase(phase) && localAgentRequested && localExecutorConfig && localExecutorConfig.enabled) {
             log(
               `[harperRun][agent] local agent requested; orchestrator will decide package/fallback ` +
               `phase=${phase} req=${targetReqId || 'SOLUTION'} exec=${executionPreference} executor=${selectedLocalExecutor}`
@@ -3857,7 +4030,7 @@ async function cmdOpenChat(context) {
             };
           }
 
-          if (phase === 'kit' || phase === 'finalize' || phase === 'extend') {
+          if (isLocalAgentEligiblePhase(phase)) {
             body.localAgentExecutor = normalizeLocalAgentExecutor(
               selectedLocalExecutor || state.localAgentExecutor || settings.localAgentPreferredExecutor || 'auto'
             );
@@ -3952,12 +4125,12 @@ async function cmdOpenChat(context) {
 
            const localAgentPackage = _out?.local_agent || outGateway?.local_agent || null;
 
-          if ((phase === 'kit' || phase === 'finalize' || phase === 'extend') && localAgentPackage?.action === 'local_agent_required') {
+          if (isLocalAgentEligiblePhase(phase) && localAgentPackage?.action === 'local_agent_required') {
             try {
               _out = await executeLocalAgentPackage({
                 localAgentPackage,
                 phase,
-                reqId: (phase === 'finalize' || phase === 'extend') ? 'SOLUTION' : targetReqId,
+                reqId: isNoReqLocalAgentPhase(phase) ? 'SOLUTION' : targetReqId,
                 runId,
                 executionPreference,
                 settings,

@@ -163,7 +163,15 @@ CLike supports two complementary agentic models.
 
 ### Model 1 — Developer activates an agent through CLike
 
-This is the local-agent execution path for `/kit` and optionally `/eval`.
+This is the local-agent (execution-agent) path. It now covers the early Harper
+document phases `/idea`, `/spec`, and `/plan` in addition to `/kit`, `/eval`,
+`/finalize`, and `/extend`. All phases reuse the same execution-agent
+architecture; only the expected output files, allowed write paths, phase prompt,
+and phase validation differ. For the early document phases the local agent
+writes `docs/harper/IDEA.md` (idea), `docs/harper/SPEC.md` (spec), and
+`docs/harper/PLAN.md` plus `docs/harper/plan.json` (plan); all other
+`docs/harper/` paths stay protected. Cloud and local execution remain
+semantically equivalent and CLike governance stays canonical.
 
 ```text
 Developer

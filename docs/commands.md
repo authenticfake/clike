@@ -177,6 +177,16 @@ These flows are repository-file oriented and not Harper-phase oriented.
 
 The extension passes an execution preference with compatible Harper flows.
 
+Execution-agent (local-agent) execution is available for `/idea`, `/spec`,
+`/plan`, `/kit`, `/eval`, `/finalize`, and `/extend`. With `prefer_local_agent`
+or `local_agent_only`, supported phases run through the local-agent package
+path; `cloud_only` and `auto` keep using the cloud path. For the early document
+phases the local agent writes only the canonical Harper outputs
+(`docs/harper/IDEA.md`, `docs/harper/SPEC.md`, and `docs/harper/PLAN.md` +
+`docs/harper/plan.json` with lane guides), and all other `docs/harper/` paths
+stay protected. Cloud and local execution remain semantically equivalent and
+CLike governance stays canonical.
+
 ## Methodology Profile
 
 BMAD is a CLike-owned methodology profile. BMAD is not an executor and does not create a parallel pipeline. It enriches Harper phase behavior with role guidance while CLike keeps authority over canonical artifacts, companion artifacts, local-agent packages, eval, gate, telemetry, audit, and promotion.

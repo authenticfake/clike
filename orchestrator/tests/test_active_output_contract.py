@@ -11,6 +11,49 @@ from services.methodologies.active_output_contract import build_active_output_co
 from services.methodologies.resolver import resolve_methodology_context
 
 
+def test_native_local_idea_contract_writes_only_idea_md():
+    contract = build_active_output_contract(phase="idea", runner="local_agent")
+
+    assert contract["methodology"] == "native_clike"
+    assert contract["required_outputs"] == ["docs/harper/IDEA.md"]
+    assert contract["strict_missing_required_outputs"] is False
+
+
+def test_native_local_spec_contract_writes_only_spec_md():
+    contract = build_active_output_contract(phase="spec", runner="local_agent")
+
+    assert contract["methodology"] == "native_clike"
+    assert contract["required_outputs"] == ["docs/harper/SPEC.md"]
+
+
+def test_native_local_plan_contract_includes_plan_json_and_lane_guides():
+    contract = build_active_output_contract(phase="plan", runner="local_agent")
+
+    assert contract["methodology"] == "native_clike"
+    assert "docs/harper/PLAN.md" in contract["required_outputs"]
+    assert "docs/harper/plan.json" in contract["required_outputs"]
+    assert "docs/harper/lane-guides/**" in contract["required_outputs"]
+
+
+def test_local_agent_plan_context_excludes_prior_plan_outputs():
+    # Regenerative discipline: local-agent /plan must not advertise prior PLAN.md
+    # / plan.json as context (they are overwrite targets only).
+    contract = build_active_output_contract(phase="plan", runner="local_agent")
+    sections = contract["required_context_sections"]
+    assert "docs/harper/SPEC.md" not in sections  # uses "SPEC.md" label
+    assert "SPEC.md" in sections
+    assert "prior PLAN.md" not in sections
+    assert "prior plan.json" not in sections
+
+
+def test_cloud_plan_context_still_reconciles_prior_plan_outputs():
+    # Cloud /plan keeps reconcile behavior (its runner is not "local_agent").
+    contract = build_active_output_contract(phase="plan", runner="cloud")
+    sections = contract["required_context_sections"]
+    assert "prior PLAN.md" in sections
+    assert "prior plan.json" in sections
+
+
 def test_native_local_kit_contract_is_candidate_scoped():
     contract = build_active_output_contract(
         phase="kit",

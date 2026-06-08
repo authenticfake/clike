@@ -45,6 +45,13 @@ function localAgentSupportsPhase(executorId, phase, settings) {
   const normalized = normalizeLocalAgentExecutor(executorId);
   const p = String(phase || '').trim().toLowerCase();
 
+  if (p === 'idea' || p === 'spec' || p === 'plan') {
+    // Early Harper document phases use the local agent as a bounded document
+    // actuator. CLike owns canonical validation; the agent only writes the
+    // phase-owned Harper artifacts.
+    return normalized === 'claude_code' || normalized === 'gpt_codex';
+  }
+
   if (p === 'kit') {
     return normalized === 'claude_code' || normalized === 'gpt_codex';
   }
@@ -85,6 +92,9 @@ function getExecutorConfig(executorId, settings) {
       permissionMode: settings.claudeCodePermissionMode || 'acceptEdits',
       timeoutMinutes: settings.localAgentTimeoutMinutes || settings.claudeCodeTimeoutMinutes || 20,
       supports: {
+        idea: true,
+        spec: true,
+        plan: true,
         kit: true,
         eval: true,
         finalize: true,
@@ -109,6 +119,9 @@ function getExecutorConfig(executorId, settings) {
       permissionMode: '',
       timeoutMinutes: settings.localAgentTimeoutMinutes || settings.codexTimeoutMinutes || 20,
       supports: {
+        idea: true,
+        spec: true,
+        plan: true,
         kit: true,
         eval: true,
         finalize: true,
@@ -206,6 +219,45 @@ function resolveSelectedLocalAgentExecutor(settings, requestedExecutor, phase) {
   return null;
 }
 
+// Cloud/gateway provider keys. Local agents authenticate via their own CLI
+// login/session, so by default we do NOT forward these into the agent process.
+const CLOUD_PROVIDER_ENV_KEYS = [
+  'OPENAI_API_KEY',
+  'ANTHROPIC_API_KEY',
+  'OPENAI_PROJECT_ID',
+  'OPENAI_ORG_ID',
+];
+
+function isTruthyEnvFlag(value) {
+  const s = String(value == null ? '' : value).trim().toLowerCase();
+  return s === '1' || s === 'true' || s === 'yes' || s === 'on';
+}
+
+// Build the environment for a spawned local agent. Inherits the standard shell
+// environment (PATH, HOME, USER, SHELL, TMPDIR, TERM, XDG_*, etc.) so the CLI
+// can find its own auth/session, but strips cloud provider API keys by default
+// so local-agent execution never depends on (nor leaks) gateway cloud keys.
+// Set CLIKE_LOCAL_AGENT_INHERIT_PROVIDER_ENV=true to opt back in.
+function buildLocalAgentEnv(baseEnv, overrides = {}) {
+  const source = baseEnv && typeof baseEnv === 'object' ? baseEnv : {};
+  const env = { ...source };
+
+  const inheritProviderEnv = isTruthyEnvFlag(
+    source.CLIKE_LOCAL_AGENT_INHERIT_PROVIDER_ENV
+  );
+  if (!inheritProviderEnv) {
+    for (const key of CLOUD_PROVIDER_ENV_KEYS) {
+      delete env[key];
+    }
+  }
+
+  // Keep CLI output machine-readable / non-interactive friendly.
+  env.CLICOLOR = '0';
+  env.NO_COLOR = '1';
+
+  return { ...env, ...overrides };
+}
+
 function buildLocalAgentDisplayLabel(executorId) {
   const normalized = normalizeLocalAgentExecutor(executorId);
   if (normalized === 'claude_code') return 'Claude Code';
@@ -220,7 +272,9 @@ module.exports = {
   resolveSelectedLocalAgentExecutor,
   getExecutorConfig,
   buildLocalAgentDisplayLabel,
+  buildLocalAgentEnv,
   localAgentSupportsPhase,
   detectLocalAgentAvailability,
   commandExists,
+  CLOUD_PROVIDER_ENV_KEYS,
 };

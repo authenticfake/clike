@@ -32,6 +32,7 @@ from services.execution_policy import (
     resolve_execution_policy,
 )
 from services.local_agent_package import (
+    build_document_phase_local_agent_package,
     build_eval_local_agent_package,
     build_extend_local_agent_package,
     build_finalize_local_agent_package,
@@ -2278,6 +2279,61 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
     # - Gateway is not called when a safe base /kit local package is intentionally selected.
     # - /eval local-agent is only a pre-pass; canonical CLike eval remains the final judge.
     # - Follow-up KIT phases remain cloud/orchestrator-owned for now.
+    if phase in {"idea", "spec", "plan"} and execution_policy.get("selected") == "local_agent":
+        log.info(
+            "harper.local_agent %s document package requested executor=%s reason=%s",
+            phase,
+            merged.get("localAgentExecutor") or "auto",
+            execution_policy.get("reason"),
+        )
+        try:
+            return build_document_phase_local_agent_package(
+                phase=phase,
+                payload=merged,
+                execution_policy=execution_policy,
+            )
+        except Exception as exc:
+            log.exception("harper.local_agent %s package failed", phase)
+
+            if execution_preference == "local_agent_only":
+                return {
+                    "ok": False,
+                    "phase": phase,
+                    "echo": "",
+                    "text": "",
+                    "files": [],
+                    "diffs": [],
+                    "tests": {
+                        "passed": 0,
+                        "failed": 1,
+                        "summary": f"local-agent-{phase}-package-failed",
+                    },
+                    "warnings": [
+                        "execution_selected:local_agent",
+                        f"{phase}_not_run",
+                    ],
+                    "errors": [str(exc)],
+                    "runId": merged.get("runId"),
+                    "execution": {
+                        "requested": execution_preference,
+                        "selected": "local_agent",
+                        "reason": f"local_agent_{phase}_package_failed",
+                        "phase_supported": True,
+                    },
+                }
+
+            execution_policy = dict(execution_policy)
+            execution_policy["selected"] = "cloud"
+            execution_policy["fallback_applied"] = True
+            execution_policy["reason"] = f"local_agent_{phase}_package_failed_fallback_to_cloud"
+            merged["_execution"] = execution_policy
+
+            log.warning(
+                "harper.local_agent %s fallback_to_cloud err=%s",
+                phase,
+                exc,
+            )
+
     if phase == "eval" and target_req_id and execution_policy.get("selected") == "local_agent":
         log.info(
             "harper.local_agent eval pre-pass package requested req=%s executor=%s reason=%s",
