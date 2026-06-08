@@ -6,6 +6,26 @@ lanes: ["python", "typescript", "java", "dotnet", "go", "rust", "frontend", "bac
 domains: ["enterprise", "startup", "consumer", "industrial", "ai-native", "developer-tooling"]
 runtime_profiles: ["local", "cloud", "local-cloud", "on-prem", "hybrid", "air-gapped", "edge"]
 gate_required: true
+obligations:
+  - Keep secrets in environment/config providers; never hardcode credentials, tokens, API keys, or private URLs
+  - Provide .env.example (or equivalent) when environment variables are introduced
+  - Fail fast on missing production-critical configuration
+  - Redact sensitive payloads, raw prompts, and document content from logs and audit
+eval_checks:
+  - no-hardcoded-secrets
+  - env-example-present
+  - missing-config-deny-path-tested
+  - sensitive-log-redaction-tested
+gate_implications:
+  - block-if-hardcoded-secrets-or-credentials
+  - block-if-production-endpoint-hardcoded-without-approval
+  - block-if-missing-config-falls-back-to-unsafe-behavior
+  - block-if-frontend-contradicts-backend-authorization
+evidence_required:
+  - Tests for deny paths or missing config where relevant
+  - .env.example or configuration docs
+  - Fake-client tests for external providers
+  - HOWTO configuration section
 ---
 
 # Secure Config Secrets Skill

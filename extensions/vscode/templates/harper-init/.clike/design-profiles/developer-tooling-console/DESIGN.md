@@ -1,3 +1,24 @@
+---
+name: developer-tooling-console
+description: Developer tooling console UX: logs/traces/artifacts visibility, run provenance, retry/repair actions.
+ui_obligations:
+  - logs-traces-artifacts-visibility
+  - run-ids-and-provenance
+  - retry-repair-actions
+  - loading-empty-error-success-states
+accessibility_expectations:
+  - keyboard-navigable
+  - accessible-tables-and-logs
+  - visible-focus-and-status
+eval_checks:
+  - ui-states-tested
+  - provenance-visible
+  - accessible-controls-verified
+gate_implications:
+  - block-if-missing-run-provenance
+  - block-if-inaccessible-controls
+---
+
 # Design Profile: Developer Tooling Console
 
 ## Intent

@@ -9,6 +9,26 @@ recommended_skills:
   - frontend-state-accessibility
   - backoffice-workflow-ux
   - mvp-e2e-promotability
+ui_obligations:
+  - route-based-information-architecture
+  - list-detail-task-patterns
+  - filters-search-pagination-on-lists
+  - loading-empty-error-success-states
+  - role-aware-actions
+accessibility_expectations:
+  - accessible-forms-and-tables
+  - keyboard-navigable
+  - visible-focus-and-status
+eval_checks:
+  - ui-states-tested
+  - accessible-forms-tables-verified
+  - list-detail-navigation-tested
+gate_implications:
+  - block-if-missing-loading-empty-error-states
+  - block-if-inaccessible-forms-or-tables
+evidence_required:
+  - Component/E2E tests for list/detail flows and UI states
+  - Accessibility checks for forms and tables
 ---
 
 # Enterprise Console Design Profile
@@ -20,6 +40,20 @@ Use this profile for enterprise consoles, internal platforms, admin dashboards, 
 This profile is a UI generation contract, not a visual mood board.
 
 A compliant enterprise console must be operationally useful, navigable, stateful, accessible, and testable.
+
+## Use when
+
+Use this profile when a REQ has an enterprise/operator-facing UI surface: console, admin dashboard, backoffice workflow, control plane, or internal platform screen.
+
+## Do not use when
+
+Do not use this profile for backend-only REQs with no UI surface, or for consumer marketing/landing pages where a product-app profile fits better.
+
+## Accessibility Expectations
+
+- Forms and tables must be accessible (labels, roles, headers, keyboard operation).
+- Interactive controls must be keyboard-navigable with visible focus and status.
+- Error, empty, and loading states must be announced meaningfully, not silently.
 
 ## Information Architecture
 

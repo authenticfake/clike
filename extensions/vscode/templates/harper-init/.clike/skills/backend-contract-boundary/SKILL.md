@@ -1,3 +1,21 @@
+---
+name: backend-contract-boundary
+description: Keep backend contracts explicit and stable; isolate internal types behind boundaries.
+obligations:
+  - Define explicit backend contracts for the REQ
+  - Keep internal types behind service/adapter boundaries
+eval_checks:
+  - explicit-contract-defined
+  - contract-tests-present
+  - no-leaky-internal-types
+gate_implications:
+  - block-if-unstable-public-contract
+  - block-if-missing-contract-tests
+evidence_required:
+  - Contract tests
+  - Interface/contract docs
+---
+
 # Skill: Backend Contract Boundary
 
 ## Intent

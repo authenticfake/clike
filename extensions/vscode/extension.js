@@ -1158,6 +1158,7 @@ async function executeLocalAgentPackage({
     runtime_service_profile: localAgentPackage.runtime_service_profile || null,
     cloud_provisioning_profile: localAgentPackage.cloud_provisioning_profile || null,
     available_capabilities: localAgentPackage.available_capabilities || null,
+    capability_metadata: localAgentPackage.capability_metadata || null,
     exit_code: agentResult.exitCode,
     stdout: agentResult.stdout || '',
     stderr: agentResult.stderr || '',
@@ -1216,6 +1217,7 @@ function sessionsDirUri() {
   const root = getWorkspaceRoot();
   return vscode.Uri.joinPath(root, cfgChat().dir.replace(/^\.?\//,''));
 }
+
 
 async function ensureSessionsDir() {
   const dir = sessionsDirUri();
@@ -4276,6 +4278,23 @@ async function cmdOpenChat(context) {
                 `[harperRun] local_agent produced ${_out.files.length} file artifact(s); ` +
                 `skipping saveGeneratedFiles because the agent already wrote workspace files.`
               );
+              // Exception: persist the orchestrator-normalized docs/harper/plan.json
+              // for /plan and /extend so the deterministic capability enrichment
+              // (structured `capabilities` block + schema_version) reaches disk for
+              // /kit, matching the cloud path. Additive superset of the agent's file.
+              if (phase === 'plan' || phase === 'extend') {
+                const enrichedPlan = _out.files.filter(
+                  f => String(f?.path || '').replace(/^\.?\//, '') === 'docs/harper/plan.json'
+                );
+                if (enrichedPlan.length) {
+                  try {
+                    await saveGeneratedFiles(enrichedPlan, { phase, runId });
+                    log(`[harperRun] persisted orchestrator-enriched plan.json for ${phase}`);
+                  } catch (e) {
+                    log(`[harperRun] failed to persist enriched plan.json: ${e?.message || e}`);
+                  }
+                }
+              }
             } else {
               written = await saveGeneratedFiles(_out.files, { phase, runId });
             }

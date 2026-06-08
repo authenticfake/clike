@@ -1,3 +1,18 @@
+---
+name: startup-solution
+description: Startup solution scenario: narrow promotable MVP slice with simple, evolvable architecture.
+obligations:
+  - Deliver a narrow promotable MVP slice
+  - Keep architecture simple and evolvable
+eval_checks:
+  - mvp-e2e-slice-present
+  - local-smoke-path-present
+gate_implications:
+  - block-if-decorative-only-mvp
+evidence_required:
+  - E2E/smoke evidence
+---
+
 # Pack: Startup Solution
 
 ## Intent

@@ -1,3 +1,20 @@
+---
+name: industrial-safety-simulator
+description: Model safe/unsafe states and block unsafe commands by default for industrial simulation.
+obligations:
+  - Model safe and unsafe states explicitly
+  - Block unsafe commands by default
+eval_checks:
+  - safe-state-modeled
+  - unsafe-command-blocked
+  - simulation-deterministic
+gate_implications:
+  - block-if-unsafe-command-allowed
+  - block-if-no-safe-state-default
+evidence_required:
+  - Safety simulation tests
+---
+
 # Skill: Industrial Safety Simulator
 
 ## Intent

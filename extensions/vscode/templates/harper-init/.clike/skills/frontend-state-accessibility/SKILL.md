@@ -1,3 +1,37 @@
+---
+name: frontend-state-accessibility
+description: Turn frontend requirements into usable, testable, accessible UI behavior with explicit loading/empty/error/success states and keyboard/a11y flows.
+phases: ["spec", "plan", "kit", "eval", "gate"]
+lanes: ["frontend", "typescript", "react", "nextjs", "web"]
+domains: ["enterprise", "startup", "consumer", "developer-tooling", "ai-native"]
+gate_required: true
+obligations:
+  - Implement explicit loading, empty, error, success, and disabled states for user-facing surfaces
+  - Provide accessible labels, keyboard navigation, and focus management
+  - Surface meaningful, actionable error messages (not raw stack traces)
+ui_obligations:
+  - loading-state
+  - empty-state
+  - error-state
+  - success-state
+  - disabled-state
+accessibility_expectations:
+  - keyboard-navigable
+  - accessible-labels
+  - focus-management
+  - meaningful-error-messages
+eval_checks:
+  - ui-state-component-tests-present
+  - accessibility-labels-present
+  - keyboard-flow-tested
+gate_implications:
+  - block-if-missing-error-or-empty-states-on-data-surfaces
+  - block-if-inaccessible-interactive-controls
+evidence_required:
+  - Component tests covering loading/empty/error/success states
+  - Accessibility assertions (labels/roles/keyboard) where tooling exists
+---
+
 # Skill: Frontend State Accessibility
 
 ## Intent

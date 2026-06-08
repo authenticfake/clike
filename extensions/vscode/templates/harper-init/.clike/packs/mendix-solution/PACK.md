@@ -1,3 +1,18 @@
+---
+name: mendix-solution
+description: Mendix solution scenario: respect platform/runtime boundaries and supported extension seams.
+obligations:
+  - Respect Mendix platform/runtime boundaries
+  - Keep extensions within supported seams
+eval_checks:
+  - platform-boundary-respected
+  - supported-seams-only
+gate_implications:
+  - block-if-unsupported-platform-mutation
+evidence_required:
+  - Boundary docs/tests
+---
+
 # Pack: Mendix Solution
 
 ## Intent

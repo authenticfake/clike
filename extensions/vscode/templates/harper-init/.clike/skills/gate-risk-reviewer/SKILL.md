@@ -6,6 +6,18 @@ lanes: ["python", "typescript", "java", "dotnet", "go", "rust", "iac", "frontend
 domains: ["consumer", "startup", "enterprise", "industrial", "manufacturing", "ai-native", "developer-tooling"]
 runtime_profiles: ["local", "cloud", "local-cloud", "on-prem", "edge", "hybrid", "air-gapped"]
 gate_required: true
+obligations:
+  - Apply a deterministic gate decision model
+  - Separate blocking conditions from warnings with rationale
+eval_checks:
+  - gate-evidence-present
+  - blocking-conditions-evaluated
+gate_implications:
+  - block-if-unmet-blocking-conditions
+  - block-if-missing-required-evidence
+evidence_required:
+  - Gate decision rationale
+  - Evidence references per blocking condition
 ---
 
 # Gate Risk Reviewer Skill
@@ -192,3 +204,4 @@ Gate decision should clearly state:
 ## Success Definition
 
 This skill is satisfied when promotion can be defended from artifacts and logs alone, without trusting the LLM that generated the code.
+

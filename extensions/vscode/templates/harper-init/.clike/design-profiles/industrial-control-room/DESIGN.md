@@ -5,6 +5,22 @@ domains: ["industrial", "manufacturing"]
 lanes: ["frontend", "typescript", "nextjs", "react"]
 inspired_by: ["IBM Carbon", "ClickHouse", "BMW", "NVIDIA"]
 strictness: "medium"
+ui_obligations:
+  - status-severity-states
+  - stale-disconnected-state
+  - safe-command-flows
+  - operator-confidence-cues
+accessibility_expectations:
+  - high-contrast-status
+  - keyboard-and-large-targets
+  - unambiguous-state-labels
+eval_checks:
+  - status-states-tested
+  - stale-state-tested
+  - safe-command-confirmation-tested
+gate_implications:
+  - block-if-no-stale-state
+  - block-if-unsafe-command-without-confirmation
 ---
 
 # Industrial Control Room Design Profile
@@ -112,3 +128,18 @@ GATE may WARN when:
 
 - visual polish is incomplete but behavior and state evidence are present;
 - automated UI tests are unavailable but a clear manual smoke path exists.
+
+## Use when
+
+Use for operator-facing industrial control rooms, SCADA/operations consoles, and safety-critical monitoring UI.
+
+## Do not use when
+
+Do not use for consumer marketing pages or backend-only REQs with no operator UI.
+
+
+## Accessibility Expectations
+
+- Status and severity must be distinguishable beyond color (high-contrast, icon/label), never color-only.
+- All critical controls must be keyboard-operable with large, unambiguous targets for gloved/field use.
+- Stale/disconnected and alarm states must be announced with explicit, unambiguous labels, not silent styling.

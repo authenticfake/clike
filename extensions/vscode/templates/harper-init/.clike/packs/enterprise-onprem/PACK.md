@@ -11,6 +11,24 @@ recommended_skills:
   - eval-contract-writer
   - gate-risk-reviewer
 gate_required: true
+obligations:
+  - Keep solutions runnable on-prem/local without mandatory public-SaaS dependencies unless SPEC requires them
+  - Treat secrets/credentials/endpoints as external configuration with restricted egress where applicable
+  - Provide deterministic local run evidence and promotion artifacts
+implementation_directives:
+  - Use explicit adapters and configuration seams for external systems
+  - Keep business contracts provider-independent; isolate provider SDKs behind infrastructure boundaries
+eval_checks:
+  - local-run-evidence-present
+  - no-public-saas-hard-dependency-unless-specified
+  - secrets-externalized
+gate_implications:
+  - block-if-cloud-only-when-onprem-required
+  - block-if-restricted-egress-ignored
+  - block-if-missing-local-run-evidence
+evidence_required:
+  - Local/on-prem run instructions and smoke evidence
+  - Configuration docs for required secrets/endpoints
 ---
 
 # Enterprise On-Prem Pack
@@ -20,6 +38,14 @@ gate_required: true
 This pack guides CLike when generating software for enterprise environments where governance, auditability, controlled deployment, reproducibility, local runnability, on-prem support, and runtime constraints matter.
 
 It should keep solutions AWS/cloud-capable when required, but never cloud-only unless the SPEC explicitly requires it.
+
+## Use when
+
+Use this pack when the project targets enterprise, regulated, on-prem, hybrid, air-gapped, or internal-platform scenarios that require parity, secure configuration, local runnability, and promotion evidence.
+
+## Do not use when
+
+Do not use this pack for cloud-only consumer prototypes with no on-prem, regulatory, air-gap, or internal-platform requirement.
 
 ## Planning Constraints
 

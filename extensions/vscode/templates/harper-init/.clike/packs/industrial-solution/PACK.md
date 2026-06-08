@@ -1,3 +1,20 @@
+---
+name: industrial-solution
+description: Industrial solution scenario: safe states, controlled commands, operational reliability.
+obligations:
+  - Model safe states and controlled command flows
+  - Prioritize operational reliability and observability
+eval_checks:
+  - safe-state-default
+  - controlled-command-flow
+  - operational-observability-present
+gate_implications:
+  - block-if-unsafe-default-state
+  - block-if-uncontrolled-critical-commands
+evidence_required:
+  - Safety/operational tests
+---
+
 # Pack: Industrial Solution
 
 ## Intent

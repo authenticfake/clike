@@ -1,3 +1,18 @@
+---
+name: mendix-extension-boundary
+description: Stay within Mendix extension boundaries; do not mutate platform core.
+obligations:
+  - Stay within supported Mendix extension seams
+  - Do not mutate platform core
+eval_checks:
+  - extension-boundary-respected
+  - no-core-platform-mutation
+gate_implications:
+  - block-if-core-platform-bypassed
+evidence_required:
+  - Boundary tests or docs
+---
+
 # Skill: Mendix Extension Boundary
 
 ## Intent

@@ -1,3 +1,21 @@
+---
+name: startup-product-app
+description: Startup product app UX: onboarding, core UI states, responsive layout, accessible forms.
+ui_obligations:
+  - onboarding-flow
+  - loading-empty-error-success-states
+  - responsive-layout
+accessibility_expectations:
+  - accessible-forms
+  - keyboard-navigable
+  - meaningful-error-messages
+eval_checks:
+  - ui-states-tested
+  - onboarding-tested
+gate_implications:
+  - block-if-missing-error-empty-states
+---
+
 # Design Profile: Startup Product App
 
 ## Intent

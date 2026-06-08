@@ -6,7 +6,13 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from services.capabilities import build_capability_context, build_selected_capability_context
+from services.capabilities import (
+    build_capability_context,
+    build_capability_coverage,
+    build_capability_metadata_map,
+    build_selected_capability_context,
+    enrich_plan_json_text,
+)
 from services.context_envelope import build_context_envelope
 from services.methodologies.errors import ClikeSelectedCapabilitiesMissingError
 from services.methodologies.active_output_contract import build_active_output_contract
@@ -5807,9 +5813,17 @@ def build_document_phase_local_agent_package(
     # capability source files to the reads. Plan-only: /idea and /spec are
     # unchanged.
     plan_capability_context: Optional[Dict[str, Any]] = None
+    plan_capability_metadata: Optional[Dict[str, Any]] = None
     required_reads = list(spec["required_reads"])
     if phase_norm == "plan":
         plan_capability_context = _build_plan_capability_context(payload)
+        try:
+            raw_index = (payload.get("core_blobs") or {}).get("CLIKE_CAPABILITY_INDEX.json")
+            plan_capability_metadata = build_capability_metadata_map(
+                json.loads(raw_index) if raw_index else None
+            )
+        except Exception:
+            plan_capability_metadata = None
         if plan_capability_context["has_capabilities"]:
             required_reads = required_reads + [
                 ".clike/capabilities.yaml or .clike/capabilities.yml when present",
@@ -5976,10 +5990,18 @@ def build_document_phase_local_agent_package(
             "active_output_contract": active_output_contract,
             "expected_outputs": context["output_contract"],
             # Surface available capabilities so completion can detect plan.json
-            # that degrades every REQ to "not_applicable" despite real options.
+            # that degrades every REQ to "not_applicable" despite real options,
+            # and the capability metadata map so completion can deterministically
+            # enrich the structured `capabilities` block (cloud parity).
             **(
                 {"available_capabilities": plan_capability_context["available"]}
                 if plan_capability_context and plan_capability_context["has_capabilities"]
+                else {}
+            ),
+            **(
+                {"capability_metadata": plan_capability_metadata}
+                if plan_capability_metadata
+                and any(plan_capability_metadata.get(k) for k in ("packs", "skills", "design_profiles"))
                 else {}
             ),
             "package_files": [
@@ -6725,6 +6747,35 @@ def normalize_local_agent_result(payload: Dict[str, Any]) -> Dict[str, Any]:
             if completeness_errors:
                 ok = False
                 errors.extend(completeness_errors)
+
+            # Deterministic capability enrichment (parity with cloud /plan):
+            # expand per-REQ selected capability names into the structured
+            # `capabilities` block on the normalized plan.json content.
+            if phase == "plan":
+                capability_metadata = payload.get("capability_metadata")
+                for item in normalized_files:
+                    if _normalize_relative_path(item.get("path")) == "docs/harper/plan.json" and isinstance(
+                        item.get("content"), str
+                    ):
+                        item["content"] = enrich_plan_json_text(item["content"], capability_metadata)
+                        warnings.append("plan:capabilities_enriched")
+                        # Read-only coverage diagnostic for parity with cloud.
+                        try:
+                            coverage = build_capability_coverage(
+                                json.loads(item["content"]), capability_metadata
+                            )
+                            if coverage.get("unresolved_capability_ids"):
+                                warnings.append(
+                                    "capability_unresolved:"
+                                    + ",".join(coverage["unresolved_capability_ids"][:20])
+                                )
+                            if coverage.get("reqs_without_capabilities"):
+                                warnings.append(
+                                    "capability_uncovered_reqs:"
+                                    + ",".join(coverage["reqs_without_capabilities"][:20])
+                                )
+                        except Exception:  # pragma: no cover - defensive
+                            pass
 
     if phase == "extend":
         returned_paths = {

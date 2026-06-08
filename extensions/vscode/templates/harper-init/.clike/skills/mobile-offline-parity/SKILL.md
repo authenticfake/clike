@@ -1,3 +1,20 @@
+---
+name: mobile-offline-parity
+description: Handle offline/sync/conflict states and recover interrupted flows on mobile.
+obligations:
+  - Handle offline, sync, and conflict states
+  - Recover interrupted flows without data loss
+eval_checks:
+  - offline-state-handled
+  - sync-conflict-resolved
+  - interrupted-flow-recovered
+gate_implications:
+  - block-if-no-offline-handling
+  - block-if-data-loss-on-sync-conflict
+evidence_required:
+  - Offline/sync tests
+---
+
 # Skill: Mobile Offline Parity
 
 ## Intent

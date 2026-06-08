@@ -14,6 +14,19 @@ recommended_skills:
 recommended_design_profiles:
   - enterprise-console
 gate_required: true
+obligations:
+  - Enforce governance, audit, and secure configuration
+  - Keep the solution promotable and reviewable
+eval_checks:
+  - secure-config-present
+  - audit-trail-present
+  - promotion-evidence-present
+gate_implications:
+  - block-if-missing-audit-or-secure-config
+  - block-if-not-promotable
+evidence_required:
+  - Audit/config docs
+  - Promotion evidence
 ---
 
 # Enterprise Solution Pack
@@ -183,3 +196,11 @@ Gate may allow non-blocking warnings when:
 - enterprise-only external runners are unavailable locally;
 - full security/compliance tooling is documented but outside the current local environment;
 - production hardening is explicitly deferred and local MVP evidence is complete.
+
+## Use when
+
+Use for enterprise solutions requiring governance, auditability, secure configuration, and controlled promotion.
+
+## Do not use when
+
+Do not use for throwaway consumer prototypes with no governance, audit, or promotion requirement.
