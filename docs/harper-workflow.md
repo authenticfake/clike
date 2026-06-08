@@ -127,6 +127,28 @@ The current execution contract explicitly protects canonical roots from direct l
 - `src`
 - `test`
 
+## Early document phases on the local agent
+
+`/idea`, `/spec`, and `/plan` can also run through the same execution-agent
+architecture used by `/kit`, `/eval`, `/finalize`, and `/extend`. They reuse the
+orchestrator execution policy, `run_phase` dispatch, the local-agent package
+envelope, `/local-agent/complete` normalization, and the extension actuator. The
+only phase-specific differences are the expected outputs, allowed write paths,
+phase prompt, and phase validation.
+
+The write policy for these phases is narrow:
+- `/idea` writes only `docs/harper/IDEA.md`.
+- `/spec` writes only `docs/harper/SPEC.md`.
+- `/plan` writes `docs/harper/PLAN.md` and `docs/harper/plan.json`, plus
+  `docs/harper/lane-guides/<lane>.md` for each detected lane.
+
+Every other `docs/harper/` path remains protected, and `src/`, `test/`,
+`tests/`, and `.git/` stay forbidden. Cloud and local execution stay
+semantically equivalent: the cloud system prompts under
+`gateway/prompts/harper/` remain the canonical source of phase behavior, CLike
+governance remains canonical, and the agent only performs bounded document work
+that CLike then validates and governs.
+
 ## Follow-up KIT phases
 
 The inspected sources implement a multi-step KIT follow-up sequence:

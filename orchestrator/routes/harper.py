@@ -144,6 +144,9 @@ async def post_spec(req: HarperPhaseRequest):
         error_code=out_dict.get("error_code"),
         rejected=out_dict.get("rejected") or [],
         runId=out_dict.get("runId"),
+        usage=out_dict.get("usage"),
+        execution=out_dict.get("execution"),
+        local_agent=out_dict.get("local_agent"),
         telemetry=out_dict.get("telemetry"),
     )
     # Retro-compat: spec_md, se disponibile (primo file markdown) oppure None
@@ -190,6 +193,9 @@ async def post_idea(req: HarperPhaseRequest):
             error_code=out_dict.get("error_code"),
             rejected=out_dict.get("rejected") or [],
             runId=out_dict.get("runId"),
+            usage=out_dict.get("usage"),
+            execution=out_dict.get("execution"),
+            local_agent=out_dict.get("local_agent"),
             telemetry=out_dict.get("telemetry"),
         )
 
