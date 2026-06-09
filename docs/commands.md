@@ -3,11 +3,17 @@
 ## Chat modes
 
 The extension currently exposes three main chat modes:
-- `free`
+- `free` (Q&A)
 - `coding`
 - `harper`
 
 The webview keeps separate attachment buckets per mode.
+
+All three modes can run via the cloud or via a local agent (Claude Code / Codex
+CLI), selected with the Execution preference (see below). In `free`, the local
+agent answers read-only and the reply is badged with the agent used
+(`agent-claude` / `agent-codex`); in `coding`, the local agent writes the
+generated files under `generated/<id>/` in the workspace root.
 
 ## Slash commands
 
@@ -175,17 +181,26 @@ These flows are repository-file oriented and not Harper-phase oriented.
 
 ## Execution preference
 
-The extension passes an execution preference with compatible Harper flows.
+The extension passes an execution preference with every chat request.
 
-Execution-agent (local-agent) execution is available for `/idea`, `/spec`,
-`/plan`, `/kit`, `/eval`, `/finalize`, and `/extend`. With `prefer_local_agent`
-or `local_agent_only`, supported phases run through the local-agent package
-path; `cloud_only` and `auto` keep using the cloud path. For the early document
+Execution-agent (local-agent) execution is available for the Harper phases
+`/idea`, `/spec`, `/plan`, `/kit`, `/eval`, `/finalize`, and `/extend`, and for
+the standalone `free` (Q&A) and `coding` modes. With `prefer_local_agent` or
+`local_agent_only`, supported flows run through the local-agent path;
+`cloud_only` and `auto` keep using the cloud path. For the early Harper document
 phases the local agent writes only the canonical Harper outputs
 (`docs/harper/IDEA.md`, `docs/harper/SPEC.md`, and `docs/harper/PLAN.md` +
 `docs/harper/plan.json` with lane guides), and all other `docs/harper/` paths
-stay protected. Cloud and local execution remain semantically equivalent and
-CLike governance stays canonical.
+stay protected. For standalone coding, the local agent writes under
+`generated/<id>/` in the workspace root. Cloud and local execution remain
+semantically equivalent and CLike governance stays canonical.
+
+`agent only` (`local_agent_only`) is the default Execution preference. Provider
+availability is computed at the gateway from configured API keys: when no cloud
+provider key is set, the cloud-dependent Execution options are disabled and only
+`agent only` remains selectable; the model list also hides models whose provider
+has no configured key. A provider/key mismatch is reported in the chat **Text**
+panel.
 
 ## Methodology Profile
 

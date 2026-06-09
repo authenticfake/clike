@@ -21,6 +21,7 @@ from pptx import Presentation  # .pptx
 # --- Generated root selection -------------------------------------------------
 import uuid
 from services.mode_contracts import normalize_mode_contract, validate_chat_contract, apply_generate_contract
+from services.execution_policy import normalize_execution_preference
 
 # splitter (alcune funzioni potrebbero non essere usate, ma manteniamo le import per compat)
 from services.splitter import (
@@ -447,20 +448,137 @@ async def _load_models_or_fallback() -> List[Dict[str, Any]]:
     except Exception:
         return []
 
+async def _load_providers() -> Dict[str, Any]:
+    """Provider availability snapshot from the gateway (single source of truth).
+
+    On any failure we fall back to a permissive snapshot so a transient gateway
+    hiccup never silently hides every cloud model.
+    """
+    permissive = {"providers": {}, "reasons": {}, "any_cloud": True, "any_local": True, "any": True}
+    try:
+        base = str(getattr(settings, "GATEWAY_URL", "http://localhost:8000")).rstrip("/")
+        async with httpx.AsyncClient(timeout=float(getattr(settings, "REQUEST_TIMEOUT_S", 60))) as client:
+            r = await client.get(f"{base}/v1/providers")
+            r.raise_for_status()
+            data = r.json()
+            return data if isinstance(data, dict) else permissive
+    except Exception:
+        return permissive
+
+
+_PROVIDER_KEY_ENV = {
+    "openai": "OPENAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+    "deepseek": "DEEPSEEK_API_KEY",
+}
+
+
+def _provider_available(provider: str, providers_snapshot: Dict[str, Any]) -> bool:
+    prov = (provider or "").strip().lower()
+    pmap = (providers_snapshot or {}).get("providers") or {}
+    if prov in pmap:
+        return bool(pmap[prov])
+    # Unknown provider: do not block (matches gateway model_availability).
+    return True
+
+
+def _provider_unavailable_message(provider: str, model: str, providers_snapshot: Dict[str, Any]) -> str:
+    prov = (provider or "").strip().lower()
+    env = _PROVIDER_KEY_ENV.get(prov)
+    if env:
+        return (
+            f"The selected model '{model}' uses the '{prov}' cloud provider, but its API key "
+            f"({env}) is not configured. Set {env} to use cloud models, choose a model from a "
+            f"configured provider, or switch Execution to 'agent only' to run locally."
+        )
+    reason = (providers_snapshot.get("reasons") or {}).get(prov) or f"the '{prov}' runtime is not reachable"
+    return (
+        f"The selected model '{model}' uses the local '{prov}' provider, but {reason}. Start the local "
+        f"runtime, choose a model from a configured provider, or switch Execution to 'agent only' to run locally."
+    )
+
+
+def _provider_unavailable_envelope(provider: str, model: str, providers_snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    msg = _provider_unavailable_message(provider, model, providers_snapshot)
+    return {
+        "ok": False,
+        "error_kind": "provider_unavailable",
+        "provider": provider,
+        "model": model,
+        "text": msg,
+        "errors": [msg],
+        "files": [],
+    }
+
+
+# --- Local agent execution (free/coding) -------------------------------------
+# Same architecture as Harper: the orchestrator owns prompt/context assembly and
+# returns a package; the VS Code extension is the only place that spawns the
+# codex/claude CLI. No cloud API key is required for this path.
+
+_LOCAL_EXEC_PREFS = {"prefer_local_agent", "local_agent_only"}
+_ROLE_LABEL = {"system": "System", "user": "User", "assistant": "Assistant"}
+
+_CODING_LOCAL_SYSTEM = (
+    "You are CLike, an expert engineer running locally inside the user's workspace. "
+    "Generate exactly what the user asks (documentation, code, functions, images, etc.) "
+    "as real files written under the directory '{output_root}/' (create it and any "
+    "subdirectories as needed). Do not modify files outside '{output_root}/'. "
+    "When finished, print a short plain-text summary of what you created."
+)
+
+
+def _execution_requests_local(value: Any) -> bool:
+    return normalize_execution_preference(value) in _LOCAL_EXEC_PREFS
+
+
+def _flatten_msgs_to_prompt(msgs: List[Dict[str, Any]]) -> str:
+    parts = []
+    for m in msgs or []:
+        role = _ROLE_LABEL.get(str(m.get("role") or "user").strip().lower(), "User")
+        content = str(m.get("content") or "").strip()
+        if content:
+            parts.append(f"{role}:\n{content}")
+    return "\n\n".join(parts).strip()
+
+
+def _local_execution_package(
+    *, mode: str, prompt: str, executor_hint: Any, run_id: str, output_root: Optional[str] = None
+) -> Dict[str, Any]:
+    pkg: Dict[str, Any] = {
+        "version": "1.0",
+        "ok": True,
+        "local_execution": True,
+        "mode": mode,
+        "prompt": prompt,
+        "executor_hint": (str(executor_hint or "auto").strip().lower() or "auto"),
+        "runId": run_id,
+    }
+    if output_root:
+        pkg["output_root"] = output_root
+    return pkg
+
+
 @router.get("/models")
 async def list_models(
     modality: Optional[str] = Query(default="chat", pattern="^(chat|embed|embeddings|all)$")
 ):
     try:
         models = await _load_models_or_fallback()
+        providers = await _load_providers()
 
         # Show only enabled models in the UI/API list.
         models = [m for m in models if bool(m.get("enabled", True))]
 
+        # Q1/Q2: hide models whose provider is not usable right now (missing key
+        # for cloud, unreachable for local). Models without an explicit
+        # `available` flag (e.g. degraded fallback catalog) are kept.
+        models = [m for m in models if m.get("available", True)]
+
         if modality != "all":
             models = _filter_by_modality(models, modality)
 
-        return {"version": "1.0", "models": models}
+        return {"version": "1.0", "models": models, "providers": providers}
     except Exception as ex:
         raise HTTPException(502, f"cannot load models: {type(ex).__name__}: {ex}")
 
@@ -488,6 +606,19 @@ async def chat( req: Request):
     provider = llm_sel.get("provider") or ""
     model = llm_sel.get("model") or requested_model
     remote_name = llm_sel.get("remote_name") or model
+
+    # Local-agent execution does not use the cloud at all, so the cloud provider
+    # key check only applies when we are actually going to call the gateway (Q7).
+    local_requested = _execution_requests_local(body.get("executionPreference"))
+    if not local_requested:
+        # Profile/routing resolution stays identical (Q7): if it lands on a provider
+        # whose key is not configured, surface a clean message in the chat Text panel
+        # instead of letting the gateway raise a raw 401.
+        providers_snapshot = await _load_providers()
+        if not _provider_available(provider, providers_snapshot):
+            log.info("chat blocked: provider '%s' unavailable for model '%s'", provider, model)
+            return _provider_unavailable_envelope(provider, model, providers_snapshot)
+
     mode_contract = llm_sel.get("mode_contract") or {}
     mode_contract = normalize_mode_contract(body.get("mode_contract"), mode_contract)
     try:
@@ -537,6 +668,19 @@ async def chat( req: Request):
             if blobs:
                 ctx = "\n\n".join(blobs[:8])
                 msgs = [{"role":"system","content":"Use the following context if relevant:\n"+ctx}] + msgs
+
+    # Local free (Q&A): hand the assembled prompt to the extension, which runs
+    # the codex/claude CLI read-only and renders the answer in chat.
+    if local_requested:
+        prompt = _flatten_msgs_to_prompt(msgs)
+        run_id = str(body.get("runId") or _short_id(8))
+        log.info("chat local-execution package: mode=free run=%s executor=%s", run_id, body.get("localAgentExecutor"))
+        return _local_execution_package(
+            mode="free",
+            prompt=prompt,
+            executor_hint=body.get("localAgentExecutor"),
+            run_id=run_id,
+        )
 
     # validate modality
     all_models = await _load_models_or_fallback()
@@ -994,6 +1138,14 @@ async def generate(req: Request):
     model = llm_sel.get("model") or requested_model
     provider = (llm_sel.get("provider") or "").lower().strip()
     remote_name = llm_sel.get("remote_name") or model
+
+    local_requested = _execution_requests_local(body.get("executionPreference"))
+    if not local_requested:
+        providers_snapshot = await _load_providers()
+        if not _provider_available(provider, providers_snapshot):
+            log.info("generate blocked: provider '%s' unavailable for model '%s'", provider, model)
+            return _provider_unavailable_envelope(provider, model, providers_snapshot)
+
     mode_contract = llm_sel.get("mode_contract") or {}
     mode_contract = normalize_mode_contract(body.get("mode_contract"), mode_contract)
 
@@ -1047,6 +1199,25 @@ async def generate(req: Request):
     msgs = [sys_schema] + list(messages)
     project_id = _rag_project_id(body)
     msgs = await _augment_messages_with_context(msgs, inline_files, rag_files, user_query, project_id)
+
+    # Local coding: instead of asking the model for JSON files[], instruct the
+    # local agent to write real files under a generated root, then let the
+    # extension collect them and render the synthesis in chat + Files tab.
+    if local_requested:
+        output_root = f"generated/{gen_id}"
+        write_sys = {"role": "system", "content": _CODING_LOCAL_SYSTEM.format(output_root=output_root)}
+        local_msgs = [write_sys] + list(messages)
+        local_msgs = await _augment_messages_with_context(local_msgs, inline_files, rag_files, user_query, project_id)
+        prompt = _flatten_msgs_to_prompt(local_msgs)
+        run_id = str(body.get("runId") or gen_id)
+        log.info("generate local-execution package: mode=coding run=%s root=%s executor=%s", run_id, output_root, body.get("localAgentExecutor"))
+        return _local_execution_package(
+            mode="coding",
+            prompt=prompt,
+            executor_hint=body.get("localAgentExecutor"),
+            run_id=run_id,
+            output_root=output_root,
+        )
 
     # modality check
     all_models = await _load_models_or_fallback()

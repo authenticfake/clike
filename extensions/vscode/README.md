@@ -19,8 +19,8 @@
 
 The extension currently supports three main interactive modes inside the chat panel:
 
-- **Free** — general Q&A and contextual assistance.
-- **Coding** — code generation and patch-oriented workflows with files, diffs, and apply flows.
+- **Free** — general Q&A and contextual assistance (cloud or local agent).
+- **Coding** — code generation and patch-oriented workflows with files, diffs, and apply flows (cloud or local agent).
 - **Harper** — structured solutioning workflow built around:
   - `IDEA`
   - `SPEC`
@@ -63,6 +63,29 @@ The extension is **provider-aware**, **model-aware**, and keeps a persistent cha
   - document-driven generation
   - REQ-based implementation flow
   - integration with SPEC / PLAN / plan.json / KIT candidates
+
+### Execution: cloud or local agent
+
+Every chat mode can run via the cloud or via a local agent (Claude Code / Codex
+CLI), selected with the **Execution** preference in the chat header
+(`auto`, `cloud_only`, `prefer agent`, `agent only`, `hybrid`).
+
+- Local-agent execution now covers **all Harper phases** (`/idea`, `/spec`,
+  `/plan`, `/kit`, `/eval`, `/finalize`, `/extend`) as well as the standalone
+  **Free (Q&A)** and **Coding** modes.
+- In **Free**, the local agent answers read-only and the reply is badged with the
+  agent used (`agent-claude` / `agent-codex`), the way the cloud path shows the
+  model name; a short execution synthesis appears in the **Text** panel.
+- In **Coding**, the local agent writes the generated files under
+  `generated/<id>/` in the workspace root; the bubble shows the agent badge plus
+  the file list, and the files are clickable in the **Files** tab.
+- Local agents authenticate through their own CLI session — **no cloud API key is
+  required or forwarded**.
+- `agent only` is the default Execution preference. Provider availability is
+  computed at the Gateway from configured API keys: when no cloud key is set, the
+  cloud Execution options are disabled and the model list hides cloud models;
+  selecting a model whose provider key is missing surfaces a clear message in the
+  **Text** panel.
 
 ### Multi-model / multi-provider chat
 

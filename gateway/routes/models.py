@@ -5,6 +5,7 @@ from typing import Any, Dict, List
 from fastapi import APIRouter
 
 from config import load_models_cfg
+from providers_availability import model_availability, provider_availability
 from utils.model_catalog_validator import validate_catalog
 
 router = APIRouter()
@@ -36,13 +37,29 @@ def _load_catalog() -> tuple[dict, list[dict], dict]:
     return data, models, validation
 
 
+@router.get("/v1/providers")
+async def list_providers():
+    return await provider_availability()
+
+
 @router.get("/v1/models")
 async def list_models():
     data, models, validation = _load_catalog()
 
+    availability = await provider_availability()
+
+    annotated = []
+    for m in models:
+        ok, reason = model_availability(str(m.get("provider") or ""), availability)
+        entry = dict(m)
+        entry["available"] = ok
+        entry["unavailable_reason"] = reason
+        annotated.append(entry)
+
     return {
         "version": "2.3",
-        "models": models,
+        "models": annotated,
+        "providers": availability,
         "profiles": data.get("profiles") or {},
         "routing": data.get("routing") or {},
         "scoring": data.get("scoring") or {},
