@@ -4116,14 +4116,14 @@ async function cmdOpenChat(context) {
           let outGateway = await callHarper(cmd, body, _headers, { timeoutMs: 1000 * 60 * harperTimeout} );
           let _out = outGateway.out;
 
-          log(`[harperRun][agent][response] ${JSON.stringify({
-            hasOut: !!_out,
-            outKeys: _out ? Object.keys(_out) : [],
-            execution: _out?.execution || null,
-            hasLocalAgent: !!_out?.local_agent,
-            localAgentAction: _out?.local_agent?.action || null,
-            rootHasLocalAgent: !!outGateway?.local_agent,
-          })}`);
+          // log(`[harperRun][agent][response] ${JSON.stringify({
+          //   hasOut: !!_out,
+          //   outKeys: _out ? Object.keys(_out) : [],
+          //   execution: _out?.execution || null,
+          //   hasLocalAgent: !!_out?.local_agent,
+          //   localAgentAction: _out?.local_agent?.action || null,
+          //   rootHasLocalAgent: !!outGateway?.local_agent,
+          // })}`);
 
            const localAgentPackage = _out?.local_agent || outGateway?.local_agent || null;
 
