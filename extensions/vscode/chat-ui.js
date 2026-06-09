@@ -685,7 +685,32 @@ function currentMode() { return document.getElementById('mode').value; }
 function currentModel() { return document.getElementById('model').value; }
 function currentExecution() {
   const el = document.getElementById('execution');
-  return el ? el.value : 'auto';
+  return el ? el.value : 'local_agent_only';
+}
+
+// Q1: 'agent only' is always the default executor. When no cloud provider key
+// is configured (providers.any_cloud === false) every other Execution option is
+// disabled, leaving only local-agent execution selectable.
+let lastProviders = null;
+function applyExecutionGating(providers) {
+  if (providers) lastProviders = providers;
+  const eff = providers || lastProviders;
+  const sel = document.getElementById('execution');
+  if (!sel) return;
+  const hasCloud = !eff || eff.any_cloud !== false;
+  Array.from(sel.options).forEach(opt => {
+    opt.disabled = (opt.value !== 'local_agent_only') && !hasCloud;
+  });
+  if (!hasCloud && sel.value !== 'local_agent_only') {
+    sel.value = 'local_agent_only';
+    try {
+      post('uiChanged', {
+        mode: document.getElementById('mode').value,
+        model: document.getElementById('model').value,
+        executionPreference: 'local_agent_only'
+      });
+    } catch {}
+  }
 }
 function ensureBucket(mode) {
   if (!window.attachmentsByMode) window.attachmentsByMode = {};
@@ -2193,7 +2218,8 @@ window.addEventListener('message', (event) => {
     if (msg.state.mode)  mode.value  = msg.state.mode;
     if (msg.state.model) model.value = msg.state.model;
     if (execution) {
-      execution.value = (msg.state && msg.state.executionPreference) || 'auto';
+      execution.value = (msg.state && msg.state.executionPreference) || 'local_agent_only';
+      try { applyExecutionGating(null); } catch {}
     }
     
     const helpBtn = document.getElementById('helpBtn');
@@ -2251,6 +2277,7 @@ window.addEventListener('message', (event) => {
       }
       model.appendChild(o);
     });
+    try { applyExecutionGating(msg.providers || null); } catch {}
     boot.gotModels = true;
     finalizeBootIfReady();
   }
@@ -2300,7 +2327,7 @@ window.addEventListener('message', (event) => {
       var d2 = msg.data || {};
       ragUsed = !!(d2.rag_used || (citations && citations.length));
     } catch {}
-    if (text) bubble('assistant', text, model.value, attachments, Date.now(), { ragUsed: ragUsed, citations: citations });
+    if (text) bubble('assistant', text, modelName, attachments, Date.now(), { ragUsed: ragUsed, citations: citations });
     try {
       if (citations && citations.length) {
         var lines = [];
@@ -2455,7 +2482,8 @@ window.addEventListener('message', (event) => {
         vscode.postMessage({ type: 'openFile', path: p });
       });
     });
-    
+    if (msg.activate) setTab('files');
+
   }
   if (msg.type === 'applyResult') {
     setTab('text');

@@ -45,6 +45,12 @@ function localAgentSupportsPhase(executorId, phase, settings) {
   const normalized = normalizeLocalAgentExecutor(executorId);
   const p = String(phase || '').trim().toLowerCase();
 
+  if (p === 'free' || p === 'chat' || p === 'coding') {
+    // Standalone chat (Q&A) and coding generation are not part of the Harper
+    // REQ pipeline: any installed local agent can serve them.
+    return normalized === 'claude_code' || normalized === 'gpt_codex';
+  }
+
   if (p === 'idea' || p === 'spec' || p === 'plan') {
     // Early Harper document phases use the local agent as a bounded document
     // actuator. CLike owns canonical validation; the agent only writes the
