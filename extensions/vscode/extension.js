@@ -233,9 +233,9 @@ function computeProfileHint(mode, model) {
 function getDefaultExecutionPreference() {
   try {
     const cfg = vscode.workspace.getConfiguration('clike');
-    return normalizeExecutionPreference(cfg.get('execution.defaultPreference', 'auto'));
+    return normalizeExecutionPreference(cfg.get('execution.defaultPreference', 'local_agent_only'));
   } catch {
-    return 'auto';
+    return 'local_agent_only';
   }
 }
 
@@ -1199,9 +1199,114 @@ function cfgChat() {
   return {
     dir: c.get('clike.chat.persistDir', '.clike/sessions'),
     maxMem: c.get('clike.chat.maxInMemoryMessages', 50),
-    autoWrite: c.get('clike.chat.autoWriteGeneratedFiles', true), 
-    neverSendSourceToCloud: c.get('clike.chat.never_send_source_to_cloud', true)   
+    autoWrite: c.get('clike.chat.autoWriteGeneratedFiles', true),
+    neverSendSourceToCloud: c.get('clike.chat.never_send_source_to_cloud', true)
   };
+}
+
+// Invocation args for the standalone free/coding local-agent flows. Free (Q&A)
+// runs read-only (no file edits); coding lets the agent write under the
+// orchestrator-provided output_root.
+function buildChatInvocationArgs(executorId, mode, executorConfig) {
+  if (executorId === 'claude_code') {
+    const flag = (executorConfig && executorConfig.printModeFlag) || '-p';
+    if (mode === 'coding') {
+      const pm = (executorConfig && executorConfig.permissionMode) || 'acceptEdits';
+      return [flag, '--permission-mode', pm];
+    }
+    return [flag];
+  }
+  // gpt_codex: non-interactive exec; prompt is delivered on stdin.
+  return Array.isArray(executorConfig && executorConfig.argsBeforePrompt)
+    ? executorConfig.argsBeforePrompt
+    : ['exec'];
+}
+
+// Badge shown next to a local-agent answer (mirrors how the cloud path shows
+// the model name). The user requested 'agent-claude' / 'agent-codex'.
+function localAgentBadge(executorId) {
+  return normalizeLocalAgentExecutor(executorId) === 'gpt_codex' ? 'agent-codex' : 'agent-claude';
+}
+
+// List the files the agent generated under <wsroot>/<relRoot>. The files are
+// already on disk (the agent wrote them), so we only need their relative paths
+// for the Files tab — no content, no base64 image dumps in the chat bubble.
+async function collectGeneratedFilePaths(wsrootUri, relRoot) {
+  const segments = String(relRoot || '').split('/').filter(Boolean);
+  if (!segments.length) return [];
+  const rootUri = vscode.Uri.joinPath(wsrootUri, ...segments);
+  const paths = [];
+
+  async function walk(dirUri, relPrefix) {
+    let entries;
+    try {
+      entries = await vscode.workspace.fs.readDirectory(dirUri);
+    } catch {
+      return;
+    }
+    for (const [name, ftype] of entries) {
+      const childRel = relPrefix ? `${relPrefix}/${name}` : name;
+      const childUri = vscode.Uri.joinPath(dirUri, name);
+      if (ftype === vscode.FileType.Directory) {
+        await walk(childUri, childRel);
+      } else if (ftype === vscode.FileType.File) {
+        paths.push(`${relRoot}/${childRel}`);
+      }
+    }
+  }
+
+  await walk(rootUri, '');
+  return paths;
+}
+
+// Run the free/coding local-agent package returned by the orchestrator.
+// Returns { mode, badge, answer?, synthesis, stdout, files? }.
+async function runLocalChatAgent({ pkg, executorId, settings, wsrootUri, out }) {
+  const mode = String(pkg.mode || 'free').toLowerCase();
+  const executorConfig = getExecutorConfig(executorId, settings);
+  const executorLabel = buildLocalAgentDisplayLabel(executorId);
+  const badge = localAgentBadge(executorId);
+  const prompt = String(pkg.prompt || '').trim();
+  if (!prompt) throw new Error('Local execution package is missing a prompt.');
+
+  const argsBeforePrompt = buildChatInvocationArgs(executorId, mode, executorConfig);
+  const timeoutMinutes = settings.localAgentTimeoutMinutes || 20;
+
+  const agentResult = await runLocalAgentSync({
+    workspaceRootUri: wsrootUri,
+    prompt,
+    executorId,
+    command: executorConfig.command,
+    argsBeforePrompt,
+    timeoutMinutes,
+    out,
+  });
+
+  const stdout = agentResult.stdout || '';
+  const stderr = agentResult.stderr || '';
+
+  if (mode === 'coding') {
+    const paths = await collectGeneratedFilePaths(wsrootUri, pkg.output_root);
+    if (!paths.length) {
+      const blocked = classifyBlockedLocalAgentOutput({ stdout, stderr });
+      if (blocked) throw new Error(`${blocked.code}: ${blocked.message}`);
+      throw new Error(`${executorLabel} completed without generating any files under ${pkg.output_root}/.`);
+    }
+    const synthesis =
+      `Generated ${paths.length} file(s) under ${pkg.output_root}/:\n` +
+      paths.map(p => '- ' + p).join('\n');
+    return { mode, badge, synthesis, stdout, files: paths.map(p => ({ path: p })) };
+  }
+
+  // free (Q&A)
+  const answer = stdout.trim();
+  if (!answer) {
+    const blocked = classifyBlockedLocalAgentOutput({ stdout, stderr });
+    if (blocked) throw new Error(`${blocked.code}: ${blocked.message}`);
+    throw new Error(`${executorLabel} returned no answer (exit=${agentResult.exitCode}).`);
+  }
+  const synthesis = `${executorLabel} answered locally (read-only, exit=${agentResult.exitCode}).`;
+  return { mode, badge, answer, synthesis, stdout };
 }
 
 function effectiveHistoryScope(context) {
@@ -4961,7 +5066,7 @@ async function cmdOpenChat(context) {
 
             // }
 
-            panel.webview.postMessage({ type: 'models', models });
+            panel.webview.postMessage({ type: 'models', models, providers: res?.providers || null });
             out.appendLine('[CLike] models sent: ' + models.join(', '));
           } catch (e) {
             out.appendLine('[CLike] models fetch failed: ' + (e?.message || String(e)));
@@ -5021,8 +5126,8 @@ async function cmdOpenChat(context) {
           const filtered = raw.filter(n => !/embed|embedding|nomic-embed/i.test(n));
           models = filtered.length ? filtered : raw;
         }
-        panel.webview.postMessage({ type: 'models', models });
-       
+        panel.webview.postMessage({ type: 'models', models, providers: res?.providers || null });
+
       }
       // 2) CAMBIO UI (Mode/Model)
       if (msg.type === 'uiChanged') {
@@ -5233,6 +5338,31 @@ async function cmdOpenChat(context) {
           cur.executionPreference || getDefaultExecutionPreference()
         );
 
+        // Local-agent pre-resolution (free/coding): the extension owns CLI
+        // availability; the orchestrator only assembles the prompt package.
+        const settingsLA = cfg();
+        const localPhase = (msg.type === 'sendGenerate') ? 'coding' : 'free';
+        let effectivePref = executionPreference;
+        let selectedLocalExecutor = null;
+        if (executionPreferenceRequestsLocalAgent(executionPreference)) {
+          selectedLocalExecutor = resolveSelectedLocalAgentExecutor(
+            settingsLA, cur.localAgentExecutor || 'auto', localPhase
+          );
+          if (!selectedLocalExecutor) {
+            if (executionPreference === 'local_agent_only') {
+              panel.webview.postMessage({
+                type: 'error',
+                message: 'No local agent (codex/claude) is available. Install or enable the claude/codex CLI, or switch Execution away from "agent only".',
+              });
+              panel.webview.postMessage({ type: 'busy', on: false, force: true });
+              inflightController = null;
+              return;
+            }
+            // prefer_local_agent with no installed agent: fall back to cloud.
+            effectivePref = 'cloud_only';
+          }
+        }
+
         const basePayload = {
             mode: activeMode,
             project_id: projectId,
@@ -5245,7 +5375,8 @@ async function cmdOpenChat(context) {
             max_tokens: 4000,
             gen: { api: "responses" }, // openai responses API
             profileHint: computeProfileHint(activeMode, activeModel),
-            executionPreference,
+            executionPreference: effectivePref,
+            localAgentExecutor: selectedLocalExecutor || normalizeLocalAgentExecutor(cur.localAgentExecutor || 'auto'),
             mode_contract: buildModeContract(activeMode),
         };
 
@@ -5267,6 +5398,49 @@ async function cmdOpenChat(context) {
             postJson(url, payload, { signal: inflightController.signal }),
             600000
           );
+
+          // Provider unavailable (missing API key / unreachable local runtime):
+          // the orchestrator returns a clean 200 envelope; surface it in the Text
+          // panel as an error rather than as an assistant bubble.
+          if (res && res.ok === false && res.text) {
+            panel.webview.postMessage({ type: 'error', message: res.text });
+            panel.webview.postMessage({ type: 'busy', on: false, force: true });
+            inflightController = null;
+            return;
+          }
+
+          // Local-agent execution: the orchestrator returned a prompt package;
+          // spawn the codex/claude CLI here and render the result like the cloud
+          // path (free -> answer bubble + Text synthesis; coding -> synthesis
+          // bubble + Files tab).
+          if (res && res.local_execution) {
+            try {
+              const localOut = await runLocalChatAgent({
+                pkg: res,
+                executorId: selectedLocalExecutor || normalizeLocalAgentExecutor(cur.localAgentExecutor || 'auto'),
+                settings: settingsLA,
+                wsrootUri: getWorkspaceRoot(),
+                out,
+              });
+              if (localOut.mode === 'coding') {
+                // Clean bubble (agent badge + file list), Files tab populated and
+                // active. Files are already on disk, so no Apply/base64 preview.
+                await appendSessionJSONL(activeMode, { role: 'assistant', content: localOut.synthesis, model: localOut.badge });
+                panel.webview.postMessage({ type: 'chatResult', data: { model: localOut.badge, text: localOut.synthesis } });
+                panel.webview.postMessage({ type: 'files', data: localOut.files, activate: true });
+              } else {
+                await appendSessionJSONL(activeMode, { role: 'assistant', content: localOut.answer, model: localOut.badge });
+                panel.webview.postMessage({ type: 'chatResult', data: { model: localOut.badge, text: localOut.answer } });
+                panel.webview.postMessage({ type: 'text', text: localOut.synthesis });
+              }
+            } catch (e) {
+              panel.webview.postMessage({ type: 'error', message: String(e?.message || e) });
+            } finally {
+              panel.webview.postMessage({ type: 'busy', on: false, force: true });
+              inflightController = null;
+            }
+            return;
+          }
 
           // Salva ultimo run (serve per Apply)
           if (res?.run_dir || res?.audit_id) {

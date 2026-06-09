@@ -2,12 +2,17 @@
 
 ## Overview
 
-The current extension supports a local-agent execution path for compatible Harper flows.
+The current extension supports a local-agent execution path for compatible
+Harper flows **and** for the standalone CLike chat modes (Free Q&A and Coding).
+Across all CLike modes, a request can run via the local agent (Claude Code /
+Codex CLI) instead of the cloud, governed by the Execution preference.
 
 This path is implemented in:
 - `extensions/vscode/local-agent-executors.js`
 - `extensions/vscode/utility.js`
 - `extensions/vscode/extension.js`
+- `orchestrator/routes/v1.py` (free/coding local-execution package)
+- `gateway/providers_availability.py` and `gateway/routes/models.py` (provider/key availability)
 
 ## Supported local executors
 
@@ -167,6 +172,61 @@ This means local agents are currently intended first for:
 
 They are not currently a full unrestricted replacement for all Harper phases.
 
+## Standalone Free (Q&A) and Coding local execution
+
+Beyond the Harper pipeline, the local agent also serves the standalone CLike
+chat modes. These flows are intentionally separate from the Harper machinery:
+there is no REQ binding, no `runs/kit/<REQ-ID>/` tree, and no Harper output
+validation.
+
+The architecture mirrors Harper: the orchestrator (`/v1/chat` and `/v1/generate`)
+assembles the prompt and context and returns a local-execution package
+(`{ local_execution: true, mode, prompt, executor_hint, output_root? }`) instead
+of calling the gateway; the extension is the only component that spawns the CLI.
+
+### Free chat (Q&A)
+- Invocation is **read-only** (Claude Code in print mode; Codex `exec`).
+- The agent answer (stdout) is rendered as a normal chat bubble, badged with the
+  agent used — `agent-claude` or `agent-codex` — the way the cloud path shows the
+  model name.
+- A short execution synthesis is shown in the **Text** panel.
+
+### Coding
+- Invocation is **write-capable**; the agent writes the requested artifacts
+  (documentation, code, images, etc.) under `generated/<id>/` in the workspace
+  root, mirroring the cloud generation layout.
+- The chat bubble shows the agent badge plus the generated-file list; the files
+  are already on disk and are clickable in the **Files** tab (no Apply step).
+
+### Authentication
+Local agents authenticate through their own CLI session. No cloud API key is
+required or forwarded for the local path; cloud provider keys are stripped from
+the spawned process environment by default.
+
+## Provider availability and executor gating
+
+Provider availability is computed once at the gateway, which is the only process
+that holds the cloud API keys:
+
+- Cloud providers (`openai`, `anthropic`, `deepseek`) are available when their API
+  key env var is set to a non-empty value.
+- Local providers (`ollama`, `vllm`) are available when their base URL responds.
+
+`GET /v1/providers` exposes this snapshot and `GET /v1/models` annotates each
+model with `available` / `unavailable_reason`. The orchestrator hides models whose
+provider is unavailable and forwards the `providers` summary to the extension.
+
+The extension uses this to gate the Execution selector:
+- When at least one cloud key is configured, all Execution options are available
+  and `agent only` (`local_agent_only`) is the default.
+- When no cloud key is configured, the cloud-dependent options are disabled and
+  only `agent only` remains selectable.
+
+Profile/routing resolution is unchanged. If a request resolves to a provider
+whose key is not configured (for example, an OpenAI model while only an Anthropic
+key is set), the orchestrator returns a clean message that the extension renders
+in the chat **Text** panel instead of letting the gateway raise a raw 401.
+
 ## `AGENT_EXECUTION_CONTEXT.json`
 
 Before invoking a local agent, the extension writes:
@@ -246,11 +306,12 @@ If local eval pre-pass fails:
 ### Current truth
 - Local agent execution exists
 - GPT Codex and Claude Code are both supported
-- KIT is the main supported local flow
+- Local-agent execution covers all Harper phases (`/idea`, `/spec`, `/plan`, `/kit`, `/eval`, `/finalize`, `/extend`)
+- Standalone Free (Q&A) and Coding chat modes can run via the local agent
 - EVAL pre-pass exists
-- `AGENT_EXECUTION_CONTEXT.json` is part of the execution contract
+- `AGENT_EXECUTION_CONTEXT.json` is part of the Harper execution contract
+- Provider/key availability gates the model list and the Execution selector
 
 ### Not stable enough to document as unrestricted capability
-- unrestricted follow-up phase execution
-- chat-command based executor switching
+- unrestricted follow-up KIT phase execution
 - local agents as canonical gate authority
