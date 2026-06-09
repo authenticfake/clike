@@ -15,6 +15,7 @@
 
 | 📅 **Last Updated** | 🧪 **Current Testing** | 📦 **Latest Release** |
 | --- | --- | --- |
+| June 9, 2026 | Agent execution reach expanded, in chronological order: (1) Harper phases via execution-agent extended beyond `/kit`, `/eval`, and `/finalize` to also cover `/idea`, `/spec`, and `/plan`; (2) CLike skills strengthened to make the local agent effective across the `/plan`, `/kit`, `/eval`, and `/finalize` Harper phases; (3) Free chat (Q&A) and Coding now run via local agent (Claude Code / Codex CLI) in addition to the cloud path, across all CLike chat modes. Local checks: `python -m py_compile orchestrator/routes/v1.py gateway/routes/models.py gateway/providers_availability.py`; `PYTHONPATH=orchestrator:. pytest -q orchestrator/tests`; `node --test extensions/vscode/test/*.test.js`. | |
 | June 2, 2026 | BMAD-aware methodology profile MVP documented and under regression testing: governed methodology context, companion artifacts, SPEC PM/UX safety, server-side companion discovery, cloud prompt verification, local-agent package verification, eval/gate boundaries, and deterministic scorecards. Real local checks: `python -m compileall orchestrator gateway`; `PYTHONPATH=orchestrator:. pytest -q orchestrator/tests/test_methodology_resolver.py orchestrator/tests/test_methodology_injection.py orchestrator/tests/test_eval_canonical_bmad.py orchestrator/tests/test_bmad_companion_collector.py orchestrator/tests/test_bmad_safety_boundaries.py orchestrator/tests/test_bmad_quality_contracts.py orchestrator/tests/test_bmad_quality_scorecard.py`; `PYTHONPATH=orchestrator:. pytest -q gateway/tests/test_methodology_prompt.py`; `node --test extensions/vscode/test/slash-parser.test.js extensions/vscode/test/bmad-advisory.test.js`.|
 | May 19, 2026 | Added command for extending requirements (/extend). First draft implemented; testing started yet. [docs/CLike_Harper_Extend_Feature.md](./docs/CLike_Harper_Extend_Feature.md)| `v0.9.874` |
 
@@ -207,6 +208,33 @@ The extension owns:
 - Git integration.
 
 Local agents are executors only. They must not promote files, run Git operations, or write directly to canonical `src/`, `test/`, or `tests/` roots.
+
+#### Standalone chat (Q&A) and coding via local agent
+
+The same execution-agent path also serves the standalone CLike chat modes, not
+only the Harper pipeline. Across every CLike mode, the Execution selector lets a
+request run via the local agent (Claude Code / Codex CLI) instead of the cloud:
+
+- **Free chat (Q&A)** runs the local agent read-only and renders its answer as a
+  normal chat bubble, badged with the agent used (`agent-claude` / `agent-codex`)
+  the way the cloud path shows the model name. A short execution synthesis is
+  shown in the **Text** panel.
+- **Coding** lets the local agent write the requested artifacts (documentation,
+  code, images, etc.) under a `generated/<id>/` folder in the workspace root —
+  mirroring the cloud generation layout. The chat bubble shows the agent badge
+  plus the generated-file list, and the files are clickable in the **Files** tab.
+
+As in the Harper path, the orchestrator owns prompt/context assembly and returns
+an execution package; the extension is the only component that spawns the CLI.
+Local agents authenticate through their own CLI session, so **no cloud API key is
+required or forwarded** for this path.
+
+Model availability is computed once at the gateway from configured provider
+keys. When at least one cloud key is set, all Execution options are available with
+`agent only` as the default; when no cloud key is set, the cloud options are
+disabled and only `agent only` remains selectable. Provider/key mismatches (for
+example, selecting an OpenAI model when only an Anthropic key is configured)
+surface as a clear message in the chat **Text** panel.
 
 ### Model 2 — Agent interacts with CLike
 
