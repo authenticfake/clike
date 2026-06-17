@@ -43,6 +43,7 @@ from services.local_agent_package import (
     build_extend_local_agent_package,
     build_finalize_local_agent_package,
     build_kit_local_agent_package,
+    resolve_local_executor,
 )
 from services.methodologies import ensure_bmad_skill_context, resolve_methodology_context
 from services.methodologies.errors import ClikeSelectedCapabilitiesMissingError
@@ -2198,6 +2199,68 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
     )
     merged["executionPreference"] = execution_preference
     merged["_execution"] = execution_policy
+
+    # Availability-aware local-agent gate.
+    #
+    # resolve_execution_policy only reasons about phase + preference; it does not
+    # know which local executors the client can actually run. Before building any
+    # local package, confirm a runnable executor exists (driven by the
+    # localAgentCapabilities the extension reports). If none is available:
+    #   - prefer_local_agent / hybrid: fall back to cloud, so we never build a
+    #     package the actuator will certainly reject.
+    #   - local_agent_only: fail deterministically; never fall back to cloud.
+    if execution_policy.get("selected") == "local_agent":
+        runnable_local_executor = resolve_local_executor(merged)
+        if not runnable_local_executor:
+            local_capabilities = merged.get("localAgentCapabilities") or {}
+            if execution_preference == "local_agent_only":
+                log.warning(
+                    "harper.local_agent no runnable executor for phase=%s (agent only) availability=%s",
+                    phase,
+                    local_capabilities,
+                )
+                return {
+                    "ok": False,
+                    "phase": phase,
+                    "echo": "",
+                    "text": "",
+                    "files": [],
+                    "diffs": [],
+                    "tests": {
+                        "passed": 0,
+                        "failed": 1,
+                        "summary": f"no-local-agent-available-{phase}",
+                    },
+                    "warnings": [
+                        "execution_selected:local_agent",
+                        f"{phase}_not_run",
+                    ],
+                    "errors": [
+                        "No local agent executor is available for phase="
+                        f"{phase}. Install or enable a supported local agent "
+                        "(claude_code or gpt_codex), or switch Execution away "
+                        "from 'agent only'. "
+                        f"availability={json.dumps(local_capabilities)}"
+                    ],
+                    "runId": merged.get("runId"),
+                    "execution": {
+                        "requested": execution_preference,
+                        "selected": "local_agent",
+                        "reason": "no_local_executor_available",
+                        "phase_supported": True,
+                    },
+                }
+
+            execution_policy = dict(execution_policy)
+            execution_policy["selected"] = "cloud"
+            execution_policy["fallback_applied"] = True
+            execution_policy["reason"] = "no_local_executor_available_fallback_to_cloud"
+            merged["_execution"] = execution_policy
+            log.warning(
+                "harper.local_agent no runnable executor for phase=%s; falling back to cloud availability=%s",
+                phase,
+                local_capabilities,
+            )
 
     if not namespace_materialization:
         try:

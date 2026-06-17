@@ -27,20 +27,25 @@ _ALLOWED_LOCAL_AGENT_PHASES = {
 def normalize_execution_preference(value: Any) -> str:
     raw = str(value or "").strip().lower()
 
-    # Backward compatibility with the old Claude-specific UI values.
+    # Canonical modes are cloud_only, prefer_local_agent and local_agent_only.
+    # Legacy values are normalized deterministically at this boundary so old
+    # persisted settings keep working and the core logic never has to reason
+    # about the ambiguous auto/hybrid modes.
     if raw == "prefer_claude_code":
         return "prefer_local_agent"
     if raw == "claude_code_only":
         return "local_agent_only"
+    if raw == "auto":
+        return "cloud_only"
+    if raw == "hybrid":
+        return "prefer_local_agent"
 
     allowed = {
-        "auto",
         "cloud_only",
         "prefer_local_agent",
         "local_agent_only",
-        "hybrid",
     }
-    return raw if raw in allowed else "auto"
+    return raw if raw in allowed else "cloud_only"
 
 
 def resolve_execution_policy(

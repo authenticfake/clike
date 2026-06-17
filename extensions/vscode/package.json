@@ -200,15 +200,13 @@
         },
         "clike.execution.defaultPreference": {
           "type": "string",
-          "default": "auto",
+          "default": "prefer_local_agent",
           "enum": [
-            "auto",
             "cloud_only",
             "prefer_local_agent",
-            "local_agent_only",
-            "hybrid"
+            "local_agent_only"
           ],
-          "description": "Default execution preference used by CLike for compatible tasks. Legacy prefer_claude_code/claude_code_only values are normalized at runtime."
+          "description": "Default execution preference used by CLike for compatible tasks. Legacy values are normalized at runtime: auto -> cloud_only, hybrid -> prefer_local_agent, prefer_claude_code -> prefer_local_agent, claude_code_only -> local_agent_only."
         },
         "clike.localAgent.enabled": {
           "type": "boolean",
@@ -248,8 +246,8 @@
         },
         "clike.claudeCode.enabled": {
           "type": "boolean",
-          "default": false,
-          "description": "Enable Claude Code integration when available locally."
+          "default": true,
+          "description": "Enable Claude Code as a local executor when its CLI is installed. Set to false to disable Claude Code locally."
         },
         "clike.claudeCode.restrictToKitPhases": {
           "type": "boolean",
@@ -260,6 +258,11 @@
           "type": "string",
           "default": "claude",
           "description": "Executable used to invoke Claude Code locally."
+        },
+        "clike.claudeCode.model": {
+          "type": "string",
+          "default": "opus",
+          "description": "Model passed to Claude Code on every local run (--model). Use a tier alias like 'opus' or 'sonnet' to always get the latest model of that tier, or a full model id to pin a version. Leave empty to use the Claude CLI default."
         },
         "clike.claudeCode.printModeFlag": {
           "type": "string",
@@ -291,6 +294,11 @@
           "type": "string",
           "default": "codex",
           "description": "Executable used to invoke GPT Codex locally."
+        },
+        "clike.localAgent.codex.model": {
+          "type": "string",
+          "default": "gpt-5.5",
+          "description": "Model passed to Codex on every local run (--model). Codex exposes no model-list command, so set the exact model id your Codex login supports; an invalid id makes the run fail. Leave empty to use the Codex CLI default."
         },
         "clike.localAgent.codex.approvalMode": {
           "type": "string",

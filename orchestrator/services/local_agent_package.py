@@ -994,12 +994,17 @@ def _build_workspace_inspection_policy(req_id: str, req: Dict[str, Any]) -> Dict
         ),
     }
 
-def _resolve_local_executor(payload: Dict[str, Any]) -> str:
+def _resolve_local_executor(payload: Dict[str, Any]) -> Optional[str]:
     """
     Resolve a concrete local executor from the request payload.
 
-    The extension is the actuator, so the orchestrator must return a concrete
-    executor that the extension can actually run.
+    The extension is the actuator, so the orchestrator must only return an
+    executor that the extension can actually run. Selection is driven by the
+    real availability reported in ``localAgentCapabilities`` (not merely by the
+    configured command name). When capabilities are present and no executor is
+    available, this returns ``None`` so the caller can fall back to cloud
+    (prefer_local_agent) or fail deterministically (local_agent_only) instead
+    of producing a package the actuator will certainly reject.
     """
     raw = _safe_text(payload.get("localAgentExecutor")).strip().lower()
 
@@ -1017,7 +1022,10 @@ def _resolve_local_executor(payload: Dict[str, Any]) -> str:
         return bool(item.get("available"))
 
     if raw in {"claude_code", "gpt_codex"}:
-        if available(raw) or not capabilities:
+        if available(raw):
+            return raw
+        # Older clients do not send capabilities: trust the explicit request.
+        if not capabilities:
             return raw
 
     preferred = _safe_text(payload.get("localAgentPreferredExecutor")).strip().lower()
@@ -1033,9 +1041,21 @@ def _resolve_local_executor(payload: Dict[str, Any]) -> str:
         if available(candidate):
             return candidate
 
-    # Last fallback keeps backward compatibility for older clients that do not
-    # send localAgentCapabilities.
-    return "gpt_codex"
+    # No available executor. Keep backward compatibility for older clients that
+    # do not report capabilities (assume the legacy default), but never hand the
+    # actuator an executor the client has explicitly reported as unavailable.
+    if not capabilities:
+        return "gpt_codex"
+    return None
+
+
+def resolve_local_executor(payload: Dict[str, Any]) -> Optional[str]:
+    """Public availability-aware resolver.
+
+    Returns a concrete runnable executor id, or ``None`` when the client
+    reported capabilities and none of the supported executors are available.
+    """
+    return _resolve_local_executor(payload)
 
 
 def _capability_index_names(capability_manifest: Dict[str, Any], kind: str) -> List[str]:

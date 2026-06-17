@@ -1109,6 +1109,10 @@ def _load_target_contract_from_core_blobs(core_blobs: dict | None) -> dict | Non
     return _load_json_blob(core_blobs, "target_contract.json")
 
 
+def _load_file_requirements_from_core_blobs(core_blobs: dict | None) -> dict | None:
+    return _load_json_blob(core_blobs, "file_requirements.json")
+
+
 
 def _load_text_blob(core_blobs: dict | None, suffix: str) -> str:
     if not core_blobs:

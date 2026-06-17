@@ -21,6 +21,8 @@ const {
   resolveSelectedLocalAgentExecutor,
   detectLocalAgentAvailability,
   getExecutorConfig,
+  buildLocalAgentModelArgs,
+  parseClaudeResultEnvelope,
   buildLocalAgentDisplayLabel,
   localAgentSupportsPhase,
   //_d_etectLocalAgentAvailability,
@@ -233,9 +235,9 @@ function computeProfileHint(mode, model) {
 function getDefaultExecutionPreference() {
   try {
     const cfg = vscode.workspace.getConfiguration('clike');
-    return normalizeExecutionPreference(cfg.get('execution.defaultPreference', 'local_agent_only'));
+    return normalizeExecutionPreference(cfg.get('execution.defaultPreference', 'cloud_only'));
   } catch {
-    return 'local_agent_only';
+    return 'cloud_only';
   }
 }
 
@@ -1208,18 +1210,24 @@ function cfgChat() {
 // runs read-only (no file edits); coding lets the agent write under the
 // orchestrator-provided output_root.
 function buildChatInvocationArgs(executorId, mode, executorConfig) {
+  const modelArgs = buildLocalAgentModelArgs(executorId, executorConfig);
+
   if (executorId === 'claude_code') {
     const flag = (executorConfig && executorConfig.printModeFlag) || '-p';
+    // --output-format json lets us read back the model actually used (and any
+    // fallback model) from the result envelope.
+    const base = [flag, '--output-format', 'json', ...modelArgs];
     if (mode === 'coding') {
       const pm = (executorConfig && executorConfig.permissionMode) || 'acceptEdits';
-      return [flag, '--permission-mode', pm];
+      return [...base, '--permission-mode', pm];
     }
-    return [flag];
+    return base;
   }
   // gpt_codex: non-interactive exec; prompt is delivered on stdin.
-  return Array.isArray(executorConfig && executorConfig.argsBeforePrompt)
+  const codexBase = Array.isArray(executorConfig && executorConfig.argsBeforePrompt) && executorConfig.argsBeforePrompt.length
     ? executorConfig.argsBeforePrompt
     : ['exec'];
+  return [...codexBase, ...modelArgs];
 }
 
 // Badge shown next to a local-agent answer (mirrors how the cloud path shows
@@ -1285,6 +1293,17 @@ async function runLocalChatAgent({ pkg, executorId, settings, wsrootUri, out }) 
   const stdout = agentResult.stdout || '';
   const stderr = agentResult.stderr || '';
 
+  // Determine the model actually used. Claude reports it in the JSON envelope
+  // (authoritative, also reflects any fallback model); Codex has no machine
+  // -readable model list, so the model used is the one we pinned via --model.
+  const claudeEnvelope = executorId === 'claude_code' ? parseClaudeResultEnvelope(stdout) : null;
+  const usedModel = String(
+    (claudeEnvelope && claudeEnvelope.model) || (executorConfig && executorConfig.model) || ''
+  ).trim();
+  if (out && typeof out.appendLine === 'function' && usedModel) {
+    out.appendLine(`[CLike] [local-agent:${executorId}] model_used=${usedModel}`);
+  }
+
   if (mode === 'coding') {
     const paths = await collectGeneratedFilePaths(wsrootUri, pkg.output_root);
     if (!paths.length) {
@@ -1295,18 +1314,21 @@ async function runLocalChatAgent({ pkg, executorId, settings, wsrootUri, out }) 
     const synthesis =
       `Generated ${paths.length} file(s) under ${pkg.output_root}/:\n` +
       paths.map(p => '- ' + p).join('\n');
-    return { mode, badge, synthesis, stdout, files: paths.map(p => ({ path: p })) };
+    return { mode, badge, model: usedModel, synthesis, stdout, files: paths.map(p => ({ path: p })) };
   }
 
-  // free (Q&A)
-  const answer = stdout.trim();
+  // free (Q&A): with --output-format json the answer text is in `.result`.
+  const answer = (claudeEnvelope && typeof claudeEnvelope.result === 'string')
+    ? claudeEnvelope.result.trim()
+    : stdout.trim();
   if (!answer) {
     const blocked = classifyBlockedLocalAgentOutput({ stdout, stderr });
     if (blocked) throw new Error(`${blocked.code}: ${blocked.message}`);
     throw new Error(`${executorLabel} returned no answer (exit=${agentResult.exitCode}).`);
   }
-  const synthesis = `${executorLabel} answered locally (read-only, exit=${agentResult.exitCode}).`;
-  return { mode, badge, answer, synthesis, stdout };
+  const modelSuffix = usedModel ? ` using ${usedModel}` : '';
+  const synthesis = `${executorLabel} answered locally${modelSuffix} (read-only, exit=${agentResult.exitCode}).`;
+  return { mode, badge, model: usedModel, answer, synthesis, stdout };
 }
 
 function effectiveHistoryScope(context) {
@@ -1358,6 +1380,7 @@ async function loadSession(mode, limit = 200) {
       role: e.role,
       content: e.content,
       model: e.model,
+      agentModel: e.agentModel || '',
       attachments: e.attachments || [],
       kind: e.kind || 'text',
       ts: e.ts || Date.now()
@@ -1799,16 +1822,18 @@ function cfg() {
     localAgentRestrictToKitPhases: c.get('localAgent.restrictToKitPhases', true),
     localAgentTimeoutMinutes: c.get('localAgent.timeoutMinutes', 30),
 
-    claudeCodeEnabled: c.get('claudeCode.enabled', false),
+    claudeCodeEnabled: c.get('claudeCode.enabled', true),
     claudeCodeRestrictToKitPhases: c.get('claudeCode.restrictToKitPhases', true),
     claudeCodeEnableEval: c.get('claudeCode.enableEval', false),
     claudeCodeCommand: c.get('claudeCode.command', 'claude'),
+    claudeCodeModel: c.get('claudeCode.model', 'opus'),
     claudeCodePermissionMode: c.get('claudeCode.permissionMode', 'acceptEdits'),
     claudeCodePrintModeFlag: c.get('claudeCode.printModeFlag', '-p'),
     claudeCodeTimeoutMinutes: c.get('claudeCode.timeoutMinutes', 30),
 
     codexEnabled: c.get('localAgent.codex.enabled', true),
     codexCommand: c.get('localAgent.codex.command', 'codex'),
+    codexModel: c.get('localAgent.codex.model', 'gpt-5.5-codex'),
     codexSandboxMode: c.get('localAgent.codex.sandboxMode', 'auto'),
     codexTimeoutMinutes: c.get('localAgent.codex.timeoutMinutes', 35),
 
@@ -3753,9 +3778,12 @@ async function cmdOpenChat(context) {
             }
 
             const nextExecutor = normalizeLocalAgentExecutor(requested);
+            // /agent-default just sets the preferred local executor. It must NOT
+            // change the current mode, so it can be used from Free (Q&A) and
+            // Coding as well as Harper.
+            const currentUiMode = state.mode || 'harper';
             const nextState = {
               ...state,
-              mode: 'harper',
               localAgentExecutor: nextExecutor,
             };
 
@@ -3769,9 +3797,9 @@ async function cmdOpenChat(context) {
                   ? 'Claude Code'
                   : 'auto';
 
-            log(`[harperRun][agent-default] updated localAgentExecutor=${nextExecutor}`);
+            log(`[harperRun][agent-default] updated localAgentExecutor=${nextExecutor} mode=${currentUiMode}`);
 
-            await appendSessionJSONL('harper', {
+            await appendSessionJSONL(currentUiMode, {
               role: 'system',
               content: `✔ AGENT-DEFAULT ${label}`,
               model: state.model || 'auto',
@@ -5422,15 +5450,20 @@ async function cmdOpenChat(context) {
                 wsrootUri: getWorkspaceRoot(),
                 out,
               });
+              // Live bubble label: agent badge plus the model actually used.
+              const liveBadge = localOut.model ? `${localOut.badge} · ${localOut.model}` : localOut.badge;
               if (localOut.mode === 'coding') {
                 // Clean bubble (agent badge + file list), Files tab populated and
                 // active. Files are already on disk, so no Apply/base64 preview.
-                await appendSessionJSONL(activeMode, { role: 'assistant', content: localOut.synthesis, model: localOut.badge });
-                panel.webview.postMessage({ type: 'chatResult', data: { model: localOut.badge, text: localOut.synthesis } });
+                // Persist with activeModel (like the cloud path and the user
+                // message) so the entry survives the per-model history filter on
+                // reload; agentModel records which model the CLI actually used.
+                await appendSessionJSONL(activeMode, { role: 'assistant', content: localOut.synthesis, model: activeModel, agentModel: localOut.model || '' });
+                panel.webview.postMessage({ type: 'chatResult', data: { model: liveBadge, text: localOut.synthesis } });
                 panel.webview.postMessage({ type: 'files', data: localOut.files, activate: true });
               } else {
-                await appendSessionJSONL(activeMode, { role: 'assistant', content: localOut.answer, model: localOut.badge });
-                panel.webview.postMessage({ type: 'chatResult', data: { model: localOut.badge, text: localOut.answer } });
+                await appendSessionJSONL(activeMode, { role: 'assistant', content: localOut.answer, model: activeModel, agentModel: localOut.model || '' });
+                panel.webview.postMessage({ type: 'chatResult', data: { model: liveBadge, text: localOut.answer } });
                 panel.webview.postMessage({ type: 'text', text: localOut.synthesis });
               }
             } catch (e) {
