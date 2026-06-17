@@ -67,25 +67,50 @@ The extension is **provider-aware**, **model-aware**, and keeps a persistent cha
 ### Execution: cloud or local agent
 
 Every chat mode can run via the cloud or via a local agent (Claude Code / Codex
-CLI), selected with the **Execution** preference in the chat header
-(`auto`, `cloud_only`, `prefer agent`, `agent only`, `hybrid`).
+CLI), selected with the **Execution** preference in the chat header. There are
+three canonical modes:
 
-- Local-agent execution now covers **all Harper phases** (`/idea`, `/spec`,
-  `/plan`, `/kit`, `/eval`, `/finalize`, `/extend`) as well as the standalone
+- **`cloud only`** — never use a local agent; always route to the Gateway/cloud.
+- **`prefer agent`** — try a valid, available local agent first, then fall back to
+  cloud if no local executor can run the request.
+- **`agent only`** — use only an available local agent; **never** fall back to
+  cloud (a clear, deterministic error is shown if none is available).
+
+The default is **`prefer agent`**. Legacy values are normalized automatically at
+runtime, so older persisted settings keep working: `auto → cloud_only`,
+`hybrid → prefer_local_agent`, `prefer_claude_code → prefer_local_agent`,
+`claude_code_only → local_agent_only`.
+
+- Local-agent execution covers **all Harper phases** (`/idea`, `/spec`, `/plan`,
+  `/kit`, `/eval`, `/finalize`, `/extend`) as well as the standalone
   **Free (Q&A)** and **Coding** modes.
-- In **Free**, the local agent answers read-only and the reply is badged with the
-  agent used (`agent-claude` / `agent-codex`), the way the cloud path shows the
-  model name; a short execution synthesis appears in the **Text** panel.
+- An installed **Claude Code** CLI is treated as a first-class local executor by
+  default (`clike.claudeCode.enabled` defaults to `true`); set it to `false` to
+  disable Claude locally. Codex stays available when its CLI is installed.
+- **Model selection per agent.** On every local run CLike pins the model via the
+  CLI `--model` flag, using `clike.claudeCode.model` (default `opus`) and
+  `clike.localAgent.codex.model` (default `gpt-5.5-codex`). For Claude, tier
+  aliases like `opus`/`sonnet` always resolve to the latest model of that tier;
+  leave a setting empty to use the CLI's own default. Codex exposes no
+  model-list command, so set the exact model id your Codex login supports.
+- **Model actually used is captured.** Claude is invoked with
+  `--output-format json`, so CLike reads back the real model from the result
+  envelope (also reflecting any fallback model); for Codex the used model is the
+  one pinned via `--model`. The model is logged to the **Clike** output channel
+  (`model_used=…`), shown in the live bubble badge (e.g.
+  `agent-claude · claude-opus-4-8`), and persisted alongside the message.
+- In **Free**, the local agent answers read-only; a short execution synthesis
+  appears in the **Text** panel and the answer is persisted in the per-model
+  history (like the cloud path), so it survives reload.
 - In **Coding**, the local agent writes the generated files under
   `generated/<id>/` in the workspace root; the bubble shows the agent badge plus
   the file list, and the files are clickable in the **Files** tab.
 - Local agents authenticate through their own CLI session — **no cloud API key is
   required or forwarded**.
-- `agent only` is the default Execution preference. Provider availability is
-  computed at the Gateway from configured API keys: when no cloud key is set, the
-  cloud Execution options are disabled and the model list hides cloud models;
-  selecting a model whose provider key is missing surfaces a clear message in the
-  **Text** panel.
+- Provider availability is computed at the Gateway from configured API keys: when
+  no cloud key is set, the cloud Execution options are disabled and the model list
+  hides cloud models; selecting a model whose provider key is missing surfaces a
+  clear message in the **Text** panel.
 
 ### Multi-model / multi-provider chat
 
@@ -398,6 +423,20 @@ Current configuration keys exposed by the extension include:
 - `clike.chat.maxInMemoryMessages`
 - `clike.chat.autoWriteGeneratedFiles`
 
+### Execution / local agent
+
+- `clike.execution.defaultPreference`
+  - values: `cloud_only`, `prefer_local_agent`, `local_agent_only`
+  - default: `prefer_local_agent` (legacy `auto`/`hybrid` are normalized at runtime)
+- `clike.localAgent.enabled`
+- `clike.localAgent.preferredExecutor` — `auto` | `claude_code` | `gpt_codex`
+- `clike.claudeCode.enabled` — default `true`; treat an installed Claude CLI as a local executor
+- `clike.claudeCode.command` — default `claude`
+- `clike.claudeCode.model` — default `opus`; model pinned on every Claude run (`--model`). Tier aliases (`opus`/`sonnet`) always use the latest of that tier; empty = CLI default
+- `clike.localAgent.codex.enabled`
+- `clike.localAgent.codex.command` — default `codex`
+- `clike.localAgent.codex.model` — default `gpt-5.5-codex`; model pinned on every Codex run (`--model`). Set the exact id your Codex login supports; empty = CLI default
+
 ### Backend endpoints
 
 - `clike.orchestratorUrl`
@@ -560,6 +599,14 @@ Compared with earlier simpler revisions, the extension now includes or exposes:
 - promote / quick-promote command palette actions
 - expanded git-oriented settings and promotion behavior
 - more configurable apply / backup / dry-run behavior
+- streamlined Execution model: only `cloud_only` / `prefer_local_agent` /
+  `local_agent_only`, with legacy `auto`/`hybrid` normalized at runtime
+- Claude Code enabled as a first-class local executor by default
+- availability-aware local routing (no unrunnable Codex package; `prefer agent`
+  falls back to cloud, `agent only` fails deterministically)
+- per-agent model selection via `--model` (`clike.claudeCode.model`,
+  `clike.localAgent.codex.model`) and capture of the model actually used
+- local-agent answers persisted in the per-model chat history (survive reload)
 
 ---
 

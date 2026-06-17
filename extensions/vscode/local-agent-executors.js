@@ -3,19 +3,21 @@ const cp = require('child_process');
 function normalizeExecutionPreference(value) {
   const raw = String(value || '').trim().toLowerCase();
 
-  // Backward compatibility.
+  // Backward compatibility. Canonical modes are cloud_only, prefer_local_agent
+  // and local_agent_only. Legacy values are mapped deterministically so old
+  // persisted settings keep working without exposing ambiguous modes.
   if (raw === 'prefer_claude_code') return 'prefer_local_agent';
   if (raw === 'claude_code_only') return 'local_agent_only';
+  if (raw === 'auto') return 'cloud_only';
+  if (raw === 'hybrid') return 'prefer_local_agent';
 
   const allowed = new Set([
-    'auto',
     'cloud_only',
     'prefer_local_agent',
     'local_agent_only',
-    'hybrid',
   ]);
 
-  return allowed.has(raw) ? raw : 'auto';
+  return allowed.has(raw) ? raw : 'cloud_only';
 }
 
 function normalizeLocalAgentExecutor(value) {
@@ -93,6 +95,7 @@ function getExecutorConfig(executorId, settings) {
       enabled: !!settings.localAgentEnabled && !!settings.claudeCodeEnabled,
       label: 'Claude Code',
       command: settings.claudeCodeCommand,
+      model: String(settings.claudeCodeModel || '').trim(),
       argsBeforePrompt: [],
       printModeFlag: settings.claudeCodePrintModeFlag || '-p',
       permissionMode: settings.claudeCodePermissionMode || 'acceptEdits',
@@ -119,6 +122,7 @@ function getExecutorConfig(executorId, settings) {
       enabled: !!settings.localAgentEnabled && !!settings.codexEnabled,
       label: 'GPT Codex',
       command: settings.codexCommand || 'codex',
+      model: String(settings.codexModel || '').trim(),
       // Codex CLI non-interactive mode.
       argsBeforePrompt: ['exec'],
       printModeFlag: '',
@@ -264,6 +268,35 @@ function buildLocalAgentEnv(baseEnv, overrides = {}) {
   return { ...env, ...overrides };
 }
 
+// Build the CLI args that pin the model for a local-agent invocation. Returns
+// an empty array when no model is configured (the CLI then uses its own default).
+// Claude and Codex both accept `--model <id>` (Codex also `-m`). For Claude an
+// alias like 'opus'/'sonnet' resolves to the latest model of that tier.
+function buildLocalAgentModelArgs(executorId, executorConfig) {
+  const model = String((executorConfig && executorConfig.model) || '').trim();
+  if (!model) return [];
+
+  const normalized = normalizeLocalAgentExecutor(executorId);
+  if (normalized === 'claude_code' || normalized === 'gpt_codex') {
+    return ['--model', model];
+  }
+  return [];
+}
+
+// Parse the single-result JSON envelope emitted by `claude -p --output-format json`.
+// Returns the parsed object (which exposes `result`, `model`, `usage`, ...) or
+// null when stdout is not a JSON object, so callers can fall back to raw stdout.
+function parseClaudeResultEnvelope(stdout) {
+  const text = String(stdout || '').trim();
+  if (!text.startsWith('{')) return null;
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 function buildLocalAgentDisplayLabel(executorId) {
   const normalized = normalizeLocalAgentExecutor(executorId);
   if (normalized === 'claude_code') return 'Claude Code';
@@ -277,6 +310,8 @@ module.exports = {
   executionPreferenceRequestsLocalAgent,
   resolveSelectedLocalAgentExecutor,
   getExecutorConfig,
+  buildLocalAgentModelArgs,
+  parseClaudeResultEnvelope,
   buildLocalAgentDisplayLabel,
   buildLocalAgentEnv,
   localAgentSupportsPhase,

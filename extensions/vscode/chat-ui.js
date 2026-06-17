@@ -434,11 +434,9 @@ function getWebviewHtml(orchestratorUrl, themeName = 'classic') {
     <button id="refresh"> ↻ </button>
     <label>Execution</label>
     <select id="execution">
-      <option value="auto">auto</option>
       <option value="cloud_only">cloud only</option>
       <option value="prefer_local_agent">prefer agent</option>
       <option value="local_agent_only">agent only</option>
-      <option value="hybrid">hybrid</option>
     </select>
 
 
@@ -470,8 +468,7 @@ function getWebviewHtml(orchestratorUrl, themeName = 'classic') {
     <div id="attach-chips" style="margin-left:8px; display:flex; flex-wrap:wrap; gap:6px;"></div>
   </div>
   <div class="row">
-    <button id="sendChat">Send (free)</button>
-    <button id="sendGen">Code (harper/code)</button>
+    <button id="sendChat">Send</button>
     <button id="apply" disabled>Apply</button>
     <button id="cancel" disabled>Cancel</button>
   </div>
@@ -518,7 +515,7 @@ var HELP_COMMANDS = [
   {cmd:'/plan --methodology bmad --agent architect', desc:'Plans with BMAD architecture guidance while CLike owns PLAN.md and plan.json'},
   {cmd:'/plan --methodology bmad --agent pm', desc:'Plans with BMAD product slicing and acceptance guidance'},
   {cmd:'/spec --methodology bmad --agent ux', desc:'Builds SPEC guidance with UX journeys, states, and accessibility focus'},
-  {cmd:'/agent-default codex|claude|auto', desc:'Sets the preferred local agent executor for Harper local flows'},
+  {cmd:'/agent-default codex|claude|auto', desc:'Sets the preferred local agent executor (works in Free, Coding and Harper; does not change mode)'},
   {cmd:'/finalize', desc:'Final gates and project closure (Harper)'},
   {cmd:'/finalize --methodology bmad --agent tech-writer', desc:'Finalizes with BMAD documentation guidance'},
   {cmd:'/rag <query>', desc:'Searches the RAG and shows top results'},
@@ -873,7 +870,6 @@ const prompt = el('prompt');
 const btnRefresh = el('refresh');
 const btnClear = el('clear');
 const btnChat = el('sendChat');
-const btnGen = el('sendGen');
 const btnApply = el('apply');
 const btnCancel = el('cancel');
 const btnHelp = el('helpBtn');
@@ -971,10 +967,11 @@ function updateBotBadge() {
   } else {
     prompt.placeholder = 'Type your prompt...';
   }
+  // Single send button. The mode decides the route on submit:
+  // free -> chat (Q&A), coding -> code generation, harper -> chat (Q&A);
+  // Harper phase generation is driven by slash commands.
   const c1 = document.getElementById('sendChat');
-  const c2 = document.getElementById('sendGen');
-  if (c1) c1.textContent = isHarper ? 'Chat (harper)' : 'Send (free)';
-  if (c2) c2.textContent = isHarper ? 'Code (harper)' : 'Code (coding)';
+  if (c1) c1.textContent = 'Send';
 }
 
 // --- Slash commands ---
@@ -1279,12 +1276,23 @@ function handleSlash(slash) {
   }
 
   const slashCmd = String(slash.cmd || '').toLowerCase();
+  // Harper-only commands: project utilities and all Harper phase commands.
+  // /agent-default is intentionally NOT here — it sets the preferred local
+  // executor and must be usable in Free (Q&A) and Coding too.
   const isHarperModeOnlyCommand = new Set([
     '/init',
     '/status',
     '/where',
     '/switch',
-    '/agent-default',
+    '/idea',
+    '/spec',
+    '/plan',
+    '/kit',
+    '/eval',
+    '/gate',
+    '/finalize',
+    '/extend',
+    '/add-req',
   ]).has(slashCmd);
 
   if (isHarperModeOnlyCommand && currentMode() !== 'harper') {
@@ -1718,7 +1726,6 @@ function setBusy(on) {
     btnRefresh,
     btnClear,
     btnChat,
-    btnGen,
     btnApply,
     btnAttach,
     btnAttachWs,
@@ -1902,8 +1909,12 @@ function dispatchHarperSlashText(text) {
   return true;
 }
 
-btnChat.addEventListener('click', ()=>{
-  console.log('[webview] sendChat click');
+// Single "Send" entry point. Routing is decided by the input and the mode:
+//   - slash command  -> dispatched (Harper phase commands act only in Harper,
+//                       /agent-default and utility slashes per their own rules);
+//   - plain text      -> coding mode = code generation (/v1/generate),
+//                        free/harper mode = chat Q&A (/v1/chat).
+function onSend() {
   const text = prompt.value;
   if (!text.trim()) return;
 
@@ -1912,63 +1923,37 @@ btnChat.addEventListener('click', ()=>{
   }
 
   const slash = parseSlash(text);
-  console.log('CMD', slash?.cmd);
-  console.log('ARG', slash?.args);
-
   if (slash) {        // <-- SLASH → non è una chat normale
     dispatchSlashFromInput(slash);
     prompt.value = '';
     return;
   }
-  const atts = attachmentsByMode[mode.value] ? [...attachmentsByMode[mode.value]] : [];
 
-  bubble('user', text,model.value, atts);
+  const isCoding = mode.value === 'coding';
+  const routeMode = isCoding ? 'coding' : mode.value; // free/harper -> chat; coding -> generate
+  const atts = attachmentsByMode[routeMode] ? [...attachmentsByMode[routeMode]] : [];
+  const selectedOpt = model.options[model.selectedIndex];
+  const _provider = (selectedOpt && selectedOpt.dataset && selectedOpt.dataset.provider) || inferProvider(model.value);
+
+  bubble('user', text, model.value, atts);
   setBusy(true);
   prompt.value = '';
   clearTextPanel();        // Clear the Text tab.
   clearDiffsPanel();        // Clear the Diffs tab.
   clearFilesPanel();        // Clear the Files tab.
-  const selectedOpt = model.options[model.selectedIndex];
-  const _provider = (selectedOpt && selectedOpt.dataset && selectedOpt.dataset.provider) || inferProvider(model.value);
-    console.log('sendChat event');
 
-  post('sendChat', { mode: mode.value, model: model.value, provider:_provider, prompt: text, attachments: atts });
-  attachmentsByMode[currentMode()] = [];
-  renderAttachmentChips();
-  });
-
-btnGen.addEventListener('click', ()=>{
-  console.log('[webview] sendGen click');
-
-  const text = prompt.value;
-  if (dispatchHarperSlashText(text)) {
-    return;
+  if (isCoding) {
+    setTab('diffs');
+    post('sendGenerate', { mode: routeMode, model: model.value, provider: _provider, prompt: text, attachments: atts });
+  } else {
+    post('sendChat', { mode: routeMode, model: model.value, provider: _provider, prompt: text, attachments: atts });
   }
 
-  const slash = parseSlash(text);
-  if (slash) {
-    dispatchSlashFromInput(slash);
-    return;
-  }
-  const m = (mode.value === 'free') ? 'coding' : mode.value;   // /v1/generate expects coding/harper.
-
-  const atts = attachmentsByMode[m] ? [...attachmentsByMode[m]] : [];
-  const selectedOpt = model.options[model.selectedIndex];
-  const _provider = (selectedOpt && selectedOpt.dataset && selectedOpt.dataset.provider) || inferProvider(model.value);
-  
-  if (!text.trim()) return;
-  bubble('user', text,model.value, atts);
-  setBusy(true);
-  prompt.value = '';
-  clearTextPanel();        // Clear the Text tab.
-  clearDiffsPanel();        // Clear the Diffs tab.
-  clearFilesPanel();        // Clear the Files tab.
-  setTab('diffs');
-
-  post('sendGenerate', { mode: m, model: model.value, provider:_provider, prompt: text, attachments: atts });
-  attachmentsByMode[m] = [];
+  attachmentsByMode[routeMode] = [];
   renderAttachmentChips();
-});
+}
+
+btnChat.addEventListener('click', onSend);
 
 prompt.addEventListener('keydown', (ev) => {
   const isEnter = ev.key === 'Enter' || ev.key === 'Return';
@@ -1978,27 +1963,14 @@ prompt.addEventListener('keydown', (ev) => {
     return;
   }
 
-  const text = String(prompt.value || '');
-  if (isHarperSlashText(text)) {
-    ev.preventDefault();
-    ev.stopPropagation();
-    dispatchHarperSlashText(text);
-    return;
-  }
-
+  // Enter submits only in Harper mode (Harper commands and Q&A chat).
+  // In Free/Coding, Enter is a newline; use the "Send" button to send.
   if (currentMode() !== 'harper') return;
-
-  const slash = parseSlash(text);
-
-  if (!slash) {
-    return;
-  }
 
   ev.preventDefault();
   ev.stopPropagation();
 
-  dispatchSlashFromInput(slash);
-
+  onSend();
 });
 
 btnApply.addEventListener('click', ()=>{
@@ -2044,7 +2016,6 @@ window.addEventListener('message', (event) => {
         command.startsWith('/finalize') ||
         command.startsWith('/extend') ||
         command.startsWith('/add-req') ||
-        command.startsWith('/agent-default') ||
         command.startsWith('/ragIndex') ||
         command.startsWith('/ragSearch')
       ) {

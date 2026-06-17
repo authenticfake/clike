@@ -1,4 +1,7 @@
-from services.execution_policy import resolve_execution_policy
+from services.execution_policy import (
+    normalize_execution_preference,
+    resolve_execution_policy,
+)
 
 
 DOCUMENT_PHASES = ["idea", "spec", "plan"]
@@ -56,3 +59,27 @@ def test_unknown_phase_not_supported_for_local_agent():
     assert policy["phase_supported"] is False
     assert policy["selected"] == "cloud"
     assert policy["fallback_applied"] is True
+
+
+def test_normalize_maps_legacy_execution_modes_to_canonical():
+    assert normalize_execution_preference("auto") == "cloud_only"
+    assert normalize_execution_preference("hybrid") == "prefer_local_agent"
+    assert normalize_execution_preference("prefer_claude_code") == "prefer_local_agent"
+    assert normalize_execution_preference("claude_code_only") == "local_agent_only"
+
+
+def test_normalize_passes_through_canonical_modes_and_defaults_to_cloud_only():
+    for mode in ("cloud_only", "prefer_local_agent", "local_agent_only"):
+        assert normalize_execution_preference(mode) == mode
+    assert normalize_execution_preference("garbage") == "cloud_only"
+    assert normalize_execution_preference(None) == "cloud_only"
+
+
+def test_legacy_auto_resolves_to_cloud_via_normalization():
+    policy = resolve_execution_policy(phase="kit", execution_preference="auto")
+    assert policy["selected"] == "cloud"
+
+
+def test_legacy_hybrid_resolves_to_local_agent_for_supported_phase():
+    policy = resolve_execution_policy(phase="spec", execution_preference="hybrid")
+    assert policy["selected"] == "local_agent"
