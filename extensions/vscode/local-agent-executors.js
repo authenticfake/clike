@@ -1,4 +1,5 @@
 const cp = require('child_process');
+const fs = require('fs');
 
 function normalizeExecutionPreference(value) {
   const raw = String(value || '').trim().toLowerCase();
@@ -164,41 +165,229 @@ function getExecutorConfig(executorId, settings) {
   };
 }
 
-function commandExists(command) {
+// ---------------------------------------------------------------------------
+// Cross-platform local-agent command resolution & execution.
+//
+// On Windows, npm-installed CLIs expose `<name>.cmd` / `<name>.ps1` (and
+// sometimes `<name>.exe`). `<name>.cmd` cannot be launched with `spawn(..., {
+// shell:false })` directly, and `<name>.ps1` is frequently blocked by the
+// PowerShell ExecutionPolicy. We therefore resolve a concrete executable
+// (preferring `.cmd` > `.exe` > `.bat`, never `.ps1`) and run `.cmd`/`.bat`
+// through `cmd.exe /d /s /c`. On macOS/Linux the command runs directly.
+// ---------------------------------------------------------------------------
+
+const WINDOWS_EXECUTABLE_PREFERENCE = ['.cmd', '.exe', '.bat'];
+const VERSION_CHECK_TTL_MS = 15000;
+const _versionCheckCache = new Map();
+
+function isWindowsPlatform(platform) {
+  return String(platform || process.platform) === 'win32';
+}
+
+function _defaultLocalAgentLog(line) {
+  try { console.log(`[CLike][local-agent] ${line}`); } catch { /* noop */ }
+}
+
+function getCommandExtension(command) {
+  const m = String(command || '').toLowerCase().match(/\.(cmd|bat|exe|ps1)$/);
+  return m ? `.${m[1]}` : '';
+}
+
+// Pure: pick the safest candidate from raw `where <cmd>` output, preferring
+// .cmd > .exe > .bat and never .ps1. Returns '' when no acceptable match.
+function pickWindowsPathCandidate(whereOutput) {
+  const lines = String(whereOutput || '')
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  for (const ext of WINDOWS_EXECUTABLE_PREFERENCE) {
+    const hit = lines.find((l) => l.toLowerCase().endsWith(ext));
+    if (hit) return hit;
+  }
+  return '';
+}
+
+// Pure: decide how to spawn an already-resolved command on a given platform.
+// Windows .cmd/.bat are executed through cmd.exe; .exe and POSIX commands run
+// directly. Returns { file, args } to pass to child_process.spawn.
+function buildLocalAgentSpawn(command, args, platform) {
+  const cmd = String(command || '');
+  const extraArgs = Array.isArray(args) ? args.slice() : [];
+
+  if (isWindowsPlatform(platform)) {
+    const ext = getCommandExtension(cmd);
+    if (ext === '.cmd' || ext === '.bat') {
+      return { file: 'cmd.exe', args: ['/d', '/s', '/c', cmd, ...extraArgs] };
+    }
+    return { file: cmd, args: extraArgs };
+  }
+
+  return { file: cmd, args: extraArgs };
+}
+
+// Resolve the concrete command to spawn. On POSIX the command is used as-is
+// (PATH resolution happens at spawn time). On Windows we resolve to a concrete
+// executable, never returning a `.ps1` (returns '' when only `.ps1` exists).
+function resolveLocalAgentCommandPath(command, options = {}) {
+  const platform = options.platform || process.platform;
+  const log = typeof options.log === 'function' ? options.log : _defaultLocalAgentLog;
+  const raw = String(command || '').trim();
+  if (!raw || !isWindowsPlatform(platform)) return raw;
+
+  const ext = getCommandExtension(raw);
+  const looksAbsolute = /[\\/]/.test(raw) || /^[a-zA-Z]:/.test(raw);
+
+  // Explicit .ps1 → never run it; redirect to a sibling .cmd/.exe/.bat.
+  if (ext === '.ps1') {
+    const base = raw.slice(0, -'.ps1'.length);
+    for (const e of WINDOWS_EXECUTABLE_PREFERENCE) {
+      const candidate = base + e;
+      try { if (fs.existsSync(candidate)) { log(`resolved ${raw} -> ${candidate}`); return candidate; } } catch { /* ignore */ }
+    }
+    log(`refusing .ps1 (ExecutionPolicy risk) and no sibling .cmd/.exe/.bat for ${raw}`);
+    return '';
+  }
+
+  // Explicit executable extension → validate (for absolute) and use as-is.
+  if (ext) {
+    if (looksAbsolute) {
+      try { if (!fs.existsSync(raw)) log(`configured path does not exist: ${raw}`); } catch { /* ignore */ }
+    }
+    return raw;
+  }
+
+  // Absolute path without extension → try known executable extensions.
+  if (looksAbsolute) {
+    for (const e of WINDOWS_EXECUTABLE_PREFERENCE) {
+      const candidate = raw + e;
+      try { if (fs.existsSync(candidate)) { log(`resolved ${raw} -> ${candidate}`); return candidate; } } catch { /* ignore */ }
+    }
+    log(`no executable extension found for absolute path ${raw}`);
+    return raw;
+  }
+
+  // Bare command name → resolve from PATH preferring .cmd.
+  try {
+    const out = cp.execSync(`where ${raw}`, { stdio: ['ignore', 'pipe', 'ignore'] }).toString();
+    const picked = pickWindowsPathCandidate(out);
+    if (picked) {
+      log(`PATH candidates for "${raw}": [${out.trim().split(/\r?\n/).map((s) => s.trim()).filter(Boolean).join(', ')}] -> ${picked}`);
+      return picked;
+    }
+    log(`no acceptable PATH candidate for "${raw}" (output: ${out.trim() || 'empty'})`);
+  } catch {
+    log(`'where ${raw}' found no candidates`);
+  }
+  return raw;
+}
+
+// Verify availability by actually running `<command> --version` through the
+// same resolution/wrapper that real execution will use. Results are cached
+// briefly to avoid repeated process spawns within a single request.
+function runLocalAgentVersionCheck(command, options = {}) {
+  const platform = options.platform || process.platform;
+  const log = typeof options.log === 'function' ? options.log : _defaultLocalAgentLog;
+  const timeout = Number(options.timeoutMs || 7000);
+  const raw = String(command || '').trim();
+
+  const cacheKey = `${platform}::${raw}`;
+  const cached = _versionCheckCache.get(cacheKey);
+  if (cached && (Date.now() - cached.ts) < VERSION_CHECK_TTL_MS) {
+    return cached.result;
+  }
+
+  const resolved = resolveLocalAgentCommandPath(raw, { platform, log });
+  if (!resolved) {
+    const result = { ok: false, resolved: '', exitCode: null, stderr: '', file: '', args: [] };
+    _versionCheckCache.set(cacheKey, { ts: Date.now(), result });
+    return result;
+  }
+
+  const { file, args } = buildLocalAgentSpawn(resolved, ['--version'], platform);
+
+  let result;
+  try {
+    const res = cp.spawnSync(file, args, { timeout, encoding: 'utf8', windowsHide: true });
+    const exitCode = res.status;
+    const stderrHead = String(res.stderr || '')
+      .split(/\r?\n/).filter(Boolean).slice(0, 3).join(' | ');
+    const ok = !res.error && exitCode === 0;
+    log(
+      `version-check platform=${platform} invoked="${file} ${args.join(' ')}" ` +
+      `exit=${exitCode == null ? 'null' : exitCode} ok=${ok}` +
+      `${stderrHead ? ` stderr="${stderrHead}"` : ''}` +
+      `${res.error ? ` error=${res.error.code || res.error.message}` : ''}`
+    );
+    result = { ok, resolved, exitCode, stderr: stderrHead, file, args };
+  } catch (e) {
+    log(`version-check failed for "${raw}": ${e && e.message}`);
+    result = { ok: false, resolved, exitCode: null, stderr: '', file, args };
+  }
+
+  _versionCheckCache.set(cacheKey, { ts: Date.now(), result });
+  return result;
+}
+
+function commandExists(command, options = {}) {
   const cmd = String(command || '').trim();
   if (!cmd) return false;
+  const platform = options.platform || process.platform;
 
-  const probe = process.platform === 'win32'
-    ? `where ${cmd}`
-    : `command -v ${cmd}`;
+  // Windows: existence (`where`) is not enough — a `.cmd` cannot be spawned
+  // directly and `.ps1` is often blocked. Verify by actually running --version
+  // through the resolution/wrapper used for real execution.
+  if (isWindowsPlatform(platform)) {
+    return runLocalAgentVersionCheck(cmd, options).ok;
+  }
 
+  // POSIX: PATH resolution via `command -v` (fast, preserves prior behavior).
   try {
-    cp.execSync(probe, { stdio: 'ignore' });
+    cp.execSync(`command -v ${cmd}`, { stdio: 'ignore' });
     return true;
   } catch {
     return false;
   }
 }
 
-function detectLocalAgentAvailability(settings) {
+function detectLocalAgentAvailability(settings, log) {
   const claude = getExecutorConfig('claude_code', settings);
   const codex = getExecutorConfig('gpt_codex', settings);
+  const platform = process.platform;
+  const logFn = typeof log === 'function' ? log : _defaultLocalAgentLog;
 
-  const claudeFound = claude.enabled ? commandExists(claude.command) : false;
-  const codexFound = codex.enabled ? commandExists(codex.command) : false;
+  function probe(cfg) {
+    if (!cfg.enabled) return { resolved: '', ok: false };
+    if (isWindowsPlatform(platform)) {
+      const r = runLocalAgentVersionCheck(cfg.command, { platform, log: logFn });
+      return { resolved: r.resolved, ok: r.ok };
+    }
+    return { resolved: cfg.command, ok: commandExists(cfg.command, { platform }) };
+  }
+
+  const claudeProbe = probe(claude);
+  const codexProbe = probe(codex);
+
+  logFn(
+    `availability platform=${platform} ` +
+    `claude(enabled=${claude.enabled} cmd="${claude.command}" resolved="${claudeProbe.resolved}" available=${claudeProbe.ok}) ` +
+    `codex(enabled=${codex.enabled} cmd="${codex.command}" resolved="${codexProbe.resolved}" available=${codexProbe.ok})`
+  );
 
   return {
     claude_code: {
       enabled: claude.enabled,
       configured_command: claude.command,
-      command_found: claudeFound,
-      available: claudeFound,
+      resolved_command: claudeProbe.resolved,
+      command_found: claudeProbe.ok,
+      available: claudeProbe.ok,
     },
     gpt_codex: {
       enabled: codex.enabled,
       configured_command: codex.command,
-      command_found: codexFound,
-      available: codexFound,
+      resolved_command: codexProbe.resolved,
+      command_found: codexProbe.ok,
+      available: codexProbe.ok,
     },
   };
 }
@@ -317,5 +506,9 @@ module.exports = {
   localAgentSupportsPhase,
   detectLocalAgentAvailability,
   commandExists,
+  buildLocalAgentSpawn,
+  pickWindowsPathCandidate,
+  resolveLocalAgentCommandPath,
+  runLocalAgentVersionCheck,
   CLOUD_PROVIDER_ENV_KEYS,
 };

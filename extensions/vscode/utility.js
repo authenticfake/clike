@@ -2,7 +2,7 @@ const vscode = require('vscode');
 const cp = require('child_process');
 const path = require('path');
 const { gatherRagChunks } = require('./rag.js');
-const { buildLocalAgentEnv } = require('./local-agent-executors');
+const { buildLocalAgentEnv, resolveLocalAgentCommandPath, buildLocalAgentSpawn } = require('./local-agent-executors');
 
 const out = vscode.window.createOutputChannel('Clike.utility');
 const crypto = require('crypto');
@@ -2561,16 +2561,33 @@ async function runLocalAgentSync({
     return s;
   });
 
+  // Resolve a concrete, runnable command and decide how to spawn it on the
+  // current platform. On Windows this turns `claude`/`claude.cmd` into a
+  // `cmd.exe /d /s /c <script> ...` invocation; on macOS/Linux the command runs
+  // directly (file=finalCommand, args=argv) — unchanged behavior.
+  const resolvedCommand = resolveLocalAgentCommandPath(finalCommand, {
+    log: (line) => { if (out && typeof out.appendLine === 'function') out.appendLine(`[CLike] [local-agent:${normalizedExecutor}] ${line}`); },
+  });
+  if (!resolvedCommand) {
+    throw new Error(
+      `Local agent "${finalCommand}" could not be resolved to a runnable executable ` +
+      `(.ps1 is not executed; configure the .cmd/.exe path).`
+    );
+  }
+  const { file: spawnFile, args: spawnArgs } = buildLocalAgentSpawn(resolvedCommand, argv, process.platform);
+
   if (out && typeof out.appendLine === 'function') {
     out.appendLine(
-      `[CLike] [local-agent:${normalizedExecutor}] command=${finalCommand} argv=${JSON.stringify(safeArgvForLog)} cwd=${workspaceRootUri.fsPath} promptTransport=${transport}`
+      `[CLike] [local-agent:${normalizedExecutor}] platform=${process.platform} command=${finalCommand} ` +
+      `resolved=${resolvedCommand} spawnFile=${spawnFile} argv=${JSON.stringify(safeArgvForLog)} ` +
+      `cwd=${workspaceRootUri.fsPath} promptTransport=${transport}`
     );
   }
 
   const timeoutMs = Math.max(1, Number(timeoutMinutes || 20)) * 60 * 1000;
 
   return await new Promise((resolve, reject) => {
-    const child = cp.spawn(finalCommand, argv, {
+    const child = cp.spawn(spawnFile, spawnArgs, {
       cwd: workspaceRootUri.fsPath,
       shell: false,
       stdio: ['pipe', 'pipe', 'pipe'],
