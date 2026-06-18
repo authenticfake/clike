@@ -5901,6 +5901,9 @@ def build_document_phase_local_agent_package(
             ],
             "- Read every workspace_path listed above before producing output. Multiple attachments are allowed and all must be read.",
             "- workspace_path entries are inside the current working directory; read those. Do NOT read original_path — it is metadata only and may be outside the workspace.",
+            "- For PDF attachments, read and extract their full textual content and use it as primary evidence.",
+            "- For image attachments (png/jpg/jpeg/gif/webp/svg/...), use vision to describe precisely what the image shows — UI screens, layouts, components, diagrams, charts, labels, and any visible text — and use that description as evidence.",
+            "- If an attachment cannot be opened or understood (unsupported binary), state it explicitly as a gap; never invent its content.",
         ]
         if phase_norm == "idea":
             attachment_prompt_lines += [

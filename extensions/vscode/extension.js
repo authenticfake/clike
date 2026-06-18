@@ -20,6 +20,7 @@ const {
   executionPreferenceRequestsLocalAgent,
   resolveSelectedLocalAgentExecutor,
   detectLocalAgentAvailability,
+  reconcileExecutionPreference,
   getExecutorConfig,
   buildLocalAgentModelArgs,
   parseClaudeResultEnvelope,
@@ -232,12 +233,51 @@ function computeProfileHint(mode, model) {
 }
 
 
+// Max size for inlining an attachment's bytes into the request so the
+// orchestrator can materialize it under runs/<phase>/attachments/. Beyond this
+// the file is referenced by path only (kept out of the inline payload).
+const ATTACH_MAX_INLINE_BYTES = 10 * 1024 * 1024;
+
+const ATTACH_TEXT_EXT = new Set([
+  '.md', '.markdown', '.txt', '.text', '.log', '.json', '.yml', '.yaml', '.csv', '.tsv',
+  '.xml', '.html', '.htm', '.py', '.js', '.ts', '.tsx', '.jsx', '.java', '.go', '.rs',
+  '.c', '.cpp', '.h', '.hpp', '.cs', '.rb', '.php', '.sh', '.sql', '.ini', '.toml', '.cfg', '.env', '.properties',
+]);
+
+function attachmentExt(name) {
+  const m = String(name || '').toLowerCase().match(/\.[^.]+$/);
+  return m ? m[0] : '';
+}
+
+function isTextAttachment(name) {
+  return ATTACH_TEXT_EXT.has(attachmentExt(name));
+}
+
+// Best-effort MIME so the manifest/prompt can tell the agent how to treat the
+// attachment (PDF text vs image vision vs plain text).
+function guessAttachmentMime(name) {
+  const ext = attachmentExt(name);
+  const map = {
+    '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
+    '.webp': 'image/webp', '.bmp': 'image/bmp', '.svg': 'image/svg+xml', '.tif': 'image/tiff', '.tiff': 'image/tiff',
+    '.pdf': 'application/pdf',
+    '.doc': 'application/msword',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.xls': 'application/vnd.ms-excel',
+    '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    '.ppt': 'application/vnd.ms-powerpoint',
+    '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  };
+  if (map[ext]) return map[ext];
+  return isTextAttachment(name) ? 'text/plain' : 'application/octet-stream';
+}
+
 function getDefaultExecutionPreference() {
   try {
     const cfg = vscode.workspace.getConfiguration('clike');
-    return normalizeExecutionPreference(cfg.get('execution.defaultPreference', 'cloud_only'));
+    return normalizeExecutionPreference(cfg.get('execution.defaultPreference', 'local_agent_only'));
   } catch {
-    return 'cloud_only';
+    return 'local_agent_only';
   }
 }
 
@@ -3484,12 +3524,17 @@ async function cmdOpenChat(context) {
     localAgentExecutor: getDefaultLocalAgentExecutor(),
   };
   savedState.historyScope = effectiveHistoryScope(context);
-  savedState.executionPreference = normalizeExecutionPreference(
-    savedState.executionPreference || getDefaultExecutionPreference()
+  savedState.executionPreference = reconcileExecutionPreference(
+    savedState.executionPreference,
+    getDefaultExecutionPreference()
   );
   savedState.localAgentExecutor = normalizeLocalAgentExecutor(
     savedState.localAgentExecutor || getDefaultLocalAgentExecutor()
   );
+  // Persist the reconciled state so the value used at runtime (harperRun reads
+  // workspaceState) matches the value shown in the selector from the first
+  // command, without requiring the user to touch the Execution dropdown.
+  await context.workspaceState.update('clike.uiState', savedState);
   panel.webview.postMessage({ type: 'initState', state: savedState });
   out.appendLine(`cmdOpenChat savedState done`);
 
@@ -5007,7 +5052,6 @@ async function cmdOpenChat(context) {
           });
         }
         panel.webview.postMessage({ type: 'busy', on: false });
-
       }
 
             // opzionale utility
@@ -5046,14 +5090,17 @@ async function cmdOpenChat(context) {
             mode: saved.mode || 'free',
             model: saved.model || 'auto',
             historyScope: (saved.historyScope === 'allModels') ? 'allModels' : 'singleModel',
-            executionPreference: normalizeExecutionPreference(
-              saved.executionPreference || getDefaultExecutionPreference()
+            executionPreference: reconcileExecutionPreference(
+              saved.executionPreference,
+              getDefaultExecutionPreference()
             ),
             localAgentExecutor: normalizeLocalAgentExecutor(
               saved.localAgentExecutor || getDefaultLocalAgentExecutor()
             ),
           };
-          // 2) Invia initState alla webview
+          // 2) Persisti lo stato riconciliato (così harperRun usa lo stesso valore
+          // mostrato nel selettore già dal primo comando) e invia initState.
+          await context.workspaceState.update('clike.uiState', ui);
           panel.webview.postMessage({ type: 'initState', state: ui });
           // 3) Hydrate dei messaggi (non bloccare su errori)
           try {
@@ -5599,8 +5646,6 @@ async function cmdOpenChat(context) {
           return;
         }
 
-        const MAX_INLINE = 64 * 1024;
-        const TEXT_EXT = new Set(['.md','.txt','.log','.json','.yml','.yaml','.csv','.tsv','.py','.js','.ts','.java','.go','.rs','.c','.cpp','.cs','.sql','.ini','.toml','.cfg']);
         const atts = [];
 
         for (const uri of uris) {
@@ -5610,40 +5655,23 @@ async function cmdOpenChat(context) {
             const rel  = vscode.workspace.asRelativePath(uri);
             const fsPath = uri.fsPath || rel;
             const baseName = fsPath.split(/[\\/]/).pop() || 'file';
-            const ext = (baseName.match(/\.[^.]+$/)?.[0] || '').toLowerCase();
+            const isText = isTextAttachment(baseName);
+            const mime = guessAttachmentMime(baseName);
+            const common = { origin: 'workspace', source: 'workspace', name: baseName, path: rel, size, mime };
 
-            if (size <= MAX_INLINE) {
+            // Inline the bytes (text or base64) so the orchestrator materializes
+            // the file under runs/<phase>/attachments/. Only very large files are
+            // referenced by path only to avoid pathological payloads.
+            if (size <= ATTACH_MAX_INLINE_BYTES) {
               const bytes = await vscode.workspace.fs.readFile(uri);
-              if (TEXT_EXT.has(ext)) {
-                atts.push({
-                  origin: 'workspace',
-                  source: 'workspace',
-                  name: baseName,
-                  path: rel,
-                  content: Buffer.from(bytes).toString('utf8'),
-                  size,
-                  mime: 'text/plain'
-                });
+              if (isText) {
+                atts.push(Object.assign({}, common, { content: Buffer.from(bytes).toString('utf8') }));
               } else {
-                atts.push({
-                  origin: 'workspace',
-                  source: 'workspace',
-                  name: baseName,
-                  path: rel,
-                  bytes_b64: Buffer.from(bytes).toString('base64'),
-                  size,
-                  mime: 'application/octet-stream'
-                });
+                atts.push(Object.assign({}, common, { bytes_b64: Buffer.from(bytes).toString('base64') }));
               }
             } else {
-              atts.push({
-                origin: 'workspace',
-                source: 'workspace',
-                name: baseName,
-                path: rel,
-                size,
-                mime: 'application/octet-stream'
-              });
+              atts.push(common);
+              vscode.window.showWarningMessage(`Attachment "${baseName}" is larger than ${Math.round(ATTACH_MAX_INLINE_BYTES / (1024 * 1024))}MB and was referenced by path only.`);
             }
           } catch (e) {
             vscode.window.showWarningMessage(`Attach (workspace) failed: ${e?.message || e}`);
@@ -5676,16 +5704,6 @@ async function cmdOpenChat(context) {
           return;
         }
 
-        // Heuristics
-        const MAX_INLINE = 64 * 1024;
-        const TEXT_EXT = { '.md':1,'.txt':1,'.log':1,'.json':1,'.yml':1,'.yaml':1,'.csv':1,'.tsv':1,
-                          '.py':1,'.js':1,'.ts':1,'.java':1,'.go':1,'.rs':1,'.c':1,'.cpp':1,'.cs':1,
-                          '.sql':1,'.ini':1,'.toml':1,'.cfg':1 };
-        function extOf(name) {
-          const m = /(\.[^.]+)$/.exec((name || '').toLowerCase());
-          return m ? m[1] : '';
-        }
-
         const atts = [];
 
         for (let i = 0; i < uris.length; i++) {
@@ -5696,8 +5714,8 @@ async function cmdOpenChat(context) {
             const size = bytes.byteLength || 0;
             const fsPath = uri.fsPath || '';
             const baseName = fsPath.split(/[\\/]/).pop() || 'file';
-            const e = extOf(baseName);
-            const isText = !!TEXT_EXT[e];
+            const isText = isTextAttachment(baseName);
+            const mime = guessAttachmentMime(baseName);
 
             // 1) ALWAYS copy inside workspace (.clike/uploads/<name>)
             const dst = vscode.Uri.joinPath(uploadsDir, baseName);
@@ -5713,11 +5731,13 @@ async function cmdOpenChat(context) {
               name: baseName,
               path: rel,
               size: size,
-              mime: isText ? 'text/plain' : 'application/octet-stream'
+              mime,
             };
 
-            // 4) Optionally also include inline content for small files (kept in case you need it)
-            if (size <= MAX_INLINE) {
+            // 4) Inline the bytes so the orchestrator materializes the file under
+            // runs/<phase>/attachments/. Only very large files are referenced by
+            // path only to avoid pathological payloads.
+            if (size <= ATTACH_MAX_INLINE_BYTES) {
               if (isText) {
                 atts.push(Object.assign({}, common, { content: Buffer.from(bytes).toString('utf8') }));
               } else {
@@ -5725,6 +5745,7 @@ async function cmdOpenChat(context) {
               }
             } else {
               atts.push(common);
+              vscode.window.showWarningMessage(`Attachment "${baseName}" is larger than ${Math.round(ATTACH_MAX_INLINE_BYTES / (1024 * 1024))}MB and was referenced by path only.`);
             }
           } catch (e) {
             vscode.window.showWarningMessage('Attach (external) failed: ' + (e && e.message ? e.message : String(e)));

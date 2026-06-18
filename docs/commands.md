@@ -56,7 +56,34 @@ Full BMAD command semantics are documented in `docs/integrations/bmad/COMMANDS.m
 ## Harper command semantics
 
 ### `/idea`
-Formalizes or updates `IDEA.md`.
+Formalizes or updates `docs/harper/IDEA.md`.
+
+**Attachments are the source of truth.** `/idea` requires **at least one attached
+file** (use `📎 Attach → + Workspace files` or `+ External files`). You can attach
+**multiple files at once**.
+
+Attachment handling (via local agent):
+- Each file up to **10 MB** is inlined and **materialized** into
+  `runs/idea/attachments/<name>` so the agent reads a workspace-local copy
+  (no external-path access).
+- Files **larger than 10 MB** are referenced by path only and are **not**
+  materialized (a warning is shown) — split or shrink them if their content
+  must be used.
+- External files are also copied into `.clike/uploads/<name>` for portability;
+  the agent always reads the run-local copy under `runs/idea/attachments/`.
+- Supported content:
+  - **Text** (`.md`, `.txt`, `.json`, `.csv`, code, …) — read directly.
+  - **PDF** — text is extracted and used as evidence.
+  - **Images** (`.png`, `.jpg`, `.gif`, `.webp`, …) — described via **vision**
+    (UI screens, layouts, diagrams, visible text) and used as evidence.
+  - **Office** (`.docx`, `.xlsx`, `.pptx`) — materialized and read when the
+    executor can parse them.
+- PDF text and image vision rely on **Claude Code**'s native multimodal reader.
+  With the **Codex** executor, image/PDF understanding may be limited.
+
+> Non-text binaries are intentionally **not** sent to the RAG index (only their
+> materialized copy reaches the agent), so attaching many images/PDFs no longer
+> blocks the run.
 
 ### `/spec`
 Generates or updates `SPEC.md` from current Harper context.

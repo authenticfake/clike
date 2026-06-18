@@ -200,7 +200,7 @@
         },
         "clike.execution.defaultPreference": {
           "type": "string",
-          "default": "prefer_local_agent",
+          "default": "local_agent_only",
           "enum": [
             "cloud_only",
             "prefer_local_agent",
