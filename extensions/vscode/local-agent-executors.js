@@ -36,6 +36,20 @@ function normalizeLocalAgentExecutor(value) {
   return allowed.has(raw) ? raw : 'auto';
 }
 
+// Reconcile a persisted execution preference against the canonical set. Canonical
+// values are kept; legacy backward-compat values are mapped; anything else
+// (removed modes like auto/hybrid, empty, unknown) falls back to the default.
+// Used when seeding the saved UI state so the value used at runtime matches the
+// value shown in the selector.
+function reconcileExecutionPreference(raw, defaultPreference) {
+  const r = String(raw || '').trim().toLowerCase();
+  if (r === 'claude_code_only') return 'local_agent_only';
+  if (r === 'prefer_claude_code') return 'prefer_local_agent';
+  const canonical = new Set(['cloud_only', 'prefer_local_agent', 'local_agent_only']);
+  if (canonical.has(r)) return r;
+  return normalizeExecutionPreference(defaultPreference);
+}
+
 function executionPreferenceRequestsLocalAgent(pref) {
   return new Set([
     'prefer_local_agent',
@@ -495,6 +509,7 @@ function buildLocalAgentDisplayLabel(executorId) {
 
 module.exports = {
   normalizeExecutionPreference,
+  reconcileExecutionPreference,
   normalizeLocalAgentExecutor,
   executionPreferenceRequestsLocalAgent,
   resolveSelectedLocalAgentExecutor,

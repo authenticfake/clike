@@ -1958,6 +1958,24 @@ function decodeTextBase64Safe(b64) {
 }
 
 // Build items for /v1/rag/index from rag_files (path -> text OR bytes_b64)
+// Extensions whose raw bytes carry no useful TEXT to index in RAG (images,
+// office binaries, archives, media). Sending their base64 to the text RAG index
+// is meaningless and, with many/large files, produces huge payloads that block
+// or time out the index call. These attachments still reach the local agent via
+// the orchestrator attachment materialization / inline path — only RAG indexing
+// of their raw bytes is skipped.
+const RAG_NON_TEXT_EXTENSIONS = new Set([
+  'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg', 'tif', 'tiff', 'ico', 'heic', 'heif',
+  'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'odt', 'ods', 'odp', 'rtf',
+  'zip', 'tar', 'gz', 'tgz', 'rar', '7z', 'exe', 'dll', 'so', 'dylib', 'bin', 'class', 'jar',
+  'mp3', 'wav', 'flac', 'ogg', 'mp4', 'mov', 'avi', 'mkv', 'webm', 'psd', 'ai', 'sketch', 'fig',
+]);
+
+function isRagIndexableTextPath(p) {
+  const m = String(p || '').toLowerCase().match(/\.([a-z0-9]+)$/);
+  return !(m && RAG_NON_TEXT_EXTENSIONS.has(m[1]));
+}
+
 async function buildRagItemsForIndex(rag_files, out) {
   const log = mkLog(out);
   const items = [];
@@ -1968,10 +1986,18 @@ async function buildRagItemsForIndex(rag_files, out) {
     const p = f.path || (f.name ? `attachments/${f.name}` : null);
     if (!p) continue;
 
-    // 1) Trust already-normalized content first
+    // 1) Trust already-normalized TEXT content first.
     if (typeof f.content === 'string' && f.content.trim()) {
       items.push({ path: p, text: f.content });
       log(`[harperRAG] use provided content for ${p}`);
+      continue;
+    }
+
+    // Non-text binaries (images/pdf/office/archives/media) have no indexable
+    // text: never push their raw bytes to the text RAG index. They still reach
+    // the agent via attachment materialization / inline handling.
+    if (!isRagIndexableTextPath(p)) {
+      log(`[harperRAG] skip non-text attachment for RAG index: ${p}`);
       continue;
     }
 

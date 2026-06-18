@@ -2,6 +2,10 @@
 **/.vscode/**
 **/.history/**
 node_modules/**
+# Keep the only runtime dependency in the package: extension.js requires 'diff'
+# (jsdiff, zero transitive deps). Without this the activated extension fails with
+# "Cannot find module 'diff'".
+!node_modules/diff/**
 src/**
 test/**
 **/*.map

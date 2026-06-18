@@ -562,7 +562,14 @@ function finalizeBootIfReady() {
 
   // 🔁 Rehydrate FINALE coerente con ciò che vede l’utente (mode+model correnti)
   // Non affidiamoci al timing degli eventi precedenti: chiediamo noi stessi l’idratazione coerente.
-  vscode.postMessage({ type: 'uiChanged', mode: mode.value, model: model.value });
+  // Includiamo anche executionPreference così lo stato persistito lato extension
+  // coincide col valore mostrato nel selettore già dal primo comando.
+  vscode.postMessage({
+    type: 'uiChanged',
+    mode: mode.value,
+    model: model.value,
+    ...(execution && execution.value ? { executionPreference: execution.value } : {}),
+  });
 
   boot.done = true;
 }

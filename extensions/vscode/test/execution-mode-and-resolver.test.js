@@ -4,8 +4,28 @@ const cp = require('child_process');
 
 const {
   normalizeExecutionPreference,
+  reconcileExecutionPreference,
   resolveSelectedLocalAgentExecutor,
 } = require('../local-agent-executors');
+
+// --- reconcileExecutionPreference: seed saved state against the canonical set ---
+test('reconcile keeps canonical values and maps legacy backward-compat values', () => {
+  assert.strictEqual(reconcileExecutionPreference('cloud_only', 'local_agent_only'), 'cloud_only');
+  assert.strictEqual(reconcileExecutionPreference('prefer_local_agent', 'local_agent_only'), 'prefer_local_agent');
+  assert.strictEqual(reconcileExecutionPreference('local_agent_only', 'cloud_only'), 'local_agent_only');
+  assert.strictEqual(reconcileExecutionPreference('claude_code_only', 'cloud_only'), 'local_agent_only');
+  assert.strictEqual(reconcileExecutionPreference('prefer_claude_code', 'cloud_only'), 'prefer_local_agent');
+});
+
+test('reconcile falls back to the default for removed/empty/unknown values', () => {
+  // Removed modes and empty/unknown persisted values must NOT silently route to
+  // cloud; they fall back to the configured default.
+  assert.strictEqual(reconcileExecutionPreference('auto', 'local_agent_only'), 'local_agent_only');
+  assert.strictEqual(reconcileExecutionPreference('hybrid', 'local_agent_only'), 'local_agent_only');
+  assert.strictEqual(reconcileExecutionPreference('', 'local_agent_only'), 'local_agent_only');
+  assert.strictEqual(reconcileExecutionPreference(undefined, 'local_agent_only'), 'local_agent_only');
+  assert.strictEqual(reconcileExecutionPreference('garbage', 'local_agent_only'), 'local_agent_only');
+});
 
 // --- DEFECT 4: execution-mode normalization at the boundary ---
 test('execution preference normalization maps legacy values to canonical modes', () => {

@@ -154,6 +154,33 @@ narrow:
 Methodology/BMAD context is passed through when enabled, but BMAD is never
 mandatory and the canonical Harper outputs above are always required.
 
+#### Attachments and run tracking
+
+For document phases the orchestrator **materializes the current-run attachments**
+into a workspace-local, run-scoped folder so the agent reads them from its cwd
+without any external-path Read approval. Everything is tracked under
+`runs/<phase>/` (e.g. `runs/idea/`):
+
+- `runs/<phase>/docs/AGENT_<TITLE>_CONTEXT.json` — the package the agent must
+  treat as the source of truth (mission, required reads, allowed writes,
+  attachment manifest).
+- `runs/<phase>/docs/AGENT_<TITLE>_PROMPT.md` — the rendered execution prompt.
+- `runs/<phase>/attachments/<name>` — one materialized copy per attachment.
+
+Attachment rules:
+- Multiple files are supported; each file up to **10 MB** is inlined by the
+  extension and written to `runs/<phase>/attachments/`. Files over 10 MB are
+  referenced by path only and are **not** materialized (a warning is shown).
+- The attachment **manifest** (inside `AGENT_*_CONTEXT.json` and the prompt)
+  exposes `name`, `workspace_path` (the run-local copy the agent reads),
+  `original_path` (metadata only — never read), `mime`, and `size`.
+- `/idea` requires at least one attachment; `/spec` and `/plan` do not.
+- **PDF** attachments are read for their text; **image** attachments are
+  described via vision and used as evidence (native multimodal Read of the
+  Claude Code executor; Codex support for images/PDF may be limited).
+- Non-text binaries are excluded from RAG indexing; only their materialized copy
+  reaches the agent.
+
 ### KIT
 Both local executors currently support:
 - base `kit`
