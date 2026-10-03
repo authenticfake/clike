@@ -14,7 +14,7 @@ from services.methodologies.quality_scorecard import (
 )
 
 
-NATIVE_SOURCE = REPO_ROOT / "CoffeeBuddy" / "IDEA_cb_clike.md"
+NATIVE_SOURCE = REPO_ROOT / "CoffeeBuddy" / "IDEA.md"
 BMAD_SOURCE_CANDIDATES = [
     REPO_ROOT / "CoffeeBuddy" / "IDEA_withBMAD.md",
     REPO_ROOT / "CoffeeBuddy" / "IDEA_withBMAD.md.md",
@@ -41,7 +41,7 @@ class BmadQualityScorecardFixtureTests(unittest.TestCase):
     def test_fixture_sources_and_copied_fixtures_exist_and_match(self):
         self.assertTrue(
             NATIVE_SOURCE.exists(),
-            "Native fixture source is missing: CoffeeBuddy/IDEA_cb_clike.md",
+            "Native fixture source is missing: CoffeeBuddy/IDEA.md",
         )
         bmad_source = _bmad_source()
         self.assertTrue(NATIVE_FIXTURE.exists(), "Native copied fixture is missing.")
