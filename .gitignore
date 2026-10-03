@@ -77,3 +77,6 @@ pytest_cache/
 
 # Docs drafts (opzionale: tieni solo quelli "ufficiali")
 docs/*draft*.md
+
+# Private analyses / notes (never publish)
+docs/_private/
