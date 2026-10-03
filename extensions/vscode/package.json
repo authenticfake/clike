@@ -21,6 +21,13 @@
   "activationEvents": [
     "onStartupFinished"
   ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "CLike runs local agents, git and file writes on the workspace."
+    },
+    "virtualWorkspaces": false
+  },
   "categories": [
     "AI",
     "Programming Languages"
@@ -143,6 +150,18 @@
       {
         "command": "clike.promoteReqSourcesQuick",
         "title": "CLike: Quick Promote source code"
+      },
+      {
+        "command": "clike.setServiceToken",
+        "title": "CLike: Set Service Token"
+      },
+      {
+        "command": "clike.clearServiceToken",
+        "title": "CLike: Clear Service Token"
+      },
+      {
+        "command": "clike.copyExtensionMcpToken",
+        "title": "CLike: Copy Extension MCP Token"
       }
     ],
     "configuration": {
@@ -213,12 +232,14 @@
         "clike.orchestratorUrl": {
           "type": "string",
           "default": "http://localhost:8080",
-          "description": "Base URL for the Clike orchestrator API (e.g. http://localhost:8080)."
+          "description": "Base URL for the Clike orchestrator API (e.g. http://localhost:8080).",
+          "scope": "machine"
         },
         "clike.gatewayUrl": {
           "type": "string",
           "default": "http://localhost:8000",
-          "description": "Base URL for the Clike gateway API (e.g. http://localhost:8000)."
+          "description": "Base URL for the Clike gateway API (e.g. http://localhost:8000).",
+          "scope": "machine"
         },
         "clike.optimizeFor": {
           "type": "string",
@@ -289,7 +310,8 @@
         "clike.claudeCode.command": {
           "type": "string",
           "default": "claude",
-          "description": "Executable used to invoke Claude Code locally."
+          "description": "Executable used to invoke Claude Code locally.",
+          "scope": "machine"
         },
         "clike.claudeCode.model": {
           "type": "string",
@@ -299,7 +321,8 @@
         "clike.claudeCode.printModeFlag": {
           "type": "string",
           "default": "-p",
-          "description": "Flag used for non-interactive Claude Code execution (for example -p or --print depending on your local version)."
+          "description": "Flag used for non-interactive Claude Code execution (for example -p or --print depending on your local version).",
+          "scope": "machine"
         },
         "clike.claudeCode.timeoutMinutes": {
           "type": "number",
@@ -315,7 +338,8 @@
         "clike.claudeCode.permissionMode": {
           "type": "string",
           "default": "acceptEdits",
-          "description": "Claude Code permission mode used for local non-interactive execution."
+          "description": "Claude Code permission mode used for local non-interactive execution.",
+          "scope": "machine"
         },
         "clike.localAgent.codex.enabled": {
           "type": "boolean",
@@ -325,7 +349,8 @@
         "clike.localAgent.codex.command": {
           "type": "string",
           "default": "codex",
-          "description": "Executable used to invoke GPT Codex locally."
+          "description": "Executable used to invoke GPT Codex locally.",
+          "scope": "machine"
         },
         "clike.localAgent.codex.model": {
           "type": "string",
@@ -335,12 +360,14 @@
         "clike.localAgent.codex.approvalMode": {
           "type": "string",
           "default": "",
-          "description": "Reserved. Do not use for now: Codex CLI options vary by version and unsupported flags break execution."
+          "description": "Reserved. Do not use for now: Codex CLI options vary by version and unsupported flags break execution.",
+          "scope": "machine"
         },
         "clike.localAgent.codex.printModeFlag": {
           "type": "string",
           "default": "",
-          "description": "Reserved. Codex non-interactive execution is currently invoked as: codex exec <prompt>."
+          "description": "Reserved. Codex non-interactive execution is currently invoked as: codex exec <prompt>.",
+          "scope": "machine"
         },
         "clike.localAgent.codex.sandboxMode": {
           "type": "string",
@@ -351,7 +378,8 @@
             "workspace-write",
             "danger-full-access"
           ],
-          "description": "Codex CLI sandbox mode. auto uses workspace-write for write-required local-agent phases and read-only for inspect-only phases."
+          "description": "Codex CLI sandbox mode. auto uses workspace-write for write-required local-agent phases and read-only for inspect-only phases.",
+          "scope": "machine"
         },
         "clike.localAgent.codex.timeoutMinutes": {
           "type": "number",
@@ -371,24 +399,28 @@
         },
         "clike.mcp.extensionServerEnabled": {
           "type": "boolean",
-          "default": true,
-          "description": "Expose the local CLike operational MCP-compatible server from the VS Code extension."
+          "default": false,
+          "description": "Expose the local CLike operational MCP-compatible server from the VS Code extension.",
+          "scope": "machine"
         },
         "clike.mcp.extensionServerHost": {
           "type": "string",
           "default": "127.0.0.1",
-          "description": "Host for the local CLike extension operational MCP-compatible server."
+          "description": "Host for the local CLike extension operational MCP-compatible server.",
+          "scope": "machine"
         },
         "clike.mcp.extensionServerPort": {
           "type": "number",
           "default": 55742,
           "minimum": 1024,
-          "description": "Port for the local CLike extension operational MCP-compatible server."
+          "description": "Port for the local CLike extension operational MCP-compatible server.",
+          "scope": "machine"
         },
         "clike.mcp.extensionServerToken": {
           "type": "string",
           "default": "",
-          "description": "Optional bearer token required by the local CLike extension operational MCP-compatible server. Empty means localhost-only without token."
+          "description": "Optional legacy override. Leave empty: a random token is generated and kept in VS Code SecretStorage (copy it with 'CLike: Copy Extension MCP Token'). The local MCP server always requires a token.",
+          "scope": "machine"
         },
         "clike.apply.backup": {
           "type": "boolean",
@@ -408,7 +440,8 @@
         "clike.git.autoCommit": {
           "type": "boolean",
           "default": true,
-          "description": "If true, auto-commit changes after apply."
+          "description": "If true, auto-commit changes after apply.",
+          "scope": "machine"
         },
         "clike.git.gitMergeOnGate": {
           "type": "boolean",
@@ -428,7 +461,8 @@
         "clike.git.remoteUrl": {
           "type": "string",
           "default": "",
-          "description": "Optional remote URL to set (e.g., git@github.com:org/repo.git). If empty, Clike will not add/set the remote automatically."
+          "description": "Optional remote URL to set (e.g., git@github.com:org/repo.git). If empty, Clike will not add/set the remote automatically.",
+          "scope": "machine"
         },
         "clike.git.commitMessage": {
           "type": "string",
@@ -438,12 +472,14 @@
         "clike.git.openPR": {
           "type": "boolean",
           "default": true,
-          "description": "If true, open PR flow after auto-commit (requires GitHub extension)."
+          "description": "If true, open PR flow after auto-commit (requires GitHub extension).",
+          "scope": "machine"
         },
         "clike.git.remote": {
           "type": "string",
           "default": "origin",
-          "description": "Default remote name for PR flow."
+          "description": "Default remote name for PR flow.",
+          "scope": "machine"
         },
         "clike.git.defaultBranch": {
           "type": "string",
@@ -458,7 +494,8 @@
         "clike.git.pushRebase": {
           "type": "boolean",
           "default": true,
-          "description": "If true, push changes after PR flow."
+          "description": "If true, push changes after PR flow.",
+          "scope": "machine"
         },
         "clike.git.branchPrefix": {
           "type": "string",

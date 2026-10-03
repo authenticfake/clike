@@ -10,6 +10,14 @@ const fsSync = require('fs');
 const path = require('path');
 
 const { registerCommands } = require('./commands/registerCommands');
+const {
+  initServiceAuth,
+  storeServiceToken,
+  generateServiceToken,
+  serviceAuthHeaders,
+  notifyServiceAuthFailure,
+} = require('./service-auth');
+const { validateLocalMcpRequest } = require('./mcp-request-guard');
 const {  handleGate, handleEval } = require('./commands/harper');
 const {  persistTelemetryVSCode } = require('./telemetry');
 
@@ -1898,7 +1906,7 @@ function cfg() {
     gitPrPerReqDraftUseGhCli: c.get('git.prPerReqDraft.useGhCli', true),
     gitPrBodyPath: c.get('git.prBodyPath', 'docs/harper/PR_BODY.md'),
 
-    mcpExtensionServerEnabled: c.get('mcp.extensionServerEnabled', true),
+    mcpExtensionServerEnabled: c.get('mcp.extensionServerEnabled', false),
     mcpExtensionServerHost: c.get('mcp.extensionServerHost', '127.0.0.1'),
     mcpExtensionServerPort: c.get('mcp.extensionServerPort', 55742),
     mcpExtensionServerToken: c.get('mcp.extensionServerToken', ''),
@@ -1958,16 +1966,19 @@ async function readRequestJson(req) {
   return JSON.parse(raw);
 }
 
-function ensureLocalMcpAuthorized(req) {
-  const settings = cfg();
-  const expected = String(settings.mcpExtensionServerToken || '').trim();
+const MCP_EXTENSION_TOKEN_SECRET = 'clike.mcpExtensionToken';
 
-  if (!expected) {
-    return true;
+// The local MCP server always requires a token: the explicit setting wins
+// (legacy), otherwise a random token is generated once and kept in SecretStorage.
+async function getExtensionMcpToken(context) {
+  const override = String(cfg().mcpExtensionServerToken || '').trim();
+  if (override) return override;
+  let token = await context.secrets.get(MCP_EXTENSION_TOKEN_SECRET);
+  if (!token) {
+    token = generateServiceToken();
+    await context.secrets.store(MCP_EXTENSION_TOKEN_SECRET, token);
   }
-
-  const header = String(req.headers.authorization || '').trim();
-  return header === `Bearer ${expected}`;
+  return token;
 }
 
 // async function getHarperNextAction() {
@@ -2490,7 +2501,7 @@ async function handleExtensionMcpRpc(body) {
   return mcpError(id, -32601, `Unsupported MCP method: ${method}`);
 }
 
-function startExtensionOperationalMcpServer(context) {
+async function startExtensionOperationalMcpServer(context) {
   const settings = cfg();
 
   if (!settings.mcpExtensionServerEnabled) {
@@ -2504,20 +2515,21 @@ function startExtensionOperationalMcpServer(context) {
 
   const host = String(settings.mcpExtensionServerHost || '127.0.0.1');
   const port = Number(settings.mcpExtensionServerPort || 55742);
+  const mcpToken = await getExtensionMcpToken(context);
 
   extensionMcpServer = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url || '/', `http://${host}:${port}`);
 
-      if (!ensureLocalMcpAuthorized(req)) {
-        return sendMcpJson(res, 401, { ok: false, error: 'unauthorized' });
+      const verdict = validateLocalMcpRequest(req, { token: mcpToken, port });
+      if (!verdict.ok) {
+        return sendMcpJson(res, verdict.status, { ok: false, error: verdict.error });
       }
 
       if (req.method === 'GET' && url.pathname === '/health') {
         return sendMcpJson(res, 200, {
           ok: true,
           service: 'CLike Extension Operational MCP',
-          workspace: getWorkspaceRoot()?.fsPath || null,
           chat_open: !!(clikeChatPanel && clikeChatPanel.webview),
           state: extensionMcpState,
         });
@@ -2543,10 +2555,8 @@ function startExtensionOperationalMcpServer(context) {
       });
     } catch (err) {
       extensionMcpState.lastError = String(err?.message || err);
-      return sendMcpJson(res, 500, {
-        ok: false,
-        error: String(err?.message || err),
-      });
+      out.appendLine(`[CLike][mcp-extension] request error: ${extensionMcpState.lastError}`);
+      return sendMcpJson(res, 500, { ok: false, error: 'internal_error' });
     }
   });
 
@@ -2680,7 +2690,12 @@ function httpPostJson(urlString, bodyObj, headers = {}) {
     hostname: url.hostname,
     port: url.port || (isHttps ? 443 : 80),
     path: url.pathname + (url.search || ''),
-    headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload), ...headers },
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(payload),
+      ...serviceAuthHeaders(urlString),
+      ...headers,
+    },
   };
 
   return new Promise((resolve) => {
@@ -2688,6 +2703,7 @@ function httpPostJson(urlString, bodyObj, headers = {}) {
       let data = '';
       res.on('data', (chunk) => (data += chunk));
       res.on('end', () => {
+        notifyServiceAuthFailure(res.statusCode, urlString);
         try {
           const json = JSON.parse(data || '{}');
           resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, json });
@@ -2732,7 +2748,8 @@ async function postGateway(path, payload = {}) {
 
 // utils
 async function getJson(url) {
-  const r = await fetch(url, { method: 'GET' });
+  const r = await fetch(url, { method: 'GET', headers: serviceAuthHeaders(url) });
+  notifyServiceAuthFailure(r.status, url);
   if (!r.ok) return { status: r.status };
   try { return await r.json(); } catch { return { status: r.status }; }
 }
@@ -3402,10 +3419,58 @@ async function cmdOpenChatSessionFile(context) {
 }
 
 
+async function cmdSetServiceToken(context) {
+  const choice = await vscode.window.showQuickPick(
+    [
+      { id: 'paste', label: 'Paste existing token', description: 'Use the CLIKE_API_TOKEN already set in the stack .env' },
+      { id: 'generate', label: 'Generate new token', description: 'Store a random token and copy the .env line to the clipboard' },
+    ],
+    { placeHolder: 'CLike service token (CLIKE_API_TOKEN)' }
+  );
+  if (!choice) return;
+  if (choice.id === 'generate') {
+    const token = generateServiceToken();
+    await storeServiceToken(context, token);
+    await vscode.env.clipboard.writeText(`CLIKE_API_TOKEN=${token}`);
+    vscode.window.showInformationMessage(
+      'CLike: new service token stored. "CLIKE_API_TOKEN=..." is in the clipboard: add it to the stack .env and restart the services.'
+    );
+    return;
+  }
+  const token = await vscode.window.showInputBox({
+    prompt: 'CLIKE_API_TOKEN of the CLike stack',
+    password: true,
+    ignoreFocusOut: true,
+    validateInput: (v) => (v && v.trim().length >= 32 ? null : 'At least 32 characters'),
+  });
+  if (token === undefined) return;
+  await storeServiceToken(context, token);
+  vscode.window.showInformationMessage('CLike: service token stored securely.');
+}
+
+async function cmdClearServiceToken(context) {
+  await storeServiceToken(context, '');
+  vscode.window.showInformationMessage('CLike: service token removed.');
+}
+
+async function cmdCopyExtensionMcpToken(context) {
+  const token = await getExtensionMcpToken(context);
+  await vscode.env.clipboard.writeText(token);
+  vscode.window.showInformationMessage(
+    `CLike: extension MCP token copied. Clients must send "Authorization: Bearer <token>" to ${extensionMcpState.url || 'the local MCP URL'}.`
+  );
+}
+
 function activate(context) {
   const reg = (id, fn) => context.subscriptions.push(vscode.commands.registerCommand(id, () => fn(context)));
   //out.appendLine(`activate ${context}`);
   clikeExtensionContext = context;
+  const serviceAuthReady = initServiceAuth(context).catch((err) =>
+    out.appendLine(`[CLike][auth] cannot load service token: ${err?.message || err}`)
+  );
+  reg('clike.setServiceToken', cmdSetServiceToken);
+  reg('clike.clearServiceToken', cmdClearServiceToken);
+  reg('clike.copyExtensionMcpToken', cmdCopyExtensionMcpToken);
   reg('clike.chat.openSessionFile', cmdOpenChatSessionFile);
     reg('clike.harper.init', async () => {
     const panel = await cmdOpenChat(context); // riusa l’apri-chat esistente
@@ -3456,7 +3521,9 @@ function activate(context) {
   
   registerCommands(context);
 
-  startExtensionOperationalMcpServer(context);
+  serviceAuthReady
+    .then(() => startExtensionOperationalMcpServer(context))
+    .catch((err) => out.appendLine(`[CLike][mcp-extension] start failed: ${err?.message || err}`));
 
   vscode.window.setStatusBarMessage('Clike: orchestrator+gateway integration ready', 2000);
 }
@@ -5827,7 +5894,8 @@ async function fetchJson(url, { signal } = {}) {
   const f = (typeof fetch === 'function')
     ? fetch
     : ((...args) => import('node-fetch').then(({ default: ff }) => ff(...args)));
-  const res = await f(url, { signal });
+  const res = await f(url, { signal, headers: serviceAuthHeaders(url) });
+  notifyServiceAuthFailure(res.status, url);
   if (!res.ok) throw new Error(`GET ${url} -> ${res.status}`);
   return await res.json();
 }
@@ -5838,10 +5906,11 @@ async function postJson(url, body, { signal } = {}) {
     : ((...args) => import('node-fetch').then(({ default: ff }) => ff(...args)));
   const res = await f(url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...serviceAuthHeaders(url) },
     body: JSON.stringify(body),
     signal
   });
+  notifyServiceAuthFailure(res.status, url);
   if (!res.ok) {
     const txt = await res.text().catch(() => '');
     throw new Error(`POST ${url} -> ${res.status} ${txt}`);

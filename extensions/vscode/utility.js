@@ -1,3 +1,4 @@
+const { serviceAuthHeaders, notifyServiceAuthFailure } = require('./service-auth');
 const vscode = require('vscode');
 const cp = require('child_process');
 const path = require('path');
@@ -2073,10 +2074,11 @@ async function postJson(url, body, { signal, timeoutMs = 30000 } = {}) {
   try {
     const res = await f(url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...serviceAuthHeaders(url) },
       body: JSON.stringify(body),
       signal: effectiveSignal
     });
+    notifyServiceAuthFailure(res.status, url);
 
     if (!res.ok) {
       const txt = await res.text().catch(() => '');
@@ -2210,9 +2212,10 @@ function httpPostJsonLong(url, { headers, body }, timeoutMs) {
         port: u.port || (u.protocol === "https:" ? 443 : 80),
         path: u.pathname + u.search,
         method: "POST",
-        headers: headers || {},
+        headers: { ...serviceAuthHeaders(url), ...(headers || {}) },
       },
       (res) => {
+        notifyServiceAuthFailure(res.statusCode, url);
         let data = "";
         res.setEncoding("utf8");
 
