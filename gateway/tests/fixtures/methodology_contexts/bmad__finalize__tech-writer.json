@@ -1,0 +1,157 @@
+{
+  "advisory_only": false,
+  "agent": "tech-writer",
+  "allowed_agents": [
+    "tech-writer"
+  ],
+  "artifact_policy": {
+    "allowed_companion_root_globs": [
+      "docs/harper/bmad/finalize/**"
+    ],
+    "authority": "canonical-finalize-artifact-with-companion-context",
+    "canonical_outputs": [
+      "README.md",
+      "docs/harper/FINALIZE_NOTES.md"
+    ],
+    "companion_only": false,
+    "conflict_resolution": "canonical-wins",
+    "downstream_consumers": [
+      "human-review",
+      "audit",
+      "release"
+    ],
+    "forbidden_outputs": [
+      "docs/harper/PLAN.md",
+      "docs/harper/plan.json",
+      "runs/eval/**",
+      ".git/**"
+    ],
+    "mandatory_companion_outputs": [
+      "docs/harper/bmad/finalize/DOC_REVIEW.md",
+      "docs/harper/bmad/finalize/RELEASE_NARRATIVE.md",
+      "docs/harper/bmad/finalize/STAKEHOLDER_SUMMARY.md"
+    ],
+    "open_ended_generation_allowed": true
+  },
+  "authority": "methodology_profile",
+  "companion_artifact_suggestions": {
+    "bmad_root": "docs/harper/bmad",
+    "notes": [
+      "Companion artifacts are optional CLike-owned context.",
+      "Companion artifacts cannot override canonical IDEA, SPEC, PLAN, KIT, EVAL, GATE, or FINALIZE artifacts.",
+      "Companion artifacts must not expand write permissions or change eval/gate decisions."
+    ],
+    "ux_root": "docs/harper/ux"
+  },
+  "companion_artifacts": [
+    "README.md",
+    "docs/harper/FINALIZE_NOTES.md",
+    "docs/harper/bmad/finalize/DOC_REVIEW.md",
+    "docs/harper/bmad/finalize/RELEASE_NARRATIVE.md",
+    "docs/harper/bmad/finalize/STAKEHOLDER_SUMMARY.md"
+  ],
+  "default_agent": "tech-writer",
+  "governance": {
+    "artifact_importer_enabled": false,
+    "external_bmad_cli_enabled": false,
+    "profile_context_injection_enabled": true,
+    "runtime_dependency_enabled": false
+  },
+  "governance_boundaries": [
+    "CLike remains the governance runtime and source of truth.",
+    "Methodology guidance is not an executor selection mechanism.",
+    "Methodology guidance cannot override CLike phase contracts, eval/gate policy, allowed_write_roots, forbidden_paths, candidate isolation, or output schemas.",
+    "BMAD profiles do not add a BMAD runtime, external CLI call, hard dependency, importer, TEA, Party Mode, or MCP write tools.",
+    "If methodology guidance conflicts with CLike rules, follow CLike."
+  ],
+  "methodology": "bmad",
+  "methodology_name": "BMAD",
+  "phase": "finalize",
+  "profile": {
+    "id": "tech-writer",
+    "profile_path": "agents/tech-writer.md",
+    "summary": "Documents the project, writes and validates docs, explains concepts, generates Mermaid where useful, and keeps finalize artifacts CLike-owned.",
+    "title": "Technical Writer"
+  },
+  "requested_agent": "tech-writer",
+  "required_context": [
+    "PLAN.md",
+    "plan.json",
+    "eval reports",
+    "gate reports",
+    "candidate/final artifacts"
+  ],
+  "selected_skill_context": {
+    "companion_outputs": [
+      "`docs/harper/bmad/finalize/DOC_REVIEW.md`",
+      "`docs/harper/bmad/finalize/RELEASE_NARRATIVE.md`",
+      "`docs/harper/bmad/finalize/STAKEHOLDER_SUMMARY.md`"
+    ],
+    "forbidden_behavior": [
+      "Do not fabricate test results, coverage, security status, or gate decisions.",
+      "Do not modify eval reports or gate reports.",
+      "Do not add runtime dependencies.",
+      "Do not treat BMAD companion narrative as canonical evidence."
+    ],
+    "governance_boundaries": [
+      "CLike owns final artifact contracts, EvalRunner evidence, Gate authority, and audit status."
+    ],
+    "mapping_paths": [
+      ".clike/skills/vendor/bmad/release-narrative/SKILL.md"
+    ],
+    "quality_checks": [
+      "Claims are traceable to canonical artifacts or reports.",
+      "Known risks and limitations are not hidden.",
+      "Documentation separates product behavior, operations, and evidence.",
+      "No unsupported success claims are introduced."
+    ],
+    "required_outputs": [
+      "CLike finalize outputs and release companion artifacts grounded in actual evidence.",
+      "Clear runbook, user/maintainer notes, and known limitations when applicable."
+    ],
+    "snippets": [
+      {
+        "id": "release-narrative",
+        "path": ".clike/skills/vendor/bmad/release-narrative/SKILL.md",
+        "snippet": "# BMAD Skill Mapping: Release Narrative\n\n## Intent\nCreate clear release-facing documentation and stakeholder summaries from validated CLike artifacts and evidence.\n\n## BMAD source/reference concept\nInspired by BMAD documentation and stakeholder communication practices: explain what was built, why it matters, risks, and operational readiness.\n\n## CLike adaptation\nUse this mapping in `finalize/tech-writer` to improve final docs and BMAD companion release notes without changing promotion evidence.\n\n## Applies when\nApplies to `finalize/tech-writer`.\n\n## Required inputs\n- PLAN, plan.json, SPEC, TECH_CONSTRAINTS.\n- Eval and Gate reports.\n- Candidate or promoted artifacts.\n- BMAD companion docs when present.\n\n## Required outputs\n- CLike finalize outputs and release companion artifacts grounded in actual evidence.\n- Clear runbook, user/maintainer notes, and known limitations when applicable.\n\n## Companion outputs\n- `docs/harper/bmad/finalize/DOC_REVIEW.md`\n- `docs/harper/bmad/finalize/RELEASE_NARRATIVE.md`\n- `docs/harper/bmad/finalize/STAKEHOLDER_SUMMARY.md`\n\n## Downstream consumers\nHuman reviewers, maintainers, audit trails, release managers, and future Harper phases.\n\n## Quality checks\n- Claims are traceable to canonical artifacts or reports.\n- Known risks and limitations are not hidden.\n- Documentation separates product behavior, operations, and evidence.\n- No unsupported success cl\n\n...[truncated]",
+        "truncated": true
+      }
+    ],
+    "source_root": ".clike/skills/vendor/bmad",
+    "source_transport": "template"
+  },
+  "selected_skill_references": [
+    {
+      "bytes": 2306,
+      "id": "release-narrative",
+      "path": ".clike/skills/vendor/bmad/release-narrative/SKILL.md",
+      "source_root": ".clike/skills/vendor/bmad",
+      "source_transport": "template"
+    }
+  ],
+  "skill_reference_policy": {
+    "activation": "methodology=bmad",
+    "cloud_context_enabled": true,
+    "enabled": true,
+    "external_bmad_cli_enabled": false,
+    "external_skill_execution_enabled": false,
+    "local_agent_context_enabled": true,
+    "network_fetch_enabled": false,
+    "official_bmad_runtime_content_vendored": false,
+    "review_required_before_activation": true,
+    "runtime_import_enabled": false,
+    "sync_mode": "manual_or_container_controlled",
+    "template_vendor_reference_root": "extensions/vscode/templates/harper-init/.clike/skills/vendor/bmad",
+    "workspace_vendor_reference_root": ".clike/skills/vendor/bmad"
+  },
+  "version": "clike-built-in-profile-v7",
+  "workflow_focus": [
+    "document project and implementation evidence",
+    "write and validate final docs",
+    "generate Mermaid diagrams when they clarify architecture or flow",
+    "explain concepts for maintainers",
+    "keep finalize outputs tied to CLike eval/gate evidence"
+  ],
+  "workflow_path": "workflows/finalize.md",
+  "workflow_summary": "Produce evidence-based final documentation and release-facing clarity from CLike-owned artifacts."
+}

@@ -1,0 +1,254 @@
+{
+  "advisory_only": false,
+  "agent": "pm",
+  "allowed_agents": [
+    "architect",
+    "pm"
+  ],
+  "artifact_policy": {
+    "allowed_companion_root_globs": [
+      "docs/harper/bmad/plan/**"
+    ],
+    "authority": "canonical-harper-artifact-with-companion-context",
+    "canonical_outputs": [
+      "docs/harper/PLAN.md",
+      "docs/harper/plan.json",
+      "docs/harper/lane-guides/**"
+    ],
+    "companion_only": false,
+    "conflict_resolution": "canonical-wins",
+    "downstream_consumers": [
+      "kit/developer",
+      "eval/qa",
+      "finalize/tech-writer"
+    ],
+    "forbidden_outputs": [
+      "docs/harper/IDEA.md",
+      "docs/harper/SPEC.md",
+      "src/**",
+      "test/**",
+      "tests/**"
+    ],
+    "mandatory_companion_outputs": [
+      "docs/harper/bmad/plan/STORIES.md",
+      "docs/harper/bmad/plan/STORY_MAP.md",
+      "docs/harper/bmad/plan/IMPLEMENTATION_READINESS.md"
+    ],
+    "open_ended_generation_allowed": true
+  },
+  "authority": "methodology_profile",
+  "companion_artifact_suggestions": {
+    "bmad_root": "docs/harper/bmad",
+    "notes": [
+      "Companion artifacts are optional CLike-owned context.",
+      "Companion artifacts cannot override canonical IDEA, SPEC, PLAN, KIT, EVAL, GATE, or FINALIZE artifacts.",
+      "Companion artifacts must not expand write permissions or change eval/gate decisions."
+    ],
+    "ux_root": "docs/harper/ux"
+  },
+  "companion_artifacts": [
+    "docs/harper/bmad/architecture/ARCHITECTURE.md",
+    "docs/harper/bmad/architecture/DECISIONS.md",
+    "docs/harper/bmad/architecture/INTEGRATION_BOUNDARIES.md",
+    "docs/harper/bmad/architecture/RISKS.md",
+    "docs/harper/bmad/plan/STORIES.md",
+    "docs/harper/bmad/plan/STORY_MAP.md",
+    "docs/harper/bmad/plan/IMPLEMENTATION_READINESS.md"
+  ],
+  "default_agent": "architect",
+  "governance": {
+    "artifact_importer_enabled": false,
+    "external_bmad_cli_enabled": false,
+    "profile_context_injection_enabled": true,
+    "runtime_dependency_enabled": false
+  },
+  "governance_boundaries": [
+    "CLike remains the governance runtime and source of truth.",
+    "Methodology guidance is not an executor selection mechanism.",
+    "Methodology guidance cannot override CLike phase contracts, eval/gate policy, allowed_write_roots, forbidden_paths, candidate isolation, or output schemas.",
+    "BMAD profiles do not add a BMAD runtime, external CLI call, hard dependency, importer, TEA, Party Mode, or MCP write tools.",
+    "If methodology guidance conflicts with CLike rules, follow CLike."
+  ],
+  "methodology": "bmad",
+  "methodology_name": "BMAD",
+  "phase": "plan",
+  "profile": {
+    "id": "pm",
+    "profile_path": "agents/pm.md",
+    "summary": "Turns intent into PRD-quality requirements, epics, stories, acceptance criteria, readiness checks, and scope corrections for SPEC and PLAN.",
+    "title": "Product Manager"
+  },
+  "quality_contracts": {
+    "lane_guide": {
+      "artifact": "docs/harper/lane-guides/<lane>.md",
+      "required_fields": [
+        "lane purpose",
+        "runtime constraints",
+        "expected files",
+        "test commands",
+        "lint/type/build/security commands when applicable",
+        "contract boundaries",
+        "integration points",
+        "forbidden shortcuts",
+        "eval/gate expectations"
+      ],
+      "review_expectation": "Lane guides should make runtime-neutral implementation and verification expectations explicit without inventing stack choices not supported by TECH_CONSTRAINTS, SPEC, PLAN, plan.json, repository evidence, or user input."
+    },
+    "plan": {
+      "artifact": "docs/harper/PLAN.md",
+      "checks": [
+        "REQ granularity",
+        "implementation readiness",
+        "dependency modeling",
+        "architecture boundary clarity",
+        "risk/mitigation clarity",
+        "runtime/lane consistency",
+        "TECH_CONSTRAINTS adherence",
+        "test strategy",
+        "eval/gate readiness"
+      ],
+      "review_expectation": "PLAN.md should explain what each REQ builds now, what it defers, what downstream REQs may assume, and why the slice is ready for /kit."
+    },
+    "plan_json_req": {
+      "artifact": "docs/harper/plan.json",
+      "required_fields": [
+        "id",
+        "title",
+        "status",
+        "dependsOn",
+        "lane",
+        "domain",
+        "runtime_profile",
+        "functional_scope",
+        "technical_scope",
+        "non_functional_requirements",
+        "security_requirements",
+        "operational_requirements",
+        "integration_contracts",
+        "data_contracts",
+        "acceptance",
+        "test_strategy",
+        "risk_notes",
+        "main_module_boundary",
+        "gate_expectations",
+        "kit_readiness"
+      ],
+      "review_expectation": "Each plan.json REQ should preserve enough machine-readable detail for /kit, eval, gate review, and downstream dependency reasoning."
+    },
+    "principles": [
+      "BMAD success means better canonical Harper artifacts and KIT readiness, not more files.",
+      "Quality contracts are deterministic review aids and do not claim automatic quality improvement.",
+      "TECH_CONSTRAINTS.yaml remains authoritative for runtime, provider, deployment, identity, dependency, and command assumptions.",
+      "Contracts must not hardcode a programming language, framework, cloud provider, database, queue, UI stack, IaC tool, or deployment target."
+    ]
+  },
+  "requested_agent": "pm",
+  "required_context": [
+    "SPEC.md",
+    "PLAN.md",
+    "plan.json",
+    "TECH_CONSTRAINTS.yaml",
+    "repository context"
+  ],
+  "selected_skill_context": {
+    "companion_outputs": [
+      "`docs/harper/bmad/spec/EPICS.md`",
+      "`docs/harper/bmad/plan/STORY_MAP.md`",
+      "`docs/harper/bmad/plan/STORIES.md`",
+      "`docs/harper/bmad/plan/IMPLEMENTATION_READINESS.md`",
+      "`runs/kit/<REQ-ID>/docs/BMAD_DEV_STORY.md`"
+    ],
+    "forbidden_behavior": [
+      "Do not create REQs that require KIT to guess business behavior.",
+      "Do not split work solely by technical layers when a vertical slice is required.",
+      "Do not bypass canonical `plan.json` structure.",
+      "Do not add BMAD companion files to native Harper runs.",
+      "Do not implement multiple REQs in one KIT run.",
+      "Do not modify canonical `PLAN.md` or `plan.json` from local-agent packages.",
+      "Do not treat companion story docs as authoritative over canonical REQs.",
+      "Do not expand allowed write roots."
+    ],
+    "governance_boundaries": [
+      "CLike owns REQ identity, phase contracts, candidate isolation, EvalRunner, and Gate.",
+      "CLike owns REQ selection, active output contracts, write policy, EvalRunner, and Gate."
+    ],
+    "mapping_paths": [
+      ".clike/skills/vendor/bmad/epic-framing/SKILL.md",
+      ".clike/skills/vendor/bmad/story-readiness/SKILL.md"
+    ],
+    "quality_checks": [
+      "Each epic or story maps to a user/system outcome.",
+      "Dependencies are explicit and acyclic where possible.",
+      "Slices are large enough to be meaningful and small enough for focused KIT.",
+      "Deferred scope is named and does not block the promoted slice.",
+      "The target slice is coherent and not a thin technical fragment.",
+      "Dependencies and downstream assumptions are explicit.",
+      "Expected files, tests, and boundaries are named.",
+      "Open questions are blockers or assumptions, not hidden implementation choices."
+    ],
+    "required_outputs": [
+      "Implementation-sized REQs or story map entries with stable dependencies.",
+      "Explicit in-scope and out-of-scope behavior for each slice.",
+      "Handoff notes that later KIT runs can use without inventing behavior.",
+      "Stories or REQs with clear functional scope, technical scope, acceptance, dependencies, and expected files/tests.",
+      "Implementation readiness notes that identify blockers before KIT."
+    ],
+    "snippets": [
+      {
+        "id": "epic-framing",
+        "path": ".clike/skills/vendor/bmad/epic-framing/SKILL.md",
+        "snippet": "# BMAD Skill Mapping: Epic Framing\n\n## Intent\nOrganize broad product behavior into coherent epics, slices, dependencies, and downstream planning units that remain implementation-legible.\n\n## BMAD source/reference concept\nInspired by BMAD epic and story decomposition practices: group work by meaningful outcomes, dependencies, readiness, and handoff clarity.\n\n## CLike adaptation\nUse this mapping to improve SPEC companion epics and PLAN REQ structure. CLike still owns canonical REQ IDs, dependency modeling, `PLAN.md`, and `plan.json`.\n\n## Applies when\nApplies to `spec/pm` and `plan/pm` BMAD runs.\n\n## Required inputs\n- Valid IDEA and SPEC context.\n- Existing `PLAN.md` and `plan.json` when present.\n- TECH_CONSTRAINTS and repository evidence.\n- Prior companion PRD, epics, and story map artifacts.\n\n## Required outputs\n- Implementation-sized REQs or story map entries with stable dependencies.\n- Explicit in-scope and out-of-scope behavior for each slice.\n- Handoff notes that later KIT runs can use without inventing behavior.\n\n## Companion outputs\n- `docs/harper/bmad/spec/EPICS.md`\n- `docs/harper/bmad/plan/STORY_MAP.md`\n- `docs/harper/bmad/plan/STORIES.md`\n\n## Downstream consumers\nPLAN, KIT, EVAL, and FINALIZE consume the epic framing to understand sequencing and story intent.\n\n## Quality checks\n- Each epic or story maps to a user/system outcome.\n- Dependencies are explicit and acyclic w\n\n...[truncated]",
+        "truncated": true
+      },
+      {
+        "id": "story-readiness",
+        "path": ".clike/skills/vendor/bmad/story-readiness/SKILL.md",
+        "snippet": "# BMAD Skill Mapping: Story Readiness\n\n## Intent\nEnsure each planned story or REQ is ready for implementation with scope, dependencies, acceptance, files, tests, and risks clearly stated.\n\n## BMAD source/reference concept\nInspired by BMAD story readiness and backlog refinement practices: stories should be actionable, bounded, and testable.\n\n## CLike adaptation\nUse this mapping to improve PLAN REQs, plan companion story maps, and KIT handoff notes while preserving CLike REQ identity and candidate boundaries.\n\n## Applies when\nApplies to `plan/architect`, `plan/pm`, and `kit/developer`.\n\n## Required inputs\n- PLAN and `plan.json`.\n- Target REQ and dependencies.\n- Lane guides, TECH_CONSTRAINTS, and architecture or PM companion docs.\n\n## Required outputs\n- Stories or REQs with clear functional scope, technical scope, acceptance, dependencies, and expected files/tests.\n- Implementation readiness notes that identify blockers before KIT.\n\n## Companion outputs\n- `docs/harper/bmad/plan/STORIES.md`\n- `docs/harper/bmad/plan/STORY_MAP.md`\n- `docs/harper/bmad/plan/IMPLEMENTATION_READINESS.md`\n- `runs/kit/<REQ-ID>/docs/BMAD_DEV_STORY.md`\n\n## Downstream consumers\nKIT, EVAL, and FINALIZE use story readiness to avoid guessing and to report traceable implementation evidence.\n\n## Quality checks\n- The target slice is coherent and not a thin technical fragment.\n- Dependencies and downstream assumptio\n\n...[truncated]",
+        "truncated": true
+      }
+    ],
+    "source_root": ".clike/skills/vendor/bmad",
+    "source_transport": "template"
+  },
+  "selected_skill_references": [
+    {
+      "bytes": 2500,
+      "id": "epic-framing",
+      "path": ".clike/skills/vendor/bmad/epic-framing/SKILL.md",
+      "source_root": ".clike/skills/vendor/bmad",
+      "source_transport": "template"
+    },
+    {
+      "bytes": 2417,
+      "id": "story-readiness",
+      "path": ".clike/skills/vendor/bmad/story-readiness/SKILL.md",
+      "source_root": ".clike/skills/vendor/bmad",
+      "source_transport": "template"
+    }
+  ],
+  "skill_reference_policy": {
+    "activation": "methodology=bmad",
+    "cloud_context_enabled": true,
+    "enabled": true,
+    "external_bmad_cli_enabled": false,
+    "external_skill_execution_enabled": false,
+    "local_agent_context_enabled": true,
+    "network_fetch_enabled": false,
+    "official_bmad_runtime_content_vendored": false,
+    "review_required_before_activation": true,
+    "runtime_import_enabled": false,
+    "sync_mode": "manual_or_container_controlled",
+    "template_vendor_reference_root": "extensions/vscode/templates/harper-init/.clike/skills/vendor/bmad",
+    "workspace_vendor_reference_root": ".clike/skills/vendor/bmad"
+  },
+  "version": "clike-built-in-profile-v7",
+  "workflow_focus": [
+    "define functional and non-functional scope",
+    "capture security, compliance, privacy, observability, and operations obligations",
+    "declare integration and data contracts",
+    "map dependencies and what later REQs may assume",
+    "make /kit build responsibilities explicit"
+  ],
+  "workflow_path": "workflows/plan.md",
+  "workflow_summary": "Create implementation-legible REQs with dependencies, acceptance criteria, technical obligations, risk, and test strategy."
+}

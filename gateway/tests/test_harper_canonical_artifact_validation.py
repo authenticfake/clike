@@ -6,11 +6,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GATEWAY_ROOT = REPO_ROOT / "gateway"
-ORCHESTRATOR_ROOT = REPO_ROOT / "orchestrator"
-if str(ORCHESTRATOR_ROOT) not in sys.path:
-    sys.path.insert(0, str(ORCHESTRATOR_ROOT))
 
-from services.methodologies.resolver import resolve_methodology_context
+from methodology_contexts import resolve_methodology_context
 
 
 def _load_gateway_module(name: str, relative_path: str):

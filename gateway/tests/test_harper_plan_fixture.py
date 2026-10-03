@@ -6,11 +6,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GATEWAY_ROOT = REPO_ROOT / "gateway"
-ORCHESTRATOR_ROOT = REPO_ROOT / "orchestrator"
-if str(ORCHESTRATOR_ROOT) not in sys.path:
-    sys.path.insert(0, str(ORCHESTRATOR_ROOT))
 
-from services.methodologies.resolver import resolve_methodology_context
+from methodology_contexts import resolve_methodology_context
 
 
 FIXTURE_PATH = GATEWAY_ROOT / "tests/fixtures/provider-openai__openai_gpt-5.5__plan__f381f2f0a1fb.json"

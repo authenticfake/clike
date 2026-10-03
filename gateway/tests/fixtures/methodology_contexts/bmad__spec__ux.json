@@ -1,0 +1,187 @@
+{
+  "advisory_only": false,
+  "agent": "ux",
+  "allowed_agents": [
+    "pm",
+    "ux"
+  ],
+  "artifact_policy": {
+    "allowed_companion_root_globs": [
+      "docs/harper/ux/**"
+    ],
+    "authority": "companion-context-only",
+    "canonical_outputs": [],
+    "companion_only": true,
+    "conflict_resolution": "canonical-wins",
+    "downstream_consumers": [
+      "spec/pm",
+      "plan/architect",
+      "plan/pm",
+      "kit/developer"
+    ],
+    "forbidden_outputs": [
+      "docs/harper/SPEC.md",
+      "docs/harper/PLAN.md",
+      "docs/harper/plan.json",
+      "src/**",
+      "test/**",
+      "tests/**"
+    ],
+    "mandatory_companion_outputs": [
+      "docs/harper/ux/DESIGN.md",
+      "docs/harper/ux/EXPERIENCE.md",
+      "docs/harper/ux/USER_JOURNEYS.md",
+      "docs/harper/ux/INTERACTION_STATES.md",
+      "docs/harper/ux/SPEC_UX_APPENDIX.md"
+    ],
+    "open_ended_generation_allowed": true
+  },
+  "authority": "methodology_profile",
+  "companion_artifact_suggestions": {
+    "bmad_root": "docs/harper/bmad",
+    "notes": [
+      "Companion artifacts are optional CLike-owned context.",
+      "Companion artifacts cannot override canonical IDEA, SPEC, PLAN, KIT, EVAL, GATE, or FINALIZE artifacts.",
+      "Companion artifacts must not expand write permissions or change eval/gate decisions."
+    ],
+    "ux_root": "docs/harper/ux"
+  },
+  "companion_artifacts": [
+    "docs/harper/bmad/spec/PRD.md",
+    "docs/harper/bmad/spec/EPICS.md",
+    "docs/harper/bmad/spec/ACCEPTANCE_MODEL.md",
+    "docs/harper/bmad/spec/SCOPE_DECISIONS.md",
+    "docs/harper/ux/DESIGN.md",
+    "docs/harper/ux/EXPERIENCE.md",
+    "docs/harper/ux/USER_JOURNEYS.md",
+    "docs/harper/ux/INTERACTION_STATES.md"
+  ],
+  "default_agent": "pm",
+  "governance": {
+    "artifact_importer_enabled": false,
+    "external_bmad_cli_enabled": false,
+    "profile_context_injection_enabled": true,
+    "runtime_dependency_enabled": false
+  },
+  "governance_boundaries": [
+    "CLike remains the governance runtime and source of truth.",
+    "Methodology guidance is not an executor selection mechanism.",
+    "Methodology guidance cannot override CLike phase contracts, eval/gate policy, allowed_write_roots, forbidden_paths, candidate isolation, or output schemas.",
+    "BMAD profiles do not add a BMAD runtime, external CLI call, hard dependency, importer, TEA, Party Mode, or MCP write tools.",
+    "If methodology guidance conflicts with CLike rules, follow CLike."
+  ],
+  "methodology": "bmad",
+  "methodology_name": "BMAD",
+  "phase": "spec",
+  "profile": {
+    "id": "ux",
+    "profile_path": "agents/ux.md",
+    "summary": "Defines UX design, DESIGN/EXPERIENCE guidance, accessibility, interaction states, journeys, and empty/error/loading states.",
+    "title": "UX"
+  },
+  "quality_contracts": {
+    "principles": [
+      "BMAD success means better canonical Harper artifacts and KIT readiness, not more files.",
+      "Quality contracts are deterministic review aids and do not claim automatic quality improvement.",
+      "TECH_CONSTRAINTS.yaml remains authoritative for runtime, provider, deployment, identity, dependency, and command assumptions.",
+      "Contracts must not hardcode a programming language, framework, cloud provider, database, queue, UI stack, IaC tool, or deployment target."
+    ],
+    "spec": {
+      "artifact": "docs/harper/SPEC.md",
+      "checks": [
+        "completeness",
+        "testability",
+        "acceptance criteria precision",
+        "functional requirement clarity",
+        "UX/user journey quality",
+        "non-functional requirements",
+        "security/privacy/compliance",
+        "observability/operations",
+        "scope and non-goals",
+        "traceability to IDEA and companion artifacts"
+      ],
+      "review_expectation": "SPEC.md should be complete enough for PLAN to derive implementation-ready REQs without inventing product behavior, runtime assumptions, or governance exceptions."
+    }
+  },
+  "requested_agent": "ux",
+  "required_context": [
+    "IDEA.md",
+    "TECH_CONSTRAINTS.yaml",
+    "domain notes",
+    "UX notes when present"
+  ],
+  "selected_skill_context": {
+    "companion_outputs": [
+      "`docs/harper/ux/DESIGN.md`",
+      "`docs/harper/ux/EXPERIENCE.md`",
+      "`docs/harper/ux/USER_JOURNEYS.md`",
+      "`docs/harper/ux/INTERACTION_STATES.md`",
+      "`docs/harper/ux/SPEC_UX_APPENDIX.md`"
+    ],
+    "forbidden_behavior": [
+      "Do not emit canonical SPEC in `spec/ux`.",
+      "Do not expand write roots or add implementation files.",
+      "Do not invent UI scope when product context is backend-only.",
+      "Do not override PM-owned canonical requirements."
+    ],
+    "governance_boundaries": [
+      "CLike owns canonical SPEC, PLAN, EvalRunner, Gate, and all write policy."
+    ],
+    "mapping_paths": [
+      ".clike/skills/vendor/bmad/ux-flow-modeling/SKILL.md"
+    ],
+    "quality_checks": [
+      "Primary flows, empty states, error states, loading states, and accessibility expectations are explicit.",
+      "UX guidance matches the selected domain and design profile when evidenced.",
+      "Interaction states are testable and not decorative."
+    ],
+    "required_outputs": [
+      "UX companion artifacts describing journeys, screens, states, content, accessibility, and handoff notes.",
+      "Clear separation between UX advice and canonical SPEC authority."
+    ],
+    "snippets": [
+      {
+        "id": "ux-flow-modeling",
+        "path": ".clike/skills/vendor/bmad/ux-flow-modeling/SKILL.md",
+        "snippet": "# BMAD Skill Mapping: UX Flow Modeling\n\n## Intent\nCapture user journeys, interaction states, accessibility expectations, and UX risks as companion context without taking ownership of canonical SPEC.\n\n## BMAD source/reference concept\nInspired by BMAD UX flow and front-end specification practices: make journeys, states, and user-facing constraints explicit before implementation.\n\n## CLike adaptation\nUse this mapping only for BMAD UX companion outputs. In MVP, `spec/ux` is companion-only and must not emit `docs/harper/SPEC.md`.\n\n## Applies when\nApplies to `spec/ux`.\n\n## Required inputs\n- IDEA and current SPEC context.\n- User personas or workflow descriptions.\n- TECH_CONSTRAINTS and design profile evidence when present.\n\n## Required outputs\n- UX companion artifacts describing journeys, screens, states, content, accessibility, and handoff notes.\n- Clear separation between UX advice and canonical SPEC authority.\n\n## Companion outputs\n- `docs/harper/ux/DESIGN.md`\n- `docs/harper/ux/EXPERIENCE.md`\n- `docs/harper/ux/USER_JOURNEYS.md`\n- `docs/harper/ux/INTERACTION_STATES.md`\n- `docs/harper/ux/SPEC_UX_APPENDIX.md`\n\n## Downstream consumers\nSPEC PM, PLAN, KIT, EVAL, and FINALIZE may use UX companion artifacts as bounded context.\n\n## Quality checks\n- Primary flows, empty states, error states, loading states, and accessibility expectations are explicit.\n- UX guidance matches the selected domai\n\n...[truncated]",
+        "truncated": true
+      }
+    ],
+    "source_root": ".clike/skills/vendor/bmad",
+    "source_transport": "template"
+  },
+  "selected_skill_references": [
+    {
+      "bytes": 2346,
+      "id": "ux-flow-modeling",
+      "path": ".clike/skills/vendor/bmad/ux-flow-modeling/SKILL.md",
+      "source_root": ".clike/skills/vendor/bmad",
+      "source_transport": "template"
+    }
+  ],
+  "skill_reference_policy": {
+    "activation": "methodology=bmad",
+    "cloud_context_enabled": true,
+    "enabled": true,
+    "external_bmad_cli_enabled": false,
+    "external_skill_execution_enabled": false,
+    "local_agent_context_enabled": true,
+    "network_fetch_enabled": false,
+    "official_bmad_runtime_content_vendored": false,
+    "review_required_before_activation": true,
+    "runtime_import_enabled": false,
+    "sync_mode": "manual_or_container_controlled",
+    "template_vendor_reference_root": "extensions/vscode/templates/harper-init/.clike/skills/vendor/bmad",
+    "workspace_vendor_reference_root": ".clike/skills/vendor/bmad"
+  },
+  "version": "clike-built-in-profile-v7",
+  "workflow_focus": [
+    "create, update, and validate PRD-level requirements",
+    "separate scope, non-scope, assumptions, and dependencies",
+    "define acceptance criteria that can become testable REQs",
+    "capture UX expectations when the UX role is selected",
+    "feed SPEC/PLAN without bypassing CLike canonical artifacts"
+  ],
+  "workflow_path": "workflows/spec.md",
+  "workflow_summary": "Convert validated intent into PRD-grade behavior, UX, acceptance criteria, risks, and implementation readiness inputs."
+}
