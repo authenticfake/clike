@@ -1,0 +1,48 @@
+[project]
+name = "clike-orchestrator"
+version = "0.5.3"
+description = "CLike Orchestrator: Harper workflow, execution packages, RAG, eval/gate, MCP"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi==0.111.*",
+    "uvicorn>=0.31.1",
+    "httpx==0.27.*",
+    "pydantic>=2.7,<3",
+    "pydantic-settings>=2.2,<3",
+    "mcp>=1.23,<2",
+    "qdrant-client==1.9.*",
+    "python-multipart>=0.0.18",
+    "PyYAML==6.0.2",
+    # attachment/document extraction
+    "pdfminer.six==20221105",
+    "python-docx==1.1.2",
+    "openpyxl==3.1.5",
+    "python-pptx==0.6.23",
+    "xlrd==2.0.1",
+    "pyxlsb==1.0.10",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.2",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.4",
+]
+# Tools that KIT LTC commands may invoke inside the orchestrator container
+# while eval/gate still run there (until the WP6 per-lane sandbox images).
+eval-toolchain = [
+    "pytest>=8.2",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.4",
+    "black>=24.3",
+    "isort==5.13.2",
+    "mypy>=1.9",
+    "bandit==1.7.9",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
