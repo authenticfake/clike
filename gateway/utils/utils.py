@@ -12,6 +12,7 @@ import openpyxl  # .xlsx
 import xlrd  # .xls (legacy)
 from pyxlsb import open_workbook as open_xlsb  # .xlsb (optional)
 from pptx import Presentation  # .pptx
+from utils.service_auth import internal_auth_headers
 
 
 
@@ -50,7 +51,7 @@ async def rag_index_items(project_id: str, items: list[dict]):
     if not payload["items"]:
         return
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
+        async with httpx.AsyncClient(timeout=60, headers=internal_auth_headers()) as client:
             await client.post(f"{_rag_base_url()}/index", json=payload)
     except Exception as e:
         log.warning("rag_index_items failed: %s", e)
@@ -59,7 +60,7 @@ async def rag_index_items(project_id: str, items: list[dict]):
 
 async def rag_fetch(project_id: str, paths: list[str]):
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
+        async with httpx.AsyncClient(timeout=60, headers=internal_auth_headers()) as client:
             r = await client.post(f"{_rag_base_url()}/fetch_by_paths",
                                   json={"project_id": project_id,
                                         "paths": paths,
@@ -75,7 +76,7 @@ async def rag_fetch(project_id: str, paths: list[str]):
 
 async def rag_query(project_id: str, query: str, top_k: int = None):
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
+        async with httpx.AsyncClient(timeout=60, headers=internal_auth_headers()) as client:
             r = await client.post(f"{_rag_base_url()}/search",
                                   json={"project_id": project_id,
                                         "query": query or "",

@@ -60,6 +60,7 @@ from utils.namespace_paths import (
     namespace_materialization_context,
     python_module_boundary_to_package_path,
 )
+from utils.service_auth import internal_auth_headers
 log = logging.getLogger("service.router")
 
 _KIT_PHASE_SEQUENCE: List[str] = [
@@ -85,7 +86,7 @@ async def _post_json(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         len(payload.get("attachments") or []),
     )
     TIMEOUT = float(os.environ.get("TIMEOUT", 980.0))
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+    async with httpx.AsyncClient(timeout=TIMEOUT, headers=internal_auth_headers()) as client:
         r = await client.post(url, json=payload)
         elapsed_time = time.time() - start_time
         log.info("POST phase=%s elapsed=%.3fs", payload.get("phase"), elapsed_time)

@@ -30,6 +30,7 @@ from services.splitter import (
     split_ts_per_symbol,
     apply_strategy,
 )
+from utils.service_auth import internal_auth_headers
 def build_response_format_files_bundle() -> dict:
     """
     OpenAI structured output schema for a bundle of files.
@@ -342,14 +343,14 @@ async def rag_index_items(project_id: str, items: list[dict]):
     if not payload["items"]:
         return
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
+        async with httpx.AsyncClient(timeout=60, headers=internal_auth_headers()) as client:
             await client.post(f"{_rag_base_url()}/index", json=payload)
     except Exception as e:
         log.warning("rag_index_items failed: %s", e)
 
 async def rag_query(project_id: str, query: str, top_k: int = None):
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
+        async with httpx.AsyncClient(timeout=60, headers=internal_auth_headers()) as client:
             r = await client.post(f"{_rag_base_url()}/search",
                                   json={"project_id": project_id,
                                         "query": query or "",
@@ -422,7 +423,7 @@ async def _load_models_or_fallback() -> List[Dict[str, Any]]:
     # gateway
     try:
         base = str(getattr(settings, "GATEWAY_URL", "http://localhost:8000")).rstrip("/")
-        async with httpx.AsyncClient(timeout=float(getattr(settings, "REQUEST_TIMEOUT_S", 60))) as client:
+        async with httpx.AsyncClient(timeout=float(getattr(settings, "REQUEST_TIMEOUT_S", 60)), headers=internal_auth_headers()) as client:
             r = await client.get(f"{base}/v1/models")
             r.raise_for_status()
             models = _normalize_models(r.json())
@@ -457,7 +458,7 @@ async def _load_providers() -> Dict[str, Any]:
     permissive = {"providers": {}, "reasons": {}, "any_cloud": True, "any_local": True, "any": True}
     try:
         base = str(getattr(settings, "GATEWAY_URL", "http://localhost:8000")).rstrip("/")
-        async with httpx.AsyncClient(timeout=float(getattr(settings, "REQUEST_TIMEOUT_S", 60))) as client:
+        async with httpx.AsyncClient(timeout=float(getattr(settings, "REQUEST_TIMEOUT_S", 60)), headers=internal_auth_headers()) as client:
             r = await client.get(f"{base}/v1/providers")
             r.raise_for_status()
             data = r.json()
