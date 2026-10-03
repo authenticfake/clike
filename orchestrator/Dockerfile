@@ -1,5 +1,5 @@
 # ===== Base image =====
-FROM python:3.11-slim AS base
+FROM python:3.12-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
@@ -81,12 +81,16 @@ RUN if [ "$ENABLE_JAVA" = "true" ]; then \
       https://github.com/google/google-java-format/releases/download/v1.22.0/google-java-format-1.22.0-all-deps.jar ; \
     else echo "Skip GJF jar"; fi
 
-# ===== Python deps =====
+# ===== Python deps (locked, uv) =====
+COPY --from=ghcr.io/astral-sh/uv:0.12.22 /uv /usr/local/bin/uv
 WORKDIR /app
-COPY requirements.txt /app/requirements.txt
-# Prima aggiorna pip, poi installa il resto
-RUN pip install --upgrade pip && \
-    pip install --no-cache-dir -r /app/requirements.txt
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    PATH="/opt/venv/bin:$PATH"
+COPY pyproject.toml uv.lock /app/
+# Runtime deps + the tools KIT LTC commands may call while eval still runs here (WP6 moves eval to sandboxes)
+RUN uv sync --frozen --no-dev --group eval-toolchain
 
 
 # ===== App source =====
@@ -110,5 +114,4 @@ ENV CLIKE_TOOLS_PY_BLACK=true \
 
 EXPOSE 8080
 
-# Avvio orchestrator (dev: reload)
-CMD ["uvicorn","app:app","--host","0.0.0.0","--port","8080","--reload"]
+CMD ["uvicorn","app:app","--host","0.0.0.0","--port","8080"]
