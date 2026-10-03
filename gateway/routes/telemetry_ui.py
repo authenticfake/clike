@@ -1,7 +1,9 @@
 # gateway/router/telemetry_ui.py
 from __future__ import annotations
-from fastapi import APIRouter
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Request
+from fastapi.responses import HTMLResponse, JSONResponse, Response
+
+from utils.service_auth import COOKIE_NAME, configured_token, tokens_match
 
 router = APIRouter(prefix="/v1/metrics", tags=["metrics-ui"])
 
@@ -135,7 +137,19 @@ let curPage = 1;
 function n(x){ return Number(x||0); }
 function fmtUSD(x){ return '$'+(Math.round(n(x)*100)/100).toFixed(2); }
 function seriesToISO(ts){ return new Date(ts*1000).toISOString().slice(0,19).replace('T',' '); }
-async function j(url){ const r = await fetch(url); if(!r.ok) throw new Error(await r.text()); return await r.json(); }
+function esc(v){ return String(v ?? '').replace(/[&<>"'`]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','`':'&#96;'}[c])); }
+async function login(){
+  const token = window.prompt('CLike service token (CLIKE_API_TOKEN):');
+  if (!token) return false;
+  const r = await fetch('/v1/metrics/login', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({token})});
+  return r.ok;
+}
+async function j(url){
+  let r = await fetch(url, {credentials:'same-origin'});
+  if (r.status === 401 && await login()) r = await fetch(url, {credentials:'same-origin'});
+  if(!r.ok) throw new Error(await r.text());
+  return await r.json();
+}
 
 function showEmptyState(show){
   document.getElementById('emptyState').classList.toggle('hidden', !show);
@@ -160,7 +174,7 @@ async function initProjects(){
 
   const lastProj = localStorage.getItem('harper:lastProject');
   const initial = (lastProj && ids.includes(lastProj)) ? lastProj : ids[0];
-  sel.innerHTML = ids.map(id => `<option value="${id}">${id}</option>`).join('');
+  sel.innerHTML = ids.map(id => `<option value="${esc(id)}">${esc(id)}</option>`).join('');
   sel.value = initial;
 
   await loadFilesForProject(initial); // popola combo file
@@ -194,7 +208,7 @@ async function loadFilesForProject(projectId){
 
   // option "(whole project)" = stringa vuota
   const options = [`<option value="">(whole project)</option>`]
-    .concat(files.map(f => `<option value="${f.relpath}">${f.relpath}</option>`));
+    .concat(files.map(f => `<option value="${esc(f.relpath)}">${esc(f.relpath)}</option>`));
   fileSel.innerHTML = options.join('');
 
   // seleziona ultimo file scelto per quel progetto, altrimenti il primo
@@ -251,9 +265,9 @@ async function loadOverview(){
   const phases = Object.keys(agg.per_phase||{});
   const providers = Object.keys(agg.per_provider||{});
   const models = Object.keys(agg.per_model||{});
-  document.getElementById('phaseFilter').innerHTML = '<option value="">(phase)</option>' + phases.map(p=>`<option>${p}</option>`).join('');
-  document.getElementById('providerFilter').innerHTML = '<option value="">(provider)</option>' + providers.map(p=>`<option>${p}</option>`).join('');
-  document.getElementById('modelFilter').innerHTML = '<option value="">(model)</option>' + models.map(m=>`<option>${m}</option>`).join('');
+  document.getElementById('phaseFilter').innerHTML = '<option value="">(phase)</option>' + phases.map(p=>`<option>${esc(p)}</option>`).join('');
+  document.getElementById('providerFilter').innerHTML = '<option value="">(provider)</option>' + providers.map(p=>`<option>${esc(p)}</option>`).join('');
+  document.getElementById('modelFilter').innerHTML = '<option value="">(model)</option>' + models.map(m=>`<option>${esc(m)}</option>`).join('');
 
   const days = Object.keys(agg.by_day||{}).sort();
   renderChart('costDay','line',{labels:days,datasets:[{label:'Cost (USD)',data:days.map(d=>(agg.by_day[d]?.cost_usd)||0)}]},
@@ -280,10 +294,10 @@ async function loadOverview(){
   tb.innerHTML = (top.top||[]).map((r,i)=>`
     <tr>
       <td>${i+1}</td>
-      <td class="muted">${r.run_id||''}</td>
-      <td>${r.phase||''}</td>
-      <td>${r.model||''}</td>
-      <td>${r.provider||''}</td>
+      <td class="muted">${esc(r.run_id)}</td>
+      <td>${esc(r.phase)}</td>
+      <td>${esc(r.model)}</td>
+      <td>${esc(r.provider)}</td>
       <td>${fmtUSD((r.pricing?.total_cost) ?? r.cost_usd_est ?? 0)}</td>
       <td>${new Date((r.timestamp||0)*1000).toLocaleString()}</td>
     </tr>`).join('');
@@ -309,10 +323,10 @@ async function loadTable(){
   tbody.innerHTML = (data.items||[]).map(r=>`
     <tr>
       <td>${new Date((r.timestamp||0)*1000).toLocaleString()}</td>
-      <td class="muted">${r.run_id||''}</td>
-      <td>${r.phase||''}</td>
-      <td>${r.model||''}</td>
-      <td>${r.provider||''}</td>
+      <td class="muted">${esc(r.run_id)}</td>
+      <td>${esc(r.phase)}</td>
+      <td>${esc(r.model)}</td>
+      <td>${esc(r.provider)}</td>
       <td>${fmtUSD((r.pricing?.total_cost) ?? r.cost_usd_est ?? 0)}</td>
       <td>${(r.usage?.prompt_tokens ?? r.usage?.input_tokens ?? 0)}</td>
       <td>${(r.usage?.completion_tokens ?? r.usage?.output_tokens ?? 0)}</td>
@@ -362,3 +376,30 @@ initProjects().then(()=>{ activateTabs(); });
 @router.get("/harper/ui", response_class=HTMLResponse)
 def ui() -> HTMLResponse:
     return HTMLResponse(_HTML)
+
+
+_COOKIE_MAX_AGE_S = 8 * 3600
+
+
+@router.post("/login")
+async def login(request: Request) -> Response:
+    """Exchange the service token for an HttpOnly, SameSite=Strict cookie (telemetry UI only)."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    token = str((body or {}).get("token") or "").strip()
+    if not tokens_match(token, configured_token()):
+        return JSONResponse({"code": "unauthorized", "detail": "Invalid service token"}, status_code=401)
+    resp = Response(status_code=204)
+    resp.set_cookie(
+        COOKIE_NAME, token, max_age=_COOKIE_MAX_AGE_S, httponly=True, samesite="strict", path="/v1/metrics"
+    )
+    return resp
+
+
+@router.post("/logout")
+def logout() -> Response:
+    resp = Response(status_code=204)
+    resp.delete_cookie(COOKIE_NAME, path="/v1/metrics")
+    return resp
