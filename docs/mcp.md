@@ -11,6 +11,8 @@ Mount logic:
 - mounted at `/mcp`
 - mounted only when `CLIKE_MCP_SERVER_ENABLED=true`
 - mounted from the orchestrator app
+- protected by the service token like every orchestrator endpoint: clients must send
+  `Authorization: Bearer <CLIKE_API_TOKEN>` (HTTP 401 otherwise)
 
 ## Current MCP characteristics
 

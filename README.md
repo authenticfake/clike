@@ -308,7 +308,7 @@ It does not directly own Model 2 command dispatch.
 The orchestrator MCP endpoint uses streamable HTTP semantics. Manual curl calls should include both `content-type` and `accept` headers.
 
 ```bash
-curl -s http://localhost:8080/mcp/   -H 'content-type: application/json'   -H 'accept: application/json, text/event-stream'   -d '{
+curl -s http://127.0.0.1:8080/mcp/   -H "authorization: Bearer $CLIKE_API_TOKEN"   -H 'content-type: application/json'   -H 'accept: application/json, text/event-stream'   -d '{
     "jsonrpc": "2.0",
     "id": 1,
     "method": "tools/list",
@@ -316,7 +316,13 @@ curl -s http://localhost:8080/mcp/   -H 'content-type: application/json'   -H 'a
   }' | jq
 ```
 
-If the `accept` header is omitted, the endpoint may return HTTP `406`.
+If the `accept` header is omitted, the endpoint may return HTTP `406`. Without the service token it returns `401`.
+
+MCP clients must send the same header, e.g. for Claude Code:
+
+```bash
+claude mcp add --transport http clike http://127.0.0.1:8080/mcp/ --header "Authorization: Bearer $CLIKE_API_TOKEN"
+```
 
 ---
 
@@ -581,7 +587,24 @@ curl -s http://127.0.0.1:8080/health
 curl -s http://127.0.0.1:8000/health
 ```
 
-Services listen on loopback only. Code is baked into the images: run `podman-compose build` after changes.
+Services listen on loopback only. Code is baked into the images: after changes run
+`podman-compose build && podman-compose up -d --force-recreate` (podman-compose does not
+recreate containers when only the image changed).
+
+### Service token (required)
+
+Every endpoint except `/health` requires `Authorization: Bearer <CLIKE_API_TOKEN>`; the services
+refuse requests (HTTP 503) when the token is not configured, and reject non-loopback `Host`
+headers. There is no CORS: only the extension host and the services call the APIs.
+
+1. Put a random token in the root `.env` (`openssl rand -hex 32`) as `CLIKE_API_TOKEN=...`
+   and restart the stack. Orchestrator and gateway use it for their internal calls too.
+2. In VS Code run **CLike: Set Service Token** and paste the same value (stored in SecretStorage;
+   it is only sent to the configured orchestrator/gateway URLs). Alternatively choose
+   *Generate new token*: the `.env` line is copied to the clipboard.
+
+The gateway telemetry UI (`/v1/metrics/harper/ui`) asks for the token once and keeps it in an
+`HttpOnly`, `SameSite=Strict` cookie valid only for the telemetry API.
 
 ### 2. Install the VS Code extension
 
@@ -645,10 +668,13 @@ Local-agent settings include:
 
 MCP extension settings include:
 
-- `clike.mcp.extensionServerEnabled`
+- `clike.mcp.extensionServerEnabled` (default `false`)
 - `clike.mcp.extensionServerHost`
 - `clike.mcp.extensionServerPort`
-- `clike.mcp.extensionServerToken`
+- `clike.mcp.extensionServerToken` (optional override; by default a random token is generated and kept in SecretStorage — copy it with **CLike: Copy Extension MCP Token**)
+
+The extension MCP server always requires `Authorization: Bearer <token>`, rejects any request
+carrying an `Origin` header (browsers), accepts only a loopback `Host` and JSON bodies.
 
 ---
 
