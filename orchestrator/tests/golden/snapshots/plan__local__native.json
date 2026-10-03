@@ -1,0 +1,119 @@
+{
+  "gateway_calls": [],
+  "output": {
+    "diffs": [],
+    "echo": "Local agent plan package prepared for Harper PLAN",
+    "errors": [],
+    "execution": {
+      "phase_supported": true,
+      "reason": "golden",
+      "requested": "local_agent_only",
+      "selected": "local_agent"
+    },
+    "files": [],
+    "local_agent": {
+      "action": "local_agent_required",
+      "active_output_contract": {
+        "agent": null,
+        "allowed_optional_output_globs": [],
+        "conflict_resolution": "native-clike-contract-wins",
+        "forbidden_output_globs": [],
+        "methodology": "native_clike",
+        "phase": "plan",
+        "required_context_sections": [
+          "SPEC.md",
+          "TECH_CONSTRAINTS.yaml",
+          "Harper chat history"
+        ],
+        "required_outputs": [
+          "docs/harper/PLAN.md",
+          "docs/harper/plan.json",
+          "docs/harper/lane-guides/**"
+        ],
+        "runner": "local_agent",
+        "strict_missing_required_outputs": false
+      },
+      "allowed_write_roots": [
+        "docs/harper/PLAN.md",
+        "docs/harper/plan.json",
+        "docs/harper/lane-guides"
+      ],
+      "context_path": "runs/plan/docs/AGENT_PLAN_CONTEXT.json",
+      "executor_hint": "claude_code",
+      "expected_outputs": {
+        "always": [
+          "docs/harper/PLAN.md",
+          "docs/harper/plan.json"
+        ],
+        "conditional": [
+          "docs/harper/lane-guides/<lane>.md for every detected lane"
+        ]
+      },
+      "forbidden_paths": [
+        ".git",
+        "src",
+        "test",
+        "tests",
+        "runs/kit",
+        "runs/eval",
+        "runs/gate",
+        "node_modules",
+        ".venv",
+        "__pycache__",
+        "__MACOSX"
+      ],
+      "invocation": {
+        "args": [
+          "-p",
+          "--permission-mode",
+          "acceptEdits"
+        ],
+        "command_ref": "claude_code",
+        "cwd": ".",
+        "executor": "claude_code",
+        "prompt_transport": "argv_last",
+        "schema_version": "clike.local_agent_invocation.v1",
+        "timeout_seconds": 1800
+      },
+      "package_files": [
+        {
+          "content": "{\n  \"schema_version\": \"clike.agent.plan_context.v1\",\n  \"phase\": \"plan\",\n  \"run_id\": \"golden-run\",\n  \"input_sources\": {\n    \"idea_md_present\": false,\n    \"spec_md_present\": false,\n    \"plan_md_present\": false,\n    \"attachments_present\": false,\n    \"attachment_count\": 0\n  },\n  \"attachments\": {\n    \"present\": false,\n    \"count\": 0,\n    \"items\": []\n  },\n  \"capabilities\": {\n    \"available\": {\n      \"packs\": [],\n      \"skills\": [],\n      \"design_profiles\": []\n    },\n    \"selected\": {\n      \"packs\": [],\n      \"skills\": [],\n      \"design_profiles\": []\n    },\n    \"manifest_present\": false,\n    \"index_present\": false,\n    \"has_capabilities\": false\n  },\n  \"mission\": {\n    \"purpose\": \"Regenerate a concrete, execution-ready plan (PLAN.md, plan.json, lane guides) strictly from SPEC inputs.\",\n    \"canonical_outputs\": [\n      \"docs/harper/PLAN.md\",\n      \"docs/harper/plan.json\"\n    ]\n  },\n  \"required_reads\": [\n    \"docs/harper/SPEC.md (and any SPEC* prefix variants)\",\n    \"docs/harper/TECH_CONSTRAINTS.yaml when present\",\n    \"Harper chat history when relevant\"\n  ],\n  \"allowed_write_roots\": [\n    \"docs/harper/PLAN.md\",\n    \"docs/harper/plan.json\",\n    \"docs/harper/lane-guides\"\n  ],\n  \"forbidden_paths\": [\n    \".git\",\n    \"src\",\n    \"test\",\n    \"tests\",\n    \"runs/kit\",\n    \"runs/eval\",\n    \"runs/gate\",\n    \"node_modules\",\n    \".venv\",\n    \"__pycache__\",\n    \"__MACOSX\"\n  ],\n  \"output_contract\": {\n    \"always\": [\n      \"docs/harper/PLAN.md\",\n      \"docs/harper/plan.json\"\n    ],\n    \"conditional\": [\n      \"docs/harper/lane-guides/<lane>.md for every detected lane\"\n    ]\n  },\n  \"active_output_contract\": {\n    \"phase\": \"plan\",\n    \"runner\": \"local_agent\",\n    \"methodology\": \"native_clike\",\n    \"agent\": null,\n    \"required_outputs\": [\n      \"docs/harper/PLAN.md\",\n      \"docs/harper/plan.json\",\n      \"docs/harper/lane-guides/**\"\n    ],\n    \"allowed_optional_output_globs\": [],\n    \"forbidden_output_globs\": [],\n    \"required_context_sections\": [\n      \"SPEC.md\",\n      \"TECH_CONSTRAINTS.yaml\",\n      \"Harper chat history\"\n    ],\n    \"strict_missing_required_outputs\": false,\n    \"conflict_resolution\": \"native-clike-contract-wins\"\n  },\n  \"hard_rules\": [\n    \"Write only docs/harper/PLAN.md, docs/harper/plan.json, and docs/harper/lane-guides/<lane>.md. Do not write any other docs/harper path.\",\n    \"/plan is regenerative: build PLAN.md, plan.json, and lane guides from SPEC inputs only.\",\n    \"Do not read docs/harper/PLAN.md, docs/harper/plan.json, docs/harper/lane-guides/**, or any PLAN*/plan* variant as input. Existing plan files are stale outputs from a previous /plan run, not source material.\",\n    \"Treat any existing docs/harper/PLAN.md, docs/harper/plan.json, and docs/harper/lane-guides/** as overwrite targets only; regenerate them from SPEC, never reconcile with the old plan output.\",\n    \"docs/harper/PLAN.md must start with `# PLAN — <Project Name>` (from the SPEC.md title by replacing SPEC with PLAN).\",\n    \"plan.json is mandatory and must always be emitted as a single valid JSON object.\",\n    \"Emit docs/harper/lane-guides/<lane>.md for every lane detected from TECH_CONSTRAINTS.yaml.\",\n    \"Every REQ in PLAN.md must appear in plan.json and vice versa.\",\n    \"If token budget is tight, reduce PLAN.md prose but never skip plan.json or required lane guides.\",\n    \"Do not run git commands.\",\n    \"Do not modify src/, test/, tests/, runs/kit/, runs/eval/, or runs/gate/.\"\n  ],\n  \"validation_expectations\": [\n    \"docs/harper/PLAN.md exists and starts with `# PLAN — <Project Name>`.\",\n    \"docs/harper/plan.json exists and parses as a single valid JSON object.\",\n    \"snapshot.total equals the number of reqs in plan.json.\",\n    \"Every REQ in PLAN.md appears in plan.json and vice versa.\",\n    \"A docs/harper/lane-guides/<lane>.md exists for every detected lane.\"\n  ]\n}",
+          "encoding": "utf-8",
+          "mime": "application/json",
+          "path": "runs/plan/docs/AGENT_PLAN_CONTEXT.json"
+        },
+        {
+          "content": "# Local Agent PLAN Execution Package — Harper PLAN\n\nYou are executing a CLike Harper /plan package.\nThe orchestrator owns workflow state, policy, and validation. The local agent is only the workspace document actuator.\n\n\nRead before acting:\n- runs/plan/docs/AGENT_PLAN_CONTEXT.json\n- docs/harper/SPEC.md (and any SPEC* prefix variants)\n- docs/harper/TECH_CONSTRAINTS.yaml when present\n- Harper chat history when relevant\n\n## Canonical Harper PLAN contract (cloud parity — authoritative)\nThese expectations are the canonical cloud /plan contract. The local\nartifact must be isofunctional with the cloud artifact and never weaker:\n- # PLAN — <Project Name>\n- stable **REQ-IDs**\n- plan.json\n- Each REQ must be **/kit-ready**\n- minimal, dependency-aware\n- machine-readable source of truth\n- for every detected lane\n- Acceptance bullets ≥ 5\n- snapshot.total == len(reqs)\nMatch or exceed the cloud artifact: be more explicit, more traceable to the\nprevious phase, richer in acceptance criteria/constraints/risks/verification\nhooks, and downstream-ready — but never skeletal and never heading-only.\n\nMission:\n- Regenerate docs/harper/PLAN.md, docs/harper/plan.json, and one docs/harper/lane-guides/<lane>.md per detected lane.\n- Derive a minimal, dependency-aware, /kit-ready plan with stable REQ-IDs from the SPEC.\n- Match or exceed the cloud /plan artifacts in structure, completeness, and machine-readable richness. plan.json is the machine-readable source of truth required by downstream /kit, /eval, and /gate.\n\nSource discipline (regenerative phase):\n- Read docs/harper/SPEC.md (and any SPEC* prefix variants) and TECH_CONSTRAINTS.yaml as the source of truth.\n- Do NOT read docs/harper/PLAN.md, docs/harper/plan.json, docs/harper/lane-guides/**, or any PLAN*/plan* variant as input; they are stale outputs of a previous /plan run.\n- PLAN.md, plan.json, and lane-guides are overwrite targets only. Regenerate them fresh from the SPEC; never reuse or reconcile the old plan content.\n\nSkills / capabilities discipline:\n- Treat selected skills, packs, and design profiles (from the active output contract / methodology context) as BINDING planning constraints, not decorative context.\n- Reflect them per REQ in plan.json (skills, packs, design_profiles) and in the relevant PLAN.md REQ sections; never invent fake skills, packs, or design profiles.\n\nHard requirements:\n- PLAN.md first line: `# PLAN — <Project Name>` (replace the leading SPEC with PLAN from the SPEC.md title).\n- plan.json is mandatory: a single valid JSON object where snapshot.total == len(reqs).\n- Every REQ must appear in both PLAN.md and plan.json; PLAN.md is the human view, plan.json is the machine-readable source of truth.\n- Detect lanes from TECH_CONSTRAINTS.yaml and emit docs/harper/lane-guides/<lane>.md for every detected lane. If no lanes are detected, state the rationale under PLAN.md → Notes.\n- If token budget is tight, reduce PLAN.md prose but never skip plan.json or required lane guides.\n\nPLAN.md required sections (in order; substantive, not heading-only):\n- ## Plan Snapshot (counts, progress, checklist)\n- ## Tracks & Scope Boundaries\n- ## Module/Package & Namespace Plan (per KIT)\n- ## REQ-IDs Table (canonical Markdown table: ID | Title | Acceptance (<=3 bullets) | DependsOn [IDs] | Track | Status)\n- Per REQ after the table: ### Functional Scope — <REQ-ID>, ### Technical Scope — <REQ-ID>, ### Non-Functional Requirements — <REQ-ID>, ### Security Requirements — <REQ-ID>, ### Compliance and Privacy Requirements — <REQ-ID>, ### Observability and Operations — <REQ-ID>, ### Integration Contracts — <REQ-ID>, ### Data Contracts — <REQ-ID>, ### Acceptance — <REQ-ID> (>=5 observable, falsifiable bullets)\n- ## Dependency Graph (textual adjacency list)\n- ## Iteration Strategy\n- ## Test Strategy (per-REQ mandatory tests: happy path, auth-deny where applicable, failure path, persistence/audit, idempotency where applicable)\n- ## KIT Readiness (per REQ): root namespace/module, expected runs/kit/<REQ-ID>/src and /test roots, key files, contracts later REQs may rely on\n- ## Notes (assumptions, risks & mitigations; lane rationale if no lanes)\n- End the file with a final line containing exactly PLAN_END.\n\nplan.json schema (single valid JSON object; per-REQ fields must be populated, not placeholders):\n- snapshot: { total, open, in_progress, done, deferred, progressPct } with snapshot.total == len(reqs).\n- reqs[]: each REQ MUST include id, title, status, lane, dependsOn, acceptance (>=5 non-empty bullets), functional_scope, technical_scope, non_functional_requirements, security_requirements, compliance_requirements, operational_requirements, integration_contracts, data_contracts, test_strategy, risk_notes, main_module_boundary, test_profile, gate_policy_ref (docs/harper/lane-guides/<lane>.md).\n- reqs[] SHOULD also include: track, domain, runtime_profile, packs, skills, design_profiles, gate_expectations, out_of_scope, future_compatibility_notes.\n- Use an empty array or \"not_applicable\" when a field does not apply; never invent fake tools/services/packs/skills/profiles.\n\nLane guide required sections (per detected lane, substantive — never empty/decorative):\n- ## Lane Guide — <lane>\n- ### Purpose and Scope (what the lane owns, which REQs use it)\n- ### Expected Files and Boundaries\n- ### Tools (tests, lint, types, security, build)\n- ### Test and Validation Commands (local + containerized)\n- ### Eval/Gate Expectations (+ commands)\n- ### Default Gate Policy\n- ### TECH_CONSTRAINTS Integration\n- ### Forbidden Shortcuts\n\nAllowed writes:\n- docs/harper/PLAN.md\n- docs/harper/plan.json\n- docs/harper/lane-guides/<lane>.md\n\nForbidden writes:\n- any docs/harper path other than the allowed writes above\n- src/, test/, tests/\n- runs/kit/, runs/eval/, runs/gate/\n- .git/\n\nExecution rules:\n- Follow AGENT_*_CONTEXT.json as the source of truth.\n- Do not run git commands.\n- Before final output, normalize every created or modified text file by stripping trailing whitespace and ensuring a final newline.\n- Do not invent facts, vendors, APIs, endpoints, project keys, or frameworks not evidenced by inputs.\n\nAt the end, print a concise summary with files changed, validation performed, and unresolved gaps.",
+          "encoding": "utf-8",
+          "mime": "text/markdown",
+          "path": "runs/plan/docs/AGENT_PLAN_PROMPT.md"
+        }
+      ],
+      "package_id": "golden-run:SOLUTION:plan",
+      "phase": "plan",
+      "prompt_content": "# Local Agent PLAN Execution Package — Harper PLAN\n\nYou are executing a CLike Harper /plan package.\nThe orchestrator owns workflow state, policy, and validation. The local agent is only the workspace document actuator.\n\n\nRead before acting:\n- runs/plan/docs/AGENT_PLAN_CONTEXT.json\n- docs/harper/SPEC.md (and any SPEC* prefix variants)\n- docs/harper/TECH_CONSTRAINTS.yaml when present\n- Harper chat history when relevant\n\n## Canonical Harper PLAN contract (cloud parity — authoritative)\nThese expectations are the canonical cloud /plan contract. The local\nartifact must be isofunctional with the cloud artifact and never weaker:\n- # PLAN — <Project Name>\n- stable **REQ-IDs**\n- plan.json\n- Each REQ must be **/kit-ready**\n- minimal, dependency-aware\n- machine-readable source of truth\n- for every detected lane\n- Acceptance bullets ≥ 5\n- snapshot.total == len(reqs)\nMatch or exceed the cloud artifact: be more explicit, more traceable to the\nprevious phase, richer in acceptance criteria/constraints/risks/verification\nhooks, and downstream-ready — but never skeletal and never heading-only.\n\nMission:\n- Regenerate docs/harper/PLAN.md, docs/harper/plan.json, and one docs/harper/lane-guides/<lane>.md per detected lane.\n- Derive a minimal, dependency-aware, /kit-ready plan with stable REQ-IDs from the SPEC.\n- Match or exceed the cloud /plan artifacts in structure, completeness, and machine-readable richness. plan.json is the machine-readable source of truth required by downstream /kit, /eval, and /gate.\n\nSource discipline (regenerative phase):\n- Read docs/harper/SPEC.md (and any SPEC* prefix variants) and TECH_CONSTRAINTS.yaml as the source of truth.\n- Do NOT read docs/harper/PLAN.md, docs/harper/plan.json, docs/harper/lane-guides/**, or any PLAN*/plan* variant as input; they are stale outputs of a previous /plan run.\n- PLAN.md, plan.json, and lane-guides are overwrite targets only. Regenerate them fresh from the SPEC; never reuse or reconcile the old plan content.\n\nSkills / capabilities discipline:\n- Treat selected skills, packs, and design profiles (from the active output contract / methodology context) as BINDING planning constraints, not decorative context.\n- Reflect them per REQ in plan.json (skills, packs, design_profiles) and in the relevant PLAN.md REQ sections; never invent fake skills, packs, or design profiles.\n\nHard requirements:\n- PLAN.md first line: `# PLAN — <Project Name>` (replace the leading SPEC with PLAN from the SPEC.md title).\n- plan.json is mandatory: a single valid JSON object where snapshot.total == len(reqs).\n- Every REQ must appear in both PLAN.md and plan.json; PLAN.md is the human view, plan.json is the machine-readable source of truth.\n- Detect lanes from TECH_CONSTRAINTS.yaml and emit docs/harper/lane-guides/<lane>.md for every detected lane. If no lanes are detected, state the rationale under PLAN.md → Notes.\n- If token budget is tight, reduce PLAN.md prose but never skip plan.json or required lane guides.\n\nPLAN.md required sections (in order; substantive, not heading-only):\n- ## Plan Snapshot (counts, progress, checklist)\n- ## Tracks & Scope Boundaries\n- ## Module/Package & Namespace Plan (per KIT)\n- ## REQ-IDs Table (canonical Markdown table: ID | Title | Acceptance (<=3 bullets) | DependsOn [IDs] | Track | Status)\n- Per REQ after the table: ### Functional Scope — <REQ-ID>, ### Technical Scope — <REQ-ID>, ### Non-Functional Requirements — <REQ-ID>, ### Security Requirements — <REQ-ID>, ### Compliance and Privacy Requirements — <REQ-ID>, ### Observability and Operations — <REQ-ID>, ### Integration Contracts — <REQ-ID>, ### Data Contracts — <REQ-ID>, ### Acceptance — <REQ-ID> (>=5 observable, falsifiable bullets)\n- ## Dependency Graph (textual adjacency list)\n- ## Iteration Strategy\n- ## Test Strategy (per-REQ mandatory tests: happy path, auth-deny where applicable, failure path, persistence/audit, idempotency where applicable)\n- ## KIT Readiness (per REQ): root namespace/module, expected runs/kit/<REQ-ID>/src and /test roots, key files, contracts later REQs may rely on\n- ## Notes (assumptions, risks & mitigations; lane rationale if no lanes)\n- End the file with a final line containing exactly PLAN_END.\n\nplan.json schema (single valid JSON object; per-REQ fields must be populated, not placeholders):\n- snapshot: { total, open, in_progress, done, deferred, progressPct } with snapshot.total == len(reqs).\n- reqs[]: each REQ MUST include id, title, status, lane, dependsOn, acceptance (>=5 non-empty bullets), functional_scope, technical_scope, non_functional_requirements, security_requirements, compliance_requirements, operational_requirements, integration_contracts, data_contracts, test_strategy, risk_notes, main_module_boundary, test_profile, gate_policy_ref (docs/harper/lane-guides/<lane>.md).\n- reqs[] SHOULD also include: track, domain, runtime_profile, packs, skills, design_profiles, gate_expectations, out_of_scope, future_compatibility_notes.\n- Use an empty array or \"not_applicable\" when a field does not apply; never invent fake tools/services/packs/skills/profiles.\n\nLane guide required sections (per detected lane, substantive — never empty/decorative):\n- ## Lane Guide — <lane>\n- ### Purpose and Scope (what the lane owns, which REQs use it)\n- ### Expected Files and Boundaries\n- ### Tools (tests, lint, types, security, build)\n- ### Test and Validation Commands (local + containerized)\n- ### Eval/Gate Expectations (+ commands)\n- ### Default Gate Policy\n- ### TECH_CONSTRAINTS Integration\n- ### Forbidden Shortcuts\n\nAllowed writes:\n- docs/harper/PLAN.md\n- docs/harper/plan.json\n- docs/harper/lane-guides/<lane>.md\n\nForbidden writes:\n- any docs/harper path other than the allowed writes above\n- src/, test/, tests/\n- runs/kit/, runs/eval/, runs/gate/\n- .git/\n\nExecution rules:\n- Follow AGENT_*_CONTEXT.json as the source of truth.\n- Do not run git commands.\n- Before final output, normalize every created or modified text file by stripping trailing whitespace and ensuring a final newline.\n- Do not invent facts, vendors, APIs, endpoints, project keys, or frameworks not evidenced by inputs.\n\nAt the end, print a concise summary with files changed, validation performed, and unresolved gaps.",
+      "prompt_path": "runs/plan/docs/AGENT_PLAN_PROMPT.md",
+      "req_id": "SOLUTION"
+    },
+    "ok": true,
+    "phase": "plan",
+    "runId": "golden-run",
+    "tests": {
+      "failed": 0,
+      "passed": 0,
+      "summary": "local-agent-plan-package-prepared"
+    },
+    "text": "",
+    "warnings": [
+      "execution_package:local_agent_required",
+      "extension_role:local_actuator_only",
+      "plan_requires_harper_docs_mutation"
+    ]
+  },
+  "scenario": {
+    "executor": "local",
+    "methodology": null,
+    "phase": "plan",
+    "variant": ""
+  }
+}

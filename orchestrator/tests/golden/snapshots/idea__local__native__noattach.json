@@ -1,0 +1,36 @@
+{
+  "gateway_calls": [],
+  "output": {
+    "diffs": [],
+    "echo": "",
+    "errors": [
+      "Cannot run /idea without at least one attached source file. Attach an IDEA/source document and retry."
+    ],
+    "execution": {
+      "phase_supported": true,
+      "reason": "local_agent_idea_package_failed",
+      "requested": "local_agent_only",
+      "selected": "local_agent"
+    },
+    "files": [],
+    "ok": false,
+    "phase": "idea",
+    "runId": "golden-run",
+    "tests": {
+      "failed": 1,
+      "passed": 0,
+      "summary": "local-agent-idea-package-failed"
+    },
+    "text": "",
+    "warnings": [
+      "execution_selected:local_agent",
+      "idea_not_run"
+    ]
+  },
+  "scenario": {
+    "executor": "local",
+    "methodology": null,
+    "phase": "idea",
+    "variant": "noattach"
+  }
+}
