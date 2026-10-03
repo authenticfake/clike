@@ -562,31 +562,32 @@ See [`docs/CAPABILITIES.md`](docs/CAPABILITIES.md) for the full technical docume
 
 ### Prerequisites
 
-- Docker and Docker Compose v2
+- Podman 5 + `podman-compose` (or Docker with Compose v2)
 - VS Code
-- Node.js 18+
-- Python 3.11+
+- Node.js 20+
+- Python 3.12 and [`uv`](https://docs.astral.sh/uv/) for local development
 - API keys for remote providers when using cloud models
 - Optional: local agent CLIs such as Claude Code or GPT Codex
 
 ### 1. Bring up services
 
 ```bash
+cp docker/.env.example docker/.env      # set CLIKE_PROJECTS_DIR (host dir with your projects)
 cd docker
-docker compose up -d --build
+podman-compose up -d --build            # or: docker compose up -d --build
+# optional local models: podman-compose --profile ollama up -d
 
-curl -s http://localhost:8080/health
-curl -s http://localhost:8000/health
+curl -s http://127.0.0.1:8080/health
+curl -s http://127.0.0.1:8000/health
 ```
+
+Services listen on loopback only. Code is baked into the images: run `podman-compose build` after changes.
 
 ### 2. Install the VS Code extension
 
 ```bash
 cd extensions/vscode
-npm install
-npm install -g @vscode/vsce
-vsce package
-code --install-extension clike-*.vsix
+./build_ext_vs.sh        # npm ci + lint + tests + vsce package + install
 ```
 
 Open your workspace in VS Code and run:
@@ -676,30 +677,42 @@ GATE decides promotion.
 
 ## 🛠️ Local Dev Without Docker
 
+Dependencies are locked per service (`pyproject.toml` + `uv.lock`, Python 3.12).
+
 ### Orchestrator
 
 ```bash
 cd orchestrator
-pip install -r requirements.txt
-uvicorn app:app --host 0.0.0.0 --port 8080 --reload
+uv sync --frozen                     # runtime + dev
+uv run pytest -q
+uv run uvicorn app:app --host 127.0.0.1 --port 8080 --reload
 ```
 
 ### Gateway
 
 ```bash
 cd gateway
-pip install -r requirements.txt
+uv sync --frozen
+uv run pytest -q
 export MODELS_CONFIG=$(pwd)/../configs/models.yaml
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+uv run uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 ### VS Code extension
 
 ```bash
 cd extensions/vscode
-npm install
+npm ci
+npm run check            # eslint + node:test
 code .
 ```
+
+### Golden snapshots
+
+`orchestrator/tests/golden` and `gateway/tests/golden` freeze the phase boundary
+(gateway payloads, local-agent packages, provider messages). After an intended
+change, regenerate with `CLIKE_GOLDEN_UPDATE=1 uv run pytest tests/golden -q`
+(orchestrator first, then gateway) and review the diff.
 
 ---
 

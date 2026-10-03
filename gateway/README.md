@@ -10,11 +10,10 @@ OpenAI-like endpoints backed by multiple providers (Ollama, vLLM/OpenAI-compatib
 
 ## Run
 ```bash
-pip install -r requirements.txt
-export MODELS_CONFIG=/workspace/configs/models.yaml
-uvicorn gateway.app:app --host 0.0.0.0 --port 8000 --reload
-# or compatibility entry:
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+uv sync --frozen                      # Python 3.12, locked in uv.lock
+export MODELS_CONFIG=$(pwd)/../configs/models.yaml
+uv run uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+uv run pytest -q                      # independent from orchestrator code
 ```
 
 ## models.yaml (example)

@@ -4,27 +4,35 @@
 
 The inspected `docker/docker-compose.yml` defines these services:
 
-- `gateway` on port `8000`
-- `orchestrator` on port `8080`
-- `ollama` on port `11434`
-- `qdrant` on port `6333`
+- `gateway` on `127.0.0.1:8000`
+- `orchestrator` on `127.0.0.1:8080`
+- `qdrant` on `127.0.0.1:6333`
+- `ollama` on `127.0.0.1:11434` — optional, only with `--profile ollama`
+
+All ports are published on loopback only. Set `CLIKE_PROJECTS_DIR` in `docker/.env`
+(see `docker/.env.example`): it is mounted read-only at the same path and exposed as `DEV_FOLDER`.
+The stack runs with Podman (`podman-compose`) or Docker Compose.
 
 ## Service startup model
 
 ### Gateway
-Default command:
+Image command (Python 3.12, dependencies installed from `gateway/uv.lock`):
 ```bash
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
 ### Orchestrator
-Default command:
+Image command (Python 3.12, dependencies from `orchestrator/uv.lock`, plus the
+`eval-toolchain` group used by KIT LTC commands while eval runs in this container):
 ```bash
-uvicorn app:app --host 0.0.0.0 --port 8080 --reload
+uvicorn app:app --host 0.0.0.0 --port 8080
 ```
 
-### Ollama
-Runs as a sidecar local model service and is initialized with a bootstrap container that ensures `nomic-embed-text` is present.
+Both services have compose healthchecks; the orchestrator starts after the gateway is healthy.
+There is no `--reload` in containers: rebuild the images after code changes.
+
+### Ollama (optional)
+Started only with `podman-compose --profile ollama up -d`; an init container ensures `nomic-embed-text` is present.
 
 ### Qdrant
 Runs as the vector store backing RAG persistence.
