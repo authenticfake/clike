@@ -33,7 +33,6 @@ __pycache__/
 *.pyo
 *.pyd
 *.log
-package-lock.json
 # Virtual env
 .venv/
 venv/

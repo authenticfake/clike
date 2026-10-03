@@ -12,6 +12,12 @@
     "name": "authenticfake"
   },
   "main": "./extension.js",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "lint": "eslint .",
+    "check": "npm run lint && npm test",
+    "package": "vsce package"
+  },
   "activationEvents": [
     "onStartupFinished"
   ],
@@ -19,7 +25,7 @@
     "AI",
     "Programming Languages"
   ],
-   "repository": {
+  "repository": {
     "type": "git",
     "url": "https://github.com/authenticfake/clike.git"
   },
@@ -30,7 +36,10 @@
         "command": "clike.openChat",
         "title": "CLike: Chat (Q&A / Harper / Coding)"
       },
-      { "command": "clike.harper.init", "title": "CLike: Harper Init…" },
+      {
+        "command": "clike.harper.init",
+        "title": "CLike: Harper Init…"
+      },
       {
         "command": "clike.chat.clearSession",
         "title": "CLike: Clear Chat Session (current model)"
@@ -45,7 +54,7 @@
       },
       {
         "command": "clike.codeAction",
-        "title": "Clike: Code Action\u2026"
+        "title": "Clike: Code Action…"
       },
       {
         "command": "clike.addDocstring",
@@ -111,12 +120,30 @@
         "command": "clike.gitSmartPR",
         "title": "Clike: Git Smart PR"
       },
-      { "command": "clike.eval.runAll", "title": "CLike: Run All Evals" },
-      { "command": "clike.gate.checkPhase", "title": "CLike: Gate Check (Phase)" },
-      { "command": "clike.constraints.sync", "title": "CLike: Sync Constraints (IDEA/SPEC)" },
-      { "command": "clike.plan.updateChecklist", "title": "CLike: Update PLAN Checklist from Eval" },
-      { "command": "clike.promoteReqSources", "title": "CLike: Promote source code" },
-      { "command": "clike.promoteReqSourcesQuick", "title": "CLike: Quick Promote source code" }
+      {
+        "command": "clike.eval.runAll",
+        "title": "CLike: Run All Evals"
+      },
+      {
+        "command": "clike.gate.checkPhase",
+        "title": "CLike: Gate Check (Phase)"
+      },
+      {
+        "command": "clike.constraints.sync",
+        "title": "CLike: Sync Constraints (IDEA/SPEC)"
+      },
+      {
+        "command": "clike.plan.updateChecklist",
+        "title": "CLike: Update PLAN Checklist from Eval"
+      },
+      {
+        "command": "clike.promoteReqSources",
+        "title": "CLike: Promote source code"
+      },
+      {
+        "command": "clike.promoteReqSourcesQuick",
+        "title": "CLike: Quick Promote source code"
+      }
     ],
     "configuration": {
       "title": "Clike",
@@ -124,13 +151,18 @@
         "clike.chat.theme": {
           "type": "string",
           "default": "pro",
-          "enum": ["classic", "pro", "studio", "paper"],
+          "enum": [
+            "classic",
+            "pro",
+            "studio",
+            "paper"
+          ],
           "enumDescriptions": [
             "Classic CLike dark (storico, ping-pong)",
             "Pro doc-style (colonna unica, neutro, allineato a VS Code)",
             "Studio dark console (più denso, focus contenuti)",
             "Paper light (notebook chiaro)"
-          ], 
+          ],
           "description": "Theme for the Chat CLike UI."
         },
         "clike.harperTimeout": {
@@ -148,7 +180,7 @@
           "default": "docs/harper",
           "description": "Doc root for harper scenario(relativa alla workspace)."
         },
-         "publisher.clike": {
+        "publisher.clike": {
           "type": "boolean",
           "default": "${publisher}.${name}",
           "description": "Log verbose messages."
@@ -158,7 +190,7 @@
           "default": ".clike/sessions",
           "description": "Directory (relativa alla workspace) dove salvare le chat per modello (formato JSONL)."
         },
-         "clike.chat.autoOpenOnStartup": {
+        "clike.chat.autoOpenOnStartup": {
           "type": "boolean",
           "default": true,
           "description": "Auto-open chat at startup."
@@ -383,25 +415,21 @@
           "default": true,
           "description": "If true, merge changes on gate."
         },
-
         "clike.git.gitDeleteBranchOnMerge": {
           "type": "boolean",
           "default": false,
           "description": "If true, delete branch on merge."
         },
-
-         "clike.git.gitReturnToFeatureAfterMerge": {
+        "clike.git.gitReturnToFeatureAfterMerge": {
           "type": "boolean",
           "default": false,
           "description": "If true, return to feature branch after merge."
         },
-
         "clike.git.remoteUrl": {
           "type": "string",
           "default": "",
           "description": "Optional remote URL to set (e.g., git@github.com:org/repo.git). If empty, Clike will not add/set the remote automatically."
         },
-
         "clike.git.commitMessage": {
           "type": "string",
           "default": "clike: apply patch (AI)",
@@ -417,7 +445,7 @@
           "default": "origin",
           "description": "Default remote name for PR flow."
         },
-         "clike.git.defaultBranch": {
+        "clike.git.defaultBranch": {
           "type": "string",
           "default": "main",
           "description": "Default branch for PR flow."
@@ -452,7 +480,7 @@
           "default": true,
           "description": "If true, use GitHub CLI to create PRs."
         },
-         "clike.git.prBodyPath": {
+        "clike.git.prBodyPath": {
           "type": "string",
           "default": "docs/harper/PR_BODY.md",
           "description": "Prefix for tag names."
@@ -468,7 +496,6 @@
               "health": "/health",
               "chat": "/v1/chat",
               "generate": "/v1/generate"
-
             },
             "gateway": {
               "models": "/v1/models",
@@ -481,8 +508,14 @@
       }
     }
   },
-
   "dependencies": {
     "diff": "^5.2.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "@types/vscode": "1.85.0",
+    "@vscode/vsce": "3.9.2",
+    "eslint": "9.39.5",
+    "globals": "15.15.0"
   }
 }

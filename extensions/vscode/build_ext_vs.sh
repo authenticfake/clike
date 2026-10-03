@@ -1,26 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
+cd "$(dirname "$0")"
 
-# Clean install of runtime dependencies only (no devDependencies leak into the
-# package). The single runtime dep is 'diff', required by extension.js.
-rm -rf package-lock.json node_modules
-npm install --omit=dev
-
-vsce package
+# Reproducible install from package-lock.json (dev tools included: lint, tests, vsce).
+# .vscodeignore keeps only the runtime dependency 'diff' inside the package.
+npm ci
+npm run check
+npm run package
 
 # Sanity check: the 'diff' runtime dependency MUST be inside the .vsix, otherwise
 # the activated extension fails with "Cannot find module 'diff'".
-# Use python3's zipfile (reliable across zip variants; `unzip -l` can mis-list
-# vsce packages).
 VSIX="$(ls -t clike-*.vsix | head -1)"
-if command -v python3 >/dev/null 2>&1; then
-  if ! python3 -c "import sys,zipfile; sys.exit(0 if any('node_modules/diff/' in n for n in zipfile.ZipFile('$VSIX').namelist()) else 1)"; then
-    echo "ERROR: 'diff' is missing from $VSIX — check .vscodeignore (node_modules/** must keep !node_modules/diff/**)." >&2
-    exit 1
-  fi
-  echo "OK: 'diff' bundled in $VSIX"
-else
-  echo "WARN: python3 not found; skipping 'diff' bundle verification."
-fi
+python3 -c "import sys,zipfile; sys.exit(0 if any('node_modules/diff/' in n for n in zipfile.ZipFile('$VSIX').namelist()) else 1)" \
+  || { echo "ERROR: 'diff' is missing from $VSIX — check .vscodeignore." >&2; exit 1; }
+echo "OK: 'diff' bundled in $VSIX"
 
-code --install-extension "$VSIX"
+if [ "${CLIKE_INSTALL_VSIX:-1}" = "1" ] && command -v code >/dev/null 2>&1; then
+  code --install-extension "$VSIX"
+fi

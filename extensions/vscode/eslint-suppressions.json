@@ -1,0 +1,28 @@
+{
+  "api.js": {
+    "no-undef": {
+      "count": 8
+    }
+  },
+  "extension.js": {
+    "no-case-declarations": {
+      "count": 5
+    },
+    "no-undef": {
+      "count": 9
+    }
+  },
+  "git.js": {
+    "no-undef": {
+      "count": 1
+    }
+  },
+  "utility.js": {
+    "no-dupe-keys": {
+      "count": 1
+    },
+    "no-undef": {
+      "count": 4
+    }
+  }
+}
