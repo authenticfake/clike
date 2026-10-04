@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fnmatch
 import json
 import re
 
@@ -14,6 +15,7 @@ from services.capabilities import (
     enrich_plan_json_text,
 )
 from services.context_envelope import build_context_envelope
+from services.phase_definitions import phase_definition, shared_definitions
 from services.methodologies.errors import ClikeSelectedCapabilitiesMissingError
 from services.methodologies.active_output_contract import build_active_output_contract
 from services.methodologies.resolver import ensure_bmad_skill_context, resolve_methodology_context
@@ -4645,6 +4647,7 @@ def build_extend_local_agent_package(
     to existing Harper planning artifacts without modifying consolidated REQs or
     touching source/test/KIT/eval roots.
     """
+    extend_def = phase_definition("extend")["local_agent"]
     run_id = _safe_text(payload.get("runId")) or "extend-local"
     local_executor = _resolve_local_executor(payload)
     methodology_context = _methodology_context_for_local_agent(payload, phase_hint="extend")
@@ -4688,31 +4691,12 @@ def build_extend_local_agent_package(
 
     # Narrow, phase-owned write roots only. EXTEND files use a dynamic date/REQ
     # name, so the EXTEND_*.md glob is advertised; normalization is the real gate.
-    allowed_write_roots = [
-        "docs/harper/IDEA.md",
-        "docs/harper/SPEC.md",
-        "docs/harper/PLAN.md",
-        "docs/harper/plan.json",
-        "docs/harper/lane-guides",
-        "docs/harper/EXTEND_*.md",
-    ]
+    allowed_write_roots = extend_def["allowed_write_roots"]
 
-    forbidden_paths = [
-        ".git",
-        "src",
-        "test",
-        "tests",
-        "runs/kit",
-        "runs/eval",
-        "runs/gate",
-        "node_modules",
-        ".venv",
-        "__pycache__",
-        "__MACOSX",
-    ]
+    forbidden_paths = list(_DOCUMENT_PHASE_FORBIDDEN_PATHS)
 
     context = {
-        "schema_version": "clike.agent.extend_context.v1",
+        "schema_version": extend_def["schema_version"],
         "phase": "extend",
         "run_id": run_id,
         "anchor_req": anchor_req,
@@ -4726,76 +4710,13 @@ def build_extend_local_agent_package(
         },
         "attachments": attachment_manifest,
         **({"methodology_context": methodology_context} if methodology_context else {}),
-        "mission": {
-            "purpose": "Append new requirements to existing Harper planning artifacts without regenerating the plan.",
-            "append_only_by_default": True,
-            "preserve_existing_requirements": True,
-            "update_idea_if_needed": True,
-            "update_spec_if_needed": True,
-            "update_plan_md": True,
-            "update_plan_json": True,
-            "update_lane_guides_if_needed": True,
-            "emit_extend_audit": True,
-        },
-        "required_reads": [
-            "docs/harper/IDEA.md when present",
-            "docs/harper/SPEC.md when present",
-            "docs/harper/PLAN.md",
-            "docs/harper/plan.json",
-            "docs/harper/lane-guides/*.md when present",
-            "docs/harper/TECH_CONSTRAINTS.yaml when present",
-            ".clike/project.json when present",
-            ".clike/capabilities.yaml when present",
-            ".clike/capabilities.yml when present",
-            ".clike/skills/** when relevant",
-            ".clike/packs/** when relevant",
-            ".clike/design-profiles/** when relevant",
-        ],
+        "mission": extend_def["mission"],
+        "required_reads": extend_def["required_reads"],
         "allowed_write_roots": allowed_write_roots,
         "forbidden_paths": forbidden_paths,
-        "output_contract": {
-            "always": [
-                "docs/harper/PLAN.md",
-                "docs/harper/plan.json",
-                "docs/harper/EXTEND_<YYYY-MM-DD>_<FIRST_REQ>_<LAST_REQ>.md",
-            ],
-            "conditional": [
-                "docs/harper/IDEA.md only when the new requirement changes vision, target users, value/outcomes, out-of-scope, idea-level technology constraints, risks, assumptions, or success metrics",
-                "docs/harper/SPEC.md only when new capability scope is introduced",
-                "docs/harper/lane-guides/<concern>.md only when lane guidance is introduced or extended",
-            ],
-        },
-        "hard_rules": [
-            "Do not run git commands.",
-            "Before final output, normalize every created or modified text file by stripping trailing whitespace and ensuring a final newline.",
-            "Do not modify src/, test/, tests/, runs/kit/, runs/eval/, or runs/gate/.",
-            "Do not regenerate PLAN.md from scratch.",
-            "Do not rewrite, renumber, delete, or semantically modify existing consolidated REQs.",
-            "Append new REQs after the requested anchor when provided.",
-            "If no anchor is provided, detect the last REQ in plan.json/PLAN.md and append after it.",
-            "Keep REQ IDs unique and contiguous unless the user explicitly supplied IDs.",
-            "Mirror the existing plan.json requirement object shape instead of inventing a new schema.",
-            "Preserve plan.json capability richness: do not degrade packs, skills, design_profiles, implementation_directives, expected_source_roots, expected_test_roots, or kit/eval/gate metadata; when selected capabilities exist, populate them on new REQs rather than defaulting to not_applicable.",
-            "Update dependency graph and milestone/backlog sections only by appending the new REQs.",
-            "Update IDEA.md only when the new requirement changes vision, target users, value/outcomes, out-of-scope boundaries, idea-level technology constraints, risks, assumptions, or success metrics; preserve the canonical IDEA schema and all existing valid content.",
-            "Update SPEC.md only when the extension introduces new product/system capability scope, terms, constraints, integration boundaries, or user-visible behavior.",
-            "Update lane-guides only when the extension introduces a new concern lane or materially extends existing lane guidance.",
-            "Lane is a capability concern, not an implementation language.",
-            "Do not infer implementation language from lane.",
-            "Return full file artifacts (complete updated content), never partial patches.",
-            "Emit a Harper Extend audit file under docs/harper/EXTEND_<date>_<first_req>_<last_req>.md.",
-            "The audit must list command, input sources, anchor, explicit REQ-ID if any, added REQs, updated files, preserved REQs, dependency decisions, capability/skills/packs/design-profile decisions, IDEA/SPEC/PLAN/plan.json/lane-guides updated yes/no and why, validation results, and unresolved risks.",
-        ],
-        "validation_expectations": [
-            "PLAN.md exists after the change.",
-            "plan.json parses after the change.",
-            "All new REQ IDs appear in both PLAN.md and plan.json.",
-            "All new REQs have acceptance criteria.",
-            "All dependencies resolve to existing or newly added REQs.",
-            "Existing REQs are preserved.",
-            "No source/test/KIT/eval files are changed.",
-            "An EXTEND audit report is written.",
-        ],
+        "output_contract": extend_def["output_contract"],
+        "hard_rules": extend_def["hard_rules"],
+        "validation_expectations": extend_def["validation_expectations"],
     }
 
     context_json = json.dumps(context, indent=2, ensure_ascii=False)
@@ -4932,240 +4853,11 @@ def build_extend_local_agent_package(
 # paths, canonical reads, and prompt guidance differ. Everything else
 # (envelope shape, methodology context, executor resolution, fallback handling)
 # is shared with the existing local-agent phases.
-_DOCUMENT_PHASE_FORBIDDEN_PATHS = [
-    ".git",
-    "src",
-    "test",
-    "tests",
-    "runs/kit",
-    "runs/eval",
-    "runs/gate",
-    "node_modules",
-    ".venv",
-    "__pycache__",
-    "__MACOSX",
-]
+_DOCUMENT_PHASE_FORBIDDEN_PATHS: List[str] = shared_definitions()["document_phase_forbidden_paths"]
 
+# Document-phase definitions live in orchestrator/phases/<phase>/phase.yaml (WP8.3).
 _DOCUMENT_PHASE_SPECS: Dict[str, Dict[str, Any]] = {
-    "idea": {
-        "schema_version": "clike.agent.idea_context.v1",
-        "title": "IDEA",
-        "allowed_write_roots": ["docs/harper/IDEA.md"],
-        "required_reads": [
-            "current-run attachments listed in this package context (the ONLY source of truth for /idea)",
-            "Harper chat history only to clarify user intent, never as a source document",
-            ".clike/project.json when present (project metadata only, not idea source)",
-        ],
-        "output_contract": {
-            "always": ["docs/harper/IDEA.md"],
-            "conditional": [],
-        },
-        "mission": {
-            "purpose": "Synthesize a concise, testable canonical Harper IDEA.md strictly from current-run attachments and chat intent.",
-            "canonical_output": "docs/harper/IDEA.md",
-        },
-        "hard_rules": [
-            "Write only docs/harper/IDEA.md. Do not write any other docs/harper path.",
-            "docs/harper/IDEA.md must start with `# IDEA — <Project Name>`.",
-            "Use the canonical IDEA schema headings exactly once and in order: Vision, Problem Statement, Target Users & Context, Value & Outcomes, Out of Scope, Technology Constraints, Risks & Assumptions, Success Metrics.",
-            "Technology Constraints must contain exactly one valid fenced YAML block.",
-            "Use ONLY the current-run attachments listed in this package as /idea source material.",
-            "Do not read or reuse stale workspace files: do not read ORI.IDEA.md, prior IDEA* variants, stale .clike/uploads files, or prior-session files unless they are explicitly listed in the current attachment manifest.",
-            "Treat any existing docs/harper/IDEA.md only as the overwrite target, never as a source of truth.",
-            "Attachment-first: do not invent facts, vendors, APIs, endpoints, project keys, or frameworks.",
-            "Do not hallucinate a stack (Python, Node, cloud provider, database, queue, UI framework, IaC tool, deployment target) unless evidenced.",
-            "Keep IDEA.md concise and downstream-ready; it is not a PRD, architecture doc, or SPEC draft.",
-            "Do not run git commands.",
-            "Do not modify src/, test/, tests/, runs/kit/, runs/eval/, or runs/gate/.",
-        ],
-        "validation_expectations": [
-            "docs/harper/IDEA.md exists after the change.",
-            "It starts with `# IDEA — <Project Name>`.",
-            "Every canonical heading appears exactly once and in order.",
-            "Technology Constraints contains exactly one valid fenced YAML block.",
-            "No template markers (BEGIN_FILE/END_FILE) or placeholders remain in file content.",
-        ],
-        "prompt_lines": [
-            "Mission:",
-            "- Produce the canonical docs/harper/IDEA.md for this idea.",
-            "- Use attachments as the primary source of truth; use chat only to clarify intent.",
-            "- Mark estimated values as explicit assumptions; never invent vendors, endpoints, or frameworks.",
-            "",
-            "Canonical IDEA.md schema (headings exactly once, in this order):",
-            "- `# IDEA — <Project Name>` as the first line.",
-            "- ## Vision",
-            "- ## Problem Statement",
-            "- ## List of business requirements or user stories",
-            "- ## Target Users & Context",
-            "- ## Value & Outcomes",
-            "- ## Out of Scope",
-            "- ## Technology Constraints (exactly one valid fenced YAML block)",
-            "- ## Risks & Assumptions",
-            "- ## Success Metrics",
-            "",
-            "Allowed writes:",
-            "- docs/harper/IDEA.md (only)",
-        ],
-    },
-    "spec": {
-        "schema_version": "clike.agent.spec_context.v1",
-        "title": "SPEC",
-        "allowed_write_roots": ["docs/harper/SPEC.md"],
-        "required_reads": [
-            "docs/harper/IDEA.md (and any IDEA* prefix variants) when present",
-            "docs/harper/TECH_CONSTRAINTS.yaml when present",
-            "Harper chat history when relevant",
-        ],
-        "output_contract": {
-            "always": ["docs/harper/SPEC.md"],
-            "conditional": [],
-        },
-        "mission": {
-            "purpose": "Regenerate a concise, testable Harper SPEC.md for the featurelet strictly from IDEA inputs.",
-            "canonical_output": "docs/harper/SPEC.md",
-        },
-        "hard_rules": [
-            "Write only docs/harper/SPEC.md. Do not write any other docs/harper path.",
-            "/spec is regenerative: build docs/harper/SPEC.md from IDEA inputs only.",
-            "Do not read docs/harper/SPEC.md or any SPEC* variant as input. Existing SPEC files are stale outputs from a previous /spec run, not source material.",
-            "Treat any existing docs/harper/SPEC.md as the overwrite target only; regenerate it from IDEA, never reconcile with the old SPEC output.",
-            "The first line must be `# SPEC — <Project Name>`, taken from the IDEA.md title by replacing the leading word IDEA with SPEC.",
-            "Use the canonical SPEC sections with `##` headings in order: Summary, Goals, Non-Goals, Users & Context, Functional Requirements, Non-Functional Requirements, High-Level Architecture, Interfaces, Data Model (logical), Key Workflows, Security & Compliance, Deployment & Operations, Risks & Mitigations, Assumptions, Success Metrics, Acceptance Criteria, Out Of Scope, Note from Harper Orchestrator (Super User) to be applied.",
-            "Acceptance Criteria are mandatory: at least 5 observable, falsifiable bullets.",
-            "Translate the business requirements and user stories from IDEA.md (see section 'List of business requirements or user stories') into comprehensive technical specifications and architectural design.",
-            "Do not invent facts; respect TECH_CONSTRAINTS as authoritative when present.",
-            "End the output with a final line containing exactly SPEC_END.",
-            "Do not run git commands.",
-            "Do not modify src/, test/, tests/, runs/kit/, runs/eval/, or runs/gate/.",
-        ],
-        "validation_expectations": [
-            "docs/harper/SPEC.md exists after the change.",
-            "Its first line is `# SPEC — <Project Name>`.",
-            "All canonical SPEC sections are present with `##` headings, no numbered headings.",
-            "Acceptance Criteria has at least 5 observable bullets.",
-            "The file ends with SPEC_END.",
-        ],
-        "prompt_lines": [
-            "Mission:",
-            "- Regenerate the canonical docs/harper/SPEC.md derived from docs/harper/IDEA.md.",
-            "- Keep it concise but testable. Acceptance Criteria are mandatory (>=5 observable bullets).",
-            "- Treat TECH_CONSTRAINTS as authoritative when present.",
-            "",
-            "Source discipline (regenerative phase):",
-            "- Read docs/harper/IDEA.md (and any IDEA* prefix variants) and TECH_CONSTRAINTS.yaml as the source of truth.",
-            "- Do NOT read docs/harper/SPEC.md or any SPEC* variant as input; they are stale outputs of a previous /spec run.",
-            "- docs/harper/SPEC.md is an overwrite target only. Regenerate it fresh from IDEA; never reuse or reconcile the old SPEC content.",
-            "",
-            "Hard requirements:",
-            "- First line: `# SPEC — <Project Name>` (replace the leading IDEA with SPEC from the IDEA.md title).",
-            "- Use `##` section headings exactly; no numbered headings.",
-            "- End the file with a line containing exactly SPEC_END.",
-            "",
-            "Allowed writes:",
-            "- docs/harper/SPEC.md (only)",
-        ],
-    },
-    "plan": {
-        "schema_version": "clike.agent.plan_context.v1",
-        "title": "PLAN",
-        "allowed_write_roots": [
-            "docs/harper/PLAN.md",
-            "docs/harper/plan.json",
-            "docs/harper/lane-guides",
-        ],
-        "required_reads": [
-            "docs/harper/SPEC.md (and any SPEC* prefix variants)",
-            "docs/harper/TECH_CONSTRAINTS.yaml when present",
-            "Harper chat history when relevant",
-        ],
-        "output_contract": {
-            "always": ["docs/harper/PLAN.md", "docs/harper/plan.json"],
-            "conditional": [
-                "docs/harper/lane-guides/<lane>.md for every detected lane",
-            ],
-        },
-        "mission": {
-            "purpose": "Regenerate a concrete, execution-ready plan (PLAN.md, plan.json, lane guides) strictly from SPEC inputs.",
-            "canonical_outputs": ["docs/harper/PLAN.md", "docs/harper/plan.json"],
-        },
-        "hard_rules": [
-            "Write only docs/harper/PLAN.md, docs/harper/plan.json, and docs/harper/lane-guides/<lane>.md. Do not write any other docs/harper path.",
-            "/plan is regenerative: build PLAN.md, plan.json, and lane guides from SPEC inputs only.",
-            "Do not read docs/harper/PLAN.md, docs/harper/plan.json, docs/harper/lane-guides/**, or any PLAN*/plan* variant as input. Existing plan files are stale outputs from a previous /plan run, not source material.",
-            "Treat any existing docs/harper/PLAN.md, docs/harper/plan.json, and docs/harper/lane-guides/** as overwrite targets only; regenerate them from SPEC, never reconcile with the old plan output.",
-            "docs/harper/PLAN.md must start with `# PLAN — <Project Name>` (from the SPEC.md title by replacing SPEC with PLAN).",
-            "plan.json is mandatory and must always be emitted as a single valid JSON object.",
-            "Emit docs/harper/lane-guides/<lane>.md for every lane detected from TECH_CONSTRAINTS.yaml.",
-            "Every REQ in PLAN.md must appear in plan.json and vice versa.",
-            "If token budget is tight, reduce PLAN.md prose but never skip plan.json or required lane guides.",
-            "Do not run git commands.",
-            "Do not modify src/, test/, tests/, runs/kit/, runs/eval/, or runs/gate/.",
-        ],
-        "validation_expectations": [
-            "docs/harper/PLAN.md exists and starts with `# PLAN — <Project Name>`.",
-            "docs/harper/plan.json exists and parses as a single valid JSON object.",
-            "snapshot.total equals the number of reqs in plan.json.",
-            "Every REQ in PLAN.md appears in plan.json and vice versa.",
-            "A docs/harper/lane-guides/<lane>.md exists for every detected lane.",
-        ],
-        "prompt_lines": [
-            "Mission:",
-            "- Regenerate docs/harper/PLAN.md, docs/harper/plan.json, and one docs/harper/lane-guides/<lane>.md per detected lane.",
-            "- Derive a minimal, dependency-aware, /kit-ready plan with stable REQ-IDs from the SPEC.",
-            "- Match or exceed the cloud /plan artifacts in structure, completeness, and machine-readable richness. plan.json is the machine-readable source of truth required by downstream /kit, /eval, and /gate.",
-            "",
-            "Source discipline (regenerative phase):",
-            "- Read docs/harper/SPEC.md (and any SPEC* prefix variants) and TECH_CONSTRAINTS.yaml as the source of truth.",
-            "- Do NOT read docs/harper/PLAN.md, docs/harper/plan.json, docs/harper/lane-guides/**, or any PLAN*/plan* variant as input; they are stale outputs of a previous /plan run.",
-            "- PLAN.md, plan.json, and lane-guides are overwrite targets only. Regenerate them fresh from the SPEC; never reuse or reconcile the old plan content.",
-            "",
-            "Skills / capabilities discipline:",
-            "- Treat selected skills, packs, and design profiles (from the active output contract / methodology context) as BINDING planning constraints, not decorative context.",
-            "- Reflect them per REQ in plan.json (skills, packs, design_profiles) and in the relevant PLAN.md REQ sections; never invent fake skills, packs, or design profiles.",
-            "",
-            "Hard requirements:",
-            "- PLAN.md first line: `# PLAN — <Project Name>` (replace the leading SPEC with PLAN from the SPEC.md title).",
-            "- plan.json is mandatory: a single valid JSON object where snapshot.total == len(reqs).",
-            "- Every REQ must appear in both PLAN.md and plan.json; PLAN.md is the human view, plan.json is the machine-readable source of truth.",
-            "- Detect lanes from TECH_CONSTRAINTS.yaml and emit docs/harper/lane-guides/<lane>.md for every detected lane. If no lanes are detected, state the rationale under PLAN.md → Notes.",
-            "- If token budget is tight, reduce PLAN.md prose but never skip plan.json or required lane guides.",
-            "",
-            "PLAN.md required sections (in order; substantive, not heading-only):",
-            "- ## Plan Snapshot (counts, progress, checklist)",
-            "- ## Tracks & Scope Boundaries",
-            "- ## Module/Package & Namespace Plan (per KIT)",
-            "- ## REQ-IDs Table (canonical Markdown table: ID | Title | Acceptance (<=3 bullets) | DependsOn [IDs] | Track | Status)",
-            "- Per REQ after the table: ### Functional Scope — <REQ-ID>, ### Technical Scope — <REQ-ID>, ### Non-Functional Requirements — <REQ-ID>, ### Security Requirements — <REQ-ID>, ### Compliance and Privacy Requirements — <REQ-ID>, ### Observability and Operations — <REQ-ID>, ### Integration Contracts — <REQ-ID>, ### Data Contracts — <REQ-ID>, ### Acceptance — <REQ-ID> (>=5 observable, falsifiable bullets)",
-            "- ## Dependency Graph (textual adjacency list)",
-            "- ## Iteration Strategy",
-            "- ## Test Strategy (per-REQ mandatory tests: happy path, auth-deny where applicable, failure path, persistence/audit, idempotency where applicable)",
-            "- ## KIT Readiness (per REQ): root namespace/module, expected runs/kit/<REQ-ID>/src and /test roots, key files, contracts later REQs may rely on",
-            "- ## Notes (assumptions, risks & mitigations; lane rationale if no lanes)",
-            "- End the file with a final line containing exactly PLAN_END.",
-            "",
-            "plan.json schema (single valid JSON object; per-REQ fields must be populated, not placeholders):",
-            "- snapshot: { total, open, in_progress, done, deferred, progressPct } with snapshot.total == len(reqs).",
-            "- reqs[]: each REQ MUST include id, title, status, lane, dependsOn, acceptance (>=5 non-empty bullets), functional_scope, technical_scope, non_functional_requirements, security_requirements, compliance_requirements, operational_requirements, integration_contracts, data_contracts, test_strategy, risk_notes, main_module_boundary, test_profile, gate_policy_ref (docs/harper/lane-guides/<lane>.md).",
-            "- reqs[] SHOULD also include: track, domain, runtime_profile, packs, skills, design_profiles, gate_expectations, out_of_scope, future_compatibility_notes.",
-            "- Use an empty array or \"not_applicable\" when a field does not apply; never invent fake tools/services/packs/skills/profiles.",
-            "",
-            "Lane guide required sections (per detected lane, substantive — never empty/decorative):",
-            "- ## Lane Guide — <lane>",
-            "- ### Purpose and Scope (what the lane owns, which REQs use it)",
-            "- ### Expected Files and Boundaries",
-            "- ### Tools (tests, lint, types, security, build)",
-            "- ### Test and Validation Commands (local + containerized)",
-            "- ### Eval/Gate Expectations (+ commands)",
-            "- ### Default Gate Policy",
-            "- ### TECH_CONSTRAINTS Integration",
-            "- ### Forbidden Shortcuts",
-            "",
-            "Allowed writes:",
-            "- docs/harper/PLAN.md",
-            "- docs/harper/plan.json",
-            "- docs/harper/lane-guides/<lane>.md",
-        ],
-    },
+    phase: phase_definition(phase)["local_agent"] for phase in ("idea", "spec", "plan")
 }
 
 # Canonical phase expectations derived verbatim from the gateway phase system
@@ -5177,39 +4869,21 @@ _DOCUMENT_PHASE_SPECS: Dict[str, Dict[str, Any]] = {
 # Tests cross-check that each anchor still exists in the gateway prompt file so
 # this stays derived from — not divergent with — the canonical cloud prompt.
 _DOCUMENT_PHASE_CANONICAL_EXPECTATIONS: Dict[str, List[str]] = {
-    "idea": [
-        "# IDEA — <Project Name>",
-        "Attachment-first",
-        "Technology Constraints contains exactly one valid fenced YAML block",
-        "Every primary heading in the canonical schema appears exactly once and in order",
-        "No `BEGIN_FILE`, `END_FILE`, unresolved placeholders, or prompt template text",
-    ],
-    "spec": [
-        "# SPEC — <Project Name>",
-        "Acceptance Criteria are mandatory",
-        "At least **5** bullets",
-        "Each bullet must be observable & falsifiable",
-        "SPEC_END",
-    ],
-    "plan": [
-        "# PLAN — <Project Name>",
-        "stable **REQ-IDs**",
-        "plan.json",
-        "Each REQ must be **/kit-ready**",
-        "minimal, dependency-aware",
-        "machine-readable source of truth",
-        "for every detected lane",
-        "Acceptance bullets ≥ 5",
-        "snapshot.total == len(reqs)",
-    ],
-    "extend": [
-        "EXTEND appends new requirements to an existing Harper plan",
-        "Do not regenerate the plan from scratch.",
-        "Preserve the existing `plan.json` object shape",
-        "Emit an EXTEND audit report.",
-        "Each new REQ appears in both PLAN.md and plan.json.",
-    ],
+    phase: phase_definition(phase)["canonical_expectations"] for phase in ("idea", "spec", "plan", "extend")
 }
+
+
+_ACCEPTED_RESULT_PATHS: Dict[str, List[str]] = {
+    phase: phase_definition(phase)["accepted_result_paths"] for phase in ("idea", "spec", "plan", "extend")
+}
+
+
+def _path_accepted(phase: str, file_path: Any) -> bool:
+    """True when a local-agent result path matches the phase's accepted_result_paths."""
+    p = _normalize_relative_path(file_path)
+    if not p:
+        return False
+    return any(fnmatch.fnmatchcase(p, pattern) for pattern in _ACCEPTED_RESULT_PATHS.get(phase, ()))
 
 
 def _render_canonical_parity_block(phase_norm: str, title: str) -> List[str]:
@@ -5809,47 +5483,12 @@ def normalize_local_agent_result(payload: Dict[str, Any]) -> Dict[str, Any]:
     exit_code = payload.get("exit_code")
 
     def _extend_allowed_path(file_path: str) -> bool:
-        p = _normalize_relative_path(file_path)
-        if not p:
-            return False
-
-        # Canonical Harper docs /extend may mutate. IDEA.md/SPEC.md are
-        # conditional; PLAN.md/plan.json always; EXTEND_*.md is the audit report.
-        if p in {
-            "docs/harper/IDEA.md",
-            "docs/harper/SPEC.md",
-            "docs/harper/PLAN.md",
-            "docs/harper/plan.json",
-        }:
-            return True
-
-        if p.startswith("docs/harper/lane-guides/") and p.endswith(".md"):
-            return True
-
-        if p.startswith("docs/harper/EXTEND_") and p.endswith(".md"):
-            return True
-
-        # AGENT_* package internals and any other docs/harper path are rejected
-        # (package internals now live under runs/extend/, not docs/harper).
-        return False
+        # AGENT_* package internals and any path not declared in phases/extend/phase.yaml are
+        # rejected (package internals live under runs/extend/, not docs/harper).
+        return _path_accepted("extend", file_path)
 
     def _document_phase_allowed_path(doc_phase: str, file_path: str) -> bool:
-        p = _normalize_relative_path(file_path)
-        if not p:
-            return False
-
-        if doc_phase == "idea":
-            return p == "docs/harper/IDEA.md"
-
-        if doc_phase == "spec":
-            return p == "docs/harper/SPEC.md"
-
-        if doc_phase == "plan":
-            if p in {"docs/harper/PLAN.md", "docs/harper/plan.json"}:
-                return True
-            return p.startswith("docs/harper/lane-guides/") and p.endswith(".md")
-
-        return False
+        return doc_phase in ("idea", "spec", "plan") and _path_accepted(doc_phase, file_path)
 
     def _finalize_allowed_path(file_path: str) -> bool:
         p = _normalize_relative_path(file_path)
@@ -6309,9 +5948,7 @@ def normalize_local_agent_result(payload: Dict[str, Any]) -> Dict[str, Any]:
                 )
 
     document_phase_required_outputs = {
-        "idea": ["docs/harper/IDEA.md"],
-        "spec": ["docs/harper/SPEC.md"],
-        "plan": ["docs/harper/PLAN.md", "docs/harper/plan.json"],
+        doc_phase: list(spec["output_contract"]["always"]) for doc_phase, spec in _DOCUMENT_PHASE_SPECS.items()
     }
     if phase in document_phase_required_outputs:
         returned_paths = {

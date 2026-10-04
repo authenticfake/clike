@@ -1,0 +1,65 @@
+# Harper phase definition (WP8.3). Data only: loaded by services/phase_definitions.py.
+# Key order is significant (it is preserved in the JSON written for the agent).
+# accepted_result_paths: fnmatch patterns ("*" also crosses "/") a local-agent result may contain.
+phase: spec
+local_agent:
+  schema_version: clike.agent.spec_context.v1
+  title: SPEC
+  allowed_write_roots:
+  - docs/harper/SPEC.md
+  required_reads:
+  - docs/harper/IDEA.md (and any IDEA* prefix variants) when present
+  - docs/harper/TECH_CONSTRAINTS.yaml when present
+  - Harper chat history when relevant
+  output_contract:
+    always:
+    - docs/harper/SPEC.md
+    conditional: []
+  mission:
+    purpose: Regenerate a concise, testable Harper SPEC.md for the featurelet strictly from IDEA inputs.
+    canonical_output: docs/harper/SPEC.md
+  hard_rules:
+  - Write only docs/harper/SPEC.md. Do not write any other docs/harper path.
+  - '/spec is regenerative: build docs/harper/SPEC.md from IDEA inputs only.'
+  - Do not read docs/harper/SPEC.md or any SPEC* variant as input. Existing SPEC files are stale outputs from a previous /spec run, not source material.
+  - Treat any existing docs/harper/SPEC.md as the overwrite target only; regenerate it from IDEA, never reconcile with the old SPEC output.
+  - The first line must be `# SPEC — <Project Name>`, taken from the IDEA.md title by replacing the leading word IDEA with SPEC.
+  - 'Use the canonical SPEC sections with `##` headings in order: Summary, Goals, Non-Goals, Users & Context, Functional Requirements, Non-Functional Requirements, High-Level Architecture, Interfaces, Data Model (logical), Key Workflows, Security & Compliance, Deployment & Operations, Risks & Mitigations, Assumptions, Success Metrics, Acceptance Criteria, Out Of Scope, Note from Harper Orchestrator (Super User) to be applied.'
+  - 'Acceptance Criteria are mandatory: at least 5 observable, falsifiable bullets.'
+  - Translate the business requirements and user stories from IDEA.md (see section 'List of business requirements or user stories') into comprehensive technical specifications and architectural design.
+  - Do not invent facts; respect TECH_CONSTRAINTS as authoritative when present.
+  - End the output with a final line containing exactly SPEC_END.
+  - Do not run git commands.
+  - Do not modify src/, test/, tests/, runs/kit/, runs/eval/, or runs/gate/.
+  validation_expectations:
+  - docs/harper/SPEC.md exists after the change.
+  - Its first line is `# SPEC — <Project Name>`.
+  - All canonical SPEC sections are present with `##` headings, no numbered headings.
+  - Acceptance Criteria has at least 5 observable bullets.
+  - The file ends with SPEC_END.
+  prompt_lines:
+  - 'Mission:'
+  - '- Regenerate the canonical docs/harper/SPEC.md derived from docs/harper/IDEA.md.'
+  - '- Keep it concise but testable. Acceptance Criteria are mandatory (>=5 observable bullets).'
+  - '- Treat TECH_CONSTRAINTS as authoritative when present.'
+  - ''
+  - 'Source discipline (regenerative phase):'
+  - '- Read docs/harper/IDEA.md (and any IDEA* prefix variants) and TECH_CONSTRAINTS.yaml as the source of truth.'
+  - '- Do NOT read docs/harper/SPEC.md or any SPEC* variant as input; they are stale outputs of a previous /spec run.'
+  - '- docs/harper/SPEC.md is an overwrite target only. Regenerate it fresh from IDEA; never reuse or reconcile the old SPEC content.'
+  - ''
+  - 'Hard requirements:'
+  - '- First line: `# SPEC — <Project Name>` (replace the leading IDEA with SPEC from the IDEA.md title).'
+  - '- Use `##` section headings exactly; no numbered headings.'
+  - '- End the file with a line containing exactly SPEC_END.'
+  - ''
+  - 'Allowed writes:'
+  - '- docs/harper/SPEC.md (only)'
+canonical_expectations:
+- '# SPEC — <Project Name>'
+- Acceptance Criteria are mandatory
+- At least **5** bullets
+- Each bullet must be observable & falsifiable
+- SPEC_END
+accepted_result_paths:
+- docs/harper/SPEC.md
