@@ -167,26 +167,42 @@ Current default: **`pro`**
 
 ### 1. Backend
 
-Make sure these services are available:
+Start the CLike stack (see the [main README](../../README.md#quick-start)). The services listen on
+loopback and require a service token:
 
 - **Orchestrator**: `http://localhost:8080`
 - **Gateway**: `http://localhost:8000`
 
-Model routing and provider configuration are resolved through backend configuration.
-
 ### 2. Extension
 
-From the extension folder:
+Install the packaged extension:
 
 ```bash
-npm install
+./build_ext_vs.sh        # npm ci, lint, tests, vsce package, install
 ```
 
-Then:
+or develop it:
 
-- press **F5** to launch an Extension Development Host
-- open Command Palette
-- run **`CLike: Chat (Q&A / Harper / Coding)`**
+```bash
+npm ci
+npm run check            # ESLint + node:test
+```
+
+then press **F5** to launch an Extension Development Host.
+
+### 3. Service token
+
+Run **CLike: Set Service Token** and paste the `CLIKE_API_TOKEN` of the stack (stored in VS Code
+SecretStorage, sent only to the configured orchestrator/gateway URLs). Then run
+**CLike: Chat (Q&A / Harper / Coding)**.
+
+### Defaults worth knowing
+
+- Git automation (auto-commit, push, merge-on-gate, PRs) is **off**; enable it explicitly in the
+  `clike.git.*` settings. When on, only the files of each phase are committed.
+- The extension's operational MCP server is **off**; when enabled it is token-protected
+  (*CLike: Copy Extension MCP Token*).
+- Untrusted workspaces are not supported; security-relevant settings are machine-scoped.
 
 ### 3. Use the chat header
 

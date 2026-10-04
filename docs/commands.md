@@ -33,7 +33,15 @@ The current webview parser supports the following slash commands.
 - `/kit`
 - `/eval <REQ-ID>`
 - `/gate <REQ-ID>`
+- `/gate <REQ-ID> manual pass` — records a pass **without executing checks** (developer override;
+  use only when the gate cannot run, e.g. environment-blocked checks; an audited override is planned)
 - `/finalize`
+- `/extend` — extends requirements of an existing plan (see `CLike_Harper_Extend_Feature.md`)
+
+### Local agent selection
+- `/agent-default auto` — let CLike choose the local executor
+- `/agent-default claude` — prefer Claude Code
+- `/agent-default codex` — prefer Codex CLI
 
 Optional governed methodology flags are supported on Harper phase commands:
 - `--methodology bmad`
@@ -156,6 +164,13 @@ Explicitly searches RAG through the orchestrator search path.
 ## Extension commands
 
 The extension also contributes direct VS Code commands.
+
+### Service authentication
+- `clike.setServiceToken` — *CLike: Set Service Token*: paste the stack `CLIKE_API_TOKEN`, or generate
+  one (the `.env` line is copied to the clipboard). Stored in SecretStorage.
+- `clike.clearServiceToken` — *CLike: Clear Service Token*
+- `clike.copyExtensionMcpToken` — *CLike: Copy Extension MCP Token*: token for clients of the
+  extension's operational MCP server
 
 ### Chat / session
 - `clike.openChat`

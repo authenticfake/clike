@@ -47,6 +47,23 @@ Runs as the vector store backing RAG persistence.
 
 ## Main environment variables
 
+### Shared (root `.env`, loaded by both services)
+- `CLIKE_API_TOKEN` — **required** service token (`openssl rand -hex 32`); every endpoint except
+  `/health` requires `Authorization: Bearer <token>`. Without it the services answer `503`.
+- `CLIKE_ALLOWED_HOSTS` — optional override of accepted `Host` names
+  (default `localhost,127.0.0.1,::1,gateway,orchestrator`).
+- provider keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, …).
+
+### Compose (`docker/.env`)
+- `CLIKE_PROJECTS_DIR` — host folder containing your projects; mounted read-only at the same path
+  and exposed to the services as `DEV_FOLDER`. Eval/gate only operate on projects under it.
+
+### Eval / gate (orchestrator)
+- `DEV_FOLDER` — allowed root for eval/gate project roots (set from `CLIKE_PROJECTS_DIR`).
+- `CLIKE_EVAL_ALLOWED_ROOTS` — additional allowed roots (path-separator list).
+- `CLIKE_ALLOW_INLINE_LTC` — `1` to accept inline-only LTC profiles (default: the workspace profile
+  file is authoritative).
+
 ### Orchestrator
 Important environment variables in compose:
 - `GATEWAY_URL=http://gateway:8000`
@@ -150,23 +167,32 @@ Current extension settings include:
 - `clike.localAgent.codex.printModeFlag`
 
 ### Git
-- `clike.git.autoCommit`
-- `clike.git.gitMergeOnGate`
-- `clike.git.gitDeleteBranchOnMerge`
-- `clike.git.gitReturnToFeatureAfterMerge`
-- `clike.git.remote`
-- `clike.git.defaultBranch`
-- `clike.git.branchPrefix`
-- `clike.git.prBodyPath`
+Automation is **off by default** (see [git-and-promotion.md](git-and-promotion.md)):
+- `clike.git.autoCommit` (`false`) — commit only the files of each phase
+- `clike.git.autoPush` (`false`, machine) — push commits, tags and gate merges
+- `clike.git.gitMergeOnGate` (`false`) — merge the REQ branch after a PASS gate
+- `clike.git.openPR` (`false`) — open a PR on `/finalize`
+- `clike.git.pushRebase` (`false`)
+- `clike.git.gitDeleteBranchOnMerge`, `clike.git.gitReturnToFeatureAfterMerge`
+- `clike.git.remote`, `clike.git.remoteUrl`, `clike.git.defaultBranch`, `clike.git.branchPrefix`,
+  `clike.git.tagPrefix`, `clike.git.conventionalCommits`, `clike.git.prBodyPath`
 
-### MCP
-- `clike.mcp.clientEnabled`
-- `clike.mcp.serverEnabled`
+### Service authentication
+- the service token is not a setting: run **CLike: Set Service Token** (stored in SecretStorage)
+
+### MCP (extension operational server)
+- `clike.mcp.extensionServerEnabled` (`false`)
+- `clike.mcp.extensionServerHost` (`127.0.0.1`), `clike.mcp.extensionServerPort` (`55742`)
+- `clike.mcp.extensionServerToken` — optional legacy override; by default a generated token in
+  SecretStorage (*CLike: Copy Extension MCP Token*)
+
+Security-relevant settings (service URLs, agent binaries/flags/permission and sandbox modes, MCP
+server, Git remote/push/auto-commit) are **machine-scoped**: a workspace cannot override them.
 
 ## Local workspace assumptions
 
 The current source tree assumes:
-- repository root mounted under `/workspace`
+- repository root mounted read-only under `/workspace` (only `src/` and `tests/` writable)
 - run artifacts under `/runs`
 - docs under `docs/harper`
 - source roots normally under `src`
@@ -186,16 +212,17 @@ Useful runtime checks:
 ## Startup guidance
 
 A normal local startup sequence is:
-1. start Qdrant
-2. start Ollama
-3. start Gateway
-4. start Orchestrator
-5. open the VS Code extension
-6. fetch models and verify health from the extension
-7. initialize or switch Harper project if needed
+1. configure `.env` (provider keys, `CLIKE_API_TOKEN`) and `docker/.env` (`CLIKE_PROJECTS_DIR`)
+2. `cd docker && podman-compose up -d --build` (Qdrant, gateway, then orchestrator once the gateway
+   is healthy; add `--profile ollama` for local models)
+3. in VS Code run *CLike: Set Service Token*
+4. open the CLike chat, fetch models and verify health from the extension
+5. initialize or switch the Harper project if needed
+
+After code changes: `podman-compose build && podman-compose up -d --force-recreate`.
 
 ## Operational cautions
 
-- The inspected package includes local absolute-volume assumptions for the author environment. Treat them as development-specific.
+- Projects must live under `CLIKE_PROJECTS_DIR`: eval/gate refuse other project roots (`403`).
 - Candidate artifacts are stored under `runs/kit/<REQ-ID>/...`; do not confuse them with promoted canonical roots.
 - MCP is optional and mounted only when orchestrator-side enablement is active.

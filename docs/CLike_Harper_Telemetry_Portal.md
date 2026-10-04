@@ -12,6 +12,11 @@ Default local URL:
 http://localhost:8000/v1/metrics/harper/ui
 ```
 
+> **Access.** The page itself is public on loopback, but the telemetry API requires the CLike
+> service token. On first load the portal asks for `CLIKE_API_TOKEN` and exchanges it for an
+> `HttpOnly`, `SameSite=Strict` cookie scoped to `/v1/metrics` (8 hours). `POST /v1/metrics/logout`
+> clears it.
+
 The portal is served by the Gateway telemetry routes under:
 
 ```text

@@ -8,6 +8,13 @@ It is organized by runtime:
 - Agent / code-action surface
 - MCP informational surface
 
+## Authentication
+
+All orchestrator and gateway endpoints except `GET /health` require
+`Authorization: Bearer <CLIKE_API_TOKEN>`. Missing or wrong token → `401`; token not configured on
+the server → `503`; unexpected `Host` header → `403`. No CORS headers are emitted. The gateway
+telemetry API also accepts the `clike_token` cookie set by `POST /v1/metrics/login` (GET only).
+
 ## Orchestrator API
 
 Base runtime:

@@ -1,770 +1,251 @@
-# 🚀 CLike — AI-Native Pipeline for Product Engineers
+# CLike — Governed AI-Native Delivery for Coding Agents
 
 ![CLike logo](images/icons/clike_128x128.png)
 
-[![Made with Python](https://img.shields.io/badge/Made%20with-Python-3776AB?logo=python)](https://www.python.org/)
+[![Made with Python](https://img.shields.io/badge/Made%20with-Python%203.12-3776AB?logo=python)](https://www.python.org/)
 [![VS Code Extension](https://img.shields.io/badge/VS%20Code-Extension-007ACC?logo=visualstudiocode)](extensions/vscode)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.9.0-informational)](CHANGELOG.md)
 
-> **From intent to impact.**  
-> CLike keeps developers in flow, augments delivery with agentic workflows, and bakes in governance, eval-driven quality, repository grounding, and a safe paved road for enterprise-grade software delivery.
-
----
-
-### 🚀 **Project Status & Release Info**
-
-| 📅 **Last Updated** | 🧪 **Current Testing** | 📦 **Latest Release** |
-| --- | --- | --- |
-| June 9, 2026 | Agent execution reach expanded, in chronological order: (1) Harper phases via execution-agent extended beyond `/kit`, `/eval`, and `/finalize` to also cover `/idea`, `/spec`, and `/plan`; (2) CLike skills strengthened to make the local agent effective across the `/plan`, `/kit`, `/eval`, and `/finalize` Harper phases; (3) Free chat (Q&A) and Coding now run via local agent (Claude Code / Codex CLI) in addition to the cloud path, across all CLike chat modes. Local checks: `python -m py_compile orchestrator/routes/v1.py gateway/routes/models.py gateway/providers_availability.py`; `PYTHONPATH=orchestrator:. pytest -q orchestrator/tests`; `node --test extensions/vscode/test/*.test.js`. | |
-| June 2, 2026 | BMAD-aware methodology profile MVP documented and under regression testing: governed methodology context, companion artifacts, SPEC PM/UX safety, server-side companion discovery, cloud prompt verification, local-agent package verification, eval/gate boundaries, and deterministic scorecards. Real local checks: `python -m compileall orchestrator gateway`; `PYTHONPATH=orchestrator:. pytest -q orchestrator/tests/test_methodology_resolver.py orchestrator/tests/test_methodology_injection.py orchestrator/tests/test_eval_canonical_bmad.py orchestrator/tests/test_bmad_companion_collector.py orchestrator/tests/test_bmad_safety_boundaries.py orchestrator/tests/test_bmad_quality_contracts.py orchestrator/tests/test_bmad_quality_scorecard.py`; `PYTHONPATH=orchestrator:. pytest -q gateway/tests/test_methodology_prompt.py`; `node --test extensions/vscode/test/slash-parser.test.js extensions/vscode/test/bmad-advisory.test.js`.|
-| May 19, 2026 | Added command for extending requirements (/extend). First draft implemented; testing started yet. [docs/CLike_Harper_Extend_Feature.md](./docs/CLike_Harper_Extend_Feature.md)| `v0.9.874` |
-
+> **From intent to impact.** CLike turns an idea into reviewed, tested and promotable software
+> through a governed lifecycle in which cloud models and local coding agents execute, while
+> deterministic evaluation and gates decide.
 
 ---
 
-## ✨ Highlights
+## Abstract
 
-- 🌀 **Flow state by default** — no context switching, full VS Code integration.
-- 🤖 **Agent-centric, CLike-governed delivery** — developers and agents can trigger the same Harper workflow without bypassing governance.
-- 🛡️ **Eval-driven quality gates** — KIT/EVAL/GATE loops promote only reviewable, testable artifacts.
-- 🧠 **Repository-aware generation** — RAG grounds planning, KIT, eval, and agent execution in real workspace context.
-- 🔌 **MCP-ready operating model** — agents can interact with CLike through controlled MCP surfaces.
+Coding agents (Claude Code, Codex CLI, cloud LLMs) can now produce large amounts of code quickly.
+The open problem is no longer *generation* but **governance**: keeping intent, requirements,
+implementation, tests and promotion decisions aligned, auditable and safe when much of the work is
+performed by autonomous agents.
 
+CLike is an R&D platform that addresses this problem with three ideas:
 
-
----
-
-## ✨ What is CLike?
-
-👉 AI-native governed engineering platform
-
-### Why it matters
-- **Flow state by default** — minimize context switches; everything lives inside VS Code.
-- **Agentic & self‑healing** — AI assistants perform actions and auto‑remediate (diffs, patches, tests).
-- **Enterprise paved road** — governance, auditability, and reproducibility are built‑in, not bolted on.
-
-**Clike** is 
-- Harper-governed
-- RAG-grounded
-- Eval-driven
-- Human-in-the-loop
-- Multi-model / agent-agnostic
-- Cloud + local agent compatible
-
-**CLike** is an AI-native platform that merges the **Harper-style** pipeline with the **Vibe Coding** philosophy and operationalizes it through:
-
-- a VS Code extension;
-- a FastAPI orchestrator;
-- a FastAPI model gateway;
-- RAG-backed context retrieval;
-- cloud LLM execution;
-- local coding-agent execution;
-- Git-aware promotion;
-- eval-driven governance;
-- MCP surfaces for agent interoperability.
-
-
-The core workflow is:
+1. **A structured lifecycle (Harper)** — `IDEA → SPEC → PLAN → KIT → EVAL → GATE → FINALIZE` —
+   where every phase produces canonical, reviewable artifacts and each requirement (REQ) advances
+   through short, verifiable loops.
+2. **Agent-agnostic execution under one contract** — the same phase contract (inputs, expected
+   outputs, allowed write roots, validation) is rendered either as a cloud prompt or as an execution
+   package for a local agent, so the choice of executor never bypasses governance.
+3. **Evidence-based promotion** — a deterministic eval runner produces evidence, and the gate, not a
+   model, decides whether a candidate can be promoted.
 
 ```text
-IDEA → SPEC → PLAN → KIT → EVAL → GATE → FINALIZE
+The developer leads.        CLike governs.
+Models and agents execute.  Eval and Gate decide.
 ```
 
-The main operating principle is:
+## Status
+
+| Version | Date | Milestone |
+|---|---|---|
+| **0.9.0** | 2026-10 | **M1 — safe to run**: authenticated services on loopback, confined file and process execution, non-destructive Git, reproducible builds, CI. See [CHANGELOG](CHANGELOG.md). |
+| 0.9.5 | planned | M2 — correct and governed: sandboxed gate, tamper-evident acceptance criteria, provider fixes |
+| 1.0.0 | planned | M3 — ready for evolution: typed phase contract, single source per phase definition |
+
+CLike is research software under active development. Interfaces may change between minor versions.
+
+---
+
+## Core concepts
+
+### Harper lifecycle
+
+| Phase | Purpose | Canonical output |
+|---|---|---|
+| `/idea` | Formalize the idea, scope and constraints | `docs/harper/IDEA.md` |
+| `/spec` | Business and technical requirements | `docs/harper/SPEC.md` |
+| `/plan` | Requirements (REQ) with acceptance criteria, lanes and dependencies | `docs/harper/PLAN.md`, `plan.json` |
+| `/kit <REQ>` | Implement one REQ as a candidate: code, tests, docs, CI profile | `runs/kit/<REQ>/…` |
+| `/eval <REQ>` | Run the REQ's checks and collect evidence | eval report |
+| `/gate <REQ>` | Decide promotability from the evidence | gate report |
+| `/finalize` | Close the delivery | release documentation |
+
+`/kit → /eval → /gate` is an iterative control loop per REQ, not a one-shot generation step.
+Candidates live under `runs/kit/<REQ>/` and are promoted into canonical source roots only after a gate.
+
+### Governance principles
+
+- **Canonical artifacts win.** Methodology companions, skills and agent output are advisory.
+- **Executors are interchangeable; contracts are not.** Cloud and local execution share the same
+  phase contract and are normalized by the orchestrator.
+- **Agents cannot promote.** Local agents write only to the roots allowed by the phase contract and
+  never run Git or promotion.
+- **The gate is deterministic.** Pass/fail comes from executed checks, not from a model's judgment.
+- **The developer is the orchestrator.** No phase advances until its output is reviewed.
+
+### Two agent operating models
+
+- **Developer → CLike → agent.** The developer runs a phase; the orchestrator builds an execution
+  package; the extension runs Claude Code or Codex CLI locally; results are normalized and continue
+  through eval and gate. Free Q&A and Coding chat modes can run the same way.
+- **Agent → CLike.** An external agent operates CLike through MCP, dispatching the same commands a
+  developer would type, so it inherits the same governance.
+
+Details: [docs/agent-operating-model.md](docs/agent-operating-model.md).
+
+---
+
+## Architecture
 
 ```text
-The developer leads.
-CLike governs.
-Cloud models and local agents execute.
-Eval and Gate decide.
+                         trust boundary: loopback only, service token on every call
+ ┌──────────────────────────┐        ┌──────────────────────────────┐        ┌───────────────────────────┐
+ │ VS CODE EXTENSION        │ HTTPS/ │ ORCHESTRATOR  (FastAPI)       │        │ MODEL GATEWAY  (FastAPI)  │
+ │ the only workspace writer│ token  │ Harper domain                 │ token  │ provider abstraction      │
+ │                          │───────▶│ • phase contracts & packages  │───────▶│ • OpenAI / Anthropic      │──▶ cloud
+ │ • chat UI, slash commands│        │ • execution policy            │        │ • OpenAI-compatible       │    providers
+ │ • confined file writes   │◀───────│ • eval runner & gate          │◀───────│   (e.g. Ollama, optional) │
+ │ • Git (non-destructive)  │        │ • RAG API      • MCP server   │        │ • embeddings, telemetry   │
+ │ • local agent actuator ──┼──┐     └──────────────┬───────────────┘        └───────────────────────────┘
+ │ • operational MCP (opt.) │  │                    │
+ └──────────────────────────┘  │                    ▼
+                               │            ┌───────────────┐
+                               ▼            │ Qdrant        │
+                  ┌─────────────────────┐   │ vector store  │
+                  │ LOCAL CODING AGENTS │   └───────────────┘
+                  │ Claude Code · Codex │
+                  │ (own CLI session;   │
+                  │  write roots from   │
+                  │  the phase contract)│
+                  └─────────────────────┘
 ```
 
-### BMAD-aware Methodology Profiles
+| Component | Path | Responsibility |
+|---|---|---|
+| VS Code extension | [`extensions/vscode/`](extensions/vscode) | UI, workspace access, confined writes, local agent execution, Git, RAG collection |
+| Orchestrator | [`orchestrator/`](orchestrator) | Harper phase semantics, contracts, execution packages, eval/gate, RAG, MCP |
+| Gateway | [`gateway/`](gateway) | Model catalog and routing, provider calls, Harper prompt rendering, embeddings, telemetry |
+| Configuration | [`configs/`](configs) | Model catalog (`models.yaml`), routing profiles |
+| Runtime | [`docker/`](docker) | Local stack (Podman or Docker Compose) |
 
-BMAD is a CLike-owned methodology profile. CLike owns the Harper lifecycle: `IDEA -> SPEC -> PLAN -> KIT -> EVAL -> GATE -> FINALIZE`. BMAD can enrich selected phases with role-aware guidance, but it does not replace Harper governance.
-
-BMAD companion artifacts are additive and non-authoritative. They may live under controlled roots such as `docs/harper/bmad/**`, `docs/harper/ux/**`, or candidate KIT docs roots, and they can help later phases understand product, UX, architecture, implementation, or QA context. Canonical Harper artifacts still win on conflict.
-
-Methodology is not executor: BMAD can guide how `/idea`, `/spec`, `/plan`, `/kit`, `/eval`, and `/finalize` reason, but cloud LLMs, Claude Code, Codex CLI, and other backends remain execution choices governed by CLike. EvalRunner and Gate remain CLike-owned; BMAD QA is advisory only and cannot decide pass/fail, promotability, or promotion.
-
-BMAD is not a hard dependency. CLike does not include a BMAD runtime dependency, does not run `npx bmad-method`, does not vendor BMAD runtime code, and does not create a parallel BMAD pipeline. Cloud guidance is injected through Gateway prompt composition; local-agent guidance is injected through `local_agent_package`.
-
-BMAD skill reference material is seeded by the VS Code Harper init template at `extensions/vscode/templates/harper-init/.clike/skills/vendor/bmad` and appears in initialized workspaces under `.clike/skills/vendor/bmad`. That workspace material is auditable input, not executable authority. When `methodology=bmad` is selected, the extension transports the vendor manifest and selected `SKILL.md` material through `core_blobs`; the Orchestrator resolves selected skills from those blobs and Gateway/local-agent packages render the resulting context. Native Harper runs do not activate BMAD skill context.
-
-Current out of scope roadmap items include BMAD runtime execution, `npx bmad-method` runtime invocation, the BMAD importer, TEA, Party Mode, MCP write tools, multi-agent `/spec --agents pm,ux`, and automatic latest BMAD tracking at runtime.
-
-See [docs/integrations/bmad/README.md](./docs/integrations/bmad/README.md).
+Further reading: [architecture](docs/architecture.md) · [Harper workflow](docs/harper-workflow.md) ·
+[artifacts](docs/artifacts.md) · [RAG](docs/rag.md) · [Git and promotion](docs/git-and-promotion.md).
 
 ---
 
-## ✨ Where the Idea Comes From
+## Security model
 
-- **Harper / Codegen Hero's Journey**  
-  Harper introduces an iterative software-generation journey: start from an idea, create a SPEC, derive a PLAN, generate a KIT, evaluate, harden, and promote in short feedback loops. -
-[Haprer](https://harper.blog/posts/) 
+CLike executes model-generated code and drives agents that write files, so security is part of the design:
 
-- **Vibe Coding**  
-  Vibe Coding emphasizes intent, flow, rapid prototyping, and cognitive offloading. The developer works at the outcome level while the system helps produce implementation artifacts. - [Gartner Vibe](https://www.gartner.com/document-reader/document/6494971?ref=pubsite)
+- **Authenticated, loopback-only services.** Every endpoint except `/health` requires a service
+  token; services fail closed without one, accept only loopback/service `Host` headers and expose
+  no CORS.
+- **Confinement.** Paths from models, agents or requests are confined to their roots (workspace,
+  run directory, telemetry); the extension is the only component that writes the workspace.
+- **Trusted evaluation inputs.** The gate executes the profile stored in the workspace, never one
+  supplied by the caller; eval commands run without credentials in their environment.
+- **Least privilege at runtime.** Services run as a non-root user; the CLike repository is mounted
+  read-only.
+- **Non-destructive Git.** Only the files of a phase are committed; no branch is rewritten; commit,
+  push, merge and PR automation are opt-in.
 
-- **AI-Native Software Engineering**  
-  CLike applies agentic workflows, human-in-the-loop governance, RAG grounding, quality gates, and automated validation to make AI-generated software reviewable and promotable. - [Gartner AI](https://www.gartner.com/document-reader/document/6076795?ref=pubsite)
-
----
-
-## 🧱 Architecture at a Glance
-```
-+-----------------------+       +-------------------------+       +--------------------+       +------------------------+
-|  VS CODE EXTENSION    |       |  ORCHESTRATOR (FastAPI) |       |  GATEWAY (FastAPI) |       | CLOUD PROVIDERS.       |
-+-----------------------+       +-------------------------+       +--------------------+       +------------------------+
-| - Chat UI             | ----> | - Harper workflow brain | ----> | - Cloud model abs. | ----> | - OpenAI               |
-| - Slash commands      |       | - Execution strategy    |       | - OpenAI/Anth. rout|  |    | - Anthropic            |
-| - Workspace access    |       | - Agent exec. packages  |       | - Embeddings       |  |    | - ...                  |
-| - Local file writes   | <---+ | - Eval/Gate semantics   |       | - Provider normal. |  |    |                        |
-| - Git integration     |     | | - RAG endpoints         |       +----------^---------+  |    +------------------------+
-| - RAG collector       |     | | - Orchestrator MCP srv. |                               |
-| - Local agent actuator|     | +------------^------------+                               |	
-| - Extension MCP server|     |              |                 +------------+             |
-+-----------------------+     |              |                 |    RAG     |             |
-            ^                 |              |<--------------> +------------|             |     +------------------------+
-            |                 |              |                 |  Vector DB |             |     | LOCAL PROVIDERS.       |
-            |                 v              |                 +------------+             +--- >+------------------------+
-            |       +-----------------------------------+                                       | - OLLAMA               |
-            +-------|              AGENTS               |                                       | - DeepSeek             |
-                    | (Autonomous execution units)      |				          	                    +------------------------+
-                    +-----------------------------------+						                                                      
-
-```
-
-### Key directories
-
-- `extensions/vscode/` — CLike VS Code extension.
-- `orchestrator/` — Harper workflow orchestration, RAG, agent contracts, eval/gate.
-- `gateway/` — model gateway for cloud providers and embeddings.
-- `configs/` — model routing and provider settings.
-- `docker/` — local development stack.
-- `docs/` — project documentation.
-- `runs/` — Harper run artifacts and KIT candidates.
+See [SECURITY.md](SECURITY.md) for the threat model, current limitations and how to report a vulnerability.
 
 ---
 
-## 🔒 Security, Governance, and the Paved Road
+## Quick start
 
-- **Auditability** — run artifacts, prompts, outputs, evals, and gate results are traceable.
-- **Isolation** — local agents are constrained by allowed write roots.
-- **Least privilege** — local agents must not perform Git operations or promote files directly.
-- **RAG grounding** — generation is grounded in repository and docs context.
-- **Human-in-the-loop** — the developer remains the final decision maker.
-- **Cloud/local frontier control** — CLike can route cloud execution through the gateway and local execution through extension-actuated CLI tools.
-
----
-
-## 🤖 Agent-Centric Operating Model
-
-CLike supports two complementary agentic models.
-
-### Model 1 — Developer activates an agent through CLike
-
-This is the local-agent (execution-agent) path. It now covers the early Harper
-document phases `/idea`, `/spec`, and `/plan` in addition to `/kit`, `/eval`,
-`/finalize`, and `/extend`. All phases reuse the same execution-agent
-architecture; only the expected output files, allowed write paths, phase prompt,
-and phase validation differ. For the early document phases the local agent
-writes `docs/harper/IDEA.md` (idea), `docs/harper/SPEC.md` (spec), and
-`docs/harper/PLAN.md` plus `docs/harper/plan.json` (plan); all other
-`docs/harper/` paths stay protected. Cloud and local execution remain
-semantically equivalent and CLike governance stays canonical.
-
-```text
-Developer
-→ VS Code Extension
-→ Orchestrator
-→ Agent execution package
-→ Extension local actuator
-→ Agent agnostic (Claude Code, GPT Codex,...)
-→ Orchestrator normalizes
-→ RAG/Git/Eval/Gate continue through CLike
-```
-
-The orchestrator owns:
-
-- Harper phase semantics;
-- execution strategy;
-- local-agent eligibility;
-- executor hints;
-- prompt contracts;
-- allowed write roots;
-- expected outputs;
-- fallback policy;
-- result normalization.
-
-The extension owns:
-
-- UI;
-- workspace access;
-- local filesystem writes;
-- local CLI execution;
-- stdout/stderr/exit-code collection;
-- generated file collection;
-- Git integration.
-
-Local agents are executors only. They must not promote files, run Git operations, or write directly to canonical `src/`, `test/`, or `tests/` roots.
-
-#### Standalone chat (Q&A) and coding via local agent
-
-The same execution-agent path also serves the standalone CLike chat modes, not
-only the Harper pipeline. Across every CLike mode, the Execution selector lets a
-request run via the local agent (Claude Code / Codex CLI) instead of the cloud:
-
-- **Free chat (Q&A)** runs the local agent read-only and renders its answer as a
-  normal chat bubble, badged with the agent used (`agent-claude` / `agent-codex`)
-  the way the cloud path shows the model name. A short execution synthesis is
-  shown in the **Text** panel.
-- **Coding** lets the local agent write the requested artifacts (documentation,
-  code, images, etc.) under a `generated/<id>/` folder in the workspace root —
-  mirroring the cloud generation layout. The chat bubble shows the agent badge
-  plus the generated-file list, and the files are clickable in the **Files** tab.
-
-As in the Harper path, the orchestrator owns prompt/context assembly and returns
-an execution package; the extension is the only component that spawns the CLI.
-Local agents authenticate through their own CLI session, so **no cloud API key is
-required or forwarded** for this path.
-
-Model availability is computed once at the gateway from configured provider
-keys. When at least one cloud key is set, all Execution options are available with
-`agent only` as the default; when no cloud key is set, the cloud options are
-disabled and only `agent only` remains selectable. Provider/key mismatches (for
-example, selecting an OpenAI model when only an Anthropic key is configured)
-surface as a clear message in the chat **Text** panel.
-
-### Model 2 — Agent interacts with CLike
-
-This is the MCP-driven operating model.
-
-```text
-External/local agent
-→ CLike Extension MCP operational server
-→ Extension dispatches normal slash commands
-→ Normal CLike flow
-→ Orchestrator
-→ Gateway / local-agent / RAG / Git / Eval / Gate
-```
-
-The agent does not call the orchestrator with invented Harper payloads. It asks the extension to dispatch the same slash commands a developer would type.
-
-This keeps the workflow simple, auditable, and aligned with the existing extension/orchestrator path.
-
----
-
-## 🔌 MCP Support
-
-CLike exposes two complementary MCP surfaces.
-
-### Extension MCP — Operational Surface
-
-The VS Code extension exposes a local operational MCP-compatible server.
-
-Its role is to let agents operate CLike through the same commands available in chat.
-
-Typical tools:
-
-- `clike_extension_status`
-- `harper_next_action`
-- `harper_run_phase`
-- `harper_kit_next`
-- `harper_continue_loop`
-- `rag_reindex`
-- `rag_docs_status`
-- `rag_docs_reindex_if_empty`
-
-The extension MCP server dispatches normal slash commands such as:
-
-```text
-/kit REQ-001
-/eval REQ-001
-/gate REQ-001
-/finalize
-/ragIndex docs/**/*
-/agent-default codex
-```
-
-It does not duplicate Harper logic.
-
-### Orchestrator MCP — Informational and Service Surface
-
-The orchestrator exposes an MCP server for documentation, capability discovery, and service-oriented support.
-
-Its role is to:
-
-- explain CLike architecture and Harper semantics;
-- expose operational model documentation;
-- inspect RAG status;
-- support docs reindex service when workspace access is available;
-- provide context to agents.
-
-It does not directly own Model 2 command dispatch.
-
-### Manual Orchestrator MCP curl
-
-The orchestrator MCP endpoint uses streamable HTTP semantics. Manual curl calls should include both `content-type` and `accept` headers.
+**Prerequisites:** Podman 5 with `podman-compose` (or Docker Compose v2), VS Code, Node.js 20+,
+Python 3.12 with [`uv`](https://docs.astral.sh/uv/) for development, provider API keys for cloud
+models, and optionally the Claude Code or Codex CLI.
 
 ```bash
-curl -s http://127.0.0.1:8080/mcp/   -H "authorization: Bearer $CLIKE_API_TOKEN"   -H 'content-type: application/json'   -H 'accept: application/json, text/event-stream'   -d '{
-    "jsonrpc": "2.0",
-    "id": 1,
-    "method": "tools/list",
-    "params": {}
-  }' | jq
+# 1. Configuration
+cp .env.example .env                      # provider keys + CLIKE_API_TOKEN=$(openssl rand -hex 32)
+cp docker/.env.example docker/.env        # CLIKE_PROJECTS_DIR = host folder containing your projects
+
+# 2. Services (loopback only)
+cd docker && podman-compose up -d --build
+curl -s http://127.0.0.1:8080/health && curl -s http://127.0.0.1:8000/health
+
+# 3. VS Code extension
+cd ../extensions/vscode && ./build_ext_vs.sh   # npm ci, lint, tests, package, install
 ```
 
-If the `accept` header is omitted, the endpoint may return HTTP `406`. Without the service token it returns `401`.
+In VS Code run **CLike: Set Service Token** (paste the `CLIKE_API_TOKEN` value), open a project
+located under `CLIKE_PROJECTS_DIR`, then run **CLike: Chat (Q&A / Harper / Coding)**:
 
-MCP clients must send the same header, e.g. for Claude Code:
-
-```bash
-claude mcp add --transport http clike http://127.0.0.1:8080/mcp/ --header "Authorization: Bearer $CLIKE_API_TOKEN"
+```text
+/init → /idea → /spec → /plan → ( /kit REQ-xxx → /eval REQ-xxx → /gate REQ-xxx )* → /finalize
 ```
+
+Guides: [HOWTO](docs/HOWTO.md) · [Harper run walkthrough](docs/Clike%20HARPER%20RUN.md) ·
+[commands](docs/commands.md) · [setup and runtime](docs/setup-and-runtime.md).
 
 ---
 
-## 💬 Chat Slash Commands
+## Extensibility
 
-Type commands directly in the CLike chat input.
+- **Capabilities** — project-local skills, packs and design profiles (`.clike/`) that PLAN selects
+  per REQ and KIT/EVAL/GATE enforce. → [docs/CAPABILITIES.md](docs/CAPABILITIES.md)
+- **Methodology profiles** — optional, advisory enrichment of phases (e.g. BMAD roles) without a
+  runtime dependency and without overriding Harper governance. → [docs/integrations/bmad](docs/integrations/bmad/README.md)
+- **MCP** — a read-only informational server in the orchestrator and an opt-in operational server in
+  the extension, both token-protected. → [docs/mcp.md](docs/mcp.md)
+- **Models** — declarative catalog and routing in `configs/models.yaml`. → [setup and runtime](docs/setup-and-runtime.md)
 
-### General
+---
 
-| Command | Description |
+## Engineering practice
+
+| Practice | How |
 |---|---|
-| `/help` | Shows the quick help overlay. |
-| `/status` | Shows current Harper/project context status. |
+| Reproducible builds | Python 3.12, per-service `pyproject.toml` + `uv.lock`; `npm ci` with lockfile |
+| Behavioural safety net | Golden snapshots of the phase boundary (orchestrator → gateway → provider) |
+| Security regression suites | Authentication, confinement, Git safety (tests on real repositories) |
+| Static analysis | ESLint with a frozen baseline: existing debt can only shrink |
+| Repository hygiene | Pre-commit and CI check: no telemetry, secrets or private notes in the public repo |
+| Continuous integration | GitHub Actions: hygiene, orchestrator, gateway, extension (Linux, Windows) |
 
-### Harper workspace
+Developer guide: [docs/development.md](docs/development.md).
 
-| Command | Description |
+---
+
+## Research context
+
+CLike combines three lines of work and investigates how to make them governable in practice:
+
+- **Harper-style iterative generation** — idea → spec → plan → kit in short, verifiable loops
+  ([Harper Reed — LLM codegen workflow](https://harper.blog/posts/)).
+- **Vibe coding** — intent- and outcome-level development with cognitive offloading to AI
+  ([Gartner](https://www.gartner.com/document-reader/document/6494971?ref=pubsite)).
+- **AI-native software engineering** — agentic workflows with human-in-the-loop governance, grounding
+  and automated validation ([Gartner](https://www.gartner.com/document-reader/document/6076795?ref=pubsite)).
+
+Open research questions the project works on:
+
+1. How to keep acceptance criteria **independent** from the implementation produced by the same agent.
+2. How to bound **autonomous KIT ⇄ EVAL repair loops** (iterations, cost, escalation) without losing control.
+3. How to make the same governed lifecycle usable **from inside native coding agents** (skills, MCP, CI gates).
+4. How to measure delivery outcomes (lead time, first-pass gate rate, cost per requirement) rather than code volume.
+
+## Roadmap
+
+| Horizon | Focus |
 |---|---|
-| `/init <name> [--path <abs>] [--force]` | Initializes a Harper project/workspace scaffold. |
-| `/idea` | Formalizes or updates `IDEA.md`. |
-| `/spec [file\|text]` | Generates or updates `SPEC.md`. |
-| `/plan [spec_path]` | Generates or updates `PLAN.md`, `plan.json`, and lane guides. |
+| **M2** | Sandboxed, network-less gate execution; acceptance criteria frozen before KIT with tamper detection; provider and functional fixes |
+| **M3** | Typed, versioned phase contract; one definition per phase rendered for cloud and agents |
+| **Next** | Native agent chat with streaming, inline approvals and runtime policy enforcement · Harper usable from Claude Code / Codex (skills, MCP, CLI) and as a CI gate · autonomous KIT ⇄ EVAL loops · parallel REQs on Git worktrees · brownfield reverse-SPEC · traceability and delivery metrics |
 
-### Local agent selection
+---
 
-| Command | Description |
+## Documentation
+
+| Topic | Document |
 |---|---|
-| `/agent-default auto` | Let CLike choose the local executor when local-agent execution is enabled. |
-| `/agent-default claude` | Prefer Claude Code as the local executor. |
-| `/agent-default codex` | Prefer GPT Codex / Codex CLI as the local executor. |
+| Overview and reading order | [docs/README.md](docs/README.md) |
+| Getting operational | [HOWTO](docs/HOWTO.md), [Harper run walkthrough](docs/Clike%20HARPER%20RUN.md) |
+| Concepts | [architecture](docs/architecture.md), [Harper workflow](docs/harper-workflow.md), [agent operating model](docs/agent-operating-model.md), [artifacts](docs/artifacts.md) |
+| Reference | [commands](docs/commands.md), [API](docs/api-reference.md), [MCP](docs/mcp.md), [capabilities](docs/CAPABILITIES.md) |
+| Operations | [setup and runtime](docs/setup-and-runtime.md), [Git and promotion](docs/git-and-promotion.md), [telemetry portal](docs/CLike_Harper_Telemetry_Portal.md) |
+| Development | [developer guide](docs/development.md), [CHANGELOG](CHANGELOG.md), [SECURITY](SECURITY.md) |
 
-Aliases may normalize internally to executor IDs such as `claude_code` and `gpt_codex`.
+## License
 
-### KIT flow
-
-| Command | Description |
-|---|---|
-| `/kit` | Runs KIT on the next target REQ. |
-| `/kit REQ-001` | Runs KIT for a specific REQ. |
-| `/kit REQ-001 --integrity` | Runs integrity evaluation phase. (optinonal) |
-| `/kit REQ-001 --hardener` | Runs promotion hardener phase. (optinonal) |
-| `/kit REQ-001 --promotion-eval` | Runs promotion evaluation phase. (optinonal) |
-| `/kit REQ-001 --phases=kit,integrity_eval,promotion_hardener,promotion_eval` | Runs an explicit chained KIT pipeline. |
-
-KIT can run through:
-
-- cloud model path;
-- local-agent path with Claude Code;
-- local-agent path with GPT Codex.
-
-### Eval and Gate
-
-| Command | Description |
-|---|---|
-| `/eval <REQ-ID>` | Evaluates the current KIT output for that REQ. |
-| `/gate <REQ-ID>` | Runs gate checks and promotion logic for that REQ. |
-| `/gate <REQ-ID> manual pass` | Promote at your risks - avoid unuseful guardrail. |
-
-`/eval` can optionally include a local-agent pre-pass, but canonical eval remains CLike-owned.
-
-### Finalization
-
-| Command | Description |
-|---|---|
-| `/finalize` | Runs the final closure step for Harper workflows vai agent or cloud. |
-
-When there are no open or in-progress REQs, Model 2 tools report `finalize_only`.
-
-### RAG
-
-| Command | Description |
-|---|---|
-| `/rag <query>` | Searches RAG and shows top results. |
-| `/rag +<N>` | Attaches result `N` from the last RAG search. |
-| `/rag list` | Shows current attached files/RAG references. |
-| `/rag clear` | Clears current attachments. |
-| `/ragIndex [glob]` | Manually indexes content into RAG. |
-| `/ragSearch <query>` | Searches RAG directly and returns top results. |
-
-Examples:
-
-```text
-/ragIndex docs/**/*.md
-/ragIndex docs/**/*
-/ragIndex runs/kit/REQ-001/**/*
-/ragSearch runtime profile adapters
-```
-
-👉 Read how to extend REQs
-[docs/CLike_Harper_Extend_Feature.md](./docs/CLike_Harper_Extend_Feature.md)
+Apache License 2.0 — see [LICENSE](LICENSE).
 
 ---
 
-## HOW-TO 
-
-READ FIRST 👉 
-[docs/Clike HARPER RUN.md](./docs/Clike%20HARPER%20RUN.md)
-
-To get operational quickly with CLike and the Harper workflow, read [docs/HOWTO.md](./docs/HOWTO.md).
-
-The HOWTO is the practical step-by-step guide for taking a project from initialization to finalized delivery:
-
-```text
-/init → /idea → /spec → /plan → (/kit → /eval → /gate)* → /finalize
-```
-
-It is written with a **developer-first** approach:
-
-* the developer remains the **orchestrator** of the phases
-* every generated artifact is **reviewed and validated** before moving on
-* weak alignment is corrected early by refining requirements, context, or source material
-* `/kit`, `/eval`, and `/gate` are treated as an iterative control loop, not as a one-shot generation flow
-
-
-> **Operating rule**
->
-> Do not advance to the next phase until the current output has been reviewed, refined where needed, and explicitly accepted by the developer.
-
----
-
-## Capabilities, Skills, Packs, and Design Profiles
-
-CLike includes a project-local capability system used to guide AI-native software delivery without making the platform dependent on a specific model, agent, vendor, language, or runtime.
-
-Capabilities live inside the target workspace:
-
-```text
-.clike/
-  project.json
-  capabilities.yaml
-  skills/
-  packs/
-  design-profiles/
-```
-
-During project initialization, CLike copies the default capability templates into the workspace. The orchestrator then reads these files and generates normalized capability context:
-
-```text
-CLIKE_CAPABILITY_MANIFEST.md
-CLIKE_CAPABILITY_INDEX.json
-```
-
-These generated artifacts are the primary capability context for cloud models and local agents. Agents should not randomly inspect `.clike/`; they should use the manifest, the index, and the capabilities selected by PLAN.
-
-### Capability Types
-
-CLike uses three capability types:
-
-| Type | Purpose |
-|---|---|
-| Skills | Atomic operational capabilities |
-| Packs | Scenario-level capability bundles |
-| Design Profiles | UI/UX constraints for frontend or operator-facing requirements |
-
-### Skills
-
-Skills define enforceable engineering behavior.
-
-Examples:
-
-- `backend-contract-boundary`
-- `frontend-state-accessibility`
-- `ai-rag-eval-guardrails`
-- `ml-experiment-reproducibility`
-- `mobile-offline-parity`
-- `mendix-extension-boundary`
-- `industrial-safety-simulator`
-- `local-cloud-parity`
-- `eval-contract-writer`
-- `gate-risk-reviewer`
-- `mvp-e2e-promotability`
-- `backoffice-workflow-ux`
-- `enterprise-solution-architecture`
-- `secure-config-secrets`
-
-
-A skill tells PLAN/KIT/EVAL/GATE what must be done, what must not be done, what evidence is required, and when Gate should block promotion.
-
-### Packs
-
-Packs represent solution scenarios.
-
-Examples:
-
-- `enterprise-solution`
-- `startup-solution`
-- `industrial-solution`
-- `mendix-solution`
-- `mobile-app`
-- `ai-native-agent-platform`
-- `enterprise-onprem`
-- `industrial-manufacturing`
-- `consumer-saas`
-
-A pack does not replace requirements. It helps PLAN select the right constraints and skills for the scenario.
-
-### Design Profiles
-
-Design profiles constrain UI/UX generation.
-
-Examples:
-
-- `enterprise-console`
-- `industrial-control-room`
-- `startup-product-app`
-- `mobile-operator-app`
-- `developer-tooling-console`
-
-Design profiles are only used for UI/UX-scoped REQs. They must not clone external brands or products.
-
-### How Capabilities Flow Through Harper
-
-Capabilities are used across the Harper pipeline:
-
-```text
-IDEA → SPEC → PLAN → KIT → EVAL → GATE → FINALIZE
-```
-
-- SPEC defines business and technical requirements.
-- PLAN selects relevant packs, skills, and design profiles per REQ.
-- KIT applies selected capabilities while generating code, tests, docs, and CI artifacts.
-- EVAL checks whether the expected evidence exists and whether commands pass.
-- GATE promotes only when the REQ has full PASS evidence and policy requirements are satisfied.
-
-Capabilities must not override SPEC, TECH_CONSTRAINTS, repository evidence, explicit user instructions, or canonical Gate policy.
-
-### Reliability Principle
-
-CLike capability governance follows this rule:
-
-```text
-The runner produces evidence.
-The agent diagnoses and repairs.
-Canonical EvalRunner and Gate decide.
-```
-
-Agents and cloud models may help generate, diagnose, and repair candidate artifacts, but they cannot promote code or override Gate.
-
-See [`docs/CAPABILITIES.md`](docs/CAPABILITIES.md) for the full technical documentation.
-
----
-## 🚀 Quick Start (Local Dev)
-
-### Prerequisites
-
-- Podman 5 + `podman-compose` (or Docker with Compose v2)
-- VS Code
-- Node.js 20+
-- Python 3.12 and [`uv`](https://docs.astral.sh/uv/) for local development
-- API keys for remote providers when using cloud models
-- Optional: local agent CLIs such as Claude Code or GPT Codex
-
-### 1. Bring up services
-
-```bash
-cp docker/.env.example docker/.env      # set CLIKE_PROJECTS_DIR (host dir with your projects)
-cd docker
-podman-compose up -d --build            # or: docker compose up -d --build
-# optional local models: podman-compose --profile ollama up -d
-
-curl -s http://127.0.0.1:8080/health
-curl -s http://127.0.0.1:8000/health
-```
-
-Services listen on loopback only. Code is baked into the images: after changes run
-`podman-compose build && podman-compose up -d --force-recreate` (podman-compose does not
-recreate containers when only the image changed).
-
-### Service token (required)
-
-Every endpoint except `/health` requires `Authorization: Bearer <CLIKE_API_TOKEN>`; the services
-refuse requests (HTTP 503) when the token is not configured, and reject non-loopback `Host`
-headers. There is no CORS: only the extension host and the services call the APIs.
-
-1. Put a random token in the root `.env` (`openssl rand -hex 32`) as `CLIKE_API_TOKEN=...`
-   and restart the stack. Orchestrator and gateway use it for their internal calls too.
-2. In VS Code run **CLike: Set Service Token** and paste the same value (stored in SecretStorage;
-   it is only sent to the configured orchestrator/gateway URLs). Alternatively choose
-   *Generate new token*: the `.env` line is copied to the clipboard.
-
-The gateway telemetry UI (`/v1/metrics/harper/ui`) asks for the token once and keeps it in an
-`HttpOnly`, `SameSite=Strict` cookie valid only for the telemetry API.
-
-### 2. Install the VS Code extension
-
-```bash
-cd extensions/vscode
-./build_ext_vs.sh        # npm ci + lint + tests + vsce package + install
-```
-
-Open your workspace in VS Code and run:
-
-```text
-CLike: Chat (Q&A / Harper / Coding)
-```
-
----
-
-## ⚙️ Configuration
-
-### Models and Providers
-
-`configs/models.yaml` declares enabled models and providers.
-
-Typical provider families:
-
-- OpenAI;
-- Anthropic;
-- OpenAI-compatible gateways;
-- local-compatible backends.
-
-Gateway environment:
-
-```bash
-export MODELS_CONFIG=/workspace/configs/models.yaml
-```
-
-Orchestrator environment:
-
-```bash
-export GATEWAY_URL=http://gateway:8000
-```
-
-### VS Code settings
-
-Common settings include:
-
-- `clike.orchestratorUrl`
-- `clike.gatewayUrl`
-- `clike.chat.theme`
-- `clike.verboseLogging`
-- `clike.docRoot`
-- `clike.harperTimeout`
-
-Local-agent settings include:
-
-- `clike.localAgent.enabled`
-- `clike.localAgent.preferredExecutor`
-- `clike.localAgent.claudeCode.enabled`
-- `clike.localAgent.claudeCode.command`
-- `clike.localAgent.codex.enabled`
-- `clike.localAgent.codex.command`
-
-MCP extension settings include:
-
-- `clike.mcp.extensionServerEnabled` (default `false`)
-- `clike.mcp.extensionServerHost`
-- `clike.mcp.extensionServerPort`
-- `clike.mcp.extensionServerToken` (optional override; by default a random token is generated and kept in SecretStorage — copy it with **CLike: Copy Extension MCP Token**)
-
-The extension MCP server always requires `Authorization: Bearer <token>`, rejects any request
-carrying an `Origin` header (browsers), accepts only a loopback `Host` and JSON bodies.
-
----
-
-## 🧪 Eval-Driven Development and Guardrails
-
-CLike encourages eval-driven development through:
-
-- unit tests;
-- lint checks;
-- type checks;
-- security checks;
-- integration smoke checks;
-- eval summaries;
-- gate decisions;
-- Git-aware promotion.
-
-The key rule is:
-
-```text
-KIT can generate.
-EVAL must verify.
-GATE decides promotion.
-```
-
----
-
-## 🛠️ Local Dev Without Docker
-
-Dependencies are locked per service (`pyproject.toml` + `uv.lock`, Python 3.12).
-
-### Orchestrator
-
-```bash
-cd orchestrator
-uv sync --frozen                     # runtime + dev
-uv run pytest -q
-uv run uvicorn app:app --host 127.0.0.1 --port 8080 --reload
-```
-
-### Gateway
-
-```bash
-cd gateway
-uv sync --frozen
-uv run pytest -q
-export MODELS_CONFIG=$(pwd)/../configs/models.yaml
-uv run uvicorn main:app --host 127.0.0.1 --port 8000 --reload
-```
-
-### VS Code extension
-
-```bash
-cd extensions/vscode
-npm ci
-npm run check            # eslint + node:test
-code .
-```
-
-### Golden snapshots
-
-`orchestrator/tests/golden` and `gateway/tests/golden` freeze the phase boundary
-(gateway payloads, local-agent packages, provider messages). After an intended
-change, regenerate with `CLIKE_GOLDEN_UPDATE=1 uv run pytest tests/golden -q`
-(orchestrator first, then gateway) and review the diff.
-
----
-
-## 🧭 Roadmap
-
-- Richer eval reporting in VS Code.
-- Stronger local-agent eval hardening.
-- More MCP tools for operational automation.
-- Model routing profiles for cost, latency, and capability.
-- Expanded RAG sources and repository knowledge packs.
-- Enterprise policy hooks for guarded promotion.
-
----
-
-## 📝 License
-
-Apache License 2.0
-
----
-
-## Harper Project Bootstrap
-
-- Docs: `docs/harper/`
-- Runs: `runs/`
-- Open Chat: Command Palette → `CLike: Chat (Q&A / Harper / Coding)`
-
----
-
-# **CLike on, code on.**
+**CLike on, code on.**

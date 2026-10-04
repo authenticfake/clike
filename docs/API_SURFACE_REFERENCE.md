@@ -4,6 +4,13 @@
 
 ---
 
+## Authentication
+
+All orchestrator and gateway endpoints except `GET /health` require
+`Authorization: Bearer <CLIKE_API_TOKEN>`. Missing or wrong token → `401`; token not configured on
+the server → `503`; unexpected `Host` header → `403`. No CORS headers are emitted. The gateway
+telemetry API also accepts the `clike_token` cookie set by `POST /v1/metrics/login` (GET only).
+
 ## 1) Orchestrator HTTP APIs
 
 ### Health and metadata
@@ -130,6 +137,9 @@
 | `clike.applyUnifiedDiff` | Apply unified diff. |
 | `clike.applyNewContent` | Apply new content. |
 | `clike.applyLastPatch` | Apply last patch. |
+| `clike.setServiceToken` | Set (paste or generate) the service token used for Orchestrator/Gateway calls; stored in SecretStorage. |
+| `clike.clearServiceToken` | Remove the stored service token. |
+| `clike.copyExtensionMcpToken` | Copy the token of the extension's operational MCP server. |
 | `clike.listModels` | List models through Gateway. |
 | `clike.checkServices` | Check service connectivity. |
 | `clike.ragReindex` | RAG reindex through Orchestrator. |
