@@ -667,8 +667,8 @@ Relevant settings include:
 
 ```jsonc
 {
-  "clike.git.autoCommit": true,
-  "clike.git.openPR": true,
+  "clike.git.autoCommit": false,
+  "clike.git.openPR": false,
   "clike.git.remote": "origin",
   "clike.git.defaultBranch": "main",
   "clike.git.branchPrefix": "feature",
