@@ -18,8 +18,12 @@ This documentation reflects the current source tree in the inspected package and
 - `local-agents.md` — current local execution path, GPT Codex / Claude Code integration, and restrictions
 - `rag.md` — indexing, search, fetch, attachment strategy, and repository grounding
 - `git-and-promotion.md` — current Git behavior, branch strategy, promotion, and merge flow
-- `mcp.md` — current read-only MCP server and exposed tools
+- `mcp.md` — MCP servers (orchestrator, extension), tools and authentication
 - `api-reference.md` — endpoint census for orchestrator, gateway, and agent surfaces
+- `agent-operating-model.md` — developer→agent and agent→CLike operating models, methodology profiles
+- `development.md` — developer guide: local runs, tests, golden snapshots, lint baseline, hygiene, CI
+- `../SECURITY.md` — security model, known limitations, vulnerability reporting
+- `../CHANGELOG.md` — release notes
 
 ## Current product shape
 
@@ -35,7 +39,7 @@ The VS Code extension currently provides:
 
 ### Orchestrator
 The orchestrator currently provides:
-- Legacy `/v1/chat`, `/v1/generate`, and `/v1/apply`
+- Legacy `/v1/chat` and `/v1/generate` (`/v1/apply` was removed in the 2026-10 hardening)
 - Harper workflow APIs under `/v1/harper/*`
 - RAG APIs under `/v1/rag/*`
 - Eval/Gate endpoints
@@ -105,8 +109,10 @@ Both are exposed as local agent executors behind the same extension workflow.
 
 For onboarding, read in this order:
 1. `architecture.md`
-2. `setup-and-runtime.md`
-3. `commands.md`
-4. `harper-workflow.md`
-5. `artifacts.md`
-6. `api-reference.md`
+2. `agent-operating-model.md`
+3. `setup-and-runtime.md`
+4. `commands.md`
+5. `harper-workflow.md`
+6. `artifacts.md`
+7. `api-reference.md`
+8. `development.md` (contributors)

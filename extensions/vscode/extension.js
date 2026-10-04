@@ -1,7 +1,7 @@
 // extension.js — Clike Orchestrator+Gateway integration GOOGDDDD
 const vscode = require('vscode');
 const { applyPatch } = require('diff');
-const { exec } = require('child_process');
+const { execFile } = require('child_process');
 const https = require('https');
 const http = require('http');
 const { URL } = require('url');
@@ -10,6 +10,16 @@ const fsSync = require('fs');
 const path = require('path');
 
 const { registerCommands } = require('./commands/registerCommands');
+const {
+  initServiceAuth,
+  storeServiceToken,
+  generateServiceToken,
+  serviceAuthHeaders,
+  notifyServiceAuthFailure,
+} = require('./service-auth');
+const { validateLocalMcpRequest } = require('./mcp-request-guard');
+const { postGateOverride } = require('./api');
+const { safeRelativePath, safeWorkspaceUri, resolveInsideWorkspace } = require('./safe-workspace');
 const {  handleGate, handleEval } = require('./commands/harper');
 const {  persistTelemetryVSCode } = require('./telemetry');
 
@@ -1620,7 +1630,15 @@ async function saveGeneratedFiles(files, opts = {}) {
     // Accept text (content) or binary (content_base64) payloads. Binary
     // attachments are materialized as base64 and must not be silently dropped.
     if (!f || !f.path || (typeof f.content !== 'string' && typeof f.content_base64 !== 'string')) continue;
-    const relativePath = f.path.replace(/^\.?\//,'');
+    // Paths come from the orchestrator / LLM / local agent: never write outside the workspace.
+    let relativePath;
+    try {
+      relativePath = safeRelativePath(f.path);
+    } catch (err) {
+      log(`[harperWriteGuard] unsafe_path_rejected path=${JSON.stringify(String(f.path))} reason=${err.message}`);
+      try { vscode.window.showWarningMessage(`CLike refused to write a file outside the workspace: ${String(f.path)}`); } catch {}
+      continue;
+    }
     const validation = (typeof f.content === 'string')
       ? validateCanonicalHarperArtifact(relativePath, f.content)
       : null;
@@ -1630,7 +1648,7 @@ async function saveGeneratedFiles(files, opts = {}) {
         runId: opts.runId,
         filePath: relativePath,
       });
-      const rejectedUri = vscode.Uri.joinPath(root, rejectedPath);
+      const rejectedUri = safeWorkspaceUri(root, rejectedPath);
       const rejectedFolder = vscode.Uri.joinPath(rejectedUri, '..');
       try { await vscode.workspace.fs.createDirectory(rejectedFolder); } catch {}
       await vscode.workspace.fs.writeFile(rejectedUri, Buffer.from(f.content, 'utf8'));
@@ -1639,7 +1657,7 @@ async function saveGeneratedFiles(files, opts = {}) {
       try { vscode.window.showWarningMessage(message); } catch {}
       continue;
     }
-    const uri = vscode.Uri.joinPath(root, relativePath);
+    const uri = safeWorkspaceUri(root, relativePath);
     const folder = vscode.Uri.joinPath(uri, '..');
     try { await vscode.workspace.fs.createDirectory(folder); } catch {}
     if (typeof f.content === 'string') {
@@ -1690,12 +1708,17 @@ function buildApplyCtx(op) {
   };
 }
 
+// Server-provided target paths (e.g. apply.path): relative, or absolute only inside the workspace.
 function resolveToWorkspaceUri(p) {
   if (!p) return null;
-  if (p.startsWith('file://')) return vscode.Uri.parse(p);
-  if (p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p)) return vscode.Uri.file(p);
   const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
-  return ws ? vscode.Uri.joinPath(ws.uri, p.replace(/^\.?\//, '')) : vscode.Uri.file(p);
+  if (!ws) return null;
+  try {
+    return resolveInsideWorkspace(ws.uri, p);
+  } catch (err) {
+    log(`[apply] unsafe_target_path_rejected path=${JSON.stringify(String(p))} reason=${err.message}`);
+    return null;
+  }
 }
 
 function mapOpToIntent(op) {
@@ -1881,24 +1904,25 @@ function cfg() {
     backup: c.get('apply.backup', true),
     dryRunPreview: c.get('apply.dryRunPreview', true),
 
-    gitAutoCommit: c.get('git.autoCommit', true),
-    gitMergeOnGate: c.get('git.gitMergeOnGate', true),
+    gitAutoCommit: c.get('git.autoCommit', false),
+    gitMergeOnGate: c.get('git.gitMergeOnGate', false),
     gitDeleteBranchOnMerge: c.get('git.gitDeleteBranchOnMerge', false),
     gitReturnToFeatureAfterMerge: c.get('git.gitReturnToFeatureAfterMerge', false),
     gitRemoteUrl: c.get('git.remoteUrl', ''),
     gitCommitMessage: c.get('git.commitMessage', 'clike: apply patch (AI)'),
-    gitOpenPR: c.get('git.openPR', true),
+    gitOpenPR: c.get('git.openPR', false),
+    gitAutoPush: c.get('git.autoPush', false),
     gitRemote: c.get('git.remote', 'origin'),
     gitDefaultBranch: c.get('git.defaultBranch', 'main'),
     gitConventionalCommits: c.get('git.conventionalCommits', true),
-    gitPushRebase: c.get('git.pushRebase', true),
+    gitPushRebase: c.get('git.pushRebase', false),
     gitBranchPrefix: c.get('git.branchPrefix', 'feature'),
     gitTagPrefix: c.get('git.tagPrefix', 'harper'),
     gitPrPerReqDraftEnabled: c.get('git.prPerReqDraft.enabled', false),
     gitPrPerReqDraftUseGhCli: c.get('git.prPerReqDraft.useGhCli', true),
     gitPrBodyPath: c.get('git.prBodyPath', 'docs/harper/PR_BODY.md'),
 
-    mcpExtensionServerEnabled: c.get('mcp.extensionServerEnabled', true),
+    mcpExtensionServerEnabled: c.get('mcp.extensionServerEnabled', false),
     mcpExtensionServerHost: c.get('mcp.extensionServerHost', '127.0.0.1'),
     mcpExtensionServerPort: c.get('mcp.extensionServerPort', 55742),
     mcpExtensionServerToken: c.get('mcp.extensionServerToken', ''),
@@ -1958,16 +1982,19 @@ async function readRequestJson(req) {
   return JSON.parse(raw);
 }
 
-function ensureLocalMcpAuthorized(req) {
-  const settings = cfg();
-  const expected = String(settings.mcpExtensionServerToken || '').trim();
+const MCP_EXTENSION_TOKEN_SECRET = 'clike.mcpExtensionToken';
 
-  if (!expected) {
-    return true;
+// The local MCP server always requires a token: the explicit setting wins
+// (legacy), otherwise a random token is generated once and kept in SecretStorage.
+async function getExtensionMcpToken(context) {
+  const override = String(cfg().mcpExtensionServerToken || '').trim();
+  if (override) return override;
+  let token = await context.secrets.get(MCP_EXTENSION_TOKEN_SECRET);
+  if (!token) {
+    token = generateServiceToken();
+    await context.secrets.store(MCP_EXTENSION_TOKEN_SECRET, token);
   }
-
-  const header = String(req.headers.authorization || '').trim();
-  return header === `Bearer ${expected}`;
+  return token;
 }
 
 // async function getHarperNextAction() {
@@ -2490,7 +2517,7 @@ async function handleExtensionMcpRpc(body) {
   return mcpError(id, -32601, `Unsupported MCP method: ${method}`);
 }
 
-function startExtensionOperationalMcpServer(context) {
+async function startExtensionOperationalMcpServer(context) {
   const settings = cfg();
 
   if (!settings.mcpExtensionServerEnabled) {
@@ -2504,20 +2531,21 @@ function startExtensionOperationalMcpServer(context) {
 
   const host = String(settings.mcpExtensionServerHost || '127.0.0.1');
   const port = Number(settings.mcpExtensionServerPort || 55742);
+  const mcpToken = await getExtensionMcpToken(context);
 
   extensionMcpServer = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url || '/', `http://${host}:${port}`);
 
-      if (!ensureLocalMcpAuthorized(req)) {
-        return sendMcpJson(res, 401, { ok: false, error: 'unauthorized' });
+      const verdict = validateLocalMcpRequest(req, { token: mcpToken, port });
+      if (!verdict.ok) {
+        return sendMcpJson(res, verdict.status, { ok: false, error: verdict.error });
       }
 
       if (req.method === 'GET' && url.pathname === '/health') {
         return sendMcpJson(res, 200, {
           ok: true,
           service: 'CLike Extension Operational MCP',
-          workspace: getWorkspaceRoot()?.fsPath || null,
           chat_open: !!(clikeChatPanel && clikeChatPanel.webview),
           state: extensionMcpState,
         });
@@ -2543,10 +2571,8 @@ function startExtensionOperationalMcpServer(context) {
       });
     } catch (err) {
       extensionMcpState.lastError = String(err?.message || err);
-      return sendMcpJson(res, 500, {
-        ok: false,
-        error: String(err?.message || err),
-      });
+      out.appendLine(`[CLike][mcp-extension] request error: ${extensionMcpState.lastError}`);
+      return sendMcpJson(res, 500, { ok: false, error: 'internal_error' });
     }
   });
 
@@ -2607,17 +2633,17 @@ async function ensureCleanGitIfRequired() {
   if (!ws) throw new Error('requireCleanGit attivo ma nessuna workspace folder aperta.');
 
   const cwd = ws.uri.fsPath;
-  const run = (cmd) =>
+  const runGit = (args) =>
     new Promise((resolve, reject) => {
-      exec(cmd, { cwd }, (err, stdout, stderr) => {
+      execFile('git', args, { cwd }, (err, stdout, stderr) => {
         if (err) return reject(new Error(stderr || err.message));
         resolve(stdout.trim());
       });
     });
 
-  const inside = await run('git rev-parse --is-inside-work-tree');
+  const inside = await runGit(['rev-parse', '--is-inside-work-tree']);
   if (inside !== 'true') throw new Error('Non sei dentro un repo Git.');
-  const status = await run('git status --porcelain');
+  const status = await runGit(['status', '--porcelain']);
   if (status !== '') throw new Error('Working tree non pulito. Committa/stasha prima di applicare la patch.');
 }
 
@@ -2680,7 +2706,12 @@ function httpPostJson(urlString, bodyObj, headers = {}) {
     hostname: url.hostname,
     port: url.port || (isHttps ? 443 : 80),
     path: url.pathname + (url.search || ''),
-    headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload), ...headers },
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(payload),
+      ...serviceAuthHeaders(urlString),
+      ...headers,
+    },
   };
 
   return new Promise((resolve) => {
@@ -2688,6 +2719,7 @@ function httpPostJson(urlString, bodyObj, headers = {}) {
       let data = '';
       res.on('data', (chunk) => (data += chunk));
       res.on('end', () => {
+        notifyServiceAuthFailure(res.statusCode, urlString);
         try {
           const json = JSON.parse(data || '{}');
           resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, json });
@@ -2732,44 +2764,35 @@ async function postGateway(path, payload = {}) {
 
 // utils
 async function getJson(url) {
-  const r = await fetch(url, { method: 'GET' });
+  const r = await fetch(url, { method: 'GET', headers: serviceAuthHeaders(url) });
+  notifyServiceAuthFailure(r.status, url);
   if (!r.ok) return { status: r.status };
   try { return await r.json(); } catch { return { status: r.status }; }
 }
 
 /** ---------- Git helpers ---------- */
-/**
- * @deprecated Questo metodo è obsoleto. Usa `clikeGitSync()` al suo posto.
- */
-async function gitAutoCommitAndPR() {
-  const { gitAutoCommit, gitCommitMessage, gitOpenPR } = cfg();
-  if (!gitAutoCommit) return;
-
-  const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+// After a code action is applied to a file: with clike.git.autoCommit, commit
+// that file only (argv, no shell). Never `git add -A`, never opens a PR (WP5).
+async function commitAppliedFile(fileUri) {
+  const { gitAutoCommit, gitCommitMessage } = cfg();
+  if (!gitAutoCommit || !fileUri) return;
+  const ws = vscode.workspace.getWorkspaceFolder(fileUri);
   if (!ws) return;
-  const cwd = ws.uri.fsPath;
-
-  const run = (cmd) =>
+  const rel = path.relative(ws.uri.fsPath, fileUri.fsPath);
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return;
+  const runGit = (args) =>
     new Promise((resolve, reject) => {
-      exec(cmd, { cwd }, (err, stdout, stderr) => {
+      execFile('git', args, { cwd: ws.uri.fsPath }, (err, stdout, stderr) => {
         if (err) return reject(new Error(stderr || err.message));
         resolve(stdout.trim());
       });
     });
-
   try {
-    await run('git add -A');
-    await run(`git commit -m "${gitCommitMessage.replace('"', '\\"')}"`);
-    vscode.window.setStatusBarMessage('Clike: changes committed.', 3000);
+    await runGit(['add', '--', rel]);
+    await runGit(['commit', '-m', String(gitCommitMessage || 'clike: apply patch (AI)'), '--', rel]);
+    vscode.window.setStatusBarMessage(`Clike: committed ${rel}.`, 3000);
   } catch (e) {
     log(`[harperGit] commit skip/failed: ${e.message}`);
-  }
-
-  if (gitOpenPR) {
-    const ok = await vscode.commands.executeCommand('github.createPullRequest');
-    if (!ok) {
-      vscode.window.showInformationMessage('Clike: installa "GitHub Pull Requests and Issues" per aprire una PR.');
-    }
   }
 }
 
@@ -2925,7 +2948,7 @@ async function hardenedApplyFromString(context, input, { withPreview = true } = 
     await replaceWholeSafe(doc.uri, newContent);
     vscode.window.showInformationMessage('Clike: applied content.');
     await vscode.commands.executeCommand('workbench.action.files.save');
-    await gitAutoCommitAndPR();
+    await commitAppliedFile(doc.uri);
     return;
   }
 
@@ -2963,7 +2986,7 @@ async function hardenedApplyFromString(context, input, { withPreview = true } = 
     await replaceWholeSafe(doc.uri, patched);
     vscode.window.showInformationMessage('Clike: patch applied (diff).');
     await vscode.commands.executeCommand('workbench.action.files.save');
-    await gitAutoCommitAndPR();
+    await commitAppliedFile(doc.uri);
     return;
   }
 
@@ -3402,10 +3425,58 @@ async function cmdOpenChatSessionFile(context) {
 }
 
 
+async function cmdSetServiceToken(context) {
+  const choice = await vscode.window.showQuickPick(
+    [
+      { id: 'paste', label: 'Paste existing token', description: 'Use the CLIKE_API_TOKEN already set in the stack .env' },
+      { id: 'generate', label: 'Generate new token', description: 'Store a random token and copy the .env line to the clipboard' },
+    ],
+    { placeHolder: 'CLike service token (CLIKE_API_TOKEN)' }
+  );
+  if (!choice) return;
+  if (choice.id === 'generate') {
+    const token = generateServiceToken();
+    await storeServiceToken(context, token);
+    await vscode.env.clipboard.writeText(`CLIKE_API_TOKEN=${token}`);
+    vscode.window.showInformationMessage(
+      'CLike: new service token stored. "CLIKE_API_TOKEN=..." is in the clipboard: add it to the stack .env and restart the services.'
+    );
+    return;
+  }
+  const token = await vscode.window.showInputBox({
+    prompt: 'CLIKE_API_TOKEN of the CLike stack',
+    password: true,
+    ignoreFocusOut: true,
+    validateInput: (v) => (v && v.trim().length >= 32 ? null : 'At least 32 characters'),
+  });
+  if (token === undefined) return;
+  await storeServiceToken(context, token);
+  vscode.window.showInformationMessage('CLike: service token stored securely.');
+}
+
+async function cmdClearServiceToken(context) {
+  await storeServiceToken(context, '');
+  vscode.window.showInformationMessage('CLike: service token removed.');
+}
+
+async function cmdCopyExtensionMcpToken(context) {
+  const token = await getExtensionMcpToken(context);
+  await vscode.env.clipboard.writeText(token);
+  vscode.window.showInformationMessage(
+    `CLike: extension MCP token copied. Clients must send "Authorization: Bearer <token>" to ${extensionMcpState.url || 'the local MCP URL'}.`
+  );
+}
+
 function activate(context) {
   const reg = (id, fn) => context.subscriptions.push(vscode.commands.registerCommand(id, () => fn(context)));
   //out.appendLine(`activate ${context}`);
   clikeExtensionContext = context;
+  const serviceAuthReady = initServiceAuth(context).catch((err) =>
+    out.appendLine(`[CLike][auth] cannot load service token: ${err?.message || err}`)
+  );
+  reg('clike.setServiceToken', cmdSetServiceToken);
+  reg('clike.clearServiceToken', cmdClearServiceToken);
+  reg('clike.copyExtensionMcpToken', cmdCopyExtensionMcpToken);
   reg('clike.chat.openSessionFile', cmdOpenChatSessionFile);
     reg('clike.harper.init', async () => {
     const panel = await cmdOpenChat(context); // riusa l’apri-chat esistente
@@ -3456,7 +3527,9 @@ function activate(context) {
   
   registerCommands(context);
 
-  startExtensionOperationalMcpServer(context);
+  serviceAuthReady
+    .then(() => startExtensionOperationalMcpServer(context))
+    .catch((err) => out.appendLine(`[CLike][mcp-extension] start failed: ${err?.message || err}`));
 
   vscode.window.setStatusBarMessage('Clike: orchestrator+gateway integration ready', 2000);
 }
@@ -4842,26 +4915,26 @@ async function cmdOpenChat(context) {
           }
           case 'gate':
             if (isManual) {
-              report = {
-                req_id: targets,
-                status: 'PASS',
-                gate: 'pass',
-                reason_code: 'manual_override',
-                summary: `Manual gate override accepted for ${targets}.`,
-                passed: 1,
-                failed: 0,
-                passed_count: 1,
-                blocked_count: 0,
-                warning_count: 0,
-                cases: [
-                  {
-                    name: 'manual_gate_override',
-                    passed: true,
-                    cmd: `/gate ${targets} manual pass`,
-                    stdout: `Manual gate override accepted for ${targets}.`
-                  }
-                ]
-              };
+              // WP6: the override is decided and audited by the orchestrator, never produced here.
+              const reason = await vscode.window.showInputBox({
+                title: `Manual gate override for ${targets}`,
+                prompt: 'Why are you promoting without a passing gate? (recorded in the audit log)',
+                ignoreFocusOut: true,
+                validateInput: (v) => (v && v.trim().length >= 10 ? null : 'At least 10 characters'),
+              });
+              if (!reason) {
+                panel.webview.postMessage({ type: 'echo', message: `Gate override for ${targets} cancelled.` });
+                panel.webview.postMessage({ type: 'busy', on: false });
+                clikeHarperBlockingRun = false;
+                return;
+              }
+              let author = '';
+              try {
+                author = require('child_process')
+                  .execFileSync('git', ['config', 'user.name'], { cwd: ws_root.fsPath, stdio: ['ignore', 'pipe', 'ignore'] })
+                  .toString().trim();
+              } catch {}
+              report = await postGateOverride(ws_root, targets, reason.trim(), author || require('os').userInfo().username);
             } else {
               report = await handleGate(
                 path_ltc_json,
@@ -5293,7 +5366,7 @@ async function cmdOpenChat(context) {
         try {
           const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
           if (!ws) throw new Error('No workspace open');
-          const uri = vscode.Uri.joinPath(ws.uri, msg.path.replace(/^\.?\//,''));
+          const uri = safeWorkspaceUri(ws.uri, msg.path);
           const doc = await vscode.workspace.openTextDocument(uri);
           await vscode.window.showTextDocument(doc, { preview: false });
         } catch (e) {
@@ -5577,28 +5650,15 @@ async function cmdOpenChat(context) {
           inflightController = null;
         }
       }
-      // 6) APPLY
+      // 6) APPLY (client-side only: the extension is the only component that writes the workspace)
       if (msg.type === 'apply') {
-        const run_dir  = msg.run_dir  || null;
-        const audit_id = msg.audit_id || null;
         const selection = msg.selection || { apply_all: true };
         const wantPaths = Array.isArray(selection?.paths) ? selection.paths : null;
-
-        // 1) Se il server ha un run_dir/audit_id → usa l'endpoint /v1/apply
-        if (run_dir || audit_id) {
-          const payload = { run_dir, audit_id, selection };
-          const res = await postJson(`${orchestratorUrl}/v1/apply`, payload);
-          panel.webview.postMessage({ type: 'applyResult', data: res });
-          panel.webview.postMessage({ type: 'busy', on: false });
-          
-        }
-
-        // 2) Fallback client-side: nessun run_dir/audit_id, ma forse abbiamo i file in cache
         const lastFiles = context.workspaceState.get('clike.lastFiles') || [];
         if (!Array.isArray(lastFiles) || !lastFiles.length) {
-          panel.webview.postMessage({ type: 'error', message: 'Nothing to apply: no run_dir/audit_id and no cached files.' });
+          panel.webview.postMessage({ type: 'error', message: 'Nothing to apply: no generated files cached.' });
           panel.webview.postMessage({ type: 'busy', on: false });
-
+          return;
         }
 
         // Filtra per i path selezionati (se presenti), altrimenti applica tutto
@@ -5609,7 +5669,7 @@ async function cmdOpenChat(context) {
         if (!chosen.length) {
           panel.webview.postMessage({ type: 'error', message: 'No files selected to apply.' });
           panel.webview.postMessage({ type: 'busy', on: false });
-
+          return;
         }
 
         try {
@@ -5620,7 +5680,7 @@ async function cmdOpenChat(context) {
         } catch (e) {
           panel.webview.postMessage({ type: 'error', message: 'Apply (local) failed: ' + (e?.message || String(e)) });
         }
-       
+        panel.webview.postMessage({ type: 'busy', on: false });
       }
       // 7) CANCEL
       if (msg.type === 'cancel') {
@@ -5827,7 +5887,8 @@ async function fetchJson(url, { signal } = {}) {
   const f = (typeof fetch === 'function')
     ? fetch
     : ((...args) => import('node-fetch').then(({ default: ff }) => ff(...args)));
-  const res = await f(url, { signal });
+  const res = await f(url, { signal, headers: serviceAuthHeaders(url) });
+  notifyServiceAuthFailure(res.status, url);
   if (!res.ok) throw new Error(`GET ${url} -> ${res.status}`);
   return await res.json();
 }
@@ -5838,10 +5899,11 @@ async function postJson(url, body, { signal } = {}) {
     : ((...args) => import('node-fetch').then(({ default: ff }) => ff(...args)));
   const res = await f(url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...serviceAuthHeaders(url) },
     body: JSON.stringify(body),
     signal
   });
+  notifyServiceAuthFailure(res.status, url);
   if (!res.ok) {
     const txt = await res.text().catch(() => '');
     throw new Error(`POST ${url} -> ${res.status} ${txt}`);

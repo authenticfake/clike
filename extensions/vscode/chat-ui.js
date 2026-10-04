@@ -32,14 +32,14 @@ function getChatTheme() {
 }
 
 function getWebviewHtml(orchestratorUrl, themeName = 'classic') {
-  const nonce = String(Math.random()).slice(2);
+  const nonce = require('crypto').randomBytes(16).toString('hex');
   const safeTheme = themeName || 'classic';
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: data:; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Chat CLike</title>
 <style>
@@ -2403,12 +2403,13 @@ window.addEventListener('message', (event) => {
     }
     selectedPaths = new Set();
     const files = Array.isArray(data.files) ? data.files : [];
-    const lines = files.map(f => {
-      const path = f.path;
-      const safeId = 'f_' + btoa(path).replace(/=/g,'');
+    const lines = files.map((f, i) => {
+      // paths come from the server/LLM: escape them; ids are positional (btoa breaks on non-Latin-1)
+      const p = escapeHtml(String((f && f.path) || ''));
+      const safeId = 'f_' + i;
       return '<div class="row">'
-        + '<input type="checkbox" class="file-chk" id="' + safeId + '" data-path="' + path + '">'
-        + '<label for="' + safeId + '" class="file-open" data-path="' + path + '" style="cursor:pointer;text-decoration:underline;">' + path + '</label>'
+        + '<input type="checkbox" class="file-chk" id="' + safeId + '" data-path="' + p + '">'
+        + '<label for="' + safeId + '" class="file-open" data-path="' + p + '" style="cursor:pointer;text-decoration:underline;">' + p + '</label>'
         + '</div>';
     });
     preFiles.innerHTML = lines.join('\\n');
@@ -2439,12 +2440,13 @@ window.addEventListener('message', (event) => {
     selectedPaths = new Set();
     const data_file = msg.data || {};
     const files = Array.isArray(data_file) ? data_file : [];
-    const lines = files.map(f => {
-      const path = f.path;
-      const safeId = 'f_' + btoa(path).replace(/=/g,'');
+    const lines = files.map((f, i) => {
+      // paths come from the server/LLM: escape them; ids are positional (btoa breaks on non-Latin-1)
+      const p = escapeHtml(String((f && f.path) || ''));
+      const safeId = 'f_' + i;
       return '<div class="row">'
-        + '<input type="checkbox" class="file-chk" id="' + safeId + '" data-path="' + path + '">'
-        + '<label for="' + safeId + '" class="file-open" data-path="' + path + '" style="cursor:pointer;text-decoration:underline;">' + path + '</label>'
+        + '<input type="checkbox" class="file-chk" id="' + safeId + '" data-path="' + p + '">'
+        + '<label for="' + safeId + '" class="file-open" data-path="' + p + '" style="cursor:pointer;text-decoration:underline;">' + p + '</label>'
         + '</div>';
     });
     preFiles.innerHTML = lines.join('\\n');

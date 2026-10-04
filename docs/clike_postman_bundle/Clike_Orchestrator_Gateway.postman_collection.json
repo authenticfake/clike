@@ -1,6 +1,6 @@
 {
   "info": {
-    "name": "Clike \u2014 Orchestrator & Gateway (replicated)",
+    "name": "Clike — Orchestrator & Gateway (replicated)",
     "_postman_id": "clike-col-20250903143935",
     "description": "Replicated API surface from clike_mvp.zip for Gateway and Orchestrator. Includes embedded vs AI docstring scenarios.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
@@ -99,7 +99,7 @@
           }
         },
         {
-          "name": "Docstring \u2014 Embedded",
+          "name": "Docstring — Embedded",
           "request": {
             "method": "POST",
             "header": [
@@ -125,7 +125,7 @@
           }
         },
         {
-          "name": "Docstring \u2014 AI",
+          "name": "Docstring — AI",
           "request": {
             "method": "POST",
             "header": [
@@ -151,7 +151,7 @@
           }
         },
         {
-          "name": "RAG \u2014 Reindex",
+          "name": "RAG — Reindex",
           "request": {
             "method": "POST",
             "header": [
@@ -177,7 +177,7 @@
           }
         },
         {
-          "name": "RAG \u2014 Search",
+          "name": "RAG — Search",
           "request": {
             "method": "POST",
             "header": [
@@ -203,7 +203,7 @@
           }
         },
         {
-          "name": "Git \u2014 Branch",
+          "name": "Git — Branch",
           "request": {
             "method": "POST",
             "header": [
@@ -229,7 +229,7 @@
           }
         },
         {
-          "name": "Git \u2014 Commit",
+          "name": "Git — Commit",
           "request": {
             "method": "POST",
             "header": [
@@ -255,7 +255,7 @@
           }
         },
         {
-          "name": "Git \u2014 PR",
+          "name": "Git — PR",
           "request": {
             "method": "POST",
             "header": [
@@ -311,6 +311,20 @@
     {
       "key": "RAG_FILE",
       "value": "README.md"
+    },
+    {
+      "key": "CLIKE_API_TOKEN",
+      "value": ""
     }
-  ]
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{CLIKE_API_TOKEN}}",
+        "type": "string"
+      }
+    ]
+  }
 }

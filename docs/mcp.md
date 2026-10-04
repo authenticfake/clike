@@ -11,6 +11,8 @@ Mount logic:
 - mounted at `/mcp`
 - mounted only when `CLIKE_MCP_SERVER_ENABLED=true`
 - mounted from the orchestrator app
+- protected by the service token like every orchestrator endpoint: clients must send
+  `Authorization: Bearer <CLIKE_API_TOKEN>` (HTTP 401 otherwise)
 
 ## Current MCP characteristics
 
@@ -77,6 +79,46 @@ Current tool inventory from `mcp_server.py`:
 - `eval_read_summary`
 - `gate_read_decision`
 
+## Authentication
+
+The orchestrator MCP endpoint is protected by the service token like every orchestrator endpoint.
+It uses streamable HTTP semantics, so manual calls need both `content-type` and `accept` headers
+(otherwise HTTP `406`); without the token the response is `401`.
+
+```bash
+curl -s http://127.0.0.1:8080/mcp/ \
+  -H "authorization: Bearer $CLIKE_API_TOKEN" \
+  -H 'content-type: application/json' \
+  -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}' | jq
+```
+
+Registering it in an MCP client, e.g. Claude Code:
+
+```bash
+claude mcp add --transport http clike http://127.0.0.1:8080/mcp/ --header "Authorization: Bearer $CLIKE_API_TOKEN"
+```
+
+## Extension operational MCP server
+
+The VS Code extension can expose a second, **operational** MCP-compatible server that lets agents
+operate CLike through the same slash commands available in chat (see
+[agent-operating-model.md](agent-operating-model.md), Model 2). Typical tools:
+`clike_extension_status`, `harper_next_action`, `harper_run_phase`, `harper_kit_next`,
+`harper_continue_loop`, `rag_reindex`, `rag_docs_status`, `rag_docs_reindex_if_empty`.
+It dispatches normal commands (`/kit REQ-001`, `/eval REQ-001`, `/gate REQ-001`, `/finalize`, …) and
+does not duplicate Harper logic.
+
+Because it can trigger phases that make local agents write files, it is locked down:
+
+- **disabled by default** (`clike.mcp.extensionServerEnabled`);
+- listens on `127.0.0.1` (`clike.mcp.extensionServerPort`, default `55742`);
+- **always requires** `Authorization: Bearer <token>`: a random token is generated and kept in
+  SecretStorage (copy it with *CLike: Copy Extension MCP Token*); `clike.mcp.extensionServerToken`
+  is an optional legacy override;
+- rejects any request carrying an `Origin` header (browsers), non-loopback `Host` headers or a
+  different port, and non-JSON `POST` bodies.
+
 ## Current MCP usage model
 
 The current MCP server is intended for:
@@ -111,7 +153,8 @@ This makes MCP useful as an informational surface for external agents or tools w
 ## Security posture
 
 The current code is aligned with a conservative MCP posture:
-- read-only tool exposure
+- token-protected (orchestrator: service token; extension: dedicated token)
+- read-only tool exposure (orchestrator server)
 - path-safe reads
 - explicit exclusions
 - no execution side effects

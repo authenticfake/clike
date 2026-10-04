@@ -22,23 +22,37 @@ Git-related commands contributed by the extension:
 
 ## Current settings
 
-Relevant settings currently exposed:
-- `clike.git.autoCommit`
-- `clike.git.gitMergeOnGate`
-- `clike.git.gitDeleteBranchOnMerge`
-- `clike.git.gitReturnToFeatureAfterMerge`
-- `clike.git.remoteUrl`
-- `clike.git.commitMessage`
-- `clike.git.openPR`
-- `clike.git.remote`
-- `clike.git.defaultBranch`
-- `clike.git.conventionalCommits`
-- `clike.git.pushRebase`
-- `clike.git.branchPrefix`
-- `clike.git.tagPrefix`
-- `clike.git.prPerReqDraft.enabled`
-- `clike.git.prPerReqDraft.useGhCli`
-- `clike.git.prBodyPath`
+All automation is **off by default** (since the 2026-10 hardening):
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `clike.git.autoCommit` | `false` | Commit the files produced by each Harper phase — only those files |
+| `clike.git.autoPush` | `false` | Push phase commits, tags and gate merges (machine-scoped) |
+| `clike.git.gitMergeOnGate` | `false` | After a PASS gate, merge the REQ branch into the default branch (`--no-ff`) |
+| `clike.git.openPR` | `false` | Open a PR on `/finalize` |
+| `clike.git.pushRebase` | `false` | Rebase the REQ branch on the remote default branch when the tree is clean |
+
+Other settings: `gitDeleteBranchOnMerge`, `gitReturnToFeatureAfterMerge`, `remoteUrl`,
+`commitMessage`, `remote`, `defaultBranch`, `conventionalCommits`, `branchPrefix`,
+`tagPrefix`, `prPerReqDraft.enabled`, `prPerReqDraft.useGhCli`, `prBodyPath`.
+
+## Phase sync guarantees (`clikeGitSync`)
+
+- **No branch is ever rewritten**: the target branch is entered with `git switch`
+  (existing) or `git switch -c <branch> <defaultBranch>` (new). The previous
+  implementation used `checkout -B`, which reset an existing REQ branch to `HEAD`
+  (dropping its commits) and could move the default branch onto unreviewed work.
+- **Only the phase files are committed** (`git commit -m … -- <paths>`): unrelated
+  changes, untracked files and anything the user already staged are left alone.
+  No `git add -A`. Paths outside the work tree are ignored.
+- If switching branch would overwrite local changes, the sync stops and leaves the
+  phase files uncommitted in the working tree.
+- A new repository is bootstrapped with an empty commit: existing workspace files
+  (for example `.env`) are never committed implicitly.
+- The default branch changes only through an explicit merge-on-gate after a PASS gate.
+- Tags `harper/<phase>/<runId>` are created locally; pushes only with `autoPush`.
+- These guarantees are covered by tests against real temporary repositories
+  (`extensions/vscode/test/git-sync.test.js`).
 
 ## Current phase relationship
 
@@ -84,7 +98,7 @@ Promotion should therefore be documented as:
 The settings indicate support for merge-on-gate behavior:
 - `clike.git.gitMergeOnGate`
 
-However, docs should describe merge as policy-driven and settings-driven, not as an unconditional behavior.
+Merge is opt-in (default `false`) and happens only after a PASS gate.
 
 ## Current branch conventions
 

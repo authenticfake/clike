@@ -8,6 +8,13 @@ It is organized by runtime:
 - Agent / code-action surface
 - MCP informational surface
 
+## Authentication
+
+All orchestrator and gateway endpoints except `GET /health` require
+`Authorization: Bearer <CLIKE_API_TOKEN>`. Missing or wrong token → `401`; token not configured on
+the server → `503`; unexpected `Host` header → `403`. No CORS headers are emitted. The gateway
+telemetry API also accepts the `clike_token` cookie set by `POST /v1/metrics/login` (GET only).
+
 ## Orchestrator API
 
 Base runtime:
@@ -114,8 +121,9 @@ Legacy chat endpoint used by extension and helper flows.
 #### `POST /v1/generate`
 Legacy generation endpoint for coding / harper style generation.
 
-#### `POST /v1/apply`
-Applies generated outputs or patch content into workspace files.
+#### ~~`POST /v1/apply`~~ (removed)
+Removed in the 2026-10 hardening: it wrote request-supplied files to arbitrary paths.
+The VS Code extension applies generated files locally (it is the only workspace writer).
 
 ### Router API
 
@@ -163,6 +171,33 @@ Current request fields accepted by the request model and query merge logic inclu
 - `verdict`
 - `ltc`
 - `project_name`
+
+Confinement rules (also for `/v1/gate/check`):
+- `project_root` must lie under `DEV_FOLDER` (the host projects dir, `CLIKE_PROJECTS_DIR` in compose)
+  or under one of `CLIKE_EVAL_ALLOWED_ROOTS` (path-separator list); otherwise `403`.
+  With neither configured, eval/gate are disabled.
+- The LTC is read from the `profile` file under the project root, which is authoritative.
+  An inline `ltc` is accepted only if identical to that file (`409` otherwise). An inline-only
+  LTC (no file) is refused (`403`) unless `CLIKE_ALLOW_INLINE_LTC=1`.
+- `profile` must stay inside the project root (`400` on traversal).
+- Eval commands run without credentials in their environment (API keys, `CLIKE_API_TOKEN`
+  and any `*KEY*`/`*TOKEN*`/`*SECRET*`/`*PASSWORD*`-style variables are removed).
+- In containers the profile is executed by the `eval-sandbox` service (`CLIKE_EVAL_SANDBOX_URL`);
+  responses carry `executor: "sandbox" | "local"`.
+- **Acceptance integrity**: the REQ acceptance surface (`runs/kit/<REQ>/test/**` and `ci/**`) is
+  locked server-side the first time it is evaluated after a KIT generation. If files were removed
+  or modified, LTC checks removed/made non-blocking/changed, or skip markers added, eval and gate
+  do not run (`reason_code` `ACCEPTANCE_TAMPERED` / `GATE_BLOCKED_ACCEPTANCE_TAMPERED`). Responses
+  include an `integrity` object (`ok`, `anomalies`, `added`, `lock_digest`). A new `/kit`
+  re-baselines the lock.
+- `/v1/gate/check` rejects `mode=manual` (`400`): use `/v1/gate/override`.
+
+#### `POST /v1/gate/override`
+Developer override of a gate. Body: `project_root`, `project_name`, `req_id`, `reason`
+(≥ 10 characters), `author`. The project root is confined like eval/gate. The override is appended
+to an audit log (`CLIKE_STATE_DIR/audit/gate_overrides.jsonl`) with a digest of the REQ artifacts
+and returned with `status: "OVERRIDE"` (never `PASS`), `gate: "pass"` (promotable) and an
+`override` object (`audit_id`, `author`, `reason`, `at`, `artifacts`).
 
 #### `POST /v1/gate/check`
 Runs gate checks and promotion decisions.

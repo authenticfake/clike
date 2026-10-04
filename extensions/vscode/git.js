@@ -141,27 +141,6 @@ async function gitRunVerbose(args, gitCtx, label = 'git', _out) {
   }
 }
 
-// Ensure the default branch exists locally.
-// If the repo has no commits, create an empty commit to materialize the branch.
-async function ensureDefaultBranchExists(gitRunVerbose, gitCtx, defaultBranch) {
-  let hasCommits = true;
-  try { await gitRunVerbose(['rev-parse', 'HEAD'], gitCtx, 'diag'); }
-  catch { hasCommits = false; }
-
-  // Create/switch default branch in an idempotent way
-  await gitRunVerbose(['checkout', '-B', defaultBranch], gitCtx);
-
-  if (!hasCommits) {
-    // Bootstrap an empty commit so the branch actually exists
-    try {
-      await gitRunVerbose(['commit', '--allow-empty', '-m', `chore: bootstrap ${defaultBranch}`], gitCtx, 'init');
-    } catch (e) {
-      // If user.name/email are missing, ensureGitRepo should have configured them
-    }
-  }
-}
-
-
 // Ensure repo exists; if not, initialize it and set default branch
 async function ensureGitRepo(gitCtx, defaultBranch = 'main', out) {
   const log = mkLog(out);
@@ -205,19 +184,12 @@ async function ensureGitRepo(gitCtx, defaultBranch = 'main', out) {
   try { await gitRunVerbose(['config', '--get', 'user.email'], gitCtx, 'diag', out); }
   catch { try { await gitRunVerbose(['config', 'user.email', 'dev@local'], gitCtx, 'init', out); } catch {} }
 
-  // Primo commit opzionale solo se ci sono file staged
+  // Bootstrap with an empty commit: existing workspace files are never committed
+  // implicitly (they may include secrets such as .env).
   try {
-    await gitRunVerbose(['add', '-A'], gitCtx, 'init', out);
-    await gitRunVerbose(['diff', '--cached', '--quiet'], gitCtx, 'init', out); // 0 = no staged changes
-    log('[git:init] no files to commit yet (empty repo)');
-  } catch {
-    try { await gitRunVerbose(['commit', '-m', 'chore: initial commit (clike init)'], gitCtx, 'init'); } catch {}
-  }
-    // Ensure default branch is present and checked out (idempotent)
-  try {
-    await ensureDefaultBranchExists(gitRunVerbose, gitCtx, defaultBranch);
+    await gitRunVerbose(['commit', '--allow-empty', '-m', `chore: bootstrap ${defaultBranch} (clike init)`], gitCtx, 'init', out);
   } catch (e) {
-    mkLog(out)('[git:init] ensureDefaultBranchExists warn:', e.message || e);
+    log(`[git:init] bootstrap commit warn: ${e.message || e}`);
   }
 
 }
@@ -275,6 +247,12 @@ function mapKitSrcToWorkspaceTarget(absPath, reqId) {
 }
 
 
+// Harper phase → git (WP5). Non-destructive by design:
+//  - never `checkout -B` (it resets an existing branch to HEAD and can drop commits);
+//  - the default branch is never moved except by an explicit merge-on-gate;
+//  - only the files declared by the phase are staged and committed
+//    (`git commit -- <paths>`), unrelated user changes stay untouched;
+//  - push happens only with clike.git.autoPush (or an explicitly enabled PR flow).
 async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, out) {
   const log = mkLog(out);
   const cwdFsPath = toFsPath(opts?.workspaceRoot);
@@ -283,266 +261,187 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
   }
 
   const s = settings;
-  const cwd = toFsPath(opts.workspaceRoot);
-  const gitCtx = resolveGitContext(cwd, s.gitDefaultBranch);
+  const gitCtx = resolveGitContext(cwdFsPath, s.gitDefaultBranch);
+  const defaultBranch = s.gitDefaultBranch || 'main';
+  const autoPush = s.gitAutoPush === true;
+  const conventional = s.gitConventionalCommits ?? s.gitConventional;
+  const prPerReqDraft = s.gitPrPerReqDraftEnabled ?? s.prPerReqDraft;
+  const prUseGhCli = s.gitPrPerReqDraftUseGhCli ?? s.prUseGhCli;
+  const prBodyPath = s.gitPrBodyPath ?? s.prBodyPath;
 
   log(`[harperGit] phase=${phase} runId=${runId} reqId=${reqId || '∅'} files=${Array.isArray(changedFiles) ? changedFiles.length : '∅'} mode=${gitCtx.mode}`);
   if (!s.gitAutoCommit) { log('[harperGit] autoCommit=false → skip'); return; }
 
   // 1) Repo pronto
-  await ensureGitRepo(gitCtx, s.gitDefaultBranch);
+  await ensureGitRepo(gitCtx, defaultBranch, out);
 
   // 2) Remote (opzionale)
-  const hasRemote = await ensureRemote(gitCtx, s.gitRemote, s.gitRemoteUrl || '');
+  const hasRemote = await ensureRemote(gitCtx, s.gitRemote, s.gitRemoteUrl || '', out);
 
   // 3) Branch target
-  let targetBranch = s.gitDefaultBranch;
+  let targetBranch = defaultBranch;
   if (phase === 'kit' || phase === 'eval' || phase === 'gate') {
     if (!reqId) throw new Error('REQ-ID required for phase=' + phase);
-    const slug = String(reqId).toLowerCase();
-    targetBranch = `${s.gitBranchPrefix}/${slug}`;
+    targetBranch = `${s.gitBranchPrefix}/${String(reqId).toLowerCase()}`;
   }
   log(`[harperGit] targetBranch=${targetBranch}`);
 
-  // 4) Allineamento con default branch + checkout target
-  if (hasRemote) {
-    try { await gitRunVerbose(['fetch', s.gitRemote], gitCtx); } catch (e) { log(`[harperGit] fetch warn: ${e.message}`); }
-  }
-
-  // Verifica esistenza branch target
-  let exists = false;
-  try { await gitRunVerbose(['show-ref', '--verify', `refs/heads/${targetBranch}`], gitCtx); exists = true; } catch {}
-
-  if (!exists) {
-    // Base nuova branch su default
-    await gitRunVerbose(['checkout', '-B', s.gitDefaultBranch], gitCtx);
-    if (hasRemote && s.gitPushRebase) {
-      // Rebase "best effort" — se dirty, salta
-      try {
-        const dirty = await isWorkingTreeDirty(gitCtx);
-        if (!dirty) {
-          await gitRunVerbose(['pull', '--rebase', s.gitRemote, s.gitDefaultBranch], gitCtx);
-        } else {
-          log('[harperGit] default branch dirty → skip pull --rebase');
-        }
-      } catch (e) { log(`[harperGit] pull warn: ${e.message}`); }
-    }
-    if (targetBranch !== s.gitDefaultBranch) {
-      await gitRunVerbose(['checkout', '-B', targetBranch], gitCtx);
-    }
-  } else {
-    await gitRunVerbose(['checkout', '-B', targetBranch], gitCtx);
-    // Rebase sul default remoto solo se richiesto e se non c'è sporco
-    if (hasRemote && targetBranch !== s.gitDefaultBranch && s.gitPushRebase) {
-      try {
-        await gitRunVerbose(['fetch', s.gitRemote, s.gitDefaultBranch], gitCtx);
-        const dirty = await isWorkingTreeDirty(gitCtx);
-        if (!dirty) {
-          await gitRunVerbose(['rebase', `${s.gitRemote}/${s.gitDefaultBranch}`], gitCtx);
-        } else {
-          log('[harperGit] working tree dirty → skip rebase');
-        }
-      } catch (e) { log(`[harperGit] rebase warn: ${e.message}`); }
+  // 4) Switch to the target branch without rewriting any branch.
+  const branchExists = async (b) => {
+    try { await gitRunVerbose(['show-ref', '--verify', '--quiet', `refs/heads/${b}`], gitCtx, 'diag', out); return true; }
+    catch { return false; }
+  };
+  const current = await gitRunVerbose(['rev-parse', '--abbrev-ref', 'HEAD'], gitCtx, 'diag', out).catch(() => '');
+  if (current !== targetBranch) {
+    try {
+      if (await branchExists(targetBranch)) {
+        await gitRunVerbose(['switch', targetBranch], gitCtx, 'git', out);
+      } else {
+        const base = (await branchExists(defaultBranch)) ? defaultBranch : 'HEAD';
+        await gitRunVerbose(['switch', '-c', targetBranch, base], gitCtx, 'git', out);
+      }
+    } catch (e) {
+      // Uncommitted changes that conflict with the target branch: keep everything as is.
+      log(`[harperGit] cannot switch to ${targetBranch}: ${e.message}. Phase files are left uncommitted in the working tree.`);
+      return;
     }
   }
 
-  // 5) Stage dei file passati (normalizzazione robusta)
+  if (hasRemote && s.gitPushRebase && targetBranch !== defaultBranch) {
+    try {
+      if (!(await isWorkingTreeDirty(gitCtx))) {
+        await gitRunVerbose(['fetch', s.gitRemote, defaultBranch], gitCtx, 'git', out);
+        await gitRunVerbose(['rebase', `${s.gitRemote}/${defaultBranch}`], gitCtx, 'git', out);
+      } else {
+        log('[harperGit] working tree dirty → skip rebase');
+      }
+    } catch (e) {
+      try { await gitRunVerbose(['rebase', '--abort'], gitCtx, 'git', out); } catch {}
+      log(`[harperGit] rebase warn: ${e.message}`);
+    }
+  }
+
+  // 5) Only the phase files, relative to the work tree, existing, inside the repo.
+  const workTree = path.resolve(gitCtx.workTree || gitCtx.cwd);
   const toArray = (val) => {
     if (!val) return [];
     if (Array.isArray(val)) return val;
-    if (typeof val === 'string') return val.split(',').map(s => s.trim()).filter(Boolean);
+    if (typeof val === 'string') return val.split(',').map(x => x.trim()).filter(Boolean);
     return [String(val)];
   };
-
-  
-  // helper: rendi relativi i path alla work-tree (git preferisce)
-  const toWorkTreeRelative = (pAbs) => {
-    const wt = path.resolve(gitCtx.workTree || gitCtx.cwd || process.cwd());
-    const p = path.resolve(pAbs);
-    if (p.startsWith(wt)) {
-      const rel = path.relative(wt, p);
-      return rel.length ? rel : '.';
-    }
-    // se fuori dal repo, lascia assoluto (git lo accetta se dentro work-tree; se no, verrà filtrato)
-    return p;
-  };
-
-  let files = toArray(changedFiles)
-    .map(f => {
-      try { return toFsPath(f); } catch { return String(f || ''); }
-    })
+  const files = [...new Set(toArray(changedFiles)
+    .map(f => { try { return toFsPath(f); } catch { return String(f || ''); } })
     .filter(Boolean)
-    .map(p => toWorkTreeRelative(p))
-    .filter(p => {
-      // evita di passare a git path inesistenti
-      const abs = path.isAbsolute(p) ? p : path.join(gitCtx.workTree || gitCtx.cwd || process.cwd(), p);
-      return fs.existsSync(abs);
-    });
+    .map(p => path.resolve(workTree, p))
+    .filter(abs => {
+      const rel = path.relative(workTree, abs);
+      const inside = rel && !rel.startsWith('..') && !path.isAbsolute(rel);
+      if (!inside) log(`[harperGit] skip path outside the work tree: ${abs}`);
+      return inside && fs.existsSync(abs);
+    })
+    .map(abs => path.relative(workTree, abs)))];
 
-  try {
-    if (files.length) {
-      await gitRunVerbose(['add', ...files], gitCtx);
-    } else {
-      await gitRunVerbose(['add', '-A'], gitCtx);
-    }
-
-    // Defensive rule for gate:
-    // if gate changed plan/report/promotion state outside the explicit file list,
-    // stage all remaining tracked/untracked changes so checkout/merge won't fail.
-    if (phase === 'gate') {
-      const dirtyAfterExplicitAdd = await isWorkingTreeDirty(gitCtx);
-      if (dirtyAfterExplicitAdd) {
-        log('[harperGit] gate detected extra dirty files after explicit add → staging all with git add -A');
-        await gitRunVerbose(['add', '-A'], gitCtx);
-      }
-    }
-  } catch (e) {
-    for (const f of files) {
-      try {
-        await gitRunVerbose(['add', f], gitCtx);
-      } catch (e2) {
-        mkLog(out)(`[harperGit] add skip file '${f}': ${e2.message}`);
-      }
-    }
-
-    if (phase === 'gate') {
-      try {
-        const dirtyAfterFallback = await isWorkingTreeDirty(gitCtx);
-        if (dirtyAfterFallback) {
-          log('[harperGit] gate fallback detected extra dirty files → staging all with git add -A');
-          await gitRunVerbose(['add', '-A'], gitCtx);
-        }
-      } catch (e3) {
-        log(`[harperGit] gate add -A fallback warn: ${e3.message}`);
-      }
-    }
+  if (!files.length) {
+    log('[harperGit] no phase files to commit → skip (unrelated changes are never committed)');
+    return;
   }
 
-  // 6) Commit
-  const makeMsg = () => {
-    const base = `[harper:${phase}] runId=${runId}`;
-    if (!s.gitConventional) return base;
-    if (phase === 'spec')     return `spec: update SPEC.md\n\n${base}`;
-    if (phase === 'plan')     return `plan: update PLAN.md\n\n${base}`;
-    if (phase === 'kit')      return `feat(${String(reqId||'req').toLowerCase()}): implement\n\n${base}`;
-    if (phase === 'eval')     return `test(${String(reqId||'req').toLowerCase()}): add eval artifacts\n\n${base}`;
-    if (phase === 'gate')     return `chore(${String(reqId||'req').toLowerCase()}): gate report & promotion\n\n${base}`;
-    if (phase === 'finalize') return `chore: finalize\n\n${base}`;
-    return base;
+  const dirtyBefore = (await gitRunVerbose(['status', '--porcelain'], gitCtx, 'diag', out).catch(() => ''))
+    .split('\n').map(l => l.slice(3).trim()).filter(Boolean);
+  const unrelated = dirtyBefore.filter(p => !files.includes(p));
+  if (unrelated.length) {
+    log(`[harperGit] leaving ${unrelated.length} unrelated change(s) uncommitted: ${unrelated.slice(0, 10).join(', ')}`);
+  }
+
+  // 6) Commit only those paths (other staged content is not included)
+  const slug = String(reqId || 'req').toLowerCase();
+  const base = `[harper:${phase}] runId=${runId}`;
+  const messages = {
+    spec: `spec: update SPEC.md\n\n${base}`,
+    plan: `plan: update PLAN.md\n\n${base}`,
+    kit: `feat(${slug}): implement\n\n${base}`,
+    eval: `test(${slug}): add eval artifacts\n\n${base}`,
+    gate: `chore(${slug}): gate report & promotion\n\n${base}`,
+    finalize: `chore: finalize\n\n${base}`,
   };
-  try { await gitRunVerbose(['commit', '-m', makeMsg()], gitCtx); }
-  catch (e) { log(`[harperGit] commit skipped: ${e.message}`); }
-
-  // 7) Push (se remoto configurato)
-  if (hasRemote) {
-    try {
-      const upstream = await gitRunVerbose(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], gitCtx).catch(() => '');
-      if (!upstream) await gitRunVerbose(['push', '--set-upstream', s.gitRemote, targetBranch], gitCtx);
-      else await gitRunVerbose(['push'], gitCtx);
-    } catch (e) { log(`[harperGit] push warn: ${e.message}`); }
-  } else {
-    log(`[harperGit] no remote configured → committed locally. Set "clike.git.remoteUrl" to enable pushes.`);
+  const message = conventional === false ? base : (messages[phase] || base);
+  try {
+    await gitRunVerbose(['add', '--', ...files], gitCtx, 'git', out);
+    await gitRunVerbose(['commit', '-m', message, '--', ...files], gitCtx, 'git', out);
+  } catch (e) {
+    log(`[harperGit] commit skipped: ${e.message}`);
+    return;
   }
 
-  // 8) Tag (best-effort)
+  // 7) Tag (local, best-effort)
   const tag = `${s.gitTagPrefix}/${phase}/${runId}`;
-  try {
-    await gitRunVerbose(['tag', '-a', tag, '-m', tag], gitCtx);
-    if (hasRemote) await gitRunVerbose(['push', s.gitRemote, tag], gitCtx);
-  } catch (e) { log(`[harperGit] tag warn: ${e.message}`); }
+  try { await gitRunVerbose(['tag', '-a', tag, '-m', tag], gitCtx, 'git', out); }
+  catch (e) { log(`[harperGit] tag warn: ${e.message}`); }
 
-  // 9) Merge su default branch quando phase === 'gate'
+  // 8) Push only when explicitly enabled
+  if (hasRemote && autoPush) {
+    try {
+      const upstream = await gitRunVerbose(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], gitCtx, 'diag', out).catch(() => '');
+      if (!upstream) await gitRunVerbose(['push', '--set-upstream', s.gitRemote, targetBranch], gitCtx, 'git', out);
+      else await gitRunVerbose(['push'], gitCtx, 'git', out);
+      await gitRunVerbose(['push', s.gitRemote, tag], gitCtx, 'git', out);
+    } catch (e) { log(`[harperGit] push warn: ${e.message}`); }
+  } else if (hasRemote) {
+    log('[harperGit] committed locally (clike.git.autoPush is off).');
+  } else {
+    log('[harperGit] no remote configured → committed locally.');
+  }
+
+  // 9) Merge into the default branch after a PASS gate (opt-in)
   if (phase === 'gate' && s.gitMergeOnGate === true) {
     let sessionNoiseStashed = false;
     try {
-      const onlySessionNoise = await isOnlySessionNoiseDirty(gitCtx);
-      if (onlySessionNoise) {
-        log('[harperGit] only session noise detected before merge');
-      }
       sessionNoiseStashed = await stashLocalSessionNoise(gitCtx, log);
-
-      await gitRunVerbose(['checkout', s.gitDefaultBranch], gitCtx);
-
-      if (hasRemote && s.gitPushRebase) {
-        try {
-          const dirtyMain = await isWorkingTreeDirty(gitCtx);
-          if (!dirtyMain) {
-            await gitRunVerbose(['pull', '--rebase', s.gitRemote, s.gitDefaultBranch], gitCtx);
-          } else {
-            log('[harperGit] main dirty → skip pull --rebase before merge');
-          }
-        } catch (e) {
-          log(`[harperGit] pull main warn: ${e.message}`);
-        }
+      await gitRunVerbose(['switch', defaultBranch], gitCtx, 'git', out);
+      await gitRunVerbose(['merge', '--no-ff', targetBranch, '-m', `merge: ${reqId} via gate [runId=${runId}]`], gitCtx, 'git', out);
+      if (hasRemote && autoPush) {
+        try { await gitRunVerbose(['push', s.gitRemote, defaultBranch], gitCtx, 'git', out); }
+        catch (e) { log(`[harperGit] push ${defaultBranch} warn: ${e.message}`); }
       }
-
-      await gitRunVerbose(
-        ['merge', '--no-ff', targetBranch, '-m', `merge: ${reqId} via gate [runId=${runId}]`],
-        gitCtx
-      );
-
-      if (hasRemote) {
-        try {
-          await gitRunVerbose(['push', s.gitRemote, s.gitDefaultBranch], gitCtx);
-        } catch (e) {
-          log(`[harperGit] push main warn: ${e.message}`);
-        }
-      }
-
       if (s.gitDeleteBranchOnMerge === true) {
-        try {
-          await gitRunVerbose(['branch', '-d', targetBranch], gitCtx);
-          if (hasRemote) {
-            await gitRunVerbose(['push', s.gitRemote, '--delete', targetBranch], gitCtx);
-          }
-        } catch (e) {
-          log(`[harperGit] delete branch warn: ${e.message}`);
-        }
+        try { await gitRunVerbose(['branch', '-d', targetBranch], gitCtx, 'git', out); }
+        catch (e) { log(`[harperGit] delete branch warn: ${e.message}`); }
       }
-
       if (s.gitReturnToFeatureAfterMerge === true) {
-        try {
-          await gitRunVerbose(['checkout', targetBranch], gitCtx);
-        } catch {}
+        try { await gitRunVerbose(['switch', targetBranch], gitCtx, 'git', out); } catch {}
       }
     } catch (e) {
+      try { await gitRunVerbose(['merge', '--abort'], gitCtx, 'git', out); } catch {}
       log(`[harperGit] merge-on-gate warn: ${e.message}`);
     } finally {
-      if (sessionNoiseStashed) {
-        await popLocalSessionNoise(gitCtx, log);
-      }
+      if (sessionNoiseStashed) await popLocalSessionNoise(gitCtx, log);
     }
   }
 
-  // 10) PR per-REQ (opzionale)
-  if (phase === 'kit' && s.prPerReqDraft && hasRemote) {
-    const title = `[CLike] ${reqId} — draft`;
+  // 10) PR flows (explicit opt-in; they need the branch on the remote)
+  const runGh = (args) => new Promise((resolve, reject) => {
+    cp.execFile('gh', args, { cwd: workTree }, (err, stdout, stderr) => {
+      if (err) return reject(new Error((stderr || err.message || '').trim()));
+      resolve((stdout || '').trim());
+    });
+  });
+  if (phase === 'kit' && prPerReqDraft && hasRemote) {
     try {
-      await gitRunVerbose(['push', '-u', s.gitRemote, targetBranch], gitCtx);
-      if (s.prUseGhCli) {
-        await gitRunVerbose(['gh', 'pr', 'create', '--title', title, '--draft', '--fill'], gitCtx, 'gh');
-      } else {
-        await vscode.commands.executeCommand('github.createPullRequest');
-      }
-    } catch (e) { log(`[harperGit] gh pr create skipped: ${e.message}`); }
+      await gitRunVerbose(['push', '-u', s.gitRemote, targetBranch], gitCtx, 'git', out);
+      if (prUseGhCli) await runGh(['pr', 'create', '--title', `[CLike] ${reqId} — draft`, '--draft', '--fill', '--head', targetBranch]);
+      else await vscode.commands.executeCommand('github.createPullRequest');
+    } catch (e) { log(`[harperGit] draft PR skipped: ${e.message}`); }
   }
-
-  if (phase === 'finalize' && opts?.finalizeOpenPr === true && hasRemote) {
-    const title = `[CLike] Finalize`;
+  if (phase === 'finalize' && opts?.finalizeOpenPr === true && s.gitOpenPR === true && hasRemote) {
     try {
-      await gitRunVerbose(['checkout', s.gitDefaultBranch], gitCtx);
-      if (hasRemote && s.gitPushRebase) { try { await gitRunVerbose(['pull', '--rebase', s.gitRemote, s.gitDefaultBranch], gitCtx); } catch {} }
-      if (s.prUseGhCli) {
-        const args = ['gh', 'pr', 'create', '--title', title];
-        if (s.prBodyPath) args.push('--body-file', s.prBodyPath); else args.push('--fill');
-        await gitRunVerbose(args, gitCtx, 'gh');
-      } else {
-        await vscode.commands.executeCommand('github.createPullRequest');
-      }
+      const args = ['pr', 'create', '--title', '[CLike] Finalize'];
+      if (prBodyPath && fs.existsSync(path.resolve(workTree, prBodyPath))) args.push('--body-file', prBodyPath);
+      else args.push('--fill');
+      if (prUseGhCli) await runGh(args);
+      else await vscode.commands.executeCommand('github.createPullRequest');
     } catch (e) { log(`[harperGit] finalize PR skipped: ${e.message}`); }
   }
 }
-
 
 async function gitDebugSnapshot(gitCtx, out) {
   const log = mkLog(out);
@@ -560,54 +459,6 @@ async function gitDebugSnapshot(gitCtx, out) {
   try { await gitRunVerbose(['auth', 'status'], gitCtx, 'gh', out); } catch {}
 }
 
-async function mergeOnGate(gitCtx, s, hasRemote, targetBranch, runId, reqId, out) {
-  const log = mkLog(out);
-  if (s.gitMergeOnGate !== true) {
-    log('[git:gate] mergeOnGate skipped (gitMergeOnGate !== true)');
-    return;
-  }
-
-  const defaultBranch = s.gitDefaultBranch || 'master';
-
-  try {
-    // 1) Vai sul default branch
-    await gitRunVerbose(['checkout', defaultBranch], gitCtx);
-
-    // 2) Aggiorna il default (best-effort)
-    if (hasRemote && s.gitPushRebase) {
-      try {
-        const dirty = await isWorkingTreeDirty(gitCtx);
-        if (!dirty) {
-          await gitRunVerbose(['pull', '--rebase', s.gitRemote, defaultBranch], gitCtx);
-        } else {
-          log('[git:gate] default branch dirty → skip pull --rebase');
-        }
-      } catch (e) { log(`[git:gate] pull warn: ${e.message}`); }
-    }
-
-    // 3) Merge no-ff della feature
-    const msg = `merge: ${reqId || 'REQ'} via gate [runId=${runId}]`;
-    await gitRunVerbose(['merge', '--no-ff', targetBranch, '-m', msg], gitCtx);
-
-    // 4) Push del default (se c'è remote)
-    if (hasRemote) {
-      try { await gitRunVerbose(['push', s.gitRemote, defaultBranch], gitCtx); }
-      catch (e) { log(`[git:gate] push default warn: ${e.message}`); }
-    }
-
-    // 5) (Opz) elimina la branch feature locale/remota
-    if (s.gitDeleteBranchOnMerge === true) {
-      try {
-        await gitRunVerbose(['branch', '-d', targetBranch], gitCtx);
-        if (hasRemote) { await gitRunVerbose(['push', s.gitRemote, '--delete', targetBranch], gitCtx); }
-      } catch (e) { log(`[git:gate] delete feature warn: ${e.message}`); }
-    }
-
-    log(`[git:gate] merge completed: ${targetBranch} -> ${defaultBranch}`);
-  } catch (e) {
-    log(`[git:gate] mergeOnGate warn: ${e.message}`);
-  }
-}
 
 async function stashLocalSessionNoise(gitCtx, log) {
   try {
@@ -623,21 +474,6 @@ async function stashLocalSessionNoise(gitCtx, log) {
   }
 }
 
-async function isOnlySessionNoiseDirty(gitCtx) {
-  try {
-    const { stdout } = await gitRunRaw(['status', '--porcelain'], gitCtx);
-    const lines = String(stdout || '')
-      .split('\n')
-      .map(x => x.trim())
-      .filter(Boolean);
-
-    if (!lines.length) return false;
-
-    return lines.every(line => line.includes('.clike/sessions/harper.jsonl'));
-  } catch {
-    return false;
-  }
-}
 async function popLocalSessionNoise(gitCtx, log) {
   try {
     await gitRunVerbose(['stash', 'pop'], gitCtx);

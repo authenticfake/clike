@@ -4,6 +4,7 @@ import traceback
 from typing import List, Dict, Any, Optional, Tuple
 import httpx
 import asyncio
+from utils.service_auth import internal_auth_headers
 
 
 def _rag_base_url(base_url: str | None = None) -> str:
@@ -107,7 +108,7 @@ class EmbeddingClient:
         if self.model_name:
             payload["model"] = self.model_name
 
-        async with httpx.AsyncClient(timeout=60) as client:
+        async with httpx.AsyncClient(timeout=60, headers=internal_auth_headers()) as client:
             r = await client.post(f"{self.base}/embeddings", json=payload)
             r.raise_for_status()
             data = r.json() or {}

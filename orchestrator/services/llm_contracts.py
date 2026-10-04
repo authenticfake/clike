@@ -11,6 +11,7 @@ import os
 import logging
 from pathlib import Path
 from typing import Any, Dict, Optional, List
+from utils.service_auth import internal_auth_headers
 
 log = logging.getLogger("orchestrator.llm_contracts")
 
@@ -71,7 +72,7 @@ async def _load_gateway_catalog(base_url: str) -> Optional[Dict[str, Any]]:
     Reject legacy payloads such as {"data":[...]} so the caller can fall back cleanly.
     """
     try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
+        async with httpx.AsyncClient(timeout=20.0, headers=internal_auth_headers()) as client:
             r = await client.get(base_url.rstrip("/") + "/v1/models")
             r.raise_for_status()
             data = r.json()

@@ -1,8 +1,9 @@
+const { serviceAuthHeaders, notifyServiceAuthFailure } = require('./service-auth');
 const vscode = require('vscode');
 const cp = require('child_process');
 const path = require('path');
 const { gatherRagChunks } = require('./rag.js');
-const { buildLocalAgentEnv, resolveLocalAgentCommandPath, buildLocalAgentSpawn } = require('./local-agent-executors');
+const { buildLocalAgentEnv, resolveLocalAgentCommandPath, buildLocalAgentSpawn, resolvePromptTransport } = require('./local-agent-executors');
 
 const out = vscode.window.createOutputChannel('Clike.utility');
 const crypto = require('crypto');
@@ -810,9 +811,10 @@ async function collectBmadVendorSkillCoreBlobs(projectRootUri, payload) {
   return blobs;
 }
 
-function execSyncSafe(cmd, cwd) {
+// argv form, no shell (WP4.7).
+function execSyncSafe(file, args, cwd) {
   try {
-    return cp.execSync(cmd, { cwd, stdio: ['ignore', 'pipe', 'ignore'] })
+    return cp.execFileSync(file, args, { cwd, stdio: ['ignore', 'pipe', 'ignore'] })
       .toString('utf8')
       .trim() || null;
   } catch {
@@ -858,7 +860,7 @@ async function detectRepoUrl(projectRootUri) {
   }
   // 2) fallback: git config
   const cwd = projectRootUri.fsPath;
-  const raw = execSyncSafe('git config --get remote.origin.url', cwd);
+  const raw = execSyncSafe('git', ['config', '--get', 'remote.origin.url'], cwd);
   const n = normalizeRepoUrl(raw);
   if (n) return n;
 
@@ -898,7 +900,7 @@ async function detectRepositoryContext(projectRootUri) {
 
         const branch =
           repo?.state?.HEAD?.name ||
-          execSyncSafe('git rev-parse --abbrev-ref HEAD', repo.rootUri.fsPath) ||
+          execSyncSafe('git', ['rev-parse', '--abbrev-ref', 'HEAD'], repo.rootUri.fsPath) ||
           null;
 
         return {
@@ -916,13 +918,13 @@ async function detectRepositoryContext(projectRootUri) {
 
   // 2) Fallback to git CLI from the current workspace folder.
   try {
-    const repoRoot = execSyncSafe('git rev-parse --show-toplevel', projectRootUri.fsPath);
+    const repoRoot = execSyncSafe('git', ['rev-parse', '--show-toplevel'], projectRootUri.fsPath);
     if (!repoRoot) {
       return fallback;
     }
 
-    const branch = execSyncSafe('git rev-parse --abbrev-ref HEAD', repoRoot) || null;
-    const rawRemote = execSyncSafe('git config --get remote.origin.url', repoRoot);
+    const branch = execSyncSafe('git', ['rev-parse', '--abbrev-ref', 'HEAD'], repoRoot) || null;
+    const rawRemote = execSyncSafe('git', ['config', '--get', 'remote.origin.url'], repoRoot);
     const repoUrl = normalizeRepoUrl(rawRemote);
 
     return {
@@ -1396,7 +1398,9 @@ async function saveGateCommand(projectRootUri, plan, targetReqId, report, out) {
 
   const gateVerdict = String(report?.gate || '').trim().toLowerCase();
   const gateStatus = String(report?.status || '').trim().toUpperCase();
-  const isPass = gateVerdict === 'pass' && gateStatus === 'PASS';
+  // OVERRIDE = audited developer override from the orchestrator (WP6): promotable, but tracked as such.
+  const isOverride = gateVerdict === 'pass' && gateStatus === 'OVERRIDE' && !!report?.override?.audit_id;
+  const isPass = (gateVerdict === 'pass' && gateStatus === 'PASS') || isOverride;
 
   if (isPass) {
     if (!setReqStatus(effectivePlan, targetReqId, 'done')) {
@@ -1424,7 +1428,9 @@ async function saveGateCommand(projectRootUri, plan, targetReqId, report, out) {
     log(`[saveGateCommand] Gate passed for ${targetReqId}`);
 
     const choice = await vscode.window.showInformationMessage(
-      `Gate passed for ${targetReqId}. Choose how to promote sources now.`,
+      isOverride
+        ? `Gate OVERRIDDEN for ${targetReqId} (audit ${report.override.audit_id.slice(0, 8)}). Choose how to promote sources now.`
+        : `Gate passed for ${targetReqId}. Choose how to promote sources now.`,
       'Promote',
       'Skip promote'
     );
@@ -2073,10 +2079,11 @@ async function postJson(url, body, { signal, timeoutMs = 30000 } = {}) {
   try {
     const res = await f(url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...serviceAuthHeaders(url) },
       body: JSON.stringify(body),
       signal: effectiveSignal
     });
+    notifyServiceAuthFailure(res.status, url);
 
     if (!res.ok) {
       const txt = await res.text().catch(() => '');
@@ -2210,9 +2217,10 @@ function httpPostJsonLong(url, { headers, body }, timeoutMs) {
         port: u.port || (u.protocol === "https:" ? 443 : 80),
         path: u.pathname + u.search,
         method: "POST",
-        headers: headers || {},
+        headers: { ...serviceAuthHeaders(url), ...(headers || {}) },
       },
       (res) => {
+        notifyServiceAuthFailure(res.statusCode, url);
         let data = "";
         res.setEncoding("utf8");
 
@@ -2574,8 +2582,7 @@ async function runLocalAgentSync({
     if (clean) argv.push(clean);
   }
 
-  const transport = String(promptTransport || '').trim() ||
-    (normalizedExecutor === 'gpt_codex' ? 'stdin' : 'argv_last');
+  const transport = resolvePromptTransport(normalizedExecutor, promptTransport, process.platform);
 
   if (transport === 'argv_last') {
     argv.push(prompt);
@@ -2840,7 +2847,7 @@ function isFinalizeAllowedPath(relPath) {
 
 function collectGitChangedFinalizePaths(rootPath) {
   try {
-    const raw = cp.execSync('git status --porcelain', {
+    const raw = cp.execFileSync('git', ['status', '--porcelain'], {
       cwd: rootPath,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],

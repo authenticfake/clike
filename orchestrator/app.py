@@ -1,13 +1,11 @@
 from fastapi import FastAPI, Request
 from contextlib import asynccontextmanager
-from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
 
-import os, logging
+import os, logging, time, uuid
 from routes.agent import router as agent_router
 from routes.git import router as git_router
 from routes.health import router as health_router
-from starlette.middleware.base import BaseHTTPMiddleware
 from routes.v1 import router as v1_router
 from config import settings
 from routes.harper import router as harper_router
@@ -15,6 +13,7 @@ from routes import router as router_router
 from routes import rag as rag_routes
 from routes import routes_eval as eval_router
 from services.methodologies.errors import MethodologyError
+from utils.service_auth import ServiceAuthMiddleware
 try:
     from mcp_server import mcp as clike_mcp
 except Exception:
@@ -47,7 +46,7 @@ async def lifespan(app: FastAPI):
         
 
 app = FastAPI(title="Clike Orchestrator (AI Pipilines for enabling Vibe Code for StartUp & Entprise Solutions)",     lifespan=lifespan,
-    debug=True,version="1.0.0")
+    debug=False,version="1.0.0")
 _mcp_enabled = os.getenv("CLIKE_MCP_SERVER_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
 
 
@@ -63,38 +62,51 @@ else:
     )
 os.makedirs(getattr(settings, "RUNS_DIR", "./runs"), exist_ok=True)
 logging.getLogger("orchestrator").info("* RUNS_DIR=%s", getattr(settings, "RUNS_DIR", "./runs"))
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+class RequestLogMiddleware:
+    """Logs method, path, status and latency. Never reads or logs request bodies."""
 
-class LogRequestsMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        # Never inspect or consume MCP transport requests.
-        # Mounted MCP apps may use streaming/session semantics that should stay untouched.
-        if request.url.path.startswith("/mcp"):
-            response = await call_next(request)
-            logging.info(f"[RES] {request.method} {request.url} -> {response.status_code}")
-            return response
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        started = time.perf_counter()
+        status = {"code": 500}
+
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start":
+                status["code"] = message["status"]
+            await send(message)
 
         try:
-            raw = await request.body()
+            await self.app(scope, receive, send_wrapper)
+        finally:
             logging.info(
-                f"[REQ] {request.method} {request.url} "
-                f"headers={{'content-type': '{request.headers.get('content-type')}'}} "
-                f"body={raw[:1000]!r}"
+                "[HTTP] %s %s -> %s (%.0f ms)",
+                scope.get("method"),
+                scope.get("path"),
+                status["code"],
+                (time.perf_counter() - started) * 1000,
             )
-        except Exception as e:
-            logging.exception(f"Failed to read request body: {e}")
 
-        response = await call_next(request)
-        logging.info(f"[RES] {request.method} {request.url} -> {response.status_code}")
-        return response
-    
-app.add_middleware(LogRequestsMiddleware)
+
+# Starlette: the last middleware added is the outermost. Logging wraps auth so
+# rejected requests are logged too. No CORS: only the extension host and the
+# CLike services call these APIs (never a browser page).
+app.add_middleware(ServiceAuthMiddleware, open_paths=("/health",))
+app.add_middleware(RequestLogMiddleware)
+
+
+@app.exception_handler(Exception)
+async def unhandled_error_handler(request: Request, exc: Exception):
+    correlation_id = uuid.uuid4().hex[:12]
+    logging.getLogger("orchestrator").exception("unhandled error correlation_id=%s", correlation_id)
+    return JSONResponse(
+        status_code=500,
+        content={"code": "internal_error", "detail": "Internal server error", "correlation_id": correlation_id},
+    )
+
 
 @app.exception_handler(MethodologyError)
 async def methodology_error_handler(request: Request, exc: MethodologyError):

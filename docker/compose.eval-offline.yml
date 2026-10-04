@@ -1,0 +1,5 @@
+# Offline eval sandbox: no egress at all (dependency installs from the network fail).
+#   podman-compose -f docker-compose.yml -f compose.eval-offline.yml up -d
+networks:
+  evalnet:
+    internal: true

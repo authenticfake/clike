@@ -1,6 +1,7 @@
 
 const vscode = require('vscode');
 const { readTextFile, getProjectNameFromWorkspace }  = require('./utility');
+const { serviceAuthHeaders, notifyServiceAuthFailure } = require('./service-auth');
 
 // --- api.js ---
 function baseUrl() {
@@ -46,9 +47,10 @@ async function postEvalRun(profile, workspaceRoot,req_id, mode, modeResult) {
   console.log("body", body);
   const res = await fetch(url, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...serviceAuthHeaders(url) },
     body: body ? JSON.stringify(body) : undefined
   });
+  notifyServiceAuthFailure(res.status, url);
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -91,9 +93,10 @@ async function postGateCheck(profile, workspaceRoot,req_id,opts = { promote = fa
 
   const res = await fetch(url, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...serviceAuthHeaders(url) },
     body: body ? JSON.stringify(body) : undefined
   });
+  notifyServiceAuthFailure(res.status, url);
   console.log("res", res);
 
   if (!res.ok) {
@@ -105,7 +108,34 @@ async function postGateCheck(profile, workspaceRoot,req_id,opts = { promote = fa
 
 
 
+/**
+ * Developer override of a gate (WP6): reason required, audited by the orchestrator.
+ * The result is reported as OVERRIDE, never as PASS.
+ */
+async function postGateOverride(workspaceRoot, reqId, reason, author) {
+  const projectName = getProjectNameFromWorkspace();
+  const url = `${baseUrl()}/v1/gate/override`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...serviceAuthHeaders(url) },
+    body: JSON.stringify({
+      project_root: asFsPath(workspaceRoot),
+      project_name: projectName || null,
+      req_id: reqId,
+      reason,
+      author,
+    }),
+  });
+  notifyServiceAuthFailure(res.status, url);
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`HTTP ${res.status}: ${text || res.statusText}`);
+  }
+  return res.json();
+}
+
 module.exports = {
+  postGateOverride,
   postEvalRun,
   postGateCheck,
 };

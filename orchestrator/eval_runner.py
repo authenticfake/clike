@@ -45,6 +45,31 @@ class EvalReport:
     json_path: Optional[str] = None
 
 
+def report_to_dict(rep: "EvalReport") -> Dict[str, Any]:
+    """JSON-safe form of a report (used across the eval sandbox boundary)."""
+    from dataclasses import asdict
+
+    return asdict(rep)
+
+
+def report_from_dict(data: Dict[str, Any]) -> "EvalReport":
+    fields = dict(data)
+    fields["cases"] = [EvalCase(**case) for case in (data.get("cases") or [])]
+    return EvalReport(**fields)
+
+
+# Environment variables that must never reach LTC commands (WP4): provider keys,
+# the CLike service token and any other credential-looking variable.
+_SECRET_ENV_NAME_RE = re.compile(
+    r"(API_?KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|PRIVATE_KEY|ACCESS_KEY)", re.IGNORECASE
+)
+
+
+def scrubbed_process_env() -> Dict[str, str]:
+    """Copy of os.environ without credentials, used as the base env of every eval command."""
+    return {k: v for k, v in os.environ.items() if not _SECRET_ENV_NAME_RE.search(k)}
+
+
 class EvalRunner:
     def __init__(self, project_root: Path):
         self.project_root = project_root.resolve()
@@ -54,7 +79,7 @@ class EvalRunner:
         base: Optional[Dict[str, str]],
         extra: Optional[Dict[str, str]],
     ) -> Dict[str, str]:
-        env = os.environ.copy()
+        env = scrubbed_process_env()
         if base:
             env.update({str(k): str(v) for k, v in base.items()})
         if extra:
@@ -73,6 +98,8 @@ class EvalRunner:
         blocking: bool = True,
         environment_requirements: Optional[List[str]] = None,
     ) -> EvalCase:
+        if env is None:
+            env = scrubbed_process_env()
         try:
             proc = subprocess.run(
                 cmd,

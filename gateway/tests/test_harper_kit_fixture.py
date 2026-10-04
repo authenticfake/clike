@@ -6,13 +6,10 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GATEWAY_ROOT = REPO_ROOT / "gateway"
-ORCHESTRATOR_ROOT = REPO_ROOT / "orchestrator"
 if str(GATEWAY_ROOT) not in sys.path:
     sys.path.insert(0, str(GATEWAY_ROOT))
-if str(ORCHESTRATOR_ROOT) not in sys.path:
-    sys.path.insert(1, str(ORCHESTRATOR_ROOT))
 
-from services.methodologies.resolver import resolve_methodology_context
+from methodology_contexts import resolve_methodology_context
 
 
 PROMPT_FIXTURE = GATEWAY_ROOT / "tests/fixtures/coffebuddy_bmad__f975f4413d3f5819e8f915194__kit.json"

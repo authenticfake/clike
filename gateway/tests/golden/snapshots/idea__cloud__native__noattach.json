@@ -1,0 +1,25 @@
+{
+  "provider_calls": [],
+  "response": {
+    "diffs": [],
+    "echo": "openai:gpt-5.4-mini :: IDEA generation",
+    "errors": [
+      "Error no attachments found. Idea phase failed."
+    ],
+    "files": [],
+    "ok": false,
+    "phase": "idea",
+    "runId": "golden-run",
+    "telemetry": null,
+    "tests": {
+      "failed": 1,
+      "passed": 0,
+      "summary": "Error no attachments found for IDEA.md - phase failed."
+    },
+    "text": "No RAG context. No file attachments found. IDEA phase failed.",
+    "warnings": [
+      "Please send an attachment. Idea phase failed."
+    ]
+  },
+  "status": 200
+}

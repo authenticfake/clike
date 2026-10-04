@@ -1,0 +1,192 @@
+{
+  "advisory_only": false,
+  "agent": "developer",
+  "allowed_agents": [
+    "developer"
+  ],
+  "artifact_policy": {
+    "allowed_companion_root_globs": [
+      "runs/kit/<REQ-ID>/docs/**"
+    ],
+    "authority": "candidate-first-governed-output",
+    "canonical_outputs": [
+      "runs/kit/<REQ-ID>/src/**",
+      "runs/kit/<REQ-ID>/test/**",
+      "runs/kit/<REQ-ID>/ci/**",
+      "runs/kit/<REQ-ID>/docs/TARGET_CONTRACT.json",
+      "runs/kit/<REQ-ID>/docs/FILE_REQUIREMENTS.json"
+    ],
+    "companion_only": false,
+    "conflict_resolution": "canonical-wins",
+    "downstream_consumers": [
+      "eval/qa",
+      "eval/developer",
+      "finalize/tech-writer"
+    ],
+    "forbidden_outputs": [
+      "docs/harper/PLAN.md",
+      "docs/harper/plan.json",
+      "src/**",
+      "test/**",
+      "tests/**"
+    ],
+    "mandatory_companion_outputs": [
+      "runs/kit/<REQ-ID>/docs/BMAD_DEV_STORY.md",
+      "runs/kit/<REQ-ID>/docs/IMPLEMENTATION_NOTES.md",
+      "runs/kit/<REQ-ID>/docs/SELF_REVIEW.md",
+      "runs/kit/<REQ-ID>/docs/RUNBOOK.md"
+    ],
+    "open_ended_generation_allowed": true
+  },
+  "authority": "methodology_profile",
+  "companion_artifact_suggestions": {
+    "bmad_root": "docs/harper/bmad",
+    "notes": [
+      "Companion artifacts are optional CLike-owned context.",
+      "Companion artifacts cannot override canonical IDEA, SPEC, PLAN, KIT, EVAL, GATE, or FINALIZE artifacts.",
+      "Companion artifacts must not expand write permissions or change eval/gate decisions."
+    ],
+    "ux_root": "docs/harper/ux"
+  },
+  "companion_artifacts": [
+    "runs/kit/<REQ-ID>/docs/BMAD_DEV_STORY.md",
+    "runs/kit/<REQ-ID>/docs/IMPLEMENTATION_NOTES.md",
+    "runs/kit/<REQ-ID>/docs/SELF_REVIEW.md",
+    "runs/kit/<REQ-ID>/docs/RUNBOOK.md"
+  ],
+  "default_agent": "developer",
+  "governance": {
+    "artifact_importer_enabled": false,
+    "external_bmad_cli_enabled": false,
+    "profile_context_injection_enabled": true,
+    "runtime_dependency_enabled": false
+  },
+  "governance_boundaries": [
+    "CLike remains the governance runtime and source of truth.",
+    "Methodology guidance is not an executor selection mechanism.",
+    "Methodology guidance cannot override CLike phase contracts, eval/gate policy, allowed_write_roots, forbidden_paths, candidate isolation, or output schemas.",
+    "BMAD profiles do not add a BMAD runtime, external CLI call, hard dependency, importer, TEA, Party Mode, or MCP write tools.",
+    "If methodology guidance conflicts with CLike rules, follow CLike."
+  ],
+  "methodology": "bmad",
+  "methodology_name": "BMAD",
+  "phase": "kit",
+  "profile": {
+    "id": "developer",
+    "profile_path": "agents/developer.md",
+    "summary": "Prepares candidate-first implementation through dev stories, quick dev focus, QA test generation, code review, sprint planning, story creation, and forensic investigation.",
+    "title": "Developer"
+  },
+  "requested_agent": "developer",
+  "required_context": [
+    "current REQ",
+    "TARGET_CONTRACT.json",
+    "FILE_REQUIREMENTS.json",
+    "TECH_CONSTRAINTS.yaml",
+    "dependency KIT roots"
+  ],
+  "selected_skill_context": {
+    "companion_outputs": [
+      "`runs/kit/<REQ-ID>/docs/BMAD_DEV_STORY.md`",
+      "`runs/kit/<REQ-ID>/docs/IMPLEMENTATION_NOTES.md`",
+      "`runs/kit/<REQ-ID>/docs/SELF_REVIEW.md`",
+      "`runs/kit/<REQ-ID>/docs/RUNBOOK.md`",
+      "`docs/harper/bmad/plan/STORIES.md`",
+      "`docs/harper/bmad/plan/STORY_MAP.md`",
+      "`docs/harper/bmad/plan/IMPLEMENTATION_READINESS.md`"
+    ],
+    "forbidden_behavior": [
+      "Do not write outside `runs/kit/<REQ-ID>/**`.",
+      "Do not modify canonical `src/`, `test/`, `tests/`, `docs/harper/PLAN.md`, or `plan.json`.",
+      "Do not call `npx bmad-method`.",
+      "Do not decide eval or gate results.",
+      "Do not weaken tests to pass.",
+      "Do not implement multiple REQs in one KIT run.",
+      "Do not modify canonical `PLAN.md` or `plan.json` from local-agent packages.",
+      "Do not treat companion story docs as authoritative over canonical REQs.",
+      "Do not expand allowed write roots."
+    ],
+    "governance_boundaries": [
+      "CLike owns local-agent packaging, write roots, EvalRunner, Gate, and promotion.",
+      "CLike owns REQ selection, active output contracts, write policy, EvalRunner, and Gate."
+    ],
+    "mapping_paths": [
+      ".clike/skills/vendor/bmad/dev-story-execution/SKILL.md",
+      ".clike/skills/vendor/bmad/story-readiness/SKILL.md"
+    ],
+    "quality_checks": [
+      "Implements exactly the target REQ.",
+      "Reuses existing contracts and dependency KITs when available.",
+      "Provides tests and executable validation contracts.",
+      "Keeps runtime choices grounded in evidence.",
+      "Documents assumptions and unresolved blockers.",
+      "The target slice is coherent and not a thin technical fragment.",
+      "Dependencies and downstream assumptions are explicit.",
+      "Expected files, tests, and boundaries are named.",
+      "Open questions are blockers or assumptions, not hidden implementation choices."
+    ],
+    "required_outputs": [
+      "Candidate source, tests, CI, docs, LTC, HOWTO, and required BMAD developer companion notes under the target KIT root.",
+      "Summary of files changed, commands run, evidence, and unresolved gaps.",
+      "Stories or REQs with clear functional scope, technical scope, acceptance, dependencies, and expected files/tests.",
+      "Implementation readiness notes that identify blockers before KIT."
+    ],
+    "snippets": [
+      {
+        "id": "dev-story-execution",
+        "path": ".clike/skills/vendor/bmad/dev-story-execution/SKILL.md",
+        "snippet": "# BMAD Skill Mapping: Dev Story Execution\n\n## Intent\nGuide local-agent implementation of one target REQ as a promotable candidate slice with source, tests, CI, docs, and self-review.\n\n## BMAD source/reference concept\nInspired by BMAD developer story execution and self-review practices: implement against a ready story, preserve traceability, and document evidence.\n\n## CLike adaptation\nUse this mapping only inside CLike KIT packages for `kit/developer`. It improves implementation discipline but never changes candidate write roots or promotion authority.\n\n## Applies when\nApplies to `kit/developer`.\n\n## Required inputs\n- `AGENT_EXECUTION_CONTEXT.json`.\n- SPEC, PLAN, `plan.json`, TECH_CONSTRAINTS, target contract, file requirements.\n- Dependency KIT roots and promoted source/test roots as read-only context.\n- Selected capability context and BMAD companion docs when present.\n\n## Required outputs\n- Candidate source, tests, CI, docs, LTC, HOWTO, and required BMAD developer companion notes under the target KIT root.\n- Summary of files changed, commands run, evidence, and unresolved gaps.\n\n## Companion outputs\n- `runs/kit/<REQ-ID>/docs/BMAD_DEV_STORY.md`\n- `runs/kit/<REQ-ID>/docs/IMPLEMENTATION_NOTES.md`\n- `runs/kit/<REQ-ID>/docs/SELF_REVIEW.md`\n- `runs/kit/<REQ-ID>/docs/RUNBOOK.md`\n\n## Downstream consumers\nEvalRunner, Gate, promotion, FINALIZE, and later REQs consume candidate artifacts\n\n...[truncated]",
+        "truncated": true
+      },
+      {
+        "id": "story-readiness",
+        "path": ".clike/skills/vendor/bmad/story-readiness/SKILL.md",
+        "snippet": "# BMAD Skill Mapping: Story Readiness\n\n## Intent\nEnsure each planned story or REQ is ready for implementation with scope, dependencies, acceptance, files, tests, and risks clearly stated.\n\n## BMAD source/reference concept\nInspired by BMAD story readiness and backlog refinement practices: stories should be actionable, bounded, and testable.\n\n## CLike adaptation\nUse this mapping to improve PLAN REQs, plan companion story maps, and KIT handoff notes while preserving CLike REQ identity and candidate boundaries.\n\n## Applies when\nApplies to `plan/architect`, `plan/pm`, and `kit/developer`.\n\n## Required inputs\n- PLAN and `plan.json`.\n- Target REQ and dependencies.\n- Lane guides, TECH_CONSTRAINTS, and architecture or PM companion docs.\n\n## Required outputs\n- Stories or REQs with clear functional scope, technical scope, acceptance, dependencies, and expected files/tests.\n- Implementation readiness notes that identify blockers before KIT.\n\n## Companion outputs\n- `docs/harper/bmad/plan/STORIES.md`\n- `docs/harper/bmad/plan/STORY_MAP.md`\n- `docs/harper/bmad/plan/IMPLEMENTATION_READINESS.md`\n- `runs/kit/<REQ-ID>/docs/BMAD_DEV_STORY.md`\n\n## Downstream consumers\nKIT, EVAL, and FINALIZE use story readiness to avoid guessing and to report traceable implementation evidence.\n\n## Quality checks\n- The target slice is coherent and not a thin technical fragment.\n- Dependencies and downstream assumptio\n\n...[truncated]",
+        "truncated": true
+      }
+    ],
+    "source_root": ".clike/skills/vendor/bmad",
+    "source_transport": "template"
+  },
+  "selected_skill_references": [
+    {
+      "bytes": 2657,
+      "id": "dev-story-execution",
+      "path": ".clike/skills/vendor/bmad/dev-story-execution/SKILL.md",
+      "source_root": ".clike/skills/vendor/bmad",
+      "source_transport": "template"
+    },
+    {
+      "bytes": 2417,
+      "id": "story-readiness",
+      "path": ".clike/skills/vendor/bmad/story-readiness/SKILL.md",
+      "source_root": ".clike/skills/vendor/bmad",
+      "source_transport": "template"
+    }
+  ],
+  "skill_reference_policy": {
+    "activation": "methodology=bmad",
+    "cloud_context_enabled": true,
+    "enabled": true,
+    "external_bmad_cli_enabled": false,
+    "external_skill_execution_enabled": false,
+    "local_agent_context_enabled": true,
+    "network_fetch_enabled": false,
+    "official_bmad_runtime_content_vendored": false,
+    "review_required_before_activation": true,
+    "runtime_import_enabled": false,
+    "sync_mode": "manual_or_container_controlled",
+    "template_vendor_reference_root": "extensions/vscode/templates/harper-init/.clike/skills/vendor/bmad",
+    "workspace_vendor_reference_root": ".clike/skills/vendor/bmad"
+  },
+  "version": "clike-built-in-profile-v7",
+  "workflow_focus": [
+    "turn current REQ into implementation-ready candidate files",
+    "inspect dependencies and promoted roots as read-only evidence",
+    "produce source, tests, CI, docs, LTC, and HOWTO artifacts",
+    "preserve candidate isolation and CLike write boundaries",
+    "repair only focused failures when repair intent is present"
+  ],
+  "workflow_path": "workflows/kit.md",
+  "workflow_summary": "Generate candidate-first implementation and tests for exactly the current REQ under CLike write boundaries."
+}

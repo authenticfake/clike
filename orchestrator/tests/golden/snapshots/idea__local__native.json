@@ -1,0 +1,118 @@
+{
+  "gateway_calls": [],
+  "output": {
+    "diffs": [],
+    "echo": "Local agent idea package prepared for Harper IDEA",
+    "errors": [],
+    "execution": {
+      "phase_supported": true,
+      "reason": "golden",
+      "requested": "local_agent_only",
+      "selected": "local_agent"
+    },
+    "files": [],
+    "local_agent": {
+      "action": "local_agent_required",
+      "active_output_contract": {
+        "agent": null,
+        "allowed_optional_output_globs": [],
+        "conflict_resolution": "native-clike-contract-wins",
+        "forbidden_output_globs": [],
+        "methodology": "native_clike",
+        "phase": "idea",
+        "required_context_sections": [
+          "attachments",
+          "Harper chat history",
+          "repository/RAG context"
+        ],
+        "required_outputs": [
+          "docs/harper/IDEA.md"
+        ],
+        "runner": "local_agent",
+        "strict_missing_required_outputs": false
+      },
+      "allowed_write_roots": [
+        "docs/harper/IDEA.md"
+      ],
+      "context_path": "runs/idea/docs/AGENT_IDEA_CONTEXT.json",
+      "executor_hint": "claude_code",
+      "expected_outputs": {
+        "always": [
+          "docs/harper/IDEA.md"
+        ],
+        "conditional": []
+      },
+      "forbidden_paths": [
+        ".git",
+        "src",
+        "test",
+        "tests",
+        "runs/kit",
+        "runs/eval",
+        "runs/gate",
+        "node_modules",
+        ".venv",
+        "__pycache__",
+        "__MACOSX"
+      ],
+      "invocation": {
+        "args": [
+          "-p",
+          "--permission-mode",
+          "acceptEdits"
+        ],
+        "command_ref": "claude_code",
+        "cwd": ".",
+        "executor": "claude_code",
+        "prompt_transport": "argv_last",
+        "schema_version": "clike.local_agent_invocation.v1",
+        "timeout_seconds": 1800
+      },
+      "package_files": [
+        {
+          "content": "{\n  \"schema_version\": \"clike.agent.idea_context.v1\",\n  \"phase\": \"idea\",\n  \"run_id\": \"golden-run\",\n  \"input_sources\": {\n    \"idea_md_present\": false,\n    \"spec_md_present\": false,\n    \"plan_md_present\": false,\n    \"attachments_present\": true,\n    \"attachment_count\": 1\n  },\n  \"attachments\": {\n    \"present\": true,\n    \"count\": 1,\n    \"items\": [\n      {\n        \"name\": \"IDEA.md\",\n        \"original_path\": \"CoffeeBuddy/IDEA.md\",\n        \"mime\": \"text/markdown\",\n        \"workspace_path\": \"runs/idea/attachments/IDEA.md\",\n        \"materialized\": true\n      }\n    ]\n  },\n  \"mission\": {\n    \"purpose\": \"Synthesize a concise, testable canonical Harper IDEA.md strictly from current-run attachments and chat intent.\",\n    \"canonical_output\": \"docs/harper/IDEA.md\"\n  },\n  \"required_reads\": [\n    \"current-run attachments listed in this package context (the ONLY source of truth for /idea)\",\n    \"Harper chat history only to clarify user intent, never as a source document\",\n    \".clike/project.json when present (project metadata only, not idea source)\"\n  ],\n  \"allowed_write_roots\": [\n    \"docs/harper/IDEA.md\"\n  ],\n  \"forbidden_paths\": [\n    \".git\",\n    \"src\",\n    \"test\",\n    \"tests\",\n    \"runs/kit\",\n    \"runs/eval\",\n    \"runs/gate\",\n    \"node_modules\",\n    \".venv\",\n    \"__pycache__\",\n    \"__MACOSX\"\n  ],\n  \"output_contract\": {\n    \"always\": [\n      \"docs/harper/IDEA.md\"\n    ],\n    \"conditional\": []\n  },\n  \"active_output_contract\": {\n    \"phase\": \"idea\",\n    \"runner\": \"local_agent\",\n    \"methodology\": \"native_clike\",\n    \"agent\": null,\n    \"required_outputs\": [\n      \"docs/harper/IDEA.md\"\n    ],\n    \"allowed_optional_output_globs\": [],\n    \"forbidden_output_globs\": [],\n    \"required_context_sections\": [\n      \"attachments\",\n      \"Harper chat history\",\n      \"repository/RAG context\"\n    ],\n    \"strict_missing_required_outputs\": false,\n    \"conflict_resolution\": \"native-clike-contract-wins\"\n  },\n  \"hard_rules\": [\n    \"Write only docs/harper/IDEA.md. Do not write any other docs/harper path.\",\n    \"docs/harper/IDEA.md must start with `# IDEA — <Project Name>`.\",\n    \"Use the canonical IDEA schema headings exactly once and in order: Vision, Problem Statement, Target Users & Context, Value & Outcomes, Out of Scope, Technology Constraints, Risks & Assumptions, Success Metrics.\",\n    \"Technology Constraints must contain exactly one valid fenced YAML block.\",\n    \"Use ONLY the current-run attachments listed in this package as /idea source material.\",\n    \"Do not read or reuse stale workspace files: do not read ORI.IDEA.md, prior IDEA* variants, stale .clike/uploads files, or prior-session files unless they are explicitly listed in the current attachment manifest.\",\n    \"Treat any existing docs/harper/IDEA.md only as the overwrite target, never as a source of truth.\",\n    \"Attachment-first: do not invent facts, vendors, APIs, endpoints, project keys, or frameworks.\",\n    \"Do not hallucinate a stack (Python, Node, cloud provider, database, queue, UI framework, IaC tool, deployment target) unless evidenced.\",\n    \"Keep IDEA.md concise and downstream-ready; it is not a PRD, architecture doc, or SPEC draft.\",\n    \"Do not run git commands.\",\n    \"Do not modify src/, test/, tests/, runs/kit/, runs/eval/, or runs/gate/.\"\n  ],\n  \"validation_expectations\": [\n    \"docs/harper/IDEA.md exists after the change.\",\n    \"It starts with `# IDEA — <Project Name>`.\",\n    \"Every canonical heading appears exactly once and in order.\",\n    \"Technology Constraints contains exactly one valid fenced YAML block.\",\n    \"No template markers (BEGIN_FILE/END_FILE) or placeholders remain in file content.\"\n  ]\n}",
+          "encoding": "utf-8",
+          "mime": "application/json",
+          "path": "runs/idea/docs/AGENT_IDEA_CONTEXT.json"
+        },
+        {
+          "content": "# Local Agent IDEA Execution Package — Harper IDEA\n\nYou are executing a CLike Harper /idea package.\nThe orchestrator owns workflow state, policy, and validation. The local agent is only the workspace document actuator.\n\n\nRead before acting:\n- runs/idea/docs/AGENT_IDEA_CONTEXT.json\n- current-run attachments listed in this package context (the ONLY source of truth for /idea)\n- Harper chat history only to clarify user intent, never as a source document\n- .clike/project.json when present (project metadata only, not idea source)\n\nAttachments (1) — current-run source of truth (workspace-local copies):\n- runs/idea/attachments/IDEA.md (text/markdown)\n- Read every workspace_path listed above before producing output. Multiple attachments are allowed and all must be read.\n- workspace_path entries are inside the current working directory; read those. Do NOT read original_path — it is metadata only and may be outside the workspace.\n- For PDF attachments, read and extract their full textual content and use it as primary evidence.\n- For image attachments (png/jpg/jpeg/gif/webp/svg/...), use vision to describe precisely what the image shows — UI screens, layouts, components, diagrams, charts, labels, and any visible text — and use that description as evidence.\n- If an attachment cannot be opened or understood (unsupported binary), state it explicitly as a gap; never invent its content.\n- These current-run materialized attachments are the ONLY source of truth for /idea; do not rely only on RAG.\n- Do not use stale workspace files or old uploads. Do not read ORI.IDEA.md or any IDEA* variant unless it is explicitly listed above as a current-run attachment workspace_path.\n- Any existing docs/harper/IDEA.md is the overwrite target only, never a source.\n\n## Canonical Harper IDEA contract (cloud parity — authoritative)\nThese expectations are the canonical cloud /idea contract. The local\nartifact must be isofunctional with the cloud artifact and never weaker:\n- # IDEA — <Project Name>\n- Attachment-first\n- Technology Constraints contains exactly one valid fenced YAML block\n- Every primary heading in the canonical schema appears exactly once and in order\n- No `BEGIN_FILE`, `END_FILE`, unresolved placeholders, or prompt template text\nMatch or exceed the cloud artifact: be more explicit, more traceable to the\nprevious phase, richer in acceptance criteria/constraints/risks/verification\nhooks, and downstream-ready — but never skeletal and never heading-only.\n\nMission:\n- Produce the canonical docs/harper/IDEA.md for this idea.\n- Use attachments as the primary source of truth; use chat only to clarify intent.\n- Mark estimated values as explicit assumptions; never invent vendors, endpoints, or frameworks.\n\nCanonical IDEA.md schema (headings exactly once, in this order):\n- `# IDEA — <Project Name>` as the first line.\n- ## Vision\n- ## Problem Statement\n- ## List of business requirements or user stories\n- ## Target Users & Context\n- ## Value & Outcomes\n- ## Out of Scope\n- ## Technology Constraints (exactly one valid fenced YAML block)\n- ## Risks & Assumptions\n- ## Success Metrics\n\nAllowed writes:\n- docs/harper/IDEA.md (only)\n\nForbidden writes:\n- any docs/harper path other than the allowed writes above\n- src/, test/, tests/\n- runs/kit/, runs/eval/, runs/gate/\n- .git/\n\nExecution rules:\n- Follow AGENT_*_CONTEXT.json as the source of truth.\n- Do not run git commands.\n- Before final output, normalize every created or modified text file by stripping trailing whitespace and ensuring a final newline.\n- Do not invent facts, vendors, APIs, endpoints, project keys, or frameworks not evidenced by inputs.\n\nAt the end, print a concise summary with files changed, validation performed, and unresolved gaps.",
+          "encoding": "utf-8",
+          "mime": "text/markdown",
+          "path": "runs/idea/docs/AGENT_IDEA_PROMPT.md"
+        },
+        {
+          "content": "# IDEA — CoffeeBuddy\n\n## Vision\nCoffeeBuddy streamlines office coffee runs entirely within the corporate network: teammates submit orders via Slack, one teammate is fairly assigned as runner, reminders are sent, and preferences are remembered—without relying on public cloud.\n\n## Problem Statement\nTeams coordinate coffee orders in ad-hoc Slack threads. Messages get buried, someone forgets to pick up, and no one remembers preferences. In regulated environments, external cloud services are restricted, so the solution must run fully on-prem.\n\n## Target Users & Context\n- Primary: office teammates placing and picking up coffee orders.\n- Secondary: office managers seeking fairness and reduced coordination time.\n- Context: Enterprise Slack workspace; on-prem Kubernetes; internal identity and gateways only.\n\n## Value & Outcomes\n- Reduce coordination time to under 2 minutes per run.\n- Fewer mistakes with consistent order summaries.\n- Transparent, fair runner assignment across the team.\n\n## Out of Scope\nPayments, delivery logistics, vendor integrations beyond Slack workflows.\n\n## Technology Constraints\n```yaml\ntech_constraints:\n  version: 1.0.0\n  profiles:\n    - name: onprem\n      runtime: python\n      platform: kubernetes\n      ingress: nginx\n      api:\n        - slack.events\n        - rest\n      storage:\n        - postgres\n      messaging:\n        - kafka\n      auth:\n        - oidc\n      observability:\n        - prometheus\n        - grafana\n  capabilities:\n    - type: api.gateway\n      vendor: Kong Gateway\n      params:\n        routes: internal-only\n    - type: idp\n      vendor: Ory Hydra, Ory Kratos\n      params:\n        oidc: true\n    - type: db.relational\n      vendor: postgres\n      params:\n        ha: true\n    - type: mq.stream\n      vendor: apache.kafka\n      params:\n        partitions: 3\n    - type: secrets.manager\n      vendor: hashicorp.vault\n      params: {}\n    - type: ci.ci\n      vendor: jenkins\n      params: {}\n```\n## Risks & Assumptions\n\nAssumption: Slack enterprise is allowed internally; incoming events proxied via on-prem gateway.\n\nRisk: Slack rate limits; mitigated via Kafka buffering and backoff.\n\n## Success Metrics (early)\n\nWeekly active coffee runs per active user.\n\nTime from first /coffee to order confirmation.\n\n## Sources & Inspiration\n\nSlack platform patterns (internal reference).\n\nExisting enterprise standards for Kubernetes, Ory Hydra & Ory Kratos, Kong Gateway, hashicorp as Vault, and Kafka.",
+          "encoding": "utf-8",
+          "mime": "text/markdown",
+          "path": "runs/idea/attachments/IDEA.md"
+        }
+      ],
+      "package_id": "golden-run:SOLUTION:idea",
+      "phase": "idea",
+      "prompt_content": "# Local Agent IDEA Execution Package — Harper IDEA\n\nYou are executing a CLike Harper /idea package.\nThe orchestrator owns workflow state, policy, and validation. The local agent is only the workspace document actuator.\n\n\nRead before acting:\n- runs/idea/docs/AGENT_IDEA_CONTEXT.json\n- current-run attachments listed in this package context (the ONLY source of truth for /idea)\n- Harper chat history only to clarify user intent, never as a source document\n- .clike/project.json when present (project metadata only, not idea source)\n\nAttachments (1) — current-run source of truth (workspace-local copies):\n- runs/idea/attachments/IDEA.md (text/markdown)\n- Read every workspace_path listed above before producing output. Multiple attachments are allowed and all must be read.\n- workspace_path entries are inside the current working directory; read those. Do NOT read original_path — it is metadata only and may be outside the workspace.\n- For PDF attachments, read and extract their full textual content and use it as primary evidence.\n- For image attachments (png/jpg/jpeg/gif/webp/svg/...), use vision to describe precisely what the image shows — UI screens, layouts, components, diagrams, charts, labels, and any visible text — and use that description as evidence.\n- If an attachment cannot be opened or understood (unsupported binary), state it explicitly as a gap; never invent its content.\n- These current-run materialized attachments are the ONLY source of truth for /idea; do not rely only on RAG.\n- Do not use stale workspace files or old uploads. Do not read ORI.IDEA.md or any IDEA* variant unless it is explicitly listed above as a current-run attachment workspace_path.\n- Any existing docs/harper/IDEA.md is the overwrite target only, never a source.\n\n## Canonical Harper IDEA contract (cloud parity — authoritative)\nThese expectations are the canonical cloud /idea contract. The local\nartifact must be isofunctional with the cloud artifact and never weaker:\n- # IDEA — <Project Name>\n- Attachment-first\n- Technology Constraints contains exactly one valid fenced YAML block\n- Every primary heading in the canonical schema appears exactly once and in order\n- No `BEGIN_FILE`, `END_FILE`, unresolved placeholders, or prompt template text\nMatch or exceed the cloud artifact: be more explicit, more traceable to the\nprevious phase, richer in acceptance criteria/constraints/risks/verification\nhooks, and downstream-ready — but never skeletal and never heading-only.\n\nMission:\n- Produce the canonical docs/harper/IDEA.md for this idea.\n- Use attachments as the primary source of truth; use chat only to clarify intent.\n- Mark estimated values as explicit assumptions; never invent vendors, endpoints, or frameworks.\n\nCanonical IDEA.md schema (headings exactly once, in this order):\n- `# IDEA — <Project Name>` as the first line.\n- ## Vision\n- ## Problem Statement\n- ## List of business requirements or user stories\n- ## Target Users & Context\n- ## Value & Outcomes\n- ## Out of Scope\n- ## Technology Constraints (exactly one valid fenced YAML block)\n- ## Risks & Assumptions\n- ## Success Metrics\n\nAllowed writes:\n- docs/harper/IDEA.md (only)\n\nForbidden writes:\n- any docs/harper path other than the allowed writes above\n- src/, test/, tests/\n- runs/kit/, runs/eval/, runs/gate/\n- .git/\n\nExecution rules:\n- Follow AGENT_*_CONTEXT.json as the source of truth.\n- Do not run git commands.\n- Before final output, normalize every created or modified text file by stripping trailing whitespace and ensuring a final newline.\n- Do not invent facts, vendors, APIs, endpoints, project keys, or frameworks not evidenced by inputs.\n\nAt the end, print a concise summary with files changed, validation performed, and unresolved gaps.",
+      "prompt_path": "runs/idea/docs/AGENT_IDEA_PROMPT.md",
+      "req_id": "SOLUTION"
+    },
+    "ok": true,
+    "phase": "idea",
+    "runId": "golden-run",
+    "tests": {
+      "failed": 0,
+      "passed": 0,
+      "summary": "local-agent-idea-package-prepared"
+    },
+    "text": "",
+    "warnings": [
+      "execution_package:local_agent_required",
+      "extension_role:local_actuator_only",
+      "idea_requires_harper_docs_mutation"
+    ]
+  },
+  "scenario": {
+    "executor": "local",
+    "methodology": null,
+    "phase": "idea",
+    "variant": ""
+  }
+}

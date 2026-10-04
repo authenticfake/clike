@@ -11,6 +11,12 @@ RUNTIME_ROOTS = [
 ]
 SOURCE_SUFFIXES = {".py", ".js"}
 EXCLUDED_PARTS = {"tests", "test", "docs", "methodologies"}
+# Installed third-party code is not CLike runtime source.
+DEPENDENCY_PARTS = {"node_modules", "site-packages", "__pycache__"}
+
+
+def _is_dependency_dir(part: str) -> bool:
+    return part in DEPENDENCY_PARTS or part.startswith(".venv")
 
 
 def _runtime_sources():
@@ -18,7 +24,7 @@ def _runtime_sources():
         for path in root.rglob("*"):
             if path.suffix not in SOURCE_SUFFIXES:
                 continue
-            if any(part in EXCLUDED_PARTS for part in path.parts):
+            if any(part in EXCLUDED_PARTS or _is_dependency_dir(part) for part in path.relative_to(root).parts):
                 continue
             yield path, path.read_text(encoding="utf-8", errors="ignore")
 

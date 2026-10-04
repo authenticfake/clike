@@ -4,32 +4,82 @@
 
 The inspected `docker/docker-compose.yml` defines these services:
 
-- `gateway` on port `8000`
-- `orchestrator` on port `8080`
-- `ollama` on port `11434`
-- `qdrant` on port `6333`
+- `gateway` on `127.0.0.1:8000`
+- `orchestrator` on `127.0.0.1:8080`
+- `qdrant` on `127.0.0.1:6333`
+- `eval-sandbox` — not published; executes eval/gate commands (see below)
+- `ollama` on `127.0.0.1:11434` — optional, only with `--profile ollama`
+
+All ports are published on loopback only. Set `CLIKE_PROJECTS_DIR` in `docker/.env`
+(see `docker/.env.example`): it is mounted read-only at the same path and exposed as `DEV_FOLDER`.
+The stack runs with Podman (`podman-compose`) or Docker Compose.
 
 ## Service startup model
 
 ### Gateway
-Default command:
+Image command (Python 3.12, dependencies installed from `gateway/uv.lock`):
 ```bash
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
 ### Orchestrator
-Default command:
+Image command (Python 3.12, dependencies from `orchestrator/uv.lock`, plus the
+`eval-toolchain` group used by KIT LTC commands while eval runs in this container):
 ```bash
-uvicorn app:app --host 0.0.0.0 --port 8080 --reload
+uvicorn app:app --host 0.0.0.0 --port 8080
 ```
 
-### Ollama
-Runs as a sidecar local model service and is initialized with a bootstrap container that ensures `nomic-embed-text` is present.
+Both services have compose healthchecks; the orchestrator starts after the gateway is healthy.
+Both run as the non-root user `clike` (uid 1000).
+
+### Mounts
+- orchestrator: the CLike repo read-only at `/workspace` (including `.git`), writable only
+  `src/` and `tests/` (generated code), `docker/runs` at `/app/runs`, configs read-only,
+  the projects dir read-only at its host path.
+- gateway: `configs` read-only, `telemetry` read-write, `gateway/stub` read-only, the
+  projects dir read-only.
+There is no `--reload` in containers: rebuild the images after code changes.
+
+### Eval sandbox
+`eval-sandbox` runs the LTC commands of eval/gate (they are authored by models during `/kit`).
+It holds no credentials (it refuses to start if any are present), lives only on the dedicated
+`evalnet` network (it cannot reach the gateway or Qdrant), runs non-root on a read-only root
+filesystem with a tmpfs `/tmp`, all capabilities dropped and resource limits, and sees the
+projects directory read-only. Egress is allowed so that dependency installs work; for offline
+evaluation (dependencies already available) start the stack with:
+
+```bash
+podman-compose -f docker-compose.yml -f compose.eval-offline.yml up -d
+```
+
+Gate integrity state (acceptance locks, override audit log) lives in `docker/runs/state`.
+
+### Ollama (optional)
+Started only with `podman-compose --profile ollama up -d`; an init container ensures `nomic-embed-text` is present.
 
 ### Qdrant
 Runs as the vector store backing RAG persistence.
 
 ## Main environment variables
+
+### Shared (root `.env`, loaded by both services)
+- `CLIKE_API_TOKEN` — **required** service token (`openssl rand -hex 32`); every endpoint except
+  `/health` requires `Authorization: Bearer <token>`. Without it the services answer `503`.
+- `CLIKE_ALLOWED_HOSTS` — optional override of accepted `Host` names
+  (default `localhost,127.0.0.1,::1,gateway,orchestrator`).
+- provider keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, …).
+
+### Compose (`docker/.env`)
+- `CLIKE_PROJECTS_DIR` — host folder containing your projects; mounted read-only at the same path
+  and exposed to the services as `DEV_FOLDER`. Eval/gate only operate on projects under it.
+
+### Eval / gate (orchestrator)
+- `DEV_FOLDER` — allowed root for eval/gate project roots (set from `CLIKE_PROJECTS_DIR`).
+- `CLIKE_EVAL_SANDBOX_URL` — eval sandbox endpoint (compose: `http://eval-sandbox:8090`; unset = in-process).
+- `CLIKE_STATE_DIR` — gate integrity state (compose: `/app/runs/state`).
+- `CLIKE_EVAL_ALLOWED_ROOTS` — additional allowed roots (path-separator list).
+- `CLIKE_ALLOW_INLINE_LTC` — `1` to accept inline-only LTC profiles (default: the workspace profile
+  file is authoritative).
 
 ### Orchestrator
 Important environment variables in compose:
@@ -134,23 +184,32 @@ Current extension settings include:
 - `clike.localAgent.codex.printModeFlag`
 
 ### Git
-- `clike.git.autoCommit`
-- `clike.git.gitMergeOnGate`
-- `clike.git.gitDeleteBranchOnMerge`
-- `clike.git.gitReturnToFeatureAfterMerge`
-- `clike.git.remote`
-- `clike.git.defaultBranch`
-- `clike.git.branchPrefix`
-- `clike.git.prBodyPath`
+Automation is **off by default** (see [git-and-promotion.md](git-and-promotion.md)):
+- `clike.git.autoCommit` (`false`) — commit only the files of each phase
+- `clike.git.autoPush` (`false`, machine) — push commits, tags and gate merges
+- `clike.git.gitMergeOnGate` (`false`) — merge the REQ branch after a PASS gate
+- `clike.git.openPR` (`false`) — open a PR on `/finalize`
+- `clike.git.pushRebase` (`false`)
+- `clike.git.gitDeleteBranchOnMerge`, `clike.git.gitReturnToFeatureAfterMerge`
+- `clike.git.remote`, `clike.git.remoteUrl`, `clike.git.defaultBranch`, `clike.git.branchPrefix`,
+  `clike.git.tagPrefix`, `clike.git.conventionalCommits`, `clike.git.prBodyPath`
 
-### MCP
-- `clike.mcp.clientEnabled`
-- `clike.mcp.serverEnabled`
+### Service authentication
+- the service token is not a setting: run **CLike: Set Service Token** (stored in SecretStorage)
+
+### MCP (extension operational server)
+- `clike.mcp.extensionServerEnabled` (`false`)
+- `clike.mcp.extensionServerHost` (`127.0.0.1`), `clike.mcp.extensionServerPort` (`55742`)
+- `clike.mcp.extensionServerToken` — optional legacy override; by default a generated token in
+  SecretStorage (*CLike: Copy Extension MCP Token*)
+
+Security-relevant settings (service URLs, agent binaries/flags/permission and sandbox modes, MCP
+server, Git remote/push/auto-commit) are **machine-scoped**: a workspace cannot override them.
 
 ## Local workspace assumptions
 
 The current source tree assumes:
-- repository root mounted under `/workspace`
+- repository root mounted read-only under `/workspace` (only `src/` and `tests/` writable)
 - run artifacts under `/runs`
 - docs under `docs/harper`
 - source roots normally under `src`
@@ -170,16 +229,17 @@ Useful runtime checks:
 ## Startup guidance
 
 A normal local startup sequence is:
-1. start Qdrant
-2. start Ollama
-3. start Gateway
-4. start Orchestrator
-5. open the VS Code extension
-6. fetch models and verify health from the extension
-7. initialize or switch Harper project if needed
+1. configure `.env` (provider keys, `CLIKE_API_TOKEN`) and `docker/.env` (`CLIKE_PROJECTS_DIR`)
+2. `cd docker && podman-compose up -d --build` (Qdrant, gateway, then orchestrator once the gateway
+   is healthy; add `--profile ollama` for local models)
+3. in VS Code run *CLike: Set Service Token*
+4. open the CLike chat, fetch models and verify health from the extension
+5. initialize or switch the Harper project if needed
+
+After code changes: `podman-compose build && podman-compose up -d --force-recreate`.
 
 ## Operational cautions
 
-- The inspected package includes local absolute-volume assumptions for the author environment. Treat them as development-specific.
+- Projects must live under `CLIKE_PROJECTS_DIR`: eval/gate refuse other project roots (`403`).
 - Candidate artifacts are stored under `runs/kit/<REQ-ID>/...`; do not confuse them with promoted canonical roots.
 - MCP is optional and mounted only when orchestrator-side enablement is active.

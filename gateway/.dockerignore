@@ -1,0 +1,9 @@
+# Build context hygiene
+.venv/
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+*.bak
+*~clike.bak
+.DS_Store
+tests/

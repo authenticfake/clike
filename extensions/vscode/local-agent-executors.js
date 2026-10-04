@@ -283,7 +283,7 @@ function resolveLocalAgentCommandPath(command, options = {}) {
 
   // Bare command name → resolve from PATH preferring .cmd.
   try {
-    const out = cp.execSync(`where ${raw}`, { stdio: ['ignore', 'pipe', 'ignore'] }).toString();
+    const out = cp.execFileSync('where', [raw], { stdio: ['ignore', 'pipe', 'ignore'] }).toString();
     const picked = pickWindowsPathCandidate(out);
     if (picked) {
       log(`PATH candidates for "${raw}": [${out.trim().split(/\r?\n/).map((s) => s.trim()).filter(Boolean).join(', ')}] -> ${picked}`);
@@ -357,7 +357,8 @@ function commandExists(command, options = {}) {
 
   // POSIX: PATH resolution via `command -v` (fast, preserves prior behavior).
   try {
-    cp.execSync(`command -v ${cmd}`, { stdio: 'ignore' });
+    // `command -v` is a shell builtin: pass the name as a positional parameter, never inside the script.
+    cp.execFileSync('/bin/sh', ['-c', 'command -v -- "$1"', 'sh', String(cmd)], { stdio: 'ignore' });
     return true;
   } catch {
     return false;
@@ -507,7 +508,18 @@ function buildLocalAgentDisplayLabel(executorId) {
   return 'Local Agent';
 }
 
+// How the prompt reaches the agent CLI. On Windows .cmd shims run through
+// `cmd.exe /c`, where a prompt passed as an argument could be interpreted by the
+// shell (metacharacters in LLM/user text): there the prompt always goes on stdin.
+// Elsewhere the spawn has no shell, so the requested transport is kept.
+function resolvePromptTransport(executorId, requested, platform = process.platform) {
+  const base = String(requested || '').trim() || (String(executorId || '').trim() === 'gpt_codex' ? 'stdin' : 'argv_last');
+  if (base === 'argv_last' && isWindowsPlatform(platform)) return 'stdin';
+  return base;
+}
+
 module.exports = {
+  resolvePromptTransport,
   normalizeExecutionPreference,
   reconcileExecutionPreference,
   normalizeLocalAgentExecutor,

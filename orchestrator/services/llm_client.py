@@ -15,6 +15,7 @@ log = logging.getLogger("orcehstrator:service:llm_client")
 
 import os, json, httpx, asyncio
 from typing import Any, Dict, List, Optional
+from utils.service_auth import internal_auth_headers
 
 def _shrink_text(s: str, limit: int = 1200) -> str:
     if not isinstance(s, str):
@@ -62,7 +63,7 @@ async def call_gateway_chat_json(
         payload["profile"] = profile
 
     url = base_url.rstrip("/") + "/v1/chat/completions"
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with httpx.AsyncClient(timeout=timeout, headers=internal_auth_headers()) as client:
         r = await client.post(url, json=payload)
         # Se il provider risponde 400/500, riporto il body per diagnosi chiare
         try:
@@ -130,7 +131,7 @@ async def call_gateway_chat(
     if provider is not None:
         headers["X-CLike-Provider"] = provider
         
-    async with httpx.AsyncClient(timeout=to) as client:
+    async with httpx.AsyncClient(timeout=to, headers=internal_auth_headers()) as client:
         r = await client.post(f"{base}/v1/chat/completions", json=body, headers=headers)
         r.raise_for_status()
         txt = r.text
@@ -196,7 +197,7 @@ async def call_gateway_chat(
 async def call_gateway_generate(payload: dict, _headers: dict) -> str:
     _t0 = _time.time()
     timeout = payload.get("timeout", float(getattr(settings, "REQUEST_TIMEOUT_S", 240)))
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with httpx.AsyncClient(timeout=timeout, headers=internal_auth_headers()) as client:
         r = await client.post(f"{payload.get('base_url') or payload.get('base_url')}/v1/chat/completions", json=payload, headers=_headers)
         txt = r.text
         _ms = int((_time.time() - _t0) * 1000)
