@@ -80,3 +80,6 @@ telemetry/
 docker/certs/
 extensions/vscode/test/*debug*
 extensions/vscode/test/plan.json
+
+# Harper benchmark results (machine-specific, may contain generated code)
+benchmark/results/
