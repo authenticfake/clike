@@ -10,6 +10,7 @@ import httpx
 log = logging.getLogger("openai")
 
 from providers.http import post_with_retries
+from providers.result import _mk_unified_result
 
 # Base URL from the environment (OpenAI, Azure/OpenAI-compatible proxies); a per-call
 # base_url (from the model catalog) wins, e.g. for Ollama's OpenAI-compatible API.
@@ -92,24 +93,6 @@ def _normalize_and_validate(api_kind: str, payload: dict) -> dict:
 
     return out
 
-def _mk_unified_result(
-    ok: bool,
-    text: str,
-    files: Optional[List[Dict[str, Any]]] = None,
-    usage: Optional[Dict[str, Any]] = None,
-    finish_reason: Optional[str] = None,
-    raw: Optional[Dict[str, Any]] = None,
-    errors: Optional[List[str]] = None,
-) -> Dict[str, Any]:
-    return {
-        "ok": ok,
-        "text": text or "",
-        "files": files or [],
-        "usage": usage or {},
-        "finish_reason": finish_reason or "",
-        "raw": raw or {},
-        "errors": errors or [],
-    }
 
 def _build_chat_payload(
     model: str,

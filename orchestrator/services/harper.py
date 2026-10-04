@@ -2044,6 +2044,38 @@ def _inject_server_discovered_companion_artifacts(
     return updated_core_blobs
 
 
+def _local_agent_failure(
+    *,
+    phase: str,
+    summary: str,
+    warnings: List[str],
+    errors: List[str],
+    run_id: Any,
+    requested: Any,
+    reason: str,
+    phase_supported: bool,
+) -> Dict[str, Any]:
+    """Response when a phase selected for a local agent cannot be prepared or run."""
+    return {
+        "ok": False,
+        "phase": phase,
+        "echo": "",
+        "text": "",
+        "files": [],
+        "diffs": [],
+        "tests": {"passed": 0, "failed": 1, "summary": summary},
+        "warnings": warnings,
+        "errors": errors,
+        "runId": run_id,
+        "execution": {
+            "requested": requested,
+            "selected": "local_agent",
+            "reason": reason,
+            "phase_supported": phase_supported,
+        },
+    }
+
+
 async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
     # --- Normalizzazione in dict ---
     if hasattr(req_payload, "model_dump"):
@@ -2279,37 +2311,25 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
                     phase,
                     local_capabilities,
                 )
-                return {
-                    "ok": False,
-                    "phase": phase,
-                    "echo": "",
-                    "text": "",
-                    "files": [],
-                    "diffs": [],
-                    "tests": {
-                        "passed": 0,
-                        "failed": 1,
-                        "summary": f"no-local-agent-available-{phase}",
-                    },
-                    "warnings": [
+                return _local_agent_failure(
+                    phase=phase,
+                    summary=f"no-local-agent-available-{phase}",
+                    warnings=[
                         "execution_selected:local_agent",
                         f"{phase}_not_run",
                     ],
-                    "errors": [
+                    errors=[
                         "No local agent executor is available for phase="
                         f"{phase}. Install or enable a supported local agent "
                         "(claude_code or gpt_codex), or switch Execution away "
                         "from 'agent only'. "
                         f"availability={json.dumps(local_capabilities)}"
                     ],
-                    "runId": merged.get("runId"),
-                    "execution": {
-                        "requested": execution_preference,
-                        "selected": "local_agent",
-                        "reason": "no_local_executor_available",
-                        "phase_supported": True,
-                    },
-                }
+                    run_id=merged.get("runId"),
+                    requested=execution_preference,
+                    reason="no_local_executor_available",
+                    phase_supported=True,
+                )
 
             execution_policy = dict(execution_policy)
             execution_policy["selected"] = "cloud"
@@ -2425,31 +2445,19 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
             log.exception("harper.local_agent %s package failed", phase)
 
             if execution_preference == "local_agent_only":
-                return {
-                    "ok": False,
-                    "phase": phase,
-                    "echo": "",
-                    "text": "",
-                    "files": [],
-                    "diffs": [],
-                    "tests": {
-                        "passed": 0,
-                        "failed": 1,
-                        "summary": f"local-agent-{phase}-package-failed",
-                    },
-                    "warnings": [
+                return _local_agent_failure(
+                    phase=phase,
+                    summary=f"local-agent-{phase}-package-failed",
+                    warnings=[
                         "execution_selected:local_agent",
                         f"{phase}_not_run",
                     ],
-                    "errors": [str(exc)],
-                    "runId": merged.get("runId"),
-                    "execution": {
-                        "requested": execution_preference,
-                        "selected": "local_agent",
-                        "reason": f"local_agent_{phase}_package_failed",
-                        "phase_supported": True,
-                    },
-                }
+                    errors=[str(exc)],
+                    run_id=merged.get("runId"),
+                    requested=execution_preference,
+                    reason=f"local_agent_{phase}_package_failed",
+                    phase_supported=True,
+                )
 
             execution_policy = dict(execution_policy)
             execution_policy["selected"] = "cloud"
@@ -2483,31 +2491,19 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
             )
 
             if execution_preference == "local_agent_only":
-                return {
-                    "ok": False,
-                    "phase": "eval",
-                    "echo": "",
-                    "text": "",
-                    "files": [],
-                    "diffs": [],
-                    "tests": {
-                        "passed": 0,
-                        "failed": 1,
-                        "summary": "local-agent-eval-package-failed",
-                    },
-                    "warnings": [
+                return _local_agent_failure(
+                    phase="eval",
+                    summary="local-agent-eval-package-failed",
+                    warnings=[
                         "execution_selected:local_agent",
                         "canonical_eval_not_run_yet",
                     ],
-                    "errors": [str(exc)],
-                    "runId": merged.get("runId"),
-                    "execution": {
-                        "requested": execution_preference,
-                        "selected": "local_agent",
-                        "reason": "local_agent_eval_package_failed",
-                        "phase_supported": True,
-                    },
-                }
+                    errors=[str(exc)],
+                    run_id=merged.get("runId"),
+                    requested=execution_preference,
+                    reason="local_agent_eval_package_failed",
+                    phase_supported=True,
+                )
 
             execution_policy = dict(execution_policy)
             execution_policy["selected"] = "cloud"
@@ -2555,31 +2551,19 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
             log.exception("harper.local_agent extend package failed")
 
             if execution_preference == "local_agent_only":
-                return {
-                    "ok": False,
-                    "phase": "extend",
-                    "echo": "",
-                    "text": "",
-                    "files": [],
-                    "diffs": [],
-                    "tests": {
-                        "passed": 0,
-                        "failed": 1,
-                        "summary": "local-agent-extend-package-failed",
-                    },
-                    "warnings": [
+                return _local_agent_failure(
+                    phase="extend",
+                    summary="local-agent-extend-package-failed",
+                    warnings=[
                         "execution_selected:local_agent",
                         "extend_not_run",
                     ],
-                    "errors": [str(exc)],
-                    "runId": merged.get("runId"),
-                    "execution": {
-                        "requested": execution_preference,
-                        "selected": "local_agent",
-                        "reason": "local_agent_extend_package_failed",
-                        "phase_supported": True,
-                    },
-                }
+                    errors=[str(exc)],
+                    run_id=merged.get("runId"),
+                    requested=execution_preference,
+                    reason="local_agent_extend_package_failed",
+                    phase_supported=True,
+                )
 
             execution_policy = dict(execution_policy)
             execution_policy["selected"] = "cloud"
@@ -2607,31 +2591,19 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
             log.exception("harper.local_agent finalize package failed")
 
             if execution_preference == "local_agent_only":
-                return {
-                    "ok": False,
-                    "phase": "finalize",
-                    "echo": "",
-                    "text": "",
-                    "files": [],
-                    "diffs": [],
-                    "tests": {
-                        "passed": 0,
-                        "failed": 1,
-                        "summary": "local-agent-finalize-package-failed",
-                    },
-                    "warnings": [
+                return _local_agent_failure(
+                    phase="finalize",
+                    summary="local-agent-finalize-package-failed",
+                    warnings=[
                         "execution_selected:local_agent",
                         "solution_finalize_not_run",
                     ],
-                    "errors": [str(exc)],
-                    "runId": merged.get("runId"),
-                    "execution": {
-                        "requested": execution_preference,
-                        "selected": "local_agent",
-                        "reason": "local_agent_finalize_package_failed",
-                        "phase_supported": True,
-                    },
-                }
+                    errors=[str(exc)],
+                    run_id=merged.get("runId"),
+                    requested=execution_preference,
+                    reason="local_agent_finalize_package_failed",
+                    phase_supported=True,
+                )
 
             execution_policy = dict(execution_policy)
             execution_policy["selected"] = "cloud"
@@ -2668,31 +2640,19 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
                 )
 
                 if execution_preference == "local_agent_only":
-                    return {
-                        "ok": False,
-                        "phase": "kit",
-                        "echo": "",
-                        "text": "",
-                        "files": [],
-                        "diffs": [],
-                        "tests": {
-                            "passed": 0,
-                            "failed": 1,
-                            "summary": "local-agent-orchestrator-call-failed",
-                        },
-                        "warnings": [
+                    return _local_agent_failure(
+                        phase="kit",
+                        summary="local-agent-orchestrator-call-failed",
+                        warnings=[
                             "execution_selected:local_agent",
                             "local_agent_called_by:orchestrator",
                         ],
-                        "errors": [str(exc)],
-                        "runId": merged.get("runId"),
-                        "execution": {
-                            "requested": execution_preference,
-                            "selected": "local_agent",
-                            "reason": "local_agent_orchestrator_call_failed",
-                            "phase_supported": True,
-                        },
-                    }
+                        errors=[str(exc)],
+                        run_id=merged.get("runId"),
+                        requested=execution_preference,
+                        reason="local_agent_orchestrator_call_failed",
+                        phase_supported=True,
+                    )
 
                 execution_policy = dict(execution_policy)
                 execution_policy["selected"] = "cloud"
@@ -2707,30 +2667,22 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
                 )
 
         if execution_preference == "local_agent_only":
-            return {
-                "ok": False,
-                "phase": "kit",
-                "echo": "",
-                "text": "",
-                "files": [],
-                "diffs": [],
-                "tests": {"passed": 0, "failed": 1, "summary": "local-agent-follow-up-phase-blocked"},
-                "warnings": [
+            return _local_agent_failure(
+                phase="kit",
+                summary="local-agent-follow-up-phase-blocked",
+                warnings=[
                     "execution_selected:local_agent",
                     "local_agent_follow_up_phases_blocked",
                 ],
-                "errors": [
+                errors=[
                     "Local agent is currently restricted to base /kit only. "
                     f"Requested phases: {', '.join(requested_kit_phases or [])}"
                 ],
-                "runId": merged.get("runId"),
-                "execution": {
-                    "requested": execution_preference,
-                    "selected": "local_agent",
-                    "reason": "local_agent_follow_up_phases_blocked",
-                    "phase_supported": False,
-                },
-            }
+                run_id=merged.get("runId"),
+                requested=execution_preference,
+                reason="local_agent_follow_up_phases_blocked",
+                phase_supported=False,
+            )
 
         execution_policy = dict(execution_policy)
         execution_policy["selected"] = "cloud"

@@ -21,6 +21,7 @@ import json
 import re
 import unicodedata
 from providers.http import post_with_retries
+from providers.result import _mk_unified_result
 
 log = logging.getLogger("anthropic")
 
@@ -244,24 +245,6 @@ _NO_FORCED_TOOL_RE = re.compile(r"^claude-(opus-5-5|sonnet-5-5|fable-5-1|mythos-
 # Long system prompts are marked cacheable (shorter prefixes are simply not cached).
 _CACHE_SYSTEM_MIN_CHARS = 4000
 
-def _mk_unified_result(
-    ok: bool,
-    text: str,
-    files: Optional[List[Dict[str, Any]]] = None,
-    usage: Optional[Dict[str, Any]] = None,
-    finish_reason: Optional[str] = None,
-    raw: Optional[Dict[str, Any]] = None,
-    errors: Optional[List[str]] = None,
-) -> Dict[str, Any]:
-    return {
-        "ok": ok,
-        "text": text or "",
-        "files": files or [],
-        "usage": usage or {},
-        "finish_reason": finish_reason or "",
-        "raw": raw or {},
-        "errors": errors or [],
-    }
 
 _MESSAGES_ALLOWED = {
     "model","messages","system","metadata","stop_sequences",
