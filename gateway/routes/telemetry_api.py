@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Iterable
 from datetime import datetime
 from fastapi import APIRouter, Query, HTTPException
+from utils.safe_paths import UnsafePathError, resolve_within, safe_segment
 
 # opzionale se lo userai in futuro
 try:
@@ -93,11 +94,11 @@ def _load_any_json(path: Path, max_lines: Optional[int] = None) -> List[dict]:
 def _load_project(project_id: str) -> List[dict]:
     # 1) file singolo <id>.(json|ndjson|log|txt) nella root
     for ext in _EXTS:
-        cand = TELEMETRY_DIR / f"{project_id}{ext}"
+        cand = TELEMETRY_DIR / f"{safe_segment(project_id, 'default')}{ext}"
         if cand.exists():
             return _load_any_json(cand)
     # 2) cartella telemetry/<project_id>/** con file supportati
-    folder = TELEMETRY_DIR / project_id
+    folder = TELEMETRY_DIR / safe_segment(project_id, "default")
     rows: List[dict] = []
     if folder.exists() and folder.is_dir():
         for p in sorted(folder.rglob("*")):
@@ -108,8 +109,9 @@ def _load_project(project_id: str) -> List[dict]:
 def _resolve_relpath(relpath: str) -> Path:
     base = _ensure_base_dir()
     # normalizza e impedisci path traversal
-    p = (base / relpath).resolve()
-    if not str(p).startswith(str(base)):
+    try:
+        p = resolve_within(base, relpath)
+    except UnsafePathError:
         raise HTTPException(status_code=400, detail="Invalid relpath")
     if not (p.exists() and p.is_file()):
         raise HTTPException(status_code=404, detail="File not found")

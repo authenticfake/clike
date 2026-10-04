@@ -14,6 +14,7 @@ from pathlib import Path
 import os, datetime
 import httpx
 from utils.sanitize import sanitize_for_path
+from utils.safe_paths import resolve_within, safe_segment
 from utils.utils import   collect_rag_materials_http, decide_inline_or_rag
 from utils.rag_store import RagStore
 from utils.active_output_contract import (
@@ -1990,8 +1991,8 @@ def _chunk_map_from_client(rag_chunks: dict) -> dict:
 
 def _telemetry_path(project_id: str) -> Path:
     # un file per progetto, append in JSONL
-    fname = f"{(project_id or 'default').strip()}.json"
-    path = Path(TELEMETRY_DIR).joinpath(fname)
+    fname = f"{safe_segment(project_id, 'default')}.json"
+    path = resolve_within(TELEMETRY_DIR, fname)
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -2004,8 +2005,8 @@ def _write_telemetry(project_id: str, record: dict) -> None:
         log.warning("telemetry write failed: %s", e)
 
 def _prompt_debug_path(project_id: str, run_id: str | None, phase: str) -> Path:
-    fname = f"{(project_id or 'default').strip()}__{(run_id or 'n-a').strip()}__{(phase or 'phase').strip()}.json"
-    path = Path(TELEMETRY_DIR).joinpath("prompt_debug").joinpath(fname)
+    fname = f"{safe_segment(project_id, 'default')}__{safe_segment(run_id, 'n-a')}__{safe_segment(phase, 'phase')}.json"
+    path = resolve_within(TELEMETRY_DIR, f"prompt_debug/{fname}")
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -2134,6 +2135,11 @@ def _dump_llm_provider_raw(
             .replace(" ", "_")
         )
         provider_slug = (provider or "provider").strip().lower() or "provider"
+        phase_slug, model_slug, provider_slug = (
+            safe_segment(phase_slug, "phase"),
+            safe_segment(model_slug, "model"),
+            safe_segment(provider_slug, "provider"),
+        )
 
         uid = uuid.uuid4().hex[:12]
         ts = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
@@ -2197,6 +2203,11 @@ def _dump_llm_response(
             .replace(" ", "_")
         )
         provider_slug = (provider or "provider").strip().lower() or "provider"
+        phase_slug, model_slug, provider_slug = (
+            safe_segment(phase_slug, "phase"),
+            safe_segment(model_slug, "model"),
+            safe_segment(provider_slug, "provider"),
+        )
 
         uid = uuid.uuid4().hex[:12]
         ts = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")

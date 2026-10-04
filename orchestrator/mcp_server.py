@@ -19,6 +19,7 @@ from services.repository_manifest import (
 from services.router import _load_cfg, resolve_explain
 
 from mcp.server.fastmcp import FastMCP
+from utils.safe_paths import resolve_within
 
 log = logging.getLogger("orchestrator.mcp")
 
@@ -79,11 +80,9 @@ def _safe_child(base: Path, relative_path: str) -> Path:
     rel = str(relative_path or "").strip().replace("\\", "/").lstrip("/")
     if not rel:
         raise ValueError("relative_path is required")
-    target = (base / rel).resolve()
-    base_resolved = base.resolve()
-    if not str(target).startswith(str(base_resolved)):
-        raise ValueError("path escapes allowed root")
-    return target
+    # resolve_within raises UnsafePathError (a ValueError) on escapes; it compares
+    # path components, so a sibling like /root2 no longer matches /root.
+    return resolve_within(base, rel)
 
 
 def _git_branch(repo_root: Path) -> str:

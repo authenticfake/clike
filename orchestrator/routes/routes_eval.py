@@ -4,12 +4,13 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Body, HTTPException, Query
 from pydantic import BaseModel
 
 from eval_runner import EvalReport, EvalRunner
+from utils.safe_paths import UnsafePathError, is_within_any, resolve_within
 
 router = APIRouter()
 log = logging.getLogger("routes_eval")
@@ -79,6 +80,74 @@ def _resolve_project_root(project_root: Optional[str], project_name: Optional[st
         return (p if p.is_absolute() else Path.cwd() / p).resolve()
 
     return Path.cwd().resolve()
+
+
+_INLINE_LTC_ENV = "CLIKE_ALLOW_INLINE_LTC"
+
+
+def _allowed_eval_roots() -> List[Path]:
+    """Directories eval/gate may operate on: DEV_FOLDER (host projects dir) + CLIKE_EVAL_ALLOWED_ROOTS."""
+    roots: List[Path] = []
+    dev = os.getenv("DEV_FOLDER", "").strip()
+    if dev:
+        roots.append(Path(dev))
+    for raw in os.getenv("CLIKE_EVAL_ALLOWED_ROOTS", "").split(os.pathsep):
+        if raw.strip():
+            roots.append(Path(raw.strip()))
+    return roots
+
+
+def _confined_project_root(project_root: Optional[str], project_name: Optional[str]) -> Path:
+    roots = _allowed_eval_roots()
+    if not roots:
+        raise HTTPException(
+            status_code=403,
+            detail="eval/gate disabled: set DEV_FOLDER (CLIKE_PROJECTS_DIR) or CLIKE_EVAL_ALLOWED_ROOTS",
+        )
+    prj = _resolve_project_root(project_root, project_name)
+    if not is_within_any(prj, roots):
+        raise HTTPException(status_code=403, detail="project_root is outside the allowed eval roots")
+    if not prj.is_dir():
+        raise HTTPException(status_code=404, detail="project_root not found")
+    return prj
+
+
+def _load_trusted_ltc(
+    prj: Path, profile: Optional[str], inline: Optional[Dict[str, Any]], *, required: bool = True
+) -> Tuple[Path, Optional[Dict[str, Any]]]:
+    """The workspace LTC file is authoritative; an inline LTC is only accepted as a consistency echo.
+
+    Inline-only LTC (no file under the project root) is refused unless CLIKE_ALLOW_INLINE_LTC=1,
+    so a caller cannot make the gate execute commands that are not in the workspace.
+    """
+    try:
+        profile_path = resolve_within(prj, profile or "LTC.json", allow_absolute_inside=True)
+    except UnsafePathError as exc:
+        raise HTTPException(status_code=400, detail=f"invalid profile path: {exc}") from exc
+
+    if profile_path.is_file():
+        try:
+            disk = json.loads(profile_path.read_text(encoding="utf-8"))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="profile is not valid JSON") from exc
+        if inline is not None and inline != disk:
+            raise HTTPException(
+                status_code=409,
+                detail="inline LTC differs from the workspace profile; the workspace file is authoritative",
+            )
+        return profile_path, disk
+
+    if inline is not None and os.getenv(_INLINE_LTC_ENV, "").strip().lower() in {"1", "true", "yes"}:
+        log.warning("eval using inline LTC without workspace file (%s=1) profile=%s", _INLINE_LTC_ENV, profile_path)
+        return profile_path, inline
+    if not required:
+        return profile_path, None
+    if inline is not None:
+        raise HTTPException(
+            status_code=403,
+            detail=f"inline LTC without a workspace profile file is disabled (set {_INLINE_LTC_ENV}=1 to allow)",
+        )
+    raise HTTPException(status_code=404, detail="profile not found under project_root")
 
 
 _RUNTIME_MANIFEST_NAMES = {
@@ -362,13 +431,15 @@ def eval_run(
             detail="Provide either 'ltc' inline OR 'profile' + 'project_root'",
         )
 
-    prj = _resolve_project_root(args.project_root, args.project_name)
+    prj = _confined_project_root(args.project_root, args.project_name)
+    is_manual = (args.mode or "auto").lower() == "manual"
+    profile_path, ltc = _load_trusted_ltc(prj, args.profile, args.ltc, required=not is_manual)
     runner = EvalRunner(prj)
 
     try:
         rep = runner.run_profile(
-            profile=args.profile or "LTC.json",
-            ltc=args.ltc,
+            profile=str(profile_path),
+            ltc=ltc,
             mode=args.mode or "auto",
             verdict=args.verdict,
             req_id=args.req_id,
@@ -420,13 +491,15 @@ def gate_check(
             detail="Provide either 'ltc' inline OR 'profile' + 'project_root'",
         )
 
-    prj = _resolve_project_root(args.project_root, args.project_name)
+    prj = _confined_project_root(args.project_root, args.project_name)
+    is_manual = (args.mode or "auto").lower() == "manual"
+    profile_path, ltc = _load_trusted_ltc(prj, args.profile, args.ltc, required=not is_manual)
     runner = EvalRunner(prj)
 
     try:
         rep = runner.run_profile(
-            profile=args.profile or "LTC.json",
-            ltc=args.ltc,
+            profile=str(profile_path),
+            ltc=ltc,
             mode=args.mode or "auto",
             verdict=args.verdict,
             req_id=args.req_id,

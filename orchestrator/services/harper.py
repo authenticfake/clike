@@ -61,6 +61,7 @@ from utils.namespace_paths import (
     python_module_boundary_to_package_path,
 )
 from utils.service_auth import internal_auth_headers
+from utils.safe_paths import resolve_within, validate_req_id
 log = logging.getLogger("service.router")
 
 _KIT_PHASE_SEQUENCE: List[str] = [
@@ -1842,8 +1843,9 @@ def _inject_candidate_blobs(
 
 
 def _stage_artifact_path(req_id: str, relative_path: str) -> Path:
-    runs_dir = os.getenv("RUNS_DIR", "/runs")
-    return Path(runs_dir).resolve() / "kit" / req_id / relative_path
+    # req_id comes from the request and relative_path from LLM output: both are confined.
+    req_root = Path(os.getenv("RUNS_DIR", "/runs")).resolve() / "kit" / validate_req_id(req_id)
+    return resolve_within(req_root, relative_path)
 
 
 def _write_stage_artifact(req_id: str, relative_path: str, content: str) -> Optional[str]:
