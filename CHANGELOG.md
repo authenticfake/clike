@@ -32,6 +32,10 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- Cloud `/plan` received IDEA.md and SPEC.md by name only and could return an empty plan; it now
+  receives them in full. Cloud `/kit` received no project documents and could ignore the
+  technology constraints (e.g. Flask for a FastAPI project); its prompt now includes the
+  technology constraints, the target REQ with its dependencies, SPEC.md and IDEA.md.
 - Chat webview: REQ ids were never recognized and message previews replaced the letter "s" with
   spaces (regexes inside the webview script lost their backslashes).
 
