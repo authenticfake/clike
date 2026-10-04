@@ -62,7 +62,9 @@ async function postEvalRun(profile, workspaceRoot,req_id, mode, modeResult) {
 /**
  * Esegue /v1/gate/check
  */
-async function postGateCheck(profile, workspaceRoot,req_id,opts = { promote = false, reqId = null, mode =  'auto', result = 'pass'}  = {}) {
+async function postGateCheck(profile, workspaceRoot, req_id, options = {}) {
+  // N10: the previous default was a destructuring assignment that created globals and left opts = {}.
+  const opts = { promote: false, reqId: null, mode: 'auto', result: 'pass', ...options };
   const projectName = getProjectNameFromWorkspace();
   if (!projectName) throw new Error('Cannot resolve current project name');
   

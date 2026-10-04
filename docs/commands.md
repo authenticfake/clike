@@ -181,10 +181,6 @@ The extension also contributes direct VS Code commands.
 
 ### Harper / project
 - `clike.harper.init`
-- `clike.eval.runAll`
-- `clike.gate.checkPhase`
-- `clike.constraints.sync`
-- `clike.plan.updateChecklist`
 
 ### Code actions / generation
 - `clike.codeAction`

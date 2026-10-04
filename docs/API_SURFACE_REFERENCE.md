@@ -148,10 +148,6 @@ telemetry API also accepts the `clike_token` cookie set by `POST /v1/metrics/log
 | `clike.gitCommitPatch` | Commit patch. |
 | `clike.gitOpenPR` | Open PR. |
 | `clike.gitSmartPR` | Smart PR helper. |
-| `clike.eval.runAll` | Run all evals. |
-| `clike.gate.checkPhase` | Gate check for current phase. |
-| `clike.constraints.sync` | Sync constraints from IDEA/SPEC. |
-| `clike.plan.updateChecklist` | Update PLAN checklist from eval. |
 | `clike.promoteReqSources` | Promote REQ source code. |
 | `clike.promoteReqSourcesQuick` | Quick promote REQ source code. |
 

@@ -9,7 +9,6 @@ const fs = require('fs/promises');
 const fsSync = require('fs');
 const path = require('path');
 
-const { registerCommands } = require('./commands/registerCommands');
 const {
   initServiceAuth,
   storeServiceToken,
@@ -3402,12 +3401,12 @@ async function cmdClearChatSession(context) {
     await clearSession(s.mode);
     vscode.window.showInformationMessage(`CLike: cleared ALL messages (all models) in mode "${s.mode}"`);
     const hist = await loadSession(s.mode, 200);
-    panel?.webview.postMessage({ type: 'hydrateSession', messages: hist });
+    clikeChatPanel?.webview.postMessage({ type: 'hydrateSession', messages: hist });
   } else {
     await pruneSessionByModel(s.mode, s.model || 'auto');
     vscode.window.showInformationMessage(`CLike: cleared messages for model "${s.model}" in mode "${s.mode}"`);
     const hist = await loadSessionFilteredV2(s.mode, s.model, 200);
-    panel?.webview.postMessage({ type: 'hydrateSession', messages: hist });
+    clikeChatPanel?.webview.postMessage({ type: 'hydrateSession', messages: hist });
   }
 }
 
@@ -3525,7 +3524,6 @@ function activate(context) {
     await promoteReqSources(root, reqId, strategy, out);
   });
   
-  registerCommands(context);
 
   serviceAuthReady
     .then(() => startExtensionOperationalMcpServer(context))
@@ -4361,7 +4359,7 @@ async function cmdOpenChat(context) {
           }
           //log(`[harperRun] body (core_blobs):`,  JSON.stringify(body.core_blobs))
           if (activeProvider) _headers["X-CLike-Provider"] = activeProvider
-          harperTimeout = cfg().harperTimeout;
+          const harperTimeout = cfg().harperTimeout;
           clikeHarperBlockingRun = true;
           panel.webview.postMessage({ type: 'busy', on: true });
           let outGateway = await callHarper(cmd, body, _headers, { timeoutMs: 1000 * 60 * harperTimeout} );
@@ -4908,12 +4906,12 @@ async function cmdOpenChat(context) {
                 message: `ℹ BMAD QA advisory only. Canonical CLike EvalRunner remains authoritative. Suggested next command: ${report.bmad_advisory.suggested_next_command}`
               });
             }
-            reportFile = await saveEvalCommand(ws_root, plan, targets, report, out);
+            const reportFile = await saveEvalCommand(ws_root, plan, targets, report, out);
             files_git.push(toFsPath(reportFile));
 
             break;
           }
-          case 'gate':
+          case 'gate': {
             if (isManual) {
               // WP6: the override is decided and audited by the orchestrator, never produced here.
               const reason = await vscode.window.showInputBox({
@@ -4979,6 +4977,7 @@ async function cmdOpenChat(context) {
               callGit = false;
             }
             break;
+          }
         }
         
         if (phase === 'eval') {
@@ -5625,7 +5624,6 @@ async function cmdOpenChat(context) {
               await context.workspaceState.update('clike.lastFiles', Array.isArray(res?.files) ? res.files : []);
             } catch (e) {
                 out.appendLine('[CLike] cache lastFiles failed: ' + (e?.message || String(e)));
-                throw new Error(`POST ${url} -> ${res.status} ${txt}`);
             }
             const summary = Array.isArray(res.files) && res.files.length
               ? 'Generated files:\n' + res.files.map(f => '- ' + f.path).join('\n')

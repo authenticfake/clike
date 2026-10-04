@@ -3,7 +3,10 @@ const vscode = require('vscode');
 const cp = require('child_process');
 const path = require('path');
 const { gatherRagChunks } = require('./rag.js');
-const { buildLocalAgentEnv, resolveLocalAgentCommandPath, buildLocalAgentSpawn, resolvePromptTransport } = require('./local-agent-executors');
+const { buildLocalAgentEnv, resolveLocalAgentCommandPath, buildLocalAgentSpawn, resolvePromptTransport, terminateProcessTree } = require('./local-agent-executors');
+const { toFsPath } = require('./git');
+
+const PLAN_JSON_REL_PATH = 'docs/harper/plan.json';
 
 const out = vscode.window.createOutputChannel('Clike.utility');
 const crypto = require('crypto');
@@ -1880,7 +1883,7 @@ function getProjectId() {
     }
   } catch (e) {
     console.warn('[CLike] project_id derivation failed:', e);
-    body.project_id = 'default';
+    return 'default';
   }
 }
 
@@ -2552,6 +2555,12 @@ function buildAgentKitPrompt({ reqId, requestedPhases }) {
   ].join('\n');
 }
 
+// Agents still running when the extension host exits are terminated with their children.
+const activeAgentProcesses = new Set();
+process.once('exit', () => {
+  for (const child of activeAgentProcesses) terminateProcessTree(child, { graceMs: 0 });
+});
+
 async function runLocalAgentSync({
   workspaceRootUri,
   prompt,
@@ -2624,6 +2633,8 @@ async function runLocalAgentSync({
       cwd: workspaceRootUri.fsPath,
       shell: false,
       stdio: ['pipe', 'pipe', 'pipe'],
+      // POSIX: own process group, so a timeout can terminate the agent and its children.
+      detached: process.platform !== 'win32',
       // Local agents authenticate via their own CLI login/session. Inherit the
       // standard shell env (PATH/HOME/etc.) but strip cloud provider keys by
       // default so local-agent execution never depends on gateway cloud keys.
@@ -2633,16 +2644,15 @@ async function runLocalAgentSync({
     let stdout = '';
     let stderr = '';
     let settled = false;
+    const log = (line) => { if (out && typeof out.appendLine === 'function') out.appendLine(line); };
+    activeAgentProcesses.add(child);
+    child.once('exit', () => activeAgentProcesses.delete(child));
 
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
 
-      try {
-        child.kill('SIGTERM');
-      } catch {
-        // Ignore kill errors.
-      }
+      terminateProcessTree(child);
 
       reject(
         new Error(
@@ -2666,7 +2676,7 @@ async function runLocalAgentSync({
 
     child.stderr.on("data", (chunk) => {
       const text = chunk.toString();
-
+      stderr += text;
       for (const line of text.split(/\r?\n/)) {
         const trimmed = line.trim();
         if (!trimmed) {
@@ -2677,7 +2687,7 @@ async function runLocalAgentSync({
           /\b(error|failed|failure|fatal|panic|traceback|exception|denied|timeout|cannot|not found|permission)\b/i.test(trimmed);
 
         const channel = isErrorLike ? "stderr:error" : "stderr:diagnostic";
-        out.appendLine(`[CLike] [local-agent:${normalizedExecutor}][${channel}] ${trimmed}`);
+        log(`[CLike] [local-agent:${normalizedExecutor}][${channel}] ${trimmed}`);
       }
     });
 
@@ -3126,7 +3136,6 @@ module.exports = {
   buildAgentExecutionContext,
   writeAgentExecutionContext,
   buildAgentEvalPrompt,
-  collectReqCandidateFiles,
   collectReqCandidateFileArtifacts,
   collectFinalizeCandidateFiles,
   collectFinalizeCandidateFileArtifacts,
