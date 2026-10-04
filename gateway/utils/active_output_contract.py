@@ -102,7 +102,9 @@ def output_path_matches(path: str, pattern: str) -> bool:
         return False
     regex = re.escape(normalized_pattern)
     regex = regex.replace(re.escape("<req-id>"), r"req-[a-z0-9._-]+")
-    regex = re.sub(r"<[^>]+>", r"[^/]+", regex)
+    # a <placeholder> stands for a concrete path chosen by the model, at any depth (e.g. the
+    # execution-area composition root src/<...> can be src/app.py or src/pingboard/app.py)
+    regex = re.sub(r"<[^>]+>", r"[^/]+(?:/[^/]+)*", regex)
     regex = regex.replace(re.escape("**"), r".*")
     return re.fullmatch(regex, normalized_path) is not None
 

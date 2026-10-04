@@ -332,3 +332,11 @@ def test_native_cloud_kit_accepts_any_file_in_the_target_req_staging_roots_only(
     assert other_req["disallowed_outputs"] == ["runs/kit/REQ-002/src/x.py"]
     outside = validate_files_against_active_output_contract(files + [{"path": "src/app.py", "content": ""}], contract)
     assert outside["disallowed_outputs"] == ["src/app.py"]
+
+
+def test_placeholder_in_a_required_path_matches_a_concrete_path_at_any_depth():
+    # benchmark: the model put the composition root in src/pingboard/app.py; src/<...> matched one level only
+    assert contract_module.output_path_matches("runs/kit/REQ-001/src/pingboard/app.py", "runs/kit/REQ-001/src/<execution-area-composition-root>")
+    assert contract_module.output_path_matches("runs/kit/REQ-001/src/app.py", "runs/kit/REQ-001/src/<execution-area-composition-root>")
+    assert not contract_module.output_path_matches("runs/kit/REQ-001/test/app.py", "runs/kit/REQ-001/src/<execution-area-composition-root>")
+    assert not contract_module.output_path_matches("runs/kit/REQ-002/src/app.py", "runs/kit/REQ-001/src/<execution-area-composition-root>")

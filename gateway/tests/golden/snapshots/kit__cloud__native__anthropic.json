@@ -22,7 +22,7 @@
     }
   ],
   "response": {
-    "detail": "missing_required_outputs: runs/kit/REQ-001/docs/TARGET_CONTRACT.json, runs/kit/REQ-001/docs/FILE_REQUIREMENTS.json, runs/kit/REQ-001/src/feature/implementation.py, runs/kit/REQ-001/test/feature/test_req_behavior.py, runs/kit/REQ-001/src/<execution-area-composition-root>"
+    "detail": "missing_required_outputs: runs/kit/REQ-001/docs/TARGET_CONTRACT.json, runs/kit/REQ-001/docs/FILE_REQUIREMENTS.json, runs/kit/REQ-001/src/feature/implementation.py, runs/kit/REQ-001/test/feature/test_req_behavior.py"
   },
   "status": 502
 }
