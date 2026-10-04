@@ -16,6 +16,11 @@ from utils.service_auth import internal_auth_headers
 log = logging.getLogger("orchestrator.llm_contracts")
 
 
+
+
+class ModelSelectionError(RuntimeError):
+    """The requested model/provider cannot be used (unknown, disabled, conflicting): HTTP 400."""
+
 def _models_cfg_path() -> str:
     """
     Resolve the models catalog path robustly across:
@@ -215,7 +220,7 @@ def _filter_candidates(
 
 def _select_best(catalog: Dict[str, Any], candidates: List[Dict[str, Any]]) -> Dict[str, Any]:
     if not candidates:
-        raise RuntimeError("no candidate models available")
+        raise ModelSelectionError("no candidate models available")
 
     weights = ((catalog.get("scoring") or {}).get("weights") or {})
     ordered = sorted(candidates, key=lambda m: _score_by_weights(m, weights))
@@ -297,14 +302,14 @@ def _resolve_direct_or_auto(
     if req and req.lower() != "auto":
         entry = _match_model(models, req)
         if not entry:
-            raise RuntimeError(f"model '{req}' not found in catalog")
+            raise ModelSelectionError(f"model '{req}' not found in catalog")
         if not _is_enabled(entry):
-            raise RuntimeError(f"model '{req}' is disabled")
+            raise ModelSelectionError(f"model '{req}' is disabled")
         if requested_provider:
             rp = requested_provider.strip().lower()
             ep = str(entry.get("provider") or "").lower()
             if ep and ep != rp:
-                raise RuntimeError(f"provider override '{rp}' conflicts with resolved model provider '{ep}'")
+                raise ModelSelectionError(f"provider override '{rp}' conflicts with resolved model provider '{ep}'")
         return entry
 
     cands = _filter_candidates(models, want_modality="chat", select=None)

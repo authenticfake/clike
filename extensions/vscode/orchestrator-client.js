@@ -71,18 +71,20 @@ function request(method, url, { body, headers = {}, timeoutMs = 0, signal } = {}
     const req = lib.request(
       { method, hostname: u.hostname, port: u.port || (u.protocol === 'https:' ? 443 : 80), path: u.pathname + u.search, headers: reqHeaders },
       (res) => {
-        notifyServiceAuthFailure(res.statusCode, url);
         let data = '';
         res.setEncoding('utf8');
         res.on('data', (chunk) => { data += chunk; });
         res.on('error', (e) => finish(reject, new ServiceHttpError(`${method} ${url} failed: ${e.message}`, { url, cause: e })));
-        res.on('end', () => finish(resolve, {
-          ok: res.statusCode >= 200 && res.statusCode < 300,
-          status: res.statusCode,
-          url,
-          text: data,
-          json() { return JSON.parse(data || 'null'); },
-        }));
+        res.on('end', () => {
+          notifyServiceAuthFailure(res.statusCode, url, data);
+          finish(resolve, {
+            ok: res.statusCode >= 200 && res.statusCode < 300,
+            status: res.statusCode,
+            url,
+            text: data,
+            json() { return JSON.parse(data || 'null'); },
+          });
+        });
       }
     );
     const onAbort = () => req.destroy(new ServiceHttpError(`${method} ${url} aborted`, { url }));

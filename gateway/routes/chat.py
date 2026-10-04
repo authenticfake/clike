@@ -25,6 +25,17 @@ def provider_error_status(result: Any) -> int:
     return 429 if upstream == 429 else 502
 
 
+def provider_not_configured(provider: str) -> HTTPException:
+    """The gateway has no credentials for ``provider``: a server configuration problem (503), not a
+    client authentication failure, so it is never reported as 401 (the extension reserves 401/503
+    with a top-level ``code`` for the service token)."""
+    env = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}.get(provider, f"{provider.upper()}_API_KEY")
+    return HTTPException(503, detail={
+        "code": "provider_not_configured",
+        "message": f"provider '{provider}' is not configured on the gateway ({env} is not set)",
+    })
+
+
 def raise_for_provider_failure(result: Any, model: str) -> Any:
     """Unified results with ok=False become HTTP errors (they used to be returned as 200)."""
     if isinstance(result, dict) and result.get("ok") is False:
@@ -259,7 +270,7 @@ async def chat_completions(req: ChatRequest,  request: Request):
     # Routing per provider
     if provider == "openai":
         if not OPENAI_API_KEY:
-            raise HTTPException(401, "missing OPENAI api key")
+            raise provider_not_configured("openai")
         data = await oai.chat(OPENAI_BASE, OPENAI_API_KEY, model, messages, temperature=temperature,
                                                                             max_tokens=max_tokens,
                                                                             tools=tools,
@@ -274,7 +285,7 @@ async def chat_completions(req: ChatRequest,  request: Request):
         return raise_for_provider_failure(data, model)
     elif provider == "anthropic":
         if not ANTHROPIC_API_KEY:
-            raise HTTPException(401, "missing ANTHROPIC api key")
+            raise provider_not_configured("anthropic")
             
         try:
             data = await anth.chat(

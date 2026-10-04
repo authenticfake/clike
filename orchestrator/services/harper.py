@@ -74,6 +74,17 @@ _KIT_PHASE_SEQUENCE: List[str] = [
 ]
 
 
+class GatewayUpstreamError(RuntimeError):
+    """Non-2xx answer from the gateway. The message keeps the historical format
+    ("Gateway upstream error <status>: <detail>"); ``status``/``code``/``detail`` let the app map it."""
+
+    def __init__(self, status: int, detail: str, code: str | None = None):
+        super().__init__(f"Gateway upstream error {status}: {detail}")
+        self.status = status
+        self.detail = detail
+        self.code = code
+
+
 async def _post_json(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     base_url = str(GATEWAY_URL or "").rstrip("/")
     rel_path = "/" + str(path or "").lstrip("/")
@@ -139,7 +150,12 @@ async def _post_json(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         )
 
         detail = body_text[:2000] if body_text else str(exc)
-        raise RuntimeError(f"Gateway upstream error {r.status_code}: {detail}") from None
+        code = None
+        if isinstance(structured_body, dict):
+            code = structured_body.get("code")
+            if structured_body.get("message"):
+                detail = str(structured_body["message"])
+        raise GatewayUpstreamError(r.status_code, detail, code) from None
 
     return r.json()  
 async def _normalize_message(msg: Dict[str, Any]) -> Dict[str, Any]:

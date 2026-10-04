@@ -39,3 +39,14 @@ test('generated tokens are 256-bit hex and unique', () => {
   assert.match(a, /^[0-9a-f]{64}$/);
   assert.notEqual(a, b);
 });
+
+test('only service-token failures ask the user to fix the token', () => {
+  const { isServiceAuthFailure } = require('../service-auth');
+  assert.equal(isServiceAuthFailure(401, '{"code":"unauthorized","detail":"Missing or invalid service token"}'), true);
+  assert.equal(isServiceAuthFailure(503, '{"code":"auth_not_configured","detail":"CLIKE_API_TOKEN is not configured"}'), true);
+  assert.equal(isServiceAuthFailure(503, '{"code":"provider_not_configured","detail":"provider \'anthropic\' is not configured"}'), false);
+  assert.equal(isServiceAuthFailure(503, '{"detail":"Service Unavailable"}'), false);
+  assert.equal(isServiceAuthFailure(401, ''), true); // no body: status decides (older services)
+  assert.equal(isServiceAuthFailure(502, '{"code":"gateway_auth_failed"}'), false);
+  assert.equal(isServiceAuthFailure(200, ''), false);
+});

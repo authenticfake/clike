@@ -78,9 +78,26 @@ async function storeServiceToken(context, token) {
   setCachedServiceToken(value);
 }
 
+const SERVICE_AUTH_CODES = new Set(['unauthorized', 'auth_not_configured']);
+
+// True when a 401/503 comes from the service-token middleware. Other 503s (e.g. a provider with
+// no API key on the gateway: code "provider_not_configured") must not send the user to fix the
+// service token. Without a readable body the status alone decides (older services).
+function isServiceAuthFailure(status, bodyText) {
+  if (status !== 401 && status !== 503) return false;
+  if (bodyText === undefined || bodyText === null || bodyText === '') return true;
+  try {
+    const parsed = JSON.parse(bodyText);
+    const code = parsed && typeof parsed === 'object' ? parsed.code : undefined;
+    return typeof code === 'string' ? SERVICE_AUTH_CODES.has(code) : status === 401;
+  } catch {
+    return status === 401;
+  }
+}
+
 // Call when a service answers 401/503: tells the user how to fix it (throttled).
-function notifyServiceAuthFailure(status, url) {
-  if (status !== 401 && status !== 503) return;
+function notifyServiceAuthFailure(status, url, bodyText) {
+  if (!isServiceAuthFailure(status, bodyText)) return;
   if (!isServiceUrl(url, configuredServiceUrls())) return;
   const now = Date.now();
   if (now - lastAuthWarningAt < 30000) return;
@@ -112,4 +129,5 @@ module.exports = {
   initServiceAuth,
   storeServiceToken,
   notifyServiceAuthFailure,
+  isServiceAuthFailure,
 };

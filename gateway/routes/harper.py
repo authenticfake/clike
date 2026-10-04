@@ -33,7 +33,7 @@ from utils.methodology_prompt import (
     render_current_canonical_validation_for_cloud_prompt,
     render_methodology_context_for_cloud_prompt,
 )
-from routes.chat import ANTHROPIC_API_KEY, ANTHROPIC_BASE, OLLAMA_OPENAI_BASE, OPENAI_API_KEY, OPENAI_BASE, _json
+from routes.chat import ANTHROPIC_API_KEY, ANTHROPIC_BASE, OLLAMA_OPENAI_BASE, OPENAI_API_KEY, OPENAI_BASE, _json, provider_not_configured
 from providers import openai_compat as oai
 from providers import anthropic as anth
 import yaml
@@ -3016,7 +3016,7 @@ async def run(req: HarperRunRequest,  request: Request):
         # Routing per provider
         if provider == "openai":
             if not OPENAI_API_KEY:
-                raise HTTPException(401, "missing OpenAI api key")
+                raise provider_not_configured("openai")
             llm_text = await oai.openai_complete_unified(api_key=OPENAI_API_KEY, model=model, messages=messages, gen=req.gen, timeout_s=timeout_sec)
             
         elif provider == "ollama":
@@ -3032,7 +3032,7 @@ async def run(req: HarperRunRequest,  request: Request):
 
         elif provider == "anthropic":
             if not ANTHROPIC_API_KEY:
-                raise HTTPException(401, "missing ANTHROPIC api key")
+                raise provider_not_configured("anthropic")
             llm_text = await anth.chat(
                 ANTHROPIC_BASE, 
                 ANTHROPIC_API_KEY, 
@@ -3057,11 +3057,17 @@ async def run(req: HarperRunRequest,  request: Request):
         else:
             raise HTTPException(400, f"unsupported provider for chat: {provider} for model '{req.model}")
 
+    except HTTPException:
+        # configuration/request errors (provider not configured, unsupported provider) reach the
+        # caller instead of being folded into an empty 200 result
+        raise
     except httpx.HTTPStatusError as e:
             log.error("httpx error: %s", e)
             txt = e.response.text if e.response is not None else str(e)
-            code = e.response.status_code if e.response is not None else 502
-            raise HTTPException(code, detail=f"provider error for model={model}: {txt}")
+            upstream = e.response.status_code if e.response is not None else None
+            # a provider 401/403 is a gateway credential problem, not the caller's: 502 (429 stays 429)
+            code = 429 if upstream == 429 else 502
+            raise HTTPException(code, detail=f"provider error {upstream} for model={model}: {txt}")
     except httpx.HTTPError as e:
             log.error("httpx error: %s", e)
             raise HTTPException(502, detail=f"provider connection error: {e}")

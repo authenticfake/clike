@@ -1547,7 +1547,9 @@ async def generate(req: Request):
         return result
 
     except httpx.HTTPStatusError as e:
-        # Propaga il vero body (niente 502 generici)
-        raise HTTPException(e.response.status_code, detail=f"gateway chat failed: {e.response.text}")
+        # Keep the real body; a gateway 401/403 (server-side token mismatch) is a 502 so the client
+        # does not mistake it for its own service token being rejected.
+        upstream = e.response.status_code
+        raise HTTPException(502 if upstream in (401, 403) else upstream, detail=f"gateway chat failed: {e.response.text}")
     except Exception as e:
         raise HTTPException(502, f"gateway chat failed: {type(e).__name__}: {e}")

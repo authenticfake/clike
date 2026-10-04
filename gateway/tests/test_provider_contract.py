@@ -276,6 +276,14 @@ class ChatRouteContractTests(ProviderContractBase):
                 self.assert_spec_delivered(r.json())
                 self.assertEqual("temperature" in rec.body(), model.endswith("haiku-4-5"))
 
+    def test_missing_provider_key_is_503_provider_not_configured_never_401(self):
+        # 401 is reserved for the service token: the extension would tell the user to fix it.
+        for model, attr in [("gpt-4o", "OPENAI_API_KEY"), ("anthropic:claude-haiku-4-5", "ANTHROPIC_API_KEY")]:
+            with self.subTest(model), patch.object(self.chat, attr, ""):
+                r = self.post(model)
+            self.assertEqual(r.status_code, 503, r.text)
+            self.assertEqual(r.json()["detail"]["code"], "provider_not_configured")
+
     def test_ollama_goes_through_the_openai_compatible_api(self):
         rec = self.use(Recorder((200, OPENAI_CHAT_OK)))
         r = self.post("ollama:llama4")

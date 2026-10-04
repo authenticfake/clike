@@ -164,6 +164,16 @@ class GoldenProviderBoundaryTests(unittest.TestCase):
                 self.assertTrue(snap.exists(), f"missing snapshot {snap.name}; run with CLIKE_GOLDEN_UPDATE=1")
                 self.assertEqual(snap.read_text(encoding="utf-8"), rendered, f"golden drift: {name}")
 
+    def test_missing_provider_key_reaches_the_caller(self):
+        # used to be swallowed into an empty 200 result with a provider_error string
+        name, payload, _ = next(sc for sc in _scenarios() if sc[0] == "spec__cloud__native")
+        for model, attr in [(None, "OPENAI_API_KEY"), ("anthropic:claude-sonnet-4-6", "ANTHROPIC_API_KEY")]:
+            with self.subTest(attr), patch.object(harper_route, attr, ""):
+                out = _run(payload, model)
+            self.assertEqual(out["status"], 503, out)
+            self.assertEqual(out["response"]["detail"]["code"], "provider_not_configured")
+            self.assertEqual(out["provider_calls"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

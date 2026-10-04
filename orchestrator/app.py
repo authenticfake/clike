@@ -13,6 +13,8 @@ from routes import rag as rag_routes
 from routes import routes_eval as eval_router
 from services.methodologies.errors import MethodologyError
 from services import gateway_http
+from services.harper import GatewayUpstreamError
+from services.llm_contracts import ModelSelectionError
 from utils.service_auth import ServiceAuthMiddleware
 try:
     from mcp_server import mcp as clike_mcp
@@ -114,6 +116,24 @@ async def unhandled_error_handler(request: Request, exc: Exception):
 @app.exception_handler(MethodologyError)
 async def methodology_error_handler(request: Request, exc: MethodologyError):
     return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+
+@app.exception_handler(ModelSelectionError)
+async def model_selection_error_handler(request: Request, exc: ModelSelectionError):
+    return JSONResponse(status_code=400, content={"code": "model_selection_error", "detail": str(exc)})
+
+
+# Statuses that describe the request or the provider setup and are meaningful to the client.
+# Anything else (including a gateway 401/403, i.e. a server-side token mismatch) is a 502, so the
+# extension never mistakes it for a problem with the user's own service token.
+_GATEWAY_PASSTHROUGH_STATUSES = {400, 404, 409, 413, 422, 429, 503}
+
+
+@app.exception_handler(GatewayUpstreamError)
+async def gateway_upstream_error_handler(request: Request, exc: GatewayUpstreamError):
+    status = exc.status if exc.status in _GATEWAY_PASSTHROUGH_STATUSES else 502
+    code = exc.code or ("gateway_auth_failed" if exc.status in (401, 403) else "gateway_error")
+    return JSONResponse(status_code=status, content={"code": code, "detail": exc.detail, "upstream_status": exc.status})
 
 # include routers
 app.include_router(health_router)
