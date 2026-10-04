@@ -45,20 +45,33 @@ test('execution preference normalization passes through canonical modes and defa
 
 // --- DEFECT 1: an installed Claude CLI is a first-class local executor ---
 // resolveSelectedLocalAgentExecutor probes the system via child_process at
-// call time (execFileSync, argv form since WP4.7), so we stub it to simulate
-// which CLIs are installed. The probed name is the last argv element.
+// call time, so we stub child_process to simulate which CLIs are installed.
+// Both probe paths are covered: POSIX (`sh -c 'command -v "$1"'`) and Windows
+// (`where <cmd>` + `<cmd> --version`), so the tests are platform independent.
 function withInstalledCommands(installed, fn) {
-  const original = cp.execFileSync;
+  const { resetLocalAgentProbeCache } = require('../local-agent-executors');
+  const original = { execFileSync: cp.execFileSync, spawnSync: cp.spawnSync };
+  const isInstalled = (value) => installed.some((name) => {
+    const v = String(value || '').toLowerCase();
+    return v === name || v.endsWith(`/${name}`) || v.endsWith(`\\${name}.cmd`) || v.endsWith(`\\${name}`);
+  });
   cp.execFileSync = (file, args = []) => {
     const probed = String(args.length ? args[args.length - 1] : file);
-    const found = installed.some((name) => probed === name || probed.endsWith(`/${name}`));
-    if (found) return Buffer.from('');
-    throw new Error(`command not found: ${probed}`);
+    if (!isInstalled(probed)) throw new Error(`command not found: ${probed}`);
+    // `where` output on Windows, ignored by the POSIX probe
+    return Buffer.from(String(file) === 'where' ? `C:\\tools\\${probed}.cmd\r\n` : '');
   };
+  cp.spawnSync = (file, args = []) => {
+    const ok = [file, ...args].some(isInstalled);
+    return ok ? { status: 0, stdout: '1.0.0', stderr: '' } : { status: null, error: Object.assign(new Error('ENOENT'), { code: 'ENOENT' }) };
+  };
+  resetLocalAgentProbeCache();
   try {
     return fn();
   } finally {
-    cp.execFileSync = original;
+    cp.execFileSync = original.execFileSync;
+    cp.spawnSync = original.spawnSync;
+    resetLocalAgentProbeCache();
   }
 }
 
