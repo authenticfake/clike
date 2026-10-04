@@ -10,7 +10,8 @@ from fastapi import APIRouter, Body, HTTPException, Query
 from pydantic import BaseModel
 
 from eval_runner import EvalReport, EvalRunner
-from utils.safe_paths import UnsafePathError, is_within_any, resolve_within
+from utils.safe_paths import UnsafePathError, is_within_any, resolve_within, validate_req_id
+from services.gate_integrity import allowed_eval_roots, compare_with_lock, ensure_lock, record_override
 
 router = APIRouter()
 log = logging.getLogger("routes_eval")
@@ -85,20 +86,8 @@ def _resolve_project_root(project_root: Optional[str], project_name: Optional[st
 _INLINE_LTC_ENV = "CLIKE_ALLOW_INLINE_LTC"
 
 
-def _allowed_eval_roots() -> List[Path]:
-    """Directories eval/gate may operate on: DEV_FOLDER (host projects dir) + CLIKE_EVAL_ALLOWED_ROOTS."""
-    roots: List[Path] = []
-    dev = os.getenv("DEV_FOLDER", "").strip()
-    if dev:
-        roots.append(Path(dev))
-    for raw in os.getenv("CLIKE_EVAL_ALLOWED_ROOTS", "").split(os.pathsep):
-        if raw.strip():
-            roots.append(Path(raw.strip()))
-    return roots
-
-
 def _confined_project_root(project_root: Optional[str], project_name: Optional[str]) -> Path:
-    roots = _allowed_eval_roots()
+    roots = allowed_eval_roots()
     if not roots:
         raise HTTPException(
             status_code=403,
@@ -148,6 +137,65 @@ def _load_trusted_ltc(
             detail=f"inline LTC without a workspace profile file is disabled (set {_INLINE_LTC_ENV}=1 to allow)",
         )
     raise HTTPException(status_code=404, detail="profile not found under project_root")
+
+
+_KIT_PROFILE_RE = re.compile(r"(?:^|/)runs/kit/(REQ-[A-Za-z0-9_-]+)/ci/[^/]+$")
+
+
+def _effective_req_id(req_id: Optional[str], ltc: Optional[Dict[str, Any]], profile_path: Path) -> Optional[str]:
+    candidates = [req_id, (ltc or {}).get("req_id") if isinstance(ltc, dict) else None]
+    m = _KIT_PROFILE_RE.search(profile_path.as_posix())
+    if m:
+        candidates.append(m.group(1))
+    for value in candidates:
+        try:
+            return validate_req_id(value)
+        except UnsafePathError:
+            continue
+    return None
+
+
+def _acceptance_integrity(prj: Path, req_id: Optional[str]) -> Optional[Dict[str, Any]]:
+    """Lock the acceptance surface (test/ + ci/) and compare it; None when the REQ is unknown."""
+    if not req_id:
+        return None
+    lock = ensure_lock(prj, req_id)
+    return compare_with_lock(prj, req_id, lock)
+
+
+def _integrity_blocked_payload(req_id: str, integrity: Dict[str, Any], profile_path: Path) -> Dict[str, Any]:
+    summary = "; ".join(f"{a['kind']}: {a['path']}" for a in integrity["anomalies"][:10])
+    case = {
+        "name": "acceptance::integrity",
+        "passed": False,
+        "code": 3,
+        "stdout": "",
+        "stderr": f"Acceptance surface changed since it was locked: {summary}",
+        "cmd": "",
+        "cwd": "",
+        "expect": 0,
+        "blocked": False,
+        "blocking": True,
+    }
+    return {
+        "profile": str(profile_path),
+        "req_id": req_id,
+        "mode": "auto",
+        "status": "FAIL",
+        "reason_code": "ACCEPTANCE_TAMPERED",
+        "integrity": integrity,
+        "passed": False,
+        "promotable": False,
+        "execution_ok": True,
+        "quality_passed": False,
+        "blocking_failures": [case["name"]],
+        "environment_blocked": [],
+        "failed": 1,
+        "passed_count": 0,
+        "blocked_count": 0,
+        "warning_count": 0,
+        "cases": [case],
+    }
 
 
 _RUNTIME_MANIFEST_NAMES = {
@@ -434,8 +482,16 @@ def eval_run(
     prj = _confined_project_root(args.project_root, args.project_name)
     is_manual = (args.mode or "auto").lower() == "manual"
     profile_path, ltc = _load_trusted_ltc(prj, args.profile, args.ltc, required=not is_manual)
-    runner = EvalRunner(prj)
 
+    integrity = None
+    if not is_manual:
+        req = _effective_req_id(args.req_id, ltc, profile_path)
+        integrity = _acceptance_integrity(prj, req)
+        if integrity and not integrity["ok"]:
+            log.warning("eval_run blocked: acceptance surface changed req=%s anomalies=%s", req, integrity["anomalies"])
+            return _integrity_blocked_payload(req, integrity, profile_path)
+
+    runner = EvalRunner(prj)
     try:
         rep = runner.run_profile(
             profile=str(profile_path),
@@ -450,7 +506,9 @@ def eval_run(
         log.exception("eval_run unexpected")
         raise HTTPException(status_code=500, detail=f"eval_run error: {exc}") from exc
 
-    return _eval_payload(rep, args.req_id)
+    payload = _eval_payload(rep, args.req_id)
+    payload["integrity"] = integrity
+    return payload
 
 
 @router.post("/v1/gate/check")
@@ -491,11 +549,32 @@ def gate_check(
             detail="Provide either 'ltc' inline OR 'profile' + 'project_root'",
         )
 
+    requested_modes = {(args.mode or "").lower(), (mode or "").lower(), ((payload.mode if payload else "") or "").lower()}
+    if "manual" in requested_modes:
+        raise HTTPException(
+            status_code=400,
+            detail="manual gate verdicts are not accepted here; use POST /v1/gate/override (reason required, audited)",
+        )
     prj = _confined_project_root(args.project_root, args.project_name)
-    is_manual = (args.mode or "auto").lower() == "manual"
-    profile_path, ltc = _load_trusted_ltc(prj, args.profile, args.ltc, required=not is_manual)
-    runner = EvalRunner(prj)
+    profile_path, ltc = _load_trusted_ltc(prj, args.profile, args.ltc, required=True)
 
+    req = _effective_req_id(args.req_id, ltc, profile_path)
+    integrity = _acceptance_integrity(prj, req)
+    if integrity and not integrity["ok"]:
+        log.warning("gate_check blocked: acceptance surface changed req=%s anomalies=%s", req, integrity["anomalies"])
+        blocked = _integrity_blocked_payload(req, integrity, profile_path)
+        blocked.update(
+            gate="FAIL",
+            raw_eval_status="NOT_RUN",
+            reason_code="GATE_BLOCKED_ACCEPTANCE_TAMPERED",
+            structural_blockers=[],
+            json=f"runs/gate/{req}",
+            promote=None,
+            promote_info=None,
+        )
+        return blocked
+
+    runner = EvalRunner(prj)
     try:
         rep = runner.run_profile(
             profile=str(profile_path),
@@ -541,5 +620,68 @@ def gate_check(
         "json": f"runs/gate/{args.req_id or rep.req_id or 'REQ-UNKNOWN'}",
         "promote": bool(args.promote) if args.promote else None,
         "promote_info": None,
+        "integrity": integrity,
         "cases": [_case_payload(c) for c in rep.cases],
+    }
+
+
+class GateOverrideRequest(BaseModel):
+    project_root: Optional[str] = None
+    project_name: Optional[str] = None
+    req_id: str
+    reason: str
+    author: Optional[str] = None
+
+
+_MIN_OVERRIDE_REASON = 10
+
+
+@router.post("/v1/gate/override")
+def gate_override(payload: GateOverrideRequest):
+    """Developer override of a gate: never reported as PASS; reason required; audited."""
+    reason = (payload.reason or "").strip()
+    if len(reason) < _MIN_OVERRIDE_REASON:
+        raise HTTPException(status_code=422, detail=f"reason must be at least {_MIN_OVERRIDE_REASON} characters")
+    try:
+        req = validate_req_id(payload.req_id)
+    except UnsafePathError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    prj = _confined_project_root(payload.project_root, payload.project_name)
+    author = (payload.author or "").strip()[:200] or "unknown"
+    entry = record_override(prj, req, reason=reason[:2000], author=author)
+    log.warning("gate override req=%s author=%s audit_id=%s", req, author, entry["audit_id"])
+    summary = f"Manual gate override for {req} by {author}: {reason[:300]}"
+    return {
+        "gate": "pass",
+        "status": "OVERRIDE",
+        "reason_code": "GATE_MANUAL_OVERRIDE",
+        "summary": summary,
+        "req_id": req,
+        "mode": "override",
+        "passed": False,
+        "override": {
+            "audit_id": entry["audit_id"],
+            "author": author,
+            "reason": reason[:2000],
+            "at": entry["at"],
+            "artifacts": entry["artifacts"],
+        },
+        "failed": 0,
+        "passed_count": 0,
+        "blocked_count": 0,
+        "warning_count": 0,
+        "cases": [
+            {
+                "name": "manual_gate_override",
+                "passed": True,
+                "code": 0,
+                "stdout": summary,
+                "stderr": "",
+                "cmd": f"/gate {req} manual pass",
+                "cwd": "",
+                "expect": 0,
+                "blocked": False,
+                "blocking": False,
+            }
+        ],
     }

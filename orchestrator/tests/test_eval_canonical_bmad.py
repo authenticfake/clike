@@ -22,7 +22,7 @@ class EvalCanonicalBmadTests(unittest.TestCase):
 
         self.assertIn("runner = EvalRunner(prj)", source)
         self.assertIn("rep = runner.run_profile(", source)
-        self.assertIn("return _eval_payload(rep, args.req_id)", source)
+        self.assertIn("payload = _eval_payload(rep, args.req_id)", source)
 
     def test_gate_check_uses_eval_runner_and_not_methodology_context(self):
         source = _function_source("gate_check")

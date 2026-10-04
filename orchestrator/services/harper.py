@@ -62,6 +62,7 @@ from utils.namespace_paths import (
 )
 from utils.service_auth import internal_auth_headers
 from utils.safe_paths import resolve_within, validate_req_id
+from services import gate_integrity
 log = logging.getLogger("service.router")
 
 _KIT_PHASE_SEQUENCE: List[str] = [
@@ -1942,6 +1943,36 @@ def _workspace_root_from_payload(payload: Dict[str, Any]) -> Optional[Path]:
     return root if root.exists() and root.is_dir() else None
 
 
+def _acceptance_project_root(payload: Dict[str, Any]) -> Optional[Path]:
+    """Workspace folder sent by the extension (same root eval/gate use), only if eval may run there."""
+    repo_ctx = payload.get("repository_context") or {}
+    raw = (repo_ctx.get("workspace_folder") if isinstance(repo_ctx, dict) else None) or payload.get("workspaceRoot")
+    if not raw:
+        return None
+    try:
+        root = Path(str(raw)).expanduser().resolve()
+    except Exception:
+        return None
+    return root if gate_integrity.is_eval_project(root) else None
+
+
+def _acceptance_hook(payload: Dict[str, Any], phase: str, req_id: Optional[str]) -> None:
+    """WP6: a /kit starts a new generation (lock invalidated); /eval locks the acceptance
+    surface before any local-agent pre-pass can touch it."""
+    if not req_id:
+        return
+    try:
+        root = _acceptance_project_root(payload)
+        if root is None:
+            return
+        if phase == "kit":
+            gate_integrity.record_kit_generation(root, req_id)
+        elif phase == "eval":
+            gate_integrity.ensure_lock(root, req_id)
+    except Exception as exc:  # integrity bookkeeping must never break the phase
+        log.warning("acceptance hook failed phase=%s req=%s error=%s", phase, req_id, exc)
+
+
 def _doc_root_from_payload(payload: Dict[str, Any], workspace_root: Path) -> Path:
     raw = payload.get("docRoot") or payload.get("doc_root") or "docs/harper"
     path = Path(str(raw)).expanduser()
@@ -2076,6 +2107,7 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
         if not isinstance(targets, list) or len(targets) != 1 or not isinstance(targets[0], str) or not targets[0].strip():
             raise ValueError("Harper /eval requires exactly one target REQ-ID in eval.targets, e.g. { eval: { targets: ['REQ-001'] } }")
         target_req_id = targets[0].strip().upper()
+        _acceptance_hook(merged, "eval", target_req_id)
 
     if merged.get("phase") != "kit":
         core_blobs = _inject_server_discovered_companion_artifacts(
@@ -2094,6 +2126,7 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
 
         target_req_id = targets[0].strip()
         requested_kit_phases = _normalize_requested_kit_phases(kit)
+        _acceptance_hook(merged, "kit", target_req_id)
         core_blobs = _inject_server_discovered_companion_artifacts(
             merged=merged,
             core_blobs=core_blobs,
