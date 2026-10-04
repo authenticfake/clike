@@ -1398,7 +1398,9 @@ async function saveGateCommand(projectRootUri, plan, targetReqId, report, out) {
 
   const gateVerdict = String(report?.gate || '').trim().toLowerCase();
   const gateStatus = String(report?.status || '').trim().toUpperCase();
-  const isPass = gateVerdict === 'pass' && gateStatus === 'PASS';
+  // OVERRIDE = audited developer override from the orchestrator (WP6): promotable, but tracked as such.
+  const isOverride = gateVerdict === 'pass' && gateStatus === 'OVERRIDE' && !!report?.override?.audit_id;
+  const isPass = (gateVerdict === 'pass' && gateStatus === 'PASS') || isOverride;
 
   if (isPass) {
     if (!setReqStatus(effectivePlan, targetReqId, 'done')) {
@@ -1426,7 +1428,9 @@ async function saveGateCommand(projectRootUri, plan, targetReqId, report, out) {
     log(`[saveGateCommand] Gate passed for ${targetReqId}`);
 
     const choice = await vscode.window.showInformationMessage(
-      `Gate passed for ${targetReqId}. Choose how to promote sources now.`,
+      isOverride
+        ? `Gate OVERRIDDEN for ${targetReqId} (audit ${report.override.audit_id.slice(0, 8)}). Choose how to promote sources now.`
+        : `Gate passed for ${targetReqId}. Choose how to promote sources now.`,
       'Promote',
       'Skip promote'
     );

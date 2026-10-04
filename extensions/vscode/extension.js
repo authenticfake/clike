@@ -18,6 +18,7 @@ const {
   notifyServiceAuthFailure,
 } = require('./service-auth');
 const { validateLocalMcpRequest } = require('./mcp-request-guard');
+const { postGateOverride } = require('./api');
 const { safeRelativePath, safeWorkspaceUri, resolveInsideWorkspace } = require('./safe-workspace');
 const {  handleGate, handleEval } = require('./commands/harper');
 const {  persistTelemetryVSCode } = require('./telemetry');
@@ -4914,26 +4915,26 @@ async function cmdOpenChat(context) {
           }
           case 'gate':
             if (isManual) {
-              report = {
-                req_id: targets,
-                status: 'PASS',
-                gate: 'pass',
-                reason_code: 'manual_override',
-                summary: `Manual gate override accepted for ${targets}.`,
-                passed: 1,
-                failed: 0,
-                passed_count: 1,
-                blocked_count: 0,
-                warning_count: 0,
-                cases: [
-                  {
-                    name: 'manual_gate_override',
-                    passed: true,
-                    cmd: `/gate ${targets} manual pass`,
-                    stdout: `Manual gate override accepted for ${targets}.`
-                  }
-                ]
-              };
+              // WP6: the override is decided and audited by the orchestrator, never produced here.
+              const reason = await vscode.window.showInputBox({
+                title: `Manual gate override for ${targets}`,
+                prompt: 'Why are you promoting without a passing gate? (recorded in the audit log)',
+                ignoreFocusOut: true,
+                validateInput: (v) => (v && v.trim().length >= 10 ? null : 'At least 10 characters'),
+              });
+              if (!reason) {
+                panel.webview.postMessage({ type: 'echo', message: `Gate override for ${targets} cancelled.` });
+                panel.webview.postMessage({ type: 'busy', on: false });
+                clikeHarperBlockingRun = false;
+                return;
+              }
+              let author = '';
+              try {
+                author = require('child_process')
+                  .execFileSync('git', ['config', 'user.name'], { cwd: ws_root.fsPath, stdio: ['ignore', 'pipe', 'ignore'] })
+                  .toString().trim();
+              } catch {}
+              report = await postGateOverride(ws_root, targets, reason.trim(), author || require('os').userInfo().username);
             } else {
               report = await handleGate(
                 path_ltc_json,
