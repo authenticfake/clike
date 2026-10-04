@@ -29,6 +29,14 @@ uvicorn app:app --host 0.0.0.0 --port 8080
 ```
 
 Both services have compose healthchecks; the orchestrator starts after the gateway is healthy.
+Both run as the non-root user `clike` (uid 1000).
+
+### Mounts
+- orchestrator: the CLike repo read-only at `/workspace` (including `.git`), writable only
+  `src/` and `tests/` (generated code), `docker/runs` at `/app/runs`, configs read-only,
+  the projects dir read-only at its host path.
+- gateway: `configs` read-only, `telemetry` read-write, `gateway/stub` read-only, the
+  projects dir read-only.
 There is no `--reload` in containers: rebuild the images after code changes.
 
 ### Ollama (optional)

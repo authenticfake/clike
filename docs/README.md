@@ -35,7 +35,7 @@ The VS Code extension currently provides:
 
 ### Orchestrator
 The orchestrator currently provides:
-- Legacy `/v1/chat`, `/v1/generate`, and `/v1/apply`
+- Legacy `/v1/chat` and `/v1/generate` (`/v1/apply` was removed in the 2026-10 hardening)
 - Harper workflow APIs under `/v1/harper/*`
 - RAG APIs under `/v1/rag/*`
 - Eval/Gate endpoints

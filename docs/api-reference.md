@@ -114,8 +114,9 @@ Legacy chat endpoint used by extension and helper flows.
 #### `POST /v1/generate`
 Legacy generation endpoint for coding / harper style generation.
 
-#### `POST /v1/apply`
-Applies generated outputs or patch content into workspace files.
+#### ~~`POST /v1/apply`~~ (removed)
+Removed in the 2026-10 hardening: it wrote request-supplied files to arbitrary paths.
+The VS Code extension applies generated files locally (it is the only workspace writer).
 
 ### Router API
 
@@ -163,6 +164,17 @@ Current request fields accepted by the request model and query merge logic inclu
 - `verdict`
 - `ltc`
 - `project_name`
+
+Confinement rules (also for `/v1/gate/check`):
+- `project_root` must lie under `DEV_FOLDER` (the host projects dir, `CLIKE_PROJECTS_DIR` in compose)
+  or under one of `CLIKE_EVAL_ALLOWED_ROOTS` (path-separator list); otherwise `403`.
+  With neither configured, eval/gate are disabled.
+- The LTC is read from the `profile` file under the project root, which is authoritative.
+  An inline `ltc` is accepted only if identical to that file (`409` otherwise). An inline-only
+  LTC (no file) is refused (`403`) unless `CLIKE_ALLOW_INLINE_LTC=1`.
+- `profile` must stay inside the project root (`400` on traversal).
+- Eval commands run without credentials in their environment (API keys, `CLIKE_API_TOKEN`
+  and any `*KEY*`/`*TOKEN*`/`*SECRET*`/`*PASSWORD*`-style variables are removed).
 
 #### `POST /v1/gate/check`
 Runs gate checks and promotion decisions.
