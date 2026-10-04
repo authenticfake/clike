@@ -439,14 +439,20 @@
         },
         "clike.git.autoCommit": {
           "type": "boolean",
-          "default": true,
-          "description": "If true, auto-commit changes after apply.",
+          "default": false,
+          "description": "Commit the files produced by each Harper phase (only those files) on the phase branch. Off by default.",
           "scope": "machine"
+        },
+        "clike.git.autoPush": {
+          "type": "boolean",
+          "default": false,
+          "scope": "machine",
+          "description": "Push phase commits, tags and gate merges to the configured remote. Off by default: commits stay local."
         },
         "clike.git.gitMergeOnGate": {
           "type": "boolean",
-          "default": true,
-          "description": "If true, merge changes on gate."
+          "default": false,
+          "description": "After a PASS gate, merge the REQ branch into the default branch (--no-ff). Off by default."
         },
         "clike.git.gitDeleteBranchOnMerge": {
           "type": "boolean",
@@ -471,7 +477,7 @@
         },
         "clike.git.openPR": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "If true, open PR flow after auto-commit (requires GitHub extension).",
           "scope": "machine"
         },
@@ -493,7 +499,7 @@
         },
         "clike.git.pushRebase": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "If true, push changes after PR flow.",
           "scope": "machine"
         },

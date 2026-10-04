@@ -1903,17 +1903,18 @@ function cfg() {
     backup: c.get('apply.backup', true),
     dryRunPreview: c.get('apply.dryRunPreview', true),
 
-    gitAutoCommit: c.get('git.autoCommit', true),
-    gitMergeOnGate: c.get('git.gitMergeOnGate', true),
+    gitAutoCommit: c.get('git.autoCommit', false),
+    gitMergeOnGate: c.get('git.gitMergeOnGate', false),
     gitDeleteBranchOnMerge: c.get('git.gitDeleteBranchOnMerge', false),
     gitReturnToFeatureAfterMerge: c.get('git.gitReturnToFeatureAfterMerge', false),
     gitRemoteUrl: c.get('git.remoteUrl', ''),
     gitCommitMessage: c.get('git.commitMessage', 'clike: apply patch (AI)'),
-    gitOpenPR: c.get('git.openPR', true),
+    gitOpenPR: c.get('git.openPR', false),
+    gitAutoPush: c.get('git.autoPush', false),
     gitRemote: c.get('git.remote', 'origin'),
     gitDefaultBranch: c.get('git.defaultBranch', 'main'),
     gitConventionalCommits: c.get('git.conventionalCommits', true),
-    gitPushRebase: c.get('git.pushRebase', true),
+    gitPushRebase: c.get('git.pushRebase', false),
     gitBranchPrefix: c.get('git.branchPrefix', 'feature'),
     gitTagPrefix: c.get('git.tagPrefix', 'harper'),
     gitPrPerReqDraftEnabled: c.get('git.prPerReqDraft.enabled', false),
@@ -2769,39 +2770,28 @@ async function getJson(url) {
 }
 
 /** ---------- Git helpers ---------- */
-/**
- * @deprecated Questo metodo è obsoleto. Usa `clikeGitSync()` al suo posto.
- */
-async function gitAutoCommitAndPR() {
-  const { gitAutoCommit, gitCommitMessage, gitOpenPR } = cfg();
-  if (!gitAutoCommit) return;
-
-  const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+// After a code action is applied to a file: with clike.git.autoCommit, commit
+// that file only (argv, no shell). Never `git add -A`, never opens a PR (WP5).
+async function commitAppliedFile(fileUri) {
+  const { gitAutoCommit, gitCommitMessage } = cfg();
+  if (!gitAutoCommit || !fileUri) return;
+  const ws = vscode.workspace.getWorkspaceFolder(fileUri);
   if (!ws) return;
-  const cwd = ws.uri.fsPath;
-
-  // argv, no shell: the commit message is a single argument (no injection).
+  const rel = path.relative(ws.uri.fsPath, fileUri.fsPath);
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return;
   const runGit = (args) =>
     new Promise((resolve, reject) => {
-      execFile('git', args, { cwd }, (err, stdout, stderr) => {
+      execFile('git', args, { cwd: ws.uri.fsPath }, (err, stdout, stderr) => {
         if (err) return reject(new Error(stderr || err.message));
         resolve(stdout.trim());
       });
     });
-
   try {
-    await runGit(['add', '-A']);
-    await runGit(['commit', '-m', String(gitCommitMessage || 'clike: apply patch (AI)')]);
-    vscode.window.setStatusBarMessage('Clike: changes committed.', 3000);
+    await runGit(['add', '--', rel]);
+    await runGit(['commit', '-m', String(gitCommitMessage || 'clike: apply patch (AI)'), '--', rel]);
+    vscode.window.setStatusBarMessage(`Clike: committed ${rel}.`, 3000);
   } catch (e) {
     log(`[harperGit] commit skip/failed: ${e.message}`);
-  }
-
-  if (gitOpenPR) {
-    const ok = await vscode.commands.executeCommand('github.createPullRequest');
-    if (!ok) {
-      vscode.window.showInformationMessage('Clike: installa "GitHub Pull Requests and Issues" per aprire una PR.');
-    }
   }
 }
 
@@ -2957,7 +2947,7 @@ async function hardenedApplyFromString(context, input, { withPreview = true } = 
     await replaceWholeSafe(doc.uri, newContent);
     vscode.window.showInformationMessage('Clike: applied content.');
     await vscode.commands.executeCommand('workbench.action.files.save');
-    await gitAutoCommitAndPR();
+    await commitAppliedFile(doc.uri);
     return;
   }
 
@@ -2995,7 +2985,7 @@ async function hardenedApplyFromString(context, input, { withPreview = true } = 
     await replaceWholeSafe(doc.uri, patched);
     vscode.window.showInformationMessage('Clike: patch applied (diff).');
     await vscode.commands.executeCommand('workbench.action.files.save');
-    await gitAutoCommitAndPR();
+    await commitAppliedFile(doc.uri);
     return;
   }
 
