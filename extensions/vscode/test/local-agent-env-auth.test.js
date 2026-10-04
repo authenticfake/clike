@@ -18,6 +18,7 @@ test('local-agent env strips cloud provider keys by default', () => {
     HOME: '/home/dev',
     OPENAI_API_KEY: 'sk-openai',
     ANTHROPIC_API_KEY: 'sk-anthropic',
+    ANTHROPIC_AUTH_TOKEN: 'tok-anthropic',
     OPENAI_PROJECT_ID: 'proj_123',
     OPENAI_ORG_ID: 'org_123',
   };
