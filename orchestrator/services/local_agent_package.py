@@ -1117,30 +1117,6 @@ def resolve_local_executor(payload: Dict[str, Any]) -> Optional[str]:
     return _resolve_local_executor(payload)
 
 
-def _capability_index_names(capability_manifest: Dict[str, Any], kind: str) -> List[str]:
-    """Return discovered capability names from CLIKE_CAPABILITY_INDEX.json content."""
-    raw = str(capability_manifest.get("index_content") or "").strip()
-    if not raw:
-        return []
-
-    try:
-        index = json.loads(raw)
-    except Exception:
-        return []
-
-    items = index.get(kind) or []
-    if not isinstance(items, list):
-        return []
-
-    names: List[str] = []
-    for item in items:
-        if isinstance(item, dict):
-            name = _safe_text(item.get("name")).lower()
-            if name and name not in names:
-                names.append(name)
-    return names
-
-
 def _build_capability_integrity(req: Dict[str, Any], capability_manifest: Dict[str, Any]) -> Dict[str, Any]:
     """Compare selected capabilities with discovered capabilities."""
     selected_skills = _req_capability_list(req, "skills", nested_key="skills")
@@ -1177,8 +1153,6 @@ def _build_capability_integrity(req: Dict[str, Any], capability_manifest: Dict[s
             "If missing, the agent must report a blocking capability-context gap and must not silently relax obligations."
         ),
     }
-
-
 
 
 def _technical_scope_requires_real_provider_wiring(req: Dict[str, Any]) -> bool:
