@@ -1,12 +1,12 @@
 
 const vscode = require('vscode');
 const { readTextFile, getProjectNameFromWorkspace }  = require('./utility');
-const { serviceAuthHeaders, notifyServiceAuthFailure } = require('./service-auth');
+const { orchestratorUrl, requestJson } = require('./orchestrator-client');
 
 // --- api.js ---
-function baseUrl() {
-  const cfg = vscode.workspace.getConfiguration('clike');
-  return cfg.get('orchestratorUrl') || 'http://localhost:8080';
+// Eval/gate run the REQ checks in the sandbox and may take minutes: same budget as a Harper phase.
+function evalTimeoutMs() {
+  return 60 * 1000 * Number(vscode.workspace.getConfiguration('clike').get('harperTimeout', 25));
 }
 
 /**
@@ -30,7 +30,7 @@ async function postEvalRun(profile, workspaceRoot,req_id, mode, modeResult) {
   const projectName = getProjectNameFromWorkspace();
   if (!projectName) throw new Error('Cannot resolve current project name');
 
-  const url = `${baseUrl()}/v1/eval/run` +
+  const url = orchestratorUrl('/v1/eval/run') +
     `?profile=${encodeURIComponent(profile)}` +
     `&project_root=${encodeURIComponent(rootPath)}` +
     (req_id ? `&req_id=${encodeURIComponent(req_id)}` : "") +
@@ -40,23 +40,10 @@ async function postEvalRun(profile, workspaceRoot,req_id, mode, modeResult) {
   const uri = vscode.Uri.joinPath(workspaceRoot, profile);
   const raw = await readTextFile(uri);
   const ltcDoc = raw ? JSON.parse(raw) : null;
-  console.log("ltcDoc", ltcDoc);
   const body = (mode === 'manual')
     ? { mode: 'manual', verdict: modeResult, ltc:ltcDoc }
-    : {ltc:ltcDoc};  
-  console.log("body", body);
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json", ...serviceAuthHeaders(url) },
-    body: body ? JSON.stringify(body) : undefined
-  });
-  notifyServiceAuthFailure(res.status, url);
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`HTTP ${res.status}: ${text || res.statusText}`);
-  }
-  return res.json();
+    : {ltc:ltcDoc};
+  return requestJson('POST', url, { body, timeoutMs: evalTimeoutMs() });
 }
 
 /**
@@ -75,7 +62,6 @@ async function postGateCheck(profile, workspaceRoot, req_id, options = {}) {
     req_id: req_id,
     project_name: projectName
   });
-  console.log("postGateCheck");
   const uri = vscode.Uri.joinPath(workspaceRoot, profile);
   const raw = await readTextFile(uri);
   const ltcDoc = raw ? JSON.parse(raw) : null;
@@ -87,25 +73,9 @@ async function postGateCheck(profile, workspaceRoot, req_id, options = {}) {
   const body = (opts.mode === 'manual')
     ? { mode: 'manual', verdict: opts.result, ltc:ltcDoc }
     : {ltc:ltcDoc};  
-  
-  console.log("body", body);
 
-  const url = `${baseUrl()}/v1/gate/check?${qs.toString()}`;
-  console.log("url", url);
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json", ...serviceAuthHeaders(url) },
-    body: body ? JSON.stringify(body) : undefined
-  });
-  notifyServiceAuthFailure(res.status, url);
-  console.log("res", res);
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`HTTP ${res.status}: ${text || res.statusText}`);
-  }
-  return res.json();
+  const url = orchestratorUrl(`/v1/gate/check?${qs.toString()}`);
+  return requestJson('POST', url, { body, timeoutMs: evalTimeoutMs() });
 }
 
 
@@ -116,24 +86,16 @@ async function postGateCheck(profile, workspaceRoot, req_id, options = {}) {
  */
 async function postGateOverride(workspaceRoot, reqId, reason, author) {
   const projectName = getProjectNameFromWorkspace();
-  const url = `${baseUrl()}/v1/gate/override`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json", ...serviceAuthHeaders(url) },
-    body: JSON.stringify({
+  return requestJson('POST', orchestratorUrl('/v1/gate/override'), {
+    body: {
       project_root: asFsPath(workspaceRoot),
       project_name: projectName || null,
       req_id: reqId,
       reason,
       author,
-    }),
+    },
+    timeoutMs: 60 * 1000,
   });
-  notifyServiceAuthFailure(res.status, url);
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`HTTP ${res.status}: ${text || res.statusText}`);
-  }
-  return res.json();
 }
 
 module.exports = {
