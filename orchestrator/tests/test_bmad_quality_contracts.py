@@ -21,7 +21,7 @@ from services.methodologies.resolver import resolve_methodology_context
 
 
 def _load_gateway_methodology_prompt_module():
-    path = GATEWAY_ROOT / "utils" / "methodology_prompt.py"
+    path = REPO_ROOT / "orchestrator" / "services" / "cloud_prompt" / "methodology_prompt.py"
     spec = importlib.util.spec_from_file_location("gateway_methodology_prompt", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

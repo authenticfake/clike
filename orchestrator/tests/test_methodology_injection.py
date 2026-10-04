@@ -75,7 +75,7 @@ def _bmad_vendor_core_blobs():
 
 
 def _load_gateway_methodology_prompt_module():
-    path = REPO_ROOT / "gateway" / "utils" / "methodology_prompt.py"
+    path = REPO_ROOT / "orchestrator" / "services" / "cloud_prompt" / "methodology_prompt.py"
     spec = importlib.util.spec_from_file_location("gateway_methodology_prompt", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -427,13 +427,16 @@ class MethodologyInjectionTests(unittest.TestCase):
         self.assertTrue(any("docs/harper/ux/DESIGN.md" in item for item in warnings))
 
     def test_gateway_harper_run_passes_resolved_methodology_context_to_cloud_composer(self):
-        source = (REPO_ROOT / "gateway" / "routes" / "harper.py").read_text(encoding="utf-8")
-
-        self.assertIn("render_methodology_context_for_cloud_prompt(", source)
-        self.assertIn("build_active_output_contract(", source)
-        self.assertIn("validate_files_against_active_output_contract(", source)
-        self.assertIn("req.methodology_context", source)
-        self.assertIn("filter_files_by_methodology_artifact_policy(", source)
+        # WP8.7: the orchestrator composes the cloud prompt with the resolved methodology context;
+        # the gateway applies the same context to the model output.
+        composer = (REPO_ROOT / "orchestrator/services/cloud_prompt/messages.py").read_text(encoding="utf-8")
+        self.assertIn("render_methodology_context_for_cloud_prompt(", composer)
+        self.assertIn("build_active_output_contract(", composer)
+        self.assertIn('payload.get("methodology_context")', composer)
+        gateway = (REPO_ROOT / "gateway" / "routes" / "harper.py").read_text(encoding="utf-8")
+        self.assertIn("validate_files_against_active_output_contract(", gateway)
+        self.assertIn("req.methodology_context", gateway)
+        self.assertIn("filter_files_by_methodology_artifact_policy(", gateway)
 
     def test_bmad_context_is_injected_for_local_agent_package(self):
         payload = _base_payload()

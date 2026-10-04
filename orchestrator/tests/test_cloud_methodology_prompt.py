@@ -1,42 +1,35 @@
-import importlib.util
+"""Cloud methodology prompt rendering and phase prompt files.
+
+Moved from gateway/tests/test_methodology_prompt.py with the cloud prompt composition (WP8.7).
+"""
+
 import json
 import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-GATEWAY_ROOT = REPO_ROOT / "gateway"
+ORCHESTRATOR_ROOT = REPO_ROOT / "orchestrator"
+if str(ORCHESTRATOR_ROOT) not in sys.path:
+    sys.path.insert(0, str(ORCHESTRATOR_ROOT))
 
-from methodology_contexts import resolve_methodology_context
+from services.cloud_prompt import active_output_contract as contracts  # noqa: E402
+from services.cloud_prompt import messages as harper  # noqa: E402
+from services.cloud_prompt import methodology_prompt  # noqa: E402
+from services.methodologies.resolver import resolve_methodology_context  # noqa: E402
 
-
-def _load_gateway_module(name: str, relative_path: str):
-    path = GATEWAY_ROOT / relative_path
-    spec = importlib.util.spec_from_file_location(name, path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-artifact_policy_module = _load_gateway_module("gateway_artifact_policy", "utils/artifact_policy.py")
-methodology_prompt_module = _load_gateway_module("gateway_methodology_prompt", "utils/methodology_prompt.py")
-active_output_contract_module = _load_gateway_module("gateway_active_output_contract_for_prompt_tests", "utils/active_output_contract.py")
-filter_files_by_methodology_artifact_policy = artifact_policy_module.filter_files_by_methodology_artifact_policy
-render_methodology_context_for_cloud_prompt = methodology_prompt_module.render_methodology_context_for_cloud_prompt
-render_current_canonical_validation_for_cloud_prompt = (
-    methodology_prompt_module.render_current_canonical_validation_for_cloud_prompt
-)
-build_active_output_contract = active_output_contract_module.build_active_output_contract
+PHASES_DIR = ORCHESTRATOR_ROOT / "phases"
+GATEWAY_FIXTURES = REPO_ROOT / "gateway/tests/fixtures"
+MANIFEST_PATH = REPO_ROOT / "orchestrator/methodologies/bmad/manifest.json"
+build_active_output_contract = contracts.build_active_output_contract
+validate_files_against_active_output_contract = contracts.validate_files_against_active_output_contract
+render_methodology_context_for_cloud_prompt = methodology_prompt.render_methodology_context_for_cloud_prompt
+render_current_canonical_validation_for_cloud_prompt = methodology_prompt.render_current_canonical_validation_for_cloud_prompt
 
 
 def compose_cloud_selected_phase_skill_context(core_blobs, methodology_context):
-    # the renderer used by the cloud prompt (routes/harper.py); utils/selected_skill_context_prompt.py
-    # was an unused copy and has been removed (WP8.1)
-    from routes import harper
-
     return harper._compose_cloud_selected_skill_context(
         core_blobs=core_blobs, methodology_context=methodology_context, active_output_contract=None
     )
-MANIFEST_PATH = REPO_ROOT / "orchestrator/methodologies/bmad/manifest.json"
 
 
 def _manifest():
@@ -81,7 +74,7 @@ def test_bmad_idea_renderer_includes_companion_contract_outputs():
 
 
 def test_idea_system_prompt_keeps_canonical_schema_and_bmad_companions_separate():
-    prompt = (GATEWAY_ROOT / "prompts" / "harper" / "idea_system.md").read_text(encoding="utf-8")
+    prompt = (PHASES_DIR / "idea" / "cloud_system.md").read_text(encoding="utf-8")
 
     for text in [
         "# IDEA — <Project Name>",
@@ -111,7 +104,7 @@ def test_idea_system_prompt_keeps_canonical_schema_and_bmad_companions_separate(
 
 
 def test_idea_system_prompt_does_not_require_bmad_sections_inside_canonical_idea():
-    prompt = (GATEWAY_ROOT / "prompts" / "harper" / "idea_system.md").read_text(encoding="utf-8")
+    prompt = (PHASES_DIR / "idea" / "cloud_system.md").read_text(encoding="utf-8")
 
     forbidden_required_phrases = [
         "## Deployment Portability Rule",
@@ -129,7 +122,7 @@ def test_idea_system_prompt_does_not_require_bmad_sections_inside_canonical_idea
 
 
 def test_plan_system_prompt_lane_guide_schema_matches_validator_contract():
-    prompt = (GATEWAY_ROOT / "prompts" / "harper" / "plan_system.md").read_text(encoding="utf-8")
+    prompt = (PHASES_DIR / "plan" / "cloud_system.md").read_text(encoding="utf-8")
 
     for phrase in [
         "### Purpose and Scope",
@@ -291,73 +284,10 @@ def test_discovered_custom_companion_artifact_appears_in_inventory_with_snippet(
 
 
 def test_native_harper_prompt_files_do_not_contain_bmad_blocks():
-    for path in (GATEWAY_ROOT / "prompts" / "harper").glob("*.md"):
+    for path in PHASES_DIR.glob("*/cloud_*.md"):
         text = path.read_text(encoding="utf-8")
         assert "BMAD Companion Artifact Contract" not in text
         assert "BMAD Companion Artifact Inventory" not in text
-
-
-def test_spec_ux_forbidden_spec_output_is_enforced():
-    context = resolve_methodology_context(
-        phase="spec",
-        methodology="bmad",
-        agent="ux",
-    )
-    warnings = []
-
-    filtered = filter_files_by_methodology_artifact_policy(
-        [
-            {"path": "docs/harper/SPEC.md", "content": "# Forbidden"},
-            {"path": "docs/harper/ux/SPEC_UX_APPENDIX.md", "content": "# UX"},
-        ],
-        phase="spec",
-        methodology_context=context,
-        warnings=warnings,
-    )
-
-    assert [item["path"] for item in filtered] == ["docs/harper/ux/SPEC_UX_APPENDIX.md"]
-    assert any("bmad_spec_ux_companion_only" in item for item in warnings)
-
-
-def test_plan_architect_output_policy_allows_lane_guides_and_architecture_companions():
-    context = resolve_methodology_context(
-        phase="plan",
-        methodology="bmad",
-        agent="architect",
-    )
-    warnings = []
-
-    filtered = filter_files_by_methodology_artifact_policy(
-        [
-            {"path": "docs/harper/PLAN.md", "content": "# Plan"},
-            {"path": "docs/harper/plan.json", "content": "{}"},
-            {"path": "docs/harper/lane-guides/app.md", "content": "# App Lane"},
-            {"path": "docs/harper/bmad/architecture/ARCHITECTURE.md", "content": "# Architecture"},
-            {"path": "docs/harper/bmad/plan/STORIES.md", "content": "# Wrong role"},
-        ],
-        phase="plan",
-        methodology_context=context,
-        warnings=warnings,
-    )
-
-    assert [item["path"] for item in filtered] == [
-        "docs/harper/PLAN.md",
-        "docs/harper/plan.json",
-        "docs/harper/lane-guides/app.md",
-        "docs/harper/bmad/architecture/ARCHITECTURE.md",
-    ]
-    assert any("docs/harper/bmad/plan/STORIES.md" in item for item in warnings)
-
-
-def test_non_bmad_output_validation_is_unchanged():
-    files = [{"path": "docs/harper/SPEC.md", "content": "# Spec"}]
-
-    assert filter_files_by_methodology_artifact_policy(
-        files,
-        phase="spec",
-        methodology_context=None,
-        warnings=[],
-    ) == files
 
 
 def test_current_invalid_canonical_context_renders_repair_guidance():
@@ -379,6 +309,7 @@ def test_current_invalid_canonical_context_renders_repair_guidance():
     assert "must not be imitated structurally" in rendered
     assert "Generate a valid replacement" in rendered
     assert "untrusted_repair_material_snippet" in rendered
+
 
 def test_cloud_selected_phase_skill_context_renders_clike_and_bmad_selected_context():
     core_blobs = {

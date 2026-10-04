@@ -9,7 +9,7 @@ from services.local_agent_package import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-EXTEND_SYSTEM = REPO_ROOT / "gateway/prompts/harper/extend_system.md"
+EXTEND_SYSTEM = REPO_ROOT / "orchestrator/phases/extend/cloud_system.md"
 
 
 def _execution_policy():

@@ -1,5 +1,4 @@
 import importlib.util
-import sys
 from pathlib import Path
 
 
@@ -18,11 +17,9 @@ def _load_gateway_module(name: str, relative_path: str):
 
 
 contract_module = _load_gateway_module("gateway_active_output_contract", "utils/active_output_contract.py")
-methodology_prompt_module = _load_gateway_module("gateway_methodology_prompt_contract", "utils/methodology_prompt.py")
 
 build_active_output_contract = contract_module.build_active_output_contract
 validate_files_against_active_output_contract = contract_module.validate_files_against_active_output_contract
-render_methodology_context_for_cloud_prompt = methodology_prompt_module.render_methodology_context_for_cloud_prompt
 
 
 def _bmad_contract(phase: str, agent: str, req_id: str | None = None):
@@ -319,107 +316,3 @@ def test_validation_allows_extra_bmad_file_only_under_optional_glob():
     assert bad_result["disallowed_outputs"] == ["docs/harper/bmad/spec/WRONG.md"]
 
 
-def test_rendered_bmad_idea_prompt_contract_contains_required_outputs_and_no_conflict_text():
-    context = resolve_methodology_context(phase="idea", methodology="bmad", agent="analyst")
-    contract = build_active_output_contract(
-        phase="idea",
-        runner="cloud",
-        methodology_context=context,
-    )
-
-    rendered = render_methodology_context_for_cloud_prompt(context, active_output_contract=contract)
-
-    assert "### Active Output Contract" in rendered
-    assert "Emit each output as a BEGIN_FILE / END_FILE block" in rendered
-    assert "BEGIN_FILE relative/path" in rendered
-    assert "END_FILE" in rendered
-    assert "Markdown file contents may contain fenced code blocks" in rendered
-    assert "Do not wrap Markdown files in triple-backtick file blocks when the file itself contains fenced code blocks" in rendered
-    assert "Emit one or more `file:/path` blocks with complete file contents" not in rendered
-    assert "### BMAD Companion Artifact Contract" in rendered
-    for path in [
-        "docs/harper/bmad/idea/BRIEF.md",
-        "docs/harper/bmad/idea/PRFAQ_NOTES.md",
-        "docs/harper/bmad/idea/ASSUMPTIONS.md",
-        "docs/harper/bmad/idea/RESEARCH_QUESTIONS.md",
-    ]:
-        assert path in rendered
-    assert "Print EXCLUSIVELY one file block" not in rendered
-    assert "Produce only the single" not in rendered
-    assert "No additional files" not in rendered
-
-
-def test_rendered_native_idea_prompt_contract_has_no_bmad_block():
-    contract = build_active_output_contract(phase="idea", runner="cloud")
-    rendered = render_methodology_context_for_cloud_prompt(None, active_output_contract=contract)
-
-    assert "### Active Output Contract" in rendered
-    assert "Emit each output as a BEGIN_FILE / END_FILE block" in rendered
-    assert "Markdown file contents may contain fenced code blocks" in rendered
-    assert "Do not wrap Markdown files in triple-backtick file blocks when the file itself contains fenced code blocks" in rendered
-    assert "Emit one or more `file:/path` blocks with complete file contents" not in rendered
-    assert "docs/harper/IDEA.md" in rendered
-    assert "BMAD Companion Artifact Contract" not in rendered
-    assert "docs/harper/bmad/idea/BRIEF.md" not in rendered
-
-
-def test_rendered_bmad_kit_developer_prompt_lists_p0_required_outputs():
-    context = resolve_methodology_context(phase="kit", methodology="bmad", agent="developer")
-    contract = build_active_output_contract(
-        phase="kit",
-        runner="cloud",
-        methodology_context=context,
-        req_id="REQ-001",
-        file_requirements=_kit_file_requirements(),
-    )
-
-    rendered = render_methodology_context_for_cloud_prompt(context, active_output_contract=contract)
-
-    assert "### BMAD Skill Reference Context" in rendered
-    assert "dev-story-execution" in rendered
-    assert "story-readiness" in rendered
-    assert "### ACTIVE KIT REQUIRED OUTPUTS" in rendered
-    assert "If any is missing, Gateway will reject the entire KIT response." in rendered
-    assert "These files are P0 mandatory outputs." in rendered
-    for path in [
-        "runs/kit/REQ-001/docs/TARGET_CONTRACT.json",
-        "runs/kit/REQ-001/docs/FILE_REQUIREMENTS.json",
-        "runs/kit/REQ-001/docs/BMAD_DEV_STORY.md",
-        "runs/kit/REQ-001/docs/IMPLEMENTATION_NOTES.md",
-        "runs/kit/REQ-001/docs/SELF_REVIEW.md",
-        "runs/kit/REQ-001/docs/RUNBOOK.md",
-    ]:
-        assert path in rendered
-
-
-def test_rendered_native_kit_prompt_lists_native_outputs_without_bmad_docs():
-    contract = build_active_output_contract(
-        phase="kit",
-        runner="cloud",
-        req_id="REQ-001",
-        file_requirements=_kit_file_requirements(),
-    )
-
-    rendered = render_methodology_context_for_cloud_prompt(None, active_output_contract=contract)
-
-    assert "### ACTIVE KIT REQUIRED OUTPUTS" in rendered
-    assert "runs/kit/REQ-001/docs/TARGET_CONTRACT.json" in rendered
-    assert "runs/kit/REQ-001/docs/FILE_REQUIREMENTS.json" in rendered
-    assert "BMAD Skill Reference Context" not in rendered
-    assert "dev-story-execution" not in rendered
-    assert "story-readiness" not in rendered
-    assert "runs/kit/REQ-001/docs/BMAD_DEV_STORY.md" not in rendered
-    assert "BMAD developer companion docs are required" not in rendered
-
-
-def test_static_prompt_files_do_not_contain_unconditional_native_single_file_restrictions():
-    forbidden = [
-        "Print EXCLUSIVELY one file block",
-        "Produce **only** the single",
-        "Produce only the single",
-        "No additional files",
-    ]
-    for path in (GATEWAY_ROOT / "prompts").rglob("*.md"):
-        text = path.read_text(encoding="utf-8")
-        for phrase in forbidden:
-            assert phrase not in text, f"{phrase!r} found in {path.relative_to(REPO_ROOT)}"

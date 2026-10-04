@@ -16,7 +16,7 @@ class PlanPromptContentTests(unittest.TestCase):
             self.assertIn(phrase.lower(), lowered)
 
     def test_plan_system_mentions_core_req_obligations(self) -> None:
-        content = _read("gateway/prompts/harper/plan_system.md")
+        content = _read("orchestrator/phases/plan/cloud_system.md")
 
         self.assert_contains_all(
             content,

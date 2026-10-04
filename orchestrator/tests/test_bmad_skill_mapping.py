@@ -68,7 +68,7 @@ def _bmad_vendor_core_blobs():
 
 
 def _load_gateway_prompt_module():
-    path = REPO_ROOT / "gateway/utils/methodology_prompt.py"
+    path = REPO_ROOT / "orchestrator/services/cloud_prompt/methodology_prompt.py"
     spec = importlib.util.spec_from_file_location("gateway_methodology_prompt_for_bmad_skills", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

@@ -63,6 +63,7 @@ from utils.namespace_paths import (
 )
 from services import gateway_http
 from services.phase_context import PhaseContext
+from services.cloud_prompt.messages import compose_phase_messages
 from utils.safe_paths import resolve_within, validate_req_id
 from services import gate_integrity
 log = logging.getLogger("service.router")
@@ -163,6 +164,16 @@ async def _post_json(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         raise GatewayUpstreamError(r.status_code, detail, code) from None
 
     return r.json()  
+async def _post_phase_run(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Run a phase on the gateway with the messages composed here (WP8.7).
+
+    The Harper domain (phase system prompt, context selection, output checklist) is composed by
+    the orchestrator; the gateway adds RAG material and chat history and calls the provider.
+    """
+    composed = compose_phase_messages(payload)
+    return await _post_json("/v1/harper/run", {**payload, "composed_messages": composed})
+
+
 async def _normalize_message(msg: Dict[str, Any]) -> Dict[str, Any]:
     # --- Normalizzazione messages ---
     raw_msgs = msg.get("messages") or []
@@ -2781,7 +2792,7 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
 
     if phase == "kit" and target_req_id:
         if "kit" in requested_kit_phases:
-            out = await _post_json("/v1/harper/run", merged)
+            out = await _post_phase_run(merged)
         else:
             existing_candidate_artifacts = _load_existing_req_candidate_artifacts(target_req_id)
             if not existing_candidate_artifacts:
@@ -2803,7 +2814,7 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
                 "runId": merged.get("runId"),
             }
     else:
-        out = await _post_json("/v1/harper/run", merged)
+        out = await _post_phase_run(merged)
 
 
     log.info(
@@ -2901,7 +2912,7 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
                 )
 
                 integrity_start = time.time()
-                integrity_out = await _post_json("/v1/harper/run", integrity_payload)
+                integrity_out = await _post_phase_run(integrity_payload)
                 integrity_elapsed = time.time() - integrity_start
 
                 integrity_review_files = _filter_req_stage_files(
@@ -3007,7 +3018,7 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
                 )
 
                 hardener_start = time.time()
-                hardener_out = await _post_json("/v1/harper/run", hardener_payload)
+                hardener_out = await _post_phase_run(hardener_payload)
                 hardener_elapsed = time.time() - hardener_start
 
                 hardener_files = _filter_req_stage_files(
@@ -3077,7 +3088,7 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
 
                 promotion_eval_start = time.time()
                 try:
-                    promotion_eval_out = await _post_json("/v1/harper/run", promotion_eval_payload)
+                    promotion_eval_out = await _post_phase_run(promotion_eval_payload)
                     promotion_eval_elapsed = time.time() - promotion_eval_start
                     log.info(
                         "harper.kit promotion eval completed req=%s elapsed=%.3fs files=%d",

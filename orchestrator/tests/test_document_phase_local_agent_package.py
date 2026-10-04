@@ -472,9 +472,9 @@ def test_plan_prompt_treats_skills_capabilities_as_binding():
 # --- Cloud-parity: gateway canonical expectations embedded in prompts ---
 
 GATEWAY_PROMPTS = {
-    "idea": REPO_ROOT / "gateway/prompts/harper/idea_system.md",
-    "spec": REPO_ROOT / "gateway/prompts/harper/spec_system.md",
-    "plan": REPO_ROOT / "gateway/prompts/harper/plan_system.md",
+    "idea": REPO_ROOT / "orchestrator/phases/idea/cloud_system.md",
+    "spec": REPO_ROOT / "orchestrator/phases/spec/cloud_system.md",
+    "plan": REPO_ROOT / "orchestrator/phases/plan/cloud_system.md",
 }
 
 
