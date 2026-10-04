@@ -185,6 +185,9 @@ def _fake_gateway_response(payload, variant: str = ""):
 _VOLATILE_KEY_RE = re.compile(r"(timestamp|^ts$|_at$|latency|duration|elapsed)", re.I)
 _UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 _TS_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?")
+# composed prompts list blobs as "- NAME (N chars)"; N includes the temp workspace path, which has a
+# different length on every machine
+_CHARS_RE = re.compile(r"\((\d+) chars\)")
 
 
 def _scrub(value, workspace: str):
@@ -195,7 +198,8 @@ def _scrub(value, workspace: str):
     if isinstance(value, str):
         out = value.replace(workspace, "<WORKSPACE>").replace(str(REPO_ROOT), "<REPO>")
         out = _UUID_RE.sub("<UUID>", out)
-        return _TS_RE.sub("<TS>", out)
+        out = _TS_RE.sub("<TS>", out)
+        return _CHARS_RE.sub("(<N> chars)", out)
     return value
 
 
