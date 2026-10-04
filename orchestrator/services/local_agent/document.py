@@ -27,6 +27,12 @@ from services.local_agent.common import (
     _resolve_local_executor,
     _safe_text,
 )
+from services.phase_definitions import phase_text
+
+
+def _text(key: str) -> list:
+    """Static text of this module, kept in phases/_shared_text.yaml (WP8.5)."""
+    return list(phase_text("_shared")[key])
 
 
 # Early Harper document phases (/idea, /spec, /plan) reuse one generic
@@ -81,10 +87,7 @@ def _render_canonical_parity_block(phase_norm: str, title: str) -> List[str]:
         f"These expectations are the canonical cloud /{phase_norm} contract. The local",
         "artifact must be isofunctional with the cloud artifact and never weaker:",
         *[f"- {item}" for item in expectations],
-        "Match or exceed the cloud artifact: be more explicit, more traceable to the",
-        "previous phase, richer in acceptance criteria/constraints/risks/verification",
-        "hooks, and downstream-ready — but never skeletal and never heading-only.",
-    ]
+        *_text("render_canonical_parity_block.lines")    ]
 
 
 def _build_plan_capability_context(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -183,12 +186,7 @@ def build_document_phase_local_agent_package(
         except Exception:
             plan_capability_metadata = None
         if plan_capability_context["has_capabilities"]:
-            required_reads = required_reads + [
-                ".clike/capabilities.yaml or .clike/capabilities.yml when present",
-                ".clike/packs/** when present",
-                ".clike/skills/** when present",
-                ".clike/design-profiles/** when present",
-            ]
+            required_reads = required_reads + _text("document_package.lines.3")
 
     context = {
         "schema_version": spec["schema_version"],
@@ -237,18 +235,10 @@ def build_document_phase_local_agent_package(
                 )
                 for item in attachment_manifest["items"]
             ],
-            "- Read every workspace_path listed above before producing output. Multiple attachments are allowed and all must be read.",
-            "- workspace_path entries are inside the current working directory; read those. Do NOT read original_path — it is metadata only and may be outside the workspace.",
-            "- For PDF attachments, read and extract their full textual content and use it as primary evidence.",
-            "- For image attachments (png/jpg/jpeg/gif/webp/svg/...), use vision to describe precisely what the image shows — UI screens, layouts, components, diagrams, charts, labels, and any visible text — and use that description as evidence.",
-            "- If an attachment cannot be opened or understood (unsupported binary), state it explicitly as a gap; never invent its content.",
+            *_text("document_package.attachment_prompt_lines"),
         ]
         if phase_norm == "idea":
-            attachment_prompt_lines += [
-                "- These current-run materialized attachments are the ONLY source of truth for /idea; do not rely only on RAG.",
-                "- Do not use stale workspace files or old uploads. Do not read ORI.IDEA.md or any IDEA* variant unless it is explicitly listed above as a current-run attachment workspace_path.",
-                "- Any existing docs/harper/IDEA.md is the overwrite target only, never a source.",
-            ]
+            attachment_prompt_lines += _text("document_package.lines.2")
         else:
             attachment_prompt_lines.append(
                 f"- Attachments are the primary source of truth for /{phase_norm}; do not rely only on RAG.",
@@ -269,9 +259,7 @@ def build_document_phase_local_agent_package(
             _cap_line("available/selected packs", "packs"),
             _cap_line("available/selected skills", "skills"),
             _cap_line("available/selected design_profiles", "design_profiles"),
-            "- For every REQ in plan.json, set packs/skills/design_profiles to the applicable capabilities above (arrays of names). Read .clike/capabilities.yaml and .clike/{packs,skills,design-profiles}/** to choose correctly.",
-            "- Do NOT default packs/skills/design_profiles to \"not_applicable\" when capabilities are available; use \"not_applicable\" only when no listed capability genuinely applies to that REQ.",
-            "- Never invent capabilities that are not in the lists above.",
+            *_text("document_package.capability_prompt_lines"),
         ]
 
     prompt = "\n".join(
@@ -290,20 +278,7 @@ def build_document_phase_local_agent_package(
             *_render_canonical_parity_block(phase_norm, title),
             "",
             *spec["prompt_lines"],
-            "",
-            "Forbidden writes:",
-            "- any docs/harper path other than the allowed writes above",
-            "- src/, test/, tests/",
-            "- runs/kit/, runs/eval/, runs/gate/",
-            "- .git/",
-            "",
-            "Execution rules:",
-            "- Follow AGENT_*_CONTEXT.json as the source of truth.",
-            "- Do not run git commands.",
-            "- Before final output, normalize every created or modified text file by stripping trailing whitespace and ensuring a final newline.",
-            "- Do not invent facts, vendors, APIs, endpoints, project keys, or frameworks not evidenced by inputs.",
-            "",
-            "At the end, print a concise summary with files changed, validation performed, and unresolved gaps.",
+            *_text("document_package.lines"),
         ]
     )
 

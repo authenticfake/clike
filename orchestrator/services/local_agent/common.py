@@ -17,6 +17,12 @@ from services.methodologies.resolver import ensure_bmad_skill_context, resolve_m
 from utils.namespace_paths import (
     is_python_runtime_context,
 )
+from services.phase_definitions import phase_text
+
+
+def _text(key: str) -> list:
+    """Static text of this module, kept in phases/_shared_text.yaml (WP8.5)."""
+    return list(phase_text("_shared")[key])
 
 
 def _local_agent_invocation(local_executor: Optional[str], payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -374,9 +380,7 @@ def _render_selected_capability_prompt_block(selected_capabilities: Dict[str, An
             f"- selected_packs: {'; '.join(str(x) for x in selected_capabilities.get('selected_packs') or []) or 'none'}",
             f"- selected_skills: {'; '.join(str(x) for x in selected_capabilities.get('selected_skills') or []) or 'none'}",
             f"- selected_design_profiles: {'; '.join(str(x) for x in selected_capabilities.get('selected_design_profiles') or []) or 'none'}",
-            "- Read CLIKE_SELECTED_CAPABILITY_CONTEXT.md before implementation or repair.",
-            "- CLike selected capabilities are REQ-scoped implementation, test, documentation, and evidence constraints.",
-            "- Capability guidance must not override SPEC, TECH_CONSTRAINTS, TARGET_CONTRACT.json, FILE_REQUIREMENTS.json, allowed_write_roots, EvalRunner, or Gate.",
+            *_text("render_selected_capability_prompt_block.lines"),
         ]
     )
 
@@ -517,13 +521,7 @@ def _methodology_context_for_local_agent(
             "downstream_consumers": list(artifact_policy.get("downstream_consumers") or []),
         },
         "workflow_path": raw.get("workflow_path"),
-        "governance_boundaries": governance_boundaries[:6] or [
-            "CLike remains the governance runtime and source of truth.",
-            "Methodology guidance is not an executor selection mechanism.",
-            "Methodology guidance cannot override CLike phase contracts, eval/gate policy, allowed_write_roots, forbidden_paths, candidate isolation, or output schemas.",
-            "BMAD developer guidance must not expand write permissions.",
-            "If methodology guidance conflicts with CLike rules, follow CLike.",
-        ],
+        "governance_boundaries": governance_boundaries[:6] or _text("methodology_context_for_local_agent.lines"),
         "selected_skill_references": selected_skill_references[:12],
         "selected_skill_context": {
             "snippets": list(selected_skill_context.get("snippets") or [])[:8],
@@ -628,25 +626,13 @@ def _render_compact_local_agent_prompt(
             "- Parse BMAD companion artifacts listed in companion_documents.bmad and UX artifacts listed in companion_documents.ux before code generation or repair.",
             "- Read selected BMAD skill context from AGENT_*_CONTEXT.json before implementation or repair.",
             "- Treat BMAD skills as methodology guidance only; never execute BMAD runtime and never call `" + "npx bmad-" + "method`.",
-            "- BMAD skill guidance must not expand write roots, modify canonical source/test roots, decide eval/gate, or override CLike contracts.",
-            "- Use selected skills to improve implementation readiness, acceptance coverage, repair quality, and documentation.",
-            "- Use BMAD and UX companion docs to guide implementation and repair decisions when they clarify product intent, UX expectations, architecture, risks, or handoff notes.",
-            "- Do not treat companion docs as canonical when they conflict with SPEC.md, PLAN.md, plan.json, TARGET_CONTRACT.json, FILE_REQUIREMENTS.json, EvalRunner evidence, or CLike write boundaries.",
-            "- Produce BMAD expected outputs from AGENT_*_CONTEXT.json when useful for downstream phases; if a BMAD output would not be useful, explain why.",
-            "- BMAD companion artifacts are additive and non-authoritative.",
+            *_text("render_compact_local_agent_prompt.bmad_rules"),
         ]
 
     contract_lines: List[str] = []
     if isinstance(active_output_contract, dict):
         contract_lines = [
-            "",
-            "Active output contract:",
-            "- Read active_output_contract from AGENT_*_CONTEXT.json before writing files.",
-            "- Emit or update every required output declared by the active output contract when it is applicable to this local-agent runner.",
-            "- Additional outputs are allowed only under allowed optional output globs and allowed_write_roots.",
-            "- Never emit forbidden outputs.",
-            "- Do not use file-count shortcuts such as minimum number of files.",
-            "- Native CLike runs and BMAD runs have different active output contracts.",
+            *_text("render_compact_local_agent_prompt.contract_lines"),
             f"- methodology: {active_output_contract.get('methodology') or 'native_clike'}",
             f"- agent: {active_output_contract.get('agent') or 'none'}",
             f"- conflict_resolution: {active_output_contract.get('conflict_resolution') or ''}",
@@ -668,52 +654,15 @@ def _render_compact_local_agent_prompt(
         ]
 
     if phase == "kit":
-        kit_read_first = [
-            "- docs/harper/IDEA.md when present",
-            "- docs/harper/SPEC.md",
-            "- docs/harper/PLAN.md",
-            "- docs/harper/plan.json",
-            "- docs/harper/TECH_CONSTRAINTS.yaml before choosing libraries, runtime assumptions, architecture, deployment, provider, or command strategy",
-            "- docs/harper/bmad/** when present",
-            "- docs/harper/ux/** when present",
-        ]
-        kit_rules = [
-            "- Implement only the current REQ from AGENT_EXECUTION_CONTEXT.json.",
-            "- Read BMAD/UX companion docs before code generation and use them as bounded implementation context.",
-            "- Inspect promoted src/ and test roots as read-only context.",
-            "- Inspect dependency REQ candidate outputs listed in AGENT_EXECUTION_CONTEXT.json when relevant.",
-            "- Write only to runs/kit/<REQ-ID>/src, runs/kit/<REQ-ID>/test, runs/kit/<REQ-ID>/ci, and runs/kit/<REQ-ID>/docs.",
-            "- Do not write to canonical src/, test/, or tests/.",
-            "- Do not mutate docs/harper/PLAN.md or docs/harper/plan.json.",
-            "- Do not promote candidate files.",
-            "- Produce candidate files satisfying TARGET_CONTRACT.json and FILE_REQUIREMENTS.json.",
-            "- TECH_CONSTRAINTS.yaml is authoritative. Do not assume Python, Node, cloud provider, database, queue, UI framework, IaC tool, or deployment target unless evidenced by TECH_CONSTRAINTS, SPEC, PLAN, plan.json, repository manifests, or existing source.",
-            "- When repair_context.repair is true, focus on failed checks without broad unrelated rewrites.",
-        ]
+        kit_read_first = _text("render_compact_local_agent_prompt.kit_read_first")
+        kit_rules = _text("render_compact_local_agent_prompt.kit_rules")
     elif phase == "eval":
-        eval_rules = [
-            "- You are not the judge; canonical EvalRunner remains authoritative.",
-            "- Use BMAD QA docs for repair guidance when AGENT_EVAL_CONTEXT.json lists them.",
-            "- Run or inspect LTC/HOWTO checks when possible.",
-            "- Identify the first deterministic failure before editing.",
-            "- Repair only candidate-owned files under allowed_write_roots.",
-            "- Do not weaken tests, LTC, typecheck, lint, security checks, or gate policy.",
-            "- Do not mark candidate code failures as environment-blocked.",
-            "- Environment blockers require exact evidence such as missing toolchain, network, registry, filesystem, sandbox, or policy failure.",
-            "- Rerun the same failing command after repair.",
-            "- Produce concise evidence useful for canonical EvalRunner.",
-            "- Never mutate canonical eval verdict fields and never decide pass/fail.",
-            "- Write repair notes under runs/kit/<REQ-ID>/reports/BMAD_EVAL_REPAIR_NOTES.md when useful.",
-        ]
+        eval_rules = _text("render_compact_local_agent_prompt.eval_rules")
 
     return "\n".join(
         [
             f"# Local Agent {phase_label} Package — {req_id}",
-            "",
-            "You are executing a CLike Harper local-agent package.",
-            "The orchestrator owns workflow state, policy, and promotion.",
-            "The VS Code extension is only the local actuator.",
-            "",
+            *_text("render_compact_local_agent_prompt.lines"),
             f"Target REQ: {req_id}",
             f"Task: {action}.",
             _render_methodology_prompt_block(methodology_context),
@@ -728,32 +677,11 @@ def _render_compact_local_agent_prompt(
             f"- runs/kit/{req_id}/docs/CLIKE_SELECTED_CAPABILITY_CONTEXT.md when present",
             f"- runs/kit/{req_id}/docs/CLIKE_CAPABILITY_INDEX.json when present",
             *kit_read_first,
-            "",
-            "Execution rules:",
-            "- Follow AGENT_*_CONTEXT.json as the source of truth.",
-            "- For EVAL hardening, if a REQ-local ci/package.json exists, run `npm install --prefix runs/kit/<REQ-ID>/ci --no-audit --no-fund` before declaring npm, TypeScript, lint, test, or security checks environment-blocked. This is a local declared dependency install, not a global install.",
-            "- For EVAL hardening, do not report TypeScript/tsc as environment-blocked until the REQ-local install command has been attempted and failed with concrete network, registry, filesystem, or policy evidence.",
-            "- Write only under allowed_write_roots.",
-            "- Do not run git commands.",
-            "- never run Git operations.",
-            "- Before final output, normalize every created or modified text file by stripping trailing whitespace and ensuring a final newline.",
-            "- Do not modify canonical src/, test/, tests/, docs/harper, dependency KIT roots, or git metadata.",
-            "- Inspect dependency KITs and canonical roots before writing or repairing candidate files.",
-            "- Reuse existing contracts before creating new modules, helpers, adapters, or test utilities.",
-            "- Run the smallest relevant checks and report exact commands and outcomes.",
+            *_text("render_compact_local_agent_prompt.lines.2"),
             *bmad_rules,
             *kit_rules,
             *eval_rules,
-            "- For EVAL hardening, repair from the actual failing diagnostics, not from generic policy. Read the failing command stdout/stderr, identify exact file:line diagnostics, patch only those candidate-owned files, then rerun the same failing command.",
-            "- Do not return the hardening pass as complete while the same blocking command still reports candidate-owned diagnostics of the same class, such as TS2339, TS18046, lint errors, syntax errors, or raw-secret findings in candidate-owned files.",
-            "- Continue focused repair/rerun cycles up to max_repair_cycles_inside_agent when the same check keeps failing with remaining candidate-owned diagnostics.",
-            "- For typecheck failures, repair candidate-owned source/tests/CI instead of reporting success or environment-blocked when the declared local dependencies can be installed.",
-            "- For union response shape failures, decide whether the missing field is part of the stable public contract. If yes, repair the service/producer response shape. If no, repair the test with explicit narrowing before field access.",
-            "- For caught errors typed as unknown, use a typed helper/adapter before asserting classification, retryable, status/statusCode, or domain failure categories.",
-            "- For Node/JavaScript checkJs tests, assert.throws() and assert.rejects() callbacks receive unknown errors. After `error instanceof SomeError`, add `const typedError = /** @type {SomeError} */ (error);` and read custom fields only from typedError.",
-            "- Do not weaken tests, type checks, security checks, gate policy, or public contracts to hide failures.",
-            "",
-            "Return a concise summary with files changed, commands run, checks passed/failed, and unresolved gaps.",
+            *_text("render_compact_local_agent_prompt.lines.3"),
         ]
     )
 

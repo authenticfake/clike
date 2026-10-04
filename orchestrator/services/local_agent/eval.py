@@ -47,6 +47,12 @@ from services.local_agent.kit_contracts import (
     _build_recommended_outputs,
     _build_target_contract,
 )
+from services.phase_definitions import phase_text
+
+
+def _text(key: str) -> list:
+    """Static text of this module, kept in phases/eval/text.yaml (WP8.5)."""
+    return list(phase_text("eval")[key])
 
 
 def build_eval_local_agent_package(
@@ -429,15 +435,7 @@ def build_eval_local_agent_package(
                 "missing_external_infrastructure",
                 "explicit_unresolved_gap_with_evidence"
             ],
-            "forbidden_repairs": [
-                "removing meaningful assertions",
-                "weakening gate_policy",
-                "marking code failures as environment-blocked",
-                "disabling typecheck globally",
-                "removing tests to pass eval",
-                "creating unconditional secondary overlays",
-                "modifying canonical src/test/tests roots"
-            ],
+            "forbidden_repairs": _text("package.forbidden_repairs"),
             "typescript_checkjs_guidance": {
                 "applies_when": [
                     "TS2339",
@@ -446,13 +444,7 @@ def build_eval_local_agent_package(
                     "dynamic Error.code access",
                     "JSDoc checkJs validation failures"
                 ],
-                "required_behavior": [
-                    "repair candidate tests or CI scripts with narrow JSDoc casts or local helper guards",
-                    "preserve meaningful assertions",
-                    "do not relax tsconfig to hide source/test failures",
-                    "do not remove checkJs from product source",
-                    "do not use @ts-nocheck on candidate source or tests"
-                ],
+                "required_behavior": _text("package.required_behavior"),
                 "allowed_exception": (
                     "@ts-nocheck is allowed only for generated CI utility scripts when the failure is "
                     "inside the validator script itself and the script is already syntax-checked separately."
@@ -463,16 +455,7 @@ def build_eval_local_agent_package(
         "allowed_test_doubles_policy": {
             "allowed": True,
             "scope": "tests_only",
-            "allowed_for": [
-                "external infrastructure boundaries",
-                "object storage adapters",
-                "queue adapters",
-                "event transport adapters",
-                "secret providers",
-                "identity providers",
-                "observability sinks",
-                "network clients outside this candidate slice",
-            ],
+            "allowed_for": _text("package.allowed_for"),
             "forbidden_for": [
                 "business logic under test",
                 "domain rules",
@@ -486,54 +469,9 @@ def build_eval_local_agent_package(
             ),
         },
         "hard_rules": [
-            "This is an eval hardening pass, not the canonical eval judge.",
-            "For typecheck failures where tests access fields that are missing on one variant of a union response, do not silence the checker with broad casts. First decide whether the field is part of the stable public contract. If yes, repair the producer/service response so every success variant exposes the stable field. If no, repair the test with explicit narrowing before accessing variant-specific fields.",
-            "For workflow orchestration responses, fields such as workflowRun, job, idempotency, artifacts, and trace must have a stable documented success contract when acceptance criteria require trace continuity, idempotency reuse, and job/artifact linkage. Prefer repairing the producer shape over weakening tests when downstream REQs depend on those fields.",
-            "For caught errors typed as unknown, repair with a narrow helper or typed error adapter and preserve assertions on classification, retryable, status/statusCode, and domain failure categories.",
-            "For Node/JavaScript checkJs failures inside assert.throws() or assert.rejects() callbacks, do not weaken the test and do not cast before validation. First assert `error instanceof ExpectedError`, then add `const typedError = /** @type {ExpectedError} */ (error);` and access custom fields such as `issues`, `code`, `classification`, `retryable`, `statusCode`, or `metadata` through the typed variable.",
-            "When a typecheck diagnostic reports exact candidate-owned file:line locations, those diagnostics are the repair queue. Patch the listed files and rerun the same command until it passes or max_repair_cycles_inside_agent is exhausted.",
-            "Do not stop after partially reducing diagnostics when the same blocking command still fails on candidate-owned files and repair cycles remain.",
-            "Before returning, execute the REQ-local LTC/HOWTO checks when possible.",
-            "If a check fails for deterministic candidate code, test, or CI reasons, repair the smallest related files under allowed_write_roots.",
-            "After a repair, rerun the failed or modified checks once and record the commands and outcomes.",
-            "Run or inspect LTC/HOWTO checks when possible, identify the first deterministic failure, and repair only candidate-owned files under allowed_write_roots.",
-            "Do not mark candidate code failures as environment-blocked. Environment blockers require exact evidence such as missing toolchain, network, registry, filesystem, sandbox, or policy failure.",
-            "Rerun the same failing command after repair and produce concise evidence useful for canonical EvalRunner.",
+            *_text("package.hard_rules"),
             f"Write a structured advisory or repair summary to runs/kit/{req_id}/reports/BMAD_EVAL_REPAIR_NOTES.md when BMAD methodology context is present or when repair guidance is useful.",
-            "After this hardening pass, CLike canonical /eval must still run and decide pass/fail.",
-            "Do not modify canonical src/, test/, tests/ roots.",
-            "Do not modify docs/harper/PLAN.md or docs/harper/plan.json.",
-            "Do not run git commands.",
-            "Before final output, normalize every created or modified text file by stripping trailing whitespace and ensuring a final newline.",
-            "Do not commit, branch, push, tag, or open pull requests.",
-            "Respect capability_context from AGENT_EVAL_CONTEXT.json: lane, domain, runtime_profile, packs, skills, design_profiles, gate_expectations, main_module_boundary, future_compatibility_notes, manifest content, and capability index content when available.",
-            "Patch operations are allowed only under allowed_write_roots.",
-            "Do not create or modify files outside runs/kit/<REQ-ID>/ for this phase.",
-            "Do not install packages globally or into the system runtime.",
-            "Do not infer the application implementation language from local_runtime.tool_hints.",
-            "Infer the implementation runtime from SPEC.md, PLAN.md, plan.json, TECH_CONSTRAINTS, TARGET_CONTRACT.json, FILE_REQUIREMENTS.json, and repository evidence.",
-            "Use local_runtime.tool_hints only as optional command hints after the implementation runtime is known.",
-            "If package.json and npm scripts are present, prefer repository-native npm scripts for checks.",
-            "If dependency installation is unavailable, report checks as environment-blocked and run repository-native smoke checks.",
-            "Never install undeclared packages; only use dependencies declared by the project or the generated REQ-local validation contract.",
-            "Before changing code, read docs/harper/PLAN.md and docs/harper/plan.json to identify target REQ dependencies.",
-            "Before changing code, inspect existing dependency KIT artifacts under runs/kit/<DEPENDENCY_REQ_ID>/ when they exist.",
-            "Before changing code, inspect candidate source and test roots for this REQ.",
-            "Before changing tests, inspect canonical promoted test roots under test/ and tests/ when they exist.",
-            "Before changing code, inspect canonical promoted source roots under src/ when they exist.",
-            "Generated or repaired code must be immediately promotable into canonical src/test roots without changing public contracts unexpectedly.",
-            "For typed or statically checked runtimes, if EVAL/typecheck fails because candidate source, tests, or CI scripts access fields on generic object shapes such as {}, object, unknown, Any, untyped dictionaries, or Readonly<{}>, repair the candidate file by preserving an explicit language-native shape at the producer/helper boundary.",
-            "When repairing schema normalization, payload validation, adapter response mapping, or immutable/frozen object creation, prefer a small local DTO/typedef/interface/type alias/dataclass/record/struct return shape over downstream casts scattered at each field access.",
-            "Preserve runtime behavior and public contracts. Do not remove fields, remove assertions, disable type checking, relax compiler/linter settings, or convert the whole module to untyped code.",
-            "Treat generic-object field-access failures as deterministic repairable candidate defects, not as environment-blocked checks.",
-            "Do not duplicate modules, adapters, ports, models, services, or test helpers already present in dependency KITs or canonical src/test roots.",
-            "Reuse dependency KIT contracts and canonical source contracts whenever they exist.",
-            "If tests are insufficient, extend tests under runs/kit/<REQ-ID>/test only.",
-            "Mocks/stubs are allowed only for external infrastructure boundaries and only inside candidate tests.",
-            "Do not mock the business logic under test.",
-            "If a dependency KIT or canonical source root is missing, explicitly report it as an implementation assumption or gap.",
-            "Produce repository-aware, dependency-aware, promotable candidate code and tests.",
-            "Prefer the smallest safe repair only when the implementation already covers the REQ correctly; otherwise complete the implementation so it fully satisfies the REQ acceptance criteria with readable, repository-aligned code, structure, and tests.",
+            *_text("package.hard_rules.2"),
         ],
     }
 

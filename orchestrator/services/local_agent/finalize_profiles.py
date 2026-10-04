@@ -17,6 +17,12 @@ from services.local_agent.common import (
 from services.local_agent.kit_contracts import (
     _has_any_term,
 )
+from services.phase_definitions import phase_text
+
+
+def _text(key: str) -> list:
+    """Static text of this module, kept in phases/finalize/text.yaml (WP8.5)."""
+    return list(phase_text("finalize")[key])
 
 
 def _is_safe_finalize_root(value: Any) -> bool:
@@ -315,26 +321,11 @@ def _detect_finalize_infra_profile(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     safe_required_outputs = []
     if infra_detected:
-        safe_required_outputs = [
-            "docs/harper/INFRA_READINESS.md",
-            "scripts/check_infra_prereqs.sh",
-            "scripts/check_infra_prereqs.ps1",
-            "scripts/provision_plan.sh",
-            "scripts/provision_plan.ps1",
-            "scripts/check_deployment.sh",
-            "scripts/check_deployment.ps1",
-        ]
+        safe_required_outputs = _text("detect_finalize_infra_profile.safe_required_outputs")
 
         if any(target in detected for target in ("aws", "azure", "gcp")):
             safe_required_outputs.extend(
-                [
-                    "scripts/cloud_inventory.sh",
-                    "scripts/cloud_inventory.ps1",
-                    "scripts/provision_cloud_plan.sh",
-                    "scripts/provision_cloud_plan.ps1",
-                    "scripts/provision_cloud_apply.sh",
-                    "scripts/provision_cloud_apply.ps1",
-                ]
+                _text("detect_finalize_infra_profile.lines")
             )
 
     return {
@@ -361,15 +352,7 @@ def _detect_finalize_infra_profile(payload: Dict[str, Any]) -> Dict[str, Any]:
             "package-integrity-check",
             "vendor-tool-check",
         ],
-        "forbidden_actions": [
-            "terraform apply",
-            "pulumi up",
-            "cloud resource create/update/delete",
-            "destructive operations",
-            "secret writes",
-            "privileged IAM changes",
-            "real deployment without explicit user approval",
-        ],
+        "forbidden_actions": _text("detect_finalize_infra_profile.forbidden_actions"),
     }
 
 
@@ -559,14 +542,7 @@ def _detect_finalize_runtime_service_profile(payload: Dict[str, Any]) -> Dict[st
     required_outputs: List[str] = []
     if detected_services:
         required_outputs.extend(
-            [
-                ".env.example with runtime service placeholders",
-                "docs/harper/HOWTO_RUN.md runtime services setup section",
-                "docs/harper/SANITY_CHECKS.md runtime service checks",
-                "docs/harper/INFRA_READINESS.md runtime services section",
-                "scripts/check_runtime_services.sh",
-                "scripts/check_runtime_services.ps1",
-            ]
+            _text("detect_finalize_runtime_service_profile.lines")
         )
 
     return {
@@ -590,14 +566,7 @@ def _detect_finalize_runtime_service_profile(payload: Dict[str, Any]) -> Dict[st
             "configuration placeholders, truthful docs, safe non-mutating checks, and integration seams. "
             "Engine/vendor names are details, not the primary service contract."
         ),
-        "boundary_rules": [
-            "Detect services from TECH_CONSTRAINTS, PLAN/SPEC, plan.json, repository evidence, manifests, and selected capabilities only.",
-            "Do not assume a database engine, auth provider, broker, cache, object store, or secret manager without evidence.",
-            "If a database is evidenced, in-memory persistence is not a production-complete boundary.",
-            "If enterprise auth is evidenced, hardcoded/no-auth local behavior is not a production-complete auth boundary.",
-            "Finalize may create local-dev templates and safe checks, but must not write real secrets or provision live services automatically.",
-            "Use generic service placeholders by default and add engine/provider-specific placeholders only when that engine/provider is evidenced.",
-        ],
+        "boundary_rules": _text("detect_finalize_runtime_service_profile.boundary_rules"),
     }
 
 
@@ -622,17 +591,7 @@ def _detect_finalize_cloud_provisioning_profile(
 
     required_outputs: List[str] = []
     if cloud_detected:
-        required_outputs = [
-            "docs/harper/INFRA_READINESS.md",
-            "scripts/cloud_inventory.sh",
-            "scripts/cloud_inventory.ps1",
-            "scripts/provision_cloud_plan.sh",
-            "scripts/provision_cloud_plan.ps1",
-            "scripts/provision_cloud_apply.sh",
-            "scripts/provision_cloud_apply.ps1",
-            "scripts/check_deployment.sh",
-            "scripts/check_deployment.ps1",
-        ]
+        required_outputs = _text("detect_finalize_cloud_provisioning_profile.required_outputs")
 
     return {
         "schema_version": "clike.finalize_cloud_provisioning_profile.v1",
@@ -654,13 +613,7 @@ def _detect_finalize_cloud_provisioning_profile(
             ),
             "deployment_check": "Deployment check scripts may run non-mutating health, describe, status, logs, or endpoint checks.",
         },
-        "forbidden_defaults": [
-            "Do not run mutating cloud commands automatically.",
-            "Do not embed real account IDs, project IDs, tenant IDs, subscription IDs, secrets, tokens, credentials, VPC IDs, subnet IDs, or security group IDs.",
-            "Do not grant wildcard admin privileges.",
-            "Do not assume Terraform, Kubernetes, Docker, or any cloud provider unless evidenced.",
-            "Do not make apply the default path; plan/inventory/check must be the default path.",
-        ],
+        "forbidden_defaults": _text("detect_finalize_cloud_provisioning_profile.forbidden_defaults"),
     }
 
 
@@ -672,52 +625,7 @@ def _build_finalize_write_policy(payload: Dict[str, Any]) -> Dict[str, Any]:
     policy for vendor/platform solutions without hardcoding those platforms as
     universal defaults.
     """
-    default_allowed_write_roots = [
-        "src",
-        "scripts",
-        "docs/harper",
-        "README.md",
-        ".env.example",
-
-        # Runtime/deployment roots. These are platform-neutral containers for
-        # safe-by-default provisioning plans, deploy templates, validation
-        # scripts, and vendor/package descriptors. They do not imply a specific
-        # cloud, language, framework, or IaC tool.
-        "infra",
-        "deploy",
-        "ops",
-        "config",
-        "configs",
-        "schemas",
-        "migrations",
-        "db",
-        "database",
-        "connectors",
-        "jobs",
-        "pipelines",
-        "packages",
-        "model",
-        "models",
-
-        # Ecosystem-native root manifests. The agent/cloud must use only the
-        # manifests supported by TECH_CONSTRAINTS, PLAN/SPEC, and repository evidence.
-        "package.json",
-        "package-lock.json",
-        "pnpm-lock.yaml",
-        "yarn.lock",
-        "pyproject.toml",
-        "requirements.txt",
-        "pom.xml",
-        "build.gradle",
-        "settings.gradle",
-        "go.mod",
-        "go.sum",
-        "Cargo.toml",
-        "Cargo.lock",
-        "docker-compose.yml",
-        "Dockerfile",
-        "Makefile",
-    ]
+    default_allowed_write_roots = _text("build_finalize_write_policy.default_allowed_write_roots")
 
     declared_roots = _extract_declared_finalize_roots(payload)
 
@@ -727,28 +635,7 @@ def _build_finalize_write_policy(payload: Dict[str, Any]) -> Dict[str, Any]:
         if path and _is_safe_finalize_root(path) and path not in allowed_write_roots:
             allowed_write_roots.append(path)
 
-    forbidden_paths = [
-        ".git",
-        "node_modules",
-        ".venv",
-        "__pycache__",
-        "__MACOSX",
-        ".DS_Store",
-        ".next",
-        "dist",
-        "build",
-        ".ruff_cache",
-        ".mypy_cache",
-        "secrets",
-        ".env",
-        ".env.local",
-        ".env.production",
-        "credentials",
-        "credential",
-        "private_key",
-        "id_rsa",
-        "id_ed25519",
-    ]
+    forbidden_paths = _text("build_finalize_write_policy.forbidden_paths")
 
     return {
         "schema_version": "clike.finalize_write_policy.v1",

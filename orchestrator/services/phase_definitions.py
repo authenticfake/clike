@@ -12,7 +12,7 @@ from __future__ import annotations
 import copy
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 import yaml
 
@@ -35,3 +35,10 @@ def phase_definition(phase: str) -> Dict[str, Any]:
 
 def shared_definitions() -> Dict[str, Any]:
     return copy.deepcopy(_load("_shared.yaml"))
+
+
+def phase_text(target: str) -> Dict[str, List[str]]:
+    """Static prompt/policy text of a phase (``phases/<target>/text.yaml``) or shared
+    (``phases/_shared_text.yaml``). Callers copy the lists they use."""
+    rel = "_shared_text.yaml" if target == "_shared" else f"{target}/text.yaml"
+    return _load(rel)["text"]

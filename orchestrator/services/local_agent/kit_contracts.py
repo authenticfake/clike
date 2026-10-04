@@ -14,6 +14,12 @@ from services.local_agent.common import (
     _req_capability_list,
     _safe_text,
 )
+from services.phase_definitions import phase_text
+
+
+def _text(key: str) -> list:
+    """Static text of this module, kept in phases/_shared_text.yaml (WP8.5)."""
+    return list(phase_text("_shared")[key])
 
 
 def _build_capability_integrity(req: Dict[str, Any], capability_manifest: Dict[str, Any]) -> Dict[str, Any]:
@@ -604,9 +610,7 @@ def _build_file_requirements(
         ],
         "must_not": [
             f"Do not create eval-only runtime manifests under runs/kit/{req_id}/src/**.",
-            "Do not emit Python requirements for non-Python implementations.",
-            "Do not emit npm manifests for non-Node implementations.",
-            "Do not add unrelated speculative dependencies.",
+            *_text("build_file_requirements.must_not"),
         ],
     }
 
@@ -623,21 +627,8 @@ def _build_file_requirements(
             "repository launcher conventions when present; otherwise infer the minimal "
             "runtime-native launcher shape from SPEC, PLAN and TECH_CONSTRAINTS."
         ),
-        "must_cover": [
-            "backend application composition when backend/API/server modules exist",
-            "frontend application composition when frontend/UI/browser modules exist",
-            "stable exports/imports that wire generated feature modules into the executable area",
-            "local runnable entry points documented in HOWTO and referenced by LTC where relevant",
-        ],
-         "must_not": [
-            "Do not create one launcher per REQ.",
-            "Do not create one launcher per feature/domain namespace; one launcher per execution area such as backend, frontend, worker, or CLI is allowed and expected when required.",
-            "Do not hide runnable composition inside feature-only modules.",
-            "Do not place new launchers under domain namespaces such as src/<domain>/api/app.* unless the repository already uses that convention.",
-            "Do not confuse KIT/EVAL manifests under ci/ with promotion-ready runtime manifests under candidate execution area roots.",
-            "Do not put eval-only scripts, temp overlay paths, or REQ-specific eval paths in promotion-ready runtime manifests.",
-            "Do not bypass existing canonical launcher files when repository evidence already provides them.",
-        ],
+        "must_cover": _text("build_file_requirements.must_cover"),
+         "must_not": _text("build_file_requirements.must_not.2"),
         "runtime_native_examples_only": {
             "node_express_backend": [
                 f"runs/kit/{req_id}/src/backend/app.js",
@@ -710,23 +701,8 @@ def _build_file_requirements(
                 "Do not stop at Protocol/interface-only code when named libraries are in scope."
             ),
             "named_obligations": named_external_runtime_obligations,
-            "must_cover": [
-                "adapter or factory modules for every named obligation that is relevant to this REQ",
-                "lazy import or runtime-native optional dependency handling when the library is heavy or environment-specific",
-                "fail-fast errors with clear setup guidance when required runtime libraries are unavailable",
-                "deterministic local tests using fixtures/fakes only around external engine execution, not around business orchestration",
-                "runtime-native dependency declaration in ci manifest, source manifest, optional extras, or equivalent ecosystem descriptor when applicable",
-                "heavy AI/model/runtime libraries must be declared as source runtime optional extras or optional smoke dependencies, not as blocking ci/eval dependencies, when deterministic fake-client tests cover the local eval path",
-                "narrow ecosystem-native static-analysis handling at the external adapter/import boundary when a mature external library lacks typing, stubs, metadata, or analyzer support",
-            ],
-            "must_not_contain": [
-                "Protocol-only or interface-only implementation when named libraries are explicitly required",
-                "external model downloads or network service startup in blocking local eval",
-                "heavy AI/model/runtime packages in blocking ci/eval manifests when deterministic fake-client tests are sufficient",
-                "sensitive extracted text, prompt content, or document payloads in logs",
-                "business logic coupled directly to provider SDKs or engine-specific APIs",
-                "global static-analysis disables for external library typing/analyzer gaps; suppress or wrap only at the adapter/import boundary with the narrowest ecosystem-native mechanism",
-            ],
+            "must_cover": _text("build_file_requirements.must_cover.2"),
+            "must_not_contain": _text("build_file_requirements.must_not_contain"),
         },
         {
             "role": "execution_area_runtime_manifest",
@@ -738,11 +714,7 @@ def _build_file_requirements(
                 "This is distinct from the ci/ eval manifest and must be inferred "
                 "from SPEC, PLAN, TECH_CONSTRAINTS, FILE_REQUIREMENTS, and repository evidence."
             ),
-            "must_cover": [
-                "runtime dependencies required by the promoted execution area",
-                "runtime scripts or launch metadata relative to the execution area root",
-                "ecosystem-native manifest or module descriptor when the ecosystem uses one",
-            ],
+            "must_cover": _text("build_file_requirements.must_cover.3"),
             "must_not_contain": [
                 "runs/kit paths",
                 "ci-only paths",
@@ -770,16 +742,7 @@ def _build_file_requirements(
     provider_obligations: List[str] = []
     if provider_realism_required:
         provider_obligations.extend(
-            [
-                "Generic in-memory provider-shaped wrappers are not sufficient for this REQ.",
-                "Official or widely adopted ecosystem SDKs are preferred inside adapter/infrastructure boundaries when concrete providers are named.",
-                "Do not reimplement provider protocols, auth/signing, wire formats, or client behavior when a mature SDK exists.",
-                "Concrete provider factories or SDK-backed adapters are mandatory when technical_scope explicitly names providers, runtime services, or SDK-backed infrastructure.",
-                "Provider SDK imports are allowed inside adapter, provider factory, infrastructure, or integration boundary modules.",
-                "Business-facing contracts must remain provider-independent and must not expose provider SDK types unless SPEC explicitly requires it.",
-                "Local deterministic tests may use fakes, SDK stubs, or official mock helpers, but runtime-facing code must expose real provider construction or SDK-backed factory wiring.",
-                "If concrete provider wiring is intentionally deferred, the KIT must explicitly mark the REQ as not promotable and describe the blocking gap.",
-            ]
+            _text("build_file_requirements.lines")
         )
 
     return {
@@ -811,15 +774,7 @@ def _build_file_requirements(
                 "Structured external_runtime_obligations are preferred. TECH_CONSTRAINTS values relevant to "
                 "the current REQ are binding. Text-name extraction is deprecated fallback only."
             ),
-            "boundary_rules": [
-                "Do not reimplement mature external tools when an official or widely adopted library exists.",
-                "Keep business orchestration independent from engine-specific APIs.",
-                "Use adapters/factories to isolate heavy OCR, parser, classifier, vector, model, storage, queue, or provider runtimes.",
-                "Use deterministic fixtures/fakes only for external execution boundaries in tests.",
-                "Handle untyped or analyzer-unsupported external libraries with the narrowest ecosystem-native suppression or wrapper at the adapter/import boundary only.",
-                "Never disable lint, type, or security checks globally to hide external library typing/analyzer gaps.",
-                "If a named library is intentionally deferred, mark the KIT non-promotable and list the missing obligation.",
-            ],
+            "boundary_rules": _text("build_file_requirements.boundary_rules"),
         },
         "provider_sdk_policy": {
             "official_or_consolidated_sdks_preferred": True,
@@ -827,13 +782,7 @@ def _build_file_requirements(
                 "When a REQ names concrete providers or runtime services, official or widely adopted ecosystem SDKs "
                 "must be used inside adapter/infrastructure boundaries unless SPEC explicitly forbids them."
             ),
-            "boundary_rules": [
-                "Do not reimplement provider protocols, auth/signing, wire formats, or client behavior when a mature SDK exists.",
-                "Provider SDK imports are allowed inside adapter, provider factory, infrastructure, or integration boundary modules.",
-                "Business-facing contracts must remain provider-independent.",
-                "Business modules must not instantiate provider SDK clients directly.",
-                "Tests may use SDK stubs, official mock helpers, or deterministic fake clients, but runtime-facing code must expose real SDK-backed wiring when provider realism is required.",
-            ],
+            "boundary_rules": _text("build_file_requirements.boundary_rules.2"),
             "examples_by_ecosystem": {
                 "python_aws": ["boto3", "botocore"],
                 "python_postgres": ["sqlalchemy", "psycopg"],
@@ -848,13 +797,5 @@ def _build_file_requirements(
         "missing_selected_capabilities_blocking": bool(
             capability_integrity.get("missing_any_selected_capability")
         ),
-        "forbidden": [
-            "Do not write outside runs/kit/<REQ-ID>/.",
-            "Do not modify canonical src/, test/, tests/, docs/harper, or dependency KIT roots.",
-            "Do not infer implementation language from lane alone.",
-            "Do not create one application launcher per REQ.",
-            "Do not put eval-only manifests or eval-only scripts under runs/kit/<REQ-ID>/src/**.",
-            "Do not omit promotion-ready runtime manifests for runnable execution areas merely because a ci/ eval manifest exists.",
-            "Do not satisfy provider-heavy REQs with decorative or purely in-memory wrappers when concrete provider/runtime wiring is explicitly required.",
-        ],
+        "forbidden": _text("build_file_requirements.forbidden"),
     }

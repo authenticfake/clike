@@ -23,6 +23,12 @@ from services.local_agent.document import (
     _DOCUMENT_PHASE_FORBIDDEN_PATHS,
     _render_canonical_parity_block,
 )
+from services.phase_definitions import phase_text
+
+
+def _text(key: str) -> list:
+    """Static text of this module, kept in phases/extend/text.yaml (WP8.5)."""
+    return list(phase_text("extend")[key])
 
 
 def build_extend_local_agent_package(
@@ -137,73 +143,20 @@ def build_extend_local_agent_package(
 
     prompt = "\n".join(
         [
-            "# Local Agent EXTEND Execution Package — Harper Plan Extension",
-            "",
-            "You are executing a CLike Harper /extend package.",
-            "The orchestrator owns workflow state and policy. The local agent is only the workspace documentation actuator.",
+            *_text("package.lines"),
             _render_methodology_prompt_block(methodology_context),
             "",
             "Read before acting:",
             f"- {context_path}",
-            "- docs/harper/IDEA.md when present",
-            "- docs/harper/SPEC.md when present",
-            "- docs/harper/PLAN.md",
-            "- docs/harper/plan.json",
-            "- docs/harper/lane-guides/*.md when present",
-            "- docs/harper/TECH_CONSTRAINTS.yaml when present",
+            *_text("package.lines.2"),
             *attachment_prompt_lines,
             *_render_canonical_parity_block("extend", "EXTEND"),
-            "",
-            "Mission:",
-            "- Extend the current Harper plan by appending new requirements; /extend is a mutation/append phase, not a regeneration.",
-            "- Existing IDEA.md, SPEC.md, PLAN.md, plan.json, and lane-guides are valid source inputs to preserve and update — read them, do not discard them.",
-            "- Preserve existing consolidated REQs exactly; never rewrite, renumber, or delete them.",
-            "- Always update PLAN.md and plan.json so they remain aligned, and always emit the EXTEND audit report.",
-            "- Update IDEA.md only if the new requirement changes vision, target users, value/outcomes, out-of-scope, idea-level technology constraints, risks, assumptions, or success metrics (preserve the canonical IDEA schema).",
-            "- Update SPEC.md only if the new REQs introduce new capability scope, domain terms, constraints, integrations, acceptance criteria, or user-visible behavior.",
-            "- Update or create lane-guides only if new concern guidance is needed.",
-            "- Return FULL file artifacts (complete updated content), never partial patches.",
-            "",
-            "Skills / capabilities discipline:",
-            "- Treat selected skills, packs, and design profiles (from methodology context / .clike capabilities) as BINDING planning constraints, not decorative context.",
-            "- Populate packs/skills/design_profiles on new plan.json REQs where applicable; never blanket-default to not_applicable when capabilities are selected; never invent fake capabilities.",
-            "",
-            "Allowed writes:",
-            "- docs/harper/IDEA.md (conditional)",
-            "- docs/harper/SPEC.md (conditional)",
-            "- docs/harper/PLAN.md",
-            "- docs/harper/plan.json",
-            "- docs/harper/lane-guides/*.md (conditional)",
-            "- docs/harper/EXTEND_*.md (mandatory audit report)",
-            "",
-            "Forbidden writes:",
-            "- any other docs/harper path (including AGENT_* package files)",
-            "- src/, test/, tests/",
-            "- runs/kit/, runs/eval/, runs/gate/",
-            "- .git/",
-            "",
-            "Append-only rules:",
-            "- Do not regenerate the plan from scratch.",
-            "- Do not modify existing REQ acceptance criteria.",
-            "- Do not renumber existing REQs.",
-            "- Do not change status/gate/promotion metadata of existing REQs.",
-            "- Preserve the existing plan.json object shape and capability richness (packs/skills/design_profiles/implementation_directives/expected_source_roots/expected_test_roots/kit-eval-gate metadata).",
-            "- Add new dependencies only for new REQs; dependencies must resolve to existing or newly added REQs.",
-            "- If shared sections need updates, append minimal new entries only.",
-            "",
-            "Input:",
+            *_text("package.lines.3"),
             f"- anchor_req: {anchor_req or '<auto-detect-last-req>'}",
             f"- explicit_req: {explicit_req or '<none>'}",
             f"- from_attachment: {from_attachment}",
             f"- raw_input: {raw_input or '<see chat/attachments/core context>'}",
-            "",
-            "EXTEND audit report (docs/harper/EXTEND_<YYYY-MM-DD>_<FIRST_REQ>_<LAST_REQ>.md) must include:",
-            "- Command; Input Sources; Anchor; Explicit REQ-ID if provided; Added Requirements; Updated Files; Preserved Requirements;",
-            "- Dependency Decisions; Capability/skills/packs/design-profile decisions;",
-            "- IDEA.md updated yes/no and why; SPEC.md updated yes/no and why; PLAN.md updated yes/no; plan.json updated yes/no; lane-guides updated yes/no and why;",
-            "- Validation performed; Risks / Follow-up.",
-            "",
-            "Before returning, validate: plan.json is valid JSON; every new REQ appears in PLAN.md and plan.json; every new REQ has acceptance criteria; new dependencies resolve; existing REQs preserved; no forbidden paths emitted.",
+            *_text("package.lines.4"),
         ]
     )
 
