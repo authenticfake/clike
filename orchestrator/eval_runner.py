@@ -45,6 +45,19 @@ class EvalReport:
     json_path: Optional[str] = None
 
 
+def report_to_dict(rep: "EvalReport") -> Dict[str, Any]:
+    """JSON-safe form of a report (used across the eval sandbox boundary)."""
+    from dataclasses import asdict
+
+    return asdict(rep)
+
+
+def report_from_dict(data: Dict[str, Any]) -> "EvalReport":
+    fields = dict(data)
+    fields["cases"] = [EvalCase(**case) for case in (data.get("cases") or [])]
+    return EvalReport(**fields)
+
+
 # Environment variables that must never reach LTC commands (WP4): provider keys,
 # the CLike service token and any other credential-looking variable.
 _SECRET_ENV_NAME_RE = re.compile(

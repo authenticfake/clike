@@ -56,7 +56,9 @@ services:
       - CLIKE_TOOLS_JAVA_GJF=true
       - CLIKE_TOOLS_GO_FMT=true
       - CLIKE_TOOLS_GO_IMPORTS=true
-      - RUNS_DIR=/runs
+      - RUNS_DIR=/app/runs
+      - CLIKE_STATE_DIR=/app/runs/state
+      - CLIKE_EVAL_SANDBOX_URL=http://eval-sandbox:8090
       - WORKSPACE_ROOT=/workspace/
       - CODE_ROOT_BASE=src
       - TEST_ROOT_BASE=tests
@@ -97,13 +99,44 @@ services:
       - ./runs:/app/runs
       - ${CLIKE_PROJECTS_DIR}:${CLIKE_PROJECTS_DIR}:ro
     ports: ["127.0.0.1:8080:8080"]
+    networks: [default, evalnet]
     depends_on:
       gateway:
         condition: service_healthy
       qdrant:
         condition: service_started
+      eval-sandbox:
+        condition: service_started
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2).status == 200 else 1)"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+
+  # Eval/gate execution of model-authored LTC commands (WP6.4). Holds no credentials
+  # (no env_file; it refuses to start if any are present), cannot reach the gateway
+  # or Qdrant (only the dedicated evalnet), non-root, read-only root filesystem,
+  # projects read-only. Egress is allowed so that dependency installs work; use
+  # compose.eval-offline.yml to cut it.
+  eval-sandbox:
+    build: ../orchestrator
+    command: ["uvicorn", "eval_sandbox_app:app", "--host", "0.0.0.0", "--port", "8090"]
+    environment:
+      - TZ=Europe/Rome
+      - HOME=/tmp
+      - DEV_FOLDER=${CLIKE_PROJECTS_DIR:?set CLIKE_PROJECTS_DIR in docker/.env}
+    volumes:
+      - ${CLIKE_PROJECTS_DIR}:${CLIKE_PROJECTS_DIR}:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=4g,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges]
+    pids_limit: 1024
+    mem_limit: 4g
+    networks: [evalnet]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=2).status == 200 else 1)"]
       interval: 10s
       timeout: 3s
       retries: 12
@@ -148,6 +181,10 @@ services:
       echo "[ollama-init] done";
       '
     restart: "no"
+
+networks:
+  default: {}
+  evalnet: {}
 
 volumes:
   qdrant_data:

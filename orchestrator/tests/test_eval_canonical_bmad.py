@@ -20,15 +20,19 @@ class EvalCanonicalBmadTests(unittest.TestCase):
     def test_eval_run_uses_eval_runner_run_profile_as_canonical_path(self):
         source = _function_source("eval_run")
 
-        self.assertIn("runner = EvalRunner(prj)", source)
-        self.assertIn("rep = runner.run_profile(", source)
+        self.assertIn("rep, executor = _execute_profile(", source)
         self.assertIn("payload = _eval_payload(rep, args.req_id)", source)
+        # the execution path (in-process or eval sandbox) is the canonical EvalRunner
+        executor = _function_source("_execute_profile")
+        self.assertIn("EvalRunner(prj).run_profile(", executor)
+        sandbox = (Path(__file__).resolve().parents[1] / "eval_sandbox_app.py").read_text(encoding="utf-8")
+        self.assertIn("EvalRunner(prj).run_profile(", sandbox)
+        self.assertNotIn("methodology", sandbox.lower())
 
     def test_gate_check_uses_eval_runner_and_not_methodology_context(self):
         source = _function_source("gate_check")
 
-        self.assertIn("runner = EvalRunner(prj)", source)
-        self.assertIn("rep = runner.run_profile(", source)
+        self.assertIn("rep, executor = _execute_profile(", source)
         self.assertNotIn("methodology", source.lower())
         self.assertNotIn("bmad", source.lower())
 

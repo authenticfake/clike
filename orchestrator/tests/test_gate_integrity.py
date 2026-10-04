@@ -85,6 +85,7 @@ class GateIntegrityTests(unittest.TestCase):
         self.assertTrue(r.json()["integrity"]["ok"])
         g = self._gate()
         self.assertEqual(g.json()["gate"], "PASS", g.text)
+        self.assertEqual(g.json()["reason_code"], "GATE_PASS")
         self.assertTrue(g.json()["integrity"]["ok"])
 
     def test_modified_test_blocks_the_gate_without_running(self):

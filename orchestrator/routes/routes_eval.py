@@ -9,7 +9,9 @@ from typing import Any, Dict, List, Optional, Tuple
 from fastapi import APIRouter, Body, HTTPException, Query
 from pydantic import BaseModel
 
-from eval_runner import EvalReport, EvalRunner
+import httpx
+
+from eval_runner import EvalReport, EvalRunner, report_from_dict
 from utils.safe_paths import UnsafePathError, is_within_any, resolve_within, validate_req_id
 from services.gate_integrity import allowed_eval_roots, compare_with_lock, ensure_lock, record_override
 
@@ -137,6 +139,30 @@ def _load_trusted_ltc(
             detail=f"inline LTC without a workspace profile file is disabled (set {_INLINE_LTC_ENV}=1 to allow)",
         )
     raise HTTPException(status_code=404, detail="profile not found under project_root")
+
+
+_SANDBOX_TIMEOUT_S = float(os.getenv("CLIKE_EVAL_SANDBOX_TIMEOUT_S", "3600"))
+
+
+def _execute_profile(
+    prj: Path, profile_path: Path, ltc: Optional[Dict[str, Any]], mode: str, verdict: Optional[str], req_id: Optional[str]
+) -> Tuple[EvalReport, str]:
+    """Run the profile in the eval sandbox when configured (containers), otherwise in-process (dev)."""
+    sandbox = os.getenv("CLIKE_EVAL_SANDBOX_URL", "").strip().rstrip("/")
+    if sandbox and (mode or "auto").lower() != "manual":
+        try:
+            response = httpx.post(
+                f"{sandbox}/run",
+                json={"project_root": str(prj), "profile": str(profile_path), "mode": mode, "verdict": verdict, "req_id": req_id},
+                timeout=_SANDBOX_TIMEOUT_S,
+            )
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=503, detail=f"eval sandbox unavailable: {type(exc).__name__}") from exc
+        if response.status_code != 200:
+            raise HTTPException(status_code=response.status_code, detail=f"eval sandbox: {response.text[:500]}")
+        return report_from_dict(response.json()), "sandbox"
+    rep = EvalRunner(prj).run_profile(profile=str(profile_path), ltc=ltc, mode=mode, verdict=verdict, req_id=req_id)
+    return rep, "local"
 
 
 _KIT_PROFILE_RE = re.compile(r"(?:^|/)runs/kit/(REQ-[A-Za-z0-9_-]+)/ci/[^/]+$")
@@ -491,15 +517,10 @@ def eval_run(
             log.warning("eval_run blocked: acceptance surface changed req=%s anomalies=%s", req, integrity["anomalies"])
             return _integrity_blocked_payload(req, integrity, profile_path)
 
-    runner = EvalRunner(prj)
     try:
-        rep = runner.run_profile(
-            profile=str(profile_path),
-            ltc=ltc,
-            mode=args.mode or "auto",
-            verdict=args.verdict,
-            req_id=args.req_id,
-        )
+        rep, executor = _execute_profile(prj, profile_path, ltc, args.mode or "auto", args.verdict, args.req_id)
+    except HTTPException:
+        raise
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
@@ -508,6 +529,7 @@ def eval_run(
 
     payload = _eval_payload(rep, args.req_id)
     payload["integrity"] = integrity
+    payload["executor"] = executor
     return payload
 
 
@@ -574,15 +596,10 @@ def gate_check(
         )
         return blocked
 
-    runner = EvalRunner(prj)
     try:
-        rep = runner.run_profile(
-            profile=str(profile_path),
-            ltc=ltc,
-            mode=args.mode or "auto",
-            verdict=args.verdict,
-            req_id=args.req_id,
-        )
+        rep, executor = _execute_profile(prj, profile_path, ltc, args.mode or "auto", args.verdict, args.req_id)
+    except HTTPException:
+        raise
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
@@ -596,6 +613,8 @@ def gate_check(
     reason_code = "GATE_PASS"
     if structural_blockers:
         reason_code = "GATE_BLOCKED_REQUIRED_OUTPUTS_MISSING"
+    elif effective_status == "PASS":
+        reason_code = "GATE_PASS"
     elif rep.status == "PASS_WITH_WARNINGS":
         reason_code = "GATE_BLOCKED_WARNINGS_PRESENT"
     elif rep.status == "FAIL":
@@ -621,6 +640,7 @@ def gate_check(
         "promote": bool(args.promote) if args.promote else None,
         "promote_info": None,
         "integrity": integrity,
+        "executor": executor,
         "cases": [_case_payload(c) for c in rep.cases],
     }
 
