@@ -310,17 +310,6 @@ def _build_generation_roots(generation_id: str) -> Tuple[str, str, str, str]:
     os.makedirs(test_root_abs, exist_ok=True)
     return code_root_abs, test_root_abs, code_root_rel, test_root_rel
 
-def _write_file_any(path: str, fobj: dict) -> None:
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    if "content_base64" in fobj:
-        data = base64.b64decode(fobj["content_base64"])
-        with open(path, "wb") as wf:
-            wf.write(data)
-    else:
-        content = fobj.get("content", "")
-        with open(path, "w", encoding="utf-8") as wf:
-            wf.write(content)
-
 # ===== RAG hooks (best-effort; non bloccanti) =====
 def _rag_project_id(body: dict) -> str:
     pid = (body or {}).get("project_id")
@@ -1562,62 +1551,3 @@ async def generate(req: Request):
         raise HTTPException(e.response.status_code, detail=f"gateway chat failed: {e.response.text}")
     except Exception as e:
         raise HTTPException(502, f"gateway chat failed: {type(e).__name__}: {e}")
-
-    
-   
-
-# -------------------------------- Apply -------------------------------------
-
-@router.post("/apply")
-async def apply(req: Request):
-    """
-    Applica file **direttamente dal payload**:
-      {
-        "files": [{ "path":"...", "content":"..." }, ...],
-        "selection": { "apply_all": true }    # oppure: { "paths": ["a","b"] }
-      }
-
-    Nota: supporto a run_dir è stato rimosso.
-    """
-    body = await req.json()
-
-    # rifiuta legacy
-    if body.get("run_dir"):
-        raise HTTPException(400, "run_dir is no longer supported. Pass 'files' directly in the request body.")
-
-    files = body.get("files")
-    if not isinstance(files, list) or not files:
-        raise HTTPException(400, "files (list) is required")
-
-    selection = body.get("selection") or {}
-    paths_selected: set[str] = set()
-    if isinstance(selection, dict):
-        if selection.get("apply_all"):
-            paths_selected = { (f.get("path") or "").strip() for f in files if isinstance(f, dict) }
-        else:
-            for p in selection.get("paths", []):
-                if isinstance(p, str) and p.strip():
-                    paths_selected.add(p.strip())
-
-    applied: list[str] = []
-    failures: list[dict] = []
-
-    for fobj in files:
-        if not isinstance(fobj, dict):
-            continue
-        path = (fobj.get("path") or "").strip()
-        if not path:
-            continue
-        if paths_selected and path not in paths_selected:
-            continue
-        try:
-            _write_file_any(path, fobj)
-            applied.append(path)
-        except Exception as e:
-            failures.append({"path": path, "error": f"{type(e).__name__}: {e}"})
-
-    log.info("apply result: %s", json.dumps({"applied": len(applied), "failures": len(failures)}, ensure_ascii=False))
-
-    if failures:
-        return {"applied": applied, "failures": failures}
-    return {"applied": applied}

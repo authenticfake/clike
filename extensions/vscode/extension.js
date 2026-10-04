@@ -5644,28 +5644,15 @@ async function cmdOpenChat(context) {
           inflightController = null;
         }
       }
-      // 6) APPLY
+      // 6) APPLY (client-side only: the extension is the only component that writes the workspace)
       if (msg.type === 'apply') {
-        const run_dir  = msg.run_dir  || null;
-        const audit_id = msg.audit_id || null;
         const selection = msg.selection || { apply_all: true };
         const wantPaths = Array.isArray(selection?.paths) ? selection.paths : null;
-
-        // 1) Se il server ha un run_dir/audit_id → usa l'endpoint /v1/apply
-        if (run_dir || audit_id) {
-          const payload = { run_dir, audit_id, selection };
-          const res = await postJson(`${orchestratorUrl}/v1/apply`, payload);
-          panel.webview.postMessage({ type: 'applyResult', data: res });
-          panel.webview.postMessage({ type: 'busy', on: false });
-          
-        }
-
-        // 2) Fallback client-side: nessun run_dir/audit_id, ma forse abbiamo i file in cache
         const lastFiles = context.workspaceState.get('clike.lastFiles') || [];
         if (!Array.isArray(lastFiles) || !lastFiles.length) {
-          panel.webview.postMessage({ type: 'error', message: 'Nothing to apply: no run_dir/audit_id and no cached files.' });
+          panel.webview.postMessage({ type: 'error', message: 'Nothing to apply: no generated files cached.' });
           panel.webview.postMessage({ type: 'busy', on: false });
-
+          return;
         }
 
         // Filtra per i path selezionati (se presenti), altrimenti applica tutto
@@ -5676,7 +5663,7 @@ async function cmdOpenChat(context) {
         if (!chosen.length) {
           panel.webview.postMessage({ type: 'error', message: 'No files selected to apply.' });
           panel.webview.postMessage({ type: 'busy', on: false });
-
+          return;
         }
 
         try {
@@ -5687,7 +5674,7 @@ async function cmdOpenChat(context) {
         } catch (e) {
           panel.webview.postMessage({ type: 'error', message: 'Apply (local) failed: ' + (e?.message || String(e)) });
         }
-       
+        panel.webview.postMessage({ type: 'busy', on: false });
       }
       // 7) CANCEL
       if (msg.type === 'cancel') {
