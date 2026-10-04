@@ -61,7 +61,7 @@ from utils.namespace_paths import (
     namespace_materialization_context,
     python_module_boundary_to_package_path,
 )
-from utils.service_auth import internal_auth_headers
+from services import gateway_http
 from utils.safe_paths import resolve_within, validate_req_id
 from services import gate_integrity
 log = logging.getLogger("service.router")
@@ -89,59 +89,59 @@ async def _post_json(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         len(payload.get("attachments") or []),
     )
     TIMEOUT = float(os.environ.get("TIMEOUT", 980.0))
-    async with httpx.AsyncClient(timeout=TIMEOUT, headers=internal_auth_headers()) as client:
-        r = await client.post(url, json=payload)
-        elapsed_time = time.time() - start_time
-        log.info("POST phase=%s elapsed=%.3fs", payload.get("phase"), elapsed_time)
+    # Shared pooled client with connect retries (WP7.12).
+    r = await gateway_http.post(url, json=payload, timeout=TIMEOUT)
+    elapsed_time = time.time() - start_time
+    log.info("POST phase=%s elapsed=%.3fs", payload.get("phase"), elapsed_time)
+    try:
+        r.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        body_text = ""
+        structured_body: Dict[str, Any] | None = None
         try:
-            r.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            body_text = ""
-            structured_body: Dict[str, Any] | None = None
-            try:
-                body_text = r.text
-            except Exception:
-                body_text = "<unavailable>"
-            try:
-                parsed = r.json()
-                if isinstance(parsed, dict):
-                    structured_body = parsed
-                    detail = parsed.get("detail")
-                    if isinstance(detail, dict):
-                        structured_body = detail
-            except Exception:
-                structured_body = None
+            body_text = r.text
+        except Exception:
+            body_text = "<unavailable>"
+        try:
+            parsed = r.json()
+            if isinstance(parsed, dict):
+                structured_body = parsed
+                detail = parsed.get("detail")
+                if isinstance(detail, dict):
+                    structured_body = detail
+        except Exception:
+            structured_body = None
 
-            if (
-                isinstance(structured_body, dict)
-                and structured_body.get("error_code") == "invalid_canonical_artifact"
-            ):
-                log.warning(
-                    "Gateway returned structured validation failure status=%s url=%s",
-                    r.status_code,
-                    url,
-                )
-                structured_body.setdefault("ok", False)
-                structured_body.setdefault("phase", payload.get("phase"))
-                structured_body.setdefault("files", [])
-                structured_body.setdefault("partial_files", [])
-                structured_body.setdefault("diagnostic_files", structured_body.get("partial_files") or [])
-                structured_body.setdefault("warnings", [])
-                structured_body.setdefault("errors", [])
-                structured_body.setdefault("runId", payload.get("runId"))
-                return structured_body
-
-            log.error(
-                "Gateway error status=%s url=%s body=%s",
+        if (
+            isinstance(structured_body, dict)
+            and structured_body.get("error_code") == "invalid_canonical_artifact"
+        ):
+            log.warning(
+                "Gateway returned structured validation failure status=%s url=%s",
                 r.status_code,
                 url,
-                body_text[:2000],
             )
+            structured_body.setdefault("ok", False)
+            structured_body.setdefault("phase", payload.get("phase"))
+            structured_body.setdefault("files", [])
+            structured_body.setdefault("partial_files", [])
+            structured_body.setdefault("diagnostic_files", structured_body.get("partial_files") or [])
+            structured_body.setdefault("warnings", [])
+            structured_body.setdefault("errors", [])
+            structured_body.setdefault("runId", payload.get("runId"))
+            return structured_body
 
-            detail = body_text[:2000] if body_text else str(exc)
-            raise RuntimeError(f"Gateway upstream error {r.status_code}: {detail}") from None
+        log.error(
+            "Gateway error status=%s url=%s body=%s",
+            r.status_code,
+            url,
+            body_text[:2000],
+        )
 
-        return r.json()  
+        detail = body_text[:2000] if body_text else str(exc)
+        raise RuntimeError(f"Gateway upstream error {r.status_code}: {detail}") from None
+
+    return r.json()  
 async def _normalize_message(msg: Dict[str, Any]) -> Dict[str, Any]:
     # --- Normalizzazione messages ---
     raw_msgs = msg.get("messages") or []

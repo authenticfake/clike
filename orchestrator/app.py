@@ -12,6 +12,7 @@ from routes import router as router_router
 from routes import rag as rag_routes
 from routes import routes_eval as eval_router
 from services.methodologies.errors import MethodologyError
+from services import gateway_http
 from utils.service_auth import ServiceAuthMiddleware
 try:
     from mcp_server import mcp as clike_mcp
@@ -37,11 +38,14 @@ for uvicorn_logger in ("uvicorn", "uvicorn.error", "uvicorn.access"):
         handler.setFormatter(logging.Formatter('[orchestrator] | %(levelname)-8s %(message)s'))
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if clike_mcp is not None:
-        async with clike_mcp.session_manager.run():
+    try:
+        if clike_mcp is not None:
+            async with clike_mcp.session_manager.run():
+                yield
+        else:
             yield
-    else:
-        yield
+    finally:
+        await gateway_http.aclose()
         
 
 app = FastAPI(title="Clike Orchestrator (AI Pipilines for enabling Vibe Code for StartUp & Entprise Solutions)",     lifespan=lifespan,
