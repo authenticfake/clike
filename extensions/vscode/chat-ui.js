@@ -25,7 +25,7 @@ function getChatTheme() {
     // Settings → "clike.chat.theme": "classic" | "panel" | "paper"
     return vscode.workspace
       .getConfiguration('clike')
-      .get('chat.theme', 'classic');
+      .get('chat.theme', 'pro');
   } catch {
     return 'classic';
   }

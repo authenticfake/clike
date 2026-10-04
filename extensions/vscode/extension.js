@@ -294,7 +294,7 @@ function getDefaultLocalAgentExecutor() {
   try {
     const cfg = vscode.workspace.getConfiguration('clike');
     return normalizeLocalAgentExecutor(
-      cfg.get('localAgent.preferredExecutor', 'auto')
+      cfg.get('localAgent.preferredExecutor', 'gpt_codex')
     );
   } catch {
     return 'auto';
@@ -1876,11 +1876,11 @@ function cfg() {
     gatewayUrl: c.get('gatewayUrl', 'http://localhost:8000').replace(/\/+$/, ''),
 
     optimizeFor: c.get('optimizeFor', 'capability'),
-    harperTimeout: c.get('harperTimeout', 35),
+    harperTimeout: c.get('harperTimeout', 25),
     
     localAgentEnabled: c.get('localAgent.enabled', true),
-    localAgentPreferredExecutor: c.get('localAgent.preferredExecutor', 'auto'),
-    localAgentAllowEval: c.get('localAgent.allowEval', false),
+    localAgentPreferredExecutor: c.get('localAgent.preferredExecutor', 'gpt_codex'),
+    localAgentAllowEval: c.get('localAgent.allowEval', true),
     localAgentRestrictToKitPhases: c.get('localAgent.restrictToKitPhases', true),
     localAgentTimeoutMinutes: c.get('localAgent.timeoutMinutes', 30),
 
@@ -1895,13 +1895,13 @@ function cfg() {
 
     codexEnabled: c.get('localAgent.codex.enabled', true),
     codexCommand: c.get('localAgent.codex.command', 'codex'),
-    codexModel: c.get('localAgent.codex.model', 'gpt-5.5-codex'),
+    codexModel: c.get('localAgent.codex.model', 'gpt-5.5'),
     codexSandboxMode: c.get('localAgent.codex.sandboxMode', 'auto'),
-    codexTimeoutMinutes: c.get('localAgent.codex.timeoutMinutes', 35),
+    codexTimeoutMinutes: c.get('localAgent.codex.timeoutMinutes', 30),
 
     requireCleanGit: c.get('apply.requireCleanGit', false),
     backup: c.get('apply.backup', true),
-    dryRunPreview: c.get('apply.dryRunPreview', true),
+    dryRunPreview: c.get('apply.dryRunPreview', false),
 
     gitAutoCommit: c.get('git.autoCommit', false),
     gitMergeOnGate: c.get('git.gitMergeOnGate', false),

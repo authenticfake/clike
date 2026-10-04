@@ -153,7 +153,6 @@ Current extension settings include:
 - `clike.gatewayUrl`
 
 ### Harper and chat
-- `clike.docRoot`
 - `clike.harperTimeout`
 - `clike.optimizeFor`
 - `clike.chat.persistDir`
@@ -162,7 +161,6 @@ Current extension settings include:
 
 ### Execution
 - `clike.execution.defaultPreference`
-- `clike.execution.showInChat`
 
 ### Local agents
 - `clike.localAgent.enabled`
@@ -180,8 +178,8 @@ Current extension settings include:
 ### GPT Codex
 - `clike.localAgent.codex.enabled`
 - `clike.localAgent.codex.command`
-- `clike.localAgent.codex.approvalMode`
-- `clike.localAgent.codex.printModeFlag`
+- `clike.localAgent.codex.model`
+- `clike.localAgent.codex.sandboxMode`
 
 ### Git
 Automation is **off by default** (see [git-and-promotion.md](git-and-promotion.md)):

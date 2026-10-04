@@ -433,7 +433,6 @@ Current configuration keys exposed by the extension include:
     - `studio`
     - `paper`
 
-- `clike.chat.autoOpenOnStartup`
 - `clike.chat.persistDir`
 - `clike.chat.never_send_source_to_cloud`
 - `clike.chat.maxInMemoryMessages`
@@ -467,8 +466,6 @@ Current configuration keys exposed by the extension include:
     - `capability`
 
 - `clike.harperTimeout`
-- `clike.verboseLogging`
-- `clike.docRoot`
 
 ### Apply behavior
 
