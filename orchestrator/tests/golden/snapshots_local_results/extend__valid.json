@@ -1,0 +1,96 @@
+{
+  "output": {
+    "diffs": [],
+    "echo": "Local agent result normalized for SOLUTION",
+    "errors": [],
+    "execution": {
+      "phase_supported": true,
+      "reason": "extension_actuator_completed_and_orchestrator_normalized_result",
+      "requested": "local_agent_only",
+      "selected": "local_agent"
+    },
+    "files": [
+      {
+        "content": "# PLAN — Demo\n\n## REQ-1 — Existing\nVerification checkpoints: tests.\n\n## REQ-2 — Added by extend\nVerification checkpoints: tests.\n",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "docs/harper/PLAN.md"
+      },
+      {
+        "content": "{\"snapshot\": {\"total\": 2}, \"reqs\": [{\"id\": \"REQ-1\", \"title\": \"Existing\", \"status\": \"done\", \"acceptance\": [\"a1\"], \"dependsOn\": []}, {\"id\": \"REQ-2\", \"title\": \"Added\", \"status\": \"open\", \"acceptance\": [\"a2\"], \"dependsOn\": [\"REQ-1\"]}]}",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "docs/harper/plan.json"
+      },
+      {
+        "content": "# EXTEND Report\n\nCommand: /extend\nInput Sources: PLAN.md\nAdded Requirements: REQ-2\nValidation: plan.json valid\nRisks: none\n",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "docs/harper/EXTEND_2026-10-04_REQ-2_REQ-2.md"
+      }
+    ],
+    "ok": true,
+    "phase": "extend",
+    "runId": "golden-extend",
+    "tests": {
+      "failed": 0,
+      "passed": 0,
+      "summary": "local-agent-normalized"
+    },
+    "text": "Local agent execution completed.\n\nSTDOUT:\n\n\nSTDERR:",
+    "warnings": [
+      "execution_selected:local_agent",
+      "local_agent_result:normalized_by_orchestrator"
+    ]
+  },
+  "request": {
+    "allowed_write_roots": [
+      "docs/harper/IDEA.md",
+      "docs/harper/SPEC.md",
+      "docs/harper/PLAN.md",
+      "docs/harper/plan.json",
+      "docs/harper/lane-guides",
+      "docs/harper/EXTEND_*.md"
+    ],
+    "available_capabilities": null,
+    "capability_metadata": null,
+    "cloud_provisioning_profile": null,
+    "executionPreference": "local_agent_only",
+    "exit_code": 0,
+    "files": [
+      {
+        "content": "# PLAN — Demo\n\n## REQ-1 — Existing\nVerification checkpoints: tests.\n\n## REQ-2 — Added by extend\nVerification checkpoints: tests.\n",
+        "path": "docs/harper/PLAN.md"
+      },
+      {
+        "content": "{\"snapshot\": {\"total\": 2}, \"reqs\": [{\"id\": \"REQ-1\", \"title\": \"Existing\", \"status\": \"done\", \"acceptance\": [\"a1\"], \"dependsOn\": []}, {\"id\": \"REQ-2\", \"title\": \"Added\", \"status\": \"open\", \"acceptance\": [\"a2\"], \"dependsOn\": [\"REQ-1\"]}]}",
+        "path": "docs/harper/plan.json"
+      },
+      {
+        "content": "# EXTEND Report\n\nCommand: /extend\nInput Sources: PLAN.md\nAdded Requirements: REQ-2\nValidation: plan.json valid\nRisks: none\n",
+        "path": "docs/harper/EXTEND_2026-10-04_REQ-2_REQ-2.md"
+      }
+    ],
+    "forbidden_paths": [
+      ".git",
+      "src",
+      "test",
+      "tests",
+      "runs/kit",
+      "runs/eval",
+      "runs/gate",
+      "node_modules",
+      ".venv",
+      "__pycache__",
+      "__MACOSX"
+    ],
+    "infra_profile": null,
+    "localAgentExecutor": "claude_code",
+    "phase": "extend",
+    "req_id": null,
+    "runId": "golden-extend",
+    "runtime_service_profile": null,
+    "stderr": "",
+    "stdout": ""
+  }
+}

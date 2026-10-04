@@ -1,0 +1,95 @@
+{
+  "output": {
+    "diffs": [],
+    "echo": "Local agent result normalized for ",
+    "errors": [],
+    "execution": {
+      "phase_supported": true,
+      "reason": "extension_actuator_completed_and_orchestrator_normalized_result",
+      "requested": "local_agent_only",
+      "selected": "local_agent"
+    },
+    "files": [
+      {
+        "content": "# PLAN — Demo Project\n\n## REQ-1 — Ingestion pipeline\nBuild the CSV ingestion slice.\n\nVerification checkpoints: unit tests for parsing and acceptance test for the queue.\n",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "docs/harper/PLAN.md"
+      },
+      {
+        "content": "{\n  \"snapshot\": {\n    \"total\": 1\n  },\n  \"reqs\": [\n    {\n      \"id\": \"REQ-1\",\n      \"title\": \"Ingestion pipeline\",\n      \"status\": \"todo\",\n      \"acceptance\": [\n        \"Valid CSV produces one queue row per record\"\n      ],\n      \"dependsOn\": [],\n      \"capabilities\": {\n        \"packs\": [],\n        \"skills\": [],\n        \"design_profiles\": []\n      }\n    }\n  ],\n  \"schema_version\": \"1.1.0\"\n}",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "docs/harper/plan.json"
+      },
+      {
+        "content": "# Backend lane\n\n## Purpose\nOwn the ingestion and reconciliation services.\n\n## Boundaries\nExpected files live under the backend module only.\n\n## Commands\nRun the backend test command for validation.\n\n## Eval/Gate expectations\nGate expectations require all acceptance tests to pass.\n",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "docs/harper/lane-guides/backend.md"
+      }
+    ],
+    "ok": true,
+    "phase": "plan",
+    "runId": "golden-plan",
+    "tests": {
+      "failed": 0,
+      "passed": 0,
+      "summary": "local-agent-normalized"
+    },
+    "text": "Local agent execution completed.\n\nSTDOUT:\n\n\nSTDERR:",
+    "warnings": [
+      "execution_selected:local_agent",
+      "local_agent_result:normalized_by_orchestrator",
+      "plan:capabilities_enriched",
+      "capability_uncovered_reqs:REQ-1"
+    ]
+  },
+  "request": {
+    "allowed_write_roots": [
+      "docs/harper/PLAN.md",
+      "docs/harper/plan.json",
+      "docs/harper/lane-guides"
+    ],
+    "available_capabilities": null,
+    "capability_metadata": null,
+    "cloud_provisioning_profile": null,
+    "executionPreference": "local_agent_only",
+    "exit_code": 0,
+    "files": [
+      {
+        "content": "# PLAN — Demo Project\n\n## REQ-1 — Ingestion pipeline\nBuild the CSV ingestion slice.\n\nVerification checkpoints: unit tests for parsing and acceptance test for the queue.\n",
+        "path": "docs/harper/PLAN.md"
+      },
+      {
+        "content": "{\n  \"snapshot\": {\"total\": 1},\n  \"reqs\": [\n    {\n      \"id\": \"REQ-1\",\n      \"title\": \"Ingestion pipeline\",\n      \"status\": \"todo\",\n      \"acceptance\": [\"Valid CSV produces one queue row per record\"],\n      \"dependsOn\": []\n    }\n  ]\n}\n",
+        "path": "docs/harper/plan.json"
+      },
+      {
+        "content": "# Backend lane\n\n## Purpose\nOwn the ingestion and reconciliation services.\n\n## Boundaries\nExpected files live under the backend module only.\n\n## Commands\nRun the backend test command for validation.\n\n## Eval/Gate expectations\nGate expectations require all acceptance tests to pass.\n",
+        "path": "docs/harper/lane-guides/backend.md"
+      }
+    ],
+    "forbidden_paths": [
+      ".git",
+      "src",
+      "test",
+      "tests",
+      "runs/kit",
+      "runs/eval",
+      "runs/gate",
+      "node_modules",
+      ".venv",
+      "__pycache__",
+      "__MACOSX"
+    ],
+    "infra_profile": null,
+    "localAgentExecutor": "claude_code",
+    "phase": "plan",
+    "req_id": null,
+    "runId": "golden-plan",
+    "runtime_service_profile": null,
+    "stderr": "",
+    "stdout": ""
+  }
+}

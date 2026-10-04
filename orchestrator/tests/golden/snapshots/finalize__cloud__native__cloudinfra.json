@@ -1,0 +1,127 @@
+{
+  "gateway_calls": [
+    {
+      "path": "/v1/harper/run",
+      "payload": {
+        "_execution": {
+          "phase_supported": true,
+          "reason": "golden",
+          "requested": "cloud_only",
+          "selected": "cloud"
+        },
+        "attachments": [],
+        "cmd": "finalize",
+        "context_envelope": {
+          "active_output_contract": {
+            "agent": null,
+            "allowed_optional_output_globs": [],
+            "conflict_resolution": "native-clike-contract-wins",
+            "forbidden_output_globs": [],
+            "methodology": "native_clike",
+            "phase": "finalize",
+            "required_context_sections": [],
+            "required_outputs": [],
+            "runner": "cloud",
+            "strict_missing_required_outputs": false
+          },
+          "agent": null,
+          "bmad_methodology_skills": {
+            "selected_skill_context": {},
+            "selected_skill_references": [],
+            "skill_reference_policy": {}
+          },
+          "clike_capabilities": {
+            "context_json": {},
+            "context_markdown": "",
+            "selected_design_profiles": [],
+            "selected_packs": [],
+            "selected_skills": [],
+            "source": null
+          },
+          "execution_mode": "cloud",
+          "methodology": null,
+          "namespace_materialization": {},
+          "phase": "finalize",
+          "req_id": null,
+          "schema_version": "clike.execution_context_envelope.v1"
+        },
+        "core": [
+          "IDEA.md",
+          "SPEC.md",
+          "PLAN.md",
+          "plan.json"
+        ],
+        "core_blobs": {
+          "IDEA.md": "# IDEA — CoffeeBuddy\n\n## Vision\nCoffeeBuddy streamlines office coffee runs entirely within the corporate network: teammates submit orders via Slack, one teammate is fairly assigned as runner, reminders are sent, and preferences are remembered—without relying on public cloud.\n\n## Problem Statement\nTeams coordinate coffee orders in ad-hoc Slack threads. Messages get buried, someone forgets to pick up, and no one remembers preferences. In regulated environments, external cloud services are restricted, so the solution must run fully on-prem.\n\n## Target Users & Context\n- Primary: office teammates placing and picking up coffee orders.\n- Secondary: office managers seeking fairness and reduced coordination time.\n- Context: Enterprise Slack workspace; on-prem Kubernetes; internal identity and gateways only.\n\n## Value & Outcomes\n- Reduce coordination time to under 2 minutes per run.\n- Fewer mistakes with consistent order summaries.\n- Transparent, fair runner assignment across the team.\n\n## Out of Scope\nPayments, delivery logistics, vendor integrations beyond Slack workflows.\n\n## Technology Constraints\n```yaml\ntech_constraints:\n  version: 1.0.0\n  profiles:\n    - name: onprem\n      runtime: python\n      platform: kubernetes\n      ingress: nginx\n      api:\n        - slack.events\n        - rest\n      storage:\n        - postgres\n      messaging:\n        - kafka\n      auth:\n        - oidc\n      observability:\n        - prometheus\n        - grafana\n  capabilities:\n    - type: api.gateway\n      vendor: Kong Gateway\n      params:\n        routes: internal-only\n    - type: idp\n      vendor: Ory Hydra, Ory Kratos\n      params:\n        oidc: true\n    - type: db.relational\n      vendor: postgres\n      params:\n        ha: true\n    - type: mq.stream\n      vendor: apache.kafka\n      params:\n        partitions: 3\n    - type: secrets.manager\n      vendor: hashicorp.vault\n      params: {}\n    - type: ci.ci\n      vendor: jenkins\n      params: {}\n```\n## Risks & Assumptions\n\nAssumption: Slack enterprise is allowed internally; incoming events proxied via on-prem gateway.\n\nRisk: Slack rate limits; mitigated via Kafka buffering and backoff.\n\n## Success Metrics (early)\n\nWeekly active coffee runs per active user.\n\nTime from first /coffee to order confirmation.\n\n## Sources & Inspiration\n\nSlack platform patterns (internal reference).\n\nExisting enterprise standards for Kubernetes, Ory Hydra & Ory Kratos, Kong Gateway, hashicorp as Vault, and Kafka.",
+          "PLAN.md": "# PLAN — CoffeeBuddy\n\n| REQ | Title |\n|---|---|\n| REQ-001 | Coffee order intake |\n| REQ-002 | Order status notifications |\n",
+          "SPEC.md": "# SPEC — CoffeeBuddy (On-Prem)\n\n## Problem\nCoffee coordination in Slack is fragmented: messages get buried, someone forgets to pick up, and preferences are not captured. In regulated networks, cloud services are restricted, so the solution must run fully on-prem with enterprise components and SSO.\n\n## Objectives\n1) Complete a coffee run inside Slack within 2 minutes.  \n2) Enforce fairness by balancing runner assignments over time.  \n3) Persist preferences to pre-fill orders consistently.\n\n## Scope\n- Slack slash commands and interactive messages to create/join a run, select drinks, and confirm pickup.\n- Automatic runner assignment and reminders.\n- Order history and user preference storage.\n\n## Non-Goals\n- Payments, delivery, or vendor-specific POS integrations.\n\n## Constraints\n- Operate fully on-prem on Kubernetes behind WSO2 API Manager and NGINX ingress.\n- Authenticate via Keycloak (OIDC); store secrets in Vault.\n- Use PostgreSQL for persistence and Kafka for asynchronous processing.\n\n## KPIs\n- Median time from `/coffee` to confirmation ≤ 2 minutes.\n- Runner fairness index ≥ 0.8.\n- Error rate per run ≤ 1%.\n\nmeasurement: KPIs are measured via application logs (structured), Prometheus metrics, and Slack event audit logs, aggregated daily and reported weekly in Grafana.\n\n## Assumptions\n- Slack enterprise app can be installed and events proxied internally.\n- Users understand basic slash command flows.\n\n## Risks\n- Slack rate limits or interactive latency; mitigated via Kafka buffering.\n- Misconfigured OIDC scopes; mitigated by standard Keycloak realm templates.\n\n## Acceptance Criteria\n- **REQ-001 — Create a coffee run via `/coffee`**  \n  Test: functional (Slack events simulated via internal proxy)  \n  Evidence: e2e test passes and logs captured\n- **REQ-002 — Join/submit order with preferences**  \n  Test: unit + functional  \n  Evidence: unit coverage for preference model + e2e flow\n- **REQ-003 — Automatic runner assignment**  \n  Test: integration (deterministic assignment with tie-break rules)  \n  Evidence: contract test verifying fairness index over a seeded dataset\n- **REQ-004 — Reminders and status updates**  \n  Test: scheduled job with time-shifted execution  \n  Evidence: passing timer/queue tests and notification logs\n- **REQ-005 — Order history and audit trail**  \n  Test: integration (PostgreSQL)  \n  Evidence: migration + repository tests, retention and PII policy checks\n- **REQ-006 — Security baseline**  \n  Test: SAST + secrets scanning  \n  Evidence: clean reports (Semgrep/Bandit for polyglot modules, Vault policy checks)\n\n## Sources & Evidence\n- Slack API internal documentation (Events API and Interactivity).\n- Enterprise runbooks for Kubernetes, Keycloak, WSO2, Vault, Kafka, and PostgreSQL.\n- Test artifacts stored under `runs/<ts>/eval/`.\n\n## Technology Constraints\n```yaml\ntech_constraints:\n  version: 1.0.0\n  profiles:\n    - name: onprem\n      runtime: java17\n      platform: kubernetes\n      ingress: nginx\n      api:\n        - slack.events\n        - rest\n      storage:\n        - postgres\n      messaging:\n        - kafka\n      auth:\n        - oidc\n      observability:\n        - prometheus\n        - grafana\n  capabilities:\n    - type: api.gateway\n      vendor: wso2.apim\n      params:\n        routes: internal-only\n    - type: idp\n      vendor: keycloak\n      params:\n        oidc: true\n    - type: db.relational\n      vendor: postgres\n      params:\n        ha: true\n    - type: mq.stream\n      vendor: apache.kafka\n      params:\n        partitions: 3\n    - type: secrets.manager\n      vendor: hashicorp.vault\n      params: {}\n    - type: ci.ci\n      vendor: jenkins\n      params: {}\n```",
+          "TECH_CONSTRAINTS.yaml": "tech_constraints:\n  runtime: python\n  framework: fastapi\n  deployment:\n    target: aws\n    services: [aws ecs, aws rds, aws secrets manager]\n    iac: terraform\n",
+          "plan.json": "{\"reqs\": [{\"id\": \"REQ-001\", \"title\": \"Coffee order intake\", \"acceptance\": [\"Orders can be created\", \"Invalid orders are rejected\"], \"lane\": \"python\", \"dependsOn\": []}, {\"id\": \"REQ-002\", \"title\": \"Order status notifications\", \"acceptance\": [\"Status changes notify the requester\"], \"lane\": \"python\", \"dependsOn\": [\"REQ-001\"]}]}"
+        },
+        "docRoot": "docs/harper",
+        "executionPreference": "cloud_only",
+        "flags": {},
+        "kit": {
+          "targets": [
+            "REQ-001"
+          ]
+        },
+        "localAgentCapabilities": {},
+        "localAgentExecutor": "claude_code",
+        "messages": [
+          {
+            "content": "/finalize golden scenario",
+            "role": "user"
+          }
+        ],
+        "mode": "harper",
+        "mode_contract": {},
+        "model": "openai:gpt-5.4-mini",
+        "phase": "finalize",
+        "project_id": "coffeebuddy_golden",
+        "project_name": "CoffeeBuddy",
+        "runId": "golden-run",
+        "todo_ids": [
+          "REQ-001"
+        ],
+        "workspace": {
+          "root": "<WORKSPACE>"
+        }
+      }
+    }
+  ],
+  "output": {
+    "diffs": [],
+    "echo": "",
+    "errors": [],
+    "execution": {
+      "claude_available": null,
+      "claude_enabled": null,
+      "phase_supported": true,
+      "reason": "golden",
+      "requested": "cloud_only",
+      "selected": "cloud"
+    },
+    "files": [],
+    "ok": true,
+    "phase": "finalize",
+    "runId": "golden-run",
+    "tests": {
+      "failed": 0,
+      "passed": 0,
+      "summary": "golden"
+    },
+    "text": "",
+    "warnings": [
+      "execution_requested:cloud_only",
+      "execution_selected:cloud",
+      "execution_reason:golden"
+    ]
+  },
+  "scenario": {
+    "executor": "cloud",
+    "methodology": null,
+    "phase": "finalize",
+    "variant": "cloudinfra"
+  }
+}

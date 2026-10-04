@@ -1,0 +1,99 @@
+{
+  "output": {
+    "diffs": [],
+    "echo": "Local agent result normalized for ",
+    "errors": [
+      "document_phase_output_incomplete"
+    ],
+    "execution": {
+      "phase_supported": true,
+      "reason": "extension_actuator_completed_and_orchestrator_normalized_result",
+      "requested": "local_agent_only",
+      "selected": "local_agent"
+    },
+    "files": [
+      {
+        "content": "# PLAN — CoffeeBuddy\n\n## Plan Snapshot\nTwo REQs on the python lane.\n\n| REQ | Title | Lane |\n|---|---|---|\n| REQ-001 | Coffee order intake | python |\n| REQ-002 | Order status notifications | python |\n",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "docs/harper/PLAN.md"
+      },
+      {
+        "content": "{\n  \"snapshot\": {\n    \"project\": \"CoffeeBuddy\"\n  },\n  \"lanes\": [\n    {\n      \"id\": \"python\"\n    }\n  ],\n  \"reqs\": [\n    {\n      \"id\": \"REQ-001\",\n      \"title\": \"Coffee order intake\",\n      \"acceptance\": [\n        \"Orders can be created\"\n      ],\n      \"lane\": \"python\",\n      \"dependsOn\": [],\n      \"skills\": [\n        \"api-hardening\"\n      ],\n      \"packs\": [\n        \"python-service\"\n      ],\n      \"design_profiles\": [\n        \"not_applicable\"\n      ],\n      \"capabilities\": {\n        \"packs\": [\n          {\n            \"id\": \"python-service\",\n            \"source\": \"plan\",\n            \"reason\": \"selected in plan.json packs for this REQ\",\n            \"unresolved\": true\n          }\n        ],\n        \"skills\": [\n          {\n            \"id\": \"api-hardening\",\n            \"source\": \"plan\",\n            \"reason\": \"selected in plan.json skills for this REQ\",\n            \"unresolved\": true\n          }\n        ],\n        \"design_profiles\": [\n          {\n            \"id\": \"not_applicable\",\n            \"source\": \"plan\",\n            \"reason\": \"selected in plan.json design_profiles for this REQ\",\n            \"unresolved\": true\n          }\n        ]\n      }\n    },\n    {\n      \"id\": \"REQ-002\",\n      \"title\": \"Order status notifications\",\n      \"acceptance\": [\n        \"Status changes notify\"\n      ],\n      \"lane\": \"python\",\n      \"dependsOn\": [\n        \"REQ-001\"\n      ],\n      \"capabilities\": {\n        \"packs\": [],\n        \"skills\": [],\n        \"design_profiles\": []\n      }\n    }\n  ],\n  \"schema_version\": \"1.1.0\"\n}",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "docs/harper/plan.json"
+      },
+      {
+        "content": "# Lane guide — python\n\nUse pytest.\n",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "docs/harper/lane-guides/python.md"
+      }
+    ],
+    "ok": false,
+    "phase": "plan",
+    "runId": "golden-plan",
+    "tests": {
+      "failed": 1,
+      "passed": 0,
+      "summary": "local-agent-normalization-failed"
+    },
+    "text": "Local agent execution completed.\n\nSTDOUT:\n\n\nSTDERR:",
+    "warnings": [
+      "execution_selected:local_agent",
+      "local_agent_result:normalized_by_orchestrator",
+      "plan:missing_verification_checkpoints_in_plan_md",
+      "plan:capabilities_enriched",
+      "capability_unresolved:python-service,api-hardening,not_applicable",
+      "capability_uncovered_reqs:REQ-002"
+    ]
+  },
+  "request": {
+    "allowed_write_roots": [
+      "docs/harper/PLAN.md",
+      "docs/harper/plan.json",
+      "docs/harper/lane-guides"
+    ],
+    "available_capabilities": null,
+    "capability_metadata": null,
+    "cloud_provisioning_profile": null,
+    "executionPreference": "local_agent_only",
+    "exit_code": 0,
+    "files": [
+      {
+        "content": "# PLAN — CoffeeBuddy\n\n## Plan Snapshot\nTwo REQs on the python lane.\n\n| REQ | Title | Lane |\n|---|---|---|\n| REQ-001 | Coffee order intake | python |\n| REQ-002 | Order status notifications | python |\n",
+        "path": "docs/harper/PLAN.md"
+      },
+      {
+        "content": "{\n  \"snapshot\": {\n    \"project\": \"CoffeeBuddy\"\n  },\n  \"lanes\": [\n    {\n      \"id\": \"python\"\n    }\n  ],\n  \"reqs\": [\n    {\n      \"id\": \"REQ-001\",\n      \"title\": \"Coffee order intake\",\n      \"acceptance\": [\n        \"Orders can be created\"\n      ],\n      \"lane\": \"python\",\n      \"dependsOn\": [],\n      \"skills\": [\n        \"api-hardening\"\n      ],\n      \"packs\": [\n        \"python-service\"\n      ],\n      \"design_profiles\": [\n        \"not_applicable\"\n      ]\n    },\n    {\n      \"id\": \"REQ-002\",\n      \"title\": \"Order status notifications\",\n      \"acceptance\": [\n        \"Status changes notify\"\n      ],\n      \"lane\": \"python\",\n      \"dependsOn\": [\n        \"REQ-001\"\n      ]\n    }\n  ]\n}",
+        "path": "docs/harper/plan.json"
+      },
+      {
+        "content": "# Lane guide — python\n\nUse pytest.\n",
+        "path": "docs/harper/lane-guides/python.md"
+      }
+    ],
+    "forbidden_paths": [
+      ".git",
+      "src",
+      "test",
+      "tests",
+      "runs/kit",
+      "runs/eval",
+      "runs/gate",
+      "node_modules",
+      ".venv",
+      "__pycache__",
+      "__MACOSX"
+    ],
+    "infra_profile": null,
+    "localAgentExecutor": "claude_code",
+    "phase": "plan",
+    "req_id": null,
+    "runId": "golden-plan",
+    "runtime_service_profile": null,
+    "stderr": "",
+    "stdout": ""
+  }
+}

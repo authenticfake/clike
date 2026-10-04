@@ -1,0 +1,116 @@
+{
+  "output": {
+    "diffs": [],
+    "echo": "Local agent result normalized for REQ-001",
+    "errors": [
+      "local_agent_wrote_outside_allowed_roots"
+    ],
+    "execution": {
+      "phase_supported": true,
+      "reason": "extension_actuator_completed_and_orchestrator_normalized_result",
+      "requested": "local_agent_only",
+      "selected": "local_agent"
+    },
+    "files": [
+      {
+        "content": "def create_order(item):\n    return {'item': item}\n",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "runs/kit/REQ-001/src/coffee/orders.py"
+      },
+      {
+        "content": "from coffee.orders import create_order\n\ndef test_create():\n    assert create_order('x')\n",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "runs/kit/REQ-001/test/test_orders.py"
+      },
+      {
+        "content": "{\"req_id\": \"REQ-001\", \"checks\": [{\"id\": \"unit\", \"command\": \"pytest -q\", \"blocking\": true}]}",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "runs/kit/REQ-001/ci/LTC.json"
+      },
+      {
+        "content": "# HOWTO\n\nRun `pytest -q` from the KIT root.\n",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "runs/kit/REQ-001/ci/HOWTO.md"
+      },
+      {
+        "content": "pytest\n",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "runs/kit/REQ-001/ci/requirements.txt"
+      }
+    ],
+    "ok": false,
+    "phase": "kit",
+    "runId": "golden-kit",
+    "tests": {
+      "failed": 1,
+      "passed": 0,
+      "summary": "local-agent-normalization-failed"
+    },
+    "text": "Local agent execution completed.\n\nSTDOUT:\n\n\nSTDERR:",
+    "warnings": [
+      "execution_selected:local_agent",
+      "local_agent_result:normalized_by_orchestrator",
+      "blocked_paths:docs/harper/SPEC.md"
+    ]
+  },
+  "request": {
+    "allowed_write_roots": [
+      "runs/kit/REQ-001/src",
+      "runs/kit/REQ-001/test",
+      "runs/kit/REQ-001/ci",
+      "runs/kit/REQ-001/docs"
+    ],
+    "available_capabilities": null,
+    "capability_metadata": null,
+    "cloud_provisioning_profile": null,
+    "executionPreference": "local_agent_only",
+    "exit_code": 0,
+    "files": [
+      {
+        "content": "def create_order(item):\n    return {'item': item}\n",
+        "path": "runs/kit/REQ-001/src/coffee/orders.py"
+      },
+      {
+        "content": "from coffee.orders import create_order\n\ndef test_create():\n    assert create_order('x')\n",
+        "path": "runs/kit/REQ-001/test/test_orders.py"
+      },
+      {
+        "content": "{\"req_id\": \"REQ-001\", \"checks\": [{\"id\": \"unit\", \"command\": \"pytest -q\", \"blocking\": true}]}",
+        "path": "runs/kit/REQ-001/ci/LTC.json"
+      },
+      {
+        "content": "# HOWTO\n\nRun `pytest -q` from the KIT root.\n",
+        "path": "runs/kit/REQ-001/ci/HOWTO.md"
+      },
+      {
+        "content": "pytest\n",
+        "path": "runs/kit/REQ-001/ci/requirements.txt"
+      },
+      {
+        "content": "# SPEC — CoffeeBuddy (On-Prem)\n\n## Problem\nCoffee coordination in Slack is fragmented: messages get buried, someone forgets to pick up, and preferences are not captured. In regulated networks, cloud services are restricted, so the solution must run fully on-prem with enterprise components and SSO.\n\n## Objectives\n1) Complete a coffee run inside Slack within 2 minutes.  \n2) Enforce fairness by balancing runner assignments over time.  \n3) Persist preferences to pre-fill orders consistently.\n\n## Scope\n- Slack slash commands and interactive messages to create/join a run, select drinks, and confirm pickup.\n- Automatic runner assignment and reminders.\n- Order history and user preference storage.\n\n## Non-Goals\n- Payments, delivery, or vendor-specific POS integrations.\n\n## Constraints\n- Operate fully on-prem on Kubernetes behind WSO2 API Manager and NGINX ingress.\n- Authenticate via Keycloak (OIDC); store secrets in Vault.\n- Use PostgreSQL for persistence and Kafka for asynchronous processing.\n\n## KPIs\n- Median time from `/coffee` to confirmation ≤ 2 minutes.\n- Runner fairness index ≥ 0.8.\n- Error rate per run ≤ 1%.\n\nmeasurement: KPIs are measured via application logs (structured), Prometheus metrics, and Slack event audit logs, aggregated daily and reported weekly in Grafana.\n\n## Assumptions\n- Slack enterprise app can be installed and events proxied internally.\n- Users understand basic slash command flows.\n\n## Risks\n- Slack rate limits or interactive latency; mitigated via Kafka buffering.\n- Misconfigured OIDC scopes; mitigated by standard Keycloak realm templates.\n\n## Acceptance Criteria\n- **REQ-001 — Create a coffee run via `/coffee`**  \n  Test: functional (Slack events simulated via internal proxy)  \n  Evidence: e2e test passes and logs captured\n- **REQ-002 — Join/submit order with preferences**  \n  Test: unit + functional  \n  Evidence: unit coverage for preference model + e2e flow\n- **REQ-003 — Automatic runner assignment**  \n  Test: integration (deterministic assignment with tie-break rules)  \n  Evidence: contract test verifying fairness index over a seeded dataset\n- **REQ-004 — Reminders and status updates**  \n  Test: scheduled job with time-shifted execution  \n  Evidence: passing timer/queue tests and notification logs\n- **REQ-005 — Order history and audit trail**  \n  Test: integration (PostgreSQL)  \n  Evidence: migration + repository tests, retention and PII policy checks\n- **REQ-006 — Security baseline**  \n  Test: SAST + secrets scanning  \n  Evidence: clean reports (Semgrep/Bandit for polyglot modules, Vault policy checks)\n\n## Sources & Evidence\n- Slack API internal documentation (Events API and Interactivity).\n- Enterprise runbooks for Kubernetes, Keycloak, WSO2, Vault, Kafka, and PostgreSQL.\n- Test artifacts stored under `runs/<ts>/eval/`.\n\n## Technology Constraints\n```yaml\ntech_constraints:\n  version: 1.0.0\n  profiles:\n    - name: onprem\n      runtime: java17\n      platform: kubernetes\n      ingress: nginx\n      api:\n        - slack.events\n        - rest\n      storage:\n        - postgres\n      messaging:\n        - kafka\n      auth:\n        - oidc\n      observability:\n        - prometheus\n        - grafana\n  capabilities:\n    - type: api.gateway\n      vendor: wso2.apim\n      params:\n        routes: internal-only\n    - type: idp\n      vendor: keycloak\n      params:\n        oidc: true\n    - type: db.relational\n      vendor: postgres\n      params:\n        ha: true\n    - type: mq.stream\n      vendor: apache.kafka\n      params:\n        partitions: 3\n    - type: secrets.manager\n      vendor: hashicorp.vault\n      params: {}\n    - type: ci.ci\n      vendor: jenkins\n      params: {}\n```",
+        "path": "docs/harper/SPEC.md"
+      }
+    ],
+    "forbidden_paths": [
+      "src",
+      "test",
+      "tests",
+      "docs/harper/PLAN.md",
+      "docs/harper/plan.json",
+      ".git"
+    ],
+    "infra_profile": null,
+    "localAgentExecutor": "claude_code",
+    "phase": "kit",
+    "req_id": "REQ-001",
+    "runId": "golden-kit",
+    "runtime_service_profile": null,
+    "stderr": "",
+    "stdout": ""
+  }
+}

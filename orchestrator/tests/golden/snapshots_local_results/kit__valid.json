@@ -1,0 +1,109 @@
+{
+  "output": {
+    "diffs": [],
+    "echo": "Local agent result normalized for REQ-001",
+    "errors": [],
+    "execution": {
+      "phase_supported": true,
+      "reason": "extension_actuator_completed_and_orchestrator_normalized_result",
+      "requested": "local_agent_only",
+      "selected": "local_agent"
+    },
+    "files": [
+      {
+        "content": "def create_order(item):\n    return {'item': item}\n",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "runs/kit/REQ-001/src/coffee/orders.py"
+      },
+      {
+        "content": "from coffee.orders import create_order\n\ndef test_create():\n    assert create_order('x')\n",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "runs/kit/REQ-001/test/test_orders.py"
+      },
+      {
+        "content": "{\"req_id\": \"REQ-001\", \"checks\": [{\"id\": \"unit\", \"command\": \"pytest -q\", \"blocking\": true}]}",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "runs/kit/REQ-001/ci/LTC.json"
+      },
+      {
+        "content": "# HOWTO\n\nRun `pytest -q` from the KIT root.\n",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "runs/kit/REQ-001/ci/HOWTO.md"
+      },
+      {
+        "content": "pytest\n",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "runs/kit/REQ-001/ci/requirements.txt"
+      }
+    ],
+    "ok": true,
+    "phase": "kit",
+    "runId": "golden-kit",
+    "tests": {
+      "failed": 0,
+      "passed": 0,
+      "summary": "local-agent-normalized"
+    },
+    "text": "Local agent execution completed.\n\nSTDOUT:\n\n\nSTDERR:",
+    "warnings": [
+      "execution_selected:local_agent",
+      "local_agent_result:normalized_by_orchestrator"
+    ]
+  },
+  "request": {
+    "allowed_write_roots": [
+      "runs/kit/REQ-001/src",
+      "runs/kit/REQ-001/test",
+      "runs/kit/REQ-001/ci",
+      "runs/kit/REQ-001/docs"
+    ],
+    "available_capabilities": null,
+    "capability_metadata": null,
+    "cloud_provisioning_profile": null,
+    "executionPreference": "local_agent_only",
+    "exit_code": 0,
+    "files": [
+      {
+        "content": "def create_order(item):\n    return {'item': item}\n",
+        "path": "runs/kit/REQ-001/src/coffee/orders.py"
+      },
+      {
+        "content": "from coffee.orders import create_order\n\ndef test_create():\n    assert create_order('x')\n",
+        "path": "runs/kit/REQ-001/test/test_orders.py"
+      },
+      {
+        "content": "{\"req_id\": \"REQ-001\", \"checks\": [{\"id\": \"unit\", \"command\": \"pytest -q\", \"blocking\": true}]}",
+        "path": "runs/kit/REQ-001/ci/LTC.json"
+      },
+      {
+        "content": "# HOWTO\n\nRun `pytest -q` from the KIT root.\n",
+        "path": "runs/kit/REQ-001/ci/HOWTO.md"
+      },
+      {
+        "content": "pytest\n",
+        "path": "runs/kit/REQ-001/ci/requirements.txt"
+      }
+    ],
+    "forbidden_paths": [
+      "src",
+      "test",
+      "tests",
+      "docs/harper/PLAN.md",
+      "docs/harper/plan.json",
+      ".git"
+    ],
+    "infra_profile": null,
+    "localAgentExecutor": "claude_code",
+    "phase": "kit",
+    "req_id": "REQ-001",
+    "runId": "golden-kit",
+    "runtime_service_profile": null,
+    "stderr": "",
+    "stdout": ""
+  }
+}

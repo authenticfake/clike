@@ -1,0 +1,71 @@
+{
+  "output": {
+    "diffs": [],
+    "echo": "Local agent result normalized for ",
+    "errors": [],
+    "execution": {
+      "phase_supported": true,
+      "reason": "extension_actuator_completed_and_orchestrator_normalized_result",
+      "requested": "local_agent_only",
+      "selected": "local_agent"
+    },
+    "files": [
+      {
+        "content": "# SPEC — Demo Project\n\n## Summary\nA testable featurelet that reconciles morning exports into a single review queue.\n\n## Functional Requirements\nThe system ingests CSV exports and produces a normalized reconciliation queue.\n\n## Non-Functional Requirements\nProcessing must complete within five minutes for the pilot data volume.\n\n## Acceptance Criteria\n- Given a valid CSV, when ingested, then a queue row is created per record.\n- Given a malformed CSV, when ingested, then the file is rejected with an error.\n- Given duplicate records, when ingested, then duplicates are flagged not dropped.\n- Given completion, when finished, then total processed count is reported.\n- Given a failure, when retried, then processing is idempotent.\n\nSPEC_END\n",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "docs/harper/SPEC.md"
+      }
+    ],
+    "ok": true,
+    "phase": "spec",
+    "runId": "golden-spec",
+    "tests": {
+      "failed": 0,
+      "passed": 0,
+      "summary": "local-agent-normalized"
+    },
+    "text": "Local agent execution completed.\n\nSTDOUT:\n\n\nSTDERR:",
+    "warnings": [
+      "execution_selected:local_agent",
+      "local_agent_result:normalized_by_orchestrator"
+    ]
+  },
+  "request": {
+    "allowed_write_roots": [
+      "docs/harper/SPEC.md"
+    ],
+    "available_capabilities": null,
+    "capability_metadata": null,
+    "cloud_provisioning_profile": null,
+    "executionPreference": "local_agent_only",
+    "exit_code": 0,
+    "files": [
+      {
+        "content": "# SPEC — Demo Project\n\n## Summary\nA testable featurelet that reconciles morning exports into a single review queue.\n\n## Functional Requirements\nThe system ingests CSV exports and produces a normalized reconciliation queue.\n\n## Non-Functional Requirements\nProcessing must complete within five minutes for the pilot data volume.\n\n## Acceptance Criteria\n- Given a valid CSV, when ingested, then a queue row is created per record.\n- Given a malformed CSV, when ingested, then the file is rejected with an error.\n- Given duplicate records, when ingested, then duplicates are flagged not dropped.\n- Given completion, when finished, then total processed count is reported.\n- Given a failure, when retried, then processing is idempotent.\n\nSPEC_END\n",
+        "path": "docs/harper/SPEC.md"
+      }
+    ],
+    "forbidden_paths": [
+      ".git",
+      "src",
+      "test",
+      "tests",
+      "runs/kit",
+      "runs/eval",
+      "runs/gate",
+      "node_modules",
+      ".venv",
+      "__pycache__",
+      "__MACOSX"
+    ],
+    "infra_profile": null,
+    "localAgentExecutor": "claude_code",
+    "phase": "spec",
+    "req_id": null,
+    "runId": "golden-spec",
+    "runtime_service_profile": null,
+    "stderr": "",
+    "stdout": ""
+  }
+}

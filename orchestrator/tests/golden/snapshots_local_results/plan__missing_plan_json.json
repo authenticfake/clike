@@ -1,0 +1,76 @@
+{
+  "output": {
+    "diffs": [],
+    "echo": "Local agent result normalized for ",
+    "errors": [
+      "document_phase_required_outputs_missing"
+    ],
+    "execution": {
+      "phase_supported": true,
+      "reason": "extension_actuator_completed_and_orchestrator_normalized_result",
+      "requested": "local_agent_only",
+      "selected": "local_agent"
+    },
+    "files": [
+      {
+        "content": "# PLAN — CoffeeBuddy\n\n## Plan Snapshot\nTwo REQs on the python lane.\n\n| REQ | Title | Lane |\n|---|---|---|\n| REQ-001 | Coffee order intake | python |\n| REQ-002 | Order status notifications | python |\n",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "docs/harper/PLAN.md"
+      }
+    ],
+    "ok": false,
+    "phase": "plan",
+    "runId": "golden-plan",
+    "tests": {
+      "failed": 1,
+      "passed": 0,
+      "summary": "local-agent-normalization-failed"
+    },
+    "text": "Local agent execution completed.\n\nSTDOUT:\n\n\nSTDERR:",
+    "warnings": [
+      "execution_selected:local_agent",
+      "local_agent_result:normalized_by_orchestrator",
+      "missing_required_outputs:docs/harper/plan.json"
+    ]
+  },
+  "request": {
+    "allowed_write_roots": [
+      "docs/harper/PLAN.md",
+      "docs/harper/plan.json",
+      "docs/harper/lane-guides"
+    ],
+    "available_capabilities": null,
+    "capability_metadata": null,
+    "cloud_provisioning_profile": null,
+    "executionPreference": "local_agent_only",
+    "exit_code": 0,
+    "files": [
+      {
+        "content": "# PLAN — CoffeeBuddy\n\n## Plan Snapshot\nTwo REQs on the python lane.\n\n| REQ | Title | Lane |\n|---|---|---|\n| REQ-001 | Coffee order intake | python |\n| REQ-002 | Order status notifications | python |\n",
+        "path": "docs/harper/PLAN.md"
+      }
+    ],
+    "forbidden_paths": [
+      ".git",
+      "src",
+      "test",
+      "tests",
+      "runs/kit",
+      "runs/eval",
+      "runs/gate",
+      "node_modules",
+      ".venv",
+      "__pycache__",
+      "__MACOSX"
+    ],
+    "infra_profile": null,
+    "localAgentExecutor": "claude_code",
+    "phase": "plan",
+    "req_id": null,
+    "runId": "golden-plan",
+    "runtime_service_profile": null,
+    "stderr": "",
+    "stdout": ""
+  }
+}

@@ -1,0 +1,111 @@
+{
+  "gateway_calls": [],
+  "output": {
+    "diffs": [],
+    "echo": "Local agent spec package prepared for Harper SPEC",
+    "errors": [],
+    "execution": {
+      "phase_supported": true,
+      "reason": "golden",
+      "requested": "local_agent_only",
+      "selected": "local_agent"
+    },
+    "files": [],
+    "local_agent": {
+      "action": "local_agent_required",
+      "active_output_contract": {
+        "agent": null,
+        "allowed_optional_output_globs": [],
+        "conflict_resolution": "native-clike-contract-wins",
+        "forbidden_output_globs": [],
+        "methodology": "native_clike",
+        "phase": "spec",
+        "required_context_sections": [
+          "IDEA.md",
+          "Harper chat history",
+          "RAG attachments",
+          "TECH_CONSTRAINTS.yaml"
+        ],
+        "required_outputs": [
+          "docs/harper/SPEC.md"
+        ],
+        "runner": "local_agent",
+        "strict_missing_required_outputs": false
+      },
+      "allowed_write_roots": [
+        "docs/harper/SPEC.md"
+      ],
+      "context_path": "runs/spec/docs/AGENT_SPEC_CONTEXT.json",
+      "executor_hint": "gpt_codex",
+      "expected_outputs": {
+        "always": [
+          "docs/harper/SPEC.md"
+        ],
+        "conditional": []
+      },
+      "forbidden_paths": [
+        ".git",
+        "src",
+        "test",
+        "tests",
+        "runs/kit",
+        "runs/eval",
+        "runs/gate",
+        "node_modules",
+        ".venv",
+        "__pycache__",
+        "__MACOSX"
+      ],
+      "invocation": {
+        "args": [
+          "exec"
+        ],
+        "command_ref": "gpt_codex",
+        "cwd": ".",
+        "executor": "gpt_codex",
+        "prompt_transport": "stdin",
+        "schema_version": "clike.local_agent_invocation.v1",
+        "timeout_seconds": 1800
+      },
+      "package_files": [
+        {
+          "content": "{\n  \"schema_version\": \"clike.agent.spec_context.v1\",\n  \"phase\": \"spec\",\n  \"run_id\": \"golden-run\",\n  \"input_sources\": {\n    \"idea_md_present\": false,\n    \"spec_md_present\": false,\n    \"plan_md_present\": false,\n    \"attachments_present\": false,\n    \"attachment_count\": 0\n  },\n  \"attachments\": {\n    \"present\": false,\n    \"count\": 0,\n    \"items\": []\n  },\n  \"mission\": {\n    \"purpose\": \"Regenerate a concise, testable Harper SPEC.md for the featurelet strictly from IDEA inputs.\",\n    \"canonical_output\": \"docs/harper/SPEC.md\"\n  },\n  \"required_reads\": [\n    \"docs/harper/IDEA.md (and any IDEA* prefix variants) when present\",\n    \"docs/harper/TECH_CONSTRAINTS.yaml when present\",\n    \"Harper chat history when relevant\"\n  ],\n  \"allowed_write_roots\": [\n    \"docs/harper/SPEC.md\"\n  ],\n  \"forbidden_paths\": [\n    \".git\",\n    \"src\",\n    \"test\",\n    \"tests\",\n    \"runs/kit\",\n    \"runs/eval\",\n    \"runs/gate\",\n    \"node_modules\",\n    \".venv\",\n    \"__pycache__\",\n    \"__MACOSX\"\n  ],\n  \"output_contract\": {\n    \"always\": [\n      \"docs/harper/SPEC.md\"\n    ],\n    \"conditional\": []\n  },\n  \"active_output_contract\": {\n    \"phase\": \"spec\",\n    \"runner\": \"local_agent\",\n    \"methodology\": \"native_clike\",\n    \"agent\": null,\n    \"required_outputs\": [\n      \"docs/harper/SPEC.md\"\n    ],\n    \"allowed_optional_output_globs\": [],\n    \"forbidden_output_globs\": [],\n    \"required_context_sections\": [\n      \"IDEA.md\",\n      \"Harper chat history\",\n      \"RAG attachments\",\n      \"TECH_CONSTRAINTS.yaml\"\n    ],\n    \"strict_missing_required_outputs\": false,\n    \"conflict_resolution\": \"native-clike-contract-wins\"\n  },\n  \"hard_rules\": [\n    \"Write only docs/harper/SPEC.md. Do not write any other docs/harper path.\",\n    \"/spec is regenerative: build docs/harper/SPEC.md from IDEA inputs only.\",\n    \"Do not read docs/harper/SPEC.md or any SPEC* variant as input. Existing SPEC files are stale outputs from a previous /spec run, not source material.\",\n    \"Treat any existing docs/harper/SPEC.md as the overwrite target only; regenerate it from IDEA, never reconcile with the old SPEC output.\",\n    \"The first line must be `# SPEC — <Project Name>`, taken from the IDEA.md title by replacing the leading word IDEA with SPEC.\",\n    \"Use the canonical SPEC sections with `##` headings in order: Summary, Goals, Non-Goals, Users & Context, Functional Requirements, Non-Functional Requirements, High-Level Architecture, Interfaces, Data Model (logical), Key Workflows, Security & Compliance, Deployment & Operations, Risks & Mitigations, Assumptions, Success Metrics, Acceptance Criteria, Out Of Scope, Note from Harper Orchestrator (Super User) to be applied.\",\n    \"Acceptance Criteria are mandatory: at least 5 observable, falsifiable bullets.\",\n    \"Translate the business requirements and user stories from IDEA.md (see section 'List of business requirements or user stories') into comprehensive technical specifications and architectural design.\",\n    \"Do not invent facts; respect TECH_CONSTRAINTS as authoritative when present.\",\n    \"End the output with a final line containing exactly SPEC_END.\",\n    \"Do not run git commands.\",\n    \"Do not modify src/, test/, tests/, runs/kit/, runs/eval/, or runs/gate/.\"\n  ],\n  \"validation_expectations\": [\n    \"docs/harper/SPEC.md exists after the change.\",\n    \"Its first line is `# SPEC — <Project Name>`.\",\n    \"All canonical SPEC sections are present with `##` headings, no numbered headings.\",\n    \"Acceptance Criteria has at least 5 observable bullets.\",\n    \"The file ends with SPEC_END.\"\n  ]\n}",
+          "encoding": "utf-8",
+          "mime": "application/json",
+          "path": "runs/spec/docs/AGENT_SPEC_CONTEXT.json"
+        },
+        {
+          "content": "# Local Agent SPEC Execution Package — Harper SPEC\n\nYou are executing a CLike Harper /spec package.\nThe orchestrator owns workflow state, policy, and validation. The local agent is only the workspace document actuator.\n\n\nRead before acting:\n- runs/spec/docs/AGENT_SPEC_CONTEXT.json\n- docs/harper/IDEA.md (and any IDEA* prefix variants) when present\n- docs/harper/TECH_CONSTRAINTS.yaml when present\n- Harper chat history when relevant\n\n## Canonical Harper SPEC contract (cloud parity — authoritative)\nThese expectations are the canonical cloud /spec contract. The local\nartifact must be isofunctional with the cloud artifact and never weaker:\n- # SPEC — <Project Name>\n- Acceptance Criteria are mandatory\n- At least **5** bullets\n- Each bullet must be observable & falsifiable\n- SPEC_END\nMatch or exceed the cloud artifact: be more explicit, more traceable to the\nprevious phase, richer in acceptance criteria/constraints/risks/verification\nhooks, and downstream-ready — but never skeletal and never heading-only.\n\nMission:\n- Regenerate the canonical docs/harper/SPEC.md derived from docs/harper/IDEA.md.\n- Keep it concise but testable. Acceptance Criteria are mandatory (>=5 observable bullets).\n- Treat TECH_CONSTRAINTS as authoritative when present.\n\nSource discipline (regenerative phase):\n- Read docs/harper/IDEA.md (and any IDEA* prefix variants) and TECH_CONSTRAINTS.yaml as the source of truth.\n- Do NOT read docs/harper/SPEC.md or any SPEC* variant as input; they are stale outputs of a previous /spec run.\n- docs/harper/SPEC.md is an overwrite target only. Regenerate it fresh from IDEA; never reuse or reconcile the old SPEC content.\n\nHard requirements:\n- First line: `# SPEC — <Project Name>` (replace the leading IDEA with SPEC from the IDEA.md title).\n- Use `##` section headings exactly; no numbered headings.\n- End the file with a line containing exactly SPEC_END.\n\nAllowed writes:\n- docs/harper/SPEC.md (only)\n\nForbidden writes:\n- any docs/harper path other than the allowed writes above\n- src/, test/, tests/\n- runs/kit/, runs/eval/, runs/gate/\n- .git/\n\nExecution rules:\n- Follow AGENT_*_CONTEXT.json as the source of truth.\n- Do not run git commands.\n- Before final output, normalize every created or modified text file by stripping trailing whitespace and ensuring a final newline.\n- Do not invent facts, vendors, APIs, endpoints, project keys, or frameworks not evidenced by inputs.\n\nAt the end, print a concise summary with files changed, validation performed, and unresolved gaps.",
+          "encoding": "utf-8",
+          "mime": "text/markdown",
+          "path": "runs/spec/docs/AGENT_SPEC_PROMPT.md"
+        }
+      ],
+      "package_id": "golden-run:SOLUTION:spec",
+      "phase": "spec",
+      "prompt_content": "# Local Agent SPEC Execution Package — Harper SPEC\n\nYou are executing a CLike Harper /spec package.\nThe orchestrator owns workflow state, policy, and validation. The local agent is only the workspace document actuator.\n\n\nRead before acting:\n- runs/spec/docs/AGENT_SPEC_CONTEXT.json\n- docs/harper/IDEA.md (and any IDEA* prefix variants) when present\n- docs/harper/TECH_CONSTRAINTS.yaml when present\n- Harper chat history when relevant\n\n## Canonical Harper SPEC contract (cloud parity — authoritative)\nThese expectations are the canonical cloud /spec contract. The local\nartifact must be isofunctional with the cloud artifact and never weaker:\n- # SPEC — <Project Name>\n- Acceptance Criteria are mandatory\n- At least **5** bullets\n- Each bullet must be observable & falsifiable\n- SPEC_END\nMatch or exceed the cloud artifact: be more explicit, more traceable to the\nprevious phase, richer in acceptance criteria/constraints/risks/verification\nhooks, and downstream-ready — but never skeletal and never heading-only.\n\nMission:\n- Regenerate the canonical docs/harper/SPEC.md derived from docs/harper/IDEA.md.\n- Keep it concise but testable. Acceptance Criteria are mandatory (>=5 observable bullets).\n- Treat TECH_CONSTRAINTS as authoritative when present.\n\nSource discipline (regenerative phase):\n- Read docs/harper/IDEA.md (and any IDEA* prefix variants) and TECH_CONSTRAINTS.yaml as the source of truth.\n- Do NOT read docs/harper/SPEC.md or any SPEC* variant as input; they are stale outputs of a previous /spec run.\n- docs/harper/SPEC.md is an overwrite target only. Regenerate it fresh from IDEA; never reuse or reconcile the old SPEC content.\n\nHard requirements:\n- First line: `# SPEC — <Project Name>` (replace the leading IDEA with SPEC from the IDEA.md title).\n- Use `##` section headings exactly; no numbered headings.\n- End the file with a line containing exactly SPEC_END.\n\nAllowed writes:\n- docs/harper/SPEC.md (only)\n\nForbidden writes:\n- any docs/harper path other than the allowed writes above\n- src/, test/, tests/\n- runs/kit/, runs/eval/, runs/gate/\n- .git/\n\nExecution rules:\n- Follow AGENT_*_CONTEXT.json as the source of truth.\n- Do not run git commands.\n- Before final output, normalize every created or modified text file by stripping trailing whitespace and ensuring a final newline.\n- Do not invent facts, vendors, APIs, endpoints, project keys, or frameworks not evidenced by inputs.\n\nAt the end, print a concise summary with files changed, validation performed, and unresolved gaps.",
+      "prompt_path": "runs/spec/docs/AGENT_SPEC_PROMPT.md",
+      "req_id": "SOLUTION"
+    },
+    "ok": true,
+    "phase": "spec",
+    "runId": "golden-run",
+    "tests": {
+      "failed": 0,
+      "passed": 0,
+      "summary": "local-agent-spec-package-prepared"
+    },
+    "text": "",
+    "warnings": [
+      "execution_package:local_agent_required",
+      "extension_role:local_actuator_only",
+      "spec_requires_harper_docs_mutation"
+    ]
+  },
+  "scenario": {
+    "executor": "local",
+    "methodology": null,
+    "phase": "spec",
+    "variant": "codex"
+  }
+}
