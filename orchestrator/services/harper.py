@@ -9,6 +9,7 @@ import json
 import os
 import logging
 import time
+import uuid
 import re
 from datetime import datetime
 from pathlib import Path
@@ -2041,6 +2042,9 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
     merged["phase"] = phase
     merged.setdefault("cmd", phase)
     merged.setdefault("flags", {})
+    # A missing/blank runId used to travel as the literal string "None" (WP7.10).
+    if not str(merged.get("runId") or "").strip() or str(merged.get("runId")).strip() == "None":
+        merged["runId"] = f"{phase}-{uuid.uuid4().hex[:12]}"
     merged = await _normalize_message(merged)
     merged.pop("methodology_context", None)
 
@@ -2753,8 +2757,6 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
         
     except Exception as e:
         log.warning("harper.routing failed (%s) → proceeding with provided model=%s", e, model_override)
-    # runId di default se manca
-    merged.setdefault("runId", f"{merged.get('runId')}")
 
     if phase == "kit" and target_req_id:
         if "kit" in requested_kit_phases:
