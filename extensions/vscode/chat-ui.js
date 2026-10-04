@@ -2,8 +2,8 @@ const vscode = require('vscode');
 const { buildBrowserSlashParserSource } = require('./slash-parser');
 
 /**
- * Funzione di logging personalizzata che scrive su entrambi i canali.
- * @param {...any} args Messaggi o oggetti da loggare.
+ * Custom logging function that writes to both channels.
+ * @param {...any} args Messages or objects to log.
  */
 
 

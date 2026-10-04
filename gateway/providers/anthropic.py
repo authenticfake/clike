@@ -43,7 +43,7 @@ _ALIAS_MAP = {
 
 }
 
-# --- Regex per blocchi file (BEGIN_FILE/file:)
+# --- Regexes for file blocks (BEGIN_FILE/file:)
 _FILE_BLOCK_BEGIN_FENCED_RE = re.compile(
     r"(?:^|\n)```[^\n]*\n\s*BEGIN_FILE\s+([^\n]+)\n(.*?)(?:\nEND_FILE)?\n```",
     re.DOTALL | re.IGNORECASE,
@@ -61,11 +61,11 @@ _FILE_BLOCK_FILE_PLAIN_RE = re.compile(
     re.DOTALL | re.IGNORECASE,
 )
 
-# Caratteri invisibili fastidiosi (es. ZWSP)
+# Annoying invisible characters (e.g. ZWSP)
 _INVISIBLES_RE = re.compile(r"[\u200B\u200C\u200D\uFEFF]")
 
 def _normalize_unicode(s: str) -> str:
-    # NFC + rimozione invisibili
+    # NFC + removal of invisible characters
     s = unicodedata.normalize("NFC", s or "")
     s = _INVISIBLES_RE.sub("", s)
     return s
@@ -75,17 +75,17 @@ def _normalize_path(p: str) -> str:
     p = (p or "").strip().replace("\r", "")
     p = re.sub(r"[ \t]+$", "", p)
     p = re.sub(r"/{2,}", "/", p)
-    # togli backticks o virgolette accidentalmente attaccate
+    # strip accidentally attached backticks or quotes
     p = p.strip("`\"' \t")
     return p
 
 def _to_rel_path(p: str) -> str:
     p = _normalize_path(p or "")
     p = p.replace("\\", "/")
-    # rimuovi drive letter Windows e leading slash
+    # remove Windows drive letter and leading slash
     p = re.sub(r"^[A-Za-z]:", "", p)
     p = p.lstrip("/")
-    # normalizza componenti ed elimina .. / .
+    # normalize components and drop .. / .
     parts = []
     for seg in p.split("/"):
         if not seg or seg == ".":
@@ -156,7 +156,7 @@ def _dedupe_files_by_path(files: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         key = _canon_rel_key(norm_p)
         content = _normalize_unicode(f.get("content") or "")
 
-        # Normalizza JSON se possibile per confronti stabili
+        # Normalize JSON if possible for stable comparisons
         is_json, content_norm = _try_json_minify(content)
 
         prev = best_by_key.get(key)
@@ -165,26 +165,26 @@ def _dedupe_files_by_path(files: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             for k in ("language", "executable"):
                 if k in f:
                     keep[k] = f[k]
-            # Memorizza anche versione minificata per confronto interno
+            # Also store a minified version for internal comparison
             if is_json:
                 keep["_content_min"] = content_norm
             best_by_key[key] = keep
             continue
 
-        # Confronto contro precedente
+        # Compare against previous
         prev_content = _normalize_unicode(prev.get("content") or "")
         prev_min = prev.get("_content_min")
 
-        # Se entrambi JSON ed equivalenti -> salta (duplicato reale)
+        # If both are JSON and equivalent -> skip (real duplicate)
         if is_json and isinstance(prev_min, str):
             if content_norm == prev_min:
                 continue
         elif not is_json:
-            # Non JSON: se identico bit-a-bit, salta
+            # Not JSON: if bit-for-bit identical, skip
             if content == prev_content:
                 continue
 
-        # Se diversi: scegli il più "ricco" (lunghezza)
+        # If different: pick the "richer" one (length)
         if len(content) > len(prev_content):
             keep = {"path": norm_p, "content": content}
             for k in ("language", "executable"):
@@ -193,9 +193,9 @@ def _dedupe_files_by_path(files: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             if is_json:
                 keep["_content_min"] = content_norm
             best_by_key[key] = keep
-        # altrimenti mantieni prev
+        # otherwise keep prev
 
-    # Ripulisci campo interno _content_min prima di restituire
+    # Clean up the internal _content_min field before returning
     out: List[Dict[str, Any]] = []
     for v in best_by_key.values():
         v.pop("_content_min", None)
@@ -321,7 +321,7 @@ def _build_messages_payload(
 
     out: Dict[str, Any] = {"model": model, "messages": msg_wo_system}
 
-    # max_tokens obbligatorio
+    # max_tokens is required
     tok = None
     if gen.get("max_tokens") is not None:
         tok = int(gen["max_tokens"])
@@ -416,7 +416,7 @@ def _normalize_messages_response(resp_json: Dict[str, Any]) -> Dict[str, Any]:
 
     def _coerce_files(value: Any) -> List[Dict[str, Any]]:
         out: List[Dict[str, Any]] = []
-        # Se arriva come stringa JSON
+        # If it arrives as a JSON string
         if isinstance(value, str):
             try:
                 value = json.loads(value)
@@ -424,18 +424,18 @@ def _normalize_messages_response(resp_json: Dict[str, Any]) -> Dict[str, Any]:
                 log.warning("anthropic.normalize: files string not JSON: %s", e)
                 return out
 
-        # Caso dict singolo {path, content} o dizionario con collezione
+        # Case: single dict {path, content} or dictionary with a collection
         if isinstance(value, dict):
-            # singolo file
+            # single file
             p, c = value.get("path"), value.get("content")
             if isinstance(p, str) and isinstance(c, str):
                 out.append({"path": _to_rel_path(p), "content": _normalize_unicode(c)})
                 return out
-            # collezioni comuni: "files": [...], "file": {...}, "items": [...]
+            # common collections: "files": [...], "file": {...}, "items": [...]
             for key in ("files", "file", "items"):
                 coll = value.get(key)
                 if isinstance(coll, dict):
-                    # alcune risposte Claude usano {"files": {"items": [...]}}
+                    # some Claude responses use {"files": {"items": [...]}}
                     items = coll.get("items")
                     if isinstance(items, list):
                         coll = items
@@ -448,7 +448,7 @@ def _normalize_messages_response(resp_json: Dict[str, Any]) -> Dict[str, Any]:
                             out.append({"path": _to_rel_path(p), "content": _normalize_unicode(c)})
             return out
 
-        # Caso lista diretta [{path, content}, ...]
+        # Case: direct list [{path, content}, ...]
         if isinstance(value, list):
             for it in value:
                 if not isinstance(it, dict):
@@ -478,22 +478,22 @@ def _normalize_messages_response(resp_json: Dict[str, Any]) -> Dict[str, Any]:
             if isinstance(inp, dict):
                 extracted: List[Dict[str, Any]] = []
 
-                # Caso standard: input.files
+                # Standard case: input.files
                 if "files" in inp:
                     extracted = _coerce_files(inp["files"])
                     log.info("anthropic.normalize: tool_use[%d] from=files -> %d file(s)", i, len(extracted))
 
-                # Variante: input.items
+                # Variant: input.items
                 if not extracted and "items" in inp:
                     extracted = _coerce_files(inp["items"])
                     log.info("anthropic.normalize: tool_use[%d] from=items -> %d file(s)", i, len(extracted))
 
-                # Variante: input.file (singolo o lista)
+                # Variant: input.file (single or list)
                 if not extracted and "file" in inp:
                     extracted = _coerce_files(inp["file"])
                     log.info("anthropic.normalize: tool_use[%d] from=file -> %d file(s)", i, len(extracted))
 
-                # Fallback: prova a coergere l'intero input dict
+                # Fallback: try to coerce the whole input dict
                 if not extracted:
                     extracted = _coerce_files(inp)
                     log.info("anthropic.normalize: tool_use[%d] from=<dict-fallback> -> %d file(s)", i, len(extracted))
@@ -519,12 +519,12 @@ def _normalize_messages_response(resp_json: Dict[str, Any]) -> Dict[str, Any]:
     files_out = _dedupe_files_by_path(files_out or [])
 
 
-    # Allineamento a openai_compat: NESSUN echo file nel campo text.
-    # Harper userà esclusivamente 'files' per scrivere gli artefatti.
+    # Aligned with openai_compat: NO file echo in the text field.
+    # Harper will use only 'files' to write the artifacts.
     if files_out:
-        text_clean = ""  # evita duplicazioni (files array è la fonte unica)
+        text_clean = ""  # avoid duplication (the files array is the single source)
     else:
-        # Nessun file estratto: pulisci eventuali blocchi spurii e passa solo prosa
+        # No file extracted: clean up any spurious blocks and pass prose only
         text_clean = _strip_all_file_blocks(text_joined)
 
     stop_reason = (resp_json.get("stop_reason") or "") or ""
@@ -535,7 +535,7 @@ def _normalize_messages_response(resp_json: Dict[str, Any]) -> Dict[str, Any]:
         if sr == "end_turn":
             return "stop"
         if sr == "max_tokens":
-            return "length"  # allineato a OpenAI
+            return "length"  # aligned with OpenAI
         if sr == "stop_sequence":
             return "stop"
         return sr or ("stop" if stop_seq else "")
@@ -643,7 +643,7 @@ async def anthropic_complete_unified(
             j.get("stop_reason"), _content_types,
         )
         normalized = _normalize_messages_response(j)
-        # [LOG] verifica contenuto unified prima del ritorno
+        # [LOG] check unified content before returning
         try:
             _files_n = len(normalized.get("files") or [])
             _paths = [f.get("path") for f in (normalized.get("files") or [])[:3]]
@@ -668,7 +668,7 @@ async def anthropic_complete_unified(
             raw={"body_preview": body_preview}, errors=[f"normalize:{e}"],
         )
 
-# Compat API (stessa firma logica di openai_compat.chat)
+# Compat API (same logical signature as openai_compat.chat)
 async def chat(
     base_url: str,
     api_key: str,
@@ -689,7 +689,7 @@ async def chat(
     gen = {
         "temperature": temperature,
         "max_tokens": max_tokens,
-        "response_format": response_format,  # ignorato da Anthropic
+        "response_format": response_format,  # ignored by Anthropic
         "tools": tools,
         "tool_choice": tool_choice,
         "top_p": top_p,
@@ -717,7 +717,7 @@ async def embeddings(*_args: Any, **_kwargs: Any) -> Dict[str, Any]:
         errors=["unsupported:embeddings"],
     )
 
-# (facoltativo) SDK Agent — invariato
+# (optional) SDK Agent — unchanged
 async def agent_task_unified(
     *,
     task: str,

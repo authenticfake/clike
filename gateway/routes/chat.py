@@ -50,14 +50,14 @@ router = APIRouter()
 log = logging.getLogger("gateway.chat")
 
 
-# Snapshot preferiti per OpenAI (se disponibili)
+# Preferred snapshots for OpenAI (if available)
 SNAPSHOT_ALIAS = {
     "gpt-5": "gpt-5-2025-08-07",
     "gpt-5-mini": "gpt-5-mini-2025-08-07",
     "gpt-5-nano": "gpt-5-nano-2025-08-07",
 }
 
-_models_cache = {"ts": 0.0, "ids": []}  # list per JSON-friendliness
+_models_cache = {"ts": 0.0, "ids": []}  # list for JSON-friendliness
 
 
 def _sanitize_mode_contract_payload(provider: str, mode_contract: dict | None, response_format, tools, tool_choice) -> dict:
@@ -92,7 +92,7 @@ def _sanitize_mode_contract_payload(provider: str, mode_contract: dict | None, r
         "tools": tl,
         "tool_choice": tc,
     }
-# --- Schemi ---------------------------------------------------------------
+# --- Schemas ---------------------------------------------------------------
 
 class ChatMessage(BaseModel):
     role: str
@@ -119,7 +119,7 @@ class ChatRequest(BaseModel):
 
 def _infer_provider(model: str) -> str:
     m = (model or "").lower()
-    # prefissi tipici che arrivano dal models.yaml come id
+    # typical prefixes coming from models.yaml as id
     if m.startswith("ollama:"): return "ollama"
     return "openai"
 
@@ -173,13 +173,13 @@ async def chat_completions(req: ChatRequest,  request: Request):
         or (resolved_entry or {}).get("name")
         or req.model
     )
-    # Converte ChatMessage (pydantic) -> dict
+    # Convert ChatMessage (pydantic) -> dict
     messages = []
     for m in (req.messages or []):
         try:
             messages.append(m.dict() if hasattr(m, "dict") else dict(m))
         except Exception:
-            # fallback super-sicuro
+            # extra-safe fallback
             messages.append({"role": getattr(m, "role", "user"), "content": getattr(m, "content", "")})
 
     temperature = 0.4 if req.temperature is None else req.temperature  # 0 is a valid value
@@ -200,7 +200,7 @@ async def chat_completions(req: ChatRequest,  request: Request):
     remote = (req.remote_name or model)
     timeout = req.timeout or DEFAULT_CHAT_TIMEOUT_S  # never unlimited
 
-    # Logging solo con tipi JSON-safe (evita oggetti pydantic)
+    # Log only JSON-safe types (avoid pydantic objects)
     log.info(
         "chat payload (safe) %s",
         _json({
@@ -216,7 +216,7 @@ async def chat_completions(req: ChatRequest,  request: Request):
     )
 
 
-    # Routing per provider
+    # Routing by provider
     if provider == "openai":
         if not OPENAI_API_KEY:
             raise provider_not_configured("openai")

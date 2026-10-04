@@ -10,7 +10,7 @@ function evalTimeoutMs() {
 }
 
 /**
- * Normalizza un valore workspaceRoot in path string (senza scheme "file://")
+ * Normalize a workspaceRoot value into a path string (without the "file://" scheme)
  */
 function asFsPath(workspaceRoot) {
   
@@ -21,8 +21,8 @@ function asFsPath(workspaceRoot) {
 }
 
 /**
- * Esegue /v1/eval/run
- * Si aspetta che 'profile' sia un path esistente (relativo o assoluto) al file LTC.json
+ * Runs /v1/eval/run
+ * Expects 'profile' to be an existing path (relative or absolute) to the LTC.json file
  */
 async function postEvalRun(profile, workspaceRoot,req_id, mode, modeResult) {
   const rootPath = asFsPath(workspaceRoot);
@@ -47,7 +47,7 @@ async function postEvalRun(profile, workspaceRoot,req_id, mode, modeResult) {
 }
 
 /**
- * Esegue /v1/gate/check
+ * Runs /v1/gate/check
  */
 async function postGateCheck(profile, workspaceRoot, req_id, options = {}) {
   // N10: the previous default was a destructuring assignment that created globals and left opts = {}.

@@ -20,7 +20,7 @@ import uuid
 from services.mode_contracts import normalize_mode_contract, validate_chat_contract, apply_generate_contract
 from services.execution_policy import normalize_execution_preference
 
-# splitter (alcune funzioni potrebbero non essere usate, ma manteniamo le import per compat)
+# splitter (some functions may be unused, but we keep the imports for compat)
 from utils.service_auth import internal_auth_headers
 
 router = APIRouter(prefix="/v1")
@@ -59,7 +59,7 @@ def _get_cfg(name: str, default: str) -> str:
     return default
 
 def _rag_base_url() -> str:
-    # es.: "http://localhost:8080/v1/rag"
+    # e.g.: "http://localhost:8080/v1/rag"
     base = _get_cfg("RAG_BASE_URL", "http://localhost:8080/v1/rag")
     return base.rstrip("/")
 
@@ -109,7 +109,7 @@ def _normalize_context_from_body(body: dict) -> tuple[list[dict], list[dict], li
 
     return inline_files, rag_files, attachments
 
-# se vuoi forzare un base diverso
+# if you want to force a different base
 def _pick_generated_root() -> str:
     """
     Root di output per i file generati.
@@ -156,7 +156,7 @@ def _retarget_files_under_generated(files: list[dict], prefix_path: str) -> list
         
         intermediate_path = os.path.join(base, prefix_path)
         log.info(f"Retargeting 1 {p} to {intermediate_path} (subdir={sub})")
-        # preserva solo il basename per evitare annidamenti sporchi
+        # keep only the basename to avoid messy nesting
         bn = os.path.basename(p)
         log.info(f"Retargeting 2 bn to {bn} (subdir={sub})") 
         new_path = os.path.join(intermediate_path, sub, bn)
@@ -172,7 +172,7 @@ def _json_safe(obj):
     if isinstance(obj, list):
         return [_json_safe(x) for x in obj]
     if isinstance(obj, set):
-        return [_json_safe(x) for x in obj]  # list() di set
+        return [_json_safe(x) for x in obj]  # list() of a set
     return obj
 
 
@@ -223,15 +223,15 @@ def _normalize_files_for_write(files: list[dict]) -> list[dict]:
     return out
 
 def _extract_json(s: str) -> Dict[str, Any]:
-    # 1) blocco ```json ... ```
+    # 1) ```json ... ``` block
     m = re.search(r"```json\s*(\{[\s\S]*?\})\s*```", s or "", re.M)
     if m:
         return json.loads(m.group(1))
-    # 2) qualsiasi blocco ``` ... ``` con un oggetto json
+    # 2) any ``` ... ``` block with a json object
     m = re.search(r"```\s*(\{[\s\S]*?\})\s*```", s or "", re.M)
     if m:
         return json.loads(m.group(1))
-    # 3) fallback: primo { ... } nel testo
+    # 3) fallback: first { ... } in the text
     i = (s or "").find("{"); j = (s or "").rfind("}")
     if i != -1 and j != -1 and j > i:
         return json.loads(s[i:j+1])
@@ -264,7 +264,7 @@ def _build_generation_roots(generation_id: str) -> Tuple[str, str, str, str]:
     os.makedirs(test_root_abs, exist_ok=True)
     return code_root_abs, test_root_abs, code_root_rel, test_root_rel
 
-# ===== RAG hooks (best-effort; non bloccanti) =====
+# ===== RAG hooks (best-effort; non-blocking) =====
 def _rag_project_id(body: dict) -> str:
     pid = (body or {}).get("project_id")
     if isinstance(pid, str) and pid.strip():
@@ -591,14 +591,14 @@ async def chat( req: Request):
             user_query = (m.get("content") or "").strip()
             break
 
-    # system + contesto
+    # system + context
     sysmsg = {"role":"system","content":"You are CLike, a helpful and expert full-stack software engineering copilot."}
     msgs = [sysmsg] + list(messages)
     project_id = _rag_project_id(body)
 
     msgs = await _augment_messages_with_context(msgs, inline_files, rag_files, user_query, project_id)
 
-    # RAG paths/inline opzionali (compat) TODO: the following code depends on evaluation if SPEC.md, IDEA.md or other file driven by VS extension are needed.
+    # Optional RAG paths/inline (compat) TODO: the following code depends on evaluation if SPEC.md, IDEA.md or other file driven by VS extension are needed.
     # Legacy compatibility: only apply if NO new-style inline/rag files were provided
     if not inline_files and not rag_files:
         rag_paths  = body.get("rag_paths") or []
@@ -658,7 +658,7 @@ async def chat( req: Request):
             ensure_ascii=False,
         ),
     )
-    # Prepara meta per log
+    # Prepare meta for logging
     _gw = str(getattr(settings, "GATEWAY_URL", "http://localhost:8000")).rstrip("/")
  
     # NOTE:
@@ -679,7 +679,7 @@ async def chat( req: Request):
             messages = msgs,
             temperature= body.get("temperature"),
             max_tokens= eff_max,
-            # --- AGGIUNGI: provider-awareness end-to-end ---        
+            # --- ADD: provider-awareness end-to-end ---
             base_url= _gw, 
             timeout=timeout_sec,
             response_format=None, 
@@ -813,7 +813,7 @@ def _extract_text_from_xlsx_bytes(raw: bytes) -> str:
         return ""
 
 def _extract_text_from_xls_bytes(raw: bytes) -> str:
-    # Richiede xlrd>=2.0 (legge solo .xls)
+    # Requires xlrd>=2.0 (reads .xls only)
     if not xlrd:
         log.warning("xlrd non disponibile: skip xls")
         return ""
@@ -895,11 +895,11 @@ async def decide_inline_or_rag(attachments: list[dict]) -> tuple[list[dict], lis
 
         name   = a.get("name") or a.get("path") or "file"
         path   = a.get("path")
-        origin = a.get("origin") or a.get("source")  # normalizza
+        origin = a.get("origin") or a.get("source")  # normalize
         content    = a.get("content")
         bytes_b64  = a.get("bytes_b64")
 
-        # Nota: evitiamo di loggare la base64 (solo boolean), per non intasare i log
+        # Note: avoid logging the base64 (boolean only), to keep logs lean
         log.info("decide inline or rag: %s",
                  json.dumps({
                      "name": name,
@@ -910,7 +910,7 @@ async def decide_inline_or_rag(attachments: list[dict]) -> tuple[list[dict], lis
                  }, ensure_ascii=False))
 
         if content or bytes_b64:
-            # Inline esattamente come fa l’estensione
+            # Inline exactly as the extension does
             if bytes_b64:
                 raw = _b64_to_bytes(bytes_b64)
                 if raw:
@@ -934,7 +934,7 @@ async def decide_inline_or_rag(attachments: list[dict]) -> tuple[list[dict], lis
                         log.info("inline: PPTX")
                         txt = _extract_text_from_pptx_bytes(raw)
                     else:
-                        # fallback: se è testo “grezzo” o sconosciuto, prova a decodare come utf-8
+                        # fallback: if it is "raw" or unknown text, try decoding as utf-8
                         try:
                             txt = raw.decode("utf-8", errors="ignore")
                         except Exception:
@@ -945,13 +945,13 @@ async def decide_inline_or_rag(attachments: list[dict]) -> tuple[list[dict], lis
 
             inline.append({
                 "name": name,
-                "path": path,          # opzionale (può servire per tracciabilità)
-                "content": content,    # può essere None
-                "bytes_b64": bytes_b64,# può essere None
+                "path": path,          # optional (may be useful for traceability)
+                "content": content,    # may be None
+                "bytes_b64": bytes_b64,# may be None
                 "origin": origin
             })
         elif path:
-            # RAG by path, minimale (non inoltriamo bytes_b64 per non gonfiare la payload)
+            # RAG by path, minimal (bytes_b64 is not forwarded to avoid bloating the payload)
             rag.append({
                 "name": name,
                 "path": path,
@@ -1128,11 +1128,11 @@ async def generate(req: Request):
     if not isinstance(messages, list) or not messages:
         raise HTTPException(422, "messages (list) is required")
 
-    # generation id + roots (path pianificati; nessuna scrittura ancora)
+    # generation id + roots (planned paths; nothing written yet)
     gen_id = _short_id(8)
     _code_abs, _test_abs, code_root_rel, _test_rel = _build_generation_roots(gen_id)
 
-    # System che “inchioda” lo schema di uscita (usato come contesto, ma non forziamo più response_format qui)
+    # System message that "pins" the output schema (used as context, but response_format is no longer forced here)
     sys_schema = {
         "role": "system",
         "content": (
@@ -1154,7 +1154,7 @@ async def generate(req: Request):
     if not inline_files and not rag_files and attachments:
         inline_files, rag_files = await _decide_inline_or_rag(attachments)
     
-    # RAG query dall’ultimo user
+    # RAG query from the last user message
     user_query = ""
     for m in reversed(messages):
         if (m.get("role") or "") == "user":
@@ -1203,7 +1203,7 @@ async def generate(req: Request):
 
     log.info("generate request: %s", json.dumps({"model": model, "messages_len": len(messages)}, ensure_ascii=False))
 
-    # ======== Chiamata gateway (prima scelta: TOOL CALLING) ========
+    # ======== Gateway call (first choice: TOOL CALLING) ========
     # ======== Gateway payload builder (coding) ========
     base_url = str(getattr(settings, "GATEWAY_URL", "http://localhost:8000")).rstrip("/")
 
@@ -1431,12 +1431,12 @@ async def generate(req: Request):
                 pass
             return {}
 
-        msg = _first_message(data)               # dict (o {})
+        msg = _first_message(data)               # dict (or {})
         content_str = ""
         if isinstance(msg, dict):
             content_str = msg.get("content") or ""
 
-        # 1) Preferisci tool_calls (OpenAI compat)
+        # 1) Prefer tool_calls (OpenAI compat)
         tool_calls = msg.get("tool_calls") if isinstance(msg, dict) else None
         if isinstance(tool_calls, list) and tool_calls:
             for tc in tool_calls:
@@ -1449,10 +1449,10 @@ async def generate(req: Request):
                         log.info("generate tool_calls->files %s", json.dumps({"count": len(files)}, ensure_ascii=False))
                         break
                 except Exception:
-                    # continua coi fallback
+                    # continue with the fallbacks
                     pass
 
-        # 2) Fallback: top-level "files" (es. Ollama / adapter custom)
+        # 2) Fallback: top-level "files" (e.g. Ollama / custom adapter)
         if not files and isinstance(data, dict) and isinstance(data.get("files"), list):
             files = _normalize_files_for_write(data["files"])
             log.info("generate top-level->files %s", json.dumps({"count": len(files)}, ensure_ascii=False))
@@ -1467,7 +1467,7 @@ async def generate(req: Request):
                         log.info("generate top-level-text-json->files %s", json.dumps({"count": len(files)}, ensure_ascii=False))
                 except Exception:
                     pass
-        # 3) Fallback: JSON puro dentro message.content / oppure 'text'
+        # 3) Fallback: pure JSON inside message.content / or 'text'
         if not files:
             if not content_str and isinstance(data, dict) and "text" in data:
                 content_str = data.get("text") or ""
@@ -1491,14 +1491,14 @@ async def generate(req: Request):
 
         log.info("generate files (post-extract) %s", json.dumps({"count": len(files)}, ensure_ascii=False))
 
-        # 5) Se ancora vuoto → 422 coerente
+        # 5) If still empty → consistent 422
         if not files:
             log.info("generate no-files (nothing from tool_calls/top-level/json/fences)")
             raise HTTPException(status_code=422, detail="model did not produce 'files' with path+content")
 
-        # 6) retarget sotto generated_<uuid>/ {src|docs|images}
+        # 6) retarget under generated_<uuid>/ {src|docs|images}
         temp_path = str(uuid.uuid4()).split("-")[0]
-        files = _retarget_files_under_generated(files, temp_path)   # <— prima dei diff!
+        files = _retarget_files_under_generated(files, temp_path)   # <— before the diffs!
 
         # 7) diffs
         diffs: List[Dict[str, Any]] = []
@@ -1509,7 +1509,7 @@ async def generate(req: Request):
             patch = su.to_diff(prev, content, path)
             diffs.append({"path": path, "diff": patch})
 
-        # 8) risposta completa (popola "text" e "diffs" per i tab)
+        # 8) full response (populates "text" and "diffs" for the tabs)
         result = {
             "version": "1.0",
             "files": files,

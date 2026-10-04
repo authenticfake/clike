@@ -148,35 +148,35 @@ let extensionMcpState = {
   lastError: null,
 };
 let __clike_lastTargetUriCache = null;  
-// --- Stato richiesta in corso (per Cancel) ---
+// --- In-flight request state (for Cancel) ---
 let inflightController = null;
-// Stato chat: per mode -> array di bolle. Ogni bolla: { role: 'user'|'assistant', text, model, ts }
+// Chat state: per mode -> array of bubbles. Each bubble: { role: 'user'|'assistant', text, model, ts }
 
 function getWorkspaceRoot() {
     const workspaceFolders = vscode.workspace.workspaceFolders;
 
     if (!workspaceFolders || workspaceFolders.length === 0) {
-        // Gestisci il caso in cui non c'è una cartella aperta
+        // Handle the case where no folder is open
         return null; 
     }
     
-    // Restituisce l'URI della prima cartella aperta (la radice del workspace)
+    // Return the URI of the first open folder (the workspace root)
     return workspaceFolders[0].uri; 
 }
 
 
 const out = vscode.window.createOutputChannel('Clike');
 /**
- * Funzione di logging personalizzata che scrive su entrambi i canali.
- * @param {...any} args Messaggi o oggetti da loggare.
+ * Custom logging function that writes to both channels.
+ * @param {...any} args Messages or objects to log.
  */
 function log(...args) {
-    // 1. Log nella console standard per il debug.
+    // 1. Log to the standard console for debugging.
     console.log(...args); 
     
-    // 2. Log nel canale di output di VS Code.
+    // 2. Log to the VS Code output channel.
     out.appendLine(args.map(arg => {
-        // Converte ogni argomento in stringa per l'output.
+        // Convert each argument to a string for output.
         if (typeof arg === 'object' && arg !== null) {
             return JSON.stringify(arg, null, 2);
         }
@@ -305,7 +305,7 @@ function _looksTextual(p) {
 }
 
 async function collectFinalizeRagItems(workspaceRootUri, maxFiles = 400, maxBytes = 512 * 1024) {
-  // 1) Normalizza: accetta sia vscode.Uri sia string
+  // 1) Normalize: accept both vscode.Uri and string
   const rootPath =
     typeof workspaceRootUri === 'string'
       ? workspaceRootUri
@@ -315,14 +315,14 @@ async function collectFinalizeRagItems(workspaceRootUri, maxFiles = 400, maxByte
     throw new Error('collectFinalizeRagItems: invalid workspace root (expected vscode.Uri or string path)');
   }
 
-  // 2) Cammina il FS usando path string (non Uri)
+  // 2) Walk the FS using path strings (not Uri)
   async function walk(dir) {
     const out = [];
     let entries = [];
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
     } catch {
-      return out; // dir mancante = ok
+      return out; // missing dir = ok
     }
     for (const e of entries) {
       const p = path.join(dir, e.name);
@@ -337,7 +337,7 @@ async function collectFinalizeRagItems(workspaceRootUri, maxFiles = 400, maxByte
   }
 
   const targets = [];
-  // Se vuoi includere anche docs/harper, riaggiungilo qui
+  // If you also want to include docs/harper, add it back here
   const srcDir = path.join(rootPath, 'src');
 
   for (const d of [srcDir]) {
@@ -353,11 +353,11 @@ async function collectFinalizeRagItems(workspaceRootUri, maxFiles = 400, maxByte
       }
       if (buf.length > maxBytes) continue;
 
-      // 3) Invia path relativo al workspace (portabile e pulito)
+      // 3) Send a workspace-relative path (portable and clean)
       const rel = path.relative(rootPath, absPath).replace(/\\/g, '/');
 
       targets.push({
-        path: rel,                              // <= relativo
+        path: rel,                              // <= relative
         bytes_b64: Buffer.from(buf).toString('base64'),
       });
     }
@@ -705,11 +705,11 @@ function pruneLocalAgentCompleteArtifacts(artifacts, phaseForAgent, reqForAgent)
   };
 }
 
-const HARPER_REQUEST_TIMEOUT_MS = 35 * 60 * 1000; // 35 minuti #porcocazzo il timeout ...maybe too long
+const HARPER_REQUEST_TIMEOUT_MS = 35 * 60 * 1000; // 35 minutes timeout ...maybe too long
 async function callHarper(cmd, payload, headers, opts = {}) {
   const url = orchestratorUrl(`/v1/harper/${cmd}`);
 
-  // Se vuoi, puoi passare opts.timeoutMs per override (es. comandi "leggeri")
+  // Optionally pass opts.timeoutMs to override (e.g. "lightweight" commands)
   const timeoutMs =
     typeof opts.timeoutMs === "number"
       ? opts.timeoutMs
@@ -1313,7 +1313,7 @@ async function loadSessionFilteredV2(mode, model, limit = 200) {
 async function loadSessionFilteredHarper(mode, limit = 200) {
   const all = await loadSession(mode, limit);
 
-  // Prefissi per i comandi Harper, sia "grafici" sia testuali
+  // Prefixes for Harper commands, both "graphical" and textual
   const EXECUTION_PREFIXES = [
     '▶ IDEA',
     '▶ SPEC',
@@ -1322,8 +1322,8 @@ async function loadSessionFilteredHarper(mode, limit = 200) {
     '▶ EVAL',
     '▶ GATE',
     '▶ FINALIZE',
-    '✔',      // esito /gate
-    '🧪',     // esito /eval
+    '✔',      // /gate outcome
+    '🧪',     // /eval outcome
     '/idea',
     '/spec',
     '/plan',
@@ -1338,7 +1338,7 @@ async function loadSessionFilteredHarper(mode, limit = 200) {
       return false;
     }
 
-    // Prendiamo solo la prima riga non vuota
+    // Take only the first non-empty line
     const firstLine = content
       .split('\n')
       .map((l) => l.trimStart())
@@ -1352,24 +1352,24 @@ async function loadSessionFilteredHarper(mode, limit = 200) {
 
     return EXECUTION_PREFIXES.some((prefix) => {
       const p = prefix.toLowerCase();
-      // Confronto semplice: la linea iniziale deve cominciare con il prefisso
+      // Simple comparison: the first line must start with the prefix
       return firstLineLower.startsWith(p);
     });
   }
 
   return all.filter((e) => {
 
-    // 2. Escludi i system
+    // 2. Exclude system messages
     if (e.role === 'system') {
       return false;
     }
 
-    // 3. Tieni solo user/assistant
+    // 3. Keep only user/assistant
     if (e.role !== 'user' && e.role !== 'assistant') {
       return false;
     }
 
-    // 4. Scarta i messaggi comando
+    // 4. Drop command messages
     if (isExecutionCommandMessage(e.content)) {
       return false;
     }
@@ -1381,7 +1381,7 @@ async function loadSessionFilteredHarper(mode, limit = 200) {
 }
 
 
-// Cancella la **prima** occorrenza che matcha role+content+model nel file di sessione
+// Delete the **first** occurrence matching role+content+model in the session file
 async function deleteSessionEntry(mode, role, content, model) {
   try {
     const uri = sessionFileUri(mode);
@@ -1396,7 +1396,7 @@ async function deleteSessionEntry(mode, role, content, model) {
       try {
         entry = JSON.parse(line);
       } catch {
-        // linea non valida → la teniamo
+        // invalid line → keep it
         kept.push(line);
         continue;
       }
@@ -1407,7 +1407,7 @@ async function deleteSessionEntry(mode, role, content, model) {
         String(entry.content || '') === String(content || '') &&
         (!model || String(entry.model || '') === String(model || ''))
       ) {
-        // saltiamo SOLO la prima che matcha
+        // skip ONLY the first match
         deleted = true;
         continue;
       }
@@ -1425,7 +1425,7 @@ async function deleteSessionEntry(mode, role, content, model) {
 }
 
 async function pruneSessionByModel(mode, model) {
-  // tiene TUTTO tranne le righe del modello corrente
+  // keep EVERYTHING except the current model's lines
   try {
     const uri = sessionFileUri(mode);
     const buf = await vscode.workspace.fs.readFile(uri);
@@ -1501,7 +1501,7 @@ function isSaneReplacement(originalText, patchedText) {
     const origLen = (originalText || '').length;
     const patLen  = (patchedText  || '').length;
     if (origLen >= 100 && patLen <= Math.max(60, Math.floor(origLen * 0.2))) return false; // shrink >80%
-    if (patLen <= 5) return false; // praticamente vuoto
+    if (patLen <= 5) return false; // practically empty
     return true;
   } catch { return true; }
 }
@@ -1513,7 +1513,7 @@ function diffHeaderContainsPath(diffStr, filePath) {
   } catch { return true; }
 }
 
-// ---- Helpers per contesto di apply & path ----
+// ---- Helpers for apply & path context ----
 function buildApplyCtx(op) {
   const editor = vscode.window.activeTextEditor;
   if (!editor) throw new Error('No active editor');
@@ -1558,7 +1558,7 @@ function mapOpToIntent(op) {
 function rememberTargetUri(context) {
   const editor = getActiveEditorOrThrow();
   const uriStr = editor.document.uri.toString();
-  __clike_lastTargetUriCache = uriStr; // cache sempre
+  __clike_lastTargetUriCache = uriStr; // always cache
 
   try {
     if (context && context.workspaceState && typeof context.workspaceState.update === 'function') {
@@ -1569,7 +1569,7 @@ function rememberTargetUri(context) {
 }
 
 
-// Costruisce il payload rispettando le firme lato orchestrator (text = intero file, selection = selezione)
+// Build the payload matching the orchestrator-side signatures (text = whole file, selection = selection)
 function mapDocContextToPayload(ctx, op, useContent = false) {
   
   const prompt = (ctx.selection && ctx.selection.trim()) ? ctx.selection.trim() : '';
@@ -1577,9 +1577,9 @@ function mapDocContextToPayload(ctx, op, useContent = false) {
     op,
     intent: mapOpToIntent(op),
     path: ctx.file_path,
-    text: ctx.text,                  // intero file (richiesto dall’orchestrator)
+    text: ctx.text,                  // whole file (required by the orchestrator)
     language: ctx.language,
-    selection: ctx.selection || '',  // selezione corrente (eventuale)
+    selection: ctx.selection || '',  // current selection (if any)
     prompt,
     fallback: false
   };
@@ -1598,7 +1598,7 @@ async function runApplyFromClipboard(context, label, { treatAsDiff = true } = {}
   vscode.window.setStatusBarMessage(`Clike: applied ${label}`, 3000);
 }
 
-/** Esegue un’azione write completa (build payload → POST → apply) */
+/** Run a complete write action (build payload → POST → apply) */
 async function runWriteCommand(context, op, label, { useContent = false } = {}) {
   await rememberTargetUri(context);
 
@@ -1620,7 +1620,7 @@ async function runWriteCommand(context, op, label, { useContent = false } = {}) 
   return applyOrchestratorResult(context, resp.json || {}, applyCtx);
 }
 
-// feedback runtime su settings AI
+// runtime feedback on AI settings
 vscode.workspace.onDidChangeConfiguration((e) => {
   if (e.affectsConfiguration('clike.useAi') ||
       e.affectsConfiguration('clike.useAi.docstring') ||
@@ -2492,7 +2492,7 @@ async function commitAppliedFile(fileUri) {
   }
 }
 
-/** ---------- Preview provider per diff ---------- */
+/** ---------- Preview provider for diffs ---------- */
 let clikePreviewProvider;
 function ensurePreviewProvider() {
   if (clikePreviewProvider) return clikePreviewProvider;
@@ -2579,10 +2579,10 @@ async function showDiffPreview(originalText, patchedText, title = 'Clike Preview
 }
 
 /** ---------- APPLY “HARDENED�? ---------- */
-// FIX: cambia firma — ora accetta (targetUri, newContent, lang?, intent?)
-// in passato veniva chiamata per errore con “context�?
+// FIX: signature changed — now accepts (targetUri, newContent, lang?, intent?)
+// it used to be called by mistake with "context"
 async function replaceWholeSafe(targetUri, newContent, lang, intent) {
-  // Safety: non sovrascrivere il file con una docstring breve
+  // Safety: do not overwrite the file with a short docstring
   if (intent === 'docstring' && isLikelyShortDocstring(newContent, lang)) {
     throw new Error('Safety: refusing to replace whole file with a short docstring');
   }
@@ -2611,7 +2611,7 @@ async function hardenedApplyFromString(context, input, { withPreview = true } = 
   const raw = toStr(input);
   const looksLikeDiff = isUnifiedDiffStr(raw);
 
-  // CASE A: contenuto puro → replacement intero file (con preview)
+  // CASE A: plain content → whole-file replacement (with preview)
   if (!looksLikeDiff) {
     const newContent = extractCodeBlockOrPlain(raw);
     if (!newContent) throw new Error('No content to apply.');
@@ -2627,7 +2627,7 @@ async function hardenedApplyFromString(context, input, { withPreview = true } = 
       const apply = await vscode.window.showInformationMessage('Replace file with the shown content?', 'Apply', 'Cancel');
       if (apply !== 'Apply') throw new Error('Application cancelled.');
     }
-    // FIX: usa doc.uri (non context)
+    // FIX: use doc.uri (not context)
     await replaceWholeSafe(doc.uri, newContent);
     vscode.window.showInformationMessage('Clike: applied content.');
     await vscode.commands.executeCommand('workbench.action.files.save');
@@ -2635,7 +2635,7 @@ async function hardenedApplyFromString(context, input, { withPreview = true } = 
     return;
   }
 
-  // CASE B: unified diff → applica patch
+  // CASE B: unified diff → apply patch
   let patched = null;
   try {
     const tmp = applyPatch(original, raw, { fuzzFactor: 2 });
@@ -2665,7 +2665,7 @@ async function hardenedApplyFromString(context, input, { withPreview = true } = 
       const apply = await vscode.window.showInformationMessage('Apply the shown patch?', 'Apply', 'Cancel');
       if (apply !== 'Apply') throw new Error('Patch application cancelled.');
     }
-    // FIX: usa doc.uri
+    // FIX: use doc.uri
     await replaceWholeSafe(doc.uri, patched);
     vscode.window.showInformationMessage('Clike: patch applied (diff).');
     await vscode.commands.executeCommand('workbench.action.files.save');
@@ -2673,7 +2673,7 @@ async function hardenedApplyFromString(context, input, { withPreview = true } = 
     return;
   }
 
-  // CASE C: patch non applicabile → non scrivere il diff raw nel file
+  // CASE C: patch not applicable → do not write the raw diff into the file
   await vscode.env.clipboard.writeText(raw);
   out.appendLine('[hardened] patch failed; raw diff copied to clipboard');
   if (!allowRawDiffFallback) {
@@ -2691,7 +2691,7 @@ async function hardenedApplyFromString(context, input, { withPreview = true } = 
   vscode.window.showWarningMessage('Clike: raw diff written to file (fallback).');
 }
 
-/** Inserisce testo (docstring) sopra la selezione o in testa al file */
+/** Insert text (docstring) above the selection or at the top of the file */
 async function insertAboveSelection(targetUri, docstring) {
   const doc = await vscode.workspace.openTextDocument(targetUri);
   const editor = await vscode.window.showTextDocument(doc, { preview: false });
@@ -2711,7 +2711,7 @@ async function insertAboveSelection(targetUri, docstring) {
 async function applyOrchestratorResult(context, respJson, applyCtx) {
   const data = respJson || {};
   const diff = data.diff || data.patch || '';
-  // FIX: sanifica new_content dal preambolo (“Here is the updated code:�?) o blocchi ```
+  // FIX: sanitize new_content from the preamble ("Here is the updated code:") or ``` blocks
   const newContentRaw = data.new_content;
   const newContent = typeof newContentRaw === 'string' ? extractCodeBlockOrPlain(newContentRaw) : undefined;
 
@@ -2721,7 +2721,7 @@ async function applyOrchestratorResult(context, respJson, applyCtx) {
   const selectionText = applyCtx.selectionText || '';
   const targetUri = applyCtx.targetUri;
 
-  // 1) diff esplicito
+  // 1) explicit diff
   if (apply.type === 'unified_diff' && isUnifiedDiffStr(diff)) {
     if (apply.path) {
       const targetPathUri = resolveToWorkspaceUri(apply.path);
@@ -2740,7 +2740,7 @@ async function applyOrchestratorResult(context, respJson, applyCtx) {
     return;
   }
 
-  // 2) DOCSTRING con selezione → inserisci SOPRA la selezione se la docstring è "breve"
+  // 2) DOCSTRING with selection → insert ABOVE the selection if the docstring is "short"
   if (intent === 'docstring' && selectionText && selectionText.trim().length > 0) {
     if (typeof newContent === 'string' && isLikelyShortDocstring(newContent, lang)) {
       await insertAboveSelection(targetUri, newContent);
@@ -2752,7 +2752,7 @@ async function applyOrchestratorResult(context, respJson, applyCtx) {
     }
   }
 
-  // 3) replace_selection esplicito
+  // 3) explicit replace_selection
   if (apply.type === 'replace_selection' && typeof newContent === 'string') {
     const doc = await vscode.workspace.openTextDocument(targetUri);
     const editor = await vscode.window.showTextDocument(doc, { preview: false });
@@ -2764,14 +2764,14 @@ async function applyOrchestratorResult(context, respJson, applyCtx) {
     return;
   }
 
-  // 4) replace_whole esplicito
+  // 4) explicit replace_whole
   if (apply.type === 'replace_whole' && typeof newContent === 'string') {
     await replaceWholeSafe(targetUri, newContent, lang, intent);
     await vscode.commands.executeCommand('workbench.action.files.save');
     return;
   }
 
-  // 5) fallback ragionevole
+  // 5) reasonable fallback
   if (isUnifiedDiffStr(diff)) {
     await hardenedApplyFromString(context, diff, { withPreview: true });
     return;
@@ -2789,7 +2789,7 @@ async function applyOrchestratorResult(context, respJson, applyCtx) {
   throw new Error('Nothing to apply: no diff, no actionable content');
 }
 
-/** ---------- Commands (allineati agli endpoint) ---------- */
+/** ---------- Commands (aligned with the endpoints) ---------- */
 async function cmdAddDocstring(context) {
   return runWriteCommand(context, 'add_docstring', 'docstring', { useContent: true });
 }
@@ -2882,7 +2882,7 @@ async function cmdRagReindex(glob) {
     return vscode.window.showWarningMessage('No workspace open.');
   }
 
-  // Allinea il projectId a tutto il resto (Harper, /kit, RAG da chat)
+  // Align the projectId with everything else (Harper, /kit, RAG from chat)
   const projectId = getProjectId();
 
   // Collect candidates
@@ -2907,7 +2907,7 @@ async function cmdRagReindex(glob) {
       if (!data || data.byteLength === 0) continue;
       if (data.byteLength > MAX_FILE_BYTES) continue;
       const buf = Buffer.from(data);
-      if (buf.includes(0)) continue; // skip binari
+      if (buf.includes(0)) continue; // skip binaries
 
       const text = buf.toString('utf8');
       if (!text.trim()) continue;
@@ -3157,7 +3157,7 @@ function activate(context) {
   reg('clike.copyExtensionMcpToken', cmdCopyExtensionMcpToken);
   reg('clike.chat.openSessionFile', cmdOpenChatSessionFile);
     reg('clike.harper.init', async () => {
-    const panel = await cmdOpenChat(context); // riusa l’apri-chat esistente
+    const panel = await cmdOpenChat(context); // reuse the existing open-chat
     try { panel.webview.postMessage({ type: 'prefill', text: '/init ' }); } catch {}
   });
   reg('clike.ping', () => cmdPing());
@@ -3212,15 +3212,15 @@ function activate(context) {
 }
 
 function isTextFile(filePath) {
-    const buffer    = Buffer.alloc(4096); // Leggiamo i primi 4KB
+    const buffer    = Buffer.alloc(4096); // Read the first 4KB
     const fd        = fsSync.openSync(filePath, 'r');
     const bytesRead = fsSync.readSync(fd, buffer, 0, 4096, 0);
     fsSync.closeSync(fd);
 
     for (let i = 0; i < bytesRead; i++) {
-        if (buffer[i] === 0) return false; // Trovato byte nullo: è BINARIO
+        if (buffer[i] === 0) return false; // Found a null byte: it is BINARY
     }
-    return true; // Nessun byte nullo: è TESTO
+    return true; // No null byte: it is TEXT
 }
 
 
@@ -3264,7 +3264,7 @@ async function cmdOpenChat(context) {
   const chatTheme = getChatTheme()
   panel.webview.html = getWebviewHtml(orchestratorUrl, chatTheme);
   panel.webview.postMessage({ type: 'busy', on: false });
-  // Stato iniziale (mode/model)
+  // Initial state (mode/model)
   const savedState = context.workspaceState.get('clike.uiState') || {
     mode: 'free',
     model: 'auto',
@@ -3287,8 +3287,8 @@ async function cmdOpenChat(context) {
   panel.webview.postMessage({ type: 'initState', state: savedState });
   out.appendLine(`cmdOpenChat savedState done`);
 
-  // HYDRATE per MODE (non per model)
-  // Hydrate chat dal FS per il modello selezionato
+  // HYDRATE per MODE (not per model)
+  // Hydrate chat from the FS for the selected model
   try {
     
     const scope = effectiveHistoryScope(context);
@@ -3309,20 +3309,20 @@ async function cmdOpenChat(context) {
     out.appendLine(`cmdOpenChat: ${e.message}`);
   }
   
-  // Ultimo run per Apply
+  // Last run for Apply
   const lastRun = context.workspaceState.get('clike.lastRun');
   if (lastRun) panel.webview.postMessage({ type: 'lastRun', data: lastRun });
-  // Ascolto eventi dalla webview
+  // Listen to events from the webview
   out.appendLine(`cmdOpenChat lastRun  ${lastRun}`);
   if (lastRun) panel.webview.postMessage({ type: 'lastRun', data: lastRun });
 
-  // Dopo aver creato il panel e prima di restituire:
+  // After creating the panel and before returning:
   await showInitSummaryIfPresent(panel, context);
 
   
   
 
-  // Ascolto eventi dalla webview
+  // Listen to events from the webview
   panel.webview.onDidReceiveMessage(async (msg) => {
     panel.webview.postMessage({ type: 'busy', on: true });
 
@@ -3342,7 +3342,7 @@ async function cmdOpenChat(context) {
       if (msg.type === 'harperInit') {
         try {
           const name = (msg.name || '').trim();
-          const passedPath = (msg.path || '').trim();   // posizionale opzionale
+          const passedPath = (msg.path || '').trim();   // optional positional
           const force = !!msg.force;
           out.appendLine(`[harperInit] recv name: ${name} path ${passedPath} force ${force}`);
 
@@ -3371,7 +3371,7 @@ async function cmdOpenChat(context) {
             '${project.rag_namespace}': projectId,
           };
 
-          // scegli la cartella parent
+          // choose the parent folder
           let parentUri = null;
           if (passedPath) {
             parentUri = vscode.Uri.file(path.resolve(passedPath));
@@ -3395,7 +3395,7 @@ async function cmdOpenChat(context) {
             return;
           }
 
-          // struttura cartelle
+          // folder structure
           const docRoot = path.join(targetDir, 'docs', 'harper');
           await ensureDir(path.join(targetDir, '.clike'));
           await ensureDir(path.join(targetDir, '.github'));
@@ -3453,7 +3453,7 @@ async function cmdOpenChat(context) {
           *.log
           `);
 
-          // handoff per bubble nel nuovo workspace
+          // handoff for the bubble in the new workspace
           const summary = {
             project_name: name,
             created_at: nowIso(),
@@ -3506,14 +3506,14 @@ async function cmdOpenChat(context) {
             `doc_root = docs/harper\n` +
             `Files: ${summary.files_created.join(', ')}\n` +
             `Next: open README.md, complete IDEA.md, then /spec`;
-          // bubble nel workspace ORIGINE
+          // bubble in the ORIGIN workspace
           panel.webview.postMessage({
             type: 'echo',
             message:msgText
           });
 
 
-          // apri il nuovo workspace in una nuova window
+          // open the new workspace in a new window
           await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(targetDir), true);
           //await context.workspaceState.update('clike.initSummary', msgText);
 
@@ -3732,19 +3732,19 @@ async function cmdOpenChat(context) {
               log((`CLike preIndexRag: ${JSON.stringify(res)} ${res}`));
             }
           } catch (e) { log(`CLike preIndexRag error: ${e}`); }
-          // Core docs per fase
+          // Core docs per phase
           let core = defaultCoreForPhase(phase);
-          // Flags privacy (se già presenti altrove, riusale)
+          // Privacy flags (if already present elsewhere, reuse them)
           const flags = {
             neverSendSourceToCloud: !!cfgChat().neverSendSourceToCloud || false,
             redaction: true
           };
           //CHAT HARPEr START
-          // History del MODE corrente
+          // History of the current MODE
           const historyScope  = effectiveHistoryScope(context);
-          // History per conversazione “stateless�?: carico SOLO le bolle del MODE corrente
+          // History for a "stateless" conversation: load ONLY the bubbles of the current MODE
           const history = await loadSessionFilteredHarper(activeMode).catch(() => []);
-          // Filtra eventualmente per modello se vuoi inviare solo il sotto-filo di quel model:
+          // Optionally filter by model if you want to send only that model's sub-thread:
           const historyForThisModel = await loadSessionFiltered(activeMode, activeModel); //history.filter(b => !b.model || b.model === activeModel);
           //log((`CLike history: ${JSON.stringify(history)}`));
           
@@ -3752,7 +3752,7 @@ async function cmdOpenChat(context) {
           ? history
           : historyForThisModel;
           const _source = source.filter(b => 
-            // Condizione 1: Il ruolo deve essere 'user' O 'assistant'
+            // Condition 1: the role must be 'user' OR 'assistant'
             (b.role === 'user' || b.role === 'assistant') 
           );
         
@@ -3873,7 +3873,7 @@ async function cmdOpenChat(context) {
           }
           //log(`[harperRun] payload (gen):`,  JSON.stringify(payload.gen));
           msg_bubble = phase==='idea' ? project_id : targets; 
-          // Persisti l’input dell’utente nella sessione del MODE (e mostreremo badge del modello in render)
+          // Persist the user's input in the MODE session (the model badge is shown at render time)
           await appendSessionJSONL(activeMode, {
             role: 'user',
             content: `▶ ${cmd.toUpperCase()} ${msg_bubble} | mode=${state.mode} model=${state.model} exec=${executionPreference} profile=${profileHint || '—'} core=${JSON.stringify(core)}`,
@@ -4149,7 +4149,7 @@ async function cmdOpenChat(context) {
           }
 
           panel.webview.postMessage({ type: 'busy', on: false });
-          // 3) POST-RUN: persisti esito (riassunto + eventuale echo/testo)
+          // 3) POST-RUN: persist the outcome (summary + optional echo/text)
           const summary = [
             _out?.echo ? `[echo] ${_out.echo}` : null,
             (Array.isArray(_out?.diffs) && _out.diffs.length) ? `[diffs] ${_out.diffs.length}` : null,
@@ -4159,7 +4159,7 @@ async function cmdOpenChat(context) {
           log(`[harperRun] summary done`);
           // --- PERSIST TELEMETRY (avoid duplicates, one file per run) ---
           try {
-            // sorgente principale lato orchestrator
+            // main source on the orchestrator side
             const tFromServer = _out?.telemetry || outGateway?.telemetry || _out?.usage ? {
               provider: activeProvider,
               model: activeModel,
@@ -4379,9 +4379,9 @@ async function cmdOpenChat(context) {
               panel.webview.postMessage({ type: 'busy', on: false });
               return;
           }
-            // ... codice per continuare
+            // ... code to continue
         } catch (error) {
-          // Gestisce il caso in cui il file non esiste affatto (fs.statSync lancerebbe un errore)
+          // Handle the case where the file does not exist at all (fs.statSync would throw)
           vscode.window.showErrorMessage(`File LTC.json not found at: ${ltcUri.fsPath}`);
           panel.webview.postMessage({ type: 'busy', on: false });
           return;
@@ -4689,7 +4689,7 @@ async function cmdOpenChat(context) {
             }
           }
         }
-        // Persisti l’input dell’utente nella sessione del MODE (e mostreremo badge del modello in render)
+        // Persist the user's input in the MODE session (the model badge is shown at render time)
         await appendSessionJSONL(activeMode, {
           role: 'system',
           content:"✔ "+ String(report.summary || ''),
@@ -4704,7 +4704,7 @@ async function cmdOpenChat(context) {
       
      
       if (msg.type === 'ragIndex') {
-      // opzionale: msg.glob (stringa). Riusiamo la logica del comando palette.
+      // optional: msg.glob (string). Reuse the command palette logic.
         try {
           panel.webview.postMessage({ type: 'busy', on: false });
           const items = await cmdRagReindex(msg.glob || '');
@@ -4718,15 +4718,15 @@ async function cmdOpenChat(context) {
       
 
 
-      // RAG search richiesto dalla webview (/rag, /ragSearch)
+      // RAG search requested by the webview (/rag, /ragSearch)
       if (msg.type === 'ragSearch') {
         try {
           const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
           if (!ws) throw new Error('No workspace open.');
 
-          const projectId = getProjectId(); // es. "clike__<workspace-name>"
+          const projectId = getProjectId(); // e.g. "clike__<workspace-name>"
 
-          // accetta sia msg.q che msg.query (compatibilità vecchia/new)
+          // accept both msg.q and msg.query (old/new compatibility)
           const rawQ = (typeof msg.q !== 'undefined' ? msg.q : msg.query) || '';
           const query = String(rawQ || '').trim();
           const top_k = Number.isFinite(msg.top_k) ? msg.top_k : 8;
@@ -4793,7 +4793,7 @@ async function cmdOpenChat(context) {
         panel.webview.postMessage({ type: 'busy', on: false });
       }
 
-            // opzionale utility
+            // optional utility
       if (msg.type === 'echo') {
         await appendSessionJSONL(state.mode, {
           role: 'assistant',
@@ -4810,14 +4810,14 @@ async function cmdOpenChat(context) {
         
       }
       if (msg.type === 'switchProject') {
-        // Nota: per multi-progetto potremo salvare un puntatore in .clike/config.json
+        // Note: for multi-project we could store a pointer in .clike/config.json
         await appendSessionJSONL(state.mode, { role:'assistant', content:`(placeholder) Switched project to: ${String(msg.name||'')}`, model:'system' });
        
       }
       if (msg.type === 'webview_ready') {
         try {
           out.appendLine('[CLike] webview_ready');
-          // 1) Stato UI salvato (nessun newState qui)
+          // 1) Saved UI state (no newState here)
           const saved = context.workspaceState.get('clike.uiState') || {
             mode: 'free',
             model: 'auto',
@@ -4837,11 +4837,11 @@ async function cmdOpenChat(context) {
               saved.localAgentExecutor || getDefaultLocalAgentExecutor()
             ),
           };
-          // 2) Persisti lo stato riconciliato (così harperRun usa lo stesso valore
-          // mostrato nel selettore già dal primo comando) e invia initState.
+          // 2) Persist the reconciled state (so harperRun uses the same value
+          // shown in the selector from the first command) and send initState.
           await context.workspaceState.update('clike.uiState', ui);
           panel.webview.postMessage({ type: 'initState', state: ui });
-          // 3) Hydrate dei messaggi (non bloccare su errori)
+          // 3) Hydrate messages (do not block on errors)
           try {
             const msgs = (ui.historyScope === 'allModels')
               ? await loadSession(ui.mode, 200).catch(() => [])
@@ -4851,7 +4851,7 @@ async function cmdOpenChat(context) {
             out.appendLine('[CLike] hydrate failed: ' + (e?.message || String(e)));
             panel.webview.postMessage({ type: 'hydrateSession', messages: [] });
           }
-          // 4) Fetch modelli con timeout + fallback "auto"
+          // 4) Fetch models with timeout + "auto" fallback
           try {
             const orchestratorUrl = serviceBaseUrls().orchestrator;
             const controller = new AbortController();
@@ -4872,7 +4872,7 @@ async function cmdOpenChat(context) {
               models = raw.filter(n => !/embed|embedding|nomic-embed/i.test(n));
             }
             if (!models.length) models = ['auto'];
-            // Ripristina il bubble persistito (se presente)
+            // Restore the persisted bubble (if any)
 
             // }
 
@@ -4884,7 +4884,7 @@ async function cmdOpenChat(context) {
           }
         } catch (e) {
           out.appendLine('[CLike] webview_ready handler crashed: ' + (e?.message || String(e)));
-          // Fallback minimo per non lasciare la webview “vuota�?
+          // Minimal fallback so the webview is not left "empty"
           panel.webview.postMessage({
             type: 'initState',
             state: {
@@ -4903,12 +4903,12 @@ async function cmdOpenChat(context) {
       if (msg.type === 'setHistoryScope') {
         const value = (msg.value === 'allModels') ? 'allModels' : 'singleModel';
 
-        // 🔧 salva sul campo UNICO usato ovunque: historyScope
+        // 🔧 save to the SINGLE field used everywhere: historyScope
         const prev = context.workspaceState.get('clike.uiState') || { mode:'free', model:'auto', historyScope:'singleModel' };
         const ui = { ...prev, historyScope: value };
         await context.workspaceState.update('clike.uiState', ui);
 
-        // Re-hydrate immediato coerente con lo scope scelto
+        // Immediate re-hydrate consistent with the chosen scope
         const modeCur  = ui.mode  || 'free';
         const modelCur = ui.model || 'auto';
         const msgs = (value === 'allModels')
@@ -4916,11 +4916,11 @@ async function cmdOpenChat(context) {
           : await loadSessionFilteredV2(modeCur, modelCur, 200).catch(()=>[]);
         panel.webview.postMessage({ type: 'hydrateSession', messages: msgs });
 
-        // NIENTE initState qui (evita rimbalzi della combo)
+        // NO initState here (avoids combo bounce)
         vscode.window.setStatusBarMessage(`CLike: history scope = ${value}`, 2000);
         
       }
-      // 1) MODELLI
+      // 1) MODELS
       if (msg.type === 'fetchModels') {
         const res = await fetchJson(`${orchestratorUrl}/v1/models`);
         let models = [];
@@ -4939,7 +4939,7 @@ async function cmdOpenChat(context) {
         panel.webview.postMessage({ type: 'models', models, providers: res?.providers || null });
 
       }
-      // 2) CAMBIO UI (Mode/Model)
+      // 2) UI CHANGE (Mode/Model)
       if (msg.type === 'uiChanged') {
         const prev = context.workspaceState.get('clike.uiState') || {
           mode: 'free',
@@ -4969,7 +4969,7 @@ async function cmdOpenChat(context) {
         }
         await context.workspaceState.update('clike.uiState', newState);
 
-        // Se è cambiato SOLO il modello, NON re-idratare la chat
+        // If ONLY the model changed, do NOT re-hydrate the chat
         if (prev.mode === newState.mode && prev.model !== newState.model) {
           const scope = (newState.historyScope === 'allModels') ? 'allModels' : 'singleModel';
           if (scope === 'singleModel') {
@@ -4980,7 +4980,7 @@ async function cmdOpenChat(context) {
           }
          
         }
-        // Se è cambiato il mode (o entrambi), re-idrata in base allo scope
+        // If the mode changed (or both), re-hydrate based on the scope
         const scope   = (newState.historyScope === 'allModels') ? 'allModels' : 'singleModel';
         const modeCur = newState.mode || 'free';
         const modelCur= newState.model || 'auto';
@@ -4992,7 +4992,7 @@ async function cmdOpenChat(context) {
         panel.webview.postMessage({ type: 'hydrateSession', messages: msgs });
        
       }
-      // 3) CLEAR SESSION (solo mode corrente)
+      // 3) CLEAR SESSION (current mode only)
       if (msg.type === 'clearSession') {
         const st = context.workspaceState.get('clike.uiState') 
               || {  mode: 'free',
@@ -5004,26 +5004,26 @@ async function cmdOpenChat(context) {
         const modeCur   = msg.mode  || st.mode  || 'free';
         const modelCur  = msg.model || st.model || 'auto';
 
-        const scope = effectiveHistoryScope(context);  //  SOLO UI
+        const scope = effectiveHistoryScope(context);  //  UI ONLY
         if (scope === 'allModels') {
-          // cancella tutto il MODE (file intero)
+          // delete the whole MODE (entire file)
           await clearSession(modeCur);
           panel.webview.postMessage({ type: 'hydrateSession', messages: [] });
           vscode.window.setStatusBarMessage(`CLike: cleared ALL messages in mode "${modeCur}"`, 2500);
         } else {
-         // singleModel → ripulisci SOLO le righe del modello corrente
+         // singleModel → clean ONLY the current model's lines
           await pruneSessionByModel(modeCur, modelCur);
-          // NEW: dopo la pulizia, mostra subito le altre conversazioni del mode
+          // NEW: after cleanup, immediately show the mode's other conversations
           const msgs = await loadSessionFilteredV2(modeCur, modelCur, 200).catch(() => []);
-          // Idrata la webview con i messaggi rimanenti (tutti gli altri modelli)
-          // NON tocchiamo historyScope automaticamente: resta quello scelto in combo
+          // Hydrate the webview with the remaining messages (all other models)
+          // do NOT touch historyScope automatically: keep the one chosen in the combo
           panel.webview.postMessage({ type: 'hydrateSession', messages: msgs});
           vscode.window.setStatusBarMessage(`CLike: cleared messages for model "${modelCur}" in mode "${modeCur}"`, 2500);
 
         }
       
       }
-      // 4) OPEN FILE (tab Files cliccabile)
+      // 4) OPEN FILE (clickable Files tab)
       if (msg.type === 'openFile' && msg.path) {
         try {
           const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
@@ -5063,7 +5063,7 @@ async function cmdOpenChat(context) {
           return;
         }
 
-        // Ricarico la history in base allo scope attuale (Model vs All models)
+        // Reload the history based on the current scope (Model vs All models)
         const scope = (ui.historyScope === 'allModels') ? 'allModels' : 'singleModel';
         let msgs;
         if (scope === 'allModels') {
@@ -5079,7 +5079,7 @@ async function cmdOpenChat(context) {
       // 5) CHAT / GENERATE
       if (msg.type === 'sendChat' || msg.type === 'sendGenerate') {
         log((`CLike: ${msg.type}`));
-         // cancel eventuale richiesta precedente
+         // cancel any previous request
         if (inflightController) { inflightController.abort(); inflightController = null; }
         inflightController = new AbortController();
         panel.webview.postMessage({ type: 'busy', on: true });
@@ -5103,7 +5103,7 @@ async function cmdOpenChat(context) {
         const activeProvider = explicitProviderForModel(activeModel) || '';
         out.appendLine(`CLike: ${msg.type} (${activeMode} ${activeModel} ${activeProvider})`);
         
-        // Persisti l’input dell’utente nella sessione del MODE (e mostreremo badge del modello in render)
+        // Persist the user's input in the MODE session (the model badge is shown at render time)
         await appendSessionJSONL(activeMode, {
           role: 'user',
           content: String(msg.prompt || ''),
@@ -5112,13 +5112,13 @@ async function cmdOpenChat(context) {
           attachments: Array.isArray(msg.attachments) ? msg.attachments : []
         });
 
-        // Partiziona allegati SOLO QUI (N.B.: niente variabili globali!)
+        // Partition attachments ONLY HERE (N.B.: no global variables!)
         const atts = Array.isArray(msg.attachments) ? msg.attachments : [];
         const { inline_files, rag_files } =  partitionAttachments(atts);
         log(`CLike: ${inline_files.length} inline_files, ${rag_files.length} rag_files`);
-        // History del MODE corrente
+        // History of the current MODE
         const historyScope  = effectiveHistoryScope(context);
-        // History per conversazione “stateless�?: carico SOLO le bolle del MODE corrente
+        // History for a "stateless" conversation: load ONLY the bubbles of the current MODE
         const history = await loadSessionFilteredHarper(activeMode).catch(() => []);
         //log((`CLike historyForThisModel: ${historyForThisModel}`));
         const historyForThisModel = await loadSessionFiltered(activeMode, activeModel, 200);
@@ -5190,7 +5190,7 @@ async function cmdOpenChat(context) {
             mode_contract: buildModeContract(activeMode),
         };
 
-        // (ternario corretto)
+        // (fixed ternary)
         const payload = (msg.type === 'sendChat')
         ? basePayload
         : { ...basePayload, max_tokens: 5100 };
@@ -5257,7 +5257,7 @@ async function cmdOpenChat(context) {
             return;
           }
 
-          // Salva ultimo run (serve per Apply)
+          // Save last run (needed for Apply)
           if (res?.run_dir || res?.audit_id) {
             await context.workspaceState.update('clike.lastRun', { run_dir: res.run_dir, audit_id: res.audit_id });
           }
@@ -5276,13 +5276,13 @@ async function cmdOpenChat(context) {
 
             panel.webview.postMessage({ type: 'chatResult', data: res });
           } else {
-            // generate: opzionale autowrite (se l’hai abilitato in cfgChat)
+            // generate: optional autowrite (if enabled in cfgChat)
             const { autoWrite } = cfgChat?.() || { autoWrite: false };
             if (autoWrite && Array.isArray(res.files) && res.files.length) {
               await saveGeneratedFiles(res.files, { phase: 'apply', runId: res.runId || res.run_id });
              
             }
-            // Cache locale dei file dell’ultimo generate (serve per Apply fallback)
+            // Local cache of the last generate's files (needed for Apply fallback)
             try {
               await context.workspaceState.update('clike.lastFiles', Array.isArray(res?.files) ? res.files : []);
             } catch (e) {
@@ -5322,7 +5322,7 @@ async function cmdOpenChat(context) {
           return;
         }
 
-        // Filtra per i path selezionati (se presenti), altrimenti applica tutto
+        // Filter by the selected paths (if any), otherwise apply everything
         const chosen = wantPaths
           ? lastFiles.filter(f => f && f.path && wantPaths.includes(f.path))
           : lastFiles;
@@ -5335,7 +5335,7 @@ async function cmdOpenChat(context) {
 
         try {
           const paths = await saveGeneratedFiles(chosen, { phase: 'apply', runId: lastRun?.runId || lastRun?.run_id || lastRun?.audit_id });
-          // Pulizia cache per non ri-applicare accidentalmente
+          // Clear the cache to avoid accidental re-apply
           try { await context.workspaceState.update('clike.lastFiles', []); } catch {}
           panel.webview.postMessage({ type: 'applyResult', data: { applied: paths } });
         } catch (e) {
@@ -5507,12 +5507,12 @@ async function showInitSummaryIfPresent(panel, context) {
       type: 'echo',
       message:msgTxt
     });
-    // Persisti per i riavvii successivi della chat
+    // Persist for subsequent chat restarts
     await context.workspaceState.update('clike.initSummary', msgTxt);
-    // opzionale: rinomina per non ripetere
+    // optional: rename to avoid repeating
     const donePath = path.join(ws, '.clike', 'last_init_summary.done.json');
     await fs.rename(p, donePath).catch(async () => {
-    // se rename fallisce (es. cross-device), fallback: delete
+    // if rename fails (e.g. cross-device), fallback: delete
     await fs.rm(p, { force: true });
     });
   } catch (e) {
@@ -5525,7 +5525,7 @@ function partitionAttachments(atts) {
   const inline_files = [];
   const rag_files = [];
   for (const a of (atts || [])) {
-    // piccolo o già in memoria
+    // small or already in memory
     if (a.content || a.bytes_b64) {
       inline_files.push({
         name: a.name || null,
@@ -5555,7 +5555,7 @@ async function postJson(url, body, { signal } = {}) {
   return res.json();
 }
 
-// Timeout soft lato estensione
+// Soft timeout on the extension side
 async function withTimeout(promise, ms) {
   let to;
   const t = new Promise((_, rej) => {

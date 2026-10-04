@@ -174,13 +174,13 @@ async def _post_phase_run(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def _normalize_message(msg: Dict[str, Any]) -> Dict[str, Any]:
-    # --- Normalizzazione messages ---
+    # --- Messages normalization ---
     raw_msgs = msg.get("messages") or []
     norm_msgs = []
     for m in raw_msgs:
         if m is None:
             continue
-        # Supporta: Pydantic model, oggetto con .dict(), o già dict
+        # Supports: Pydantic model, object with .dict(), or already a dict
         if hasattr(m, "model_dump"):
             d = m.model_dump()
         elif hasattr(m, "dict"):
@@ -188,7 +188,7 @@ async def _normalize_message(msg: Dict[str, Any]) -> Dict[str, Any]:
         elif isinstance(m, dict):
             d = m
         else:
-            # ignora elementi non conformi
+            # ignore non-conforming elements
             continue
 
         role = d.get("role")
@@ -199,7 +199,7 @@ async def _normalize_message(msg: Dict[str, Any]) -> Dict[str, Any]:
     if norm_msgs:
         msg["messages"] = norm_msgs
     else:
-        # se vuoto rimuovi per lasciare al gateway la composizione di default
+        # if empty, remove it to let the gateway compose the default
         msg.pop("messages", None)
     return dict(msg)
 
@@ -2081,11 +2081,11 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
     if hasattr(req_payload, "model_dump"):
         payload = req_payload.model_dump()   # pydantic -> dict
     elif isinstance(req_payload, dict):
-        payload = dict(req_payload)          # copia difensiva
+        payload = dict(req_payload)          # defensive copy
     else:
-        # fallback estremo
+        # last-resort fallback
         try:
-            payload = dict(req_payload)      # tipo mapping-like
+            payload = dict(req_payload)      # mapping-like type
         except Exception:
             raise ValueError("Invalid request payload type for HarperService.run_phase")
 
@@ -2278,7 +2278,7 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
     
-    # --- routing modello (unica fonte di verità) ---
+    # --- model routing (single source of truth) ---
     model_override = merged.get("model")
     profile_hint = merged.get("profileHint")
 

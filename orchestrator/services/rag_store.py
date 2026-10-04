@@ -148,7 +148,7 @@ class EmbeddingClient:
 
 class RagStore:
     def __init__(self, project_id: str):
-        # project_id → namespace: multi-progetto nello stesso Qdrant
+        # project_id → namespace: multiple projects in the same Qdrant
         self.project_id = (project_id or "default")
         self.namespace = ("proj_" + re.sub(r"[^a-zA-Z0-9_]+", "_", self.project_id)).lower()
         self.q = QDRANT_URL
@@ -158,7 +158,7 @@ class RagStore:
     
 
     async def ensure(self) -> None:
-        # crea collection se non esiste
+        # create the collection if it does not exist
         try:
             async with httpx.AsyncClient(timeout=15) as client:
                 r = await _request_with_retry(

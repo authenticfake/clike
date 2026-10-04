@@ -50,7 +50,7 @@ _validate_catalog_on_startup()
 app = FastAPI(title="Clike Gateway (AI Pipilines for enabling Vibe Code for StartUp & Entprise Solutions)", version="1.0.0")
 
 app.add_middleware(SecureHeaders)
-# Mount /static  (metti il logo in gateway/static/clike_64x64.png)
+# Mount /static  (put the logo in gateway/static/clike_64x64.png)
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")

@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 def approx_tokens_from_chars(text: str) -> int:
-    # euristica stabile usata nel resto del repo (≈ 4 chars/token)
+    # stable heuristic used across the repo (≈ 4 chars/token)
     return max(1, int(len(text) / 4))
 
 def write_file(path: str | Path, content: str, encoding: str = "utf-8") -> None:
@@ -27,11 +27,11 @@ def write_file(path: str | Path, content: str, encoding: str = "utf-8") -> None:
     """
     file_path = Path(path)
 
-    # Crea la directory padre se non esiste
+    # Create the parent directory if it does not exist
     if file_path.parent:
         file_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Scrive il file con l'encoding specificato
+    # Write the file with the specified encoding
     with file_path.open("w", encoding=encoding) as f:
         f.write(content)
 

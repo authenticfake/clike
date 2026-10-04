@@ -21,10 +21,10 @@ def _shrink_text(s: str, limit: int = 1200) -> str:
     if len(s) <= limit:
         return s
     return s[:limit] + f"... <+{len(s)-limit} chars>"
-# ... i tuoi import/utility già presenti ...
+# ... your existing imports/utilities ...
 
 
-# Timeout più alto per cold-start: 120s di read/write/pool
+# Higher timeout for cold start: 120s read/write/pool
 _DEFAULT_TIMEOUT = httpx.Timeout(connect=5.0, read=120.0, write=120.0, pool=120.0)
 
 async def call_gateway_chat(
@@ -54,7 +54,7 @@ async def call_gateway_chat(
         "temperature": temperature,
         "profile": profile,
     }))
-    # Guardia difensiva
+    # Defensive guard
     if not isinstance(messages, list):
         raise ValueError("call_gateway_chat: 'messages' must be a list of {role, content}")
 
@@ -68,7 +68,7 @@ async def call_gateway_chat(
     if tool_choice is not None:
         body["tool_choice"] = tool_choice
     if profile is not None:
-        body["profile"] = profile  # facoltativo, utile per osservabilità/routing coerente
+        body["profile"] = profile  # optional, useful for observability/consistent routing
     if provider is not None:
         body["provider"] = provider
         
@@ -86,7 +86,7 @@ async def call_gateway_chat(
     r = await gateway_http.post(f"{base}/v1/chat/completions", json=body, timeout=to, headers=headers)
     r.raise_for_status()
     txt = r.text
-        # Parse robusto
+        # Robust parse
     try:
         data = r.json()
         if isinstance(data, str):
@@ -96,7 +96,7 @@ async def call_gateway_chat(
             except Exception:
                 pass
     except Exception:
-        # plain text → prova a caricare come JSON, altrimenti ritorna text raw
+        # plain text → try loading as JSON, otherwise return raw text
         try:
             data = json.loads(txt)
         except Exception:
@@ -123,7 +123,7 @@ async def call_gateway_chat(
         except Exception:
             pass
 
-        # 2) Fallback legacy: altre chiavi note
+        # 2) Legacy fallback: other known keys
         if "choices" in data:
             try:
                 return data["choices"][0]["message"]["content"]
@@ -134,7 +134,7 @@ async def call_gateway_chat(
         if "response" in data and isinstance(data["response"], str):
             return data["response"]
 
-    # 3) Se data è una stringa JSON double-encoded
+    # 3) If data is a double-encoded JSON string
     if isinstance(data, str):
         try:
             parsed = json.loads(data)
@@ -142,7 +142,7 @@ async def call_gateway_chat(
         except Exception:
             return data.strip()
 
-    # 4) Ultimo fallback: tutto come stringa
+    # 4) Last fallback: everything as a string
     return str(data or "").strip()
 
 async def call_gateway_generate(payload: dict, _headers: dict) -> str:
@@ -157,10 +157,10 @@ async def call_gateway_generate(payload: dict, _headers: dict) -> str:
             "status": r.status_code,
             "latency_ms": _ms
         }, ensure_ascii=False))
-        # log body (ridotto) a livello DEBUG
+        # log body (truncated) at DEBUG level
         try:
             data = r.json()
-            # Alcuni provider/adapters (es. Ollama via gateway) possono restituire un JSON string (double-encoded):
+            # Some providers/adapters (e.g. Ollama via gateway) may return a JSON string (double-encoded):
             if isinstance(data, str):
                 try:
                     parsed = json.loads(data)
@@ -175,7 +175,7 @@ async def call_gateway_generate(payload: dict, _headers: dict) -> str:
             log.debug("gateway.response.text %s", _shrink_text(txt, 4000))
             try:
                 parsed = json.loads(txt)
-                # Anche qui: se è una stringa JSON annidata, riprova a parsarla
+                # Here too: if it is a nested JSON string, try parsing it again
                 if isinstance(parsed, str):
                     try:
                         parsed = json.loads(parsed)

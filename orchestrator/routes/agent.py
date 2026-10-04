@@ -13,11 +13,11 @@ from services.docstrings import (
 from config import settings
 
 from services.rationale import rationale
-from services.llm_client import call_gateway_chat  # compat gestita sotto
+from services.llm_client import call_gateway_chat  # compat handled below
 
 router = APIRouter()
 gateway_url = str(settings.GATEWAY_URL)
-# --- JSON schema guard per risposte del modello (riusabile) ---
+# --- JSON schema guard for model responses (reusable) ---
 MODEL_OUTPUT_SCHEMA = """
 Devi rispondere in **solo JSON**, senza testo extra né blocchi di codice.
 Schema consentito (uno dei due):
@@ -46,7 +46,7 @@ def _normalize_selection(sel: Any) -> str:
     if isinstance(sel, str):
         return sel
     if isinstance(sel, (list, tuple)):
-        # prendi il primo elemento stringa non vuoto, altrimenti concatena i pezzi stringa
+        # take the first non-empty string element, otherwise concatenate the string pieces
         for x in sel:
             if isinstance(x, str) and x.strip():
                 return x
@@ -66,7 +66,7 @@ def _ensure_str(x: Any) -> str:
     """Garantisce che x sia una stringa."""
     if isinstance(x, str):
         return x
-    # se accidentalmente è una tuple tipo (text, flag), prendi il primo pezzo stringa
+    # if it is accidentally a tuple like (text, flag), take the first string piece
     if isinstance(x, (list, tuple)):
         for p in x:
             if isinstance(p, str):
@@ -84,16 +84,16 @@ def _dedupe_selection_in_text(text: str, selection: str) -> str:
     text = _ensure_str(text)
     selection = _normalize_selection(selection)
 
-    # niente selezione -> niente dedup
+    # no selection -> no dedup
     if not selection or len(selection.strip()) < 4:
         return text
 
-    # se la selezione non appare almeno 2 volte, non c'è duplicazione da rimuovere
+    # if the selection does not appear at least twice, there is no duplication to remove
     matches = list(re.finditer(re.escape(selection), text))
     if len(matches) <= 1:
         return text
 
-    # Mantieni la prima, rimuovi le successive
+    # Keep the first one, remove the following ones
     first = matches[0]
     start_keep, end_keep = first.start(), first.end()
 
@@ -101,7 +101,7 @@ def _dedupe_selection_in_text(text: str, selection: str) -> str:
     keep = text[start_keep:end_keep]
     after = text[end_keep:]
 
-    # ripulisci duplicazioni della selezione nell'after
+    # clean up selection duplicates in the after part
     after = re.sub(re.escape(selection), "", after)
 
     return before + keep + after
@@ -112,9 +112,9 @@ _DOCSTRING_FULL_RE = re.compile(r'^\s*(?P<q>"""|\'\'\')(?P<body>[\s\S]*?)(?P=q)'
 
 def _squeeze_blank_lines(s: str) -> str:
     """Riduce sequenze di >2 righe vuote a massimo 2, e rimuove spazi inutili in testa/coda."""
-    # massimo 2 newline consecutivi
+    # at most 2 consecutive newlines
     s = re.sub(r'\n{3,}', '\n\n', s)
-    # rimuovi spazi in testa/coda del file
+    # strip leading/trailing whitespace of the file
     return s.strip() + "\n"
 
 def _normalize_module_doc_spacing(lang: str, s: str) -> str:
@@ -134,9 +134,9 @@ def _normalize_module_doc_spacing(lang: str, s: str) -> str:
     doc = f'{q}{body}{q}'
 
     rest = s[m.end():]
-    # rimuovi righe vuote iniziali nel resto
+    # remove leading blank lines in the rest
     rest = re.sub(r'^\s*\n', '', rest, count=1)
-    # forza esattamente 1 newline tra docstring e codice
+    # force exactly 1 newline between docstring and code
     return (doc + "\n\n" + rest.lstrip())
 
 
@@ -149,14 +149,14 @@ async def _read_json_safely(req: Request) -> Dict[str, Any]:
     try:
         if ct.startswith("application/json"):
             return json.loads(raw)
-        return json.loads(raw)  # ultimo tentativo
+        return json.loads(raw)  # last attempt
     except Exception:
         logging.info("[agent] body (non-json)=%r", raw[:300])
         raise HTTPException(400, "invalid JSON body")
 
 
 # ---------------------------
-# pulizia output AI
+# AI output cleanup
 # ---------------------------
 _FENCE_RE = re.compile(r"^```[a-zA-Z0-9_+-]*\s*([\s\S]*?)\s*```$", re.MULTILINE)
 
@@ -168,7 +168,7 @@ def _strip_md_fences(s: str) -> str:
     return s
 
 def _strip_leading_preamble(s: str) -> str:
-    # Rimuove intro tipo "Here is the updated code:" o "Updated code:"
+    # Remove intros like "Here is the updated code:" or "Updated code:"
     return re.sub(r"^\s*(Here\s+is\s+the\s+updated\s+code:|Updated\s+code:|Here\s+is\s+the\s+code:)\s*\n+", "", s, flags=re.IGNORECASE)
 
 def _extract_code_from_ai(s: str) -> str:
@@ -178,11 +178,11 @@ def _extract_docstring_from_ai(s: str, lang: str) -> str:
     raw = _strip_md_fences(s).strip()
 
     if lang.startswith("py"):
-        # prendi solo il primo blocco tripla-virgolette se presente
+        # take only the first triple-quoted block if present
         m = re.search(r'("""|\'\'\')([\s\S]*?)(\1)', raw)
         if m:
             return f'{m.group(1)}{m.group(2).strip()}{m.group(1)}'
-        # altrimenti normalizza a triple double quotes
+        # otherwise normalize to triple double quotes
         body = raw.strip().strip('"').strip("'").strip()
         return f'""" {body} """'.replace("  ", " ").strip()
     if lang.startswith("ts") or lang.startswith("js") or "react" in lang:
@@ -198,7 +198,7 @@ def _extract_docstring_from_ai(s: str, lang: str) -> str:
         body = raw.strip().strip("/*").strip("*/").strip()
         return "/** " + body + " */"
     if lang.startswith("go"):
-        # Go doc: commenti // sopra la dichiarazione
+        # Go doc: // comments above the declaration
         lines = [l.strip() for l in raw.splitlines() if l.strip()]
         return "\n".join("// " + l for l in lines) or "// TODO: doc"
     # fallback
@@ -207,8 +207,8 @@ def _extract_docstring_from_ai(s: str, lang: str) -> str:
 
 # ---------------------------
 # LLM wrapper compat
-#   Nuova firma: call_gateway_chat(model=..., messages=..., base_url=..., ...)
-#   Vecchia firma: call_gateway_chat(base_url, payload_dict)
+#   New signature: call_gateway_chat(model=..., messages=..., base_url=..., ...)
+#   Old signature: call_gateway_chat(base_url, payload_dict)
 # ---------------------------
 async def _call_gateway_chat_compat(
     *,
@@ -314,7 +314,7 @@ async def agent_code(req: Request):
                     max_tokens=256,
                     timeout_s=float(settings.REQUEST_TIMEOUT_S),
                 )
-                # Gestione eventuale JSON OpenAI-like
+                # Handle a possible OpenAI-like JSON
                 if isinstance(ai_text, str) and ai_text.strip().startswith("{"):
                     try:
                         jr = json.loads(ai_text)
@@ -328,7 +328,7 @@ async def agent_code(req: Request):
                raise HTTPException(502, f"docstring via AI failed: {type(e).__name__}: {e}")
                 
 
-            # Inserisce la docstring e poi deduplica la selection se è stata duplicata
+            # Insert the docstring and then dedup the selection if it was duplicated
             new_content = _insert_docstring_compat(lang, orig, selection, doc or "")
             new_content = _ensure_str(new_content)
             new_content = _dedupe_selection_in_text(new_content, selection)
@@ -378,19 +378,19 @@ async def agent_code(req: Request):
                 "apply": {"type":apply_type, "path": path}, 
                 "source": source}
         # ---------------- TESTS ----------------
-        # INPUT dal payload
+        # INPUT from the payload
             lang = (body.get("language") or "").strip().lower()
-            path = (body.get("path") or "").strip()  # file attivo in editor (opzionale ma consigliato)
+            path = (body.get("path") or "").strip()  # file active in the editor (optional but recommended)
             selection = body.get("selection") or ""
-            orig = body.get("content") or ""         # contenuto completo del file corrente
+            orig = body.get("content") or ""         # full content of the current file
         # ---------------- TEST ----------------
         if intent == "tests":
-            # INPUT dal payload
+            # INPUT from the payload
             
             if not selection and not orig:
                 raise HTTPException(400, "tests: serve almeno 'selection' o 'content'")
 
-            # --- Messaggi per il modello: minimal & schema-locked ---
+            # --- Messages for the model: minimal & schema-locked ---
             sys = (
                 "You are a code generation assistant that writes **tests** only.\n"
                 "Given a snippet (selection) or a full file (content), you will generate test code.\n"
@@ -406,7 +406,7 @@ async def agent_code(req: Request):
             elif orig:
                 user_parts.append("File content (derive test units from it):\n```\n" + orig + "\n```")
 
-            # Puoi opzionalmente includere una richiesta dell'utente (prompt extra) se l'estensione la invia
+            # Optionally include a user request (extra prompt) if the extension sends one
             user_hint = prompt
             if user_hint:
                 user_parts.append(f"User request:\n{user_hint}")
@@ -416,7 +416,7 @@ async def agent_code(req: Request):
                 {"role": "user", "content": "\n\n".join(user_parts)}
             ]
 
-            # --- Call LLM via gateway (come fai già per gli altri intent) ---
+            # --- Call LLM via gateway (as already done for the other intents) ---
             try:
                 raw = await llm_client.call_gateway_chat(
                     model,
@@ -429,8 +429,8 @@ async def agent_code(req: Request):
             except Exception as e:
                 raise HTTPException(502, f"gateway chat failed: {type(e).__name__}: {e}")
 
-            # --- Parse robusto: files[] oppure replace_selection ---
-            # NB: Niente euristiche sui path: lasciamo decidere al modello e normalizziamo soltanto
+            # --- Robust parse: files[] or replace_selection ---
+            # NB: No path heuristics: let the model decide and only normalize
             try:
                 pj = _extract_json(raw)
             except Exception as e:
@@ -443,12 +443,12 @@ async def agent_code(req: Request):
                 if not path or not orig or not selection:
                     raise HTTPException(422, "replace_selection richiede path, content e selection nel payload")
                 repl = str(pj["replace_selection"])
-                # sostituzione singola occorrenza della selection
+                # single-occurrence replacement of the selection
                 new_text = orig.replace(selection, repl, 1)
                 files_out = [{"path": path, "content": new_text}]
 
             elif isinstance(pj, dict) and isinstance(pj.get("files"), list) and pj["files"]:
-                # Manteniamo i path forniti dal modello; solo normalizzazione minima (slash)
+                # Keep the paths provided by the model; only minimal normalization (slashes)
                 for f in pj["files"]:
                     p = (f.get("path") or "").replace("\\", "/")
                     c = f.get("content") or ""
@@ -459,7 +459,7 @@ async def agent_code(req: Request):
             else:
                 raise HTTPException(422, "tests: empty or invalid model output (expect files[] or replace_selection)")
 
-            # --- Calcolo diff come nel resto del flusso (senza euristiche dei nomi) ---
+            # --- Diff computation as in the rest of the flow (no name heuristics) ---
             for fobj in files_out:
                 p = fobj["path"]
                 c = fobj["content"]
@@ -507,7 +507,7 @@ async def agent_code(req: Request):
                 "source": source
                 }
 
-        # ---------------- fallback generico ----------------
+        # ---------------- generic fallback ----------------
         rat = await rationale(intent, lang, path, orig, prompt)
         return {
             "diff": to_diff(path, orig, orig),

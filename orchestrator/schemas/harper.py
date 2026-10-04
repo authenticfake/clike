@@ -4,7 +4,7 @@
 from typing import Optional, List, Dict, Any, Literal, Union
 from pydantic import BaseModel, Field,ConfigDict
 
-# Messaggio chat semplice (solo user/assistant)
+# Simple chat message (user/assistant only)
 class HarperMessage(BaseModel):
     role: Literal["user", "assistant"]
     content: str
@@ -108,7 +108,7 @@ class TestSummary(BaseModel):
     failed: int = 0
     summary: str = "n/a"
 
-# --- facoltativo: risposta con echo dei target interpretati ---
+# --- optional: response echoing the interpreted targets ---
 class HarperKitResult(BaseModel):
     targets: List[str] = Field(default_factory=list)
     req_ids: List[str] = Field(default_factory=list)  # echo legacy if sent
@@ -224,7 +224,7 @@ class HarperRunResponse(BaseModel):
 
 class HarperEnvelope(BaseModel):
     out: HarperRunResponse
-    # facoltativo: spec_md per retro-compat con UI che lo usa direttamente
+    # optional: spec_md for backward compat with UIs that use it directly
     idea_md: Optional[str] = None
     spec_md: Optional[str] = None
     plan_md: Optional[str] = None

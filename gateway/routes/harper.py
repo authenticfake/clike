@@ -34,9 +34,9 @@ import yaml
 import mimetypes
 from pricing import PricingManager  # [pricing]
 
-# --- Defaults per modelli che non hanno context definito ---
-DEFAULT_CONTEXT_WINDOW = 128_000     # conservativo
-DEFAULT_MAX_OUTPUT = 16_384          # conservativo
+# --- Defaults for models without a defined context ---
+DEFAULT_CONTEXT_WINDOW = 128_000     # conservative
+DEFAULT_MAX_OUTPUT = 16_384          # conservative
 router = APIRouter(prefix="/v1/harper", tags=["harper"])
 
 log = logging.getLogger("harper")
@@ -45,8 +45,8 @@ RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 # ----     context builders ---------------------------------------------------
 SPEC_TEMPLATE_PATH = os.getenv("SPEC_TEMPLATE_PATH", "/app/templates/SPEC_TEMPLATE.md")
 
-TELEMETRY_DIR = os.getenv("HARPER_TELEMETRY_DIR", "/workspace/telemetry")  # scrive qui i .jsonl
-STUB_DIR = os.getenv("HARPER_STUB_DIR", "/workspace/gateway/stub")  # scrive qui i .jsonl
+TELEMETRY_DIR = os.getenv("HARPER_TELEMETRY_DIR", "/workspace/telemetry")  # .jsonl files are written here
+STUB_DIR = os.getenv("HARPER_STUB_DIR", "/workspace/gateway/stub")  # .jsonl files are written here
 
 
 _KIT_FILE_HEADER_RE = re.compile(
@@ -223,7 +223,7 @@ def _canonicalize_path(p: str) -> str:
     # mappa alias 'doc/' in 'docs/'
     if p.startswith("doc/"):
         p = "docs/" + p[len("doc/"):]
-    # compattazione degli slash multipli
+    # collapse multiple slashes
     while "//" in p:
         p = p.replace("//", "/")
     return p
@@ -240,14 +240,14 @@ def _extract_req_table_md(plan_md: str) -> str | None:
     """
     if not plan_md:
         return None
-    # Match dalla sezione fino alla prossima sezione (##) o fine testo
+    # Match from the section up to the next section (##) or end of text
     sec_rx = re.compile(r'(##\s*REQ-IDs Table)([\s\S]*?)(?=^##\s|\Z)', re.MULTILINE)
     m = sec_rx.search(plan_md)
     if not m:
         return None
     block = m.group(2).strip()
-    # cerca la tabella markdown (header | sep | rows)
-    # molto permissivo: prima riga con |, seconda riga con ---
+    # look for the markdown table (header | sep | rows)
+    # very permissive: first line with |, second line with ---
     lines = [ln.rstrip() for ln in block.splitlines() if ln.strip()]
     if len(lines) < 2 or '|' not in lines[0]:
         return None
@@ -262,13 +262,13 @@ def _parse_md_table(md_table: str) -> list[dict]:
     if len(rows) < 2:
         return []
     header = [c.strip() for c in rows[0].strip('|').split('|')]
-    # salta la riga di separatori
+    # skip the separator line
     data_rows = []
     for ln in rows[2:]:
         if '|' not in ln:
             continue
         cols = [c.strip() for c in ln.strip('|').split('|')]
-        # normalizza lunghezze
+        # normalize lengths
         while len(cols) < len(header):
             cols.append('')
         item = { header[i]: cols[i] for i in range(len(header)) }
@@ -282,7 +282,7 @@ def _norm_list(val: str) -> list[str]:
     """
     if not val:
         return []
-    # sostieni eventuali <br> inseriti in Acceptance
+    # replace any <br> inserted in Acceptance
     parts = re.split(r'(?:<br>|,)', val)
     return [p.strip() for p in parts if p and p.strip()]
 
@@ -320,8 +320,8 @@ def _derive_plan_json_from_md(plan_md: str) -> dict | None:
         track     = _get(r, 'track (app|infra)') or _get(r, 'track') or 'App'
         status    = _get(r, 'status (open|done|deferred)') or _get(r, 'status') or 'open'
 
-        # acceptance: ogni bullet può essere separato da <br> o nuovi a capo già fusi
-        # Rimuovi eventuali prefissi "• " inseriti in tabella
+        # acceptance: each bullet may be separated by <br> or already-merged newlines
+        # Remove any "• " prefixes inserted in the table
         acceptance = [re.sub(r'^[\-\*\u2022]\s*', '', x).strip() for x in _norm_list(acc_cell)]
 
         depends = [x for x in _norm_list(deps_cell) if x]
@@ -464,7 +464,7 @@ def _collect_req_deps(plan_data: dict, targets: list[str]) -> list[str]:
                 visited.add(dep)
                 stack.append(dep)
 
-    # escludi i target: ci interessano solo le *dipendenze*
+    # exclude the targets: we only care about *dependencies*
     for t in targets_norm:
         if t in visited:
             visited.discard(t)
@@ -482,7 +482,7 @@ def _render_chat_context(msgs: list[dict]) -> str:
         content = str(m.get("content", "")).strip()
         if not content:
             continue
-        # Evita intestazioni troppo lunghe; niente markdown aggressivo
+        # Avoid overly long headings; no aggressive markdown
         lines.append(f"{role}: {content}")
     return "\n".join(lines)
 
@@ -494,12 +494,12 @@ def _clip_text_to_tokens(text: str, max_tokens: int) -> str:
     approx = approx_tokens_from_chars(text)
     if approx <= max_tokens:
         return text
-    # taglio grezzo per sicurezza (≈ 4 char/token)
+    # rough cut for safety (≈ 4 chars/token)
     target_chars = max(128, int(max_tokens * 4))
     return text[-target_chars:]
 
 def _guess_mime(path: str) -> str:
-    # Usa libreria standard per dedurre il MIME; fallback binario generico.
+    # Use the standard library to infer the MIME type; generic binary fallback.
     mime, _ = mimetypes.guess_type(path or "", strict=False)
     return mime or "application/octet-stream"
 
@@ -592,7 +592,7 @@ def _dedupe_by_path(files_list: list[dict]) -> list[dict]:
         canon = _canonicalize_path(raw_path)
         content = f.get("content") or ""
         if not canon:
-            # salta file senza path
+            # skip files without a path
             continue
         best = seen.get(canon)
 
@@ -983,7 +983,7 @@ def _log_canonical_rejection_candidate(path: str, content: str) -> None:
 
 
 def approx_tokens_from_chars(text: str) -> int:
-    # euristica stabile usata nel resto del repo (≈ 4 chars/token)
+    # stable heuristic used across the repo (≈ 4 chars/token)
     return max(1, int(len(text) / 4))
 
 
@@ -1042,7 +1042,7 @@ PHASE_INPUT_FILE = {
     "plan": ["IDEA.md", "SPEC.md"],
     "kit": ["SPEC.md", "PLAN.md"],
     "finalize":["IDEA.md", "SPEC.md", "PLAN.md"],
-}# Pass-through opzionali dal req.gen (se presenti)
+}# Optional pass-through from req.gen (if present)
 
 def _load_json_blob(core_blobs: dict | None, suffix: str) -> dict | None:
     if not core_blobs:
@@ -1209,7 +1209,7 @@ class HarperRunRequest(BaseModel):
     rag_files: Optional[List[dict]] = None
 
 
-# --- RAG: helper locale (RagStore) per recupero per path ---------------------
+# --- RAG: local helper (RagStore) for retrieval by path ---------------------
 def _collect_dependency_candidate_paths(plan_data: dict, targets: list[str]) -> list[str]:
     reqs = plan_data.get("reqs") or []
     target_ids = {str(t or "").strip() for t in (targets or []) if str(t or "").strip()}
@@ -1255,7 +1255,7 @@ async def _append_attachs_by_files(messages: list[dict], project_id: str, paths:
             txt = (doc or {}).get("text", "")
             log.info("RAG retrieve doc '%s'", p)
             if txt:
-                # trim prudenziale
+                # conservative trim
                 if len(txt) > max_chars_each:
                     txt = txt[:max_chars_each] + "\n# ... truncated"
                 materials.append({"title": p, "text": txt})
@@ -1296,7 +1296,7 @@ def _chunk_map_from_client(rag_chunks: dict) -> dict:
     return cmap
 
 def _telemetry_path(project_id: str) -> Path:
-    # un file per progetto, append in JSONL
+    # one file per project, appended as JSONL
     fname = f"{safe_segment(project_id, 'default')}.json"
     path = resolve_within(TELEMETRY_DIR, fname)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1454,7 +1454,7 @@ def _dump_llm_provider_raw(
         uid = uuid.uuid4().hex[:12]
         ts = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
 
-        # Directory dedicata ai RAW provider dentro TELEMETRY_DIR
+        # Dedicated directory for RAW provider dumps inside TELEMETRY_DIR
         root = Path(TELEMETRY_DIR).joinpath("llm_provider_raw")
         root.mkdir(parents=True, exist_ok=True)
 
@@ -1475,7 +1475,7 @@ def _dump_llm_provider_raw(
 
         log.info("harper.llm_dump: saved provider raw response to %s", path)
     except Exception as e:
-        # Non deve mai rompere il flusso Harper, è solo telemetria aggiuntiva.
+        # Must never break the Harper flow; it is only extra telemetry.
         log.warning("harper.llm_dump: failed to save provider raw response: %s", e)
 
 
@@ -1522,7 +1522,7 @@ def _dump_llm_response(
         uid = uuid.uuid4().hex[:12]
         ts = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
 
-        # Directory dedicata ai dump LLM dentro TELEMETRY_DIR
+        # Dedicated directory for LLM dumps inside TELEMETRY_DIR
         root = Path(TELEMETRY_DIR).joinpath("clike_raw")
         root.mkdir(parents=True, exist_ok=True)
 
@@ -1545,7 +1545,7 @@ def _dump_llm_response(
 
         log.info("harper.llm_dump: saved LLM response to %s", path)
     except Exception as e:
-        # Non deve mai rompere il flusso Harper, è solo telemetria.
+        # Must never break the Harper flow; it is only telemetry.
         log.warning("harper.llm_dump: failed to save LLM response: %s", e)
 
 
@@ -1743,12 +1743,12 @@ def load_anthropic_stub_from_file(path: str = "stub/anthropic_stub.json") -> dic
         )
 
 async def loadAttachments(rag_enabled: bool, project_id: str, phase: str, messages: list[dict], inline_files: list[str], rag_files: list[dict], attachments: list[dict], model_route_label: str, runId: str) -> dict:
-    appended = []   # <--- evita UnboundLocalError
+    appended = []   # <--- avoids UnboundLocalError
     if rag_enabled and (len(rag_files) > 0 or len(inline_files) > 0):
             pathFiles = [item.get('path') for item in attachments if isinstance(item, dict) and item.get('path')]
             log.info("harper.rag enabled pathFiles=%s", pathFiles)
            
-            # 1) tentativo locale via RagStore
+            # 1) local attempt via RagStore
             try:
                 appended = await _append_attachs_by_files(messages, project_id, paths=pathFiles, contents=inline_files)
             except Exception as e:
@@ -1911,7 +1911,7 @@ async def run(req: HarperRunRequest,  request: Request):
     
     log.info("inline_files  rag_files & attachments fileds: %s, %s, %s",  len(inline_files), len(rag_files), len(attachments))
 
-    # --- PATCH: RAG logging (opzionale) ---
+    # --- PATCH: RAG logging (optional) ---
     rag_enabled = bool(req.attachments)
     if rag_enabled:
         log.info("harper.rag enabled attachments=%s", len(req.attachments))
@@ -1941,10 +1941,10 @@ async def run(req: HarperRunRequest,  request: Request):
     rag_strategy         = req.rag_strategy
     reasoning =''
     #req.gen =  {}
-    # ---- Gen params allineati a chat ----
+    # ---- Gen params aligned with chat ----
     # --- Emission guards for /plan: visible text + low reasoning ---
     if (phase or "").lower() == "plan":
-        # Forza formato testuale se non già impostato
+        # Force text format if not already set
         try:
             g = req.gen or {}
             if not g.get("response_format"):
@@ -1955,7 +1955,7 @@ async def run(req: HarperRunRequest,  request: Request):
             # if not g.get("stop"):
             #     g["stop"] = ["PLAN_END"]  
             
-            # Hint per modelli reasoning (se supportato dal provider)
+            # Hint for reasoning models (if supported by the provider)
             
             req.gen = g
         except Exception:
@@ -1996,7 +1996,7 @@ async def run(req: HarperRunRequest,  request: Request):
     gen_tool_choice = g.get("tool_choice")
     
     
-    # Logging solo con tipi JSON-safe (evita oggetti pydantic)
+    # Log only JSON-safe types (avoid pydantic objects)
     log.info(
         "harper payload (safe) %s",
         _json({
@@ -2128,7 +2128,7 @@ async def run(req: HarperRunRequest,  request: Request):
             }
         
     
-    # --- KIT: rag_strategy="deps_only" → usa plan.json da core_blobs per recuperare codice dei REQ dipendenti ---
+    # --- KIT: rag_strategy="deps_only" → use plan.json from core_blobs to retrieve the code of dependent REQs ---
     if (phase or "").lower() == "kit":
         log.info("harper.kit.rag: Retrive source code via RAG")
         strategy = (rag_strategy or "").strip().lower()
@@ -2217,13 +2217,13 @@ async def run(req: HarperRunRequest,  request: Request):
 
 
     if (phase or "").lower() == "finalize":
-        # --- RAG: append al prompt (via utils.rag_query) -------------------------
+        # --- RAG: append to the prompt (via utils.rag_query) -------------------------
         log.info("RAG append phase=%s", phase)
         try:
             materials = await collect_rag_materials_http(
                 project_id=project_id,
-                queries=req.rag_queries,          # opzionale dal client
-                core_blobs=core_blobs,            # per estrarre heading SPEC/PLAN
+                queries=req.rag_queries,          # optional, from the client
+                core_blobs=core_blobs,            # to extract SPEC/PLAN headings
                 top_k=req.rag_top_k,
             )
             if materials:
@@ -2248,23 +2248,23 @@ async def run(req: HarperRunRequest,  request: Request):
         if role in ("user", "assistant") and content:
             incoming.append({"role": role, "content": content})
 
-    # 2) calcola budget token per la chat in base a ctx_window, prompt_base e max out richiesto
+    # 2) compute the chat token budget from ctx_window, prompt_base and the requested max out
     base_prompt_tokens = approx_tokens_from_chars("".join(
         m.get("content","") for m in messages if isinstance(m.get("content"), str)
     ))
     ctx_window, max_out_cap = _resolve_ctx_caps(resolved_entry)
     requested_out = int((req.gen or {}).get("max_tokens", 7500))
-    # margine di sicurezza per header/model/tooling
-    SAFETY_PROMPT_TOKENS = 250 #Soglia minima: se chat_budget < 200 token, non appendere “Recent Harper chat” (rumore > valore).
-    # budget per chat = ctx - base_prompt - requested_out - safety (>=0)
+    # safety margin for header/model/tooling
+    SAFETY_PROMPT_TOKENS = 250 #Minimum threshold: if chat_budget < 200 tokens, do not append "Recent Harper chat" (noise > value).
+    # chat budget = ctx - base_prompt - requested_out - safety (>=0)
     chat_budget = max(0, ctx_window - base_prompt_tokens - requested_out - SAFETY_PROMPT_TOKENS)
     if incoming and chat_budget > 0:
         raw_ctx = _render_chat_context(incoming)
         clipped_ctx = _clip_text_to_tokens(raw_ctx, chat_budget)
         if clipped_ctx:
-            # Ricicliamo il messaggio 'user' già costruito, aggiungendo un blocco "Recent Harper chat"
+            # Reuse the already-built 'user' message, appending a "Recent Harper chat" block
             messages[1]["content"] += "\n\n### Recent Harper chat (trimmed)\n" + clipped_ctx
-    # 0) Check token per model
+    # 0) Token check per model
     # --- Context budgeting ---
     eff_max = _tokens_per_model(messages, resolved_entry, gen_max_tokens)
     # Dynamic timeout tuned for heavy Harper phases.
@@ -2310,7 +2310,7 @@ async def run(req: HarperRunRequest,  request: Request):
     llm_text = None
     llm_usage = {}
     try:
-        # Routing per provider
+        # Routing by provider
         if provider == "openai":
             if not OPENAI_API_KEY:
                 raise provider_not_configured("openai")
@@ -2349,7 +2349,7 @@ async def run(req: HarperRunRequest,  request: Request):
             #     len(llm_text.get("files") or []),
             # )
             # log.info("harper_plan_debug: start")
-            # await asyncio.sleep(30)  # 400 secondi
+            # await asyncio.sleep(30)  # 400 seconds
             # log.info("harper_plan_debug: end")
         else:
             raise HTTPException(400, f"unsupported provider for chat: {provider} for model '{req.model}")
@@ -2389,7 +2389,7 @@ async def run(req: HarperRunRequest,  request: Request):
         log.debug("--- Dump Clike LLM response  ---")
 
         if "llm_text" in locals() and isinstance(llm_text, dict):
-            # 1) risposta unificata (normalized Harper envelope)
+            # 1) unified response (normalized Harper envelope)
             _dump_llm_response(
                 project_id=project_id,
                 phase=phase,
@@ -2401,7 +2401,7 @@ async def run(req: HarperRunRequest,  request: Request):
             )
             log.debug("--- Dump Clike LLM response done ---")
 
-            # 2) payload grezzo del provider (campo 'raw' dell'envelope)
+            # 2) raw provider payload (the envelope's 'raw' field)
             provider_raw = llm_text.get("raw")
             log.debug("--- Dump Provider LLM response  ---")
 
@@ -2418,7 +2418,7 @@ async def run(req: HarperRunRequest,  request: Request):
         else:
             log.info("harper.llm_dump: skip (llm_text not available or not a dict)")
     except Exception as e:
-        # Non deve mai interferire con il flusso principale
+        # Must never interfere with the main flow
         log.warning("harper.llm_dump: error while dumping response: %s", e)
 
     if not isinstance(llm_text, dict):
@@ -2459,7 +2459,7 @@ async def run(req: HarperRunRequest,  request: Request):
                 f"empty provider result for phase={phase}: no text and no files returned",
             )
 
-    # --- soft-fail & normalizzazione i.e. SPEC.md ---
+    # --- soft-fail & normalization i.e. SPEC.md ---
     system_md_txt = (system_md_txt or "").strip()
     missing = []
     if phase == "spec":
@@ -2468,7 +2468,7 @@ async def run(req: HarperRunRequest,  request: Request):
             warnings.append("empty_model_output: model returned empty content, used fallback SPEC template")
             system_md_txt = _fallback_spec_from_template(idea, model_route_label, req.runId)
 
-        # garantiamo un H1 per consumer downstream
+        # guarantee an H1 for downstream consumers
         if not system_md_txt.lstrip().startswith("#"):
             system_md_txt = "# SPEC — Generated\n\n" + system_md_txt
             warnings.append("normalized_heading: added H1 heading to SPEC")
@@ -2490,7 +2490,7 @@ async def run(req: HarperRunRequest,  request: Request):
     # --- Multi-file support
     files: list[dict] = []
     gen_files: list[dict] = [] 
-    # Se il provider (es. anthropic.py / openai_compat.py) ha già estratto i file, usali.
+    # If the provider (e.g. anthropic.py / openai_compat.py) already extracted the files, use them.
     if provider_files:
         log.info("harper.files from provider: %d", len(provider_files))
         for pf in provider_files:
@@ -2501,7 +2501,7 @@ async def run(req: HarperRunRequest,  request: Request):
                 if str(raw_provider_path or "").strip():
                     warnings.append(f"ignored_invalid_provider_file_path:{str(raw_provider_path)[:160]}")
                     continue
-                p = default_doc_path  # fallback per non perdere contenuti
+                p = default_doc_path  # fallback so content is not lost
             files.append({
                 "path": p,
                 "content": c,
@@ -2536,7 +2536,7 @@ async def run(req: HarperRunRequest,  request: Request):
             if phase in structured_only_phases:
                 warnings.append(f"{phase}_no_file_blocks: model did not emit valid file blocks")
             else:
-                # Fallback: un solo documento di fase
+                # Fallback: a single phase document
                 files.append({
                     "path": default_doc_path,
                     "content": system_md_txt,
@@ -2546,7 +2546,7 @@ async def run(req: HarperRunRequest,  request: Request):
                 }) 
 
 
-    # Deduplica finale (per evitare file doppi o path ripetuti tra provider_files e parsing)
+    # Final dedup (avoid duplicate files or repeated paths between provider_files and parsing)
     files = _dedupe_by_path(files)
     if (phase or "").lower() == "kit":
         current_target = str((targets or [None])[0] or "").strip()
@@ -2728,11 +2728,11 @@ async def run(req: HarperRunRequest,  request: Request):
                 502,
                 "plan phase did not emit docs/harper/plan.json; markdown-derived fallback is disabled for promotion-grade planning"
             )
-        # Path atteso
+        # Expected path
         plan_doc_path = f"{req.docRoot or 'docs/harper'}/PLAN.md"
         plan_json_path = f"{req.docRoot or 'docs/harper'}/plan.json"
 
-        # 1) Trova il contenuto del PLAN.md
+        # 1) Find the PLAN.md content
         plan_md_text = None
         for f in files:
             p = (f.get("path") or "").strip()
@@ -2741,7 +2741,7 @@ async def run(req: HarperRunRequest,  request: Request):
                 break
 
         if plan_md_text is None and not gen_files:
-            # no file-blocks: usa l'intero testo di fase
+            # no file blocks: use the whole phase text
             plan_md_text = system_md_txt or ""
 
         # 2) Promotion-grade rule:
@@ -2818,7 +2818,7 @@ async def run(req: HarperRunRequest,  request: Request):
     telemetry.setdefault("pricing", {})  # dict
     telemetry["pricing"].update(pricing_info)  # {input_cost, output_cost, total_cost}  # [pricing]
 
-    # opzionale ma utile: salva anche i prezzi unitari se disponibili
+    # optional but useful: also store unit prices if available
     p_cfg = _get_pricing_manager().for_model(
         model_id=resolved_entry.get("id") if isinstance(resolved_entry, dict) else None,
         provider=resolved_entry.get("provider") if isinstance(resolved_entry, dict) else provider,

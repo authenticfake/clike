@@ -52,7 +52,7 @@ class RagStore:
             "max_chars_per_doc": max(500, int(max_chars_per_doc)),
             "search_top_k": int(search_top_k),
         }
-        # ⚠️ importante: usa _rag_base_url(base_url) per evitare "localhost" nel container gateway
+        # ⚠️ important: use _rag_base_url(base_url) to avoid "localhost" in the gateway container
         url = f"{_rag_base_url(base_url)}/fetch_by_paths"
         log.info("rag.store rag get_by_path %s %s", url, payload)
 

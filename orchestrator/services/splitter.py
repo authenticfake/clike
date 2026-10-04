@@ -42,7 +42,7 @@ def split_python_per_symbol(code: str) -> List[Symbol]:
     try:
         tree = ast.parse(code)
     except SyntaxError:
-        # Se non parsabile, restituisci blob unico
+        # If not parsable, return a single blob
         return [Symbol(name="generated", kind="unknown", content=code)]
     out: List[Symbol] = []
     lines = code.splitlines()
@@ -56,14 +56,14 @@ def split_python_per_symbol(code: str) -> List[Symbol]:
             end = getattr(node, 'end_lineno', node.lineno)
             out.append(Symbol(name=node.name, kind="function", content=_block(node.lineno, end)))
     if not out:
-        # Nessun simbolo top-level trovato -> blob unico
+        # No top-level symbol found -> single blob
         return [Symbol(name="generated", kind="unknown", content=code)]
     return out
 
 # -------- TypeScript: tree-sitter (class/function top-level) ----------
 def split_ts_per_symbol(code: str) -> List[Symbol]:
     if _TS_LANG is None or Parser is None:
-        # Senza parser -> blob unico (fallback)
+        # No parser -> single blob (fallback)
         return [Symbol(name="generated", kind="unknown", content=code)]
     parser = Parser()
     parser.set_language(_TS_LANG)
@@ -76,7 +76,7 @@ def split_ts_per_symbol(code: str) -> List[Symbol]:
         return src[node.start_byte:node.end_byte]
 
     for node in root.children:
-        # consideriamo top-level: class declaration / function declaration
+        # we consider top-level: class declaration / function declaration
         if node.type in ("class_declaration", "function_declaration"):
             # name
             name_node = None
@@ -101,20 +101,20 @@ def map_symbol_to_path(sym: Symbol, language: str, settings: Any, hints: Optiona
         fname = f"{base}.py"
         return f"{code_root}/{fname}"
     if language == "typescript":
-        # preserva CamelCase per classi
+        # preserve CamelCase for classes
         ext = ".ts"
         fname = f"{sym.name}{ext}" if sym.kind == "class" else f"{sym.name}{ext}"
         return f"{code_root}/{fname}"
-    # default: un unico file testo
+    # default: a single text file
     return f"{code_root}/generated.txt"
 
-# -------- Strategia di split ----------
+# -------- Split strategy ----------
 def apply_strategy(symbols: List[Symbol], strategy: str, language: str, settings: Any) -> List[Dict[str, str]]:
     strategy = (strategy or "per_symbol").lower()
     if strategy == "none":
         blob = "\n\n".join(s.content for s in symbols)
         return [{"path": map_symbol_to_path(Symbol("generated", "unknown", blob), language, settings), "content": blob}]
-    # "per_symbol" (default) o "per_filehint"
+    # "per_symbol" (default) or "per_filehint"
     files: List[Dict[str, str]] = []
     for s in symbols:
         files.append({"path": map_symbol_to_path(s, language, settings), "content": s.content})

@@ -8,7 +8,7 @@ from datetime import datetime
 from fastapi import APIRouter, Query, HTTPException
 from utils.safe_paths import UnsafePathError, resolve_within, safe_segment
 
-# opzionale se lo userai in futuro
+# optional, in case it is used in the future
 try:
     from pricing import PricingManager  # noqa: F401
 except Exception:
@@ -17,7 +17,7 @@ except Exception:
 router = APIRouter(prefix="/v1/metrics", tags=["metrics"])
 log = logging.getLogger("gateway.telemetry")
 
-# === Config e util ===
+# === Config and utils ===
 _TELEMETRY_DIR_ENV = os.getenv("HARPER_TELEMETRY_DIR", "/workspace/telemetry")
 TELEMETRY_DIR: Path = Path(_TELEMETRY_DIR_ENV).resolve()
 
@@ -71,7 +71,7 @@ def _load_any_json(path: Path, max_lines: Optional[int] = None) -> List[dict]:
                         rows.append(x)
             return rows
         except Exception:
-            # se array fallisce, tenta come JSONL
+            # if array parsing fails, try as JSONL
             pass
 
     # JSONL
@@ -92,12 +92,12 @@ def _load_any_json(path: Path, max_lines: Optional[int] = None) -> List[dict]:
     return rows
 
 def _load_project(project_id: str) -> List[dict]:
-    # 1) file singolo <id>.(json|ndjson|log|txt) nella root
+    # 1) single file <id>.(json|ndjson|log|txt) in the root
     for ext in _EXTS:
         cand = TELEMETRY_DIR / f"{safe_segment(project_id, 'default')}{ext}"
         if cand.exists():
             return _load_any_json(cand)
-    # 2) cartella telemetry/<project_id>/** con file supportati
+    # 2) folder telemetry/<project_id>/** with supported files
     folder = TELEMETRY_DIR / safe_segment(project_id, "default")
     rows: List[dict] = []
     if folder.exists() and folder.is_dir():
@@ -108,7 +108,7 @@ def _load_project(project_id: str) -> List[dict]:
 
 def _resolve_relpath(relpath: str) -> Path:
     base = _ensure_base_dir()
-    # normalizza e impedisci path traversal
+    # normalize and prevent path traversal
     try:
         p = resolve_within(base, relpath)
     except UnsafePathError:
@@ -184,7 +184,7 @@ def _project_ids_from_content(paths: Iterable[Path]) -> Dict[str, int]:
             counts[pid] = counts.get(pid, 0) + 1
     return counts
 
-# === API: elenco file presenti (globale o filtrato per progetto) ===
+# === API: list of available files (global or filtered by project) ===
 @router.get("/harper/files")
 def list_telemetry_files(project_id: Optional[str] = Query(None)) -> dict:
     base = _ensure_base_dir()
@@ -192,9 +192,9 @@ def list_telemetry_files(project_id: Optional[str] = Query(None)) -> dict:
     for p in _iter_project_files():
         if project_id:
             rows = _load_any_json(p, max_lines=50)
-            # include se contiene almeno un record col project_id
+            # include if it contains at least one record with the project_id
             if not any((r.get("project_id") == project_id) for r in rows):
-                # fallback: nome file/stem o nome cartella
+                # fallback: file name/stem or folder name
                 if p.stem != project_id and p.parent.name != project_id:
                     continue
         st = p.stat()
@@ -212,13 +212,13 @@ def list_telemetry_files(project_id: Optional[str] = Query(None)) -> dict:
         })
     return {"dir": str(base), "files": items}
 
-# === Elenco progetti (dedotti dal contenuto) ===
+# === Project list (inferred from content) ===
 @router.get("/harper/projects")
 def list_projects() -> dict:
     paths = _iter_project_files()
     counts = _project_ids_from_content(paths)
 
-    # fallback: se vuoto, prova a dedurre da file/folder names
+    # fallback: if empty, try to infer from file/folder names
     if not counts:
         for p in paths:
             if p.parent == TELEMETRY_DIR and p.suffix.lower() in _EXTS:
@@ -229,7 +229,7 @@ def list_projects() -> dict:
     projects = [{"id": pid, "files": n} for pid, n in sorted(counts.items())]
     return {"projects": projects}
 
-# === Helpers per aggregate/series/top/raw su una lista di righe ===
+# === Helpers for aggregate/series/top/raw over a list of rows ===
 def _aggregate_rows(rows: List[dict]) -> dict:
     total_cost = 0.0
     per_phase: Dict[str, dict] = {}
@@ -324,7 +324,7 @@ def _raw_rows(rows: List[dict],
         "items": page_items,
     }
 
-# === Aggregate / Series / Top per PROGETTO ===
+# === Aggregate / Series / Top per PROJECT ===
 @router.get("/harper/aggregate")
 def harper_aggregate(
     project_id: str = Query(...),

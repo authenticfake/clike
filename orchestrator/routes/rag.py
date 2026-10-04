@@ -61,15 +61,15 @@ class RagPurgeRequest(BaseModel):
 # --- NEW: fetch models ---
 class RagFetchRequest(RagBase):
     project_id: str
-    # Se indicati, limita il fetch a questi path (match "starts with" case-insensitive)
+    # If given, restrict the fetch to these paths (case-insensitive "starts with" match)
     paths: Optional[List[str]] = None
-    # In alternativa/aggiunta, filtra per prefisso
+    # Alternatively/additionally, filter by prefix
     path_prefix: Optional[str] = None
-    # Quanti documenti (path) restituire al massimo
+    # Maximum number of documents (paths) to return
     limit_docs: int = 20
-    # Quanti caratteri massimi per documento aggregato (per prompt budget)
+    # Maximum characters per aggregated document (for prompt budget)
     max_chars_per_doc: int = 4000
-    # Quanti chunk pescare dallo store (esageriamo: 5x documents)
+    # How many chunks to pull from the store (overshoot: 5x documents)
     search_top_k: int = 100
 
 class RagFetchByPathsRequest(RagBase):
@@ -174,7 +174,7 @@ def _extract_text_from_xlsx_bytes(raw: bytes) -> str:
         return ""
 
 def _extract_text_from_xls_bytes(raw: bytes) -> str:
-    # Richiede xlrd>=2.0 (legge solo .xls)
+    # Requires xlrd>=2.0 (reads .xls only)
     if not xlrd:
         log.warning("xlrd non disponibile: skip xls")
         return ""
@@ -269,12 +269,12 @@ async def rag_index(req: RagIndexRequest):
     store = RagStore(project_id=req.project_id)
     log.info("RAG Store for indexing - %d items", len(req.items))
 
-    # Costruisci docs normalizzati: sempre {"path":..., "text":...}
+    # Build normalized docs: always {"path":..., "text":...}
     docs = []
     for it in (req.items or []):
         p = (it.path or "").strip()
         txt = (it.text or "") if isinstance(it.text, str) else ""
-        b64 = it.bytes_b64 or ""  # opzionale
+        b64 = it.bytes_b64 or ""  # optional
 
         if not txt and b64:
             raw = _b64_to_bytes(b64)
@@ -299,7 +299,7 @@ async def rag_index(req: RagIndexRequest):
                     log.info("inline: PPTX")
                     txt = _extract_text_from_pptx_bytes(raw)
                 else:
-                    # fallback: se è testo “grezzo” o sconosciuto, prova a decodare come utf-8
+                    # fallback: if it is "raw" or unknown text, try decoding as utf-8
                     try:
                         txt = raw.decode("utf-8", errors="ignore")
                     except Exception:
@@ -311,7 +311,7 @@ async def rag_index(req: RagIndexRequest):
             docs.append({"path": p or "doc", "text": txt.strip()})
 
     if not docs:
-        # nessun testo estraibile -> ok a vuoto (oppure alza 400 se preferisci)
+        # no extractable text -> ok with empty (or raise 400 if preferred)
         log.info("RAG index: no indexable docs")
         return {"ok": True, "count": 0}
 

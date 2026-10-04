@@ -4,7 +4,7 @@ import os, json, yaml, logging
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
-# Chiave attesa in models.yaml:
+# Expected key in models.yaml:
 # models:
 #   - id: openai:gpt-5
 #     provider: openai
@@ -29,7 +29,7 @@ class Pricing:
 
 class PricingManager:
     def __init__(self, table: Dict[str, Pricing]):
-        # key: model_id (es. "anthropic:claude-sonnet-4-5")
+        # key: model_id (e.g. "anthropic:claude-sonnet-4-5")
         self._table = table
 
     @staticmethod
@@ -52,12 +52,12 @@ class PricingManager:
             mid = m.get("id") or _mk_id(m.get("provider"), m.get("name"))
             #mid = m.get("remote_name")
             pr = m.get("pricing") or {}
-            # supporta anche alias price_* usati in alcune repo
+            # also supports price_* aliases used in some repos
             inp = pr.get("input_per_1k", pr.get("price_input_per_1k", 0.0)) or 0.0
             out = pr.get("output_per_1k", pr.get("price_output_per_1k", 0.0)) or 0.0
             table[str(mid)] = Pricing(float(inp), float(out))
 
-        # fallback opzionale da env (JSON dict {model_id: {input_per_1k, output_per_1k}})
+        # optional fallback from env (JSON dict {model_id: {input_per_1k, output_per_1k}})
         extra = os.getenv("HARPER_PRICING_JSON")
         if extra:
             try:
@@ -73,7 +73,7 @@ class PricingManager:
         return cls(table)
 
     def for_model(self, model_id: Optional[str], provider: Optional[str], name: Optional[str]) -> Pricing:
-        # tenta model_id diretto, altrimenti provider:name
+        # try model_id directly, otherwise provider:name
         keys = []
         if model_id:
             keys.append(model_id)
