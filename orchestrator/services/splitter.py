@@ -7,7 +7,7 @@ from typing import List, Optional, Dict, Any
 
 # TS parsing via tree-sitter
 try:
-    from tree_sitter import Language, Parser  # type: ignore
+    from tree_sitter import Parser  # type: ignore
     from tree_sitter_languages import get_language  # type: ignore
     _TS_LANG = get_language("typescript")
 except Exception:

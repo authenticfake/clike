@@ -1,6 +1,4 @@
-import os
 from fastapi import APIRouter
-from config import load_models_cfg
 
 router = APIRouter()
 

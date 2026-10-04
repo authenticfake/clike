@@ -2,13 +2,12 @@
 import re
 import json
 import logging
-from typing import Any, Dict, Tuple, List, Optional
+from typing import Any, Dict, Tuple, List
 from fastapi import APIRouter, Request, HTTPException
 
 from routes.v1 import _extract_json
-from services.utils import read_file, write_file, to_diff, detect_lang
+from services.utils import read_file, to_diff, detect_lang
 from services.docstrings import (
-    make_docstring as _make_docstring,
     insert_docstring as _insert_docstring,
 )
 from config import settings
@@ -157,18 +156,6 @@ async def _read_json_safely(req: Request) -> Dict[str, Any]:
 
 
 # ---------------------------
-# util: flag reader (dotted / nested)
-# ---------------------------
-def _flag(d: Dict[str, Any], dotted_key: str, nested_root: str, nested_leaf: str, default: bool = False) -> bool:
-    if dotted_key in d:
-        return bool(d[dotted_key])
-    nest = d.get(nested_root)
-    if isinstance(nest, dict) and nested_leaf in nest:
-        return bool(nest[nested_leaf])
-    return default
-
-
-# ---------------------------
 # pulizia output AI
 # ---------------------------
 _FENCE_RE = re.compile(r"^```[a-zA-Z0-9_+-]*\s*([\s\S]*?)\s*```$", re.MULTILINE)
@@ -250,19 +237,6 @@ async def _call_gateway_chat_compat(
         }
         return await call_gateway_chat(gateway, payload)
 
-
-# ---------------------------
-# docstring shims (compat vecchie firme)
-# ---------------------------
-def _make_docstring_compat(lang: str, text: str, selection: str, prompt: str) -> str:
-    try:
-        return _make_docstring(lang, text=text, selection=selection, prompt=prompt)
-    except TypeError:
-        try:
-            return _make_docstring(lang, text, selection, prompt)
-        except TypeError:
-            # alcune versioni usano code=
-            return _make_docstring(lang, code=text, selection=selection, prompt=prompt)
 
 def _insert_docstring_compat(lang: str, orig: str, selection: str, doc: str) -> Tuple[str, bool]:
     res = _insert_docstring(lang, orig, "", doc)

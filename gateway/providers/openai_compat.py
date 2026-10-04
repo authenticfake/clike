@@ -250,29 +250,6 @@ def _responses_input(messages: List[Dict[str, Any]]) -> Tuple[str, List[Dict[str
     return "\n\n".join(systems).strip(), items
 
 
-def _linearize_messages_for_responses(messages: List[Dict[str, str]]) -> Tuple[str, str]:
-    """
-    Converte i messaggi in:
-    - instructions: somma dei messaggi system
-    - input: conversazione user/assistant linearizzata (stateless)
-    """
-    systems = []
-    turns = []
-    for m in messages:
-        role = m.get("role", "")
-        content = m.get("content", "")
-        if role == "system":
-            systems.append(content)
-        elif role in ("user", "assistant"):
-            turns.append(f"{role.upper()}:\n{content}")
-        else:
-            # altri ruoli: trattali come user per non perdere contenuto
-            turns.append(f"{role.upper() or 'USER'}:\n{content}")
-    instructions = "\n\n".join(systems).strip()
-    linear_input = "\n\n---\n\n".join(turns).strip()
-    return instructions, linear_input
-
-
 def _build_responses_payload(
     model: str,
     messages: List[Dict[str, str]],
@@ -447,7 +424,6 @@ def _extract_responses_text(resp_json: Dict[str, Any]) -> str:
     return "\n".join(p.strip() for p in parts if isinstance(p, str) and p.strip())
 
 
-
 def _normalize_responses_response(resp_json: Dict[str, Any]) -> Dict[str, Any]:
     text = ""
     finish_reason = ""
@@ -522,47 +498,6 @@ def _normalize_responses_response(resp_json: Dict[str, Any]) -> Dict[str, Any]:
     return _mk_unified_result(True, text, files, usage, finish_reason, resp_json, [])
 
 
-#used for harper cenario for homologte the oai raw reposndse to clki reposnse
-# --- normalizzazione esito LLM (allineata a Free/Coding) ---
-def coerce_text_and_usage(raw: Any) -> Tuple[str, Dict[str, Any]]:
-    """
-    Accetta: dict OpenAI, stringa JSON, stringa testo puro.
-    Restituisce sempre (text, usage).
-    Non solleva eccezioni.
-    """
-    try:
-        # Caso 1: dict già parsato (OpenAI compat)
-        if isinstance(raw, dict):
-            if "choices" in raw and raw["choices"]:
-                msg = raw["choices"][0].get("message", {}) or {}
-                content = msg.get("content") or ""
-                usage = raw.get("usage") or {}
-                return str(content or "").strip(), (usage if isinstance(usage, dict) else {})
-            # altri tipi di dict → stringify prudente
-            return str(raw).strip(), {}
-        # Caso 2: stringa
-        if isinstance(raw, str):
-            s = raw.strip()
-            # se sembra JSON, prova a fare json.loads
-            if (s.startswith("{") and s.endswith("}")) or (s.startswith("[") and s.endswith("]")):
-                try:
-                    j = json.loads(s)
-                    if isinstance(j, dict) and "choices" in j and j["choices"]:
-                        msg = j["choices"][0].get("message", {}) or {}
-                        content = msg.get("content") or ""
-                        usage = j.get("usage") or {}
-                        return str(content or "").strip(), (usage if isinstance(usage, dict) else {})
-                    return str(j).strip(), {}
-                except Exception:
-                    # non è JSON valido → trattalo come testo
-                    return s, {}
-            # plain text
-            return s, {}
-        # fallback generico
-        return str(raw or "").strip(), {}
-    except Exception:
-        # ultima rete di salvataggio
-        return "", {}
     
 async def chat(
     base: str,

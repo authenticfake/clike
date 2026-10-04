@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from typing import List, Dict, Any, Optional
+from typing import List, Optional
 import logging
 import io, os, base64
 from pdfminer.high_level import extract_text  # import INSIDE to avoid import warning at module load
@@ -78,61 +78,6 @@ class RagFetchByPathsRequest(RagBase):
     max_chars_per_doc: int = 4000
     search_top_k: int = 100
     
-def _path_matches(p: str, paths: Optional[List[str]], prefix: Optional[str]) -> bool:
-    p_norm = (p or "").strip()
-    if not p_norm:
-        return False
-    p_low = p_norm.lower()
-    if prefix and p_low.startswith(prefix.lower()):
-        return True
-    if paths:
-        for want in paths:
-            w = (want or "").strip()
-            if not w:
-                continue
-            # match "starts with" per robustezza su path normalizzati
-            if p_low.startswith(w.lower()):
-                return True
-    # se non sono imposti paths/prefix, accetta tutti
-    return (paths is None and prefix is None)
-
-def _aggregate_hits_by_path(
-    hits: List[Dict[str, Any]],
-    max_chars_per_doc: int,
-    limit_docs: int,
-    paths: Optional[List[str]],
-    prefix: Optional[str],
-) -> List[Dict[str, Any]]:
-    """
-    Raggruppa i risultati per 'path' e concatena i testi finché non supera max_chars_per_doc.
-    Ritorna una lista di {path, text, chunks:int}.
-    """
-    buckets: Dict[str, Dict[str, Any]] = {}
-    for h in (hits or []):
-        p = (h.get("path") or "").strip()
-        t = (h.get("text") or "").strip()
-        if not p or not t:
-            continue
-        if not _path_matches(p, paths, prefix):
-            continue
-        b = buckets.get(p)
-        if not b:
-            b = {"path": p, "text": "", "chunks": 0}
-            buckets[p] = b
-        # Accumula rispettando il budget caratteri
-        remaining = max_chars_per_doc - len(b["text"])
-        if remaining <= 0:
-            continue
-        # +1 riga separatrice per chiarezza
-        piece = (("\n" if b["text"] else "") + t)[:remaining]
-        if piece:
-            b["text"] += piece
-            b["chunks"] += 1
-
-    # Ordina per path (stabile) e limita la quantità di documenti
-    ordered = list(buckets.values())
-    ordered.sort(key=lambda x: x["path"])
-    return ordered[: max(1, limit_docs)]
 
 
 def _b64_to_bytes(b64: Optional[str]) -> Optional[bytes]:

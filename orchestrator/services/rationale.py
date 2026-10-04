@@ -1,5 +1,5 @@
 # services/rationale.py
-import re, os
+import re
 from typing import Optional
 from .llm_client import call_gateway_chat  # tua funzione già esistente
 from config import settings

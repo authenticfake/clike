@@ -205,9 +205,6 @@ def _get_pricing_manager():
 
 # --- Harper: Dynamic Context Budgeting (messages builder) --------------------
 
-def _safe_len(s: str|None) -> int:
-    return len(s or "")
-
 
 def _canonicalize_path(p: str) -> str:
     """
@@ -488,8 +485,6 @@ def _render_chat_context(msgs: list[dict]) -> str:
         # Evita intestazioni troppo lunghe; niente markdown aggressivo
         lines.append(f"{role}: {content}")
     return "\n".join(lines)
-
-
 
 
 def _clip_text_to_tokens(text: str, max_tokens: int) -> str:
@@ -991,8 +986,6 @@ def approx_tokens_from_chars(text: str) -> int:
     # euristica stabile usata nel resto del repo (≈ 4 chars/token)
     return max(1, int(len(text) / 4))
 
-def _messages_text_len(messages: list[dict]) -> int:
-    return sum(len(m.get("content","")) for m in (messages or []) if isinstance(m.get("content"), str))
 
 def _resolve_ctx_caps(model_entry: dict | None) -> tuple[int, int]:
     DEFAULT_CONTEXT_WINDOW = 128000
@@ -1033,7 +1026,6 @@ def _read_text(path: str) -> str:
     except Exception:
         log.error("Error reading %s", path)
         return ""
-
 
 
 PHASE_OUTPUT_FILE = {
@@ -1081,12 +1073,6 @@ def _load_file_requirements_from_core_blobs(core_blobs: dict | None) -> dict | N
     return _load_json_blob(core_blobs, "file_requirements.json")
 
 
-
-
-
-
-
-
 def _load_selected_capability_json_from_core(core_blobs: dict | None) -> dict:
     for name, content in (core_blobs or {}).items():
         if str(name or "").lower().endswith("clike_selected_capability_context.json"):
@@ -1096,8 +1082,6 @@ def _load_selected_capability_json_from_core(core_blobs: dict | None) -> dict:
             except Exception:
                 return {}
     return {}
-
-
 
 
 def _selected_capability_names(group: dict) -> list[str]:
@@ -1112,17 +1096,6 @@ def _selected_capability_names(group: dict) -> list[str]:
         for item in resolved
         if isinstance(item, dict) and str(item.get("name") or "").strip()
     ]
-
-
-
-
-
-
-
-
-
-
-
 
 
 def _route_label(model: str | None, profile: str | None) -> str:
@@ -1675,35 +1648,6 @@ async def gather_rag_materials(rag_chunks, rag_top_k, store, rag_queries=None) -
 
     return materials
 
-async def _retrive_rag_chunks(messages: list[dict], rag_chunks: list[dict] | None, rag_queries: list[str] | None, rag_top_k: int | None,  project_id: str | None ) -> list[dict]:
-    # 2) RAG: client-first + server-search (Qdrant)
-
-    materials = []
-    try:
-        log.info("Clike with '%s' ", project_id)
-        store = RagStore(project_id=project_id or "default") if RagStore else None
-        log.info("store  '%s' ", store)
-
-        # Prepara 'rag_queries' se non arrivano dal client: estrai da IDEA/SPEC headings nei chunks
-        if not rag_queries:
-            log.info("rag_queries not found (rag_chunks) '%s' ", len(rag_chunks)) # type: ignore
-            qs = []
-            for ch in (rag_chunks or []):
-                name = (ch.get("name") or "").lower()
-                if name in ("idea.md","spec.md"):
-                    # prime heading line come query
-                    for ln in (ch.get("text") or "").splitlines():
-                        if ln.strip().startswith("#"):
-                            qs.append(ln.strip("# ").strip())
-                            break
-            rag_queries = qs[:12]  # cap
-
-        materials = await gather_rag_materials(rag_chunks, rag_top_k, store, rag_queries=rag_queries)
-        log.info("materials length '%s' ", len(materials))
-
-    except Exception as _e:
-        log.exception("Failed to gather RAG materials: %s", _e)
-    return materials
 
 def _tokens_per_model(messages: list[dict], model_entry: dict | None, req_max: int) -> int:
     """

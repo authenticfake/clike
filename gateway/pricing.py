@@ -2,7 +2,7 @@
 from __future__ import annotations
 import os, json, yaml, logging
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 # Chiave attesa in models.yaml:
 # models:

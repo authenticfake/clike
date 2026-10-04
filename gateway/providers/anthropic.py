@@ -18,10 +18,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Sequence
 import json
-import httpx
 import re
 import unicodedata
-from functools import lru_cache
 from providers.http import post_with_retries
 
 log = logging.getLogger("anthropic")

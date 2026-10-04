@@ -1,5 +1,5 @@
 # gateway/routes/chat.py
-import os, httpx, asyncio, time, json, logging
+import os, httpx, json, logging
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional, Union
@@ -49,30 +49,6 @@ def raise_for_provider_failure(result: Any, model: str) -> Any:
 router = APIRouter()
 log = logging.getLogger("gateway.chat")
 
-# ---------- Helpers comuni ----------
-def _sanitize_generation_api(provider: str, api: str | None) -> str:
-    """
-    Normalize the 'api' selector for providers.
-    - OpenAI/ AzureOpenAI can use 'responses' or 'chat'.
-    - Anthropic, Ollama, vLLM: force 'chat' (gateway implements OpenAI-compat /v1/chat/completions).
-    """
-    if not api:
-        return "chat"
-    p = (provider or "").lower()
-    a = (api or "").lower()
-    if p in ("openai", "azure") and a in ("responses", "chat"):
-        return a
-    # For Anthropic (and others) never use 'responses'
-    return "chat"
-
-def _normalize_model(model: str) -> str:
-    m = (model or "").strip()
-    if ":" in m:
-        prov, name = m.split(":", 1)
-        if prov.strip().lower() == "openai":
-            m = name.strip()
-    return m
-
 
 # Snapshot preferiti per OpenAI (se disponibili)
 SNAPSHOT_ALIAS = {
@@ -83,33 +59,6 @@ SNAPSHOT_ALIAS = {
 
 _models_cache = {"ts": 0.0, "ids": []}  # list per JSON-friendliness
 
-async def _get_openai_models() -> list[str]:
-    now = time.time()
-    if _models_cache["ids"] and (now - _models_cache["ts"] < 60):
-        return _models_cache["ids"]
-    if not OPENAI_API_KEY:
-        return []
-    try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            r = await client.get(f"{OPENAI_BASE}/models", headers={"Authorization": f"Bearer {OPENAI_API_KEY}"})
-            r.raise_for_status()
-            data = r.json()
-            ids = [x.get("id") for x in (data.get("data") or []) if isinstance(x, dict) and x.get("id")]
-            _models_cache["ts"] = now
-            _models_cache["ids"] = ids
-            return ids
-    except httpx.HTTPError:
-        return []
-
-async def _pick_openai_remote(norm: str) -> str:
-    avail = await _get_openai_models()
-    snap = SNAPSHOT_ALIAS.get(norm)
-    if snap and snap in avail:
-        return snap
-    if norm in avail:
-        return norm
-    examples = ", ".join(sorted([m for m in avail if isinstance(m, str) and m.startswith("gpt-")][:10])) or "(none)"
-    raise HTTPException(400, detail=f"Model '{norm}' not available for this API key. Available examples: {examples}")
 
 def _sanitize_mode_contract_payload(provider: str, mode_contract: dict | None, response_format, tools, tool_choice) -> dict:
     contract = dict(mode_contract or {})

@@ -3,7 +3,6 @@
 Moved from gateway/tests/test_active_output_contract.py with the cloud prompt composition (WP8.7).
 """
 
-import json
 import sys
 from pathlib import Path
 

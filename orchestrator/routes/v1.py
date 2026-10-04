@@ -1,16 +1,13 @@
 # routes/v1.py
 import os, json, logging, re, uuid, base64
-from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 from fastapi import APIRouter, HTTPException, Request, Query
 import httpx
-from pydantic import BaseModel
 from config import settings
 from services import utils as su
 from services.llm_client import call_gateway_chat, call_gateway_generate
 from services.llm_contracts import resolve_llm_selection, load_catalog
 import time as _time
-from copy import deepcopy as _deepcopy
 from services.rag_store import RagStore
 import docx
 from pdfminer.high_level import extract_text
@@ -24,47 +21,7 @@ from services.mode_contracts import normalize_mode_contract, validate_chat_contr
 from services.execution_policy import normalize_execution_preference
 
 # splitter (alcune funzioni potrebbero non essere usate, ma manteniamo le import per compat)
-from services.splitter import (
-    infer_language,
-    split_python_per_symbol,
-    split_ts_per_symbol,
-    apply_strategy,
-)
 from utils.service_auth import internal_auth_headers
-def build_response_format_files_bundle() -> dict:
-    """
-    OpenAI structured output schema for a bundle of files.
-    Strict schema: properties == required (no extras).
-    Minimal: path, content, mime.
-    """
-    return {
-        "type": "json_schema",
-        "json_schema": {
-            "name": "files_bundle_v1",
-            "strict": True,
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "files": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "path":    {"type": "string"},
-                                "content": {"type": "string"},
-                                "mime":    {"type": "string"},
-                            },
-                            "required": ["path", "content", "mime"],
-                            "additionalProperties": False,
-                        },
-                        "minItems": 1
-                    }
-                },
-                "required": ["files"],
-                "additionalProperties": False,
-            },
-        },
-    }
 
 router = APIRouter(prefix="/v1")
 log = logging.getLogger("orchestrator.v1")
@@ -73,7 +30,6 @@ INLINE_MAX_FILE_KB   = int(os.getenv("INLINE_MAX_FILE_KB", "64"))
 INLINE_MAX_TOTAL_KB  = int(os.getenv("INLINE_MAX_TOTAL_KB", "256"))
 RAG_SIZE_THRESHOLD_KB = int(os.getenv("RAG_SIZE_THRESHOLD_KB", "64"))
 RAG_TOP_K            = int(os.getenv("RAG_TOP_K", "12"))
-
 
 
 # --- Classification for src/doc buckets ---
@@ -179,7 +135,6 @@ def _bucket_subdir(path: str) -> str:
     return "docs"
 
 
-
 def _retarget_files_under_generated(files: list[dict], prefix_path: str) -> list[dict]:
     """
     Riallincia i path dei file in base a GENERATED_ROOT e ai bucket {src, docs, images}.
@@ -219,7 +174,6 @@ def _json_safe(obj):
     if isinstance(obj, set):
         return [_json_safe(x) for x in obj]  # list() di set
     return obj
-
 
 
 def _inject_coding_system(msgs: list) -> list:

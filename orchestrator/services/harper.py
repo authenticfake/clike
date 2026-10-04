@@ -11,7 +11,6 @@ import logging
 import time
 import uuid
 import re
-from datetime import datetime
 from pathlib import Path
 
 import httpx
@@ -833,16 +832,6 @@ def _collect_structured_obligation_names(value: Any) -> List[str]:
 
     walk(value)
     return found
-
-
-def _extract_named_tools_from_contract_text(contract: Dict[str, Any]) -> List[str]:
-    """Deprecated no-op fallback for narrative contract text extraction.
-
-    Cloud KIT should rely on structured external_runtime_obligations-like
-    fields. SPEC/PLAN/TECH_CONSTRAINTS remain context for the model, but broad
-    narrative text must not become noisy required obligations.
-    """
-    return []
 
 
 def _named_external_runtime_obligations_from_contract(contract: Dict[str, Any]) -> List[str]:
@@ -1872,7 +1861,6 @@ def _inject_candidate_blobs(
         if path and content:
             merged[f"candidate::{path}"] = content
     return merged
-
 
 
 def _stage_artifact_path(req_id: str, relative_path: str) -> Path:

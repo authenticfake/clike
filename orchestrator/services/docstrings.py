@@ -15,7 +15,7 @@
 
 from __future__ import annotations
 import re
-from typing import List, Tuple
+from typing import List
 
 
 # ---------------------------
@@ -51,9 +51,6 @@ def _line_start_after_index(src: str, idx: int) -> int:
         return 0
     nl = src.find("\n", idx)
     return (nl + 1) if nl != -1 else len(src)
-
-def _normalize_newline(s: str) -> str:
-    return s if s.endswith("\n") else s + "\n"
 
 
 # ---------------------------
@@ -381,7 +378,6 @@ def insert_docstring(lang: str, orig: str, selection: str, docstring: str):
     # Nessuna riga vuota extra: docstring + newline + codice
     block = f"{ds}{nl}"
     return f"{leading}{block}{stripped}", True
-
 
 
 def make_docstring(lang: str, text: str, selection: str, prompt: str) -> str:

@@ -1,5 +1,5 @@
-import os, difflib, hashlib, re
-from typing import List, Optional
+import difflib
+from typing import Optional
 from config import settings
 RAG_COLL = "clike_rag"
 GATEWAY_URL = str(getattr(settings, "GATEWAY_URL", "http://localhost:8000"))
@@ -82,26 +82,9 @@ def detect_lang(lang: Optional[str], path: str) -> str:
 # --------------------- RAG utils ---------------------
 try:
     from qdrant_client import QdrantClient
-    from qdrant_client.http.models import Distance, VectorParams, PointStruct
 except Exception:  # pragma: no cover
     QdrantClient = None  # type: ignore
 
-def maybe_qdrant():
-    if QdrantClient:
-        try:
-            return QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
-        except Exception:
-            return None
-    return None
-
-def simple_embed(text: str, dims: int = 256) -> List[float]:
-    v = [0.0] * dims
-    for tok in text.split():
-        h = int(hashlib.md5(tok.encode()).hexdigest(), 16) % dims
-        v[h] += 1.0
-    import math
-    n = math.sqrt(sum(x*x for x in v)) or 1.0
-    return [x / n for x in v]
 
 def tokens_per_model(messages: list[dict], model_entry: dict | None, req_max: int) -> int:
     """

@@ -223,17 +223,6 @@ def _collect_tech_constraints_obligations(payload: Dict[str, Any], req_blob: str
     return found
 
 
-def _extract_named_tools_from_req_text(req: Dict[str, Any]) -> List[str]:
-    """Deprecated no-op fallback for narrative text extraction.
-
-    External runtime obligations must come from structured REQ fields or
-    TECH_CONSTRAINTS values relevant to the current REQ. Broad narrative
-    extraction produced noisy obligations such as "Deliver", "Processing",
-    "Successful", and "Sensitive", so it is intentionally disabled.
-    """
-    return []
-
-
 def _named_external_runtime_obligations(req: Dict[str, Any], payload: Dict[str, Any]) -> List[str]:
     """Return external libraries/engines that must become implementation obligations.
 

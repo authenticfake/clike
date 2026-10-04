@@ -83,39 +83,3 @@ def apply_generate_contract(
     return out
 
 
-def sanitize_gateway_chat_payload(
-    *,
-    provider: str,
-    mode_contract: Optional[Dict[str, Any]],
-    response_format: Any,
-    tools: Any,
-    tool_choice: Any,
-) -> Dict[str, Any]:
-    contract = dict(mode_contract or {})
-    mode = str(contract.get("mode") or "free").lower()
-    allow_file_output = bool(contract.get("allow_file_output", False))
-
-    rf = response_format
-    tl = tools
-    tc = tool_choice
-
-    # Free chat must not carry file-generation contract.
-    if mode == "free" and not allow_file_output:
-        rf = None
-        tl = None
-        tc = None
-
-    prov = str(provider or "").lower().strip()
-    if prov in {"openai", "azure_openai"} and tl:
-        tl = None
-        tc = None
-
-    if prov in {"anthropic", "ollama", "deepseek", "vllm"} and rf:
-        # keep providers on the tool-oriented path
-        rf = None
-
-    return {
-        "response_format": rf,
-        "tools": tl,
-        "tool_choice": tc,
-    }

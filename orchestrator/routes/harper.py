@@ -11,7 +11,7 @@ from schemas.harper import (
     SessionClearRequest, ModelsResponse, ProfilesResponse, DefaultsResponse,
     ResolveResponse, HarperPhaseRequest, TestSummary
 )
-from services.router import _load_cfg, resolve, resolve_explain
+from services.router import _load_cfg, resolve_explain
 from services.methodologies.errors import MethodologyError
 router = APIRouter(prefix="/v1/harper", tags=["harper"])
 log = logging.getLogger("orchestrator.harper")

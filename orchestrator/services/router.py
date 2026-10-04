@@ -119,23 +119,3 @@ def resolve_explain(
     }
 
 
-def select_model_for_phase(
-    task: str,
-    profile_hint: Optional[str],
-    model_override: Optional[str],
-) -> Tuple[str, str]:
-    """
-    Legacy-compatible API kept only for backward compatibility.
-    """
-    mode, phase = _task_to_mode_phase(task)
-    sel = _run_async(
-        resolve_llm_selection(
-            base_url=_base_url(),
-            mode=mode,
-            phase=phase,
-            requested_model=model_override or "auto",
-            requested_provider=None,
-            profile_hint=profile_hint,
-        )
-    )
-    return (sel.get("model") or model_override or "auto"), (sel.get("profile") or "default")
