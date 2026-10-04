@@ -9,13 +9,14 @@ import json
 import os
 import logging
 import time
+import uuid
 import re
 from datetime import datetime
 from pathlib import Path
 
 import httpx
 
-from config import settings
+from config import runs_dir, settings
 from services.utils import GATEWAY_URL
 from services.llm_contracts import resolve_llm_selection
 
@@ -60,7 +61,7 @@ from utils.namespace_paths import (
     namespace_materialization_context,
     python_module_boundary_to_package_path,
 )
-from utils.service_auth import internal_auth_headers
+from services import gateway_http
 from utils.safe_paths import resolve_within, validate_req_id
 from services import gate_integrity
 log = logging.getLogger("service.router")
@@ -71,6 +72,17 @@ _KIT_PHASE_SEQUENCE: List[str] = [
     "promotion_hardener",
     "promotion_eval",
 ]
+
+
+class GatewayUpstreamError(RuntimeError):
+    """Non-2xx answer from the gateway. The message keeps the historical format
+    ("Gateway upstream error <status>: <detail>"); ``status``/``code``/``detail`` let the app map it."""
+
+    def __init__(self, status: int, detail: str, code: str | None = None):
+        super().__init__(f"Gateway upstream error {status}: {detail}")
+        self.status = status
+        self.detail = detail
+        self.code = code
 
 
 async def _post_json(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -88,59 +100,64 @@ async def _post_json(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         len(payload.get("attachments") or []),
     )
     TIMEOUT = float(os.environ.get("TIMEOUT", 980.0))
-    async with httpx.AsyncClient(timeout=TIMEOUT, headers=internal_auth_headers()) as client:
-        r = await client.post(url, json=payload)
-        elapsed_time = time.time() - start_time
-        log.info("POST phase=%s elapsed=%.3fs", payload.get("phase"), elapsed_time)
+    # Shared pooled client with connect retries (WP7.12).
+    r = await gateway_http.post(url, json=payload, timeout=TIMEOUT)
+    elapsed_time = time.time() - start_time
+    log.info("POST phase=%s elapsed=%.3fs", payload.get("phase"), elapsed_time)
+    try:
+        r.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        body_text = ""
+        structured_body: Dict[str, Any] | None = None
         try:
-            r.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            body_text = ""
-            structured_body: Dict[str, Any] | None = None
-            try:
-                body_text = r.text
-            except Exception:
-                body_text = "<unavailable>"
-            try:
-                parsed = r.json()
-                if isinstance(parsed, dict):
-                    structured_body = parsed
-                    detail = parsed.get("detail")
-                    if isinstance(detail, dict):
-                        structured_body = detail
-            except Exception:
-                structured_body = None
+            body_text = r.text
+        except Exception:
+            body_text = "<unavailable>"
+        try:
+            parsed = r.json()
+            if isinstance(parsed, dict):
+                structured_body = parsed
+                detail = parsed.get("detail")
+                if isinstance(detail, dict):
+                    structured_body = detail
+        except Exception:
+            structured_body = None
 
-            if (
-                isinstance(structured_body, dict)
-                and structured_body.get("error_code") == "invalid_canonical_artifact"
-            ):
-                log.warning(
-                    "Gateway returned structured validation failure status=%s url=%s",
-                    r.status_code,
-                    url,
-                )
-                structured_body.setdefault("ok", False)
-                structured_body.setdefault("phase", payload.get("phase"))
-                structured_body.setdefault("files", [])
-                structured_body.setdefault("partial_files", [])
-                structured_body.setdefault("diagnostic_files", structured_body.get("partial_files") or [])
-                structured_body.setdefault("warnings", [])
-                structured_body.setdefault("errors", [])
-                structured_body.setdefault("runId", payload.get("runId"))
-                return structured_body
-
-            log.error(
-                "Gateway error status=%s url=%s body=%s",
+        if (
+            isinstance(structured_body, dict)
+            and structured_body.get("error_code") == "invalid_canonical_artifact"
+        ):
+            log.warning(
+                "Gateway returned structured validation failure status=%s url=%s",
                 r.status_code,
                 url,
-                body_text[:2000],
             )
+            structured_body.setdefault("ok", False)
+            structured_body.setdefault("phase", payload.get("phase"))
+            structured_body.setdefault("files", [])
+            structured_body.setdefault("partial_files", [])
+            structured_body.setdefault("diagnostic_files", structured_body.get("partial_files") or [])
+            structured_body.setdefault("warnings", [])
+            structured_body.setdefault("errors", [])
+            structured_body.setdefault("runId", payload.get("runId"))
+            return structured_body
 
-            detail = body_text[:2000] if body_text else str(exc)
-            raise RuntimeError(f"Gateway upstream error {r.status_code}: {detail}") from None
+        log.error(
+            "Gateway error status=%s url=%s body=%s",
+            r.status_code,
+            url,
+            body_text[:2000],
+        )
 
-        return r.json()  
+        detail = body_text[:2000] if body_text else str(exc)
+        code = None
+        if isinstance(structured_body, dict):
+            code = structured_body.get("code")
+            if structured_body.get("message"):
+                detail = str(structured_body["message"])
+        raise GatewayUpstreamError(r.status_code, detail, code) from None
+
+    return r.json()  
 async def _normalize_message(msg: Dict[str, Any]) -> Dict[str, Any]:
     # --- Normalizzazione messages ---
     raw_msgs = msg.get("messages") or []
@@ -216,8 +233,7 @@ def _load_existing_req_candidate_artifacts(req_id: str) -> List[Dict[str, Any]]:
     return artifacts
 
 def _collect_existing_req_candidate_files(req_id: str) -> Dict[str, str]:
-    runs_dir = os.getenv("RUNS_DIR", "/runs")
-    runs: Path = Path(runs_dir).resolve()
+    runs: Path = runs_dir()
     base = runs / "kit" / req_id
     log.info("collecting files from %s,  exists=%s, is_dir=%s", base, base.exists(), base.is_dir())
     if not base.exists() or not base.is_dir():
@@ -1845,7 +1861,7 @@ def _inject_candidate_blobs(
 
 def _stage_artifact_path(req_id: str, relative_path: str) -> Path:
     # req_id comes from the request and relative_path from LLM output: both are confined.
-    req_root = Path(os.getenv("RUNS_DIR", "/runs")).resolve() / "kit" / validate_req_id(req_id)
+    req_root = runs_dir() / "kit" / validate_req_id(req_id)
     return resolve_within(req_root, relative_path)
 
 
@@ -2040,7 +2056,11 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
     merged: Dict[str, Any] = dict(payload or {})
     merged["phase"] = phase
     merged.setdefault("cmd", phase)
-    merged.setdefault("flags", {})
+    if not isinstance(merged.get("flags"), dict):
+        merged["flags"] = {}  # model_dump() yields flags=None, which the gateway rejects (422)
+    # A missing/blank runId used to travel as the literal string "None" (WP7.10).
+    if not str(merged.get("runId") or "").strip() or str(merged.get("runId")).strip() == "None":
+        merged["runId"] = f"{phase}-{uuid.uuid4().hex[:12]}"
     merged = await _normalize_message(merged)
     merged.pop("methodology_context", None)
 
@@ -2497,6 +2517,25 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
                 exc,
             )
 
+    if phase == "eval":
+        # The eval phase has no cloud LLM step: the canonical EvalRunner (/v1/eval/run) decides.
+        # A cloud call here used the SPEC prompt and the extension discarded its output (tokens
+        # spent for nothing), so the cloud path returns an explicit skip.
+        log.info("harper.eval cloud pre-pass skipped req=%s reason=%s", target_req_id, execution_policy.get("reason"))
+        return {
+            "ok": True,
+            "phase": "eval",
+            "echo": "",
+            "text": "",
+            "files": [],
+            "diffs": [],
+            "tests": {"passed": 0, "failed": 0, "summary": "eval-prepass-skipped"},
+            "warnings": ["execution_selected:cloud", "eval_cloud_prepass_skipped", "canonical_eval_decides"],
+            "errors": [],
+            "runId": merged.get("runId"),
+            "execution": execution_policy,
+        }
+
     if phase == "extend" and execution_policy.get("selected") == "local_agent":
         log.info(
             "harper.local_agent extend package requested executor=%s reason=%s",
@@ -2734,8 +2773,6 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
         
     except Exception as e:
         log.warning("harper.routing failed (%s) → proceeding with provided model=%s", e, model_override)
-    # runId di default se manca
-    merged.setdefault("runId", f"{merged.get('runId')}")
 
     if phase == "kit" and target_req_id:
         if "kit" in requested_kit_phases:
@@ -2915,8 +2952,10 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
             return out
 
         if "promotion_hardener" in selected_phases:
-            bootstrap_blockers = _validate_pre_promotion_contracts(
+            # N4: the helper called here never existed (NameError on every hardener run).
+            bootstrap_blockers = _detect_bootstrap_blockers(
                 target_req_id,
+                candidate_file_artifacts,
                 dict(merged.get("core_blobs") or {}),
             )
 

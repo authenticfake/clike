@@ -2,6 +2,7 @@
 from typing import List, Union
 from fastapi import APIRouter, HTTPException, Query
 from services import harper as svc
+from services.harper import GatewayUpstreamError
 
 import os, json, logging
 
@@ -202,6 +203,8 @@ async def post_idea(req: HarperPhaseRequest):
     
     except MethodologyError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    except GatewayUpstreamError:
+        raise  # mapped by the app handler
     except Exception as e:
         log.info( "Error in idea phase %s", e)
         raise HTTPException(status_code=500, detail="Error in idea phase")    
@@ -264,6 +267,8 @@ async def post_plan(req: HarperPhaseRequest):
 
     except MethodologyError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except GatewayUpstreamError:
+        raise  # mapped by the app handler
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
     except Exception as e:
@@ -337,6 +342,8 @@ async def post_extend(req: HarperPhaseRequest):
         return HarperEnvelope(out=out)
     except MethodologyError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except GatewayUpstreamError:
+        raise  # mapped by the app handler
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
@@ -431,25 +438,10 @@ async def post_kit(req: HarperPhaseRequest):
 
     except MethodologyError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except GatewayUpstreamError:
+        raise  # mapped by the app handler
     except RuntimeError as exc:
-        msg = str(exc)
-
-        prefix = "Gateway upstream error "
-        if msg.startswith(prefix):
-            rest = msg[len(prefix):]
-            status_str, sep, detail = rest.partition(":")
-            if sep:
-                try:
-                    status_code = int(status_str.strip())
-                except ValueError:
-                    status_code = 502
-
-                raise HTTPException(
-                    status_code=status_code,
-                    detail=detail.strip() or msg,
-                )
-
-        raise HTTPException(status_code=502, detail=msg)
+        raise HTTPException(status_code=502, detail=str(exc))
 
     except Exception as exc:
         log.exception("Error in kit phase: %s", exc)
@@ -578,6 +570,8 @@ async def post_eval_prepass(req: HarperPhaseRequest):
 
     except MethodologyError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except GatewayUpstreamError:
+        raise  # mapped by the app handler
     except Exception as exc:
         log.exception("Error in eval pre-pass phase: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc

@@ -13,6 +13,8 @@ services:
     environment:
       - MODELS_CONFIG=/workspace/configs/models.yaml
       - HARPER_TELEMETRY_DIR=/workspace/telemetry
+      # Telemetry retention in days (unset/0 = keep everything)
+      - CLIKE_TELEMETRY_RETENTION_DAYS=${CLIKE_TELEMETRY_RETENTION_DAYS:-0}
       - HARPER_STUB_DIR=/workspace/gateway/stub
       - GATEWAY_DUMP_DIR=/app/runs/gateway_dumps
       - RAG_TOP_K=12
@@ -48,14 +50,6 @@ services:
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
       # tool toggles
-      - CLIKE_TOOLS_PY_BLACK=true
-      - CLIKE_TOOLS_PY_ISORT=true
-      - CLIKE_TOOLS_PY_RUFF=true
-      - CLIKE_TOOLS_TS_PRETTIER=true
-      - CLIKE_TOOLS_TS_ESLINT=false
-      - CLIKE_TOOLS_JAVA_GJF=true
-      - CLIKE_TOOLS_GO_FMT=true
-      - CLIKE_TOOLS_GO_IMPORTS=true
       - RUNS_DIR=/app/runs
       - CLIKE_STATE_DIR=/app/runs/state
       - CLIKE_EVAL_SANDBOX_URL=http://eval-sandbox:8090
@@ -63,16 +57,6 @@ services:
       - CODE_ROOT_BASE=src
       - TEST_ROOT_BASE=tests
       - GEN_ID_PREFIX=generated
-      - ENSURE_MIN_TESTS=true
-      - SPLIT_ENABLE_PY=true
-      - SPLIT_ENABLE_TS=true
-      - SPLIT_ENABLE_GO=true
-      - SPLIT_ENABLE_JAVA=true
-      - SPLIT_ENABLE_REACT=true
-      - SPLIT_ENABLE_MENDIX=false
-      - PREFER_FRONTIER_FOR_REASONING=true
-      - MODELS_PATH=/workspace/configs/models.yaml
-      - OPTIMIZE_FOR=capability
       - GENERATED_ROOT=/generated
       - RAG_BASE_URL=http://localhost:8080/v1/rag
       - RAG_TOP_K=12

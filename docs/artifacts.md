@@ -2,11 +2,7 @@
 
 ## Canonical documentation root
 
-The canonical Harper doc root is currently configured around:
-- `docs/harper`
-
-The extension default setting also points to:
-- `clike.docRoot = docs/harper`
+The canonical Harper doc root is `docs/harper` (fixed; it is not a setting).
 
 ## Canonical Harper artifacts
 

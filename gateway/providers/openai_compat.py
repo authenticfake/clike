@@ -1,14 +1,18 @@
 # --- begin: openai_compat unified imports/helpers ---
 import json
 import logging
+import os
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import httpx
 
 log = logging.getLogger("openai")
 
-_OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
-_OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
+from providers.http import post_with_retries
+
+# Base URL from the environment (OpenAI, Azure/OpenAI-compatible proxies); a per-call
+# base_url (from the model catalog) wins, e.g. for Ollama's OpenAI-compatible API.
+_OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
 #TODO params filtering
 #TODO params filtering
 CHAT_ALLOWED = {
@@ -36,7 +40,7 @@ def _is_reasoning_model_name(model: Optional[str]) -> bool:
         for tag in (
             "gpt-5",
             "gpt-5.4",
-            "gpt-5.4-pro"
+            "gpt-5.4-pro",
             "gpt-5.1",       # gpt-5.1, gpt-5.1-chat, gpt-5.1-codex, etc.
             "gpt-5.1-codex",   # gpt-5.1-codex family
             "codex",         # catch-all codex models
@@ -225,6 +229,20 @@ def _normalize_responses_tool_choice(tool_choice: Any) -> Any:
 
     return None
 
+def _responses_input(messages: List[Dict[str, Any]]) -> Tuple[str, List[Dict[str, Any]]]:
+    """System messages -> instructions; the conversation keeps its roles as Responses input items."""
+    systems: List[str] = []
+    items: List[Dict[str, Any]] = []
+    for m in messages:
+        role = m.get("role", "")
+        content = m.get("content", "")
+        if role == "system":
+            systems.append(content if isinstance(content, str) else str(content))
+        else:
+            items.append({"role": role if role in ("user", "assistant") else "user", "content": content})
+    return "\n\n".join(systems).strip(), items
+
+
 def _linearize_messages_for_responses(messages: List[Dict[str, str]]) -> Tuple[str, str]:
     """
     Converte i messaggi in:
@@ -257,14 +275,14 @@ def _build_responses_payload(
     Costruisce il payload per /v1/responses.
     - Usa max_output_tokens (non max_completion_tokens).
     - instructions ← sommatoria dei system
-    - input ← linearizzazione user/assistant
+    - input ← user/assistant messages with their roles (WP7: no longer flattened into one string)
     """
-    instructions, linear_input = _linearize_messages_for_responses(messages)
+    instructions, input_items = _responses_input(messages)
 
     out: Dict[str, Any] = {
         "model": model,
         "instructions": instructions or None,
-        "input": linear_input,
+        "input": input_items,
     }
 
     # Sampling / behavior
@@ -338,7 +356,8 @@ def _build_responses_payload(
     if _is_reasoning_model_name(model_lower) or is_codex:
         # Default CLike per Codex: reasoning "low".
         # Se vuoi zero reasoning nascosto, cambia in {"effort": "none"}.
-        out["reasoning"] = {"effort": "medium"}
+        requested = gen.get("reasoning") if isinstance(gen.get("reasoning"), dict) else {}
+        out["reasoning"] = {"effort": requested.get("effort") or gen.get("reasoning_effort") or "medium"}
         if "format" not in text_cfg:
             text_cfg["format"] = {"type": "text"}
 
@@ -577,6 +596,7 @@ async def chat(
         messages=messages,
         gen=gen,
         timeout_s=timeout,
+        base_url=base,
     )
 # --- end: response normalizers ---
 async def openai_complete_unified(
@@ -586,6 +606,7 @@ async def openai_complete_unified(
     messages: List[Dict[str, str]],
     gen: Dict[str, Any],
     timeout_s: float,
+    base_url: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Entry-point unificato per OpenAI.
@@ -597,13 +618,14 @@ async def openai_complete_unified(
     log.info("openai_complete_unified %s", use_responses)
     log.info("openai_complete_unified (gen.get(api)) %s", gen.get("api"))
     # Costruisci payload + normalizer + budget (telemetria)
+    base = (base_url or _OPENAI_BASE_URL).rstrip("/")
     if use_responses:
-        url = _OPENAI_RESPONSES_URL
+        url = f"{base}/responses"
         payload = _build_responses_payload(model, messages, gen)
         normalizer = _normalize_responses_response
         budget = payload.get("max_output_tokens")  # responses API
     else:
-        url = _OPENAI_CHAT_URL
+        url = f"{base}/chat/completions"
         payload = _build_chat_payload(model, messages, gen)
         normalizer = _normalize_chat_response
         budget = payload.get("max_completion_tokens")  # chat/completions
@@ -615,9 +637,8 @@ async def openai_complete_unified(
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
         }
-        async with httpx.AsyncClient(timeout=timeout_s) as client:
-                r = await client.post(url, headers=headers, json=payload)
-                log.info("openai_complete_unified response %s", r.status_code)
+        r = await post_with_retries(url, headers=headers, json=payload, timeout=timeout_s)
+        log.info("openai_complete_unified response %s", r.status_code)
                 #LOG RESPONSE OPENAI 
                 #log.info("gateway._post_with_retries response text %s", r.text)
        

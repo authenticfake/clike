@@ -1,16 +1,17 @@
-const { serviceAuthHeaders, notifyServiceAuthFailure } = require('./service-auth');
+const { request: serviceRequest } = require('./orchestrator-client');
 const vscode = require('vscode');
 const cp = require('child_process');
 const path = require('path');
 const { gatherRagChunks } = require('./rag.js');
-const { buildLocalAgentEnv, resolveLocalAgentCommandPath, buildLocalAgentSpawn, resolvePromptTransport } = require('./local-agent-executors');
+const { buildLocalAgentEnv, resolveLocalAgentCommandPath, buildLocalAgentSpawn, resolvePromptTransport, terminateProcessTree } = require('./local-agent-executors');
+const { toFsPath } = require('./git');
+
+const PLAN_JSON_REL_PATH = 'docs/harper/plan.json';
 
 const out = vscode.window.createOutputChannel('Clike.utility');
 const crypto = require('crypto');
 // usa Node.js fs per calcolare la size di un file
 const fs = require('fs');
-const myhttp = require("http");
-const myhttps = require("https");
 const VALID_STATUSES = ['open', 'in_progress', 'done', 'deferred'];
 
 /** Logger that accepts N args and JSON-serializes objects. */
@@ -1880,7 +1881,7 @@ function getProjectId() {
     }
   } catch (e) {
     console.warn('[CLike] project_id derivation failed:', e);
-    body.project_id = 'default';
+    return 'default';
   }
 }
 
@@ -2066,34 +2067,9 @@ async function readWorkspaceTextFile(pathInWs, out) {
 }
 
 async function postJson(url, body, { signal, timeoutMs = 30000 } = {}) {
-  const f = (typeof fetch === 'function')
-    ? fetch
-    : ((...args) => import('node-fetch').then(({ default: ff }) => ff(...args)));
-
-  const controller = signal ? null : new AbortController();
-  const effectiveSignal = signal || controller.signal;
-  const timer = controller
-    ? setTimeout(() => controller.abort(), Math.max(1000, Number(timeoutMs) || 30000))
-    : null;
-
-  try {
-    const res = await f(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', ...serviceAuthHeaders(url) },
-      body: JSON.stringify(body),
-      signal: effectiveSignal
-    });
-    notifyServiceAuthFailure(res.status, url);
-
-    if (!res.ok) {
-      const txt = await res.text().catch(() => '');
-      throw new Error(`POST ${url} -> ${res.status} ${txt}`);
-    }
-
-    return await res.json();
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
+  const res = await serviceRequest('POST', url, { body, signal, timeoutMs: signal ? 0 : Math.max(1000, Number(timeoutMs) || 30000) });
+  if (!res.ok) throw new Error(`POST ${url} -> ${res.status} ${res.text}`);
+  return res.json();
 }
 
 // Pre-index RAG items before chat/generate. Non-blocking on failure.
@@ -2206,68 +2182,26 @@ const sanitize = (x) => {
   return s;
 };
 
-function httpPostJsonLong(url, { headers, body }, timeoutMs) {
-  return new Promise((resolve, reject) => {
-    const u = new URL(url);
-    const lib = u.protocol === "https:" ? myhttps : myhttp;
-
-    const req = lib.request(
-      {
-        hostname: u.hostname,
-        port: u.port || (u.protocol === "https:" ? 443 : 80),
-        path: u.pathname + u.search,
-        method: "POST",
-        headers: { ...serviceAuthHeaders(url), ...(headers || {}) },
-      },
-      (res) => {
-        notifyServiceAuthFailure(res.statusCode, url);
-        let data = "";
-        res.setEncoding("utf8");
-
-        res.on("data", (chunk) => {
-          data += chunk;
-        });
-
-        res.on("end", () => {
-          const response = {
-            ok: res.statusCode >= 200 && res.statusCode < 300,
-            status: res.statusCode,
-            async json() {
-              try {
-                return JSON.parse(data);
-              } catch (e) {
-                log(
-                  `[harper] invalid JSON from orchestrator: ${e.message}. ` +
-                  `Body[0..500]=${data.slice(0, 500)}`
-                );
-                throw e;
-              }
-            },
-            async text() {
-              return data;
-            },
-          };
-          resolve(response);
-        });
+// Long-running POST (Harper phases): resolves with a fetch-like response for any HTTP status,
+// rejects on network errors or after timeoutMs (<= 0 disables the deadline). WP7.16: transport,
+// token and timeout come from the shared client.
+async function httpPostJsonLong(url, { headers, body }, timeoutMs) {
+  const res = await serviceRequest('POST', url, { body, headers, timeoutMs: timeoutMs > 0 ? timeoutMs : 0 });
+  return {
+    ok: res.ok,
+    status: res.status,
+    async json() {
+      try {
+        return JSON.parse(res.text);
+      } catch (e) {
+        log(`[harper] invalid JSON from orchestrator: ${e.message}. Body[0..500]=${res.text.slice(0, 500)}`);
+        throw e;
       }
-    );
-
-    req.on("error", (err) => {
-      reject(err);
-    });
-
-    // timeout socket lato client (disabilitato se timeoutMs <= 0)
-    if (timeoutMs && timeoutMs > 0) {
-      req.setTimeout(timeoutMs, () => {
-        req.destroy(new Error(`Request timeout after ${timeoutMs}ms`));
-      });
-    }
-
-    if (body) {
-      req.write(body);
-    }
-    req.end();
-  });
+    },
+    async text() {
+      return res.text;
+    },
+  };
 }
 
 
@@ -2552,6 +2486,12 @@ function buildAgentKitPrompt({ reqId, requestedPhases }) {
   ].join('\n');
 }
 
+// Agents still running when the extension host exits are terminated with their children.
+const activeAgentProcesses = new Set();
+process.once('exit', () => {
+  for (const child of activeAgentProcesses) terminateProcessTree(child, { graceMs: 0 });
+});
+
 async function runLocalAgentSync({
   workspaceRootUri,
   prompt,
@@ -2624,6 +2564,8 @@ async function runLocalAgentSync({
       cwd: workspaceRootUri.fsPath,
       shell: false,
       stdio: ['pipe', 'pipe', 'pipe'],
+      // POSIX: own process group, so a timeout can terminate the agent and its children.
+      detached: process.platform !== 'win32',
       // Local agents authenticate via their own CLI login/session. Inherit the
       // standard shell env (PATH/HOME/etc.) but strip cloud provider keys by
       // default so local-agent execution never depends on gateway cloud keys.
@@ -2633,16 +2575,15 @@ async function runLocalAgentSync({
     let stdout = '';
     let stderr = '';
     let settled = false;
+    const log = (line) => { if (out && typeof out.appendLine === 'function') out.appendLine(line); };
+    activeAgentProcesses.add(child);
+    child.once('exit', () => activeAgentProcesses.delete(child));
 
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
 
-      try {
-        child.kill('SIGTERM');
-      } catch {
-        // Ignore kill errors.
-      }
+      terminateProcessTree(child);
 
       reject(
         new Error(
@@ -2666,7 +2607,7 @@ async function runLocalAgentSync({
 
     child.stderr.on("data", (chunk) => {
       const text = chunk.toString();
-
+      stderr += text;
       for (const line of text.split(/\r?\n/)) {
         const trimmed = line.trim();
         if (!trimmed) {
@@ -2677,7 +2618,7 @@ async function runLocalAgentSync({
           /\b(error|failed|failure|fatal|panic|traceback|exception|denied|timeout|cannot|not found|permission)\b/i.test(trimmed);
 
         const channel = isErrorLike ? "stderr:error" : "stderr:diagnostic";
-        out.appendLine(`[CLike] [local-agent:${normalizedExecutor}][${channel}] ${trimmed}`);
+        log(`[CLike] [local-agent:${normalizedExecutor}][${channel}] ${trimmed}`);
       }
     });
 
@@ -3126,7 +3067,6 @@ module.exports = {
   buildAgentExecutionContext,
   writeAgentExecutionContext,
   buildAgentEvalPrompt,
-  collectReqCandidateFiles,
   collectReqCandidateFileArtifacts,
   collectFinalizeCandidateFiles,
   collectFinalizeCandidateFileArtifacts,

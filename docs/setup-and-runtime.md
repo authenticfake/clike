@@ -84,7 +84,7 @@ Runs as the vector store backing RAG persistence.
 ### Orchestrator
 Important environment variables in compose:
 - `GATEWAY_URL=http://gateway:8000`
-- `RUNS_DIR=/runs`
+- `RUNS_DIR=/app/runs`
 - `WORKSPACE_ROOT=/workspace/`
 - `CODE_ROOT_BASE=src`
 - `TEST_ROOT_BASE=tests`
@@ -94,14 +94,14 @@ Important environment variables in compose:
 - `INLINE_MAX_FILE_KB=64`
 - `INLINE_MAX_TOTAL_KB=256`
 - `RAG_SIZE_THRESHOLD_KB=64`
-- `PREFER_FRONTIER_FOR_REASONING=true`
-- `OPTIMIZE_FOR=capability`
 - `CLIKE_MCP_SERVER_ENABLED=true`
 
 ### Gateway
 Important environment variables in compose:
 - `MODELS_CONFIG=/workspace/configs/models.yaml`
 - `HARPER_TELEMETRY_DIR=/workspace/telemetry`
+- `CLIKE_TELEMETRY_RETENTION_DAYS` — delete telemetry files (prompts, raw provider responses,
+  rejected artifacts) older than N days; unset or `0` keeps everything (default).
 - `HARPER_STUB_DIR=/workspace/gateway/stub`
 - `GATEWAY_DUMP_DIR=/app/runs/gateway_dumps`
 - `RAG_BASE_URL=http://orchestrator:8080/v1/rag`
@@ -153,7 +153,6 @@ Current extension settings include:
 - `clike.gatewayUrl`
 
 ### Harper and chat
-- `clike.docRoot`
 - `clike.harperTimeout`
 - `clike.optimizeFor`
 - `clike.chat.persistDir`
@@ -162,7 +161,6 @@ Current extension settings include:
 
 ### Execution
 - `clike.execution.defaultPreference`
-- `clike.execution.showInChat`
 
 ### Local agents
 - `clike.localAgent.enabled`
@@ -180,8 +178,8 @@ Current extension settings include:
 ### GPT Codex
 - `clike.localAgent.codex.enabled`
 - `clike.localAgent.codex.command`
-- `clike.localAgent.codex.approvalMode`
-- `clike.localAgent.codex.printModeFlag`
+- `clike.localAgent.codex.model`
+- `clike.localAgent.codex.sandboxMode`
 
 ### Git
 Automation is **off by default** (see [git-and-promotion.md](git-and-promotion.md)):

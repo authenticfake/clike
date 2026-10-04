@@ -3,9 +3,9 @@
 The gateway is the only process that holds the cloud API keys in its
 environment, so it owns the decision of whether a provider can be reached:
 
-- cloud providers (openai/anthropic/deepseek) are available when their API key
+- cloud providers (openai/anthropic) are available when their API key
   env var is set to a non-empty value;
-- local providers (ollama/vllm) are available when their base URL answers.
+- local providers (ollama, OpenAI-compatible) are available when their base URL answers.
 
 Orchestrator and the VS Code extension consume this via GET /v1/providers and
 the annotated GET /v1/models, so the "cloud yes/no" decision is computed in
@@ -26,13 +26,11 @@ log = logging.getLogger("gateway.providers")
 _CLOUD_KEY_ENV: Dict[str, str] = {
     "openai": "OPENAI_API_KEY",
     "anthropic": "ANTHROPIC_API_KEY",
-    "deepseek": "DEEPSEEK_API_KEY",
 }
 
 # provider -> (base-url env var, default base url)
 _LOCAL_BASE_ENV: Dict[str, Tuple[str, str]] = {
     "ollama": ("OLLAMA_BASE_URL", "http://ollama:11434"),
-    "vllm": ("VLLM_BASE_URL", "http://vllm:8000/v1"),
 }
 
 _CACHE: Dict[str, object] = {"ts": 0.0, "data": None}

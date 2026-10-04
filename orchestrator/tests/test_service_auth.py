@@ -158,11 +158,16 @@ class OrchestratorAppPerimeterTests(unittest.TestCase):
             ("POST", "/v1/eval/run"),
             ("POST", "/v1/apply"),
             ("POST", "/v1/harper/kit"),
-            ("POST", "/git/commit"),
             ("POST", "/mcp/"),
         ]:
             with self.subTest(path):
                 self.assertEqual(self.client.request(method, path, json={}).status_code, 401)
+
+    def test_git_helper_routes_are_gone(self):
+        # WP7.13: the extension is the only Git actor; the orchestrator must not run git.
+        for path in ("/git/branch", "/git/commit", "/git/pr"):
+            with self.subTest(path):
+                self.assertEqual(self.client.post(path, json={}, headers=_auth()).status_code, 404)
 
     def test_token_grants_access(self):
         self.assertEqual(self.client.get("/v1/harper/profiles", headers=_auth()).status_code, 200)

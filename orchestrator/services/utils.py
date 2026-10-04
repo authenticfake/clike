@@ -1,4 +1,4 @@
-import os, difflib, hashlib, subprocess, re
+import os, difflib, hashlib, re
 from typing import List, Optional
 from config import settings
 RAG_COLL = "clike_rag"
@@ -103,14 +103,6 @@ def simple_embed(text: str, dims: int = 256) -> List[float]:
     n = math.sqrt(sum(x*x for x in v)) or 1.0
     return [x / n for x in v]
 
-# ---------------------- GIT utils ----------------------
-def sh(cmd: List[str]) -> str:
-    try:
-        out = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
-        return out.decode("utf-8", errors="ignore")
-    except subprocess.CalledProcessError as e:
-        raise RuntimeError(e.output.decode("utf-8", errors="ignore"))
-    
 def tokens_per_model(messages: list[dict], model_entry: dict | None, req_max: int) -> int:
     """
     Calcola il numero massimo di token di output disponibile

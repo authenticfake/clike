@@ -5,9 +5,7 @@ from fastapi import APIRouter, Request, HTTPException
 
 from config import load_models_cfg
 from model_resolver import resolve_model
-from providers import ollama as oll
 from providers import openai_compat as oai
-from providers import deepseek as dsk
 from utils.openai_like import format_embeddings_response
 
 router = APIRouter()
@@ -62,7 +60,7 @@ async def embeddings(req: Request):
     api_key_env = m.get("api_key_env")
     api_key = os.getenv(api_key_env) if api_key_env else None
 
-    if provider in ("openai", "deepseek", "vllm") and api_key_env and not api_key:
+    if provider == "openai" and api_key_env and not api_key:
         raise HTTPException(
             400,
             f"missing required embeddings API key env: {api_key_env}",
@@ -79,11 +77,11 @@ async def embeddings(req: Request):
 
     try:
         if provider == "ollama":
-            vec = await oll.embeddings(base, remote, input_text)
-        elif provider in ("openai", "vllm"):
+            # D3: Ollama's OpenAI-compatible /v1/embeddings (it ignores the bearer token)
+            ollama_base = base if base.endswith("/v1") else f"{base}/v1"
+            vec = await oai.embeddings(ollama_base, "ollama", remote, input_text)
+        elif provider == "openai":
             vec = await oai.embeddings(base, api_key, remote, input_text)
-        elif provider == "deepseek":
-            vec = await dsk.embeddings(base, api_key, remote, input_text)
         elif provider == "anthropic":
             raise HTTPException(400, "anthropic provider does not support embeddings")
         else:

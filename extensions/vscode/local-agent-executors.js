@@ -508,6 +508,32 @@ function buildLocalAgentDisplayLabel(executorId) {
   return 'Local Agent';
 }
 
+// Terminate an agent and everything it spawned (7.17). On POSIX the agent runs
+// in its own process group (spawn detached): SIGTERM the group, then SIGKILL
+// after a grace period. On Windows `taskkill /T /F` kills the whole tree
+// (the agent usually runs under a cmd.exe wrapper).
+function terminateProcessTree(child, { platform = process.platform, graceMs = 5000, spawnSync = cp.spawnSync } = {}) {
+  if (!child || !child.pid || child.exitCode !== null) return;
+  const pid = child.pid;
+  if (isWindowsPlatform(platform)) {
+    try { spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' }); } catch { /* already gone */ }
+    return;
+  }
+  const signal = (sig) => {
+    try { process.kill(-pid, sig); } catch {
+      try { child.kill(sig); } catch { /* already gone */ }
+    }
+  };
+  if (!graceMs) {
+    signal('SIGKILL'); // e.g. host exit: timers would never run
+    return;
+  }
+  signal('SIGTERM');
+  // Children may outlive the group leader: always follow up with SIGKILL.
+  const timer = setTimeout(() => signal('SIGKILL'), graceMs);
+  if (timer.unref) timer.unref();
+}
+
 // How the prompt reaches the agent CLI. On Windows .cmd shims run through
 // `cmd.exe /c`, where a prompt passed as an argument could be interpreted by the
 // shell (metacharacters in LLM/user text): there the prompt always goes on stdin.
@@ -518,7 +544,14 @@ function resolvePromptTransport(executorId, requested, platform = process.platfo
   return base;
 }
 
+// Test hook: forget cached CLI probes.
+function resetLocalAgentProbeCache() {
+  _versionCheckCache.clear();
+}
+
 module.exports = {
+  resetLocalAgentProbeCache,
+  terminateProcessTree,
   resolvePromptTransport,
   normalizeExecutionPreference,
   reconcileExecutionPreference,

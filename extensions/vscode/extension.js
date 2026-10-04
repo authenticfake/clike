@@ -2,23 +2,20 @@
 const vscode = require('vscode');
 const { applyPatch } = require('diff');
 const { execFile } = require('child_process');
-const https = require('https');
 const http = require('http');
 const { URL } = require('url');
 const fs = require('fs/promises');
 const fsSync = require('fs');
 const path = require('path');
 
-const { registerCommands } = require('./commands/registerCommands');
 const {
   initServiceAuth,
   storeServiceToken,
   generateServiceToken,
-  serviceAuthHeaders,
-  notifyServiceAuthFailure,
 } = require('./service-auth');
 const { validateLocalMcpRequest } = require('./mcp-request-guard');
 const { postGateOverride } = require('./api');
+const { request: serviceRequest, orchestratorUrl, serviceBaseUrls } = require('./orchestrator-client');
 const { safeRelativePath, safeWorkspaceUri, resolveInsideWorkspace } = require('./safe-workspace');
 const {  handleGate, handleEval } = require('./commands/harper');
 const {  persistTelemetryVSCode } = require('./telemetry');
@@ -295,7 +292,7 @@ function getDefaultLocalAgentExecutor() {
   try {
     const cfg = vscode.workspace.getConfiguration('clike');
     return normalizeLocalAgentExecutor(
-      cfg.get('localAgent.preferredExecutor', 'auto')
+      cfg.get('localAgent.preferredExecutor', 'gpt_codex')
     );
   } catch {
     return 'auto';
@@ -844,10 +841,7 @@ function pruneLocalAgentCompleteArtifacts(artifacts, phaseForAgent, reqForAgent)
 
 const HARPER_REQUEST_TIMEOUT_MS = 35 * 60 * 1000; // 35 minuti #porcocazzo il timeout ...maybe too long
 async function callHarper(cmd, payload, headers, opts = {}) {
-  const base =
-    vscode.workspace.getConfiguration().get("clike.orchestratorUrl") ||
-    "http://localhost:8080";
-  const url = `${base}/v1/harper/${cmd}`;
+  const url = orchestratorUrl(`/v1/harper/${cmd}`);
 
   // Se vuoi, puoi passare opts.timeoutMs per override (es. comandi "leggeri")
   const timeoutMs =
@@ -1873,15 +1867,15 @@ function cfg() {
   });
 
   return {
-    orchestratorUrl: c.get('orchestratorUrl', 'http://localhost:8080').replace(/\/+$/, ''),
-    gatewayUrl: c.get('gatewayUrl', 'http://localhost:8000').replace(/\/+$/, ''),
+    orchestratorUrl: serviceBaseUrls().orchestrator,
+    gatewayUrl: serviceBaseUrls().gateway,
 
     optimizeFor: c.get('optimizeFor', 'capability'),
-    harperTimeout: c.get('harperTimeout', 35),
+    harperTimeout: c.get('harperTimeout', 25),
     
     localAgentEnabled: c.get('localAgent.enabled', true),
-    localAgentPreferredExecutor: c.get('localAgent.preferredExecutor', 'auto'),
-    localAgentAllowEval: c.get('localAgent.allowEval', false),
+    localAgentPreferredExecutor: c.get('localAgent.preferredExecutor', 'gpt_codex'),
+    localAgentAllowEval: c.get('localAgent.allowEval', true),
     localAgentRestrictToKitPhases: c.get('localAgent.restrictToKitPhases', true),
     localAgentTimeoutMinutes: c.get('localAgent.timeoutMinutes', 30),
 
@@ -1896,13 +1890,13 @@ function cfg() {
 
     codexEnabled: c.get('localAgent.codex.enabled', true),
     codexCommand: c.get('localAgent.codex.command', 'codex'),
-    codexModel: c.get('localAgent.codex.model', 'gpt-5.5-codex'),
+    codexModel: c.get('localAgent.codex.model', 'gpt-5.5'),
     codexSandboxMode: c.get('localAgent.codex.sandboxMode', 'auto'),
-    codexTimeoutMinutes: c.get('localAgent.codex.timeoutMinutes', 35),
+    codexTimeoutMinutes: c.get('localAgent.codex.timeoutMinutes', 30),
 
     requireCleanGit: c.get('apply.requireCleanGit', false),
     backup: c.get('apply.backup', true),
-    dryRunPreview: c.get('apply.dryRunPreview', true),
+    dryRunPreview: c.get('apply.dryRunPreview', false),
 
     gitAutoCommit: c.get('git.autoCommit', false),
     gitMergeOnGate: c.get('git.gitMergeOnGate', false),
@@ -2697,41 +2691,18 @@ function isLikelyShortDocstring(s, lang) {
 }
 
 /** ---------- HTTP ---------- */
-function httpPostJson(urlString, bodyObj, headers = {}) {
-  const url = new URL(urlString);
-  const isHttps = url.protocol === 'https:';
-  const payload = JSON.stringify(bodyObj || {});
-  const opts = {
-    method: 'POST',
-    hostname: url.hostname,
-    port: url.port || (isHttps ? 443 : 80),
-    path: url.pathname + (url.search || ''),
-    headers: {
-      'Content-Type': 'application/json',
-      'Content-Length': Buffer.byteLength(payload),
-      ...serviceAuthHeaders(urlString),
-      ...headers,
-    },
-  };
-
-  return new Promise((resolve) => {
-    const req = (isHttps ? https : http).request(opts, (res) => {
-      let data = '';
-      res.on('data', (chunk) => (data += chunk));
-      res.on('end', () => {
-        notifyServiceAuthFailure(res.statusCode, urlString);
-        try {
-          const json = JSON.parse(data || '{}');
-          resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, json });
-        } catch (_) {
-          resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, text: data });
-        }
-      });
-    });
-    req.on('error', (error) => resolve({ ok: false, status: 0, error }));
-    req.write(payload);
-    req.end();
-  });
+// Resolves with { ok, status, json | text } or { ok: false, status: 0, error }; never rejects.
+async function httpPostJson(urlString, bodyObj, headers = {}) {
+  try {
+    const res = await serviceRequest('POST', urlString, { body: bodyObj || {}, headers });
+    try {
+      return { ok: res.ok, status: res.status, json: JSON.parse(res.text || '{}') };
+    } catch (_) {
+      return { ok: res.ok, status: res.status, text: res.text };
+    }
+  } catch (error) {
+    return { ok: false, status: 0, error };
+  }
 }
 
 async function postOrchestrator(path, payload = {}) {
@@ -2764,10 +2735,13 @@ async function postGateway(path, payload = {}) {
 
 // utils
 async function getJson(url) {
-  const r = await fetch(url, { method: 'GET', headers: serviceAuthHeaders(url) });
-  notifyServiceAuthFailure(r.status, url);
-  if (!r.ok) return { status: r.status };
-  try { return await r.json(); } catch { return { status: r.status }; }
+  try {
+    const r = await serviceRequest('GET', url, { timeoutMs: 15000 });
+    if (!r.ok) return { status: r.status };
+    try { return r.json(); } catch { return { status: r.status }; }
+  } catch (e) {
+    throw new Error(`GET ${url} failed: ${e.message}`);
+  }
 }
 
 /** ---------- Git helpers ---------- */
@@ -3402,12 +3376,12 @@ async function cmdClearChatSession(context) {
     await clearSession(s.mode);
     vscode.window.showInformationMessage(`CLike: cleared ALL messages (all models) in mode "${s.mode}"`);
     const hist = await loadSession(s.mode, 200);
-    panel?.webview.postMessage({ type: 'hydrateSession', messages: hist });
+    clikeChatPanel?.webview.postMessage({ type: 'hydrateSession', messages: hist });
   } else {
     await pruneSessionByModel(s.mode, s.model || 'auto');
     vscode.window.showInformationMessage(`CLike: cleared messages for model "${s.model}" in mode "${s.mode}"`);
     const hist = await loadSessionFilteredV2(s.mode, s.model, 200);
-    panel?.webview.postMessage({ type: 'hydrateSession', messages: hist });
+    clikeChatPanel?.webview.postMessage({ type: 'hydrateSession', messages: hist });
   }
 }
 
@@ -3525,7 +3499,6 @@ function activate(context) {
     await promoteReqSources(root, reqId, strategy, out);
   });
   
-  registerCommands(context);
 
   serviceAuthReady
     .then(() => startExtensionOperationalMcpServer(context))
@@ -3583,8 +3556,7 @@ async function cmdOpenChat(context) {
       clikeChatPanel = null;
     }
   });
-  const c = vscode.workspace.getConfiguration();
-  const orchestratorUrl = c.get('clike.orchestratorUrl') || 'http://localhost:8080';
+  const orchestratorUrl = serviceBaseUrls().orchestrator;
   const chatTheme = getChatTheme()
   panel.webview.html = getWebviewHtml(orchestratorUrl, chatTheme);
   panel.webview.postMessage({ type: 'busy', on: false });
@@ -4361,7 +4333,7 @@ async function cmdOpenChat(context) {
           }
           //log(`[harperRun] body (core_blobs):`,  JSON.stringify(body.core_blobs))
           if (activeProvider) _headers["X-CLike-Provider"] = activeProvider
-          harperTimeout = cfg().harperTimeout;
+          const harperTimeout = cfg().harperTimeout;
           clikeHarperBlockingRun = true;
           panel.webview.postMessage({ type: 'busy', on: true });
           let outGateway = await callHarper(cmd, body, _headers, { timeoutMs: 1000 * 60 * harperTimeout} );
@@ -4908,12 +4880,12 @@ async function cmdOpenChat(context) {
                 message: `ℹ BMAD QA advisory only. Canonical CLike EvalRunner remains authoritative. Suggested next command: ${report.bmad_advisory.suggested_next_command}`
               });
             }
-            reportFile = await saveEvalCommand(ws_root, plan, targets, report, out);
+            const reportFile = await saveEvalCommand(ws_root, plan, targets, report, out);
             files_git.push(toFsPath(reportFile));
 
             break;
           }
-          case 'gate':
+          case 'gate': {
             if (isManual) {
               // WP6: the override is decided and audited by the orchestrator, never produced here.
               const reason = await vscode.window.showInputBox({
@@ -4979,6 +4951,7 @@ async function cmdOpenChat(context) {
               callGit = false;
             }
             break;
+          }
         }
         
         if (phase === 'eval') {
@@ -5187,7 +5160,7 @@ async function cmdOpenChat(context) {
           }
           // 4) Fetch modelli con timeout + fallback "auto"
           try {
-            const orchestratorUrl = vscode.workspace.getConfiguration().get('clike.orchestratorUrl') || 'http://localhost:8080';
+            const orchestratorUrl = serviceBaseUrls().orchestrator;
             const controller = new AbortController();
             const timer = setTimeout(() => controller.abort(), 2000);
 
@@ -5625,7 +5598,6 @@ async function cmdOpenChat(context) {
               await context.workspaceState.update('clike.lastFiles', Array.isArray(res?.files) ? res.files : []);
             } catch (e) {
                 out.appendLine('[CLike] cache lastFiles failed: ' + (e?.message || String(e)));
-                throw new Error(`POST ${url} -> ${res.status} ${txt}`);
             }
             const summary = Array.isArray(res.files) && res.files.length
               ? 'Generated files:\n' + res.files.map(f => '- ' + f.path).join('\n')
@@ -5884,31 +5856,15 @@ function partitionAttachments(atts) {
 
 
 async function fetchJson(url, { signal } = {}) {
-  const f = (typeof fetch === 'function')
-    ? fetch
-    : ((...args) => import('node-fetch').then(({ default: ff }) => ff(...args)));
-  const res = await f(url, { signal, headers: serviceAuthHeaders(url) });
-  notifyServiceAuthFailure(res.status, url);
+  const res = await serviceRequest('GET', url, { signal });
   if (!res.ok) throw new Error(`GET ${url} -> ${res.status}`);
-  return await res.json();
+  return res.json();
 }
 
 async function postJson(url, body, { signal } = {}) {
-  const f = (typeof fetch === 'function')
-    ? fetch
-    : ((...args) => import('node-fetch').then(({ default: ff }) => ff(...args)));
-  const res = await f(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', ...serviceAuthHeaders(url) },
-    body: JSON.stringify(body),
-    signal
-  });
-  notifyServiceAuthFailure(res.status, url);
-  if (!res.ok) {
-    const txt = await res.text().catch(() => '');
-    throw new Error(`POST ${url} -> ${res.status} ${txt}`);
-  }
-  return await res.json();
+  const res = await serviceRequest('POST', url, { body, signal });
+  if (!res.ok) throw new Error(`POST ${url} -> ${res.status} ${res.text}`);
+  return res.json();
 }
 
 // Timeout soft lato estensione

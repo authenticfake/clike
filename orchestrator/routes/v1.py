@@ -742,7 +742,28 @@ async def chat( req: Request):
     except Exception as e:
         _ms = int((_time.time() - _t0) * 1000)
         log.error("chat error: %s", json.dumps({"error": f"{type(e).__name__}: {e}", "latency_ms": _ms}, ensure_ascii=False))
-        raise HTTPException(502, f"gateway chat failed: {type(e).__name__}: {e}")
+        raise _gateway_chat_failure(e)
+
+
+def _gateway_chat_failure(exc: Exception) -> HTTPException:
+    """HTTP error for a failed gateway chat call that keeps the provider's cause (e.g. "credit
+    balance is too low") instead of a bare "502 Bad Gateway". Same status policy as Harper phases:
+    request/provider-setup statuses pass through, a gateway 401/403 or anything else is 502."""
+    if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
+        upstream = exc.response.status_code
+        cause = exc.response.text[:2000]
+        try:
+            detail = exc.response.json().get("detail")
+            if isinstance(detail, dict):
+                errors = detail.get("errors") or []
+                cause = "; ".join(str(x) for x in errors) or detail.get("message") or json.dumps(detail)
+            elif detail:
+                cause = str(detail)
+        except Exception:
+            pass
+        status = upstream if upstream in {400, 404, 409, 413, 422, 429, 503} else 502
+        return HTTPException(status, f"gateway chat failed ({upstream}): {cause}")
+    return HTTPException(502, f"gateway chat failed: {type(exc).__name__}: {exc}")
 
 
 def _gather_rag_context(paths: list[str], max_docs: int = 8, max_bytes: int = 200_000) -> list[str]:
@@ -1547,7 +1568,6 @@ async def generate(req: Request):
         return result
 
     except httpx.HTTPStatusError as e:
-        # Propaga il vero body (niente 502 generici)
-        raise HTTPException(e.response.status_code, detail=f"gateway chat failed: {e.response.text}")
+        raise _gateway_chat_failure(e)
     except Exception as e:
         raise HTTPException(502, f"gateway chat failed: {type(e).__name__}: {e}")

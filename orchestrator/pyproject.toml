@@ -1,6 +1,6 @@
 [project]
 name = "clike-orchestrator"
-version = "0.9.0"
+version = "0.9.5"
 description = "CLike Orchestrator: Harper workflow, execution packages, RAG, eval/gate, MCP"
 requires-python = ">=3.12,<3.13"
 dependencies = [

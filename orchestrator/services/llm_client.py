@@ -15,7 +15,7 @@ log = logging.getLogger("orcehstrator:service:llm_client")
 
 import os, json, httpx, asyncio
 from typing import Any, Dict, List, Optional
-from utils.service_auth import internal_auth_headers
+from services import gateway_http
 
 def _shrink_text(s: str, limit: int = 1200) -> str:
     if not isinstance(s, str):
@@ -63,14 +63,13 @@ async def call_gateway_chat_json(
         payload["profile"] = profile
 
     url = base_url.rstrip("/") + "/v1/chat/completions"
-    async with httpx.AsyncClient(timeout=timeout, headers=internal_auth_headers()) as client:
-        r = await client.post(url, json=payload)
-        # Se il provider risponde 400/500, riporto il body per diagnosi chiare
-        try:
-            r.raise_for_status()
-        except httpx.HTTPStatusError as e:
-            raise RuntimeError(f"gateway HTTP {r.status_code}: {r.text}") from e
-        return r.json()
+    r = await gateway_http.post(url, json=payload, timeout=timeout)
+    # Se il provider risponde 400/500, riporto il body per diagnosi chiare
+    try:
+        r.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        raise RuntimeError(f"gateway HTTP {r.status_code}: {r.text}") from e
+    return r.json()
 
 # Timeout più alto per cold-start: 120s di read/write/pool
 _DEFAULT_TIMEOUT = httpx.Timeout(connect=5.0, read=120.0, write=120.0, pool=120.0)
@@ -131,114 +130,112 @@ async def call_gateway_chat(
     if provider is not None:
         headers["X-CLike-Provider"] = provider
         
-    async with httpx.AsyncClient(timeout=to, headers=internal_auth_headers()) as client:
-        r = await client.post(f"{base}/v1/chat/completions", json=body, headers=headers)
-        r.raise_for_status()
-        txt = r.text
-            # Parse robusto
-        try:
-            data = r.json()
-            if isinstance(data, str):
-                # double-encoded
-                try:
-                    data = json.loads(data)
-                except Exception:
-                    pass
-        except Exception:
-            # plain text → prova a caricare come JSON, altrimenti ritorna text raw
+    r = await gateway_http.post(f"{base}/v1/chat/completions", json=body, timeout=to, headers=headers)
+    r.raise_for_status()
+    txt = r.text
+        # Parse robusto
+    try:
+        data = r.json()
+        if isinstance(data, str):
+            # double-encoded
             try:
-                data = json.loads(txt)
-            except Exception:
-                return txt
-
-        
-        if isinstance(data, dict):
-            try:
-                msg = ((data.get("choices") or [{}])[0].get("message") or {})
-                content = msg.get("content", "")
-                if isinstance(content, list):
-                    parts = []
-                    for seg in content:
-                        if isinstance(seg, dict):
-                            if isinstance(seg.get("text"), str):
-                                parts.append(seg["text"])
-                            elif isinstance(seg.get("content"), str):
-                                parts.append(seg["content"])
-                        elif isinstance(seg, str):
-                            parts.append(seg)
-                    return "".join(parts).strip()
-                if isinstance(content, str) and content.strip():
-                    return content.strip()
+                data = json.loads(data)
             except Exception:
                 pass
+    except Exception:
+        # plain text → prova a caricare come JSON, altrimenti ritorna text raw
+        try:
+            data = json.loads(txt)
+        except Exception:
+            return txt
 
-            # 2) Fallback legacy: altre chiavi note
-            if "choices" in data:
-                try:
-                    return data["choices"][0]["message"]["content"]
-                except Exception:
-                    pass
-            if "text" in data and isinstance(data["text"], str):
-                return data["text"]
-            if "response" in data and isinstance(data["response"], str):
-                return data["response"]
+        
+    if isinstance(data, dict):
+        try:
+            msg = ((data.get("choices") or [{}])[0].get("message") or {})
+            content = msg.get("content", "")
+            if isinstance(content, list):
+                parts = []
+                for seg in content:
+                    if isinstance(seg, dict):
+                        if isinstance(seg.get("text"), str):
+                            parts.append(seg["text"])
+                        elif isinstance(seg.get("content"), str):
+                            parts.append(seg["content"])
+                    elif isinstance(seg, str):
+                        parts.append(seg)
+                return "".join(parts).strip()
+            if isinstance(content, str) and content.strip():
+                return content.strip()
+        except Exception:
+            pass
 
-        # 3) Se data è una stringa JSON double-encoded
-        if isinstance(data, str):
+        # 2) Fallback legacy: altre chiavi note
+        if "choices" in data:
             try:
-                parsed = json.loads(data)
-                return str(parsed).strip()
+                return data["choices"][0]["message"]["content"]
             except Exception:
-                return data.strip()
+                pass
+        if "text" in data and isinstance(data["text"], str):
+            return data["text"]
+        if "response" in data and isinstance(data["response"], str):
+            return data["response"]
 
-        # 4) Ultimo fallback: tutto come stringa
-        return str(data or "").strip()
+    # 3) Se data è una stringa JSON double-encoded
+    if isinstance(data, str):
+        try:
+            parsed = json.loads(data)
+            return str(parsed).strip()
+        except Exception:
+            return data.strip()
+
+    # 4) Ultimo fallback: tutto come stringa
+    return str(data or "").strip()
 
 async def call_gateway_generate(payload: dict, _headers: dict) -> str:
     _t0 = _time.time()
     timeout = payload.get("timeout", float(getattr(settings, "REQUEST_TIMEOUT_S", 240)))
-    async with httpx.AsyncClient(timeout=timeout, headers=internal_auth_headers()) as client:
-        r = await client.post(f"{payload.get('base_url') or payload.get('base_url')}/v1/chat/completions", json=payload, headers=_headers)
-        txt = r.text
-        _ms = int((_time.time() - _t0) * 1000)
-        data = {}
-        if r.is_success:
-            log.info("gateway.response success %s", json.dumps({
-                "status": r.status_code,
-                "latency_ms": _ms
-            }, ensure_ascii=False))
-            # log body (ridotto) a livello DEBUG
-            try:
-                data = r.json()
-                # Alcuni provider/adapters (es. Ollama via gateway) possono restituire un JSON string (double-encoded):
-                if isinstance(data, str):
-                    try:
-                        parsed = json.loads(data)
-                        data = parsed
-                        log.debug("gateway.response reparsed string JSON into dict")
-                    except Exception:
-                        log.warning("gateway.response is a JSON string but not parseable; proceeding with empty dict")
-                        data = {}
-                log.info("gateway.response %s", json.dumps(data, ensure_ascii=False))
-                log.debug("gateway.response.body %s", _shrink_text(json.dumps(data, ensure_ascii=False), 4000))
-            except Exception:
-                log.debug("gateway.response.text %s", _shrink_text(txt, 4000))
+    r = await gateway_http.post(f"{payload.get('base_url') or payload.get('base_url')}/v1/chat/completions", json=payload, timeout=timeout, headers=_headers)
+    txt = r.text
+    _ms = int((_time.time() - _t0) * 1000)
+    data = {}
+    if r.is_success:
+        log.info("gateway.response success %s", json.dumps({
+            "status": r.status_code,
+            "latency_ms": _ms
+        }, ensure_ascii=False))
+        # log body (ridotto) a livello DEBUG
+        try:
+            data = r.json()
+            # Alcuni provider/adapters (es. Ollama via gateway) possono restituire un JSON string (double-encoded):
+            if isinstance(data, str):
                 try:
-                    parsed = json.loads(txt)
-                    # Anche qui: se è una stringa JSON annidata, riprova a parsarla
-                    if isinstance(parsed, str):
-                        try:
-                            parsed = json.loads(parsed)
-                            log.debug("gateway.response reparsed nested string JSON into dict")
-                        except Exception:
-                            log.warning("gateway.response nested string not parseable; using empty dict")
-                            parsed = {}
+                    parsed = json.loads(data)
                     data = parsed
+                    log.debug("gateway.response reparsed string JSON into dict")
                 except Exception:
-                    raise HTTPException(status_code=502, detail="gateway chat failed: invalid JSON from provider")
+                    log.warning("gateway.response is a JSON string but not parseable; proceeding with empty dict")
+                    data = {}
+            log.info("gateway.response %s", json.dumps(data, ensure_ascii=False))
+            log.debug("gateway.response.body %s", _shrink_text(json.dumps(data, ensure_ascii=False), 4000))
+        except Exception:
+            log.debug("gateway.response.text %s", _shrink_text(txt, 4000))
+            try:
+                parsed = json.loads(txt)
+                # Anche qui: se è una stringa JSON annidata, riprova a parsarla
+                if isinstance(parsed, str):
+                    try:
+                        parsed = json.loads(parsed)
+                        log.debug("gateway.response reparsed nested string JSON into dict")
+                    except Exception:
+                        log.warning("gateway.response nested string not parseable; using empty dict")
+                        parsed = {}
+                data = parsed
+            except Exception:
+                raise HTTPException(status_code=502, detail="gateway chat failed: invalid JSON from provider")
 
-            log.debug("gateway.response.type %s", type(data).__name__)
-        return data
+        log.debug("gateway.response.type %s", type(data).__name__)
+    return data
 
     
 

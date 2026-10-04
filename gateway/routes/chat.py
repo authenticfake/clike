@@ -6,19 +6,45 @@ from typing import List, Dict, Any, Optional, Union
 
 from providers import openai_compat as oai
 from providers import anthropic as anth
-from providers import deepseek as deepseek
-from providers import ollama as oll
-from providers import vllm as vll
 from config import load_models_cfg
 
 OPENAI_BASE = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
-DEEPSEEK_BASE = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1").rstrip("/")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 ANTHROPIC_BASE= os.getenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1").rstrip("/")
-VLLM_BASE = os.getenv("VLLM_BASE_URL", "http://vllm:8000/v1").rstrip("/")
 OLLAMA_BASE = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434").rstrip("/")
+# Ollama (and any OpenAI-compatible local server) is served through openai_compat (decision D3).
+OLLAMA_OPENAI_BASE = OLLAMA_BASE if OLLAMA_BASE.endswith("/v1") else f"{OLLAMA_BASE}/v1"
+DEFAULT_CHAT_TIMEOUT_S = float(os.getenv("CHAT_TIMEOUT_S", "240"))
+
+
+def provider_error_status(result: Any) -> int:
+    """HTTP status for a failed unified provider result: 429 stays 429, everything else is 502."""
+    raw = (result or {}).get("raw") if isinstance(result, dict) else None
+    upstream = (raw or {}).get("status_code") if isinstance(raw, dict) else None
+    return 429 if upstream == 429 else 502
+
+
+def provider_not_configured(provider: str) -> HTTPException:
+    """The gateway has no credentials for ``provider``: a server configuration problem (503), not a
+    client authentication failure, so it is never reported as 401 (the extension reserves 401/503
+    with a top-level ``code`` for the service token)."""
+    env = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}.get(provider, f"{provider.upper()}_API_KEY")
+    return HTTPException(503, detail={
+        "code": "provider_not_configured",
+        "message": f"provider '{provider}' is not configured on the gateway ({env} is not set)",
+    })
+
+
+def raise_for_provider_failure(result: Any, model: str) -> Any:
+    """Unified results with ok=False become HTTP errors (they used to be returned as 200)."""
+    if isinstance(result, dict) and result.get("ok") is False:
+        errors = result.get("errors") or []
+        raise HTTPException(
+            provider_error_status(result),
+            detail={"message": f"provider call failed for model={model}", "errors": errors[:5]},
+        )
+    return result
 
 router = APIRouter()
 log = logging.getLogger("gateway.chat")
@@ -146,7 +172,6 @@ def _infer_provider(model: str) -> str:
     m = (model or "").lower()
     # prefissi tipici che arrivano dal models.yaml come id
     if m.startswith("ollama:"): return "ollama"
-    if m.startswith("vllm:"): return "vllm"
     return "openai"
 
 def _json(obj: Any) -> str:
@@ -208,7 +233,7 @@ async def chat_completions(req: ChatRequest,  request: Request):
             # fallback super-sicuro
             messages.append({"role": getattr(m, "role", "user"), "content": getattr(m, "content", "")})
 
-    temperature = req.temperature or 0.4
+    temperature = 0.4 if req.temperature is None else req.temperature  # 0 is a valid value
     max_tokens = req.max_tokens
     response_format = req.response_format
     tools = req.tools
@@ -224,7 +249,7 @@ async def chat_completions(req: ChatRequest,  request: Request):
     tools = sanitized["tools"]
     tool_choice = sanitized["tool_choice"]
     remote = (req.remote_name or model)
-    timeout = req.timeout
+    timeout = req.timeout or DEFAULT_CHAT_TIMEOUT_S  # never unlimited
 
     # Logging solo con tipi JSON-safe (evita oggetti pydantic)
     log.info(
@@ -245,46 +270,22 @@ async def chat_completions(req: ChatRequest,  request: Request):
     # Routing per provider
     if provider == "openai":
         if not OPENAI_API_KEY:
-            raise HTTPException(401, "missing OPENAI api key")
+            raise provider_not_configured("openai")
         data = await oai.chat(OPENAI_BASE, OPENAI_API_KEY, model, messages, temperature=temperature,
                                                                             max_tokens=max_tokens,
                                                                             tools=tools,
                                                                             tool_choice=tool_choice,
                                                                             response_format=response_format,
                                                                             timeout=timeout) 
-        return data
-    if provider == "vllm":
-        return await vll.chat(base=VLLM_BASE,
-                              model=model, 
-                                   messages=messages, 
-                                   temperature=temperature, 
-                                   max_tokens=max_tokens, 
-                                   response_format=response_format, 
-                                   tools=tools, 
-                                   tool_choice=tool_choice, 
-                                   timeout=timeout)
-    if provider == "deepseek":
-        if not DEEPSEEK_API_KEY:
-            raise HTTPException(401, "missing DEEPSEEK api key")
-       
-        return await deepseek.chat(base=DEEPSEEK_BASE,
-                                   api_key=DEEPSEEK_API_KEY, 
-                                   model=model, 
-                                   messages=messages, 
-                                   temperature=temperature, 
-                                   max_tokens=max_tokens, 
-                                   response_format=response_format, 
-                                   tools=tools, 
-                                   tool_choice=tool_choice, 
-                                   timeout=timeout)
-    
-    
-    
+        return raise_for_provider_failure(data, model)
     if provider == "ollama":
-        return await oll.chat(OLLAMA_BASE, model, messages, temperature, max_tokens, timeout)
+        data = await oai.chat(OLLAMA_OPENAI_BASE, "ollama", model, messages, temperature=temperature,
+                              max_tokens=max_tokens, tools=tools, tool_choice=tool_choice,
+                              response_format=response_format, timeout=timeout)
+        return raise_for_provider_failure(data, model)
     elif provider == "anthropic":
         if not ANTHROPIC_API_KEY:
-            raise HTTPException(401, "missing ANTHROPIC api key")
+            raise provider_not_configured("anthropic")
             
         try:
             data = await anth.chat(
@@ -298,7 +299,7 @@ async def chat_completions(req: ChatRequest,  request: Request):
                 tool_choice=tool_choice,
                 response_format=response_format,
                 timeout=timeout)
-            return data
+            return raise_for_provider_failure(data, model)
         except httpx.HTTPStatusError as e:
             txt = e.response.text if e.response is not None else str(e)
             code = e.response.status_code if e.response is not None else 502

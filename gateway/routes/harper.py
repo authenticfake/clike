@@ -15,6 +15,7 @@ import os, datetime
 import httpx
 from utils.sanitize import sanitize_for_path
 from utils.safe_paths import resolve_within, safe_segment
+from utils.telemetry_retention import maybe_prune as maybe_prune_telemetry
 from utils.utils import   collect_rag_materials_http, decide_inline_or_rag
 from utils.rag_store import RagStore
 from utils.active_output_contract import (
@@ -32,12 +33,9 @@ from utils.methodology_prompt import (
     render_current_canonical_validation_for_cloud_prompt,
     render_methodology_context_for_cloud_prompt,
 )
-from routes.chat import ANTHROPIC_API_KEY, ANTHROPIC_BASE, DEEPSEEK_BASE, OLLAMA_BASE, OPENAI_API_KEY, DEEPSEEK_API_KEY, OPENAI_BASE, VLLM_BASE, _json
+from routes.chat import ANTHROPIC_API_KEY, ANTHROPIC_BASE, OLLAMA_OPENAI_BASE, OPENAI_API_KEY, OPENAI_BASE, _json, provider_not_configured
 from providers import openai_compat as oai
 from providers import anthropic as anth
-from providers import deepseek as deepseek
-from providers import ollama as oll
-from providers import vllm as vll
 import yaml
 import mimetypes
 from pricing import PricingManager  # [pricing]
@@ -59,7 +57,8 @@ PROMPT_KIT_SYSTEM_PATH = os.getenv("PROMPT_KIT_SYSTEM_PATH", "/app/prompts/harpe
 PROMPT_INTEGRITY_EVAL_SYSTEM_PATH = os.getenv("PROMPT_INTEGRITY_EVAL_SYSTEM_PATH", "/app/prompts/harper/integrity_eval.md")
 PROMPT_PROMOTION_HARDENER_SYSTEM_PATH = os.getenv("PROMPT_PROMOTION_HARDENER_SYSTEM_PATH", "/app/prompts/harper/promotion_hardener.md")
 PROMPT_PROMOTION_EVAL_SYSTEM_PATH = os.getenv("PROMPT_PROMOTION_EVAL_SYSTEM_PATH", "/app/prompts/harper/promotion_eval.md")
-PROMPT_BUILD_SYSTEM_PATH = os.getenv("PROMPT_BIULD_SYSTEM_PATH", "/app/prompts/harper/build_system.md")
+PROMPT_EVAL_SYSTEM_PATH = os.getenv("PROMPT_EVAL_SYSTEM_PATH", "/app/prompts/harper/eval_system.md")
+PROMPT_GATE_SYSTEM_PATH = os.getenv("PROMPT_GATE_SYSTEM_PATH", "/app/prompts/harper/gate_system.md")
 PROMPT_FINALIZE_SYSTEM_PATH = os.getenv("PROMPT_FINALIZE_SYSTEM_PATH", "/app/prompts/harper/finalize_system.md")
 PROMPT_EXTEND_SYSTEM_PATH = os.getenv("PROMPT_EXTEND_SYSTEM_PATH", "/app/prompts/harper/extend_system.md")
 
@@ -1128,36 +1127,6 @@ def _load_text_blob(core_blobs: dict | None, suffix: str) -> str:
     return ""
 
 
-def _render_clike_selected_capability_context_for_cloud(core_blobs: dict | None) -> str:
-    """
-    Render the already resolved, phase/REQ-scoped CLike capability context for cloud prompts.
-
-    The Orchestrator is responsible for generating CLIKE_SELECTED_CAPABILITY_CONTEXT.md
-    from the current REQ/phase selected packs, skills, and design profiles.
-
-    Gateway must not rescan .clike and must not infer capabilities.
-    It only injects the selected context that the Orchestrator already materialized.
-    """
-    selected_context = _load_text_blob(core_blobs, "CLIKE_SELECTED_CAPABILITY_CONTEXT.md")
-    if not selected_context:
-        return ""
-
-    # Normalize the heading so the cloud prompt has the same marker used by local-agent prompts.
-    normalized = selected_context.strip()
-    if normalized.startswith("# CLike Selected Capability Context"):
-        normalized = normalized.replace("# CLike Selected Capability Context", "", 1).strip()
-
-    return (
-        "### CLike Selected Capability Context\n"
-        "- source: CLIKE_SELECTED_CAPABILITY_CONTEXT.md\n"
-        "- source_transport: core_blobs\n"
-        "- scope: selected CLike packs, skills, and design profiles for the current target REQ/phase only\n"
-        "- rule: apply these selected CLike capabilities to source, tests, docs, LTC, HOWTO, and gate evidence when relevant\n"
-        "- rule: do not scan all `.clike` skills opportunistically; use only this selected context\n\n"
-        f"{normalized}"
-    ).strip()
-
-
 def _compose_cloud_selected_skill_context(
     *,
     core_blobs: dict | None,
@@ -1607,9 +1576,17 @@ def _compose_system_messages(
         "extend": PROMPT_EXTEND_SYSTEM_PATH,
         "promotion_hardener": PROMPT_PROMOTION_HARDENER_SYSTEM_PATH,
         "promotion_eval": PROMPT_PROMOTION_EVAL_SYSTEM_PATH,
+        "eval": PROMPT_EVAL_SYSTEM_PATH,
+        "gate": PROMPT_GATE_SYSTEM_PATH,
     }
-    system_path = system_by_phase.get(phase, PROMPT_SPEC_SYSTEM_PATH)
-    system = _read_text(system_path).strip() or "# Harper System Prompt\nFollow the phase contract strictly."
+    # WP7: unknown phases and missing prompts fail loudly (they used to fall back to the SPEC
+    # prompt or to a one-line placeholder, silently producing wrong outputs).
+    system_path = system_by_phase.get(phase)
+    if system_path is None:
+        raise HTTPException(400, f"unknown Harper phase: {phase!r}")
+    system = _read_text(system_path).strip()
+    if not system:
+        raise HTTPException(503, f"system prompt for phase {phase!r} is not available on the gateway")
 
     if phase == "kit" and repo_url:
         system = _inject_repo_url_in_system(system, repo_url)
@@ -2003,6 +1980,10 @@ def _write_telemetry(project_id: str, record: dict) -> None:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
     except Exception as e:
         log.warning("telemetry write failed: %s", e)
+    try:
+        maybe_prune_telemetry(TELEMETRY_DIR)
+    except Exception as e:
+        log.warning("telemetry retention failed: %s", e)
 
 def _prompt_debug_path(project_id: str, run_id: str | None, phase: str) -> Path:
     fname = f"{safe_segment(project_id, 'default')}__{safe_segment(run_id, 'n-a')}__{safe_segment(phase, 'phase')}.json"
@@ -3035,23 +3016,23 @@ async def run(req: HarperRunRequest,  request: Request):
         # Routing per provider
         if provider == "openai":
             if not OPENAI_API_KEY:
-                raise HTTPException(401, "missing OpenAI api key")
+                raise provider_not_configured("openai")
             llm_text = await oai.openai_complete_unified(api_key=OPENAI_API_KEY, model=model, messages=messages, gen=req.gen, timeout_s=timeout_sec)
             
-        elif provider == "deepseek":
-            if not DEEPSEEK_API_KEY:
-                raise HTTPException(401, "missing OpenAI api key")
-
-            llm_text = await deepseek.chat(DEEPSEEK_API_KEY, DEEPSEEK_BASE, model, messages, gen_temperature, eff_max, gen_top_p)  
-
-        elif provider == "vllm":
-            llm_text =  await vll.chat(VLLM_BASE, model, messages, gen_temperature, eff_max, gen_response_format, gen_tools, gen_tool_choice, gen_top_p)
         elif provider == "ollama":
-            llm_text =  await oll.chat(OLLAMA_BASE, model, messages, gen_temperature, eff_max, gen_top_p)   
+            # D3: Ollama through its OpenAI-compatible API (chat completions).
+            llm_text = await oai.openai_complete_unified(
+                api_key="ollama",
+                model=model,
+                messages=messages,
+                gen={**(req.gen or {}), "api": "chat", "max_tokens": eff_max},
+                timeout_s=timeout_sec,
+                base_url=OLLAMA_OPENAI_BASE,
+            )
 
         elif provider == "anthropic":
             if not ANTHROPIC_API_KEY:
-                raise HTTPException(401, "missing ANTHROPIC api key")
+                raise provider_not_configured("anthropic")
             llm_text = await anth.chat(
                 ANTHROPIC_BASE, 
                 ANTHROPIC_API_KEY, 
@@ -3076,11 +3057,17 @@ async def run(req: HarperRunRequest,  request: Request):
         else:
             raise HTTPException(400, f"unsupported provider for chat: {provider} for model '{req.model}")
 
+    except HTTPException:
+        # configuration/request errors (provider not configured, unsupported provider) reach the
+        # caller instead of being folded into an empty 200 result
+        raise
     except httpx.HTTPStatusError as e:
             log.error("httpx error: %s", e)
             txt = e.response.text if e.response is not None else str(e)
-            code = e.response.status_code if e.response is not None else 502
-            raise HTTPException(code, detail=f"provider error for model={model}: {txt}")
+            upstream = e.response.status_code if e.response is not None else None
+            # a provider 401/403 is a gateway credential problem, not the caller's: 502 (429 stays 429)
+            code = 429 if upstream == 429 else 502
+            raise HTTPException(code, detail=f"provider error {upstream} for model={model}: {txt}")
     except httpx.HTTPError as e:
             log.error("httpx error: %s", e)
             raise HTTPException(502, detail=f"provider connection error: {e}")

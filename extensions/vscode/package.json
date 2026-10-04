@@ -2,7 +2,7 @@
   "name": "clike",
   "displayName": "Clike",
   "description": "From intent to impact. CLike keeps developers in flow, augments delivery with agentic workflows, and bakes in governance, eval‑driven quality, and a safe paved road for enterprises w/ an AI native pipeline.",
-  "version": "0.9.0",
+  "version": "0.9.5",
   "publisher": "authenticfake",
   "icon": "images/clike_64x64.png",
   "engines": {
@@ -128,22 +128,6 @@
         "title": "Clike: Git Smart PR"
       },
       {
-        "command": "clike.eval.runAll",
-        "title": "CLike: Run All Evals"
-      },
-      {
-        "command": "clike.gate.checkPhase",
-        "title": "CLike: Gate Check (Phase)"
-      },
-      {
-        "command": "clike.constraints.sync",
-        "title": "CLike: Sync Constraints (IDEA/SPEC)"
-      },
-      {
-        "command": "clike.plan.updateChecklist",
-        "title": "CLike: Update PLAN Checklist from Eval"
-      },
-      {
         "command": "clike.promoteReqSources",
         "title": "CLike: Promote source code"
       },
@@ -189,30 +173,10 @@
           "default": 25,
           "description": "timeout in minutes for harper phase completions."
         },
-        "clike.verboseLogging": {
-          "type": "boolean",
-          "default": false,
-          "description": "Log verbose messages."
-        },
-        "clike.docRoot": {
-          "type": "string",
-          "default": "docs/harper",
-          "description": "Doc root for harper scenario(relativa alla workspace)."
-        },
-        "publisher.clike": {
-          "type": "boolean",
-          "default": "${publisher}.${name}",
-          "description": "Log verbose messages."
-        },
         "clike.chat.persistDir": {
           "type": "string",
           "default": ".clike/sessions",
           "description": "Directory (relativa alla workspace) dove salvare le chat per modello (formato JSONL)."
-        },
-        "clike.chat.autoOpenOnStartup": {
-          "type": "boolean",
-          "default": true,
-          "description": "Auto-open chat at startup."
         },
         "clike.chat.never_send_source_to_cloud": {
           "type": "boolean",
@@ -292,11 +256,6 @@
           "minimum": 1,
           "description": "Default timeout in minutes for local agent runs triggered by CLike."
         },
-        "clike.execution.showInChat": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show execution path details in the CLike chat UI."
-        },
         "clike.claudeCode.enabled": {
           "type": "boolean",
           "default": true,
@@ -357,18 +316,6 @@
           "default": "gpt-5.5",
           "description": "Model passed to Codex on every local run (--model). Codex exposes no model-list command, so set the exact model id your Codex login supports; an invalid id makes the run fail. Leave empty to use the Codex CLI default."
         },
-        "clike.localAgent.codex.approvalMode": {
-          "type": "string",
-          "default": "",
-          "description": "Reserved. Do not use for now: Codex CLI options vary by version and unsupported flags break execution.",
-          "scope": "machine"
-        },
-        "clike.localAgent.codex.printModeFlag": {
-          "type": "string",
-          "default": "",
-          "description": "Reserved. Codex non-interactive execution is currently invoked as: codex exec <prompt>.",
-          "scope": "machine"
-        },
         "clike.localAgent.codex.sandboxMode": {
           "type": "string",
           "default": "auto",
@@ -386,16 +333,6 @@
           "default": 30,
           "minimum": 1,
           "description": "Timeout in minutes for GPT Codex runs triggered by CLike."
-        },
-        "clike.mcp.clientEnabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable MCP client integrations inside CLike."
-        },
-        "clike.mcp.serverEnabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Expose the read-only/service CLike MCP server from the orchestrator."
         },
         "clike.mcp.extensionServerEnabled": {
           "type": "boolean",
