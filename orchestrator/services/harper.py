@@ -14,6 +14,7 @@ import re
 from pathlib import Path
 
 import httpx
+import yaml
 
 from config import runs_dir, settings
 from services.utils import GATEWAY_URL
@@ -1260,6 +1261,63 @@ def _derive_artifact_roles(
 
     return roles
 
+_PY_MARKERS = ("python", "fastapi", "django", "flask", "pytest", "pyproject.toml", "ruff", "mypy")
+_NODE_MARKERS = ("node", "node.js", "nodejs", "npm", "javascript", "typescript", "express", "react", "vite",
+                 "next.js", "nextjs", "package.json", "better-sqlite3")
+_NODE_LANES = {"node", "js", "js-ts", "javascript", "typescript", "frontend", "react"}
+
+
+def _tech_constraint_values(core_blobs: Dict[str, Any] | None) -> List[str]:
+    """runtime/language/framework values declared in TECH_CONSTRAINTS.yaml (lower-case)."""
+    for name, content in (core_blobs or {}).items():
+        if not str(name or "").lower().endswith(("tech_constraints.yaml", "tech_constraints.yml")):
+            continue
+        try:
+            data = yaml.safe_load(str(content or "")) or {}
+        except yaml.YAMLError:
+            return []
+        values: List[str] = []
+
+        def walk(node: Any) -> None:
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    if str(key).lower() in {"runtime", "language", "languages", "framework", "frameworks", "stack"}:
+                        for item in value if isinstance(value, list) else [value]:
+                            if isinstance(item, (str, int, float)):
+                                values.append(str(item).lower())
+                    walk(value)
+            elif isinstance(node, list):
+                for item in node:
+                    walk(item)
+
+        walk(data)
+        return values
+    return []
+
+
+def _mentions(text: str, markers: tuple) -> bool:
+    return any(re.search(rf"(?<![\w.-]){re.escape(m)}(?![\w-])", text, re.I) for m in markers)
+
+
+def _detect_req_ecosystem(core_blobs: Dict[str, Any] | None, lane: str, project_blob: str) -> tuple[bool, bool]:
+    """(is_python_like, is_node_like) for a KIT REQ (B19).
+
+    Declared technology constraints decide; with several execution areas (e.g. a Python backend
+    and a JavaScript frontend) the REQ lane picks one. Free-text keywords are a last resort and
+    are matched as whole words ("expression" is not Express, "reactive" is not React).
+    """
+    declared = " ".join(_tech_constraint_values(core_blobs))
+    py, node = _mentions(declared, _PY_MARKERS), _mentions(declared, _NODE_MARKERS)
+    if not (py or node):
+        py, node = _mentions(project_blob, _PY_MARKERS), _mentions(project_blob, _NODE_MARKERS)
+    if py and node:
+        node_lane = lane in _NODE_LANES
+        return (not node_lane, node_lane)
+    if node or lane in _NODE_LANES:
+        return (False, True)
+    return (py or lane == "python", False)
+
+
 def _materialize_file_requirements(
     contract: Dict[str, Any],
     family: str,
@@ -1296,33 +1354,7 @@ def _materialize_file_requirements(
         ]
     ).lower()
 
-    is_node_like = any(
-        token in project_blob
-        for token in (
-            "node",
-            "node.js",
-            "nodejs",
-            "npm",
-            "package.json",
-            "javascript",
-            "typescript",
-            "express",
-            "react",
-            "vite",
-            "better-sqlite3",
-        )
-    ) or lane in {"node", "js", "js-ts", "javascript", "typescript", "frontend", "react"}
-
-    is_python_like = (
-        not is_node_like
-        and (
-            lane == "python"
-            or any(
-                token in project_blob
-                for token in ("python", "pytest", "ruff", "mypy", "fastapi", "pyproject.toml")
-            )
-        )
-    )
+    is_python_like, is_node_like = _detect_req_ecosystem(core_blobs, lane, project_blob)
 
     if is_python_like:
         source_ext = ".py"
