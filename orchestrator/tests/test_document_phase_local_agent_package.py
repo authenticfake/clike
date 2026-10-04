@@ -236,7 +236,7 @@ def test_external_attachment_is_materialized_into_workspace_package_file():
             {
                 "name": "IDEA.md",
                 # External absolute path outside the agent's cwd (the reported bug).
-                "path": "/Users/a.franco/dev/authenticfake/clike/clike_mvp/CoffeeBuddy/IDEA.md",
+                "path": "/Users/dev/projects/CoffeeBuddy/IDEA.md",
                 "mime": "text/markdown",
                 "content": "# CoffeeBuddy\n\nThe source idea.\n",
             }
