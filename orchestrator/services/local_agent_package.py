@@ -23,6 +23,63 @@ from utils.namespace_paths import (
 )
 
 
+
+# --- package plumbing shared by every phase builder (WP8.2) ---------------------------------
+
+
+def _local_agent_invocation(local_executor: Optional[str], payload: Dict[str, Any]) -> Dict[str, Any]:
+    """How the extension runs the agent CLI (clike.local_agent_invocation.v1)."""
+    return {
+        "schema_version": "clike.local_agent_invocation.v1",
+        "executor": local_executor,
+        "command_ref": local_executor,
+        "args": ["exec"] if local_executor == "gpt_codex" else ["-p", "--permission-mode", "acceptEdits"],
+        "prompt_transport": "stdin" if local_executor == "gpt_codex" else "argv_last",
+        "timeout_seconds": int(payload.get("localAgentTimeoutSeconds") or 1800),
+        "cwd": ".",
+    }
+
+
+def _execution_summary(execution_policy: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "requested": execution_policy.get("requested"),
+        "selected": execution_policy.get("selected"),
+        "reason": execution_policy.get("reason"),
+        "phase_supported": execution_policy.get("phase_supported"),
+    }
+
+
+def _package_file(path: str, content: Any, mime: str) -> Dict[str, Any]:
+    """A text file the extension writes into the workspace before running the agent."""
+    return {"path": path, "content": content, "mime": mime, "encoding": "utf-8"}
+
+
+def _package_envelope(
+    *,
+    phase: str,
+    echo: str,
+    summary: str,
+    extra_warnings: List[str],
+    run_id: Any,
+    execution_policy: Dict[str, Any],
+    local_agent: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Response returned to the extension when the phase must run on a local agent."""
+    return {
+        "ok": True,
+        "phase": phase,
+        "echo": echo,
+        "text": "",
+        "files": [],
+        "diffs": [],
+        "tests": {"passed": 0, "failed": 0, "summary": summary},
+        "warnings": ["execution_package:local_agent_required", "extension_role:local_actuator_only", *extra_warnings],
+        "errors": [],
+        "runId": run_id,
+        "execution": _execution_summary(execution_policy),
+        "local_agent": local_agent,
+    }
+
 def _safe_text(value: Any) -> str:
     return str(value or "").strip()
 
@@ -2428,27 +2485,14 @@ def build_kit_local_agent_package(
         namespace_materialization=namespace_materialization,
     )
 
-    return {
-        "ok": True,
-        "phase": "kit",
-        "echo": f"Local agent execution package prepared for {req_id}",
-        "text": "",
-        "files": [],
-        "diffs": [],
-        "tests": {"passed": 0, "failed": 0, "summary": "local-agent-package-prepared"},
-        "warnings": [
-            "execution_package:local_agent_required",
-            "extension_role:local_actuator_only",
-        ],
-        "errors": [],
-        "runId": run_id,
-        "execution": {
-            "requested": execution_policy.get("requested"),
-            "selected": execution_policy.get("selected"),
-            "reason": execution_policy.get("reason"),
-            "phase_supported": execution_policy.get("phase_supported"),
-        },
-        "local_agent": {
+    return _package_envelope(
+        phase="kit",
+        echo=f"Local agent execution package prepared for {req_id}",
+        summary="local-agent-package-prepared",
+        extra_warnings=[],
+        run_id=run_id,
+        execution_policy=execution_policy,
+        local_agent={
             "action": "local_agent_required",
             "package_id": f"{run_id}:{req_id}:kit",
             "phase": "kit",
@@ -2457,90 +2501,32 @@ def build_kit_local_agent_package(
             "context_path": context_path,
             "prompt_path": prompt_path,
             "prompt_content": prompt,
-            "invocation": {
-                "schema_version": "clike.local_agent_invocation.v1",
-                "executor": local_executor,
-                "command_ref": local_executor,
-                "args": ["exec"] if local_executor == "gpt_codex" else ["-p", "--permission-mode", "acceptEdits"],
-                "prompt_transport": "stdin" if local_executor == "gpt_codex" else "argv_last",
-                "timeout_seconds": int(payload.get("localAgentTimeoutSeconds") or 1800),
-                "cwd": ".",
-            },
+            "invocation": _local_agent_invocation(local_executor, payload),
             "allowed_write_roots": allowed_write_roots,
             "forbidden_paths": forbidden_paths,
             "active_output_contract": active_output_contract,
             "expected_outputs": context["expected_outputs"],
             "package_files": [
-                {
-                    "path": context_path,
-                    "content": context_json,
-                    "mime": "application/json",
-                    "encoding": "utf-8",
-                },
-                {
-                    "path": prompt_path,
-                    "content": prompt,
-                    "mime": "text/markdown",
-                    "encoding": "utf-8",
-                },
-                {
-                    "path": f"runs/kit/{req_id}/docs/TARGET_CONTRACT.json",
-                    "content": json.dumps(target_contract, indent=2, ensure_ascii=False),
-                    "mime": "application/json",
-                    "encoding": "utf-8",
-                },
-                {
-                    "path": f"runs/kit/{req_id}/docs/FILE_REQUIREMENTS.json",
-                    "content": json.dumps(file_requirements, indent=2, ensure_ascii=False),
-                    "mime": "application/json",
-                    "encoding": "utf-8",
-                },
+                _package_file(context_path, context_json, "application/json"),
+                _package_file(prompt_path, prompt, "text/markdown"),
+                _package_file(f"runs/kit/{req_id}/docs/TARGET_CONTRACT.json", json.dumps(target_contract, indent=2, ensure_ascii=False), "application/json"),
+                _package_file(f"runs/kit/{req_id}/docs/FILE_REQUIREMENTS.json", json.dumps(file_requirements, indent=2, ensure_ascii=False), "application/json"),
                 (
                     [
-                        {
-                            "path": f"runs/kit/{req_id}/docs/AGENT_INPUT_AUDIT.json",
-                            "content": agent_input_audit_json,
-                            "mime": "application/json",
-                            "encoding": "utf-8",
-                        },
-                        {
-                            "path": f"runs/kit/{req_id}/docs/AGENT_INPUT_AUDIT.md",
-                            "content": agent_input_audit_md,
-                            "mime": "text/markdown",
-                            "encoding": "utf-8",
-                        },
+                        _package_file(f"runs/kit/{req_id}/docs/AGENT_INPUT_AUDIT.json", agent_input_audit_json, "application/json"),
+                        _package_file(f"runs/kit/{req_id}/docs/AGENT_INPUT_AUDIT.md", agent_input_audit_md, "text/markdown"),
                     ]
                     if include_agent_input_audit
                     else []
                 ),
 
-                {
-                    "path": f"runs/kit/{req_id}/docs/CLIKE_CAPABILITY_MANIFEST.md",
-                    "content": standalone_capability_manifest,
-                    "mime": "text/markdown",
-                    "encoding": "utf-8",
-                },
-                {
-                    "path": f"runs/kit/{req_id}/docs/CLIKE_CAPABILITY_INDEX.json",
-                    "content": standalone_capability_index,
-                    "mime": "application/json",
-                    "encoding": "utf-8",
-                },
-                {
-                    "path": f"runs/kit/{req_id}/docs/CLIKE_SELECTED_CAPABILITY_CONTEXT.md",
-                    "content": standalone_selected_capability_context,
-                    "mime": "text/markdown",
-                    "encoding": "utf-8",
-                },
-                {
-                    "path": f"runs/kit/{req_id}/docs/CLIKE_SELECTED_CAPABILITY_CONTEXT.json",
-                    "content": standalone_selected_capability_context_json,
-                    "mime": "application/json",
-                    "encoding": "utf-8",
-                },
+                _package_file(f"runs/kit/{req_id}/docs/CLIKE_CAPABILITY_MANIFEST.md", standalone_capability_manifest, "text/markdown"),
+                _package_file(f"runs/kit/{req_id}/docs/CLIKE_CAPABILITY_INDEX.json", standalone_capability_index, "application/json"),
+                _package_file(f"runs/kit/{req_id}/docs/CLIKE_SELECTED_CAPABILITY_CONTEXT.md", standalone_selected_capability_context, "text/markdown"),
+                _package_file(f"runs/kit/{req_id}/docs/CLIKE_SELECTED_CAPABILITY_CONTEXT.json", standalone_selected_capability_context_json, "application/json"),
             ],
         },
-    }
+    )
 
 
 def build_eval_local_agent_package(
@@ -3046,28 +3032,14 @@ def build_eval_local_agent_package(
         namespace_materialization=namespace_materialization,
     )
 
-    return {
-        "ok": True,
-        "phase": "eval",
-        "echo": f"Local agent eval pre-pass package prepared for {req_id}",
-        "text": "",
-        "files": [],
-        "diffs": [],
-        "tests": {"passed": 0, "failed": 0, "summary": "local-agent-eval-package-prepared"},
-        "warnings": [
-            "execution_package:local_agent_required",
-            "extension_role:local_actuator_only",
-            "canonical_eval_still_required",
-        ],
-        "errors": [],
-        "runId": run_id,
-        "execution": {
-            "requested": execution_policy.get("requested"),
-            "selected": execution_policy.get("selected"),
-            "reason": execution_policy.get("reason"),
-            "phase_supported": execution_policy.get("phase_supported"),
-        },
-        "local_agent": {
+    return _package_envelope(
+        phase="eval",
+        echo=f"Local agent eval pre-pass package prepared for {req_id}",
+        summary="local-agent-eval-package-prepared",
+        extra_warnings=["canonical_eval_still_required"],
+        run_id=run_id,
+        execution_policy=execution_policy,
+        local_agent={
             "action": "local_agent_required",
             "package_id": f"{run_id}:{req_id}:eval",
             "phase": "eval",
@@ -3076,15 +3048,7 @@ def build_eval_local_agent_package(
             "context_path": context_path,
             "prompt_path": prompt_path,
             "prompt_content": prompt,
-            "invocation": {
-                "schema_version": "clike.local_agent_invocation.v1",
-                "executor": local_executor,
-                "command_ref": local_executor,
-                "args": ["exec"] if local_executor == "gpt_codex" else ["-p", "--permission-mode", "acceptEdits"],
-                "prompt_transport": "stdin" if local_executor == "gpt_codex" else "argv_last",
-                "timeout_seconds": int(payload.get("localAgentTimeoutSeconds") or 1800),
-                "cwd": ".",
-            },
+            "invocation": _local_agent_invocation(local_executor, payload),
             "allowed_write_roots": allowed_write_roots,
             "forbidden_paths": forbidden_paths,
             "active_output_contract": active_output_contract,
@@ -3101,45 +3065,15 @@ def build_eval_local_agent_package(
                 **({"bmad": bmad_expected_outputs} if bmad_expected_outputs else {}),
             },
             "package_files": [
-                {
-                    "path": context_path,
-                    "content": context_json,
-                    "mime": "application/json",
-                    "encoding": "utf-8",
-                },
-                {
-                    "path": prompt_path,
-                    "content": prompt,
-                    "mime": "text/markdown",
-                    "encoding": "utf-8",
-                },
-                {
-                    "path": f"runs/kit/{req_id}/docs/CLIKE_CAPABILITY_MANIFEST.md",
-                    "content": standalone_capability_manifest,
-                    "mime": "text/markdown",
-                    "encoding": "utf-8",
-                },
-                {
-                    "path": f"runs/kit/{req_id}/docs/CLIKE_CAPABILITY_INDEX.json",
-                    "content": standalone_capability_index,
-                    "mime": "application/json",
-                    "encoding": "utf-8",
-                },
-                {
-                    "path": f"runs/kit/{req_id}/docs/CLIKE_SELECTED_CAPABILITY_CONTEXT.md",
-                    "content": standalone_selected_capability_context,
-                    "mime": "text/markdown",
-                    "encoding": "utf-8",
-                },
-                {
-                    "path": f"runs/kit/{req_id}/docs/CLIKE_SELECTED_CAPABILITY_CONTEXT.json",
-                    "content": standalone_selected_capability_context_json,
-                    "mime": "application/json",
-                    "encoding": "utf-8",
-                },
+                _package_file(context_path, context_json, "application/json"),
+                _package_file(prompt_path, prompt, "text/markdown"),
+                _package_file(f"runs/kit/{req_id}/docs/CLIKE_CAPABILITY_MANIFEST.md", standalone_capability_manifest, "text/markdown"),
+                _package_file(f"runs/kit/{req_id}/docs/CLIKE_CAPABILITY_INDEX.json", standalone_capability_index, "application/json"),
+                _package_file(f"runs/kit/{req_id}/docs/CLIKE_SELECTED_CAPABILITY_CONTEXT.md", standalone_selected_capability_context, "text/markdown"),
+                _package_file(f"runs/kit/{req_id}/docs/CLIKE_SELECTED_CAPABILITY_CONTEXT.json", standalone_selected_capability_context_json, "application/json"),
             ],
         },
-       }
+    )
 
 def _normalize_relative_path(value: Any) -> str:
     """Normalize a workspace-relative path without allowing absolute traversal."""
@@ -4668,28 +4602,14 @@ def build_finalize_local_agent_package(
     context_path = "runs/finalize/docs/AGENT_FINALIZE_CONTEXT.json"
     prompt_path = "runs/finalize/docs/AGENT_FINALIZE_PROMPT.md"
 
-    return {
-        "ok": True,
-        "phase": "finalize",
-        "echo": "Local agent finalize package prepared for SOLUTION",
-        "text": "",
-        "files": [],
-        "diffs": [],
-        "tests": {"passed": 0, "failed": 0, "summary": "local-agent-finalize-package-prepared"},
-        "warnings": [
-            "execution_package:local_agent_required",
-            "extension_role:local_actuator_only",
-            "solution_finalize_requires_workspace_mutation",
-        ],
-        "errors": [],
-        "runId": run_id,
-        "execution": {
-            "requested": execution_policy.get("requested"),
-            "selected": execution_policy.get("selected"),
-            "reason": execution_policy.get("reason"),
-            "phase_supported": execution_policy.get("phase_supported"),
-        },
-        "local_agent": {
+    return _package_envelope(
+        phase="finalize",
+        echo="Local agent finalize package prepared for SOLUTION",
+        summary="local-agent-finalize-package-prepared",
+        extra_warnings=["solution_finalize_requires_workspace_mutation"],
+        run_id=run_id,
+        execution_policy=execution_policy,
+        local_agent={
             "action": "local_agent_required",
             "package_id": f"{run_id}:SOLUTION:finalize",
             "phase": "finalize",
@@ -4698,15 +4618,7 @@ def build_finalize_local_agent_package(
             "context_path": context_path,
             "prompt_path": prompt_path,
             "prompt_content": prompt,
-            "invocation": {
-                "schema_version": "clike.local_agent_invocation.v1",
-                "executor": local_executor,
-                "command_ref": local_executor,
-                "args": ["exec"] if local_executor == "gpt_codex" else ["-p", "--permission-mode", "acceptEdits"],
-                "prompt_transport": "stdin" if local_executor == "gpt_codex" else "argv_last",
-                "timeout_seconds": int(payload.get("localAgentTimeoutSeconds") or 1800),
-                "cwd": ".",
-            },
+            "invocation": _local_agent_invocation(local_executor, payload),
             "allowed_write_roots": allowed_write_roots,
             "forbidden_paths": forbidden_paths,
             "expected_outputs": final_outputs,
@@ -4714,21 +4626,11 @@ def build_finalize_local_agent_package(
             "runtime_service_profile": runtime_service_profile,
             "cloud_provisioning_profile": cloud_provisioning_profile,
             "package_files": [
-                {
-                    "path": context_path,
-                    "content": context_json,
-                    "mime": "application/json",
-                    "encoding": "utf-8",
-                },
-                {
-                    "path": prompt_path,
-                    "content": prompt,
-                    "mime": "text/markdown",
-                    "encoding": "utf-8",
-                },
+                _package_file(context_path, context_json, "application/json"),
+                _package_file(prompt_path, prompt, "text/markdown"),
             ],
         },
-    }
+    )
 
 
 def build_extend_local_agent_package(
@@ -4994,28 +4896,14 @@ def build_extend_local_agent_package(
         ]
     )
 
-    return {
-        "ok": True,
-        "phase": "extend",
-        "echo": "Local agent extend package prepared for Harper plan extension",
-        "text": "",
-        "files": [],
-        "diffs": [],
-        "tests": {"passed": 0, "failed": 0, "summary": "local-agent-extend-package-prepared"},
-        "warnings": [
-            "execution_package:local_agent_required",
-            "extension_role:local_actuator_only",
-            "extend_requires_harper_docs_mutation",
-        ],
-        "errors": [],
-        "runId": run_id,
-        "execution": {
-            "requested": execution_policy.get("requested"),
-            "selected": execution_policy.get("selected"),
-            "reason": execution_policy.get("reason"),
-            "phase_supported": execution_policy.get("phase_supported"),
-        },
-        "local_agent": {
+    return _package_envelope(
+        phase="extend",
+        echo="Local agent extend package prepared for Harper plan extension",
+        summary="local-agent-extend-package-prepared",
+        extra_warnings=["extend_requires_harper_docs_mutation"],
+        run_id=run_id,
+        execution_policy=execution_policy,
+        local_agent={
             "action": "local_agent_required",
             "package_id": f"{run_id}:SOLUTION:extend",
             "phase": "extend",
@@ -5024,37 +4912,19 @@ def build_extend_local_agent_package(
             "context_path": context_path,
             "prompt_path": prompt_path,
             "prompt_content": prompt,
-            "invocation": {
-                "schema_version": "clike.local_agent_invocation.v1",
-                "executor": local_executor,
-                "command_ref": local_executor,
-                "args": ["exec"] if local_executor == "gpt_codex" else ["-p", "--permission-mode", "acceptEdits"],
-                "prompt_transport": "stdin" if local_executor == "gpt_codex" else "argv_last",
-                "timeout_seconds": int(payload.get("localAgentTimeoutSeconds") or 1800),
-                "cwd": ".",
-            },
+            "invocation": _local_agent_invocation(local_executor, payload),
             "allowed_write_roots": allowed_write_roots,
             "forbidden_paths": forbidden_paths,
             "expected_outputs": context["output_contract"],
             "package_files": [
-                {
-                    "path": context_path,
-                    "content": context_json,
-                    "mime": "application/json",
-                    "encoding": "utf-8",
-                },
-                {
-                    "path": prompt_path,
-                    "content": prompt,
-                    "mime": "text/markdown",
-                    "encoding": "utf-8",
-                },
+                _package_file(context_path, context_json, "application/json"),
+                _package_file(prompt_path, prompt, "text/markdown"),
                 # Current-run attachments materialized into the workspace so the
                 # agent reads them from its cwd (no external-path approval).
                 *attachment_package_files,
             ],
         },
-    }
+    )
 
 
 # Early Harper document phases (/idea, /spec, /plan) reuse one generic
@@ -5705,28 +5575,14 @@ def build_document_phase_local_agent_package(
         ]
     )
 
-    return {
-        "ok": True,
-        "phase": phase_norm,
-        "echo": f"Local agent {phase_norm} package prepared for Harper {title}",
-        "text": "",
-        "files": [],
-        "diffs": [],
-        "tests": {"passed": 0, "failed": 0, "summary": f"local-agent-{phase_norm}-package-prepared"},
-        "warnings": [
-            "execution_package:local_agent_required",
-            "extension_role:local_actuator_only",
-            f"{phase_norm}_requires_harper_docs_mutation",
-        ],
-        "errors": [],
-        "runId": run_id,
-        "execution": {
-            "requested": execution_policy.get("requested"),
-            "selected": execution_policy.get("selected"),
-            "reason": execution_policy.get("reason"),
-            "phase_supported": execution_policy.get("phase_supported"),
-        },
-        "local_agent": {
+    return _package_envelope(
+        phase=phase_norm,
+        echo=f"Local agent {phase_norm} package prepared for Harper {title}",
+        summary=f"local-agent-{phase_norm}-package-prepared",
+        extra_warnings=[f"{phase_norm}_requires_harper_docs_mutation"],
+        run_id=run_id,
+        execution_policy=execution_policy,
+        local_agent={
             "action": "local_agent_required",
             "package_id": f"{run_id}:SOLUTION:{phase_norm}",
             "phase": phase_norm,
@@ -5735,15 +5591,7 @@ def build_document_phase_local_agent_package(
             "context_path": context_path,
             "prompt_path": prompt_path,
             "prompt_content": prompt,
-            "invocation": {
-                "schema_version": "clike.local_agent_invocation.v1",
-                "executor": local_executor,
-                "command_ref": local_executor,
-                "args": ["exec"] if local_executor == "gpt_codex" else ["-p", "--permission-mode", "acceptEdits"],
-                "prompt_transport": "stdin" if local_executor == "gpt_codex" else "argv_last",
-                "timeout_seconds": int(payload.get("localAgentTimeoutSeconds") or 1800),
-                "cwd": ".",
-            },
+            "invocation": _local_agent_invocation(local_executor, payload),
             "allowed_write_roots": allowed_write_roots,
             "forbidden_paths": forbidden_paths,
             "active_output_contract": active_output_contract,
@@ -5764,24 +5612,14 @@ def build_document_phase_local_agent_package(
                 else {}
             ),
             "package_files": [
-                {
-                    "path": context_path,
-                    "content": context_json,
-                    "mime": "application/json",
-                    "encoding": "utf-8",
-                },
-                {
-                    "path": prompt_path,
-                    "content": prompt,
-                    "mime": "text/markdown",
-                    "encoding": "utf-8",
-                },
+                _package_file(context_path, context_json, "application/json"),
+                _package_file(prompt_path, prompt, "text/markdown"),
                 # Current-run attachments are materialized into the workspace so
                 # the agent reads them from its cwd (no external-path approval).
                 *attachment_package_files,
             ],
         },
-    }
+    )
 
 
 def _markdown_section_body(text: str, heading_variants: List[str]) -> Optional[str]:
