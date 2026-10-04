@@ -11,7 +11,6 @@ import logging
 import time
 import uuid
 import re
-from datetime import datetime
 from pathlib import Path
 
 import httpx
@@ -62,6 +61,8 @@ from utils.namespace_paths import (
     python_module_boundary_to_package_path,
 )
 from services import gateway_http
+from services.phase_context import PhaseContext
+from services.cloud_prompt.messages import compose_phase_messages
 from utils.safe_paths import resolve_within, validate_req_id
 from services import gate_integrity
 log = logging.getLogger("service.router")
@@ -99,6 +100,10 @@ async def _post_json(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         len(payload.get("core") or []),
         len(payload.get("attachments") or []),
     )
+    if rel_path == "/v1/harper/run":
+        # WP8.4: the wire core_blobs are produced by the typed PhaseContext (identical bytes and
+        # order); malformed blobs fail here instead of as a gateway 422.
+        payload = {**payload, "core_blobs": PhaseContext.from_payload(payload).to_core_blobs()}
     TIMEOUT = float(os.environ.get("TIMEOUT", 980.0))
     # Shared pooled client with connect retries (WP7.12).
     r = await gateway_http.post(url, json=payload, timeout=TIMEOUT)
@@ -158,14 +163,24 @@ async def _post_json(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         raise GatewayUpstreamError(r.status_code, detail, code) from None
 
     return r.json()  
+async def _post_phase_run(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Run a phase on the gateway with the messages composed here (WP8.7).
+
+    The Harper domain (phase system prompt, context selection, output checklist) is composed by
+    the orchestrator; the gateway adds RAG material and chat history and calls the provider.
+    """
+    composed = compose_phase_messages(payload)
+    return await _post_json("/v1/harper/run", {**payload, "composed_messages": composed})
+
+
 async def _normalize_message(msg: Dict[str, Any]) -> Dict[str, Any]:
-    # --- Normalizzazione messages ---
+    # --- Messages normalization ---
     raw_msgs = msg.get("messages") or []
     norm_msgs = []
     for m in raw_msgs:
         if m is None:
             continue
-        # Supporta: Pydantic model, oggetto con .dict(), o già dict
+        # Supports: Pydantic model, object with .dict(), or already a dict
         if hasattr(m, "model_dump"):
             d = m.model_dump()
         elif hasattr(m, "dict"):
@@ -173,7 +188,7 @@ async def _normalize_message(msg: Dict[str, Any]) -> Dict[str, Any]:
         elif isinstance(m, dict):
             d = m
         else:
-            # ignora elementi non conformi
+            # ignore non-conforming elements
             continue
 
         role = d.get("role")
@@ -184,7 +199,7 @@ async def _normalize_message(msg: Dict[str, Any]) -> Dict[str, Any]:
     if norm_msgs:
         msg["messages"] = norm_msgs
     else:
-        # se vuoto rimuovi per lasciare al gateway la composizione di default
+        # if empty, remove it to let the gateway compose the default
         msg.pop("messages", None)
     return dict(msg)
 
@@ -817,16 +832,6 @@ def _collect_structured_obligation_names(value: Any) -> List[str]:
 
     walk(value)
     return found
-
-
-def _extract_named_tools_from_contract_text(contract: Dict[str, Any]) -> List[str]:
-    """Deprecated no-op fallback for narrative contract text extraction.
-
-    Cloud KIT should rely on structured external_runtime_obligations-like
-    fields. SPEC/PLAN/TECH_CONSTRAINTS remain context for the model, but broad
-    narrative text must not become noisy required obligations.
-    """
-    return []
 
 
 def _named_external_runtime_obligations_from_contract(contract: Dict[str, Any]) -> List[str]:
@@ -1858,7 +1863,6 @@ def _inject_candidate_blobs(
     return merged
 
 
-
 def _stage_artifact_path(req_id: str, relative_path: str) -> Path:
     # req_id comes from the request and relative_path from LLM output: both are confined.
     req_root = runs_dir() / "kit" / validate_req_id(req_id)
@@ -2040,16 +2044,48 @@ def _inject_server_discovered_companion_artifacts(
     return updated_core_blobs
 
 
+def _local_agent_failure(
+    *,
+    phase: str,
+    summary: str,
+    warnings: List[str],
+    errors: List[str],
+    run_id: Any,
+    requested: Any,
+    reason: str,
+    phase_supported: bool,
+) -> Dict[str, Any]:
+    """Response when a phase selected for a local agent cannot be prepared or run."""
+    return {
+        "ok": False,
+        "phase": phase,
+        "echo": "",
+        "text": "",
+        "files": [],
+        "diffs": [],
+        "tests": {"passed": 0, "failed": 1, "summary": summary},
+        "warnings": warnings,
+        "errors": errors,
+        "runId": run_id,
+        "execution": {
+            "requested": requested,
+            "selected": "local_agent",
+            "reason": reason,
+            "phase_supported": phase_supported,
+        },
+    }
+
+
 async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
     # --- Normalizzazione in dict ---
     if hasattr(req_payload, "model_dump"):
         payload = req_payload.model_dump()   # pydantic -> dict
     elif isinstance(req_payload, dict):
-        payload = dict(req_payload)          # copia difensiva
+        payload = dict(req_payload)          # defensive copy
     else:
-        # fallback estremo
+        # last-resort fallback
         try:
-            payload = dict(req_payload)      # tipo mapping-like
+            payload = dict(req_payload)      # mapping-like type
         except Exception:
             raise ValueError("Invalid request payload type for HarperService.run_phase")
 
@@ -2242,7 +2278,7 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
     
-    # --- routing modello (unica fonte di verità) ---
+    # --- model routing (single source of truth) ---
     model_override = merged.get("model")
     profile_hint = merged.get("profileHint")
 
@@ -2275,37 +2311,25 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
                     phase,
                     local_capabilities,
                 )
-                return {
-                    "ok": False,
-                    "phase": phase,
-                    "echo": "",
-                    "text": "",
-                    "files": [],
-                    "diffs": [],
-                    "tests": {
-                        "passed": 0,
-                        "failed": 1,
-                        "summary": f"no-local-agent-available-{phase}",
-                    },
-                    "warnings": [
+                return _local_agent_failure(
+                    phase=phase,
+                    summary=f"no-local-agent-available-{phase}",
+                    warnings=[
                         "execution_selected:local_agent",
                         f"{phase}_not_run",
                     ],
-                    "errors": [
+                    errors=[
                         "No local agent executor is available for phase="
                         f"{phase}. Install or enable a supported local agent "
                         "(claude_code or gpt_codex), or switch Execution away "
                         "from 'agent only'. "
                         f"availability={json.dumps(local_capabilities)}"
                     ],
-                    "runId": merged.get("runId"),
-                    "execution": {
-                        "requested": execution_preference,
-                        "selected": "local_agent",
-                        "reason": "no_local_executor_available",
-                        "phase_supported": True,
-                    },
-                }
+                    run_id=merged.get("runId"),
+                    requested=execution_preference,
+                    reason="no_local_executor_available",
+                    phase_supported=True,
+                )
 
             execution_policy = dict(execution_policy)
             execution_policy["selected"] = "cloud"
@@ -2421,31 +2445,19 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
             log.exception("harper.local_agent %s package failed", phase)
 
             if execution_preference == "local_agent_only":
-                return {
-                    "ok": False,
-                    "phase": phase,
-                    "echo": "",
-                    "text": "",
-                    "files": [],
-                    "diffs": [],
-                    "tests": {
-                        "passed": 0,
-                        "failed": 1,
-                        "summary": f"local-agent-{phase}-package-failed",
-                    },
-                    "warnings": [
+                return _local_agent_failure(
+                    phase=phase,
+                    summary=f"local-agent-{phase}-package-failed",
+                    warnings=[
                         "execution_selected:local_agent",
                         f"{phase}_not_run",
                     ],
-                    "errors": [str(exc)],
-                    "runId": merged.get("runId"),
-                    "execution": {
-                        "requested": execution_preference,
-                        "selected": "local_agent",
-                        "reason": f"local_agent_{phase}_package_failed",
-                        "phase_supported": True,
-                    },
-                }
+                    errors=[str(exc)],
+                    run_id=merged.get("runId"),
+                    requested=execution_preference,
+                    reason=f"local_agent_{phase}_package_failed",
+                    phase_supported=True,
+                )
 
             execution_policy = dict(execution_policy)
             execution_policy["selected"] = "cloud"
@@ -2479,31 +2491,19 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
             )
 
             if execution_preference == "local_agent_only":
-                return {
-                    "ok": False,
-                    "phase": "eval",
-                    "echo": "",
-                    "text": "",
-                    "files": [],
-                    "diffs": [],
-                    "tests": {
-                        "passed": 0,
-                        "failed": 1,
-                        "summary": "local-agent-eval-package-failed",
-                    },
-                    "warnings": [
+                return _local_agent_failure(
+                    phase="eval",
+                    summary="local-agent-eval-package-failed",
+                    warnings=[
                         "execution_selected:local_agent",
                         "canonical_eval_not_run_yet",
                     ],
-                    "errors": [str(exc)],
-                    "runId": merged.get("runId"),
-                    "execution": {
-                        "requested": execution_preference,
-                        "selected": "local_agent",
-                        "reason": "local_agent_eval_package_failed",
-                        "phase_supported": True,
-                    },
-                }
+                    errors=[str(exc)],
+                    run_id=merged.get("runId"),
+                    requested=execution_preference,
+                    reason="local_agent_eval_package_failed",
+                    phase_supported=True,
+                )
 
             execution_policy = dict(execution_policy)
             execution_policy["selected"] = "cloud"
@@ -2551,31 +2551,19 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
             log.exception("harper.local_agent extend package failed")
 
             if execution_preference == "local_agent_only":
-                return {
-                    "ok": False,
-                    "phase": "extend",
-                    "echo": "",
-                    "text": "",
-                    "files": [],
-                    "diffs": [],
-                    "tests": {
-                        "passed": 0,
-                        "failed": 1,
-                        "summary": "local-agent-extend-package-failed",
-                    },
-                    "warnings": [
+                return _local_agent_failure(
+                    phase="extend",
+                    summary="local-agent-extend-package-failed",
+                    warnings=[
                         "execution_selected:local_agent",
                         "extend_not_run",
                     ],
-                    "errors": [str(exc)],
-                    "runId": merged.get("runId"),
-                    "execution": {
-                        "requested": execution_preference,
-                        "selected": "local_agent",
-                        "reason": "local_agent_extend_package_failed",
-                        "phase_supported": True,
-                    },
-                }
+                    errors=[str(exc)],
+                    run_id=merged.get("runId"),
+                    requested=execution_preference,
+                    reason="local_agent_extend_package_failed",
+                    phase_supported=True,
+                )
 
             execution_policy = dict(execution_policy)
             execution_policy["selected"] = "cloud"
@@ -2603,31 +2591,19 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
             log.exception("harper.local_agent finalize package failed")
 
             if execution_preference == "local_agent_only":
-                return {
-                    "ok": False,
-                    "phase": "finalize",
-                    "echo": "",
-                    "text": "",
-                    "files": [],
-                    "diffs": [],
-                    "tests": {
-                        "passed": 0,
-                        "failed": 1,
-                        "summary": "local-agent-finalize-package-failed",
-                    },
-                    "warnings": [
+                return _local_agent_failure(
+                    phase="finalize",
+                    summary="local-agent-finalize-package-failed",
+                    warnings=[
                         "execution_selected:local_agent",
                         "solution_finalize_not_run",
                     ],
-                    "errors": [str(exc)],
-                    "runId": merged.get("runId"),
-                    "execution": {
-                        "requested": execution_preference,
-                        "selected": "local_agent",
-                        "reason": "local_agent_finalize_package_failed",
-                        "phase_supported": True,
-                    },
-                }
+                    errors=[str(exc)],
+                    run_id=merged.get("runId"),
+                    requested=execution_preference,
+                    reason="local_agent_finalize_package_failed",
+                    phase_supported=True,
+                )
 
             execution_policy = dict(execution_policy)
             execution_policy["selected"] = "cloud"
@@ -2664,31 +2640,19 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
                 )
 
                 if execution_preference == "local_agent_only":
-                    return {
-                        "ok": False,
-                        "phase": "kit",
-                        "echo": "",
-                        "text": "",
-                        "files": [],
-                        "diffs": [],
-                        "tests": {
-                            "passed": 0,
-                            "failed": 1,
-                            "summary": "local-agent-orchestrator-call-failed",
-                        },
-                        "warnings": [
+                    return _local_agent_failure(
+                        phase="kit",
+                        summary="local-agent-orchestrator-call-failed",
+                        warnings=[
                             "execution_selected:local_agent",
                             "local_agent_called_by:orchestrator",
                         ],
-                        "errors": [str(exc)],
-                        "runId": merged.get("runId"),
-                        "execution": {
-                            "requested": execution_preference,
-                            "selected": "local_agent",
-                            "reason": "local_agent_orchestrator_call_failed",
-                            "phase_supported": True,
-                        },
-                    }
+                        errors=[str(exc)],
+                        run_id=merged.get("runId"),
+                        requested=execution_preference,
+                        reason="local_agent_orchestrator_call_failed",
+                        phase_supported=True,
+                    )
 
                 execution_policy = dict(execution_policy)
                 execution_policy["selected"] = "cloud"
@@ -2703,30 +2667,22 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
                 )
 
         if execution_preference == "local_agent_only":
-            return {
-                "ok": False,
-                "phase": "kit",
-                "echo": "",
-                "text": "",
-                "files": [],
-                "diffs": [],
-                "tests": {"passed": 0, "failed": 1, "summary": "local-agent-follow-up-phase-blocked"},
-                "warnings": [
+            return _local_agent_failure(
+                phase="kit",
+                summary="local-agent-follow-up-phase-blocked",
+                warnings=[
                     "execution_selected:local_agent",
                     "local_agent_follow_up_phases_blocked",
                 ],
-                "errors": [
+                errors=[
                     "Local agent is currently restricted to base /kit only. "
                     f"Requested phases: {', '.join(requested_kit_phases or [])}"
                 ],
-                "runId": merged.get("runId"),
-                "execution": {
-                    "requested": execution_preference,
-                    "selected": "local_agent",
-                    "reason": "local_agent_follow_up_phases_blocked",
-                    "phase_supported": False,
-                },
-            }
+                run_id=merged.get("runId"),
+                requested=execution_preference,
+                reason="local_agent_follow_up_phases_blocked",
+                phase_supported=False,
+            )
 
         execution_policy = dict(execution_policy)
         execution_policy["selected"] = "cloud"
@@ -2776,7 +2732,7 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
 
     if phase == "kit" and target_req_id:
         if "kit" in requested_kit_phases:
-            out = await _post_json("/v1/harper/run", merged)
+            out = await _post_phase_run(merged)
         else:
             existing_candidate_artifacts = _load_existing_req_candidate_artifacts(target_req_id)
             if not existing_candidate_artifacts:
@@ -2798,7 +2754,7 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
                 "runId": merged.get("runId"),
             }
     else:
-        out = await _post_json("/v1/harper/run", merged)
+        out = await _post_phase_run(merged)
 
 
     log.info(
@@ -2896,7 +2852,7 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
                 )
 
                 integrity_start = time.time()
-                integrity_out = await _post_json("/v1/harper/run", integrity_payload)
+                integrity_out = await _post_phase_run(integrity_payload)
                 integrity_elapsed = time.time() - integrity_start
 
                 integrity_review_files = _filter_req_stage_files(
@@ -3002,7 +2958,7 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
                 )
 
                 hardener_start = time.time()
-                hardener_out = await _post_json("/v1/harper/run", hardener_payload)
+                hardener_out = await _post_phase_run(hardener_payload)
                 hardener_elapsed = time.time() - hardener_start
 
                 hardener_files = _filter_req_stage_files(
@@ -3072,7 +3028,7 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
 
                 promotion_eval_start = time.time()
                 try:
-                    promotion_eval_out = await _post_json("/v1/harper/run", promotion_eval_payload)
+                    promotion_eval_out = await _post_phase_run(promotion_eval_payload)
                     promotion_eval_elapsed = time.time() - promotion_eval_start
                     log.info(
                         "harper.kit promotion eval completed req=%s elapsed=%.3fs files=%d",

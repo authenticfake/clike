@@ -1,0 +1,14 @@
+# Harper shared phase definitions (WP8.3). Data only: loaded by services/phase_definitions.py.
+# Key order is significant (it is preserved in the JSON written for the agent).
+document_phase_forbidden_paths:
+- .git
+- src
+- test
+- tests
+- runs/kit
+- runs/eval
+- runs/gate
+- node_modules
+- .venv
+- __pycache__
+- __MACOSX

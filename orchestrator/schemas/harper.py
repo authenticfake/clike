@@ -2,9 +2,9 @@
 # Comments in English.
 
 from typing import Optional, List, Dict, Any, Literal, Union
-from pydantic import BaseModel, Field,ConfigDict, constr
+from pydantic import BaseModel, Field,ConfigDict
 
-# Messaggio chat semplice (solo user/assistant)
+# Simple chat message (user/assistant only)
 class HarperMessage(BaseModel):
     role: Literal["user", "assistant"]
     content: str
@@ -91,56 +91,6 @@ class HarperPhaseRequest(BaseModel):
     files: Optional[List[FileItem]] = None
 
 
-
-
-
-
-
-# ---------------------------
-# Shared execution context
-# ---------------------------
-class ExecContext(BaseModel):
-    """Common execution context propagated from UI → orchestrator → gateway."""
-    mode: Optional[str] = Field("harper", description="UI mode: 'harper'|'coding'|'free'.")
-    model: Optional[str] = Field("auto", description="Explicit model id or 'auto' to use router.")
-    profile_hint: Optional[str] = Field(
-        None, alias="profileHint",
-        description="Routing hint (e.g., 'plan.fast'|'code.strict') used only when model=='auto'."
-    )
-    execution_preference: Optional[str] = Field(
-        None,
-        alias="executionPreference",
-        description="Execution preference: auto | cloud_only | prefer_local_agent | local_agent_only | hybrid. Legacy values prefer_claude_code and claude_code_only are normalized by the client."  
-    )
-    methodology: Optional[str] = Field(
-        None,
-        description="Optional governed methodology profile id. Methodology is not an executor.",
-    )
-    agent: Optional[str] = Field(
-        None,
-        description="Optional methodology role identity. This is separate from localAgentExecutor.",
-    )
-    methodology_context: Optional[Dict[str, Any]] = Field(
-        None,
-        description="Resolved methodology metadata owned by CLike.",
-    )
-    doc_root: Optional[str] = Field("docs/harper", alias="docRoot", description="Docs root.")
-    core: List[str] = Field(default_factory=list, description="Core docs for this phase.")
-    attachments: List[Dict[str, Any]] = Field(default_factory=list, description="User attachments.")
-    flags: Dict[str, Any] = Field(default_factory=dict, description="Exec flags (privacy, redaction...).")
-    run_id: Optional[str] = Field(None, alias="runId", description="Correlation id.")
-    history_scope: Optional[Literal["singleModel", "allModels"]] = Field(
-        None, alias="historyScope", description="Chat history scope."
-    )
-    localAgentExecutor: Optional[str] = Field(
-        default="auto",
-        description="Preferred local agent executor: auto | claude_code | gpt_codex."
-    )
-
-    # Pydantic v2 config
-    model_config = ConfigDict(
-        populate_by_name=True,   # (ex allow_population_by_field_name)
-        extra="ignore")
     
 class FileArtifact(BaseModel):
     path: str
@@ -158,7 +108,7 @@ class TestSummary(BaseModel):
     failed: int = 0
     summary: str = "n/a"
 
-# --- facoltativo: risposta con echo dei target interpretati ---
+# --- optional: response echoing the interpreted targets ---
 class HarperKitResult(BaseModel):
     targets: List[str] = Field(default_factory=list)
     req_ids: List[str] = Field(default_factory=list)  # echo legacy if sent
@@ -274,17 +224,15 @@ class HarperRunResponse(BaseModel):
 
 class HarperEnvelope(BaseModel):
     out: HarperRunResponse
-    # facoltativo: spec_md per retro-compat con UI che lo usa direttamente
+    # optional: spec_md for backward compat with UIs that use it directly
     idea_md: Optional[str] = None
     spec_md: Optional[str] = None
     plan_md: Optional[str] = None
     kit_md: Optional[str] = None
 
 
-
 class SessionClearRequest(BaseModel):
     scope: Literal["singleModel","allModels"] = "singleModel"
-
 
 
 class ModelsResponse(BaseModel):

@@ -2,10 +2,10 @@
 import re
 from pathlib import Path
 
-# righe che sono fence: ``` , ```lang , ~~~ , ~~~lang (solo backtick/tilde + opz. lingua)
+# lines that are fences: ``` , ```lang , ~~~ , ~~~lang (backtick/tilde only + optional language)
 _FENCE_LINE_RE = re.compile(r"^\s*(```|~~~)([a-zA-Z0-9._+-]*)\s*$")
 
-# alcune estensioni per cui è sicuro rimuovere fences "sciolti"
+# some extensions for which it is safe to remove "loose" fences
 _STRIP_EXTS = {
     ".json",".jsonc",".yml",".yaml",
     ".js",".mjs",".cjs",".ts",".tsx",
@@ -68,18 +68,18 @@ def sanitize_for_path(path: str, content: str) -> str:
     3) normalizza spazi finali.
     """
     ext = Path(path).suffix.lower()
-    cur = content.strip("\ufeff \t\r\n")  # anche BOM/whitespace
+    cur = content.strip("\ufeff \t\r\n")  # also BOM/whitespace
     before = None
 
-    # togli tutto ciò che è fence in testa/coda, ripeti finché serve
+    # strip all fences at head/tail, repeat as needed
     while cur != before:
         before = cur
         cur = _strip_leading_trailing_fence_lines(cur)
 
-    # per file noti, elimina fence-line "sciolte" ovunque
+    # for known files, remove "loose" fence lines anywhere
     if ext in _STRIP_EXTS:
         cur = _strip_orphan_fences_everywhere(cur)
-        # di nuovo, ripulisci eventuali scie in coda
+        # again, clean up any trailing leftovers
         before = None
         while cur != before:
             before = cur

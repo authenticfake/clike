@@ -1,5 +1,4 @@
 import importlib.util
-import sys
 import tempfile
 from pathlib import Path
 

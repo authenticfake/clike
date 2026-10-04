@@ -1,0 +1,13 @@
+{
+  "exception": {
+    "message": "BMAD agent 'developer' is not allowed for phase 'extend'. Allowed agents: none.",
+    "type": "MethodologyPhaseAgentError"
+  },
+  "gateway_calls": [],
+  "scenario": {
+    "executor": "local",
+    "methodology": "bmad",
+    "phase": "extend",
+    "variant": ""
+  }
+}

@@ -1,0 +1,198 @@
+# Static text of the local-agent kit_contracts module (WP8.5): prompt lines, rules and policy prose.
+# Loaded by services/phase_definitions.phase_text(); list order and wording are significant.
+text:
+  render_canonical_parity_block.lines:
+  - 'Match or exceed the cloud artifact: be more explicit, more traceable to the'
+  - previous phase, richer in acceptance criteria/constraints/risks/verification
+  - hooks, and downstream-ready — but never skeletal and never heading-only.
+  document_package.attachment_prompt_lines:
+  - '- Read every workspace_path listed above before producing output. Multiple attachments are allowed and all must be read.'
+  - '- workspace_path entries are inside the current working directory; read those. Do NOT read original_path — it is metadata only and may be outside the workspace.'
+  - '- For PDF attachments, read and extract their full textual content and use it as primary evidence.'
+  - '- For image attachments (png/jpg/jpeg/gif/webp/svg/...), use vision to describe precisely what the image shows — UI screens, layouts, components, diagrams, charts, labels, and any visible text — and use that description as evidence.'
+  - '- If an attachment cannot be opened or understood (unsupported binary), state it explicitly as a gap; never invent its content.'
+  document_package.capability_prompt_lines:
+  - '- For every REQ in plan.json, set packs/skills/design_profiles to the applicable capabilities above (arrays of names). Read .clike/capabilities.yaml and .clike/{packs,skills,design-profiles}/** to choose correctly.'
+  - '- Do NOT default packs/skills/design_profiles to "not_applicable" when capabilities are available; use "not_applicable" only when no listed capability genuinely applies to that REQ.'
+  - '- Never invent capabilities that are not in the lists above.'
+  document_package.lines:
+  - ''
+  - 'Forbidden writes:'
+  - '- any docs/harper path other than the allowed writes above'
+  - '- src/, test/, tests/'
+  - '- runs/kit/, runs/eval/, runs/gate/'
+  - '- .git/'
+  - ''
+  - 'Execution rules:'
+  - '- Follow AGENT_*_CONTEXT.json as the source of truth.'
+  - '- Do not run git commands.'
+  - '- Before final output, normalize every created or modified text file by stripping trailing whitespace and ensuring a final newline.'
+  - '- Do not invent facts, vendors, APIs, endpoints, project keys, or frameworks not evidenced by inputs.'
+  - ''
+  - At the end, print a concise summary with files changed, validation performed, and unresolved gaps.
+  document_package.lines.2:
+  - '- These current-run materialized attachments are the ONLY source of truth for /idea; do not rely only on RAG.'
+  - '- Do not use stale workspace files or old uploads. Do not read ORI.IDEA.md or any IDEA* variant unless it is explicitly listed above as a current-run attachment workspace_path.'
+  - '- Any existing docs/harper/IDEA.md is the overwrite target only, never a source.'
+  document_package.lines.3:
+  - .clike/capabilities.yaml or .clike/capabilities.yml when present
+  - .clike/packs/** when present
+  - .clike/skills/** when present
+  - .clike/design-profiles/** when present
+  render_selected_capability_prompt_block.lines:
+  - '- Read CLIKE_SELECTED_CAPABILITY_CONTEXT.md before implementation or repair.'
+  - '- CLike selected capabilities are REQ-scoped implementation, test, documentation, and evidence constraints.'
+  - '- Capability guidance must not override SPEC, TECH_CONSTRAINTS, TARGET_CONTRACT.json, FILE_REQUIREMENTS.json, allowed_write_roots, EvalRunner, or Gate.'
+  render_compact_local_agent_prompt.bmad_rules:
+  - '- BMAD skill guidance must not expand write roots, modify canonical source/test roots, decide eval/gate, or override CLike contracts.'
+  - '- Use selected skills to improve implementation readiness, acceptance coverage, repair quality, and documentation.'
+  - '- Use BMAD and UX companion docs to guide implementation and repair decisions when they clarify product intent, UX expectations, architecture, risks, or handoff notes.'
+  - '- Do not treat companion docs as canonical when they conflict with SPEC.md, PLAN.md, plan.json, TARGET_CONTRACT.json, FILE_REQUIREMENTS.json, EvalRunner evidence, or CLike write boundaries.'
+  - '- Produce BMAD expected outputs from AGENT_*_CONTEXT.json when useful for downstream phases; if a BMAD output would not be useful, explain why.'
+  - '- BMAD companion artifacts are additive and non-authoritative.'
+  render_compact_local_agent_prompt.contract_lines:
+  - ''
+  - 'Active output contract:'
+  - '- Read active_output_contract from AGENT_*_CONTEXT.json before writing files.'
+  - '- Emit or update every required output declared by the active output contract when it is applicable to this local-agent runner.'
+  - '- Additional outputs are allowed only under allowed optional output globs and allowed_write_roots.'
+  - '- Never emit forbidden outputs.'
+  - '- Do not use file-count shortcuts such as minimum number of files.'
+  - '- Native CLike runs and BMAD runs have different active output contracts.'
+  render_compact_local_agent_prompt.kit_read_first:
+  - '- docs/harper/IDEA.md when present'
+  - '- docs/harper/SPEC.md'
+  - '- docs/harper/PLAN.md'
+  - '- docs/harper/plan.json'
+  - '- docs/harper/TECH_CONSTRAINTS.yaml before choosing libraries, runtime assumptions, architecture, deployment, provider, or command strategy'
+  - '- docs/harper/bmad/** when present'
+  - '- docs/harper/ux/** when present'
+  render_compact_local_agent_prompt.kit_rules:
+  - '- Implement only the current REQ from AGENT_EXECUTION_CONTEXT.json.'
+  - '- Read BMAD/UX companion docs before code generation and use them as bounded implementation context.'
+  - '- Inspect promoted src/ and test roots as read-only context.'
+  - '- Inspect dependency REQ candidate outputs listed in AGENT_EXECUTION_CONTEXT.json when relevant.'
+  - '- Write only to runs/kit/<REQ-ID>/src, runs/kit/<REQ-ID>/test, runs/kit/<REQ-ID>/ci, and runs/kit/<REQ-ID>/docs.'
+  - '- Do not write to canonical src/, test/, or tests/.'
+  - '- Do not mutate docs/harper/PLAN.md or docs/harper/plan.json.'
+  - '- Do not promote candidate files.'
+  - '- Produce candidate files satisfying TARGET_CONTRACT.json and FILE_REQUIREMENTS.json.'
+  - '- TECH_CONSTRAINTS.yaml is authoritative. Do not assume Python, Node, cloud provider, database, queue, UI framework, IaC tool, or deployment target unless evidenced by TECH_CONSTRAINTS, SPEC, PLAN, plan.json, repository manifests, or existing source.'
+  - '- When repair_context.repair is true, focus on failed checks without broad unrelated rewrites.'
+  render_compact_local_agent_prompt.lines:
+  - ''
+  - You are executing a CLike Harper local-agent package.
+  - The orchestrator owns workflow state, policy, and promotion.
+  - The VS Code extension is only the local actuator.
+  - ''
+  render_compact_local_agent_prompt.lines.2:
+  - ''
+  - 'Execution rules:'
+  - '- Follow AGENT_*_CONTEXT.json as the source of truth.'
+  - '- For EVAL hardening, if a REQ-local ci/package.json exists, run `npm install --prefix runs/kit/<REQ-ID>/ci --no-audit --no-fund` before declaring npm, TypeScript, lint, test, or security checks environment-blocked. This is a local declared dependency install, not a global install.'
+  - '- For EVAL hardening, do not report TypeScript/tsc as environment-blocked until the REQ-local install command has been attempted and failed with concrete network, registry, filesystem, or policy evidence.'
+  - '- Write only under allowed_write_roots.'
+  - '- Do not run git commands.'
+  - '- never run Git operations.'
+  - '- Before final output, normalize every created or modified text file by stripping trailing whitespace and ensuring a final newline.'
+  - '- Do not modify canonical src/, test/, tests/, docs/harper, dependency KIT roots, or git metadata.'
+  - '- Inspect dependency KITs and canonical roots before writing or repairing candidate files.'
+  - '- Reuse existing contracts before creating new modules, helpers, adapters, or test utilities.'
+  - '- Run the smallest relevant checks and report exact commands and outcomes.'
+  render_compact_local_agent_prompt.lines.3:
+  - '- For EVAL hardening, repair from the actual failing diagnostics, not from generic policy. Read the failing command stdout/stderr, identify exact file:line diagnostics, patch only those candidate-owned files, then rerun the same failing command.'
+  - '- Do not return the hardening pass as complete while the same blocking command still reports candidate-owned diagnostics of the same class, such as TS2339, TS18046, lint errors, syntax errors, or raw-secret findings in candidate-owned files.'
+  - '- Continue focused repair/rerun cycles up to max_repair_cycles_inside_agent when the same check keeps failing with remaining candidate-owned diagnostics.'
+  - '- For typecheck failures, repair candidate-owned source/tests/CI instead of reporting success or environment-blocked when the declared local dependencies can be installed.'
+  - '- For union response shape failures, decide whether the missing field is part of the stable public contract. If yes, repair the service/producer response shape. If no, repair the test with explicit narrowing before field access.'
+  - '- For caught errors typed as unknown, use a typed helper/adapter before asserting classification, retryable, status/statusCode, or domain failure categories.'
+  - '- For Node/JavaScript checkJs tests, assert.throws() and assert.rejects() callbacks receive unknown errors. After `error instanceof SomeError`, add `const typedError = /** @type {SomeError} */ (error);` and read custom fields only from typedError.'
+  - '- Do not weaken tests, type checks, security checks, gate policy, or public contracts to hide failures.'
+  - ''
+  - Return a concise summary with files changed, commands run, checks passed/failed, and unresolved gaps.
+  methodology_context_for_local_agent.lines:
+  - CLike remains the governance runtime and source of truth.
+  - Methodology guidance is not an executor selection mechanism.
+  - Methodology guidance cannot override CLike phase contracts, eval/gate policy, allowed_write_roots, forbidden_paths, candidate isolation, or output schemas.
+  - BMAD developer guidance must not expand write permissions.
+  - If methodology guidance conflicts with CLike rules, follow CLike.
+  render_compact_local_agent_prompt.eval_rules:
+  - '- You are not the judge; canonical EvalRunner remains authoritative.'
+  - '- Use BMAD QA docs for repair guidance when AGENT_EVAL_CONTEXT.json lists them.'
+  - '- Run or inspect LTC/HOWTO checks when possible.'
+  - '- Identify the first deterministic failure before editing.'
+  - '- Repair only candidate-owned files under allowed_write_roots.'
+  - '- Do not weaken tests, LTC, typecheck, lint, security checks, or gate policy.'
+  - '- Do not mark candidate code failures as environment-blocked.'
+  - '- Environment blockers require exact evidence such as missing toolchain, network, registry, filesystem, sandbox, or policy failure.'
+  - '- Rerun the same failing command after repair.'
+  - '- Produce concise evidence useful for canonical EvalRunner.'
+  - '- Never mutate canonical eval verdict fields and never decide pass/fail.'
+  - '- Write repair notes under runs/kit/<REQ-ID>/reports/BMAD_EVAL_REPAIR_NOTES.md when useful.'
+  build_file_requirements.must_not:
+  - Do not emit Python requirements for non-Python implementations.
+  - Do not emit npm manifests for non-Node implementations.
+  - Do not add unrelated speculative dependencies.
+  build_file_requirements.must_cover:
+  - backend application composition when backend/API/server modules exist
+  - frontend application composition when frontend/UI/browser modules exist
+  - stable exports/imports that wire generated feature modules into the executable area
+  - local runnable entry points documented in HOWTO and referenced by LTC where relevant
+  build_file_requirements.must_not.2:
+  - Do not create one launcher per REQ.
+  - Do not create one launcher per feature/domain namespace; one launcher per execution area such as backend, frontend, worker, or CLI is allowed and expected when required.
+  - Do not hide runnable composition inside feature-only modules.
+  - Do not place new launchers under domain namespaces such as src/<domain>/api/app.* unless the repository already uses that convention.
+  - Do not confuse KIT/EVAL manifests under ci/ with promotion-ready runtime manifests under candidate execution area roots.
+  - Do not put eval-only scripts, temp overlay paths, or REQ-specific eval paths in promotion-ready runtime manifests.
+  - Do not bypass existing canonical launcher files when repository evidence already provides them.
+  build_file_requirements.forbidden:
+  - Do not write outside runs/kit/<REQ-ID>/.
+  - Do not modify canonical src/, test/, tests/, docs/harper, or dependency KIT roots.
+  - Do not infer implementation language from lane alone.
+  - Do not create one application launcher per REQ.
+  - Do not put eval-only manifests or eval-only scripts under runs/kit/<REQ-ID>/src/**.
+  - Do not omit promotion-ready runtime manifests for runnable execution areas merely because a ci/ eval manifest exists.
+  - Do not satisfy provider-heavy REQs with decorative or purely in-memory wrappers when concrete provider/runtime wiring is explicitly required.
+  build_file_requirements.must_cover.2:
+  - adapter or factory modules for every named obligation that is relevant to this REQ
+  - lazy import or runtime-native optional dependency handling when the library is heavy or environment-specific
+  - fail-fast errors with clear setup guidance when required runtime libraries are unavailable
+  - deterministic local tests using fixtures/fakes only around external engine execution, not around business orchestration
+  - runtime-native dependency declaration in ci manifest, source manifest, optional extras, or equivalent ecosystem descriptor when applicable
+  - heavy AI/model/runtime libraries must be declared as source runtime optional extras or optional smoke dependencies, not as blocking ci/eval dependencies, when deterministic fake-client tests cover the local eval path
+  - narrow ecosystem-native static-analysis handling at the external adapter/import boundary when a mature external library lacks typing, stubs, metadata, or analyzer support
+  build_file_requirements.must_not_contain:
+  - Protocol-only or interface-only implementation when named libraries are explicitly required
+  - external model downloads or network service startup in blocking local eval
+  - heavy AI/model/runtime packages in blocking ci/eval manifests when deterministic fake-client tests are sufficient
+  - sensitive extracted text, prompt content, or document payloads in logs
+  - business logic coupled directly to provider SDKs or engine-specific APIs
+  - global static-analysis disables for external library typing/analyzer gaps; suppress or wrap only at the adapter/import boundary with the narrowest ecosystem-native mechanism
+  build_file_requirements.must_cover.3:
+  - runtime dependencies required by the promoted execution area
+  - runtime scripts or launch metadata relative to the execution area root
+  - ecosystem-native manifest or module descriptor when the ecosystem uses one
+  build_file_requirements.lines:
+  - Generic in-memory provider-shaped wrappers are not sufficient for this REQ.
+  - Official or widely adopted ecosystem SDKs are preferred inside adapter/infrastructure boundaries when concrete providers are named.
+  - Do not reimplement provider protocols, auth/signing, wire formats, or client behavior when a mature SDK exists.
+  - Concrete provider factories or SDK-backed adapters are mandatory when technical_scope explicitly names providers, runtime services, or SDK-backed infrastructure.
+  - Provider SDK imports are allowed inside adapter, provider factory, infrastructure, or integration boundary modules.
+  - Business-facing contracts must remain provider-independent and must not expose provider SDK types unless SPEC explicitly requires it.
+  - Local deterministic tests may use fakes, SDK stubs, or official mock helpers, but runtime-facing code must expose real provider construction or SDK-backed factory wiring.
+  - If concrete provider wiring is intentionally deferred, the KIT must explicitly mark the REQ as not promotable and describe the blocking gap.
+  build_file_requirements.boundary_rules:
+  - Do not reimplement mature external tools when an official or widely adopted library exists.
+  - Keep business orchestration independent from engine-specific APIs.
+  - Use adapters/factories to isolate heavy OCR, parser, classifier, vector, model, storage, queue, or provider runtimes.
+  - Use deterministic fixtures/fakes only for external execution boundaries in tests.
+  - Handle untyped or analyzer-unsupported external libraries with the narrowest ecosystem-native suppression or wrapper at the adapter/import boundary only.
+  - Never disable lint, type, or security checks globally to hide external library typing/analyzer gaps.
+  - If a named library is intentionally deferred, mark the KIT non-promotable and list the missing obligation.
+  build_file_requirements.boundary_rules.2:
+  - Do not reimplement provider protocols, auth/signing, wire formats, or client behavior when a mature SDK exists.
+  - Provider SDK imports are allowed inside adapter, provider factory, infrastructure, or integration boundary modules.
+  - Business-facing contracts must remain provider-independent.
+  - Business modules must not instantiate provider SDK clients directly.
+  - Tests may use SDK stubs, official mock helpers, or deterministic fake clients, but runtime-facing code must expose real SDK-backed wiring when provider realism is required.

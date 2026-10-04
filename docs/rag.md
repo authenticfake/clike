@@ -21,7 +21,6 @@ The extension supports:
 
 Relevant files:
 - `extensions/vscode/chat-ui.js`
-- `extensions/vscode/rag.js`
 
 ### Orchestrator
 The orchestrator exposes RAG APIs under `/v1/rag/*`.

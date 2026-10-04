@@ -11,7 +11,7 @@ from schemas.harper import (
     SessionClearRequest, ModelsResponse, ProfilesResponse, DefaultsResponse,
     ResolveResponse, HarperPhaseRequest, TestSummary
 )
-from services.router import _load_cfg, resolve, resolve_explain
+from services.router import _load_cfg, resolve_explain
 from services.methodologies.errors import MethodologyError
 router = APIRouter(prefix="/v1/harper", tags=["harper"])
 log = logging.getLogger("orchestrator.harper")
@@ -102,7 +102,7 @@ async def post_spec(req: HarperPhaseRequest):
     lascia che il service risolva il modello. NON azzera idea_md/core/attachments/flags.
     """
     payload = req.model_dump()
-    # Coerenza terminologica: manteniamo 'cmd' dal client ma imponiamo anche 'phase'
+    # Terminology consistency: keep 'cmd' from the client but also enforce 'phase'
     payload["phase"] = "spec"
     payload.setdefault("cmd", "spec")
     # --- PATCH START ---
@@ -111,7 +111,7 @@ async def post_spec(req: HarperPhaseRequest):
 # --- PATCH END ---
 
 
-    # Normalizza attachments in una forma stabile (list[dict])
+    # Normalize attachments into a stable shape (list[dict])
     payload["attachments"] = _normalize_attachments(req.attachments)
 
     repo_ctx = payload.get("repository_context") or {}
@@ -126,9 +126,9 @@ async def post_spec(req: HarperPhaseRequest):
         repo_ctx.get("branch"),
     )
 
-    # Delego al service che farà SOLO il merge del modello/profilo, senza perdere campi
+    # Delegate to the service, which ONLY merges model/profile without losing fields
     out_dict = await svc.run_phase("spec", payload)
-    # SPEC.md atteso in out.files/diffs a regime; qui esponiamo ok/run_id + echo
+    # SPEC.md expected in out.files/diffs eventually; here we expose ok/run_id + echo
       
     out = HarperRunResponse(
         ok=bool(out_dict.get("ok", True)),
@@ -150,11 +150,11 @@ async def post_spec(req: HarperPhaseRequest):
         local_agent=out_dict.get("local_agent"),
         telemetry=out_dict.get("telemetry"),
     )
-    # Retro-compat: spec_md, se disponibile (primo file markdown) oppure None
+    # Backward compat: spec_md, if available (first markdown file) or None
     spec_md = None
     if out.files:
         try:
-            # se il primo file è SPEC.md lo esponiamo
+            # expose it if the first file is SPEC.md
             if out.files[0].path.lower().endswith("spec.md"):
                 spec_md = out.files[0].content
         except Exception:
@@ -167,7 +167,7 @@ async def post_spec(req: HarperPhaseRequest):
 async def post_idea(req: HarperPhaseRequest):
     
     payload = req.model_dump()
-    # Coerenza terminologica: manteniamo 'cmd' dal client ma imponiamo anche 'phase'
+    # Terminology consistency: keep 'cmd' from the client but also enforce 'phase'
     payload["phase"] = "idea"
     payload.setdefault("cmd", "idea")
     log.info("run_phase idea (route) core=%d attachments=%d flags=%s",
@@ -175,7 +175,7 @@ async def post_idea(req: HarperPhaseRequest):
             len(payload.get("attachments") or []),
             "present" if payload.get("flags") else "none")
 
-    # Delego al service che farà SOLO il merge del modello/profilo, senza perdere campi
+    # Delegate to the service, which ONLY merges model/profile without losing fields
     out_dict = await svc.run_phase("idea", payload)
     out = None
     try: 
@@ -210,11 +210,11 @@ async def post_idea(req: HarperPhaseRequest):
         raise HTTPException(status_code=500, detail="Error in idea phase")    
     
     log.info("out text: %s len=%d",out.text,len(out.text))
-    # Retro-compat: spec_md, se disponibile (primo file markdown) oppure None
+    # Backward compat: spec_md, if available (first markdown file) or None
     plan_md = None
     if out.files:
         try:
-            # se il primo file è SPEC.md lo esponiamo
+            # expose it if the first file is SPEC.md
             if out.files[0].path.lower().endswith("plan.md"):
                 plan_md = out.files[0].content
         except Exception:
@@ -226,7 +226,7 @@ async def post_idea(req: HarperPhaseRequest):
 async def post_plan(req: HarperPhaseRequest):
     
     payload = req.model_dump()
-    # Coerenza terminologica: manteniamo 'cmd' dal client ma imponiamo anche 'phase'
+    # Terminology consistency: keep 'cmd' from the client but also enforce 'phase'
     payload["phase"] = "plan"
     payload.setdefault("cmd", "plan")
     log.info("run_phase spec (route): idea_md=%s spec_md=%s core=%d attachments=%d flags=%s",
@@ -238,7 +238,7 @@ async def post_plan(req: HarperPhaseRequest):
 
     out = None
     try: 
-        # Delego al service che farà SOLO il merge del modello/profilo, senza perdere campi
+        # Delegate to the service, which ONLY merges model/profile without losing fields
         out_dict = await svc.run_phase("plan", payload)
         
         log.info("post_plan out files len: %s", len(out_dict.get("files")));
@@ -279,7 +279,7 @@ async def post_plan(req: HarperPhaseRequest):
     plan_md = None
     if out.files:
         try:
-            # se il primo file è PLAN.md lo esponiamo
+            # expose it if the first file is PLAN.md
             if out.files[0].path.lower().endswith("plan.md"):
                 plan_md = out.files[0].content
         except Exception:
@@ -354,7 +354,7 @@ async def post_extend(req: HarperPhaseRequest):
 @router.post("/kit", response_model=HarperEnvelope)
 async def post_kit(req: HarperPhaseRequest):
     payload = req.model_dump()
-    # Coerenza terminologica: manteniamo 'cmd' dal client ma imponiamo anche 'phase'
+    # Terminology consistency: keep 'cmd' from the client but also enforce 'phase'
     payload["phase"] = "kit"
     payload.setdefault("cmd", payload["phase"])
     repo_ctx = payload.get("repository_context") or {}
@@ -386,7 +386,7 @@ async def post_kit(req: HarperPhaseRequest):
     )
 
     try:
-        # Delego al service che farà SOLO il merge del modello/profilo, senza perdere campi
+        # Delegate to the service, which ONLY merges model/profile without losing fields
         out_dict = await svc.run_phase("kit", payload)
 
         out = HarperRunResponse(
@@ -447,7 +447,7 @@ async def post_kit(req: HarperPhaseRequest):
         log.exception("Error in kit phase: %s", exc)
         raise HTTPException(status_code=500, detail="Error in kit phase")
 
-    # Retro-compat: kit_md, se disponibile (primo file markdown) oppure None
+    # Backward compat: kit_md, if available (first markdown file) or None
     kit_md = None
     if out.files:
         try:
@@ -461,7 +461,7 @@ async def post_kit(req: HarperPhaseRequest):
 @router.post("/finalize", response_model=HarperEnvelope)
 async def post_build_next(req: HarperPhaseRequest):
     payload = req.model_dump()
-    # Coerenza terminologica: manteniamo 'cmd' dal client ma imponiamo anche 'phase'
+    # Terminology consistency: keep 'cmd' from the client but also enforce 'phase'
     payload["phase"] = "finalize"
     payload.setdefault("cmd", payload["phase"])
     log.info("run_phase finalize (route): idea_md=%s spec_md=%s plan_md=%s kit_md=%s build_report_md=%s release_notes_md=%s core=%d attachments=%d flags=%s",
@@ -475,7 +475,7 @@ async def post_build_next(req: HarperPhaseRequest):
             len(payload.get("attachments") or []),
             "present" if payload.get("flags") else "none")
 
-    # Delego al service che farà SOLO il merge del modello/profilo, senza perdere campi
+    # Delegate to the service, which ONLY merges model/profile without losing fields
     out_dict = await svc.run_phase("finalize", payload)
     
     execution_meta = out_dict.get("execution") or {}
@@ -501,11 +501,11 @@ async def post_build_next(req: HarperPhaseRequest):
         local_agent=out_dict.get("local_agent"),
         telemetry=out_dict.get("telemetry"),
     )
-    # Retro-compat: spec_md, se disponibile (primo file markdown) oppure None
+    # Backward compat: spec_md, if available (first markdown file) or None
     release_notes_md = None
     if out.files:
         try:
-            # se il primo file è SPEC.md lo esponiamo
+            # expose it if the first file is SPEC.md
             if out.files[0].path.lower().endswith("kit.md"):
                 release_notes_md = out.files[0].content
         except Exception:

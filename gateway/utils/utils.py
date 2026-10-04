@@ -4,8 +4,7 @@ import os,  logging
 import httpx
 import io
 import base64
-import mimetypes
-from typing import List, Dict, Optional
+from typing import Optional
 import docx
 from pdfminer.high_level import extract_text
 import openpyxl  # .xlsx
@@ -23,7 +22,7 @@ RAG_SIZE_THRESHOLD_KB = int(os.getenv("RAG_SIZE_THRESHOLD_KB", "64"))
 RAG_TOP_K            = int(os.getenv("RAG_TOP_K", "12"))
 log = logging.getLogger("gateway.utils")
 
-# ===== RAG hooks (best-effort; non bloccanti) =====
+# ===== RAG hooks (best-effort; non-blocking) =====
 def _rag_project_id(body: dict) -> str:
     pid = (body or {}).get("project_id")
     if isinstance(pid, str) and pid.strip():
@@ -32,7 +31,7 @@ def _rag_project_id(body: dict) -> str:
 
 RAG_TOP_K = int(os.getenv("RAG_TOP_K", "12"))
 def _rag_base_url() -> str:
-    # es.: "http://localhost:8080/v1/rag"
+    # e.g.: "http://localhost:8080/v1/rag"
     base =  os.getenv("RAG_BASE_URL", "http://orchestrator:8080/v1/rag")
     return base.rstrip("/")
 
@@ -110,11 +109,11 @@ async def decide_inline_or_rag(attachments: list[dict]) -> tuple[list[dict], lis
 
         name   = a.get("name") or a.get("path") or "file"
         path   = a.get("path")
-        origin = a.get("origin") or a.get("source")  # normalizza
+        origin = a.get("origin") or a.get("source")  # normalize
         content    = a.get("content")
         bytes_b64  = a.get("bytes_b64")
 
-        # Nota: evitiamo di loggare la base64 (solo boolean), per non intasare i log
+        # Note: avoid logging the base64 (boolean only), to keep logs lean
         log.info("decide inline or rag: %s",
                  json.dumps({
                      "name": name,
@@ -125,7 +124,7 @@ async def decide_inline_or_rag(attachments: list[dict]) -> tuple[list[dict], lis
                  }, ensure_ascii=False))
 
         if content or bytes_b64:
-            # Inline esattamente come fa l’estensione
+            # Inline exactly as the extension does
             if bytes_b64:
                 raw = _b64_to_bytes(bytes_b64)
                 if raw:
@@ -149,7 +148,7 @@ async def decide_inline_or_rag(attachments: list[dict]) -> tuple[list[dict], lis
                         log.info("inline: PPTX")
                         txt = _extract_text_from_pptx_bytes(raw)
                     else:
-                        # fallback: se è testo “grezzo” o sconosciuto, prova a decodare come utf-8
+                        # fallback: if it is "raw" or unknown text, try decoding as utf-8
                         try:
                             txt = raw.decode("utf-8", errors="ignore")
                         except Exception:
@@ -160,13 +159,13 @@ async def decide_inline_or_rag(attachments: list[dict]) -> tuple[list[dict], lis
 
             inline.append({
                 "name": name,
-                "path": path,          # opzionale (può servire per tracciabilità)
-                "content": content,    # può essere None
-                "bytes_b64": bytes_b64,# può essere None
+                "path": path,          # optional (may be useful for traceability)
+                "content": content,    # may be None
+                "bytes_b64": bytes_b64,# may be None
                 "origin": origin
             })
         elif path:
-            # RAG by path, minimale (non inoltriamo bytes_b64 per non gonfiare la payload)
+            # RAG by path, minimal (bytes_b64 is not forwarded to avoid bloating the payload)
             rag.append({
                 "name": name,
                 "path": path,
@@ -249,7 +248,7 @@ def _extract_text_from_xlsx_bytes(raw: bytes) -> str:
         return ""
 
 def _extract_text_from_xls_bytes(raw: bytes) -> str:
-    # Richiede xlrd>=2.0 (legge solo .xls)
+    # Requires xlrd>=2.0 (reads .xls only)
     if not xlrd:
         log.warning("xlrd non disponibile: skip xls")
         return ""
@@ -336,9 +335,9 @@ async def collect_rag_materials_http(
     pid = (project_id or "default").strip()
     qlist: list[str] = []
 
-    # 1) Se non arrivano query, creale in base a path noti e heading dei core_blobs
+    # 1) If no queries arrive, build them from known paths and core_blobs headings
     if not queries:
-        # path-based (gli stessi che l'estensione indicizza)
+        # path-based (the same ones the extension indexes)
         # qlist.extend([
         #     "path:docs/harper/README.md",
         #     "path:docs/harper/SPEC.md",
@@ -351,7 +350,7 @@ async def collect_rag_materials_http(
         qlist.extend([
             "path:src/",
         ])
-        # heading-based (prima linea # ... di SPEC/PLAN se presenti nei core_blobs)
+        # heading-based (first # ... line of SPEC/PLAN if present in core_blobs)
         # for key in ("SPEC.md", "PLAN.md"):
         #     txt = (core_blobs or {}).get(key, "") or ""
         #     for ln in txt.splitlines():
@@ -361,11 +360,11 @@ async def collect_rag_materials_http(
     else:
         qlist = list(queries)
 
-    # 2) esegui le query
+    # 2) run the queries
     materials: list[dict] = []
     seen = set()
     cap = min(int(top_k or RAG_TOP_K), 120)
-    for q in qlist[:8]:               # massimo 8 query
+    for q in qlist[:8]:               # at most 8 queries
         hits = await rag_query(pid, q, top_k=cap)
         for h in (hits or []):
             path = (h.get("path") or "").strip()

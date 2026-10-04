@@ -144,8 +144,9 @@ The write policy for these phases is narrow:
 
 Every other `docs/harper/` path remains protected, and `src/`, `test/`,
 `tests/`, and `.git/` stay forbidden. Cloud and local execution stay
-semantically equivalent: the cloud system prompts under
-`gateway/prompts/harper/` remain the canonical source of phase behavior, CLike
+semantically equivalent: the phase definitions under `orchestrator/phases/`
+(cloud system prompts `cloud_*.md`, local-agent `phase.yaml` / `text.yaml`) are the
+canonical source of phase behavior, CLike
 governance remains canonical, and the agent only performs bounded document work
 that CLike then validates and governs.
 

@@ -1,0 +1,136 @@
+{
+  "$defs": {
+    "BlobKind": {
+      "enum": [
+        "canonical_document",
+        "plan_json",
+        "tech_constraints",
+        "target_contract",
+        "file_requirements",
+        "repo_manifest",
+        "req_promotion_manifest",
+        "capability_manifest",
+        "capability_index",
+        "selected_capability_context",
+        "candidate",
+        "companion",
+        "methodology_vendor",
+        "workspace_reference"
+      ],
+      "title": "BlobKind",
+      "type": "string"
+    },
+    "PhaseBlob": {
+      "description": "One entry of the wire ``core_blobs`` mapping.",
+      "properties": {
+        "content": {
+          "description": "Raw content, sent unchanged.",
+          "title": "Content",
+          "type": "string"
+        },
+        "data": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Parsed JSON for JSON kinds, when the content is valid JSON.",
+          "title": "Data"
+        },
+        "kind": {
+          "$ref": "#/$defs/BlobKind"
+        },
+        "name": {
+          "description": "Key in core_blobs (workspace-relative path or synthesized name).",
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "kind",
+        "content"
+      ],
+      "title": "PhaseBlob",
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/authenticfake/clike/docs/contracts/clike.phase_context.v1.schema.json",
+  "additionalProperties": false,
+  "description": "Everything a phase run receives as context, typed and versioned.",
+  "properties": {
+    "agent": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Agent"
+    },
+    "blobs": {
+      "description": "Blobs in wire order.",
+      "items": {
+        "$ref": "#/$defs/PhaseBlob"
+      },
+      "title": "Blobs",
+      "type": "array"
+    },
+    "methodology": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Methodology"
+    },
+    "phase": {
+      "title": "Phase",
+      "type": "string"
+    },
+    "req_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Target REQ for REQ-scoped phases (kit, eval).",
+      "title": "Req Id"
+    },
+    "run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Run Id"
+    },
+    "schema_version": {
+      "default": "clike.phase_context.v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "phase"
+  ],
+  "title": "CLike PhaseContext v1",
+  "type": "object"
+}

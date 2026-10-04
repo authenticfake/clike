@@ -1,0 +1,85 @@
+{
+  "output": {
+    "diffs": [],
+    "echo": "Local agent result normalized for SOLUTION",
+    "errors": [
+      "local_agent_wrote_outside_allowed_roots",
+      "extend_required_outputs_missing"
+    ],
+    "execution": {
+      "phase_supported": true,
+      "reason": "extension_actuator_completed_and_orchestrator_normalized_result",
+      "requested": "local_agent_only",
+      "selected": "local_agent"
+    },
+    "files": [
+      {
+        "content": "# PLAN — CoffeeBuddy\n\n## Plan Snapshot\nTwo REQs on the python lane.\n\n| REQ | Title | Lane |\n|---|---|---|\n| REQ-001 | Coffee order intake | python |\n| REQ-002 | Order status notifications | python |\n",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "docs/harper/PLAN.md"
+      }
+    ],
+    "ok": false,
+    "phase": "extend",
+    "runId": "golden-extend",
+    "tests": {
+      "failed": 1,
+      "passed": 0,
+      "summary": "local-agent-normalization-failed"
+    },
+    "text": "Local agent execution completed.\n\nSTDOUT:\n\n\nSTDERR:",
+    "warnings": [
+      "execution_selected:local_agent",
+      "local_agent_result:normalized_by_orchestrator",
+      "blocked_paths:runs/kit/REQ-001/src/x.py",
+      "missing_required_outputs:docs/harper/plan.json,docs/harper/EXTEND_<date>_<first_req>_<last_req>.md"
+    ]
+  },
+  "request": {
+    "allowed_write_roots": [
+      "docs/harper/IDEA.md",
+      "docs/harper/SPEC.md",
+      "docs/harper/PLAN.md",
+      "docs/harper/plan.json",
+      "docs/harper/lane-guides",
+      "docs/harper/EXTEND_*.md"
+    ],
+    "available_capabilities": null,
+    "capability_metadata": null,
+    "cloud_provisioning_profile": null,
+    "executionPreference": "local_agent_only",
+    "exit_code": 0,
+    "files": [
+      {
+        "content": "# PLAN — CoffeeBuddy\n\n## Plan Snapshot\nTwo REQs on the python lane.\n\n| REQ | Title | Lane |\n|---|---|---|\n| REQ-001 | Coffee order intake | python |\n| REQ-002 | Order status notifications | python |\n",
+        "path": "docs/harper/PLAN.md"
+      },
+      {
+        "content": "x = 1\n",
+        "path": "runs/kit/REQ-001/src/x.py"
+      }
+    ],
+    "forbidden_paths": [
+      ".git",
+      "src",
+      "test",
+      "tests",
+      "runs/kit",
+      "runs/eval",
+      "runs/gate",
+      "node_modules",
+      ".venv",
+      "__pycache__",
+      "__MACOSX"
+    ],
+    "infra_profile": null,
+    "localAgentExecutor": "claude_code",
+    "phase": "extend",
+    "req_id": null,
+    "runId": "golden-extend",
+    "runtime_service_profile": null,
+    "stderr": "",
+    "stdout": ""
+  }
+}

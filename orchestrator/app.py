@@ -6,7 +6,7 @@ import os, logging, time, uuid
 from routes.agent import router as agent_router
 from routes.health import router as health_router
 from routes.v1 import router as v1_router
-from config import runs_dir, settings
+from config import runs_dir
 from routes.harper import router as harper_router
 from routes import router as router_router
 from routes import rag as rag_routes

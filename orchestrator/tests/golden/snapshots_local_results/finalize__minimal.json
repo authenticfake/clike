@@ -1,0 +1,288 @@
+{
+  "output": {
+    "diffs": [],
+    "echo": "Local agent result normalized for SOLUTION",
+    "errors": [
+      "finalize_required_outputs_missing",
+      "finalize_database_env_placeholders_missing",
+      "finalize_auth_env_placeholders_missing",
+      "finalize_auth_source_boundary_missing",
+      "finalize_auth_source_boundary_missing",
+      "finalize_database_source_boundary_missing"
+    ],
+    "execution": {
+      "phase_supported": true,
+      "reason": "extension_actuator_completed_and_orchestrator_normalized_result",
+      "requested": "local_agent_only",
+      "selected": "local_agent"
+    },
+    "files": [
+      {
+        "content": "# CoffeeBuddy\n\nRun `make dev`.\n",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "README.md"
+      },
+      {
+        "content": "#!/bin/sh\nuvicorn app:app\n",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "scripts/dev.sh"
+      }
+    ],
+    "ok": false,
+    "phase": "finalize",
+    "runId": "golden-finalize",
+    "tests": {
+      "failed": 1,
+      "passed": 0,
+      "summary": "local-agent-normalization-failed"
+    },
+    "text": "Local agent execution completed.\n\nSTDOUT:\n\n\nSTDERR:",
+    "warnings": [
+      "execution_selected:local_agent",
+      "local_agent_result:normalized_by_orchestrator",
+      "missing_finalize_outputs:.env.example,docs/harper/HOWTO_RUN.md,docs/harper/INFRA_READINESS.md,docs/harper/PR_BODY.md,docs/harper/RELEASE_NOTES.md,docs/harper/SANITY_CHECKS.md,docs/harper/TODO_NEXT.md,scripts/check_deployment.ps1,scripts/check_deployment.sh,scripts/check_infra_prereqs.ps1,scripts/check_infra_prereqs.sh,scripts/check_runtime_services.ps1,scripts/check_runtime_services.sh,scripts/provision_plan.ps1,scripts/provision_plan.sh",
+      "missing_database_env_placeholders:DATABASE_URL,DB_HOST,DB_PORT,DB_NAME,DB_USER,DB_PASSWORD,SQLALCHEMY_DATABASE_URL,JDBC_DATABASE_URL,POSTGRES_URL,POSTGRES_URL_REF,POSTGRES_CONNECTION,POSTGRES_CONNECTION_REF,POSTGRES_CONNECTION_SECRET_REF",
+      "missing_auth_env_placeholders:AUTH_PROVIDER,AUTH_ISSUER_URL,AUTH_CLIENT_ID,AUTH_CLIENT_SECRET,AUTH_AUDIENCE,AUTH_JWKS_URL,OIDC_ISSUER,OIDC_ISSUER_URL,OIDC_AUDIENCE,OIDC_CLIENT_ID,OIDC_CLIENT_SECRET,OIDC_JWKS_URI,OIDC_JWKS_URL,SAML_METADATA_URL,SAML_ENTITY_ID",
+      "auth_source_boundary_missing:finalize_must_patch_or_return_stack_native_auth_config_seam_when_auth_is_detected",
+      "auth_source_boundary_missing:finalize_must_patch_or_return_stack_native_auth_config_seam_when_auth_is_detected",
+      "database_source_boundary_missing:finalize_must_patch_or_return_stack_native_db_boundary_when_database_is_detected"
+    ]
+  },
+  "request": {
+    "allowed_write_roots": [
+      "src",
+      "scripts",
+      "docs/harper",
+      "README.md",
+      ".env.example",
+      "infra",
+      "deploy",
+      "ops",
+      "config",
+      "configs",
+      "schemas",
+      "migrations",
+      "db",
+      "database",
+      "connectors",
+      "jobs",
+      "pipelines",
+      "packages",
+      "model",
+      "models",
+      "package.json",
+      "package-lock.json",
+      "pnpm-lock.yaml",
+      "yarn.lock",
+      "pyproject.toml",
+      "requirements.txt",
+      "pom.xml",
+      "build.gradle",
+      "settings.gradle",
+      "go.mod",
+      "go.sum",
+      "Cargo.toml",
+      "Cargo.lock",
+      "docker-compose.yml",
+      "Dockerfile",
+      "Makefile"
+    ],
+    "available_capabilities": null,
+    "capability_metadata": null,
+    "cloud_provisioning_profile": {
+      "cloud_detected": false,
+      "detected_cloud_targets": [],
+      "forbidden_defaults": [
+        "Do not run mutating cloud commands automatically.",
+        "Do not embed real account IDs, project IDs, tenant IDs, subscription IDs, secrets, tokens, credentials, VPC IDs, subnet IDs, or security group IDs.",
+        "Do not grant wildcard admin privileges.",
+        "Do not assume Terraform, Kubernetes, Docker, or any cloud provider unless evidenced.",
+        "Do not make apply the default path; plan/inventory/check must be the default path."
+      ],
+      "policy": "When cloud is evidenced, finalize must produce a safe cloud provisioning package even if no infra/ or deploy/ root exists yet: inventory, plan, guarded apply, deployment checks, and INFRA_READINESS documentation. The scripts must be provider-native only for detected providers and must not assume a provider by default. When concrete IaC manifests are absent, the plan script must produce an operator-actionable provisioning plan using placeholders instead of silently downgrading to a tools-only check.",
+      "required_outputs_when_cloud_detected": [],
+      "schema_version": "clike.finalize_cloud_provisioning_profile.v1",
+      "script_policy": {
+        "apply_guarded": "Apply scripts are allowed only as guarded operator tools. They must fail closed unless CLIKE_ALLOW_CLOUD_MUTATION=1 is set, and they must print the detected provider/account/project/tenant before running.",
+        "deployment_check": "Deployment check scripts may run non-mutating health, describe, status, logs, or endpoint checks.",
+        "inventory": "Inventory scripts may run non-mutating describe/list/show/status commands to discover what currently exists.",
+        "plan": "Plan scripts may validate templates, show planned actions, or generate operator-visible commands without mutating live resources."
+      }
+    },
+    "executionPreference": "local_agent_only",
+    "exit_code": 0,
+    "files": [
+      {
+        "content": "# CoffeeBuddy\n\nRun `make dev`.\n",
+        "path": "README.md"
+      },
+      {
+        "content": "#!/bin/sh\nuvicorn app:app\n",
+        "path": "scripts/dev.sh"
+      }
+    ],
+    "forbidden_paths": [
+      ".git",
+      "node_modules",
+      ".venv",
+      "__pycache__",
+      "__MACOSX",
+      ".DS_Store",
+      ".next",
+      "dist",
+      "build",
+      ".ruff_cache",
+      ".mypy_cache",
+      "secrets",
+      ".env",
+      ".env.local",
+      ".env.production",
+      "credentials",
+      "credential",
+      "private_key",
+      "id_rsa",
+      "id_ed25519"
+    ],
+    "infra_profile": {
+      "detected_targets": [
+        "kubernetes",
+        "confluent_kafka"
+      ],
+      "detection_details": {
+        "confluent_kafka": [
+          "kafka"
+        ],
+        "kubernetes": [
+          "kubernetes"
+        ]
+      },
+      "detection_policy": "Detected only from TECH_CONSTRAINTS, PLAN/SPEC, plan.json, source evidence, repository summaries, manifests, or selected capabilities. No provider, vendor, language, framework, or IaC tool is assumed as a default. Vendor platforms require vendor-anchored evidence; generic workflow/mapping/namespace terms are insufficient.",
+      "forbidden_actions": [
+        "terraform apply",
+        "pulumi up",
+        "cloud resource create/update/delete",
+        "destructive operations",
+        "secret writes",
+        "privileged IAM changes",
+        "real deployment without explicit user approval"
+      ],
+      "infra_detected": true,
+      "safe_actions_only": [
+        "detect",
+        "document",
+        "validate",
+        "plan",
+        "dry-run",
+        "describe",
+        "lint",
+        "schema-check",
+        "package-integrity-check",
+        "vendor-tool-check"
+      ],
+      "safe_required_outputs": [
+        "docs/harper/INFRA_READINESS.md",
+        "scripts/check_infra_prereqs.sh",
+        "scripts/check_infra_prereqs.ps1",
+        "scripts/provision_plan.sh",
+        "scripts/provision_plan.ps1",
+        "scripts/check_deployment.sh",
+        "scripts/check_deployment.ps1"
+      ],
+      "schema_version": "clike.finalize_infra_profile.v1"
+    },
+    "localAgentExecutor": "claude_code",
+    "phase": "finalize",
+    "req_id": null,
+    "runId": "golden-finalize",
+    "runtime_service_profile": {
+      "boundary_rules": [
+        "Detect services from TECH_CONSTRAINTS, PLAN/SPEC, plan.json, repository evidence, manifests, and selected capabilities only.",
+        "Do not assume a database engine, auth provider, broker, cache, object store, or secret manager without evidence.",
+        "If a database is evidenced, in-memory persistence is not a production-complete boundary.",
+        "If enterprise auth is evidenced, hardcoded/no-auth local behavior is not a production-complete auth boundary.",
+        "Finalize may create local-dev templates and safe checks, but must not write real secrets or provision live services automatically.",
+        "Use generic service placeholders by default and add engine/provider-specific placeholders only when that engine/provider is evidenced."
+      ],
+      "categories": {
+        "auth": true,
+        "broker": true,
+        "cache": false,
+        "database": true,
+        "object_storage": false,
+        "secrets": true
+      },
+      "detected_services": [
+        "database",
+        "auth",
+        "broker",
+        "secrets"
+      ],
+      "migration_tool_profile": {
+        "detected_tools": [],
+        "evidence": [],
+        "policy": "When a migration tool is evidenced, finalize must emit or preserve the stack-native migration configuration and migration environment files required to run migrations. Do not assume a migration tool without evidence.",
+        "tools_detected": false
+      },
+      "policy": "When runtime services are evidenced, finalize must make the solution boundary-ready: configuration placeholders, truthful docs, safe non-mutating checks, and integration seams. Engine/vendor names are details, not the primary service contract.",
+      "required_outputs_when_detected": [
+        ".env.example with runtime service placeholders",
+        "docs/harper/HOWTO_RUN.md runtime services setup section",
+        "docs/harper/INFRA_READINESS.md runtime services section",
+        "docs/harper/SANITY_CHECKS.md runtime service checks",
+        "scripts/check_runtime_services.ps1",
+        "scripts/check_runtime_services.sh"
+      ],
+      "schema_version": "clike.finalize_runtime_service_profile.v1",
+      "service_details": {
+        "auth": {
+          "evidence": [
+            "keycloak",
+            "oidc"
+          ],
+          "providers": [
+            "keycloak",
+            "oidc"
+          ]
+        },
+        "broker": {
+          "evidence": [
+            "kafka"
+          ],
+          "providers": [
+            "kafka"
+          ]
+        },
+        "cache": {
+          "evidence": [],
+          "providers": []
+        },
+        "database": {
+          "engines": [
+            "postgresql"
+          ],
+          "evidence": [
+            "postgresql",
+            "postgres"
+          ]
+        },
+        "object_storage": {
+          "evidence": [],
+          "providers": []
+        },
+        "secrets": {
+          "evidence": [
+            "vault"
+          ],
+          "providers": [
+            "vault"
+          ]
+        }
+      },
+      "services_detected": true
+    },
+    "stderr": "",
+    "stdout": ""
+  }
+}

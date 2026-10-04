@@ -1,0 +1,71 @@
+{
+  "output": {
+    "diffs": [],
+    "echo": "Local agent result normalized for ",
+    "errors": [],
+    "execution": {
+      "phase_supported": true,
+      "reason": "extension_actuator_completed_and_orchestrator_normalized_result",
+      "requested": "local_agent_only",
+      "selected": "local_agent"
+    },
+    "files": [
+      {
+        "content": "# IDEA — Demo Project\n\n## Vision\nDeliver a measurable first slice that proves the product value to early users.\n\n## Problem Statement\nOperators waste time reconciling data manually every morning before reporting.\n\n## Target Users & Context\nPrimary users are operations analysts working inside the internal back office.\n\n## Value & Outcomes\nReduce reconciliation time and surface anomalies earlier in the daily workflow.\n\n## Out of Scope\nMobile clients and third-party marketplace integrations are deferred past slice 1.\n\n## Technology Constraints\n```yaml\ntech_constraints:\n  version: 1\n  classification:\n    solution_type: unknown\n```\n\n## Risks & Assumptions\nWe assume source exports remain CSV; data volume risk is tracked as an assumption.\n\n## Success Metrics\nTime-to-first-reconciliation under five minutes for the initial pilot cohort.\n",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "docs/harper/IDEA.md"
+      }
+    ],
+    "ok": true,
+    "phase": "idea",
+    "runId": "golden-idea",
+    "tests": {
+      "failed": 0,
+      "passed": 0,
+      "summary": "local-agent-normalized"
+    },
+    "text": "Local agent execution completed.\n\nSTDOUT:\n\n\nSTDERR:",
+    "warnings": [
+      "execution_selected:local_agent",
+      "local_agent_result:normalized_by_orchestrator"
+    ]
+  },
+  "request": {
+    "allowed_write_roots": [
+      "docs/harper/IDEA.md"
+    ],
+    "available_capabilities": null,
+    "capability_metadata": null,
+    "cloud_provisioning_profile": null,
+    "executionPreference": "local_agent_only",
+    "exit_code": 0,
+    "files": [
+      {
+        "content": "# IDEA — Demo Project\n\n## Vision\nDeliver a measurable first slice that proves the product value to early users.\n\n## Problem Statement\nOperators waste time reconciling data manually every morning before reporting.\n\n## Target Users & Context\nPrimary users are operations analysts working inside the internal back office.\n\n## Value & Outcomes\nReduce reconciliation time and surface anomalies earlier in the daily workflow.\n\n## Out of Scope\nMobile clients and third-party marketplace integrations are deferred past slice 1.\n\n## Technology Constraints\n```yaml\ntech_constraints:\n  version: 1\n  classification:\n    solution_type: unknown\n```\n\n## Risks & Assumptions\nWe assume source exports remain CSV; data volume risk is tracked as an assumption.\n\n## Success Metrics\nTime-to-first-reconciliation under five minutes for the initial pilot cohort.\n",
+        "path": "docs/harper/IDEA.md"
+      }
+    ],
+    "forbidden_paths": [
+      ".git",
+      "src",
+      "test",
+      "tests",
+      "runs/kit",
+      "runs/eval",
+      "runs/gate",
+      "node_modules",
+      ".venv",
+      "__pycache__",
+      "__MACOSX"
+    ],
+    "infra_profile": null,
+    "localAgentExecutor": "claude_code",
+    "phase": "idea",
+    "req_id": null,
+    "runId": "golden-idea",
+    "runtime_service_profile": null,
+    "stderr": "",
+    "stdout": ""
+  }
+}

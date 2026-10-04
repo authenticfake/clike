@@ -1,24 +1,11 @@
 const vscode = require('vscode');
 const { buildBrowserSlashParserSource } = require('./slash-parser');
-const out = vscode.window.createOutputChannel('Clike.theme');
 
 /**
- * Funzione di logging personalizzata che scrive su entrambi i canali.
- * @param {...any} args Messaggi o oggetti da loggare.
+ * Custom logging function that writes to both channels.
+ * @param {...any} args Messages or objects to log.
  */
-function log(...args) {
-    // 1. Log nella console standard per il debug.
-    console.log(...args); 
-    
-    // 2. Log nel canale di output di VS Code.
-    out.appendLine(args.map(arg => {
-        // Converte ogni argomento in stringa per l'output.
-        if (typeof arg === 'object' && arg !== null) {
-            return JSON.stringify(arg, null, 2);
-        }
-        return String(arg);
-    }).join(' ')); 
-}
+
 
 function getChatTheme() {
   try {
@@ -661,7 +648,6 @@ function bindHelpHandlersOnce() {
 }
 
 
-
 // Defer fino a DOM pronto (idempotente)
 (function safeInit() {
   const run = () => { ensureHelpDOM(); bindHelpHandlersOnce(); };
@@ -680,8 +666,6 @@ document.addEventListener('keydown', (ev) => {
     openHelpOverlay();
   }
 });
-
-
 
 
 const attachmentsByMode = { free: [], harper: [], coding: [] };
@@ -1016,7 +1000,7 @@ function parseSlash(s) {
       targets = ''; //findNextOpenReq in runCommand
     } else {
       // assumiamo REQ-ID singolo (o più REQ-ID separati da spazio)
-      const isReq = (s) => /^req-\d+/i.test(s);
+      const isReq = (s) => /^req-\\d+/i.test(s);
       const onlyReqs = rest.every(isReq);
       targets = onlyReqs ? rest : [rest[0]];
 
@@ -1067,7 +1051,7 @@ function parseSlash(s) {
       }
 
       const normalized = normalizeReqToken(token);
-      if (!explicitReq && /^REQ-\d+$/i.test(normalized)) {
+      if (!explicitReq && /^REQ-\\d+$/i.test(normalized)) {
         explicitReq = normalized;
         continue;
       }
@@ -1134,7 +1118,7 @@ function parseSlash(s) {
       }
 
       const normalized = normalizeReqToken(token);
-      if (/^REQ-\d+/i.test(normalized)) {
+      if (/^REQ-\\d+/i.test(normalized)) {
         reqTokens.push(normalized);
         continue;
       }
@@ -2161,7 +2145,7 @@ window.addEventListener('message', (event) => {
 
       var preview = '';
       if (rawText) {
-        preview = ' — ' + rawText.replace(/\s+/g, ' ').slice(0, 160) + '…';
+        preview = ' — ' + rawText.replace(/\\s+/g, ' ').slice(0, 160) + '…';
       }
 
       lines.push((i + 1) + '. ' + path + score + preview);

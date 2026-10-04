@@ -19,7 +19,7 @@ function mkLog(out) {
   };
 }
 
-// Ritorna true se il working tree ha modifiche non committate/non staggate
+// Return true if the working tree has uncommitted/unstaged changes
 async function isWorkingTreeDirty(gitCtx) {
   try {
     const out = await gitRunVerbose(['status', '--porcelain'], gitCtx, 'diag');
@@ -46,7 +46,7 @@ function toFsPath(input) {
   if (input && typeof input === 'object' && input.scheme && input.fsPath) return input.fsPath;
   // URL object
   if (input instanceof URL) return input.pathname || String(input);
-  // Oggetti generici che espongono .path o .toString()
+  // Generic objects exposing .path or .toString()
   if (input && typeof input === 'object') {
     if (typeof input.path === 'string') return input.path;
     if (typeof input.toString === 'function') {
@@ -56,15 +56,15 @@ function toFsPath(input) {
   }
   let s = String(input).trim();
 
-  // **FIX**: converti "file://..." (anche se è una semplice stringa) in path locale
+  // **FIX**: convert "file://..." (even a plain string) to a local path
   if (s.startsWith('file://')) {
     try {
-      // gestisce anche spazi/encoding
+      // also handles spaces/encoding
       const u = new URL(s);
-      // su macOS/Unix: u.pathname è già un path assoluto
+      // on macOS/Unix: u.pathname is already an absolute path
       s = decodeURI(u.pathname);
     } catch {
-      // fallback grezzo (toglie il prefisso)
+      // raw fallback (strips the prefix)
       s = s.replace(/^file:\/\//, '');
     }
   }
@@ -89,9 +89,9 @@ function isDirWritable(dir) {
   }
 }
 
-// Costruisce un contesto git per un workspace anche se è read-only.
-// Se la cartella è scrivibile: usa .git locale (preArgs=[]).
-// Se è sola lettura: usa separate-git-dir sotto ~/.clike/git/<hash>.
+// Build a git context for a workspace even if it is read-only.
+// If the folder is writable: use the local .git (preArgs=[]).
+// If it is read-only: use separate-git-dir under ~/.clike/git/<hash>.
 function resolveGitContext(workspaceRoot, defaultBranch = 'main') {
   const cwd = toFsPath(workspaceRoot);
   const writable = isDirWritable(cwd);
@@ -100,7 +100,7 @@ function resolveGitContext(workspaceRoot, defaultBranch = 'main') {
     return {
       mode: 'local',
       cwd,
-      preArgs: [], // nessun --git-dir/--work-tree
+      preArgs: [], // no --git-dir/--work-tree
       gitDir: path.join(cwd, '.git'),
       workTree: cwd,
       ensureInitNeeded: true
@@ -109,12 +109,12 @@ function resolveGitContext(workspaceRoot, defaultBranch = 'main') {
 
   const root = path.join(os.homedir(), '.clike', 'git');
   const repoId = sha1(cwd).slice(0, 12);
-  const gitDir = path.join(root, repoId, '.git'); // teniamo una struttura familiare
+  const gitDir = path.join(root, repoId, '.git'); // keep a familiar structure
   const workTree = cwd;
 
   return {
     mode: 'separate',
-    cwd,                  // eseguiamo comunque da work-tree
+    cwd,                  // run from the work-tree anyway
     preArgs: ['--git-dir', gitDir, '--work-tree', workTree],
     gitDir,
     workTree,
@@ -131,7 +131,7 @@ async function gitRunVerbose(args, gitCtx, label = 'git', _out) {
   const fullArgs = [...pre, ...args];
   try {
     log(`[${label}] $ git ${fullArgs.join(' ')} @ ${cwd}`);
-    const out = await gitRun(fullArgs, cwd); // usa la tua gitRun esistente (execFile/spawn)
+    const out = await gitRun(fullArgs, cwd); // use your existing gitRun (execFile/spawn)
     if (out && String(out).trim().length) log(`[${label}] out: ${String(out).trim()}`);
     return out;
   } catch (e) {
@@ -144,7 +144,7 @@ async function gitRunVerbose(args, gitCtx, label = 'git', _out) {
 // Ensure repo exists; if not, initialize it and set default branch
 async function ensureGitRepo(gitCtx, defaultBranch = 'main', out) {
   const log = mkLog(out);
-  // già repo?
+  // already a repo?
   try {
     await gitRunVerbose(['rev-parse', '--is-inside-work-tree'], gitCtx, 'diag', out);
     log('[git:init] repository already initialized');
@@ -153,25 +153,22 @@ async function ensureGitRepo(gitCtx, defaultBranch = 'main', out) {
     log('[git:init] repository not initialized → creating...');
   }
 
-  // Assicura directory del gitDir in modalità separate
+  // Ensure the gitDir directory exists in separate mode
   if (gitCtx.mode === 'separate') {
     const dir = path.dirname(gitCtx.gitDir);
     fs.mkdirSync(dir, { recursive: true });
   }
 
   // Init
-  let inited = false;
   try {
     // Modern git: init -b <branch>
     await gitRunVerbose(['init', '-b', defaultBranch], gitCtx, 'init', out);
-    inited = true;
   } catch {
     await gitRunVerbose(['init'], gitCtx, 'init', out);
     try { await gitRunVerbose(['checkout', '-b', defaultBranch], gitCtx, 'init', out); } catch {}
-    inited = true;
   }
 
-  // In modalità separate, dobbiamo puntare la work-tree
+  // In separate mode, we must point to the work-tree
   if (gitCtx.mode === 'separate') {
     try {
       await gitRunVerbose(['config', 'core.worktree', gitCtx.workTree], gitCtx, 'init', out);
@@ -272,13 +269,13 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
   log(`[harperGit] phase=${phase} runId=${runId} reqId=${reqId || '∅'} files=${Array.isArray(changedFiles) ? changedFiles.length : '∅'} mode=${gitCtx.mode}`);
   if (!s.gitAutoCommit) { log('[harperGit] autoCommit=false → skip'); return; }
 
-  // 1) Repo pronto
+  // 1) Repo ready
   await ensureGitRepo(gitCtx, defaultBranch, out);
 
-  // 2) Remote (opzionale)
+  // 2) Remote (optional)
   const hasRemote = await ensureRemote(gitCtx, s.gitRemote, s.gitRemoteUrl || '', out);
 
-  // 3) Branch target
+  // 3) Target branch
   let targetBranch = defaultBranch;
   if (phase === 'kit' || phase === 'eval' || phase === 'gate') {
     if (!reqId) throw new Error('REQ-ID required for phase=' + phase);
@@ -441,22 +438,6 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
       else await vscode.commands.executeCommand('github.createPullRequest');
     } catch (e) { log(`[harperGit] finalize PR skipped: ${e.message}`); }
   }
-}
-
-async function gitDebugSnapshot(gitCtx, out) {
-  const log = mkLog(out);
-  try { await gitRunVerbose(['rev-parse', '--is-inside-work-tree'], gitCtx, 'diag', out); } catch {}
-  try { await gitRunVerbose(['status', '--porcelain'], gitCtx, 'diag', out); } catch {}
-  try { await gitRunVerbose(['remote', '-v'], gitCtx, 'diag', out); } catch {}
-  try { await gitRunVerbose(['branch', '--show-current'], gitCtx, 'diag', out); } catch {}
-  try { await gitRunVerbose(['config', '--get', 'user.name'], gitCtx, 'diag', out); } catch {}
-  try { await gitRunVerbose(['config', '--get', 'user.email'], gitCtx, 'diag', out); } catch {}
-  try { await gitRunVerbose(['ls-files'], gitCtx, 'diag', out); } catch {}
-  try { await gitRunVerbose(['rev-parse', 'HEAD'], gitCtx, 'diag', out); } catch {}
-  try { await gitRunVerbose(['ls-remote', 'origin'], gitCtx, 'diag', out); } catch (e) { log(`[diag] ls-remote failed: ${e.message}`); }
-  // gh (best-effort)
-  try { await gitRunVerbose(['--version'], gitCtx, 'gh', out); } catch {}
-  try { await gitRunVerbose(['auth', 'status'], gitCtx, 'gh', out); } catch {}
 }
 
 

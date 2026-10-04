@@ -15,5 +15,4 @@ tsconfig.json
 eslint.config.js
 eslint-suppressions.json
 build_ext_vs.sh
-fix_ext_vs.sh
 *.vsix

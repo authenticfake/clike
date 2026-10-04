@@ -35,7 +35,6 @@ SNAPSHOT_DIR = Path(__file__).resolve().parent / "snapshots"
 UPDATE = os.getenv("CLIKE_GOLDEN_UPDATE") == "1"
 
 _TMP = tempfile.mkdtemp(prefix="clike-gw-golden-")
-_PROMPTS = GATEWAY_ROOT / "prompts/harper"
 _ENV = {
     "OPENAI_API_KEY": "sk-golden-not-a-real-key",
     "ANTHROPIC_API_KEY": "sk-ant-golden-not-a-real-key",
@@ -44,15 +43,6 @@ _ENV = {
     "HARPER_STUB_DIR": _TMP,
     "GATEWAY_DUMP_DIR": _TMP,
     "SPEC_TEMPLATE_PATH": str(GATEWAY_ROOT / "templates/SPEC_TEMPLATE.md"),
-    "PROMPT_IDEA_SYSTEM_PATH": str(_PROMPTS / "idea_system.md"),
-    "PROMPT_SPEC_SYSTEM_PATH": str(_PROMPTS / "spec_system.md"),
-    "PROMPT_PLAN_SYSTEM_PATH": str(_PROMPTS / "plan_system.md"),
-    "PROMPT_KIT_SYSTEM_PATH": str(_PROMPTS / "kit_system.md"),
-    "PROMPT_INTEGRITY_EVAL_SYSTEM_PATH": str(_PROMPTS / "integrity_eval.md"),
-    "PROMPT_PROMOTION_HARDENER_SYSTEM_PATH": str(_PROMPTS / "promotion_hardener.md"),
-    "PROMPT_PROMOTION_EVAL_SYSTEM_PATH": str(_PROMPTS / "promotion_eval.md"),
-    "PROMPT_FINALIZE_SYSTEM_PATH": str(_PROMPTS / "finalize_system.md"),
-    "PROMPT_EXTEND_SYSTEM_PATH": str(_PROMPTS / "extend_system.md"),
     "RAG_BASE_URL": "http://127.0.0.1:9/v1/rag",  # unroutable: any stray RAG call fails fast
 }
 os.environ.update(_ENV)

@@ -1,1 +1,1 @@
-from app import app  # exposes FastAPI app for `uvicorn main:app`
+from app import app  # noqa: F401 -- ASGI entry point: the container runs `uvicorn main:app`

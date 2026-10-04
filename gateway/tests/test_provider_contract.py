@@ -81,7 +81,7 @@ class OpenAIContractTests(ProviderContractBase):
                 {"role": "assistant", "content": "answer"}, {"role": "user", "content": "second"}]
 
     def test_responses_models_keep_roles_and_effort(self):
-        for model in ["gpt-5", "gpt-5-mini", "gpt-5.4-mini", "gpt-5.5", "gpt-5.1-codex-mini"]:
+        for model in ["gpt-5", "gpt-5-mini", "gpt-5.4-mini", "gpt-5.5", "gpt-5.1-codex-mini", "gpt-6.1-sol", "gpt-6-luna"]:
             with self.subTest(model):
                 rec = self.use(Recorder((200, OPENAI_RESPONSES_OK)))
                 out = run(oai.chat("https://api.openai.com/v1", "sk-x", model, self.messages(), max_tokens=1234))
@@ -97,6 +97,15 @@ class OpenAIContractTests(ProviderContractBase):
                                                  {"role": "user", "content": "second"}])
                 self.assertEqual(body["max_output_tokens"], 1234)
                 self.assertEqual(body["reasoning"], {"effort": "medium"})
+
+    def test_new_generations_never_receive_sampling_parameters(self):
+        # gpt-6.x is recognized by generation number, not by a hand-maintained list
+        self.assertTrue(oai._is_reasoning_model_name("gpt-6.1-sol"))
+        self.assertTrue(oai._is_reasoning_model_name("gpt-7"))
+        self.assertFalse(oai._is_reasoning_model_name("gpt-4o"))
+        payload = oai._normalize_and_validate("responses", {"model": "gpt-6.1-sol", "input": [], "temperature": 0.2, "top_p": 0.9})
+        self.assertNotIn("temperature", payload)
+        self.assertNotIn("top_p", payload)
 
     def test_reasoning_effort_from_the_request(self):
         rec = self.use(Recorder((200, OPENAI_RESPONSES_OK)))

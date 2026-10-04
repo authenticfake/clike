@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from typing import List, Dict, Any, Optional
+from typing import List, Optional
 import logging
 import io, os, base64
 from pdfminer.high_level import extract_text  # import INSIDE to avoid import warning at module load
@@ -61,15 +61,15 @@ class RagPurgeRequest(BaseModel):
 # --- NEW: fetch models ---
 class RagFetchRequest(RagBase):
     project_id: str
-    # Se indicati, limita il fetch a questi path (match "starts with" case-insensitive)
+    # If given, restrict the fetch to these paths (case-insensitive "starts with" match)
     paths: Optional[List[str]] = None
-    # In alternativa/aggiunta, filtra per prefisso
+    # Alternatively/additionally, filter by prefix
     path_prefix: Optional[str] = None
-    # Quanti documenti (path) restituire al massimo
+    # Maximum number of documents (paths) to return
     limit_docs: int = 20
-    # Quanti caratteri massimi per documento aggregato (per prompt budget)
+    # Maximum characters per aggregated document (for prompt budget)
     max_chars_per_doc: int = 4000
-    # Quanti chunk pescare dallo store (esageriamo: 5x documents)
+    # How many chunks to pull from the store (overshoot: 5x documents)
     search_top_k: int = 100
 
 class RagFetchByPathsRequest(RagBase):
@@ -78,61 +78,6 @@ class RagFetchByPathsRequest(RagBase):
     max_chars_per_doc: int = 4000
     search_top_k: int = 100
     
-def _path_matches(p: str, paths: Optional[List[str]], prefix: Optional[str]) -> bool:
-    p_norm = (p or "").strip()
-    if not p_norm:
-        return False
-    p_low = p_norm.lower()
-    if prefix and p_low.startswith(prefix.lower()):
-        return True
-    if paths:
-        for want in paths:
-            w = (want or "").strip()
-            if not w:
-                continue
-            # match "starts with" per robustezza su path normalizzati
-            if p_low.startswith(w.lower()):
-                return True
-    # se non sono imposti paths/prefix, accetta tutti
-    return (paths is None and prefix is None)
-
-def _aggregate_hits_by_path(
-    hits: List[Dict[str, Any]],
-    max_chars_per_doc: int,
-    limit_docs: int,
-    paths: Optional[List[str]],
-    prefix: Optional[str],
-) -> List[Dict[str, Any]]:
-    """
-    Raggruppa i risultati per 'path' e concatena i testi finché non supera max_chars_per_doc.
-    Ritorna una lista di {path, text, chunks:int}.
-    """
-    buckets: Dict[str, Dict[str, Any]] = {}
-    for h in (hits or []):
-        p = (h.get("path") or "").strip()
-        t = (h.get("text") or "").strip()
-        if not p or not t:
-            continue
-        if not _path_matches(p, paths, prefix):
-            continue
-        b = buckets.get(p)
-        if not b:
-            b = {"path": p, "text": "", "chunks": 0}
-            buckets[p] = b
-        # Accumula rispettando il budget caratteri
-        remaining = max_chars_per_doc - len(b["text"])
-        if remaining <= 0:
-            continue
-        # +1 riga separatrice per chiarezza
-        piece = (("\n" if b["text"] else "") + t)[:remaining]
-        if piece:
-            b["text"] += piece
-            b["chunks"] += 1
-
-    # Ordina per path (stabile) e limita la quantità di documenti
-    ordered = list(buckets.values())
-    ordered.sort(key=lambda x: x["path"])
-    return ordered[: max(1, limit_docs)]
 
 
 def _b64_to_bytes(b64: Optional[str]) -> Optional[bytes]:
@@ -229,7 +174,7 @@ def _extract_text_from_xlsx_bytes(raw: bytes) -> str:
         return ""
 
 def _extract_text_from_xls_bytes(raw: bytes) -> str:
-    # Richiede xlrd>=2.0 (legge solo .xls)
+    # Requires xlrd>=2.0 (reads .xls only)
     if not xlrd:
         log.warning("xlrd non disponibile: skip xls")
         return ""
@@ -324,12 +269,12 @@ async def rag_index(req: RagIndexRequest):
     store = RagStore(project_id=req.project_id)
     log.info("RAG Store for indexing - %d items", len(req.items))
 
-    # Costruisci docs normalizzati: sempre {"path":..., "text":...}
+    # Build normalized docs: always {"path":..., "text":...}
     docs = []
     for it in (req.items or []):
         p = (it.path or "").strip()
         txt = (it.text or "") if isinstance(it.text, str) else ""
-        b64 = it.bytes_b64 or ""  # opzionale
+        b64 = it.bytes_b64 or ""  # optional
 
         if not txt and b64:
             raw = _b64_to_bytes(b64)
@@ -354,7 +299,7 @@ async def rag_index(req: RagIndexRequest):
                     log.info("inline: PPTX")
                     txt = _extract_text_from_pptx_bytes(raw)
                 else:
-                    # fallback: se è testo “grezzo” o sconosciuto, prova a decodare come utf-8
+                    # fallback: if it is "raw" or unknown text, try decoding as utf-8
                     try:
                         txt = raw.decode("utf-8", errors="ignore")
                     except Exception:
@@ -366,7 +311,7 @@ async def rag_index(req: RagIndexRequest):
             docs.append({"path": p or "doc", "text": txt.strip()})
 
     if not docs:
-        # nessun testo estraibile -> ok a vuoto (oppure alza 400 se preferisci)
+        # no extractable text -> ok with empty (or raise 400 if preferred)
         log.info("RAG index: no indexable docs")
         return {"ok": True, "count": 0}
 

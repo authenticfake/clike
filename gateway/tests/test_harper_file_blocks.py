@@ -331,15 +331,6 @@ def test_path_traversal_file_block_is_rejected():
     assert "BEGIN_FILE" in remainder
 
 
-def test_idea_output_checklist_prefers_begin_file_blocks():
-    checklist = harper._output_checklist_for_phase("idea")
-
-    assert "BEGIN_FILE / END_FILE" in checklist
-    assert "Markdown file contents may contain fenced code blocks" in checklist
-    assert "Do not wrap Markdown files in triple-backtick file blocks when the file itself contains fenced code blocks" in checklist
-    assert "Emit one or more `file:/path` blocks with complete file contents" not in checklist
-
-
 def test_native_plan_file_header_allowlist_rejects_bmad_architecture_companion():
     raw = """BEGIN_FILE docs/harper/bmad/architecture/ARCHITECTURE.md
 # Architecture

@@ -1,5 +1,5 @@
-import os, difflib, hashlib, re
-from typing import List, Optional
+import difflib
+from typing import Optional
 from config import settings
 RAG_COLL = "clike_rag"
 GATEWAY_URL = str(getattr(settings, "GATEWAY_URL", "http://localhost:8000"))
@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 def approx_tokens_from_chars(text: str) -> int:
-    # euristica stabile usata nel resto del repo (≈ 4 chars/token)
+    # stable heuristic used across the repo (≈ 4 chars/token)
     return max(1, int(len(text) / 4))
 
 def write_file(path: str | Path, content: str, encoding: str = "utf-8") -> None:
@@ -27,11 +27,11 @@ def write_file(path: str | Path, content: str, encoding: str = "utf-8") -> None:
     """
     file_path = Path(path)
 
-    # Crea la directory padre se non esiste
+    # Create the parent directory if it does not exist
     if file_path.parent:
         file_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Scrive il file con l'encoding specificato
+    # Write the file with the specified encoding
     with file_path.open("w", encoding=encoding) as f:
         f.write(content)
 
@@ -82,26 +82,9 @@ def detect_lang(lang: Optional[str], path: str) -> str:
 # --------------------- RAG utils ---------------------
 try:
     from qdrant_client import QdrantClient
-    from qdrant_client.http.models import Distance, VectorParams, PointStruct
 except Exception:  # pragma: no cover
     QdrantClient = None  # type: ignore
 
-def maybe_qdrant():
-    if QdrantClient:
-        try:
-            return QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
-        except Exception:
-            return None
-    return None
-
-def simple_embed(text: str, dims: int = 256) -> List[float]:
-    v = [0.0] * dims
-    for tok in text.split():
-        h = int(hashlib.md5(tok.encode()).hexdigest(), 16) % dims
-        v[h] += 1.0
-    import math
-    n = math.sqrt(sum(x*x for x in v)) or 1.0
-    return [x / n for x in v]
 
 def tokens_per_model(messages: list[dict], model_entry: dict | None, req_max: int) -> int:
     """

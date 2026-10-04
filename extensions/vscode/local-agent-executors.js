@@ -434,10 +434,13 @@ function resolveSelectedLocalAgentExecutor(settings, requestedExecutor, phase) {
 }
 
 // Cloud/gateway provider keys. Local agents authenticate via their own CLI
-// login/session, so by default we do NOT forward these into the agent process.
+// login/session (e.g. the Claude subscription), so by default we do NOT forward
+// these into the agent process: Claude Code prefers ANTHROPIC_API_KEY and
+// ANTHROPIC_AUTH_TOKEN over the subscription login when they are set.
 const CLOUD_PROVIDER_ENV_KEYS = [
   'OPENAI_API_KEY',
   'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
   'OPENAI_PROJECT_ID',
   'OPENAI_ORG_ID',
 ];

@@ -68,11 +68,12 @@ VS Code slash command
      -> for KIT: derive TARGET_CONTRACT and FILE_REQUIREMENTS
      -> for KIT: build_selected_capability_context(...)
      -> build context_envelope
-     -> forward resolved methodology_context, context_envelope, and core_blobs
+     -> compose_phase_messages(...) (services/cloud_prompt/messages.py):
+        build_active_output_contract(...), render_methodology_context_for_cloud_prompt(...),
+        _compose_system_messages(...)
+     -> forward resolved methodology_context, context_envelope, core_blobs and composed_messages
   -> Gateway /v1/harper/run
-     -> build_active_output_contract(...)
-     -> render_methodology_context_for_cloud_prompt(...)
-     -> _compose_system_messages(...)
+     -> append RAG material and chat history to composed_messages
      -> prompt_debug/provider request
 ```
 
@@ -89,7 +90,7 @@ Gateway prompt debug now records structured methodology evidence when it receive
 
 ### Cloud Rendering
 
-The KIT cloud prompt path preserves the selected capability blobs in `gateway/routes/harper.py::_filter_core_blobs_for_kit(...)`. `_build_kit_user_message(...)` renders:
+The KIT cloud prompt path preserves the selected capability blobs in `orchestrator/services/cloud_prompt/messages.py::_filter_core_blobs_for_kit(...)` (composed by the orchestrator since 0.9.6; the gateway receives `composed_messages`). `_build_kit_user_message(...)` renders:
 
 - `### CLike Selected Capability Context`
 - `### BMAD Skill Reference Context` through the methodology renderer

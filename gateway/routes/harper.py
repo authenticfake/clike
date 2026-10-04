@@ -1,6 +1,5 @@
 # gateway/routes/harper.py
 from __future__ import annotations
-import asyncio
 import json
 import traceback
 import uuid
@@ -27,45 +26,28 @@ from utils.artifact_policy import filter_files_by_methodology_artifact_policy
 from utils.harper_canonical_validation import (
     attach_rejected_artifact_debug_refs,
     validate_canonical_harper_files,
-    validate_current_canonical_core_blobs,
 )
-from utils.methodology_prompt import (
-    render_current_canonical_validation_for_cloud_prompt,
-    render_methodology_context_for_cloud_prompt,
-)
-from routes.chat import ANTHROPIC_API_KEY, ANTHROPIC_BASE, OLLAMA_OPENAI_BASE, OPENAI_API_KEY, OPENAI_BASE, _json, provider_not_configured
+from routes.chat import ANTHROPIC_API_KEY, ANTHROPIC_BASE, OLLAMA_OPENAI_BASE, OPENAI_API_KEY, _json, provider_not_configured
 from providers import openai_compat as oai
 from providers import anthropic as anth
 import yaml
 import mimetypes
 from pricing import PricingManager  # [pricing]
 
-# --- Defaults per modelli che non hanno context definito ---
-DEFAULT_CONTEXT_WINDOW = 128_000     # conservativo
-DEFAULT_MAX_OUTPUT = 16_384          # conservativo
+# --- Defaults for models without a defined context ---
+DEFAULT_CONTEXT_WINDOW = 128_000     # conservative
+DEFAULT_MAX_OUTPUT = 16_384          # conservative
 router = APIRouter(prefix="/v1/harper", tags=["harper"])
 
 log = logging.getLogger("harper")
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
 # ----     context builders ---------------------------------------------------
-PROMPT_IDEA_SYSTEM_PATH = os.getenv("PROMPT_IDEA_SYSTEM_PATH", "/app/prompts/harper/idea_system.md")
-PROMPT_SPEC_SYSTEM_PATH = os.getenv("PROMPT_SPEC_SYSTEM_PATH", "/app/prompts/harper/spec_system.md")
 SPEC_TEMPLATE_PATH = os.getenv("SPEC_TEMPLATE_PATH", "/app/templates/SPEC_TEMPLATE.md")
-PROMPT_PLAN_SYSTEM_PATH = os.getenv("PROMPT_PLAN_SYSTEM_PATH", "/app/prompts/harper/plan_system.md")
-PROMPT_KIT_SYSTEM_PATH = os.getenv("PROMPT_KIT_SYSTEM_PATH", "/app/prompts/harper/kit_system.md")
-PROMPT_INTEGRITY_EVAL_SYSTEM_PATH = os.getenv("PROMPT_INTEGRITY_EVAL_SYSTEM_PATH", "/app/prompts/harper/integrity_eval.md")
-PROMPT_PROMOTION_HARDENER_SYSTEM_PATH = os.getenv("PROMPT_PROMOTION_HARDENER_SYSTEM_PATH", "/app/prompts/harper/promotion_hardener.md")
-PROMPT_PROMOTION_EVAL_SYSTEM_PATH = os.getenv("PROMPT_PROMOTION_EVAL_SYSTEM_PATH", "/app/prompts/harper/promotion_eval.md")
-PROMPT_EVAL_SYSTEM_PATH = os.getenv("PROMPT_EVAL_SYSTEM_PATH", "/app/prompts/harper/eval_system.md")
-PROMPT_GATE_SYSTEM_PATH = os.getenv("PROMPT_GATE_SYSTEM_PATH", "/app/prompts/harper/gate_system.md")
-PROMPT_FINALIZE_SYSTEM_PATH = os.getenv("PROMPT_FINALIZE_SYSTEM_PATH", "/app/prompts/harper/finalize_system.md")
-PROMPT_EXTEND_SYSTEM_PATH = os.getenv("PROMPT_EXTEND_SYSTEM_PATH", "/app/prompts/harper/extend_system.md")
 
-TELEMETRY_DIR = os.getenv("HARPER_TELEMETRY_DIR", "/workspace/telemetry")  # scrive qui i .jsonl
-STUB_DIR = os.getenv("HARPER_STUB_DIR", "/workspace/gateway/stub")  # scrive qui i .jsonl
+TELEMETRY_DIR = os.getenv("HARPER_TELEMETRY_DIR", "/workspace/telemetry")  # .jsonl files are written here
+STUB_DIR = os.getenv("HARPER_STUB_DIR", "/workspace/gateway/stub")  # .jsonl files are written here
 
-_REPO_PLACEHOLDER = "[x]"
 
 _KIT_FILE_HEADER_RE = re.compile(
     r"^/?runs/kit/REQ-[A-Za-z0-9._-]+/(src|test|docs|ci)/[^\s][^\r\n]*$"
@@ -222,10 +204,6 @@ def _get_pricing_manager():
     return _PRICING
 
 # --- Harper: Dynamic Context Budgeting (messages builder) --------------------
-from dataclasses import dataclass
-
-def _safe_len(s: str|None) -> int:
-    return len(s or "")
 
 
 def _canonicalize_path(p: str) -> str:
@@ -245,7 +223,7 @@ def _canonicalize_path(p: str) -> str:
     # mappa alias 'doc/' in 'docs/'
     if p.startswith("doc/"):
         p = "docs/" + p[len("doc/"):]
-    # compattazione degli slash multipli
+    # collapse multiple slashes
     while "//" in p:
         p = p.replace("//", "/")
     return p
@@ -262,14 +240,14 @@ def _extract_req_table_md(plan_md: str) -> str | None:
     """
     if not plan_md:
         return None
-    # Match dalla sezione fino alla prossima sezione (##) o fine testo
+    # Match from the section up to the next section (##) or end of text
     sec_rx = re.compile(r'(##\s*REQ-IDs Table)([\s\S]*?)(?=^##\s|\Z)', re.MULTILINE)
     m = sec_rx.search(plan_md)
     if not m:
         return None
     block = m.group(2).strip()
-    # cerca la tabella markdown (header | sep | rows)
-    # molto permissivo: prima riga con |, seconda riga con ---
+    # look for the markdown table (header | sep | rows)
+    # very permissive: first line with |, second line with ---
     lines = [ln.rstrip() for ln in block.splitlines() if ln.strip()]
     if len(lines) < 2 or '|' not in lines[0]:
         return None
@@ -284,13 +262,13 @@ def _parse_md_table(md_table: str) -> list[dict]:
     if len(rows) < 2:
         return []
     header = [c.strip() for c in rows[0].strip('|').split('|')]
-    # salta la riga di separatori
+    # skip the separator line
     data_rows = []
     for ln in rows[2:]:
         if '|' not in ln:
             continue
         cols = [c.strip() for c in ln.strip('|').split('|')]
-        # normalizza lunghezze
+        # normalize lengths
         while len(cols) < len(header):
             cols.append('')
         item = { header[i]: cols[i] for i in range(len(header)) }
@@ -304,7 +282,7 @@ def _norm_list(val: str) -> list[str]:
     """
     if not val:
         return []
-    # sostieni eventuali <br> inseriti in Acceptance
+    # replace any <br> inserted in Acceptance
     parts = re.split(r'(?:<br>|,)', val)
     return [p.strip() for p in parts if p and p.strip()]
 
@@ -342,8 +320,8 @@ def _derive_plan_json_from_md(plan_md: str) -> dict | None:
         track     = _get(r, 'track (app|infra)') or _get(r, 'track') or 'App'
         status    = _get(r, 'status (open|done|deferred)') or _get(r, 'status') or 'open'
 
-        # acceptance: ogni bullet può essere separato da <br> o nuovi a capo già fusi
-        # Rimuovi eventuali prefissi "• " inseriti in tabella
+        # acceptance: each bullet may be separated by <br> or already-merged newlines
+        # Remove any "• " prefixes inserted in the table
         acceptance = [re.sub(r'^[\-\*\u2022]\s*', '', x).strip() for x in _norm_list(acc_cell)]
 
         depends = [x for x in _norm_list(deps_cell) if x]
@@ -486,7 +464,7 @@ def _collect_req_deps(plan_data: dict, targets: list[str]) -> list[str]:
                 visited.add(dep)
                 stack.append(dep)
 
-    # escludi i target: ci interessano solo le *dipendenze*
+    # exclude the targets: we only care about *dependencies*
     for t in targets_norm:
         if t in visited:
             visited.discard(t)
@@ -504,24 +482,9 @@ def _render_chat_context(msgs: list[dict]) -> str:
         content = str(m.get("content", "")).strip()
         if not content:
             continue
-        # Evita intestazioni troppo lunghe; niente markdown aggressivo
+        # Avoid overly long headings; no aggressive markdown
         lines.append(f"{role}: {content}")
     return "\n".join(lines)
-
-def _normalize_repo_url(url: str | None) -> str | None:
-    if not url:
-        return None
-    # git@host:org/repo(.git)? -> https://host/org/repo
-    m = re.match(r"^git@([^:]+):(.+?)(?:\.git)?$", url.strip())
-    if m:
-        host, repo = m.groups()
-        return f"https://{host}/{repo}"
-    # drop trailing .git in https
-    return re.sub(r"\.git$", "", url.strip())
-
-def _inject_repo_url_in_system(system_text: str, repo_url: str | None) -> str:
-    url = _normalize_repo_url(repo_url) or "https:/afucompany.it/"
-    return system_text.replace(_REPO_PLACEHOLDER, url)
 
 
 def _clip_text_to_tokens(text: str, max_tokens: int) -> str:
@@ -531,12 +494,12 @@ def _clip_text_to_tokens(text: str, max_tokens: int) -> str:
     approx = approx_tokens_from_chars(text)
     if approx <= max_tokens:
         return text
-    # taglio grezzo per sicurezza (≈ 4 char/token)
+    # rough cut for safety (≈ 4 chars/token)
     target_chars = max(128, int(max_tokens * 4))
     return text[-target_chars:]
 
 def _guess_mime(path: str) -> str:
-    # Usa libreria standard per dedurre il MIME; fallback binario generico.
+    # Use the standard library to infer the MIME type; generic binary fallback.
     mime, _ = mimetypes.guess_type(path or "", strict=False)
     return mime or "application/octet-stream"
 
@@ -629,7 +592,7 @@ def _dedupe_by_path(files_list: list[dict]) -> list[dict]:
         canon = _canonicalize_path(raw_path)
         content = f.get("content") or ""
         if not canon:
-            # salta file senza path
+            # skip files without a path
             continue
         best = seen.get(canon)
 
@@ -1020,11 +983,9 @@ def _log_canonical_rejection_candidate(path: str, content: str) -> None:
 
 
 def approx_tokens_from_chars(text: str) -> int:
-    # euristica stabile usata nel resto del repo (≈ 4 chars/token)
+    # stable heuristic used across the repo (≈ 4 chars/token)
     return max(1, int(len(text) / 4))
 
-def _messages_text_len(messages: list[dict]) -> int:
-    return sum(len(m.get("content","")) for m in (messages or []) if isinstance(m.get("content"), str))
 
 def _resolve_ctx_caps(model_entry: dict | None) -> tuple[int, int]:
     DEFAULT_CONTEXT_WINDOW = 128000
@@ -1067,7 +1028,6 @@ def _read_text(path: str) -> str:
         return ""
 
 
-
 PHASE_OUTPUT_FILE = {
     "idea": "IDEA.md",
     "spec": "SPEC.md",
@@ -1082,7 +1042,7 @@ PHASE_INPUT_FILE = {
     "plan": ["IDEA.md", "SPEC.md"],
     "kit": ["SPEC.md", "PLAN.md"],
     "finalize":["IDEA.md", "SPEC.md", "PLAN.md"],
-}# Pass-through opzionali dal req.gen (se presenti)
+}# Optional pass-through from req.gen (if present)
 
 def _load_json_blob(core_blobs: dict | None, suffix: str) -> dict | None:
     if not core_blobs:
@@ -1113,118 +1073,6 @@ def _load_file_requirements_from_core_blobs(core_blobs: dict | None) -> dict | N
     return _load_json_blob(core_blobs, "file_requirements.json")
 
 
-
-def _load_text_blob(core_blobs: dict | None, suffix: str) -> str:
-    if not core_blobs:
-        return ""
-
-    suffix = str(suffix or "").strip().lower()
-    for name, content in (core_blobs or {}).items():
-        key = str(name or "").strip().lower()
-        if key.endswith(suffix):
-            return str(content or "").strip()
-
-    return ""
-
-
-def _compose_cloud_selected_skill_context(
-    *,
-    core_blobs: dict | None,
-    methodology_context: dict | None,
-    active_output_contract: dict | None,
-) -> str:
-    """
-    Compose the cloud-visible selected skill context.
-
-    Required invariant:
-    - CLike selected capabilities are always injected when materialized.
-    - BMAD methodology skills are injected only when methodology=bmad.
-    - CLike and BMAD remain separate prompt sections.
-    """
-    parts: list[str] = []
-
-    clike_context = _render_clike_selected_capability_context_for_cloud(core_blobs)
-    if clike_context:
-        parts.append(clike_context)
-
-    methodology_text = render_methodology_context_for_cloud_prompt(
-        methodology_context,
-        active_output_contract=active_output_contract,
-    )
-    if str(methodology_text or "").strip():
-        parts.append(str(methodology_text).strip())
-
-    if not parts:
-        return ""
-
-    return (
-        "## Cloud Selected Phase Skill Context\n\n"
-        "The following context is already resolved by CLike for this exact cloud run.\n"
-        "Inject only selected phase/REQ-scoped skills into the model prompt.\n"
-        "Do not treat full core_blobs catalogs as selected skills.\n\n"
-        + "\n\n".join(parts)
-    ).strip()
-
-def _filter_core_blobs_for_kit(
-    core_blobs: dict | None,
-    target_req: str | None,
-) -> dict[str, str]:
-    if not core_blobs:
-        return {}
-
-    target_req = str(target_req or "").strip()
-    kept: dict[str, str] = {}
-
-    always_keep_suffixes = (
-        "spec.md",
-        "plan.md",
-        "plan.json",
-        "tech_constraints.yaml",
-        "target_contract.json",
-        "file_requirements.json",
-        "integrity_eval.json",
-    )
-    always_keep_prefixes = (
-        "REQ_PROMOTION_MANIFEST",
-        "REPO_ACCESS_MANIFEST",
-        "REPO_STRUCTURE_EVIDENCE",
-        "REPO_COMPOSITION_MANIFEST",
-        "CLIKE_CAPABILITY_MANIFEST",
-        "CLIKE_CAPABILITY_INDEX",
-        "CLIKE_SELECTED_CAPABILITY_CONTEXT",
-        "candidate::",
-    )
-
-    for name, content in core_blobs.items():
-        key = str(name or "").strip()
-        lkey = key.lower()
-
-        if (
-            lkey.startswith("companion::docs/harper/bmad/")
-            or lkey.startswith("companion::docs/harper/ux/")
-            or (target_req and lkey.startswith(f"companion::runs/kit/{target_req.lower()}/docs/"))
-        ):
-            kept[key] = str(content or "")
-            continue
-
-        if any(lkey.endswith(sfx) for sfx in always_keep_suffixes):
-            kept[key] = str(content or "")
-            continue
-
-        if any(key.startswith(prefix) for prefix in always_keep_prefixes):
-            kept[key] = str(content or "")
-            continue
-
-        if key.startswith("REQ_PROMOTION_MANIFEST"):
-            if target_req and target_req in key:
-                kept[key] = str(content or "")
-            elif target_req and f"REQ Promotion Manifest — {target_req}" in str(content or ""):
-                kept[key] = str(content or "")
-            continue
-
-    return kept
-
-
 def _load_selected_capability_json_from_core(core_blobs: dict | None) -> dict:
     for name, content in (core_blobs or {}).items():
         if str(name or "").lower().endswith("clike_selected_capability_context.json"):
@@ -1234,13 +1082,6 @@ def _load_selected_capability_json_from_core(core_blobs: dict | None) -> dict:
             except Exception:
                 return {}
     return {}
-
-
-def _load_selected_capability_markdown_from_core(core_blobs: dict | None) -> str:
-    for name, content in (core_blobs or {}).items():
-        if str(name or "").lower().endswith("clike_selected_capability_context.md"):
-            return str(content or "")
-    return ""
 
 
 def _selected_capability_names(group: dict) -> list[str]:
@@ -1257,525 +1098,11 @@ def _selected_capability_names(group: dict) -> list[str]:
     ]
 
 
-def _selected_capability_names_from_context(selected: dict, key: str, legacy_key: str) -> list[str]:
-    names = _selected_capability_names(selected.get(key) or {})
-    if names:
-        return names
-    return [str(x).strip() for x in (selected.get(legacy_key) or []) if str(x or "").strip()]
-
-
-def _render_clike_selected_capability_context_for_cloud(core_blobs: dict | None) -> str:
-    
-    selected = _load_selected_capability_json_from_core(core_blobs)
-    markdown = _load_selected_capability_markdown_from_core(core_blobs)
-    if not selected and not markdown:
-        return ""
-
-    packs = _selected_capability_names_from_context(selected, "packs", "selected_packs")
-    skills = _selected_capability_names_from_context(selected, "skills", "selected_skills")
-    design_profiles = _selected_capability_names_from_context(
-        selected,
-        "design_profiles",
-        "selected_design_profiles",
-    )
-    lines = [
-        "### CLike Selected Capability Context",
-        "- This context is generated by CLike for the current REQ.",
-        "- Selected packs, skills, and design profiles are REQ-scoped implementation, test, documentation, and evidence constraints.",
-        "- Capability guidance does not override SPEC, TECH_CONSTRAINTS, TARGET_CONTRACT.json, FILE_REQUIREMENTS.json, EvalRunner, Gate, or allowed write roots.",
-        f"- selected CLike packs: {'; '.join(packs) if packs else 'none'}",
-        f"- selected CLike skills: {'; '.join(skills) if skills else 'none'}",
-        f"- selected CLike design profiles: {'; '.join(design_profiles) if design_profiles else 'none'}",
-    ]
-    bounded_markdown = markdown.strip()
-    if bounded_markdown:
-        lines.extend(
-            [
-                "- selected capability markdown:",
-                "```markdown",
-                bounded_markdown[:8000].rstrip() + ("\n...[truncated]" if len(bounded_markdown) > 8000 else ""),
-                "```",
-            ]
-        )
-    return "\n".join(lines).strip()
-
-
-def _render_namespace_materialization_for_cloud(file_requirements: dict | None) -> str:
-    namespace_context = (file_requirements or {}).get("namespace_materialization") or {}
-    if not isinstance(namespace_context, dict) or not namespace_context.get("rules"):
-        return ""
-    lines = [
-        "## Namespace Materialization",
-        f"- ecosystem: {namespace_context.get('ecosystem') or 'unknown'}",
-        f"- import_namespace: {namespace_context.get('import_namespace') or 'none'}",
-        f"- package_path: {namespace_context.get('package_path') or 'none'}",
-        f"- source_root: {namespace_context.get('source_root') or 'none'}",
-        *[f"- {rule}" for rule in (namespace_context.get("rules") or [])],
-    ]
-    return "\n".join(lines).strip()
-
-
-
-def _build_kit_user_message(
-    phase: str,
-    user: str,
-    core_blobs: dict | None,
-    targets: list[str] | None,
-    active_contract_text: str | None = None,
-) -> str:
-    if (phase or "").lower() != "kit":
-        return user
-
-    target_req = str((targets or [None])[0] or "").strip()
-    filtered_core = _filter_core_blobs_for_kit(core_blobs, target_req)
-
-    target_contract = _load_target_contract_from_core_blobs(filtered_core)
-    file_requirements = _load_file_requirements_from_core_blobs(filtered_core)
-
-    refs = []
-    for name, content in filtered_core.items():
-        refs.append(f"- {name} ({len(str(content or ''))} chars)")
-
-    parts = []
-    if str(active_contract_text or "").strip():
-        parts.extend([str(active_contract_text or "").strip(), ""])
-
-    parts.extend([
-        "## KIT EXECUTION MODE",
-        f"- Current target REQ-ID: {target_req}",
-        "- TARGET_CONTRACT.json is authoritative for scope, lane, paths, and acceptance.",
-        "- FILE_REQUIREMENTS.json is authoritative for required emitted files and their content expectations.",
-        "- REQ_PROMOTION_MANIFEST.md is authoritative for staging-vs-canonical promotion discipline.",
-        "- Dependencies are read-only context only.",
-        "",
-    ])
-
-    if target_contract:
-        lane = str(target_contract.get("lane") or "").strip()
-        title = str(target_contract.get("title") or "").strip()
-        primary_outcome = str(target_contract.get("primary_outcome") or "").strip()
-        acceptance = [str(x).strip() for x in (target_contract.get("acceptance") or []) if str(x).strip()]
-        create_under = [str(x).strip() for x in ((target_contract.get("paths") or {}).get("create_under") or []) if str(x).strip()]
-        must_reuse = [str(x).strip() for x in ((target_contract.get("paths") or {}).get("must_reuse") or []) if str(x).strip()]
-        forbidden = [str(x).strip() for x in ((target_contract.get("paths") or {}).get("forbidden") or []) if str(x).strip()]
-
-        parts.extend([
-            "## TARGET CONTRACT SUMMARY",
-            f"- Lane: {lane}",
-            f"- Title: {title}",
-            f"- Primary outcome: {primary_outcome}",
-            "- Allowed createUnder roots:",
-        ])
-        parts.extend([f"  - {x}" for x in create_under] or ["  - none"])
-        parts.append("- Must reuse:")
-        parts.extend([f"  - {x}" for x in must_reuse] or ["  - none"])
-        parts.append("- Forbidden roots:")
-        parts.extend([f"  - {x}" for x in forbidden] or ["  - none"])
-        parts.append("- Acceptance criteria:")
-        parts.extend([f"  - {x}" for x in acceptance] or ["  - none"])
-        parts.append("")
-
-    selected_capability_text = _render_clike_selected_capability_context_for_cloud(filtered_core)
-    if selected_capability_text:
-        parts.extend([selected_capability_text, ""])
-
-    namespace_text = _render_namespace_materialization_for_cloud(file_requirements)
-    if namespace_text:
-        parts.extend([namespace_text, ""])
-
-    if file_requirements:
-        parts.append("## FILE REQUIREMENTS")
-
-        runtime_manifest_policy = file_requirements.get("runtime_manifest_policy") or {}
-        if runtime_manifest_policy:
-            parts.extend([
-                "- Runtime eval manifest policy:",
-                f"  - Required: {bool(runtime_manifest_policy.get('required', False))}",
-                f"  - Scope: {runtime_manifest_policy.get('scope') or 'KIT_EVAL_ONLY'}",
-                f"  - Policy: {runtime_manifest_policy.get('policy') or 'n/a'}",
-            ])
-            examples = [str(x).strip() for x in (runtime_manifest_policy.get("examples") or []) if str(x).strip()]
-            must_not = [str(x).strip() for x in (runtime_manifest_policy.get("must_not") or []) if str(x).strip()]
-            if examples:
-                parts.append("  - Examples only:")
-                parts.extend([f"    - {x}" for x in examples])
-            if must_not:
-                parts.append("  - Must not:")
-                parts.extend([f"    - {x}" for x in must_not])
-
-        launcher_policy = file_requirements.get("solution_launcher_policy") or {}
-        if launcher_policy:
-            parts.extend([
-                "- Solution launcher/composition policy:",
-                f"  - Required when executable area exists: {bool(launcher_policy.get('required_when_executable_area_exists', False))}",
-                f"  - Scope: {launcher_policy.get('scope') or 'SOLUTION_COMPOSITION_ROOT'}",
-                f"  - Execution areas detected: {', '.join(str(x) for x in (launcher_policy.get('execution_areas_detected') or [])) or 'not pre-detected; infer from repository evidence'}",
-                f"  - Policy: {launcher_policy.get('policy') or 'n/a'}",
-            ])
-            must_cover = [str(x).strip() for x in (launcher_policy.get("must_cover") or []) if str(x).strip()]
-            must_not = [str(x).strip() for x in (launcher_policy.get("must_not") or []) if str(x).strip()]
-            if must_cover:
-                parts.append("  - Must cover:")
-                parts.extend([f"    - {x}" for x in must_cover])
-            if must_not:
-                parts.append("  - Must not:")
-                parts.extend([f"    - {x}" for x in must_not])
-
-        for item in list(file_requirements.get("required_outputs") or []):
-            path_hint = str(item.get("path_hint") or "").strip()
-            kind = str(item.get("kind") or "").strip()
-            purpose = str(item.get("purpose") or "").strip()
-            required = bool(item.get("required", False))
-            must_cover = [str(x).strip() for x in (item.get("must_cover") or []) if str(x).strip()]
-            must_contain = [str(x).strip() for x in (item.get("must_contain") or []) if str(x).strip()]
-            must_not_contain = [str(x).strip() for x in (item.get("must_not_contain") or []) if str(x).strip()]
-
-            parts.extend([
-                f"- Output file ({kind}) [{'required' if required else 'optional'}]: {path_hint}",
-                f"  - Purpose: {purpose or 'n/a'}",
-            ])
-            if must_cover:
-                parts.append("  - Must cover:")
-                parts.extend([f"    - {x}" for x in must_cover])
-            if must_contain:
-                parts.append("  - Must contain:")
-                parts.extend([f"    - {x}" for x in must_contain])
-            if must_not_contain:
-                parts.append("  - Must not contain:")
-                parts.extend([f"    - {x}" for x in must_not_contain])
-        parts.append("")
-
-    parts.extend([
-        "## HARD RULES",
-        "- Emit files only under the current target REQ staging root.",
-        "- Do not emit files for adjacent REQs.",
-        "- Do not invent file structure outside FILE_REQUIREMENTS.json without strong repository evidence.",
-        "- If a file is marked required, emit it.",
-        "- Do not create duplicate config/settings/logging/helpers if canonical equivalents already exist or are implied by repository evidence.",
-        "- Prefer compact, reviewable, repo-fit files over fragmented thin files.",
-        "",
-        "## Included references",
-    ])
-    parts.extend(refs if refs else ["- none"])
-    parts.extend([
-        "",
-        "## OUTPUT CONTRACT",
-        "- Emit each output as a BEGIN_FILE / END_FILE block using workspace-relative paths.",
-        "- Use exactly: BEGIN_FILE runs/kit/<REQ-ID>/... then full file content then END_FILE.",
-        "- Existing fenced file:/path blocks may be parsed for compatibility, but BEGIN_FILE / END_FILE is preferred.",
-        "- No prose outside file blocks.",
-    ])
-
-    return "\n".join(parts).strip()
-
-# --- PATCH START: phase-aware output checklist ---
-def _output_checklist_for_phase(phase: str) -> str:
-    p = (phase or "").lower()
-
-    if p in ("spec", "plan"):
-        return (
-            "### OUTPUT CONFORMITY CHECKLIST\n"
-            "- Emit each output as a BEGIN_FILE / END_FILE block using workspace-relative paths.\n"
-            "- Markdown file contents may contain fenced code blocks such as YAML; preserve those internal fences as file content.\n"
-            "- Do not wrap Markdown files in triple-backtick file blocks when the file itself contains fenced code blocks.\n"
-            "- Do not emit prose outside BEGIN_FILE / END_FILE blocks.\n"
-            f"- Top-level heading is `# {p.upper()}`.\n"
-            "- All major sections use `## Section` headings (no numbered titles).\n"
-            "- Required diagrams (if any) use fenced code blocks (e.g., Mermaid). No ASCII art.\n"
-            "- Clean Markdown bullets (one space after `-` or `*`).\n"
-        )
-
-    if p == "finalize":
-        return (
-            "### OUTPUT CONFORMITY CHECKLIST\n"
-            "- Emit each output as a BEGIN_FILE / END_FILE block using workspace-relative paths.\n"
-            "- Markdown file contents may contain fenced code blocks such as YAML; preserve those internal fences as file content.\n"
-            "- Do not wrap Markdown files in triple-backtick file blocks when the file itself contains fenced code blocks.\n"
-            "- Do not emit prose outside BEGIN_FILE / END_FILE blocks.\n"
-            f"- Top-level heading is `# {p.upper()}`.\n"
-            "- If additional metadata (tags/version) is included, keep it at the end in a clearly labeled section.\n"
-            "- No ASCII art; diagrams (if any) use proper fenced blocks.\n"
-            "- Clean Markdown bullets (one space after `-` or `*`).\n"
-        )
-
-    if p == "kit":
-        return (
-            "### OUTPUT CONFORMITY CHECKLIST\n"
-            "- Emit each output as a BEGIN_FILE / END_FILE block using workspace-relative paths.\n"
-            "- Respect the module/package and namespace structure defined in PLAN.md and plan.json during KIT.\n"
-            "- Do not emit prose outside BEGIN_FILE / END_FILE blocks, except a short append-only iteration log if explicitly specified.\n"
-            "- Existing fenced file:/path blocks may still be parsed for compatibility, but BEGIN_FILE / END_FILE is preferred.\n"
-        )
-
-    return (
-        "### OUTPUT CONFORMITY CHECKLIST\n"
-        "- Emit each output as a BEGIN_FILE / END_FILE block using workspace-relative paths.\n"
-        "- Markdown file contents may contain fenced code blocks such as YAML; preserve those internal fences as file content.\n"
-        "- Do not wrap Markdown files in triple-backtick file blocks when the file itself contains fenced code blocks.\n"
-        "- Do not emit prose outside BEGIN_FILE / END_FILE blocks.\n"
-        "- Existing fenced file:/path blocks may still be parsed for compatibility, but BEGIN_FILE / END_FILE is preferred.\n"
-    )
-
-def _append_kit_target_to_user(
-    user_text: str,
-    targets: list[str],
-    acceptance: Optional[list[str]] = None,
-) -> str:
-    if not targets:
-        return user_text
-
-    target_req = str(targets[0]).strip()
-    acc = [str(item).strip() for item in (acceptance or []) if str(item).strip()]
-
-    header_lines = [
-        "## KIT TARGET (AUTHORITATIVE)",
-        f"- Target REQ-ID: {target_req}",
-        f"- Only valid staging root: runs/kit/{target_req}/",
-        f"- Only valid source root: runs/kit/{target_req}/src/",
-        f"- Only valid test root: runs/kit/{target_req}/test/",
-        f"- Only valid docs root: runs/kit/{target_req}/docs/",
-        f"- Only valid ci root: runs/kit/{target_req}/ci/",
-        "- Do not emit files for any other REQ-ID.",
-        "- Dependency REQs are read-only context only.",
-        "- Any file path outside the target REQ staging root is invalid.",
-    ]
-
-    if acc:
-        header_lines.append("- Acceptance criteria for this target:")
-        header_lines.extend([f"  - {item}" for item in acc])
-
-    authoritative_block = "\n".join(header_lines).strip()
-    return f"{authoritative_block}\n\n{user_text.lstrip()}"
-
-
 def _route_label(model: str | None, profile: str | None) -> str:
     if model and profile:
         return f"{profile}::{model}"
     return model or profile or "auto"
 
-def _compose_system_messages(
-    phase: str,
-    idea_md: Optional[str],
-    core_blobs: dict | None,
-    profile_hint: str | None,
-    model_route_label: str | None,
-    run_id: str | None,
-    repo_url: str | None,
-    targets: Optional[list[str]],
-    methodology_context: Optional[dict] = None,
-) -> list[dict]:
-    log.info("Compose system messages for phase %s", phase)
-
-    system_by_phase = {
-        "idea": PROMPT_IDEA_SYSTEM_PATH,
-        "spec": PROMPT_SPEC_SYSTEM_PATH,
-        "plan": PROMPT_PLAN_SYSTEM_PATH,
-        "kit": PROMPT_KIT_SYSTEM_PATH,
-        "integrity_eval": PROMPT_INTEGRITY_EVAL_SYSTEM_PATH,
-        "finalize": PROMPT_FINALIZE_SYSTEM_PATH,
-        "extend": PROMPT_EXTEND_SYSTEM_PATH,
-        "promotion_hardener": PROMPT_PROMOTION_HARDENER_SYSTEM_PATH,
-        "promotion_eval": PROMPT_PROMOTION_EVAL_SYSTEM_PATH,
-        "eval": PROMPT_EVAL_SYSTEM_PATH,
-        "gate": PROMPT_GATE_SYSTEM_PATH,
-    }
-    # WP7: unknown phases and missing prompts fail loudly (they used to fall back to the SPEC
-    # prompt or to a one-line placeholder, silently producing wrong outputs).
-    system_path = system_by_phase.get(phase)
-    if system_path is None:
-        raise HTTPException(400, f"unknown Harper phase: {phase!r}")
-    system = _read_text(system_path).strip()
-    if not system:
-        raise HTTPException(503, f"system prompt for phase {phase!r} is not available on the gateway")
-
-    if phase == "kit" and repo_url:
-        system = _inject_repo_url_in_system(system, repo_url)
-
-    foreground = (
-        "## CLike Principles (short)\n"
-        "- Harper pipeline: IDEA→SPEC→PLAN→KIT, eval-driven quality, outcome-first.\n"
-        "- Keep output concise but testable; Acceptance Criteria are mandatory.\n"
-        "- Maintain human-in-control tone; do not invent facts.\n"
-    )
-
-    target_req_id = str((targets or [None])[0] or "").strip() or None
-    kit_file_requirements = (
-        _load_file_requirements_from_core_blobs(core_blobs)
-        if (phase or "").lower() == "kit"
-        else None
-    )
-    active_output_contract = build_active_output_contract(
-        phase=phase,
-        runner="cloud",
-        methodology_context=methodology_context,
-        req_id=target_req_id,
-        file_requirements=kit_file_requirements,
-    )
-    methodology_text = render_methodology_context_for_cloud_prompt(
-        methodology_context,
-        active_output_contract=active_output_contract,
-    )
-    cloud_selected_skill_context = _compose_cloud_selected_skill_context(
-        core_blobs=core_blobs,
-        methodology_context=methodology_context,
-        active_output_contract=active_output_contract,
-    )
-
-    if cloud_selected_skill_context:
-        system = (
-            system.rstrip()
-            + "\n\n"
-            + cloud_selected_skill_context
-            + "\n"
-        )
-
-    validation_context = validate_current_canonical_core_blobs(core_blobs)
-    trusted_core_blobs = validation_context.get("trusted_core_blobs") or {}
-    current_invalid_canonical = validation_context.get("invalid_canonical") or []
-    trusted_idea_md = idea_md
-    if idea_md and (phase or "").lower() == "spec":
-        idea_validation_context = validate_current_canonical_core_blobs(
-            {"docs/harper/IDEA.md": idea_md}
-        )
-        if idea_validation_context.get("invalid_canonical"):
-            current_invalid_canonical.extend(
-                idea_validation_context.get("invalid_canonical") or []
-            )
-            trusted_idea_md = None
-
-    constraints_chunks: list[str] = []
-    other_core: dict[str, str] = {}
-    if trusted_core_blobs:
-        for name, content in trusted_core_blobs.items():
-            lname = (name or "").lower()
-            if lname.startswith("tech_constraints"):
-                if isinstance(content, str) and content.strip():
-                    constraints_chunks.append(content.strip())
-            else:
-                other_core[str(name)] = str(content or "")
-
-    refs = ""
-    if other_core:
-        refs = "### Included references:\n" + "\n".join(
-            f"- {k} ({len(v or '')} chars)" for k, v in other_core.items()
-        )
-
-    suffix_parts = []
-
-    verbatim_suffixes_for_phase = {
-        "kit": (
-            "SPEC.md",
-            "PLAN.md",
-            "plan.json",
-            "TECH_CONSTRAINTS.yaml",
-            "TARGET_CONTRACT.json",
-            "FILE_REQUIREMENTS.json",
-        ),
-        "integrity_eval": (
-            "SPEC.md",
-            "PLAN.md",
-            "plan.json",
-            "TECH_CONSTRAINTS.yaml",
-            "TARGET_CONTRACT.json",
-            "FILE_REQUIREMENTS.json",
-        ),
-        "promotion_hardener": (
-            "SPEC.md",
-            "PLAN.md",
-            "plan.json",
-            "TECH_CONSTRAINTS.yaml",
-            "TARGET_CONTRACT.json",
-            "FILE_REQUIREMENTS.json",
-            "INTEGRITY_EVAL.json",
-        ),
-        "promotion_eval": (
-            "SPEC.md",
-            "PLAN.md",
-            "plan.json",
-            "TECH_CONSTRAINTS.yaml",
-            "TARGET_CONTRACT.json",
-            "FILE_REQUIREMENTS.json",
-            "INTEGRITY_EVAL.json",
-        ),
-        "extend": (
-            "SPEC.md",
-            "PLAN.md",
-            "plan.json",
-            "TECH_CONSTRAINTS.yaml",
-        ),
-    }
-
-    normative_prefixes = (
-        "REQ_PROMOTION_MANIFEST",
-        "REPO_ACCESS_MANIFEST",
-        "REPO_STRUCTURE_EVIDENCE",
-        "REPO_COMPOSITION_MANIFEST",
-        "CLIKE_CAPABILITY_MANIFEST",
-        "candidate::",
-    )
-
-    active_verbatim_suffixes = verbatim_suffixes_for_phase.get((phase or "").lower(), tuple())
-
-    for name, content in other_core.items():
-        if any((name or "").startswith(prefix) for prefix in normative_prefixes):
-            suffix_parts.append(f"\n\n### {name} (verbatim)\n{content}")
-            continue
-
-        if any((name or "").endswith(sfx) for sfx in active_verbatim_suffixes):
-            suffix_parts.append(f"\n\n### {name} (verbatim)\n{content}")
-            continue
-
-        suffix_parts.append(
-            f"\n\n### {name} (reference only)\nIncluded as project context; do not ignore if relevant."
-        )
-
-    if constraints_chunks:
-        constraints_text = "\n\n---\n\n".join(constraints_chunks)
-        suffix_parts.append("### Technology Constraints (YAML)\n```yaml\n" + constraints_text + "\n```")
-
-    if current_invalid_canonical:
-        suffix_parts.append(
-            "\n\n"
-            + render_current_canonical_validation_for_cloud_prompt(
-                current_invalid_canonical
-            ).strip()
-        )
-
-    suffix = "".join(suffix_parts)
-    idea_txt = ""
-    if trusted_idea_md and phase.lower() == "spec":
-        idea_txt = f"### IDEA.md (verbatim)\n{trusted_idea_md}\n\n"
-
-    user = (
-        f"{foreground}\n\n"
-        f"### Route\n\n"
-        f"{idea_txt}"
-        f"{refs}\n\n"
-        f"{_output_checklist_for_phase(phase)}"
-        f"### Task\nProduce/Transform the {phase.upper()} output that strictly follows the Output contract.{suffix}"
-    )
-
-    if (phase or "").lower() == "kit":
-        target_contract = _load_target_contract_from_core_blobs(core_blobs)
-        acceptance = (target_contract or {}).get("acceptance") or []
-        user = _build_kit_user_message(
-            phase=phase,
-            user=user,
-            core_blobs=core_blobs,
-            targets=targets,
-            active_contract_text=None,
-        )
-        user = _append_kit_target_to_user(
-            user,
-            targets=targets or [],
-            acceptance=acceptance,
-        )
-
-    messages_output = [
-        {"role": "system", "content": system.strip()},
-        {"role": "user", "content": user.strip()},
-    ]
-    return messages_output
 def _fallback_spec_from_template(idea_md: str, model_route_label: str | None, run_id: str | None) -> str:
     """Deterministic SPEC using template + IDEA first paragraph(s)."""
     tpl = _read_text(SPEC_TEMPLATE_PATH)
@@ -1869,6 +1196,8 @@ class HarperRunRequest(BaseModel):
     gen: Optional[dict] = None  # {temperature, max_tokens, top_p, stop, presence_penalty, frequency_penalty, seed}
     workspace: Optional[dict] = None
     kit: Optional[HarperKitOptions] = None
+    # WP8.7: system + user messages composed by the orchestrator (phase prompt, context, checklist)
+    composed_messages: Optional[List[Dict[str, Any]]] = None
 
     rag_strategy: Optional[str] = None
     context_hard_limit: Optional[int] = None
@@ -1880,7 +1209,7 @@ class HarperRunRequest(BaseModel):
     rag_files: Optional[List[dict]] = None
 
 
-# --- RAG: helper locale (RagStore) per recupero per path ---------------------
+# --- RAG: local helper (RagStore) for retrieval by path ---------------------
 def _collect_dependency_candidate_paths(plan_data: dict, targets: list[str]) -> list[str]:
     reqs = plan_data.get("reqs") or []
     target_ids = {str(t or "").strip() for t in (targets or []) if str(t or "").strip()}
@@ -1926,7 +1255,7 @@ async def _append_attachs_by_files(messages: list[dict], project_id: str, paths:
             txt = (doc or {}).get("text", "")
             log.info("RAG retrieve doc '%s'", p)
             if txt:
-                # trim prudenziale
+                # conservative trim
                 if len(txt) > max_chars_each:
                     txt = txt[:max_chars_each] + "\n# ... truncated"
                 materials.append({"title": p, "text": txt})
@@ -1967,7 +1296,7 @@ def _chunk_map_from_client(rag_chunks: dict) -> dict:
     return cmap
 
 def _telemetry_path(project_id: str) -> Path:
-    # un file per progetto, append in JSONL
+    # one file per project, appended as JSONL
     fname = f"{safe_segment(project_id, 'default')}.json"
     path = resolve_within(TELEMETRY_DIR, fname)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -2125,7 +1454,7 @@ def _dump_llm_provider_raw(
         uid = uuid.uuid4().hex[:12]
         ts = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
 
-        # Directory dedicata ai RAW provider dentro TELEMETRY_DIR
+        # Dedicated directory for RAW provider dumps inside TELEMETRY_DIR
         root = Path(TELEMETRY_DIR).joinpath("llm_provider_raw")
         root.mkdir(parents=True, exist_ok=True)
 
@@ -2146,7 +1475,7 @@ def _dump_llm_provider_raw(
 
         log.info("harper.llm_dump: saved provider raw response to %s", path)
     except Exception as e:
-        # Non deve mai rompere il flusso Harper, è solo telemetria aggiuntiva.
+        # Must never break the Harper flow; it is only extra telemetry.
         log.warning("harper.llm_dump: failed to save provider raw response: %s", e)
 
 
@@ -2193,7 +1522,7 @@ def _dump_llm_response(
         uid = uuid.uuid4().hex[:12]
         ts = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
 
-        # Directory dedicata ai dump LLM dentro TELEMETRY_DIR
+        # Dedicated directory for LLM dumps inside TELEMETRY_DIR
         root = Path(TELEMETRY_DIR).joinpath("clike_raw")
         root.mkdir(parents=True, exist_ok=True)
 
@@ -2216,7 +1545,7 @@ def _dump_llm_response(
 
         log.info("harper.llm_dump: saved LLM response to %s", path)
     except Exception as e:
-        # Non deve mai rompere il flusso Harper, è solo telemetria.
+        # Must never break the Harper flow; it is only telemetry.
         log.warning("harper.llm_dump: failed to save LLM response: %s", e)
 
 
@@ -2319,35 +1648,6 @@ async def gather_rag_materials(rag_chunks, rag_top_k, store, rag_queries=None) -
 
     return materials
 
-async def _retrive_rag_chunks(messages: list[dict], rag_chunks: list[dict] | None, rag_queries: list[str] | None, rag_top_k: int | None,  project_id: str | None ) -> list[dict]:
-    # 2) RAG: client-first + server-search (Qdrant)
-
-    materials = []
-    try:
-        log.info("Clike with '%s' ", project_id)
-        store = RagStore(project_id=project_id or "default") if RagStore else None
-        log.info("store  '%s' ", store)
-
-        # Prepara 'rag_queries' se non arrivano dal client: estrai da IDEA/SPEC headings nei chunks
-        if not rag_queries:
-            log.info("rag_queries not found (rag_chunks) '%s' ", len(rag_chunks)) # type: ignore
-            qs = []
-            for ch in (rag_chunks or []):
-                name = (ch.get("name") or "").lower()
-                if name in ("idea.md","spec.md"):
-                    # prime heading line come query
-                    for ln in (ch.get("text") or "").splitlines():
-                        if ln.strip().startswith("#"):
-                            qs.append(ln.strip("# ").strip())
-                            break
-            rag_queries = qs[:12]  # cap
-
-        materials = await gather_rag_materials(rag_chunks, rag_top_k, store, rag_queries=rag_queries)
-        log.info("materials length '%s' ", len(materials))
-
-    except Exception as _e:
-        log.exception("Failed to gather RAG materials: %s", _e)
-    return materials
 
 def _tokens_per_model(messages: list[dict], model_entry: dict | None, req_max: int) -> int:
     """
@@ -2443,12 +1743,12 @@ def load_anthropic_stub_from_file(path: str = "stub/anthropic_stub.json") -> dic
         )
 
 async def loadAttachments(rag_enabled: bool, project_id: str, phase: str, messages: list[dict], inline_files: list[str], rag_files: list[dict], attachments: list[dict], model_route_label: str, runId: str) -> dict:
-    appended = []   # <--- evita UnboundLocalError
+    appended = []   # <--- avoids UnboundLocalError
     if rag_enabled and (len(rag_files) > 0 or len(inline_files) > 0):
             pathFiles = [item.get('path') for item in attachments if isinstance(item, dict) and item.get('path')]
             log.info("harper.rag enabled pathFiles=%s", pathFiles)
            
-            # 1) tentativo locale via RagStore
+            # 1) local attempt via RagStore
             try:
                 appended = await _append_attachs_by_files(messages, project_id, paths=pathFiles, contents=inline_files)
             except Exception as e:
@@ -2611,7 +1911,7 @@ async def run(req: HarperRunRequest,  request: Request):
     
     log.info("inline_files  rag_files & attachments fileds: %s, %s, %s",  len(inline_files), len(rag_files), len(attachments))
 
-    # --- PATCH: RAG logging (opzionale) ---
+    # --- PATCH: RAG logging (optional) ---
     rag_enabled = bool(req.attachments)
     if rag_enabled:
         log.info("harper.rag enabled attachments=%s", len(req.attachments))
@@ -2641,10 +1941,10 @@ async def run(req: HarperRunRequest,  request: Request):
     rag_strategy         = req.rag_strategy
     reasoning =''
     #req.gen =  {}
-    # ---- Gen params allineati a chat ----
+    # ---- Gen params aligned with chat ----
     # --- Emission guards for /plan: visible text + low reasoning ---
     if (phase or "").lower() == "plan":
-        # Forza formato testuale se non già impostato
+        # Force text format if not already set
         try:
             g = req.gen or {}
             if not g.get("response_format"):
@@ -2655,7 +1955,7 @@ async def run(req: HarperRunRequest,  request: Request):
             # if not g.get("stop"):
             #     g["stop"] = ["PLAN_END"]  
             
-            # Hint per modelli reasoning (se supportato dal provider)
+            # Hint for reasoning models (if supported by the provider)
             
             req.gen = g
         except Exception:
@@ -2695,9 +1995,8 @@ async def run(req: HarperRunRequest,  request: Request):
     gen_reasoning = g.get("reasoning")
     gen_tool_choice = g.get("tool_choice")
     
-    repourl = getattr(req, "repoUrl", None)
     
-    # Logging solo con tipi JSON-safe (evita oggetti pydantic)
+    # Log only JSON-safe types (avoid pydantic objects)
     log.info(
         "harper payload (safe) %s",
         _json({
@@ -2798,16 +2097,14 @@ async def run(req: HarperRunRequest,  request: Request):
         phase=phase,
     )
 
-    messages = _compose_system_messages(
-                            phase,
-                            idea,
-                            core_blobs,
-                            req.profileHint,
-                            model_route_label,
-                            req.runId,
-                            repourl,
-                            targets,
-                            req.methodology_context)
+    # WP8.7: the orchestrator composes the phase messages; the gateway adds RAG/history and calls
+    # the provider.
+    if not req.composed_messages:
+        raise HTTPException(
+            422,
+            "composed_messages is required: Harper phase messages are composed by the orchestrator",
+        )
+    messages = [dict(m) for m in req.composed_messages]
 
     #RAG context loading     
     result = await loadAttachments(rag_enabled, project_id, phase, messages, inline_files, rag_files, attachments, model_route_label, req.runId)
@@ -2831,7 +2128,7 @@ async def run(req: HarperRunRequest,  request: Request):
             }
         
     
-    # --- KIT: rag_strategy="deps_only" → usa plan.json da core_blobs per recuperare codice dei REQ dipendenti ---
+    # --- KIT: rag_strategy="deps_only" → use plan.json from core_blobs to retrieve the code of dependent REQs ---
     if (phase or "").lower() == "kit":
         log.info("harper.kit.rag: Retrive source code via RAG")
         strategy = (rag_strategy or "").strip().lower()
@@ -2920,13 +2217,13 @@ async def run(req: HarperRunRequest,  request: Request):
 
 
     if (phase or "").lower() == "finalize":
-        # --- RAG: append al prompt (via utils.rag_query) -------------------------
+        # --- RAG: append to the prompt (via utils.rag_query) -------------------------
         log.info("RAG append phase=%s", phase)
         try:
             materials = await collect_rag_materials_http(
                 project_id=project_id,
-                queries=req.rag_queries,          # opzionale dal client
-                core_blobs=core_blobs,            # per estrarre heading SPEC/PLAN
+                queries=req.rag_queries,          # optional, from the client
+                core_blobs=core_blobs,            # to extract SPEC/PLAN headings
                 top_k=req.rag_top_k,
             )
             if materials:
@@ -2951,23 +2248,23 @@ async def run(req: HarperRunRequest,  request: Request):
         if role in ("user", "assistant") and content:
             incoming.append({"role": role, "content": content})
 
-    # 2) calcola budget token per la chat in base a ctx_window, prompt_base e max out richiesto
+    # 2) compute the chat token budget from ctx_window, prompt_base and the requested max out
     base_prompt_tokens = approx_tokens_from_chars("".join(
         m.get("content","") for m in messages if isinstance(m.get("content"), str)
     ))
     ctx_window, max_out_cap = _resolve_ctx_caps(resolved_entry)
     requested_out = int((req.gen or {}).get("max_tokens", 7500))
-    # margine di sicurezza per header/model/tooling
-    SAFETY_PROMPT_TOKENS = 250 #Soglia minima: se chat_budget < 200 token, non appendere “Recent Harper chat” (rumore > valore).
-    # budget per chat = ctx - base_prompt - requested_out - safety (>=0)
+    # safety margin for header/model/tooling
+    SAFETY_PROMPT_TOKENS = 250 #Minimum threshold: if chat_budget < 200 tokens, do not append "Recent Harper chat" (noise > value).
+    # chat budget = ctx - base_prompt - requested_out - safety (>=0)
     chat_budget = max(0, ctx_window - base_prompt_tokens - requested_out - SAFETY_PROMPT_TOKENS)
     if incoming and chat_budget > 0:
         raw_ctx = _render_chat_context(incoming)
         clipped_ctx = _clip_text_to_tokens(raw_ctx, chat_budget)
         if clipped_ctx:
-            # Ricicliamo il messaggio 'user' già costruito, aggiungendo un blocco "Recent Harper chat"
+            # Reuse the already-built 'user' message, appending a "Recent Harper chat" block
             messages[1]["content"] += "\n\n### Recent Harper chat (trimmed)\n" + clipped_ctx
-    # 0) Check token per model
+    # 0) Token check per model
     # --- Context budgeting ---
     eff_max = _tokens_per_model(messages, resolved_entry, gen_max_tokens)
     # Dynamic timeout tuned for heavy Harper phases.
@@ -3013,7 +2310,7 @@ async def run(req: HarperRunRequest,  request: Request):
     llm_text = None
     llm_usage = {}
     try:
-        # Routing per provider
+        # Routing by provider
         if provider == "openai":
             if not OPENAI_API_KEY:
                 raise provider_not_configured("openai")
@@ -3052,7 +2349,7 @@ async def run(req: HarperRunRequest,  request: Request):
             #     len(llm_text.get("files") or []),
             # )
             # log.info("harper_plan_debug: start")
-            # await asyncio.sleep(30)  # 400 secondi
+            # await asyncio.sleep(30)  # 400 seconds
             # log.info("harper_plan_debug: end")
         else:
             raise HTTPException(400, f"unsupported provider for chat: {provider} for model '{req.model}")
@@ -3092,7 +2389,7 @@ async def run(req: HarperRunRequest,  request: Request):
         log.debug("--- Dump Clike LLM response  ---")
 
         if "llm_text" in locals() and isinstance(llm_text, dict):
-            # 1) risposta unificata (normalized Harper envelope)
+            # 1) unified response (normalized Harper envelope)
             _dump_llm_response(
                 project_id=project_id,
                 phase=phase,
@@ -3104,7 +2401,7 @@ async def run(req: HarperRunRequest,  request: Request):
             )
             log.debug("--- Dump Clike LLM response done ---")
 
-            # 2) payload grezzo del provider (campo 'raw' dell'envelope)
+            # 2) raw provider payload (the envelope's 'raw' field)
             provider_raw = llm_text.get("raw")
             log.debug("--- Dump Provider LLM response  ---")
 
@@ -3121,7 +2418,7 @@ async def run(req: HarperRunRequest,  request: Request):
         else:
             log.info("harper.llm_dump: skip (llm_text not available or not a dict)")
     except Exception as e:
-        # Non deve mai interferire con il flusso principale
+        # Must never interfere with the main flow
         log.warning("harper.llm_dump: error while dumping response: %s", e)
 
     if not isinstance(llm_text, dict):
@@ -3162,7 +2459,7 @@ async def run(req: HarperRunRequest,  request: Request):
                 f"empty provider result for phase={phase}: no text and no files returned",
             )
 
-    # --- soft-fail & normalizzazione i.e. SPEC.md ---
+    # --- soft-fail & normalization i.e. SPEC.md ---
     system_md_txt = (system_md_txt or "").strip()
     missing = []
     if phase == "spec":
@@ -3171,7 +2468,7 @@ async def run(req: HarperRunRequest,  request: Request):
             warnings.append("empty_model_output: model returned empty content, used fallback SPEC template")
             system_md_txt = _fallback_spec_from_template(idea, model_route_label, req.runId)
 
-        # garantiamo un H1 per consumer downstream
+        # guarantee an H1 for downstream consumers
         if not system_md_txt.lstrip().startswith("#"):
             system_md_txt = "# SPEC — Generated\n\n" + system_md_txt
             warnings.append("normalized_heading: added H1 heading to SPEC")
@@ -3193,7 +2490,7 @@ async def run(req: HarperRunRequest,  request: Request):
     # --- Multi-file support
     files: list[dict] = []
     gen_files: list[dict] = [] 
-    # Se il provider (es. anthropic.py / openai_compat.py) ha già estratto i file, usali.
+    # If the provider (e.g. anthropic.py / openai_compat.py) already extracted the files, use them.
     if provider_files:
         log.info("harper.files from provider: %d", len(provider_files))
         for pf in provider_files:
@@ -3204,7 +2501,7 @@ async def run(req: HarperRunRequest,  request: Request):
                 if str(raw_provider_path or "").strip():
                     warnings.append(f"ignored_invalid_provider_file_path:{str(raw_provider_path)[:160]}")
                     continue
-                p = default_doc_path  # fallback per non perdere contenuti
+                p = default_doc_path  # fallback so content is not lost
             files.append({
                 "path": p,
                 "content": c,
@@ -3239,7 +2536,7 @@ async def run(req: HarperRunRequest,  request: Request):
             if phase in structured_only_phases:
                 warnings.append(f"{phase}_no_file_blocks: model did not emit valid file blocks")
             else:
-                # Fallback: un solo documento di fase
+                # Fallback: a single phase document
                 files.append({
                     "path": default_doc_path,
                     "content": system_md_txt,
@@ -3249,7 +2546,7 @@ async def run(req: HarperRunRequest,  request: Request):
                 }) 
 
 
-    # Deduplica finale (per evitare file doppi o path ripetuti tra provider_files e parsing)
+    # Final dedup (avoid duplicate files or repeated paths between provider_files and parsing)
     files = _dedupe_by_path(files)
     if (phase or "").lower() == "kit":
         current_target = str((targets or [None])[0] or "").strip()
@@ -3431,11 +2728,11 @@ async def run(req: HarperRunRequest,  request: Request):
                 502,
                 "plan phase did not emit docs/harper/plan.json; markdown-derived fallback is disabled for promotion-grade planning"
             )
-        # Path atteso
+        # Expected path
         plan_doc_path = f"{req.docRoot or 'docs/harper'}/PLAN.md"
         plan_json_path = f"{req.docRoot or 'docs/harper'}/plan.json"
 
-        # 1) Trova il contenuto del PLAN.md
+        # 1) Find the PLAN.md content
         plan_md_text = None
         for f in files:
             p = (f.get("path") or "").strip()
@@ -3444,7 +2741,7 @@ async def run(req: HarperRunRequest,  request: Request):
                 break
 
         if plan_md_text is None and not gen_files:
-            # no file-blocks: usa l'intero testo di fase
+            # no file blocks: use the whole phase text
             plan_md_text = system_md_txt or ""
 
         # 2) Promotion-grade rule:
@@ -3521,7 +2818,7 @@ async def run(req: HarperRunRequest,  request: Request):
     telemetry.setdefault("pricing", {})  # dict
     telemetry["pricing"].update(pricing_info)  # {input_cost, output_cost, total_cost}  # [pricing]
 
-    # opzionale ma utile: salva anche i prezzi unitari se disponibili
+    # optional but useful: also store unit prices if available
     p_cfg = _get_pricing_manager().for_model(
         model_id=resolved_entry.get("id") if isinstance(resolved_entry, dict) else None,
         provider=resolved_entry.get("provider") if isinstance(resolved_entry, dict) else provider,

@@ -1,7 +1,7 @@
 # services/rationale.py
-import re, os
+import re
 from typing import Optional
-from .llm_client import call_gateway_chat  # tua funzione già esistente
+from .llm_client import call_gateway_chat  # your already existing function
 from config import settings
 
 def _diff_stats(diff_text: Optional[str]) -> str:
@@ -43,11 +43,11 @@ async def rationale(
     gateway_url: Optional[str] = None,
     diff_text: Optional[str] = None,
 ) -> str:
-    # Produciamo SEMPRE una rationale; AI solo se richiesto.
+    # We ALWAYS produce a rationale; AI only if requested.
     if not use_ai:
         return _local_rationale(intent, lang, path, orig, prompt, diff_text)
 
-    # Modalità AI (con fallback locale in caso di errore)
+    # AI mode (with local fallback on error)
     try:
         system = "You are a code change explainer. Summarize what changed succinctly."
         user = (

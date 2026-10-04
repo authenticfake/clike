@@ -61,3 +61,15 @@ test('image previews are DOM nodes, raster types only (N13)', () => {
   assert.doesNotMatch(html, /'<img src="' \+ src/);
   assert.match(html, /\/\^\[A-Za-z0-9\+\/=\]\+\$\/\.test\(b64\)/);
 });
+
+test('regexes inside the webview script keep their escapes (\\d, \\s)', () => {
+  // The script is a template literal: "\d" there becomes "d", so /^REQ-\d+/ reached the
+  // webview as /^REQ-d+/ and the preview whitespace collapse replaced the letter "s".
+  const html = getWebviewHtml('http://localhost:8080');
+  assert.ok(!/\/\^req-d\+\//i.test(html), 'REQ regex lost its \\d');
+  assert.ok(!html.includes('.replace(/s+/g'), 'whitespace regex lost its \\s');
+  const script = html.slice(html.indexOf('<script'), html.lastIndexOf('</script>'));
+  const isReq = new Function(`${script.match(/const isReq = \(s\) => [^;]+;/)[0]} return isReq;`)();
+  assert.equal(isReq('REQ-001'), true);
+  assert.equal(isReq('req-d'), false);
+});

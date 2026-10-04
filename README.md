@@ -113,8 +113,8 @@ Details: [docs/agent-operating-model.md](docs/agent-operating-model.md).
 | Component | Path | Responsibility |
 |---|---|---|
 | VS Code extension | [`extensions/vscode/`](extensions/vscode) | UI, workspace access, confined writes, local agent execution, Git, RAG collection |
-| Orchestrator | [`orchestrator/`](orchestrator) | Harper phase semantics, contracts, execution packages, eval/gate, RAG, MCP |
-| Gateway | [`gateway/`](gateway) | Model catalog and routing, provider calls, Harper prompt rendering, embeddings, telemetry |
+| Orchestrator | [`orchestrator/`](orchestrator) | Harper phase semantics and definitions (`phases/`), typed phase contract, cloud prompt composition, local-agent packages, eval/gate, RAG, MCP |
+| Gateway | [`gateway/`](gateway) | Model catalog and routing, provider calls, RAG material and output extraction/validation for Harper runs, embeddings, telemetry |
 | Configuration | [`configs/`](configs) | Model catalog (`models.yaml`), routing profiles |
 | Runtime | [`docker/`](docker) | Local stack (Podman or Docker Compose) |
 

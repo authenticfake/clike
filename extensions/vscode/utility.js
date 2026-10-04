@@ -2,7 +2,6 @@ const { request: serviceRequest } = require('./orchestrator-client');
 const vscode = require('vscode');
 const cp = require('child_process');
 const path = require('path');
-const { gatherRagChunks } = require('./rag.js');
 const { buildLocalAgentEnv, resolveLocalAgentCommandPath, buildLocalAgentSpawn, resolvePromptTransport, terminateProcessTree } = require('./local-agent-executors');
 const { toFsPath } = require('./git');
 
@@ -10,7 +9,7 @@ const PLAN_JSON_REL_PATH = 'docs/harper/plan.json';
 
 const out = vscode.window.createOutputChannel('Clike.utility');
 const crypto = require('crypto');
-// usa Node.js fs per calcolare la size di un file
+// use Node.js fs to compute a file's size
 const fs = require('fs');
 const VALID_STATUSES = ['open', 'in_progress', 'done', 'deferred'];
 
@@ -26,16 +25,16 @@ function mkLog(out) {
 }
 
 /**
- * Funzione di logging personalizzata che scrive su entrambi i canali.
- * @param {...any} args Messaggi o oggetti da loggare.
+ * Custom logging function that writes to both channels.
+ * @param {...any} args Messages or objects to log.
  */
 function log(...args) {
-    // 1. Log nella console standard per il debug.
+    // 1. Log to the standard console for debugging.
     console.log(...args); 
     
-    // 2. Log nel canale di output di VS Code.
+    // 2. Log to the VS Code output channel.
     out.appendLine(args.map(arg => {
-        // Converte ogni argomento in stringa per l'output.
+        // Convert each argument to a string for output.
         if (typeof arg === 'object' && arg !== null) {
             return JSON.stringify(arg, null, 2);
         }
@@ -238,14 +237,14 @@ async function promoteReqSources(projectRootUri, reqId, strategy = 'folder', out
     await vscode.workspace.fs.createDirectory(destRoot);
   }
 
-  // usiamo *diffs* (non diff) e lo propaghiamo con lo stesso nome
+  // we use *diffs* (not diff) and propagate it under the same name
   const { actions, diffs, filesToCommit } = await copyTreeWithConflicts(
     srcDir,
     destRoot,
     { strategy, reqId, ts, log }
   );
-  // --- PULIZIA FISICA DEL FILE SYSTEM ---
-  // Definiamo una funzione ricorsiva interna per eliminare __pycache__ e .pyc
+  // --- PHYSICAL FILE SYSTEM CLEANUP ---
+  // Define an inner recursive function to delete __pycache__ and .pyc
   const cleanDirRecursively = async (uri) => {
     const entries = await vscode.workspace.fs.readDirectory(uri);
     
@@ -254,10 +253,10 @@ async function promoteReqSources(projectRootUri, reqId, strategy = 'folder', out
       
       if (type === vscode.FileType.Directory) {
         if (name === '__pycache__') {
-          // Elimina l'intera cartella pycache
+          // Delete the whole pycache folder
           await vscode.workspace.fs.delete(childUri, { recursive: true, useTrash: false });
         } else {
-          // Continua la ricerca nelle sottocartelle
+          // Continue searching in subfolders
           await cleanDirRecursively(childUri);
         }
       } else if (type === vscode.FileType.File) {
@@ -270,31 +269,31 @@ async function promoteReqSources(projectRootUri, reqId, strategy = 'folder', out
       }
     }
   };
-  // --- ESCLUDI cartella ci/ e i suoi file (LTC.json, HOWTO.md) dal risultato ---
-  // --- NUOVO: Rimuovi __pycache__ e file .pyc dalla destinazione ---
-  // NOTA: Questa operazione pulisce solo la destinazione, se sono stati copiati
+  // --- EXCLUDE the ci/ folder and its files (LTC.json, HOWTO.md) from the result ---
+  // --- NEW: Remove __pycache__ and .pyc files from the destination ---
+  // NOTE: This only cleans the destination, if they were copied
   
-  // Rimuovi tutte le cartelle __pycache__ che potresti trovare
-  // (Potrebbe essere complesso se ce ne sono molte, questo è un esempio semplificato)
-  // Se la strategia di copia ha un'azione specifica per directory, potresti iterare su actions.
+  // Remove all __pycache__ folders you may find
+  // (Could be complex if there are many; this is a simplified example)
+  // If the copy strategy has a specific action for directories, you could iterate over actions.
   
-  // Per semplicità, ci concentriamo sull'esclusione da filesToCommit e manifest
+  // For simplicity, we focus on excluding from filesToCommit and manifest
 
   // ------------------------------------------------------------------------
   const ciDir = vscode.Uri.joinPath(destRoot, 'ci');
   try {
     await vscode.workspace.fs.delete(ciDir, { recursive: true, useTrash: false });
   } catch {
-    // se non esiste, ignora
+    // ignore if it does not exist
   }
   await cleanDirRecursively(destRoot);
   const filteredFilesToCommit = (filesToCommit || []).filter((uri) => {
     const p = (uri.fsPath ?? uri.path ?? '').toLowerCase();
     
-    // Esclusione esistente per la cartella 'ci'
+    // Existing exclusion for the 'ci' folder
     const isCI = p.includes('/ci/') || p.includes('\\ci\\');
     
-    // NUOVE Esclusioni per Python
+    // NEW exclusions for Python
     const isPyc = p.endsWith('.pyc');
     const isPycache = p.includes('/__pycache__/') || p.includes('\\__pycache__\\');
     
@@ -403,12 +402,10 @@ async function runPromotionFlow(projectRootUri, reqId, out) {
 }
 
 
-
-
-// --- Helpers: estrazione/salvataggio Technology Constraints ---
+// --- Helpers: Technology Constraints extraction/saving ---
 function extractTechConstraintsYaml(ideaText) {
   if (!ideaText) return null;
-  // 1) cerca blocchi fenced ```yaml ... ``` che contengono "tech_constraints:"
+  // 1) look for fenced ```yaml ... ``` blocks containing "tech_constraints:"
   const fenced = [...ideaText.matchAll(/```yaml([\s\S]*?)```/gi)];
   for (const m of fenced) {
     const body = (m[1] || "").trim();
@@ -417,10 +414,10 @@ function extractTechConstraintsYaml(ideaText) {
     }
   }
 
-  // 2) fallback: se non c'è fence, prova a prendere dalla riga "tech_constraints:" in poi
+  // 2) fallback: if there is no fence, try taking from the "tech_constraints:" line onwards
   const idx = ideaText.search(/^\s*tech_constraints\s*:/m);
   if (idx >= 0) {
-    // prendi fino alla prossima intestazione "## " o fine file oppure fino a un blocco ``` successivo
+    // take up to the next "## " heading or end of file or up to a following ``` block
     const tail = ideaText.slice(idx);
     const stopFence = tail.search(/```/);
     const stopHeader = tail.search(/^\s*##\s+/m);
@@ -455,55 +452,55 @@ async function readTextUtf8(uri) {
 }
 
 /**
- * Rimuove il blocco YAML "tech_constraints" dal testo dell'idea iniziale.
- * Ritorna il testo modificato senza il blocco.
+ * Remove the "tech_constraints" YAML block from the initial idea text.
+ * Return the modified text without the block.
  */
 function removeTechConstraintsYaml(ideaText) {
-  if (!ideaText) return ""; // Ritorna stringa vuota se l'input non c'è
+  if (!ideaText) return ""; // Return an empty string if there is no input
 
   let modifiedText = ideaText;
 
-  // 1) Cerca blocchi fenced ```yaml ... ``` che contengono "tech_constraints:"
+  // 1) Look for fenced ```yaml ... ``` blocks containing "tech_constraints:"
   const fencedMatches = [...ideaText.matchAll(/(```yaml[\s\S]*?```)/gi)];
   for (const m of fencedMatches) {
-    const fullMatch = m[0]; // L'intero blocco ```yaml ... ```
-    const body = (m[1] || "").trim(); // Il contenuto all'interno del fence
+    const fullMatch = m[0]; // The whole ```yaml ... ``` block
+    const body = (m[1] || "").trim(); // The content inside the fence
     if (/^\s*tech_constraints\s*:/m.test(body)) {
-      // Trovato il blocco da rimuovere.
-      // Sostituiamo l'intero blocco ```yaml ... ``` con una stringa vuota.
-      // Usiamo una regex che matchi solo la prima occorrenza per sicurezza, 
-      // ma dato che extractTechConstraintsYaml si ferma al primo match, dovremmo essere coerenti.
+      // Found the block to remove.
+      // Replace the whole ```yaml ... ``` block with an empty string.
+      // Use a regex matching only the first occurrence for safety, 
+      // but since extractTechConstraintsYaml stops at the first match, we should be consistent.
       modifiedText = modifiedText.replace(fullMatch, "").trim();
       modifiedText = modifiedText.replace(/^##\s+Technology Constraints\s*/m, "").trim();
       console.log("removeTechConstraintsYaml done");
 
-      return modifiedText; // Usciamo subito come fa extractTechConstraintsYaml
+      return modifiedText; // Exit immediately like extractTechConstraintsYaml does
     }
   }
 
-  // 2) Fallback: se non c'è fence, prova a prendere dalla riga "tech_constraints:" in poi
+  // 2) Fallback: if there is no fence, try taking from the "tech_constraints:" line onwards
   const searchMatch = ideaText.match(/^(\s*tech_constraints\s*:[\s\S]*?)(?=\s*##\s+|\s*```|$)/m);
   
   if (searchMatch) {
-    // searchMatch[1] contiene la parte "tech_constraints:..." fino al prossimo "##" o "```" o fine.
+    // searchMatch[1] contains the "tech_constraints:..." part up to the next "##" or "```" or end.
     const fullMatch = searchMatch[1];
     
-    // Rimuoviamo la parte trovata. Usiamo il testo originale per la sostituzione.
-    // L'uso di una regex `search` non è l'ideale per l'eliminazione perché non cattura sempre 
-    // lo spazio circostante in modo pulito, ma l'approccio con matchAll/match semplifica.
+    // Remove the found part. Use the original text for the replacement.
+    // Using a `search` regex is not ideal for deletion because it does not always capture 
+    // the surrounding whitespace cleanly, but the matchAll/match approach simplifies things.
     modifiedText = modifiedText.replace(fullMatch, "").trim();
     return modifiedText;
   }
   
-  // Se non è stato trovato nulla, ritorna il testo originale non modificato.
+  // If nothing was found, return the original text unchanged.
   return modifiedText;
 }
 
-// Esempio d'uso (ipotetico)
+// Usage example (hypothetical)
 /*
 const ideaTextWithYaml = "...\n## Idea\n...\n```yaml\ntech_constraints:\n - cpu: 4 cores\n```\n...\n";
 const cleanedText = removeTechConstraintsYaml(ideaTextWithYaml);
-console.log(cleanedText); // Il testo senza il blocco YAML
+console.log(cleanedText); // The text without the YAML block
 */
 
 /** Try to load IDEA.md from the given project root. */
@@ -834,39 +831,10 @@ function normalizeRepoUrl(raw) {
   }
   // https urls: drop .git
   if (/^https?:\/\//i.test(raw)) return raw.replace(/\.git$/, '');
-  // file:// o altre -> restituisci com'è
+  // file:// or others -> return as-is
   return raw;
 }
 
-async function detectRepoUrl(projectRootUri) {
-  // 1) VS Code Git API
-  try {
-    const gitExt = vscode.extensions.getExtension('vscode.git');
-    if (gitExt) {
-      const git = gitExt.isActive ? gitExt.exports : await gitExt.activate();
-      const api = git.getAPI(1);
-      const repo = api.repositories.find(r =>
-        r.rootUri.fsPath === projectRootUri.fsPath ||
-        projectRootUri.fsPath.startsWith(r.rootUri.fsPath)
-      );
-      mkLog(`repo ${repo}`);
-      const remote = repo?.state?.remotes?.[0]?.fetchUrl || repo?.state?.remotes?.[0]?.pushUrl;
-      mkLog(`remote ${remote}`);
-      const n = normalizeRepoUrl(remote);
-      mkLog(`n ${n}`);
-      if (n) return n;
-    }
-  } catch (e) {
-    mkLog(`Error while fetching repo URL: ${e}`);  // and ignore    
-  }
-  // 2) fallback: git config
-  const cwd = projectRootUri.fsPath;
-  const raw = execSyncSafe('git', ['config', '--get', 'remote.origin.url'], cwd);
-  const n = normalizeRepoUrl(raw);
-  if (n) return n;
-
-  return null;
-}
 
 async function detectRepositoryContext(projectRootUri) {
   const workspaceFolder = projectRootUri?.fsPath || null;
@@ -943,133 +911,21 @@ async function detectRepositoryContext(projectRootUri) {
 // --- PLAN.md helpers: update only the "### REQ-IDs Table" section (markdown table) ---
 
 /**
- * Estrae la sottosezione testuale tra un'intestazione H3 specifica e la successiva H3 (o EOF).
+ * Extract the text subsection between a specific H3 heading and the next H3 (or EOF).
  */
-function _sliceSection(text, h3Title) {
-  const startRe = new RegExp(`^###\\s+${h3Title}\\s*$`, 'mi');
-  const nextH3 = /^###\s+/mi;
-  const m = text.match(startRe);
-  if (!m) return { found: false, full: text, head: text, section: '', tail: '' };
 
-  const startIdx = m.index;
-  // dal punto dopo la riga H3
-  const afterH3Idx = text.indexOf('\n', startIdx) + 1;
-  const rest = text.slice(afterH3Idx);
-  const next = rest.search(nextH3);
-  const sectionEnd = (next >= 0) ? (afterH3Idx + next) : text.length;
-
-  const head = text.slice(0, afterH3Idx);
-  const section = text.slice(afterH3Idx, sectionEnd);
-  const tail = text.slice(sectionEnd);
-  return { found: true, full: text, head, section, tail };
-}
 
 /**
- * Parse di una tabella markdown "pipe" (header allineato con ---) e ritorno di array di oggetti.
- * Richiede almeno una colonna "REQ-ID" (case-insensitive). Accetta colonne extra.
+ * Parse a "pipe" markdown table (header aligned with ---) and return an array of objects.
+ * Requires at least a "REQ-ID" column (case-insensitive). Extra columns are accepted.
  */
-function _parseMarkdownTable(sectionText) {
-  const lines = sectionText.split(/\r?\n/).map(s => s.trim());
-  // trova inizio tabella (riga header con | ... |) e riga separatori
-  let start = -1, sep = -1;
-  for (let i = 0; i < lines.length; i++) {
-    if (/^\|.+\|$/.test(lines[i])) {
-      // la riga successiva deve essere separatore --- | --- | ...
-      if (i + 1 < lines.length && /^\|\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(lines[i + 1])) {
-        start = i; sep = i + 1; break;
-      }
-    }
-  }
-  if (start < 0) return { header: [], rows: [], start: -1, sep: -1, end: -1 };
 
-  const headerCells = lines[start].slice(1, -1).split('|').map(s => s.trim());
-  const rows = [];
-  let end = lines.length;
-  for (let i = sep + 1; i < lines.length; i++) {
-    if (!/^\|.+\|$/.test(lines[i])) { end = i; break; }
-    const cols = lines[i].slice(1, -1).split('|').map(s => s.trim());
-    rows.push(cols);
-  }
-  return { header: headerCells, rows, start, sep, end, lines };
-}
 
 /**
- * Dato un testo di sezione tabellare e una mappa { REQ-ID -> status }, ritorna la sezione aggiornata.
- * Se la tabella non esiste, ne crea una minima.
+ * Given a table section text and a map { REQ-ID -> status }, return the updated section.
+ * If the table does not exist, create a minimal one.
  */
-function _updateReqTableSection(sectionText, statusMap) {
-  const parsed = _parseMarkdownTable(sectionText);
-  // normalizza il nome colonna REQ-ID e Status
-  const header = parsed.header.map(h => h.toLowerCase());
-  let reqIdx = header.findIndex(h => /^req-?id$/.test(h));
-  if (reqIdx < 0) reqIdx = header.findIndex(h => /req/.test(h)); // fallback
-  let statusIdx = header.findIndex(h => /^status$/.test(h));
-  if (parsed.start < 0 || reqIdx < 0) {
-    // tabella assente → creiamone una base con 3 colonne
-    const hdr = ['REQ-ID', 'Title', 'Status'];
-    const sep = ['---', '---', '---'];
-    const rows = Object.entries(statusMap).map(([id, st]) => `| ${id} |  | ${st} |`);
-    return [
-      `| ${hdr.join(' | ')} |`,
-      `| ${sep.join(' | ')} |`,
-      ...rows
-    ].join('\n') + '\n';
-  }
 
-  // Costruiamo una mappa per sostituzioni (case-insensitive su REQ)
-  const lowerKeys = Object.keys(statusMap).reduce((acc, k) => {
-    acc[k.toLowerCase()] = statusMap[k]; return acc;
-  }, {});
-  // Se manca "Status", aggiungiamo la colonna in coda
-  const addStatusCol = (statusIdx < 0);
-  const newHeader = parsed.header.slice();
-  if (addStatusCol) newHeader.push('Status');
-
-  const outRows = [];
-  for (const cols of parsed.rows) {
-    const c = cols.slice();
-    const reqVal = (c[reqIdx] || '').toString().trim();
-    const key = reqVal.toLowerCase();
-    if (lowerKeys[key]) {
-      if (statusIdx < 0) {
-        c.push(lowerKeys[key]);
-      } else {
-        c[statusIdx] = lowerKeys[key];
-      }
-    } else if (addStatusCol) {
-      c.push(c[statusIdx] || 'open'); // default per righe esistenti
-    }
-    outRows.push('| ' + c.join(' | ') + ' |');
-  }
-
-  // Aggiungi eventuali nuove righe per REQ non presenti
-  const existingReqs = new Set(parsed.rows.map(r => (r[reqIdx] || '').toString().trim().toLowerCase()));
-  for (const [id, st] of Object.entries(statusMap)) {
-    if (!existingReqs.has(id.toLowerCase())) {
-      // cerchiamo anche la colonna "Title" se esiste
-      const titleIdx = parsed.header.map(h => h.toLowerCase()).findIndex(h => /^title$/.test(h));
-      const newCols = [];
-      for (let i = 0; i < newHeader.length; i++) {
-        if (i === reqIdx) newCols[i] = id;
-        else if (i === statusIdx || (addStatusCol && i === newHeader.length - 1)) newCols[i] = st;
-        else if (i === titleIdx) newCols[i] = '';
-        else newCols[i] = '';
-      }
-      outRows.push('| ' + newCols.join(' | ') + ' |');
-    }
-  }
-
-  const sepLine = '| ' + newHeader.map(() => '---').join(' | ') + ' |';
-  const headerLine = '| ' + newHeader.join(' | ') + ' |';
-
-  const rebuilt = [headerLine, sepLine, ...outRows].join('\n') + '\n';
-  // Rimonta: rimpiazziamo l'area tabellare evitando di toccare altro testo della sezione
-  const before = parsed.lines.slice(0, parsed.start).join('\n');
-  const after  = parsed.lines.slice(parsed.end).join('\n');
-  const glueA = before ? (before + '\n') : '';
-  const glueB = after  ? ('\n' + after)  : '';
-  return glueA + rebuilt + glueB;
-}
 
 /**
  * Check whether a given REQ-ID exists in docs/harper/plan.json.
@@ -1164,10 +1020,9 @@ async function runKitCommand(plan, cmdArgs) {
 }
 
 
-
 async function runEvalGateCommand( plan, cmdArgs) {
   out.appendLine(`[runEvalGateCommand] ${cmdArgs}`);
-  // cmdArgs: string dopo "/kit", es. "", "REQ-001"
+  // cmdArgs: string after "/kit", e.g. "", "REQ-001"
   let targetReqId = (cmdArgs || '').trim() || null;
   if (!targetReqId) {
     targetReqId = findNextReq(plan, "in_progress");
@@ -1179,7 +1034,7 @@ async function runEvalGateCommand( plan, cmdArgs) {
     const result = await ensureReqIdInPlan(targetReqId, plan); 
     if (!result) return;
   }
-  // (opzionale) avvisa se deps non done
+  // (optional) warn if deps are not done
   const candidate = (plan.reqs || []).find(r => r.id === targetReqId);
   const deps = Array.isArray(candidate?.dependsOn) ? candidate.dependsOn : [];
   const byId = Object.fromEntries((plan.reqs||[]).map(r=>[r.id,r]));
@@ -1196,10 +1051,10 @@ async function runEvalGateCommand( plan, cmdArgs) {
 
 
 /**
- * Aggiorna stato REQ (done) e sincronizza plan.json + PLAN.md.
- * - Se `plan` non è passato o non valido, rilegge la versione attuale dal disco.
- * - `targetReqId` è la REQ chiusa dal /kit corrente.
- * - `out` è un OutputChannel (opzionale), altrimenti usa console.log.
+ * Update REQ state (done) and sync plan.json + PLAN.md.
+ * - If `plan` is not passed or invalid, re-read the current version from disk.
+ * - `targetReqId` is the REQ closed by the current /kit.
+ * - `out` is an OutputChannel (optional), otherwise console.log is used.
  */
 async function saveKitCommand(projectRootUri, plan, targetReqId, out) {
   const log = (msg) => {
@@ -1209,7 +1064,7 @@ async function saveKitCommand(projectRootUri, plan, targetReqId, out) {
 
   log(`[saveKitCommand] target=${targetReqId}`);
 
-  // 1) Carica plan se mancante
+  // 1) Load plan if missing
   let effectivePlan = plan;
   if (!effectivePlan || !Array.isArray(effectivePlan.reqs)) {
     effectivePlan = await readPlanJson(projectRootUri);
@@ -1220,15 +1075,15 @@ async function saveKitCommand(projectRootUri, plan, targetReqId, out) {
     }
   }
 
-  // 2) Aggiorna stato REQ → done
+  // 2) Update REQ state → done
   const ok = setReqStatus(effectivePlan, targetReqId, 'in_progress');
   if (!ok) {
     log(`[saveKitCommand] REQ ${targetReqId} not found in plan.json; no update performed.`);
-    // Continuiamo comunque a scrivere il plan attuale, ma senza cambiare snapshot/table
+    // Keep writing the current plan anyway, but without changing snapshot/table
   }
   //updatePlanSnapshot(effectivePlan);
 
-  // 3) Scrivi plan.json
+  // 3) Write plan.json
   await writePlanJson(projectRootUri, effectivePlan);
   log(`[plan.json updated] ${targetReqId}`);
 
@@ -1236,7 +1091,7 @@ async function saveKitCommand(projectRootUri, plan, targetReqId, out) {
   await updatePlanMdInPlace(projectRootUri, effectivePlan);
   log(`[PLAN.md updated] ${targetReqId}`);
 
-  // 5) Notifica
+  // 5) Notify
   try {
     vscode.window.showInformationMessage(`KIT completed for ${targetReqId}.`);
   } catch {
@@ -1244,25 +1099,9 @@ async function saveKitCommand(projectRootUri, plan, targetReqId, out) {
   }
 }
 
-function setManyReqStatus(plan, updates /* [{id, status}, ...] */) {
-  if (!plan || !Array.isArray(plan.reqs) || !Array.isArray(updates)) return 0;
-  let changed = 0;
-  const index = new Map(plan.reqs.map((r, i) => [String(r?.id || '').trim().toUpperCase(), i]));
-  for (const u of updates) {
-    const key = String(u?.id || '').trim().toUpperCase();
-    const i = index.get(key);
-    if (i == null) continue;
-    const newStatus = normalizeStatus(u?.status);
-    if (plan.reqs[i].status !== newStatus) {
-      plan.reqs[i].status = newStatus;
-      changed++;
-    }
-  }
-  if (changed > 0) updatePlanSnapshot(plan);
-  return changed;
-}
+
 /**
- * /eval → non cambia stato (ma potresti marcare 'in_progress' se non lo è)
+ * /eval → does not change state (but you could mark 'in_progress' if it is not)
  */
 async function saveEvalCommand(projectRootUri, plan, targetReqId, report, out) {
   const log = (m) => (out?.appendLine ? out.appendLine(m) : console.log(m));
@@ -1273,7 +1112,7 @@ async function saveEvalCommand(projectRootUri, plan, targetReqId, report, out) {
 
   const report_file = await persistReports(projectRootUri, "eval", report, out, targetReqId)
   log(`[saveEvalCommand] persistReports done`);
-  // opzionale: se non è ancora in_progress → mettilo
+  // optional: if not yet in_progress → set it
   const req = effectivePlan.reqs.find(r => (r.id || '').toUpperCase() === targetReqId.toUpperCase());
   if (req && (req.status || '').toLowerCase() === 'open') {
     setReqStatus(effectivePlan, targetReqId, 'in_progress');
@@ -1283,18 +1122,17 @@ async function saveEvalCommand(projectRootUri, plan, targetReqId, report, out) {
   }
   return report_file
 }
-// In utility.js (o dove hai definito persistReports)
+// In utility.js (or wherever persistReports is defined)
 async function persistReports(projectRootUri, phase, rep, out, fallbackReqId = '') {
   const vscode = require('vscode');
-  const path = require('path');
 
-  // Logger che accetta N argomenti e serializza oggetti
+  // Logger that accepts N arguments and serializes objects
   const log = (...args) => {
     const line = args.map(a => (typeof a === 'string' ? a : (() => { try { return JSON.stringify(a, null, 2); } catch { return String(a); } })())).join(' ');
     if (out?.appendLine) out.appendLine(line); else console.log(line);
   };
 
-  // Normalizza root in Uri
+  // Normalize root into a Uri
   const rootUri = (projectRootUri && projectRootUri.scheme)
     ? projectRootUri
     : vscode.Uri.file(String(projectRootUri || '.'));
@@ -1305,7 +1143,7 @@ async function persistReports(projectRootUri, phase, rep, out, fallbackReqId = '
     vscode.window.showErrorMessage('[persistReports] rep is missing');
     return;
   }
-  // Normalizza naming dai possibili alias
+  // Normalize naming from the possible aliases
   const req_id = String(
     rep.req_id || rep.reqId || rep.request_id || fallbackReqId || 'REQ-UNKNOWN'
   ).trim().toUpperCase();
@@ -1326,10 +1164,10 @@ async function persistReports(projectRootUri, phase, rep, out, fallbackReqId = '
     //log('[persistReports] createDirectory warning:', e?.message || String(e));
   }
 
-  const ts = Date.now(); // ms per uniqueness
+  const ts = Date.now(); // ms for uniqueness
   const fileBase = `report_${req_id}_${ts}`;
 
-  // Costruisci JSON “persistito” (coerente con orchestrator snake_case)
+  // Build the "persisted" JSON (consistent with the orchestrator's snake_case)
     const persisted = {
       profile,
       req_id,
@@ -1359,12 +1197,10 @@ async function persistReports(projectRootUri, phase, rep, out, fallbackReqId = '
     }))
   };
 
-  // Path dei file di output (URI, non stringhe)
+  // Output file paths (URIs, not strings)
   const jsonUri  = vscode.Uri.joinPath(outDirUri, `${fileBase}.json`);
-  // Se vuoi anche il JUnit, scommenta questi due (e genera xml):
-  // const junitUri = vscode.Uri.joinPath(outDirUri, `${fileBase}.junit.xml`);
 
-  // Scrivi JSON
+  // Write JSON
   try {
     const buf = Buffer.from(JSON.stringify(persisted, null, 2), 'utf8');
     await vscode.workspace.fs.writeFile(jsonUri, buf);
@@ -1374,21 +1210,10 @@ async function persistReports(projectRootUri, phase, rep, out, fallbackReqId = '
     vscode.window.showErrorMessage(`[persistReports] cannot write JSON: ${e?.message || e}`);
   }
   return jsonUri
-  // Se l’orchestrator ha già scritto dei file (rep.json_path, rep.junit_path), puoi opzionalmente copiarli qui.
-  // Esempio (facoltativo):
-  // if (rep.json_path) {
-  //   try {
-  //     const src = vscode.Uri.file(rep.json_path);
-  //     const dst = vscode.Uri.joinPath(outDirUri, path.basename(rep.json_path));
-  //     const data = await vscode.workspace.fs.readFile(src);
-  //     await vscode.workspace.fs.writeFile(dst, data);
-  //     log('[persistReports] copied orchestrator JSON ->', dst.fsPath);
-  //   } catch (e) { log('[persistReports] copy orchestrator JSON warning:', e?.message || String(e)); }
-  // }
 }
 
 /**
- * /gate → porta REQ a done e sincronizza artefatti
+ * /gate → move REQ to done and sync artifacts
  */
 async function saveGateCommand(projectRootUri, plan, targetReqId, report, out) {
   const log = (m) => (out?.appendLine ? out.appendLine(m) : console.log(m));
@@ -1474,8 +1299,8 @@ async function saveGateCommand(projectRootUri, plan, targetReqId, report, out) {
 
 
 /**
- * Trova l'ultimo REQ (per mtime) sotto runs/kit, pattern "REQ-*".
- * Ritorna es. "REQ-001" o null se non presente.
+ * Find the latest REQ (by mtime) under runs/kit, pattern "REQ-*".
+ * Return e.g. "REQ-001" or null if none.
  */
 function resolveLatestReq(rootDir) {
   try {
@@ -1490,18 +1315,18 @@ function resolveLatestReq(rootDir) {
   }
 }
 
-// projectRootUri: URI del progetto "attivo" (quello creato con /init nome)
+// projectRootUri: URI of the "active" project (the one created with /init name)
 async function buildHarperBody(phase, payload, projectRootUri, out) {
   const _docRoot =  vscode.Uri.joinPath(projectRootUri, 'docs', 'harper');
-  // 1) Allegati/file core
+  // 1) Attachments/core files
   var idea_md = (phase === 'spec') ? await loadMd(_docRoot, 'IDEA.md') : null;
   try {
-    // 2: estrai e salva TECH_CONSTRAINTS.yaml a partire da IDEA.md (sovrascrive)
+    // 2: extract and save TECH_CONSTRAINTS.yaml from IDEA.md (overwrites)
     if (phase === 'spec' && idea_md) {
       const yaml = extractTechConstraintsYaml(idea_md || '');
       if (yaml) {
         await saveTechConstraintsYaml(_docRoot, yaml);
-        // assicura che rientri nei core (senza duplicati)
+        // make sure it is among the core docs (no duplicates)
         const core = Array.isArray(payload["core"]) ? payload["core"] : [];
         if (!core.some(n => n.toLowerCase() === 'tech_constraints.yaml')) {
           core.push('TECH_CONSTRAINTS.yaml');
@@ -1567,11 +1392,11 @@ async function buildHarperBody(phase, payload, projectRootUri, out) {
   //RAG SUGGENSTIONDS
   payload["rag_strategy"] = "auto";
   payload["rag_top_k"] = 12;
-  payload["context_hard_limit"] = 12500; // per budgeting lato gateway  
+  payload["context_hard_limit"] = 12500; // for gateway-side budgeting  
 
   if (phase === 'kit') {
       payload["rag_strategy"] = "deps_only";//“auto”, “force”, “off”, “deps_only”
-      payload["context_hard_limit"] = 22500; // per budgeting lato gateway  
+      payload["context_hard_limit"] = 22500; // for gateway-side budgeting  
       payload["rag_top_k"] = 150;
   }
    if (phase === 'finalize') {
@@ -1587,7 +1412,7 @@ async function buildHarperBody(phase, payload, projectRootUri, out) {
 
   return payload;
 }
-// PATCH 1 — utilities per PLAN/REQ (in alto vicino ad altre utility)
+// PATCH 1 — utilities for PLAN/REQ (at the top near other utilities)
 async function readTextFile(uri) {
   try {
     const data = await vscode.workspace.fs.readFile(uri);
@@ -1658,7 +1483,6 @@ function updatePlanSnapshot(plan) {
 }
 
 
-
 async function writePlanJson(projectRootUri, obj) {
   const uri = vscode.Uri.joinPath(projectRootUri, 'docs', 'harper', 'plan.json');
   await writeTextFile(uri, JSON.stringify(obj, null, 2));
@@ -1666,7 +1490,7 @@ async function writePlanJson(projectRootUri, obj) {
 
 function findNextOpenReq(plan) {
   if (!plan || !Array.isArray(plan.reqs)) return null;
-  // dipendenze tutte done
+  // all dependencies done
   const isDepsSatisfied = (req, byId) => {
     const deps = Array.isArray(req.dependsOn) ? req.dependsOn : [];
     return deps.every(d => (byId[d] && byId[d].status === 'done'));
@@ -1675,14 +1499,14 @@ function findNextOpenReq(plan) {
   for (const req of plan.reqs) {
     if (req.status === 'open' && isDepsSatisfied(req, byId)) return req.id;
   }
-  // fallback: primo open anche se deps non soddisfatte
+  // fallback: first open one even if deps are not satisfied
   const anyOpen = plan.reqs.find(r => r.status === 'open');
   return anyOpen ? anyOpen.id : null;
 }
 
 function findNextReq(plan, status) {
   if (!plan || !Array.isArray(plan.reqs)) return null;
-  // dipendenze tutte done
+  // all dependencies done
   const isDepsSatisfied = (req, byId) => {
     const deps = Array.isArray(req.dependsOn) ? req.dependsOn : [];
     return deps.every(d => (byId[d] && byId[d].status === 'done'));
@@ -1691,7 +1515,7 @@ function findNextReq(plan, status) {
   for (const req of plan.reqs) {
     if (req.status === status && isDepsSatisfied(req, byId)) return req.id;
   }
-  // fallback: primo open anche se deps non soddisfatte
+  // fallback: first open one even if deps are not satisfied
   const anyOpen = plan.reqs.find(r => r.status === status);
   return anyOpen ? anyOpen.id : null;
 }
@@ -1706,7 +1530,7 @@ function setReqStatus(plan, reqId, status) {
 }
 
 
-// -- renderer di snapshot/table (usa i tuoi se già esistono) --
+// -- snapshot/table renderers (use yours if they already exist) --
 function snapshotCounts(plan) {
   const total = (plan?.reqs || []).length;
   const done = (plan?.reqs || []).filter(r => (r.status || '').toLowerCase() === 'done').length;
@@ -1718,7 +1542,7 @@ function snapshotCounts(plan) {
 }
 
 function renderSnapshotMd(ss) {
-  // Ritorna sezione COMPLETA inclusa l’intestazione
+  // Return the COMPLETE section including the heading
   return [
     '## Plan Snapshot',
     '',
@@ -1734,7 +1558,7 @@ function renderSnapshotMd(ss) {
 }
 
 function renderReqTableMd(plan) {
-  // Tabella Markdown semplice, robusta
+  // Simple, robust Markdown table
   const rows = (plan?.reqs || []).map(r => {
     const id = r.id || '';
     const title = r.title || '';
@@ -1756,12 +1580,12 @@ function renderReqTableMd(plan) {
 }
 
 
-// Regex di sezione robuste: case-insensitive, tolleranti su spazi/varianti
+// Robust section regexes: case-insensitive, tolerant of whitespace/variants
 function sectionRegex(titleVariants) {
-  // Esempio: ['Plan Snapshot'] o ['REQ-IDs Table']
+  // Example: ['Plan Snapshot'] or ['REQ-IDs Table']
   const escaped = titleVariants.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
   const union = escaped.join('|');
-  // Cattura l'intestazione (## <title...>) e il contenuto fino al prossimo ## o fine file
+  // Capture the heading (## <title...>) and the content up to the next ## or end of file
   return new RegExp(
     `^(##\\s*(?:${union})\\b[^\n]*\\n)([\\s\\S]*?)(?=^##\\s|\\Z)`,
     'mi'
@@ -1777,41 +1601,41 @@ async function updatePlanMdInPlace(projectRootUri, plan) {
   const newSnapshot = renderSnapshotMd(ss);
   const newTable = renderReqTableMd(plan);
 
-  // Cerca le sezioni con regex robuste (accetta anche eventuali varianti di scrittura)
+  // Find the sections with robust regexes (also accepts spelling variants)
   const rxSnapshot = sectionRegex(['Plan Snapshot']);
   const rxTable = sectionRegex(['REQ-IDs Table', 'REQ IDs Table', 'REQ-IDs table']);
 
-  // Sostituisci o aggiungi Snapshot
+  // Replace or add Snapshot
   if (rxSnapshot.test(md)) {
     md = md.replace(rxSnapshot, (_, heading /*, body*/) => {
-      // Manteniamo la riga heading originale (per non cambiare maiuscole/spazi),
-      // sostituiamo solo il contenuto con quello nuovo (senza ripetere l’intestazione)
+      // Keep the original heading line (so case/whitespace do not change),
+      // replace only the content with the new one (without repeating the heading)
       const contentLines = newSnapshot.split('\n');
-      contentLines.shift(); // rimuovi "## Plan Snapshot"
+      contentLines.shift(); // remove "## Plan Snapshot"
       const content = contentLines.join('\n');
       return `${heading}${content}\n`;
     });
   } else {
-    // Non trovata → appenderla in cima
+    // Not found → prepend it at the top
     md = `${newSnapshot}\n${md}`;
   }
   log("test rxTable", rxTable.test(md));
-  // --- Tabella (logica identica alla tua updatePlanMdInPlace) ---
+  // --- Table (same logic as your updatePlanMdInPlace) ---
   const tableHeading = '## REQ-IDs Table';
   const headingIdx = md.indexOf(tableHeading);
 
   if (headingIdx !== -1) {
-    // md = [prima della tabella] + [tabella e resto]
+    // md = [before the table] + [table and the rest]
     const before = md.slice(0, headingIdx);
     const after = md.slice(headingIdx);
 
-    // Nel blocco "after", troviamo dove finisce la tabella
-    // e dove iniziano le Acceptance già presenti.
+    // In the "after" block, find where the table ends
+    // and where the existing Acceptance sections start.
     const idxAcceptance = after.indexOf('\n### Acceptance');
     const idxNextSection = after.indexOf('\n## ', tableHeading.length);
 
-    // Se c'è una sezione "### Acceptance — REQ-001", usiamo quella come fine della tabella.
-    // Altrimenti, come fallback, usiamo il prossimo "## " oppure la fine del file.
+    // If there is a "### Acceptance — REQ-001" section, use it as the end of the table.
+    // Otherwise, as a fallback, use the next "## " or the end of the file.
     let cut;
     if (idxAcceptance !== -1) {
       cut = idxAcceptance;
@@ -1821,12 +1645,12 @@ async function updatePlanMdInPlace(projectRootUri, plan) {
       cut = after.length;
     }
 
-    // Inseriamo la tabella nuova (newTable include già "## REQ-IDs Table")
-    // e manteniamo tutto ciò che viene dopo (Acceptance, Dependency Graph, ecc.).
+    // Insert the new table (newTable already includes "## REQ-IDs Table")
+    // and keep everything that follows (Acceptance, Dependency Graph, etc.).
     const afterTail = after.slice(cut);
     md = `${before}${newTable}${afterTail}`;
   } else {
-    // Se non esiste ancora la sezione, la appendiamo in fondo
+    // If the section does not exist yet, append it at the end
     md = `${md}\n\n${newTable}`;
   }
   
@@ -1835,10 +1659,10 @@ async function updatePlanMdInPlace(projectRootUri, plan) {
 
 
 function extractUserMessages(sessionData) {
-    // 1. Filtra l'array per mantenere solo gli elementi con role 'user'.
+    // 1. Filter the array to keep only elements with role 'user'.
     const userMessages = sessionData.filter(log => log.role === 'user');
 
-    // 2. Mappa l'array filtrato in un nuovo array con solo i campi 'role' e 'content'.
+    // 2. Map the filtered array to a new array with only the 'role' and 'content' fields.
     const formattedMessages = userMessages.map(log => ({
         role: log.role,
         content: log.content
@@ -1869,7 +1693,6 @@ function defaultCoreForPhase(phase) {
 }
 
 
-
 function getProjectId() {
    // --- project_id: derive from workspace folder name ---
   try {
@@ -1885,33 +1708,32 @@ function getProjectId() {
   }
 }
 
-// Converte l'argomento utente in un path LTC.json
+// Convert the user argument into an LTC.json path
 async function resolveProfilePath(arg, workspaceRoot) {
-  const rootPath = (workspaceRoot && (workspaceRoot.fsPath || workspaceRoot.path)) || ".";
   const wsUri = workspaceRoot || vscode.workspace.workspaceFolders?.[0]?.uri;
 
-  // Se l'utente passa direttamente un .json, usalo
+  // If the user passes a .json directly, use it
   if (typeof arg === "string" && arg.trim().toLowerCase().endsWith(".json")) {
     return arg.trim();
   }
 
-  // Se è un REQ-ID tipo REQ-123 → runs/kit/REQ-123/LTC.json (o .../ci/LTC.json se è lì)
+  // If it is a REQ-ID like REQ-123 → runs/kit/REQ-123/LTC.json (or .../ci/LTC.json if it is there)
   if (typeof arg === "string" && /^REQ-\d+$/i.test(arg.trim())) {
     const p1 = `runs/kit/${arg.trim()}/LTC.json`;
     const p2 = `runs/kit/${arg.trim()}/ci/LTC.json`;
-    // Verifica esistenza p1 o p2 (best effort)
+    // Check whether p1 or p2 exists (best effort)
     try {
       const uri1 = vscode.Uri.joinPath(wsUri, p1);
       await vscode.workspace.fs.stat(uri1);
       return p1;
     } catch (_) {
-      // p1 non esiste, prova p2
+      // p1 does not exist, try p2
       try {
         const uri2 = vscode.Uri.joinPath(wsUri, p2);
         await vscode.workspace.fs.stat(uri2);
         return p2;
       } catch (_) {
-        // nessuno dei due, restituisci p1 di default (orchestrator potrà fallire con errore chiaro)
+        // neither exists, return p1 by default (the orchestrator will fail with a clear error)
         return p1;
       }
     }
@@ -1933,7 +1755,7 @@ function getProjectNameFromWorkspace() {
   const uri = getWorkspaceRootUri();
   if (!uri || uri.scheme !== 'file') return null;
   const fsPath = uri.fsPath;
-  return path.basename(fsPath); // solo nome cartella
+  return path.basename(fsPath); // folder name only
 }
 
 async function readWorkspaceFileBytes(pathInWs) {
@@ -1953,16 +1775,6 @@ async function readWorkspaceFileBytes(pathInWs) {
   }
 }
 
-
-// Decode base64 to UTF-8 (text-ish), returns null for binary/invalid.
-function decodeTextBase64Safe(b64) {
-  try {
-    const buf = Buffer.from(b64, 'base64');
-    const txt = buf.toString('utf8');
-    if (/\x00/.test(txt)) return null;
-    return txt;
-  } catch { return null; }
-}
 
 // Build items for /v1/rag/index from rag_files (path -> text OR bytes_b64)
 // Extensions whose raw bytes carry no useful TEXT to index in RAG (images,
@@ -2041,7 +1853,6 @@ async function buildRagItemsForIndex(rag_files, out) {
 // Read a workspace-relative OR absolute text file (UTF-8). Returns null if binary/failed.
 async function readWorkspaceTextFile(pathInWs, out) {
   try {
-    const dbg = mkLog(out);
     const ws = vscode.workspace.workspaceFolders?.[0];
     if (!ws) return null;
 
@@ -2093,9 +1904,6 @@ async function preIndexRag(projectId, rag_files, url, out, options = {}) {
 }
 
 
-
-
-
 // Approximate bytes from base64 length (good enough for thresholds)
 function bytesFromBase64Len(b64) {
   if (!b64) return 0;
@@ -2140,7 +1948,7 @@ function base64FromAny(a) {
 
 async function getFileSizeBytes(filePath) {
   try {
-    // se è relativo, risolvilo nel workspace
+    // if it is relative, resolve it within the workspace
     const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
     const absPath = path.isAbsolute(filePath)
       ? filePath
@@ -2157,7 +1965,7 @@ function normalizeChangedFiles(reportUri, promotedTargets) {
   if (reportUri) {
     try { list.push(toFsPath(reportUri)); } catch { list.push(String(reportUri)); }
   }
-  // promotedTargets può essere array di path o stringa con virgole
+  // promotedTargets can be an array of paths or a comma-separated string
   const toArray = (val) => {
     if (!val) return [];
     if (Array.isArray(val)) return val;
@@ -2208,15 +2016,15 @@ async function httpPostJsonLong(url, { headers, body }, timeoutMs) {
 function logCurrentTimeStandard(activity) {
     const now = new Date();
 
-    // Estrae i componenti (ore, minuti, secondi)
+    // Extract the components (hours, minutes, seconds)
     const hours = now.getHours().toString().padStart(2, '0');
     const minutes = now.getMinutes().toString().padStart(2, '0');
     const seconds = now.getSeconds().toString().padStart(2, '0');
     
-    // Opzionale: aggiunge i millisecondi
+    // Optional: add milliseconds
     const milliseconds = now.getMilliseconds().toString().padStart(3, '0');
 
-    // Costruisce il log
+    // Build the log
     const timeString = `${hours}:${minutes}:${seconds}.${milliseconds}`;
     
     log(`Clike Time:[${timeString}] --> [${activity}]`);

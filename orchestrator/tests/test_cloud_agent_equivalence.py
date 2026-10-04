@@ -1,0 +1,76 @@
+"""Cloud vs local-agent equivalence per phase (WP8.9).
+
+For each phase, the cloud path (active output contract used to compose the prompt and validate the
+model output) and the local-agent path (contract + package handed to Claude Code / Codex) must ask
+for the same outputs. Where they already agree the test requires equality; where they diverge
+today the divergence is recorded below and pinned, so any new drift fails and reconciling a phase
+means deleting its entry (post-WP improvement round, see the private WP8 report §8).
+"""
+
+import json
+import sys
+from pathlib import Path
+
+ORCHESTRATOR_ROOT = Path(__file__).resolve().parents[1]
+if str(ORCHESTRATOR_ROOT) not in sys.path:
+    sys.path.insert(0, str(ORCHESTRATOR_ROOT))
+
+from services.cloud_prompt.active_output_contract import build_active_output_contract as cloud_contract  # noqa: E402
+from services.local_agent_package import _DOCUMENT_PHASE_SPECS, _path_accepted  # noqa: E402
+from services.methodologies.active_output_contract import build_active_output_contract as local_contract  # noqa: E402
+
+SNAPSHOTS = ORCHESTRATOR_ROOT / "tests/golden/snapshots"
+REQ = "REQ-001"
+
+# phase -> (cloud required outputs, local-agent required outputs), as of WP8 (0.9.6).
+KNOWN_DIVERGENCES = {
+    "kit": (
+        [f"runs/kit/{REQ}/docs/TARGET_CONTRACT.json", f"runs/kit/{REQ}/docs/FILE_REQUIREMENTS.json",
+         f"runs/kit/{REQ}/docs/README_{REQ}.md", f"runs/kit/{REQ}/docs/KIT_{REQ}.md",
+         f"runs/kit/{REQ}/ci/LTC.json", f"runs/kit/{REQ}/ci/HOWTO.md"],
+        [f"runs/kit/{REQ}/src/**", f"runs/kit/{REQ}/test/**", f"runs/kit/{REQ}/ci/**",
+         f"runs/kit/{REQ}/docs/TARGET_CONTRACT.json", f"runs/kit/{REQ}/docs/FILE_REQUIREMENTS.json"],
+    ),
+    "eval": ([], [f"runs/kit/{REQ}/reports/BMAD_EVAL_REPAIR_NOTES.md"]),
+    "finalize": (
+        ["README.md", "docs/harper/HOWTO_RUN.md", "docs/harper/RELEASE_NOTES.md", "docs/harper/SANITY_CHECKS.md",
+         "docs/harper/TODO_NEXT.md", "docs/harper/PR_BODY.md"],
+        [],
+    ),
+}
+
+
+def _required(phase):
+    cloud = cloud_contract(phase=phase, runner="cloud", methodology_context=None, req_id=REQ, file_requirements=None)
+    local = local_contract(phase=phase, runner="local_agent", methodology_context=None, req_id=REQ)
+    return list(cloud.get("required_outputs") or []), list(local.get("required_outputs") or [])
+
+
+def _local_package(phase):
+    data = json.loads((SNAPSHOTS / f"{phase}__local__native.json").read_text(encoding="utf-8"))
+    return data["output"]["local_agent"]
+
+
+def test_document_phases_ask_for_the_same_outputs_on_both_paths():
+    for phase in ("idea", "spec", "plan"):
+        cloud, local = _required(phase)
+        assert cloud == local, phase
+        package = _local_package(phase)
+        always = package["expected_outputs"]["always"]
+        assert always == _DOCUMENT_PHASE_SPECS[phase]["output_contract"]["always"]
+        # every concrete required output is writable by the agent and accepted back by the orchestrator
+        for path in always:
+            assert any(path == root or path.startswith(root.rstrip("/") + "/") for root in package["allowed_write_roots"]), path
+            assert _path_accepted(phase, path), path
+
+
+def test_known_divergences_are_pinned():
+    for phase, expected in KNOWN_DIVERGENCES.items():
+        assert _required(phase) == expected, f"{phase}: cloud/agent outputs changed; update or reconcile"
+
+
+def test_phases_without_a_divergence_entry_are_equivalent():
+    for phase in ("idea", "spec", "plan", "extend"):
+        assert phase not in KNOWN_DIVERGENCES
+        cloud, local = _required(phase)
+        assert cloud == local, phase

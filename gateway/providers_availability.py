@@ -94,10 +94,6 @@ async def provider_availability(*, use_cache: bool = True) -> Dict[str, object]:
     return data
 
 
-def cloud_key_env(provider: str) -> str | None:
-    return _CLOUD_KEY_ENV.get((provider or "").strip().lower())
-
-
 def model_availability(provider: str, availability: Dict[str, object]) -> Tuple[bool, str]:
     """Resolve availability for one model's provider against a computed snapshot.
 

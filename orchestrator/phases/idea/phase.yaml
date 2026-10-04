@@ -1,0 +1,67 @@
+# Harper phase definition (WP8.3). Data only: loaded by services/phase_definitions.py.
+# Key order is significant (it is preserved in the JSON written for the agent).
+# accepted_result_paths: fnmatch patterns ("*" also crosses "/") a local-agent result may contain.
+phase: idea
+local_agent:
+  schema_version: clike.agent.idea_context.v1
+  title: IDEA
+  allowed_write_roots:
+  - docs/harper/IDEA.md
+  required_reads:
+  - current-run attachments listed in this package context (the ONLY source of truth for /idea)
+  - Harper chat history only to clarify user intent, never as a source document
+  - .clike/project.json when present (project metadata only, not idea source)
+  output_contract:
+    always:
+    - docs/harper/IDEA.md
+    conditional: []
+  mission:
+    purpose: Synthesize a concise, testable canonical Harper IDEA.md strictly from current-run attachments and chat intent.
+    canonical_output: docs/harper/IDEA.md
+  hard_rules:
+  - Write only docs/harper/IDEA.md. Do not write any other docs/harper path.
+  - docs/harper/IDEA.md must start with `# IDEA — <Project Name>`.
+  - 'Use the canonical IDEA schema headings exactly once and in order: Vision, Problem Statement, Target Users & Context, Value & Outcomes, Out of Scope, Technology Constraints, Risks & Assumptions, Success Metrics.'
+  - Technology Constraints must contain exactly one valid fenced YAML block.
+  - Use ONLY the current-run attachments listed in this package as /idea source material.
+  - 'Do not read or reuse stale workspace files: do not read ORI.IDEA.md, prior IDEA* variants, stale .clike/uploads files, or prior-session files unless they are explicitly listed in the current attachment manifest.'
+  - Treat any existing docs/harper/IDEA.md only as the overwrite target, never as a source of truth.
+  - 'Attachment-first: do not invent facts, vendors, APIs, endpoints, project keys, or frameworks.'
+  - Do not hallucinate a stack (Python, Node, cloud provider, database, queue, UI framework, IaC tool, deployment target) unless evidenced.
+  - Keep IDEA.md concise and downstream-ready; it is not a PRD, architecture doc, or SPEC draft.
+  - Do not run git commands.
+  - Do not modify src/, test/, tests/, runs/kit/, runs/eval/, or runs/gate/.
+  validation_expectations:
+  - docs/harper/IDEA.md exists after the change.
+  - It starts with `# IDEA — <Project Name>`.
+  - Every canonical heading appears exactly once and in order.
+  - Technology Constraints contains exactly one valid fenced YAML block.
+  - No template markers (BEGIN_FILE/END_FILE) or placeholders remain in file content.
+  prompt_lines:
+  - 'Mission:'
+  - '- Produce the canonical docs/harper/IDEA.md for this idea.'
+  - '- Use attachments as the primary source of truth; use chat only to clarify intent.'
+  - '- Mark estimated values as explicit assumptions; never invent vendors, endpoints, or frameworks.'
+  - ''
+  - 'Canonical IDEA.md schema (headings exactly once, in this order):'
+  - '- `# IDEA — <Project Name>` as the first line.'
+  - '- ## Vision'
+  - '- ## Problem Statement'
+  - '- ## List of business requirements or user stories'
+  - '- ## Target Users & Context'
+  - '- ## Value & Outcomes'
+  - '- ## Out of Scope'
+  - '- ## Technology Constraints (exactly one valid fenced YAML block)'
+  - '- ## Risks & Assumptions'
+  - '- ## Success Metrics'
+  - ''
+  - 'Allowed writes:'
+  - '- docs/harper/IDEA.md (only)'
+canonical_expectations:
+- '# IDEA — <Project Name>'
+- Attachment-first
+- Technology Constraints contains exactly one valid fenced YAML block
+- Every primary heading in the canonical schema appears exactly once and in order
+- No `BEGIN_FILE`, `END_FILE`, unresolved placeholders, or prompt template text
+accepted_result_paths:
+- docs/harper/IDEA.md

@@ -1,19 +1,18 @@
 // extension.js — Clike Orchestrator+Gateway integration GOOGDDDD
 const vscode = require('vscode');
 const out = vscode.window.createOutputChannel('Clike.telemetry');
-const fs = require('fs');
 
 /**
- * Funzione di logging personalizzata che scrive su entrambi i canali.
- * @param {...any} args Messaggi o oggetti da loggare.
+ * Custom logging function that writes to both channels.
+ * @param {...any} args Messages or objects to log.
  */
 function log(...args) {
-    // 1. Log nella console standard per il debug.
+    // 1. Log to the standard console for debugging.
     console.log(...args); 
     
-    // 2. Log nel canale di output di VS Code.
+    // 2. Log to the VS Code output channel.
     out.appendLine(args.map(arg => {
-        // Converte ogni argomento in stringa per l'output.
+        // Convert each argument to a string for output.
         if (typeof arg === 'object' && arg !== null) {
             return JSON.stringify(arg, null, 2);
         }
@@ -24,15 +23,12 @@ function log(...args) {
 
 // --- Telemetry helpers (VS Code side) ---------------------------------------
 function telemetryProjectDirUri(wsroot, projectId) {
-  // cartella client-side per esplorazione e UI locali
+  // client-side folder for local exploration and UI
   return vscode.Uri.joinPath(wsroot, '.clike', 'telemetry', String(projectId || 'default'));
 }
-function telemetryRunFileUri(wsroot, runId, phase) {
-  // mirror dello schema Harper ufficiale (per compat): runs/<runId>/telemetry.json
-  return vscode.Uri.joinPath(wsroot, 'runs', String(runId || 'unknown'), 'telemetry.json');
-}
+
 function telemetryAppendFileUri(wsroot, projectId) {
-  // append-only, utile per grafici/aggregazioni veloci lato UI
+  // append-only, handy for quick charts/aggregations on the UI side
   const d = new Date();
   const y = String(d.getUTCFullYear());
   const m = String(d.getUTCMonth()+1).padStart(2,'0');
@@ -43,18 +39,12 @@ async function ensureDirUri(dir) {
   try { await vscode.workspace.fs.createDirectory(dir); } catch {}
 }
 
-async function writeJsonUri(uri, obj) {
-  const enc = Buffer.from(JSON.stringify(obj, null, 2), 'utf8');
-  await ensureDirUri(vscode.Uri.joinPath(uri, '..'));
-  try { await vscode.workspace.fs.writeFile(uri, enc); }
-  catch (e) { vscode.window.showWarningMessage(`Telemetry write failed: ${e?.message||e}`); }
-}
 
 async function appendLineUri(uri, line) {
   const enc = Buffer.from(line + '\n', 'utf8');
   await ensureDirUri(vscode.Uri.joinPath(uri, '..'));
   try {
-    // append robusto (read+concat) per compatibilità
+    // robust append (read+concat) for compatibility
     const exists = await vscode.workspace.fs.stat(uri).then(()=>true).catch(()=>false);
     if (exists) {
       const old = await vscode.workspace.fs.readFile(uri);
@@ -68,15 +58,15 @@ async function appendLineUri(uri, line) {
 }
 
 /**
- * Persisti due forme:
- *  1) runs/<runId>/telemetry.json (overwrite idempotente per singolo run/phase)
- *  2) .clike/telemetry/<projectId>/<YYYY-MM>.jsonl (append-only per grafici)
+ * Persist two forms:
+ *  1) runs/<runId>/telemetry.json (idempotent overwrite per single run/phase)
+ *  2) .clike/telemetry/<projectId>/<YYYY-MM>.jsonl (append-only for charts)
  */
 async function persistTelemetryVSCode(wsroot, projectId, runId, phase, telemetryLikeObj) {
 
   if (!wsroot || !telemetryLikeObj) return;
   log(`persistTelemetryVSCode(${projectId}, ${runId}, ${phase} len=${Object.keys(telemetryLikeObj).length})`);
-  // normalizza per sicurezza
+  // normalize for safety
   const t = {
     project_id: projectId,
     run_id: runId,
@@ -86,12 +76,8 @@ async function persistTelemetryVSCode(wsroot, projectId, runId, phase, telemetry
   };
 
              
-  // // (1) file deterministico per evitare duplicati
-  // const runFile = telemetryRunFileUri(wsroot, runId, phase);
-  // log(`persistTelemetryVSCode: writing ${runFile.fsPath}`);
-  // await writeJsonUri(runFile, t);
 
-  // (2) stream append-only per dashboard
+  // (2) append-only stream for dashboards
   const line = JSON.stringify({
     project_id: projectId,
     run_id: runId,

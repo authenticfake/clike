@@ -54,7 +54,6 @@ def _load_harper_route():
 
 harper = _load_harper_route()
 contracts = _load_gateway_module("harper_kit_fixture_contracts", "utils/active_output_contract.py")
-methodology_prompt = _load_gateway_module("harper_kit_fixture_methodology_prompt", "utils/methodology_prompt.py")
 
 
 def _kit_file_requirements():
@@ -153,30 +152,6 @@ def _raw_fixture_text() -> str:
     return payload["llm_result"]["text"]
 
 
-def test_prompt_debug_fixture_reproduces_old_missing_kit_required_output_guidance():
-    payload = json.loads(PROMPT_FIXTURE.read_text(encoding="utf-8"))
-    prompt_text = "\n\n".join(item.get("content") or "" for item in payload["messages"])
-
-    assert payload["phase"] == "kit"
-    assert payload["targets"] == ["REQ-001"]
-    assert payload["methodology_context"]["methodology"] == "bmad"
-    assert payload["methodology_context"]["agent"] == "developer"
-    assert "TARGET_CONTRACT.json" in payload["core_blob_keys"]
-    assert "FILE_REQUIREMENTS.json" in payload["core_blob_keys"]
-    assert payload.get("selected_skill_references") == []
-    assert payload["methodology_context"].get("selected_skill_references") == []
-    assert "TARGET_CONTRACT.json is authoritative" in prompt_text
-    assert "Mandatory completion protocol" in prompt_text
-    assert "ACTIVE KIT REQUIRED OUTPUTS" not in prompt_text
-    assert "If any is missing, Gateway will reject the entire KIT response." not in prompt_text
-    assert "runs/kit/REQ-001/docs/TARGET_CONTRACT.json" not in prompt_text
-    assert "runs/kit/REQ-001/docs/FILE_REQUIREMENTS.json" not in prompt_text
-    assert "runs/kit/REQ-001/docs/BMAD_DEV_STORY.md" not in prompt_text
-    assert "runs/kit/REQ-001/docs/IMPLEMENTATION_NOTES.md" not in prompt_text
-    assert "runs/kit/REQ-001/docs/SELF_REVIEW.md" not in prompt_text
-    assert "runs/kit/REQ-001/docs/RUNBOOK.md" not in prompt_text
-
-
 def test_raw_fixture_extracts_old_kit_files_offline_without_llm():
     files, remainder = harper._extract_file_blocks(_raw_fixture_text(), phase="kit")
     files = harper._dedupe_by_path(files)
@@ -195,100 +170,3 @@ def test_raw_fixture_reproduces_missing_required_outputs_offline():
     assert result["missing_required_outputs"] == EXPECTED_MISSING
 
 
-def test_current_bmad_kit_prompt_renders_all_p0_required_outputs():
-    contract = _bmad_developer_contract()
-    rendered = methodology_prompt.render_methodology_context_for_cloud_prompt(
-        _bmad_developer_context(),
-        active_output_contract=contract,
-    )
-
-    assert "### ACTIVE KIT REQUIRED OUTPUTS" in rendered
-    assert "If any is missing, Gateway will reject the entire KIT response." in rendered
-    assert "These files are P0 mandatory outputs." in rendered
-    assert "Emit them before optional extras." in rendered
-    assert "If token budget is tight, reduce prose and optional code comments, but never omit required outputs." in rendered
-    assert "BMAD companion docs are advisory and do not override canonical CLike contracts" in rendered
-    assert "TARGET_CONTRACT.json and FILE_REQUIREMENTS.json must be emitted under the KIT docs root" in rendered
-    assert "Do not emit outside runs/kit/REQ-001/" in rendered
-    for path in EXPECTED_MISSING:
-        assert path in rendered
-
-
-def test_real_gateway_kit_prompt_composition_includes_active_required_outputs_before_debug():
-    messages = harper._compose_system_messages(
-        phase="kit",
-        idea_md=None,
-        core_blobs=_kit_core_blobs(),
-        profile_hint=None,
-        model_route_label=None,
-        run_id="test-run",
-        repo_url=None,
-        targets=["REQ-001"],
-        methodology_context=_bmad_developer_context(),
-    )
-    prompt_text = "\n\n".join(message["content"] for message in messages)
-
-    assert "### ACTIVE KIT REQUIRED OUTPUTS" in prompt_text
-    assert "### CLike Selected Capability Context" in prompt_text
-    assert "enterprise-onprem" in prompt_text
-    assert "secure-config-secrets" in prompt_text
-    assert "local-cloud-parity" in prompt_text
-    assert "backend-contract-boundary" in prompt_text
-    assert "eval-contract-writer" in prompt_text
-    assert "### BMAD Skill Reference Context" in prompt_text
-    assert "dev-story-execution" in prompt_text
-    assert "story-readiness" in prompt_text
-    assert "## Namespace Materialization" in prompt_text
-    assert "Do not create `src/coffeebuddy.runtime`" in prompt_text
-    assert "If any is missing, Gateway will reject the entire KIT response." in prompt_text
-    for path in [
-        *EXPECTED_MISSING,
-        "runs/kit/REQ-001/docs/README_REQ-001.md",
-        "runs/kit/REQ-001/docs/KIT_REQ-001.md",
-        "runs/kit/REQ-001/ci/LTC.json",
-        "runs/kit/REQ-001/ci/HOWTO.md",
-    ]:
-        assert path in prompt_text
-
-
-def test_real_gateway_kit_prompt_composition_tolerates_flat_selected_capability_context():
-    core_blobs = _kit_core_blobs()
-    core_blobs["CLIKE_SELECTED_CAPABILITY_CONTEXT.json"] = json.dumps(
-        {
-            "schema_version": "legacy",
-            "selected_packs": ["enterprise-onprem"],
-            "selected_skills": ["backend-contract-boundary", "eval-contract-writer"],
-            "selected_design_profiles": [],
-        }
-    )
-    messages = harper._compose_system_messages(
-        phase="kit",
-        idea_md=None,
-        core_blobs=core_blobs,
-        profile_hint=None,
-        model_route_label=None,
-        run_id="test-run",
-        repo_url=None,
-        targets=["REQ-001"],
-        methodology_context=None,
-    )
-    prompt_text = "\n\n".join(message["content"] for message in messages)
-
-    assert "### CLike Selected Capability Context" in prompt_text
-    assert "enterprise-onprem" in prompt_text
-    assert "backend-contract-boundary" in prompt_text
-    assert "eval-contract-writer" in prompt_text
-    assert "BMAD Skill Reference Context" not in prompt_text
-
-
-def test_native_kit_contract_does_not_require_bmad_developer_docs():
-    contract = contracts.build_active_output_contract(
-        phase="kit",
-        runner="cloud",
-        req_id="REQ-001",
-        file_requirements=_kit_file_requirements(),
-    )
-
-    assert "runs/kit/REQ-001/docs/TARGET_CONTRACT.json" in contract["required_outputs"]
-    assert "runs/kit/REQ-001/docs/FILE_REQUIREMENTS.json" in contract["required_outputs"]
-    assert "runs/kit/REQ-001/docs/BMAD_DEV_STORY.md" not in contract["required_outputs"]
