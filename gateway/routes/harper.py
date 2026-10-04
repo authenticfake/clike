@@ -32,12 +32,9 @@ from utils.methodology_prompt import (
     render_current_canonical_validation_for_cloud_prompt,
     render_methodology_context_for_cloud_prompt,
 )
-from routes.chat import ANTHROPIC_API_KEY, ANTHROPIC_BASE, DEEPSEEK_BASE, OLLAMA_BASE, OPENAI_API_KEY, DEEPSEEK_API_KEY, OPENAI_BASE, VLLM_BASE, _json
+from routes.chat import ANTHROPIC_API_KEY, ANTHROPIC_BASE, OLLAMA_OPENAI_BASE, OPENAI_API_KEY, OPENAI_BASE, _json
 from providers import openai_compat as oai
 from providers import anthropic as anth
-from providers import deepseek as deepseek
-from providers import ollama as oll
-from providers import vllm as vll
 import yaml
 import mimetypes
 from pricing import PricingManager  # [pricing]
@@ -3038,16 +3035,16 @@ async def run(req: HarperRunRequest,  request: Request):
                 raise HTTPException(401, "missing OpenAI api key")
             llm_text = await oai.openai_complete_unified(api_key=OPENAI_API_KEY, model=model, messages=messages, gen=req.gen, timeout_s=timeout_sec)
             
-        elif provider == "deepseek":
-            if not DEEPSEEK_API_KEY:
-                raise HTTPException(401, "missing OpenAI api key")
-
-            llm_text = await deepseek.chat(DEEPSEEK_API_KEY, DEEPSEEK_BASE, model, messages, gen_temperature, eff_max, gen_top_p)  
-
-        elif provider == "vllm":
-            llm_text =  await vll.chat(VLLM_BASE, model, messages, gen_temperature, eff_max, gen_response_format, gen_tools, gen_tool_choice, gen_top_p)
         elif provider == "ollama":
-            llm_text =  await oll.chat(OLLAMA_BASE, model, messages, gen_temperature, eff_max, gen_top_p)   
+            # D3: Ollama through its OpenAI-compatible API (chat completions).
+            llm_text = await oai.openai_complete_unified(
+                api_key="ollama",
+                model=model,
+                messages=messages,
+                gen={**(req.gen or {}), "api": "chat", "max_tokens": eff_max},
+                timeout_s=timeout_sec,
+                base_url=OLLAMA_OPENAI_BASE,
+            )
 
         elif provider == "anthropic":
             if not ANTHROPIC_API_KEY:

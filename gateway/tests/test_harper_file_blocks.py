@@ -78,12 +78,9 @@ def _install_route_import_stubs():
     for name in [
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_BASE",
-        "DEEPSEEK_BASE",
-        "OLLAMA_BASE",
+        "OLLAMA_OPENAI_BASE",
         "OPENAI_API_KEY",
-        "DEEPSEEK_API_KEY",
         "OPENAI_BASE",
-        "VLLM_BASE",
     ]:
         setattr(chat, name, "")
     chat._json = lambda value: value
@@ -95,7 +92,7 @@ def _install_route_import_stubs():
 
     providers = types.ModuleType("providers")
     sys.modules.setdefault("providers", providers)
-    for provider_name in ["openai_compat", "anthropic", "deepseek", "ollama", "vllm"]:
+    for provider_name in ["openai_compat", "anthropic"]:
         module_name = f"providers.{provider_name}"
         provider_module = types.ModuleType(module_name)
         setattr(providers, provider_name, provider_module)

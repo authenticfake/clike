@@ -37,42 +37,6 @@ models:
     context_window: 8192
     tags: [embeddings, local]
 
-  - id: deepseek:deepseek-coder-v2
-    name: deepseek-coder
-    provider: deepseek
-    base_url: https://api.deepseek.com/v1
-    remote_name: deepseek-coder-v2
-    modality: chat
-    capability: high
-    latency: medium
-    cost: low
-    api_key_env: DEEPSEEK_API_KEY
-    pricing:
-      input_per_1k: 0.00014
-      output_per_1k: 0.00028
-    privacy: low
-    enabled: false
-    context_window: 128000
-    tags: [cheap, coding]
-
-  - id: deepseek:deepseek-chat
-    name: deepseek-chat
-    provider: deepseek
-    base_url: https://api.deepseek.com/v1
-    remote_name: deepseek-chat
-    api_key_env: DEEPSEEK_API_KEY
-    modality: chat
-    capability: high
-    latency: medium
-    cost: medium
-    pricing:
-      input_per_1k: 0.00017
-      output_per_1k: 0.00034
-    privacy: low
-    enabled: false
-    context_window: 128000
-    tags: [cheap]
-
   - id: openai:gpt-5.5-pro
     name: gpt-5.5-pro
     provider: openai
@@ -353,6 +317,44 @@ models:
     enabled: false
     tags: [quality, reasoning]
 
+  # Claude 5.5 generation (2026). These models reject non-default sampling parameters and
+  # forced tool_choice; the gateway's Anthropic provider omits/adapts them automatically.
+  - id: anthropic:claude-sonnet-5-5
+    name: claude-sonnet-5-5
+    provider: anthropic
+    base_url: https://api.anthropic.com/v1
+    remote_name: claude-sonnet-5-5
+    api_key_env: ANTHROPIC_API_KEY
+    modality: chat
+    capability: high
+    latency: medium
+    cost: medium
+    pricing:
+      input_per_1k: 0.002
+      output_per_1k: 0.010
+    context_window: 1000000
+    privacy: low
+    enabled: true
+    tags: [quality, coding]
+
+  - id: anthropic:claude-opus-5-5
+    name: claude-opus-5-5
+    provider: anthropic
+    base_url: https://api.anthropic.com/v1
+    remote_name: claude-opus-5-5
+    api_key_env: ANTHROPIC_API_KEY
+    modality: chat
+    capability: frontier
+    latency: medium
+    cost: high
+    pricing:
+      input_per_1k: 0.004
+      output_per_1k: 0.020
+    context_window: 1000000
+    privacy: low
+    enabled: true
+    tags: [quality, reasoning]
+
 profiles:
   plan.fast:
     model: openai:gpt-5.4-mini
@@ -375,11 +377,6 @@ profiles:
     model: ollama:llama4
     select:
       any_tags: [local, coding]
-
-  cloud.codegen:
-    model: deepseek:deepseek-coder-v2
-    select:
-      any_tags: [coding]
 
 routing:
   idea: plan.fast
