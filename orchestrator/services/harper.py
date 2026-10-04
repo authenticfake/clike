@@ -62,6 +62,7 @@ from utils.namespace_paths import (
     python_module_boundary_to_package_path,
 )
 from services import gateway_http
+from services.phase_context import PhaseContext
 from utils.safe_paths import resolve_within, validate_req_id
 from services import gate_integrity
 log = logging.getLogger("service.router")
@@ -99,6 +100,10 @@ async def _post_json(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         len(payload.get("core") or []),
         len(payload.get("attachments") or []),
     )
+    if rel_path == "/v1/harper/run":
+        # WP8.4: the wire core_blobs are produced by the typed PhaseContext (identical bytes and
+        # order); malformed blobs fail here instead of as a gateway 422.
+        payload = {**payload, "core_blobs": PhaseContext.from_payload(payload).to_core_blobs()}
     TIMEOUT = float(os.environ.get("TIMEOUT", 980.0))
     # Shared pooled client with connect retries (WP7.12).
     r = await gateway_http.post(url, json=payload, timeout=TIMEOUT)
