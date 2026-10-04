@@ -38,6 +38,22 @@ class RunIdTests(unittest.TestCase):
             rid = self._run(value)
             self.assertRegex(rid, r"^spec-[0-9a-f]{12}$", repr(value))
 
+    def test_null_flags_are_normalized(self):
+        seen = {}
+
+        async def capture(path, payload):
+            seen.update(payload)
+            return {"ok": True, "phase": "spec", "files": [], "runId": payload.get("runId")}
+
+        async def no_selection(**_kw):
+            return {}
+
+        with patch.object(harper, "_post_json", side_effect=capture), patch.object(
+            harper, "resolve_llm_selection", side_effect=no_selection
+        ), patch.object(harper, "resolve_execution_policy", return_value=POLICY):
+            asyncio.run(harper.run_phase("spec", {"runId": "r", "flags": None, "messages": []}))
+        self.assertEqual(seen["flags"], {})
+
     def test_given_run_id_is_kept(self):
         self.assertEqual(self._run("run-42"), "run-42")
 

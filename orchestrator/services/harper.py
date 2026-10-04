@@ -2056,7 +2056,8 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
     merged: Dict[str, Any] = dict(payload or {})
     merged["phase"] = phase
     merged.setdefault("cmd", phase)
-    merged.setdefault("flags", {})
+    if not isinstance(merged.get("flags"), dict):
+        merged["flags"] = {}  # model_dump() yields flags=None, which the gateway rejects (422)
     # A missing/blank runId used to travel as the literal string "None" (WP7.10).
     if not str(merged.get("runId") or "").strip() or str(merged.get("runId")).strip() == "None":
         merged["runId"] = f"{phase}-{uuid.uuid4().hex[:12]}"
