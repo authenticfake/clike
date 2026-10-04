@@ -2,6 +2,33 @@
 
 All notable changes to CLike. Extension, orchestrator and gateway share one version.
 
+## [Unreleased] — towards 0.9.5 (M2)
+
+### ⚠️ Breaking changes
+
+- `/v1/gate/check` no longer accepts manual verdicts (`mode=manual`): use the new
+  `POST /v1/gate/override` (reason required, audited). The extension does this for
+  `/gate <REQ> manual pass`.
+- Eval/gate refuse to run when the REQ acceptance surface changed after it was locked; re-run
+  `/kit` to re-baseline.
+
+### Added
+
+- Acceptance lock and tamper detection for `runs/kit/<REQ>/test/**` and `ci/**`, taken before any
+  local-agent eval pre-pass; reports include an `integrity` section.
+- Audited gate override endpoint; overrides are reported as `OVERRIDE` and promoted only with an
+  audit id.
+- `eval-sandbox` service: eval/gate commands run without credentials, isolated from the gateway
+  and vector store, non-root on a read-only filesystem; optional offline mode
+  (`compose.eval-offline.yml`). Reports include `executor`.
+
+### Fixed
+
+- A passing gate reported `reason_code` `GATE_BLOCKED_STATUS_PASS` (now `GATE_PASS`).
+- A gate `mode` passed as a query parameter was ignored.
+- KIT stage artifacts were written to a non-persistent path in containers (`RUNS_DIR` now
+  `/app/runs`).
+
 ## [0.9.0] — 2026-10 — Milestone M1: safe to run
 
 Consolidation release: no new end-user features; security, correctness of Git operations,

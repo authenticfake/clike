@@ -7,6 +7,7 @@ The inspected `docker/docker-compose.yml` defines these services:
 - `gateway` on `127.0.0.1:8000`
 - `orchestrator` on `127.0.0.1:8080`
 - `qdrant` on `127.0.0.1:6333`
+- `eval-sandbox` — not published; executes eval/gate commands (see below)
 - `ollama` on `127.0.0.1:11434` — optional, only with `--profile ollama`
 
 All ports are published on loopback only. Set `CLIKE_PROJECTS_DIR` in `docker/.env`
@@ -39,6 +40,20 @@ Both run as the non-root user `clike` (uid 1000).
   projects dir read-only.
 There is no `--reload` in containers: rebuild the images after code changes.
 
+### Eval sandbox
+`eval-sandbox` runs the LTC commands of eval/gate (they are authored by models during `/kit`).
+It holds no credentials (it refuses to start if any are present), lives only on the dedicated
+`evalnet` network (it cannot reach the gateway or Qdrant), runs non-root on a read-only root
+filesystem with a tmpfs `/tmp`, all capabilities dropped and resource limits, and sees the
+projects directory read-only. Egress is allowed so that dependency installs work; for offline
+evaluation (dependencies already available) start the stack with:
+
+```bash
+podman-compose -f docker-compose.yml -f compose.eval-offline.yml up -d
+```
+
+Gate integrity state (acceptance locks, override audit log) lives in `docker/runs/state`.
+
 ### Ollama (optional)
 Started only with `podman-compose --profile ollama up -d`; an init container ensures `nomic-embed-text` is present.
 
@@ -60,6 +75,8 @@ Runs as the vector store backing RAG persistence.
 
 ### Eval / gate (orchestrator)
 - `DEV_FOLDER` — allowed root for eval/gate project roots (set from `CLIKE_PROJECTS_DIR`).
+- `CLIKE_EVAL_SANDBOX_URL` — eval sandbox endpoint (compose: `http://eval-sandbox:8090`; unset = in-process).
+- `CLIKE_STATE_DIR` — gate integrity state (compose: `/app/runs/state`).
 - `CLIKE_EVAL_ALLOWED_ROOTS` — additional allowed roots (path-separator list).
 - `CLIKE_ALLOW_INLINE_LTC` — `1` to accept inline-only LTC profiles (default: the workspace profile
   file is authoritative).

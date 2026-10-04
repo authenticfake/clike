@@ -182,6 +182,22 @@ Confinement rules (also for `/v1/gate/check`):
 - `profile` must stay inside the project root (`400` on traversal).
 - Eval commands run without credentials in their environment (API keys, `CLIKE_API_TOKEN`
   and any `*KEY*`/`*TOKEN*`/`*SECRET*`/`*PASSWORD*`-style variables are removed).
+- In containers the profile is executed by the `eval-sandbox` service (`CLIKE_EVAL_SANDBOX_URL`);
+  responses carry `executor: "sandbox" | "local"`.
+- **Acceptance integrity**: the REQ acceptance surface (`runs/kit/<REQ>/test/**` and `ci/**`) is
+  locked server-side the first time it is evaluated after a KIT generation. If files were removed
+  or modified, LTC checks removed/made non-blocking/changed, or skip markers added, eval and gate
+  do not run (`reason_code` `ACCEPTANCE_TAMPERED` / `GATE_BLOCKED_ACCEPTANCE_TAMPERED`). Responses
+  include an `integrity` object (`ok`, `anomalies`, `added`, `lock_digest`). A new `/kit`
+  re-baselines the lock.
+- `/v1/gate/check` rejects `mode=manual` (`400`): use `/v1/gate/override`.
+
+#### `POST /v1/gate/override`
+Developer override of a gate. Body: `project_root`, `project_name`, `req_id`, `reason`
+(≥ 10 characters), `author`. The project root is confined like eval/gate. The override is appended
+to an audit log (`CLIKE_STATE_DIR/audit/gate_overrides.jsonl`) with a digest of the REQ artifacts
+and returned with `status: "OVERRIDE"` (never `PASS`), `gate: "pass"` (promotable) and an
+`override` object (`audit_id`, `author`, `reason`, `at`, `artifacts`).
 
 #### `POST /v1/gate/check`
 Runs gate checks and promotion decisions.

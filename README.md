@@ -41,7 +41,7 @@ Models and agents execute.  Eval and Gate decide.
 | Version | Date | Milestone |
 |---|---|---|
 | **0.9.0** | 2026-10 | **M1 — safe to run**: authenticated services on loopback, confined file and process execution, non-destructive Git, reproducible builds, CI. See [CHANGELOG](CHANGELOG.md). |
-| 0.9.5 | planned | M2 — correct and governed: sandboxed gate, tamper-evident acceptance criteria, provider fixes |
+| 0.9.5 | in progress | M2 — correct and governed: sandboxed gate ✓, tamper-evident acceptance criteria ✓, audited overrides ✓; provider and functional fixes next |
 | 1.0.0 | planned | M3 — ready for evolution: typed phase contract, single source per phase definition |
 
 CLike is research software under active development. Interfaces may change between minor versions.
@@ -90,26 +90,24 @@ Details: [docs/agent-operating-model.md](docs/agent-operating-model.md).
 ## Architecture
 
 ```text
-                         trust boundary: loopback only, service token on every call
- ┌──────────────────────────┐        ┌──────────────────────────────┐        ┌───────────────────────────┐
- │ VS CODE EXTENSION        │ HTTPS/ │ ORCHESTRATOR  (FastAPI)       │        │ MODEL GATEWAY  (FastAPI)  │
- │ the only workspace writer│ token  │ Harper domain                 │ token  │ provider abstraction      │
- │                          │───────▶│ • phase contracts & packages  │───────▶│ • OpenAI / Anthropic      │──▶ cloud
- │ • chat UI, slash commands│        │ • execution policy            │        │ • OpenAI-compatible       │    providers
- │ • confined file writes   │◀───────│ • eval runner & gate          │◀───────│   (e.g. Ollama, optional) │
- │ • Git (non-destructive)  │        │ • RAG API      • MCP server   │        │ • embeddings, telemetry   │
- │ • local agent actuator ──┼──┐     └──────────────┬───────────────┘        └───────────────────────────┘
- │ • operational MCP (opt.) │  │                    │
- └──────────────────────────┘  │                    ▼
-                               │            ┌───────────────┐
-                               ▼            │ Qdrant        │
-                  ┌─────────────────────┐   │ vector store  │
-                  │ LOCAL CODING AGENTS │   └───────────────┘
-                  │ Claude Code · Codex │
-                  │ (own CLI session;   │
-                  │  write roots from   │
-                  │  the phase contract)│
-                  └─────────────────────┘
+                      trust boundary: loopback only · service token on every call
+┌───────────────────────────┐      ┌───────────────────────────────┐      ┌───────────────────────────┐
+│ VS CODE EXTENSION         │token │ ORCHESTRATOR (FastAPI)        │token │ MODEL GATEWAY (FastAPI)   │
+│ the only workspace writer │─────▶│ Harper domain                 │─────▶│ provider abstraction      │ ──▶ cloud providers
+│ • chat UI, slash commands │      │ • phase contracts & packages  │      │ • OpenAI / Anthropic      │
+│ • confined file writes    │◀─────│ • execution policy            │◀─────│ • OpenAI-compatible       │
+│ • Git (non-destructive)   │      │ • gate & acceptance integrity │      │   (e.g. Ollama, optional) │
+│ • local agent actuator    │      │ • RAG API · MCP server        │      │ • embeddings, telemetry   │
+│ • operational MCP (opt.)  │      │                               │      │                           │
+└───────────────────────────┘      └───────────────────────────────┘      └───────────────────────────┘
+              │                          │ evalnet               │
+              ▼                          ▼                       ▼
+┌───────────────────────────┐      ┌─────────────────────────┐  ┌──────────────┐
+│ LOCAL CODING AGENTS       │      │ EVAL SANDBOX            │  │ Qdrant       │
+│ Claude Code · Codex CLI   │      │ runs LTC checks;        │  │ vector store │
+│ own CLI session; write    │      │ no secrets, non-root,   │  └──────────────┘
+│ roots from the contract   │      │ read-only, isolated net │
+└───────────────────────────┘      └─────────────────────────┘
 ```
 
 | Component | Path | Responsibility |
@@ -134,8 +132,9 @@ CLike executes model-generated code and drives agents that write files, so secur
   no CORS.
 - **Confinement.** Paths from models, agents or requests are confined to their roots (workspace,
   run directory, telemetry); the extension is the only component that writes the workspace.
-- **Trusted evaluation inputs.** The gate executes the profile stored in the workspace, never one
-  supplied by the caller; eval commands run without credentials in their environment.
+- **Trusted, isolated evaluation.** The gate executes the profile stored in the workspace, never one
+  supplied by the caller, in a sandbox without credentials or access to the other services; the
+  acceptance surface is locked before evaluation and tampering blocks the gate; overrides are audited.
 - **Least privilege at runtime.** Services run as a non-root user; the CLike repository is mounted
   read-only.
 - **Non-destructive Git.** Only the files of a phase are committed; no branch is rewritten; commit,
@@ -225,7 +224,7 @@ Open research questions the project works on:
 
 | Horizon | Focus |
 |---|---|
-| **M2** | Sandboxed, network-less gate execution; acceptance criteria frozen before KIT with tamper detection; provider and functional fixes |
+| **M2** | Gate in an isolated sandbox, acceptance lock with tamper detection and audited overrides (done); provider and functional fixes |
 | **M3** | Typed, versioned phase contract; one definition per phase rendered for cloud and agents |
 | **Next** | Native agent chat with streaming, inline approvals and runtime policy enforcement · Harper usable from Claude Code / Codex (skills, MCP, CLI) and as a CI gate · autonomous KIT ⇄ EVAL loops · parallel REQs on Git worktrees · brownfield reverse-SPEC · traceability and delivery metrics |
 

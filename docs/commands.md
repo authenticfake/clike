@@ -33,8 +33,10 @@ The current webview parser supports the following slash commands.
 - `/kit`
 - `/eval <REQ-ID>`
 - `/gate <REQ-ID>`
-- `/gate <REQ-ID> manual pass` — records a pass **without executing checks** (developer override;
-  use only when the gate cannot run, e.g. environment-blocked checks; an audited override is planned)
+- `/gate <REQ-ID> manual pass` — developer override **without executing checks**: asks for a reason
+  (≥ 10 characters), is recorded by the orchestrator in an audit log with a digest of the REQ
+  artifacts, and is reported as `OVERRIDE`, never as `PASS`. Use only when the gate cannot run
+  (e.g. environment-blocked checks).
 - `/finalize`
 - `/extend` — extends requirements of an existing plan (see `CLike_Harper_Extend_Feature.md`)
 

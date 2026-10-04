@@ -22,6 +22,9 @@ on a network or shared between users.
 | Process execution | No shell for process execution in the extension (argv only); on Windows the agent prompt goes through stdin. |
 | Evaluation inputs | The gate executes the LTC profile stored in the workspace; an inline profile is accepted only if identical. The project root must be inside the configured projects directory. |
 | Evaluation environment | Eval commands run without credentials (API keys, service token and similar variables are removed). |
+| Evaluation sandbox | Eval/gate commands run in a separate container with no credentials, no access to the gateway or vector store, non-root, read-only root filesystem, dropped capabilities and resource limits, projects mounted read-only. An offline mode removes network egress. |
+| Acceptance integrity | The acceptance surface of each requirement (tests, CI profile) is locked server-side before evaluation; removed/modified tests, weakened profiles and added skip markers block the gate. |
+| Gate override | Manual overrides require a reason, are recorded in an audit log with an artifact digest and are reported as `OVERRIDE`, never `PASS`. |
 | Containers | Services run as a non-root user; the CLike repository (including `.git`) is mounted read-only. |
 | Git | Only the files of a phase are committed; no branch is rewritten; commit, push, merge-on-gate and PR automation are opt-in. |
 | Logging | Request bodies are never logged; unhandled errors return a correlation id instead of internal details. |
@@ -29,14 +32,13 @@ on a network or shared between users.
 
 ## Known limitations
 
-- **Eval commands are model-authored.** The checks executed by the gate are produced during the KIT
-  phase and run inside the orchestrator container (non-root, no credentials, read-only repository,
-  but with network access and read access to the projects directory). Isolated, network-less
-  per-run sandboxes are planned for the next milestone.
-- **Acceptance criteria and implementation come from the same phase.** Freezing criteria before
-  implementation and detecting test tampering is planned for the next milestone.
-- **Manual gate override.** `/gate <REQ> manual pass` records a pass without executing checks; an
-  authorized, audited override is planned.
+- **Eval commands are model-authored.** They run in the eval sandbox, which by default allows
+  network egress (needed for dependency installs) and can read the projects directory; use the
+  offline mode to remove egress. The sandbox is long-lived (fresh working directories per run,
+  not a fresh container per run).
+- **Acceptance criteria and implementation come from the same KIT phase.** The lock prevents later
+  tampering, but criteria are still authored together with the implementation; deriving them from
+  SPEC/PLAN before KIT is on the roadmap.
 - **Local agents** run with the permissions of the developer's CLI session; CLike constrains them
   through the phase contract and post-run validation, not through an OS sandbox.
 
