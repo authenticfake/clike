@@ -45,8 +45,9 @@ def _projects_dir() -> Path:
 
 
 def _tracked_template_files() -> List[str]:
-    out = subprocess.check_output(["git", "ls-files", TEMPLATE], cwd=REPO).decode().splitlines()
-    return [f for f in out if "/vendor/" not in f]
+    # -z: no quoting of non-ASCII names (the template has a file with an em dash)
+    out = subprocess.check_output(["git", "ls-files", "-z", TEMPLATE], cwd=REPO).decode().split("\0")
+    return [f for f in out if f and "/vendor/" not in f]
 
 
 def prepare_workspace(root: Path, idea_md: str) -> Path:
@@ -208,7 +209,7 @@ def run_project(client: Client, project: Dict[str, Any], model: str, max_reqs: i
         return out
 
     tc = ["TECH_CONSTRAINTS.yaml"]
-    spec = step("spec", {"idea_md": idea_md}, ["IDEA.md", *tc])
+    step("spec", {"idea_md": idea_md}, ["IDEA.md", *tc])
     if not (root / "docs/harper/SPEC.md").is_file():
         return res
     step("plan", {}, ["IDEA.md", "SPEC.md", *tc])
