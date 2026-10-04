@@ -82,6 +82,26 @@ class GatewayErrorContractTests(unittest.TestCase):
         self.assertEqual(r.status_code, 400, r.text)
         self.assertEqual(r.json(), {"code": "model_selection_error", "detail": "model 'nope' not found in catalog"})
 
+    def test_chat_keeps_the_provider_cause(self):
+        import httpx
+        from routes import v1
+
+        req = httpx.Request("POST", "http://gateway:8000/v1/chat/completions")
+        cases = [
+            (502, {"detail": {"message": "provider call failed", "errors": ["anthropic:400:invalid_request_error:Your credit balance is too low"]}}, 502),
+            (503, {"detail": {"code": "provider_not_configured", "message": "provider 'anthropic' is not configured"}}, 503),
+            (429, {"detail": "rate limited"}, 429),
+            (401, {"code": "unauthorized", "detail": "Missing or invalid service token"}, 502),
+        ]
+        for upstream, body, expected in cases:
+            with self.subTest(upstream):
+                exc = httpx.HTTPStatusError("x", request=req, response=httpx.Response(upstream, json=body, request=req))
+                http_exc = v1._gateway_chat_failure(exc)
+                self.assertEqual(http_exc.status_code, expected)
+                self.assertIn(f"({upstream})", http_exc.detail)
+        self.assertIn("credit balance is too low", v1._gateway_chat_failure(
+            httpx.HTTPStatusError("x", request=req, response=httpx.Response(502, json=cases[0][1], request=req))).detail)
+
 
 if __name__ == "__main__":
     unittest.main()
