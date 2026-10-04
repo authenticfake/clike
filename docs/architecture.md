@@ -62,7 +62,6 @@ Key implementation files:
 - `extensions/vscode/chat-ui.js`
 - `extensions/vscode/local-agent-executors.js`
 - `extensions/vscode/git.js`
-- `extensions/vscode/rag.js`
 - `extensions/vscode/utility.js`
 
 ### Orchestrator
