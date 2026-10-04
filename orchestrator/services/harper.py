@@ -2915,8 +2915,10 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
             return out
 
         if "promotion_hardener" in selected_phases:
-            bootstrap_blockers = _validate_pre_promotion_contracts(
+            # N4: the helper called here never existed (NameError on every hardener run).
+            bootstrap_blockers = _detect_bootstrap_blockers(
                 target_req_id,
+                candidate_file_artifacts,
                 dict(merged.get("core_blobs") or {}),
             )
 
