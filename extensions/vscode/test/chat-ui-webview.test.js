@@ -53,3 +53,11 @@ test('file lists escape server-provided paths and do not use btoa', () => {
   assert.doesNotMatch(html, /data-path="' \+ path \+ '"/);
   assert.match(html, /const p = escapeHtml\(String\(\(f && f\.path\) \|\| ''\)\);/);
 });
+
+test('image previews are DOM nodes, raster types only (N13)', () => {
+  const html = getWebviewHtml('http://localhost:8080');
+  assert.match(html, /function appendImagePreviews\(container, images\)/);
+  assert.match(html, /PREVIEW_IMAGE_TYPES = \['image\/png', 'image\/jpeg', 'image\/gif', 'image\/webp'\]/);
+  assert.doesNotMatch(html, /'<img src="' \+ src/);
+  assert.match(html, /\/\^\[A-Za-z0-9\+\/=\]\+\$\/\.test\(b64\)/);
+});

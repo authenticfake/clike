@@ -1652,6 +1652,22 @@ function handleSlash(slash) {
   return;
 }
 
+// Image previews from server files: raster types only, built as DOM nodes (no HTML strings).
+var PREVIEW_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+function appendImagePreviews(container, images) {
+  if (!Array.isArray(images)) return;
+  images.forEach(function (f) {
+    var mime = String((f && f.mime) || '').toLowerCase();
+    var b64 = String((f && f.content_base64) || '');
+    if (PREVIEW_IMAGE_TYPES.indexOf(mime) === -1 || !/^[A-Za-z0-9+/=]+$/.test(b64)) return;
+    var img = document.createElement('img');
+    img.src = 'data:' + mime + ';base64,' + b64;
+    img.alt = String((f && f.path) || 'image');
+    img.style.cssText = 'max-width:160px;max-height:120px;margin:4px;border:1px solid #ddd;border-radius:6px';
+    container.appendChild(img);
+  });
+}
+
 function bubble(role, content, modelName, attachments, ts, opts) {
 
   attachments = attachments || [];
@@ -1710,6 +1726,7 @@ function bubble(role, content, modelName, attachments, ts, opts) {
     b.appendChild(del);
   }
 
+  appendImagePreviews(b, opts && opts.images);
   wrap.appendChild(b);
   chat.appendChild(wrap);
   chat.scrollTop = chat.scrollHeight;
@@ -2326,14 +2343,8 @@ window.addEventListener('message', (event) => {
       return f && typeof f.mime === 'string' && f.mime.indexOf('image/') === 0 && f.content_base64;
     });
     if (Array.isArray(imgs) && imgs.length >0) {
-      var html = imgs.slice(0, 3).map(function (f) {
-        var src = 'data:' + f.mime + ';base64,' + f.content_base64;
-        return '<img src="' + src + '" style="max-width:160px;max-height:120px;margin:4px;border:1px solid #ddd;border-radius:6px"/>';
-      }).join('');
-       const safeText = String(assistantText || '');
-       var testo = safeText? safeText + "<br><br>":''
-
-       bubble('assistant', testo + html, model.value);
+      // N13: images are appended as DOM nodes; bubble() escapes text content.
+      bubble('assistant', String(assistantText || ''), model.value, [], undefined, { images: imgs.slice(0, 3) });
 
     } else if (data.assistant_text && data.assistant_text.trim()) {
       // Mostra in chat del Mode corrente con badge "free" e modelName corrente
@@ -2379,14 +2390,8 @@ window.addEventListener('message', (event) => {
       return f && typeof f.mime === 'string' && f.mime.indexOf('image/') === 0 && f.content_base64;
     });
     if (Array.isArray(imgs) && imgs.length >0) {
-      var html = imgs.slice(0, 3).map(function (f) {
-        var src = 'data:' + f.mime + ';base64,' + f.content_base64;
-        return '<img src="' + src + '" style="max-width:160px;max-height:120px;margin:4px;border:1px solid #ddd;border-radius:6px"/>';
-      }).join('');
-       const safeText = String(assistantText || '');
-       var testo = safeText? safeText + "<br><br>":''
-
-       bubble('assistant', testo + html, model.value);
+      // N13: images are appended as DOM nodes; bubble() escapes text content.
+      bubble('assistant', String(assistantText || ''), model.value, [], undefined, { images: imgs.slice(0, 3) });
 
     } else if (data.assistant_text && data.assistant_text.trim()) {
       // Mostra in chat del Mode corrente con badge "coding" e modelName corrente
