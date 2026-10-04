@@ -40,11 +40,18 @@ export CLIKE_API_TOKEN=...                   # same value as the stack .env
 cd .. && orchestrator/.venv/bin/python benchmark/run_benchmark.py --model openai:gpt-6.1-sol --max-reqs 2
 ```
 
+Local-agent runner (like *Execution = agent* in the extension: package from the orchestrator, the
+agent CLI runs in the workspace with its own login, results validated by `/local-agent/complete`):
+
+```bash
+orchestrator/.venv/bin/python benchmark/run_benchmark.py --runner agent --executor claude_code --max-reqs 2
+```
+
 Results go to `benchmark/results/<timestamp>/` (`SUMMARY.md`, `results.json`; not versioned).
 Live runs call the model provider and cost money: `--max-reqs` and `--projects` cap the spend.
 
 ## Scope and limits (v1)
 
-Cloud runner only; no automatic KIT⇄EVAL repair; the stack-compliance check is a keyword check on the
+Cloud and local-agent runners; no automatic KIT⇄EVAL repair; the stack-compliance check is a keyword check on the
 generated source. These are deliberate: the benchmark should be cheap and fast enough to run after
 every improvement, and grow only when a decision needs more precision.
