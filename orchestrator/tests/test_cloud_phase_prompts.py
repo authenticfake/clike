@@ -66,3 +66,30 @@ def test_shared_output_contract_and_canonical_validation_are_identical_in_both_s
     ]
     for orch, gw in pairs:
         assert (ORCHESTRATOR_ROOT / orch).read_bytes() == (repo / gw).read_bytes(), orch
+
+
+def _golden_user(name):
+    import json
+
+    data = json.loads((ORCHESTRATOR_ROOT / f"tests/golden/snapshots/{name}.json").read_text(encoding="utf-8"))
+    payload = data["gateway_calls"][0]["payload"]
+    return payload, payload["composed_messages"][1]["content"]
+
+
+def test_plan_receives_idea_and_spec_content_not_just_their_names():
+    # B6: with SPEC "reference only" the model produced an empty plan.json (live run, gpt-6.1-sol).
+    payload, user = _golden_user("plan__cloud__native")
+    assert "### SPEC.md (verbatim)" in user and "### SPEC.md (reference only)" not in user
+    assert "### IDEA.md (verbatim)" in user
+    spec_line = next(line for line in payload["core_blobs"]["SPEC.md"].splitlines() if len(line) > 40)
+    assert spec_line in user
+
+
+def test_kit_receives_technology_constraints_spec_and_target_req():
+    # B5: without TECH_CONSTRAINTS/SPEC the model picked Flask for a FastAPI project (live run).
+    payload, user = _golden_user("kit__cloud__native")
+    context = user.split("## PROJECT CONTEXT", 1)[1].split("## HARD RULES", 1)[0]
+    assert "framework: fastapi" in context
+    assert "### SPEC.md (verbatim)" in context and "### IDEA.md (verbatim)" in context
+    assert '"id": "REQ-001"' in context
+    assert '"id": "REQ-002"' not in context  # only the target REQ and its dependencies

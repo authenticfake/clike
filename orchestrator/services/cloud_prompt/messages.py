@@ -267,6 +267,54 @@ def _render_namespace_materialization_for_cloud(file_requirements: dict | None) 
     return "\n".join(lines).strip()
 
 
+def _kit_project_context(filtered_core: dict, target_req: str) -> list[str]:
+    """Project context for the KIT model: technology constraints, IDEA, SPEC and the target REQ.
+
+    The KIT message used to carry only the contract summary and file requirements, so the model
+    chose runtime and framework without seeing TECH_CONSTRAINTS or SPEC.
+    """
+    def blob(predicate) -> str:
+        for name, content in (filtered_core or {}).items():
+            base = str(name or "").replace("\\", "/").rsplit("/", 1)[-1].lower()
+            if predicate(base) and str(content or "").strip():
+                return str(content).strip()
+        return ""
+
+    parts: list[str] = []
+    constraints = blob(lambda b: b.startswith("tech_constraints"))
+    idea = blob(lambda b: b == "idea.md")
+    spec = blob(lambda b: b == "spec.md")
+    req_block = ""
+    plan_text = blob(lambda b: b == "plan.json")
+    if plan_text and target_req:
+        try:
+            reqs = (json.loads(plan_text) or {}).get("reqs") or []
+            by_id = {str(r.get("id") or "").upper(): r for r in reqs if isinstance(r, dict)}
+            target = by_id.get(target_req.upper())
+            if target:
+                deps = [by_id[d.upper()] for d in (target.get("dependsOn") or []) if str(d).upper() in by_id]
+                req_block = json.dumps({"target": target, "dependencies": deps}, indent=2, ensure_ascii=False)
+        except (ValueError, AttributeError):
+            req_block = ""
+    if not (constraints or idea or spec or req_block):
+        return []
+    parts.extend([
+        "## PROJECT CONTEXT",
+        "- TARGET_CONTRACT.json and FILE_REQUIREMENTS.json govern scope and emitted files.",
+        "- TECHNOLOGY CONSTRAINTS are authoritative for runtime, language, framework and libraries; when absent, follow the stack stated in SPEC/IDEA.",
+        "",
+    ])
+    if constraints:
+        parts.extend(["### TECHNOLOGY CONSTRAINTS (verbatim)", "```yaml", constraints, "```", ""])
+    if req_block:
+        parts.extend([f"### plan.json — {target_req} and its dependencies (verbatim)", "```json", req_block, "```", ""])
+    if spec:
+        parts.extend(["### SPEC.md (verbatim)", spec, ""])
+    if idea:
+        parts.extend(["### IDEA.md (verbatim)", idea, ""])
+    return parts
+
+
 def _build_kit_user_message(
     phase: str,
     user: str,
@@ -395,6 +443,9 @@ def _build_kit_user_message(
                 parts.append("  - Must not contain:")
                 parts.extend([f"    - {x}" for x in must_not_contain])
         parts.append("")
+
+    # project-wide documents come from the full core (the KIT filter keeps REQ-scoped material)
+    parts.extend(_kit_project_context({**(core_blobs or {}), **filtered_core}, target_req))
 
     parts.extend([
         "## HARD RULES",
@@ -605,6 +656,11 @@ def _compose_system_messages(
     suffix_parts = []
 
     verbatim_suffixes_for_phase = {
+        # /plan turns SPEC requirements into REQs: it needs IDEA and SPEC content, not just their names.
+        "plan": (
+            "IDEA.md",
+            "SPEC.md",
+        ),
         "kit": (
             "SPEC.md",
             "PLAN.md",
