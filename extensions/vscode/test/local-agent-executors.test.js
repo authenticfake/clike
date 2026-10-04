@@ -42,3 +42,13 @@ test('executor capability maps advertise document phases', () => {
     assert.strictEqual(cfg.supports.kit, true);
   }
 });
+
+test('Windows never passes the prompt as a cmd.exe argument (WP4.8)', () => {
+  const { resolvePromptTransport } = require('../local-agent-executors');
+  assert.equal(resolvePromptTransport('claude_code', 'argv_last', 'win32'), 'stdin');
+  assert.equal(resolvePromptTransport('claude_code', '', 'win32'), 'stdin');
+  assert.equal(resolvePromptTransport('claude_code', 'argv_last', 'darwin'), 'argv_last');
+  assert.equal(resolvePromptTransport('claude_code', '', 'linux'), 'argv_last');
+  assert.equal(resolvePromptTransport('gpt_codex', '', 'darwin'), 'stdin');
+  assert.equal(resolvePromptTransport('gpt_codex', 'stdin', 'win32'), 'stdin');
+});

@@ -45,19 +45,20 @@ test('execution preference normalization passes through canonical modes and defa
 
 // --- DEFECT 1: an installed Claude CLI is a first-class local executor ---
 // resolveSelectedLocalAgentExecutor probes the system via child_process at
-// call time, so we stub execSync to simulate which CLIs are installed.
+// call time (execFileSync, argv form since WP4.7), so we stub it to simulate
+// which CLIs are installed. The probed name is the last argv element.
 function withInstalledCommands(installed, fn) {
-  const original = cp.execSync;
-  cp.execSync = (probe) => {
-    const text = String(probe);
-    const found = installed.some((name) => text.includes(name));
+  const original = cp.execFileSync;
+  cp.execFileSync = (file, args = []) => {
+    const probed = String(args.length ? args[args.length - 1] : file);
+    const found = installed.some((name) => probed === name || probed.endsWith(`/${name}`));
     if (found) return Buffer.from('');
-    throw new Error(`command not found: ${text}`);
+    throw new Error(`command not found: ${probed}`);
   };
   try {
     return fn();
   } finally {
-    cp.execSync = original;
+    cp.execFileSync = original;
   }
 }
 
