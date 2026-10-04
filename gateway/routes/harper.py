@@ -56,7 +56,8 @@ PROMPT_KIT_SYSTEM_PATH = os.getenv("PROMPT_KIT_SYSTEM_PATH", "/app/prompts/harpe
 PROMPT_INTEGRITY_EVAL_SYSTEM_PATH = os.getenv("PROMPT_INTEGRITY_EVAL_SYSTEM_PATH", "/app/prompts/harper/integrity_eval.md")
 PROMPT_PROMOTION_HARDENER_SYSTEM_PATH = os.getenv("PROMPT_PROMOTION_HARDENER_SYSTEM_PATH", "/app/prompts/harper/promotion_hardener.md")
 PROMPT_PROMOTION_EVAL_SYSTEM_PATH = os.getenv("PROMPT_PROMOTION_EVAL_SYSTEM_PATH", "/app/prompts/harper/promotion_eval.md")
-PROMPT_BUILD_SYSTEM_PATH = os.getenv("PROMPT_BIULD_SYSTEM_PATH", "/app/prompts/harper/build_system.md")
+PROMPT_EVAL_SYSTEM_PATH = os.getenv("PROMPT_EVAL_SYSTEM_PATH", "/app/prompts/harper/eval_system.md")
+PROMPT_GATE_SYSTEM_PATH = os.getenv("PROMPT_GATE_SYSTEM_PATH", "/app/prompts/harper/gate_system.md")
 PROMPT_FINALIZE_SYSTEM_PATH = os.getenv("PROMPT_FINALIZE_SYSTEM_PATH", "/app/prompts/harper/finalize_system.md")
 PROMPT_EXTEND_SYSTEM_PATH = os.getenv("PROMPT_EXTEND_SYSTEM_PATH", "/app/prompts/harper/extend_system.md")
 
@@ -1125,36 +1126,6 @@ def _load_text_blob(core_blobs: dict | None, suffix: str) -> str:
     return ""
 
 
-def _render_clike_selected_capability_context_for_cloud(core_blobs: dict | None) -> str:
-    """
-    Render the already resolved, phase/REQ-scoped CLike capability context for cloud prompts.
-
-    The Orchestrator is responsible for generating CLIKE_SELECTED_CAPABILITY_CONTEXT.md
-    from the current REQ/phase selected packs, skills, and design profiles.
-
-    Gateway must not rescan .clike and must not infer capabilities.
-    It only injects the selected context that the Orchestrator already materialized.
-    """
-    selected_context = _load_text_blob(core_blobs, "CLIKE_SELECTED_CAPABILITY_CONTEXT.md")
-    if not selected_context:
-        return ""
-
-    # Normalize the heading so the cloud prompt has the same marker used by local-agent prompts.
-    normalized = selected_context.strip()
-    if normalized.startswith("# CLike Selected Capability Context"):
-        normalized = normalized.replace("# CLike Selected Capability Context", "", 1).strip()
-
-    return (
-        "### CLike Selected Capability Context\n"
-        "- source: CLIKE_SELECTED_CAPABILITY_CONTEXT.md\n"
-        "- source_transport: core_blobs\n"
-        "- scope: selected CLike packs, skills, and design profiles for the current target REQ/phase only\n"
-        "- rule: apply these selected CLike capabilities to source, tests, docs, LTC, HOWTO, and gate evidence when relevant\n"
-        "- rule: do not scan all `.clike` skills opportunistically; use only this selected context\n\n"
-        f"{normalized}"
-    ).strip()
-
-
 def _compose_cloud_selected_skill_context(
     *,
     core_blobs: dict | None,
@@ -1604,9 +1575,17 @@ def _compose_system_messages(
         "extend": PROMPT_EXTEND_SYSTEM_PATH,
         "promotion_hardener": PROMPT_PROMOTION_HARDENER_SYSTEM_PATH,
         "promotion_eval": PROMPT_PROMOTION_EVAL_SYSTEM_PATH,
+        "eval": PROMPT_EVAL_SYSTEM_PATH,
+        "gate": PROMPT_GATE_SYSTEM_PATH,
     }
-    system_path = system_by_phase.get(phase, PROMPT_SPEC_SYSTEM_PATH)
-    system = _read_text(system_path).strip() or "# Harper System Prompt\nFollow the phase contract strictly."
+    # WP7: unknown phases and missing prompts fail loudly (they used to fall back to the SPEC
+    # prompt or to a one-line placeholder, silently producing wrong outputs).
+    system_path = system_by_phase.get(phase)
+    if system_path is None:
+        raise HTTPException(400, f"unknown Harper phase: {phase!r}")
+    system = _read_text(system_path).strip()
+    if not system:
+        raise HTTPException(503, f"system prompt for phase {phase!r} is not available on the gateway")
 
     if phase == "kit" and repo_url:
         system = _inject_repo_url_in_system(system, repo_url)
