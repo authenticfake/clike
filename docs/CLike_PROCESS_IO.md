@@ -697,7 +697,6 @@ GET  /health
 GET  /models
 POST /chat
 POST /generate
-POST /apply
 POST /agent/code
 POST /spec
 POST /idea
@@ -709,9 +708,6 @@ POST /finalize
 POST /local-agent/complete
 POST /v1/eval/run
 POST /v1/rag/*
-POST /git/branch
-POST /git/commit
-POST /git/pr
 MCP  /mcp
 ```
 

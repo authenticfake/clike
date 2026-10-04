@@ -212,17 +212,6 @@ Current request fields include:
 - `ltc`
 - `project_name`
 
-### Git helper API
-
-#### `POST /git/branch`
-Git branch helper.
-
-#### `POST /git/commit`
-Git commit helper.
-
-#### `POST /git/pr`
-Git PR helper.
-
 ### Agent code-action API
 
 #### `POST /agent/code`

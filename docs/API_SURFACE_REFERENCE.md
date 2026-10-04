@@ -67,14 +67,6 @@ telemetry API also accepts the `clike_token` cookie set by `POST /v1/metrics/log
 | `POST` | `/v1/rag/fetch_by_paths` | Fetch indexed docs by explicit paths. |
 | `POST` | `/v1/rag/purge` | Purge indexed RAG content. |
 
-### Git helper routes
-
-| Method | Path | Purpose |
-|---|---|---|
-| `POST` | `/git/branch` | Branch helper. |
-| `POST` | `/git/commit` | Commit helper. |
-| `POST` | `/git/pr` | PR helper. |
-
 ### MCP
 
 | Method | Path | Purpose |

@@ -4,7 +4,6 @@ from starlette.responses import JSONResponse
 
 import os, logging, time, uuid
 from routes.agent import router as agent_router
-from routes.git import router as git_router
 from routes.health import router as health_router
 from routes.v1 import router as v1_router
 from config import settings
@@ -116,7 +115,6 @@ async def methodology_error_handler(request: Request, exc: MethodologyError):
 app.include_router(health_router)
 app.include_router(agent_router)
 app.include_router(rag_routes.router)
-app.include_router(git_router)
 app.include_router(v1_router)
 app.include_router(harper_router)
 app.include_router(router_router.router)
