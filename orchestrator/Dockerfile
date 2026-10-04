@@ -112,6 +112,14 @@ ENV CLIKE_TOOLS_PY_BLACK=true \
 # ENV CLIKE_TOOLS_TS_PRETTIER=false
 # ENV CLIKE_TOOLS_TS_ESLINT=false
 
+# ===== Non-root runtime user (WP4) =====
+# uid 1000; on Podman for macOS files written to bind mounts show up as the host user.
+RUN useradd --create-home --uid 1000 --shell /bin/bash clike \
+ && mkdir -p /runs /app/runs \
+ && chown -R clike:clike /runs /app/runs
+USER clike
+ENV HOME=/home/clike
+
 EXPOSE 8080
 
 CMD ["uvicorn","app:app","--host","0.0.0.0","--port","8080"]
