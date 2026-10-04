@@ -2497,6 +2497,25 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
                 exc,
             )
 
+    if phase == "eval":
+        # The eval phase has no cloud LLM step: the canonical EvalRunner (/v1/eval/run) decides.
+        # A cloud call here used the SPEC prompt and the extension discarded its output (tokens
+        # spent for nothing), so the cloud path returns an explicit skip.
+        log.info("harper.eval cloud pre-pass skipped req=%s reason=%s", target_req_id, execution_policy.get("reason"))
+        return {
+            "ok": True,
+            "phase": "eval",
+            "echo": "",
+            "text": "",
+            "files": [],
+            "diffs": [],
+            "tests": {"passed": 0, "failed": 0, "summary": "eval-prepass-skipped"},
+            "warnings": ["execution_selected:cloud", "eval_cloud_prepass_skipped", "canonical_eval_decides"],
+            "errors": [],
+            "runId": merged.get("runId"),
+            "execution": execution_policy,
+        }
+
     if phase == "extend" and execution_policy.get("selected") == "local_agent":
         log.info(
             "harper.local_agent extend package requested executor=%s reason=%s",
