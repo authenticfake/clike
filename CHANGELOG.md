@@ -2,7 +2,38 @@
 
 All notable changes to CLike. Extension, orchestrator and gateway share one version.
 
-## [Unreleased]
+## [Unreleased] — towards 1.0.0 (M3)
+
+### ⚠️ Breaking changes
+
+- Gateway `POST /v1/harper/run` requires `composed_messages`: the phase messages (system prompt,
+  context, output checklist) are composed by the orchestrator. The gateway adds RAG material and
+  chat history and calls the provider. Orchestrator and gateway must be updated together.
+- Phase prompts moved from `gateway/prompts/harper/` to `orchestrator/phases/<phase>/cloud_*.md`;
+  the `PROMPT_*_SYSTEM_PATH` variables are no longer read.
+
+### Added
+
+- `PhaseContext` v1: the typed, versioned contract of a phase run
+  (`docs/contracts/phase_context.v1.schema.json`); the wire `core_blobs` are produced from it.
+- Phase definitions as data in `orchestrator/phases/`: per-phase `phase.yaml` (write roots, output
+  contract, rules, accepted result paths) and `text.yaml` (local-agent prompt and policy text).
+- GPT-6 family support (reasoning models recognized by generation number); `openai:gpt-6.1-sol`
+  in the catalog.
+- Tests: characterization snapshots for local-agent packages and result normalization, phase
+  definition parity with the extension, cloud/local-agent equivalence per phase.
+
+### Changed
+
+- `services/local_agent_package.py` (6,900 lines) split into `services/local_agent/` (one module
+  per phase, shared helpers, normalization); the old module is a compatibility facade.
+- Local Claude Code never receives `ANTHROPIC_AUTH_TOKEN` (it would override the subscription
+  login), like `ANTHROPIC_API_KEY`.
+
+### Removed
+
+- Dead code: unused KIT/EVAL prompt builders, a shadowed duplicate function, an unused copy of
+  the cloud capability renderer, unused gateway helpers.
 
 ## [0.9.5] — 2026-10 — Milestone M2: correct and governed
 

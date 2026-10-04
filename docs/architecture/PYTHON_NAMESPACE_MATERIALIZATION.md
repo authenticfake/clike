@@ -31,6 +31,6 @@ Cloud prompts and local-agent prompts must repeat the rule:
 
 ## Data Path
 
-The namespace helper lives in `orchestrator/utils/namespace_paths.py`. Target contract generation and file requirement generation use it to produce source and test path hints. Gateway renders the same guidance in cloud KIT prompts, and local-agent packages include it in `AGENT_PROMPT.md`.
+The namespace helper lives in `orchestrator/utils/namespace_paths.py`. Target contract generation and file requirement generation use it to produce source and test path hints. The orchestrator renders the same guidance in cloud KIT prompts, and local-agent packages include it in `AGENT_PROMPT.md`.
 
 The rule applies to native and BMAD runs equally. BMAD skill guidance cannot override Python package materialization, just as it cannot override canonical output contracts or CLike write boundaries.

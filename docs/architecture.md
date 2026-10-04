@@ -70,13 +70,14 @@ The orchestrator is the control plane.
 
 Responsibilities:
 - receives extension workflow requests
-- prepares Harper payloads and repository context
-- proxies or delegates Harper execution to gateway
+- prepares Harper payloads and repository context as a typed `PhaseContext` (v1)
+- composes the cloud phase messages from the phase definitions (`orchestrator/phases/`)
+- delegates the model call to the gateway with the composed messages
 - exposes repository-grounded RAG services
 - runs eval/gate services
 - exposes legacy generation APIs
 - exposes read-only MCP tools
-- builds execution contracts for local agents
+- builds execution packages for local agents (`services/local_agent/`)
 
 Key implementation files:
 - `orchestrator/app.py`
@@ -86,6 +87,8 @@ Key implementation files:
 - `orchestrator/routes/agent.py`
 - `orchestrator/mcp_server.py`
 - `orchestrator/services/harper.py`
+- `orchestrator/services/phase_context.py`, `orchestrator/services/cloud_prompt/`
+- `orchestrator/phases/<phase>/` (phase.yaml, text.yaml, cloud_*.md)
 
 ### Gateway
 The gateway is the model and provider execution layer.
@@ -94,7 +97,7 @@ Responsibilities:
 - loads and validates the model catalog
 - resolves model aliases and route selection
 - abstracts provider differences
-- runs Harper prompt pipelines
+- runs Harper model calls on the messages composed by the orchestrator, adding RAG material and chat history, then extracts and validates the produced files
 - executes embeddings
 - records telemetry and exposes telemetry views
 - stores or retrieves RAG materials when requested by Harper flow
@@ -123,8 +126,8 @@ Harper is implemented as a repository-aware iterative pipeline, not as a single 
 
 ### Operational split
 - The extension provides UX, command parsing, local execution, and candidate file handling.
-- The orchestrator owns workflow preparation, RAG APIs, eval/gate control, and MCP exposure.
-- The gateway owns the actual Harper phase execution and provider interaction.
+- The orchestrator owns the Harper domain: phase definitions, context, prompt composition, local-agent packages, RAG APIs, eval/gate control, and MCP exposure.
+- The gateway owns provider interaction for Harper runs: model call, RAG material, output extraction and validation.
 
 ## Candidate-first design
 
