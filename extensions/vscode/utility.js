@@ -2,7 +2,6 @@ const { request: serviceRequest } = require('./orchestrator-client');
 const vscode = require('vscode');
 const cp = require('child_process');
 const path = require('path');
-const { gatherRagChunks } = require('./rag.js');
 const { buildLocalAgentEnv, resolveLocalAgentCommandPath, buildLocalAgentSpawn, resolvePromptTransport, terminateProcessTree } = require('./local-agent-executors');
 const { toFsPath } = require('./git');
 
@@ -401,8 +400,6 @@ async function runPromotionFlow(projectRootUri, reqId, out) {
 
   return filesToCommit;
 }
-
-
 
 
 // --- Helpers: estrazione/salvataggio Technology Constraints ---
@@ -838,35 +835,6 @@ function normalizeRepoUrl(raw) {
   return raw;
 }
 
-async function detectRepoUrl(projectRootUri) {
-  // 1) VS Code Git API
-  try {
-    const gitExt = vscode.extensions.getExtension('vscode.git');
-    if (gitExt) {
-      const git = gitExt.isActive ? gitExt.exports : await gitExt.activate();
-      const api = git.getAPI(1);
-      const repo = api.repositories.find(r =>
-        r.rootUri.fsPath === projectRootUri.fsPath ||
-        projectRootUri.fsPath.startsWith(r.rootUri.fsPath)
-      );
-      mkLog(`repo ${repo}`);
-      const remote = repo?.state?.remotes?.[0]?.fetchUrl || repo?.state?.remotes?.[0]?.pushUrl;
-      mkLog(`remote ${remote}`);
-      const n = normalizeRepoUrl(remote);
-      mkLog(`n ${n}`);
-      if (n) return n;
-    }
-  } catch (e) {
-    mkLog(`Error while fetching repo URL: ${e}`);  // and ignore    
-  }
-  // 2) fallback: git config
-  const cwd = projectRootUri.fsPath;
-  const raw = execSyncSafe('git', ['config', '--get', 'remote.origin.url'], cwd);
-  const n = normalizeRepoUrl(raw);
-  if (n) return n;
-
-  return null;
-}
 
 async function detectRepositoryContext(projectRootUri) {
   const workspaceFolder = projectRootUri?.fsPath || null;
@@ -945,131 +913,19 @@ async function detectRepositoryContext(projectRootUri) {
 /**
  * Estrae la sottosezione testuale tra un'intestazione H3 specifica e la successiva H3 (o EOF).
  */
-function _sliceSection(text, h3Title) {
-  const startRe = new RegExp(`^###\\s+${h3Title}\\s*$`, 'mi');
-  const nextH3 = /^###\s+/mi;
-  const m = text.match(startRe);
-  if (!m) return { found: false, full: text, head: text, section: '', tail: '' };
 
-  const startIdx = m.index;
-  // dal punto dopo la riga H3
-  const afterH3Idx = text.indexOf('\n', startIdx) + 1;
-  const rest = text.slice(afterH3Idx);
-  const next = rest.search(nextH3);
-  const sectionEnd = (next >= 0) ? (afterH3Idx + next) : text.length;
-
-  const head = text.slice(0, afterH3Idx);
-  const section = text.slice(afterH3Idx, sectionEnd);
-  const tail = text.slice(sectionEnd);
-  return { found: true, full: text, head, section, tail };
-}
 
 /**
  * Parse di una tabella markdown "pipe" (header allineato con ---) e ritorno di array di oggetti.
  * Richiede almeno una colonna "REQ-ID" (case-insensitive). Accetta colonne extra.
  */
-function _parseMarkdownTable(sectionText) {
-  const lines = sectionText.split(/\r?\n/).map(s => s.trim());
-  // trova inizio tabella (riga header con | ... |) e riga separatori
-  let start = -1, sep = -1;
-  for (let i = 0; i < lines.length; i++) {
-    if (/^\|.+\|$/.test(lines[i])) {
-      // la riga successiva deve essere separatore --- | --- | ...
-      if (i + 1 < lines.length && /^\|\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(lines[i + 1])) {
-        start = i; sep = i + 1; break;
-      }
-    }
-  }
-  if (start < 0) return { header: [], rows: [], start: -1, sep: -1, end: -1 };
 
-  const headerCells = lines[start].slice(1, -1).split('|').map(s => s.trim());
-  const rows = [];
-  let end = lines.length;
-  for (let i = sep + 1; i < lines.length; i++) {
-    if (!/^\|.+\|$/.test(lines[i])) { end = i; break; }
-    const cols = lines[i].slice(1, -1).split('|').map(s => s.trim());
-    rows.push(cols);
-  }
-  return { header: headerCells, rows, start, sep, end, lines };
-}
 
 /**
  * Dato un testo di sezione tabellare e una mappa { REQ-ID -> status }, ritorna la sezione aggiornata.
  * Se la tabella non esiste, ne crea una minima.
  */
-function _updateReqTableSection(sectionText, statusMap) {
-  const parsed = _parseMarkdownTable(sectionText);
-  // normalizza il nome colonna REQ-ID e Status
-  const header = parsed.header.map(h => h.toLowerCase());
-  let reqIdx = header.findIndex(h => /^req-?id$/.test(h));
-  if (reqIdx < 0) reqIdx = header.findIndex(h => /req/.test(h)); // fallback
-  let statusIdx = header.findIndex(h => /^status$/.test(h));
-  if (parsed.start < 0 || reqIdx < 0) {
-    // tabella assente → creiamone una base con 3 colonne
-    const hdr = ['REQ-ID', 'Title', 'Status'];
-    const sep = ['---', '---', '---'];
-    const rows = Object.entries(statusMap).map(([id, st]) => `| ${id} |  | ${st} |`);
-    return [
-      `| ${hdr.join(' | ')} |`,
-      `| ${sep.join(' | ')} |`,
-      ...rows
-    ].join('\n') + '\n';
-  }
 
-  // Costruiamo una mappa per sostituzioni (case-insensitive su REQ)
-  const lowerKeys = Object.keys(statusMap).reduce((acc, k) => {
-    acc[k.toLowerCase()] = statusMap[k]; return acc;
-  }, {});
-  // Se manca "Status", aggiungiamo la colonna in coda
-  const addStatusCol = (statusIdx < 0);
-  const newHeader = parsed.header.slice();
-  if (addStatusCol) newHeader.push('Status');
-
-  const outRows = [];
-  for (const cols of parsed.rows) {
-    const c = cols.slice();
-    const reqVal = (c[reqIdx] || '').toString().trim();
-    const key = reqVal.toLowerCase();
-    if (lowerKeys[key]) {
-      if (statusIdx < 0) {
-        c.push(lowerKeys[key]);
-      } else {
-        c[statusIdx] = lowerKeys[key];
-      }
-    } else if (addStatusCol) {
-      c.push(c[statusIdx] || 'open'); // default per righe esistenti
-    }
-    outRows.push('| ' + c.join(' | ') + ' |');
-  }
-
-  // Aggiungi eventuali nuove righe per REQ non presenti
-  const existingReqs = new Set(parsed.rows.map(r => (r[reqIdx] || '').toString().trim().toLowerCase()));
-  for (const [id, st] of Object.entries(statusMap)) {
-    if (!existingReqs.has(id.toLowerCase())) {
-      // cerchiamo anche la colonna "Title" se esiste
-      const titleIdx = parsed.header.map(h => h.toLowerCase()).findIndex(h => /^title$/.test(h));
-      const newCols = [];
-      for (let i = 0; i < newHeader.length; i++) {
-        if (i === reqIdx) newCols[i] = id;
-        else if (i === statusIdx || (addStatusCol && i === newHeader.length - 1)) newCols[i] = st;
-        else if (i === titleIdx) newCols[i] = '';
-        else newCols[i] = '';
-      }
-      outRows.push('| ' + newCols.join(' | ') + ' |');
-    }
-  }
-
-  const sepLine = '| ' + newHeader.map(() => '---').join(' | ') + ' |';
-  const headerLine = '| ' + newHeader.join(' | ') + ' |';
-
-  const rebuilt = [headerLine, sepLine, ...outRows].join('\n') + '\n';
-  // Rimonta: rimpiazziamo l'area tabellare evitando di toccare altro testo della sezione
-  const before = parsed.lines.slice(0, parsed.start).join('\n');
-  const after  = parsed.lines.slice(parsed.end).join('\n');
-  const glueA = before ? (before + '\n') : '';
-  const glueB = after  ? ('\n' + after)  : '';
-  return glueA + rebuilt + glueB;
-}
 
 /**
  * Check whether a given REQ-ID exists in docs/harper/plan.json.
@@ -1164,7 +1020,6 @@ async function runKitCommand(plan, cmdArgs) {
 }
 
 
-
 async function runEvalGateCommand( plan, cmdArgs) {
   out.appendLine(`[runEvalGateCommand] ${cmdArgs}`);
   // cmdArgs: string dopo "/kit", es. "", "REQ-001"
@@ -1244,23 +1099,7 @@ async function saveKitCommand(projectRootUri, plan, targetReqId, out) {
   }
 }
 
-function setManyReqStatus(plan, updates /* [{id, status}, ...] */) {
-  if (!plan || !Array.isArray(plan.reqs) || !Array.isArray(updates)) return 0;
-  let changed = 0;
-  const index = new Map(plan.reqs.map((r, i) => [String(r?.id || '').trim().toUpperCase(), i]));
-  for (const u of updates) {
-    const key = String(u?.id || '').trim().toUpperCase();
-    const i = index.get(key);
-    if (i == null) continue;
-    const newStatus = normalizeStatus(u?.status);
-    if (plan.reqs[i].status !== newStatus) {
-      plan.reqs[i].status = newStatus;
-      changed++;
-    }
-  }
-  if (changed > 0) updatePlanSnapshot(plan);
-  return changed;
-}
+
 /**
  * /eval → non cambia stato (ma potresti marcare 'in_progress' se non lo è)
  */
@@ -1286,7 +1125,6 @@ async function saveEvalCommand(projectRootUri, plan, targetReqId, report, out) {
 // In utility.js (o dove hai definito persistReports)
 async function persistReports(projectRootUri, phase, rep, out, fallbackReqId = '') {
   const vscode = require('vscode');
-  const path = require('path');
 
   // Logger che accetta N argomenti e serializza oggetti
   const log = (...args) => {
@@ -1361,8 +1199,6 @@ async function persistReports(projectRootUri, phase, rep, out, fallbackReqId = '
 
   // Path dei file di output (URI, non stringhe)
   const jsonUri  = vscode.Uri.joinPath(outDirUri, `${fileBase}.json`);
-  // Se vuoi anche il JUnit, scommenta questi due (e genera xml):
-  // const junitUri = vscode.Uri.joinPath(outDirUri, `${fileBase}.junit.xml`);
 
   // Scrivi JSON
   try {
@@ -1374,17 +1210,6 @@ async function persistReports(projectRootUri, phase, rep, out, fallbackReqId = '
     vscode.window.showErrorMessage(`[persistReports] cannot write JSON: ${e?.message || e}`);
   }
   return jsonUri
-  // Se l’orchestrator ha già scritto dei file (rep.json_path, rep.junit_path), puoi opzionalmente copiarli qui.
-  // Esempio (facoltativo):
-  // if (rep.json_path) {
-  //   try {
-  //     const src = vscode.Uri.file(rep.json_path);
-  //     const dst = vscode.Uri.joinPath(outDirUri, path.basename(rep.json_path));
-  //     const data = await vscode.workspace.fs.readFile(src);
-  //     await vscode.workspace.fs.writeFile(dst, data);
-  //     log('[persistReports] copied orchestrator JSON ->', dst.fsPath);
-  //   } catch (e) { log('[persistReports] copy orchestrator JSON warning:', e?.message || String(e)); }
-  // }
 }
 
 /**
@@ -1658,7 +1483,6 @@ function updatePlanSnapshot(plan) {
 }
 
 
-
 async function writePlanJson(projectRootUri, obj) {
   const uri = vscode.Uri.joinPath(projectRootUri, 'docs', 'harper', 'plan.json');
   await writeTextFile(uri, JSON.stringify(obj, null, 2));
@@ -1869,7 +1693,6 @@ function defaultCoreForPhase(phase) {
 }
 
 
-
 function getProjectId() {
    // --- project_id: derive from workspace folder name ---
   try {
@@ -1887,7 +1710,6 @@ function getProjectId() {
 
 // Converte l'argomento utente in un path LTC.json
 async function resolveProfilePath(arg, workspaceRoot) {
-  const rootPath = (workspaceRoot && (workspaceRoot.fsPath || workspaceRoot.path)) || ".";
   const wsUri = workspaceRoot || vscode.workspace.workspaceFolders?.[0]?.uri;
 
   // Se l'utente passa direttamente un .json, usalo
@@ -1953,16 +1775,6 @@ async function readWorkspaceFileBytes(pathInWs) {
   }
 }
 
-
-// Decode base64 to UTF-8 (text-ish), returns null for binary/invalid.
-function decodeTextBase64Safe(b64) {
-  try {
-    const buf = Buffer.from(b64, 'base64');
-    const txt = buf.toString('utf8');
-    if (/\x00/.test(txt)) return null;
-    return txt;
-  } catch { return null; }
-}
 
 // Build items for /v1/rag/index from rag_files (path -> text OR bytes_b64)
 // Extensions whose raw bytes carry no useful TEXT to index in RAG (images,
@@ -2041,7 +1853,6 @@ async function buildRagItemsForIndex(rag_files, out) {
 // Read a workspace-relative OR absolute text file (UTF-8). Returns null if binary/failed.
 async function readWorkspaceTextFile(pathInWs, out) {
   try {
-    const dbg = mkLog(out);
     const ws = vscode.workspace.workspaceFolders?.[0];
     if (!ws) return null;
 
@@ -2091,9 +1902,6 @@ async function preIndexRag(projectId, rag_files, url, out, options = {}) {
     return { ok: false, upserts: 0, error: msg };
   }
 }
-
-
-
 
 
 // Approximate bytes from base64 length (good enough for thresholds)

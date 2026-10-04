@@ -1,7 +1,6 @@
 // extension.js — Clike Orchestrator+Gateway integration GOOGDDDD
 const vscode = require('vscode');
 const out = vscode.window.createOutputChannel('Clike.telemetry');
-const fs = require('fs');
 
 /**
  * Funzione di logging personalizzata che scrive su entrambi i canali.
@@ -27,10 +26,7 @@ function telemetryProjectDirUri(wsroot, projectId) {
   // cartella client-side per esplorazione e UI locali
   return vscode.Uri.joinPath(wsroot, '.clike', 'telemetry', String(projectId || 'default'));
 }
-function telemetryRunFileUri(wsroot, runId, phase) {
-  // mirror dello schema Harper ufficiale (per compat): runs/<runId>/telemetry.json
-  return vscode.Uri.joinPath(wsroot, 'runs', String(runId || 'unknown'), 'telemetry.json');
-}
+
 function telemetryAppendFileUri(wsroot, projectId) {
   // append-only, utile per grafici/aggregazioni veloci lato UI
   const d = new Date();
@@ -43,12 +39,6 @@ async function ensureDirUri(dir) {
   try { await vscode.workspace.fs.createDirectory(dir); } catch {}
 }
 
-async function writeJsonUri(uri, obj) {
-  const enc = Buffer.from(JSON.stringify(obj, null, 2), 'utf8');
-  await ensureDirUri(vscode.Uri.joinPath(uri, '..'));
-  try { await vscode.workspace.fs.writeFile(uri, enc); }
-  catch (e) { vscode.window.showWarningMessage(`Telemetry write failed: ${e?.message||e}`); }
-}
 
 async function appendLineUri(uri, line) {
   const enc = Buffer.from(line + '\n', 'utf8');
@@ -86,10 +76,6 @@ async function persistTelemetryVSCode(wsroot, projectId, runId, phase, telemetry
   };
 
              
-  // // (1) file deterministico per evitare duplicati
-  // const runFile = telemetryRunFileUri(wsroot, runId, phase);
-  // log(`persistTelemetryVSCode: writing ${runFile.fsPath}`);
-  // await writeJsonUri(runFile, t);
 
   // (2) stream append-only per dashboard
   const line = JSON.stringify({

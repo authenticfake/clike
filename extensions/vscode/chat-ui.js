@@ -1,24 +1,11 @@
 const vscode = require('vscode');
 const { buildBrowserSlashParserSource } = require('./slash-parser');
-const out = vscode.window.createOutputChannel('Clike.theme');
 
 /**
  * Funzione di logging personalizzata che scrive su entrambi i canali.
  * @param {...any} args Messaggi o oggetti da loggare.
  */
-function log(...args) {
-    // 1. Log nella console standard per il debug.
-    console.log(...args); 
-    
-    // 2. Log nel canale di output di VS Code.
-    out.appendLine(args.map(arg => {
-        // Converte ogni argomento in stringa per l'output.
-        if (typeof arg === 'object' && arg !== null) {
-            return JSON.stringify(arg, null, 2);
-        }
-        return String(arg);
-    }).join(' ')); 
-}
+
 
 function getChatTheme() {
   try {
@@ -661,7 +648,6 @@ function bindHelpHandlersOnce() {
 }
 
 
-
 // Defer fino a DOM pronto (idempotente)
 (function safeInit() {
   const run = () => { ensureHelpDOM(); bindHelpHandlersOnce(); };
@@ -680,8 +666,6 @@ document.addEventListener('keydown', (ev) => {
     openHelpOverlay();
   }
 });
-
-
 
 
 const attachmentsByMode = { free: [], harper: [], coding: [] };

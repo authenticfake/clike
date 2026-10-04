@@ -34,10 +34,6 @@ function normalizeOutputPath(filePath) {
   return String(filePath || '').replace(/\\/g, '/').replace(/^\.?\//, '').replace(/^\/+/, '');
 }
 
-function hasHeading(text, heading) {
-  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`^\\s*${escaped}\\s*$`, 'im').test(text);
-}
 
 function headingIndex(text, heading) {
   const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

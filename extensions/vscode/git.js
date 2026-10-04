@@ -160,15 +160,12 @@ async function ensureGitRepo(gitCtx, defaultBranch = 'main', out) {
   }
 
   // Init
-  let inited = false;
   try {
     // Modern git: init -b <branch>
     await gitRunVerbose(['init', '-b', defaultBranch], gitCtx, 'init', out);
-    inited = true;
   } catch {
     await gitRunVerbose(['init'], gitCtx, 'init', out);
     try { await gitRunVerbose(['checkout', '-b', defaultBranch], gitCtx, 'init', out); } catch {}
-    inited = true;
   }
 
   // In modalità separate, dobbiamo puntare la work-tree
@@ -441,22 +438,6 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
       else await vscode.commands.executeCommand('github.createPullRequest');
     } catch (e) { log(`[harperGit] finalize PR skipped: ${e.message}`); }
   }
-}
-
-async function gitDebugSnapshot(gitCtx, out) {
-  const log = mkLog(out);
-  try { await gitRunVerbose(['rev-parse', '--is-inside-work-tree'], gitCtx, 'diag', out); } catch {}
-  try { await gitRunVerbose(['status', '--porcelain'], gitCtx, 'diag', out); } catch {}
-  try { await gitRunVerbose(['remote', '-v'], gitCtx, 'diag', out); } catch {}
-  try { await gitRunVerbose(['branch', '--show-current'], gitCtx, 'diag', out); } catch {}
-  try { await gitRunVerbose(['config', '--get', 'user.name'], gitCtx, 'diag', out); } catch {}
-  try { await gitRunVerbose(['config', '--get', 'user.email'], gitCtx, 'diag', out); } catch {}
-  try { await gitRunVerbose(['ls-files'], gitCtx, 'diag', out); } catch {}
-  try { await gitRunVerbose(['rev-parse', 'HEAD'], gitCtx, 'diag', out); } catch {}
-  try { await gitRunVerbose(['ls-remote', 'origin'], gitCtx, 'diag', out); } catch (e) { log(`[diag] ls-remote failed: ${e.message}`); }
-  // gh (best-effort)
-  try { await gitRunVerbose(['--version'], gitCtx, 'gh', out); } catch {}
-  try { await gitRunVerbose(['auth', 'status'], gitCtx, 'gh', out); } catch {}
 }
 
 

@@ -32,7 +32,7 @@ const {
   buildLocalAgentModelArgs,
   parseClaudeResultEnvelope,
   buildLocalAgentDisplayLabel,
-  localAgentSupportsPhase,
+  
   //_d_etectLocalAgentAvailability,
 } = require('./local-agent-executors');
 
@@ -42,10 +42,10 @@ const {
   promoteReqSources,
   runPromotionFlow,
   preIndexRag,
-  normalizeAttachment,
-  safeLog,
-  readWorkspaceTextFile,
-  getFileSizeBytes,
+  
+  
+  
+  
   getProjectNameFromWorkspace,
   runLocalAgentSync,
   collectReqCandidateFiles,
@@ -62,14 +62,14 @@ const {
   saveKitCommand,
   saveEvalCommand,
   saveGateCommand,
-  normalizeChangedFiles,
+  
 } = require('./utility');
 
 const {
-  sanitize,
+  
   logCurrentTimeStandard,
   httpPostJsonLong,
-  ensureReqIdInPlan,
+  
 } = require('./utility');
 const {
   getHarperSlashCommandName,
@@ -124,23 +124,7 @@ function isDocumentLocalAgentPhase(phase) {
 }
 
 
-function isLocalAgentExecutionPreference(value) {
-  const pref = normalizeExecutionPreference(value);
-  return new Set([
-    'prefer_claude_code',
-    'claude_code_only',
-    'prefer_local_agent',
-    'local_agent_only',
-    'hybrid',
-  ]).has(pref);
-}
-
-function isStrictLocalAgentExecutionPreference(value) {
-  const pref = normalizeExecutionPreference(value);
-  return pref === 'claude_code_only' || pref === 'local_agent_only';
-}
-
-const{ toFsPath, mapKitSrcToWorkspaceTarget, clikeGitSync } = require('./git'); // NEW: clikeGitSync
+const{ toFsPath,  clikeGitSync } = require('./git'); // NEW: clikeGitSync
 const { getChatTheme, getWebviewHtml } = require('./chat-ui');
 const {
   attachBmadQaAdvisory,
@@ -164,15 +148,9 @@ let extensionMcpState = {
   lastError: null,
 };
 let __clike_lastTargetUriCache = null;  
-let selectedPaths = new Set();
 // --- Stato richiesta in corso (per Cancel) ---
 let inflightController = null;
 // Stato chat: per mode -> array di bolle. Ogni bolla: { role: 'user'|'assistant', text, model, ts }
-const chatByMode = {
-  free: [],
-  coding: [],
-  harper: [],
-};
 
 function getWorkspaceRoot() {
     const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -471,118 +449,6 @@ async function collectLaneGuidesRagItems(workspaceRoot, opts = {}) {
   log(`[harperRAG] collected ${items.length} lane-guide RAG items`);
   return items;
 }
-
-// Collect RAG items for a given REQ under runs/kit/REQ-XXX/src.
-// We index only KIT-generated code, not the global /src folder.
-// async function collectKitRagItems(workspaceRoot, reqId,  opts = {}) {
-//   if (!workspaceRoot) {
-//     return [];
-//   }
-
-//   const maxFiles = opts.maxFiles ?? 400;
-//   const maxBytes = opts.maxBytes ?? 512 * 1024;
-
-//   const rootFsPath = workspaceRoot.fsPath;
-//   const kitSrcDir = path.join(rootFsPath, 'runs', 'kit', reqId, 'src');
-//   const kitSrcUri = vscode.Uri.file(kitSrcDir);
-
-//   let stat;
-//   try {
-//     stat = await vscode.workspace.fs.stat(kitSrcUri);
-//   } catch {
-//     // No KIT src dir yet for this REQ
-//     return [];
-//   }
-
-//   if (!stat || stat.type !== vscode.FileType.Directory) {
-//     return [];
-//   }
-
-//   const items = [];
-
-//   async function walk(dirUri, relBase) {
-//     const entries = await vscode.workspace.fs.readDirectory(dirUri);
-
-//     for (const [name, type] of entries) {
-//       const childUri = vscode.Uri.joinPath(dirUri, name);
-//       const relPath = relBase ? path.posix.join(relBase, name) : name;
-
-//       if (type === vscode.FileType.Directory) {
-//         await walk(childUri, relPath);
-//         if (items.length >= maxFiles) {
-//           return;
-//         }
-//         continue;
-//       }
-
-//       if (type !== vscode.FileType.File) {
-//         continue;
-//       }
-//       // constants.js o all'inizio del tuo file
-//       const CODE_EXTENSIONS = [
-//         // Web & UI
-//         'ts', 'tsx', 'js', 'jsx', 'html', 'htm', 'css', 'scss', 'sass',
-
-//         // Core & Compilati
-//         'java', 'cs', 'go', 'rs', 'swift', 'kt', 'm', 'mm', 'c', 'cpp', 'cc', 'h', 'hpp',
-
-//         // Scripting
-//         'py', 'pyw', 'rb', 'pl', 'php', 'sh', 'bash', 'ps1', 'lua', 'dart',
-
-//         // Configurazione & Dati
-//         'json', 'yml', 'yaml', 'toml', 'ini', 'xml',
-
-//         // Database
-//         'sql', 'pls', 'pck',
-
-//         // Documentazione & Markup
-//         'md', 'markdown', 'rst', 'tex', 'txt',
-
-//         // Mendix (o altri specifici)
-//         'mpr' 
-//       ];
-//       const fileExtension = name.split('.').pop().toLowerCase();
-//       // Only index "code-ish" and text files. Adjust/extensions as needed.
-//       if (!CODE_EXTENSIONS.includes(fileExtension)) {
-//           log("[harperRAG] skip file (not code): " + childUri.fsPath);
-//         continue;
-//       }
-
-//       let data;
-//       try {
-//         data = await vscode.workspace.fs.readFile(childUri);
-//       } catch (err) {
-//         log(`[harperRAG] skip file (read error): ${childUri.fsPath} -> ${err}`);
-//         continue;
-//       }
-
-//       if (!data || !data.byteLength) {
-//         continue;
-//       }
-
-//       const slice = data.byteLength > maxBytes ? data.slice(0, maxBytes) : data;
-//       const b64 = Buffer.from(slice).toString('base64');
-
-//       // Path relative to workspace root, so RAG can later map it back.
-//       const relFromRoot = path.posix.join('runs', 'kit', reqId, 'src', relPath);
-
-//       items.push({
-//         path: relFromRoot,
-//         bytes_b64: b64,
-//       });
-
-//       if (items.length >= maxFiles) {
-//         log(`[harperRAG] kit RAG items truncated at ${maxFiles} files for ${reqId}`);
-//         return;
-//       }
-//     }
-//   }
-
-//   await walk(kitSrcUri, '');
-
-//   log(`[harperRAG] collected ${items.length} kit RAG items for ${reqId}`);
-//   return items;
-// }
 
 // Collect RAG items for a given REQ under runs/kit/REQ-XXX.
 // We index candidate source, tests, CI contracts, docs and reports.
@@ -1239,7 +1105,6 @@ async function executeLocalAgentPackage({
 }
 
 
-
 function cfgChat() {
   const c = vscode.workspace.getConfiguration();
   return {
@@ -1397,7 +1262,7 @@ async function ensureSessionsDir() {
 }
 // ---------- Session & FS helpers ----------
 function sessionFileUri(mode) {
-  const safe = String(mode || 'free').replace(/[^\w\-\.]/g, '_');
+  const safe = String(mode || 'free').replace(/[^\w.-]/g, '_');
   return vscode.Uri.joinPath(sessionsDirUri(), `${safe}.jsonl`);
 }
 
@@ -1444,41 +1309,6 @@ async function loadSessionFilteredV2(mode, model, limit = 200) {
   return all.filter(e => !model || (e.model || 'auto') === model)
 }
 
-// async function loadSessionFilteredHarper(mode, model, limit = 200) {
-//   const all = await loadSession(mode, limit);
-
-//   return all.filter(e => {
-//     // Condizione 1 (Esistente): Filtra per modello (se specificato)
-//     const modelFilter = !model || (e.model || 'auto') === model;
-//     if (e.role === 'system') {
-//       return false; 
-//     }
-//     if (e.role !== 'user' && e.role !== 'assistant') {
-//       return false;
-//     }
-
-//     // La logica si semplifica usando un array di prefissi
-//     const EXECUTION_COMMAND_PREFIXES = [
-//         '▶IDEA',
-//         '▶SPEC',
-//         '▶PLAN',
-//         '▶KIT',
-//         '▶EVAL',
-//         '▶GATE',
-//         '▶FINALIZE',
-//         '✔',
-//         '🧪'
-//     ];
-//     const isExecutionCommand = e.content && EXECUTION_COMMAND_PREFIXES.some(prefix => 
-//         e.content.replace(/\s/g, "").startsWith(prefix)
-//     );
-//     if (isExecutionCommand) {
-//         return false; // Scarta i comandi di esecuzione
-//     }
-//     return modelFilter;
-//     });
-
-// }
 
 async function loadSessionFilteredHarper(mode, limit = 200) {
   const all = await loadSession(mode, limit);
@@ -1666,7 +1496,6 @@ async function saveGeneratedFiles(files, opts = {}) {
 }
 
 
-
 function isSaneReplacement(originalText, patchedText) {
   try {
     const origLen = (originalText || '').length;
@@ -1740,7 +1569,6 @@ function rememberTargetUri(context) {
 }
 
 
-
 // Costruisce il payload rispettando le firme lato orchestrator (text = intero file, selection = selezione)
 function mapDocContextToPayload(ctx, op, useContent = false) {
   
@@ -1759,24 +1587,6 @@ function mapDocContextToPayload(ctx, op, useContent = false) {
   return payload;
 }
 
-function makeLocalDocstring(selectionOrFileText) {
-  try {
-    const src = selectionOrFileText || '';
-    const m = src.match(/^\s*def\s+([a-zA-Z_]\w*)\s*\(([^)]*)\)\s*:/m);
-    if (!m) {
-      const c = src.match(/^\s*class\s+([A-Z][A-Za-z0-9_]*)/m);
-      if (c) return `"""${c[1]}: Class description.\n\nAttributes:\n    ...\n"""`;
-      return `"""Module description.\n\nAdd details here.\n"""`;
-    }
-    const fn = m[1]; const params = m[2].trim();
-    const paramList = params ? params.split(',').map(s => s.trim()).filter(Boolean) : [];
-    const filtered = paramList.filter(p => !/^self\b|^cls\b/.test(p));
-    const paramsSection = filtered.length
-      ? `\n\nArgs:\n${filtered.map(p => `    ${p.split('=')[0]}: ...`).join('\n')}`
-      : '';
-    return `"""${fn}: Describe what it does.${paramsSection}\n\nReturns:\n    ...\n"""`;
-  } catch { return `"""Auto docstring placeholder."""`; }
-}
 
 async function runApplyFromClipboard(context, label, { treatAsDiff = true } = {}) {
   const editor = getActiveEditorOrThrow();
@@ -1823,22 +1633,6 @@ vscode.workspace.onDidChangeConfiguration((e) => {
   }
 });
 
-// ---------- Editor helpers ----------
-async function getOrOpenEditor(targetUriString) {
-  if (vscode.window.activeTextEditor && !vscode.window.activeTextEditor.document.isClosed) {
-    return vscode.window.activeTextEditor;
-  }
-  if (targetUriString) {
-    const uri = vscode.Uri.parse(targetUriString);
-    const doc = await vscode.workspace.openTextDocument(uri);
-    return await vscode.window.showTextDocument(doc, { preview: false, preserveFocus: false });
-  }
-  await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
-  if (vscode.window.activeTextEditor && !vscode.window.activeTextEditor.document.isClosed) {
-    return vscode.window.activeTextEditor;
-  }
-  throw new Error('No open editor to apply changes.');
-}
 
 function documentInfoFromEditor(editor) {
   const doc = editor.document;
@@ -1991,78 +1785,6 @@ async function getExtensionMcpToken(context) {
   return token;
 }
 
-// async function getHarperNextAction() {
-//   const wsroot = getWorkspaceRoot();
-//   if (!wsroot) {
-//     return {
-//       ok: false,
-//       action: 'no_workspace',
-//       message: 'No VS Code workspace is open.',
-//     };
-//   }
-
-//   const plan = await readPlanJson(wsroot);
-//   const reqs = Array.isArray(plan?.reqs) ? plan.reqs : [];
-
-//   if (!reqs.length) {
-//     return {
-//       ok: false,
-//       action: 'no_plan',
-//       message: 'docs/harper/plan.json is missing or has no reqs.',
-//     };
-//   }
-
-//   const done = new Set(
-//     reqs
-//       .filter(r => String(r?.status || '').trim().toLowerCase() === 'done')
-//       .map(r => String(r?.id || '').trim().toUpperCase())
-//       .filter(Boolean)
-//   );
-
-//   const open = reqs.filter(r => String(r?.status || '').trim().toLowerCase() !== 'done');
-
-//   for (const req of open) {
-//     const reqId = String(req?.id || '').trim().toUpperCase();
-//     const deps = Array.isArray(req?.dependsOn)
-//       ? req.dependsOn.map(x => String(x || '').trim().toUpperCase()).filter(Boolean)
-//       : [];
-
-//     const missingDeps = deps.filter(dep => !done.has(dep));
-//     if (!missingDeps.length) {
-//       return {
-//         ok: true,
-//         action: 'run_req',
-//         next_phase: 'kit',
-//         req_id: reqId,
-//         req,
-//         message: `Next eligible REQ is ${reqId}.`,
-//       };
-//     }
-//   }
-
-//   if (!open.length) {
-//     return {
-//       ok: true,
-//       action: 'finalize_only',
-//       next_phase: 'finalize',
-//       req_id: null,
-//       message: 'All REQs are done. Only /finalize is available.',
-//     };
-//   }
-
-//   return {
-//     ok: true,
-//     action: 'blocked',
-//     next_phase: null,
-//     req_id: null,
-//     open_reqs: open.map(r => ({
-//       id: r.id,
-//       status: r.status,
-//       dependsOn: r.dependsOn || [],
-//     })),
-//     message: 'No eligible REQ found because dependencies are not satisfied.',
-//   };
-// }
 
 async function getHarperNextAction() {
   const wsroot = getWorkspaceRoot();
@@ -2843,19 +2565,6 @@ function buildModeContract(mode, phase = '') {
   };
 }
 
-function _inferProvider(modelName) {
-  const n = String(modelName||'').toLowerCase();
-  if (n.startsWith('gpt')) {
-    console.log("GPT", n);
-    return 'openai';
-  }
-  if (/(llama|ollama|codellama|mistral|mixtral|phi|qwen|granite|yi|gemma|llava)/.test(n)) return 'ollama';
-  if(n.startsWith('claude')) return 'anthropic';
-  if(n.startsWith('vllm')) return 'vllm';
-  if(n.startsWith('deepseek')) return 'deepseek';
-  
-  return 'openai'; // fallback conservativo
-}
 
 async function showDiffPreview(originalText, patchedText, title = 'Clike Preview') {
   const provider = ensurePreviewProvider();
@@ -3118,8 +2827,6 @@ async function cmdCheckServices(context) {
     const { routes } = cfg();
     const o = await getJson(cfg().orchestratorUrl + routes.orchestrator.health);
     const g = await getJson(cfg().gatewayUrl + routes.gateway.health);
-    //log("cmdCheckServices g", JSON.stringify(g), g);
-    //log("cmdCheckServices o", JSON.stringify(o), o);
     const gatewayStatus = g['clike gateway status'] || 'err';
     const orchestratorStatus = o['clike orchestrator status'] || 'err';
 
@@ -3218,11 +2925,11 @@ async function cmdRagReindex(glob) {
     return;
   }
 
-  const { orchestratorUrl, routes } = cfg();
+  const { orchestratorUrl } = cfg();
   const url = '/v1/rag/index';
 
   try {
-    const res = await postJson(`${orchestratorUrl}${url}`, {
+    await postJson(`${orchestratorUrl}${url}`, {
       project_id: projectId,
       items
     });
@@ -3335,8 +3042,6 @@ async function cmdRagSearch(q) {
 }
 
 
-
-
 async function cmdApplyUnifiedDiffHardened(context) {
   try { await runApplyFromClipboard(context, 'diff (hardened)', { treatAsDiff: true }); }
   catch (e) { vscode.window.showErrorMessage(`Clike: apply failed → ${e.message}`); out.appendLine(`[error] ${e.stack || e.message}`); out.show(true); }
@@ -3384,7 +3089,6 @@ async function cmdClearChatSession(context) {
     clikeChatPanel?.webview.postMessage({ type: 'hydrateSession', messages: hist });
   }
 }
-
 
 
 async function cmdOpenChatSessionFile(context) {
@@ -3615,7 +3319,7 @@ async function cmdOpenChat(context) {
   // Dopo aver creato il panel e prima di restituire:
   await showInitSummaryIfPresent(panel, context);
 
-  function escapeHtml(s){return s.replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]))}
+  
   
 
   // Ascolto eventi dalla webview
@@ -3705,7 +3409,6 @@ async function cmdOpenChat(context) {
           const extRoot = context.extensionPath;
           
           const templatesDir = path.join(extRoot, 'templates', 'harper-init');
-          const BINARY_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.pdf', '.zip', '.exe', '.dll', '.so', '.dylib', '.woff', '.woff2', '.ttf', '.eot']);
           function copyRecursive(src, dest) {
             //out.appendLine(`copyRecursive ${src} -> ${dest}`);
             if (fsSync.statSync(src).isDirectory()) {
@@ -4203,7 +3906,6 @@ async function cmdOpenChat(context) {
           const localExecutorConfig = selectedLocalExecutor
             ? getExecutorConfig(selectedLocalExecutor, settings)
             : null;
-          const localExecutorLabel = buildLocalAgentDisplayLabel(selectedLocalExecutor || 'auto');
           if (localAgentRequested && !selectedLocalExecutor) {
             const msgNoExecutor =
               `No local agent executor detected locally for phase=${phase}. ` +
@@ -4216,10 +3918,6 @@ async function cmdOpenChat(context) {
               message: `⚠ ${msgNoExecutor}`
             });
           }
-          const onlyBaseKitPhase =
-            !requestedKitPhases ||
-            !requestedKitPhases.length ||
-            (requestedKitPhases.length === 1 && String(requestedKitPhases[0] || '').trim().toLowerCase() === 'kit');
           const _headers = { "Content-Type": "application/json" };
           if (isLocalAgentEligiblePhase(phase) && localAgentRequested && localExecutorConfig && localExecutorConfig.enabled) {
             log(
@@ -4696,7 +4394,6 @@ async function cmdOpenChat(context) {
         var files_git = []
         let callGit =true;
         const settings = cfg();
-        const localAgentRequested = executionPreferenceRequestsLocalAgent(executionPreference);
         const localAgentAvailability = detectLocalAgentAvailability(settings);
         log(`[harperEDD][agent][availability] ${JSON.stringify(localAgentAvailability)}`);
         const selectedLocalExecutor = resolveSelectedLocalAgentExecutor(
@@ -4704,10 +4401,6 @@ async function cmdOpenChat(context) {
             state.localAgentExecutor || 'auto',
             phase
         );
-        const localExecutorConfig = selectedLocalExecutor
-            ? getExecutorConfig(selectedLocalExecutor, settings)
-            : null;
-        const localExecutorLabel = buildLocalAgentDisplayLabel(selectedLocalExecutor || 'auto');
 
         switch (msg.cmd) {
           case 'eval': {
@@ -5040,7 +4733,7 @@ async function cmdOpenChat(context) {
 
           if (!query) throw new Error('Query vuota.');
 
-          const { orchestratorUrl, routes } = cfg();
+          const { orchestratorUrl } = cfg();
           //const path = (routes?.orchestrator?.ragSearch) || '/v1/rag/search';
           const path =  '/v1/rag/search';
 
@@ -5180,10 +4873,6 @@ async function cmdOpenChat(context) {
             }
             if (!models.length) models = ['auto'];
             // Ripristina il bubble persistito (se presente)
-            // try {
-            //   const memo = context.workspaceState.get('clike.initSummary');
-            //   if (memo) panel.webview.postMessage({ type: 'echo', message: memo });
-            // } catch {
 
             // }
 
@@ -5590,7 +5279,7 @@ async function cmdOpenChat(context) {
             // generate: opzionale autowrite (se l’hai abilitato in cfgChat)
             const { autoWrite } = cfgChat?.() || { autoWrite: false };
             if (autoWrite && Array.isArray(res.files) && res.files.length) {
-              const paths = await saveGeneratedFiles(res.files, { phase: 'apply', runId: res.runId || res.run_id });
+              await saveGeneratedFiles(res.files, { phase: 'apply', runId: res.runId || res.run_id });
              
             }
             // Cache locale dei file dell’ultimo generate (serve per Apply fallback)
@@ -5852,7 +5541,6 @@ function partitionAttachments(atts) {
   }
   return { inline_files, rag_files };
 }
-
 
 
 async function fetchJson(url, { signal } = {}) {
