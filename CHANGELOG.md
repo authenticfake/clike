@@ -30,10 +30,26 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 - Local Claude Code never receives `ANTHROPIC_AUTH_TOKEN` (it would override the subscription
   login), like `ANTHROPIC_API_KEY`.
 
+### Fixed
+
+- Chat webview: REQ ids were never recognized and message previews replaced the letter "s" with
+  spaces (regexes inside the webview script lost their backslashes).
+
 ### Removed
 
 - Dead code: unused KIT/EVAL prompt builders, a shadowed duplicate function, an unused copy of
   the cloud capability renderer, unused gateway helpers.
+- WP9 cleanup (about 2,700 lines): modules unreachable from any service entry point
+  (`harper_flow/`, `constraints/`, `embeddings.py`, `spec_plan_gates.py`, …), unused functions and
+  imports, commented-out code, the extension's `rag.js` and `fix_ext_vs.sh`.
+- The gateway's own Qdrant store and embedder (unused): RAG is owned by the orchestrator; the
+  gateway is a client of `/v1/rag`. The gateway no longer reads `EMBEDDING_DIM`,
+  `RAG_EMBED_FAMILY`, `RAG_SCORE_THRESHOLD`.
+
+### Changed (code quality)
+
+- Duplicated provider result builders and local-agent failure responses consolidated; extension
+  lint at zero warnings; code comments in English.
 
 ## [0.9.5] — 2026-10 — Milestone M2: correct and governed
 
