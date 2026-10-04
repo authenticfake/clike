@@ -262,9 +262,15 @@ def _stack_compliance(root: Path, req: str, constraints: Optional[str]) -> Optio
     frameworks = [f.lower() for f in frameworks if f.lower() not in {"none", "unknown"}]
     if not frameworks:
         return None
-    src = root / "runs" / "kit" / req / "src"
-    text = "\n".join(p.read_text(encoding="utf-8", errors="ignore").lower() for p in src.rglob("*") if p.is_file()) if src.is_dir() else ""
-    return bool(text) and any(f in text for f in frameworks)
+    kit = root / "runs" / "kit" / req
+    text = "\n".join(p.read_text(encoding="utf-8", errors="ignore").lower()
+                     for d in ("src", "ci") for p in (kit / d).rglob("*") if p.is_file()) if kit.is_dir() else ""
+    if not text:
+        return None
+    # non-compliant = an alternative framework is used (a module may legitimately not import the
+    # declared one, e.g. a probing library behind a FastAPI app)
+    alternatives = {"fastapi", "flask", "django", "aiohttp", "express", "koa", "nestjs", "spring"} - set(frameworks)
+    return not any(re.search(rf"(?<![\w-]){re.escape(a)}(?![\w-])", text) for a in alternatives)
 
 
 def run_project(client: Client, project: Dict[str, Any], model: str, max_reqs: int, ws_root: Path, stamp: str,
