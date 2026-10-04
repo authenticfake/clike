@@ -226,7 +226,8 @@ def run_project(client: Client, project: Dict[str, Any], model: str, max_reqs: i
         kit = step("kit", {"kit": {"targets": [req]}, "todo_ids": [req], "rag_strategy": "deps_only"},
                    ["IDEA.md", "SPEC.md", "PLAN.md", "plan.json", *tc])
         entry = {"req": req, "kit_status": kit["status"], "kit_ok": kit.get("ok"), "kit_files": len(kit["written"]),
-                 "stack_compliant": _stack_compliance(root, req, constraints)}
+                 # only meaningful when the KIT was accepted and written
+                 "stack_compliant": _stack_compliance(root, req, constraints) if kit.get("ok") and kit["written"] else None}
         if kit.get("ok") and kit["written"]:
             entry["eval"] = client.check("eval", root, name, req)
             entry["gate"] = client.check("gate", root, name, req)
@@ -299,7 +300,21 @@ def main() -> None:
     ap.add_argument("--model", default="openai:gpt-6.1-sol")
     ap.add_argument("--max-reqs", type=int, default=2, help="KIT/EVAL/GATE only the first N REQs of each plan (cost cap)")
     ap.add_argument("--projects", default="", help="comma-separated subset of benchmark/projects.yaml")
+    ap.add_argument("--resummarize", default="", help="rebuild SUMMARY.md from an existing results directory (no calls)")
     args = ap.parse_args()
+    if args.resummarize:
+        out_dir = Path(args.resummarize)
+        data = json.loads((out_dir / "results.json").read_text(encoding="utf-8"))
+        for proj in data["projects"]:
+            for q in proj["reqs"]:
+                if not q.get("kit_ok"):
+                    q["stack_compliant"] = None
+        summary = summarize(data["projects"], data["summary"]["model"])
+        data["summary"] = summary
+        (out_dir / "results.json").write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        (out_dir / "SUMMARY.md").write_text(render_md(summary, out_dir.name), encoding="utf-8")
+        print(render_md(summary, out_dir.name))
+        return
     token = os.getenv("CLIKE_API_TOKEN") or sys.exit("export CLIKE_API_TOKEN")
     projects = yaml.safe_load((REPO / "benchmark/projects.yaml").read_text(encoding="utf-8"))["projects"]
     if args.projects:
