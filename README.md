@@ -5,7 +5,7 @@
 [![Made with Python](https://img.shields.io/badge/Made%20with-Python%203.12-3776AB?logo=python)](https://www.python.org/)
 [![VS Code Extension](https://img.shields.io/badge/VS%20Code-Extension-007ACC?logo=visualstudiocode)](extensions/vscode)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.9.0-informational)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.9.5-informational)](CHANGELOG.md)
 
 > **From intent to impact.** CLike turns an idea into reviewed, tested and promotable software
 > through a governed lifecycle in which cloud models and local coding agents execute, while
@@ -40,8 +40,8 @@ Models and agents execute.  Eval and Gate decide.
 
 | Version | Date | Milestone |
 |---|---|---|
-| **0.9.0** | 2026-10 | **M1 — safe to run**: authenticated services on loopback, confined file and process execution, non-destructive Git, reproducible builds, CI. See [CHANGELOG](CHANGELOG.md). |
-| 0.9.5 | in progress | M2 — correct and governed: sandboxed gate ✓, tamper-evident acceptance criteria ✓, audited overrides ✓; provider and functional fixes next |
+| 0.9.0 | 2026-10 | M1 — safe to run: authenticated services on loopback, confined file and process execution, non-destructive Git, reproducible builds, CI. |
+| **0.9.5** | 2026-10 | **M2 — correct and governed**: sandboxed gate, tamper-evident acceptance criteria, audited overrides; provider contract for old and new OpenAI/Anthropic models; end-to-end error contract. See [CHANGELOG](CHANGELOG.md). |
 | 1.0.0 | planned | M3 — ready for evolution: typed phase contract, single source per phase definition |
 
 CLike is research software under active development. Interfaces may change between minor versions.
