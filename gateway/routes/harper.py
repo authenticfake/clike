@@ -1,6 +1,5 @@
 # gateway/routes/harper.py
 from __future__ import annotations
-import asyncio
 import json
 import traceback
 import uuid
@@ -33,7 +32,7 @@ from utils.methodology_prompt import (
     render_current_canonical_validation_for_cloud_prompt,
     render_methodology_context_for_cloud_prompt,
 )
-from routes.chat import ANTHROPIC_API_KEY, ANTHROPIC_BASE, OLLAMA_OPENAI_BASE, OPENAI_API_KEY, OPENAI_BASE, _json, provider_not_configured
+from routes.chat import ANTHROPIC_API_KEY, ANTHROPIC_BASE, OLLAMA_OPENAI_BASE, OPENAI_API_KEY, _json, provider_not_configured
 from providers import openai_compat as oai
 from providers import anthropic as anth
 import yaml
@@ -222,7 +221,6 @@ def _get_pricing_manager():
     return _PRICING
 
 # --- Harper: Dynamic Context Budgeting (messages builder) --------------------
-from dataclasses import dataclass
 
 def _safe_len(s: str|None) -> int:
     return len(s or "")
@@ -1114,17 +1112,6 @@ def _load_file_requirements_from_core_blobs(core_blobs: dict | None) -> dict | N
 
 
 
-def _load_text_blob(core_blobs: dict | None, suffix: str) -> str:
-    if not core_blobs:
-        return ""
-
-    suffix = str(suffix or "").strip().lower()
-    for name, content in (core_blobs or {}).items():
-        key = str(name or "").strip().lower()
-        if key.endswith(suffix):
-            return str(content or "").strip()
-
-    return ""
 
 
 def _compose_cloud_selected_skill_context(
@@ -1610,10 +1597,6 @@ def _compose_system_messages(
         methodology_context=methodology_context,
         req_id=target_req_id,
         file_requirements=kit_file_requirements,
-    )
-    methodology_text = render_methodology_context_for_cloud_prompt(
-        methodology_context,
-        active_output_contract=active_output_contract,
     )
     cloud_selected_skill_context = _compose_cloud_selected_skill_context(
         core_blobs=core_blobs,

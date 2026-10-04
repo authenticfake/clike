@@ -4,8 +4,7 @@ import os,  logging
 import httpx
 import io
 import base64
-import mimetypes
-from typing import List, Dict, Optional
+from typing import Optional
 import docx
 from pdfminer.high_level import extract_text
 import openpyxl  # .xlsx

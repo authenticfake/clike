@@ -20,19 +20,22 @@ def _load_gateway_module(name: str, relative_path: str):
 artifact_policy_module = _load_gateway_module("gateway_artifact_policy", "utils/artifact_policy.py")
 methodology_prompt_module = _load_gateway_module("gateway_methodology_prompt", "utils/methodology_prompt.py")
 active_output_contract_module = _load_gateway_module("gateway_active_output_contract_for_prompt_tests", "utils/active_output_contract.py")
-selected_skill_context_prompt_module = _load_gateway_module(
-    "gateway_selected_skill_context_prompt",
-    "utils/selected_skill_context_prompt.py",
-)
 filter_files_by_methodology_artifact_policy = artifact_policy_module.filter_files_by_methodology_artifact_policy
 render_methodology_context_for_cloud_prompt = methodology_prompt_module.render_methodology_context_for_cloud_prompt
 render_current_canonical_validation_for_cloud_prompt = (
     methodology_prompt_module.render_current_canonical_validation_for_cloud_prompt
 )
 build_active_output_contract = active_output_contract_module.build_active_output_contract
-compose_cloud_selected_phase_skill_context = (
-    selected_skill_context_prompt_module.compose_cloud_selected_phase_skill_context
-)
+
+
+def compose_cloud_selected_phase_skill_context(core_blobs, methodology_context):
+    # the renderer used by the cloud prompt (routes/harper.py); utils/selected_skill_context_prompt.py
+    # was an unused copy and has been removed (WP8.1)
+    from routes import harper
+
+    return harper._compose_cloud_selected_skill_context(
+        core_blobs=core_blobs, methodology_context=methodology_context, active_output_contract=None
+    )
 MANIFEST_PATH = REPO_ROOT / "orchestrator/methodologies/bmad/manifest.json"
 
 
