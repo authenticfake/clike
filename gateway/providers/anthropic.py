@@ -22,6 +22,7 @@ import httpx
 import re
 import unicodedata
 from functools import lru_cache
+from providers.http import post_with_retries
 
 log = logging.getLogger("anthropic")
 
@@ -226,46 +227,24 @@ def _ensure_version_suffix(model: str, default_date: str) -> str:
         return model
     return f"{model}-{default_date}"
 
-@lru_cache(maxsize=1)
-def _cached_model_list(base_url: str, api_key: str, timeout: float = 20.0) -> list[str]:
-    base = (base_url or "").rstrip("/")
-    if base.endswith("/v1"):
-        base = base[:-3]
-    headers = {"x-api-key": api_key, "anthropic-version": ANTHROPIC_VERSION}
-    with httpx.Client(base_url=base, headers=headers, timeout=timeout) as cli:
-        r = cli.get("/v1/models")
-        r.raise_for_status()
-        data = r.json() or {}
-        ids = [x.get("id") for x in (data.get("data") or []) if isinstance(x, dict)]
-        return [i for i in ids if isinstance(i, str)]
-
-def _pick_latest_with_prefix(ids: list[str], prefix: str) -> str | None:
-    cand = []
-    for mid in ids:
-        if not mid.startswith(prefix):
-            continue
-        m = re.search(r"([\-@])(20\d{6})$", mid)
-        date = m.group(2) if m else "00000000"
-        cand.append((date, mid))
-    if not cand:
-        return None
-    cand.sort(reverse=True)
-    return cand[0][1]
-
-def _normalize_model_id_for_anthropic(model: str, base_url: str, api_key: str) -> str:
+def _normalize_model_id_for_anthropic(model: str, base_url: str = "", api_key: str = "") -> str:
+    """Pure alias normalization (WP7). The previous version listed models with a
+    synchronous HTTP call inside async code on every request (failures were not
+    cached), blocking the event loop; the catalog already carries exact IDs."""
     raw = (model or "").strip()
-    low = raw.lower()
-    canon = _ALIAS_MAP.get(low, raw)
+    canon = _ALIAS_MAP.get(raw.lower(), raw)
     if _strip_version_suffix(canon) == CANON_4_5:
         canon = _ensure_version_suffix(CANON_4_5, CANON_4_5_VERSION)
-    try:
-        ids = _cached_model_list(base_url, api_key)
-        latest = _pick_latest_with_prefix(ids, CANON_4_5)
-        if latest and _strip_version_suffix(canon) == CANON_4_5:
-            canon = latest
-    except Exception:
-        pass
     return canon
+
+
+# Models that reject non-default sampling parameters (temperature/top_p/top_k -> 400):
+# Opus 4.7/4.8/5.x, Sonnet 5.x, Fable, Mythos.
+_NO_SAMPLING_RE = re.compile(r"^claude-(opus-(4-[78]|5)|sonnet-5|fable|mythos)")
+# Models that reject forced tool use (tool_choice any/tool -> 400).
+_NO_FORCED_TOOL_RE = re.compile(r"^claude-(opus-5-5|sonnet-5-5|fable-5-1|mythos-5-1)")
+# Long system prompts are marked cacheable (shorter prefixes are simply not cached).
+_CACHE_SYSTEM_MIN_CHARS = 4000
 
 def _mk_unified_result(
     ok: bool,
@@ -337,6 +316,9 @@ def _convert_tools_for_anthropic(tools: Sequence[Dict[str, Any]]) -> List[Dict[s
 def _convert_tool_choice_for_anthropic(tool_choice: Any) -> Any:
     if tool_choice in ("auto", "none"):
         return {"type": str(tool_choice)}
+    if tool_choice in ("required", "any"):
+        # OpenAI's "required" == Anthropic's {"type": "any"} (a bare string is rejected by the API)
+        return {"type": "any"}
     if isinstance(tool_choice, dict):
         if tool_choice.get("type") in ("auto","none","tool") and ("name" in tool_choice or tool_choice["type"] in ("auto","none")):
             return tool_choice
@@ -369,23 +351,29 @@ def _build_messages_payload(
     else:
         tok = 1024
     out["max_tokens"] = tok
-    if model == "claude-opus-4-1":
-        out["max_tokens"] = 32000
 
-    if "temperature" in gen:
-        out["temperature"] = gen["temperature"]
-    if "top_p" in gen:
-        out["top_p"] = gen["top_p"]
-    if "top_k" in gen:
-        out["top_k"] = gen["top_k"]
+    if not _NO_SAMPLING_RE.match(model or ""):
+        if "temperature" in gen:
+            out["temperature"] = gen["temperature"]
+        if "top_p" in gen:
+            out["top_p"] = gen["top_p"]
+        if "top_k" in gen:
+            out["top_k"] = gen["top_k"]
     if gen.get("stop_sequences"):
         out["stop_sequences"] = gen["stop_sequences"]
     if gen.get("system"):
-        out["system"] = gen["system"]
+        system = gen["system"]
+        if isinstance(system, str) and len(system) >= _CACHE_SYSTEM_MIN_CHARS:
+            # Harper system prompts are long and repeated across runs: cache them.
+            system = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+        out["system"] = system
     if gen.get("tools"):
         out["tools"] = _convert_tools_for_anthropic(gen["tools"])
     if gen.get("tool_choice"):
-        out["tool_choice"] = _convert_tool_choice_for_anthropic(gen["tool_choice"])
+        choice = _convert_tool_choice_for_anthropic(gen["tool_choice"])
+        if _NO_FORCED_TOOL_RE.match(model or "") and isinstance(choice, dict) and choice.get("type") in ("any", "tool"):
+            choice = {"type": "auto"}
+        out["tool_choice"] = choice
     if isinstance(gen.get("thinking"), dict):
         out["thinking"] = gen["thinking"]
     if gen.get("attachments"):
@@ -635,8 +623,7 @@ async def anthropic_complete_unified(
     url = f"{base_url.rstrip('/')}/messages"
     
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            r = await client.post(url, headers=headers, json=payload)
+        r = await post_with_retries(url, headers=headers, json=payload, timeout=timeout)
     except Exception as e:
         log.exception("anthropic_complete_unified httpx error")
         return _mk_unified_result(
@@ -653,9 +640,14 @@ async def anthropic_complete_unified(
             "Anthropic API Error (Status: %d) - URL: %s\nError Message API:\n%s",
             r.status_code, r.url, response_body
         )
+        try:
+            err = (r.json() or {}).get("error") or {}
+        except Exception:
+            err = {}
         return _mk_unified_result(
             ok=False, text="", files=[], usage={}, finish_reason="",
-            raw={"body_preview": r.text[:800]}, errors=[f"httpx:{r.status_code}"],
+            raw={"status_code": r.status_code, "error": err, "body_preview": r.text[:800]},
+            errors=[f"anthropic:{r.status_code}:{err.get('type', 'error')}:{err.get('message', '')[:300]}"],
         )
 
     # 200
