@@ -1,4 +1,5 @@
 # --- begin: openai_compat unified imports/helpers ---
+import re
 import json
 import logging
 import os
@@ -35,6 +36,12 @@ def _is_reasoning_model_name(model: Optional[str]) -> bool:
     if not model:
         return False
     m = model.lower()
+    # Every GPT generation from 5 on (gpt-5.x, gpt-6, gpt-6.1-sol, ...) is a reasoning model on
+    # the Responses API: no sampling parameters. Matched by generation number so new families
+    # work without a code change.
+    gen_match = re.match(r"^gpt-(\d+)", m)
+    if gen_match and int(gen_match.group(1)) >= 5:
+        return True
     return any(
         tag in m
         for tag in (
