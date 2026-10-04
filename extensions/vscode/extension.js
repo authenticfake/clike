@@ -1,7 +1,7 @@
 // extension.js — Clike Orchestrator+Gateway integration GOOGDDDD
 const vscode = require('vscode');
 const { applyPatch } = require('diff');
-const { exec } = require('child_process');
+const { execFile } = require('child_process');
 const https = require('https');
 const http = require('http');
 const { URL } = require('url');
@@ -18,6 +18,7 @@ const {
   notifyServiceAuthFailure,
 } = require('./service-auth');
 const { validateLocalMcpRequest } = require('./mcp-request-guard');
+const { safeRelativePath, safeWorkspaceUri, resolveInsideWorkspace } = require('./safe-workspace');
 const {  handleGate, handleEval } = require('./commands/harper');
 const {  persistTelemetryVSCode } = require('./telemetry');
 
@@ -1628,7 +1629,15 @@ async function saveGeneratedFiles(files, opts = {}) {
     // Accept text (content) or binary (content_base64) payloads. Binary
     // attachments are materialized as base64 and must not be silently dropped.
     if (!f || !f.path || (typeof f.content !== 'string' && typeof f.content_base64 !== 'string')) continue;
-    const relativePath = f.path.replace(/^\.?\//,'');
+    // Paths come from the orchestrator / LLM / local agent: never write outside the workspace.
+    let relativePath;
+    try {
+      relativePath = safeRelativePath(f.path);
+    } catch (err) {
+      log(`[harperWriteGuard] unsafe_path_rejected path=${JSON.stringify(String(f.path))} reason=${err.message}`);
+      try { vscode.window.showWarningMessage(`CLike refused to write a file outside the workspace: ${String(f.path)}`); } catch {}
+      continue;
+    }
     const validation = (typeof f.content === 'string')
       ? validateCanonicalHarperArtifact(relativePath, f.content)
       : null;
@@ -1638,7 +1647,7 @@ async function saveGeneratedFiles(files, opts = {}) {
         runId: opts.runId,
         filePath: relativePath,
       });
-      const rejectedUri = vscode.Uri.joinPath(root, rejectedPath);
+      const rejectedUri = safeWorkspaceUri(root, rejectedPath);
       const rejectedFolder = vscode.Uri.joinPath(rejectedUri, '..');
       try { await vscode.workspace.fs.createDirectory(rejectedFolder); } catch {}
       await vscode.workspace.fs.writeFile(rejectedUri, Buffer.from(f.content, 'utf8'));
@@ -1647,7 +1656,7 @@ async function saveGeneratedFiles(files, opts = {}) {
       try { vscode.window.showWarningMessage(message); } catch {}
       continue;
     }
-    const uri = vscode.Uri.joinPath(root, relativePath);
+    const uri = safeWorkspaceUri(root, relativePath);
     const folder = vscode.Uri.joinPath(uri, '..');
     try { await vscode.workspace.fs.createDirectory(folder); } catch {}
     if (typeof f.content === 'string') {
@@ -1698,12 +1707,17 @@ function buildApplyCtx(op) {
   };
 }
 
+// Server-provided target paths (e.g. apply.path): relative, or absolute only inside the workspace.
 function resolveToWorkspaceUri(p) {
   if (!p) return null;
-  if (p.startsWith('file://')) return vscode.Uri.parse(p);
-  if (p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p)) return vscode.Uri.file(p);
   const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
-  return ws ? vscode.Uri.joinPath(ws.uri, p.replace(/^\.?\//, '')) : vscode.Uri.file(p);
+  if (!ws) return null;
+  try {
+    return resolveInsideWorkspace(ws.uri, p);
+  } catch (err) {
+    log(`[apply] unsafe_target_path_rejected path=${JSON.stringify(String(p))} reason=${err.message}`);
+    return null;
+  }
 }
 
 function mapOpToIntent(op) {
@@ -2617,17 +2631,17 @@ async function ensureCleanGitIfRequired() {
   if (!ws) throw new Error('requireCleanGit attivo ma nessuna workspace folder aperta.');
 
   const cwd = ws.uri.fsPath;
-  const run = (cmd) =>
+  const runGit = (args) =>
     new Promise((resolve, reject) => {
-      exec(cmd, { cwd }, (err, stdout, stderr) => {
+      execFile('git', args, { cwd }, (err, stdout, stderr) => {
         if (err) return reject(new Error(stderr || err.message));
         resolve(stdout.trim());
       });
     });
 
-  const inside = await run('git rev-parse --is-inside-work-tree');
+  const inside = await runGit(['rev-parse', '--is-inside-work-tree']);
   if (inside !== 'true') throw new Error('Non sei dentro un repo Git.');
-  const status = await run('git status --porcelain');
+  const status = await runGit(['status', '--porcelain']);
   if (status !== '') throw new Error('Working tree non pulito. Committa/stasha prima di applicare la patch.');
 }
 
@@ -2766,17 +2780,18 @@ async function gitAutoCommitAndPR() {
   if (!ws) return;
   const cwd = ws.uri.fsPath;
 
-  const run = (cmd) =>
+  // argv, no shell: the commit message is a single argument (no injection).
+  const runGit = (args) =>
     new Promise((resolve, reject) => {
-      exec(cmd, { cwd }, (err, stdout, stderr) => {
+      execFile('git', args, { cwd }, (err, stdout, stderr) => {
         if (err) return reject(new Error(stderr || err.message));
         resolve(stdout.trim());
       });
     });
 
   try {
-    await run('git add -A');
-    await run(`git commit -m "${gitCommitMessage.replace('"', '\\"')}"`);
+    await runGit(['add', '-A']);
+    await runGit(['commit', '-m', String(gitCommitMessage || 'clike: apply patch (AI)')]);
     vscode.window.setStatusBarMessage('Clike: changes committed.', 3000);
   } catch (e) {
     log(`[harperGit] commit skip/failed: ${e.message}`);
@@ -5360,7 +5375,7 @@ async function cmdOpenChat(context) {
         try {
           const ws = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
           if (!ws) throw new Error('No workspace open');
-          const uri = vscode.Uri.joinPath(ws.uri, msg.path.replace(/^\.?\//,''));
+          const uri = safeWorkspaceUri(ws.uri, msg.path);
           const doc = await vscode.workspace.openTextDocument(uri);
           await vscode.window.showTextDocument(doc, { preview: false });
         } catch (e) {
