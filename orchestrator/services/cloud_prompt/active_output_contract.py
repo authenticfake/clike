@@ -28,6 +28,14 @@ NATIVE_CLOUD_REQUIRED_OUTPUTS: Dict[str, List[str]] = {
 
 NATIVE_CLOUD_OPTIONAL_OUTPUTS: Dict[str, List[str]] = {
     "plan": ["docs/harper/lane-guides/**"],
+    # B20: any file inside the target REQ staging roots, like the local-agent contract; required
+    # outputs stay required and everything outside runs/kit/<REQ-ID>/ stays disallowed.
+    "kit": [
+        "runs/kit/<REQ-ID>/src/**",
+        "runs/kit/<REQ-ID>/test/**",
+        "runs/kit/<REQ-ID>/ci/**",
+        "runs/kit/<REQ-ID>/docs/**",
+    ],
     "finalize": [
         ".env.example",
         "docs/harper/**",
@@ -154,7 +162,7 @@ def build_active_output_contract(
             list(NATIVE_CLOUD_REQUIRED_OUTPUTS.get(phase_name) or []),
             req_id,
         )
-        native_optional = [] if companion_only else list(NATIVE_CLOUD_OPTIONAL_OUTPUTS.get(phase_name) or [])
+        native_optional = [] if companion_only else _replace_req_id(list(NATIVE_CLOUD_OPTIONAL_OUTPUTS.get(phase_name) or []), req_id)
         native_forbidden = list(NATIVE_FORBIDDEN_OUTPUTS.get(phase_name) or [])
         canonical = _replace_req_id(list(policy.get("canonical_outputs") or []), req_id)
         mandatory = _replace_req_id(list(policy.get("mandatory_companion_outputs") or []), req_id)
@@ -166,7 +174,7 @@ def build_active_output_contract(
     else:
         native_required = _replace_req_id(list(NATIVE_CLOUD_REQUIRED_OUTPUTS.get(phase_name) or []), req_id)
         required = _dedupe([*native_required, *file_requirement_outputs])
-        optional = list(NATIVE_CLOUD_OPTIONAL_OUTPUTS.get(phase_name) or [])
+        optional = _replace_req_id(list(NATIVE_CLOUD_OPTIONAL_OUTPUTS.get(phase_name) or []), req_id)
         forbidden = list(NATIVE_FORBIDDEN_OUTPUTS.get(phase_name) or [])
         conflict_resolution = "native-clike-contract-wins"
         strict_missing = phase_name in {"idea", "spec", "plan", "kit"} and runner_name == "cloud"
