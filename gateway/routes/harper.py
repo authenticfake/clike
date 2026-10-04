@@ -15,6 +15,7 @@ import os, datetime
 import httpx
 from utils.sanitize import sanitize_for_path
 from utils.safe_paths import resolve_within, safe_segment
+from utils.telemetry_retention import maybe_prune as maybe_prune_telemetry
 from utils.utils import   collect_rag_materials_http, decide_inline_or_rag
 from utils.rag_store import RagStore
 from utils.active_output_contract import (
@@ -1979,6 +1980,10 @@ def _write_telemetry(project_id: str, record: dict) -> None:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
     except Exception as e:
         log.warning("telemetry write failed: %s", e)
+    try:
+        maybe_prune_telemetry(TELEMETRY_DIR)
+    except Exception as e:
+        log.warning("telemetry retention failed: %s", e)
 
 def _prompt_debug_path(project_id: str, run_id: str | None, phase: str) -> Path:
     fname = f"{safe_segment(project_id, 'default')}__{safe_segment(run_id, 'n-a')}__{safe_segment(phase, 'phase')}.json"
