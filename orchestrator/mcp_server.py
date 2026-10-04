@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from config import settings
+from config import runs_dir, settings
 from services.harper import _build_file_requirements, _extract_target_contract
 from services.rag_store import RagStore
 from services.repository_manifest import (
@@ -46,7 +46,7 @@ def _workspace_root() -> Path:
 
 
 def _runs_root() -> Path:
-    root = Path(getattr(settings, "RUNS_DIR", "./runs")).expanduser().resolve()
+    root = runs_dir()
     return root
 
 

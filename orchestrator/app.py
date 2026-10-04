@@ -6,7 +6,7 @@ import os, logging, time, uuid
 from routes.agent import router as agent_router
 from routes.health import router as health_router
 from routes.v1 import router as v1_router
-from config import settings
+from config import runs_dir, settings
 from routes.harper import router as harper_router
 from routes import router as router_router
 from routes import rag as rag_routes
@@ -63,8 +63,8 @@ else:
         _mcp_enabled,
         clike_mcp is not None,
     )
-os.makedirs(getattr(settings, "RUNS_DIR", "./runs"), exist_ok=True)
-logging.getLogger("orchestrator").info("* RUNS_DIR=%s", getattr(settings, "RUNS_DIR", "./runs"))
+os.makedirs(runs_dir(), exist_ok=True)
+logging.getLogger("orchestrator").info("* RUNS_DIR=%s", runs_dir())
 class RequestLogMiddleware:
     """Logs method, path, status and latency. Never reads or logs request bodies."""
 

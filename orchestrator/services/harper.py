@@ -16,7 +16,7 @@ from pathlib import Path
 
 import httpx
 
-from config import settings
+from config import runs_dir, settings
 from services.utils import GATEWAY_URL
 from services.llm_contracts import resolve_llm_selection
 
@@ -217,8 +217,7 @@ def _load_existing_req_candidate_artifacts(req_id: str) -> List[Dict[str, Any]]:
     return artifacts
 
 def _collect_existing_req_candidate_files(req_id: str) -> Dict[str, str]:
-    runs_dir = os.getenv("RUNS_DIR", "/runs")
-    runs: Path = Path(runs_dir).resolve()
+    runs: Path = runs_dir()
     base = runs / "kit" / req_id
     log.info("collecting files from %s,  exists=%s, is_dir=%s", base, base.exists(), base.is_dir())
     if not base.exists() or not base.is_dir():
@@ -1846,7 +1845,7 @@ def _inject_candidate_blobs(
 
 def _stage_artifact_path(req_id: str, relative_path: str) -> Path:
     # req_id comes from the request and relative_path from LLM output: both are confined.
-    req_root = Path(os.getenv("RUNS_DIR", "/runs")).resolve() / "kit" / validate_req_id(req_id)
+    req_root = runs_dir() / "kit" / validate_req_id(req_id)
     return resolve_within(req_root, relative_path)
 
 

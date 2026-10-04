@@ -25,6 +25,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from config import runs_dir
 from utils.safe_paths import is_within_any, safe_segment, validate_req_id
 
 LOCK_SCHEMA = "clike.acceptance_lock.v1"
@@ -58,7 +59,7 @@ def is_eval_project(project_root: Path) -> bool:
 
 
 def state_dir() -> Path:
-    raw = os.getenv("CLIKE_STATE_DIR") or str(Path(os.getenv("RUNS_DIR", "runs")) / "state")
+    raw = os.getenv("CLIKE_STATE_DIR") or str(runs_dir() / "state")
     path = Path(raw).resolve()
     path.mkdir(parents=True, exist_ok=True)
     return path

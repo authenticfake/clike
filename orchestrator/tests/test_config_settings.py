@@ -34,3 +34,20 @@ def test_settings_still_load_declared_environment_variables(monkeypatch):
 def test_settings_still_reject_invalid_declared_values():
     with pytest.raises(ValidationError):
         Settings(REQUEST_TIMEOUT_S="not-an-int")
+
+
+def test_legacy_llm_timeout_alias(monkeypatch):
+    monkeypatch.delenv("REQUEST_TIMEOUT_S", raising=False)
+    monkeypatch.setenv("LLM_TIMEOUT_S", "33")
+    assert Settings().REQUEST_TIMEOUT_S == 33
+
+
+def test_runs_dir_is_resolved_at_call_time_with_one_default(monkeypatch, tmp_path):
+    from config import runs_dir, settings
+
+    monkeypatch.setenv("RUNS_DIR", str(tmp_path))
+    assert runs_dir() == tmp_path.resolve()
+    assert settings.RUNS_DIR == str(tmp_path.resolve())
+    monkeypatch.delenv("RUNS_DIR")
+    monkeypatch.chdir(tmp_path)
+    assert runs_dir() == (tmp_path / "runs").resolve()
