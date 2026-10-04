@@ -410,7 +410,7 @@ def _infer_contract_paths(contract_like: Dict[str, Any]) -> Dict[str, Any]:
     """
     paths = dict(contract_like.get("paths") or {})
 
-    raw_canonical_family = str(paths.get("canonical_module_family") or "").strip()
+    raw_canonical_family = _module_identifier(paths.get("canonical_module_family"))
     raw_expected_source_roots = list(paths.get("expected_source_roots") or [])
     raw_expected_test_roots = list(paths.get("expected_test_roots") or [])
     raw_create_under = list(paths.get("create_under") or [])
@@ -588,12 +588,11 @@ def _extract_target_contract(
             "create_under": list(raw_paths.get("createUnder") or raw_paths.get("create_under") or []),
             "must_reuse": list(raw_paths.get("mustReuse") or raw_paths.get("must_reuse") or []),
             "forbidden": list(raw_paths.get("forbidden") or []),
-            "canonical_module_family": str(
+            "canonical_module_family": _module_identifier(
                 raw_paths.get("canonicalModuleFamily")
                 or raw_paths.get("canonical_module_family")
                 or main_module_boundary
-                or ""
-            ).strip(),
+            ),
             "expected_source_roots": list(raw_paths.get("expectedSourceRoots") or raw_paths.get("expected_source_roots") or []),
             "expected_test_roots": list(raw_paths.get("expectedTestRoots") or raw_paths.get("expected_test_roots") or []),
             "new_modules_allowed": bool(raw_paths.get("newModulesAllowed", raw_paths.get("new_modules_allowed", False))),
@@ -1260,6 +1259,25 @@ def _derive_artifact_roles(
     ])
 
     return roles
+
+_MODULE_ID_RE = re.compile(r"(?<![\w./-])[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+(?![\w/-])")
+
+
+def _module_identifier(value: Any) -> str:
+    """A module/package identifier or repository path from a plan field, never free text (B18).
+
+    Plans sometimes describe ownership in main_module_boundary ("pingboard.health owns
+    configuration, ..."); that sentence used to become a directory name. Keep a path that is
+    already a path, a single identifier token, or the first dotted identifier; otherwise nothing.
+    """
+    text = str(value or "").strip().strip("`")
+    if not text:
+        return ""
+    if re.fullmatch(r"[A-Za-z0-9_./-]+", text):
+        return text
+    match = _MODULE_ID_RE.search(text)
+    return match.group(0) if match else ""
+
 
 _PY_MARKERS = ("python", "fastapi", "django", "flask", "pytest", "pyproject.toml", "ruff", "mypy")
 _NODE_MARKERS = ("node", "node.js", "nodejs", "npm", "javascript", "typescript", "express", "react", "vite",

@@ -36,6 +36,7 @@ local_agent:
   - If token budget is tight, reduce PLAN.md prose but never skip plan.json or required lane guides.
   - Do not run git commands.
   - Do not modify src/, test/, tests/, runs/kit/, runs/eval/, or runs/gate/.
+  - plan.json main_module_boundary is a dotted module/package identifier only (e.g. `pingboard.health`); describe ownership and responsibilities in technical_scope, never in main_module_boundary.
   validation_expectations:
   - docs/harper/PLAN.md exists and starts with `# PLAN — <Project Name>`.
   - docs/harper/plan.json exists and parses as a single valid JSON object.

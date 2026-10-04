@@ -453,6 +453,7 @@ def _build_kit_user_message(
         "- Do not emit files for adjacent REQs.",
         "- Do not invent file structure outside FILE_REQUIREMENTS.json without strong repository evidence.",
         "- If a file is marked required, emit it.",
+        "- A path hint with a <placeholder> is a pattern: choose one concrete path and use that same concrete path everywhere (LTC.json commands, HOWTO.md, tests); never copy the placeholder text.",
         "- Do not create duplicate config/settings/logging/helpers if canonical equivalents already exist or are implied by repository evidence.",
         "- Prefer compact, reviewable, repo-fit files over fragmented thin files.",
         "",
