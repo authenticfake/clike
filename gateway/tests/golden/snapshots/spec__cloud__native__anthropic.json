@@ -81,9 +81,7 @@
       "output_tokens": 1
     },
     "warnings": [
-      "normalized_heading: added H1 heading to SPEC",
-      "SPEC missing sections: Summary, Goals, Users & Context, Functional Requirements, Non-Functional Requirements, High-Level Architecture, Interfaces, Data Model",
-      "ignored_remainder_outside_file_blocks"
+      "SPEC missing sections: Summary, Goals, Users & Context, Functional Requirements, Non-Functional Requirements, High-Level Architecture, Interfaces, Data Model, Key Workflows, Security & Compliance, Deployment & Operations, Risks & Mitigations, Success Metrics, Out Of Scope"
     ]
   },
   "status": 200

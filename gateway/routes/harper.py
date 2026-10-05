@@ -2468,16 +2468,21 @@ async def run(req: HarperRunRequest,  request: Request):
             warnings.append("empty_model_output: model returned empty content, used fallback SPEC template")
             system_md_txt = _fallback_spec_from_template(idea, model_route_label, req.runId)
 
-        # guarantee an H1 for downstream consumers
-        if not system_md_txt.lstrip().startswith("#"):
+        # guarantee an H1 for downstream consumers (raw text in BEGIN_FILE blocks carries its own)
+        if not system_md_txt.lstrip().startswith(("#", "BEGIN_FILE")):
             system_md_txt = "# SPEC — Generated\n\n" + system_md_txt
             warnings.append("normalized_heading: added H1 heading to SPEC")
 
+        # B1: the sections the SPEC prompt (orchestrator/phases/spec/cloud_system.md) asks for.
+        # The old list required "Problem" (never requested), missed half of the prompt's sections
+        # and contained an empty entry that always matched.
         required_sections = [
-           "Summary", "Goals", "Problem", "Users & Context", "Functional Requirements", "Non-Goals", "Non-Functional Requirements",
-            "High-Level Architecture", "", "Interfaces", "Data Model", "Assumptions"
+            "Summary", "Goals", "Non-Goals", "Users & Context", "Functional Requirements",
+            "Non-Functional Requirements", "High-Level Architecture", "Interfaces", "Data Model",
+            "Key Workflows", "Security & Compliance", "Deployment & Operations", "Risks & Mitigations",
+            "Assumptions", "Success Metrics", "Acceptance Criteria", "Out Of Scope",
         ]
-        missing = [s for s in required_sections if f"## {s}" not in system_md_txt]
+        missing = [s for s in required_sections if f"## {s}".lower() not in system_md_txt.lower()]
         if missing:
             warnings.append(f"SPEC missing sections: {', '.join(missing)}")
 
