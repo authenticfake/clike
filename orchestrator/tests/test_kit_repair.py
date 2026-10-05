@@ -91,3 +91,12 @@ class KitRepairTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_kit_options_accept_bmad_flag_and_auto_eval_request():
+    from schemas.harper import HarperKitOptions
+
+    assert HarperKitOptions().repair is None
+    assert HarperKitOptions(repair=True).repair is True
+    request = {"cycle": 1, "max_cycles": 2, "failures": [], "files": []}
+    assert HarperKitOptions(repair=request).repair == request
