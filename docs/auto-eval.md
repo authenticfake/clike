@@ -103,6 +103,13 @@ conventional entry file (`main.py`, `app.py`, `__main__.py`, `server.js`, `Progr
 source file that starts the application (`if __name__ == "__main__"`, `FastAPI(...)`,
 `def create_app(...)`, `.listen(...)`).
 
+## Browser (e2e) checks
+
+The sandbox image carries Chromium's system libraries. When a Playwright check fails because the
+browser is not downloaded, the EvalRunner downloads Chromium in the version of the project's
+Playwright (`npx playwright@<version> install chromium`) and runs the check once more; the report
+says so. The download needs egress and memory (see `docs/development.md`).
+
 ## Gate warnings policy
 
 A *warning* is a failed check marked `blocking: false` in the LTC (style, optional scans).

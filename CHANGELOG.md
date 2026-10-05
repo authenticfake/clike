@@ -26,6 +26,8 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   (extension: `clike.eval.regression`, default on) and re-run the acceptance checks of every promoted
   REQ (plan status `done`) against the new code; the gate reports
   `GATE_BLOCKED_REGRESSION`.
+- Browser e2e checks in the eval sandbox: Chromium system libraries in the image
+  (`ENABLE_BROWSER`), browser downloaded on demand in the project's Playwright version.
 - Harper benchmark (`benchmark/`): documented sample projects, cloud and local-agent runners,
   promotability metrics.
 - `PhaseContext` v1: the typed, versioned contract of a phase run

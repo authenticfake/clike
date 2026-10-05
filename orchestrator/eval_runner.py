@@ -286,6 +286,61 @@ class EvalRunner:
 
         return sorted(files, key=lambda item: str(item))
 
+    _MISSING_BROWSER_RE = re.compile(r"Executable doesn't exist at [^\n]*ms-playwright|npx playwright install")
+
+    def _playwright_version(self, *roots: Optional[Path]) -> Optional[str]:
+        for root in roots:
+            if not root or not root.exists():
+                continue
+            for manifest in root.rglob("node_modules/playwright-core/package.json"):
+                try:
+                    version = json.loads(manifest.read_text(encoding="utf-8")).get("version")
+                except Exception:
+                    continue
+                if version and re.fullmatch(r"[0-9][0-9A-Za-z.+-]*", str(version)):
+                    return str(version)
+        return None
+
+    def _recover_missing_browser(
+        self,
+        *,
+        result: EvalCase,
+        cmd: str,
+        cwd: Path,
+        env: Dict[str, str],
+        work_kit_root: Optional[Path],
+        timeout: Optional[int],
+        blocking: bool,
+        environment_requirements: Optional[List[str]] = None,
+    ) -> EvalCase:
+        """A Playwright check that fails because the browser is not downloaded: download Chromium
+        in the version of the project's Playwright (the image carries only its system libraries)
+        and run the check once more."""
+        if result.passed or not self._MISSING_BROWSER_RE.search(f"{result.stdout}\n{result.stderr}"):
+            return result
+        version = self._playwright_version(cwd, work_kit_root)
+        install_cmd = f"npx --yes playwright{'@' + version if version else ''} install chromium"
+        install = self._run(name=f"{result.name}::browser-install", cmd=install_cmd, cwd=cwd, env=env, timeout=900)
+        if not install.passed:
+            result.stderr = (
+                result.stderr
+                + f"\n[CLike EvalRunner] browser download failed ({install_cmd}): "
+                + (install.stderr or install.stdout)[-800:]
+            )[-4000:]
+            return result
+        retry = self._run(
+            name=result.name,
+            cmd=cmd,
+            cwd=cwd,
+            expect=result.expect if result.expect is not None else 0,
+            env=env,
+            timeout=timeout,
+            blocking=blocking,
+            environment_requirements=environment_requirements,
+        )
+        retry.stderr = (f"[CLike EvalRunner] Chromium downloaded ({install_cmd}); check re-run.\n" + retry.stderr)[-4000:]
+        return retry
+
     def _recover_node_test_glob_failure(
         self,
         *,
@@ -2304,6 +2359,17 @@ class EvalRunner:
                 work_kit_root=work_kit_root,
                 timeout=timeout,
                 blocking=blocking,
+            )
+
+            result = self._recover_missing_browser(
+                result=result,
+                cmd=str(cmd),
+                cwd=workdir,
+                env=case_env,
+                work_kit_root=work_kit_root,
+                timeout=timeout,
+                blocking=blocking,
+                environment_requirements=environment_requirements,
             )
 
             result = self._normalize_raw_secret_scan_result(result)
