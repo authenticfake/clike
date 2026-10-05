@@ -180,11 +180,19 @@ This means the current implementation should be documented as:
 - **local eval pre-pass supported**
 - **canonical eval remains authoritative**
 
+### Auto-eval and regression
+`/eval <REQ-ID> --fix ["hint"]` runs a bounded, governed repair loop (KIT repair from the real
+failures → eval) and, by default, eval and gate also re-run the acceptance checks of the promoted
+REQs. See `auto-eval.md`.
+
 ## GATE model
 
 Current gate characteristics:
 - REQ-oriented
 - fed by eval results and gate policy
+- warnings (failed non-blocking checks) are reported but do not block unless strict
+  (`clike.gate.strictWarnings`, `CLIKE_GATE_STRICT_WARNINGS=1`)
+- regression failures of promoted REQs block (`GATE_BLOCKED_REGRESSION`)
 - can update REQ status
 - participates in promotion decisions
 - may be linked with Git merge behavior through extension settings

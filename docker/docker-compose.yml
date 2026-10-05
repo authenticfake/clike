@@ -54,7 +54,7 @@ services:
       - CODE_ROOT_BASE=src
       - TEST_ROOT_BASE=tests
       - GEN_ID_PREFIX=generated
-      - GENERATED_ROOT=/generated
+      - GENERATED_ROOT=generated
       - RAG_BASE_URL=http://localhost:8080/v1/rag
       - RAG_TOP_K=12
       - INLINE_MAX_FILE_KB=64
@@ -114,7 +114,7 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges]
     pids_limit: 1024
-    mem_limit: 4g
+    mem_limit: ${CLIKE_EVAL_SANDBOX_MEM_LIMIT:-4g}
     networks: [evalnet]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=2).status == 200 else 1)"]

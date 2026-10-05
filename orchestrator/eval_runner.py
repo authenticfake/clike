@@ -6,6 +6,7 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -65,14 +66,105 @@ _SECRET_ENV_NAME_RE = re.compile(
 )
 
 
+def _text(value: Any) -> str:
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value or "")
+
+
+def _head_tail(text: str, limit: int) -> str:
+    """Keep the start (a stack dump starts with the innermost frame) and the end of long output."""
+    if len(text) <= limit:
+        return text
+    head = limit * 2 // 3
+    return text[:head] + "\n[...]\n" + text[-(limit - head):]
+
+
+def _with_pytest_hang_dump(env: Dict[str, str], timeout: Optional[int]) -> Dict[str, str]:
+    """Make pytest dump the stack of a test that runs longer than part of the check timeout and
+    print each test id before running it (-vv on top of a command's -q gives verbose mode), so a
+    hanging test, also an async one whose coroutine is not on the dumped stack, is named in the
+    report instead of being lost when the check is stopped."""
+    try:
+        seconds = max(5, int(float(timeout) * 0.6)) if timeout else 60
+    except (TypeError, ValueError):
+        seconds = 60
+    current = env.get("PYTEST_ADDOPTS", "")
+    if "faulthandler_timeout" in current:
+        return env
+    return {**env, "PYTEST_ADDOPTS": f"{current} -vv -o faulthandler_timeout={seconds}".strip()}
+
+
+def _run_process_group(cmd: str, *, cwd: Path, env: Dict[str, str], timeout: Optional[int]) -> subprocess.CompletedProcess:
+    """subprocess.run(shell=True) that stops the whole process group on timeout (the shell's
+    children, e.g. pytest or a server, would otherwise keep running in the sandbox)."""
+    proc = subprocess.Popen(
+        cmd,
+        shell=True,
+        cwd=str(cwd),
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=(os.name != "nt"),
+    )
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        if os.name != "nt":
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except OSError:
+                pass
+        else:
+            proc.kill()
+        stdout, stderr = proc.communicate()
+        raise subprocess.TimeoutExpired(cmd, timeout, output=stdout, stderr=stderr)
+    return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
+
+
 def scrubbed_process_env() -> Dict[str, str]:
     """Copy of os.environ without credentials, used as the base env of every eval command."""
     return {k: v for k, v in os.environ.items() if not _SECRET_ENV_NAME_RE.search(k)}
 
 
+# plan.json status of a promoted REQ (set by the extension after a passing gate).
+PROMOTED_REQ_STATUSES = {"done"}
+
+
+_COVERAGE_THRESHOLD_RE = re.compile(r"Required test coverage of .* not reached", re.IGNORECASE)
+_NON_BEHAVIOURAL_CHECK_RE = re.compile(
+    r"lint|format|style|ruff|flake8|eslint|prettier|type|mypy|pyright|tsc|security|secret|audit|bandit|"
+    r"vuln|sast|build|compile|syntax|coverage",
+    re.IGNORECASE,
+)
+_TEST_FAILURES_RE = re.compile(r"\b\d+ (?:failed|errors?)\b|^FAILED ", re.MULTILINE)
+
+
+def _is_regression_test_case(case: "EvalCase") -> bool:
+    """A regression check that guards behaviour: any check except static/quality ones (lint,
+    types, security scans, build, syntax, coverage), and not when its only failure is the coverage
+    threshold (coverage of the other REQ now includes the candidate's code)."""
+    if _NON_BEHAVIOURAL_CHECK_RE.search(case.name):
+        return False
+    if case.passed:
+        return True
+    output = f"{case.stdout}\n{case.stderr}"
+    return not (_COVERAGE_THRESHOLD_RE.search(output) and not _TEST_FAILURES_RE.search(output))
+
+
 class EvalRunner:
-    def __init__(self, project_root: Path):
+    def __init__(
+        self,
+        project_root: Path,
+        *,
+        eval_key: Optional[str] = None,
+        extra_src_roots: Optional[List[Path]] = None,
+    ):
         self.project_root = project_root.resolve()
+        # Regression runs: own eval directory and the candidate's source overlaid last.
+        self.eval_key = eval_key
+        self.extra_src_roots = list(extra_src_roots or [])
 
     def _merge_env(
         self,
@@ -100,16 +192,9 @@ class EvalRunner:
     ) -> EvalCase:
         if env is None:
             env = scrubbed_process_env()
+        env = _with_pytest_hang_dump(env, timeout)
         try:
-            proc = subprocess.run(
-                cmd,
-                shell=True,
-                cwd=str(cwd),
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-            )
+            proc = _run_process_group(cmd, cwd=cwd, env=env, timeout=timeout)
             stderr = proc.stderr or ""
             stdout = proc.stdout or ""
             ok = proc.returncode == expect
@@ -146,8 +231,14 @@ class EvalRunner:
                 name=name,
                 passed=False,
                 code=998,
-                stdout=str(exc.stdout or "")[-4000:],
-                stderr=f"timeout: {exc}",
+                stdout=_text(exc.stdout)[-4000:],
+                stderr=_head_tail(
+                    _text(exc.stderr)
+                    + f"\n[CLike EvalRunner] timeout: the check was stopped after {timeout} s. A test or the code"
+                    " under test hangs (e.g. a network call or a server without a timeout, a task never"
+                    " cancelled). For pytest, the traceback dump above shows where it was blocked.",
+                    4000,
+                ),
                 cmd=cmd,
                 cwd=str(cwd),
                 expect=expect,
@@ -1031,6 +1122,8 @@ class EvalRunner:
         return norm_cases
 
     def _eval_dir(self, req_id: Optional[str]) -> Path:
+        if self.eval_key:
+            return self._eval_base_dir().joinpath(*(self._safe_req_id(part) for part in self.eval_key.split("/")))
         return self._eval_base_dir() / self._safe_req_id(req_id)
 
     def _path_relative_to_project(self, path: Path) -> Optional[str]:
@@ -1229,6 +1322,9 @@ class EvalRunner:
                         kit_root / logical_root,
                         composed_logical_root,
                     )
+
+                    for extra_src in self.extra_src_roots:
+                        self._copy_tree_overlay(Path(extra_src), composed_logical_root)
                 else:
                     # Default /eval is target-scoped.
                     #
@@ -1735,6 +1831,7 @@ class EvalRunner:
         mode: str = "auto",
         verdict: Optional[str] = None,
         req_id: Optional[str] = None,
+        regression: bool = False,
     ) -> EvalReport:
         profile_path = Path(profile or "LTC.json")
         if not profile_path.is_absolute():
@@ -1830,8 +1927,9 @@ class EvalRunner:
         ).resolve()
 
         runtime_working_directory = self._runtime_working_directory(ltc)
+        # run_from (KIT LTC contract) is the directory the check commands are written for.
         default_cwd = self._resolve_workdir(
-            ltc.get("cwd") or runtime_working_directory or "",
+            ltc.get("cwd") or ltc.get("run_from") or runtime_working_directory or "",
             path_map,
         )
 
@@ -2212,9 +2310,67 @@ class EvalRunner:
 
             out_cases.append(result)
 
+        if regression and work_kit_root:
+            out_cases.extend(self.run_regression(eff_req, work_kit_root / "src"))
+
         return self._report_from_cases(
             profile_path=profile_path,
             req_id=eff_req,
             mode="auto",
             cases=out_cases,
         )
+
+    def regression_req_ids(self, req_id: Optional[str]) -> List[str]:
+        """Promoted REQs (plan status done) whose acceptance checks must still pass with this
+        candidate, in plan order, when they have an LTC profile. Dependencies that are not
+        promoted are not regression targets: their source is already composed into the
+        candidate's eval and they have no passing state to regress from."""
+        plan_path = self.project_root / "docs" / "harper" / "plan.json"
+        try:
+            plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        except Exception:
+            return []
+        reqs = [r for r in (plan.get("reqs") or plan.get("req") or []) if isinstance(r, dict) and r.get("id")]
+        return [
+            str(r["id"])
+            for r in reqs
+            if str(r.get("status") or "").strip().lower() in PROMOTED_REQ_STATUSES
+            and str(r["id"]) != str(req_id)
+            and (self.project_root / "runs" / "kit" / self._safe_req_id(str(r["id"])) / "ci" / "LTC.json").is_file()
+        ]
+
+    def run_regression(self, req_id: Optional[str], candidate_src: Path) -> List[EvalCase]:
+        """L2 auto-eval: re-run each regression REQ's own acceptance checks against its composed
+        source with the candidate's composed source overlaid last (the state after promotion).
+        Cases are named ``regression::<REQ>::<case>`` and keep their blocking flag."""
+        cases: List[EvalCase] = []
+        for other in self.regression_req_ids(req_id):
+            profile = self.project_root / "runs" / "kit" / self._safe_req_id(other) / "ci" / "LTC.json"
+            try:
+                ltc = json.loads(profile.read_text(encoding="utf-8"))
+            except Exception as exc:
+                cases.append(
+                    EvalCase(
+                        name=f"regression::{other}::ltc",
+                        passed=False,
+                        code=2,
+                        stdout="",
+                        stderr=f"unreadable LTC profile {profile}: {exc}",
+                        blocking=False,
+                    )
+                )
+                continue
+            runner = EvalRunner(
+                self.project_root,
+                eval_key=f"{self._safe_req_id(req_id)}/regression/{self._safe_req_id(other)}",
+                extra_src_roots=[candidate_src],
+            )
+            report = runner.run_profile(profile=str(profile), ltc=ltc, req_id=other)
+            for case in report.cases:
+                if not _is_regression_test_case(case):
+                    # Lint, types, coverage of the other REQ now measure the candidate's code too
+                    # (the candidate's own checks cover it): reported, not blocking.
+                    case.blocking = False
+                case.name = f"regression::{other}::{case.name}"
+                cases.append(case)
+        return cases

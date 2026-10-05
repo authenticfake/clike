@@ -453,6 +453,7 @@ def _build_kit_user_message(
         "- Do not emit files for adjacent REQs.",
         "- Do not invent file structure outside FILE_REQUIREMENTS.json without strong repository evidence.",
         "- If a file is marked required, emit it.",
+        "- A path hint with a <placeholder> is a pattern: choose one concrete path and use that same concrete path everywhere (LTC.json commands, HOWTO.md, tests); never copy the placeholder text.",
         "- Do not create duplicate config/settings/logging/helpers if canonical equivalents already exist or are implied by repository evidence.",
         "- Prefer compact, reviewable, repo-fit files over fragmented thin files.",
         "",
@@ -729,7 +730,8 @@ def _compose_system_messages(
 
     if constraints_chunks:
         constraints_text = "\n\n---\n\n".join(constraints_chunks)
-        suffix_parts.append("### Technology Constraints (YAML)\n```yaml\n" + constraints_text + "\n```")
+        # B17: own paragraph, even when the previous verbatim blob has no trailing newline
+        suffix_parts.append("\n\n### Technology Constraints (YAML)\n```yaml\n" + constraints_text + "\n```")
 
     if current_invalid_canonical:
         suffix_parts.append(
@@ -813,8 +815,61 @@ def _methodology_context_with_envelope_skills(
     return base
 
 
+_REPAIR_FILE_BUDGET = 16000      # chars per candidate file shown to the model
+_REPAIR_TOTAL_BUDGET = 160000    # chars for all candidate files
+_REPAIR_OUTPUT_TAIL = 4000       # chars of each failed check's output
+
+
+def _kit_repair_section(repair: dict, req_id: str) -> str:
+    """Auto-eval repair instructions for the KIT model: failed checks, current files, rules."""
+    cycle = repair.get("cycle") or 1
+    max_cycles = repair.get("max_cycles") or cycle
+    lines = [
+        f"## AUTO-EVAL REPAIR — cycle {cycle} of {max_cycles}",
+        f"The candidate KIT for {req_id} failed the canonical eval. Fix the causes of the failed checks below.",
+        "",
+        "Rules:",
+        "- Return ONLY the files you change, each complete in a BEGIN_FILE / END_FILE block. Files you do not return stay as they are.",
+        f"- Tests under runs/kit/{req_id}/test/ are locked acceptance criteria: make the code pass them; never edit, skip or weaken them. Exceptions: (a) you may remove an unused import from a test file when lint fails on it; (b) when a failed check shows the TEST itself is wrong (an error raised in the test file such as TypeError/AttributeError/NameError/ImportError from a wrong API call, import or fixture, not a failed assertion), fix the test, not the code: keep every test function, every assert and every pytest.raises/approx identical and add no skip/xfail.",
+        f"- runs/kit/{req_id}/ci/LTC.json: you may only fix the command of a check that cannot run (wrong path, module or flag). Never remove a check or make it non-blocking.",
+        f"- Vulnerable dependencies: upgrade the affected packages in runs/kit/{req_id}/ci/requirements.txt (or the ecosystem manifest) to current versions without known vulnerabilities.",
+        f"- A failure caused by the environment (network, missing system tool) is not fixed by changing code: explain it in runs/kit/{req_id}/docs/KIT_{req_id}.md.",
+        "- Fix the root cause in the source; do not special-case the tests.",
+        "",
+        "### Failed checks",
+    ]
+    for item in repair.get("failures") or []:
+        name = str(item.get("name") or "check")
+        output = str(item.get("output") or "")[-_REPAIR_OUTPUT_TAIL:]
+        lines += [
+            f"#### {name} (exit {item.get('code')})",
+            f"command: {item.get('command') or ''}",
+            "```",
+            output.rstrip(),
+            "```",
+        ]
+    hint = str(repair.get("hint") or "").strip()
+    if hint:
+        lines += ["", "### Developer hint", hint]
+    budget = _REPAIR_TOTAL_BUDGET
+    files = [f for f in (repair.get("files") or []) if isinstance(f, dict) and f.get("path")]
+    if files:
+        lines += ["", "### Current candidate files"]
+        for f in files:
+            content = str(f.get("content") or "")
+            if budget <= 0:
+                lines.append(f"- {f['path']} (omitted: budget exhausted)")
+                continue
+            shown = content[:min(_REPAIR_FILE_BUDGET, budget)]
+            budget -= len(shown)
+            truncated = " (truncated)" if len(shown) < len(content) else ""
+            lines += [f"#### {f['path']}{truncated}", "```", shown.rstrip(), "```"]
+    return "\n".join(lines)
+
+
 def compose_phase_messages(payload: dict) -> list[dict]:
-    """Messages for ``payload`` exactly as the gateway composed them before WP8.7."""
+    """Messages for ``payload`` exactly as the gateway composed them before WP8.7
+    (plus the auto-eval repair section for a KIT repair)."""
     phase = str(payload.get("phase") or payload.get("cmd") or "").strip()
     kit = payload.get("kit")
     targets = list((kit.get("targets") or []) if isinstance(kit, dict) else [])
@@ -825,7 +880,7 @@ def compose_phase_messages(payload: dict) -> list[dict]:
         agent=payload.get("agent"),
         phase=phase,
     )
-    return _compose_system_messages(
+    messages = _compose_system_messages(
         phase,
         payload.get("idea_md") or "",
         payload.get("core_blobs") or {},
@@ -836,3 +891,7 @@ def compose_phase_messages(payload: dict) -> list[dict]:
         targets,
         methodology_context,
     )
+    repair = (kit or {}).get("repair") if isinstance(kit, dict) else None
+    if phase.lower() == "kit" and isinstance(repair, dict) and repair and targets:
+        messages[-1] = {**messages[-1], "content": messages[-1]["content"] + "\n\n" + _kit_repair_section(repair, str(targets[0]))}
+    return messages

@@ -16,6 +16,7 @@ The *acceptance surface* of a REQ is everything under ``runs/kit/<REQ>/test/`` a
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import os
@@ -283,3 +284,192 @@ def record_override(project_root: Path, req_id: str, *, reason: str, author: str
     with audit.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(entry, sort_keys=True) + "\n")
     return entry
+
+
+# --- auto-eval repair amendments -----------------------------------------------------
+
+_LOCKED_TEST_ISSUE = "tests are locked: a repair must make the code pass them, not change them"
+
+
+def _imports_and_body(source: str):
+    tree = ast.parse(source)
+    imports = set()
+    body = []
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            imports.update(("", alias.name, alias.asname) for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            module = "." * node.level + (node.module or "")
+            imports.update((module, alias.name, alias.asname) for alias in node.names)
+        else:
+            body.append(node)
+    return imports, ast.dump(ast.Module(body=body, type_ignores=[]))
+
+
+# Errors that show the test itself is wrong (API misuse, broken import or fixture), raised in the
+# test file: e.g. "test/x/test_a.py:243: TypeError" or "ERROR collecting test/x/test_a.py".
+_HARNESS_ERRORS = r"TypeError|AttributeError|NameError|ImportError|ModuleNotFoundError|SyntaxError|IndentationError"
+_ASSERTION_CALLS = {"raises", "warns", "approx", "fail", "deprecated_call"}
+_SKIP_RE = re.compile(r"\b(?:skip|skipif|xfail|importorskip)\b")
+
+
+def _harness_error_in(evidence: str, path: Path) -> bool:
+    name = re.escape(path.name)
+    return bool(
+        re.search(rf"{name}:\d+: (?:{_HARNESS_ERRORS})\b", evidence)
+        or re.search(rf"ERROR collecting [^\n]*{name}", evidence)
+        or re.search(rf"fixture '[^']+' not found[\s\S]{{0,400}}{name}|{name}[\s\S]{{0,400}}fixture '[^']+' not found", evidence)
+    )
+
+
+def _test_contract(source: str):
+    """What a test asserts: test functions, and per function every assert statement and every
+    pytest.raises/warns/approx/fail call. A harness fix must leave this identical."""
+    tree = ast.parse(source)
+    contract = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test"):
+            checks = []
+            for inner in ast.walk(node):
+                if isinstance(inner, ast.Assert):
+                    checks.append(ast.dump(inner))
+                elif isinstance(inner, ast.Call):
+                    func = inner.func
+                    name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+                    if name in _ASSERTION_CALLS:
+                        checks.append(ast.dump(inner))
+            contract[node.name] = sorted(checks)
+    return contract
+
+
+def _test_change_issue(path: Path, locked_digest: Optional[str], content: str, evidence: str = "") -> Optional[str]:
+    """Why a change of a locked test is rejected, or None with the kind of accepted change:
+    "imports" (only unused imports removed, e.g. for lint) or "test_fix" (the eval showed the test
+    itself is wrong: an API-misuse/import/fixture error raised in the test file; every assertion
+    stays identical and no skip/xfail is added)."""
+    if path.suffix != ".py" or not locked_digest or not path.is_file():
+        return _LOCKED_TEST_ISSUE
+    raw = path.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != locked_digest:
+        return _LOCKED_TEST_ISSUE
+    before = raw.decode("utf-8", errors="replace")
+    try:
+        old_imports, old_body = _imports_and_body(before)
+        new_imports, new_body = _imports_and_body(content)
+    except SyntaxError:
+        return _LOCKED_TEST_ISSUE
+    if new_body == old_body and new_imports <= old_imports:
+        return None
+    if not _harness_error_in(evidence, path):
+        return _LOCKED_TEST_ISSUE + " (the eval does not show an error in the test itself)"
+    if _test_contract(content) != _test_contract(before):
+        return _LOCKED_TEST_ISSUE + " (a test fix must keep every test and assertion identical)"
+    if len(_SKIP_RE.findall(content)) > len(_SKIP_RE.findall(before)):
+        return _LOCKED_TEST_ISSUE + " (a test fix cannot add skip/xfail)"
+    return None
+
+
+def _test_change_kind(path: Path, content: str) -> str:
+    try:
+        old_imports, old_body = _imports_and_body(path.read_text(encoding="utf-8", errors="replace"))
+        new_imports, new_body = _imports_and_body(content)
+    except (OSError, SyntaxError):
+        return "test_fix"
+    return "imports" if new_body == old_body and new_imports <= old_imports else "test_fix"
+
+
+def lock_amendments(project_root: Path, req_id: str) -> List[Dict[str, Any]]:
+    """Audited amendments of the REQ's acceptance lock (shown in the gate report)."""
+    lock = _read_json(_req_state_path(project_root, validate_req_id(req_id), "lock")) or {}
+    return list(lock.get("amendments") or [])
+
+
+def amend_acceptance_surface(
+    project_root: Path,
+    req_id: str,
+    changes: Dict[str, str],
+    *,
+    reason: str,
+    author: str = "auto-eval",
+    evidence: str = "",
+) -> Dict[str, Any]:
+    """Accept non-weakening repairs of the locked acceptance surface (auto-eval).
+
+    ``changes`` maps KIT-relative paths (``ci/LTC.json``, ``test/...``) to new content.
+
+    * ``test/**``: a repair makes the code pass the locked tests. Exceptions, Python only: a test
+      that only drops unused imports (lint), and a test the eval shows to be wrong itself
+      (``evidence``: an API-misuse/import/fixture error raised in that test file), fixed with
+      every test and assertion unchanged and no skip/xfail added; such test fixes are marked for
+      the developer's review.
+    * ``ci/LTC.json`` may change only the commands of existing checks (e.g. a path that does not
+      exist in the sandbox): no check removed, none made non-blocking.
+    * other ``ci/**`` files (requirements, manifests) may change, e.g. to upgrade a vulnerable
+      dependency.
+
+    Accepted changes update the lock so the following eval does not report them as tampering, and
+    every amendment is appended to the audit log.
+    """
+    req = validate_req_id(req_id)
+    lock = ensure_lock(project_root, req)
+    root = kit_root(project_root, req)
+    files: Dict[str, str] = dict(lock.get("files") or {})
+    texts: Dict[str, str] = dict(lock.get("texts") or {})
+    accepted: List[str] = []
+    rejected: Dict[str, List[str]] = {}
+    kinds: Dict[str, str] = {}
+    for raw_rel, content in (changes or {}).items():
+        rel = str(raw_rel or "").replace("\\", "/").lstrip("/")
+        if rel.startswith("test/"):
+            issue = _test_change_issue(root / rel, files.get(rel), content, evidence)
+            if issue:
+                rejected[rel] = [issue]
+                continue
+            kinds[rel] = _test_change_kind(root / rel, content)
+            files[rel] = hashlib.sha256(content.encode("utf-8")).hexdigest()
+            accepted.append(rel)
+            continue
+        if not rel.startswith("ci/"):
+            continue
+        if rel.endswith("LTC.json"):
+            before = texts.get(rel)
+            if before is None and (root / rel).is_file():
+                before = (root / rel).read_text(encoding="utf-8", errors="replace")
+            issues = [i for i in _ltc_weakening(before or "{}", content) if not i.startswith("check command changed")]
+            if issues:
+                rejected[rel] = issues
+                continue
+            texts[rel] = content
+        files[rel] = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        accepted.append(rel)
+    entry: Dict[str, Any] = {}
+    if accepted:
+        entry = {
+            "audit_id": uuid.uuid4().hex,
+            "at": time.time(),
+            "type": "acceptance_amendment",
+            "project_root": str(Path(project_root).resolve()),
+            "req_id": req,
+            "files": sorted(accepted),
+            "reason": reason,
+            "author": author,
+            "kinds": kinds,
+            "review_required": "test_fix" in kinds.values(),
+        }
+        lock.update({
+            "files": files,
+            "texts": texts,
+            "digest": hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest(),
+            "amendments": [*(lock.get("amendments") or []), entry],
+        })
+        _write_json(_req_state_path(project_root, req, "lock"), lock)
+        audit = state_dir() / "audit" / "acceptance_amendments.jsonl"
+        audit.parent.mkdir(parents=True, exist_ok=True)
+        with audit.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry, sort_keys=True) + "\n")
+    return {
+        "accepted": sorted(accepted),
+        "rejected": rejected,
+        "audit_id": entry.get("audit_id"),
+        "test_fixes": sorted(rel for rel, kind in kinds.items() if kind == "test_fix"),
+    }

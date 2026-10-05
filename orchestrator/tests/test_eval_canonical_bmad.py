@@ -50,7 +50,7 @@ class EvalCanonicalBmadTests(unittest.TestCase):
     def test_eval_payload_promotable_is_derived_from_eval_report_only(self):
         source = _function_source("_eval_payload")
 
-        self.assertIn('quality_passed = rep.status == "PASS"', source)
+        self.assertIn('quality_passed = rep.status in ("PASS", "PASS_WITH_WARNINGS")', source)
         self.assertIn("promotable = quality_passed", source)
         self.assertNotIn("methodology", source.lower())
         self.assertNotIn("bmad", source.lower())

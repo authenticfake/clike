@@ -203,6 +203,99 @@ class GateIntegrityTests(unittest.TestCase):
         self.assertFalse(any(p.name.endswith(".lock.json") for p in self.proj.rglob("*")))
         self.assertTrue(any(self.state.rglob(f"{REQ}.lock.json")))
 
+    # --- auto-eval amendments ------------------------------------------------------
+    def test_repair_can_fix_an_ltc_command_and_the_next_eval_is_clean(self):
+        from services import gate_integrity
+
+        self.assertEqual(self._eval().status_code, 200)  # takes the lock
+        fixed = {**LTC, "checks": [{"id": "unit", "command": "python3 test/test_app.py -v", "blocking": True}, LTC["checks"][1]]}
+        text = json.dumps(fixed)
+        result = gate_integrity.amend_acceptance_surface(self.proj, REQ, {"ci/LTC.json": text}, reason="command path")
+        self.assertEqual((result["accepted"], result["rejected"]), (["ci/LTC.json"], {}))
+        (self.kit / "ci" / "LTC.json").write_text(text)
+        self.assertNotIn("modified", self._anomaly_kinds(self._eval()))
+        audit = (self.state / "audit" / "acceptance_amendments.jsonl").read_text().splitlines()
+        self.assertEqual(json.loads(audit[-1])["files"], ["ci/LTC.json"])
+
+    def test_repair_cannot_weaken_the_ltc_or_touch_tests(self):
+        from services import gate_integrity
+
+        self._eval()
+        weaker = {**LTC, "checks": [{"id": "unit", "command": "true", "blocking": False}]}
+        result = gate_integrity.amend_acceptance_surface(
+            self.proj, REQ, {"ci/LTC.json": json.dumps(weaker), "test/test_app.py": "pass\n"}, reason="x")
+        self.assertEqual(result["accepted"], [])
+        self.assertIn("check removed: lint", result["rejected"]["ci/LTC.json"])
+        self.assertIn("check made non-blocking: unit", result["rejected"]["ci/LTC.json"])
+        self.assertIn("test/test_app.py", result["rejected"])
+
+    def test_repair_may_only_drop_imports_from_a_locked_test(self):
+        from services import gate_integrity
+
+        (self.kit / "test" / "test_app.py").write_text("import os\nimport sys\n" + TEST_PY)
+        self._eval()
+        cases = {
+            "adds an import": ("import os\nimport sys\nimport json\n" + TEST_PY, False),
+            "changes an assertion": ("import sys\n" + TEST_PY.replace("== 2", "== 2 or True"), False),
+            "drops an unused import": ("import sys\n" + TEST_PY, True),  # last: it updates the lock
+        }
+        for label, (content, ok) in cases.items():
+            with self.subTest(label):
+                result = gate_integrity.amend_acceptance_surface(
+                    self.proj, REQ, {"test/test_app.py": content}, reason="lint")
+                self.assertEqual(result["accepted"] == ["test/test_app.py"], ok, result)
+
+        # The accepted cleanup is part of the lock: the next eval is clean once it is written.
+        (self.kit / "test" / "test_app.py").write_text("import sys\n" + TEST_PY)
+        self.assertEqual(self._anomaly_kinds(self._eval()), set())
+
+    def test_a_test_shown_wrong_by_the_eval_is_fixed_with_its_assertions_unchanged(self):
+        from services import gate_integrity
+
+        broken = (
+            "import pytest\n\n"
+            "def test_delete(client):\n"
+            "    response = client.delete('/x', content='{}')\n"
+            "    assert response.status_code == 405\n"
+            "    with pytest.raises(ValueError):\n"
+            "        int('x')\n"
+        )
+        (self.kit / "test" / "test_api.py").write_text(broken)
+        self._eval()
+        fixed = broken.replace("client.delete('/x', content='{}')", "client.request('DELETE', '/x', content='{}')")
+        evidence = "FAILED test/test_api.py::test_delete\ntest/test_api.py:4: TypeError"
+        amend = gate_integrity.amend_acceptance_surface
+
+        cases = {
+            "no evidence of a test error": (fixed, "test/test_api.py:4: AssertionError", "does not show an error"),
+            "assertion weakened": (fixed.replace("== 405", "in (200, 405)"), evidence, "assertion identical"),
+            "raises loosened": (fixed.replace("ValueError", "Exception"), evidence, "assertion identical"),
+            "skip added": (fixed.replace("def test_delete", "@pytest.mark.skip\ndef test_delete"), evidence, "skip"),
+        }
+        for label, (content, proof, issue) in cases.items():
+            with self.subTest(label):
+                result = amend(self.proj, REQ, {"test/test_api.py": content}, reason="r", evidence=proof)
+                self.assertEqual(result["accepted"], [])
+                self.assertIn(issue, result["rejected"]["test/test_api.py"][0])
+
+        result = amend(self.proj, REQ, {"test/test_api.py": fixed}, reason="r", evidence=evidence)
+        self.assertEqual((result["accepted"], result["test_fixes"]), (["test/test_api.py"], ["test/test_api.py"]))
+
+        (self.kit / "test" / "test_api.py").write_text(fixed)
+        gate = self._gate().json()
+        self.assertTrue(gate["review_required"])
+        self.assertEqual(gate["acceptance_amendments"][-1]["kinds"], {"test/test_api.py": "test_fix"})
+
+    def test_repair_can_upgrade_ci_requirements(self):
+        from services import gate_integrity
+
+        (self.kit / "ci" / "requirements.txt").write_text("fastapi==0.1\n")
+        self._eval()
+        result = gate_integrity.amend_acceptance_surface(self.proj, REQ, {"ci/requirements.txt": "fastapi==0.115.0\n"}, reason="CVE")
+        self.assertEqual(result["accepted"], ["ci/requirements.txt"])
+        (self.kit / "ci" / "requirements.txt").write_text("fastapi==0.115.0\n")
+        self.assertNotIn("modified", self._anomaly_kinds(self._eval()))
+
 
 if __name__ == "__main__":
     unittest.main()

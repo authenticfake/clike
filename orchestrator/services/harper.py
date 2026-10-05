@@ -14,6 +14,7 @@ import re
 from pathlib import Path
 
 import httpx
+import yaml
 
 from config import runs_dir, settings
 from services.utils import GATEWAY_URL
@@ -409,7 +410,7 @@ def _infer_contract_paths(contract_like: Dict[str, Any]) -> Dict[str, Any]:
     """
     paths = dict(contract_like.get("paths") or {})
 
-    raw_canonical_family = str(paths.get("canonical_module_family") or "").strip()
+    raw_canonical_family = _module_identifier(paths.get("canonical_module_family"))
     raw_expected_source_roots = list(paths.get("expected_source_roots") or [])
     raw_expected_test_roots = list(paths.get("expected_test_roots") or [])
     raw_create_under = list(paths.get("create_under") or [])
@@ -587,12 +588,11 @@ def _extract_target_contract(
             "create_under": list(raw_paths.get("createUnder") or raw_paths.get("create_under") or []),
             "must_reuse": list(raw_paths.get("mustReuse") or raw_paths.get("must_reuse") or []),
             "forbidden": list(raw_paths.get("forbidden") or []),
-            "canonical_module_family": str(
+            "canonical_module_family": _module_identifier(
                 raw_paths.get("canonicalModuleFamily")
                 or raw_paths.get("canonical_module_family")
                 or main_module_boundary
-                or ""
-            ).strip(),
+            ),
             "expected_source_roots": list(raw_paths.get("expectedSourceRoots") or raw_paths.get("expected_source_roots") or []),
             "expected_test_roots": list(raw_paths.get("expectedTestRoots") or raw_paths.get("expected_test_roots") or []),
             "new_modules_allowed": bool(raw_paths.get("newModulesAllowed", raw_paths.get("new_modules_allowed", False))),
@@ -1260,6 +1260,82 @@ def _derive_artifact_roles(
 
     return roles
 
+_MODULE_ID_RE = re.compile(r"(?<![\w./-])[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+(?![\w/-])")
+
+
+def _module_identifier(value: Any) -> str:
+    """A module/package identifier or repository path from a plan field, never free text (B18).
+
+    Plans sometimes describe ownership in main_module_boundary ("pingboard.health owns
+    configuration, ..."); that sentence used to become a directory name. Keep a path that is
+    already a path, a single identifier token, or the first dotted identifier; otherwise nothing.
+    """
+    text = str(value or "").strip().strip("`")
+    if not text:
+        return ""
+    if re.fullmatch(r"[A-Za-z0-9_./-]+", text):
+        return text
+    match = _MODULE_ID_RE.search(text)
+    return match.group(0) if match else ""
+
+
+_PY_MARKERS = ("python", "fastapi", "django", "flask", "pytest", "pyproject.toml", "ruff", "mypy")
+_NODE_MARKERS = ("node", "node.js", "nodejs", "npm", "javascript", "typescript", "express", "react", "vite",
+                 "next.js", "nextjs", "package.json", "better-sqlite3")
+_NODE_LANES = {"node", "js", "js-ts", "javascript", "typescript", "frontend", "react"}
+
+
+def _tech_constraint_values(core_blobs: Dict[str, Any] | None) -> List[str]:
+    """runtime/language/framework values declared in TECH_CONSTRAINTS.yaml (lower-case)."""
+    for name, content in (core_blobs or {}).items():
+        if not str(name or "").lower().endswith(("tech_constraints.yaml", "tech_constraints.yml")):
+            continue
+        try:
+            data = yaml.safe_load(str(content or "")) or {}
+        except yaml.YAMLError:
+            return []
+        values: List[str] = []
+
+        def walk(node: Any) -> None:
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    if str(key).lower() in {"runtime", "language", "languages", "framework", "frameworks", "stack"}:
+                        for item in value if isinstance(value, list) else [value]:
+                            if isinstance(item, (str, int, float)):
+                                values.append(str(item).lower())
+                    walk(value)
+            elif isinstance(node, list):
+                for item in node:
+                    walk(item)
+
+        walk(data)
+        return values
+    return []
+
+
+def _mentions(text: str, markers: tuple) -> bool:
+    return any(re.search(rf"(?<![\w.-]){re.escape(m)}(?![\w-])", text, re.I) for m in markers)
+
+
+def _detect_req_ecosystem(core_blobs: Dict[str, Any] | None, lane: str, project_blob: str) -> tuple[bool, bool]:
+    """(is_python_like, is_node_like) for a KIT REQ (B19).
+
+    Declared technology constraints decide; with several execution areas (e.g. a Python backend
+    and a JavaScript frontend) the REQ lane picks one. Free-text keywords are a last resort and
+    are matched as whole words ("expression" is not Express, "reactive" is not React).
+    """
+    declared = " ".join(_tech_constraint_values(core_blobs))
+    py, node = _mentions(declared, _PY_MARKERS), _mentions(declared, _NODE_MARKERS)
+    if not (py or node):
+        py, node = _mentions(project_blob, _PY_MARKERS), _mentions(project_blob, _NODE_MARKERS)
+    if py and node:
+        node_lane = lane in _NODE_LANES
+        return (not node_lane, node_lane)
+    if node or lane in _NODE_LANES:
+        return (False, True)
+    return (py or lane == "python", False)
+
+
 def _materialize_file_requirements(
     contract: Dict[str, Any],
     family: str,
@@ -1296,33 +1372,7 @@ def _materialize_file_requirements(
         ]
     ).lower()
 
-    is_node_like = any(
-        token in project_blob
-        for token in (
-            "node",
-            "node.js",
-            "nodejs",
-            "npm",
-            "package.json",
-            "javascript",
-            "typescript",
-            "express",
-            "react",
-            "vite",
-            "better-sqlite3",
-        )
-    ) or lane in {"node", "js", "js-ts", "javascript", "typescript", "frontend", "react"}
-
-    is_python_like = (
-        not is_node_like
-        and (
-            lane == "python"
-            or any(
-                token in project_blob
-                for token in ("python", "pytest", "ruff", "mypy", "fastapi", "pyproject.toml")
-            )
-        )
-    )
+    is_python_like, is_node_like = _detect_req_ecosystem(core_blobs, lane, project_blob)
 
     if is_python_like:
         source_ext = ".py"
@@ -1733,11 +1783,19 @@ def _filter_core_blobs_for_target_req(
         "REPO_COMPOSITION_MANIFEST.md",
         "CLIKE_CAPABILITY_MANIFEST.md",
         "CLIKE_CAPABILITY_INDEX.json",
+        # B4: the selected capability context must reach the KIT follow-up stages too
+        "CLIKE_SELECTED_CAPABILITY_CONTEXT.md",
+        "CLIKE_SELECTED_CAPABILITY_CONTEXT.json",
     }
 
     for raw_name, value in core_blobs.items():
         name = str(raw_name or "").strip()
         lname = name.lower()
+
+        # B3: lane guides carry the lane policy read for this REQ; they used to be dropped here
+        if "lane-guides/" in lname and lname.endswith(".md"):
+            kept[name] = value
+            continue
 
         if (
             lname.startswith("companion::docs/harper/bmad/")
@@ -1976,6 +2034,52 @@ def _acceptance_project_root(payload: Dict[str, Any]) -> Optional[Path]:
     return root if gate_integrity.is_eval_project(root) else None
 
 
+def _kit_repair(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """The auto-eval repair request of a /kit payload (empty when this is a normal KIT)."""
+    kit = payload.get("kit") if isinstance(payload.get("kit"), dict) else {}
+    repair = kit.get("repair")
+    return repair if isinstance(repair, dict) and repair else {}
+
+
+def _apply_repair_governance(payload: Dict[str, Any], out: Dict[str, Any], req_id: str) -> None:
+    """Auto-eval repair output: source/docs pass through; acceptance-surface changes (ci/, test/)
+    are accepted only as audited, non-weakening amendments of the lock (test/ never)."""
+    repair = _kit_repair(payload)
+    prefix = f"runs/kit/{req_id}/"
+    kept: List[Dict[str, Any]] = []
+    changes: Dict[str, str] = {}
+    for item in out.get("files") or []:
+        path = str(item.get("path") or "").replace("\\", "/").lstrip("/")
+        rel = path[len(prefix):] if path.startswith(prefix) else ""
+        if rel.startswith(("ci/", "test/")):
+            changes[rel] = str(item.get("content") or "")
+        else:
+            kept.append(item)
+    warnings = list(out.get("warnings") or [])
+    result: Dict[str, Any] = {"accepted": [], "rejected": {}}
+    if changes:
+        root = _acceptance_project_root(payload)
+        if root is None:
+            result["rejected"] = {rel: ["no eval workspace: the acceptance surface cannot be amended"] for rel in changes}
+        else:
+            evidence = "\n".join(
+                f"{f.get('name')}\n{f.get('output') or ''}" for f in (repair.get("failures") or []) if isinstance(f, dict)
+            )
+            result = gate_integrity.amend_acceptance_surface(
+                root, req_id, changes, reason=f"auto-eval repair cycle {repair.get('cycle')}", evidence=evidence)
+        by_rel = {rel: content for rel, content in changes.items()}
+        for rel in result.get("accepted") or []:
+            kept.append({"path": prefix + rel, "content": by_rel[rel]})
+            warnings.append(f"repair_amendment_accepted:{rel}")
+        for rel in result.get("test_fixes") or []:
+            warnings.append(f"repair_test_fixed_review_required:{rel}")
+        for rel, issues in (result.get("rejected") or {}).items():
+            warnings.append(f"repair_change_rejected:{rel}: {'; '.join(issues)}")
+    out["files"] = kept
+    out["warnings"] = warnings
+    out["repair"] = {"cycle": repair.get("cycle"), "amendments": result}
+
+
 def _acceptance_hook(payload: Dict[str, Any], phase: str, req_id: Optional[str]) -> None:
     """WP6: a /kit starts a new generation (lock invalidated); /eval locks the acceptance
     surface before any local-agent pre-pass can touch it."""
@@ -2182,7 +2286,9 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
 
         target_req_id = targets[0].strip()
         requested_kit_phases = _normalize_requested_kit_phases(kit)
-        _acceptance_hook(merged, "kit", target_req_id)
+        # an auto-eval repair keeps the current KIT generation: the acceptance lock stays in force
+        if not _kit_repair(merged):
+            _acceptance_hook(merged, "kit", target_req_id)
         core_blobs = _inject_server_discovered_companion_artifacts(
             merged=merged,
             core_blobs=core_blobs,
@@ -3079,13 +3185,17 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
             out["promotion_eval_applied"] = False
             out["promotion_eval_file_count"] = 0
             out["promotion_eval_status"] = "not_requested"
-        out["files"] = _append_runtime_guardrail_files(
-            out.get("files") or [],
-            target_req_id,
-            target_contract_text=target_contract_text,
-            file_requirements_text=file_requirements_text,
-            promotion_manifest=promotion_manifest_text or None,
-        )
+        if _kit_repair(merged):
+            # guardrail files are part of the locked acceptance surface: not re-emitted by a repair
+            _apply_repair_governance(merged, out, target_req_id)
+        else:
+            out["files"] = _append_runtime_guardrail_files(
+                out.get("files") or [],
+                target_req_id,
+                target_contract_text=target_contract_text,
+                file_requirements_text=file_requirements_text,
+                promotion_manifest=promotion_manifest_text or None,
+            )
     log.info(
         "GATEWAY HARPER RUN RES keys=%s files=%d text=%s integrity=%s hardener=%s promotion_eval=%s",
         ",".join(sorted(out.keys())),

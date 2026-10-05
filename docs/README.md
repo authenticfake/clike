@@ -14,6 +14,7 @@ This documentation reflects the current source tree in the inspected package and
 - `setup-and-runtime.md` — local services, ports, configs, and startup model
 - `commands.md` — current slash commands, code actions, and extension commands
 - `harper-workflow.md` — IDEA → SPEC → PLAN → KIT → EVAL → GATE → FINALIZE
+- `auto-eval.md` — `/eval REQ --fix`: governed KIT ⇄ EVAL repair loop, regression of promoted REQs, gate warnings policy
 - `artifacts.md` — canonical docs, run artifacts, candidate artifacts, and promotion files
 - `local-agents.md` — current local execution path, GPT Codex / Claude Code integration, and restrictions
 - `rag.md` — indexing, search, fetch, attachment strategy, and repository grounding

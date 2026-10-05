@@ -1163,6 +1163,8 @@ class HarperKitOptions(BaseModel):
     req_ids: Optional[List[str]] = Field(default=None)  # backward-compat alias
     rescope: Optional[bool] = Field(default=False)
     phases: Optional[List[str]] = Field(default=None)
+    # auto-eval repair (cycle, failed checks, hint): the model returns only the files it fixes
+    repair: Optional[Union[Dict[str, Any], bool]] = Field(default=None)
 
 class HarperRunRequest(BaseModel):
     project_id: Optional[str] = None
@@ -2468,16 +2470,21 @@ async def run(req: HarperRunRequest,  request: Request):
             warnings.append("empty_model_output: model returned empty content, used fallback SPEC template")
             system_md_txt = _fallback_spec_from_template(idea, model_route_label, req.runId)
 
-        # guarantee an H1 for downstream consumers
-        if not system_md_txt.lstrip().startswith("#"):
+        # guarantee an H1 for downstream consumers (raw text in BEGIN_FILE blocks carries its own)
+        if not system_md_txt.lstrip().startswith(("#", "BEGIN_FILE")):
             system_md_txt = "# SPEC — Generated\n\n" + system_md_txt
             warnings.append("normalized_heading: added H1 heading to SPEC")
 
+        # B1: the sections the SPEC prompt (orchestrator/phases/spec/cloud_system.md) asks for.
+        # The old list required "Problem" (never requested), missed half of the prompt's sections
+        # and contained an empty entry that always matched.
         required_sections = [
-           "Summary", "Goals", "Problem", "Users & Context", "Functional Requirements", "Non-Goals", "Non-Functional Requirements",
-            "High-Level Architecture", "", "Interfaces", "Data Model", "Assumptions"
+            "Summary", "Goals", "Non-Goals", "Users & Context", "Functional Requirements",
+            "Non-Functional Requirements", "High-Level Architecture", "Interfaces", "Data Model",
+            "Key Workflows", "Security & Compliance", "Deployment & Operations", "Risks & Mitigations",
+            "Assumptions", "Success Metrics", "Acceptance Criteria", "Out Of Scope",
         ]
-        missing = [s for s in required_sections if f"## {s}" not in system_md_txt]
+        missing = [s for s in required_sections if f"## {s}".lower() not in system_md_txt.lower()]
         if missing:
             warnings.append(f"SPEC missing sections: {', '.join(missing)}")
 
@@ -2712,7 +2719,8 @@ async def run(req: HarperRunRequest,  request: Request):
             + ", ".join(str(item) for item in missing_required)
         )
         warnings.append(detail)
-        if active_output_contract.get("strict_missing_required_outputs"):
+        is_repair = bool(req.kit is not None and isinstance(getattr(req.kit, "repair", None), dict) and req.kit.repair)
+        if active_output_contract.get("strict_missing_required_outputs") and not is_repair:
             raise HTTPException(502, detail)
 
     # --- plan.json derivation from PLAN.md (only for phase=plan) ---

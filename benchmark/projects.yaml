@@ -1,0 +1,14 @@
+# Harper benchmark projects, ordered by complexity. See benchmark/README.md.
+projects:
+  - name: pingboard
+    complexity: minimal
+    idea: benchmark/projects/pingboard/IDEA.md
+    summary: One-page status board for three internal HTTP services (FastAPI, no storage).
+  - name: shortlink
+    complexity: small, frontend + backend
+    idea: benchmark/projects/shortlink/IDEA.md
+    summary: Internal URL shortener (FastAPI + SQLite backend, static JS page).
+  - name: coffeebuddy
+    complexity: medium
+    idea: CoffeeBuddy/IDEA.md
+    summary: Slack-based office coffee runs, on-prem (the repository's reference sample).

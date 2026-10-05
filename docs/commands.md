@@ -32,6 +32,7 @@ The current webview parser supports the following slash commands.
 - `/plan`
 - `/kit`
 - `/eval <REQ-ID>`
+- `/eval <REQ-ID> --fix ["hint"]` — auto-eval: repair from the real failures and re-evaluate (see `auto-eval.md`)
 - `/gate <REQ-ID>`
 - `/gate <REQ-ID> manual pass` — developer override **without executing checks**: asks for a reason
   (≥ 10 characters), is recorded by the orchestrator in an audit log with a digest of the REQ
@@ -121,10 +122,20 @@ Normalized follow-up phase names currently used by the sources:
 - `promotion_eval`
 
 ### `/eval <REQ-ID>`
-Runs eval for the target REQ using candidate artifacts and `LTC.json`.
+Runs eval for the target REQ using candidate artifacts and `LTC.json`. With
+`clike.eval.regression` (default on) it also re-runs the acceptance checks of every
+promoted REQ (plan status `done`) against the new code (`regression::<REQ>::<check>`).
+
+### `/eval <REQ-ID> --fix ["hint"]`
+Auto-eval: eval, then on failure a KIT repair built from the failed checks and the current
+candidate files, then eval again, up to `clike.autoEval.maxCycles` (default 2). Tests stay
+locked; LTC command fixes are audited. Re-run to continue; the hint guides the repair. See
+`auto-eval.md`.
 
 ### `/gate <REQ-ID>`
-Runs gate checks for the target REQ using eval output and gate policy.
+Runs gate checks for the target REQ using eval output and gate policy. Warnings (failed
+non-blocking checks) do not block unless `clike.gate.strictWarnings`; regression failures
+block with `GATE_BLOCKED_REGRESSION`.
 
 ### `/finalize`
 Runs release-oriented finalization.

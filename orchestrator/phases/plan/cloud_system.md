@@ -696,7 +696,7 @@ Use this exact structure:
       "test_profile": "string",
       "gate_policy_ref": "docs/harper/lane-guides/<lane>.md",
       "gate_expectations": ["tests", "lint", "types", "security", "skill_adherence", "runtime_profile_adherence"],
-      "main_module_boundary": "Expected canonical module/package/namespace or implementation area.",
+      "main_module_boundary": "Dotted module/package identifier only, e.g. `pingboard.health` (no prose: describe ownership and responsibilities in technical_scope).",
       "test_strategy": ["Specific tests or checks required for this REQ."],
       "risk_notes": ["Risk and mitigation notes tied to implementation, security, operations, data, compliance, or dependencies."],
       "out_of_scope": ["Explicit deferred behavior."],

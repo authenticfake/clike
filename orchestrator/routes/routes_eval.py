@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -11,9 +12,9 @@ from pydantic import BaseModel
 
 import httpx
 
-from eval_runner import EvalReport, EvalRunner, report_from_dict
+from eval_runner import EvalCase, EvalReport, EvalRunner, report_from_dict
 from utils.safe_paths import UnsafePathError, is_within_any, resolve_within, validate_req_id
-from services.gate_integrity import allowed_eval_roots, compare_with_lock, ensure_lock, record_override
+from services.gate_integrity import allowed_eval_roots, compare_with_lock, ensure_lock, lock_amendments, record_override
 
 router = APIRouter()
 log = logging.getLogger("routes_eval")
@@ -27,6 +28,8 @@ class EvalRunRequest(BaseModel):
     verdict: Optional[str] = None
     ltc: Optional[Dict[str, Any]] = None
     project_name: Optional[str] = None
+    # L2 auto-eval: also re-run the acceptance checks of dependency and promoted REQs.
+    regression: Optional[bool] = False
 
     class Config:
         extra = "ignore"
@@ -41,6 +44,9 @@ class GateCheckRequest(BaseModel):
     promote: Optional[bool] = False
     ltc: Optional[Dict[str, Any]] = None
     project_name: Optional[str] = None
+    regression: Optional[bool] = False
+    # Warnings (non-blocking checks that failed) block the gate only when strict.
+    strict: Optional[bool] = None
 
     class Config:
         extra = "ignore"
@@ -145,7 +151,13 @@ _SANDBOX_TIMEOUT_S = float(os.getenv("CLIKE_EVAL_SANDBOX_TIMEOUT_S", "3600"))
 
 
 def _execute_profile(
-    prj: Path, profile_path: Path, ltc: Optional[Dict[str, Any]], mode: str, verdict: Optional[str], req_id: Optional[str]
+    prj: Path,
+    profile_path: Path,
+    ltc: Optional[Dict[str, Any]],
+    mode: str,
+    verdict: Optional[str],
+    req_id: Optional[str],
+    regression: bool = False,
 ) -> Tuple[EvalReport, str]:
     """Run the profile in the eval sandbox when configured (containers), otherwise in-process (dev)."""
     sandbox = os.getenv("CLIKE_EVAL_SANDBOX_URL", "").strip().rstrip("/")
@@ -153,7 +165,14 @@ def _execute_profile(
         try:
             response = httpx.post(
                 f"{sandbox}/run",
-                json={"project_root": str(prj), "profile": str(profile_path), "mode": mode, "verdict": verdict, "req_id": req_id},
+                json={
+                    "project_root": str(prj),
+                    "profile": str(profile_path),
+                    "mode": mode,
+                    "verdict": verdict,
+                    "req_id": req_id,
+                    "regression": regression,
+                },
                 timeout=_SANDBOX_TIMEOUT_S,
             )
         except httpx.HTTPError as exc:
@@ -161,8 +180,27 @@ def _execute_profile(
         if response.status_code != 200:
             raise HTTPException(status_code=response.status_code, detail=f"eval sandbox: {response.text[:500]}")
         return report_from_dict(response.json()), "sandbox"
-    rep = EvalRunner(prj).run_profile(profile=str(profile_path), ltc=ltc, mode=mode, verdict=verdict, req_id=req_id)
+    rep = EvalRunner(prj).run_profile(
+        profile=str(profile_path), ltc=ltc, mode=mode, verdict=verdict, req_id=req_id, regression=regression
+    )
     return rep, "local"
+
+
+def _gate_strict_warnings(requested: Optional[bool]) -> bool:
+    """Whether warnings block the gate: the request decides, else CLIKE_GATE_STRICT_WARNINGS (default off)."""
+    if requested is not None:
+        return bool(requested)
+    return os.getenv("CLIKE_GATE_STRICT_WARNINGS", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _regression_integrity(prj: Path, req_id: Optional[str]) -> Dict[str, Any]:
+    """Acceptance-lock check of every REQ the regression stage will re-run."""
+    results: Dict[str, Any] = {}
+    for other in EvalRunner(prj).regression_req_ids(req_id):
+        integrity = _acceptance_integrity(prj, other)
+        if integrity and not integrity["ok"]:
+            results[other] = integrity
+    return results
 
 
 _KIT_PROFILE_RE = re.compile(r"(?:^|/)runs/kit/(REQ-[A-Za-z0-9_-]+)/ci/[^/]+$")
@@ -248,6 +286,8 @@ _RUNTIME_MANIFEST_NAMES = {
 _COMPOSITION_ROOT_NAMES = {
     "app.py",
     "main.py",
+    "__main__.py",  # python -m <package>
+    "manage.py",
     "server.py",
     "asgi.py",
     "wsgi.py",
@@ -316,6 +356,22 @@ def _has_runtime_manifest_under_candidate(req_root: Path) -> bool:
     return False
 
 
+# A launcher recognized by content when its file name is not a conventional one.
+_COMPOSITION_ROOT_MARKERS = {
+    ".py": re.compile(
+        r"""if\s+__name__\s*==\s*["']__main__["']|\b(?:FastAPI|Flask|Starlette|Quart|Sanic)\(|uvicorn\.run\(|def\s+create_app\("""
+    ),
+    ".js": re.compile(r"\.listen\(|createServer\("),
+    ".ts": re.compile(r"\.listen\(|createServer\("),
+}
+_COMPOSITION_ROOT_HINT = (
+    "Accepted: a conventional entry file (e.g. main.py, app.py, __main__.py, server.js, index.ts, "
+    "Program.cs, main.go) or a source file that starts the application (Python: "
+    "if __name__ == \"__main__\", an ASGI/WSGI app such as FastAPI(...) or def create_app(...); "
+    "Node: .listen(...) or createServer(...))."
+)
+
+
 def _has_composition_root_under_candidate(req_root: Path) -> bool:
     src_root = req_root / "src"
     if not src_root.exists():
@@ -330,6 +386,13 @@ def _has_composition_root_under_candidate(req_root: Path) -> bool:
             return True
         if path.suffix.lower() in {".mpr"}:
             return True
+        marker = _COMPOSITION_ROOT_MARKERS.get(path.suffix.lower())
+        if marker and path.stat().st_size < 512 * 1024:
+            try:
+                if marker.search(path.read_text(encoding="utf-8", errors="ignore")):
+                    return True
+            except OSError:
+                continue
     return False
 
 
@@ -357,7 +420,7 @@ def _required_output_blockers(project_root: Path, req_id: Optional[str]) -> List
         if role in {"solution_composition_root", "module_launcher"} and not _has_composition_root_under_candidate(req_root):
             blockers.append({
                 "role": role,
-                "reason": "FILE_REQUIREMENTS requires a runnable composition root/launcher, but no cross-language composition entry was found under candidate src/.",
+                "reason": "FILE_REQUIREMENTS requires a runnable composition root/launcher, but no cross-language composition entry was found under candidate src/. " + _COMPOSITION_ROOT_HINT,
             })
 
     return blockers
@@ -393,6 +456,7 @@ def _merge_eval_args(
         req_id=body.req_id or req_id_q,
         project_name=body.project_name or project_name_q,
         ltc=body.ltc if body.ltc else None,
+        regression=bool(body.regression),
     )
 
 
@@ -418,7 +482,29 @@ def _merge_gate_args(
         ltc=body.ltc if body.ltc else None,
         project_name=body.project_name or project_name_q,
         promote=bool(body.promote if body.promote is not None else promote_q),
+        regression=bool(body.regression),
+        strict=body.strict,
     )
+
+
+def _with_structural_cases(rep: EvalReport, blockers: List[Dict[str, str]]) -> EvalReport:
+    """Required outputs missing from the candidate (also a gate blocker) reported as failed eval
+    checks, so the eval and an auto-eval repair see them, not only the gate."""
+    if not blockers:
+        return rep
+    cases = list(rep.cases) + [
+        EvalCase(
+            name=f"structure::{b['role']}",
+            passed=False,
+            code=1,
+            stdout="",
+            stderr=b["reason"],
+            cmd=None,
+            blocking=True,
+        )
+        for b in blockers
+    ]
+    return replace(rep, cases=cases, failed=rep.failed + len(blockers), status="FAIL")
 
 
 def _case_payload(case: Any) -> Dict[str, Any]:
@@ -445,8 +531,9 @@ def _eval_payload(rep: EvalReport, req_id: Optional[str]) -> Dict[str, Any]:
         c.name for c in rep.cases
         if not c.passed and c.blocked
     ]
-    quality_passed = rep.status == "PASS" and not blocking_failures
-    promotable = quality_passed and not environment_blocked and rep.blocked == 0 and rep.warnings == 0
+    warnings_ok = rep.warnings == 0 or not _gate_strict_warnings(None)
+    quality_passed = rep.status in ("PASS", "PASS_WITH_WARNINGS") and warnings_ok and not blocking_failures
+    promotable = quality_passed and not environment_blocked and rep.blocked == 0
 
     return {
         "profile": rep.profile,
@@ -516,9 +603,17 @@ def eval_run(
         if integrity and not integrity["ok"]:
             log.warning("eval_run blocked: acceptance surface changed req=%s anomalies=%s", req, integrity["anomalies"])
             return _integrity_blocked_payload(req, integrity, profile_path)
+        if args.regression:
+            tampered = _regression_integrity(prj, req)
+            if tampered:
+                other, other_integrity = next(iter(tampered.items()))
+                log.warning("eval_run blocked: regression acceptance surface changed req=%s other=%s", req, other)
+                return _integrity_blocked_payload(other, other_integrity, profile_path)
 
     try:
-        rep, executor = _execute_profile(prj, profile_path, ltc, args.mode or "auto", args.verdict, args.req_id)
+        rep, executor = _execute_profile(
+            prj, profile_path, ltc, args.mode or "auto", args.verdict, args.req_id, regression=bool(args.regression)
+        )
     except HTTPException:
         raise
     except FileNotFoundError as exc:
@@ -527,9 +622,12 @@ def eval_run(
         log.exception("eval_run unexpected")
         raise HTTPException(status_code=500, detail=f"eval_run error: {exc}") from exc
 
+    if not is_manual:
+        rep = _with_structural_cases(rep, _required_output_blockers(prj, args.req_id or rep.req_id))
     payload = _eval_payload(rep, args.req_id)
     payload["integrity"] = integrity
     payload["executor"] = executor
+    payload["regression"] = bool(args.regression)
     return payload
 
 
@@ -595,9 +693,27 @@ def gate_check(
             promote_info=None,
         )
         return blocked
+    if args.regression:
+        tampered = _regression_integrity(prj, req)
+        if tampered:
+            other, other_integrity = next(iter(tampered.items()))
+            log.warning("gate_check blocked: regression acceptance surface changed req=%s other=%s", req, other)
+            blocked = _integrity_blocked_payload(other, other_integrity, profile_path)
+            blocked.update(
+                gate="FAIL",
+                raw_eval_status="NOT_RUN",
+                reason_code="GATE_BLOCKED_ACCEPTANCE_TAMPERED",
+                structural_blockers=[],
+                json=f"runs/gate/{req}",
+                promote=None,
+                promote_info=None,
+            )
+            return blocked
 
     try:
-        rep, executor = _execute_profile(prj, profile_path, ltc, args.mode or "auto", args.verdict, args.req_id)
+        rep, executor = _execute_profile(
+            prj, profile_path, ltc, args.mode or "auto", args.verdict, args.req_id, regression=bool(args.regression)
+        )
     except HTTPException:
         raise
     except FileNotFoundError as exc:
@@ -608,15 +724,26 @@ def gate_check(
 
     structural_blockers = _required_output_blockers(prj, args.req_id or rep.req_id)
     effective_status = "FAIL" if structural_blockers else rep.status
-    hard_gate = "PASS" if effective_status == "PASS" else "FAIL"
+    strict = _gate_strict_warnings(args.strict)
+    warnings_accepted = effective_status == "PASS_WITH_WARNINGS" and not strict
+    hard_gate = "PASS" if effective_status == "PASS" or warnings_accepted else "FAIL"
+    regression_failures = [c.name for c in rep.cases if c.name.startswith("regression::") and not c.passed and c.blocking]
+    try:
+        amendments = lock_amendments(prj, req) if req else []
+    except Exception:
+        amendments = []
 
     reason_code = "GATE_PASS"
     if structural_blockers:
         reason_code = "GATE_BLOCKED_REQUIRED_OUTPUTS_MISSING"
     elif effective_status == "PASS":
         reason_code = "GATE_PASS"
+    elif warnings_accepted:
+        reason_code = "GATE_PASS_WITH_WARNINGS"
     elif rep.status == "PASS_WITH_WARNINGS":
         reason_code = "GATE_BLOCKED_WARNINGS_PRESENT"
+    elif rep.status == "FAIL" and regression_failures:
+        reason_code = "GATE_BLOCKED_REGRESSION"
     elif rep.status == "FAIL":
         reason_code = "GATE_BLOCKED_FAILED_CHECKS"
     else:
@@ -631,7 +758,7 @@ def gate_check(
         "profile": rep.profile,
         "req_id": rep.req_id,
         "mode": rep.mode,
-        "passed": effective_status == "PASS",
+        "passed": hard_gate == "PASS",
         "failed": rep.failed,
         "passed_count": rep.passed,
         "blocked_count": rep.blocked,
@@ -641,6 +768,11 @@ def gate_check(
         "promote_info": None,
         "integrity": integrity,
         "executor": executor,
+        "regression": bool(args.regression),
+        "regression_failures": regression_failures,
+        "acceptance_amendments": amendments,
+        "review_required": any(a.get("review_required") for a in amendments),
+        "strict_warnings": strict,
         "cases": [_case_payload(c) for c in rep.cases],
     }
 

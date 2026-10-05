@@ -9,6 +9,11 @@ function evalTimeoutMs() {
   return 60 * 1000 * Number(vscode.workspace.getConfiguration('clike').get('harperTimeout', 25));
 }
 
+// Auto-eval L2: eval/gate also re-run the checks of dependency and promoted REQs.
+function evalRegression() {
+  return vscode.workspace.getConfiguration('clike').get('eval.regression', true);
+}
+
 /**
  * Normalize a workspaceRoot value into a path string (without the "file://" scheme)
  */
@@ -42,7 +47,7 @@ async function postEvalRun(profile, workspaceRoot,req_id, mode, modeResult) {
   const ltcDoc = raw ? JSON.parse(raw) : null;
   const body = (mode === 'manual')
     ? { mode: 'manual', verdict: modeResult, ltc:ltcDoc }
-    : {ltc:ltcDoc};
+    : { ltc: ltcDoc, regression: evalRegression() };
   return requestJson('POST', url, { body, timeoutMs: evalTimeoutMs() });
 }
 
@@ -70,9 +75,10 @@ async function postGateCheck(profile, workspaceRoot, req_id, options = {}) {
     if (!opts.reqId) throw new Error("promote=true richiede reqId (es. REQ-009)");
     qs.set("req_id", opts.reqId);
   }
+  const strict = vscode.workspace.getConfiguration('clike').get('gate.strictWarnings', false);
   const body = (opts.mode === 'manual')
     ? { mode: 'manual', verdict: opts.result, ltc:ltcDoc }
-    : {ltc:ltcDoc};  
+    : { ltc: ltcDoc, regression: evalRegression(), ...(strict ? { strict: true } : {}) };
 
   const url = orchestratorUrl(`/v1/gate/check?${qs.toString()}`);
   return requestJson('POST', url, { body, timeoutMs: evalTimeoutMs() });

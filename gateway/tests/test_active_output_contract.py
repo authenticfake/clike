@@ -316,3 +316,27 @@ def test_validation_allows_extra_bmad_file_only_under_optional_glob():
     assert bad_result["disallowed_outputs"] == ["docs/harper/bmad/spec/WRONG.md"]
 
 
+
+
+def test_native_cloud_kit_accepts_any_file_in_the_target_req_staging_roots_only():
+    # B20 (benchmark baseline): an extra __init__.py, ci/requirements.txt or test file rejected the whole KIT
+    contract = build_active_output_contract(phase="kit", runner="cloud", methodology_context=None, req_id="REQ-001")
+    required = [p for p in contract["required_outputs"]]
+    files = [{"path": p, "content": "x"} for p in required] + [
+        {"path": "runs/kit/REQ-001/src/pingboard/health/__init__.py", "content": ""},
+        {"path": "runs/kit/REQ-001/ci/requirements.txt", "content": "fastapi"},
+        {"path": "runs/kit/REQ-001/test/api/status.http", "content": "GET /"},
+    ]
+    assert validate_files_against_active_output_contract(files, contract)["ok"] is True
+    other_req = validate_files_against_active_output_contract(files + [{"path": "runs/kit/REQ-002/src/x.py", "content": ""}], contract)
+    assert other_req["disallowed_outputs"] == ["runs/kit/REQ-002/src/x.py"]
+    outside = validate_files_against_active_output_contract(files + [{"path": "src/app.py", "content": ""}], contract)
+    assert outside["disallowed_outputs"] == ["src/app.py"]
+
+
+def test_placeholder_in_a_required_path_matches_a_concrete_path_at_any_depth():
+    # benchmark: the model put the composition root in src/pingboard/app.py; src/<...> matched one level only
+    assert contract_module.output_path_matches("runs/kit/REQ-001/src/pingboard/app.py", "runs/kit/REQ-001/src/<execution-area-composition-root>")
+    assert contract_module.output_path_matches("runs/kit/REQ-001/src/app.py", "runs/kit/REQ-001/src/<execution-area-composition-root>")
+    assert not contract_module.output_path_matches("runs/kit/REQ-001/test/app.py", "runs/kit/REQ-001/src/<execution-area-composition-root>")
+    assert not contract_module.output_path_matches("runs/kit/REQ-002/src/app.py", "runs/kit/REQ-001/src/<execution-area-composition-root>")

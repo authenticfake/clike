@@ -79,3 +79,4 @@ text:
   - If a dependency KIT or canonical source root is missing, explicitly report it as an implementation assumption or gap.
   - Produce repository-aware, dependency-aware, promotable candidate code and tests.
   - Prefer the clearest, readable, and well-structured implementation that fully satisfies the REQ acceptance criteria, stays aligned with repository patterns, and remains directly promotable without decorative architecture.
+  - 'A FILE_REQUIREMENTS path hint with a <placeholder> is a pattern: choose one concrete path and use that same concrete path everywhere (LTC.json commands, HOWTO.md, tests); never copy the placeholder text.'

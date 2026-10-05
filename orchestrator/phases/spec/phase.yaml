@@ -26,7 +26,7 @@ local_agent:
   - The first line must be `# SPEC — <Project Name>`, taken from the IDEA.md title by replacing the leading word IDEA with SPEC.
   - 'Use the canonical SPEC sections with `##` headings in order: Summary, Goals, Non-Goals, Users & Context, Functional Requirements, Non-Functional Requirements, High-Level Architecture, Interfaces, Data Model (logical), Key Workflows, Security & Compliance, Deployment & Operations, Risks & Mitigations, Assumptions, Success Metrics, Acceptance Criteria, Out Of Scope, Note from Harper Orchestrator (Super User) to be applied.'
   - 'Acceptance Criteria are mandatory: at least 5 observable, falsifiable bullets.'
-  - Translate the business requirements and user stories from IDEA.md (see section 'List of business requirements or user stories') into comprehensive technical specifications and architectural design.
+  - Translate the business needs stated in IDEA.md (Problem Statement, Target Users & Context, Value & Outcomes) into comprehensive technical specifications and architectural design.
   - Do not invent facts; respect TECH_CONSTRAINTS as authoritative when present.
   - End the output with a final line containing exactly SPEC_END.
   - Do not run git commands.

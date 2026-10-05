@@ -9,7 +9,7 @@ import re
 from typing import Any, Dict, List, Optional
 
 from services.local_agent.common import (
-    _capability_index_names,
+    _manifest_capability_names,
     _extract_core_blob,
     _req_capability_list,
     _safe_text,
@@ -28,9 +28,9 @@ def _build_capability_integrity(req: Dict[str, Any], capability_manifest: Dict[s
     selected_packs = _req_capability_list(req, "packs", nested_key="packs")
     selected_design = _req_capability_list(req, "design_profiles", "designProfiles", nested_key="design_profiles")
 
-    discovered_skills = _capability_index_names(capability_manifest, "skills")
-    discovered_packs = _capability_index_names(capability_manifest, "packs")
-    discovered_design = _capability_index_names(capability_manifest, "design_profiles")
+    discovered_skills = _manifest_capability_names(capability_manifest, "skills")
+    discovered_packs = _manifest_capability_names(capability_manifest, "packs")
+    discovered_design = _manifest_capability_names(capability_manifest, "design_profiles")
 
     missing_skills = [x for x in selected_skills if x.lower() not in discovered_skills]
     missing_packs = [x for x in selected_packs if x.lower() not in discovered_packs]
