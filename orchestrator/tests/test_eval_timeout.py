@@ -34,6 +34,8 @@ class EvalTimeoutTests(unittest.TestCase):
             self.assertIn("test_hangs", case.stderr)
             self.assertIn("timeout: the check was stopped after 10 s", case.stderr)
             self.assertNotIn("b'", case.stdout)
+            # The id of the running test is the last thing printed before the hang.
+            self.assertTrue(case.stdout.rstrip().endswith("test_hang.py::test_hangs"), case.stdout[-300:])
 
             pid = int(marker.read_text())
             time.sleep(0.5)
