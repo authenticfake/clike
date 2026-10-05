@@ -32,6 +32,11 @@ podman-compose build && podman-compose up -d --force-recreate
 
 `podman-compose` does not recreate containers when only the image changed, hence `--force-recreate`.
 
+The eval sandbox runs generated tests and is capped by `CLIKE_EVAL_SANDBOX_MEM_LIMIT` (docker/.env,
+default `4g`). Keep it below the memory of the container VM (`podman machine inspect`; the
+default machine has 2 GB → `1g`), otherwise a runaway test can exhaust the VM and the kernel kills
+another service (seen as the orchestrator exiting with 137).
+
 ### Without containers
 
 ```bash
