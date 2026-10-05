@@ -270,8 +270,8 @@ The extension currently supports a **base KIT run by default**, plus optional ex
 ### Eval / Gate
 
 - **`/eval <REQ-ID>`**
-  - evaluates the current KIT output for that REQ (plus, by default, the acceptance checks of its
-    dependencies and of the promoted REQs: `clike.eval.regression`)
+  - evaluates the current KIT output for that REQ (plus, by default, the acceptance checks of the
+    promoted REQs: `clike.eval.regression`)
 
 - **`/eval <REQ-ID> --fix ["hint"]`**
   - auto-eval: on failure, asks for a KIT repair from the real failures and re-evaluates, up to
@@ -460,7 +460,7 @@ Current configuration keys exposed by the extension include:
 
 ### Eval / gate / auto-eval
 
-- `clike.eval.regression` — default `true`; `/eval` and `/gate` also re-run the acceptance checks of dependency and promoted REQs
+- `clike.eval.regression` — default `true`; `/eval` and `/gate` also re-run the acceptance checks of the promoted REQs
 - `clike.gate.strictWarnings` — default `false`; warnings (failed non-blocking checks) block the gate
 - `clike.autoEval.maxCycles` — default `2`; repair cycles of `/eval REQ --fix`
 - `clike.autoEval.afterKit` — default `false`; run the auto-eval after every successful `/kit`

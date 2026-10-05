@@ -85,12 +85,19 @@ class EvalRegressionTests(unittest.TestCase):
     def _case_names(self, response):
         return [c["name"] for c in response.json()["cases"]]
 
-    def test_regression_set_is_dependencies_and_promoted_reqs(self):
+    def test_regression_set_is_the_promoted_reqs(self):
         from eval_runner import EvalRunner
 
         self.assertEqual(EvalRunner(self.proj).regression_req_ids("REQ-002"), ["REQ-001"])
         self.assertEqual(EvalRunner(self.proj).regression_req_ids("REQ-003"), ["REQ-001"])
         self.assertEqual(EvalRunner(self.proj).regression_req_ids("REQ-001"), [])
+
+        # A dependency that is not promoted is not a regression target.
+        plan_path = self.proj / "docs" / "harper" / "plan.json"
+        plan = json.loads(plan_path.read_text())
+        plan["reqs"][0]["status"] = "open"
+        plan_path.write_text(json.dumps(plan))
+        self.assertEqual(EvalRunner(self.proj).regression_req_ids("REQ-002"), [])
 
     def test_regression_is_opt_in(self):
         response = self._post("/v1/eval/run", "REQ-002")

@@ -123,8 +123,8 @@ Normalized follow-up phase names currently used by the sources:
 
 ### `/eval <REQ-ID>`
 Runs eval for the target REQ using candidate artifacts and `LTC.json`. With
-`clike.eval.regression` (default on) it also re-runs the acceptance checks of the REQ's
-dependencies and of every promoted REQ against the new code (`regression::<REQ>::<check>`).
+`clike.eval.regression` (default on) it also re-runs the acceptance checks of every
+promoted REQ (plan status `done`) against the new code (`regression::<REQ>::<check>`).
 
 ### `/eval <REQ-ID> --fix ["hint"]`
 Auto-eval: eval, then on failure a KIT repair built from the failed checks and the current

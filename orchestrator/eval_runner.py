@@ -2298,33 +2298,22 @@ class EvalRunner:
         )
 
     def regression_req_ids(self, req_id: Optional[str]) -> List[str]:
-        """REQs whose acceptance checks must still pass with this candidate: its transitive
-        dependencies and every promoted REQ, in plan order, when they have an LTC profile."""
+        """Promoted REQs (plan status done) whose acceptance checks must still pass with this
+        candidate, in plan order, when they have an LTC profile. Dependencies that are not
+        promoted are not regression targets: their source is already composed into the
+        candidate's eval and they have no passing state to regress from."""
         plan_path = self.project_root / "docs" / "harper" / "plan.json"
         try:
             plan = json.loads(plan_path.read_text(encoding="utf-8"))
         except Exception:
             return []
         reqs = [r for r in (plan.get("reqs") or plan.get("req") or []) if isinstance(r, dict) and r.get("id")]
-        by_id = {str(r["id"]): r for r in reqs}
-
-        selected = set()
-        pending = list((by_id.get(str(req_id)) or {}).get("dependsOn") or [])
-        while pending:
-            dep = str(pending.pop())
-            if dep in selected or dep not in by_id:
-                continue
-            selected.add(dep)
-            pending.extend(by_id[dep].get("dependsOn") or [])
-        selected.update(
-            str(r["id"]) for r in reqs if str(r.get("status") or "").strip().lower() in PROMOTED_REQ_STATUSES
-        )
-        selected.discard(str(req_id))
-
-        ordered = [str(r["id"]) for r in reqs if str(r["id"]) in selected]
         return [
-            rid for rid in ordered
-            if (self.project_root / "runs" / "kit" / self._safe_req_id(rid) / "ci" / "LTC.json").is_file()
+            str(r["id"])
+            for r in reqs
+            if str(r.get("status") or "").strip().lower() in PROMOTED_REQ_STATUSES
+            and str(r["id"]) != str(req_id)
+            and (self.project_root / "runs" / "kit" / self._safe_req_id(str(r["id"])) / "ci" / "LTC.json").is_file()
         ]
 
     def run_regression(self, req_id: Optional[str], candidate_src: Path) -> List[EvalCase]:

@@ -20,8 +20,8 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   cannot run and `ci/` dependency upgrades are accepted as audited amendments of the acceptance
   lock. API: `kit.repair` object on `/v1/harper/run`; benchmark `--auto-eval N`.
 - **Regression of promoted REQs**: `/v1/eval/run` and `/v1/gate/check` accept `regression: true`
-  (extension: `clike.eval.regression`, default on) and re-run the acceptance checks of the REQ's
-  dependencies and of every promoted REQ against the new code; the gate reports
+  (extension: `clike.eval.regression`, default on) and re-run the acceptance checks of every promoted
+  REQ (plan status `done`) against the new code; the gate reports
   `GATE_BLOCKED_REGRESSION`.
 - Harper benchmark (`benchmark/`): documented sample projects, cloud and local-agent runners,
   promotability metrics.

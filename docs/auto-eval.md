@@ -26,7 +26,7 @@ only when its own checks pass **and** it does not break what is already promoted
 | Continue after the loop stopped | run `/eval REQ-002 --fix ["hint"]` again: it restarts from the current files, with a new cycle budget |
 | Run it automatically after every `/kit` | `clike.autoEval.afterKit: true` (default `false`) |
 | Number of repair cycles | `clike.autoEval.maxCycles` (default `2`, max `5`) |
-| Re-check dependency and promoted REQs | `clike.eval.regression` (default `true`) |
+| Re-check the promoted REQs | `clike.eval.regression` (default `true`) |
 | Make warnings block the gate | `clike.gate.strictWarnings` (default `false`) |
 
 Then promote as usual with `/gate REQ-002`.
@@ -68,15 +68,15 @@ stops the loop.
 
 ## Promotability: regression of promoted REQs (L2)
 
-With `clike.eval.regression` (default on), `/eval` and `/gate` also run the acceptance checks of:
-
-- the REQ's transitive dependencies (`dependsOn` in `plan.json`), and
-- every promoted REQ (`status: done` in `plan.json`),
-
-with **their own LTC commands**, against their source with the candidate's composed source
+With `clike.eval.regression` (default on), `/eval` and `/gate` also run the acceptance checks of
+every promoted REQ (`status: done` in `plan.json`) with **their own LTC commands**, against their source with the candidate's composed source
 overlaid on top, i.e. the code as it would be after promotion. These cases appear as
 `regression::<REQ>::<check>`, run in `runs/eval/<REQ>/regression/<OTHER>/` (the other REQ's own
 eval results are not touched), and their acceptance locks are verified first.
+
+Dependencies that are not promoted yet are not regression targets: their source is already part
+of the candidate's eval (promoted `src/` + dependency KITs + current KIT), and a REQ that never
+passed has nothing to regress from.
 
 A REQ that passes its own tests but breaks a promoted REQ fails the eval; the gate reports
 `GATE_BLOCKED_REGRESSION` with the list in `regression_failures`. In an auto-eval loop the

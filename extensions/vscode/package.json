@@ -176,7 +176,7 @@
         "clike.eval.regression": {
           "type": "boolean",
           "default": true,
-          "description": "/eval and /gate also re-run the acceptance checks of the REQ's dependencies and of every promoted REQ (plan status done) against the new code (auto-eval L2: the REQ must not break what is already promoted)."
+          "description": "/eval and /gate also re-run the acceptance checks of every promoted REQ (plan status done) against the new code (auto-eval L2: the REQ must not break what is already promoted)."
         },
         "clike.gate.strictWarnings": {
           "type": "boolean",
