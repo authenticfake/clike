@@ -270,7 +270,13 @@ The extension currently supports a **base KIT run by default**, plus optional ex
 ### Eval / Gate
 
 - **`/eval <REQ-ID>`**
-  - evaluates the current KIT output for that REQ
+  - evaluates the current KIT output for that REQ (plus, by default, the acceptance checks of its
+    dependencies and of the promoted REQs: `clike.eval.regression`)
+
+- **`/eval <REQ-ID> --fix ["hint"]`**
+  - auto-eval: on failure, asks for a KIT repair from the real failures and re-evaluates, up to
+    `clike.autoEval.maxCycles` (default 2); tests stay locked. Re-run to continue. Set
+    `clike.autoEval.afterKit` to run it after every `/kit`. See `docs/auto-eval.md`
 
 - **`/gate <REQ-ID>`**
   - runs gate checks and promotion logic for that REQ
@@ -451,6 +457,13 @@ Current configuration keys exposed by the extension include:
 - `clike.localAgent.codex.enabled`
 - `clike.localAgent.codex.command` — default `codex`
 - `clike.localAgent.codex.model` — default `gpt-5.5-codex`; model pinned on every Codex run (`--model`). Set the exact id your Codex login supports; empty = CLI default
+
+### Eval / gate / auto-eval
+
+- `clike.eval.regression` — default `true`; `/eval` and `/gate` also re-run the acceptance checks of dependency and promoted REQs
+- `clike.gate.strictWarnings` — default `false`; warnings (failed non-blocking checks) block the gate
+- `clike.autoEval.maxCycles` — default `2`; repair cycles of `/eval REQ --fix`
+- `clike.autoEval.afterKit` — default `false`; run the auto-eval after every successful `/kit`
 
 ### Backend endpoints
 

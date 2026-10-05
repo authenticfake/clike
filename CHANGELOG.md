@@ -14,6 +14,17 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Added
 
+- **Auto-eval** (`docs/auto-eval.md`): `/eval REQ --fix ["hint"]` runs eval → KIT repair from the
+  real failures → eval, up to `clike.autoEval.maxCycles` (default 2); rerunnable with a developer
+  hint; `clike.autoEval.afterKit` runs it after `/kit`. Tests stay locked; an LTC command that
+  cannot run and `ci/` dependency upgrades are accepted as audited amendments of the acceptance
+  lock. API: `kit.repair` object on `/v1/harper/run`; benchmark `--auto-eval N`.
+- **Regression of promoted REQs**: `/v1/eval/run` and `/v1/gate/check` accept `regression: true`
+  (extension: `clike.eval.regression`, default on) and re-run the acceptance checks of the REQ's
+  dependencies and of every promoted REQ against the new code; the gate reports
+  `GATE_BLOCKED_REGRESSION`.
+- Harper benchmark (`benchmark/`): documented sample projects, cloud and local-agent runners,
+  promotability metrics.
 - `PhaseContext` v1: the typed, versioned contract of a phase run
   (`docs/contracts/phase_context.v1.schema.json`); the wire `core_blobs` are produced from it.
 - Phase definitions as data in `orchestrator/phases/`: per-phase `phase.yaml` (write roots, output
@@ -25,6 +36,9 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Changed
 
+- Gate: warnings (failed non-blocking checks) no longer block; the gate passes with
+  `GATE_PASS_WITH_WARNINGS` unless strict (`strict: true`, `clike.gate.strictWarnings`,
+  `CLIKE_GATE_STRICT_WARNINGS=1`). Eval `promotable` follows the same policy.
 - `services/local_agent_package.py` (6,900 lines) split into `services/local_agent/` (one module
   per phase, shared helpers, normalization); the old module is a compatibility facade.
 - Local Claude Code never receives `ANTHROPIC_AUTH_TOKEN` (it would override the subscription
@@ -32,6 +46,16 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- Cloud `/kit` produced unusable paths for many plans: free text and placeholders became file
+  paths (B18), the ecosystem was guessed from scattered words (e.g. `.js` files in a Python
+  project, B19), and `__init__.py`, `ci/requirements.txt` or extra tests rejected the whole KIT
+  (B20). The cloud KIT contract now matches the local agent's.
+- Lane guides and selected capabilities were dropped from the cloud KIT context; the SPEC
+  validator and prompt disagreed on the required sections.
+- Coding mode wrote generated files to `/generated/...` outside the workspace.
+- `kit.repair` sent by the extension (`/kit --repair`) is accepted as a flag or as an auto-eval
+  repair request (the gateway rejected the orchestrator's default `false`).
+- Eval honors the LTC `run_from` field as the commands' working directory.
 - Cloud `/plan` received IDEA.md and SPEC.md by name only and could return an empty plan; it now
   receives them in full. Cloud `/kit` received no project documents and could ignore the
   technology constraints (e.g. Flask for a FastAPI project); its prompt now includes the
