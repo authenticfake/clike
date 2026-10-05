@@ -1163,6 +1163,8 @@ class HarperKitOptions(BaseModel):
     req_ids: Optional[List[str]] = Field(default=None)  # backward-compat alias
     rescope: Optional[bool] = Field(default=False)
     phases: Optional[List[str]] = Field(default=None)
+    # auto-eval repair (cycle, failed checks, hint): the model returns only the files it fixes
+    repair: Optional[Dict[str, Any]] = Field(default=None)
 
 class HarperRunRequest(BaseModel):
     project_id: Optional[str] = None
@@ -2717,7 +2719,8 @@ async def run(req: HarperRunRequest,  request: Request):
             + ", ".join(str(item) for item in missing_required)
         )
         warnings.append(detail)
-        if active_output_contract.get("strict_missing_required_outputs"):
+        is_repair = bool(req.kit is not None and getattr(req.kit, "repair", None))
+        if active_output_contract.get("strict_missing_required_outputs") and not is_repair:
             raise HTTPException(502, detail)
 
     # --- plan.json derivation from PLAN.md (only for phase=plan) ---

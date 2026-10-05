@@ -2034,6 +2034,47 @@ def _acceptance_project_root(payload: Dict[str, Any]) -> Optional[Path]:
     return root if gate_integrity.is_eval_project(root) else None
 
 
+def _kit_repair(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """The auto-eval repair request of a /kit payload (empty when this is a normal KIT)."""
+    kit = payload.get("kit") if isinstance(payload.get("kit"), dict) else {}
+    repair = kit.get("repair")
+    return repair if isinstance(repair, dict) and repair else {}
+
+
+def _apply_repair_governance(payload: Dict[str, Any], out: Dict[str, Any], req_id: str) -> None:
+    """Auto-eval repair output: source/docs pass through; acceptance-surface changes (ci/, test/)
+    are accepted only as audited, non-weakening amendments of the lock (test/ never)."""
+    repair = _kit_repair(payload)
+    prefix = f"runs/kit/{req_id}/"
+    kept: List[Dict[str, Any]] = []
+    changes: Dict[str, str] = {}
+    for item in out.get("files") or []:
+        path = str(item.get("path") or "").replace("\\", "/").lstrip("/")
+        rel = path[len(prefix):] if path.startswith(prefix) else ""
+        if rel.startswith(("ci/", "test/")):
+            changes[rel] = str(item.get("content") or "")
+        else:
+            kept.append(item)
+    warnings = list(out.get("warnings") or [])
+    result: Dict[str, Any] = {"accepted": [], "rejected": {}}
+    if changes:
+        root = _acceptance_project_root(payload)
+        if root is None:
+            result["rejected"] = {rel: ["no eval workspace: the acceptance surface cannot be amended"] for rel in changes}
+        else:
+            result = gate_integrity.amend_acceptance_surface(
+                root, req_id, changes, reason=f"auto-eval repair cycle {repair.get('cycle')}")
+        by_rel = {rel: content for rel, content in changes.items()}
+        for rel in result.get("accepted") or []:
+            kept.append({"path": prefix + rel, "content": by_rel[rel]})
+            warnings.append(f"repair_amendment_accepted:{rel}")
+        for rel, issues in (result.get("rejected") or {}).items():
+            warnings.append(f"repair_change_rejected:{rel}: {'; '.join(issues)}")
+    out["files"] = kept
+    out["warnings"] = warnings
+    out["repair"] = {"cycle": repair.get("cycle"), "amendments": result}
+
+
 def _acceptance_hook(payload: Dict[str, Any], phase: str, req_id: Optional[str]) -> None:
     """WP6: a /kit starts a new generation (lock invalidated); /eval locks the acceptance
     surface before any local-agent pre-pass can touch it."""
@@ -2240,7 +2281,9 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
 
         target_req_id = targets[0].strip()
         requested_kit_phases = _normalize_requested_kit_phases(kit)
-        _acceptance_hook(merged, "kit", target_req_id)
+        # an auto-eval repair keeps the current KIT generation: the acceptance lock stays in force
+        if not _kit_repair(merged):
+            _acceptance_hook(merged, "kit", target_req_id)
         core_blobs = _inject_server_discovered_companion_artifacts(
             merged=merged,
             core_blobs=core_blobs,
@@ -3137,13 +3180,17 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
             out["promotion_eval_applied"] = False
             out["promotion_eval_file_count"] = 0
             out["promotion_eval_status"] = "not_requested"
-        out["files"] = _append_runtime_guardrail_files(
-            out.get("files") or [],
-            target_req_id,
-            target_contract_text=target_contract_text,
-            file_requirements_text=file_requirements_text,
-            promotion_manifest=promotion_manifest_text or None,
-        )
+        if _kit_repair(merged):
+            # guardrail files are part of the locked acceptance surface: not re-emitted by a repair
+            _apply_repair_governance(merged, out, target_req_id)
+        else:
+            out["files"] = _append_runtime_guardrail_files(
+                out.get("files") or [],
+                target_req_id,
+                target_contract_text=target_contract_text,
+                file_requirements_text=file_requirements_text,
+                promotion_manifest=promotion_manifest_text or None,
+            )
     log.info(
         "GATEWAY HARPER RUN RES keys=%s files=%d text=%s integrity=%s hardener=%s promotion_eval=%s",
         ",".join(sorted(out.keys())),
