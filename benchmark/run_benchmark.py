@@ -151,6 +151,11 @@ class Client:
             "passed": data.get("passed") if isinstance(data, dict) else None,
             "failed": data.get("failed") if isinstance(data, dict) else None,
             "reason_code": data.get("reason_code") if isinstance(data, dict) else None,
+            "failures": [
+                {"name": c.get("name"), "code": c.get("code"), "command": c.get("run") or c.get("command") or c.get("cmd"),
+                 "output": ((c.get("stderr") or "") + "\n" + (c.get("stdout") or ""))[-3000:]}
+                for c in (data.get("cases") or []) if isinstance(c, dict) and not c.get("passed")
+            ] if isinstance(data, dict) else [],
             "detail": str(data.get("detail"))[:400] if isinstance(data, dict) and data.get("detail") else None,
         }
 
@@ -274,7 +279,7 @@ def _stack_compliance(root: Path, req: str, constraints: Optional[str]) -> Optio
 
 
 def run_project(client: Client, project: Dict[str, Any], model: str, max_reqs: int, ws_root: Path, stamp: str,
-                runner: str = "cloud", executor: str = "claude_code", agent_model: str = "") -> Dict[str, Any]:
+                runner: str = "cloud", executor: str = "claude_code", agent_model: str = "", auto_eval: int = 0) -> Dict[str, Any]:
     name = project["name"]
     idea_full = (REPO / project["idea"]).read_text(encoding="utf-8")
     root = prepare_workspace(ws_root / name, idea_full)
@@ -321,6 +326,30 @@ def run_project(client: Client, project: Dict[str, Any], model: str, max_reqs: i
                  "stack_compliant": _stack_compliance(root, req, constraints) if kit.get("ok") and kit["written"] else None}
         if kit.get("ok") and kit["written"]:
             entry["eval"] = client.check("eval", root, name, req)
+            entry["repair_cycles"] = 0
+            previous = None
+            for cycle in range(1, auto_eval + 1):
+                ev = entry["eval"]
+                if str(ev.get("result") or "").upper().startswith("PASS") or not ev.get("failures"):
+                    break
+                failing = sorted(f["name"] for f in ev["failures"] if f.get("name"))
+                if failing == previous:
+                    entry["repair_stop"] = "no_progress"
+                    break
+                previous = failing
+                kit_files = [{"path": p.relative_to(root).as_posix(), "content": p.read_text(encoding="utf-8", errors="replace")}
+                             for p in sorted((root / "runs" / "kit" / req).rglob("*"))
+                             if p.is_file() and not any(part in {"__pycache__", ".venv", "node_modules"} for part in p.parts)
+                             and p.stat().st_size < 200_000]
+                repair = {"cycle": cycle, "max_cycles": auto_eval, "failures": ev["failures"], "files": kit_files}
+                fix = step("kit", {"kit": {"targets": [req], "repair": repair}, "todo_ids": [req], "rag_strategy": "deps_only"},
+                           ["IDEA.md", "SPEC.md", "PLAN.md", "plan.json", *tc])
+                entry["repair_cycles"] = cycle
+                if not fix.get("ok"):
+                    entry["repair_stop"] = f"repair_failed_{fix.get('status')}"
+                    break
+                entry["eval"] = client.check("eval", root, name, req)
+                print(f"  {name} {req} repair cycle {cycle}: files={len(fix['written'])} eval={entry['eval'].get('result')}", flush=True)
             entry["gate"] = client.check("gate", root, name, req)
         res["reqs"].append(entry)
         print(f"  {name} {req} eval={entry.get('eval', {}).get('result')} gate={entry.get('gate', {}).get('result')} "
@@ -353,7 +382,8 @@ def summarize(results: List[Dict[str, Any]], model: str) -> Dict[str, Any]:
         gate_pass = sum(1 for q in r["reqs"] if str((q.get("gate") or {}).get("result") or "").upper() == "PASS")
         stack = [q.get("stack_compliant") for q in r["reqs"] if q.get("stack_compliant") is not None]
         phases = {s["phase"]: ("ok" if s.get("status") == 200 and s.get("ok") is not False else f"✗ {s.get('status')}") for s in steps if s["phase"] != "kit"}
-        rows.append({"project": r["project"], "spec": phases.get("spec", "—"), "plan": phases.get("plan", "—"),
+        cycles = sum(int(q.get("repair_cycles") or 0) for q in r["reqs"])
+        rows.append({"project": r["project"], "repair_cycles": cycles, "spec": phases.get("spec", "—"), "plan": phases.get("plan", "—"),
                      "plan_reqs": r.get("plan_reqs"), "reqs_run": len(r["reqs"]), "kit_ok": kit_ok, "eval_pass": eval_pass,
                      "gate_pass": gate_pass, "stack_ok": f"{sum(stack)}/{len(stack)}" if stack else "n/a",
                      "rejected_steps": rejected, "tokens": tokens, "minutes": round(seconds / 60, 1)})
@@ -372,11 +402,11 @@ def render_md(summary: Dict[str, Any], stamp: str) -> str:
     t = summary["totals"]
     runner = "agent" if str(summary["model"]).startswith("agent:") else "cloud"
     lines = [f"# Harper benchmark — {stamp}", "", f"Model: `{summary['model']}` · runner: {runner}", "",
-             "| Project | SPEC | PLAN | REQs in plan | REQs run | KIT ok | EVAL pass | GATE pass | Stack | Rejected steps | Tokens | Minutes |",
-             "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+             "| Project | SPEC | PLAN | REQs in plan | REQs run | KIT ok | EVAL pass | GATE pass | Repair cycles | Stack | Rejected steps | Tokens | Minutes |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for r in summary["rows"]:
         lines.append(f"| {r['project']} | {r['spec']} | {r['plan']} | {r['plan_reqs'] if r['plan_reqs'] is not None else '—'} | {r['reqs_run']} | "
-                     f"{r['kit_ok']} | {r['eval_pass']} | {r['gate_pass']} | {r['stack_ok']} | {r['rejected_steps']} | {r['tokens']} | {r['minutes']} |")
+                     f"{r['kit_ok']} | {r['eval_pass']} | {r['gate_pass']} | {r.get('repair_cycles', 0)} | {r['stack_ok']} | {r['rejected_steps']} | {r['tokens']} | {r['minutes']} |")
     lines += ["", f"**Promotability:** {t['gate_pass']}/{t['reqs']} REQs pass the gate; {t['eval_pass']}/{t['reqs']} pass eval; "
               f"{t['kit_ok']}/{t['reqs']} KITs accepted.",
               f"**Quality:** stack compliance {t['stack_ok']}/{t['stack_checked']}.",
@@ -395,6 +425,7 @@ def main() -> None:
     ap.add_argument("--runner", choices=["cloud", "agent"], default="cloud",
                     help="cloud: model via the gateway API; agent: local CLI agent in the workspace (like Execution = agent)")
     ap.add_argument("--executor", choices=["claude_code", "gpt_codex"], default="claude_code")
+    ap.add_argument("--auto-eval", type=int, default=0, help="KIT repair cycles after a failed eval (roadmap §3)")
     ap.add_argument("--agent-model", default="", help="model passed to the agent CLI (--model); empty = CLI default")
     ap.add_argument("--resummarize", default="", help="rebuild SUMMARY.md from an existing results directory (no calls)")
     args = ap.parse_args()
@@ -423,7 +454,8 @@ def main() -> None:
     for p in projects:
         print(f"== {p['name']} ({p['complexity']})", flush=True)
         results.append(run_project(client, p, args.model, args.max_reqs, ws_root, stamp,
-                                   runner=args.runner, executor=args.executor, agent_model=args.agent_model))
+                                   runner=args.runner, executor=args.executor, agent_model=args.agent_model,
+                                   auto_eval=args.auto_eval))
     label = args.model if args.runner == "cloud" else f"agent:{args.executor}{(':' + args.agent_model) if args.agent_model else ''}"
     summary = summarize(results, label)
     out_dir = REPO / "benchmark" / "results" / stamp
