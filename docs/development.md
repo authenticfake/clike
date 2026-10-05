@@ -125,5 +125,5 @@ lint/tests on Linux and Windows (Windows is informational), and `.vsix` packagin
 ## Versioning
 
 Extension and services share one version (`package.json`, both `pyproject.toml`).
-Scheme: `0.9.x` until `1.0.0`; milestones are tagged (`v0.9.0` = M1, `v0.9.5` = M2). Changes are recorded in
+Milestones are tagged (`v0.9.0` = M1, `v0.9.5` = M2, `v1.0.0` = M3); semantic versioning from `1.0.0`. Changes are recorded in
 [CHANGELOG.md](../CHANGELOG.md).

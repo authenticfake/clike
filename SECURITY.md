@@ -9,7 +9,7 @@ to report a vulnerability.
 CLike is designed for a **single developer on localhost**. The services are not meant to be exposed
 on a network or shared between users.
 
-## Security model (0.9.5)
+## Security model (1.0.0)
 
 | Area | Control |
 |---|---|
@@ -23,7 +23,7 @@ on a network or shared between users.
 | Evaluation inputs | The gate executes the LTC profile stored in the workspace; an inline profile is accepted only if identical. The project root must be inside the configured projects directory. |
 | Evaluation environment | Eval commands run without credentials (API keys, service token and similar variables are removed). |
 | Evaluation sandbox | Eval/gate commands run in a separate container with no credentials, no access to the gateway or vector store, non-root, read-only root filesystem, dropped capabilities and resource limits, projects mounted read-only. An offline mode removes network egress. |
-| Acceptance integrity | The acceptance surface of each requirement (tests, CI profile) is locked server-side before evaluation; removed/modified tests, weakened profiles and added skip markers block the gate. |
+| Acceptance integrity | The acceptance surface of each requirement (tests, CI profile) is locked server-side before evaluation; removed/modified tests, weakened profiles and added skip markers block the gate. Auto-eval repairs may amend it only in audited, non-weakening ways (LTC command fixes, `ci/` dependency upgrades, unused imports, and test fixes with every assertion unchanged, flagged `review_required` at the gate). |
 | Gate override | Manual overrides require a reason, are recorded in an audit log with an artifact digest and are reported as `OVERRIDE`, never `PASS`. |
 | Containers | Services run as a non-root user; the CLike repository (including `.git`) is mounted read-only. |
 | Git | Only the files of a phase are committed; no branch is rewritten; commit, push, merge-on-gate and PR automation are opt-in. |

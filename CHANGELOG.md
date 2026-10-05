@@ -2,7 +2,7 @@
 
 All notable changes to CLike. Extension, orchestrator and gateway share one version.
 
-## [Unreleased] — towards 1.0.0 (M3)
+## [1.0.0] — 2026-10-05 — Milestone M3: ready for evolution
 
 ### ⚠️ Breaking changes
 
