@@ -283,3 +283,77 @@ def record_override(project_root: Path, req_id: str, *, reason: str, author: str
     with audit.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(entry, sort_keys=True) + "\n")
     return entry
+
+
+# --- auto-eval repair amendments -----------------------------------------------------
+
+def amend_acceptance_surface(
+    project_root: Path,
+    req_id: str,
+    changes: Dict[str, str],
+    *,
+    reason: str,
+    author: str = "auto-eval",
+) -> Dict[str, Any]:
+    """Accept non-weakening repairs of the locked acceptance surface (auto-eval).
+
+    ``changes`` maps KIT-relative paths (``ci/LTC.json``, ``test/...``) to new content.
+
+    * ``test/**`` is never amended: a repair must make the code pass the locked tests.
+    * ``ci/LTC.json`` may change only the commands of existing checks (e.g. a path that does not
+      exist in the sandbox): no check removed, none made non-blocking.
+    * other ``ci/**`` files (requirements, manifests) may change, e.g. to upgrade a vulnerable
+      dependency.
+
+    Accepted changes update the lock so the following eval does not report them as tampering, and
+    every amendment is appended to the audit log.
+    """
+    req = validate_req_id(req_id)
+    lock = ensure_lock(project_root, req)
+    root = kit_root(project_root, req)
+    files: Dict[str, str] = dict(lock.get("files") or {})
+    texts: Dict[str, str] = dict(lock.get("texts") or {})
+    accepted: List[str] = []
+    rejected: Dict[str, List[str]] = {}
+    for raw_rel, content in (changes or {}).items():
+        rel = str(raw_rel or "").replace("\\", "/").lstrip("/")
+        if rel.startswith("test/"):
+            rejected[rel] = ["tests are locked: a repair must make the code pass them, not change them"]
+            continue
+        if not rel.startswith("ci/"):
+            continue
+        if rel.endswith("LTC.json"):
+            before = texts.get(rel)
+            if before is None and (root / rel).is_file():
+                before = (root / rel).read_text(encoding="utf-8", errors="replace")
+            issues = [i for i in _ltc_weakening(before or "{}", content) if not i.startswith("check command changed")]
+            if issues:
+                rejected[rel] = issues
+                continue
+            texts[rel] = content
+        files[rel] = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        accepted.append(rel)
+    entry: Dict[str, Any] = {}
+    if accepted:
+        entry = {
+            "audit_id": uuid.uuid4().hex,
+            "at": time.time(),
+            "type": "acceptance_amendment",
+            "project_root": str(Path(project_root).resolve()),
+            "req_id": req,
+            "files": sorted(accepted),
+            "reason": reason,
+            "author": author,
+        }
+        lock.update({
+            "files": files,
+            "texts": texts,
+            "digest": hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest(),
+            "amendments": [*(lock.get("amendments") or []), entry],
+        })
+        _write_json(_req_state_path(project_root, req, "lock"), lock)
+        audit = state_dir() / "audit" / "acceptance_amendments.jsonl"
+        audit.parent.mkdir(parents=True, exist_ok=True)
+        with audit.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry, sort_keys=True) + "\n")
+    return {"accepted": sorted(accepted), "rejected": rejected, "audit_id": entry.get("audit_id")}

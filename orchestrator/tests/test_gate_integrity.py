@@ -203,6 +203,42 @@ class GateIntegrityTests(unittest.TestCase):
         self.assertFalse(any(p.name.endswith(".lock.json") for p in self.proj.rglob("*")))
         self.assertTrue(any(self.state.rglob(f"{REQ}.lock.json")))
 
+    # --- auto-eval amendments ------------------------------------------------------
+    def test_repair_can_fix_an_ltc_command_and_the_next_eval_is_clean(self):
+        from services import gate_integrity
+
+        self.assertEqual(self._eval().status_code, 200)  # takes the lock
+        fixed = {**LTC, "checks": [{"id": "unit", "command": "python3 test/test_app.py -v", "blocking": True}, LTC["checks"][1]]}
+        text = json.dumps(fixed)
+        result = gate_integrity.amend_acceptance_surface(self.proj, REQ, {"ci/LTC.json": text}, reason="command path")
+        self.assertEqual((result["accepted"], result["rejected"]), (["ci/LTC.json"], {}))
+        (self.kit / "ci" / "LTC.json").write_text(text)
+        self.assertNotIn("modified", self._anomaly_kinds(self._eval()))
+        audit = (self.state / "audit" / "acceptance_amendments.jsonl").read_text().splitlines()
+        self.assertEqual(json.loads(audit[-1])["files"], ["ci/LTC.json"])
+
+    def test_repair_cannot_weaken_the_ltc_or_touch_tests(self):
+        from services import gate_integrity
+
+        self._eval()
+        weaker = {**LTC, "checks": [{"id": "unit", "command": "true", "blocking": False}]}
+        result = gate_integrity.amend_acceptance_surface(
+            self.proj, REQ, {"ci/LTC.json": json.dumps(weaker), "test/test_app.py": "pass\n"}, reason="x")
+        self.assertEqual(result["accepted"], [])
+        self.assertIn("check removed: lint", result["rejected"]["ci/LTC.json"])
+        self.assertIn("check made non-blocking: unit", result["rejected"]["ci/LTC.json"])
+        self.assertIn("test/test_app.py", result["rejected"])
+
+    def test_repair_can_upgrade_ci_requirements(self):
+        from services import gate_integrity
+
+        (self.kit / "ci" / "requirements.txt").write_text("fastapi==0.1\n")
+        self._eval()
+        result = gate_integrity.amend_acceptance_surface(self.proj, REQ, {"ci/requirements.txt": "fastapi==0.115.0\n"}, reason="CVE")
+        self.assertEqual(result["accepted"], ["ci/requirements.txt"])
+        (self.kit / "ci" / "requirements.txt").write_text("fastapi==0.115.0\n")
+        self.assertNotIn("modified", self._anomaly_kinds(self._eval()))
+
 
 if __name__ == "__main__":
     unittest.main()
