@@ -22,12 +22,15 @@ For each project, against a running stack, with the same payloads the VS Code ex
    `$CLIKE_PROJECTS_DIR/clike-bench/<timestamp>/<project>` (the containers can read it);
 2. `/spec` (TECH_CONSTRAINTS.yaml extracted from IDEA.md, as the extension does) → `/plan`;
 3. for the first `--max-reqs` REQs of the plan: `/kit` → write the files → `/eval` → `/gate`.
+   Eval and gate run with `regression: true` (dependency REQs' checks re-run), like the extension.
+4. with `--auto-eval N`: after a failed eval, up to N KIT repair cycles from the real failures
+   (as `/eval REQ --fix`, see `docs/auto-eval.md`), then the gate.
 
 ## Metrics
 
 | Area | Metric |
 |---|---|
-| Promotability | REQs passing the gate; REQs passing eval; KITs accepted |
+| Promotability | REQs passing the gate; REQs passing eval; KITs accepted; repair cycles used |
 | Quality | Stack compliance (generated code uses the framework declared in TECH_CONSTRAINTS) |
 | Efficiency | Tokens, minutes, tokens per promoted REQ, cost upper bound (catalog pricing) |
 | Governance | Steps rejected by validation or contracts |
@@ -52,6 +55,6 @@ Live runs call the model provider and cost money: `--max-reqs` and `--projects` 
 
 ## Scope and limits (v1)
 
-Cloud and local-agent runners; no automatic KIT⇄EVAL repair; the stack-compliance check is a keyword check on the
+Cloud and local-agent runners; KIT⇄EVAL repair with `--auto-eval` (cloud runner); the stack-compliance check is a keyword check on the
 generated source. These are deliberate: the benchmark should be cheap and fast enough to run after
 every improvement, and grow only when a decision needs more precision.

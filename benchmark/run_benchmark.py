@@ -140,7 +140,7 @@ class Client:
         url = f"{ORCH}/v1/{'eval/run' if kind == 'eval' else 'gate/check'}"
         t = time.time()
         try:
-            r = self.http.post(url, params=params, json={"ltc": json.loads(ltc_path.read_text(encoding="utf-8"))})
+            r = self.http.post(url, params=params, json={"ltc": json.loads(ltc_path.read_text(encoding="utf-8")), "regression": True})
             data = r.json()
         except (httpx.HTTPError, ValueError) as exc:
             return {"status": 0, "error": str(exc)}
