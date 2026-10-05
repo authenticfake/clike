@@ -5,7 +5,6 @@
 const fs = require('fs');
 const path = require('path');
 
-const OUTPUT_TAIL = 3000;
 const MAX_FILE_BYTES = 200 * 1024;
 const SKIPPED_DIRS = new Set(['__pycache__', '.venv', 'node_modules', '.pytest_cache', '.mypy_cache', '.ruff_cache', 'reports']);
 
@@ -23,7 +22,8 @@ function collectRepairFailures(report) {
       code: c.code,
       command: c.cmd || '',
       blocking: c.blocking !== false,
-      output: `${c.stderr || ''}\n${c.stdout || ''}`.slice(-OUTPUT_TAIL),
+      // stderr head (timeout note, hang dump: innermost frame first) + stdout tail (test failures).
+      output: `${String(c.stderr || '').slice(0, 1500)}\n${String(c.stdout || '').slice(-2500)}`,
     }));
 }
 

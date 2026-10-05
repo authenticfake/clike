@@ -817,7 +817,7 @@ def _methodology_context_with_envelope_skills(
 
 _REPAIR_FILE_BUDGET = 16000      # chars per candidate file shown to the model
 _REPAIR_TOTAL_BUDGET = 160000    # chars for all candidate files
-_REPAIR_OUTPUT_TAIL = 3000       # chars of each failed check's output
+_REPAIR_OUTPUT_TAIL = 4000       # chars of each failed check's output
 
 
 def _kit_repair_section(repair: dict, req_id: str) -> str:

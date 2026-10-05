@@ -153,7 +153,7 @@ class Client:
             "reason_code": data.get("reason_code") if isinstance(data, dict) else None,
             "failures": [
                 {"name": c.get("name"), "code": c.get("code"), "command": c.get("run") or c.get("command") or c.get("cmd"),
-                 "output": ((c.get("stderr") or "") + "\n" + (c.get("stdout") or ""))[-3000:]}
+                 "output": (c.get("stderr") or "")[:1500] + "\n" + (c.get("stdout") or "")[-2500:]}
                 for c in (data.get("cases") or []) if isinstance(c, dict) and not c.get("passed")
             ] if isinstance(data, dict) else [],
             "detail": str(data.get("detail"))[:400] if isinstance(data, dict) and data.get("detail") else None,

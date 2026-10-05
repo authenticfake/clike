@@ -6,6 +6,7 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -65,6 +66,61 @@ _SECRET_ENV_NAME_RE = re.compile(
 )
 
 
+def _text(value: Any) -> str:
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value or "")
+
+
+def _head_tail(text: str, limit: int) -> str:
+    """Keep the start (a stack dump starts with the innermost frame) and the end of long output."""
+    if len(text) <= limit:
+        return text
+    head = limit * 2 // 3
+    return text[:head] + "\n[...]\n" + text[-(limit - head):]
+
+
+def _with_pytest_hang_dump(env: Dict[str, str], timeout: Optional[int]) -> Dict[str, str]:
+    """Make pytest dump the stack of a test that runs longer than part of the check timeout, so a
+    hanging test is named in the report instead of being lost when the check is stopped."""
+    try:
+        seconds = max(5, int(float(timeout) * 0.6)) if timeout else 60
+    except (TypeError, ValueError):
+        seconds = 60
+    current = env.get("PYTEST_ADDOPTS", "")
+    if "faulthandler_timeout" in current:
+        return env
+    return {**env, "PYTEST_ADDOPTS": f"{current} -o faulthandler_timeout={seconds}".strip()}
+
+
+def _run_process_group(cmd: str, *, cwd: Path, env: Dict[str, str], timeout: Optional[int]) -> subprocess.CompletedProcess:
+    """subprocess.run(shell=True) that stops the whole process group on timeout (the shell's
+    children, e.g. pytest or a server, would otherwise keep running in the sandbox)."""
+    proc = subprocess.Popen(
+        cmd,
+        shell=True,
+        cwd=str(cwd),
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=(os.name != "nt"),
+    )
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        if os.name != "nt":
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except OSError:
+                pass
+        else:
+            proc.kill()
+        stdout, stderr = proc.communicate()
+        raise subprocess.TimeoutExpired(cmd, timeout, output=stdout, stderr=stderr)
+    return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
+
+
 def scrubbed_process_env() -> Dict[str, str]:
     """Copy of os.environ without credentials, used as the base env of every eval command."""
     return {k: v for k, v in os.environ.items() if not _SECRET_ENV_NAME_RE.search(k)}
@@ -113,16 +169,9 @@ class EvalRunner:
     ) -> EvalCase:
         if env is None:
             env = scrubbed_process_env()
+        env = _with_pytest_hang_dump(env, timeout)
         try:
-            proc = subprocess.run(
-                cmd,
-                shell=True,
-                cwd=str(cwd),
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-            )
+            proc = _run_process_group(cmd, cwd=cwd, env=env, timeout=timeout)
             stderr = proc.stderr or ""
             stdout = proc.stdout or ""
             ok = proc.returncode == expect
@@ -159,8 +208,14 @@ class EvalRunner:
                 name=name,
                 passed=False,
                 code=998,
-                stdout=str(exc.stdout or "")[-4000:],
-                stderr=f"timeout: {exc}",
+                stdout=_text(exc.stdout)[-4000:],
+                stderr=_head_tail(
+                    _text(exc.stderr)
+                    + f"\n[CLike EvalRunner] timeout: the check was stopped after {timeout} s. A test or the code"
+                    " under test hangs (e.g. a network call or a server without a timeout, a task never"
+                    " cancelled). For pytest, the traceback dump above shows where it was blocked.",
+                    4000,
+                ),
                 cmd=cmd,
                 cwd=str(cwd),
                 expect=expect,
