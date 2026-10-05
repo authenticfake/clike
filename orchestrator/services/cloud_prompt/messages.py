@@ -730,7 +730,8 @@ def _compose_system_messages(
 
     if constraints_chunks:
         constraints_text = "\n\n---\n\n".join(constraints_chunks)
-        suffix_parts.append("### Technology Constraints (YAML)\n```yaml\n" + constraints_text + "\n```")
+        # B17: own paragraph, even when the previous verbatim blob has no trailing newline
+        suffix_parts.append("\n\n### Technology Constraints (YAML)\n```yaml\n" + constraints_text + "\n```")
 
     if current_invalid_canonical:
         suffix_parts.append(
