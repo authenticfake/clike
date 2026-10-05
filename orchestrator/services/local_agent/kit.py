@@ -14,7 +14,7 @@ from utils.namespace_paths import (
     namespace_materialization_context,
 )
 
-from services.kit_repair import acceptance_first_code_rules, acceptance_stage_rules
+from services.kit_repair import acceptance_first_code_rules, acceptance_stage_rules, kit_self_check_rules
 from services.local_agent.common import (
     _bmad_expected_outputs,
     _build_related_reqs,
@@ -522,6 +522,7 @@ def build_kit_local_agent_package(
         stage_rules=stage_rules,
         stage_title=stage_title,
         task=_STAGE_TASKS.get(kit_stage, ""),
+        final_checks=kit_self_check_rules(req_id),
     )
 
     return _package_envelope(

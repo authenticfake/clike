@@ -66,6 +66,7 @@ from services.phase_context import PhaseContext
 from services.cloud_prompt.messages import compose_phase_messages
 from utils.safe_paths import resolve_within, validate_req_id
 from services import gate_integrity
+from services.kit_format import autofix_kit_files
 log = logging.getLogger("service.router")
 
 _KIT_PHASE_SEQUENCE: List[str] = [
@@ -3251,6 +3252,9 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
             out["promotion_eval_applied"] = False
             out["promotion_eval_file_count"] = 0
             out["promotion_eval_status"] = "not_requested"
+        out["files"], formatted = autofix_kit_files(out.get("files") or [], target_req_id)
+        if formatted:
+            out["warnings"] = [*(out.get("warnings") or []), *(f"kit_autofix:{p}" for p in formatted)]
         if _kit_repair(merged) or _kit_acceptance_first(merged):
             # guardrail files are part of the locked acceptance surface: not re-emitted by a repair
             _apply_repair_governance(merged, out, target_req_id)

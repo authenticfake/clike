@@ -233,6 +233,7 @@ def run_agent_phase(client: "Client", phase: str, body: Dict[str, Any], root: Pa
     c = client.http.post(f"{ORCH}/v1/harper/local-agent/complete", json=done)
     cd = c.json() if c.headers.get("content-type", "").startswith("application/json") else {}
     co = cd.get("out", cd) if isinstance(cd, dict) else {}
+    write_files(root, co.get("format_fixes") or [])  # as the extension
     return {"phase": phase, "status": c.status_code, "ok": co.get("ok"), "seconds": round(time.time() - t0, 1),
             "agent_seconds": agent_seconds, "agent_exit": exit_code, "files": [],  # already in the workspace
             "agent_written": [f["path"] for f in files], "usage": usage,

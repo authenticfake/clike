@@ -18,6 +18,15 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 - Local-agent telemetry: usage, API-equivalent cost, model and duration of Claude Code / Codex
   runs, in `.clike/telemetry` and in the gateway portal (`POST /v1/harper/telemetry`).
 
+### Changed
+
+- KIT generation (cloud and local agents): an eval-readiness self-check closes the prompt, with
+  one rule per failure class measured by the benchmark (checks the LTC runs, files asserted by
+  tests, behaviour over internals, real library APIs, time-bounded tests, read-only project
+  root). PLAN acceptance items are stated at their observable boundary.
+- Generated KIT files get safe mechanical lint fixes before they are written and locked
+  (per-ecosystem registry; Python: ruff import order, unused imports, whitespace).
+
 ### Fixed
 
 - Local-agent runs (including the eval pre-pass) left no telemetry and were attributed to the

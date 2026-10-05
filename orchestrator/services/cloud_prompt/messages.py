@@ -17,7 +17,13 @@ from typing import Optional
 from fastapi import HTTPException
 
 from services.cloud_prompt.active_output_contract import build_active_output_contract
-from services.kit_repair import acceptance_first_code_section, acceptance_stage_section, repair_failures, repair_rules
+from services.kit_repair import (
+    acceptance_first_code_section,
+    acceptance_stage_section,
+    kit_self_check_section,
+    repair_failures,
+    repair_rules,
+)
 from services.cloud_prompt.canonical_validation import validate_current_canonical_core_blobs
 from services.cloud_prompt.methodology_prompt import (
     render_current_canonical_validation_for_cloud_prompt,
@@ -900,6 +906,8 @@ def compose_phase_messages(payload: dict) -> list[dict]:
     repair = (kit or {}).get("repair") if isinstance(kit, dict) else None
     if phase.lower() == "kit" and isinstance(repair, dict) and repair and targets:
         messages[-1] = {**messages[-1], "content": messages[-1]["content"] + "\n\n" + _kit_repair_section(repair, str(targets[0]))}
+    if targets and phase.lower() in {"kit", "acceptance"}:
+        messages[-1] = {**messages[-1], "content": messages[-1]["content"] + "\n\n" + kit_self_check_section(str(targets[0]))}
     if targets and phase.lower() == "acceptance":
         messages[-1] = {**messages[-1], "content": messages[-1]["content"] + "\n\n" + acceptance_stage_section(str(targets[0]))}
     elif targets and phase.lower() == "kit" and isinstance(kit, dict) and kit.get("acceptance_first"):

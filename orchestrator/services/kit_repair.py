@@ -67,3 +67,22 @@ def acceptance_first_code_section(req_id: str, locked_files: List[str]) -> str:
     if locked_files:
         lines += ["", "Locked files:"] + [f"- {path}" for path in locked_files]
     return "\n".join(lines)
+
+
+def kit_self_check_rules(req_id: str) -> List[str]:
+    """Final checks before answering, one per failure class measured with the Harper benchmark
+    (any language: they refer to the checks the KIT's own LTC runs)."""
+    return [
+        "Every file you write, tests included, passes the lint, format, type and security checks your LTC runs, with their configured rules (import order and grouping, unused imports and variables, line length, types).",
+        "When a test asserts something about a file you also write (forbidden words, required keys or sections, its location), re-read that whole file against the assertion, comments included.",
+        "Tests assert observable behaviour required by SPEC and the acceptance criteria (results, status codes, persisted state, emitted events, logs), not incidental internals (how many objects are created or closed, private attributes, call order) unless the SPEC requires them.",
+        "Use only APIs that exist in the library versions you pin; when unsure, prefer the documented generic form (e.g. a test client's request(method, url, ...) rather than a convenience method with an unusual argument).",
+        "Every test is bounded in time: timeouts on network calls and waits, servers, processes and tasks stopped in teardown, no fixed sleeps.",
+        f"Checks run in a sandbox where the project root is read-only: write reports, coverage, caches and temporary files only under CLIKE_EVAL_REPORT_DIR / CLIKE_EVAL_TEMP_ROOT, and make the LTC commands work from their declared cwd.",
+    ]
+
+
+def kit_self_check_section(req_id: str) -> str:
+    lines = ["## Before you answer — eval-readiness self-check", ""]
+    lines += [f"- {rule}" for rule in kit_self_check_rules(req_id)]
+    return "\n".join(lines)

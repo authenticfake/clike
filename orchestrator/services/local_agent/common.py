@@ -615,6 +615,7 @@ def _render_compact_local_agent_prompt(
     stage_rules: Optional[List[str]] = None,
     stage_title: str = "",
     task: str = "",
+    final_checks: Optional[List[str]] = None,
 ) -> str:
     """Render a compact agent prompt and keep detailed policy in AGENT_*_CONTEXT.json.
     ``stage_rules`` (auto-eval repair, acceptance-first stages) are stated in the prompt itself."""
@@ -688,6 +689,7 @@ def _render_compact_local_agent_prompt(
             *kit_rules,
             *eval_rules,
             *_text("render_compact_local_agent_prompt.lines.3"),
+            *(["", "Before you finish — eval-readiness self-check:", *[f"- {rule}" for rule in final_checks]] if final_checks else []),
         ]
     )
 

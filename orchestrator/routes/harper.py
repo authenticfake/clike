@@ -593,7 +593,23 @@ async def post_local_agent_complete(payload: dict):
         log.exception("local-agent complete failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     await _record_local_agent_telemetry(payload, normalized)
+    _local_agent_format_fixes(payload, normalized)
     return {"out": normalized}
+
+
+def _local_agent_format_fixes(payload: dict, normalized: dict) -> None:
+    """The agent wrote its KIT already: the safe mechanical fixes are returned as format_fixes for
+    the extension to write back (before the first eval locks the acceptance surface)."""
+    req_id = str(payload.get("req_id") or "").strip()
+    if str(payload.get("phase") or "") != "kit" or not req_id:
+        return
+    from services.kit_format import autofix_kit_files
+
+    sent = [f for f in payload.get("files") or [] if isinstance(f, dict) and f.get("path") and isinstance(f.get("content"), str)]
+    fixed, changed = autofix_kit_files(sent, req_id)
+    if changed:
+        by_path = {f["path"]: f["content"] for f in fixed}
+        normalized["format_fixes"] = [{"path": p, "content": by_path[p]} for p in changed]
 
 
 async def _record_local_agent_telemetry(payload: dict, normalized: dict) -> None:

@@ -1111,6 +1111,12 @@ async function executeLocalAgentPackage({
   });
 
   const completeOut = completeGateway.out;
+  if (Array.isArray(completeOut?.format_fixes) && completeOut.format_fixes.length) {
+    // safe mechanical lint fixes (e.g. import order) computed by the orchestrator, written before
+    // the first eval locks the acceptance surface
+    await saveGeneratedFiles(completeOut.format_fixes, { phase: phaseForAgent, runId });
+    log(`[harperRun][agent] applied ${completeOut.format_fixes.length} format fix(es)`);
+  }
   if (completeOut && !completeOut.telemetry) completeOut.telemetry = agentRun.telemetry;
   if (completeOut && !completeOut.usage) completeOut.usage = agentRun.telemetry.usage;
 
