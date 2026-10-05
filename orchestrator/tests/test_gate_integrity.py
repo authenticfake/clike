@@ -229,6 +229,26 @@ class GateIntegrityTests(unittest.TestCase):
         self.assertIn("check made non-blocking: unit", result["rejected"]["ci/LTC.json"])
         self.assertIn("test/test_app.py", result["rejected"])
 
+    def test_repair_may_only_drop_imports_from_a_locked_test(self):
+        from services import gate_integrity
+
+        (self.kit / "test" / "test_app.py").write_text("import os\nimport sys\n" + TEST_PY)
+        self._eval()
+        cases = {
+            "adds an import": ("import os\nimport sys\nimport json\n" + TEST_PY, False),
+            "changes an assertion": ("import sys\n" + TEST_PY.replace("== 2", "== 2 or True"), False),
+            "drops an unused import": ("import sys\n" + TEST_PY, True),  # last: it updates the lock
+        }
+        for label, (content, ok) in cases.items():
+            with self.subTest(label):
+                result = gate_integrity.amend_acceptance_surface(
+                    self.proj, REQ, {"test/test_app.py": content}, reason="lint")
+                self.assertEqual(result["accepted"] == ["test/test_app.py"], ok, result)
+
+        # The accepted cleanup is part of the lock: the next eval is clean once it is written.
+        (self.kit / "test" / "test_app.py").write_text("import sys\n" + TEST_PY)
+        self.assertEqual(self._anomaly_kinds(self._eval()), set())
+
     def test_repair_can_upgrade_ci_requirements(self):
         from services import gate_integrity
 

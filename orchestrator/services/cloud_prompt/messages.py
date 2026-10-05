@@ -830,7 +830,7 @@ def _kit_repair_section(repair: dict, req_id: str) -> str:
         "",
         "Rules:",
         "- Return ONLY the files you change, each complete in a BEGIN_FILE / END_FILE block. Files you do not return stay as they are.",
-        f"- Tests under runs/kit/{req_id}/test/ are locked acceptance criteria: make the code pass them; never edit, skip or weaken them.",
+        f"- Tests under runs/kit/{req_id}/test/ are locked acceptance criteria: make the code pass them; never edit, skip or weaken them. Only exception: you may remove an unused import from a test file when lint fails on it (nothing else in that file may change).",
         f"- runs/kit/{req_id}/ci/LTC.json: you may only fix the command of a check that cannot run (wrong path, module or flag). Never remove a check or make it non-blocking.",
         f"- Vulnerable dependencies: upgrade the affected packages in runs/kit/{req_id}/ci/requirements.txt (or the ecosystem manifest) to current versions without known vulnerabilities.",
         f"- A failure caused by the environment (network, missing system tool) is not fixed by changing code: explain it in runs/kit/{req_id}/docs/KIT_{req_id}.md.",

@@ -49,7 +49,9 @@ The repair prompt (cloud) and the orchestrator enforce the same rules:
 - **Source and docs** (`runs/kit/<REQ>/src/**`, `docs/**`): free to change. Only the changed files
   are returned; the others stay as they are.
 - **Tests** (`runs/kit/<REQ>/test/**`): **locked**. They are the acceptance criteria taken at the
-  first eval. Any change is rejected (`repair_change_rejected:...`) and never written.
+  first eval. Any change is rejected (`repair_change_rejected:...`) and never written. Single
+  exception: a Python test may drop unused imports (lint failures); the orchestrator verifies via
+  the AST that nothing else changed and no import was added, and audits the amendment.
 - **`ci/LTC.json`**: only the *command* of a check that cannot run may be fixed (wrong path,
   module or flag). Removing a check, making it non-blocking or weakening it is rejected. Accepted
   changes are recorded as audited amendments of the acceptance lock

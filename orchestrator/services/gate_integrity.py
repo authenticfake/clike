@@ -16,6 +16,7 @@ The *acceptance surface* of a REQ is everything under ``runs/kit/<REQ>/test/`` a
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import os
@@ -287,6 +288,43 @@ def record_override(project_root: Path, req_id: str, *, reason: str, author: str
 
 # --- auto-eval repair amendments -----------------------------------------------------
 
+_LOCKED_TEST_ISSUE = "tests are locked: a repair must make the code pass them, not change them"
+
+
+def _imports_and_body(source: str):
+    tree = ast.parse(source)
+    imports = set()
+    body = []
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            imports.update(("", alias.name, alias.asname) for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            module = "." * node.level + (node.module or "")
+            imports.update((module, alias.name, alias.asname) for alias in node.names)
+        else:
+            body.append(node)
+    return imports, ast.dump(ast.Module(body=body, type_ignores=[]))
+
+
+def _test_change_issue(path: Path, locked_digest: Optional[str], content: str) -> Optional[str]:
+    """None when a locked test change only removes module-level imports (e.g. an unused import
+    that fails lint); otherwise why it is rejected."""
+    if path.suffix != ".py" or not locked_digest or not path.is_file():
+        return _LOCKED_TEST_ISSUE
+    raw = path.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != locked_digest:
+        return _LOCKED_TEST_ISSUE
+    before = raw.decode("utf-8", errors="replace")
+    try:
+        old_imports, old_body = _imports_and_body(before)
+        new_imports, new_body = _imports_and_body(content)
+    except SyntaxError:
+        return _LOCKED_TEST_ISSUE
+    if new_body != old_body or not new_imports <= old_imports:
+        return _LOCKED_TEST_ISSUE + " (only removing unused imports is allowed)"
+    return None
+
+
 def amend_acceptance_surface(
     project_root: Path,
     req_id: str,
@@ -299,7 +337,9 @@ def amend_acceptance_surface(
 
     ``changes`` maps KIT-relative paths (``ci/LTC.json``, ``test/...``) to new content.
 
-    * ``test/**`` is never amended: a repair must make the code pass the locked tests.
+    * ``test/**`` is never amended (a repair must make the code pass the locked tests), except a
+      Python test that only drops unused imports (lint): same code once imports are removed and
+      no import added.
     * ``ci/LTC.json`` may change only the commands of existing checks (e.g. a path that does not
       exist in the sandbox): no check removed, none made non-blocking.
     * other ``ci/**`` files (requirements, manifests) may change, e.g. to upgrade a vulnerable
@@ -318,7 +358,12 @@ def amend_acceptance_surface(
     for raw_rel, content in (changes or {}).items():
         rel = str(raw_rel or "").replace("\\", "/").lstrip("/")
         if rel.startswith("test/"):
-            rejected[rel] = ["tests are locked: a repair must make the code pass them, not change them"]
+            issue = _test_change_issue(root / rel, files.get(rel), content)
+            if issue:
+                rejected[rel] = [issue]
+                continue
+            files[rel] = hashlib.sha256(content.encode("utf-8")).hexdigest()
+            accepted.append(rel)
             continue
         if not rel.startswith("ci/"):
             continue
