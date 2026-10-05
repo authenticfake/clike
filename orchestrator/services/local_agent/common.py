@@ -340,9 +340,9 @@ def _raise_if_selected_capabilities_missing_for_agent(
         f"capability_index_present={bool(capability_manifest.get('index_available'))} "
         f"selected_capability_context_present={bool(capability_manifest.get('selected_context_available'))} "
         f"missing_capability_ids={(capability_integrity.get('missing_selected_packs') or []) + (capability_integrity.get('missing_selected_skills') or []) + (capability_integrity.get('missing_selected_design_profiles') or [])} "
-        f"available_packs={_capability_index_names(capability_manifest, 'packs')} "
-        f"available_skills={_capability_index_names(capability_manifest, 'skills')} "
-        f"available_design_profiles={_capability_index_names(capability_manifest, 'design_profiles')}"
+        f"available_packs={_manifest_capability_names(capability_manifest, 'packs')} "
+        f"available_skills={_manifest_capability_names(capability_manifest, 'skills')} "
+        f"available_design_profiles={_manifest_capability_names(capability_manifest, 'design_profiles')}"
     )
 
 
@@ -1177,3 +1177,13 @@ def _capability_index_names(core_blobs: Dict[str, Any], kind: str) -> List[str]:
             if name and name not in names:
                 names.append(name)
     return names
+
+
+def _manifest_capability_names(capability_manifest: Dict[str, Any], kind: str) -> List[str]:
+    """Discovered capability names (lower-case) from a capability manifest dict (B2).
+
+    Callers used to pass the manifest to _capability_index_names, which expects core blobs, so
+    every capability counted as undiscovered.
+    """
+    index = {"CLIKE_CAPABILITY_INDEX.json": (capability_manifest or {}).get("index_content")}
+    return [name.lower() for name in _capability_index_names(index, kind)]
