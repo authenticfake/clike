@@ -58,9 +58,9 @@ async function appendLineUri(uri, line) {
 }
 
 /**
- * Persist two forms:
- *  1) runs/<runId>/telemetry.json (idempotent overwrite per single run/phase)
- *  2) .clike/telemetry/<projectId>/<YYYY-MM>.jsonl (append-only for charts)
+ * Append the run to .clike/telemetry/<projectId>/<YYYY-MM>.jsonl (dashboards). Cloud runs are
+ * also recorded by the gateway; local-agent runs reach the gateway portal through the
+ * orchestrator's /local-agent/complete.
  */
 async function persistTelemetryVSCode(wsroot, projectId, runId, phase, telemetryLikeObj) {
 
@@ -88,6 +88,9 @@ async function persistTelemetryVSCode(wsroot, projectId, runId, phase, telemetry
     usage: t.usage || t.snapshot || {},
     pricing: t.pricing || null,
     files_len: Array.isArray(t.files) ? t.files.length : (t.files_len ?? null),
+    duration_ms: t.duration_ms ?? null,
+    execution: t.execution || 'cloud',
+    executor: t.executor || null,
     meta: { client: 'vscode', source: 'extension' }
   });
   log( `persistTelemetryVSCode: appending ${line}`);

@@ -31,6 +31,8 @@ const {
   getExecutorConfig,
   buildLocalAgentModelArgs,
   parseClaudeResultEnvelope,
+  parseLocalAgentRun,
+  withMachineReadableOutput,
   buildLocalAgentDisplayLabel,
   
   //_d_etectLocalAgentAvailability,
@@ -966,16 +968,24 @@ async function executeLocalAgentPackage({
       `CLike remains the workflow owner; the agent is the local actuator/hardener.`
   });
 
+  const agentStartedAt = Date.now();
   const agentResult = await runLocalAgentSync({
     workspaceRootUri: wsroot,
     prompt: promptContent,
     executorId: selectedExecutor,
     command: executorConfig.command,
-    argsBeforePrompt: launcherArgs,
+    argsBeforePrompt: withMachineReadableOutput(selectedExecutor, launcherArgs),
     promptTransport,
     timeoutMinutes: Math.ceil(Number(invocation.timeout_seconds || 1800) / 60),
     out,
   });
+  // Usage/cost/model of the run; downstream code keeps reading plain text.
+  const agentRun = parseLocalAgentRun(selectedExecutor, agentResult.stdout, {
+    durationMs: Date.now() - agentStartedAt,
+    fallbackModel: executorConfig.model || '',
+  });
+  agentResult.stdout = agentRun.text;
+  log(`[harperRun][agent][telemetry] ${JSON.stringify(agentRun.telemetry)}`);
 
   const candidateFiles = (isFinalize)
     ? await collectFinalizeCandidateFiles(wsroot)
@@ -1076,6 +1086,9 @@ async function executeLocalAgentPackage({
     stdout: agentResult.stdout || '',
     stderr: agentResult.stderr || '',
     files: completeArtifacts.files,
+    project_id: getProjectId(),
+    project_name: getProjectNameFromWorkspace() || null,
+    telemetry: agentRun.telemetry,
     artifact_pruning: {
       original_count: completeArtifacts.original_count,
       filtered_count: completeArtifacts.filtered_count,
@@ -1090,6 +1103,8 @@ async function executeLocalAgentPackage({
   });
 
   const completeOut = completeGateway.out;
+  if (completeOut && !completeOut.telemetry) completeOut.telemetry = agentRun.telemetry;
+  if (completeOut && !completeOut.usage) completeOut.usage = agentRun.telemetry.usage;
 
   if (!completeOut?.ok) {
     throw new Error(
@@ -4164,20 +4179,18 @@ async function cmdOpenChat(context) {
           log(`[harperRun] summary done`);
           // --- PERSIST TELEMETRY (avoid duplicates, one file per run) ---
           try {
-            // main source on the orchestrator side
-            const tFromServer = _out?.telemetry || outGateway?.telemetry || _out?.usage ? {
-              provider: activeProvider,
-              model: activeModel,
-              usage: _out?.usage,
-              pricing: _out?.telemetry?.pricing,
-              files: _out?.files
-            } : null;
-            await persistTelemetryVSCode(wsroot, project_id, runId, phase, tFromServer || {
-              provider: activeProvider,
-              model: activeModel,
-              usage: _out?.usage || {},
-              pricing: _out?.telemetry?.pricing || {},
-              files: _out?.files || []});
+            // Local-agent runs report their own executor/model/usage (_out.telemetry);
+            // cloud runs are attributed to the selected provider and model.
+            const t = _out?.telemetry || {};
+            const isAgentRun = t.execution === 'local_agent';
+            await persistTelemetryVSCode(wsroot, project_id, runId, phase, {
+              ...t,
+              provider: isAgentRun ? t.provider : activeProvider,
+              model: isAgentRun ? t.model : activeModel,
+              usage: _out?.usage || t.usage || {},
+              pricing: t.pricing || {},
+              files: _out?.files || [],
+            });
           } catch (e) {
             log(`[telemetry] skipped: ${e?.message || e}`);
           }
@@ -4529,7 +4542,7 @@ async function cmdOpenChat(context) {
                 })}`);
 
                 if (evalLocalAgentPackage?.action === 'local_agent_required') {
-                  await executeLocalAgentPackage({
+                  const evalAgentOut = await executeLocalAgentPackage({
                     localAgentPackage: evalLocalAgentPackage,
                     phase: 'eval',
                     reqId: targets,
@@ -4542,6 +4555,14 @@ async function cmdOpenChat(context) {
                     panel,
                     out,
                   });
+                  try {
+                    await persistTelemetryVSCode(ws_root, getProjectId(), runId, 'eval', {
+                      ...(evalAgentOut?.telemetry || {}),
+                      files: evalAgentOut?.files || [],
+                    });
+                  } catch (e) {
+                    log(`[telemetry] eval pre-pass skipped: ${e?.message || e}`);
+                  }
                 } else {
                   log(
                     `[harperEDD][agent] eval pre-pass did not return local_agent package; ` +

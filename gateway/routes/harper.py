@@ -1316,6 +1316,43 @@ def _write_telemetry(project_id: str, record: dict) -> None:
     except Exception as e:
         log.warning("telemetry retention failed: %s", e)
 
+class LocalAgentTelemetry(BaseModel):
+    """A Harper phase run by a local agent (Claude Code / Codex): no provider call went through the
+    gateway, so the orchestrator reports the run here for the telemetry portal."""
+
+    project_id: str
+    run_id: Optional[str] = None
+    phase: str
+    provider: str
+    model: Optional[str] = None
+    usage: Dict[str, Any] = Field(default_factory=dict)
+    pricing: Dict[str, Any] = Field(default_factory=dict)
+    files_len: Optional[int] = None
+    duration_ms: Optional[float] = None
+    executor: Optional[str] = None
+
+
+@router.post("/telemetry")
+def record_local_agent_telemetry(item: LocalAgentTelemetry) -> Dict[str, Any]:
+    usage = {k: v for k, v in item.usage.items() if isinstance(v, (int, float)) and not isinstance(v, bool)}
+    pricing = {k: v for k, v in item.pricing.items() if isinstance(v, (int, float, str)) and not isinstance(v, bool)}
+    _write_telemetry(item.project_id, {
+        "project_id": item.project_id,
+        "run_id": item.run_id,
+        "phase": item.phase,
+        "provider": item.provider,
+        "model": item.model,
+        "usage": usage,
+        "pricing": pricing,
+        "files_len": item.files_len,
+        "duration_ms": item.duration_ms,
+        "execution": "local_agent",
+        "executor": item.executor or item.provider,
+        "timestamp": time.time(),
+    })
+    return {"ok": True}
+
+
 def _prompt_debug_path(project_id: str, run_id: str | None, phase: str) -> Path:
     fname = f"{safe_segment(project_id, 'default')}__{safe_segment(run_id, 'n-a')}__{safe_segment(phase, 'phase')}.json"
     path = resolve_within(TELEMETRY_DIR, f"prompt_debug/{fname}")

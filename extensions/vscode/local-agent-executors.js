@@ -504,6 +504,88 @@ function parseClaudeResultEnvelope(stdout) {
   }
 }
 
+// Harper agent runs ask for machine-readable output so CLike can record usage and cost:
+// Claude prints one JSON result envelope, Codex prints JSONL events.
+function withMachineReadableOutput(executorId, args) {
+  const list = Array.isArray(args) ? [...args] : [];
+  const normalized = normalizeLocalAgentExecutor(executorId);
+  if (normalized === 'claude_code' && !list.includes('--output-format')) {
+    list.push('--output-format', 'json');
+  } else if (normalized === 'gpt_codex' && !list.includes('--json')) {
+    const at = list.indexOf('exec');
+    list.splice(at >= 0 ? at + 1 : list.length, 0, '--json');
+  }
+  return list;
+}
+
+function addTokens(total, key, value) {
+  const n = Number(value);
+  if (Number.isFinite(n)) total[key] = (total[key] || 0) + n;
+}
+
+/**
+ * Text and telemetry of a local-agent run from its machine-readable stdout. `text` replaces
+ * stdout downstream (blocked-output detection, the orchestrator's echo); when stdout is not
+ * machine-readable it is returned unchanged with no usage.
+ */
+function parseLocalAgentRun(executorId, stdout, { durationMs = null, fallbackModel = '' } = {}) {
+  const raw = String(stdout || '');
+  const normalized = normalizeLocalAgentExecutor(executorId);
+  const telemetry = {
+    provider: normalized,
+    executor: normalized,
+    execution: 'local_agent',
+    model: fallbackModel || '',
+    usage: {},
+    pricing: {},
+    duration_ms: durationMs,
+  };
+  if (normalized === 'claude_code') {
+    const envelope = parseClaudeResultEnvelope(raw);
+    if (!envelope) return { text: raw, telemetry };
+    const u = envelope.usage || {};
+    telemetry.usage = {
+      input_tokens: u.input_tokens || 0,
+      output_tokens: u.output_tokens || 0,
+      cache_read_input_tokens: u.cache_read_input_tokens || 0,
+      cache_creation_input_tokens: u.cache_creation_input_tokens || 0,
+    };
+    const models = Object.keys(envelope.modelUsage || {});
+    if (models.length) telemetry.model = models.join(',');
+    if (Number.isFinite(Number(envelope.total_cost_usd))) {
+      // Subscription runs report the API-equivalent cost.
+      telemetry.pricing = { total_cost: Number(envelope.total_cost_usd), unit: 'usd_api_equivalent' };
+    }
+    if (Number.isFinite(Number(envelope.duration_ms))) telemetry.duration_ms = Number(envelope.duration_ms);
+    telemetry.num_turns = envelope.num_turns;
+    return { text: String(envelope.result || ''), telemetry, isError: envelope.is_error === true };
+  }
+  if (normalized === 'gpt_codex') {
+    const lines = raw.split(/\r?\n/).filter((l) => l.trim().startsWith('{'));
+    if (!lines.length) return { text: raw, telemetry };
+    const texts = [];
+    const usage = {};
+    for (const line of lines) {
+      let event = null;
+      try { event = JSON.parse(line); } catch { continue; }
+      if (!event || typeof event !== 'object') continue;
+      const item = event.item || {};
+      if (event.type === 'item.completed' && (item.type === 'agent_message' || item.type === 'error')) {
+        texts.push(String(item.text || item.message || ''));
+      } else if (event.type === 'error' || event.type === 'turn.failed') {
+        texts.push(String(event.message || event.error?.message || ''));
+      } else if (event.type === 'turn.completed' && event.usage) {
+        addTokens(usage, 'input_tokens', event.usage.input_tokens);
+        addTokens(usage, 'cache_read_input_tokens', event.usage.cached_input_tokens);
+        addTokens(usage, 'output_tokens', event.usage.output_tokens);
+      }
+    }
+    telemetry.usage = usage;
+    return { text: texts.filter(Boolean).join('\n'), telemetry };
+  }
+  return { text: raw, telemetry };
+}
+
 function buildLocalAgentDisplayLabel(executorId) {
   const normalized = normalizeLocalAgentExecutor(executorId);
   if (normalized === 'claude_code') return 'Claude Code';
@@ -564,6 +646,8 @@ module.exports = {
   getExecutorConfig,
   buildLocalAgentModelArgs,
   parseClaudeResultEnvelope,
+  parseLocalAgentRun,
+  withMachineReadableOutput,
   buildLocalAgentDisplayLabel,
   buildLocalAgentEnv,
   localAgentSupportsPhase,

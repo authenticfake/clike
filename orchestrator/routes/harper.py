@@ -589,7 +589,39 @@ async def post_local_agent_complete(payload: dict):
 
     try:
         normalized = normalize_local_agent_result(payload)
-        return {"out": normalized}
     except Exception as exc:
         log.exception("local-agent complete failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+    await _record_local_agent_telemetry(payload, normalized)
+    return {"out": normalized}
+
+
+async def _record_local_agent_telemetry(payload: dict, normalized: dict) -> None:
+    """Usage/cost/model reported by the extension for a local-agent run: echoed in the result and
+    sent to the gateway telemetry portal (no provider call went through the gateway). Best effort."""
+    telemetry = payload.get("telemetry")
+    if not isinstance(telemetry, dict):
+        return
+    normalized["telemetry"] = telemetry
+    normalized.setdefault("usage", telemetry.get("usage") or {})
+    project_id = str(payload.get("project_id") or "").strip()
+    if not project_id:
+        return
+    record = {
+        "project_id": project_id,
+        "run_id": payload.get("runId"),
+        "phase": str(payload.get("phase") or ""),
+        "provider": str(telemetry.get("provider") or payload.get("localAgentExecutor") or "local_agent"),
+        "model": telemetry.get("model") or None,
+        "usage": telemetry.get("usage") or {},
+        "pricing": telemetry.get("pricing") or {},
+        "files_len": len(normalized.get("files") or []),
+        "duration_ms": telemetry.get("duration_ms"),
+        "executor": telemetry.get("executor") or payload.get("localAgentExecutor"),
+    }
+    try:
+        from services.harper import _post_json
+
+        await _post_json("/v1/harper/telemetry", record)
+    except Exception as exc:  # telemetry never fails a run
+        log.warning("local-agent telemetry not recorded: %s", type(exc).__name__)
