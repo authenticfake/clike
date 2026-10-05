@@ -2033,6 +2033,8 @@ class EvalRunner:
             # Keep ecosystem tool caches inside the writable eval workspace.
             # Project roots may be read-only in containerized/sandboxed eval.
             "RUFF_CACHE_DIR": str(self._eval_dir(eff_req) / ".ruff-cache"),
+            # coverage.py writes its data file in the cwd, which may be the read-only project root
+            "COVERAGE_FILE": str(self._eval_dir(eff_req) / ".coverage"),
             "MYPY_CACHE_DIR": str(self._eval_dir(eff_req) / ".mypy-cache"),
             "PYTHONPYCACHEPREFIX": str(self._eval_dir(eff_req) / ".pycache"),
 
