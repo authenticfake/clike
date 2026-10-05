@@ -119,7 +119,9 @@ def _pick_generated_root() -> str:
     """
     env = os.getenv("GENERATED_ROOT")
     if env:
-        return env.rstrip("/")
+        # Workspace-relative: the extension writes these files and refuses absolute paths
+        # (WP4 confinement), so "/generated" must become "generated".
+        return env.strip().strip("/") or "generated"
 
     short = str(uuid.uuid4()).split("-")[0]
     return f"generated_{short}"

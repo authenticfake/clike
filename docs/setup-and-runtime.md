@@ -88,7 +88,7 @@ Important environment variables in compose:
 - `WORKSPACE_ROOT=/workspace/`
 - `CODE_ROOT_BASE=src`
 - `TEST_ROOT_BASE=tests`
-- `GENERATED_ROOT=/generated`
+- `GENERATED_ROOT=generated` (workspace-relative folder for coding-mode files)
 - `RAG_BASE_URL=http://localhost:8080/v1/rag`
 - `RAG_TOP_K=12`
 - `INLINE_MAX_FILE_KB=64`
