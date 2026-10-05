@@ -285,6 +285,8 @@ _RUNTIME_MANIFEST_NAMES = {
 _COMPOSITION_ROOT_NAMES = {
     "app.py",
     "main.py",
+    "__main__.py",  # python -m <package>
+    "manage.py",
     "server.py",
     "asgi.py",
     "wsgi.py",

@@ -142,6 +142,18 @@ class EvalRegressionTests(unittest.TestCase):
         with patch.dict(os.environ, {"CLIKE_GATE_STRICT_WARNINGS": "1"}):
             self.assertEqual(self._post("/v1/gate/check", "REQ-003").json()["gate"], "FAIL")
 
+    def test_python_package_launcher_satisfies_the_module_launcher_requirement(self):
+        from routes.routes_eval import _required_output_blockers
+
+        kit = self.proj / "runs" / "kit" / "REQ-003"
+        requirements = {"required_outputs": [{"role": "module_launcher", "required": True}]}
+        (kit / "ci" / "FILE_REQUIREMENTS.json").write_text(json.dumps(requirements))
+        self.assertEqual([b["role"] for b in _required_output_blockers(self.proj, "REQ-003")], ["module_launcher"])
+
+        (kit / "src" / "other_cli").mkdir()
+        (kit / "src" / "other_cli" / "__main__.py").write_text("print('run')\n")
+        self.assertEqual(_required_output_blockers(self.proj, "REQ-003"), [])
+
 
 if __name__ == "__main__":
     unittest.main()
