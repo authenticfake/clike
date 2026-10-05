@@ -130,6 +130,19 @@ class AcceptanceFirstTests(unittest.TestCase):
         self.assertEqual(stage, "code_after_locked_acceptance")
         self.assertEqual(_kit_stage(REQ, {"kit": {}}, {})[0], "kit")
 
+    def test_agent_repair_prompt_states_the_task_and_the_failures(self):
+        from services.local_agent.common import _kit_repair_context
+        from services.local_agent.kit import _STAGE_TASKS, _kit_stage
+
+        payload = {"kit": {"targets": [REQ], "repair": {"cycle": 1, "max_cycles": 2, "hint": "keep the loader", "failures": [
+            {"name": "unit-tests", "code": 1, "command": "pytest test", "output": "FAILED test_env_example.py::test_safe - assert 'secret' not in text"}]}}}
+        stage, title, rules = _kit_stage(REQ, payload, _kit_repair_context(REQ, payload))
+        self.assertEqual((stage, title), ("repair", "AUTO-EVAL REPAIR — cycle 1 of 2"))
+        self.assertIn("Failed check `unit-tests`", rules[0])
+        self.assertIn("assert 'secret' not in text", rules[0])
+        self.assertIn("Developer hint: keep the loader", rules)
+        self.assertIn("REPAIR the existing candidate KIT", _STAGE_TASKS["repair"])
+
 
 if __name__ == "__main__":
     unittest.main()

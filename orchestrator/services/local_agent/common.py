@@ -614,11 +614,12 @@ def _render_compact_local_agent_prompt(
     namespace_materialization: Optional[Dict[str, Any]] = None,
     stage_rules: Optional[List[str]] = None,
     stage_title: str = "",
+    task: str = "",
 ) -> str:
     """Render a compact agent prompt and keep detailed policy in AGENT_*_CONTEXT.json.
     ``stage_rules`` (auto-eval repair, acceptance-first stages) are stated in the prompt itself."""
     phase_label = phase.upper()
-    action = "generate the candidate KIT" if phase == "kit" else "harden the candidate KIT before canonical eval"
+    action = task or ("generate the candidate KIT" if phase == "kit" else "harden the candidate KIT before canonical eval")
     kit_read_first = []
     kit_rules = []
     eval_rules = []

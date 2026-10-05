@@ -124,6 +124,14 @@ def _render_agent_input_audit_md(
     return "\n".join(lines).strip() + "\n"
 
 
+_STAGE_TASKS = {
+    "acceptance": "write ONLY the acceptance tests and the eval profile (LTC) of the REQ, no source code",
+    "code_after_locked_acceptance": "write the implementation that passes the locked acceptance tests already in the workspace",
+    "repair": "REPAIR the existing candidate KIT: the canonical CLike eval failed; fix the causes of the failed checks listed below. The KIT already exists: do not regenerate it, change what makes the checks fail",
+}
+_FAILED_CHECK_PROMPT_CHARS = 1500
+
+
 def _kit_stage(req_id: str, payload: Dict[str, Any], repair_context: Dict[str, Any]) -> Tuple[str, str, List[str]]:
     """Which KIT the agent runs: the acceptance-first stages, an auto-eval repair or a full KIT."""
     kit_options = payload.get("kit") if isinstance(payload.get("kit"), dict) else {}
@@ -136,7 +144,20 @@ def _kit_stage(req_id: str, payload: Dict[str, Any], repair_context: Dict[str, A
             *acceptance_first_code_rules(req_id), f"Locked: {', '.join(locked)} (already in the workspace)."]
     auto_eval = repair_context.get("auto_eval") if isinstance(repair_context, dict) else None
     if isinstance(auto_eval, dict):
-        return "repair", "AUTO-EVAL REPAIR (failed checks in repair_context.auto_eval)", list(auto_eval.get("rules") or [])
+        failed = [
+            f"Failed check `{item.get('name')}` (exit {item.get('code')}, command `{item.get('command')}`): "
+            + " ".join(str(item.get("output") or "").split())[-_FAILED_CHECK_PROMPT_CHARS:]
+            for item in auto_eval.get("failed_checks") or []
+        ]
+        hint = str(auto_eval.get("developer_hint") or "").strip()
+        rules = [
+            *failed,
+            *([f"Developer hint: {hint}"] if hint else []),
+            "Reproduce each failure by running its command in the workspace when the tools are available, fix it, and run it again before finishing.",
+            *list(auto_eval.get("rules") or []),
+        ]
+        cycle = f" — cycle {auto_eval.get('cycle')} of {auto_eval.get('max_cycles')}" if auto_eval.get("cycle") else ""
+        return "repair", f"AUTO-EVAL REPAIR{cycle}", rules
     return "kit", "", []
 
 
@@ -500,6 +521,7 @@ def build_kit_local_agent_package(
         namespace_materialization=namespace_materialization,
         stage_rules=stage_rules,
         stage_title=stage_title,
+        task=_STAGE_TASKS.get(kit_stage, ""),
     )
 
     return _package_envelope(
