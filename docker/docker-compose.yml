@@ -115,6 +115,8 @@ services:
     security_opt: [no-new-privileges]
     pids_limit: 1024
     mem_limit: ${CLIKE_EVAL_SANDBOX_MEM_LIMIT:-4g}
+    # A runaway test can get the sandbox OOM-killed; it comes back for the next eval.
+    restart: unless-stopped
     networks: [evalnet]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=2).status == 200 else 1)"]

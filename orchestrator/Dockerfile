@@ -67,6 +67,18 @@ RUN if [ "$ENABLE_NODE" = "true" ]; then \
       rm -rf /var/lib/apt/lists/* ; \
     else echo "Skip Node"; fi
 
+# ===== Browser runtime libraries (optional, for Playwright/Puppeteer e2e checks in the eval sandbox) =====
+# Only the system libraries: the browser itself is downloaded at eval time in the version the
+# project's Playwright expects (EvalRunner runs `npx playwright install chromium` on demand).
+ARG ENABLE_BROWSER=true
+RUN if [ "$ENABLE_BROWSER" = "true" ]; then \
+      apt-get update && apt-get install -y --no-install-recommends \
+        libnss3 libnspr4 libatk1.0-0t64 libatk-bridge2.0-0t64 libcups2t64 libdrm2 libdbus-1-3 \
+        libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2t64 \
+        libpango-1.0-0 libcairo2 libx11-6 libxcb1 libxext6 fonts-liberation && \
+      rm -rf /var/lib/apt/lists/* ; \
+    else echo "Skip browser libraries"; fi
+
 # Tool JS globali (solo se Node abilitato)
 RUN if command -v npm >/dev/null 2>&1; then \
       npm i -g --silent prettier eslint; \
