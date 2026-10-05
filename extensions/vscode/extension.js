@@ -75,6 +75,7 @@ const {
   getHarperSlashCommandName,
   shouldBlockHarperSlashFromGenericChatMessage,
 } = require('./slash-parser');
+const { collectRepairFiles, nextAutoEvalStep } = require('./auto-eval');
 
 const {
   buildCodexArgsForLocalAgent,
@@ -1666,6 +1667,8 @@ function cfg() {
 
     optimizeFor: c.get('optimizeFor', 'capability'),
     harperTimeout: c.get('harperTimeout', 25),
+    autoEvalMaxCycles: c.get('autoEval.maxCycles', 2),
+    autoEvalAfterKit: c.get('autoEval.afterKit', false),
     
     localAgentEnabled: c.get('localAgent.enabled', true),
     localAgentPreferredExecutor: c.get('localAgent.preferredExecutor', 'gpt_codex'),
@@ -3323,7 +3326,8 @@ async function cmdOpenChat(context) {
   
 
   // Listen to events from the webview
-  panel.webview.onDidReceiveMessage(async (msg) => {
+  // Named so the auto-eval loop can chain KIT repair and eval through the same handlers.
+  const handleWebviewMessage = async (msg) => {
     panel.webview.postMessage({ type: 'busy', on: true });
 
     try {
@@ -3868,7 +3872,7 @@ async function cmdOpenChat(context) {
             payload["kit"] = {
               targets: [targetReqId],
               ...(requestedKitPhases ? { phases: requestedKitPhases } : {}),
-              ...(msg.repair ? { repair: true } : {})
+              ...(msg.autoEvalRepair ? { repair: msg.autoEvalRepair } : (msg.repair ? { repair: true } : {}))
             };
           }
           //log(`[harperRun] payload (gen):`,  JSON.stringify(payload.gen));
@@ -4134,6 +4138,7 @@ async function cmdOpenChat(context) {
               );
             } catch {}
             panel.webview.postMessage({ type: 'error', message });
+            msg.__result = 'failed';
             const commandLabel = String(cmd || '').toUpperCase();
             const failureCode = _out.error_code || 'harper_error';
             await appendSessionJSONL(activeMode, {
@@ -4291,6 +4296,14 @@ async function cmdOpenChat(context) {
           }
           if (Array.isArray(_out?.errors) && _out.errors.length) {
             panel.webview.postMessage({ type: 'error', message: formatHarperError(_out) });
+          }
+          msg.__result = 'ok';
+          if (phase === 'kit' && !msg.autoEvalRepair && targetReqId && cfg().autoEvalAfterKit) {
+            panel.webview.postMessage({ type: 'echo', message: `↻ AUTO-EVAL ${targetReqId} (clike.autoEval.afterKit)` });
+            clikeHarperBlockingRun = false;
+            await handleWebviewMessage({
+              type: 'harperEDD', cmd: 'eval', targets: [targetReqId], targetReqId, attachments: [], fix: { hint: '' },
+            });
           }
         } catch (e) {
           panel.webview.postMessage({ type: 'busy', on: false }) 
@@ -4698,6 +4711,9 @@ async function cmdOpenChat(context) {
         panel.webview.postMessage({ type: 'echo', message: "✔ " + report.summary } );
         clikeHarperBlockingRun = false;
         panel.webview.postMessage({ type: 'busy', on: false, force: true });
+        if (phase === 'eval' && msg.fix && !isManual) {
+          await continueAutoEval(msg, report, targets);
+        }
 
       } 
 
@@ -5485,7 +5501,62 @@ async function cmdOpenChat(context) {
       panel.webview.postMessage({ type: 'busy', on: false, force: true });
     }
     panel.webview.postMessage({ type: 'busy', on: false });
-  });
+  };
+  panel.webview.onDidReceiveMessage(handleWebviewMessage);
+
+  // Auto-eval (roadmap §3): after an eval of `/eval REQ --fix`, repair and re-evaluate until the
+  // eval passes, the cycles are exhausted or nothing improves. msg.fix carries the loop state.
+  async function continueAutoEval(msg, report, reqId) {
+    const settings = cfg();
+    const state = {
+      cycle: Number(msg.fix.cycle || 0),
+      maxCycles: Math.max(1, Number(msg.fix.maxCycles || settings.autoEvalMaxCycles || 2)),
+      hint: String(msg.fix.hint || ''),
+      lastSignature: msg.fix.lastSignature || '',
+      lastKitOk: msg.fix.lastKitOk,
+    };
+    const step = nextAutoEvalStep(state, report);
+    const say = (text) => panel.webview.postMessage({ type: 'echo', message: text });
+    log(`[autoEval] ${reqId} cycle=${state.cycle}/${state.maxCycles} action=${step.action} reason=${step.reason}`);
+    if (step.action === 'pass') {
+      say(`✔ AUTO-EVAL ${reqId}: ${step.reason}. Next: /gate ${reqId}`);
+      return;
+    }
+    if (step.action === 'stop') {
+      const names = (step.failures || []).map(f => f.name).slice(0, 8).join(', ');
+      say(
+        `✖ AUTO-EVAL ${reqId} stopped: ${step.reason}.` +
+        (names ? ` Failing: ${names}.` : '') +
+        ` Re-run /eval ${reqId} --fix "<hint>" to continue with guidance, or fix the code manually.`
+      );
+      return;
+    }
+    const cycle = state.cycle + 1;
+    say(`↻ AUTO-EVAL ${reqId}: repair cycle ${cycle}/${state.maxCycles} — ${step.reason}`);
+    const kitMsg = {
+      type: 'harperRun',
+      cmd: 'kit',
+      targets: [reqId],
+      targetReqId: reqId,
+      attachments: [],
+      autoEvalRepair: {
+        cycle,
+        max_cycles: state.maxCycles,
+        failures: step.failures,
+        files: collectRepairFiles(getWorkspaceRoot().fsPath, reqId),
+        hint: state.hint,
+      },
+    };
+    await handleWebviewMessage(kitMsg);
+    await handleWebviewMessage({
+      type: 'harperEDD',
+      cmd: 'eval',
+      targets: [reqId],
+      targetReqId: reqId,
+      attachments: [],
+      fix: { ...state, cycle, lastSignature: step.signature, lastKitOk: kitMsg.__result === 'ok' },
+    });
+  }
 }
 
 async function showInitSummaryIfPresent(panel, context) {

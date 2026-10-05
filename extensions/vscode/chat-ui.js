@@ -496,9 +496,10 @@ var HELP_COMMANDS = [
   {cmd:'/add-req', desc:'Alias for /extend'},
   {cmd:'/kit [REQ-ID] [--integrity|--hardener|--promotion-eval|--phases=...]', desc:'Runs base KIT by default, or explicit follow-up KIT phases on an existing/generated candidate'},
   {cmd:'/kit REQ-001 --repair --methodology bmad --agent developer', desc:'Runs a governed BMAD developer repair pass inside KIT candidate roots'},
-  {cmd:'/eval <REQ-ID>', desc:'Performs an eval of KIT'},
+  {cmd:'/eval <REQ-ID>', desc:'Runs the REQ acceptance checks (LTC) in the eval sandbox; with clike.eval.regression also the checks of its dependencies and promoted REQs'},
+  {cmd:'/eval <REQ-ID> --fix ["hint"]', desc:'Auto-eval: eval, then on failure a KIT repair from the real failures, then eval again (max clike.autoEval.maxCycles, default 2). Tests stay locked. Re-run it to continue; the optional hint guides the fix'},
   {cmd:'/eval REQ-001 --methodology bmad --agent qa', desc:'Runs canonical eval, then attaches BMAD QA advisory guidance'},
-  {cmd:'/gate <REQ-ID>', desc:'Performs a gate of KIT'},
+  {cmd:'/gate <REQ-ID>', desc:'Promotion gate: PASS if the checks (and the regression checks) pass; warnings do not block unless clike.gate.strictWarnings'},
   {cmd:'/plan --methodology bmad --agent architect', desc:'Plans with BMAD architecture guidance while CLike owns PLAN.md and plan.json'},
   {cmd:'/plan --methodology bmad --agent pm', desc:'Plans with BMAD product slicing and acceptance guidance'},
   {cmd:'/spec --methodology bmad --agent ux', desc:'Builds SPEC guidance with UX journeys, states, and accessibility focus'},
@@ -1599,7 +1600,7 @@ function handleSlash(slash) {
 
       bubble(
         'user',
-        slash.cmd + (targetText ? (' ' + targetText) : ''),
+        slash.cmd + (targetText ? (' ' + targetText) : '') + (slash.args?.fix ? ' --fix' + (slash.args.hint ? ' "' + slash.args.hint + '"' : '') : ''),
         (model && model.value) ? model.value : 'auto',
         atts
       );
@@ -1619,6 +1620,7 @@ function handleSlash(slash) {
     msg.targetReqId = firstTarget || null;
     msg.running = slash.args?.testMode ?? null;
     msg.modeContent = slash.args?.modeContent ?? null;
+    if (slash.args?.fix) msg.fix = { hint: slash.args.hint || '' };
     msg.path=path_ltc_json
     postAndLock(msg.type, msg);
     attachmentsByMode[currentMode()] = [];

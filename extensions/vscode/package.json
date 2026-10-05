@@ -173,6 +173,28 @@
           "default": 25,
           "description": "timeout in minutes for harper phase completions."
         },
+        "clike.eval.regression": {
+          "type": "boolean",
+          "default": true,
+          "description": "/eval and /gate also re-run the acceptance checks of the REQ's dependencies and of every promoted REQ (plan status done) against the new code (auto-eval L2: the REQ must not break what is already promoted)."
+        },
+        "clike.gate.strictWarnings": {
+          "type": "boolean",
+          "default": false,
+          "description": "Block the gate when non-blocking checks fail (warnings). Off: warnings are reported and the gate passes (GATE_PASS_WITH_WARNINGS)."
+        },
+        "clike.autoEval.maxCycles": {
+          "type": "number",
+          "default": 2,
+          "minimum": 1,
+          "maximum": 5,
+          "description": "Maximum KIT repair cycles of /eval REQ --fix (auto-eval). Re-run the command to continue from the current state."
+        },
+        "clike.autoEval.afterKit": {
+          "type": "boolean",
+          "default": false,
+          "description": "After a successful /kit, run the auto-eval (/eval REQ --fix) automatically."
+        },
         "clike.chat.persistDir": {
           "type": "string",
           "default": ".clike/sessions",

@@ -236,7 +236,8 @@ test('extension propagates kit repair and rejects methodology context for gate d
   assert.ok(guardIndex < handleGateIndex);
   assert.match(source, /msg\.methodology \|\| msg\.agent \|\| msg\.methodology_context/);
   assert.match(source, /Gate is CLike-owned\. Methodology flags are not accepted for \/gate in MVP\./);
-  assert.match(source, /\.\.\.\(msg\.repair \? \{ repair: true \} : \{\}\)/);
+  assert.match(source, /\(msg\.repair \? \{ repair: true \} : \{\}\)/);
+  assert.match(source, /msg\.autoEvalRepair \? \{ repair: msg\.autoEvalRepair \}/);
 });
 
 test('utility collects bounded Harper companion docs and includes IDEA for downstream phases', () => {

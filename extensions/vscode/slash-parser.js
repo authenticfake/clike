@@ -159,6 +159,24 @@ function withMethodologyArgs(args, flags) {
   return next;
 }
 
+/** `/eval REQ --fix ["hint"]`: tokens after --fix are the developer hint for the KIT repair. */
+function parseFixArgs(tokens) {
+  const rest = [];
+  const hint = [];
+  let fix = false;
+  for (const raw of tokens || []) {
+    const token = String(raw || '').trim();
+    if (!token) continue;
+    if (token.toLowerCase() === '--fix') {
+      fix = true;
+      continue;
+    }
+    if (fix) hint.push(token.replace(/^(["'])(.*)\1$/, '$2'));
+    else rest.push(token);
+  }
+  return { fix, hint: hint.join(' ').trim(), rest };
+}
+
 function parseSlash(input) {
   const parts = tokenizeSlash(input);
   if (!parts.length) return null;
@@ -184,19 +202,22 @@ function parseSlash(input) {
   }
 
   if (cmd === '/eval' || cmd === '/gate') {
-    const testMode = rest.slice(1) ? rest.slice(1)[0] : 'auto';
-    const modeContent = rest.slice(2) ? rest.slice(2)[0] : 'pass';
+    const fixArgs = cmd === '/eval' ? parseFixArgs(rest) : { fix: false, hint: '', rest };
+    const tokens = fixArgs.rest;
+    const testMode = tokens.slice(1) ? tokens.slice(1)[0] : 'auto';
+    const modeContent = tokens.slice(2) ? tokens.slice(2)[0] : 'pass';
 
     let targets = null;
-    if (!rest.length) {
+    if (!tokens.length) {
       targets = '';
     } else {
       const isReq = (value) => /^req-\d+/i.test(value);
-      const onlyReqs = rest.every(isReq);
-      targets = onlyReqs ? rest : [rest[0]];
+      const onlyReqs = tokens.every(isReq);
+      targets = onlyReqs ? tokens : [tokens[0]];
     }
 
-    return finish({ targets, testMode, modeContent });
+    const fix = fixArgs.fix ? { fix: true, hint: fixArgs.hint } : {};
+    return finish({ targets, testMode, modeContent, ...fix });
   }
 
   if (cmd === '/extend' || cmd === '/add-req') {
@@ -370,6 +391,7 @@ const CLIKE_SLASH_PARSER = (() => {
   const GATE_METHODOLOGY_FLAGS_ERROR = ${JSON.stringify(GATE_METHODOLOGY_FLAGS_ERROR)};
   ${parseMethodologyFlags.toString()}
   ${withMethodologyArgs.toString()}
+  ${parseFixArgs.toString()}
   ${parseSlash.toString()}
   return { parseSlash, isHarperSlashText, getHarperSlashCommandName };
 })();
@@ -396,6 +418,7 @@ module.exports = {
   isHarperSlashText,
   parseSlash,
   parseMethodologyFlags,
+  parseFixArgs,
   shouldBlockHarperSlashFromGenericChatMessage,
   buildBrowserSlashParserSource,
 };
