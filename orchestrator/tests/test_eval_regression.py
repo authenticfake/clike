@@ -161,6 +161,34 @@ class EvalRegressionTests(unittest.TestCase):
         (kit / "src" / "other_cli" / "__main__.py").write_text("print('run')\n")
         self.assertEqual(_required_output_blockers(self.proj, "REQ-003"), [])
 
+    def test_application_factory_is_a_launcher_and_eval_reports_missing_ones(self):
+        kit = self.proj / "runs" / "kit" / "REQ-003"
+        requirements = {"required_outputs": [{"role": "module_launcher", "required": True}]}
+        (kit / "ci" / "FILE_REQUIREMENTS.json").write_text(json.dumps(requirements))
+
+        evaluated = self._post("/v1/eval/run", "REQ-003").json()
+        self.assertEqual(evaluated["status"], "FAIL")
+        self.assertIn("structure::module_launcher", evaluated["blocking_failures"])
+        case = next(c for c in evaluated["cases"] if c["name"] == "structure::module_launcher")
+        self.assertIn("Accepted:", case["stderr"])
+
+        (kit / "src" / "application.py").write_text("from fastapi import FastAPI\n\ndef create_app():\n    return FastAPI()\n")
+        self.assertEqual(self._post("/v1/eval/run", "REQ-003").json()["status"], "PASS")
+
+    def test_only_test_checks_of_a_promoted_req_block_as_regression(self):
+        from eval_runner import EvalCase, _is_regression_test_case
+
+        def case(name, out, passed=False):
+            return EvalCase(name=name, passed=passed, code=1, stdout=out, stderr="")
+
+        self.assertTrue(_is_regression_test_case(case("unit-tests", "1 failed, 3 passed")))
+        self.assertFalse(_is_regression_test_case(case("lint", "E501")))
+        self.assertFalse(_is_regression_test_case(case("types", "error: x")))
+        self.assertFalse(_is_regression_test_case(
+            case("tests", "FAIL Required test coverage of 85% not reached. Total coverage: 63.16%\n73 passed in 3s")))
+        self.assertTrue(_is_regression_test_case(
+            case("tests", "FAILED test_a.py::t\nFAIL Required test coverage of 85% not reached.\n1 failed, 2 passed")))
+
 
 if __name__ == "__main__":
     unittest.main()

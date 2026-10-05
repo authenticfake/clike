@@ -74,6 +74,11 @@ overlaid on top, i.e. the code as it would be after promotion. These cases appea
 `regression::<REQ>::<check>`, run in `runs/eval/<REQ>/regression/<OTHER>/` (the other REQ's own
 eval results are not touched), and their acceptance locks are verified first.
 
+Only behavioural checks of the promoted REQ block (tests, contract/e2e checks). Its lint, types,
+security, build and coverage checks now also measure the candidate's code, which the candidate's
+own checks already cover: they are reported as non-blocking warnings, and so is a test check whose
+only failure is the coverage threshold.
+
 Dependencies that are not promoted yet are not regression targets: their source is already part
 of the candidate's eval (promoted `src/` + dependency KITs + current KIT), and a REQ that never
 passed has nothing to regress from.
@@ -81,6 +86,15 @@ passed has nothing to regress from.
 A REQ that passes its own tests but breaks a promoted REQ fails the eval; the gate reports
 `GATE_BLOCKED_REGRESSION` with the list in `regression_failures`. In an auto-eval loop the
 regression failures are part of what the repair receives.
+
+## Required outputs in the eval
+
+Required outputs missing from the candidate (FILE_REQUIREMENTS, e.g. a runnable launcher) block
+the gate (`GATE_BLOCKED_REQUIRED_OUTPUTS_MISSING`). The eval reports them too, as failed checks
+`structure::<role>` with what is accepted, so the auto-eval repair can add them. A launcher is a
+conventional entry file (`main.py`, `app.py`, `__main__.py`, `server.js`, `Program.cs`, …) or a
+source file that starts the application (`if __name__ == "__main__"`, `FastAPI(...)`,
+`def create_app(...)`, `.listen(...)`).
 
 ## Gate warnings policy
 

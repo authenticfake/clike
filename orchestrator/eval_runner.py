@@ -132,6 +132,27 @@ def scrubbed_process_env() -> Dict[str, str]:
 PROMOTED_REQ_STATUSES = {"done"}
 
 
+_COVERAGE_THRESHOLD_RE = re.compile(r"Required test coverage of .* not reached", re.IGNORECASE)
+_NON_BEHAVIOURAL_CHECK_RE = re.compile(
+    r"lint|format|style|ruff|flake8|eslint|prettier|type|mypy|pyright|tsc|security|secret|audit|bandit|"
+    r"vuln|sast|build|compile|syntax|coverage",
+    re.IGNORECASE,
+)
+_TEST_FAILURES_RE = re.compile(r"\b\d+ (?:failed|errors?)\b|^FAILED ", re.MULTILINE)
+
+
+def _is_regression_test_case(case: "EvalCase") -> bool:
+    """A regression check that guards behaviour: any check except static/quality ones (lint,
+    types, security scans, build, syntax, coverage), and not when its only failure is the coverage
+    threshold (coverage of the other REQ now includes the candidate's code)."""
+    if _NON_BEHAVIOURAL_CHECK_RE.search(case.name):
+        return False
+    if case.passed:
+        return True
+    output = f"{case.stdout}\n{case.stderr}"
+    return not (_COVERAGE_THRESHOLD_RE.search(output) and not _TEST_FAILURES_RE.search(output))
+
+
 class EvalRunner:
     def __init__(
         self,
@@ -2346,6 +2367,10 @@ class EvalRunner:
             )
             report = runner.run_profile(profile=str(profile), ltc=ltc, req_id=other)
             for case in report.cases:
+                if not _is_regression_test_case(case):
+                    # Lint, types, coverage of the other REQ now measure the candidate's code too
+                    # (the candidate's own checks cover it): reported, not blocking.
+                    case.blocking = False
                 case.name = f"regression::{other}::{case.name}"
                 cases.append(case)
         return cases

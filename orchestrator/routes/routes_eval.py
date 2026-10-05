@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -11,7 +12,7 @@ from pydantic import BaseModel
 
 import httpx
 
-from eval_runner import EvalReport, EvalRunner, report_from_dict
+from eval_runner import EvalCase, EvalReport, EvalRunner, report_from_dict
 from utils.safe_paths import UnsafePathError, is_within_any, resolve_within, validate_req_id
 from services.gate_integrity import allowed_eval_roots, compare_with_lock, ensure_lock, record_override
 
@@ -355,6 +356,22 @@ def _has_runtime_manifest_under_candidate(req_root: Path) -> bool:
     return False
 
 
+# A launcher recognized by content when its file name is not a conventional one.
+_COMPOSITION_ROOT_MARKERS = {
+    ".py": re.compile(
+        r"""if\s+__name__\s*==\s*["']__main__["']|\b(?:FastAPI|Flask|Starlette|Quart|Sanic)\(|uvicorn\.run\(|def\s+create_app\("""
+    ),
+    ".js": re.compile(r"\.listen\(|createServer\("),
+    ".ts": re.compile(r"\.listen\(|createServer\("),
+}
+_COMPOSITION_ROOT_HINT = (
+    "Accepted: a conventional entry file (e.g. main.py, app.py, __main__.py, server.js, index.ts, "
+    "Program.cs, main.go) or a source file that starts the application (Python: "
+    "if __name__ == \"__main__\", an ASGI/WSGI app such as FastAPI(...) or def create_app(...); "
+    "Node: .listen(...) or createServer(...))."
+)
+
+
 def _has_composition_root_under_candidate(req_root: Path) -> bool:
     src_root = req_root / "src"
     if not src_root.exists():
@@ -369,6 +386,13 @@ def _has_composition_root_under_candidate(req_root: Path) -> bool:
             return True
         if path.suffix.lower() in {".mpr"}:
             return True
+        marker = _COMPOSITION_ROOT_MARKERS.get(path.suffix.lower())
+        if marker and path.stat().st_size < 512 * 1024:
+            try:
+                if marker.search(path.read_text(encoding="utf-8", errors="ignore")):
+                    return True
+            except OSError:
+                continue
     return False
 
 
@@ -396,7 +420,7 @@ def _required_output_blockers(project_root: Path, req_id: Optional[str]) -> List
         if role in {"solution_composition_root", "module_launcher"} and not _has_composition_root_under_candidate(req_root):
             blockers.append({
                 "role": role,
-                "reason": "FILE_REQUIREMENTS requires a runnable composition root/launcher, but no cross-language composition entry was found under candidate src/.",
+                "reason": "FILE_REQUIREMENTS requires a runnable composition root/launcher, but no cross-language composition entry was found under candidate src/. " + _COMPOSITION_ROOT_HINT,
             })
 
     return blockers
@@ -461,6 +485,26 @@ def _merge_gate_args(
         regression=bool(body.regression),
         strict=body.strict,
     )
+
+
+def _with_structural_cases(rep: EvalReport, blockers: List[Dict[str, str]]) -> EvalReport:
+    """Required outputs missing from the candidate (also a gate blocker) reported as failed eval
+    checks, so the eval and an auto-eval repair see them, not only the gate."""
+    if not blockers:
+        return rep
+    cases = list(rep.cases) + [
+        EvalCase(
+            name=f"structure::{b['role']}",
+            passed=False,
+            code=1,
+            stdout="",
+            stderr=b["reason"],
+            cmd=None,
+            blocking=True,
+        )
+        for b in blockers
+    ]
+    return replace(rep, cases=cases, failed=rep.failed + len(blockers), status="FAIL")
 
 
 def _case_payload(case: Any) -> Dict[str, Any]:
@@ -578,6 +622,8 @@ def eval_run(
         log.exception("eval_run unexpected")
         raise HTTPException(status_code=500, detail=f"eval_run error: {exc}") from exc
 
+    if not is_manual:
+        rep = _with_structural_cases(rep, _required_output_blockers(prj, args.req_id or rep.req_id))
     payload = _eval_payload(rep, args.req_id)
     payload["integrity"] = integrity
     payload["executor"] = executor
