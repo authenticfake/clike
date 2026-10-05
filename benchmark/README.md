@@ -22,7 +22,9 @@ For each project, against a running stack, with the same payloads the VS Code ex
    `$CLIKE_PROJECTS_DIR/clike-bench/<timestamp>/<project>` (the containers can read it);
 2. `/spec` (TECH_CONSTRAINTS.yaml extracted from IDEA.md, as the extension does) → `/plan`;
 3. for the first `--max-reqs` REQs of the plan: `/kit` → write the files → `/eval` → `/gate`.
-   Eval and gate run with `regression: true` (dependency REQs' checks re-run), like the extension.
+   Eval and gate run with `regression: true`, like the extension. A REQ that passes the gate is
+   promoted (its KIT `src/` joins the project `src/`, `status: done`), so later REQs are
+   regression-checked against it.
 4. with `--auto-eval N`: after a failed eval, up to N KIT repair cycles from the real failures
    (as `/eval REQ --fix`, see `docs/auto-eval.md`), then the gate.
 

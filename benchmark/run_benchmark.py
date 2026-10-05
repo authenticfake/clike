@@ -351,10 +351,28 @@ def run_project(client: Client, project: Dict[str, Any], model: str, max_reqs: i
                 entry["eval"] = client.check("eval", root, name, req)
                 print(f"  {name} {req} repair cycle {cycle}: files={len(fix['written'])} eval={entry['eval'].get('result')}", flush=True)
             entry["gate"] = client.check("gate", root, name, req)
+            if str(entry["gate"].get("result") or "").upper() == "PASS":
+                _promote(root, req)
         res["reqs"].append(entry)
         print(f"  {name} {req} eval={entry.get('eval', {}).get('result')} gate={entry.get('gate', {}).get('result')} "
               f"stack_ok={entry['stack_compliant']}", flush=True)
     return res
+
+
+def _promote(root: Path, req: str) -> None:
+    """Minimal promotion after a passing gate, as the extension's: the KIT source joins the
+    project's src/ and the REQ is done in plan.json (later REQs are then regression-checked
+    against it)."""
+    kit_src = root / "runs" / "kit" / req / "src"
+    if kit_src.is_dir():
+        shutil.copytree(kit_src, root / "src", dirs_exist_ok=True,
+                        ignore=shutil.ignore_patterns("__pycache__", ".venv", "node_modules"))
+    plan_path = root / "docs" / "harper" / "plan.json"
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    for item in plan.get("reqs") or []:
+        if isinstance(item, dict) and item.get("id") == req:
+            item["status"] = "done"
+    plan_path.write_text(json.dumps(plan, indent=2), encoding="utf-8")
 
 
 # --------------------------------------------------------------------------- report
