@@ -18,8 +18,8 @@ from typing import Any, Dict, List, Tuple
 
 log = logging.getLogger("service.kit_format")
 
-# import order, unused imports, trailing/blank-line whitespace
-SAFE_RUFF_RULES = "I,F401,W291,W292,W293"
+# import order, unused imports, trailing/blank-line whitespace, unused noqa comments
+SAFE_RUFF_RULES = "I,F401,W291,W292,W293,RUF100"
 _CONFIG_NAMES = {"pyproject.toml", "ruff.toml", ".ruff.toml"}
 _TIMEOUT_S = 60
 

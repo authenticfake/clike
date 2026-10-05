@@ -35,6 +35,12 @@ class KitFormatTests(unittest.TestCase):
         self.assertEqual(_body(test), _body(UNSORTED))  # same code once imports are set aside
         self.assertEqual(fixed[2], files[2])
 
+    def test_unused_noqa_comment_is_removed(self):
+        files = [{"path": "runs/kit/REQ-001/test/conftest.py", "content": "import os  # noqa: E402\n\nPATH = os.sep\n"}]
+        fixed, changed = autofix_kit_files(files, "REQ-001")
+        self.assertEqual(changed, ["runs/kit/REQ-001/test/conftest.py"])
+        self.assertEqual(fixed[0]["content"], "import os\n\nPATH = os.sep\n")
+
     def test_other_reqs_and_clean_files_are_untouched(self):
         files = [{"path": "runs/kit/REQ-002/test/test_x.py", "content": UNSORTED},
                  {"path": "runs/kit/REQ-001/src/app.py", "content": "VALUE = 1\n"}]
