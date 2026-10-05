@@ -14,7 +14,7 @@ const {
   generateServiceToken,
 } = require('./service-auth');
 const { validateLocalMcpRequest } = require('./mcp-request-guard');
-const { postGateOverride } = require('./api');
+const { postAcceptanceAmend, postGateOverride } = require('./api');
 const { request: serviceRequest, orchestratorUrl, serviceBaseUrls } = require('./orchestrator-client');
 const { safeRelativePath, safeWorkspaceUri, resolveInsideWorkspace } = require('./safe-workspace');
 const {  handleGate, handleEval } = require('./commands/harper');
@@ -77,7 +77,13 @@ const {
   getHarperSlashCommandName,
   shouldBlockHarperSlashFromGenericChatMessage,
 } = require('./slash-parser');
-const { collectRepairFiles, nextAutoEvalStep } = require('./auto-eval');
+const {
+  acceptanceChanges,
+  collectRepairFiles,
+  nextAutoEvalStep,
+  restoreAcceptanceFiles,
+  snapshotAcceptanceSurface,
+} = require('./auto-eval');
 
 const {
   buildCodexArgsForLocalAgent,
@@ -5525,6 +5531,36 @@ async function cmdOpenChat(context) {
   };
   panel.webview.onDidReceiveMessage(handleWebviewMessage);
 
+  // A local agent writes its repair directly: changed tests/LTC/ci files are submitted to the
+  // orchestrator's governance, and what it rejects (and any deleted file) is restored. For a cloud
+  // repair the orchestrator already filtered the files, so this finds nothing to do.
+  async function governAcceptanceChanges(reqId, before, failures, cycle) {
+    const wsPath = getWorkspaceRoot().fsPath;
+    const { modified, deleted } = acceptanceChanges(before, snapshotAcceptanceSurface(wsPath, reqId));
+    const say = (text) => panel.webview.postMessage({ type: 'echo', message: text });
+    let rejected = [];
+    if (Object.keys(modified).length) {
+      const previous = Object.fromEntries(Object.keys(modified).map((rel) => [rel, before[rel]]));
+      const evidence = (failures || []).map((f) => `${f.name}\n${f.output || ''}`).join('\n');
+      try {
+        const result = await postAcceptanceAmend(
+          getWorkspaceRoot(), reqId, modified, previous, evidence, `auto-eval repair cycle ${cycle}`
+        );
+        rejected = Object.keys(result?.rejected || {});
+        for (const rel of result?.accepted || []) say(`ℹ AUTO-EVAL ${reqId}: amendment accepted (audited): ${rel}`);
+        for (const rel of result?.test_fixes || []) say(`⚠ AUTO-EVAL ${reqId}: test fixed — review required: ${rel}`);
+      } catch (err) {
+        rejected = Object.keys(modified);
+        log(`[autoEval] amend failed: ${err?.message || err}`);
+      }
+    }
+    const restore = [...rejected, ...deleted];
+    if (restore.length) {
+      restoreAcceptanceFiles(wsPath, reqId, before, restore);
+      say(`↺ AUTO-EVAL ${reqId}: restored locked acceptance files the repair may not change: ${restore.join(', ')}`);
+    }
+  }
+
   // Auto-eval (roadmap §3): after an eval of `/eval REQ --fix`, repair and re-evaluate until the
   // eval passes, the cycles are exhausted or nothing improves. msg.fix carries the loop state.
   async function continueAutoEval(msg, report, reqId) {
@@ -5568,7 +5604,10 @@ async function cmdOpenChat(context) {
         hint: state.hint,
       },
     };
+    const wsPath = getWorkspaceRoot().fsPath;
+    const acceptanceBefore = snapshotAcceptanceSurface(wsPath, reqId);
     await handleWebviewMessage(kitMsg);
+    await governAcceptanceChanges(reqId, acceptanceBefore, step.failures, cycle);
     await handleWebviewMessage({
       type: 'harperEDD',
       cmd: 'eval',

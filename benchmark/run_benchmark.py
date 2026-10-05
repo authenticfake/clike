@@ -342,8 +342,11 @@ def run_project(client: Client, project: Dict[str, Any], model: str, max_reqs: i
                              if p.is_file() and not any(part in {"__pycache__", ".venv", "node_modules"} for part in p.parts)
                              and p.stat().st_size < 200_000]
                 repair = {"cycle": cycle, "max_cycles": auto_eval, "failures": ev["failures"], "files": kit_files}
+                acceptance_before = _acceptance_snapshot(root, req)
                 fix = step("kit", {"kit": {"targets": [req], "repair": repair}, "todo_ids": [req], "rag_strategy": "deps_only"},
                            ["IDEA.md", "SPEC.md", "PLAN.md", "plan.json", *tc])
+                entry.setdefault("governance", []).append(
+                    _govern_acceptance(client, root, name, req, acceptance_before, ev["failures"], cycle))
                 entry["repair_cycles"] = cycle
                 if not fix.get("ok"):
                     entry["repair_stop"] = f"repair_failed_{fix.get('status')}"
@@ -357,6 +360,37 @@ def run_project(client: Client, project: Dict[str, Any], model: str, max_reqs: i
         print(f"  {name} {req} eval={entry.get('eval', {}).get('result')} gate={entry.get('gate', {}).get('result')} "
               f"stack_ok={entry['stack_compliant']}", flush=True)
     return res
+
+
+def _acceptance_snapshot(root: Path, req: str) -> Dict[str, str]:
+    kit = root / "runs" / "kit" / req
+    return {p.relative_to(kit).as_posix(): p.read_text(encoding="utf-8", errors="replace")
+            for sub in ("test", "ci") for p in sorted((kit / sub).rglob("*"))
+            if p.is_file() and "__pycache__" not in p.parts and p.stat().st_size < 200_000}
+
+
+def _govern_acceptance(client: "Client", root: Path, project: str, req: str, before: Dict[str, str],
+                       failures: List[Dict[str, Any]], cycle: int) -> Dict[str, Any]:
+    """As the extension after a repair: changed test/ci files go to /v1/acceptance/amend; rejected
+    and deleted ones are restored (a local agent writes before any check)."""
+    after = _acceptance_snapshot(root, req)
+    modified = {rel: after[rel] for rel in before if rel in after and after[rel] != before[rel]}
+    deleted = [rel for rel in before if rel not in after]
+    result: Dict[str, Any] = {"accepted": [], "rejected": {}}
+    if modified:
+        r = client.http.post(f"{ORCH}/v1/acceptance/amend", json={
+            "project_root": str(root), "project_name": project, "req_id": req, "changes": modified,
+            "previous": {rel: before[rel] for rel in modified},
+            "evidence": "\n".join(f"{f.get('name')}\n{f.get('output') or ''}" for f in failures),
+            "reason": f"auto-eval repair cycle {cycle}"})
+        result = r.json() if r.status_code == 200 else {"accepted": [], "rejected": {rel: [f"amend {r.status_code}"] for rel in modified}}
+    restored = [*result.get("rejected", {}), *deleted]
+    kit = root / "runs" / "kit" / req
+    for rel in restored:
+        (kit / rel).parent.mkdir(parents=True, exist_ok=True)
+        (kit / rel).write_text(before[rel], encoding="utf-8")
+    return {"cycle": cycle, "accepted": result.get("accepted", []), "test_fixes": result.get("test_fixes", []),
+            "restored": restored}
 
 
 def _promote(root: Path, req: str) -> None:

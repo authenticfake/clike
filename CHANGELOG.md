@@ -2,6 +2,22 @@
 
 All notable changes to CLike. Extension, orchestrator and gateway share one version.
 
+## [Unreleased]
+
+### Added
+
+- Auto-eval with local agents: the agent package carries the failed checks, the hint and the
+  repair rules; the acceptance files the agent changed are governed through
+  `POST /v1/acceptance/amend` and the extension restores what is rejected. Benchmark
+  `--runner agent --auto-eval N`.
+- Local-agent telemetry: usage, API-equivalent cost, model and duration of Claude Code / Codex
+  runs, in `.clike/telemetry` and in the gateway portal (`POST /v1/harper/telemetry`).
+
+### Fixed
+
+- Local-agent runs (including the eval pre-pass) left no telemetry and were attributed to the
+  cloud model selected in the UI.
+
 ## [1.0.0] — 2026-10-05 — Milestone M3: ready for evolution
 
 ### ⚠️ Breaking changes

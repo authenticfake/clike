@@ -342,14 +342,18 @@ def _test_contract(source: str):
     return contract
 
 
-def _test_change_issue(path: Path, locked_digest: Optional[str], content: str, evidence: str = "") -> Optional[str]:
+def _test_change_issue(
+    path: Path, locked_digest: Optional[str], content: str, evidence: str = "", previous: Optional[str] = None
+) -> Optional[str]:
     """Why a change of a locked test is rejected, or None with the kind of accepted change:
     "imports" (only unused imports removed, e.g. for lint) or "test_fix" (the eval showed the test
     itself is wrong: an API-misuse/import/fixture error raised in the test file; every assertion
     stays identical and no skip/xfail is added)."""
-    if path.suffix != ".py" or not locked_digest or not path.is_file():
+    if path.suffix != ".py" or not locked_digest or (previous is None and not path.is_file()):
         return _LOCKED_TEST_ISSUE
-    raw = path.read_bytes()
+    # A local agent has already written the new content: the extension sends the previous one,
+    # trusted only if it is the locked version.
+    raw = previous.encode("utf-8") if previous is not None else path.read_bytes()
     if hashlib.sha256(raw).hexdigest() != locked_digest:
         return _LOCKED_TEST_ISSUE
     before = raw.decode("utf-8", errors="replace")
@@ -369,9 +373,10 @@ def _test_change_issue(path: Path, locked_digest: Optional[str], content: str, e
     return None
 
 
-def _test_change_kind(path: Path, content: str) -> str:
+def _test_change_kind(path: Path, content: str, previous: Optional[str] = None) -> str:
     try:
-        old_imports, old_body = _imports_and_body(path.read_text(encoding="utf-8", errors="replace"))
+        before = previous if previous is not None else path.read_text(encoding="utf-8", errors="replace")
+        old_imports, old_body = _imports_and_body(before)
         new_imports, new_body = _imports_and_body(content)
     except (OSError, SyntaxError):
         return "test_fix"
@@ -392,6 +397,7 @@ def amend_acceptance_surface(
     reason: str,
     author: str = "auto-eval",
     evidence: str = "",
+    previous: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """Accept non-weakening repairs of the locked acceptance surface (auto-eval).
 
@@ -407,6 +413,9 @@ def amend_acceptance_surface(
     * other ``ci/**`` files (requirements, manifests) may change, e.g. to upgrade a vulnerable
       dependency.
 
+    ``previous`` (local agents, which write before the check) maps paths to their content before
+    the repair; changes equal to the locked content are no-ops.
+
     Accepted changes update the lock so the following eval does not report them as tampering, and
     every amendment is appended to the audit log.
     """
@@ -418,14 +427,17 @@ def amend_acceptance_surface(
     accepted: List[str] = []
     rejected: Dict[str, List[str]] = {}
     kinds: Dict[str, str] = {}
+    previous = {str(k).replace("\\", "/").lstrip("/"): v for k, v in (previous or {}).items()}
     for raw_rel, content in (changes or {}).items():
         rel = str(raw_rel or "").replace("\\", "/").lstrip("/")
+        if files.get(rel) == hashlib.sha256(content.encode("utf-8")).hexdigest():
+            continue  # already the locked content
         if rel.startswith("test/"):
-            issue = _test_change_issue(root / rel, files.get(rel), content, evidence)
+            issue = _test_change_issue(root / rel, files.get(rel), content, evidence, previous.get(rel))
             if issue:
                 rejected[rel] = [issue]
                 continue
-            kinds[rel] = _test_change_kind(root / rel, content)
+            kinds[rel] = _test_change_kind(root / rel, content, previous.get(rel))
             files[rel] = hashlib.sha256(content.encode("utf-8")).hexdigest()
             accepted.append(rel)
             continue

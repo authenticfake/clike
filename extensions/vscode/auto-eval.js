@@ -60,6 +60,40 @@ function collectRepairFiles(workspaceRoot, reqId) {
   return files;
 }
 
+/** Text content of the REQ's acceptance surface (runs/kit/<REQ>/{test,ci}/**), KIT-relative. */
+function snapshotAcceptanceSurface(workspaceRoot, reqId) {
+  const snapshot = {};
+  for (const file of collectRepairFiles(workspaceRoot, reqId)) {
+    const rel = file.path.slice(`runs/kit/${reqId}/`.length);
+    if (rel.startsWith('test/') || rel.startsWith('ci/')) snapshot[rel] = file.content;
+  }
+  return snapshot;
+}
+
+/**
+ * What a repair changed in the acceptance surface: files modified (submitted for governance)
+ * and files deleted (always restored). New files are left alone (they do not weaken the lock).
+ */
+function acceptanceChanges(before, after) {
+  const modified = {};
+  const deleted = [];
+  for (const [rel, content] of Object.entries(before)) {
+    if (!(rel in after)) deleted.push(rel);
+    else if (after[rel] !== content) modified[rel] = after[rel];
+  }
+  return { modified, deleted };
+}
+
+/** Write back the pre-repair content of the given KIT-relative files. */
+function restoreAcceptanceFiles(workspaceRoot, reqId, before, rels) {
+  for (const rel of rels) {
+    if (!(rel in before)) continue;
+    const full = path.join(workspaceRoot, 'runs', 'kit', reqId, ...rel.split('/'));
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, before[rel], 'utf8');
+  }
+}
+
 /**
  * Decide the next step after an eval of an auto-eval run.
  * state: { cycle, maxCycles, hint, lastSignature }
@@ -86,9 +120,12 @@ function nextAutoEvalStep(state, report) {
 }
 
 module.exports = {
+  acceptanceChanges,
   collectRepairFailures,
   collectRepairFiles,
   evalPassed,
   failureSignature,
   nextAutoEvalStep,
+  restoreAcceptanceFiles,
+  snapshotAcceptanceSurface,
 };

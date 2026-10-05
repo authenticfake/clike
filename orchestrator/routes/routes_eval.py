@@ -777,6 +777,39 @@ def gate_check(
     }
 
 
+class AcceptanceAmendRequest(BaseModel):
+    project_root: Optional[str] = None
+    project_name: Optional[str] = None
+    req_id: str
+    # KIT-relative paths (ci/..., test/...) -> content after the repair / before it.
+    changes: Dict[str, str]
+    previous: Optional[Dict[str, str]] = None
+    evidence: Optional[str] = ""
+    reason: Optional[str] = None
+
+
+@router.post("/v1/acceptance/amend")
+def acceptance_amend(payload: AcceptanceAmendRequest):
+    """Auto-eval with a local agent: the agent has already written its repair, so the extension
+    submits the changed acceptance files here; accepted ones are amended in the lock (audited),
+    rejected ones must be restored by the extension."""
+    prj = _confined_project_root(payload.project_root, payload.project_name)
+    try:
+        req = validate_req_id(payload.req_id)
+    except UnsafePathError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    from services.gate_integrity import amend_acceptance_surface
+
+    return amend_acceptance_surface(
+        prj,
+        req,
+        payload.changes,
+        reason=payload.reason or "auto-eval repair (local agent)",
+        evidence=payload.evidence or "",
+        previous=payload.previous,
+    )
+
+
 class GateOverrideRequest(BaseModel):
     project_root: Optional[str] = None
     project_name: Optional[str] = None

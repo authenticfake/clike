@@ -17,6 +17,7 @@ from typing import Optional
 from fastapi import HTTPException
 
 from services.cloud_prompt.active_output_contract import build_active_output_contract
+from services.kit_repair import repair_failures, repair_rules
 from services.cloud_prompt.canonical_validation import validate_current_canonical_core_blobs
 from services.cloud_prompt.methodology_prompt import (
     render_current_canonical_validation_for_cloud_prompt,
@@ -817,7 +818,6 @@ def _methodology_context_with_envelope_skills(
 
 _REPAIR_FILE_BUDGET = 16000      # chars per candidate file shown to the model
 _REPAIR_TOTAL_BUDGET = 160000    # chars for all candidate files
-_REPAIR_OUTPUT_TAIL = 4000       # chars of each failed check's output
 
 
 def _kit_repair_section(repair: dict, req_id: str) -> str:
@@ -830,17 +830,13 @@ def _kit_repair_section(repair: dict, req_id: str) -> str:
         "",
         "Rules:",
         "- Return ONLY the files you change, each complete in a BEGIN_FILE / END_FILE block. Files you do not return stay as they are.",
-        f"- Tests under runs/kit/{req_id}/test/ are locked acceptance criteria: make the code pass them; never edit, skip or weaken them. Exceptions: (a) you may remove an unused import from a test file when lint fails on it; (b) when a failed check shows the TEST itself is wrong (an error raised in the test file such as TypeError/AttributeError/NameError/ImportError from a wrong API call, import or fixture, not a failed assertion), fix the test, not the code: keep every test function, every assert and every pytest.raises/approx identical and add no skip/xfail.",
-        f"- runs/kit/{req_id}/ci/LTC.json: you may only fix the command of a check that cannot run (wrong path, module or flag). Never remove a check or make it non-blocking.",
-        f"- Vulnerable dependencies: upgrade the affected packages in runs/kit/{req_id}/ci/requirements.txt (or the ecosystem manifest) to current versions without known vulnerabilities.",
-        f"- A failure caused by the environment (network, missing system tool) is not fixed by changing code: explain it in runs/kit/{req_id}/docs/KIT_{req_id}.md.",
-        "- Fix the root cause in the source; do not special-case the tests.",
+        *(f"- {rule}" for rule in repair_rules(req_id)),
         "",
         "### Failed checks",
     ]
-    for item in repair.get("failures") or []:
-        name = str(item.get("name") or "check")
-        output = str(item.get("output") or "")[-_REPAIR_OUTPUT_TAIL:]
+    for item in repair_failures(repair):
+        name = item["name"]
+        output = item["output"]
         lines += [
             f"#### {name} (exit {item.get('code')})",
             f"command: {item.get('command') or ''}",

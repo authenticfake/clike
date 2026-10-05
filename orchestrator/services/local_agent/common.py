@@ -17,6 +17,7 @@ from services.methodologies.resolver import ensure_bmad_skill_context, resolve_m
 from utils.namespace_paths import (
     is_python_runtime_context,
 )
+from services.kit_repair import repair_failures, repair_rules
 from services.phase_definitions import phase_text
 
 
@@ -886,6 +887,27 @@ def _bmad_expected_outputs(
 def _kit_repair_context(req_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     kit_options = payload.get("kit") or {}
     repair = bool(isinstance(kit_options, dict) and kit_options.get("repair"))
+    request = kit_options.get("repair") if isinstance(kit_options, dict) else None
+    if isinstance(request, dict) and request:
+        # Auto-eval: the canonical eval runs in the sandbox, so its reports are not in the
+        # workspace; the failed checks travel in the package.
+        return {
+            "repair": True,
+            "auto_eval": {
+                "cycle": request.get("cycle"),
+                "max_cycles": request.get("max_cycles"),
+                "failed_checks": repair_failures(request),
+                "developer_hint": str(request.get("hint") or ""),
+                "rules": repair_rules(req_id),
+            },
+            "previous_eval_context_paths": [],
+            "guidance": (
+                "AUTO-EVAL REPAIR: the canonical eval failed with repair_context.auto_eval.failed_checks. "
+                "Fix their causes following repair_context.auto_eval.rules (and the developer hint), "
+                "change only what is needed, and run the failing commands yourself when possible "
+                "before finishing. Changes to test/ and ci/ outside the rules are rejected and restored."
+            ),
+        }
     paths = [
         f"runs/eval/{req_id}",
         f"runs/eval/{req_id}/reports",
