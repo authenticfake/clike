@@ -71,10 +71,13 @@ async function handleGate(argument, workspaceRoot, req_id, opts = { promote: fal
     const msg =
       `GATE ${status} — passed=${Number(res?.passed_count || res?.passed || 0)}, ` +
       `failed=${Number(res?.failed || 0)}, blocked=${Number(res?.blocked_count || 0)}` +
-      (reasonCode ? `, reason=${reasonCode}` : '');
+      (reasonCode ? `, reason=${reasonCode}` : '') +
+      (res?.review_required ? ' — REVIEW: auto-eval fixed a test of this REQ (see acceptance_amendments)' : '');
     if (status === 'FAIL') {
       vscode.window.showErrorMessage(`${msg} | profile=${profile}`);
     } else if (status === 'PASS_WITH_WARNINGS') {
+      vscode.window.showWarningMessage(`${msg} | profile=${profile}`);
+    } else if (res?.review_required) {
       vscode.window.showWarningMessage(`${msg} | profile=${profile}`);
     } else {
       vscode.window.showInformationMessage(`${msg} | profile=${profile}`);

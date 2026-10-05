@@ -2062,12 +2062,17 @@ def _apply_repair_governance(payload: Dict[str, Any], out: Dict[str, Any], req_i
         if root is None:
             result["rejected"] = {rel: ["no eval workspace: the acceptance surface cannot be amended"] for rel in changes}
         else:
+            evidence = "\n".join(
+                f"{f.get('name')}\n{f.get('output') or ''}" for f in (repair.get("failures") or []) if isinstance(f, dict)
+            )
             result = gate_integrity.amend_acceptance_surface(
-                root, req_id, changes, reason=f"auto-eval repair cycle {repair.get('cycle')}")
+                root, req_id, changes, reason=f"auto-eval repair cycle {repair.get('cycle')}", evidence=evidence)
         by_rel = {rel: content for rel, content in changes.items()}
         for rel in result.get("accepted") or []:
             kept.append({"path": prefix + rel, "content": by_rel[rel]})
             warnings.append(f"repair_amendment_accepted:{rel}")
+        for rel in result.get("test_fixes") or []:
+            warnings.append(f"repair_test_fixed_review_required:{rel}")
         for rel, issues in (result.get("rejected") or {}).items():
             warnings.append(f"repair_change_rejected:{rel}: {'; '.join(issues)}")
     out["files"] = kept

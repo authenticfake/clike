@@ -49,9 +49,16 @@ The repair prompt (cloud) and the orchestrator enforce the same rules:
 - **Source and docs** (`runs/kit/<REQ>/src/**`, `docs/**`): free to change. Only the changed files
   are returned; the others stay as they are.
 - **Tests** (`runs/kit/<REQ>/test/**`): **locked**. They are the acceptance criteria taken at the
-  first eval. Any change is rejected (`repair_change_rejected:...`) and never written. Single
-  exception: a Python test may drop unused imports (lint failures); the orchestrator verifies via
-  the AST that nothing else changed and no import was added, and audits the amendment.
+  first eval: the repair makes the code pass them. Other changes are rejected
+  (`repair_change_rejected:...`) and never written. Two exceptions, both checked by the
+  orchestrator on the AST and audited:
+  - *unused imports* (lint failures): a Python test may only drop imports;
+  - *the test itself is wrong*: when the eval shows an error raised **in the test file** that is
+    not a failed assertion (`TypeError`, `AttributeError`, `NameError`, `ImportError`, a missing
+    fixture — e.g. a wrong API call), the test is fixed, not the code. Every test function, every
+    `assert` and every `pytest.raises/warns/approx` must stay identical and no skip/xfail may be
+    added. The fix is reported as `repair_test_fixed_review_required:<file>` and the gate shows
+    `review_required: true` (VS Code: *REVIEW* in the gate message) so the developer checks it.
 - **`ci/LTC.json`**: only the *command* of a check that cannot run may be fixed (wrong path,
   module or flag). Removing a check, making it non-blocking or weakening it is rejected. Accepted
   changes are recorded as audited amendments of the acceptance lock

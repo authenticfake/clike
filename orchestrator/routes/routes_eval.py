@@ -14,7 +14,7 @@ import httpx
 
 from eval_runner import EvalCase, EvalReport, EvalRunner, report_from_dict
 from utils.safe_paths import UnsafePathError, is_within_any, resolve_within, validate_req_id
-from services.gate_integrity import allowed_eval_roots, compare_with_lock, ensure_lock, record_override
+from services.gate_integrity import allowed_eval_roots, compare_with_lock, ensure_lock, lock_amendments, record_override
 
 router = APIRouter()
 log = logging.getLogger("routes_eval")
@@ -728,6 +728,10 @@ def gate_check(
     warnings_accepted = effective_status == "PASS_WITH_WARNINGS" and not strict
     hard_gate = "PASS" if effective_status == "PASS" or warnings_accepted else "FAIL"
     regression_failures = [c.name for c in rep.cases if c.name.startswith("regression::") and not c.passed and c.blocking]
+    try:
+        amendments = lock_amendments(prj, req) if req else []
+    except Exception:
+        amendments = []
 
     reason_code = "GATE_PASS"
     if structural_blockers:
@@ -766,6 +770,8 @@ def gate_check(
         "executor": executor,
         "regression": bool(args.regression),
         "regression_failures": regression_failures,
+        "acceptance_amendments": amendments,
+        "review_required": any(a.get("review_required") for a in amendments),
         "strict_warnings": strict,
         "cases": [_case_payload(c) for c in rep.cases],
     }

@@ -18,7 +18,10 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   real failures → eval, up to `clike.autoEval.maxCycles` (default 2); rerunnable with a developer
   hint; `clike.autoEval.afterKit` runs it after `/kit`. Tests stay locked; an LTC command that
   cannot run and `ci/` dependency upgrades are accepted as audited amendments of the acceptance
-  lock. API: `kit.repair` object on `/v1/harper/run`; benchmark `--auto-eval N`.
+  lock. When the eval shows that a test itself is wrong (an error raised in the test file, not a
+  failed assertion), the test is fixed instead of the code, with every assertion unchanged; the
+  gate reports `review_required`. API: `kit.repair` object on `/v1/harper/run`; benchmark
+  `--auto-eval N`.
 - **Regression of promoted REQs**: `/v1/eval/run` and `/v1/gate/check` accept `regression: true`
   (extension: `clike.eval.regression`, default on) and re-run the acceptance checks of every promoted
   REQ (plan status `done`) against the new code; the gate reports

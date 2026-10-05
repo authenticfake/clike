@@ -249,6 +249,43 @@ class GateIntegrityTests(unittest.TestCase):
         (self.kit / "test" / "test_app.py").write_text("import sys\n" + TEST_PY)
         self.assertEqual(self._anomaly_kinds(self._eval()), set())
 
+    def test_a_test_shown_wrong_by_the_eval_is_fixed_with_its_assertions_unchanged(self):
+        from services import gate_integrity
+
+        broken = (
+            "import pytest\n\n"
+            "def test_delete(client):\n"
+            "    response = client.delete('/x', content='{}')\n"
+            "    assert response.status_code == 405\n"
+            "    with pytest.raises(ValueError):\n"
+            "        int('x')\n"
+        )
+        (self.kit / "test" / "test_api.py").write_text(broken)
+        self._eval()
+        fixed = broken.replace("client.delete('/x', content='{}')", "client.request('DELETE', '/x', content='{}')")
+        evidence = "FAILED test/test_api.py::test_delete\ntest/test_api.py:4: TypeError"
+        amend = gate_integrity.amend_acceptance_surface
+
+        cases = {
+            "no evidence of a test error": (fixed, "test/test_api.py:4: AssertionError", "does not show an error"),
+            "assertion weakened": (fixed.replace("== 405", "in (200, 405)"), evidence, "assertion identical"),
+            "raises loosened": (fixed.replace("ValueError", "Exception"), evidence, "assertion identical"),
+            "skip added": (fixed.replace("def test_delete", "@pytest.mark.skip\ndef test_delete"), evidence, "skip"),
+        }
+        for label, (content, proof, issue) in cases.items():
+            with self.subTest(label):
+                result = amend(self.proj, REQ, {"test/test_api.py": content}, reason="r", evidence=proof)
+                self.assertEqual(result["accepted"], [])
+                self.assertIn(issue, result["rejected"]["test/test_api.py"][0])
+
+        result = amend(self.proj, REQ, {"test/test_api.py": fixed}, reason="r", evidence=evidence)
+        self.assertEqual((result["accepted"], result["test_fixes"]), (["test/test_api.py"], ["test/test_api.py"]))
+
+        (self.kit / "test" / "test_api.py").write_text(fixed)
+        gate = self._gate().json()
+        self.assertTrue(gate["review_required"])
+        self.assertEqual(gate["acceptance_amendments"][-1]["kinds"], {"test/test_api.py": "test_fix"})
+
     def test_repair_can_upgrade_ci_requirements(self):
         from services import gate_integrity
 
