@@ -69,6 +69,8 @@ from services import gate_integrity
 log = logging.getLogger("service.router")
 
 _KIT_PHASE_SEQUENCE: List[str] = [
+    # acceptance-first KIT: tests + eval profile from SPEC/PLAN, locked before any code
+    "acceptance",
     "kit",
     "integrity_eval",
     "promotion_hardener",
@@ -227,6 +229,9 @@ def _normalize_requested_kit_phases(kit_options: Dict[str, Any]) -> List[str]:
 
     if not normalized:
         return ["kit"]
+
+    if "acceptance" in seen and len(seen) > 1:
+        raise ValueError("The /kit 'acceptance' stage runs alone: lock its tests, then run the code KIT.")
 
     # Always execute in canonical order, regardless of input order.
     ordered = [p for p in _KIT_PHASE_SEQUENCE if p in seen]
@@ -2041,9 +2046,51 @@ def _kit_repair(payload: Dict[str, Any]) -> Dict[str, Any]:
     return repair if isinstance(repair, dict) and repair else {}
 
 
+def _kit_acceptance_first(payload: Dict[str, Any]) -> bool:
+    """Code-only KIT of the acceptance-first flow: its tests and eval profile are already locked."""
+    kit = payload.get("kit") or {}
+    phases = [str(p).lower() for p in (kit.get("phases") or [])]
+    return bool(isinstance(kit, dict) and kit.get("acceptance_first")) and "acceptance" not in phases
+
+
+# Outputs of the acceptance stage: the acceptance surface plus its traceability document.
+def _acceptance_stage_files(files: List[Dict[str, Any]], req_id: str, warnings: List[str]) -> List[Dict[str, Any]]:
+    prefix = f"runs/kit/{req_id}/"
+    kept = []
+    for item in _filter_req_stage_files(files, req_id):
+        rel = str(item.get("path") or "")[len(prefix):]
+        if rel.startswith(("test/", "ci/")) or rel == f"docs/ACCEPTANCE_{req_id}.md":
+            kept.append(item)
+        else:
+            warnings.append(f"acceptance_stage_output_dropped:{rel}")
+    return kept
+
+
+def _locked_acceptance_files(payload: Dict[str, Any], req_id: str) -> List[Dict[str, Any]]:
+    """The locked test/ and ci/ files of the REQ, read from the workspace (read-only)."""
+    root = _acceptance_project_root(payload)
+    if root is None:
+        return []
+    kit_root = root / "runs" / "kit" / validate_req_id(req_id)
+    files = []
+    for sub in ("test", "ci"):
+        base = kit_root / sub
+        if not base.is_dir():
+            continue
+        for path in sorted(base.rglob("*")):
+            if not path.is_file() or "__pycache__" in path.parts or path.stat().st_size > 200_000:
+                continue
+            try:
+                content = path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            files.append({"path": f"runs/kit/{req_id}/{path.relative_to(kit_root).as_posix()}", "content": content})
+    return files
+
+
 def _apply_repair_governance(payload: Dict[str, Any], out: Dict[str, Any], req_id: str) -> None:
-    """Auto-eval repair output: source/docs pass through; acceptance-surface changes (ci/, test/)
-    are accepted only as audited, non-weakening amendments of the lock (test/ never)."""
+    """Auto-eval repair or acceptance-first code KIT: source/docs pass through; acceptance-surface
+    changes (ci/, test/) are accepted only as audited, non-weakening amendments of the lock."""
     repair = _kit_repair(payload)
     prefix = f"runs/kit/{req_id}/"
     kept: List[Dict[str, Any]] = []
@@ -2065,8 +2112,8 @@ def _apply_repair_governance(payload: Dict[str, Any], out: Dict[str, Any], req_i
             evidence = "\n".join(
                 f"{f.get('name')}\n{f.get('output') or ''}" for f in (repair.get("failures") or []) if isinstance(f, dict)
             )
-            result = gate_integrity.amend_acceptance_surface(
-                root, req_id, changes, reason=f"auto-eval repair cycle {repair.get('cycle')}", evidence=evidence)
+            reason = f"auto-eval repair cycle {repair.get('cycle')}" if repair else "acceptance-first code KIT"
+            result = gate_integrity.amend_acceptance_surface(root, req_id, changes, reason=reason, evidence=evidence)
         by_rel = {rel: content for rel, content in changes.items()}
         for rel in result.get("accepted") or []:
             kept.append({"path": prefix + rel, "content": by_rel[rel]})
@@ -2077,7 +2124,10 @@ def _apply_repair_governance(payload: Dict[str, Any], out: Dict[str, Any], req_i
             warnings.append(f"repair_change_rejected:{rel}: {'; '.join(issues)}")
     out["files"] = kept
     out["warnings"] = warnings
-    out["repair"] = {"cycle": repair.get("cycle"), "amendments": result}
+    if repair:
+        out["repair"] = {"cycle": repair.get("cycle"), "amendments": result}
+    else:
+        out["acceptance_amendments"] = result
 
 
 def _acceptance_hook(payload: Dict[str, Any], phase: str, req_id: Optional[str]) -> None:
@@ -2286,8 +2336,9 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
 
         target_req_id = targets[0].strip()
         requested_kit_phases = _normalize_requested_kit_phases(kit)
-        # an auto-eval repair keeps the current KIT generation: the acceptance lock stays in force
-        if not _kit_repair(merged):
+        # an auto-eval repair and an acceptance-first code KIT keep the current KIT generation:
+        # the acceptance lock stays in force
+        if not _kit_repair(merged) and not _kit_acceptance_first(merged):
             _acceptance_hook(merged, "kit", target_req_id)
         core_blobs = _inject_server_discovered_companion_artifacts(
             merged=merged,
@@ -2724,7 +2775,8 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
 
     if phase == "kit" and target_req_id and execution_policy.get("selected") == "local_agent":
         selected_kit_phases = set(requested_kit_phases or ["kit"])
-        base_kit_only = selected_kit_phases == {"kit"}
+        # the acceptance-first stage 1 is a KIT package with test/ci/docs roots only
+        base_kit_only = selected_kit_phases in ({"kit"}, {"acceptance"})
 
         if base_kit_only:
             log.info(
@@ -2837,7 +2889,21 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
         log.warning("harper.routing failed (%s) → proceeding with provided model=%s", e, model_override)
 
     if phase == "kit" and target_req_id:
-        if "kit" in requested_kit_phases:
+        if requested_kit_phases == ["acceptance"]:
+            stage_payload = dict(merged)
+            stage_payload["phase"] = "acceptance"
+            stage_payload["cmd"] = "acceptance"
+            out = await _post_phase_run(stage_payload)
+            out["phase"] = "kit"
+            stage_warnings = list(out.get("warnings") or [])
+            out["files"] = _acceptance_stage_files(out.get("files") or [], target_req_id, stage_warnings)
+            out["warnings"] = stage_warnings
+            out["acceptance_stage"] = True
+        elif "kit" in requested_kit_phases:
+            if _kit_acceptance_first(merged):
+                locked = _locked_acceptance_files(merged, target_req_id)
+                merged["core_blobs"] = _inject_candidate_blobs(merged.get("core_blobs") or {}, locked)
+                merged["kit"] = {**(merged.get("kit") or {}), "locked_acceptance_files": [f["path"] for f in locked]}
             out = await _post_phase_run(merged)
         else:
             existing_candidate_artifacts = _load_existing_req_candidate_artifacts(target_req_id)
@@ -3185,7 +3251,7 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
             out["promotion_eval_applied"] = False
             out["promotion_eval_file_count"] = 0
             out["promotion_eval_status"] = "not_requested"
-        if _kit_repair(merged):
+        if _kit_repair(merged) or _kit_acceptance_first(merged):
             # guardrail files are part of the locked acceptance surface: not re-emitted by a repair
             _apply_repair_governance(merged, out, target_req_id)
         else:

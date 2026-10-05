@@ -86,6 +86,14 @@ async function postGateCheck(profile, workspaceRoot, req_id, options = {}) {
 
 
 
+/** Acceptance-first KIT: lock the REQ's freshly written tests and eval profile before the code. */
+async function postAcceptanceLock(workspaceRoot, reqId) {
+  return requestJson('POST', orchestratorUrl('/v1/acceptance/lock'), {
+    body: { project_root: asFsPath(workspaceRoot), project_name: getProjectNameFromWorkspace() || null, req_id: reqId },
+    timeoutMs: 60 * 1000,
+  });
+}
+
 /**
  * Auto-eval with a local agent: submit the acceptance files the repair changed (with their
  * previous content); the orchestrator accepts audited, non-weakening amendments only.
@@ -125,6 +133,7 @@ async function postGateOverride(workspaceRoot, reqId, reason, author) {
 
 module.exports = {
   postAcceptanceAmend,
+  postAcceptanceLock,
   postGateOverride,
   postEvalRun,
   postGateCheck,

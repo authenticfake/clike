@@ -17,7 +17,7 @@ from typing import Optional
 from fastapi import HTTPException
 
 from services.cloud_prompt.active_output_contract import build_active_output_contract
-from services.kit_repair import repair_failures, repair_rules
+from services.kit_repair import acceptance_first_code_section, acceptance_stage_section, repair_failures, repair_rules
 from services.cloud_prompt.canonical_validation import validate_current_canonical_core_blobs
 from services.cloud_prompt.methodology_prompt import (
     render_current_canonical_validation_for_cloud_prompt,
@@ -572,6 +572,8 @@ def _compose_system_messages(
         "spec": PROMPT_SPEC_SYSTEM_PATH,
         "plan": PROMPT_PLAN_SYSTEM_PATH,
         "kit": PROMPT_KIT_SYSTEM_PATH,
+        # acceptance-first stage 1 reuses the KIT rules for tests and LTC, restricted by its section
+        "acceptance": PROMPT_KIT_SYSTEM_PATH,
         "integrity_eval": PROMPT_INTEGRITY_EVAL_SYSTEM_PATH,
         "finalize": PROMPT_FINALIZE_SYSTEM_PATH,
         "extend": PROMPT_EXTEND_SYSTEM_PATH,
@@ -600,7 +602,7 @@ def _compose_system_messages(
     target_req_id = str((targets or [None])[0] or "").strip() or None
     kit_file_requirements = (
         _load_file_requirements_from_core_blobs(core_blobs)
-        if (phase or "").lower() == "kit"
+        if (phase or "").lower() in {"kit", "acceptance"}
         else None
     )
     active_output_contract = build_active_output_contract(
@@ -664,6 +666,14 @@ def _compose_system_messages(
             "SPEC.md",
         ),
         "kit": (
+            "SPEC.md",
+            "PLAN.md",
+            "plan.json",
+            "TECH_CONSTRAINTS.yaml",
+            "TARGET_CONTRACT.json",
+            "FILE_REQUIREMENTS.json",
+        ),
+        "acceptance": (
             "SPEC.md",
             "PLAN.md",
             "plan.json",
@@ -756,11 +766,11 @@ def _compose_system_messages(
         f"### Task\nProduce/Transform the {phase.upper()} output that strictly follows the Output contract.{suffix}"
     )
 
-    if (phase or "").lower() == "kit":
+    if (phase or "").lower() in {"kit", "acceptance"}:
         target_contract = _load_target_contract_from_core_blobs(core_blobs)
         acceptance = (target_contract or {}).get("acceptance") or []
         user = _build_kit_user_message(
-            phase=phase,
+            phase="kit",
             user=user,
             core_blobs=core_blobs,
             targets=targets,
@@ -890,4 +900,9 @@ def compose_phase_messages(payload: dict) -> list[dict]:
     repair = (kit or {}).get("repair") if isinstance(kit, dict) else None
     if phase.lower() == "kit" and isinstance(repair, dict) and repair and targets:
         messages[-1] = {**messages[-1], "content": messages[-1]["content"] + "\n\n" + _kit_repair_section(repair, str(targets[0]))}
+    if targets and phase.lower() == "acceptance":
+        messages[-1] = {**messages[-1], "content": messages[-1]["content"] + "\n\n" + acceptance_stage_section(str(targets[0]))}
+    elif targets and phase.lower() == "kit" and isinstance(kit, dict) and kit.get("acceptance_first"):
+        locked = list(kit.get("locked_acceptance_files") or [])
+        messages[-1] = {**messages[-1], "content": messages[-1]["content"] + "\n\n" + acceptance_first_code_section(str(targets[0]), locked)}
     return messages

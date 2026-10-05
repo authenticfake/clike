@@ -121,6 +121,10 @@ Normalized follow-up phase names currently used by the sources:
 - `promotion_hardener`
 - `promotion_eval`
 
+### `/kit <REQ-ID>` with `clike.kit.acceptanceFirst`
+Acceptance-first KIT: first the acceptance tests and eval profile (from SPEC/PLAN), locked; then
+the code against them. See `harper-workflow.md`.
+
 ### `/eval <REQ-ID>`
 Runs eval for the target REQ using candidate artifacts and `LTC.json`. With
 `clike.eval.regression` (default on) it also re-runs the acceptance checks of every

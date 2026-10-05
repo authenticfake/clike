@@ -7,13 +7,14 @@ Split out of services/local_agent_package.py (WP8.5); behaviour unchanged.
 from __future__ import annotations
 import json
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 from services.context_envelope import build_context_envelope
 from services.methodologies.active_output_contract import build_active_output_contract
 from utils.namespace_paths import (
     namespace_materialization_context,
 )
 
+from services.kit_repair import acceptance_first_code_rules, acceptance_stage_rules
 from services.local_agent.common import (
     _bmad_expected_outputs,
     _build_related_reqs,
@@ -121,6 +122,22 @@ def _render_agent_input_audit_md(
     for item in target_contract.get("acceptance") or []:
         lines.append(f"- {item}")
     return "\n".join(lines).strip() + "\n"
+
+
+def _kit_stage(req_id: str, payload: Dict[str, Any], repair_context: Dict[str, Any]) -> Tuple[str, str, List[str]]:
+    """Which KIT the agent runs: the acceptance-first stages, an auto-eval repair or a full KIT."""
+    kit_options = payload.get("kit") if isinstance(payload.get("kit"), dict) else {}
+    phases = [str(p).strip().lower() for p in (kit_options.get("phases") or [])]
+    if phases == ["acceptance"]:
+        return "acceptance", "ACCEPTANCE STAGE — tests first", acceptance_stage_rules(req_id)
+    if kit_options.get("acceptance_first"):
+        locked = [f"runs/kit/{req_id}/test/", f"runs/kit/{req_id}/ci/LTC.json"]
+        return "code_after_locked_acceptance", "ACCEPTANCE-FIRST — implement against the locked tests", [
+            *acceptance_first_code_rules(req_id), f"Locked: {', '.join(locked)} (already in the workspace)."]
+    auto_eval = repair_context.get("auto_eval") if isinstance(repair_context, dict) else None
+    if isinstance(auto_eval, dict):
+        return "repair", "AUTO-EVAL REPAIR (failed checks in repair_context.auto_eval)", list(auto_eval.get("rules") or [])
+    return "kit", "", []
 
 
 def build_kit_local_agent_package(
@@ -243,12 +260,15 @@ def build_kit_local_agent_package(
         context_envelope=context_envelope,
     )
     repair_context = _kit_repair_context(req_id, payload)
+    kit_stage, stage_title, stage_rules = _kit_stage(req_id, payload, repair_context)
     allowed_write_roots = [
         f"runs/kit/{req_id}/src",
         f"runs/kit/{req_id}/test",
         f"runs/kit/{req_id}/ci",
         f"runs/kit/{req_id}/docs",
     ]
+    if kit_stage == "acceptance":
+        allowed_write_roots = [root for root in allowed_write_roots if not root.endswith("/src")]
 
     forbidden_paths = [
         "src",
@@ -462,9 +482,10 @@ def build_kit_local_agent_package(
             **({"bmad": bmad_expected_outputs} if bmad_expected_outputs else {}),
         },
         "hard_rules": _text("package.hard_rules"),
+        **({"kit_stage": {"stage": kit_stage, "rules": stage_rules}} if stage_rules else {}),
     }
 
-    context["hard_rules"] = _dedupe_rules(context.get("hard_rules") or [])
+    context["hard_rules"] = _dedupe_rules([*stage_rules, *(context.get("hard_rules") or [])])
     context_json = json.dumps(context, indent=2, ensure_ascii=False)
 
     context_path = f"runs/kit/{req_id}/docs/AGENT_EXECUTION_CONTEXT.json"
@@ -477,6 +498,8 @@ def build_kit_local_agent_package(
         active_output_contract=active_output_contract,
         selected_capabilities=selected_capabilities,
         namespace_materialization=namespace_materialization,
+        stage_rules=stage_rules,
+        stage_title=stage_title,
     )
 
     return _package_envelope(

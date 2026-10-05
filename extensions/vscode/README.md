@@ -464,6 +464,7 @@ Current configuration keys exposed by the extension include:
 - `clike.gate.strictWarnings` — default `false`; warnings (failed non-blocking checks) block the gate
 - `clike.autoEval.maxCycles` — default `2`; repair cycles of `/eval REQ --fix`
 - `clike.autoEval.afterKit` — default `false`; run the auto-eval after every successful `/kit`
+- `clike.kit.acceptanceFirst` — default `false`; `/kit` first writes and locks the acceptance tests (from SPEC/PLAN), then the code against them
 
 ### Backend endpoints
 

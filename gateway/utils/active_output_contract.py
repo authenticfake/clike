@@ -16,6 +16,12 @@ NATIVE_CLOUD_REQUIRED_OUTPUTS: Dict[str, List[str]] = {
         "runs/kit/<REQ-ID>/ci/LTC.json",
         "runs/kit/<REQ-ID>/ci/HOWTO.md",
     ],
+    # Acceptance-first KIT, stage 1: tests and eval profile only (locked before any code).
+    "acceptance": [
+        "runs/kit/<REQ-ID>/ci/LTC.json",
+        "runs/kit/<REQ-ID>/ci/HOWTO.md",
+        "runs/kit/<REQ-ID>/docs/ACCEPTANCE_<REQ-ID>.md",
+    ],
     "finalize": [
         "README.md",
         "docs/harper/HOWTO_RUN.md",
@@ -35,6 +41,10 @@ NATIVE_CLOUD_OPTIONAL_OUTPUTS: Dict[str, List[str]] = {
         "runs/kit/<REQ-ID>/test/**",
         "runs/kit/<REQ-ID>/ci/**",
         "runs/kit/<REQ-ID>/docs/**",
+    ],
+    "acceptance": [
+        "runs/kit/<REQ-ID>/test/**",
+        "runs/kit/<REQ-ID>/ci/**",
     ],
     "finalize": [
         ".env.example",
@@ -157,6 +167,9 @@ def build_active_output_contract(
     methodology = "bmad" if context.get("methodology") == "bmad" and policy else "native_clike"
 
     file_requirement_outputs = _file_requirement_required_outputs(file_requirements)
+    if phase_name == "acceptance":
+        # the acceptance stage writes only the test and eval-profile requirements
+        file_requirement_outputs = [p for p in file_requirement_outputs if "/test/" in p or "/ci/" in p]
 
     if methodology == "bmad":
         companion_only = bool(policy.get("companion_only"))
@@ -172,14 +185,14 @@ def build_active_output_contract(
         forbidden = _dedupe([*native_forbidden, *_replace_req_id(list(policy.get("forbidden_outputs") or []), req_id)])
         required = _dedupe([*native_required, *file_requirement_outputs, *canonical, *mandatory])
         conflict_resolution = str(policy.get("conflict_resolution") or "canonical-wins")
-        strict_missing = phase_name in {"idea", "spec", "plan", "finalize", "kit"} and runner_name == "cloud"
+        strict_missing = phase_name in {"idea", "spec", "plan", "finalize", "kit", "acceptance"} and runner_name == "cloud"
     else:
         native_required = _replace_req_id(list(NATIVE_CLOUD_REQUIRED_OUTPUTS.get(phase_name) or []), req_id)
         required = _dedupe([*native_required, *file_requirement_outputs])
         optional = _replace_req_id(list(NATIVE_CLOUD_OPTIONAL_OUTPUTS.get(phase_name) or []), req_id)
         forbidden = list(NATIVE_FORBIDDEN_OUTPUTS.get(phase_name) or [])
         conflict_resolution = "native-clike-contract-wins"
-        strict_missing = phase_name in {"idea", "spec", "plan", "kit"} and runner_name == "cloud"
+        strict_missing = phase_name in {"idea", "spec", "plan", "kit", "acceptance"} and runner_name == "cloud"
 
     return {
         "phase": phase_name,

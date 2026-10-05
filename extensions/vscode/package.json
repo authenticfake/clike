@@ -196,6 +196,11 @@
           "default": false,
           "description": "After a successful /kit, run the auto-eval (/eval REQ --fix) automatically."
         },
+        "clike.kit.acceptanceFirst": {
+          "type": "boolean",
+          "default": false,
+          "description": "Acceptance-first KIT: /kit REQ first generates only the acceptance tests and eval profile from SPEC/PLAN and locks them, then a second call writes the code against those locked tests (tests are not written by the same call as the code)."
+        },
         "clike.chat.persistDir": {
           "type": "string",
           "default": ".clike/sessions",

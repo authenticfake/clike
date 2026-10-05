@@ -211,6 +211,7 @@ function validateLocalAgentRequiredOutputs({
   phase,
   reqId,
   artifacts,
+  kitStage = null,
 } = {}) {
   const artifactList = Array.isArray(artifacts) ? artifacts : [];
   const normalizedPhase = normalizePhase(phase);
@@ -280,11 +281,10 @@ function validateLocalAgentRequiredOutputs({
   }
 
   const req = normalizeReqId(reqId);
-  const requiredRoots = [
-    `runs/kit/${req}/src/`,
-    `runs/kit/${req}/test/`,
-    `runs/kit/${req}/ci/`,
-  ];
+  // Acceptance-first stage 1 writes the tests and the eval profile only.
+  const requiredRoots = kitStage === 'acceptance'
+    ? [`runs/kit/${req}/test/`, `runs/kit/${req}/ci/`]
+    : [`runs/kit/${req}/src/`, `runs/kit/${req}/test/`, `runs/kit/${req}/ci/`];
   const missingRoots = requiredRoots.filter((root) => !hasArtifactUnder(artifactList, root));
 
   if (missingRoots.length) {

@@ -14,7 +14,7 @@ const {
   generateServiceToken,
 } = require('./service-auth');
 const { validateLocalMcpRequest } = require('./mcp-request-guard');
-const { postAcceptanceAmend, postGateOverride } = require('./api');
+const { postAcceptanceAmend, postAcceptanceLock, postGateOverride } = require('./api');
 const { request: serviceRequest, orchestratorUrl, serviceBaseUrls } = require('./orchestrator-client');
 const { safeRelativePath, safeWorkspaceUri, resolveInsideWorkspace } = require('./safe-workspace');
 const {  handleGate, handleEval } = require('./commands/harper');
@@ -887,6 +887,7 @@ async function executeLocalAgentPackage({
   harperTimeout,
   panel,
   out,
+  kitStage = null,
 }) {
   const phaseForAgent = String(localAgentPackage?.phase || phase || '').trim().toLowerCase();
   const isFinalize = phaseForAgent === 'finalize';
@@ -1068,6 +1069,7 @@ async function executeLocalAgentPackage({
       phase: phaseForAgent,
       reqId: reqForAgent,
       artifacts: completeArtifacts.files,
+      kitStage,
     });
   }
 
@@ -1690,6 +1692,7 @@ function cfg() {
     harperTimeout: c.get('harperTimeout', 25),
     autoEvalMaxCycles: c.get('autoEval.maxCycles', 2),
     autoEvalAfterKit: c.get('autoEval.afterKit', false),
+    kitAcceptanceFirst: c.get('kit.acceptanceFirst', false),
     
     localAgentEnabled: c.get('localAgent.enabled', true),
     localAgentPreferredExecutor: c.get('localAgent.preferredExecutor', 'gpt_codex'),
@@ -3847,6 +3850,34 @@ async function cmdOpenChat(context) {
               ? msg.phases
               : null;
 
+            // Acceptance-first KIT (clike.kit.acceptanceFirst): the acceptance tests and the eval
+            // profile are generated and locked first; this /kit then writes the code against them.
+            if (!requestedKitPhases && !msg.acceptanceStage && !msg.autoEvalRepair && !msg.repair && cfg().kitAcceptanceFirst) {
+              const stageMsg = {
+                type: 'harperRun', cmd: 'kit', targets: [targetReqId], targetReqId,
+                attachments: msg.attachments || [], phases: ['acceptance'], acceptanceStage: true,
+              };
+              panel.webview.postMessage({ type: 'echo', message: `▶ ACCEPTANCE-FIRST ${targetReqId} — stage 1/2: acceptance tests and eval profile` });
+              await handleWebviewMessage(stageMsg);
+              if (stageMsg.__result !== 'ok') {
+                panel.webview.postMessage({ type: 'error', message: `ACCEPTANCE-FIRST ${targetReqId}: the acceptance stage failed; the code KIT was not run.` });
+                panel.webview.postMessage({ type: 'busy', on: false, force: true });
+                return;
+              }
+              try {
+                const lock = await postAcceptanceLock(wsroot, targetReqId);
+                panel.webview.postMessage({ type: 'echo', message: `🔒 ${targetReqId}: ${lock?.files ?? 0} acceptance files locked before the code` });
+              } catch (err) {
+                panel.webview.postMessage({ type: 'error', message: `ACCEPTANCE-FIRST ${targetReqId}: lock failed: ${err?.message || err}` });
+                panel.webview.postMessage({ type: 'busy', on: false, force: true });
+                return;
+              }
+              msg.acceptanceFirst = true;
+              msg.__acceptanceBefore = snapshotAcceptanceSurface(wsroot.fsPath, targetReqId);
+              panel.webview.postMessage({ type: 'echo', message: `▶ ACCEPTANCE-FIRST ${targetReqId} — stage 2/2: code against the locked tests` });
+              clikeHarperBlockingRun = true;
+            }
+
             if (requestedKitPhases && requestedKitPhases.length) {
               const normalizedPhases = requestedKitPhases
                 .map(p => String(p || '').trim().toLowerCase())
@@ -3893,7 +3924,8 @@ async function cmdOpenChat(context) {
             payload["kit"] = {
               targets: [targetReqId],
               ...(requestedKitPhases ? { phases: requestedKitPhases } : {}),
-              ...(msg.autoEvalRepair ? { repair: msg.autoEvalRepair } : (msg.repair ? { repair: true } : {}))
+              ...(msg.autoEvalRepair ? { repair: msg.autoEvalRepair } : (msg.repair ? { repair: true } : {})),
+              ...(msg.acceptanceFirst ? { acceptance_first: true } : {})
             };
           }
           //log(`[harperRun] payload (gen):`,  JSON.stringify(payload.gen));
@@ -4087,6 +4119,7 @@ async function cmdOpenChat(context) {
                 harperTimeout,
                 panel,
                 out,
+                kitStage: msg.acceptanceStage ? 'acceptance' : null,
               });
             } catch (err) {
               const failMsg = `[harperRun][agent] ${err?.message || String(err)}`;
@@ -4317,7 +4350,11 @@ async function cmdOpenChat(context) {
             panel.webview.postMessage({ type: 'error', message: formatHarperError(_out) });
           }
           msg.__result = 'ok';
-          if (phase === 'kit' && !msg.autoEvalRepair && targetReqId && cfg().autoEvalAfterKit) {
+          if (phase === 'kit' && msg.acceptanceFirst && msg.__acceptanceBefore) {
+            // a local agent may have touched the locked tests: govern and restore
+            await governAcceptanceChanges(targetReqId, msg.__acceptanceBefore, [], 0);
+          }
+          if (phase === 'kit' && !msg.autoEvalRepair && !msg.acceptanceStage && targetReqId && cfg().autoEvalAfterKit) {
             panel.webview.postMessage({ type: 'echo', message: `↻ AUTO-EVAL ${targetReqId} (clike.autoEval.afterKit)` });
             clikeHarperBlockingRun = false;
             await handleWebviewMessage({

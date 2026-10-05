@@ -279,7 +279,8 @@ def _stack_compliance(root: Path, req: str, constraints: Optional[str]) -> Optio
 
 
 def run_project(client: Client, project: Dict[str, Any], model: str, max_reqs: int, ws_root: Path, stamp: str,
-                runner: str = "cloud", executor: str = "claude_code", agent_model: str = "", auto_eval: int = 0) -> Dict[str, Any]:
+                runner: str = "cloud", executor: str = "claude_code", agent_model: str = "", auto_eval: int = 0,
+                acceptance_first: bool = False) -> Dict[str, Any]:
     name = project["name"]
     idea_full = (REPO / project["idea"]).read_text(encoding="utf-8")
     root = prepare_workspace(ws_root / name, idea_full)
@@ -319,9 +320,24 @@ def run_project(client: Client, project: Dict[str, Any], model: str, max_reqs: i
         return res
     res["plan_reqs"] = len(reqs)
     for req in reqs[:max_reqs]:
-        kit = step("kit", {"kit": {"targets": [req]}, "todo_ids": [req], "rag_strategy": "deps_only"},
-                   ["IDEA.md", "SPEC.md", "PLAN.md", "plan.json", *tc])
+        kit_core = ["IDEA.md", "SPEC.md", "PLAN.md", "plan.json", *tc]
+        acceptance = None
+        if acceptance_first:
+            # as the extension with clike.kit.acceptanceFirst: tests first, locked, then the code
+            acceptance = step("kit", {"kit": {"targets": [req], "phases": ["acceptance"]}, "todo_ids": [req],
+                                      "rag_strategy": "deps_only"}, kit_core)
+            if not (acceptance.get("ok") and acceptance["written"]):
+                res["reqs"].append({"req": req, "acceptance_status": acceptance["status"], "kit_ok": False, "kit_files": 0,
+                                    "stack_compliant": None})
+                continue
+            client.http.post(f"{ORCH}/v1/acceptance/lock", json={"project_root": str(root), "project_name": name, "req_id": req})
+            locked_before = _acceptance_snapshot(root, req)
+        kit = step("kit", {"kit": {"targets": [req], **({"acceptance_first": True} if acceptance_first else {})},
+                           "todo_ids": [req], "rag_strategy": "deps_only"}, kit_core)
+        if acceptance_first:
+            governance = _govern_acceptance(client, root, name, req, locked_before, [], 0)
         entry = {"req": req, "kit_status": kit["status"], "kit_ok": kit.get("ok"), "kit_files": len(kit["written"]),
+                 **({"acceptance_files": len(acceptance["written"]), "acceptance_governance": governance} if acceptance_first else {}),
                  # only meaningful when the KIT was accepted and written
                  "stack_compliant": _stack_compliance(root, req, constraints) if kit.get("ok") and kit["written"] else None}
         if kit.get("ok") and kit["written"]:
@@ -478,6 +494,8 @@ def main() -> None:
                     help="cloud: model via the gateway API; agent: local CLI agent in the workspace (like Execution = agent)")
     ap.add_argument("--executor", choices=["claude_code", "gpt_codex"], default="claude_code")
     ap.add_argument("--auto-eval", type=int, default=0, help="KIT repair cycles after a failed eval (roadmap §3)")
+    ap.add_argument("--acceptance-first", action="store_true",
+                    help="KIT in two calls: acceptance tests + eval profile first (locked), then the code")
     ap.add_argument("--agent-model", default="", help="model passed to the agent CLI (--model); empty = CLI default")
     ap.add_argument("--resummarize", default="", help="rebuild SUMMARY.md from an existing results directory (no calls)")
     args = ap.parse_args()
@@ -507,7 +525,7 @@ def main() -> None:
         print(f"== {p['name']} ({p['complexity']})", flush=True)
         results.append(run_project(client, p, args.model, args.max_reqs, ws_root, stamp,
                                    runner=args.runner, executor=args.executor, agent_model=args.agent_model,
-                                   auto_eval=args.auto_eval))
+                                   auto_eval=args.auto_eval, acceptance_first=args.acceptance_first))
     label = args.model if args.runner == "cloud" else f"agent:{args.executor}{(':' + args.agent_model) if args.agent_model else ''}"
     summary = summarize(results, label)
     out_dir = REPO / "benchmark" / "results" / stamp

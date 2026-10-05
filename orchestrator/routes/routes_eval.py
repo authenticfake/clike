@@ -777,6 +777,25 @@ def gate_check(
     }
 
 
+class AcceptanceLockRequest(BaseModel):
+    project_root: Optional[str] = None
+    project_name: Optional[str] = None
+    req_id: str
+
+
+@router.post("/v1/acceptance/lock")
+def acceptance_lock(payload: AcceptanceLockRequest):
+    """Acceptance-first KIT: lock the tests and eval profile written by the acceptance stage (the
+    stage started a new KIT generation) before the code KIT runs."""
+    prj = _confined_project_root(payload.project_root, payload.project_name)
+    try:
+        req = validate_req_id(payload.req_id)
+    except UnsafePathError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    lock = ensure_lock(prj, req)
+    return {"req_id": req, "files": len(lock.get("files") or {}), "digest": lock.get("digest"), "generation": lock.get("generation")}
+
+
 class AcceptanceAmendRequest(BaseModel):
     project_root: Optional[str] = None
     project_name: Optional[str] = None

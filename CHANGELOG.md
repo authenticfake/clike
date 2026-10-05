@@ -10,6 +10,11 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   repair rules; the acceptance files the agent changed are governed through
   `POST /v1/acceptance/amend` and the extension restores what is rejected. Benchmark
   `--runner agent --auto-eval N`.
+- **Acceptance-first KIT** (`clike.kit.acceptanceFirst`, opt-in): `/kit` first generates only the
+  acceptance tests and eval profile from SPEC/PLAN and locks them (`POST /v1/acceptance/lock`),
+  then the code KIT writes the implementation against the locked tests (cloud and local agents;
+  benchmark `--acceptance-first`). Addresses the known limitation that criteria and code came
+  from the same call.
 - Local-agent telemetry: usage, API-equivalent cost, model and duration of Claude Code / Codex
   runs, in `.clike/telemetry` and in the gateway portal (`POST /v1/harper/telemetry`).
 

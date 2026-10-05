@@ -39,6 +39,8 @@ class HarperKitOptions(BaseModel):
     phases: Optional[List[str]] = Field(default=None)
     # True: local-agent BMAD repair pass; dict: auto-eval repair request (cycle, failures, files, hint)
     repair: Optional[Union[bool, Dict[str, Any]]] = Field(default=None)
+    # Code-only KIT after the acceptance stage (kit.phases=["acceptance"]): tests/LTC are locked.
+    acceptance_first: Optional[bool] = Field(default=None)
     batch: Optional[int] = Field(default=None, ge=1)
     req_ids: Optional[List[str]] = Field(default=None)  # backward-compat alias
     rescope: Optional[bool] = Field(default=False)

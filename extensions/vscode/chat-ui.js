@@ -495,6 +495,7 @@ var HELP_COMMANDS = [
   {cmd:'/extend [REQ-ID] "<title>" | --after REQ-ID [--from attachment]', desc:'Appends new REQs to PLAN.md/plan.json without modifying consolidated REQs'},
   {cmd:'/add-req', desc:'Alias for /extend'},
   {cmd:'/kit [REQ-ID] [--integrity|--hardener|--promotion-eval|--phases=...]', desc:'Runs base KIT by default, or explicit follow-up KIT phases on an existing/generated candidate'},
+  {cmd:'/kit <REQ-ID> (clike.kit.acceptanceFirst)', desc:'Acceptance-first: tests and eval profile from SPEC/PLAN written and locked first, then the code against them'},
   {cmd:'/kit REQ-001 --repair --methodology bmad --agent developer', desc:'Runs a governed BMAD developer repair pass inside KIT candidate roots'},
   {cmd:'/eval <REQ-ID>', desc:'Runs the REQ acceptance checks (LTC) in the eval sandbox; with clike.eval.regression also the checks of the promoted REQs'},
   {cmd:'/eval <REQ-ID> --fix ["hint"]', desc:'Auto-eval: eval, then on failure a KIT repair from the real failures, then eval again (max clike.autoEval.maxCycles, default 2). Tests stay locked. Re-run it to continue; the optional hint guides the fix'},

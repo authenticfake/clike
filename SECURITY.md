@@ -36,9 +36,9 @@ on a network or shared between users.
   network egress (needed for dependency installs) and can read the projects directory; use the
   offline mode to remove egress. The sandbox is long-lived (fresh working directories per run,
   not a fresh container per run).
-- **Acceptance criteria and implementation come from the same KIT phase.** The lock prevents later
-  tampering, but criteria are still authored together with the implementation; deriving them from
-  SPEC/PLAN before KIT is on the roadmap.
+- **Acceptance criteria and implementation come from the same KIT phase by default.** The lock
+  prevents later tampering. With `clike.kit.acceptanceFirst` the tests are derived from SPEC/PLAN
+  and locked by a separate call before the implementation exists.
 - **Local agents** run with the permissions of the developer's CLI session; CLike constrains them
   through the phase contract and post-run validation, not through an OS sandbox.
 
