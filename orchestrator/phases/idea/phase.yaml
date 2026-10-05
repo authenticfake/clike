@@ -47,7 +47,6 @@ local_agent:
   - '- `# IDEA — <Project Name>` as the first line.'
   - '- ## Vision'
   - '- ## Problem Statement'
-  - '- ## List of business requirements or user stories'
   - '- ## Target Users & Context'
   - '- ## Value & Outcomes'
   - '- ## Out of Scope'
