@@ -41,6 +41,7 @@ class SandboxRunRequest(BaseModel):
     mode: str = "auto"
     verdict: Optional[str] = None
     req_id: Optional[str] = None
+    regression: bool = False
 
 
 @app.get("/health")
@@ -71,6 +72,7 @@ def run(req: SandboxRunRequest):
 
     log.info("run project=%s profile=%s req=%s mode=%s", prj.name, profile_path.name, req.req_id, req.mode)
     rep = EvalRunner(prj).run_profile(
-        profile=str(profile_path), ltc=ltc, mode=req.mode or "auto", verdict=req.verdict, req_id=req.req_id
+        profile=str(profile_path), ltc=ltc, mode=req.mode or "auto", verdict=req.verdict, req_id=req.req_id,
+        regression=req.regression,
     )
     return report_to_dict(rep)
