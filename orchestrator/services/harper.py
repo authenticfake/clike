@@ -1783,11 +1783,19 @@ def _filter_core_blobs_for_target_req(
         "REPO_COMPOSITION_MANIFEST.md",
         "CLIKE_CAPABILITY_MANIFEST.md",
         "CLIKE_CAPABILITY_INDEX.json",
+        # B4: the selected capability context must reach the KIT follow-up stages too
+        "CLIKE_SELECTED_CAPABILITY_CONTEXT.md",
+        "CLIKE_SELECTED_CAPABILITY_CONTEXT.json",
     }
 
     for raw_name, value in core_blobs.items():
         name = str(raw_name or "").strip()
         lname = name.lower()
+
+        # B3: lane guides carry the lane policy read for this REQ; they used to be dropped here
+        if "lane-guides/" in lname and lname.endswith(".md"):
+            kept[name] = value
+            continue
 
         if (
             lname.startswith("companion::docs/harper/bmad/")
