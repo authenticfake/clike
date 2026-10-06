@@ -19,6 +19,9 @@ test('codex: read-only outside coding, resume keeps the sandbox as config', () =
   assert.deepEqual(buildAgentChatArgs({ executorId: 'gpt_codex', mode: 'coding', session: { id: 't1', started: true } }),
     ['exec', 'resume', 't1', '-', '--json', '-c', 'sandbox_mode="workspace-write"', '--skip-git-repo-check']);
   assert.equal(sessionKey('Harper', 'gpt_codex'), 'harper:gpt_codex');
+  // Harper free text may write under the generated root, like Coding
+  assert.ok(buildAgentChatArgs({ executorId: 'gpt_codex', mode: 'harper' }).includes('workspace-write'));
+  assert.ok(buildAgentChatArgs({ executorId: 'claude_code', mode: 'harper', approvals: true }).includes('default'));
 });
 
 test('claude stream events become session, text deltas, tools and the result', () => {

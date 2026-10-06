@@ -474,6 +474,19 @@ _CODING_LOCAL_SYSTEM = (
 )
 
 
+# Harper free text with an agent: a conversation that may also create files, only under the
+# generated root (the Harper artifacts stay owned by the phase commands).
+_HARPER_LOCAL_SYSTEM = (
+    "You are CLike, an expert engineer running locally inside the user's Harper project. "
+    "Answer the user's questions. When the user asks you to create or change files (code, "
+    "documentation, scripts, images, etc.), write them as real files under the directory "
+    "'{output_root}/' (create it and any subdirectories as needed). Do not modify files outside "
+    "'{output_root}/': the Harper artifacts (docs/harper, runs/, plan.json, sources of promoted "
+    "REQs) are changed only through the CLike phase commands (/spec, /plan, /kit, /eval, /gate), "
+    "which you may suggest. When you created files, end with a short plain-text list of them."
+)
+
+
 def _execution_requests_local(value: Any) -> bool:
     return normalize_execution_preference(value) in _LOCAL_EXEC_PREFS
 
@@ -628,8 +641,20 @@ async def chat( req: Request):
     # Local free (Q&A): hand the assembled prompt to the extension, which runs
     # the codex/claude CLI read-only and renders the answer in chat.
     if local_requested:
-        prompt = _flatten_msgs_to_prompt(_agent_turn_messages(msgs, body))
         run_id = str(body.get("runId") or _short_id(8))
+        if str(body.get("mode") or "").strip().lower() == "harper":
+            output_root = f"generated/{_short_id(8)}"
+            harper_sys = {"role": "system", "content": _HARPER_LOCAL_SYSTEM.format(output_root=output_root)}
+            prompt = _flatten_msgs_to_prompt(_agent_turn_messages([harper_sys] + msgs, body))
+            log.info("chat local-execution package: mode=harper run=%s root=%s executor=%s", run_id, output_root, body.get("localAgentExecutor"))
+            return _local_execution_package(
+                mode="harper",
+                prompt=prompt,
+                executor_hint=body.get("localAgentExecutor"),
+                run_id=run_id,
+                output_root=output_root,
+            )
+        prompt = _flatten_msgs_to_prompt(_agent_turn_messages(msgs, body))
         log.info("chat local-execution package: mode=free run=%s executor=%s", run_id, body.get("localAgentExecutor"))
         return _local_execution_package(
             mode="free",

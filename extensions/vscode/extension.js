@@ -1234,8 +1234,10 @@ async function runLocalChatAgent({ pkg, executorId, settings, wsrootUri, out, se
     if (typeof onEvent === 'function') onEvent(event);
   };
 
-  // Coding with approvals: each edit/command of the agent is asked (agent-approvals.js).
-  const approvals = mode === 'coding' && settings.agentChatApprovals === 'ask' && typeof askApproval === 'function';
+  // With approvals each edit/command of the agent is asked (agent-approvals.js).
+  // Coding and Harper write under pkg.output_root; Free stays read-only.
+  const writable = (mode === 'coding' || mode === 'harper') && !!pkg.output_root;
+  const approvals = writable && settings.agentChatApprovals === 'ask' && typeof askApproval === 'function';
   let approvalServer = null;
   let codexTurn = null;
   let argsBeforePrompt = buildAgentChatArgs({
@@ -1330,8 +1332,17 @@ async function runLocalChatAgent({ pkg, executorId, settings, wsrootUri, out, se
     return { mode, badge, model: usedModel, synthesis, stdout, sessionId, files: paths.map(p => ({ path: p })) };
   }
 
-  // free (Q&A): with --output-format json the answer text is in `.result`.
+  // free (Q&A) and harper: the answer text; harper also lists the files it wrote.
   const answer = String((streamResult && streamResult.text) || parser.text() || '').trim();
+  const harperFiles = mode === 'harper' && pkg.output_root ? await collectGeneratedFilePaths(wsrootUri, pkg.output_root) : [];
+  if (mode === 'harper' && (answer || harperFiles.length)) {
+    const where = harperFiles.length ? `, wrote ${harperFiles.length} file(s) under ${pkg.output_root}/` : '';
+    const synthesis = `${executorLabel} answered locally${usedModel ? ` using ${usedModel}` : ''}${where} (exit=${agentResult.exitCode}).`;
+    return {
+      mode, badge, model: usedModel, answer: answer || synthesis, synthesis, stdout, sessionId,
+      files: harperFiles.map(p => ({ path: p })),
+    };
+  }
   if (!answer) {
     const blocked = classifyBlockedLocalAgentOutput({ stdout, stderr });
     if (blocked) throw new Error(`${blocked.code}: ${blocked.message}`);
@@ -5619,6 +5630,9 @@ async function cmdOpenChat(context) {
                 await appendSessionJSONL(activeMode, { role: 'assistant', content: localOut.answer, model: activeModel, agentModel: localOut.model || '' });
                 panel.webview.postMessage({ type: 'chatResult', data: { model: liveBadge, text: localOut.answer } });
                 panel.webview.postMessage({ type: 'text', text: localOut.synthesis });
+                if (Array.isArray(localOut.files) && localOut.files.length) {
+                  panel.webview.postMessage({ type: 'files', data: localOut.files, activate: true });
+                }
               }
             } catch (e) {
               panel.webview.postMessage({ type: 'error', message: String(e?.message || e) });
