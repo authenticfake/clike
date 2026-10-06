@@ -28,12 +28,12 @@ function createApprovalGate({ ask, workspaceRoot, writeRoot, onEvent = null }) {
   let allowAll = false;
   const emit = (label) => { if (typeof onEvent === 'function') onEvent({ kind: 'tool', label }); };
   // paths are shown relative to the project
-  const shorten = (text) => (workspaceRoot ? String(text || '').split(workspaceRoot + path.sep).join('') : String(text || ''));
+  const shorten = (text) => (workspaceRoot ? String(text || '').split(workspaceRoot + path.sep).join('') : String(text || '')).split(path.sep).join('/');
   async function check(request) {
     const paths = Array.isArray(request.paths) ? request.paths.filter(Boolean) : [];
     const outside = writeRoot ? paths.filter((p) => !isUnder(writeRoot, path.resolve(workspaceRoot || writeRoot, p))) : [];
     if (outside.length) {
-      const where = path.relative(workspaceRoot || '', writeRoot) || writeRoot;
+      const where = (path.relative(workspaceRoot || '', writeRoot) || writeRoot).split(path.sep).join('/');
       return { allow: false, auto: true, reason: `CLike Coding mode writes only under ${where}/ (blocked: ${outside.map(shorten).join(', ')})` };
     }
     if (allowAll) return { allow: true, auto: true, reason: 'allowed for this turn' };
