@@ -66,7 +66,7 @@ The extension checks:
 ### Model of the local agent
 - `clike.claudeCode.model` (default `opus`) and `clike.localAgent.codex.model` are passed as
   `--model` to every run, chat and Harper phases alike.
-- From the chat, in any mode: `/agent-model` shows the models in use;
+- From the chat, in any mode: `/agent-model` shows the execution preference, the default agent and the models in use;
   `/agent-model claude sonnet` (or `opus`, `haiku`, an exact id) and
   `/agent-model codex <model-id>` change them (workspace settings).
 - `/agent-default claude|codex|auto` chooses which agent runs.

@@ -3599,7 +3599,14 @@ async function cmdOpenChat(context) {
             const model = String(msg.agentModel || '').trim();
             let message;
             if (!agent) {
-              message = `ℹ Agent models — Claude Code: ${c.get('claudeCode.model', 'opus') || 'CLI default'} · Codex: ${c.get('localAgent.codex.model', 'gpt-5.5') || 'CLI default'}. Change with /agent-model claude|codex <model>.`;
+              const executor = normalizeLocalAgentExecutor(state.localAgentExecutor || getDefaultLocalAgentExecutor());
+              const executorLabel = executor === 'claude_code' ? 'Claude Code' : executor === 'gpt_codex' ? 'Codex' : 'auto';
+              const execution = normalizeExecutionPreference(state.executionPreference || getDefaultExecutionPreference());
+              message =
+                `ℹ Execution: ${execution} · default agent: ${executorLabel} (/agent-default) · ` +
+                `models — Claude Code: ${c.get('claudeCode.model', 'opus') || 'CLI default'}, ` +
+                `Codex: ${c.get('localAgent.codex.model', 'gpt-5.5') || 'CLI default'} (/agent-model claude|codex <model>). ` +
+                `Cloud model: ${state.model || 'auto'} (model selector).`;
             } else if (!keys[agent] || !model || !/^[A-Za-z0-9._:[\]-]+$/.test(model)) {
               message = '⚠ Usage: /agent-model [claude|codex] [model], e.g. /agent-model claude sonnet';
             } else {

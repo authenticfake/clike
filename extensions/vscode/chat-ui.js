@@ -504,7 +504,7 @@ var HELP_COMMANDS = [
   {cmd:'/plan --methodology bmad --agent architect', desc:'Plans with BMAD architecture guidance while CLike owns PLAN.md and plan.json'},
   {cmd:'/plan --methodology bmad --agent pm', desc:'Plans with BMAD product slicing and acceptance guidance'},
   {cmd:'/spec --methodology bmad --agent ux', desc:'Builds SPEC guidance with UX journeys, states, and accessibility focus'},
-  {cmd:'/agent-model [claude|codex] [model]', desc:'Shows or sets the model of the local agent (claude: opus, sonnet, haiku or an exact id; codex: a model id). Applies to chat and Harper phases; saved in the workspace settings'},
+  {cmd:'/agent-model [claude|codex] [model]', desc:'Without arguments: shows the execution (cloud/agent), the default agent and the models in use. With arguments: sets the model of the local agent (claude: opus, sonnet, haiku or an exact id; codex: a model id). Applies to chat and Harper phases; saved in the workspace settings'},
   {cmd:'/agent-default codex|claude|auto', desc:'Sets the preferred local agent executor (works in Free, Coding and Harper; does not change mode)'},
   {cmd:'Settings (auto-eval)', desc:'clike.autoEval.maxCycles (2), clike.autoEval.afterKit, clike.eval.regression (on), clike.gate.strictWarnings, clike.kit.acceptanceFirst — see docs/auto-eval.md'},
   {cmd:'/finalize', desc:'Final gates and project closure (Harper)'},

@@ -42,6 +42,16 @@ class KitFormatTests(unittest.TestCase):
         self.assertEqual(changed, ["runs/kit/REQ-001/test/conftest.py"])
         self.assertEqual(fixed[0]["content"], "import os\n\nPATH = os.sep\n")
 
+    def test_any_language_gets_only_the_final_newline(self):
+        js = "export const f = () => `a  \n  b`;"  # trailing spaces inside a template literal stay
+        files = [{"path": "runs/kit/REQ-001/src/app.js", "content": js},
+                 {"path": "runs/kit/REQ-001/src/App.java", "content": "class App {}\n"},
+                 {"path": "runs/kit/REQ-001/test/data/expected.txt", "content": "exact bytes"}]
+        fixed, changed = autofix_kit_files(files, "REQ-001")
+        self.assertEqual(changed, ["runs/kit/REQ-001/src/app.js"])
+        self.assertEqual(fixed[0]["content"], js + "\n")
+        self.assertEqual(fixed[2]["content"], "exact bytes")  # data files are never touched
+
     def test_other_reqs_and_clean_files_are_untouched(self):
         files = [{"path": "runs/kit/REQ-002/test/test_x.py", "content": UNSORTED},
                  {"path": "runs/kit/REQ-001/src/app.py", "content": "VALUE = 1\n"}]
