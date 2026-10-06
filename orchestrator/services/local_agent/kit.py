@@ -613,7 +613,8 @@ def build_kit_local_agent_package(
                 _package_file(f"runs/kit/{req_id}/docs/FILE_REQUIREMENTS.json", json.dumps(file_requirements, indent=2, ensure_ascii=False), "application/json"),
                 # the copy the gate reads first: under ci/, i.e. in the locked acceptance surface
                 _package_file(f"runs/kit/{req_id}/ci/FILE_REQUIREMENTS.json", json.dumps(file_requirements, indent=2, ensure_ascii=False), "application/json"),
-                (
+                # flat list: the extension writes package_files one item at a time (B9)
+                *(
                     [
                         _package_file(f"runs/kit/{req_id}/docs/AGENT_INPUT_AUDIT.json", agent_input_audit_json, "application/json"),
                         _package_file(f"runs/kit/{req_id}/docs/AGENT_INPUT_AUDIT.md", agent_input_audit_md, "text/markdown"),

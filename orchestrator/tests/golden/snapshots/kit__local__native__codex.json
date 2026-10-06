@@ -117,7 +117,6 @@
           "mime": "application/json",
           "path": "runs/kit/REQ-001/ci/FILE_REQUIREMENTS.json"
         },
-        [],
         {
           "content": "",
           "encoding": "utf-8",
