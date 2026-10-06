@@ -589,7 +589,7 @@
         "path": "runs/kit/REQ-001/src/coffee/orders.py"
       },
       {
-        "content": "from coffee.orders import create_order\n\n\ndef test_create():\n    assert create_order('x')\n",
+        "content": "from coffee.orders import create_order\n\ndef test_create():\n    assert create_order('x')\n",
         "path": "runs/kit/REQ-001/test/test_orders.py"
       },
       {
@@ -630,8 +630,7 @@
     "warnings": [
       "execution_requested:cloud_only",
       "execution_selected:cloud",
-      "execution_reason:golden",
-      "kit_autofix:runs/kit/REQ-001/test/test_orders.py"
+      "execution_reason:golden"
     ]
   },
   "scenario": {
