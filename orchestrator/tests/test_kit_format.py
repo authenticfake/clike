@@ -20,7 +20,7 @@ def _body(source):
 
 
 class KitFormatTests(unittest.TestCase):
-    def test_import_order_unused_imports_and_whitespace_are_fixed_without_changing_the_code(self):
+    def test_unused_imports_and_whitespace_are_fixed_without_changing_the_code(self):
         files = [
             {"path": "runs/kit/REQ-001/test/test_load.py", "content": UNSORTED},
             {"path": "runs/kit/REQ-001/src/pingboard/config/__init__.py", "content": "def load(env):\n    raise ValueError(env)\n"},
@@ -29,8 +29,9 @@ class KitFormatTests(unittest.TestCase):
         fixed, changed = autofix_kit_files(files, "REQ-001")
         self.assertEqual(changed, ["runs/kit/REQ-001/test/test_load.py"])
         test = fixed[0]["content"]
-        self.assertIn("import pytest\n\nfrom pingboard.config import load\n", test)  # third-party, then first-party
         self.assertNotIn("import os", test)
+        # import order is left alone: it depends on the directory the KIT's lint runs from
+        self.assertIn("import pytest\nfrom pingboard.config import load\n", test)
         self.assertNotIn(":  \n", test)
         self.assertEqual(_body(test), _body(UNSORTED))  # same code once imports are set aside
         self.assertEqual(fixed[2], files[2])

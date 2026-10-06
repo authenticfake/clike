@@ -18,8 +18,10 @@ from typing import Any, Dict, List, Tuple
 
 log = logging.getLogger("service.kit_format")
 
-# import order, unused imports, trailing/blank-line whitespace, unused noqa comments
-SAFE_RUFF_RULES = "I,F401,W291,W292,W293,RUF100"
+# unused imports, trailing/blank-line whitespace, unused noqa comments. Not import order (I): it
+# depends on which modules ruff sees as first-party, i.e. on the directory the KIT's lint runs
+# from, so a fix here could contradict the eval's own lint.
+SAFE_RUFF_RULES = "F401,W291,W292,W293,RUF100"
 _CONFIG_NAMES = {"pyproject.toml", "ruff.toml", ".ruff.toml"}
 _TIMEOUT_S = 60
 
@@ -36,7 +38,7 @@ def _ruff() -> List[str]:
 
 
 def _python_fixer(files: List[Dict[str, Any]], req_id: str) -> Dict[str, str]:
-    """ruff with the safe rules only; the REQ's packages are first-party, as in the eval workspace."""
+    """ruff with the context-independent safe rules only."""
     prefix = f"runs/kit/{req_id}/"
     python = [
         f for f in files or []
@@ -57,12 +59,9 @@ def _python_fixer(files: List[Dict[str, Any]], req_id: str) -> Dict[str, str]:
                     target = root / path
                     target.parent.mkdir(parents=True, exist_ok=True)
                     target.write_text(str(f.get("content") or ""), encoding="utf-8")
-            kit = f"{prefix.rstrip('/')}"
             cmd = [
                 *ruff, "check", "--fix", "--exit-zero", "--no-cache", "--quiet",
                 "--select", SAFE_RUFF_RULES,
-                # the REQ's packages are first-party, as in the eval workspace
-                "--config", f"src = [\"{kit}/src\", \"{kit}/test\", \"{kit}/tests\"]",
                 *[str(f["path"]) for f in python],
             ]
             subprocess.run(cmd, cwd=root, capture_output=True, text=True, timeout=_TIMEOUT_S)
