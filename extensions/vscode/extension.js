@@ -3598,7 +3598,28 @@ async function cmdOpenChat(context) {
             const agent = String(msg.agentName || '').trim().toLowerCase();
             const model = String(msg.agentModel || '').trim();
             let message;
-            if (!agent) {
+            if (agent === 'list') {
+              // Model ids from CLike's catalog (the same that fills the cloud model selector).
+              let catalog = [];
+              try {
+                const res = await fetchJson(`${serviceBaseUrls().orchestrator}/v1/models`);
+                catalog = (Array.isArray(res?.models) ? res.models : [])
+                  .filter(m => m && m.enabled !== false && !/embed/i.test(String(m.name || m.id || '')));
+              } catch (err) {
+                log(`[agent-model] catalog unavailable: ${err?.message || err}`);
+              }
+              const names = (provider) => [...new Set(catalog
+                .filter(m => String(m.provider || '').toLowerCase() === provider)
+                .map(m => String(m.remote_name || m.name || '').trim())
+                .filter(Boolean))];
+              const claude = ['opus', 'sonnet', 'haiku', ...names('anthropic')];
+              const codex = names('openai');
+              message =
+                `ℹ Agent models you can set with /agent-model —\n` +
+                `Claude Code: ${claude.join(', ')} (opus/sonnet/haiku = latest of that tier)\n` +
+                `Codex: ${codex.length ? codex.join(', ') : 'catalog unavailable'}\n` +
+                `Ids from the CLike model catalog; the CLI accepts the models your Claude / Codex login supports.`;
+            } else if (!agent) {
               const executor = normalizeLocalAgentExecutor(state.localAgentExecutor || getDefaultLocalAgentExecutor());
               const executorLabel = executor === 'claude_code' ? 'Claude Code' : executor === 'gpt_codex' ? 'Codex' : 'auto';
               const execution = normalizeExecutionPreference(state.executionPreference || getDefaultExecutionPreference());
