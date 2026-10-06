@@ -4,6 +4,16 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+### Changed
+
+- One FILE_REQUIREMENTS for cloud and local agents (B15): the agent package uses the obligations
+  the orchestrator builds for every KIT (the ones the cloud prompt, the output contract and the gate
+  use) and keeps its extra guidance as policies; it also writes the copy the gate reads under the
+  locked `ci/`. Agent KITs now get concrete file roles, the namespace, and the launcher/runtime
+  manifest requirements of their family; the noisy `external_library_obligation` is gone.
+- KIT autofix for every ecosystem: final newline in sources, gofmt for Go when installed.
+- `/agent-model` shows execution, default agent and models; `/agent-model list` lists the models.
+
 ### Fixed
 
 - An eval or gate whose caller disconnected kept running in the sandbox (e.g. after a stopped
