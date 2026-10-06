@@ -1,6 +1,6 @@
 [project]
 name = "clike-gateway"
-version = "1.2.0"
+version = "1.2.1"
 description = "CLike model Gateway: provider abstraction, Harper prompt composition, telemetry"
 requires-python = ">=3.12,<3.13"
 dependencies = [
