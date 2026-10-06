@@ -1,4 +1,4 @@
-# CLike VS Code Extension (v0.5.3)
+# CLike VS Code Extension
 
 ![Logo di Clike](images/clike_64x64.png)
 
