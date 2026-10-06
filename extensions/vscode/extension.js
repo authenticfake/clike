@@ -981,7 +981,11 @@ async function executeLocalAgentPackage({
     prompt: promptContent,
     executorId: selectedExecutor,
     command: executorConfig.command,
-    argsBeforePrompt: withMachineReadableOutput(selectedExecutor, launcherArgs),
+    // clike.claudeCode.model / clike.localAgent.codex.model apply to Harper phases too
+    argsBeforePrompt: withMachineReadableOutput(selectedExecutor, [
+      ...launcherArgs,
+      ...(launcherArgs.includes('--model') ? [] : buildLocalAgentModelArgs(selectedExecutor, executorConfig)),
+    ]),
     promptTransport,
     timeoutMinutes: Math.ceil(Number(invocation.timeout_seconds || 1800) / 60),
     out,
