@@ -79,18 +79,19 @@ chooses cloud or agent. `/agent-model` without arguments shows the current setup
 
 ## 6. Use CLike from Claude Code or Codex (MCP)
 
-Two MCP servers, both on `127.0.0.1` and token-protected:
+Two MCP servers, both local (loopback) and token-protected. Register them with `localhost` URLs:
+organisation policies for Claude Code often allow only `http://localhost*` MCP servers.
 
 | Server | URL | What it does |
 |---|---|---|
-| Orchestrator (read-only) | `http://127.0.0.1:8080/mcp/` | reads project docs, plan, REQs, runs, RAG (`project_root` selects the project) |
-| VS Code extension (operational) | `http://127.0.0.1:55742/mcp` | **runs** Harper phases, eval and gate through CLike's governance; needs VS Code open |
+| Orchestrator (read-only) | `http://localhost:8080/mcp/` | reads project docs, plan, REQs, runs, RAG (`project_root` selects the project) |
+| VS Code extension (operational) | `http://localhost:55742/mcp` | **runs** Harper phases, eval and gate through CLike's governance; needs VS Code open |
 
 Orchestrator MCP (token = `CLIKE_API_TOKEN`):
 
 ```bash
-claude mcp add --transport http clike http://127.0.0.1:8080/mcp/ --header "Authorization: Bearer $CLIKE_API_TOKEN"
-codex mcp add clike --url http://127.0.0.1:8080/mcp/ --bearer-token-env-var CLIKE_API_TOKEN
+claude mcp add --transport http clike http://localhost:8080/mcp/ --header "Authorization: Bearer $CLIKE_API_TOKEN"
+codex mcp add clike --url http://localhost:8080/mcp/ --bearer-token-env-var CLIKE_API_TOKEN
 ```
 
 Extension MCP: enable `clike.mcp.extensionServerEnabled`, run **CLike: Copy Extension MCP Token**,
@@ -98,12 +99,25 @@ then:
 
 ```bash
 export CLIKE_EXT_MCP_TOKEN=<copied token>
-claude mcp add --transport http clike-ext http://127.0.0.1:55742/mcp --header "Authorization: Bearer $CLIKE_EXT_MCP_TOKEN"
-codex mcp add clike-ext --url http://127.0.0.1:55742/mcp --bearer-token-env-var CLIKE_EXT_MCP_TOKEN
+claude mcp add --transport http clike-ext http://localhost:55742/mcp --header "Authorization: Bearer $CLIKE_EXT_MCP_TOKEN"
+codex mcp add clike-ext --url http://localhost:55742/mcp --bearer-token-env-var CLIKE_EXT_MCP_TOKEN
 ```
 
-Codex asks approval for MCP tool calls; in non-interactive `codex exec` use your approval settings
-(e.g. `--approve-for-me`).
+Codex asks to approve every MCP tool call (and in `codex exec` it cannot ask). CLike's tools are
+governed by CLike itself (locked tests, gate, write rules, no overrides from MCP), so approve them
+once in `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.clike]
+default_tools_approval_mode = "approve"
+
+[mcp_servers.clike-ext]
+default_tools_approval_mode = "approve"
+```
+
+Or for one run only: `codex exec -c 'mcp_servers.clike.default_tools_approval_mode="approve"' ...`.
+Claude Code asks once per tool in interactive sessions; to pre-approve, add `"mcp__clike"` and
+`"mcp__clike-ext"` to `permissions.allow` in its settings.
 
 ## 7. Check
 

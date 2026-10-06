@@ -2,6 +2,26 @@
 
 All notable changes to CLike. Extension, orchestrator and gateway share one version.
 
+## [Unreleased]
+
+### Added
+
+- **Approvals in the agent chat** (Coding mode, `clike.agentChat.approvals`, default `ask`): every
+  edit and command of the agent waits for Allow / Allow all this turn / Deny in VS Code; writes
+  outside the Coding output root are denied without asking. Claude Code asks through
+  `--permission-prompt-tool` (a one-turn local MCP server), Codex runs through `codex app-server`
+  (the same sessions as `codex exec`). `auto` keeps the previous behaviour.
+
+### Fixed
+
+- MCP `eval_run` with `fix` returned the report of the first eval: it now returns the report of
+  the last eval after the repairs, plus `auto_eval {outcome, cycles, reason}`.
+- `gpt-6.1-sol` pricing ($2.00 / $10.00 per 1M input / output tokens), 1,050,000-token context
+  window and 128,000 max output tokens (B16).
+- MCP setup uses `localhost` URLs (managed Claude Code policies often allow only
+  `http://localhost*`); Codex approval of the CLike MCP tools is documented
+  (`default_tools_approval_mode = "approve"`).
+
 ## [1.2.0] — 2026-10-06 — Native agent chat, CLike from Claude Code / Codex, contract alignment
 
 ### Added

@@ -93,10 +93,11 @@ curl -s http://127.0.0.1:8080/mcp/ \
   -d '{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}' | jq
 ```
 
-Registering it in an MCP client, e.g. Claude Code:
+Registering it in an MCP client, e.g. Claude Code (use `localhost`: managed Claude Code policies
+often allow only `http://localhost*` servers):
 
 ```bash
-claude mcp add --transport http clike http://127.0.0.1:8080/mcp/ --header "Authorization: Bearer $CLIKE_API_TOKEN"
+claude mcp add --transport http clike http://localhost:8080/mcp/ --header "Authorization: Bearer $CLIKE_API_TOKEN"
 ```
 
 ## Extension operational MCP server
@@ -164,12 +165,16 @@ Official docs should preserve this conservative positioning until the codebase i
 
 ## Using CLike from Claude Code and Codex (H2)
 
-- **Orchestrator MCP** (read-only, `http://127.0.0.1:8080/mcp/`): the `harper_*` read tools accept
+- **Orchestrator MCP** (read-only, `http://localhost:8080/mcp/`): the `harper_*` read tools accept
   `project_root` (a project under `CLIKE_PROJECTS_DIR`).
-- **Extension MCP** (operational, `http://127.0.0.1:55742/mcp`, VS Code open):
+- **Extension MCP** (operational, `http://localhost:55742/mcp`, VS Code open):
   `harper_run_phase{phase, req_id?, wait_seconds?, await?}`, `eval_run{req_id, fix?, hint?}`,
   `gate_check{req_id}`, `harper_run_status{run_id}`, plus status/next-action/RAG tools. Phases run
   through the chat's governed handlers and the tools return their outcome; a run longer than
-  `wait_seconds` (default 50) returns `status: running` and a `run_id`.
+  `wait_seconds` (default 50) returns `status: running` and a `run_id`. `eval_run` with `fix`
+  returns the report of the **last** eval (after the repairs) plus
+  `auto_eval {outcome: pass|stopped, cycles, reason}`.
+- **Approvals:** Codex asks to approve each MCP call; set `default_tools_approval_mode = "approve"`
+  for the CLike servers (they are governed by CLike), see INSTALL §6.
 
 Setup commands: [INSTALL §6](INSTALL.md#6-use-clike-from-claude-code-or-codex-mcp).
