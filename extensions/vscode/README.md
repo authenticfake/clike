@@ -15,6 +15,9 @@
 - Multi-model / agent-agnostic
 - Cloud + local agent compatible
 
+
+> Install and first steps: [docs/INSTALL.md](../../docs/INSTALL.md) · [docs/GET_STARTED.md](../../docs/GET_STARTED.md)
+
 ## What the extension does today
 
 The extension currently supports three main interactive modes inside the chat panel:

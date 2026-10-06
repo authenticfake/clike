@@ -10,6 +10,8 @@ This documentation reflects the current source tree in the inspected package and
 
 ## Documentation map
 
+- `INSTALL.md` — requirements, configuration, services, extension, local agents, MCP for Claude Code / Codex
+- `GET_STARTED.md` — first project, agent chat, auto-eval, acceptance-first, CLike from Claude Code / Codex, troubleshooting
 - `architecture.md` — system structure and runtime boundaries
 - `setup-and-runtime.md` — local services, ports, configs, and startup model
 - `commands.md` — current slash commands, code actions, and extension commands

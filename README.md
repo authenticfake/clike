@@ -145,34 +145,32 @@ See [SECURITY.md](SECURITY.md) for the threat model, current limitations and how
 
 ---
 
-## Quick start
+## Install
 
-**Prerequisites:** Podman 5 with `podman-compose` (or Docker Compose v2), VS Code, Node.js 20+,
-Python 3.12 with [`uv`](https://docs.astral.sh/uv/) for development, provider API keys for cloud
-models, and optionally the Claude Code or Codex CLI.
+Requirements: VS Code 1.85+, Podman 5 with `podman-compose` (or Docker Compose v2) and a container
+VM with at least 4 GB, provider API keys for cloud models, optionally the Claude Code or Codex CLI.
 
 ```bash
-# 1. Configuration
 cp .env.example .env                      # provider keys + CLIKE_API_TOKEN=$(openssl rand -hex 32)
 cp docker/.env.example docker/.env        # CLIKE_PROJECTS_DIR = host folder containing your projects
-
-# 2. Services (loopback only)
-cd docker && podman-compose up -d --build
-curl -s http://127.0.0.1:8080/health && curl -s http://127.0.0.1:8000/health
-
-# 3. VS Code extension
-cd ../extensions/vscode && ./build_ext_vs.sh   # npm ci, lint, tests, package, install
+cd docker && podman-compose up -d --build # services on 127.0.0.1, wait until (healthy)
+code --install-extension ../extensions/vscode/clike-1.1.0.vsix
 ```
 
-In VS Code run **CLike: Set Service Token** (paste the `CLIKE_API_TOKEN` value), open a project
-located under `CLIKE_PROJECTS_DIR`, then run **CLike: Chat (Q&A / Harper / Coding)**:
+In VS Code: **CLike: Set Service Token** (the `CLIKE_API_TOKEN` value). Full guide, local agents
+and the MCP setup for Claude Code / Codex: **[docs/INSTALL.md](docs/INSTALL.md)**.
+
+## Get started
+
+Open a project under `CLIKE_PROJECTS_DIR`, run **CLike: Chat (Q&A / Harper / Coding)**, Harper mode:
 
 ```text
-/init → /idea → /spec → /plan → ( /kit REQ-xxx → /eval REQ-xxx → /gate REQ-xxx )* → /finalize
+/init → /idea → /spec → /plan → ( /kit REQ-xxx → /eval REQ-xxx --fix → /gate REQ-xxx )* → /finalize
 ```
 
-Guides: [HOWTO](docs/HOWTO.md) · [Harper run walkthrough](docs/Clike%20HARPER%20RUN.md) ·
-[commands](docs/commands.md) · [setup and runtime](docs/setup-and-runtime.md).
+With execution = agent the chat is a continuing conversation with Claude Code or Codex
+(`/agent-model`, `/agent-session`), and Claude Code / Codex can drive CLike through MCP.
+Walkthrough, options and troubleshooting: **[docs/GET_STARTED.md](docs/GET_STARTED.md)**.
 
 ---
 

@@ -483,6 +483,7 @@ try {
  // --- Help overlay (/help) ---
 var HELP_COMMANDS = [
   {cmd:'/help', desc:'Shows this quick guide'},
+  {cmd:'Docs', desc:'docs/INSTALL.md (install, agents, MCP for Claude Code / Codex) and docs/GET_STARTED.md (first project, agent chat, auto-eval)'},
   {cmd:'/init <name> [--path <abs>] [--force]', desc:'Initializes the Harper project in the workspace'},
   {cmd:'/status', desc:'Shows the Harper project/context status'},
   {cmd:'/where', desc:'Shows the Harper workspace/doc-root path'},
