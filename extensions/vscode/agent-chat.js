@@ -2,7 +2,7 @@
 // Native agent chat (H1): the CLike chat talks to Claude Code / Codex as one continuous session per
 // (mode, agent): the first message starts a session, the next ones resume it, and the agent's
 // events are streamed into the chat. CLike keeps the governance: the mode decides what the agent may
-// do (free/harper: read-only; coding: writes under the generated root).
+// do (free: read-only; coding and harper: writes under the generated root).
 const crypto = require('crypto');
 
 function sessionKey(mode, executorId) {
@@ -16,8 +16,13 @@ function newSession(executorId) {
     : { id: '', started: false };
 }
 
+// Coding and Harper free text may write (under the generated root); Free is read-only.
+function isWritableMode(mode) {
+  return mode === 'coding' || mode === 'harper';
+}
+
 function codexSandbox(mode) {
-  return mode === 'coding' ? 'workspace-write' : 'read-only';
+  return isWritableMode(mode) ? 'workspace-write' : 'read-only';
 }
 
 /**
@@ -30,7 +35,7 @@ function buildAgentChatArgs({ executorId, mode, executorConfig = {}, modelArgs =
   if (executorId === 'claude_code') {
     const args = [executorConfig.printModeFlag || '-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', ...modelArgs];
     // with approvals the edits are asked (--permission-prompt-tool, see agent-approvals.js)
-    if (mode === 'coding') args.push('--permission-mode', approvals ? 'default' : (executorConfig.permissionMode || 'acceptEdits'));
+    if (isWritableMode(mode)) args.push('--permission-mode', approvals ? 'default' : (executorConfig.permissionMode || 'acceptEdits'));
     if (session && session.id) args.push(session.started ? '--resume' : '--session-id', session.id);
     return args;
   }

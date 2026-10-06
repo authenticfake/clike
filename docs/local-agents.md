@@ -281,6 +281,12 @@ of calling the gateway; the extension is the only component that spawns the CLI.
 
 ### Free chat (Q&A)
 - Invocation is **read-only** (Claude Code in print mode; Codex `exec`).
+- **Harper free text** (Harper mode, not a slash command) is a conversation with
+  the agent that may also create files: the orchestrator returns a `harper`
+  package with an `output_root` (`generated/<id>`), the agent writes only there
+  (same sandbox and approvals as Coding) and the chat shows the answer plus the
+  files in the **Files** tab. The Harper artifacts change only through the phase
+  commands.
 - The agent answer (stdout) is rendered as a normal chat bubble, badged with the
   agent used — `agent-claude` or `agent-codex` — the way the cloud path shows the
   model name.

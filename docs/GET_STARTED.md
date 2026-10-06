@@ -24,8 +24,10 @@ With execution = agent, the chat **is** a conversation with Claude Code or Codex
   conversation (`/agent-session` shows the sessions, `/agent-session new` starts a fresh one);
 - the agent's answer and the tools it uses (files read or edited, commands) appear live;
 - **Cancel** stops the agent;
-- Free and Harper free text are read-only; Coding lets the agent write under `generated/`;
-- in **Coding**, every edit and command waits for your choice (**Allow**, **Allow all this turn**,
+- Free is read-only (questions only). Coding and **Harper free text** let the agent also create
+  files, only under `generated/<id>/` (e.g. in Harper: "create a script that computes N!"); the
+  Harper artifacts (SPEC, PLAN, KIT, ...) change only through the phase commands;
+- in **Coding** and **Harper**, every edit and command waits for your choice (**Allow**, **Allow all this turn**,
   **Deny**) and writes outside `generated/` are denied without asking. Claude Code asks through
   CLike, Codex runs through `codex app-server`. `clike.agentChat.approvals = auto` turns the
   questions off (edits under `generated/` then run without asking).
