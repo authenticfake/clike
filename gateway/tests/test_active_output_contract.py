@@ -208,8 +208,8 @@ def test_bmad_kit_developer_cloud_contract_replaces_req_id():
 
     assert "runs/kit/REQ-001/src/**" in contract["required_outputs"]
     assert "runs/kit/REQ-001/test/**" in contract["required_outputs"]
-    assert "runs/kit/REQ-001/docs/TARGET_CONTRACT.json" in contract["required_outputs"]
-    assert "runs/kit/REQ-001/docs/FILE_REQUIREMENTS.json" in contract["required_outputs"]
+    assert "runs/kit/REQ-001/docs/TARGET_CONTRACT.json" not in contract["required_outputs"]  # written by CLike (B8)
+    assert "runs/kit/REQ-001/docs/FILE_REQUIREMENTS.json" not in contract["required_outputs"]
     assert "runs/kit/REQ-001/docs/README_REQ-001.md" in contract["required_outputs"]
     assert "runs/kit/REQ-001/docs/KIT_REQ-001.md" in contract["required_outputs"]
     assert "runs/kit/REQ-001/ci/LTC.json" in contract["required_outputs"]
@@ -223,7 +223,7 @@ def test_bmad_kit_developer_cloud_contract_replaces_req_id():
     assert "runs/kit/REQ-001/docs/RUNBOOK.md" in contract["required_outputs"]
 
 
-def test_native_kit_cloud_contract_requires_native_contract_docs_and_file_requirements():
+def test_native_kit_cloud_contract_requires_native_docs_and_file_requirements():
     contract = build_active_output_contract(
         phase="kit",
         runner="cloud",
@@ -232,8 +232,8 @@ def test_native_kit_cloud_contract_requires_native_contract_docs_and_file_requir
     )
 
     assert contract["methodology"] == "native_clike"
-    assert "runs/kit/REQ-001/docs/TARGET_CONTRACT.json" in contract["required_outputs"]
-    assert "runs/kit/REQ-001/docs/FILE_REQUIREMENTS.json" in contract["required_outputs"]
+    assert "runs/kit/REQ-001/docs/TARGET_CONTRACT.json" not in contract["required_outputs"]  # written by CLike (B8)
+    assert "runs/kit/REQ-001/docs/FILE_REQUIREMENTS.json" not in contract["required_outputs"]
     assert "runs/kit/REQ-001/docs/README_REQ-001.md" in contract["required_outputs"]
     assert "runs/kit/REQ-001/docs/KIT_REQ-001.md" in contract["required_outputs"]
     assert "runs/kit/REQ-001/ci/LTC.json" in contract["required_outputs"]

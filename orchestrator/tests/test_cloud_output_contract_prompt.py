@@ -158,8 +158,6 @@ def test_rendered_bmad_kit_developer_prompt_lists_p0_required_outputs():
     assert "If any is missing, Gateway will reject the entire KIT response." in rendered
     assert "These files are P0 mandatory outputs." in rendered
     for path in [
-        "runs/kit/REQ-001/docs/TARGET_CONTRACT.json",
-        "runs/kit/REQ-001/docs/FILE_REQUIREMENTS.json",
         "runs/kit/REQ-001/docs/BMAD_DEV_STORY.md",
         "runs/kit/REQ-001/docs/IMPLEMENTATION_NOTES.md",
         "runs/kit/REQ-001/docs/SELF_REVIEW.md",
@@ -179,8 +177,8 @@ def test_rendered_native_kit_prompt_lists_native_outputs_without_bmad_docs():
     rendered = render_methodology_context_for_cloud_prompt(None, active_output_contract=contract)
 
     assert "### ACTIVE KIT REQUIRED OUTPUTS" in rendered
-    assert "runs/kit/REQ-001/docs/TARGET_CONTRACT.json" in rendered
-    assert "runs/kit/REQ-001/docs/FILE_REQUIREMENTS.json" in rendered
+    assert "runs/kit/REQ-001/docs/TARGET_CONTRACT.json" not in rendered  # written by CLike, not by the model (B8)
+    assert "runs/kit/REQ-001/docs/FILE_REQUIREMENTS.json" not in rendered
     assert "BMAD Skill Reference Context" not in rendered
     assert "dev-story-execution" not in rendered
     assert "story-readiness" not in rendered

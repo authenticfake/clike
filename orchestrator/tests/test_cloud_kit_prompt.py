@@ -54,8 +54,6 @@ EXPECTED_OLD_PATHS = {
 
 
 EXPECTED_MISSING = [
-    "runs/kit/REQ-001/docs/TARGET_CONTRACT.json",
-    "runs/kit/REQ-001/docs/FILE_REQUIREMENTS.json",
     "runs/kit/REQ-001/docs/BMAD_DEV_STORY.md",
     "runs/kit/REQ-001/docs/IMPLEMENTATION_NOTES.md",
     "runs/kit/REQ-001/docs/SELF_REVIEW.md",
@@ -290,6 +288,6 @@ def test_native_kit_contract_does_not_require_bmad_developer_docs():
         file_requirements=_kit_file_requirements(),
     )
 
-    assert "runs/kit/REQ-001/docs/TARGET_CONTRACT.json" in contract["required_outputs"]
-    assert "runs/kit/REQ-001/docs/FILE_REQUIREMENTS.json" in contract["required_outputs"]
+    assert "runs/kit/REQ-001/docs/TARGET_CONTRACT.json" not in contract["required_outputs"]  # written by CLike, not by the model (B8)
+    assert "runs/kit/REQ-001/docs/FILE_REQUIREMENTS.json" not in contract["required_outputs"]
     assert "runs/kit/REQ-001/docs/BMAD_DEV_STORY.md" not in contract["required_outputs"]

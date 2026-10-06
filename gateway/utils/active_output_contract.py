@@ -8,9 +8,8 @@ NATIVE_CLOUD_REQUIRED_OUTPUTS: Dict[str, List[str]] = {
     "idea": ["docs/harper/IDEA.md"],
     "spec": ["docs/harper/SPEC.md"],
     "plan": ["docs/harper/PLAN.md", "docs/harper/plan.json", "docs/harper/lane-guides/**"],
+    # TARGET_CONTRACT.json / FILE_REQUIREMENTS.json are written by CLike (ci/ and docs/), not by the model.
     "kit": [
-        "runs/kit/<REQ-ID>/docs/TARGET_CONTRACT.json",
-        "runs/kit/<REQ-ID>/docs/FILE_REQUIREMENTS.json",
         "runs/kit/<REQ-ID>/docs/README_<REQ-ID>.md",
         "runs/kit/<REQ-ID>/docs/KIT_<REQ-ID>.md",
         "runs/kit/<REQ-ID>/ci/LTC.json",

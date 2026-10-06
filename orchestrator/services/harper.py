@@ -1975,15 +1975,12 @@ def _append_runtime_guardrail_files(
     file_requirements_text: str,
     promotion_manifest: str | None,
 ) -> List[Dict[str, Any]]:
+    # The orchestrator's contracts, in ci/ (read by the gate, locked) and docs/ (read by follow-up
+    # stages and the extension): one content, written by CLike, never re-emitted by the model.
     runtime_files: List[Dict[str, Any]] = [
-        {
-            "path": f"runs/kit/{req_id}/ci/TARGET_CONTRACT.json",
-            "content": target_contract_text,
-        },
-        {
-            "path": f"runs/kit/{req_id}/ci/FILE_REQUIREMENTS.json",
-            "content": file_requirements_text,
-        },
+        {"path": f"runs/kit/{req_id}/{root}/{name}", "content": text}
+        for root in ("ci", "docs")
+        for name, text in (("TARGET_CONTRACT.json", target_contract_text), ("FILE_REQUIREMENTS.json", file_requirements_text))
     ]
 
     if promotion_manifest:

@@ -14,6 +14,11 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 - KIT autofix for every ecosystem: final newline in sources, gofmt for Go when installed.
 - `/agent-model` shows execution, default agent and models; `/agent-model list` lists the models.
 
+- KIT: `TARGET_CONTRACT.json` and `FILE_REQUIREMENTS.json` are written by CLike (in `ci/` and
+  `docs/`, same content) instead of being re-emitted by the model — fewer output tokens and no
+  divergent copies (B8). Follow-up KIT stages see their options in the prompt (B7). The agent
+  KIT/finalize contracts ask for the same deliverables as the cloud.
+
 ### Fixed
 
 - An eval or gate whose caller disconnected kept running in the sandbox (e.g. after a stopped
