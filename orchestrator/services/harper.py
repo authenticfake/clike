@@ -67,6 +67,11 @@ from services.cloud_prompt.messages import compose_phase_messages
 from utils.safe_paths import resolve_within, validate_req_id
 from services import gate_integrity
 from services.kit_format import autofix_kit_files
+from services.methodologies.quality_contracts import (
+    evaluate_lane_guide_structure,
+    evaluate_plan_json_structure,
+    evaluate_spec_quality,
+)
 log = logging.getLogger("service.router")
 
 _KIT_PHASE_SEQUENCE: List[str] = [
@@ -2256,6 +2261,28 @@ def _local_agent_failure(
     }
 
 
+def _attach_bmad_quality_advisory(payload: Dict[str, Any], out: Dict[str, Any]) -> None:
+    """BMAD runs: deterministic quality checks of the produced SPEC / plan.json / lane guides
+    (services.methodologies.quality_contracts), reported as advisory warnings — they never block."""
+    context = payload.get("methodology_context")
+    if not isinstance(context, dict) or context.get("methodology") != "bmad":
+        return
+    reports = []
+    for item in out.get("files") or []:
+        path = str(item.get("path") or "")
+        content = str(item.get("content") or "")
+        if path.endswith("docs/harper/SPEC.md"):
+            reports.append(evaluate_spec_quality(content))
+        elif path.endswith("docs/harper/plan.json"):
+            reports.append(evaluate_plan_json_structure(content))
+        elif "/lane-guides/" in path and path.endswith(".md"):
+            reports.append({**evaluate_lane_guide_structure(content), "path": path})
+    if not reports:
+        return
+    out["bmad_quality"] = reports
+    out["warnings"] = [*(out.get("warnings") or []), *(f"bmad_quality:{w}" for r in reports for w in r.get("warnings") or [])]
+
+
 async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
     # --- Normalizzazione in dict ---
     if hasattr(req_payload, "model_dump"):
@@ -3291,6 +3318,7 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
                 file_requirements_text=file_requirements_text,
                 promotion_manifest=promotion_manifest_text or None,
             )
+    _attach_bmad_quality_advisory(merged, out)
     log.info(
         "GATEWAY HARPER RUN RES keys=%s files=%d text=%s integrity=%s hardener=%s promotion_eval=%s",
         ",".join(sorted(out.keys())),

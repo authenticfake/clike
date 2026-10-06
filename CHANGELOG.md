@@ -19,6 +19,13 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   divergent copies (B8). Follow-up KIT stages see their options in the prompt (B7). The agent
   KIT/finalize contracts ask for the same deliverables as the cloud.
 
+- BMAD runs: SPEC, plan.json and lane guides are checked against the BMAD quality contracts
+  (deterministic, no LLM) and the gaps are reported as advisory `bmad_quality:` warnings; the
+  unused fixture-only IDEA scorecard module was removed (L1).
+- Debt: one slash parser in the webview (L4), deterministic repository manifest (B13), lane guides
+  Markdown-only in the extension (B12), single finalize auth check (B11), flat agent audit files
+  (B9), valid sample documents checked in CI (B14).
+
 ### Fixed
 
 - A follow-up KIT stage (`--hardener`, ...) after the first eval started a new KIT generation
