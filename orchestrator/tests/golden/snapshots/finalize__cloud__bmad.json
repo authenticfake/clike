@@ -31,7 +31,14 @@
             "methodology": "native_clike",
             "phase": "finalize",
             "required_context_sections": [],
-            "required_outputs": [],
+            "required_outputs": [
+              "README.md",
+              "docs/harper/HOWTO_RUN.md",
+              "docs/harper/RELEASE_NOTES.md",
+              "docs/harper/SANITY_CHECKS.md",
+              "docs/harper/TODO_NEXT.md",
+              "docs/harper/PR_BODY.md"
+            ],
             "runner": "cloud",
             "strict_missing_required_outputs": false
           },

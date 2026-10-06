@@ -39,11 +39,15 @@
               "FILE_REQUIREMENTS.json"
             ],
             "required_outputs": [
+              "runs/kit/REQ-001/docs/TARGET_CONTRACT.json",
+              "runs/kit/REQ-001/docs/FILE_REQUIREMENTS.json",
+              "runs/kit/REQ-001/docs/README_REQ-001.md",
+              "runs/kit/REQ-001/docs/KIT_REQ-001.md",
+              "runs/kit/REQ-001/ci/LTC.json",
+              "runs/kit/REQ-001/ci/HOWTO.md",
               "runs/kit/REQ-001/src/**",
               "runs/kit/REQ-001/test/**",
-              "runs/kit/REQ-001/ci/**",
-              "runs/kit/REQ-001/docs/TARGET_CONTRACT.json",
-              "runs/kit/REQ-001/docs/FILE_REQUIREMENTS.json"
+              "runs/kit/REQ-001/ci/**"
             ],
             "runner": "cloud",
             "strict_missing_required_outputs": false
