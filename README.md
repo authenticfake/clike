@@ -45,7 +45,7 @@ Models and agents execute.  Eval and Gate decide.
 | 1.0.0 | 2026-10 | M3 — ready for evolution: typed phase contract and single source per phase definition; cloud KIT that produces promotable code; governed auto-eval (`/eval REQ --fix`) with regression of promoted REQs; Harper benchmark. |
 | 1.1.0 | 2026-10 | Governed auto-eval with local agents (Claude Code, Codex); acceptance-first KIT (tests from SPEC/PLAN locked before the code, opt-in); local-agent telemetry; `/agent-model`; leaner agent context; KIT self-check and safe lint fixes. |
 | 1.2.0 | 2026-10 | Native agent chat (one resumed Claude Code / Codex session per mode, live events, cancel); CLike usable from Claude Code and Codex via MCP with its governance; one FILE_REQUIREMENTS and aligned deliverables for cloud and agent; orphan evals cancelled; [INSTALL](docs/INSTALL.md) and [GET STARTED](docs/GET_STARTED.md). |
-| **1.2.1** | 2026-10 | Approvals in the agent chat (Coding: Allow / Allow all this turn / Deny, writes outside `generated/` denied; Claude Code and Codex); MCP `eval_run` with fix returns the final report; Codex approval of the CLike MCP tools; `localhost` MCP URLs; gpt-6.1-sol pricing. See [CHANGELOG](CHANGELOG.md). |
+| **1.2.1** | 2026-10 | Approvals in the agent chat (Coding and Harper: Allow / Allow all this turn / Deny, writes outside `generated/` denied; Claude Code and Codex); Harper free text can create files under `generated/`; readable `/help`; MCP `eval_run` with fix returns the final report; Codex approval of the CLike MCP tools; `localhost` MCP URLs; gpt-6.1-sol pricing. See [CHANGELOG](CHANGELOG.md). |
 
 CLike is research software under active development. Interfaces may change between minor versions.
 

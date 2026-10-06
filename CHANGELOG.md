@@ -2,7 +2,15 @@
 
 All notable changes to CLike. Extension, orchestrator and gateway share one version.
 
-## [Unreleased]
+## [1.2.1] — 2026-10-06 — Agent chat approvals, Harper chat can write, readable /help
+
+### Added
+
+- **Approvals in the agent chat** (Coding and Harper, `clike.agentChat.approvals`, default `ask`): every
+  edit and command of the agent waits for Allow / Allow all this turn / Deny in VS Code; writes
+  outside the Coding output root are denied without asking. Claude Code asks through
+  `--permission-prompt-tool` (a one-turn local MCP server), Codex runs through `codex app-server`
+  (the same sessions as `codex exec`). `auto` keeps the previous behaviour.
 
 ### Changed
 
@@ -12,16 +20,6 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   Free (Q&A) stays read-only.
 - **`/help` is readable on every theme**: VS Code theme colours, commands grouped by topic, a
   filter box, Esc / click outside to close.
-
-## [1.2.1] — 2026-10-06 — Agent chat approvals, eval_run final report, Codex MCP approval
-
-### Added
-
-- **Approvals in the agent chat** (Coding mode, `clike.agentChat.approvals`, default `ask`): every
-  edit and command of the agent waits for Allow / Allow all this turn / Deny in VS Code; writes
-  outside the Coding output root are denied without asking. Claude Code asks through
-  `--permission-prompt-tool` (a one-turn local MCP server), Codex runs through `codex app-server`
-  (the same sessions as `codex exec`). `auto` keeps the previous behaviour.
 
 ### Fixed
 
