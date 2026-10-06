@@ -1,8 +1,3 @@
-
----
-
-## `docs/harper/SPEC.md`
-```markdown
 # SPEC — CoffeeBuddy
 
 ## Problem
@@ -103,3 +98,4 @@ tech_constraints:
     - type: ci.ci
       vendor: github.actions
       params: {}
+```
