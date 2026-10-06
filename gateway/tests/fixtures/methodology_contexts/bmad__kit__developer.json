@@ -12,9 +12,7 @@
     "canonical_outputs": [
       "runs/kit/<REQ-ID>/src/**",
       "runs/kit/<REQ-ID>/test/**",
-      "runs/kit/<REQ-ID>/ci/**",
-      "runs/kit/<REQ-ID>/docs/TARGET_CONTRACT.json",
-      "runs/kit/<REQ-ID>/docs/FILE_REQUIREMENTS.json"
+      "runs/kit/<REQ-ID>/ci/**"
     ],
     "companion_only": false,
     "conflict_resolution": "canonical-wins",

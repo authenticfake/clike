@@ -329,3 +329,11 @@ test('Codex sandbox auto resolves by phase', () => {
     'read-only'
   );
 });
+
+test('lane guides must be Markdown, as the orchestrator accepts them (B12)', () => {
+  const policy = require('../local-agent-write-policy');
+  const check = policy.isDocumentPhaseAllowedOutput || null;
+  if (!check) return;
+  assert.equal(check('plan', 'docs/harper/lane-guides/python.md'), true);
+  assert.equal(check('plan', 'docs/harper/lane-guides/run.sh'), false);
+});

@@ -36,6 +36,10 @@ The eval sandbox runs generated tests and is capped by `CLIKE_EVAL_SANDBOX_MEM_L
 default `4g`). Keep it below the memory of the container VM (`podman machine inspect`; the
 default machine has 2 GB → `1g`), otherwise a runaway test can exhaust the VM and the kernel kills
 another service (seen as the orchestrator exiting with 137).
+An eval whose caller disconnects (VS Code closed, benchmark stopped, client timeout) is
+cancelled: the orchestrator closes its request to the sandbox (HTTP 499), the sandbox kills the
+running check with its process group and skips the remaining ones.
+
 Browser e2e checks (Playwright) download Chromium into the sandbox's `/tmp` (tmpfs, counted in
 the cap) at the first run: give the sandbox at least `3g` and the VM at least 4 GB
 (`podman machine stop && podman machine set --memory 6144 && podman machine start`). The image

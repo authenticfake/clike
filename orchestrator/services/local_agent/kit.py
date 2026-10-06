@@ -16,6 +16,7 @@ from utils.namespace_paths import (
 
 from services.kit_repair import acceptance_first_code_rules, acceptance_stage_rules, kit_self_check_rules
 from services.local_agent.common import (
+    _parse_json_core_blob,
     _bmad_expected_outputs,
     _build_related_reqs,
     _build_workspace_inspection_policy,
@@ -132,6 +133,33 @@ _STAGE_TASKS = {
 _FAILED_CHECK_PROMPT_CHARS = 1500
 
 
+# Agent-only guidance kept next to the shared obligations (prose and policies, not obligations).
+_AGENT_GUIDANCE_KEYS = (
+    "required_candidate_outputs",
+    "recommended_candidate_outputs",
+    "runtime_manifest_policy",
+    "solution_launcher_policy",
+    "dependency_manifest_policy",
+    "provider_realism_required",
+    "provider_obligations",
+    "external_library_policy",
+    "missing_selected_capabilities_blocking",
+    "forbidden",
+)
+
+
+def _unified_file_requirements(payload: Dict[str, Any], agent_document: Dict[str, Any]) -> Dict[str, Any]:
+    """One FILE_REQUIREMENTS for cloud and agent (B15): the obligations (required_outputs, roots,
+    namespace) are the ones the orchestrator built for this KIT — the same the cloud prompt, the
+    output contract and the gate use; the agent keeps its extra guidance as policies. Without the
+    orchestrator's document (direct package calls) the agent document is used as before."""
+    shared = _parse_json_core_blob(payload, "FILE_REQUIREMENTS.json")
+    if not isinstance(shared, dict) or not shared.get("required_outputs"):
+        return agent_document
+    guidance = {k: agent_document[k] for k in _AGENT_GUIDANCE_KEYS if k in agent_document}
+    return {**shared, **guidance, "source": "orchestrator FILE_REQUIREMENTS (shared by cloud and local agents)"}
+
+
 def _agent_context_view(
     context: Dict[str, Any],
     req_id: str,
@@ -220,11 +248,9 @@ def build_kit_local_agent_package(
     )
     capability_manifest = _extract_capability_manifest(payload)
     capability_integrity = _build_capability_integrity(req, capability_manifest)
-    file_requirements = _build_file_requirements(
-        req_id,
-        req,
-        capability_integrity,
+    file_requirements = _unified_file_requirements(
         payload,
+        _build_file_requirements(req_id, req, capability_integrity, payload),
     )
 
     standalone_capability_manifest = str(capability_manifest.get("content") or "")
@@ -585,7 +611,10 @@ def build_kit_local_agent_package(
                 _package_file(prompt_path, prompt, "text/markdown"),
                 _package_file(f"runs/kit/{req_id}/docs/TARGET_CONTRACT.json", json.dumps(target_contract, indent=2, ensure_ascii=False), "application/json"),
                 _package_file(f"runs/kit/{req_id}/docs/FILE_REQUIREMENTS.json", json.dumps(file_requirements, indent=2, ensure_ascii=False), "application/json"),
-                (
+                # the copy the gate reads first: under ci/, i.e. in the locked acceptance surface
+                _package_file(f"runs/kit/{req_id}/ci/FILE_REQUIREMENTS.json", json.dumps(file_requirements, indent=2, ensure_ascii=False), "application/json"),
+                # flat list: the extension writes package_files one item at a time (B9)
+                *(
                     [
                         _package_file(f"runs/kit/{req_id}/docs/AGENT_INPUT_AUDIT.json", agent_input_audit_json, "application/json"),
                         _package_file(f"runs/kit/{req_id}/docs/AGENT_INPUT_AUDIT.md", agent_input_audit_md, "text/markdown"),

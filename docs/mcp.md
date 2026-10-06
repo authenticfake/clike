@@ -160,3 +160,16 @@ The current code is aligned with a conservative MCP posture:
 - no execution side effects
 
 Official docs should preserve this conservative positioning until the codebase intentionally expands the MCP contract.
+
+
+## Using CLike from Claude Code and Codex (H2)
+
+- **Orchestrator MCP** (read-only, `http://127.0.0.1:8080/mcp/`): the `harper_*` read tools accept
+  `project_root` (a project under `CLIKE_PROJECTS_DIR`).
+- **Extension MCP** (operational, `http://127.0.0.1:55742/mcp`, VS Code open):
+  `harper_run_phase{phase, req_id?, wait_seconds?, await?}`, `eval_run{req_id, fix?, hint?}`,
+  `gate_check{req_id}`, `harper_run_status{run_id}`, plus status/next-action/RAG tools. Phases run
+  through the chat's governed handlers and the tools return their outcome; a run longer than
+  `wait_seconds` (default 50) returns `status: running` and a `run_id`.
+
+Setup commands: [INSTALL §6](INSTALL.md#6-use-clike-from-claude-code-or-codex-mcp).

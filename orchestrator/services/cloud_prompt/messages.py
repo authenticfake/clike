@@ -906,6 +906,10 @@ def compose_phase_messages(payload: dict) -> list[dict]:
     repair = (kit or {}).get("repair") if isinstance(kit, dict) else None
     if phase.lower() == "kit" and isinstance(repair, dict) and repair and targets:
         messages[-1] = {**messages[-1], "content": messages[-1]["content"] + "\n\n" + _kit_repair_section(repair, str(targets[0]))}
+    stage_options = payload.get(phase.lower()) if phase.lower() in {"integrity_eval", "promotion_hardener", "promotion_eval"} else None
+    if isinstance(stage_options, dict) and stage_options:
+        lines = ["### Stage options", *[f"- {k}: {v}" for k, v in stage_options.items() if v not in (None, "")]]
+        messages[-1] = {**messages[-1], "content": messages[-1]["content"] + "\n\n" + "\n".join(lines)}
     if targets and phase.lower() in {"kit", "acceptance"}:
         messages[-1] = {**messages[-1], "content": messages[-1]["content"] + "\n\n" + kit_self_check_section(str(targets[0]))}
     if targets and phase.lower() == "acceptance":

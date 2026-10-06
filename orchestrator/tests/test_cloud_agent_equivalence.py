@@ -22,21 +22,10 @@ from services.methodologies.active_output_contract import build_active_output_co
 SNAPSHOTS = ORCHESTRATOR_ROOT / "tests/golden/snapshots"
 REQ = "REQ-001"
 
-# phase -> (cloud required outputs, local-agent required outputs), as of WP8 (0.9.6).
+# phase -> (cloud required outputs, local-agent required outputs). Only the eval differs on purpose:
+# the local eval is an advisory pre-pass that writes repair notes; the canonical eval is deterministic.
 KNOWN_DIVERGENCES = {
-    "kit": (
-        [f"runs/kit/{REQ}/docs/TARGET_CONTRACT.json", f"runs/kit/{REQ}/docs/FILE_REQUIREMENTS.json",
-         f"runs/kit/{REQ}/docs/README_{REQ}.md", f"runs/kit/{REQ}/docs/KIT_{REQ}.md",
-         f"runs/kit/{REQ}/ci/LTC.json", f"runs/kit/{REQ}/ci/HOWTO.md"],
-        [f"runs/kit/{REQ}/src/**", f"runs/kit/{REQ}/test/**", f"runs/kit/{REQ}/ci/**",
-         f"runs/kit/{REQ}/docs/TARGET_CONTRACT.json", f"runs/kit/{REQ}/docs/FILE_REQUIREMENTS.json"],
-    ),
     "eval": ([], [f"runs/kit/{REQ}/reports/BMAD_EVAL_REPAIR_NOTES.md"]),
-    "finalize": (
-        ["README.md", "docs/harper/HOWTO_RUN.md", "docs/harper/RELEASE_NOTES.md", "docs/harper/SANITY_CHECKS.md",
-         "docs/harper/TODO_NEXT.md", "docs/harper/PR_BODY.md"],
-        [],
-    ),
 }
 
 
@@ -69,8 +58,15 @@ def test_known_divergences_are_pinned():
         assert _required(phase) == expected, f"{phase}: cloud/agent outputs changed; update or reconcile"
 
 
+def test_kit_asks_the_agent_for_every_cloud_deliverable():
+    cloud, local = _required("kit")
+    assert cloud and set(cloud) <= set(local), set(cloud) - set(local)
+    # the agent also gets its candidate roots (it writes them directly)
+    assert {f"runs/kit/{REQ}/src/**", f"runs/kit/{REQ}/test/**", f"runs/kit/{REQ}/ci/**"} <= set(local)
+
+
 def test_phases_without_a_divergence_entry_are_equivalent():
-    for phase in ("idea", "spec", "plan", "extend"):
+    for phase in ("idea", "spec", "plan", "extend", "finalize"):
         assert phase not in KNOWN_DIVERGENCES
         cloud, local = _required(phase)
         assert cloud == local, phase

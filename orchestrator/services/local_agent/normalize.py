@@ -330,6 +330,7 @@ def normalize_local_agent_result(payload: Dict[str, Any]) -> Dict[str, Any]:
                         "auth_provider",
                         "auth_mode",
                         "auth_issuer",
+                        "auth_audience",
                         "issuer_url",
                         "client_id",
                         "client_secret",
@@ -380,42 +381,6 @@ def normalize_local_agent_result(payload: Dict[str, Any]) -> Dict[str, Any]:
                 )
 
             if auth_detected and not source_auth_evidence:
-                ok = False
-                errors.append("finalize_auth_source_boundary_missing")
-                warnings.append(
-                    "auth_source_boundary_missing:finalize_must_patch_or_return_stack_native_auth_config_seam_when_auth_is_detected"
-                )
-
-            source_auth_evidence = any(
-                path.startswith("src/")
-                and any(
-                    marker in content.lower()
-                    for marker in (
-                        "auth_provider",
-                        "auth_mode",
-                        "auth_issuer",
-                        "auth_issuer_url",
-                        "auth_client_id",
-                        "auth_audience",
-                        "auth_jwks_uri",
-                        "auth_jwks_url",
-                        "oidc",
-                        "oidc_issuer",
-                        "oidc_audience",
-                        "oidc_client",
-                        "oidc_jwks_uri",
-                        "jwks",
-                        "saml_metadata",
-                        "required_groups",
-                        "identity",
-                        "rbac",
-                        "disabled-local",
-                        "local-disabled",
-                    )
-                )
-                for path, content in content_by_path.items()
-            )
-            if not source_auth_evidence:
                 ok = False
                 errors.append("finalize_auth_source_boundary_missing")
                 warnings.append(

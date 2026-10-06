@@ -483,6 +483,7 @@ try {
  // --- Help overlay (/help) ---
 var HELP_COMMANDS = [
   {cmd:'/help', desc:'Shows this quick guide'},
+  {cmd:'Docs', desc:'docs/INSTALL.md (install, agents, MCP for Claude Code / Codex) and docs/GET_STARTED.md (first project, agent chat, auto-eval)'},
   {cmd:'/init <name> [--path <abs>] [--force]', desc:'Initializes the Harper project in the workspace'},
   {cmd:'/status', desc:'Shows the Harper project/context status'},
   {cmd:'/where', desc:'Shows the Harper workspace/doc-root path'},
@@ -504,7 +505,9 @@ var HELP_COMMANDS = [
   {cmd:'/plan --methodology bmad --agent architect', desc:'Plans with BMAD architecture guidance while CLike owns PLAN.md and plan.json'},
   {cmd:'/plan --methodology bmad --agent pm', desc:'Plans with BMAD product slicing and acceptance guidance'},
   {cmd:'/spec --methodology bmad --agent ux', desc:'Builds SPEC guidance with UX journeys, states, and accessibility focus'},
-  {cmd:'/agent-model [claude|codex] [model]', desc:'Shows or sets the model of the local agent (claude: opus, sonnet, haiku or an exact id; codex: a model id). Applies to chat and Harper phases; saved in the workspace settings'},
+  {cmd:'/agent-session [new|new all]', desc:'Agent chat sessions: shows them; new starts a new conversation with the agent in the current mode (new all: every mode)'},
+  {cmd:'/agent-model list', desc:'Lists the models you can set for Claude Code and Codex (from the CLike model catalog)'},
+  {cmd:'/agent-model [claude|codex] [model]', desc:'Without arguments: shows the execution (cloud/agent), the default agent and the models in use. With arguments: sets the model of the local agent (claude: opus, sonnet, haiku or an exact id; codex: a model id). Applies to chat and Harper phases; saved in the workspace settings'},
   {cmd:'/agent-default codex|claude|auto', desc:'Sets the preferred local agent executor (works in Free, Coding and Harper; does not change mode)'},
   {cmd:'Settings (auto-eval)', desc:'clike.autoEval.maxCycles (2), clike.autoEval.afterKit, clike.eval.regression (on), clike.gate.strictWarnings, clike.kit.acceptanceFirst — see docs/auto-eval.md'},
   {cmd:'/finalize', desc:'Final gates and project closure (Harper)'},
@@ -969,249 +972,7 @@ function updateBotBadge() {
   if (c1) c1.textContent = 'Send';
 }
 
-// --- Slash commands ---
-function parseSlash(s) {
-  const t = String(s || '').trim();
-  if (!t.startsWith('/')) return null;
-
-  // Tokenizza: "quoted strings" | 'single quoted' | blocchi non-spazio
-  // ATTENZIONE: backslash doppio perché siamo dentro un template string dell'estensione
-  const parts = t.match(/"([^"]*)"|'([^']*)'|[^\\s]+/g) || [];
-  console.log('text parsed:', t);
-  console.log('parts parsed:', parts);
-  
-  const cmd = (parts[0] || '').toLowerCase();
-  console.log('cmd parsed:', cmd);
-
-  if (cmd === '/init') {
-    console.log('cmd init parsed:');
-    const name = parts[1];                       // obbligatorio
-    const rest = parts.slice(2);
-    const force = rest.includes('--force');
-    const pathTokens = rest.filter(x => x !== '--force');
-    const pth = pathTokens.length ? pathTokens.join(' ') : undefined;
-    console.log('cmd init parsed:', name, rest,force,pth,pathTokens);
-    return { cmd, args: { name, path: pth, force } };
-  }
- 
-  if (cmd === '/eval' || cmd === '/gate') {
-    const rest = parts.slice(1).map(x => String(x).trim()).filter(Boolean);
-    const testMode = (rest.slice(1))? rest.slice(1)[0] : 'auto';
-    const modeContent = (rest.slice(2))? rest.slice(2)[0] : 'pass';
-    
-    let targets = null;
-    if (!rest.length) {
-      targets = ''; //findNextOpenReq in runCommand
-    } else {
-      // assumiamo REQ-ID singolo (o più REQ-ID separati da spazio)
-      const isReq = (s) => /^req-\\d+/i.test(s);
-      const onlyReqs = rest.every(isReq);
-      targets = onlyReqs ? rest : [rest[0]];
-
-    }
-    console.log('cmd evals targets:', targets);
-    return { cmd, args: { targets, testMode, modeContent } };
-  }
-  if (cmd === '/extend' || cmd === '/add-req') {
-    const rest = parts.slice(1).map(x => String(x).trim()).filter(Boolean);
-
-    const normalizeReqToken = (value) => {
-      return String(value || '')
-        .trim()
-        .toUpperCase()
-        .replace(/[–—]/g, '-')
-        .replace(/[,;]+$/, '');
-    };
-
-    let anchorReq = '';
-    let explicitReq = '';
-    let fromAttachment = false;
-    const freeTextTokens = [];
-
-    for (let i = 0; i < rest.length; i += 1) {
-      const token = rest[i];
-      const lower = token.toLowerCase();
-
-      if (lower === '--from' && String(rest[i + 1] || '').toLowerCase() === 'attachment') {
-        fromAttachment = true;
-        i += 1;
-        continue;
-      }
-
-      if (lower === '--from=attachment') {
-        fromAttachment = true;
-        continue;
-      }
-
-      if (lower === '--after') {
-        anchorReq = normalizeReqToken(rest[i + 1] || '');
-        i += 1;
-        continue;
-      }
-
-      if (lower.startsWith('--after=')) {
-        anchorReq = normalizeReqToken(token.split('=').slice(1).join('='));
-        continue;
-      }
-
-      const normalized = normalizeReqToken(token);
-      if (!explicitReq && /^REQ-\\d+$/i.test(normalized)) {
-        explicitReq = normalized;
-        continue;
-      }
-
-      freeTextTokens.push(token);
-    }
-
-    const rawInput = freeTextTokens.join(' ').trim();
-
-    return {
-      cmd: '/extend',
-      args: {
-        anchorReq,
-        explicitReq,
-        fromAttachment,
-        rawInput,
-        alias: cmd === '/add-req' ? 'add-req' : null,
-      },
-    };
-  }
-
-  if (cmd === '/kit') {
-    // Supported syntax:
-    //   /kit
-    //   /kit REQ-001
-    //   /kit REQ-001 --integrity
-    //   /kit REQ-001 --hardener
-    //   /kit REQ-001 --promotion-eval
-    //   /kit REQ-001 --phases=kit,integrity_eval,promotion_hardener,promotion_eval
-
-    const rest = parts.slice(1).map(x => String(x).trim()).filter(Boolean);
-
-    const normalizeReqToken = (value) => {
-      return String(value || '')
-        .trim()
-        .toUpperCase()
-        .replace(/[–—]/g, '-')
-        .replace(/[,;]+$/, '');
-    };
-
-    const reqTokens = [];
-    const candidateTokens = [];
-    const phaseTokens = [];
-    let inlinePhases = null;
-
-    for (const token of rest) {
-      const lower = token.toLowerCase();
-
-      if (lower === '--integrity') {
-        phaseTokens.push('integrity_eval');
-        continue;
-      }
-      if (lower === '--hardener') {
-        phaseTokens.push('promotion_hardener');
-        continue;
-      }
-      if (lower === '--promotion-eval') {
-        phaseTokens.push('promotion_eval');
-        continue;
-      }
-      if (lower.startsWith('--phases=')) {
-        inlinePhases = token.split('=').slice(1).join('=').trim();
-        continue;
-      }
-
-      const normalized = normalizeReqToken(token);
-      if (/^REQ-\\d+/i.test(normalized)) {
-        reqTokens.push(normalized);
-        continue;
-      }
-
-      candidateTokens.push(normalized);
-    }
-
-    let targets = '';
-    if (reqTokens.length) {
-      targets = reqTokens;
-    } else if (candidateTokens.length) {
-      // Fallback robusto: se l’utente ha scritto qualcosa di non perfetto ma non-flag,
-      // trattiamo il primo token come target esplicito.
-      targets = [candidateTokens[0]];
-    }
-
-    let phases = null;
-
-    if (inlinePhases) {
-      phases = inlinePhases
-        .split(',')
-        .map(x => String(x).trim().toLowerCase())
-        .filter(Boolean);
-    } else if (phaseTokens.length) {
-      phases = Array.from(new Set(phaseTokens));
-    }
-
-    return { cmd, args: { targets, phases } };
-  }
-  if (cmd === '/plan' || cmd === '/spec') {
-    // Sintassi:
-    //   /spec | /plan (no args)
-    let targets = '';
-    return { cmd, args: { targets } };
-  }
-  if (cmd === '/idea') {
-    console.log('cmd init parsed:');
-    const name = parts[1]; 
-    return { cmd, args: { name } };
-  }
-  if (cmd === '/agent-default') {
-    const value = String(parts[1] || '').trim().toLowerCase();
-    return { cmd, args: { value } };
-  }
-  if (cmd === '/agent-model') {
-    return { cmd, args: { agent: String(parts[1] || '').trim().toLowerCase(), model: parts.slice(2).join(' ').trim() } };
-  }
-
-  // --- RAG legacy commands: /ragIndex [glob], /ragSearch <query>
-  if (cmd === '/ragindex') {
-    // tutto quello dopo il comando è il glob
-    const tail = (parts.slice(1) || []).join(' ').trim();
-    return { cmd, args: { glob: tail } };
-  }
-
-  if (cmd === '/ragsearch') {
-    // tutto quello dopo il comando è la query
-    const tail = (parts.slice(1) || []).join(' ').trim();
-    return { cmd, args: { query: tail } };
-  }
-
-  // /rag: 4 varianti supportate
-  if (cmd === '/rag') {
-    // esempi:
-    // /rag my query here
-    // /rag +3
-    // /rag list
-    // /rag clear
-    const tail = (parts.slice(1) || []).join(' ').trim();
-    if (!tail) return { cmd, args: { action: 'help' } };
-    // nuovo (safe, senza regex)
-    const s = (typeof tail === 'string' ? tail.trim() : '');
-    if (s && s[0] === '+') {
-      const num = parseInt(s.slice(1), 10);
-      if (Number.isFinite(num) && num > 0) {
-        return { cmd, args: { action: 'addByIndex', index: num } };
-      }
-    }
- 
-    if (/^(list|clear)$/i.test(tail)) {
-      return { cmd, args: { action: tail.toLowerCase() } };
-    }
-    // default → search
-    return { cmd, args: { action: 'search', query: tail } };
-  }
-  
-  return { cmd, args: {} };
-}
-
+// --- Slash commands: parsed by the shared slash-parser.js (injected below) ---
 ${buildBrowserSlashParserSource()}
 
 function getHelpItems() {
@@ -1482,7 +1243,8 @@ function handleSlash(slash) {
     slash.cmd === '/kit' ||
     slash.cmd === '/finalize' ||
     slash.cmd === '/agent-default' ||
-    slash.cmd === '/agent-model'
+    slash.cmd === '/agent-model' ||
+    slash.cmd === '/agent-session'
   ) {
     var modeVal = (mode && mode.value) ? mode.value : 'harper';
     var key = modeVal;
@@ -1536,6 +1298,9 @@ function handleSlash(slash) {
     if (slash.args?.agent) msg.agent = slash.args.agent;
     if (slash.args?.methodology_context) msg.methodology_context = slash.args.methodology_context;
 
+    if (slash.cmd === '/agent-session') {
+      msg.sessionAction = slash.args?.action || '';
+    }
     if (slash.cmd === '/agent-model') {
       msg.agentName = slash.args?.agent || '';
       msg.agentModel = slash.args?.model || '';
@@ -1569,7 +1334,7 @@ function handleSlash(slash) {
     console.log('[CLike][chat-ui][harperRun] msg.targetReqId =', JSON.stringify(msg.targetReqId));
     console.log('[CLike][chat-ui][harperRun] msg.phases =', JSON.stringify(msg.phases));
 
-    if (slash.cmd === '/agent-default' || slash.cmd === '/agent-model') {
+    if (slash.cmd === '/agent-default' || slash.cmd === '/agent-model' || slash.cmd === '/agent-session') {
       post(msg.type, msg);
     } else {
       postAndLock(msg.type, msg);
@@ -1663,6 +1428,49 @@ function appendImagePreviews(container, images) {
     img.style.cssText = 'max-width:160px;max-height:120px;margin:4px;border:1px solid #ddd;border-radius:6px';
     container.appendChild(img);
   });
+}
+
+// Native agent chat: a live bubble fed by the agent's streamed events (text as it is written, the
+// tools it uses); the final answer bubble replaces it when the turn ends.
+var agentLive = null;
+function agentLiveEnd() {
+  if (agentLive && agentLive.wrap.parentNode) agentLive.wrap.parentNode.removeChild(agentLive.wrap);
+  agentLive = null;
+}
+function agentLiveStart(label) {
+  agentLiveEnd();
+  const wrap = document.createElement('div');
+  wrap.className = 'msg ai';
+  const b = document.createElement('div');
+  b.className = 'bubble agent-live';
+  const badge = document.createElement('span');
+  badge.className = 'badge';
+  badge.textContent = String(label || 'agent') + ' · live';
+  const steps = document.createElement('div');
+  steps.className = 'meta';
+  const text = document.createElement('div');
+  text.style.whiteSpace = 'pre-wrap';
+  b.appendChild(badge);
+  b.appendChild(steps);
+  b.appendChild(text);
+  wrap.appendChild(b);
+  chat.appendChild(wrap);
+  chat.scrollTop = chat.scrollHeight;
+  agentLive = { wrap: wrap, steps: steps, text: text };
+}
+function agentLiveEvent(ev) {
+  if (!ev) return;
+  if (ev.kind === 'start') { agentLiveStart(ev.label); return; }
+  if (ev.kind === 'end') { agentLiveEnd(); return; }
+  if (!agentLive) return;
+  if (ev.kind === 'delta') {
+    agentLive.text.textContent += String(ev.text || '');
+  } else if (ev.kind === 'tool' || ev.kind === 'error') {
+    const line = document.createElement('div');
+    line.textContent = (ev.kind === 'error' ? '⚠ ' : '↳ ') + String(ev.label || ev.text || '');
+    agentLive.steps.appendChild(line);
+  }
+  chat.scrollTop = chat.scrollHeight;
 }
 
 function bubble(role, content, modelName, attachments, ts, opts) {
@@ -2076,6 +1884,7 @@ window.addEventListener('message', (event) => {
 
   if (msg.type === 'openHelpOverlay') { renderHelpList(); openHelpOverlay(); }
   // Echo → mostra un bubble "assistant" (anche per i riepiloghi post-init)
+  if (msg.type === 'agentStream') { agentLiveEvent(msg.event); return; }
   if (msg.type === 'echo') {
     console.log('[webview] echo', msg);
     const text = stringifyUiErrorMessage(msg.message || '');

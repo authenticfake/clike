@@ -67,6 +67,11 @@ from services.cloud_prompt.messages import compose_phase_messages
 from utils.safe_paths import resolve_within, validate_req_id
 from services import gate_integrity
 from services.kit_format import autofix_kit_files
+from services.methodologies.quality_contracts import (
+    evaluate_lane_guide_structure,
+    evaluate_plan_json_structure,
+    evaluate_spec_quality,
+)
 log = logging.getLogger("service.router")
 
 _KIT_PHASE_SEQUENCE: List[str] = [
@@ -1499,24 +1504,31 @@ def _materialize_file_requirements(
         "execution_contract": _stage("ci/LTC.json"),
         "execution_howto": _stage("ci/HOWTO.md"),
     }
+    # Shared adapters / data-schema families: fixed locations, in the REQ's ecosystem.
+    def _src(stem: str) -> str:
+        return f"{stem}{source_ext}"
+
+    def _test(directory: str, name: str) -> str:
+        return f"{directory}/{test_prefix}{name}{test_ext}"
+
     if canonical_family == "src/shared/adapters":
         role_to_path_hint.update({
-            "primary_implementation": _stage("src/shared/adapters/implementation.py"),
-            "boundary_contract": _stage("src/shared/adapters/contracts.py"),
-            "entry_binding": _stage("src/shared/adapters/binding.py"),
-            "workflow_component": _stage("src/shared/adapters/workflow.py"),
-            "adapter_contract": _stage("src/shared/adapters/adapter_contract.py"),
-            "acceptance_tests": _stage("test/shared/adapters/test_req_behavior.py"),
-            "integration_smoke": _stage("test/shared/adapters/test_integration_smoke.py"),
+            "primary_implementation": _stage(_src("src/shared/adapters/implementation")),
+            "boundary_contract": _stage(_src("src/shared/adapters/contracts")),
+            "entry_binding": _stage(_src("src/shared/adapters/binding")),
+            "workflow_component": _stage(_src("src/shared/adapters/workflow")),
+            "adapter_contract": _stage(_src("src/shared/adapters/adapter_contract")),
+            "acceptance_tests": _stage(_test("test/shared/adapters", "req_behavior")),
+            "integration_smoke": _stage(_test("test/shared/adapters", "integration_smoke")),
         })
 
     if canonical_family == "src/data/schema":
         role_to_path_hint.update({
-            "primary_contract_or_schema": _stage("src/data/schema/contracts.py"),
-            "mapping_or_models": _stage("src/data/schema/schema.py"),
-            "migration": _stage("src/data/migrations/versions/<timestamp>_backbone.py"),
-            "acceptance_tests": _stage("test/data/schema/test_req_behavior.py"),
-            "integration_smoke": _stage("test/data/schema/test_integration_smoke.py"),
+            "primary_contract_or_schema": _stage(_src("src/data/schema/contracts")),
+            "mapping_or_models": _stage(_src("src/data/schema/schema")),
+            "migration": _stage(_src("src/data/migrations/versions/<timestamp>_backbone")),
+            "acceptance_tests": _stage(_test("test/data/schema", "req_behavior")),
+            "integration_smoke": _stage(_test("test/data/schema", "integration_smoke")),
         })
     required_outputs: List[Dict[str, Any]] = []
     for role in artifact_roles:
@@ -1968,15 +1980,12 @@ def _append_runtime_guardrail_files(
     file_requirements_text: str,
     promotion_manifest: str | None,
 ) -> List[Dict[str, Any]]:
+    # The orchestrator's contracts, in ci/ (read by the gate, locked) and docs/ (read by follow-up
+    # stages and the extension): one content, written by CLike, never re-emitted by the model.
     runtime_files: List[Dict[str, Any]] = [
-        {
-            "path": f"runs/kit/{req_id}/ci/TARGET_CONTRACT.json",
-            "content": target_contract_text,
-        },
-        {
-            "path": f"runs/kit/{req_id}/ci/FILE_REQUIREMENTS.json",
-            "content": file_requirements_text,
-        },
+        {"path": f"runs/kit/{req_id}/{root}/{name}", "content": text}
+        for root in ("ci", "docs")
+        for name, text in (("TARGET_CONTRACT.json", target_contract_text), ("FILE_REQUIREMENTS.json", file_requirements_text))
     ]
 
     if promotion_manifest:
@@ -2047,6 +2056,23 @@ def _kit_repair(payload: Dict[str, Any]) -> Dict[str, Any]:
     return repair if isinstance(repair, dict) and repair else {}
 
 
+_KIT_FOLLOW_UP_STAGES = {"integrity_eval", "promotion_hardener", "promotion_eval"}
+
+
+def _kit_follow_up_only(payload: Dict[str, Any]) -> bool:
+    """A /kit run of follow-up stages only (e.g. --hardener): it works on the current candidate,
+    so it is not a new KIT generation."""
+    kit = payload.get("kit") or {}
+    phases = {str(p).strip().lower() for p in (kit.get("phases") or [])} if isinstance(kit, dict) else set()
+    return bool(phases) and phases <= _KIT_FOLLOW_UP_STAGES
+
+
+def _follow_up_on_locked_surface(payload: Dict[str, Any], req_id: str) -> bool:
+    """Follow-up stages after the first eval: the tests are locked, their changes are governed (L3)."""
+    root = _acceptance_project_root(payload)
+    return root is not None and _kit_follow_up_only(payload) and gate_integrity.has_lock(root, req_id)
+
+
 def _kit_acceptance_first(payload: Dict[str, Any]) -> bool:
     """Code-only KIT of the acceptance-first flow: its tests and eval profile are already locked."""
     kit = payload.get("kit") or {}
@@ -2113,7 +2139,11 @@ def _apply_repair_governance(payload: Dict[str, Any], out: Dict[str, Any], req_i
             evidence = "\n".join(
                 f"{f.get('name')}\n{f.get('output') or ''}" for f in (repair.get("failures") or []) if isinstance(f, dict)
             )
-            reason = f"auto-eval repair cycle {repair.get('cycle')}" if repair else "acceptance-first code KIT"
+            reason = (
+                f"auto-eval repair cycle {repair.get('cycle')}" if repair
+                else "follow-up KIT stage" if _kit_follow_up_only(payload)
+                else "acceptance-first code KIT"
+            )
             result = gate_integrity.amend_acceptance_surface(root, req_id, changes, reason=reason, evidence=evidence)
         by_rel = {rel: content for rel, content in changes.items()}
         for rel in result.get("accepted") or []:
@@ -2231,6 +2261,28 @@ def _local_agent_failure(
     }
 
 
+def _attach_bmad_quality_advisory(payload: Dict[str, Any], out: Dict[str, Any]) -> None:
+    """BMAD runs: deterministic quality checks of the produced SPEC / plan.json / lane guides
+    (services.methodologies.quality_contracts), reported as advisory warnings — they never block."""
+    context = payload.get("methodology_context")
+    if not isinstance(context, dict) or context.get("methodology") != "bmad":
+        return
+    reports = []
+    for item in out.get("files") or []:
+        path = str(item.get("path") or "")
+        content = str(item.get("content") or "")
+        if path.endswith("docs/harper/SPEC.md"):
+            reports.append(evaluate_spec_quality(content))
+        elif path.endswith("docs/harper/plan.json"):
+            reports.append(evaluate_plan_json_structure(content))
+        elif "/lane-guides/" in path and path.endswith(".md"):
+            reports.append({**evaluate_lane_guide_structure(content), "path": path})
+    if not reports:
+        return
+    out["bmad_quality"] = reports
+    out["warnings"] = [*(out.get("warnings") or []), *(f"bmad_quality:{w}" for r in reports for w in r.get("warnings") or [])]
+
+
 async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
     # --- Normalizzazione in dict ---
     if hasattr(req_payload, "model_dump"):
@@ -2339,7 +2391,7 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
         requested_kit_phases = _normalize_requested_kit_phases(kit)
         # an auto-eval repair and an acceptance-first code KIT keep the current KIT generation:
         # the acceptance lock stays in force
-        if not _kit_repair(merged) and not _kit_acceptance_first(merged):
+        if not _kit_repair(merged) and not _kit_acceptance_first(merged) and not _kit_follow_up_only(merged):
             _acceptance_hook(merged, "kit", target_req_id)
         core_blobs = _inject_server_discovered_companion_artifacts(
             merged=merged,
@@ -3255,7 +3307,7 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
         out["files"], formatted = autofix_kit_files(out.get("files") or [], target_req_id)
         if formatted:
             out["warnings"] = [*(out.get("warnings") or []), *(f"kit_autofix:{p}" for p in formatted)]
-        if _kit_repair(merged) or _kit_acceptance_first(merged):
+        if _kit_repair(merged) or _kit_acceptance_first(merged) or _follow_up_on_locked_surface(merged, target_req_id):
             # guardrail files are part of the locked acceptance surface: not re-emitted by a repair
             _apply_repair_governance(merged, out, target_req_id)
         else:
@@ -3266,6 +3318,7 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
                 file_requirements_text=file_requirements_text,
                 promotion_manifest=promotion_manifest_text or None,
             )
+    _attach_bmad_quality_advisory(merged, out)
     log.info(
         "GATEWAY HARPER RUN RES keys=%s files=%d text=%s integrity=%s hardener=%s promotion_eval=%s",
         ",".join(sorted(out.keys())),

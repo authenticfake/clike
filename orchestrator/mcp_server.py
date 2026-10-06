@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextvars
 import json
 import re
 import logging
@@ -40,9 +41,31 @@ mcp = FastMCP(
 # Helpers
 # ---------------------------------------------------------------------------
 
+# Project the current tool call reads (project_root argument); default: WORKSPACE_ROOT.
+_PROJECT_ROOT: contextvars.ContextVar[Optional[Path]] = contextvars.ContextVar("clike_mcp_project_root", default=None)
+
+
 def _workspace_root() -> Path:
+    override = _PROJECT_ROOT.get()
+    if override is not None:
+        return override
     root = Path(getattr(settings, "WORKSPACE_ROOT", ".")).expanduser().resolve()
     return root
+
+
+def _use_project(project_root: str = "") -> None:
+    """Point this tool call at a CLike project (confined to the allowed project roots, as eval/gate)."""
+    if not str(project_root or "").strip():
+        _PROJECT_ROOT.set(None)
+        return
+    from services.gate_integrity import allowed_eval_roots
+    from utils.safe_paths import is_within_any
+
+    path = Path(project_root).expanduser().resolve()
+    roots = allowed_eval_roots()
+    if not roots or not is_within_any(path, roots) or not path.is_dir():
+        raise ValueError("project_root must be a CLike project under CLIKE_PROJECTS_DIR")
+    _PROJECT_ROOT.set(path)
 
 
 def _runs_root() -> Path:
@@ -564,7 +587,8 @@ async def clike_artifacts_explain(doc_root: str = "docs/harper") -> Dict[str, An
     }
 
 @mcp.tool()
-def harper_project_read_core(doc_root: str = "docs/harper") -> Dict[str, Any]:
+def harper_project_read_core(doc_root: str = "docs/harper", project_root: str = "") -> Dict[str, Any]:
+    _use_project(project_root)
     root = _doc_root(doc_root)
     core_names = [
         "IDEA.md",
@@ -606,7 +630,8 @@ def harper_project_read_core(doc_root: str = "docs/harper") -> Dict[str, Any]:
 
 
 @mcp.tool()
-def harper_doc_read(path: str, doc_root: str = "docs/harper") -> Dict[str, Any]:
+def harper_doc_read(path: str, doc_root: str = "docs/harper", project_root: str = "") -> Dict[str, Any]:
+    _use_project(project_root)
     root = _doc_root(doc_root)
     target = _safe_child(root, path)
     raw = _safe_read_text(target)
@@ -625,7 +650,8 @@ def harper_doc_read(path: str, doc_root: str = "docs/harper") -> Dict[str, Any]:
 
 
 @mcp.tool()
-def harper_plan_read(doc_root: str = "docs/harper") -> Dict[str, Any]:
+def harper_plan_read(doc_root: str = "docs/harper", project_root: str = "") -> Dict[str, Any]:
+    _use_project(project_root)
     root = _doc_root(doc_root)
     plan_json = _safe_read_json(root / "plan.json") or {}
     plan_md = _safe_read_text(root / "PLAN.md") or ""
@@ -642,7 +668,8 @@ def harper_plan_read(doc_root: str = "docs/harper") -> Dict[str, Any]:
 
 
 @mcp.tool()
-def harper_req_list(doc_root: str = "docs/harper") -> Dict[str, Any]:
+def harper_req_list(doc_root: str = "docs/harper", project_root: str = "") -> Dict[str, Any]:
+    _use_project(project_root)
     plan_json = _plan_data(doc_root)
     reqs = _reqs(plan_json)
 
@@ -669,7 +696,8 @@ def harper_req_list(doc_root: str = "docs/harper") -> Dict[str, Any]:
 
 
 @mcp.tool()
-def harper_req_get(req_id: str, doc_root: str = "docs/harper") -> Dict[str, Any]:
+def harper_req_get(req_id: str, doc_root: str = "docs/harper", project_root: str = "") -> Dict[str, Any]:
+    _use_project(project_root)
     plan_json = _plan_data(doc_root)
     item = _req_by_id(plan_json, req_id)
 
@@ -687,7 +715,8 @@ def harper_req_get(req_id: str, doc_root: str = "docs/harper") -> Dict[str, Any]
 
 
 @mcp.tool()
-def harper_req_next(doc_root: str = "docs/harper") -> Dict[str, Any]:
+def harper_req_next(doc_root: str = "docs/harper", project_root: str = "") -> Dict[str, Any]:
+    _use_project(project_root)
     plan_json = _plan_data(doc_root)
     reqs = _reqs(plan_json)
 
@@ -722,7 +751,8 @@ def harper_req_next(doc_root: str = "docs/harper") -> Dict[str, Any]:
 
 
 @mcp.tool()
-def harper_kit_prepare(req_id: str, doc_root: str = "docs/harper") -> Dict[str, Any]:
+def harper_kit_prepare(req_id: str, doc_root: str = "docs/harper", project_root: str = "") -> Dict[str, Any]:
+    _use_project(project_root)
     rid = str(req_id or "").strip().upper()
     if not rid:
         raise ValueError("req_id is required")
@@ -849,7 +879,8 @@ def gate_read_decision(run_id: str = "") -> Dict[str, Any]:
 
 
 @mcp.tool()
-def harper_status_read(doc_root: str = "docs/harper") -> Dict[str, Any]:
+def harper_status_read(doc_root: str = "docs/harper", project_root: str = "") -> Dict[str, Any]:
+    _use_project(project_root)
     plan_json = _plan_data(doc_root)
     reqs = _reqs(plan_json)
 

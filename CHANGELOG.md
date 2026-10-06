@@ -2,6 +2,54 @@
 
 All notable changes to CLike. Extension, orchestrator and gateway share one version.
 
+## [Unreleased]
+
+### Added
+
+- **Native agent chat** (H1): with execution = agent, the CLike chat talks to Claude Code / Codex as
+  one continuing session per mode (free, coding, harper) — the first message starts it, the next
+  ones resume it (Claude `--session-id`/`--resume`, Codex `exec resume`) and only the new turn is
+  sent; the agent's text and the tools it uses stream into a live bubble; Cancel stops the agent.
+  `/agent-session [new|new all]` shows or restarts the sessions. Codex chat now runs with the
+  mode's sandbox (read-only, workspace-write for coding).
+- **CLike from Claude Code / Codex** (H2): the extension MCP server runs phases through the
+  governed chat flow and returns their outcome (`harper_run_phase` waits up to `wait_seconds`,
+  then `harper_run_status`), plus `eval_run` (optionally the auto-eval `fix`) and `gate_check`;
+  no overrides, promotion or git from MCP. The orchestrator MCP Harper read tools accept a
+  `project_root` (confined to the projects directory). Verified with Codex calling
+  `harper_req_list` on a project.
+
+### Changed
+
+- One FILE_REQUIREMENTS for cloud and local agents (B15): the agent package uses the obligations
+  the orchestrator builds for every KIT (the ones the cloud prompt, the output contract and the gate
+  use) and keeps its extra guidance as policies; it also writes the copy the gate reads under the
+  locked `ci/`. Agent KITs now get concrete file roles, the namespace, and the launcher/runtime
+  manifest requirements of their family; the noisy `external_library_obligation` is gone.
+- KIT autofix for every ecosystem: final newline in sources, gofmt for Go when installed.
+- `/agent-model` shows execution, default agent and models; `/agent-model list` lists the models.
+
+- KIT: `TARGET_CONTRACT.json` and `FILE_REQUIREMENTS.json` are written by CLike (in `ci/` and
+  `docs/`, same content) instead of being re-emitted by the model — fewer output tokens and no
+  divergent copies (B8). Follow-up KIT stages see their options in the prompt (B7). The agent
+  KIT/finalize contracts ask for the same deliverables as the cloud.
+
+- BMAD runs: SPEC, plan.json and lane guides are checked against the BMAD quality contracts
+  (deterministic, no LLM) and the gaps are reported as advisory `bmad_quality:` warnings; the
+  unused fixture-only IDEA scorecard module was removed (L1).
+- Debt: one slash parser in the webview (L4), deterministic repository manifest (B13), lane guides
+  Markdown-only in the extension (B12), single finalize auth check (B11), flat agent audit files
+  (B9), valid sample documents checked in CI (B14).
+
+### Fixed
+
+- A follow-up KIT stage (`--hardener`, ...) after the first eval started a new KIT generation
+  and could rewrite the locked tests: it now keeps the generation and its test/ci changes are
+  governed like a repair (L3).
+- An eval or gate whose caller disconnected kept running in the sandbox (e.g. after a stopped
+  benchmark it delayed the next eval by more than 30 minutes): it is now cancelled, with its
+  processes, and the orchestrator answers 499.
+
 ## [1.1.0] — 2026-10-06 — Governed auto-eval on both paths, acceptance-first KIT
 
 ### Added

@@ -736,7 +736,7 @@ LTC.json must reflect the actual candidate, the chosen lane, real commands, real
 
 The `/kit` response is valid only if all mandatory artifacts for the target REQ are emitted fully, syntactically closed, non-placeholder, and consistent with the actual implementation package.
 
-When the runtime prompt includes `ACTIVE KIT REQUIRED OUTPUTS`, that section is the authoritative file list for the exact run. Any file listed there is mandatory even if it is not shown in the generic examples below. Do not omit active required outputs, including TARGET_CONTRACT.json, FILE_REQUIREMENTS.json, or methodology companion docs, when the active section requires them.
+When the runtime prompt includes `ACTIVE KIT REQUIRED OUTPUTS`, that section is the authoritative file list for the exact run. Any file listed there is mandatory even if it is not shown in the generic examples below. Do not omit active required outputs, including methodology companion docs, when the active section requires them. TARGET_CONTRACT.json and FILE_REQUIREMENTS.json are provided and written by CLike: read them, do not re-emit them.
 
 Mandatory artifacts always include:
 

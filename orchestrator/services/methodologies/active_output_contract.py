@@ -7,14 +7,30 @@ NATIVE_LOCAL_REQUIRED_OUTPUTS: Dict[str, List[str]] = {
     "idea": ["docs/harper/IDEA.md"],
     "spec": ["docs/harper/SPEC.md"],
     "plan": ["docs/harper/PLAN.md", "docs/harper/plan.json", "docs/harper/lane-guides/**"],
+    # The cloud KIT deliverables (services/cloud_prompt/active_output_contract.py), plus the
+    # candidate roots the agent writes directly.
     "kit": [
+        "runs/kit/<REQ-ID>/docs/TARGET_CONTRACT.json",
+        "runs/kit/<REQ-ID>/docs/FILE_REQUIREMENTS.json",
+        "runs/kit/<REQ-ID>/docs/README_<REQ-ID>.md",
+        "runs/kit/<REQ-ID>/docs/KIT_<REQ-ID>.md",
+        "runs/kit/<REQ-ID>/ci/LTC.json",
+        "runs/kit/<REQ-ID>/ci/HOWTO.md",
         "runs/kit/<REQ-ID>/src/**",
         "runs/kit/<REQ-ID>/test/**",
         "runs/kit/<REQ-ID>/ci/**",
-        "runs/kit/<REQ-ID>/docs/TARGET_CONTRACT.json",
-        "runs/kit/<REQ-ID>/docs/FILE_REQUIREMENTS.json",
     ],
+    # The local eval is an advisory pre-pass: it writes repair notes, the canonical eval decides.
     "eval": ["runs/kit/<REQ-ID>/reports/BMAD_EVAL_REPAIR_NOTES.md"],
+    # Same documents as the cloud finalize (also enforced by local_agent/normalize.py).
+    "finalize": [
+        "README.md",
+        "docs/harper/HOWTO_RUN.md",
+        "docs/harper/RELEASE_NOTES.md",
+        "docs/harper/SANITY_CHECKS.md",
+        "docs/harper/TODO_NEXT.md",
+        "docs/harper/PR_BODY.md",
+    ],
 }
 
 NATIVE_CONTEXT_SECTIONS: Dict[str, List[str]] = {

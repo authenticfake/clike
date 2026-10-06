@@ -177,3 +177,17 @@ class BmadQualityContractTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BmadQualityAdvisoryTests(unittest.TestCase):
+    def test_bmad_runs_get_advisory_quality_warnings_native_runs_do_not(self):
+        from services.harper import _attach_bmad_quality_advisory
+
+        files = [{"path": "docs/harper/SPEC.md", "content": "# SPEC\\n## Problem\\nshort"}]
+        out = {"files": files, "warnings": []}
+        _attach_bmad_quality_advisory({"methodology_context": {"methodology": "bmad"}}, out)
+        self.assertEqual(out["bmad_quality"][0]["artifact"], "SPEC.md")
+        self.assertTrue(any(w.startswith("bmad_quality:SPEC is missing BMAD quality topic") for w in out["warnings"]))
+        native = {"files": files, "warnings": []}
+        _attach_bmad_quality_advisory({}, native)
+        self.assertEqual(native, {"files": files, "warnings": []})

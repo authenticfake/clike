@@ -169,7 +169,12 @@ function isDocumentPhaseAllowedOutput(phase, candidatePath) {
   const exact = DOCUMENT_PHASE_REQUIRED_OUTPUTS[p] || [];
   if (exact.includes(rel)) return true;
   const prefixes = DOCUMENT_PHASE_ALLOWED_PREFIXES[p] || [];
-  return prefixes.some((prefix) => rel.startsWith(prefix));
+  return prefixes.some((prefix) => rel.startsWith(prefix)) && isLaneGuideFile(rel);
+}
+
+// Lane guides are Markdown, as the orchestrator accepts them (B12).
+function isLaneGuideFile(rel) {
+  return !rel.startsWith('docs/harper/lane-guides/') || /\.md$/i.test(rel);
 }
 
 // /extend is a mutation/append phase: it may rewrite the canonical Harper docs
@@ -195,7 +200,7 @@ function isExtendAuditPath(candidatePath) {
 function isExtendAllowedOutput(candidatePath) {
   const rel = normalizeArtifactPath(candidatePath);
   if (EXTEND_ALLOWED_EXACT.includes(rel)) return true;
-  if (EXTEND_ALLOWED_PREFIXES.some((prefix) => rel.startsWith(prefix))) return true;
+  if (EXTEND_ALLOWED_PREFIXES.some((prefix) => rel.startsWith(prefix))) return isLaneGuideFile(rel);
   return isExtendAuditPath(rel);
 }
 

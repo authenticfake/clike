@@ -10,6 +10,8 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -96,9 +98,30 @@ def _with_pytest_hang_dump(env: Dict[str, str], timeout: Optional[int]) -> Dict[
     return {**env, "PYTEST_ADDOPTS": f"{current} -vvv -o faulthandler_timeout={seconds}".strip()}
 
 
-def _run_process_group(cmd: str, *, cwd: Path, env: Dict[str, str], timeout: Optional[int]) -> subprocess.CompletedProcess:
-    """subprocess.run(shell=True) that stops the whole process group on timeout (the shell's
-    children, e.g. pytest or a server, would otherwise keep running in the sandbox)."""
+class EvalCancelled(RuntimeError):
+    """The caller went away (client disconnected): the running check was stopped."""
+
+
+def _stop_group(proc: subprocess.Popen) -> None:
+    if os.name != "nt":
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
+    else:
+        proc.kill()
+
+
+def _run_process_group(
+    cmd: str,
+    *,
+    cwd: Path,
+    env: Dict[str, str],
+    timeout: Optional[int],
+    cancel: Optional[threading.Event] = None,
+) -> subprocess.CompletedProcess:
+    """subprocess.run(shell=True) that stops the whole process group on timeout or cancellation
+    (the shell's children, e.g. pytest or a server, would otherwise keep running in the sandbox)."""
     proc = subprocess.Popen(
         cmd,
         shell=True,
@@ -109,19 +132,22 @@ def _run_process_group(cmd: str, *, cwd: Path, env: Dict[str, str], timeout: Opt
         text=True,
         start_new_session=(os.name != "nt"),
     )
-    try:
-        stdout, stderr = proc.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        if os.name != "nt":
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except OSError:
-                pass
-        else:
-            proc.kill()
-        stdout, stderr = proc.communicate()
-        raise subprocess.TimeoutExpired(cmd, timeout, output=stdout, stderr=stderr)
-    return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
+    deadline = time.monotonic() + float(timeout) if timeout else None
+    while True:
+        # short waits so a cancellation is seen within a second (retrying communicate loses no output)
+        step = 1.0 if deadline is None else max(0.0, min(1.0, deadline - time.monotonic()))
+        try:
+            stdout, stderr = proc.communicate(timeout=step)
+            return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
+        except subprocess.TimeoutExpired:
+            if cancel is not None and cancel.is_set():
+                _stop_group(proc)
+                proc.communicate()
+                raise EvalCancelled(cmd)
+            if deadline is not None and time.monotonic() >= deadline:
+                _stop_group(proc)
+                stdout, stderr = proc.communicate()
+                raise subprocess.TimeoutExpired(cmd, timeout, output=stdout, stderr=stderr)
 
 
 def scrubbed_process_env() -> Dict[str, str]:
@@ -161,8 +187,11 @@ class EvalRunner:
         *,
         eval_key: Optional[str] = None,
         extra_src_roots: Optional[List[Path]] = None,
+        cancel_event: Optional[threading.Event] = None,
     ):
         self.project_root = project_root.resolve()
+        # set when the caller goes away: the running check is stopped and no further check starts
+        self.cancel_event = cancel_event
         # Regression runs: own eval directory and the candidate's source overlaid last.
         self.eval_key = eval_key
         self.extra_src_roots = list(extra_src_roots or [])
@@ -195,7 +224,7 @@ class EvalRunner:
             env = scrubbed_process_env()
         env = _with_pytest_hang_dump(env, timeout)
         try:
-            proc = _run_process_group(cmd, cwd=cwd, env=env, timeout=timeout)
+            proc = _run_process_group(cmd, cwd=cwd, env=env, timeout=timeout, cancel=self.cancel_event)
             stderr = proc.stderr or ""
             stdout = proc.stdout or ""
             ok = proc.returncode == expect
@@ -225,6 +254,19 @@ class EvalRunner:
                 cwd=str(cwd),
                 expect=expect,
                 blocked=blocked and not ok,
+                blocking=blocking,
+            )
+        except EvalCancelled:
+            return EvalCase(
+                name=name,
+                passed=False,
+                code=997,
+                stdout="",
+                stderr="[CLike EvalRunner] cancelled: the caller disconnected, the check was stopped.",
+                cmd=cmd,
+                cwd=str(cwd),
+                expect=expect,
+                blocked=True,
                 blocking=blocking,
             )
         except subprocess.TimeoutExpired as exc:
@@ -2235,6 +2277,8 @@ class EvalRunner:
             )
 
         for case in norm_cases:
+            if self.cancel_event is not None and self.cancel_event.is_set():
+                break
             raw_cmd = case.get("run")
             cmd = self._rewrite_command_for_eval_workspace(raw_cmd, path_map)
             setup = self._rewrite_for_eval_workspace(case.get("setup"), path_map)
@@ -2379,7 +2423,20 @@ class EvalRunner:
 
             out_cases.append(result)
 
-        if regression and work_kit_root:
+        cancelled = self.cancel_event is not None and self.cancel_event.is_set()
+        if cancelled:
+            out_cases.append(
+                EvalCase(
+                    name="eval::cancelled",
+                    passed=False,
+                    code=997,
+                    stdout="",
+                    stderr="[CLike EvalRunner] cancelled: the caller disconnected; remaining checks were not run.",
+                    blocked=True,
+                    blocking=True,
+                )
+            )
+        if regression and work_kit_root and not cancelled:
             out_cases.extend(self.run_regression(eff_req, work_kit_root / "src"))
 
         return self._report_from_cases(
@@ -2433,6 +2490,7 @@ class EvalRunner:
                 self.project_root,
                 eval_key=f"{self._safe_req_id(req_id)}/regression/{self._safe_req_id(other)}",
                 extra_src_roots=[candidate_src],
+                cancel_event=self.cancel_event,
             )
             report = runner.run_profile(profile=str(profile), ltc=ltc, req_id=other)
             for case in report.cases:

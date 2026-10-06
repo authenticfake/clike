@@ -67,6 +67,17 @@ class AcceptanceFirstTests(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)
 
+    def test_follow_up_stages_keep_the_generation_and_are_governed_once_locked(self):
+        payload = {"repository_context": {"workspace_folder": str(self.proj)}, "kit": {"targets": [REQ], "phases": ["promotion_hardener"]}}
+        self.assertTrue(harper._kit_follow_up_only(payload))
+        self.assertFalse(harper._kit_follow_up_only({"kit": {"phases": ["kit", "promotion_hardener"]}}))
+        self.assertFalse(harper._kit_follow_up_only({"kit": {}}))
+        # before the first eval nothing is locked: the hardener may still strengthen the tests
+        self.assertFalse(harper._follow_up_on_locked_surface(payload, REQ))
+        self._write("test/test_pricing.py", TEST_PY)
+        gate_integrity.ensure_lock(self.proj, REQ)  # first eval
+        self.assertTrue(harper._follow_up_on_locked_surface(payload, REQ))
+
     def test_acceptance_runs_alone(self):
         self.assertEqual(harper._normalize_requested_kit_phases({"phases": ["acceptance"]}), ["acceptance"])
         with self.assertRaises(ValueError):
