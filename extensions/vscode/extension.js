@@ -14,7 +14,7 @@ const {
   generateServiceToken,
 } = require('./service-auth');
 const { validateLocalMcpRequest } = require('./mcp-request-guard');
-const { postGateOverride } = require('./api');
+const { postAcceptanceAmend, postAcceptanceLock, postGateOverride } = require('./api');
 const { request: serviceRequest, orchestratorUrl, serviceBaseUrls } = require('./orchestrator-client');
 const { safeRelativePath, safeWorkspaceUri, resolveInsideWorkspace } = require('./safe-workspace');
 const {  handleGate, handleEval } = require('./commands/harper');
@@ -31,6 +31,8 @@ const {
   getExecutorConfig,
   buildLocalAgentModelArgs,
   parseClaudeResultEnvelope,
+  parseLocalAgentRun,
+  withMachineReadableOutput,
   buildLocalAgentDisplayLabel,
   
   //_d_etectLocalAgentAvailability,
@@ -75,7 +77,13 @@ const {
   getHarperSlashCommandName,
   shouldBlockHarperSlashFromGenericChatMessage,
 } = require('./slash-parser');
-const { collectRepairFiles, nextAutoEvalStep } = require('./auto-eval');
+const {
+  acceptanceChanges,
+  collectRepairFiles,
+  nextAutoEvalStep,
+  restoreAcceptanceFiles,
+  snapshotAcceptanceSurface,
+} = require('./auto-eval');
 
 const {
   buildCodexArgsForLocalAgent,
@@ -879,6 +887,7 @@ async function executeLocalAgentPackage({
   harperTimeout,
   panel,
   out,
+  kitStage = null,
 }) {
   const phaseForAgent = String(localAgentPackage?.phase || phase || '').trim().toLowerCase();
   const isFinalize = phaseForAgent === 'finalize';
@@ -966,16 +975,24 @@ async function executeLocalAgentPackage({
       `CLike remains the workflow owner; the agent is the local actuator/hardener.`
   });
 
+  const agentStartedAt = Date.now();
   const agentResult = await runLocalAgentSync({
     workspaceRootUri: wsroot,
     prompt: promptContent,
     executorId: selectedExecutor,
     command: executorConfig.command,
-    argsBeforePrompt: launcherArgs,
+    argsBeforePrompt: withMachineReadableOutput(selectedExecutor, launcherArgs),
     promptTransport,
     timeoutMinutes: Math.ceil(Number(invocation.timeout_seconds || 1800) / 60),
     out,
   });
+  // Usage/cost/model of the run; downstream code keeps reading plain text.
+  const agentRun = parseLocalAgentRun(selectedExecutor, agentResult.stdout, {
+    durationMs: Date.now() - agentStartedAt,
+    fallbackModel: executorConfig.model || '',
+  });
+  agentResult.stdout = agentRun.text;
+  log(`[harperRun][agent][telemetry] ${JSON.stringify(agentRun.telemetry)}`);
 
   const candidateFiles = (isFinalize)
     ? await collectFinalizeCandidateFiles(wsroot)
@@ -1052,6 +1069,7 @@ async function executeLocalAgentPackage({
       phase: phaseForAgent,
       reqId: reqForAgent,
       artifacts: completeArtifacts.files,
+      kitStage,
     });
   }
 
@@ -1076,6 +1094,9 @@ async function executeLocalAgentPackage({
     stdout: agentResult.stdout || '',
     stderr: agentResult.stderr || '',
     files: completeArtifacts.files,
+    project_id: getProjectId(),
+    project_name: getProjectNameFromWorkspace() || null,
+    telemetry: agentRun.telemetry,
     artifact_pruning: {
       original_count: completeArtifacts.original_count,
       filtered_count: completeArtifacts.filtered_count,
@@ -1090,6 +1111,14 @@ async function executeLocalAgentPackage({
   });
 
   const completeOut = completeGateway.out;
+  if (Array.isArray(completeOut?.format_fixes) && completeOut.format_fixes.length) {
+    // safe mechanical lint fixes (e.g. import order) computed by the orchestrator, written before
+    // the first eval locks the acceptance surface
+    await saveGeneratedFiles(completeOut.format_fixes, { phase: phaseForAgent, runId });
+    log(`[harperRun][agent] applied ${completeOut.format_fixes.length} format fix(es)`);
+  }
+  if (completeOut && !completeOut.telemetry) completeOut.telemetry = agentRun.telemetry;
+  if (completeOut && !completeOut.usage) completeOut.usage = agentRun.telemetry.usage;
 
   if (!completeOut?.ok) {
     throw new Error(
@@ -1669,6 +1698,7 @@ function cfg() {
     harperTimeout: c.get('harperTimeout', 25),
     autoEvalMaxCycles: c.get('autoEval.maxCycles', 2),
     autoEvalAfterKit: c.get('autoEval.afterKit', false),
+    kitAcceptanceFirst: c.get('kit.acceptanceFirst', false),
     
     localAgentEnabled: c.get('localAgent.enabled', true),
     localAgentPreferredExecutor: c.get('localAgent.preferredExecutor', 'gpt_codex'),
@@ -3826,6 +3856,34 @@ async function cmdOpenChat(context) {
               ? msg.phases
               : null;
 
+            // Acceptance-first KIT (clike.kit.acceptanceFirst): the acceptance tests and the eval
+            // profile are generated and locked first; this /kit then writes the code against them.
+            if (!requestedKitPhases && !msg.acceptanceStage && !msg.autoEvalRepair && !msg.repair && cfg().kitAcceptanceFirst) {
+              const stageMsg = {
+                type: 'harperRun', cmd: 'kit', targets: [targetReqId], targetReqId,
+                attachments: msg.attachments || [], phases: ['acceptance'], acceptanceStage: true,
+              };
+              panel.webview.postMessage({ type: 'echo', message: `▶ ACCEPTANCE-FIRST ${targetReqId} — stage 1/2: acceptance tests and eval profile` });
+              await handleWebviewMessage(stageMsg);
+              if (stageMsg.__result !== 'ok') {
+                panel.webview.postMessage({ type: 'error', message: `ACCEPTANCE-FIRST ${targetReqId}: the acceptance stage failed; the code KIT was not run.` });
+                panel.webview.postMessage({ type: 'busy', on: false, force: true });
+                return;
+              }
+              try {
+                const lock = await postAcceptanceLock(wsroot, targetReqId);
+                panel.webview.postMessage({ type: 'echo', message: `🔒 ${targetReqId}: ${lock?.files ?? 0} acceptance files locked before the code` });
+              } catch (err) {
+                panel.webview.postMessage({ type: 'error', message: `ACCEPTANCE-FIRST ${targetReqId}: lock failed: ${err?.message || err}` });
+                panel.webview.postMessage({ type: 'busy', on: false, force: true });
+                return;
+              }
+              msg.acceptanceFirst = true;
+              msg.__acceptanceBefore = snapshotAcceptanceSurface(wsroot.fsPath, targetReqId);
+              panel.webview.postMessage({ type: 'echo', message: `▶ ACCEPTANCE-FIRST ${targetReqId} — stage 2/2: code against the locked tests` });
+              clikeHarperBlockingRun = true;
+            }
+
             if (requestedKitPhases && requestedKitPhases.length) {
               const normalizedPhases = requestedKitPhases
                 .map(p => String(p || '').trim().toLowerCase())
@@ -3872,7 +3930,8 @@ async function cmdOpenChat(context) {
             payload["kit"] = {
               targets: [targetReqId],
               ...(requestedKitPhases ? { phases: requestedKitPhases } : {}),
-              ...(msg.autoEvalRepair ? { repair: msg.autoEvalRepair } : (msg.repair ? { repair: true } : {}))
+              ...(msg.autoEvalRepair ? { repair: msg.autoEvalRepair } : (msg.repair ? { repair: true } : {})),
+              ...(msg.acceptanceFirst ? { acceptance_first: true } : {})
             };
           }
           //log(`[harperRun] payload (gen):`,  JSON.stringify(payload.gen));
@@ -4066,6 +4125,7 @@ async function cmdOpenChat(context) {
                 harperTimeout,
                 panel,
                 out,
+                kitStage: msg.acceptanceStage ? 'acceptance' : null,
               });
             } catch (err) {
               const failMsg = `[harperRun][agent] ${err?.message || String(err)}`;
@@ -4164,20 +4224,18 @@ async function cmdOpenChat(context) {
           log(`[harperRun] summary done`);
           // --- PERSIST TELEMETRY (avoid duplicates, one file per run) ---
           try {
-            // main source on the orchestrator side
-            const tFromServer = _out?.telemetry || outGateway?.telemetry || _out?.usage ? {
-              provider: activeProvider,
-              model: activeModel,
-              usage: _out?.usage,
-              pricing: _out?.telemetry?.pricing,
-              files: _out?.files
-            } : null;
-            await persistTelemetryVSCode(wsroot, project_id, runId, phase, tFromServer || {
-              provider: activeProvider,
-              model: activeModel,
-              usage: _out?.usage || {},
-              pricing: _out?.telemetry?.pricing || {},
-              files: _out?.files || []});
+            // Local-agent runs report their own executor/model/usage (_out.telemetry);
+            // cloud runs are attributed to the selected provider and model.
+            const t = _out?.telemetry || {};
+            const isAgentRun = t.execution === 'local_agent';
+            await persistTelemetryVSCode(wsroot, project_id, runId, phase, {
+              ...t,
+              provider: isAgentRun ? t.provider : activeProvider,
+              model: isAgentRun ? t.model : activeModel,
+              usage: _out?.usage || t.usage || {},
+              pricing: t.pricing || {},
+              files: _out?.files || [],
+            });
           } catch (e) {
             log(`[telemetry] skipped: ${e?.message || e}`);
           }
@@ -4298,7 +4356,11 @@ async function cmdOpenChat(context) {
             panel.webview.postMessage({ type: 'error', message: formatHarperError(_out) });
           }
           msg.__result = 'ok';
-          if (phase === 'kit' && !msg.autoEvalRepair && targetReqId && cfg().autoEvalAfterKit) {
+          if (phase === 'kit' && msg.acceptanceFirst && msg.__acceptanceBefore) {
+            // a local agent may have touched the locked tests: govern and restore
+            await governAcceptanceChanges(targetReqId, msg.__acceptanceBefore, [], 0);
+          }
+          if (phase === 'kit' && !msg.autoEvalRepair && !msg.acceptanceStage && targetReqId && cfg().autoEvalAfterKit) {
             panel.webview.postMessage({ type: 'echo', message: `↻ AUTO-EVAL ${targetReqId} (clike.autoEval.afterKit)` });
             clikeHarperBlockingRun = false;
             await handleWebviewMessage({
@@ -4529,7 +4591,7 @@ async function cmdOpenChat(context) {
                 })}`);
 
                 if (evalLocalAgentPackage?.action === 'local_agent_required') {
-                  await executeLocalAgentPackage({
+                  const evalAgentOut = await executeLocalAgentPackage({
                     localAgentPackage: evalLocalAgentPackage,
                     phase: 'eval',
                     reqId: targets,
@@ -4542,6 +4604,14 @@ async function cmdOpenChat(context) {
                     panel,
                     out,
                   });
+                  try {
+                    await persistTelemetryVSCode(ws_root, getProjectId(), runId, 'eval', {
+                      ...(evalAgentOut?.telemetry || {}),
+                      files: evalAgentOut?.files || [],
+                    });
+                  } catch (e) {
+                    log(`[telemetry] eval pre-pass skipped: ${e?.message || e}`);
+                  }
                 } else {
                   log(
                     `[harperEDD][agent] eval pre-pass did not return local_agent package; ` +
@@ -5504,6 +5574,36 @@ async function cmdOpenChat(context) {
   };
   panel.webview.onDidReceiveMessage(handleWebviewMessage);
 
+  // A local agent writes its repair directly: changed tests/LTC/ci files are submitted to the
+  // orchestrator's governance, and what it rejects (and any deleted file) is restored. For a cloud
+  // repair the orchestrator already filtered the files, so this finds nothing to do.
+  async function governAcceptanceChanges(reqId, before, failures, cycle) {
+    const wsPath = getWorkspaceRoot().fsPath;
+    const { modified, deleted } = acceptanceChanges(before, snapshotAcceptanceSurface(wsPath, reqId));
+    const say = (text) => panel.webview.postMessage({ type: 'echo', message: text });
+    let rejected = [];
+    if (Object.keys(modified).length) {
+      const previous = Object.fromEntries(Object.keys(modified).map((rel) => [rel, before[rel]]));
+      const evidence = (failures || []).map((f) => `${f.name}\n${f.output || ''}`).join('\n');
+      try {
+        const result = await postAcceptanceAmend(
+          getWorkspaceRoot(), reqId, modified, previous, evidence, `auto-eval repair cycle ${cycle}`
+        );
+        rejected = Object.keys(result?.rejected || {});
+        for (const rel of result?.accepted || []) say(`ℹ AUTO-EVAL ${reqId}: amendment accepted (audited): ${rel}`);
+        for (const rel of result?.test_fixes || []) say(`⚠ AUTO-EVAL ${reqId}: test fixed — review required: ${rel}`);
+      } catch (err) {
+        rejected = Object.keys(modified);
+        log(`[autoEval] amend failed: ${err?.message || err}`);
+      }
+    }
+    const restore = [...rejected, ...deleted];
+    if (restore.length) {
+      restoreAcceptanceFiles(wsPath, reqId, before, restore);
+      say(`↺ AUTO-EVAL ${reqId}: restored locked acceptance files the repair may not change: ${restore.join(', ')}`);
+    }
+  }
+
   // Auto-eval (roadmap §3): after an eval of `/eval REQ --fix`, repair and re-evaluate until the
   // eval passes, the cycles are exhausted or nothing improves. msg.fix carries the loop state.
   async function continueAutoEval(msg, report, reqId) {
@@ -5547,7 +5647,10 @@ async function cmdOpenChat(context) {
         hint: state.hint,
       },
     };
+    const wsPath = getWorkspaceRoot().fsPath;
+    const acceptanceBefore = snapshotAcceptanceSurface(wsPath, reqId);
     await handleWebviewMessage(kitMsg);
+    await governAcceptanceChanges(reqId, acceptanceBefore, step.failures, cycle);
     await handleWebviewMessage({
       type: 'harperEDD',
       cmd: 'eval',

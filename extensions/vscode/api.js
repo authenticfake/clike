@@ -86,6 +86,33 @@ async function postGateCheck(profile, workspaceRoot, req_id, options = {}) {
 
 
 
+/** Acceptance-first KIT: lock the REQ's freshly written tests and eval profile before the code. */
+async function postAcceptanceLock(workspaceRoot, reqId) {
+  return requestJson('POST', orchestratorUrl('/v1/acceptance/lock'), {
+    body: { project_root: asFsPath(workspaceRoot), project_name: getProjectNameFromWorkspace() || null, req_id: reqId },
+    timeoutMs: 60 * 1000,
+  });
+}
+
+/**
+ * Auto-eval with a local agent: submit the acceptance files the repair changed (with their
+ * previous content); the orchestrator accepts audited, non-weakening amendments only.
+ */
+async function postAcceptanceAmend(workspaceRoot, reqId, changes, previous, evidence, reason) {
+  return requestJson('POST', orchestratorUrl('/v1/acceptance/amend'), {
+    body: {
+      project_root: asFsPath(workspaceRoot),
+      project_name: getProjectNameFromWorkspace() || null,
+      req_id: reqId,
+      changes,
+      previous,
+      evidence,
+      reason,
+    },
+    timeoutMs: 60 * 1000,
+  });
+}
+
 /**
  * Developer override of a gate (WP6): reason required, audited by the orchestrator.
  * The result is reported as OVERRIDE, never as PASS.
@@ -105,6 +132,8 @@ async function postGateOverride(workspaceRoot, reqId, reason, author) {
 }
 
 module.exports = {
+  postAcceptanceAmend,
+  postAcceptanceLock,
   postGateOverride,
   postEvalRun,
   postGateCheck,

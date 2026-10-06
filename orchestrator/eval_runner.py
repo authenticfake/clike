@@ -82,7 +82,8 @@ def _head_tail(text: str, limit: int) -> str:
 
 def _with_pytest_hang_dump(env: Dict[str, str], timeout: Optional[int]) -> Dict[str, str]:
     """Make pytest dump the stack of a test that runs longer than part of the check timeout and
-    print each test id before running it (-vv on top of a command's -q gives verbose mode), so a
+    print each test id before running it and show full assertion diffs (-vvv on top of a command's
+    -q gives -vv), so a
     hanging test, also an async one whose coroutine is not on the dumped stack, is named in the
     report instead of being lost when the check is stopped."""
     try:
@@ -92,7 +93,7 @@ def _with_pytest_hang_dump(env: Dict[str, str], timeout: Optional[int]) -> Dict[
     current = env.get("PYTEST_ADDOPTS", "")
     if "faulthandler_timeout" in current:
         return env
-    return {**env, "PYTEST_ADDOPTS": f"{current} -vv -o faulthandler_timeout={seconds}".strip()}
+    return {**env, "PYTEST_ADDOPTS": f"{current} -vvv -o faulthandler_timeout={seconds}".strip()}
 
 
 def _run_process_group(cmd: str, *, cwd: Path, env: Dict[str, str], timeout: Optional[int]) -> subprocess.CompletedProcess:
@@ -2032,6 +2033,8 @@ class EvalRunner:
             # Keep ecosystem tool caches inside the writable eval workspace.
             # Project roots may be read-only in containerized/sandboxed eval.
             "RUFF_CACHE_DIR": str(self._eval_dir(eff_req) / ".ruff-cache"),
+            # coverage.py writes its data file in the cwd, which may be the read-only project root
+            "COVERAGE_FILE": str(self._eval_dir(eff_req) / ".coverage"),
             "MYPY_CACHE_DIR": str(self._eval_dir(eff_req) / ".mypy-cache"),
             "PYTHONPYCACHEPREFIX": str(self._eval_dir(eff_req) / ".pycache"),
 

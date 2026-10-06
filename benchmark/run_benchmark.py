@@ -233,6 +233,7 @@ def run_agent_phase(client: "Client", phase: str, body: Dict[str, Any], root: Pa
     c = client.http.post(f"{ORCH}/v1/harper/local-agent/complete", json=done)
     cd = c.json() if c.headers.get("content-type", "").startswith("application/json") else {}
     co = cd.get("out", cd) if isinstance(cd, dict) else {}
+    write_files(root, co.get("format_fixes") or [])  # as the extension
     return {"phase": phase, "status": c.status_code, "ok": co.get("ok"), "seconds": round(time.time() - t0, 1),
             "agent_seconds": agent_seconds, "agent_exit": exit_code, "files": [],  # already in the workspace
             "agent_written": [f["path"] for f in files], "usage": usage,
@@ -279,7 +280,8 @@ def _stack_compliance(root: Path, req: str, constraints: Optional[str]) -> Optio
 
 
 def run_project(client: Client, project: Dict[str, Any], model: str, max_reqs: int, ws_root: Path, stamp: str,
-                runner: str = "cloud", executor: str = "claude_code", agent_model: str = "", auto_eval: int = 0) -> Dict[str, Any]:
+                runner: str = "cloud", executor: str = "claude_code", agent_model: str = "", auto_eval: int = 0,
+                acceptance_first: bool = False) -> Dict[str, Any]:
     name = project["name"]
     idea_full = (REPO / project["idea"]).read_text(encoding="utf-8")
     root = prepare_workspace(ws_root / name, idea_full)
@@ -319,9 +321,24 @@ def run_project(client: Client, project: Dict[str, Any], model: str, max_reqs: i
         return res
     res["plan_reqs"] = len(reqs)
     for req in reqs[:max_reqs]:
-        kit = step("kit", {"kit": {"targets": [req]}, "todo_ids": [req], "rag_strategy": "deps_only"},
-                   ["IDEA.md", "SPEC.md", "PLAN.md", "plan.json", *tc])
+        kit_core = ["IDEA.md", "SPEC.md", "PLAN.md", "plan.json", *tc]
+        acceptance = None
+        if acceptance_first:
+            # as the extension with clike.kit.acceptanceFirst: tests first, locked, then the code
+            acceptance = step("kit", {"kit": {"targets": [req], "phases": ["acceptance"]}, "todo_ids": [req],
+                                      "rag_strategy": "deps_only"}, kit_core)
+            if not (acceptance.get("ok") and acceptance["written"]):
+                res["reqs"].append({"req": req, "acceptance_status": acceptance["status"], "kit_ok": False, "kit_files": 0,
+                                    "stack_compliant": None})
+                continue
+            client.http.post(f"{ORCH}/v1/acceptance/lock", json={"project_root": str(root), "project_name": name, "req_id": req})
+            locked_before = _acceptance_snapshot(root, req)
+        kit = step("kit", {"kit": {"targets": [req], **({"acceptance_first": True} if acceptance_first else {})},
+                           "todo_ids": [req], "rag_strategy": "deps_only"}, kit_core)
+        if acceptance_first:
+            governance = _govern_acceptance(client, root, name, req, locked_before, [], 0)
         entry = {"req": req, "kit_status": kit["status"], "kit_ok": kit.get("ok"), "kit_files": len(kit["written"]),
+                 **({"acceptance_files": len(acceptance["written"]), "acceptance_governance": governance} if acceptance_first else {}),
                  # only meaningful when the KIT was accepted and written
                  "stack_compliant": _stack_compliance(root, req, constraints) if kit.get("ok") and kit["written"] else None}
         if kit.get("ok") and kit["written"]:
@@ -342,8 +359,11 @@ def run_project(client: Client, project: Dict[str, Any], model: str, max_reqs: i
                              if p.is_file() and not any(part in {"__pycache__", ".venv", "node_modules"} for part in p.parts)
                              and p.stat().st_size < 200_000]
                 repair = {"cycle": cycle, "max_cycles": auto_eval, "failures": ev["failures"], "files": kit_files}
+                acceptance_before = _acceptance_snapshot(root, req)
                 fix = step("kit", {"kit": {"targets": [req], "repair": repair}, "todo_ids": [req], "rag_strategy": "deps_only"},
                            ["IDEA.md", "SPEC.md", "PLAN.md", "plan.json", *tc])
+                entry.setdefault("governance", []).append(
+                    _govern_acceptance(client, root, name, req, acceptance_before, ev["failures"], cycle))
                 entry["repair_cycles"] = cycle
                 if not fix.get("ok"):
                     entry["repair_stop"] = f"repair_failed_{fix.get('status')}"
@@ -357,6 +377,37 @@ def run_project(client: Client, project: Dict[str, Any], model: str, max_reqs: i
         print(f"  {name} {req} eval={entry.get('eval', {}).get('result')} gate={entry.get('gate', {}).get('result')} "
               f"stack_ok={entry['stack_compliant']}", flush=True)
     return res
+
+
+def _acceptance_snapshot(root: Path, req: str) -> Dict[str, str]:
+    kit = root / "runs" / "kit" / req
+    return {p.relative_to(kit).as_posix(): p.read_text(encoding="utf-8", errors="replace")
+            for sub in ("test", "ci") for p in sorted((kit / sub).rglob("*"))
+            if p.is_file() and "__pycache__" not in p.parts and p.stat().st_size < 200_000}
+
+
+def _govern_acceptance(client: "Client", root: Path, project: str, req: str, before: Dict[str, str],
+                       failures: List[Dict[str, Any]], cycle: int) -> Dict[str, Any]:
+    """As the extension after a repair: changed test/ci files go to /v1/acceptance/amend; rejected
+    and deleted ones are restored (a local agent writes before any check)."""
+    after = _acceptance_snapshot(root, req)
+    modified = {rel: after[rel] for rel in before if rel in after and after[rel] != before[rel]}
+    deleted = [rel for rel in before if rel not in after]
+    result: Dict[str, Any] = {"accepted": [], "rejected": {}}
+    if modified:
+        r = client.http.post(f"{ORCH}/v1/acceptance/amend", json={
+            "project_root": str(root), "project_name": project, "req_id": req, "changes": modified,
+            "previous": {rel: before[rel] for rel in modified},
+            "evidence": "\n".join(f"{f.get('name')}\n{f.get('output') or ''}" for f in failures),
+            "reason": f"auto-eval repair cycle {cycle}"})
+        result = r.json() if r.status_code == 200 else {"accepted": [], "rejected": {rel: [f"amend {r.status_code}"] for rel in modified}}
+    restored = [*result.get("rejected", {}), *deleted]
+    kit = root / "runs" / "kit" / req
+    for rel in restored:
+        (kit / rel).parent.mkdir(parents=True, exist_ok=True)
+        (kit / rel).write_text(before[rel], encoding="utf-8")
+    return {"cycle": cycle, "accepted": result.get("accepted", []), "test_fixes": result.get("test_fixes", []),
+            "restored": restored}
 
 
 def _promote(root: Path, req: str) -> None:
@@ -444,6 +495,8 @@ def main() -> None:
                     help="cloud: model via the gateway API; agent: local CLI agent in the workspace (like Execution = agent)")
     ap.add_argument("--executor", choices=["claude_code", "gpt_codex"], default="claude_code")
     ap.add_argument("--auto-eval", type=int, default=0, help="KIT repair cycles after a failed eval (roadmap §3)")
+    ap.add_argument("--acceptance-first", action="store_true",
+                    help="KIT in two calls: acceptance tests + eval profile first (locked), then the code")
     ap.add_argument("--agent-model", default="", help="model passed to the agent CLI (--model); empty = CLI default")
     ap.add_argument("--resummarize", default="", help="rebuild SUMMARY.md from an existing results directory (no calls)")
     args = ap.parse_args()
@@ -473,7 +526,7 @@ def main() -> None:
         print(f"== {p['name']} ({p['complexity']})", flush=True)
         results.append(run_project(client, p, args.model, args.max_reqs, ws_root, stamp,
                                    runner=args.runner, executor=args.executor, agent_model=args.agent_model,
-                                   auto_eval=args.auto_eval))
+                                   auto_eval=args.auto_eval, acceptance_first=args.acceptance_first))
     label = args.model if args.runner == "cloud" else f"agent:{args.executor}{(':' + args.agent_model) if args.agent_model else ''}"
     summary = summarize(results, label)
     out_dir = REPO / "benchmark" / "results" / stamp

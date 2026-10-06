@@ -69,9 +69,13 @@ The repair prompt (cloud) and the orchestrator enforce the same rules:
 - **Environment failures** (network, missing system tool) are not "fixed" in code: the model
   documents them in `docs/KIT_<REQ>.md`.
 
-With a local agent (Claude Code, Codex) the same `kit.repair` request reaches the agent package;
-files the agent edits under `test/` are caught by the acceptance lock at the next eval, which
-stops the loop.
+With a local agent (Claude Code, Codex) the repair follows the same rules:
+- the agent package carries the failed checks, the hint and the rules
+  (`repair_context.auto_eval`), since the canonical eval reports stay in the sandbox;
+- the agent writes directly, so the extension snapshots `test/` and `ci/` before the repair and
+  submits what changed to `POST /v1/acceptance/amend` (with the previous content). Accepted
+  amendments are audited; rejected changes and deleted files are restored
+  (`↺ AUTO-EVAL ... restored`).
 
 ## Promotability: regression of promoted REQs (L2)
 
@@ -124,6 +128,7 @@ A *warning* is a failed check marked `blocking: false` in the LTC (style, option
 |---|---|---|
 | `POST /v1/eval/run`, `POST /v1/gate/check` | `regression: true` (body) | add the regression stage |
 | `POST /v1/gate/check` | `strict: true` (body) | warnings block the gate |
+| `POST /v1/acceptance/amend` | `req_id`, `changes`, `previous`, `evidence` | govern the acceptance files a local agent changed: `{accepted, rejected, test_fixes, audit_id}` |
 | `POST /v1/harper/run` (phase `kit`) | `kit.repair: {cycle, max_cycles, failures, files, hint}` | KIT repair request; `failures[]` = `{name, code, command, output}`, `files[]` = `{path, content}` |
 
 `kit.repair: true` keeps its previous meaning (BMAD developer repair pass, `/kit REQ --repair`).

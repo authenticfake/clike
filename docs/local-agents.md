@@ -181,6 +181,46 @@ Attachment rules:
 - Non-text binaries are excluded from RAG indexing; only their materialized copy
   reaches the agent.
 
+### Frontend from Figma (framework-agnostic)
+
+CLike can generate a web frontend from Harper SPEC pages and an optional Figma
+design. The model is intentionally **stack-neutral**: the concrete framework
+(React, Next.js, Angular, Svelte/SvelteKit, Vue, or plain HTML) comes from
+`docs/harper/TECH_CONSTRAINTS.yaml` (`project_definition.framework`,
+`technology_stack.*`), not from the capabilities.
+
+Capabilities are shipped by `/init` from the template under
+`.clike/{skills,packs,design-profiles}` and composed per FE REQ in `/plan`:
+- skill **`figma-fidelity`** — fidelity to the Figma source by mode (mcp | attachment
+  | none); governs design fidelity only.
+- skill **`design-tokens-sync`** — Figma Variables → project tokens (advisory).
+- skill **`frontend-state-accessibility`** — explicit loading/empty/error/success
+  states and accessibility (reused, not duplicated).
+- a UI **design profile** appropriate to the product (e.g. `startup-product-app`,
+  `enterprise-console`, `developer-tooling-console`, `mobile-operator-app`).
+
+Figma source modes (work with both the Claude and Codex executors):
+- **mcp** — remote Figma MCP at `https://mcp.figma.com/mcp`: highest fidelity
+  (node tree, Auto Layout, components, Variables). Configure it per executor.
+- **attachment** — a Figma export attached to the request and materialized under
+  `runs/<phase>/attachments/` (HTML > PDF > image fidelity).
+- **none** — no Figma source: CLike still generates a coherent, accessible
+  default-styled UI from the SPEC and records the applied style as an assumption.
+
+Fallback / gating policy (from `figma-fidelity`):
+- Missing Figma evidence does **not** block generation or promotion; default-styled
+  output is acceptable (the `none` mode is explicitly warn-only).
+- When a Figma source **is** provided, the gate blocks promotion if a page has no
+  frame mapping or omits its frame's primary components.
+- Stack/quality checks come from the declared stack and reused FE skills: the declared
+  build/typecheck/lint must pass and every SPEC page REQ must have a page/view plus a
+  functional test (see `frontend-state-accessibility`).
+
+Typical flow: declare the stack in `TECH_CONSTRAINTS.yaml` → reference the Figma
+(MCP link or export) in `/idea` → declare page functionalities in `/spec` → bind a UI
+design profile + `figma-fidelity` + `frontend-state-accessibility` (+ `design-tokens-sync`)
+per FE REQ in `/plan` → generate sources in `/kit` → verify in `/eval` and `/gate`.
+
 ### KIT
 Both local executors currently support:
 - base `kit`

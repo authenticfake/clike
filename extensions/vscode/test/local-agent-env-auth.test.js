@@ -89,3 +89,38 @@ test('benign output is not misclassified as blocked', () => {
   });
   assert.strictEqual(result, null);
 });
+
+test('agent runs are machine-readable and their usage, cost and model are recorded', () => {
+  const { withMachineReadableOutput, parseLocalAgentRun } = require('../local-agent-executors');
+  assert.deepEqual(withMachineReadableOutput('claude_code', ['-p', '--permission-mode', 'acceptEdits']),
+    ['-p', '--permission-mode', 'acceptEdits', '--output-format', 'json']);
+  assert.deepEqual(withMachineReadableOutput('gpt_codex', ['exec', '--sandbox', 'workspace-write']),
+    ['exec', '--json', '--sandbox', 'workspace-write']);
+  assert.deepEqual(withMachineReadableOutput('claude_code', ['-p', '--output-format', 'json']), ['-p', '--output-format', 'json']);
+
+  const claude = parseLocalAgentRun('claude_code', JSON.stringify({
+    type: 'result', result: 'done', duration_ms: 1200, total_cost_usd: 0.05, num_turns: 3,
+    usage: { input_tokens: 3, output_tokens: 4, cache_read_input_tokens: 10, cache_creation_input_tokens: 7 },
+    modelUsage: { 'claude-opus-5-5': {} },
+  }), { durationMs: 1500 });
+  assert.equal(claude.text, 'done');
+  assert.deepEqual(claude.telemetry.usage, { input_tokens: 3, output_tokens: 4, cache_read_input_tokens: 10, cache_creation_input_tokens: 7 });
+  assert.equal(claude.telemetry.model, 'claude-opus-5-5');
+  assert.equal(claude.telemetry.pricing.total_cost, 0.05);
+  assert.equal(claude.telemetry.duration_ms, 1200);
+  assert.equal(claude.telemetry.execution, 'local_agent');
+
+  const codex = parseLocalAgentRun('gpt_codex', [
+    '{"type":"thread.started"}',
+    '{"type":"item.completed","item":{"type":"agent_message","text":"KIT written"}}',
+    '{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":20}}',
+  ].join('\n'), { durationMs: 900, fallbackModel: 'gpt-5.5-codex' });
+  assert.equal(codex.text, 'KIT written');
+  assert.deepEqual(codex.telemetry.usage, { input_tokens: 100, cache_read_input_tokens: 40, output_tokens: 20 });
+  assert.equal(codex.telemetry.model, 'gpt-5.5-codex');
+  assert.equal(codex.telemetry.duration_ms, 900);
+
+  // Errors reach the text, so blocked-run detection still sees them; plain text passes through.
+  assert.match(parseLocalAgentRun('gpt_codex', '{"type":"error","message":"You have no credits remaining"}').text, /no credits/);
+  assert.equal(parseLocalAgentRun('claude_code', 'plain output').text, 'plain output');
+});

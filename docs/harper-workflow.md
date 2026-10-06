@@ -180,6 +180,19 @@ This means the current implementation should be documented as:
 - **local eval pre-pass supported**
 - **canonical eval remains authoritative**
 
+### Acceptance-first KIT (`clike.kit.acceptanceFirst`, opt-in)
+By default one KIT call writes both the code and the tests that judge it. With
+`clike.kit.acceptanceFirst`, `/kit REQ` makes two calls:
+1. **acceptance stage** (`kit.phases=["acceptance"]`): only `test/**`, `ci/LTC.json`,
+   `ci/HOWTO.md`, test manifests and `docs/ACCEPTANCE_<REQ>.md` (criterion → test → LTC check),
+   derived from SPEC.md, PLAN.md and the REQ in plan.json; `src/` outputs are dropped;
+2. the extension writes them and locks them (`POST /v1/acceptance/lock`) — before any code exists;
+3. **code KIT** (`kit.acceptance_first=true`): receives the locked files read-only and writes the
+   code to pass them; test/LTC changes go through the same governance as an auto-eval repair
+   (rejected, or restored when a local agent wrote them).
+
+Works with the cloud and with local agents. Benchmark: `--acceptance-first`.
+
 ### Auto-eval and regression
 `/eval <REQ-ID> --fix ["hint"]` runs a bounded, governed repair loop (KIT repair from the real
 failures → eval) and, by default, eval and gate also re-run the acceptance checks of the promoted

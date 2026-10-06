@@ -56,3 +56,30 @@ test('repair files: text files of runs/kit/<REQ>, workspace-relative, caches ski
   assert.deepEqual(collectRepairFiles(root, 'REQ-001'), [{ path: 'runs/kit/REQ-001/src/app.py', content: 'print(1)\n' }]);
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+test('acceptance surface: snapshot, changes and restore of a repair', () => {
+  const { acceptanceChanges, restoreAcceptanceFiles, snapshotAcceptanceSurface } = require('../auto-eval');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'clike-acceptance-'));
+  const kit = path.join(root, 'runs', 'kit', 'REQ-001');
+  for (const dir of ['src', 'test', 'ci']) fs.mkdirSync(path.join(kit, dir), { recursive: true });
+  fs.writeFileSync(path.join(kit, 'src', 'app.py'), 'x = 1\n');
+  fs.writeFileSync(path.join(kit, 'test', 'test_app.py'), 'assert True\n');
+  fs.writeFileSync(path.join(kit, 'test', 'test_other.py'), 'assert 1\n');
+  fs.writeFileSync(path.join(kit, 'ci', 'LTC.json'), '{}');
+  const before = snapshotAcceptanceSurface(root, 'REQ-001');
+  assert.deepEqual(Object.keys(before).sort(), ['ci/LTC.json', 'test/test_app.py', 'test/test_other.py']);
+
+  // The agent edits a test, deletes another, adds a new one and changes the source.
+  fs.writeFileSync(path.join(kit, 'test', 'test_app.py'), 'pass\n');
+  fs.rmSync(path.join(kit, 'test', 'test_other.py'));
+  fs.writeFileSync(path.join(kit, 'test', 'test_new.py'), 'assert 2\n');
+  fs.writeFileSync(path.join(kit, 'src', 'app.py'), 'x = 2\n');
+  const changes = acceptanceChanges(before, snapshotAcceptanceSurface(root, 'REQ-001'));
+  assert.deepEqual(changes, { modified: { 'test/test_app.py': 'pass\n' }, deleted: ['test/test_other.py'] });
+
+  restoreAcceptanceFiles(root, 'REQ-001', before, ['test/test_app.py', 'test/test_other.py']);
+  assert.equal(fs.readFileSync(path.join(kit, 'test', 'test_app.py'), 'utf8'), 'assert True\n');
+  assert.equal(fs.readFileSync(path.join(kit, 'test', 'test_other.py'), 'utf8'), 'assert 1\n');
+  assert.equal(fs.readFileSync(path.join(kit, 'src', 'app.py'), 'utf8'), 'x = 2\n');
+  fs.rmSync(root, { recursive: true, force: true });
+});

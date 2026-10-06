@@ -17,6 +17,7 @@ from services.methodologies.resolver import ensure_bmad_skill_context, resolve_m
 from utils.namespace_paths import (
     is_python_runtime_context,
 )
+from services.kit_repair import repair_failures, repair_rules
 from services.phase_definitions import phase_text
 
 
@@ -611,10 +612,15 @@ def _render_compact_local_agent_prompt(
     active_output_contract: Optional[Dict[str, Any]] = None,
     selected_capabilities: Optional[Dict[str, Any]] = None,
     namespace_materialization: Optional[Dict[str, Any]] = None,
+    stage_rules: Optional[List[str]] = None,
+    stage_title: str = "",
+    task: str = "",
+    final_checks: Optional[List[str]] = None,
 ) -> str:
-    """Render a compact agent prompt and keep detailed policy in AGENT_*_CONTEXT.json."""
+    """Render a compact agent prompt and keep detailed policy in AGENT_*_CONTEXT.json.
+    ``stage_rules`` (auto-eval repair, acceptance-first stages) are stated in the prompt itself."""
     phase_label = phase.upper()
-    action = "generate the candidate KIT" if phase == "kit" else "harden the candidate KIT before canonical eval"
+    action = task or ("generate the candidate KIT" if phase == "kit" else "harden the candidate KIT before canonical eval")
     kit_read_first = []
     kit_rules = []
     eval_rules = []
@@ -665,6 +671,7 @@ def _render_compact_local_agent_prompt(
             *_text("render_compact_local_agent_prompt.lines"),
             f"Target REQ: {req_id}",
             f"Task: {action}.",
+            *([f"{stage_title or 'Stage rules'}:", *[f"- {rule}" for rule in stage_rules], ""] if stage_rules else []),
             _render_methodology_prompt_block(methodology_context),
             _render_selected_capability_prompt_block(selected_capabilities or {}),
             _render_namespace_materialization_prompt_block(namespace_materialization or {}),
@@ -682,6 +689,7 @@ def _render_compact_local_agent_prompt(
             *kit_rules,
             *eval_rules,
             *_text("render_compact_local_agent_prompt.lines.3"),
+            *(["", "Before you finish — eval-readiness self-check:", *[f"- {rule}" for rule in final_checks]] if final_checks else []),
         ]
     )
 
@@ -886,6 +894,27 @@ def _bmad_expected_outputs(
 def _kit_repair_context(req_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     kit_options = payload.get("kit") or {}
     repair = bool(isinstance(kit_options, dict) and kit_options.get("repair"))
+    request = kit_options.get("repair") if isinstance(kit_options, dict) else None
+    if isinstance(request, dict) and request:
+        # Auto-eval: the canonical eval runs in the sandbox, so its reports are not in the
+        # workspace; the failed checks travel in the package.
+        return {
+            "repair": True,
+            "auto_eval": {
+                "cycle": request.get("cycle"),
+                "max_cycles": request.get("max_cycles"),
+                "failed_checks": repair_failures(request),
+                "developer_hint": str(request.get("hint") or ""),
+                "rules": repair_rules(req_id),
+            },
+            "previous_eval_context_paths": [],
+            "guidance": (
+                "AUTO-EVAL REPAIR: the canonical eval failed with repair_context.auto_eval.failed_checks. "
+                "Fix their causes following repair_context.auto_eval.rules (and the developer hint), "
+                "change only what is needed, and run the failing commands yourself when possible "
+                "before finishing. Changes to test/ and ci/ outside the rules are rejected and restored."
+            ),
+        }
     paths = [
         f"runs/eval/{req_id}",
         f"runs/eval/{req_id}/reports",

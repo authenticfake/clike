@@ -2,6 +2,36 @@
 
 All notable changes to CLike. Extension, orchestrator and gateway share one version.
 
+## [Unreleased]
+
+### Added
+
+- Auto-eval with local agents: the agent package carries the failed checks, the hint and the
+  repair rules; the acceptance files the agent changed are governed through
+  `POST /v1/acceptance/amend` and the extension restores what is rejected. Benchmark
+  `--runner agent --auto-eval N`.
+- **Acceptance-first KIT** (`clike.kit.acceptanceFirst`, opt-in): `/kit` first generates only the
+  acceptance tests and eval profile from SPEC/PLAN and locks them (`POST /v1/acceptance/lock`),
+  then the code KIT writes the implementation against the locked tests (cloud and local agents;
+  benchmark `--acceptance-first`). Addresses the known limitation that criteria and code came
+  from the same call.
+- Local-agent telemetry: usage, API-equivalent cost, model and duration of Claude Code / Codex
+  runs, in `.clike/telemetry` and in the gateway portal (`POST /v1/harper/telemetry`).
+
+### Changed
+
+- KIT generation (cloud and local agents): an eval-readiness self-check closes the prompt, with
+  one rule per failure class measured by the benchmark (checks the LTC runs, files asserted by
+  tests, behaviour over internals, real library APIs, time-bounded tests, read-only project
+  root). PLAN acceptance items are stated at their observable boundary.
+- Generated KIT files get safe mechanical lint fixes before they are written and locked
+  (per-ecosystem registry; Python: ruff import order, unused imports, whitespace).
+
+### Fixed
+
+- Local-agent runs (including the eval pre-pass) left no telemetry and were attributed to the
+  cloud model selected in the UI.
+
 ## [1.0.0] — 2026-10-05 — Milestone M3: ready for evolution
 
 ### ⚠️ Breaking changes

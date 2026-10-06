@@ -286,6 +286,38 @@ class GateIntegrityTests(unittest.TestCase):
         self.assertTrue(gate["review_required"])
         self.assertEqual(gate["acceptance_amendments"][-1]["kinds"], {"test/test_api.py": "test_fix"})
 
+    def test_local_agent_repair_is_governed_through_the_amend_endpoint(self):
+        # The agent already wrote its changes: the extension sends them with the previous content.
+        self._eval()
+        before_test = (self.kit / "test" / "test_app.py").read_text()
+        before_ltc = (self.kit / "ci" / "LTC.json").read_text()
+        fixed_ltc = json.dumps({**LTC, "checks": [{**LTC["checks"][0], "command": "python3 test/test_app.py -v"}, LTC["checks"][1]]})
+        (self.kit / "test" / "test_app.py").write_text("pass\n")
+        (self.kit / "ci" / "LTC.json").write_text(fixed_ltc)
+        body = {
+            "project_root": str(self.proj), "req_id": REQ,
+            "changes": {"test/test_app.py": "pass\n", "ci/LTC.json": fixed_ltc},
+            "previous": {"test/test_app.py": before_test, "ci/LTC.json": before_ltc},
+            "evidence": "unit failed",
+        }
+        result = self.client.post("/v1/acceptance/amend", json=body, headers=AUTH).json()
+        self.assertEqual(result["accepted"], ["ci/LTC.json"])
+        self.assertIn("test/test_app.py", result["rejected"])
+
+        # The extension restores the rejected test: the next eval is clean, with the amended LTC.
+        (self.kit / "test" / "test_app.py").write_text(before_test)
+        self.assertEqual(self._anomaly_kinds(self._eval()), set())
+
+        # Re-submitting accepted content is a no-op; a forged "previous" is not trusted.
+        again = self.client.post("/v1/acceptance/amend", json={**body, "changes": {"ci/LTC.json": fixed_ltc}}, headers=AUTH).json()
+        self.assertEqual((again["accepted"], again["rejected"]), ([], {}))
+        forged = {**body, "changes": {"test/test_app.py": "import os\n" + TEST_PY}, "previous": {"test/test_app.py": "import os\nimport sys\n" + TEST_PY}}
+        self.assertIn("test/test_app.py", self.client.post("/v1/acceptance/amend", json=forged, headers=AUTH).json()["rejected"])
+
+    def test_amend_endpoint_is_confined(self):
+        body = {"project_root": "/etc", "req_id": REQ, "changes": {"ci/LTC.json": "{}"}}
+        self.assertIn(self.client.post("/v1/acceptance/amend", json=body, headers=AUTH).status_code, (400, 403))
+
     def test_repair_can_upgrade_ci_requirements(self):
         from services import gate_integrity
 

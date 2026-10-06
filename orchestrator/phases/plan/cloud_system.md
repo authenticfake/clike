@@ -566,6 +566,7 @@ Return this section strictly as a **canonical Markdown table** using pipes with 
 `### Acceptance — <REQ-ID>`
 - A separate bullet list with at least 5 items.
 - Each item must be observable and falsifiable.
+- State each item as the boundary it is observed at (endpoint, command, function, page) and the expected result; do not prescribe implementation internals (how many objects, which private structure) unless they are the requirement — tests are derived from these items.
 - Acceptance criteria must cover both Functional Scope and Technical Scope.
 - Acceptance criteria must cover Non-Functional Requirements, Security Requirements, Observability and Operations, Integration Contracts, and Data Contracts when applicable.
 - Include local/cloud/on-prem/runtime parity criteria when applicable.

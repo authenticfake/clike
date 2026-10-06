@@ -43,5 +43,21 @@ class EvalTimeoutTests(unittest.TestCase):
                 os.kill(pid, 0)
 
 
+class EvalWritablePathsTests(unittest.TestCase):
+    def test_coverage_data_file_goes_to_the_eval_dir(self):
+        # The project root is read-only in the sandbox; coverage.py writes .coverage in the cwd.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "runs" / "kit" / "REQ-001" / "ci").mkdir(parents=True)
+            (root / "runs" / "kit" / "REQ-001" / "src").mkdir()
+            ltc = {"req_id": "REQ-001", "checks": [{"id": "env", "command": f"{sys.executable} -c \"import os; print(os.environ['COVERAGE_FILE'])\""}]}
+            profile = root / "runs" / "kit" / "REQ-001" / "ci" / "LTC.json"
+            profile.write_text(__import__("json").dumps(ltc))
+            report = EvalRunner(root).run_profile(profile=str(profile), ltc=ltc, req_id="REQ-001")
+            case = next(c for c in report.cases if c.name == "env")
+            self.assertTrue(case.passed, case.stderr)
+            self.assertIn(str(Path("runs") / "eval" / "REQ-001" / ".coverage"), case.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

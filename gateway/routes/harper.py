@@ -99,6 +99,7 @@ PHASE_MODEL_PARAMS = {
     "spec":                 {"max_tokens": 39500, "temperature": 0.2, "top_p": 1.0},
     "plan":                 {"max_tokens": 55000, "temperature": 0.2, "top_p": 0.8},  # raise to 6500 only if many lanes
     "kit":                  {"max_tokens": 48000, "temperature": 0.1, "top_p": 1.0},
+    "acceptance":           {"max_tokens": 32000, "temperature": 0.1, "top_p": 1.0},
     "integrity_eval":       {"max_tokens": 17000, "temperature": 0.1, "top_p": 1.0},
     "promotion_hardener":   {"max_tokens": 22000, "temperature": 0.1, "top_p": 1.0},
     "promotion_eval":       {"max_tokens": 18000, "temperature": 0.1, "top_p": 1.0},
@@ -1165,6 +1166,8 @@ class HarperKitOptions(BaseModel):
     phases: Optional[List[str]] = Field(default=None)
     # auto-eval repair (cycle, failed checks, hint): the model returns only the files it fixes
     repair: Optional[Union[Dict[str, Any], bool]] = Field(default=None)
+    # Code-only KIT after the acceptance stage (tests and LTC already locked).
+    acceptance_first: Optional[bool] = Field(default=None)
 
 class HarperRunRequest(BaseModel):
     project_id: Optional[str] = None
@@ -1315,6 +1318,43 @@ def _write_telemetry(project_id: str, record: dict) -> None:
         maybe_prune_telemetry(TELEMETRY_DIR)
     except Exception as e:
         log.warning("telemetry retention failed: %s", e)
+
+class LocalAgentTelemetry(BaseModel):
+    """A Harper phase run by a local agent (Claude Code / Codex): no provider call went through the
+    gateway, so the orchestrator reports the run here for the telemetry portal."""
+
+    project_id: str
+    run_id: Optional[str] = None
+    phase: str
+    provider: str
+    model: Optional[str] = None
+    usage: Dict[str, Any] = Field(default_factory=dict)
+    pricing: Dict[str, Any] = Field(default_factory=dict)
+    files_len: Optional[int] = None
+    duration_ms: Optional[float] = None
+    executor: Optional[str] = None
+
+
+@router.post("/telemetry")
+def record_local_agent_telemetry(item: LocalAgentTelemetry) -> Dict[str, Any]:
+    usage = {k: v for k, v in item.usage.items() if isinstance(v, (int, float)) and not isinstance(v, bool)}
+    pricing = {k: v for k, v in item.pricing.items() if isinstance(v, (int, float, str)) and not isinstance(v, bool)}
+    _write_telemetry(item.project_id, {
+        "project_id": item.project_id,
+        "run_id": item.run_id,
+        "phase": item.phase,
+        "provider": item.provider,
+        "model": item.model,
+        "usage": usage,
+        "pricing": pricing,
+        "files_len": item.files_len,
+        "duration_ms": item.duration_ms,
+        "execution": "local_agent",
+        "executor": item.executor or item.provider,
+        "timestamp": time.time(),
+    })
+    return {"ok": True}
+
 
 def _prompt_debug_path(project_id: str, run_id: str | None, phase: str) -> Path:
     fname = f"{safe_segment(project_id, 'default')}__{safe_segment(run_id, 'n-a')}__{safe_segment(phase, 'phase')}.json"
@@ -2275,7 +2315,7 @@ async def run(req: HarperRunRequest,  request: Request):
     # Give /plan and /finalize extra headroom because they emit long structured artifacts.
     if phase in {"plan", "spec", "idea", "finalize"}:
         timeout_sec = max(timeout_sec, 1000.0)
-    elif phase == "kit":
+    elif phase in {"kit", "acceptance"}:
         timeout_sec = max(timeout_sec, 920.0)
     elif phase in {"promotion_hardener", "promotion_eval", "integrity_eval"}:
         timeout_sec = max(timeout_sec, 900.0)
@@ -2439,6 +2479,7 @@ async def run(req: HarperRunRequest,  request: Request):
         "spec",
         "plan",
         "kit",
+        "acceptance",
         "integrity_eval",
         "promotion_hardener",
         "promotion_eval",
@@ -2524,7 +2565,7 @@ async def run(req: HarperRunRequest,  request: Request):
             warnings.append("ignored_remainder_outside_provider_file_blocks")
 
     else:
-        structured_phases = {"kit", "integrity_eval", "promotion_hardener", "promotion_eval"}
+        structured_phases = {"kit", "acceptance", "integrity_eval", "promotion_hardener", "promotion_eval"}
         #allow_plain = phase not in structured_phases
         allow_plain = True
         header_allow_patterns = _methodology_file_header_allow_patterns(req.methodology_context)
@@ -2539,7 +2580,7 @@ async def run(req: HarperRunRequest,  request: Request):
             if remainder:
                 warnings.append("ignored_remainder_outside_file_blocks")
         else:
-            structured_only_phases = {"integrity_eval", "promotion_hardener", "promotion_eval"}
+            structured_only_phases = {"acceptance", "integrity_eval", "promotion_hardener", "promotion_eval"}
             if phase in structured_only_phases:
                 warnings.append(f"{phase}_no_file_blocks: model did not emit valid file blocks")
             else:
@@ -2555,7 +2596,7 @@ async def run(req: HarperRunRequest,  request: Request):
 
     # Final dedup (avoid duplicate files or repeated paths between provider_files and parsing)
     files = _dedupe_by_path(files)
-    if (phase or "").lower() == "kit":
+    if (phase or "").lower() in {"kit", "acceptance"}:
         current_target = str((targets or [None])[0] or "").strip()
         files = _enforce_single_req_output(files, current_target)
     #saniize files removing 
@@ -2681,7 +2722,7 @@ async def run(req: HarperRunRequest,  request: Request):
         req_id=str((targets or [None])[0] or "").strip() or None,
         file_requirements=(
             _load_file_requirements_from_core_blobs(core_blobs)
-            if (phase or "").lower() == "kit"
+            if (phase or "").lower() in {"kit", "acceptance"}
             else None
         ),
     )
@@ -2703,8 +2744,11 @@ async def run(req: HarperRunRequest,  request: Request):
         )
         warnings.append(detail)
         raise HTTPException(502, detail)
-    if active_contract_validation.get("missing_required_outputs"):
-        missing_required = list(active_contract_validation["missing_required_outputs"])
+    missing_required = list(active_contract_validation.get("missing_required_outputs") or [])
+    if req.kit is not None and getattr(req.kit, "acceptance_first", False):
+        # Acceptance-first code KIT: tests and the eval profile are already written and locked.
+        missing_required = [m for m in missing_required if "/test/" not in m and "/ci/" not in m]
+    if missing_required:
         log.warning(
             "harper.active_output_contract missing_required_outputs phase=%s req_id=%s methodology=%s agent=%s count_missing=%d first_missing=%s",
             phase,
