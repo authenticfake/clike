@@ -195,6 +195,13 @@ def run_agent_phase(client: "Client", phase: str, body: Dict[str, Any], root: Pa
     args = list(inv["args"]) + (["--model", agent_model] if agent_model else [])
     if executor == "claude_code":
         args += ["--output-format", "json"]
+    else:
+        # as the extension: JSONL events, writable workspace sandbox; benchmark workspaces are not git repos
+        at = args.index("exec") + 1 if "exec" in args else len(args)
+        extra = [a for a in ("--json",) if a not in args]
+        if "--sandbox" not in args:
+            extra += ["--sandbox", "workspace-write"]
+        args[at:at] = [*extra, "--skip-git-repo-check"]
     env = {k: v for k, v in os.environ.items() if k not in _SECRET_ENV}
     cmd = ["claude" if executor == "claude_code" else "codex", *args]
     stdin = None
@@ -211,6 +218,18 @@ def run_agent_phase(client: "Client", phase: str, body: Dict[str, Any], root: Pa
         exit_code, stdout, stderr = 124, str(exc.stdout or ""), "timeout"
     agent_seconds = round(time.time() - t_agent, 1)
     usage = {}
+    if executor != "claude_code":
+        for line in stdout.splitlines():
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(event, dict) and event.get("type") == "turn.completed":
+                u = event.get("usage") or {}
+                for key in ("input_tokens", "cached_input_tokens", "output_tokens"):
+                    usage[key] = usage.get(key, 0) + int(u.get(key) or 0)
+                usage["num_turns"] = usage.get("num_turns", 0) + 1
+        usage["total_tokens"] = usage.get("input_tokens", 0) + usage.get("output_tokens", 0)
     try:
         env_json = json.loads(stdout)
         u = env_json.get("usage") or {}
