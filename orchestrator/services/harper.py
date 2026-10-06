@@ -1499,24 +1499,31 @@ def _materialize_file_requirements(
         "execution_contract": _stage("ci/LTC.json"),
         "execution_howto": _stage("ci/HOWTO.md"),
     }
+    # Shared adapters / data-schema families: fixed locations, in the REQ's ecosystem.
+    def _src(stem: str) -> str:
+        return f"{stem}{source_ext}"
+
+    def _test(directory: str, name: str) -> str:
+        return f"{directory}/{test_prefix}{name}{test_ext}"
+
     if canonical_family == "src/shared/adapters":
         role_to_path_hint.update({
-            "primary_implementation": _stage("src/shared/adapters/implementation.py"),
-            "boundary_contract": _stage("src/shared/adapters/contracts.py"),
-            "entry_binding": _stage("src/shared/adapters/binding.py"),
-            "workflow_component": _stage("src/shared/adapters/workflow.py"),
-            "adapter_contract": _stage("src/shared/adapters/adapter_contract.py"),
-            "acceptance_tests": _stage("test/shared/adapters/test_req_behavior.py"),
-            "integration_smoke": _stage("test/shared/adapters/test_integration_smoke.py"),
+            "primary_implementation": _stage(_src("src/shared/adapters/implementation")),
+            "boundary_contract": _stage(_src("src/shared/adapters/contracts")),
+            "entry_binding": _stage(_src("src/shared/adapters/binding")),
+            "workflow_component": _stage(_src("src/shared/adapters/workflow")),
+            "adapter_contract": _stage(_src("src/shared/adapters/adapter_contract")),
+            "acceptance_tests": _stage(_test("test/shared/adapters", "req_behavior")),
+            "integration_smoke": _stage(_test("test/shared/adapters", "integration_smoke")),
         })
 
     if canonical_family == "src/data/schema":
         role_to_path_hint.update({
-            "primary_contract_or_schema": _stage("src/data/schema/contracts.py"),
-            "mapping_or_models": _stage("src/data/schema/schema.py"),
-            "migration": _stage("src/data/migrations/versions/<timestamp>_backbone.py"),
-            "acceptance_tests": _stage("test/data/schema/test_req_behavior.py"),
-            "integration_smoke": _stage("test/data/schema/test_integration_smoke.py"),
+            "primary_contract_or_schema": _stage(_src("src/data/schema/contracts")),
+            "mapping_or_models": _stage(_src("src/data/schema/schema")),
+            "migration": _stage(_src("src/data/migrations/versions/<timestamp>_backbone")),
+            "acceptance_tests": _stage(_test("test/data/schema", "req_behavior")),
+            "integration_smoke": _stage(_test("test/data/schema", "integration_smoke")),
         })
     required_outputs: List[Dict[str, Any]] = []
     for role in artifact_roles:
