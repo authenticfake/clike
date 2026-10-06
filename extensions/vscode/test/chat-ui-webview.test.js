@@ -69,7 +69,8 @@ test('regexes inside the webview script keep their escapes (\\d, \\s)', () => {
   assert.ok(!/\/\^req-d\+\//i.test(html), 'REQ regex lost its \\d');
   assert.ok(!html.includes('.replace(/s+/g'), 'whitespace regex lost its \\s');
   const script = html.slice(html.indexOf('<script'), html.lastIndexOf('</script>'));
-  const isReq = new Function(`${script.match(/const isReq = \(s\) => [^;]+;/)[0]} return isReq;`)();
+  // the slash parser in the webview is the shared slash-parser.js (injected), not a local copy
+  const isReq = new Function(`${script.match(/const isReq = \(value\) => [^;]+;/)[0]} return isReq;`)();
   assert.equal(isReq('REQ-001'), true);
   assert.equal(isReq('req-d'), false);
 });
