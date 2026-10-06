@@ -15,6 +15,8 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   then the code KIT writes the implementation against the locked tests (cloud and local agents;
   benchmark `--acceptance-first`). Addresses the known limitation that criteria and code came
   from the same call.
+- `/agent-model [claude|codex] [model]`: show or change the local agent model from the chat
+  (any mode).
 - Local-agent telemetry: usage, API-equivalent cost, model and duration of Claude Code / Codex
   runs, in `.clike/telemetry` and in the gateway portal (`POST /v1/harper/telemetry`).
 
@@ -27,8 +29,14 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 - Generated KIT files get safe mechanical lint fixes before they are written and locked
   (per-ecosystem registry; Python: ruff import order, unused imports, whitespace).
 
+- Local-agent KIT context: content also written as package files (selected-capability guide,
+  FILE_REQUIREMENTS) is referenced by path instead of repeated (smaller context, re-read on
+  every agent turn).
+
 ### Fixed
 
+- The configured agent model (`clike.claudeCode.model`, `clike.localAgent.codex.model`) applied
+  only to chat; Harper phases ran with the CLI default model.
 - Local-agent runs (including the eval pre-pass) left no telemetry and were attributed to the
   cloud model selected in the UI.
 

@@ -199,6 +199,19 @@ to an audit log (`CLIKE_STATE_DIR/audit/gate_overrides.jsonl`) with a digest of 
 and returned with `status: "OVERRIDE"` (never `PASS`), `gate: "pass"` (promotable) and an
 `override` object (`audit_id`, `author`, `reason`, `at`, `artifacts`).
 
+#### `POST /v1/acceptance/lock`
+Acceptance-first KIT: lock the tests and eval profile written by the acceptance stage before the
+code KIT runs. Body: `{project_root|project_name, req_id}` → `{files, digest, generation}`.
+
+#### `POST /v1/acceptance/amend`
+Govern acceptance files a local agent changed during a repair or a code-only KIT. Body:
+`{project_root|project_name, req_id, changes: {path: content}, previous: {path: content}, evidence, reason}`
+→ `{accepted, rejected: {path: [reasons]}, test_fixes, audit_id}`. Rejected files must be
+restored by the caller.
+
+Eval/gate body fields: `regression: true` (re-run the checks of promoted REQs), `strict: true`
+(gate only: warnings block).
+
 #### `POST /v1/gate/check`
 Runs gate checks and promotion decisions.
 

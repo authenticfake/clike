@@ -124,3 +124,8 @@ test('agent runs are machine-readable and their usage, cost and model are record
   assert.match(parseLocalAgentRun('gpt_codex', '{"type":"error","message":"You have no credits remaining"}').text, /no credits/);
   assert.equal(parseLocalAgentRun('claude_code', 'plain output').text, 'plain output');
 });
+
+test('Harper agent runs pass the configured model (clike.claudeCode.model / codex.model)', () => {
+  const source = require('fs').readFileSync(require('path').join(__dirname, '..', 'extension.js'), 'utf8');
+  assert.match(source, /argsBeforePrompt: withMachineReadableOutput\(selectedExecutor, \[\s*\.\.\.launcherArgs,\s*\.\.\.\(launcherArgs\.includes\('--model'\) \? \[\] : buildLocalAgentModelArgs\(selectedExecutor, executorConfig\)\)/);
+});

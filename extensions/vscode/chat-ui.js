@@ -504,7 +504,9 @@ var HELP_COMMANDS = [
   {cmd:'/plan --methodology bmad --agent architect', desc:'Plans with BMAD architecture guidance while CLike owns PLAN.md and plan.json'},
   {cmd:'/plan --methodology bmad --agent pm', desc:'Plans with BMAD product slicing and acceptance guidance'},
   {cmd:'/spec --methodology bmad --agent ux', desc:'Builds SPEC guidance with UX journeys, states, and accessibility focus'},
+  {cmd:'/agent-model [claude|codex] [model]', desc:'Shows or sets the model of the local agent (claude: opus, sonnet, haiku or an exact id; codex: a model id). Applies to chat and Harper phases; saved in the workspace settings'},
   {cmd:'/agent-default codex|claude|auto', desc:'Sets the preferred local agent executor (works in Free, Coding and Harper; does not change mode)'},
+  {cmd:'Settings (auto-eval)', desc:'clike.autoEval.maxCycles (2), clike.autoEval.afterKit, clike.eval.regression (on), clike.gate.strictWarnings, clike.kit.acceptanceFirst — see docs/auto-eval.md'},
   {cmd:'/finalize', desc:'Final gates and project closure (Harper)'},
   {cmd:'/finalize --methodology bmad --agent tech-writer', desc:'Finalizes with BMAD documentation guidance'},
   {cmd:'/rag <query>', desc:'Searches the RAG and shows top results'},
@@ -1165,6 +1167,9 @@ function parseSlash(s) {
     const value = String(parts[1] || '').trim().toLowerCase();
     return { cmd, args: { value } };
   }
+  if (cmd === '/agent-model') {
+    return { cmd, args: { agent: String(parts[1] || '').trim().toLowerCase(), model: parts.slice(2).join(' ').trim() } };
+  }
 
   // --- RAG legacy commands: /ragIndex [glob], /ragSearch <query>
   if (cmd === '/ragindex') {
@@ -1476,7 +1481,8 @@ function handleSlash(slash) {
     slash.cmd === '/add-req' ||
     slash.cmd === '/kit' ||
     slash.cmd === '/finalize' ||
-    slash.cmd === '/agent-default'
+    slash.cmd === '/agent-default' ||
+    slash.cmd === '/agent-model'
   ) {
     var modeVal = (mode && mode.value) ? mode.value : 'harper';
     var key = modeVal;
@@ -1530,6 +1536,10 @@ function handleSlash(slash) {
     if (slash.args?.agent) msg.agent = slash.args.agent;
     if (slash.args?.methodology_context) msg.methodology_context = slash.args.methodology_context;
 
+    if (slash.cmd === '/agent-model') {
+      msg.agentName = slash.args?.agent || '';
+      msg.agentModel = slash.args?.model || '';
+    }
     if (slash.cmd === '/agent-default') {
       msg.value = slash.args?.value || '';
       console.log('[CLike][chat-ui][/agent-default] value =', JSON.stringify(msg.value));
@@ -1559,7 +1569,7 @@ function handleSlash(slash) {
     console.log('[CLike][chat-ui][harperRun] msg.targetReqId =', JSON.stringify(msg.targetReqId));
     console.log('[CLike][chat-ui][harperRun] msg.phases =', JSON.stringify(msg.phases));
 
-    if (slash.cmd === '/agent-default') {
+    if (slash.cmd === '/agent-default' || slash.cmd === '/agent-model') {
       post(msg.type, msg);
     } else {
       postAndLock(msg.type, msg);

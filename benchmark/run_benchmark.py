@@ -195,6 +195,13 @@ def run_agent_phase(client: "Client", phase: str, body: Dict[str, Any], root: Pa
     args = list(inv["args"]) + (["--model", agent_model] if agent_model else [])
     if executor == "claude_code":
         args += ["--output-format", "json"]
+    else:
+        # as the extension: JSONL events, writable workspace sandbox; benchmark workspaces are not git repos
+        at = args.index("exec") + 1 if "exec" in args else len(args)
+        extra = [a for a in ("--json",) if a not in args]
+        if "--sandbox" not in args:
+            extra += ["--sandbox", "workspace-write"]
+        args[at:at] = [*extra, "--skip-git-repo-check"]
     env = {k: v for k, v in os.environ.items() if k not in _SECRET_ENV}
     cmd = ["claude" if executor == "claude_code" else "codex", *args]
     stdin = None
@@ -211,13 +218,26 @@ def run_agent_phase(client: "Client", phase: str, body: Dict[str, Any], root: Pa
         exit_code, stdout, stderr = 124, str(exc.stdout or ""), "timeout"
     agent_seconds = round(time.time() - t_agent, 1)
     usage = {}
+    if executor != "claude_code":
+        for line in stdout.splitlines():
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(event, dict) and event.get("type") == "turn.completed":
+                u = event.get("usage") or {}
+                for key in ("input_tokens", "cached_input_tokens", "output_tokens"):
+                    usage[key] = usage.get(key, 0) + int(u.get(key) or 0)
+                usage["num_turns"] = usage.get("num_turns", 0) + 1
+        usage["total_tokens"] = usage.get("input_tokens", 0) + usage.get("output_tokens", 0)
     try:
         env_json = json.loads(stdout)
         u = env_json.get("usage") or {}
         usage = {"input_tokens": u.get("input_tokens"), "output_tokens": u.get("output_tokens"),
                  "total_tokens": (u.get("input_tokens") or 0) + (u.get("output_tokens") or 0)
                  + (u.get("cache_read_input_tokens") or 0) + (u.get("cache_creation_input_tokens") or 0),
-                 "cost_usd_equivalent": env_json.get("total_cost_usd")}
+                 "cost_usd_equivalent": env_json.get("total_cost_usd"),
+                 "num_turns": env_json.get("num_turns"), "agent_duration_ms": env_json.get("duration_ms")}
     except (ValueError, AttributeError):
         pass
     after = _snapshot(root)
@@ -302,7 +322,7 @@ def run_project(client: Client, project: Dict[str, Any], model: str, max_reqs: i
             out["written"] = write_files(root, out.get("files"))
         res["steps"].append({k: v for k, v in out.items() if k != "files"})
         print(f"  {name} {phase:<5} status={out['status']} ok={out.get('ok')} files={len(out['written'])} "
-              f"tokens={(out.get('usage') or {}).get('total_tokens')} {out.get('seconds')}s "
+              f"tokens={(out.get('usage') or {}).get('total_tokens')} turns={(out.get('usage') or {}).get('num_turns')} {out.get('seconds')}s "
               f"{(out.get('detail') or '')[:160]}", flush=True)
         return out
 
