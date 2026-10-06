@@ -63,9 +63,18 @@ The extension checks:
 - `clike.localAgent.restrictToKitPhases`
 - `clike.localAgent.timeoutMinutes`
 
+### Model of the local agent
+- `clike.claudeCode.model` (default `opus`) and `clike.localAgent.codex.model` are passed as
+  `--model` to every run, chat and Harper phases alike.
+- From the chat, in any mode: `/agent-model` shows the models in use;
+  `/agent-model claude sonnet` (or `opus`, `haiku`, an exact id) and
+  `/agent-model codex <model-id>` change them (workspace settings).
+- `/agent-default claude|codex|auto` chooses which agent runs.
+
 ### Claude Code settings
 - `clike.claudeCode.enabled`
 - `clike.claudeCode.command`
+- `clike.claudeCode.model`
 - `clike.claudeCode.printModeFlag`
 - `clike.claudeCode.timeoutMinutes`
 - `clike.claudeCode.permissionMode`
@@ -224,6 +233,24 @@ per FE REQ in `/plan` → generate sources in `/kit` → verify in `/eval` and `
 ### KIT
 Both local executors currently support:
 - base `kit`
+- the acceptance-first stages (`clike.kit.acceptanceFirst`): the acceptance stage writes only
+  `test/`, `ci/` and `docs/ACCEPTANCE_<REQ>.md`; the code stage implements against the locked tests
+- the auto-eval repair (`/eval REQ --fix`): the package states the repair task, the failed checks
+  (with their output) and the rules in the prompt itself (`repair_context.auto_eval` in the context)
+
+Governance with agents: the agent writes directly, so the extension snapshots `test/` and `ci/`
+before a repair or a code-only KIT, submits what changed to `POST /v1/acceptance/amend` and
+restores what is rejected (and any deleted file). Safe mechanical lint fixes (e.g. import order)
+computed by the orchestrator come back as `format_fixes` and are written before the first eval.
+
+Every KIT prompt ends with an eval-readiness self-check (checks the LTC runs, files asserted by
+tests, behaviour over internals, real library APIs, time-bounded tests, read-only project root).
+
+### Telemetry of agent runs
+Claude Code runs with `--output-format json`, Codex with `--json`; CLike records usage, the
+API-equivalent cost (subscription runs are not billed per token), the model, the number of turns
+and the duration, in `.clike/telemetry/` and in the gateway telemetry portal
+(`execution: local_agent`). The eval pre-pass is recorded too.
 
 ### EVAL
 Both local executors can participate in:
@@ -300,6 +327,10 @@ Before invoking a local agent, the extension writes:
 - `runs/kit/<REQ-ID>/docs/AGENT_EXECUTION_CONTEXT.json`
 
 This file is the primary local execution contract.
+
+Content the package also writes as its own file is referenced by path instead of repeated
+(`context_envelope.clike_capabilities.context_markdown_path` / `context_json_path`,
+`file_requirements.path`): the agent re-reads its context on every turn.
 
 ### For KIT
 The contract includes:

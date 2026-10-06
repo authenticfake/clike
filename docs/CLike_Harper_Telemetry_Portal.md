@@ -42,6 +42,14 @@ The portal is not only a reporting UI. It is part of the Eval-Driven Development
 
 ---
 
+## Local-agent runs
+
+Harper phases run by Claude Code or Codex do not call a provider through the gateway: the
+orchestrator reports them with `POST /v1/harper/telemetry` (from `/local-agent/complete`). Their
+rows have `execution: "local_agent"`, `provider`/`executor` = `claude_code` | `gpt_codex`, the
+model reported by the agent, `usage`, `duration_ms` and `pricing.total_cost` as the
+**API-equivalent** cost (`unit: usd_api_equivalent`; subscription runs are not billed per token).
+
 ## Technical Architecture
 
 The telemetry UI is exposed by the Gateway service.
