@@ -2313,9 +2313,11 @@ async function runLocalAgentSync({
   out,
   onStdoutLine = null,
   onSpawn = null,
+  onStdin = null,
 }) {
   // onStdoutLine(line): each complete stdout line as it arrives (streamed chat events);
-  // onSpawn(child): the running process, e.g. so Cancel can terminate it.
+  // onSpawn(child): the running process, e.g. so Cancel can terminate it;
+  // onStdin(stdin): a two-way protocol owns stdin (codex app-server): no prompt is sent.
   const normalizedExecutor = String(executorId || '').trim();
   const finalCommand = String(command || '').trim();
 
@@ -2336,7 +2338,7 @@ async function runLocalAgentSync({
 
   const transport = resolvePromptTransport(normalizedExecutor, promptTransport, process.platform);
 
-  if (transport === 'argv_last') {
+  if (transport === 'argv_last' && typeof onStdin !== 'function') {
     argv.push(prompt);
   }
 
@@ -2476,7 +2478,9 @@ async function runLocalAgentSync({
       });
     });
 
-    if (transport === 'stdin' && child.stdin) {
+    if (typeof onStdin === 'function' && child.stdin) {
+      onStdin(child.stdin);
+    } else if (transport === 'stdin' && child.stdin) {
       child.stdin.write(prompt);
       child.stdin.end();
     } else if (child.stdin) {
