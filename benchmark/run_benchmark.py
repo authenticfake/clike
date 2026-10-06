@@ -217,7 +217,8 @@ def run_agent_phase(client: "Client", phase: str, body: Dict[str, Any], root: Pa
         usage = {"input_tokens": u.get("input_tokens"), "output_tokens": u.get("output_tokens"),
                  "total_tokens": (u.get("input_tokens") or 0) + (u.get("output_tokens") or 0)
                  + (u.get("cache_read_input_tokens") or 0) + (u.get("cache_creation_input_tokens") or 0),
-                 "cost_usd_equivalent": env_json.get("total_cost_usd")}
+                 "cost_usd_equivalent": env_json.get("total_cost_usd"),
+                 "num_turns": env_json.get("num_turns"), "agent_duration_ms": env_json.get("duration_ms")}
     except (ValueError, AttributeError):
         pass
     after = _snapshot(root)
@@ -302,7 +303,7 @@ def run_project(client: Client, project: Dict[str, Any], model: str, max_reqs: i
             out["written"] = write_files(root, out.get("files"))
         res["steps"].append({k: v for k, v in out.items() if k != "files"})
         print(f"  {name} {phase:<5} status={out['status']} ok={out.get('ok')} files={len(out['written'])} "
-              f"tokens={(out.get('usage') or {}).get('total_tokens')} {out.get('seconds')}s "
+              f"tokens={(out.get('usage') or {}).get('total_tokens')} turns={(out.get('usage') or {}).get('num_turns')} {out.get('seconds')}s "
               f"{(out.get('detail') or '')[:160]}", flush=True)
         return out
 

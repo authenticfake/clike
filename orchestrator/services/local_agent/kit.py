@@ -132,6 +132,31 @@ _STAGE_TASKS = {
 _FAILED_CHECK_PROMPT_CHARS = 1500
 
 
+def _agent_context_view(
+    context: Dict[str, Any],
+    req_id: str,
+    *,
+    file_requirements: Dict[str, Any],
+    capability_files_present: bool,
+) -> Dict[str, Any]:
+    """AGENT_EXECUTION_CONTEXT.json as written for the agent: content that the same package also
+    writes as its own file is referenced by path instead of repeated (the agent re-reads its
+    context on every turn; the capability guide alone was about 85 KB, twice)."""
+    view = dict(context)
+    envelope = view.get("context_envelope")
+    capabilities = envelope.get("clike_capabilities") if isinstance(envelope, dict) else None
+    if capability_files_present and isinstance(capabilities, dict) and (
+        "context_json" in capabilities or "context_markdown" in capabilities
+    ):
+        slim = {k: v for k, v in capabilities.items() if k not in {"context_json", "context_markdown"}}
+        slim["context_markdown_path"] = f"runs/kit/{req_id}/docs/CLIKE_SELECTED_CAPABILITY_CONTEXT.md"
+        slim["context_json_path"] = f"runs/kit/{req_id}/docs/CLIKE_SELECTED_CAPABILITY_CONTEXT.json"
+        view["context_envelope"] = {**envelope, "clike_capabilities": slim}
+    if file_requirements and view.get("file_requirements") == file_requirements:
+        view["file_requirements"] = {"path": f"runs/kit/{req_id}/docs/FILE_REQUIREMENTS.json"}
+    return view
+
+
 def _kit_stage(req_id: str, payload: Dict[str, Any], repair_context: Dict[str, Any]) -> Tuple[str, str, List[str]]:
     """Which KIT the agent runs: the acceptance-first stages, an auto-eval repair or a full KIT."""
     kit_options = payload.get("kit") if isinstance(payload.get("kit"), dict) else {}
@@ -507,7 +532,16 @@ def build_kit_local_agent_package(
     }
 
     context["hard_rules"] = _dedupe_rules([*stage_rules, *(context.get("hard_rules") or [])])
-    context_json = json.dumps(context, indent=2, ensure_ascii=False)
+    context_json = json.dumps(
+        _agent_context_view(
+            context,
+            req_id,
+            file_requirements=file_requirements,
+            capability_files_present=bool(standalone_selected_capability_context and standalone_selected_capability_context_json),
+        ),
+        indent=2,
+        ensure_ascii=False,
+    )
 
     context_path = f"runs/kit/{req_id}/docs/AGENT_EXECUTION_CONTEXT.json"
     prompt_path = f"runs/kit/{req_id}/docs/AGENT_PROMPT.md"
