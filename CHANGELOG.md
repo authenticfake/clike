@@ -12,6 +12,12 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   sent; the agent's text and the tools it uses stream into a live bubble; Cancel stops the agent.
   `/agent-session [new|new all]` shows or restarts the sessions. Codex chat now runs with the
   mode's sandbox (read-only, workspace-write for coding).
+- **CLike from Claude Code / Codex** (H2): the extension MCP server runs phases through the
+  governed chat flow and returns their outcome (`harper_run_phase` waits up to `wait_seconds`,
+  then `harper_run_status`), plus `eval_run` (optionally the auto-eval `fix`) and `gate_check`;
+  no overrides, promotion or git from MCP. The orchestrator MCP Harper read tools accept a
+  `project_root` (confined to the projects directory). Verified with Codex calling
+  `harper_req_list` on a project.
 
 ### Changed
 

@@ -145,6 +145,10 @@ const {
 } = require('./harper-canonical-validation');
 
 let clikeChatPanel = null;
+// the chat's message handler, so MCP tools can run phases through the same governed flow and await them
+let clikeRunChatMessage = null;
+// MCP runs (H2): run_id -> { status, phase, req_id, started_at, result }
+const mcpRuns = new Map();
 let clikeExtensionContext = null;
 let clikeHarperBlockingRun = false;
 let extensionMcpServer = null;
@@ -1915,6 +1919,52 @@ async function ensureClikeChatPanelForAgent() {
   return clikeChatPanel;
 }
 
+function summarizeEvalReport(report) {
+  const r = report || {};
+  return {
+    status: r.status || null,
+    gate: r.gate || null,
+    reason_code: r.reason_code || null,
+    passed: r.passed ?? null,
+    failed_checks: (Array.isArray(r.cases) ? r.cases : []).filter(c => !c.passed).map(c => c.name),
+    regression_failures: r.regression_failures || [],
+    review_required: !!r.review_required,
+  };
+}
+
+/**
+ * H2: run a Harper phase from an MCP client through the chat's governed flow (same handlers, same
+ * lock/gate/write policy) and wait for it up to waitSeconds; longer runs keep going and are read
+ * with harper_run_status(run_id).
+ */
+async function runHarperPhaseForMcp({ phase, reqId = '', fix = null, waitSeconds = 50 }) {
+  await ensureClikeChatPanelForAgent();
+  if (typeof clikeRunChatMessage !== 'function') throw new Error('CLike chat is not ready.');
+  if (clikeHarperBlockingRun) throw new Error('CLike is running another Harper phase; retry when it ends (see harper_run_status).');
+  const isEdd = phase === 'eval' || phase === 'gate';
+  const msg = isEdd
+    ? { type: 'harperEDD', cmd: phase, targets: [reqId], targetReqId: reqId, attachments: [], ...(fix ? { fix } : {}) }
+    : { type: 'harperRun', cmd: phase, targets: reqId ? [reqId] : null, targetReqId: reqId || null, attachments: [] };
+  const runId = `mcp-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 6)}`;
+  const run = { run_id: runId, status: 'running', phase, req_id: reqId || null, started_at: new Date().toISOString(), result: null };
+  mcpRuns.set(runId, run);
+  try {
+    clikeChatPanel?.webview.postMessage({ type: 'echo', message: `▶ MCP ${phase.toUpperCase()}${reqId ? ' ' + reqId : ''} (requested by an external agent)` });
+  } catch { /* the chat only mirrors the run */ }
+  const done = Promise.resolve(clikeRunChatMessage(msg)).then(() => {
+    run.status = 'done';
+    run.result = isEdd
+      ? { ok: !!msg.__report, ...(msg.__report || {}) }
+      : { ok: msg.__result === 'ok', ...(msg.__outcome || {}), failed: msg.__result === 'failed' };
+  }).catch((err) => {
+    run.status = 'failed';
+    run.result = { ok: false, error: String(err?.message || err) };
+  });
+  const waitMs = Math.max(0, Math.min(Number(waitSeconds) || 0, 600)) * 1000;
+  await Promise.race([done, new Promise(resolve => setTimeout(resolve, waitMs))]);
+  return { ...run };
+}
+
 async function dispatchAgentSlashCommand(command) {
   const clean = String(command || '').trim();
   if (!clean.startsWith('/')) {
@@ -2061,8 +2111,24 @@ async function runExtensionMcpTool(name, args = {}) {
       reqId = next.req_id;
     }
 
-    const command = reqPhases.has(phase) ? `/${phase} ${reqId}` : `/${phase}`;
-    return await dispatchAgentSlashCommand(command);
+    if (args.await === false) {
+      const command = reqPhases.has(phase) ? `/${phase} ${reqId}` : `/${phase}`;
+      return await dispatchAgentSlashCommand(command);
+    }
+    return await runHarperPhaseForMcp({ phase, reqId, waitSeconds: args.wait_seconds ?? 50 });
+  }
+
+  if (tool === 'eval_run' || tool === 'gate_check') {
+    const reqId = String(args.req_id || '').trim().toUpperCase();
+    if (!/^REQ-\d+/.test(reqId)) throw new Error('req_id is required (e.g. REQ-001).');
+    const fix = tool === 'eval_run' && args.fix ? { hint: String(args.hint || '') } : null;
+    return await runHarperPhaseForMcp({ phase: tool === 'eval_run' ? 'eval' : 'gate', reqId, fix, waitSeconds: args.wait_seconds ?? 50 });
+  }
+
+  if (tool === 'harper_run_status') {
+    const run = mcpRuns.get(String(args.run_id || '').trim());
+    if (!run) throw new Error('Unknown run_id.');
+    return { ...run };
   }
 
   if (tool === 'harper_kit_next') {
@@ -2144,14 +2210,48 @@ function extensionMcpToolsList() {
     },
     {
       name: 'harper_run_phase',
-      description: 'Dispatch a normal CLike slash phase through the VS Code extension chat flow.',
+      description: 'Run a CLike Harper phase through the governed extension flow (same lock, gate and write policy as the chat) and return its outcome: files written and warnings, or the eval/gate verdict. Waits up to wait_seconds (default 50); a longer run returns status=running and a run_id for harper_run_status. await=false only dispatches.',
       inputSchema: {
         type: 'object',
         properties: {
           phase: { type: 'string', enum: ['idea', 'spec', 'plan', 'kit', 'eval', 'gate', 'finalize'] },
           req_id: { type: 'string' },
+          wait_seconds: { type: 'number' },
+          await: { type: 'boolean' },
         },
         required: ['phase'],
+      },
+    },
+    {
+      name: 'eval_run',
+      description: 'Run the canonical eval of a REQ in the CLike sandbox and return the verdict and failed checks. fix=true runs the governed auto-eval (KIT repair from the real failures, tests locked); hint guides the repair.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          req_id: { type: 'string' },
+          fix: { type: 'boolean' },
+          hint: { type: 'string' },
+          wait_seconds: { type: 'number' },
+        },
+        required: ['req_id'],
+      },
+    },
+    {
+      name: 'gate_check',
+      description: 'Run the CLike promotion gate of a REQ (checks, regression of promoted REQs, required outputs) and return the decision. No overrides from MCP.',
+      inputSchema: {
+        type: 'object',
+        properties: { req_id: { type: 'string' }, wait_seconds: { type: 'number' } },
+        required: ['req_id'],
+      },
+    },
+    {
+      name: 'harper_run_status',
+      description: 'Status and outcome of a phase started with harper_run_phase / eval_run / gate_check (status running|done|failed).',
+      inputSchema: {
+        type: 'object',
+        properties: { run_id: { type: 'string' } },
+        required: ['run_id'],
       },
     },
     {
@@ -3294,6 +3394,7 @@ async function cmdOpenChat(context) {
   panel.onDidDispose(() => {
     if (clikeChatPanel === panel) {
       clikeChatPanel = null;
+      clikeRunChatMessage = null;
     }
   });
   const orchestratorUrl = serviceBaseUrls().orchestrator;
@@ -4433,6 +4534,10 @@ async function cmdOpenChat(context) {
             panel.webview.postMessage({ type: 'error', message: formatHarperError(_out) });
           }
           msg.__result = 'ok';
+          msg.__outcome = {
+            files: (Array.isArray(_out?.files) ? _out.files : []).map(f => f.path).filter(Boolean),
+            warnings: Array.isArray(_out?.warnings) ? _out.warnings.slice(0, 20) : [],
+          };
           if (phase === 'kit' && msg.acceptanceFirst && msg.__acceptanceBefore) {
             // a local agent may have touched the locked tests: govern and restore
             await governAcceptanceChanges(targetReqId, msg.__acceptanceBefore, [], 0);
@@ -4734,6 +4839,7 @@ async function cmdOpenChat(context) {
               });
             }
             const reportFile = await saveEvalCommand(ws_root, plan, targets, report, out);
+            msg.__report = summarizeEvalReport(report);
             files_git.push(toFsPath(reportFile));
 
             break;
@@ -4769,6 +4875,7 @@ async function cmdOpenChat(context) {
               );
             }
 
+            msg.__report = summarizeEvalReport(report);
             const { report_file, filesToCommit, planFiles } = await saveGateCommand(
               ws_root,
               plan,
@@ -5687,6 +5794,7 @@ async function cmdOpenChat(context) {
     panel.webview.postMessage({ type: 'busy', on: false });
   };
   panel.webview.onDidReceiveMessage(handleWebviewMessage);
+  clikeRunChatMessage = handleWebviewMessage;
 
   // A local agent writes its repair directly: changed tests/LTC/ci files are submitted to the
   // orchestrator's governance, and what it rejects (and any deleted file) is restored. For a cloud
