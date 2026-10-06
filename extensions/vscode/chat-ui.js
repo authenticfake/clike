@@ -504,6 +504,7 @@ var HELP_COMMANDS = [
   {cmd:'/plan --methodology bmad --agent architect', desc:'Plans with BMAD architecture guidance while CLike owns PLAN.md and plan.json'},
   {cmd:'/plan --methodology bmad --agent pm', desc:'Plans with BMAD product slicing and acceptance guidance'},
   {cmd:'/spec --methodology bmad --agent ux', desc:'Builds SPEC guidance with UX journeys, states, and accessibility focus'},
+  {cmd:'/agent-session [new|new all]', desc:'Agent chat sessions: shows them; new starts a new conversation with the agent in the current mode (new all: every mode)'},
   {cmd:'/agent-model list', desc:'Lists the models you can set for Claude Code and Codex (from the CLike model catalog)'},
   {cmd:'/agent-model [claude|codex] [model]', desc:'Without arguments: shows the execution (cloud/agent), the default agent and the models in use. With arguments: sets the model of the local agent (claude: opus, sonnet, haiku or an exact id; codex: a model id). Applies to chat and Harper phases; saved in the workspace settings'},
   {cmd:'/agent-default codex|claude|auto', desc:'Sets the preferred local agent executor (works in Free, Coding and Harper; does not change mode)'},
@@ -1241,7 +1242,8 @@ function handleSlash(slash) {
     slash.cmd === '/kit' ||
     slash.cmd === '/finalize' ||
     slash.cmd === '/agent-default' ||
-    slash.cmd === '/agent-model'
+    slash.cmd === '/agent-model' ||
+    slash.cmd === '/agent-session'
   ) {
     var modeVal = (mode && mode.value) ? mode.value : 'harper';
     var key = modeVal;
@@ -1295,6 +1297,9 @@ function handleSlash(slash) {
     if (slash.args?.agent) msg.agent = slash.args.agent;
     if (slash.args?.methodology_context) msg.methodology_context = slash.args.methodology_context;
 
+    if (slash.cmd === '/agent-session') {
+      msg.sessionAction = slash.args?.action || '';
+    }
     if (slash.cmd === '/agent-model') {
       msg.agentName = slash.args?.agent || '';
       msg.agentModel = slash.args?.model || '';
@@ -1328,7 +1333,7 @@ function handleSlash(slash) {
     console.log('[CLike][chat-ui][harperRun] msg.targetReqId =', JSON.stringify(msg.targetReqId));
     console.log('[CLike][chat-ui][harperRun] msg.phases =', JSON.stringify(msg.phases));
 
-    if (slash.cmd === '/agent-default' || slash.cmd === '/agent-model') {
+    if (slash.cmd === '/agent-default' || slash.cmd === '/agent-model' || slash.cmd === '/agent-session') {
       post(msg.type, msg);
     } else {
       postAndLock(msg.type, msg);
@@ -1422,6 +1427,49 @@ function appendImagePreviews(container, images) {
     img.style.cssText = 'max-width:160px;max-height:120px;margin:4px;border:1px solid #ddd;border-radius:6px';
     container.appendChild(img);
   });
+}
+
+// Native agent chat: a live bubble fed by the agent's streamed events (text as it is written, the
+// tools it uses); the final answer bubble replaces it when the turn ends.
+var agentLive = null;
+function agentLiveEnd() {
+  if (agentLive && agentLive.wrap.parentNode) agentLive.wrap.parentNode.removeChild(agentLive.wrap);
+  agentLive = null;
+}
+function agentLiveStart(label) {
+  agentLiveEnd();
+  const wrap = document.createElement('div');
+  wrap.className = 'msg ai';
+  const b = document.createElement('div');
+  b.className = 'bubble agent-live';
+  const badge = document.createElement('span');
+  badge.className = 'badge';
+  badge.textContent = String(label || 'agent') + ' · live';
+  const steps = document.createElement('div');
+  steps.className = 'meta';
+  const text = document.createElement('div');
+  text.style.whiteSpace = 'pre-wrap';
+  b.appendChild(badge);
+  b.appendChild(steps);
+  b.appendChild(text);
+  wrap.appendChild(b);
+  chat.appendChild(wrap);
+  chat.scrollTop = chat.scrollHeight;
+  agentLive = { wrap: wrap, steps: steps, text: text };
+}
+function agentLiveEvent(ev) {
+  if (!ev) return;
+  if (ev.kind === 'start') { agentLiveStart(ev.label); return; }
+  if (ev.kind === 'end') { agentLiveEnd(); return; }
+  if (!agentLive) return;
+  if (ev.kind === 'delta') {
+    agentLive.text.textContent += String(ev.text || '');
+  } else if (ev.kind === 'tool' || ev.kind === 'error') {
+    const line = document.createElement('div');
+    line.textContent = (ev.kind === 'error' ? '⚠ ' : '↳ ') + String(ev.label || ev.text || '');
+    agentLive.steps.appendChild(line);
+  }
+  chat.scrollTop = chat.scrollHeight;
 }
 
 function bubble(role, content, modelName, attachments, ts, opts) {
@@ -1835,6 +1883,7 @@ window.addEventListener('message', (event) => {
 
   if (msg.type === 'openHelpOverlay') { renderHelpList(); openHelpOverlay(); }
   // Echo → mostra un bubble "assistant" (anche per i riepiloghi post-init)
+  if (msg.type === 'agentStream') { agentLiveEvent(msg.event); return; }
   if (msg.type === 'echo') {
     console.log('[webview] echo', msg);
     const text = stringifyUiErrorMessage(msg.message || '');

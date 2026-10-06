@@ -488,6 +488,16 @@ def _flatten_msgs_to_prompt(msgs: List[Dict[str, Any]]) -> str:
     return "\n\n".join(parts).strip()
 
 
+def _agent_turn_messages(msgs: List[Dict[str, Any]], body: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """A resumed local-agent session (agentSessionResume) already holds the conversation: send the
+    context (system messages: instructions, RAG, attachments) and the new user turn only."""
+    if not body.get("agentSessionResume"):
+        return msgs
+    system = [m for m in msgs or [] if str(m.get("role") or "").lower() == "system"]
+    users = [m for m in msgs or [] if str(m.get("role") or "").lower() == "user"]
+    return [*system, *users[-1:]]
+
+
 def _local_execution_package(
     *, mode: str, prompt: str, executor_hint: Any, run_id: str, output_root: Optional[str] = None
 ) -> Dict[str, Any]:
@@ -618,7 +628,7 @@ async def chat( req: Request):
     # Local free (Q&A): hand the assembled prompt to the extension, which runs
     # the codex/claude CLI read-only and renders the answer in chat.
     if local_requested:
-        prompt = _flatten_msgs_to_prompt(msgs)
+        prompt = _flatten_msgs_to_prompt(_agent_turn_messages(msgs, body))
         run_id = str(body.get("runId") or _short_id(8))
         log.info("chat local-execution package: mode=free run=%s executor=%s", run_id, body.get("localAgentExecutor"))
         return _local_execution_package(
@@ -1175,7 +1185,7 @@ async def generate(req: Request):
         write_sys = {"role": "system", "content": _CODING_LOCAL_SYSTEM.format(output_root=output_root)}
         local_msgs = [write_sys] + list(messages)
         local_msgs = await _augment_messages_with_context(local_msgs, inline_files, rag_files, user_query, project_id)
-        prompt = _flatten_msgs_to_prompt(local_msgs)
+        prompt = _flatten_msgs_to_prompt(_agent_turn_messages(local_msgs, body))
         run_id = str(body.get("runId") or gen_id)
         log.info("generate local-execution package: mode=coding run=%s root=%s executor=%s", run_id, output_root, body.get("localAgentExecutor"))
         return _local_execution_package(

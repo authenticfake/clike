@@ -30,12 +30,10 @@ const {
   reconcileExecutionPreference,
   getExecutorConfig,
   buildLocalAgentModelArgs,
-  parseClaudeResultEnvelope,
   parseLocalAgentRun,
   withMachineReadableOutput,
   buildLocalAgentDisplayLabel,
-  
-  //_d_etectLocalAgentAvailability,
+  terminateProcessTree,
 } = require('./local-agent-executors');
 
 const {
@@ -84,6 +82,7 @@ const {
   restoreAcceptanceFiles,
   snapshotAcceptanceSurface,
 } = require('./auto-eval');
+const { buildAgentChatArgs, createAgentStreamParser, newSession, sessionKey } = require('./agent-chat');
 
 const {
   buildCodexArgsForLocalAgent,
@@ -159,6 +158,8 @@ let extensionMcpState = {
 let __clike_lastTargetUriCache = null;  
 // --- In-flight request state (for Cancel) ---
 let inflightController = null;
+// the agent CLI answering the current chat message (Cancel terminates it)
+let activeChatAgentChild = null;
 // Chat state: per mode -> array of bubbles. Each bubble: { role: 'user'|'assistant', text, model, ts }
 
 function getWorkspaceRoot() {
@@ -1152,26 +1153,6 @@ function cfgChat() {
 // Invocation args for the standalone free/coding local-agent flows. Free (Q&A)
 // runs read-only (no file edits); coding lets the agent write under the
 // orchestrator-provided output_root.
-function buildChatInvocationArgs(executorId, mode, executorConfig) {
-  const modelArgs = buildLocalAgentModelArgs(executorId, executorConfig);
-
-  if (executorId === 'claude_code') {
-    const flag = (executorConfig && executorConfig.printModeFlag) || '-p';
-    // --output-format json lets us read back the model actually used (and any
-    // fallback model) from the result envelope.
-    const base = [flag, '--output-format', 'json', ...modelArgs];
-    if (mode === 'coding') {
-      const pm = (executorConfig && executorConfig.permissionMode) || 'acceptEdits';
-      return [...base, '--permission-mode', pm];
-    }
-    return base;
-  }
-  // gpt_codex: non-interactive exec; prompt is delivered on stdin.
-  const codexBase = Array.isArray(executorConfig && executorConfig.argsBeforePrompt) && executorConfig.argsBeforePrompt.length
-    ? executorConfig.argsBeforePrompt
-    : ['exec'];
-  return [...codexBase, ...modelArgs];
-}
 
 // Badge shown next to a local-agent answer (mirrors how the cloud path shows
 // the model name). The user requested 'agent-claude' / 'agent-codex'.
@@ -1212,7 +1193,7 @@ async function collectGeneratedFilePaths(wsrootUri, relRoot) {
 
 // Run the free/coding local-agent package returned by the orchestrator.
 // Returns { mode, badge, answer?, synthesis, stdout, files? }.
-async function runLocalChatAgent({ pkg, executorId, settings, wsrootUri, out }) {
+async function runLocalChatAgent({ pkg, executorId, settings, wsrootUri, out, session = null, onEvent = null, onSpawn = null }) {
   const mode = String(pkg.mode || 'free').toLowerCase();
   const executorConfig = getExecutorConfig(executorId, settings);
   const executorLabel = buildLocalAgentDisplayLabel(executorId);
@@ -1220,8 +1201,18 @@ async function runLocalChatAgent({ pkg, executorId, settings, wsrootUri, out }) 
   const prompt = String(pkg.prompt || '').trim();
   if (!prompt) throw new Error('Local execution package is missing a prompt.');
 
-  const argsBeforePrompt = buildChatInvocationArgs(executorId, mode, executorConfig);
+  const argsBeforePrompt = buildAgentChatArgs({
+    executorId,
+    mode,
+    executorConfig,
+    modelArgs: buildLocalAgentModelArgs(executorId, executorConfig),
+    session,
+  });
   const timeoutMinutes = settings.localAgentTimeoutMinutes || 20;
+  const parser = createAgentStreamParser(executorId);
+  let streamResult = null;
+  let streamError = '';
+  let sessionId = (session && session.id) || '';
 
   const agentResult = await runLocalAgentSync({
     workspaceRootUri: wsrootUri,
@@ -1231,6 +1222,15 @@ async function runLocalChatAgent({ pkg, executorId, settings, wsrootUri, out }) 
     argsBeforePrompt,
     timeoutMinutes,
     out,
+    onSpawn,
+    onStdoutLine: (line) => {
+      for (const event of parser.feed(line)) {
+        if (event.kind === 'session') sessionId = event.id;
+        if (event.kind === 'result') streamResult = event;
+        if (event.kind === 'error') streamError = event.text;
+        if (typeof onEvent === 'function') onEvent(event);
+      }
+    },
   });
 
   const stdout = agentResult.stdout || '';
@@ -1239,9 +1239,8 @@ async function runLocalChatAgent({ pkg, executorId, settings, wsrootUri, out }) 
   // Determine the model actually used. Claude reports it in the JSON envelope
   // (authoritative, also reflects any fallback model); Codex has no machine
   // -readable model list, so the model used is the one we pinned via --model.
-  const claudeEnvelope = executorId === 'claude_code' ? parseClaudeResultEnvelope(stdout) : null;
   const usedModel = String(
-    (claudeEnvelope && claudeEnvelope.model) || (executorConfig && executorConfig.model) || ''
+    (streamResult && streamResult.model) || (executorConfig && executorConfig.model) || ''
   ).trim();
   if (out && typeof out.appendLine === 'function' && usedModel) {
     out.appendLine(`[CLike] [local-agent:${executorId}] model_used=${usedModel}`);
@@ -1257,21 +1256,19 @@ async function runLocalChatAgent({ pkg, executorId, settings, wsrootUri, out }) 
     const synthesis =
       `Generated ${paths.length} file(s) under ${pkg.output_root}/:\n` +
       paths.map(p => '- ' + p).join('\n');
-    return { mode, badge, model: usedModel, synthesis, stdout, files: paths.map(p => ({ path: p })) };
+    return { mode, badge, model: usedModel, synthesis, stdout, sessionId, files: paths.map(p => ({ path: p })) };
   }
 
   // free (Q&A): with --output-format json the answer text is in `.result`.
-  const answer = (claudeEnvelope && typeof claudeEnvelope.result === 'string')
-    ? claudeEnvelope.result.trim()
-    : stdout.trim();
+  const answer = String((streamResult && streamResult.text) || parser.text() || '').trim();
   if (!answer) {
     const blocked = classifyBlockedLocalAgentOutput({ stdout, stderr });
     if (blocked) throw new Error(`${blocked.code}: ${blocked.message}`);
-    throw new Error(`${executorLabel} returned no answer (exit=${agentResult.exitCode}).`);
+    throw new Error(`${executorLabel} returned no answer (exit=${agentResult.exitCode})${streamError ? ': ' + streamError : ''}.`);
   }
   const modelSuffix = usedModel ? ` using ${usedModel}` : '';
   const synthesis = `${executorLabel} answered locally${modelSuffix} (read-only, exit=${agentResult.exitCode}).`;
-  return { mode, badge, model: usedModel, answer, synthesis, stdout };
+  return { mode, badge, model: usedModel, answer, synthesis, stdout, sessionId };
 }
 
 function effectiveHistoryScope(context) {
@@ -1927,6 +1924,7 @@ async function dispatchAgentSlashCommand(command) {
   const allowedPrefixes = [
     '/agent-default',
     '/agent-model',
+    '/agent-session',
     '/idea',
     '/spec',
     '/plan',
@@ -3589,6 +3587,30 @@ async function cmdOpenChat(context) {
 
           state.executionPreference = executionPreference;
           state.localAgentExecutor = localAgentExecutor;
+
+          if (String(cmd || '').trim().toLowerCase() === 'agent-session') {
+            // /agent-session [new|new all]: the CLike chat keeps one agent session per (mode, agent)
+            const sessions = context.workspaceState.get('clike.agentSessions') || {};
+            const action = String(msg.sessionAction || '').trim().toLowerCase();
+            const currentMode = String(state.mode || 'harper').toLowerCase();
+            let message;
+            if (action === 'new' || action === 'new all' || action === 'reset') {
+              const keep = action === 'new all' ? {} : Object.fromEntries(
+                Object.entries(sessions).filter(([key]) => !key.startsWith(`${currentMode}:`))
+              );
+              await context.workspaceState.update('clike.agentSessions', keep);
+              message = `✔ AGENT-SESSION new ${action === 'new all' ? 'conversation in every mode' : `conversation in ${currentMode}`}: the next message starts a fresh agent session.`;
+            } else {
+              const lines = Object.entries(sessions).map(([key, s]) => `${key} → ${s.id || 'pending'}${s.at ? ' (' + new Date(s.at).toLocaleString() + ')' : ''}`);
+              message = lines.length
+                ? `ℹ Agent sessions (resumed message after message): ${lines.join(' · ')}. /agent-session new starts a new one.`
+                : 'ℹ No agent session yet: the next message to the agent starts one.';
+            }
+            await appendSessionJSONL(state.mode || 'harper', { role: 'system', content: message, model: state.model || 'auto' });
+            panel.webview.postMessage({ type: 'echo', message });
+            panel.webview.postMessage({ type: 'busy', on: false });
+            return;
+          }
 
           if (String(cmd || '').trim().toLowerCase() === 'agent-model') {
             // /agent-model [claude|codex] [model]: show or set the model the local agent runs with
@@ -5314,6 +5336,15 @@ async function cmdOpenChat(context) {
           }
         }
 
+        // Native agent chat (H1): one agent session per (mode, agent), resumed message after message.
+        const agentSessions = context.workspaceState.get('clike.agentSessions') || {};
+        const agentSessionKeyValue = selectedLocalExecutor
+          ? sessionKey(msg.type === 'sendGenerate' ? 'coding' : activeMode, selectedLocalExecutor)
+          : '';
+        const agentSession = agentSessionKeyValue
+          ? (agentSessions[agentSessionKeyValue] || newSession(selectedLocalExecutor))
+          : null;
+
         const basePayload = {
             mode: activeMode,
             project_id: projectId,
@@ -5329,6 +5360,8 @@ async function cmdOpenChat(context) {
             executionPreference: effectivePref,
             localAgentExecutor: selectedLocalExecutor || normalizeLocalAgentExecutor(cur.localAgentExecutor || 'auto'),
             mode_contract: buildModeContract(activeMode),
+            // the agent holds the conversation: the orchestrator sends only the new turn
+            ...(agentSession && agentSession.started ? { agentSessionResume: true } : {}),
         };
 
         // (fixed ternary)
@@ -5366,13 +5399,35 @@ async function cmdOpenChat(context) {
           // bubble + Files tab).
           if (res && res.local_execution) {
             try {
-              const localOut = await runLocalChatAgent({
-                pkg: res,
-                executorId: selectedLocalExecutor || normalizeLocalAgentExecutor(cur.localAgentExecutor || 'auto'),
-                settings: settingsLA,
-                wsrootUri: getWorkspaceRoot(),
-                out,
-              });
+              const chatExecutor = selectedLocalExecutor || normalizeLocalAgentExecutor(cur.localAgentExecutor || 'auto');
+              panel.webview.postMessage({ type: 'agentStream', event: { kind: 'start', label: localAgentBadge(chatExecutor) } });
+              let localOut;
+              try {
+                localOut = await runLocalChatAgent({
+                  pkg: res,
+                  executorId: chatExecutor,
+                  settings: settingsLA,
+                  wsrootUri: getWorkspaceRoot(),
+                  out,
+                  session: agentSession,
+                  onEvent: (event) => panel.webview.postMessage({ type: 'agentStream', event }),
+                  onSpawn: (child) => { activeChatAgentChild = child; },
+                });
+              } catch (err) {
+                // a session that cannot be resumed (expired, deleted) starts again next time
+                if (agentSessionKeyValue) {
+                  delete agentSessions[agentSessionKeyValue];
+                  await context.workspaceState.update('clike.agentSessions', agentSessions);
+                }
+                throw err;
+              } finally {
+                activeChatAgentChild = null;
+                panel.webview.postMessage({ type: 'agentStream', event: { kind: 'end' } });
+              }
+              if (agentSessionKeyValue && localOut.sessionId) {
+                agentSessions[agentSessionKeyValue] = { id: localOut.sessionId, started: true, at: Date.now() };
+                await context.workspaceState.update('clike.agentSessions', agentSessions);
+              }
               // Live bubble label: agent badge plus the model actually used.
               const liveBadge = localOut.model ? `${localOut.badge} · ${localOut.model}` : localOut.badge;
               if (localOut.mode === 'coding') {
@@ -5488,6 +5543,10 @@ async function cmdOpenChat(context) {
       if (msg.type === 'cancel') {
         if (inflightController) inflightController.abort();
         inflightController = null;
+        if (activeChatAgentChild) {
+          terminateProcessTree(activeChatAgentChild);
+          activeChatAgentChild = null;
+        }
         panel.webview.postMessage({ type: 'busy', on: false });
       }
       // --- PICK WORKSPACE FILES ----------------------------------------------------

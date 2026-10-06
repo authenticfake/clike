@@ -346,6 +346,10 @@ function parseSlash(input) {
     return finish({ value: String(rest[0] || '').trim().toLowerCase() });
   }
 
+  if (cmd === '/agent-session') {
+    return finish({ action: rest.join(' ').trim().toLowerCase() });
+  }
+
   if (cmd === '/agent-model') {
     return finish({ agent: String(rest[0] || '').trim().toLowerCase(), model: rest.slice(1).join(' ').trim() });
   }

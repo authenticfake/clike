@@ -4,6 +4,15 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+### Added
+
+- **Native agent chat** (H1): with execution = agent, the CLike chat talks to Claude Code / Codex as
+  one continuing session per mode (free, coding, harper) — the first message starts it, the next
+  ones resume it (Claude `--session-id`/`--resume`, Codex `exec resume`) and only the new turn is
+  sent; the agent's text and the tools it uses stream into a live bubble; Cancel stops the agent.
+  `/agent-session [new|new all]` shows or restarts the sessions. Codex chat now runs with the
+  mode's sandbox (read-only, workspace-write for coding).
+
 ### Changed
 
 - One FILE_REQUIREMENTS for cloud and local agents (B15): the agent package uses the obligations

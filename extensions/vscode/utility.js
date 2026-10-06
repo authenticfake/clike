@@ -2311,7 +2311,11 @@ async function runLocalAgentSync({
   permissionMode = '',
   timeoutMinutes = 20,
   out,
+  onStdoutLine = null,
+  onSpawn = null,
 }) {
+  // onStdoutLine(line): each complete stdout line as it arrives (streamed chat events);
+  // onSpawn(child): the running process, e.g. so Cancel can terminate it.
   const normalizedExecutor = String(executorId || '').trim();
   const finalCommand = String(command || '').trim();
 
@@ -2386,6 +2390,9 @@ async function runLocalAgentSync({
     const log = (line) => { if (out && typeof out.appendLine === 'function') out.appendLine(line); };
     activeAgentProcesses.add(child);
     child.once('exit', () => activeAgentProcesses.delete(child));
+    if (typeof onSpawn === 'function') {
+      try { onSpawn(child); } catch { /* ignore */ }
+    }
 
     const timer = setTimeout(() => {
       if (settled) return;
@@ -2401,9 +2408,17 @@ async function runLocalAgentSync({
       );
     }, timeoutMs);
 
+    let pendingLine = '';
     child.stdout.on('data', (chunk) => {
       const text = chunk.toString();
       stdout += text;
+      if (typeof onStdoutLine === 'function') {
+        const lines = (pendingLine + text).split(/\r?\n/);
+        pendingLine = lines.pop();
+        for (const line of lines) {
+          try { onStdoutLine(line); } catch { /* a renderer error never stops the agent */ }
+        }
+      }
       if (out && typeof out.appendLine === 'function') {
         for (const line of text.split(/\r?\n/)) {
           if (line.trim()) {
@@ -2441,6 +2456,9 @@ async function runLocalAgentSync({
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      if (typeof onStdoutLine === 'function' && pendingLine) {
+        try { onStdoutLine(pendingLine); } catch { /* ignore */ }
+      }
 
       if (out && typeof out.appendLine === 'function') {
         out.appendLine(
