@@ -157,6 +157,12 @@ def _current_generation(project_root: Path, req_id: str) -> str:
 
 # --- lock ----------------------------------------------------------------------
 
+def has_lock(project_root: Path, req_id: str) -> bool:
+    """Whether the REQ's acceptance surface is locked for its current KIT generation."""
+    lock = _read_json(_req_state_path(project_root, req_id, "lock"))
+    return bool(lock and lock.get("schema") == LOCK_SCHEMA and lock.get("generation") == _current_generation(project_root, req_id))
+
+
 def ensure_lock(project_root: Path, req_id: str) -> Dict[str, Any]:
     """Return the lock for the current KIT generation, creating it from disk if needed."""
     lock_path = _req_state_path(project_root, req_id, "lock")

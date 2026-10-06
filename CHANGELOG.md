@@ -21,6 +21,9 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- A follow-up KIT stage (`--hardener`, ...) after the first eval started a new KIT generation
+  and could rewrite the locked tests: it now keeps the generation and its test/ci changes are
+  governed like a repair (L3).
 - An eval or gate whose caller disconnected kept running in the sandbox (e.g. after a stopped
   benchmark it delayed the next eval by more than 30 minutes): it is now cancelled, with its
   processes, and the orchestrator answers 499.

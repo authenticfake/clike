@@ -77,6 +77,10 @@ With a local agent (Claude Code, Codex) the repair follows the same rules:
   amendments are audited; rejected changes and deleted files are restored
   (`↺ AUTO-EVAL ... restored`).
 
+Follow-up KIT stages (`/kit REQ --integrity|--hardener|--promotion-eval`) work on the current
+candidate: they do not start a new KIT generation, and once the tests are locked (first eval)
+their changes to `test/` and `ci/` go through the same governance as a repair.
+
 ## Promotability: regression of promoted REQs (L2)
 
 With `clike.eval.regression` (default on), `/eval` and `/gate` also run the acceptance checks of
