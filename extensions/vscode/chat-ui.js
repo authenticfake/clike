@@ -403,6 +403,34 @@ function getWebviewHtml(orchestratorUrl, themeName = 'classic') {
     white-space: pre-wrap;
     word-wrap: break-word;
   }
+  /* /help overlay: VS Code theme colours, grouped commands */
+  #clikeHelpOverlay { position:fixed; inset:0; display:none; z-index:99999; background:rgba(0,0,0,.45); }
+  #clikeHelpCard {
+    max-width:760px; max-height:84vh; margin:6vh auto; display:flex; flex-direction:column;
+    background:var(--vscode-editorWidget-background, #1e1e1e); color:var(--vscode-editorWidget-foreground, #e6e6e6);
+    border:1px solid var(--vscode-editorWidget-border, var(--vscode-widget-border, #454545));
+    border-radius:10px; box-shadow:0 8px 32px rgba(0,0,0,.45);
+    font-family:var(--vscode-font-family, system-ui); font-size:var(--vscode-font-size, 13px);
+  }
+  #clikeHelpCard .help-head { display:flex; align-items:center; gap:10px; padding:14px 16px 10px; border-bottom:1px solid var(--vscode-editorWidget-border, #454545); }
+  #clikeHelpCard .help-head h2 { margin:0; font-size:15px; font-weight:600; flex:1; }
+  #clikeHelpFilter {
+    flex:0 1 240px; padding:4px 8px; border-radius:4px;
+    background:var(--vscode-input-background, #2a2a2a); color:var(--vscode-input-foreground, #e6e6e6);
+    border:1px solid var(--vscode-input-border, var(--vscode-editorWidget-border, #555));
+  }
+  #clikeHelpClose { width:28px; height:28px; border:none; border-radius:6px; cursor:pointer; font-size:18px; line-height:1;
+    background:transparent; color:var(--vscode-editorWidget-foreground, #e6e6e6); }
+  #clikeHelpClose:hover { background:var(--vscode-toolbar-hoverBackground, rgba(128,128,128,.25)); }
+  #clikeHelpList { overflow:auto; padding:6px 16px 14px; }
+  #clikeHelpList h3 { margin:14px 0 6px; font-size:11px; font-weight:600; letter-spacing:.06em; text-transform:uppercase;
+    color:var(--vscode-descriptionForeground, #9da5b4); }
+  #clikeHelpList .help-row { display:grid; grid-template-columns:minmax(180px, 38%) 1fr; gap:4px 14px; padding:5px 0;
+    border-top:1px solid var(--vscode-editorWidget-border, rgba(128,128,128,.2)); }
+  #clikeHelpList .help-cmd { font-family:var(--vscode-editor-font-family, monospace); font-size:12px; word-break:break-word;
+    color:var(--vscode-textPreformat-foreground, var(--vscode-textLink-foreground, #4fc1ff)); }
+  #clikeHelpList .help-desc { line-height:1.4; color:var(--vscode-editorWidget-foreground, #e6e6e6); }
+  #clikeHelpList .help-empty { padding:12px 0; color:var(--vscode-descriptionForeground, #9da5b4); }
 </style>
 
 </head>
@@ -509,7 +537,8 @@ var HELP_COMMANDS = [
   {cmd:'/agent-model list', desc:'Lists the models you can set for Claude Code and Codex (from the CLike model catalog)'},
   {cmd:'/agent-model [claude|codex] [model]', desc:'Without arguments: shows the execution (cloud/agent), the default agent and the models in use. With arguments: sets the model of the local agent (claude: opus, sonnet, haiku or an exact id; codex: a model id). Applies to chat and Harper phases; saved in the workspace settings'},
   {cmd:'/agent-default codex|claude|auto', desc:'Sets the preferred local agent executor (works in Free, Coding and Harper; does not change mode)'},
-  {cmd:'Settings (agent chat)', desc:'clike.agentChat.approvals: ask (default) — in Coding every edit/command of Claude Code or Codex waits for Allow / Allow all this turn / Deny, writes outside generated/ are denied; auto — no questions'},
+  {cmd:'Agent chat (execution = agent)', desc:'Free: questions only, nothing is written. Coding and Harper free text: the agent can also create files, only under generated/<id>/ (Harper artifacts change only through /spec, /plan, /kit, ...)'},
+  {cmd:'Settings (agent chat)', desc:'clike.agentChat.approvals: ask (default) — in Coding and Harper every edit/command of Claude Code or Codex waits for Allow / Allow all this turn / Deny, writes outside generated/ are denied; auto — no questions'},
   {cmd:'Settings (auto-eval)', desc:'clike.autoEval.maxCycles (2), clike.autoEval.afterKit, clike.eval.regression (on), clike.gate.strictWarnings, clike.kit.acceptanceFirst — see docs/auto-eval.md'},
   {cmd:'/finalize', desc:'Final gates and project closure (Harper)'},
   {cmd:'/finalize --methodology bmad --agent tech-writer', desc:'Finalizes with BMAD documentation guidance'},
@@ -571,75 +600,54 @@ function finalizeBootIfReady() {
 
 
 function ensureHelpDOM() {
-  // overlay container
   var overlay = document.getElementById('clikeHelpOverlay');
   if (!overlay) {
     overlay = document.createElement('div');
     overlay.id = 'clikeHelpOverlay';
-    overlay.style.position = 'fixed';
-    overlay.style.inset = '0';
-    overlay.style.display = 'none';
-    overlay.style.zIndex = '99999';
-    overlay.style.background = 'rgba(0,0,0,.35)';
+    // a click on the backdrop closes the help
+    overlay.addEventListener('click', function (ev) { if (ev.target === overlay) closeHelpOverlay(); });
     document.body.appendChild(overlay);
   } else {
-    // se qualcuno ha messo del testo dentro, pulisci
     overlay.innerHTML = '';
   }
 
-  // card
   var card = document.createElement('div');
   card.id = 'clikeHelpCard';
-  card.style.maxWidth = '720px';
-  card.style.margin = '10vh auto';
-  card.style.background = '#111';
-  card.style.color = '#eee';
-  card.style.borderRadius = '12px';
-  card.style.padding = '16px 18px';
-  card.style.boxShadow = '0 8px 32px rgba(0,0,0,.45)';
-  card.style.fontFamily = 'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial';
 
-  // close button
+  var head = document.createElement('div');
+  head.className = 'help-head';
+  var h2 = document.createElement('h2');
+  h2.textContent = 'CLike — Quick help';
+  var filter = document.createElement('input');
+  filter.id = 'clikeHelpFilter';
+  filter.type = 'search';
+  filter.placeholder = 'Filter commands…';
+  filter.addEventListener('input', function () { renderHelpList(filter.value); });
   var btn = document.createElement('button');
   btn.id = 'clikeHelpClose';
   btn.setAttribute('aria-label', 'Close');
   btn.textContent = '×';
-  btn.style.float = 'right';
-  btn.style.fontSize = '18px';
-  btn.style.width = '32px';
-  btn.style.height = '32px';
-  btn.style.border = 'none';
-  btn.style.borderRadius = '6px';
-  btn.style.background = '#222';
-  btn.style.color = '#ddd';
-  btn.style.cursor = 'pointer';
-  if (!btn._bound) {
-    btn._bound = true;
-    btn.addEventListener('click', closeHelpOverlay);
-  }
+  btn._bound = true;
+  btn.addEventListener('click', closeHelpOverlay);
+  head.appendChild(h2);
+  head.appendChild(filter);
+  head.appendChild(btn);
 
-  var h2 = document.createElement('h2');
-  h2.textContent = 'CLike — Quick help';
-  h2.style.margin = '0 0 12px 0';
-  h2.style.fontSize = '18px';
+  var list = document.createElement('div');
+  list.id = 'clikeHelpList';
 
-  var ul = document.createElement('ul');
-  ul.id = 'clikeHelpList';
-  ul.style.margin = '8px 0 0 0';
-  ul.style.paddingLeft = '20px';
-  ul.style.lineHeight = '1.35';
-
-  card.appendChild(btn);
-  card.appendChild(h2);
-  card.appendChild(ul);
+  card.appendChild(head);
+  card.appendChild(list);
   overlay.appendChild(card);
 }
 
 function openHelpOverlay() {
   ensureHelpDOM();
-  try { renderHelpList(); } catch {}
+  try { renderHelpList(''); } catch {}
   var overlay = document.getElementById('clikeHelpOverlay');
   if (overlay) overlay.style.display = 'block';
+  var filter = document.getElementById('clikeHelpFilter');
+  if (filter) filter.focus();
 }
 
 function closeHelpOverlay() {
@@ -672,6 +680,10 @@ document.addEventListener('keydown', (ev) => {
   if ((ev.ctrlKey || ev.metaKey) && ev.key === '/') {
     ev.preventDefault();
     openHelpOverlay();
+  }
+  if (ev.key === 'Escape') {
+    var overlay = document.getElementById('clikeHelpOverlay');
+    if (overlay && overlay.style.display === 'block') closeHelpOverlay();
   }
 });
 
@@ -985,20 +997,45 @@ function getHelpItems() {
   return fallback;
 }
 
-function renderHelpList() {
-  var ul = document.getElementById('clikeHelpList');
-  if (!ul) return;
-  var items = getHelpItems();
-  // costruiamo li via DOM (no innerHTML necessario, ma va bene anche innerHTML con escape)
+// Help sections, matched on the command text in this order.
+function helpStartsWith(c, prefixes) {
+  for (var i = 0; i < prefixes.length; i++) { if (c.indexOf(prefixes[i]) === 0) return true; }
+  return false;
+}
+var HELP_GROUPS = [
+  { title: 'Start & project', test: function (c) { return helpStartsWith(c, ['/help', 'Docs', '/init', '/status', '/where', '/switch']); } },
+  { title: 'Agents', test: function (c) { return helpStartsWith(c, ['/agent-', 'Agent chat', 'Settings (agent']); } },
+  { title: 'Eval & gate', test: function (c) { return helpStartsWith(c, ['/eval', '/gate', 'Settings (auto-eval']); } },
+  { title: 'Harper phases', test: function (c) { return helpStartsWith(c, ['/idea', '/spec', '/plan', '/extend', '/add-req', '/kit', '/finalize']); } },
+  { title: 'RAG', test: function (c) { return helpStartsWith(c, ['/rag']); } },
+  { title: 'Other', test: function () { return true; } },
+];
+
+function renderHelpList(query) {
+  var list = document.getElementById('clikeHelpList');
+  if (!list) return;
+  var q = String(query || '').trim().toLowerCase();
+  var items = getHelpItems().filter(function (it) {
+    if (!it || !it.cmd) return false;
+    return !q || (String(it.cmd) + ' ' + String(it.desc || '')).toLowerCase().indexOf(q) >= 0;
+  });
+  var buckets = HELP_GROUPS.map(function () { return []; });
+  items.forEach(function (it) {
+    var c = String(it.cmd);
+    for (var g = 0; g < HELP_GROUPS.length; g++) {
+      if (HELP_GROUPS[g].test(c)) { buckets[g].push(it); break; }
+    }
+  });
   var html = '';
-  for (var i = 0; i < items.length; i++) {
-    var it = items[i] || {};
-    var c = it && it.cmd ? String(it.cmd) : '';
-    if (!c) continue;
-    var d = it && it.desc ? String(it.desc) : '';
-    html += '<li><code>' + escapeHtml(c) + '</code> - ' + escapeHtml(d) + '</li>';
-  }
-  ul.innerHTML = html;
+  HELP_GROUPS.forEach(function (group, g) {
+    if (!buckets[g].length) return;
+    html += '<h3>' + escapeHtml(group.title) + '</h3>';
+    buckets[g].forEach(function (it) {
+      html += '<div class="help-row"><div class="help-cmd">' + escapeHtml(String(it.cmd)) +
+        '</div><div class="help-desc">' + escapeHtml(String(it.desc || '')) + '</div></div>';
+    });
+  });
+  list.innerHTML = html || '<div class="help-empty">No command matches “' + escapeHtml(q) + '”.</div>';
 }
 
 

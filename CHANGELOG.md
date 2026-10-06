@@ -2,6 +2,17 @@
 
 All notable changes to CLike. Extension, orchestrator and gateway share one version.
 
+## [Unreleased]
+
+### Changed
+
+- **Harper free text with an agent can create files**: a request like "create a script that
+  computes N!" in Harper mode no longer gets a read-only refusal; the agent writes only under
+  `generated/<id>/` (same sandbox and approvals as Coding) and the files appear in the Files tab.
+  Free (Q&A) stays read-only.
+- **`/help` is readable on every theme**: VS Code theme colours, commands grouped by topic, a
+  filter box, Esc / click outside to close.
+
 ## [1.2.1] — 2026-10-06 — Agent chat approvals, eval_run final report, Codex MCP approval
 
 ### Added
