@@ -61,3 +61,34 @@ class EvalWritablePathsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EvalCancellationTests(unittest.TestCase):
+    def test_a_cancelled_eval_stops_the_running_check_and_the_remaining_ones(self):
+        import threading
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            kit = root / "runs" / "kit" / "REQ-001"
+            (kit / "ci").mkdir(parents=True)
+            (kit / "src").mkdir()
+            marker = root / "child.pid"
+            ltc = {"req_id": "REQ-001", "checks": [
+                {"id": "slow", "command": f"{sys.executable} -c \"import os,time; open('{marker}','w').write(str(os.getpid())); time.sleep(60)\"", "timeout": 120},
+                {"id": "never", "command": "true"},
+            ]}
+            profile = kit / "ci" / "LTC.json"
+            profile.write_text(__import__("json").dumps(ltc))
+            cancel = threading.Event()
+            threading.Timer(3.0, cancel.set).start()
+            started = time.time()
+            report = EvalRunner(root, cancel_event=cancel).run_profile(profile=str(profile), ltc=ltc, req_id="REQ-001")
+
+            self.assertLess(time.time() - started, 20)
+            names = [c.name for c in report.cases]
+            self.assertIn("slow", names)
+            self.assertNotIn("never", names)
+            self.assertIn("eval::cancelled", names)
+            self.assertIn("cancelled", next(c for c in report.cases if c.name == "slow").stderr)
+            with self.assertRaises(ProcessLookupError):
+                os.kill(int(marker.read_text()), 0)

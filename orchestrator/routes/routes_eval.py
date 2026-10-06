@@ -1,13 +1,15 @@
 from __future__ import annotations
+import asyncio
 import json
 import logging
 import os
 import re
+import threading
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from fastapi import APIRouter, Body, HTTPException, Query
+from fastapi import APIRouter, Body, HTTPException, Query, Request
 from pydantic import BaseModel
 
 import httpx
@@ -150,7 +152,20 @@ def _load_trusted_ltc(
 _SANDBOX_TIMEOUT_S = float(os.getenv("CLIKE_EVAL_SANDBOX_TIMEOUT_S", "3600"))
 
 
-def _execute_profile(
+async def _until_done_or_disconnected(request: Optional[Request], task: "asyncio.Task", on_disconnect) -> Any:
+    """Await ``task``; if the HTTP client goes away first, call ``on_disconnect`` (which stops the
+    work) and still wait for the task to finish."""
+    while not task.done():
+        await asyncio.wait({task}, timeout=1.0)
+        if not task.done() and request is not None and await request.is_disconnected():
+            log.warning("eval cancelled: client disconnected")
+            on_disconnect()
+            request = None
+    return await task
+
+
+async def _execute_profile(
+    request: Optional[Request],
     prj: Path,
     profile_path: Path,
     ltc: Optional[Dict[str, Any]],
@@ -159,30 +174,37 @@ def _execute_profile(
     req_id: Optional[str],
     regression: bool = False,
 ) -> Tuple[EvalReport, str]:
-    """Run the profile in the eval sandbox when configured (containers), otherwise in-process (dev)."""
+    """Run the profile in the eval sandbox when configured (containers), otherwise in-process (dev).
+    A caller that disconnects stops the eval: the sandbox request is closed (the sandbox then kills
+    the running check) or the in-process runner is cancelled."""
     sandbox = os.getenv("CLIKE_EVAL_SANDBOX_URL", "").strip().rstrip("/")
     if sandbox and (mode or "auto").lower() != "manual":
-        try:
-            response = httpx.post(
-                f"{sandbox}/run",
-                json={
-                    "project_root": str(prj),
-                    "profile": str(profile_path),
-                    "mode": mode,
-                    "verdict": verdict,
-                    "req_id": req_id,
-                    "regression": regression,
-                },
-                timeout=_SANDBOX_TIMEOUT_S,
-            )
-        except httpx.HTTPError as exc:
-            raise HTTPException(status_code=503, detail=f"eval sandbox unavailable: {type(exc).__name__}") from exc
+        body = {
+            "project_root": str(prj),
+            "profile": str(profile_path),
+            "mode": mode,
+            "verdict": verdict,
+            "req_id": req_id,
+            "regression": regression,
+        }
+        async with httpx.AsyncClient(timeout=_SANDBOX_TIMEOUT_S) as client:
+            task = asyncio.create_task(client.post(f"{sandbox}/run", json=body))
+            try:
+                response = await _until_done_or_disconnected(request, task, task.cancel)
+            except asyncio.CancelledError as exc:
+                raise HTTPException(status_code=499, detail="eval cancelled: client disconnected") from exc
+            except httpx.HTTPError as exc:
+                raise HTTPException(status_code=503, detail=f"eval sandbox unavailable: {type(exc).__name__}") from exc
         if response.status_code != 200:
             raise HTTPException(status_code=response.status_code, detail=f"eval sandbox: {response.text[:500]}")
         return report_from_dict(response.json()), "sandbox"
-    rep = EvalRunner(prj).run_profile(
-        profile=str(profile_path), ltc=ltc, mode=mode, verdict=verdict, req_id=req_id, regression=regression
-    )
+    cancel = threading.Event()
+    runner = EvalRunner(prj, cancel_event=cancel)
+    task = asyncio.create_task(asyncio.to_thread(
+        runner.run_profile,
+        profile=str(profile_path), ltc=ltc, mode=mode, verdict=verdict, req_id=req_id, regression=regression,
+    ))
+    rep = await _until_done_or_disconnected(request, task, cancel.set)
     return rep, "local"
 
 
@@ -557,7 +579,8 @@ def _eval_payload(rep: EvalReport, req_id: Optional[str]) -> Dict[str, Any]:
 
 
 @router.post("/v1/eval/run")
-def eval_run(
+async def eval_run(
+    request: Request,
     profile: Optional[str] = Query(default=None),
     project_root: Optional[str] = Query(default=None),
     mode: Optional[str] = Query(default="auto"),
@@ -611,7 +634,8 @@ def eval_run(
                 return _integrity_blocked_payload(other, other_integrity, profile_path)
 
     try:
-        rep, executor = _execute_profile(
+        rep, executor = await _execute_profile(
+            request,
             prj, profile_path, ltc, args.mode or "auto", args.verdict, args.req_id, regression=bool(args.regression)
         )
     except HTTPException:
@@ -632,7 +656,8 @@ def eval_run(
 
 
 @router.post("/v1/gate/check")
-def gate_check(
+async def gate_check(
+    request: Request,
     profile: Optional[str] = Query(default=None),
     project_root: Optional[str] = Query(default=None),
     mode: Optional[str] = Query(default="auto"),
@@ -711,7 +736,8 @@ def gate_check(
             return blocked
 
     try:
-        rep, executor = _execute_profile(
+        rep, executor = await _execute_profile(
+            request,
             prj, profile_path, ltc, args.mode or "auto", args.verdict, args.req_id, regression=bool(args.regression)
         )
     except HTTPException:

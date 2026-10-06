@@ -93,7 +93,7 @@ class EvalSandboxTests(unittest.TestCase):
 
         calls = []
 
-        def fake_post(url, json=None, timeout=None):
+        async def fake_post(_client, url, json=None, **_kw):
             calls.append(url)
             with patch.dict(os.environ, {"DEV_FOLDER": str(self.projects)}):
                 r = sandbox.post("/run", json=json)
@@ -112,17 +112,17 @@ class EvalSandboxTests(unittest.TestCase):
             client = TestClient(app, base_url="http://127.0.0.1:8080")
             params = {"profile": f"runs/kit/{REQ}/ci/LTC.json", "project_root": str(self.proj), "req_id": REQ}
             auth = {"Authorization": f"Bearer {TOKEN}"}
-            with patch.object(routes_eval.httpx, "post", side_effect=fake_post):
+            with patch.object(routes_eval.httpx.AsyncClient, "post", new=fake_post):
                 ev = client.post("/v1/eval/run", params=params, headers=auth)
                 gate = client.post("/v1/gate/check", params=params, headers=auth)
             self.assertEqual((ev.status_code, ev.json()["executor"]), (200, "sandbox"), ev.text)
             self.assertEqual((gate.json()["gate"], gate.json()["executor"]), ("PASS", "sandbox"), gate.text)
             self.assertEqual(calls, ["http://eval-sandbox:8090/run"] * 2)
 
-            def unreachable(*_a, **_k):
+            async def unreachable(*_a, **_k):
                 raise httpx.ConnectError("down")
 
-            with patch.object(routes_eval.httpx, "post", side_effect=unreachable):
+            with patch.object(routes_eval.httpx.AsyncClient, "post", new=unreachable):
                 down = client.post("/v1/eval/run", params=params, headers=auth)
             self.assertEqual(down.status_code, 503)
 

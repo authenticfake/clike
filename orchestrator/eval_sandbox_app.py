@@ -11,13 +11,15 @@ disk itself. It never accepts commands from the request.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
+import threading
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
 from eval_runner import _SECRET_ENV_NAME_RE, EvalRunner, report_to_dict
@@ -50,7 +52,7 @@ def health():
 
 
 @app.post("/run")
-def run(req: SandboxRunRequest):
+async def run(req: SandboxRunRequest, request: Request):
     roots = allowed_eval_roots()
     prj = Path(req.project_root).resolve()
     if not roots or not is_within_any(prj, roots) or not prj.is_dir():
@@ -71,8 +73,17 @@ def run(req: SandboxRunRequest):
         raise HTTPException(status_code=404, detail="profile not found under project_root")
 
     log.info("run project=%s profile=%s req=%s mode=%s", prj.name, profile_path.name, req.req_id, req.mode)
-    rep = EvalRunner(prj).run_profile(
+    cancel = threading.Event()
+    runner = EvalRunner(prj, cancel_event=cancel)
+    task = asyncio.create_task(asyncio.to_thread(
+        runner.run_profile,
         profile=str(profile_path), ltc=ltc, mode=req.mode or "auto", verdict=req.verdict, req_id=req.req_id,
         regression=req.regression,
-    )
-    return report_to_dict(rep)
+    ))
+    # An eval whose caller went away is stopped (its processes killed) instead of running on.
+    while not task.done():
+        await asyncio.wait({task}, timeout=1.0)
+        if not task.done() and await request.is_disconnected():
+            log.warning("run cancelled: client disconnected project=%s req=%s", prj.name, req.req_id)
+            cancel.set()
+    return report_to_dict(await task)

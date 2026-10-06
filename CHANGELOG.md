@@ -2,6 +2,14 @@
 
 All notable changes to CLike. Extension, orchestrator and gateway share one version.
 
+## [Unreleased]
+
+### Fixed
+
+- An eval or gate whose caller disconnected kept running in the sandbox (e.g. after a stopped
+  benchmark it delayed the next eval by more than 30 minutes): it is now cancelled, with its
+  processes, and the orchestrator answers 499.
+
 ## [1.1.0] — 2026-10-06 — Governed auto-eval on both paths, acceptance-first KIT
 
 ### Added
