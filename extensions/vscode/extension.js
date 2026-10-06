@@ -1926,6 +1926,7 @@ async function dispatchAgentSlashCommand(command) {
 
   const allowedPrefixes = [
     '/agent-default',
+    '/agent-model',
     '/idea',
     '/spec',
     '/plan',
@@ -3588,6 +3589,28 @@ async function cmdOpenChat(context) {
 
           state.executionPreference = executionPreference;
           state.localAgentExecutor = localAgentExecutor;
+
+          if (String(cmd || '').trim().toLowerCase() === 'agent-model') {
+            // /agent-model [claude|codex] [model]: show or set the model the local agent runs with
+            // (clike.claudeCode.model / clike.localAgent.codex.model, workspace scope).
+            const c = vscode.workspace.getConfiguration('clike');
+            const keys = { claude: 'claudeCode.model', codex: 'localAgent.codex.model' };
+            const agent = String(msg.agentName || '').trim().toLowerCase();
+            const model = String(msg.agentModel || '').trim();
+            let message;
+            if (!agent) {
+              message = `ℹ Agent models — Claude Code: ${c.get('claudeCode.model', 'opus') || 'CLI default'} · Codex: ${c.get('localAgent.codex.model', 'gpt-5.5') || 'CLI default'}. Change with /agent-model claude|codex <model>.`;
+            } else if (!keys[agent] || !model || !/^[A-Za-z0-9._:[\]-]+$/.test(model)) {
+              message = '⚠ Usage: /agent-model [claude|codex] [model], e.g. /agent-model claude sonnet';
+            } else {
+              await c.update(keys[agent], model, vscode.ConfigurationTarget.Workspace);
+              message = `✔ AGENT-MODEL ${agent === 'claude' ? 'Claude Code' : 'Codex'} → ${model} (chat and Harper phases)`;
+            }
+            await appendSessionJSONL(state.mode || 'harper', { role: 'system', content: message, model: state.model || 'auto' });
+            panel.webview.postMessage({ type: 'echo', message });
+            panel.webview.postMessage({ type: 'busy', on: false });
+            return;
+          }
 
           if (String(cmd || '').trim().toLowerCase() === 'agent-default') {
             const rawValue = msg?.value || msg?.target || msg?.rawTarget || '';

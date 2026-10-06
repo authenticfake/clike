@@ -83,3 +83,9 @@ test('acceptance surface: snapshot, changes and restore of a repair', () => {
   assert.equal(fs.readFileSync(path.join(kit, 'src', 'app.py'), 'utf8'), 'x = 2\n');
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+test('/agent-model shows or sets the local agent model', () => {
+  assert.deepEqual(parseSlash('/agent-model claude sonnet').args, { agent: 'claude', model: 'sonnet' });
+  assert.deepEqual(parseSlash('/agent-model codex gpt-5.5-codex').args, { agent: 'codex', model: 'gpt-5.5-codex' });
+  assert.deepEqual(parseSlash('/agent-model').args, { agent: '', model: '' });
+});

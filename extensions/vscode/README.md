@@ -453,7 +453,7 @@ Current configuration keys exposed by the extension include:
 - `clike.localAgent.preferredExecutor` — `auto` | `claude_code` | `gpt_codex`
 - `clike.claudeCode.enabled` — default `true`; treat an installed Claude CLI as a local executor
 - `clike.claudeCode.command` — default `claude`
-- `clike.claudeCode.model` — default `opus`; model pinned on every Claude run (`--model`). Tier aliases (`opus`/`sonnet`) always use the latest of that tier; empty = CLI default
+- `clike.claudeCode.model` — default `opus`; model pinned on every Claude run (`--model`), chat and Harper phases. Tier aliases (`opus`/`sonnet`) always use the latest of that tier; empty = CLI default. Change it from the chat with `/agent-model claude <model>`
 - `clike.localAgent.codex.enabled`
 - `clike.localAgent.codex.command` — default `codex`
 - `clike.localAgent.codex.model` — default `gpt-5.5-codex`; model pinned on every Codex run (`--model`). Set the exact id your Codex login supports; empty = CLI default

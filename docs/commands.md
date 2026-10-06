@@ -31,6 +31,7 @@ The current webview parser supports the following slash commands.
 - `/spec`
 - `/plan`
 - `/kit`
+- `/agent-model [claude|codex] [model]` — show or set the local agent model (e.g. `/agent-model claude sonnet`); applies to chat and Harper phases, saved in the workspace settings
 - `/eval <REQ-ID>`
 - `/eval <REQ-ID> --fix ["hint"]` — auto-eval: repair from the real failures and re-evaluate (see `auto-eval.md`)
 - `/gate <REQ-ID>`
