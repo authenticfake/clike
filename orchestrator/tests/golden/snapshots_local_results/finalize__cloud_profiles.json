@@ -7,7 +7,6 @@
       "finalize_database_env_placeholders_missing",
       "finalize_auth_env_placeholders_missing",
       "finalize_auth_source_boundary_missing",
-      "finalize_auth_source_boundary_missing",
       "finalize_cloud_apply_guard_missing",
       "finalize_database_source_boundary_missing"
     ],
@@ -46,7 +45,6 @@
       "missing_finalize_outputs:.env.example,docs/harper/HOWTO_RUN.md,docs/harper/INFRA_READINESS.md,docs/harper/PR_BODY.md,docs/harper/RELEASE_NOTES.md,docs/harper/SANITY_CHECKS.md,docs/harper/TODO_NEXT.md,scripts/check_deployment.ps1,scripts/check_deployment.sh,scripts/check_infra_prereqs.ps1,scripts/check_infra_prereqs.sh,scripts/check_runtime_services.ps1,scripts/check_runtime_services.sh,scripts/cloud_inventory.ps1,scripts/cloud_inventory.sh,scripts/provision_cloud_apply.ps1,scripts/provision_cloud_apply.sh,scripts/provision_cloud_plan.ps1,scripts/provision_cloud_plan.sh,scripts/provision_plan.ps1,scripts/provision_plan.sh",
       "missing_database_env_placeholders:DATABASE_URL,DB_HOST,DB_PORT,DB_NAME,DB_USER,DB_PASSWORD,SQLALCHEMY_DATABASE_URL,JDBC_DATABASE_URL,POSTGRES_URL,POSTGRES_URL_REF,POSTGRES_CONNECTION,POSTGRES_CONNECTION_REF,POSTGRES_CONNECTION_SECRET_REF",
       "missing_auth_env_placeholders:AUTH_PROVIDER,AUTH_ISSUER_URL,AUTH_CLIENT_ID,AUTH_CLIENT_SECRET,AUTH_AUDIENCE,AUTH_JWKS_URL,OIDC_ISSUER,OIDC_ISSUER_URL,OIDC_AUDIENCE,OIDC_CLIENT_ID,OIDC_CLIENT_SECRET,OIDC_JWKS_URI,OIDC_JWKS_URL,SAML_METADATA_URL,SAML_ENTITY_ID",
-      "auth_source_boundary_missing:finalize_must_patch_or_return_stack_native_auth_config_seam_when_auth_is_detected",
       "auth_source_boundary_missing:finalize_must_patch_or_return_stack_native_auth_config_seam_when_auth_is_detected",
       "provision_cloud_apply_must_fail_closed_without_CLIKE_ALLOW_CLOUD_MUTATION",
       "database_source_boundary_missing:finalize_must_patch_or_return_stack_native_db_boundary_when_database_is_detected"

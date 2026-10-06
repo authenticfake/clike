@@ -111,7 +111,7 @@ def build_repo_composition_manifest(repository_context: Optional[Dict[str, Any]]
     shared_settings_like: List[str] = []
     shared_auth_like: List[str] = []
 
-    for path in repo_root.rglob("*"):
+    for path in sorted(repo_root.rglob("*")):  # deterministic: same prompt for the same repository (B13)
         if not path.is_file():
             continue
 
