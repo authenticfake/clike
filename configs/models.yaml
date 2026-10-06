@@ -37,8 +37,8 @@ models:
     context_window: 8192
     tags: [embeddings, local]
 
-  # gpt-6.1-sol (added 2026-10-04): listed by the account's /v1/models. Pricing is not recorded
-  # yet (cost estimates show 0); context_window is a conservative assumption until confirmed.
+  # gpt-6.1-sol: OpenAI list price per 1M tokens (2026-10-06): input $2.00, cached input $0.10,
+  # cache writes $2.50, output $10.00. Cost estimates use input/output only.
   - id: openai:gpt-6.1-sol
     name: gpt-6.1-sol
     provider: openai
@@ -49,9 +49,13 @@ models:
     capability: frontier
     latency: medium
     cost: high
+    pricing:
+      input_per_1k: 0.002
+      output_per_1k: 0.01
     privacy: low
     enabled: true
-    context_window: 400000
+    context_window: 1050000
+    max_output_tokens: 128000
     tags: [quality, reasoning]
 
   - id: openai:gpt-5.5-pro
