@@ -509,6 +509,7 @@ var HELP_COMMANDS = [
   {cmd:'/agent-model list', desc:'Lists the models you can set for Claude Code and Codex (from the CLike model catalog)'},
   {cmd:'/agent-model [claude|codex] [model]', desc:'Without arguments: shows the execution (cloud/agent), the default agent and the models in use. With arguments: sets the model of the local agent (claude: opus, sonnet, haiku or an exact id; codex: a model id). Applies to chat and Harper phases; saved in the workspace settings'},
   {cmd:'/agent-default codex|claude|auto', desc:'Sets the preferred local agent executor (works in Free, Coding and Harper; does not change mode)'},
+  {cmd:'Settings (agent chat)', desc:'clike.agentChat.approvals: ask (default) — in Coding every edit/command of Claude Code or Codex waits for Allow / Allow all this turn / Deny, writes outside generated/ are denied; auto — no questions'},
   {cmd:'Settings (auto-eval)', desc:'clike.autoEval.maxCycles (2), clike.autoEval.afterKit, clike.eval.regression (on), clike.gate.strictWarnings, clike.kit.acceptanceFirst — see docs/auto-eval.md'},
   {cmd:'/finalize', desc:'Final gates and project closure (Harper)'},
   {cmd:'/finalize --methodology bmad --agent tech-writer', desc:'Finalizes with BMAD documentation guidance'},

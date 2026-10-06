@@ -24,11 +24,13 @@ function codexSandbox(mode) {
  * CLI arguments of a chat turn. `session` is { id, started } or null (one-shot).
  * Claude: -p, streamed JSON events with partial text, --session-id on the first turn, --resume after.
  * Codex: exec --json with the mode's sandbox; resume via `exec resume <id> -` (prompt on stdin).
+ * With approvals (Coding) Claude asks for edits; Codex runs through app-server instead (agent-approvals.js).
  */
-function buildAgentChatArgs({ executorId, mode, executorConfig = {}, modelArgs = [], session = null }) {
+function buildAgentChatArgs({ executorId, mode, executorConfig = {}, modelArgs = [], session = null, approvals = false }) {
   if (executorId === 'claude_code') {
     const args = [executorConfig.printModeFlag || '-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', ...modelArgs];
-    if (mode === 'coding') args.push('--permission-mode', executorConfig.permissionMode || 'acceptEdits');
+    // with approvals the edits are asked (--permission-prompt-tool, see agent-approvals.js)
+    if (mode === 'coding') args.push('--permission-mode', approvals ? 'default' : (executorConfig.permissionMode || 'acceptEdits'));
     if (session && session.id) args.push(session.started ? '--resume' : '--session-id', session.id);
     return args;
   }

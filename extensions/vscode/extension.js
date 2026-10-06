@@ -83,6 +83,7 @@ const {
   snapshotAcceptanceSurface,
 } = require('./auto-eval');
 const { buildAgentChatArgs, createAgentStreamParser, newSession, sessionKey } = require('./agent-chat');
+const { createApprovalGate, createCodexAppServerTurn, startClaudeApprovalServer } = require('./agent-approvals');
 
 const {
   buildCodexArgsForLocalAgent,
@@ -1195,9 +1196,25 @@ async function collectGeneratedFilePaths(wsrootUri, relRoot) {
   return paths;
 }
 
+// Coding-mode approval asked to the developer: 'allow' | 'allowAll' | 'deny' (closing = deny).
+async function askAgentChatApproval({ executorLabel, kind, summary, paths }) {
+  const what = kind === 'edit' ? 'edit files' : kind === 'command' ? 'run a command' : 'use a tool';
+  const detail = [String(summary || ''), ...(paths || []).map((p) => `• ${p}`)].filter(Boolean).join('\n');
+  const choice = await vscode.window.showWarningMessage(
+    `${executorLabel} wants to ${what}`,
+    { modal: true, detail },
+    'Allow',
+    'Allow all this turn',
+    'Deny',
+  );
+  if (choice === 'Allow') return 'allow';
+  if (choice === 'Allow all this turn') return 'allowAll';
+  return 'deny';
+}
+
 // Run the free/coding local-agent package returned by the orchestrator.
 // Returns { mode, badge, answer?, synthesis, stdout, files? }.
-async function runLocalChatAgent({ pkg, executorId, settings, wsrootUri, out, session = null, onEvent = null, onSpawn = null }) {
+async function runLocalChatAgent({ pkg, executorId, settings, wsrootUri, out, session = null, onEvent = null, onSpawn = null, askApproval = null }) {
   const mode = String(pkg.mode || 'free').toLowerCase();
   const executorConfig = getExecutorConfig(executorId, settings);
   const executorLabel = buildLocalAgentDisplayLabel(executorId);
@@ -1205,37 +1222,87 @@ async function runLocalChatAgent({ pkg, executorId, settings, wsrootUri, out, se
   const prompt = String(pkg.prompt || '').trim();
   if (!prompt) throw new Error('Local execution package is missing a prompt.');
 
-  const argsBeforePrompt = buildAgentChatArgs({
-    executorId,
-    mode,
-    executorConfig,
-    modelArgs: buildLocalAgentModelArgs(executorId, executorConfig),
-    session,
-  });
   const timeoutMinutes = settings.localAgentTimeoutMinutes || 20;
   const parser = createAgentStreamParser(executorId);
   let streamResult = null;
   let streamError = '';
   let sessionId = (session && session.id) || '';
+  const handleEvent = (event) => {
+    if (event.kind === 'session') sessionId = event.id;
+    if (event.kind === 'result') streamResult = event;
+    if (event.kind === 'error') streamError = event.text;
+    if (typeof onEvent === 'function') onEvent(event);
+  };
 
-  const agentResult = await runLocalAgentSync({
-    workspaceRootUri: wsrootUri,
-    prompt,
+  // Coding with approvals: each edit/command of the agent is asked (agent-approvals.js).
+  const approvals = mode === 'coding' && settings.agentChatApprovals === 'ask' && typeof askApproval === 'function';
+  let approvalServer = null;
+  let codexTurn = null;
+  let argsBeforePrompt = buildAgentChatArgs({
     executorId,
-    command: executorConfig.command,
-    argsBeforePrompt,
-    timeoutMinutes,
-    out,
-    onSpawn,
-    onStdoutLine: (line) => {
-      for (const event of parser.feed(line)) {
-        if (event.kind === 'session') sessionId = event.id;
-        if (event.kind === 'result') streamResult = event;
-        if (event.kind === 'error') streamError = event.text;
-        if (typeof onEvent === 'function') onEvent(event);
-      }
-    },
+    mode,
+    executorConfig,
+    modelArgs: buildLocalAgentModelArgs(executorId, executorConfig),
+    session,
+    approvals,
   });
+  if (approvals) {
+    const decide = createApprovalGate({
+      ask: (request) => askApproval({ ...request, executorLabel }),
+      workspaceRoot: wsrootUri.fsPath,
+      writeRoot: path.join(wsrootUri.fsPath, String(pkg.output_root || 'generated')),
+      onEvent: handleEvent,
+    });
+    if (executorId === 'claude_code') {
+      approvalServer = await startClaudeApprovalServer(decide);
+      argsBeforePrompt = [...argsBeforePrompt, ...approvalServer.args];
+    } else {
+      codexTurn = createCodexAppServerTurn({
+        cwd: wsrootUri.fsPath,
+        prompt,
+        session,
+        model: String(executorConfig.model || '').trim(),
+        sandbox: 'workspace-write',
+        approvalPolicy: 'untrusted',
+        decide,
+        onEvent: handleEvent,
+        clientVersion: String(require('./package.json').version || '1'),
+      });
+      argsBeforePrompt = ['app-server'];
+    }
+  }
+
+  let agentChild = null;
+  let agentResult;
+  try {
+    const running = runLocalAgentSync({
+      workspaceRootUri: wsrootUri,
+      prompt,
+      executorId,
+      command: executorConfig.command,
+      argsBeforePrompt,
+      timeoutMinutes,
+      out,
+      onSpawn: (child) => {
+        agentChild = child;
+        if (typeof onSpawn === 'function') onSpawn(child);
+      },
+      onStdin: codexTurn ? (stdin) => codexTurn.attach(stdin) : null,
+      onStdoutLine: codexTurn
+        ? (line) => codexTurn.feed(line)
+        : (line) => { for (const event of parser.feed(line)) handleEvent(event); },
+    });
+    if (codexTurn) {
+      // app-server keeps running after the turn: stop it once the turn is over
+      codexTurn.done.then(() => setTimeout(() => {
+        if (agentChild && agentChild.exitCode === null) terminateProcessTree(agentChild);
+      }, 2000));
+    }
+    agentResult = await running;
+    if (codexTurn) codexTurn.closed(agentResult.exitCode);
+  } finally {
+    if (approvalServer) await approvalServer.close();
+  }
 
   const stdout = agentResult.stdout || '';
   const stderr = agentResult.stderr || '';
@@ -1703,6 +1770,7 @@ function cfg() {
     harperTimeout: c.get('harperTimeout', 25),
     autoEvalMaxCycles: c.get('autoEval.maxCycles', 2),
     autoEvalAfterKit: c.get('autoEval.afterKit', false),
+    agentChatApprovals: c.get('agentChat.approvals', 'ask'),
     kitAcceptanceFirst: c.get('kit.acceptanceFirst', false),
     
     localAgentEnabled: c.get('localAgent.enabled', true),
@@ -2224,7 +2292,7 @@ function extensionMcpToolsList() {
     },
     {
       name: 'eval_run',
-      description: 'Run the canonical eval of a REQ in the CLike sandbox and return the verdict and failed checks. fix=true runs the governed auto-eval (KIT repair from the real failures, tests locked); hint guides the repair.',
+      description: 'Run the canonical eval of a REQ in the CLike sandbox and return the verdict and failed checks. fix=true runs the governed auto-eval (KIT repair from the real failures, tests locked) and returns the report of the last eval plus auto_eval {outcome: pass|stopped, cycles, reason}; hint guides the repair.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -5519,6 +5587,7 @@ async function cmdOpenChat(context) {
                   session: agentSession,
                   onEvent: (event) => panel.webview.postMessage({ type: 'agentStream', event }),
                   onSpawn: (child) => { activeChatAgentChild = child; },
+                  askApproval: askAgentChatApproval,
                 });
               } catch (err) {
                 // a session that cannot be resumed (expired, deleted) starts again next time
@@ -5840,8 +5909,13 @@ async function cmdOpenChat(context) {
     const step = nextAutoEvalStep(state, report);
     const say = (text) => panel.webview.postMessage({ type: 'echo', message: text });
     log(`[autoEval] ${reqId} cycle=${state.cycle}/${state.maxCycles} action=${step.action} reason=${step.reason}`);
+    // The outcome travels back to the caller (MCP eval_run) with the report of the last eval.
+    const finish = (outcome) => {
+      msg.__report = { ...(msg.__report || {}), auto_eval: { outcome, cycles: state.cycle, reason: step.reason } };
+    };
     if (step.action === 'pass') {
       say(`✔ AUTO-EVAL ${reqId}: ${step.reason}. Next: /gate ${reqId}`);
+      finish('pass');
       return;
     }
     if (step.action === 'stop') {
@@ -5851,6 +5925,7 @@ async function cmdOpenChat(context) {
         (names ? ` Failing: ${names}.` : '') +
         ` Re-run /eval ${reqId} --fix "<hint>" to continue with guidance, or fix the code manually.`
       );
+      finish('stopped');
       return;
     }
     const cycle = state.cycle + 1;
@@ -5873,14 +5948,16 @@ async function cmdOpenChat(context) {
     const acceptanceBefore = snapshotAcceptanceSurface(wsPath, reqId);
     await handleWebviewMessage(kitMsg);
     await governAcceptanceChanges(reqId, acceptanceBefore, step.failures, cycle);
-    await handleWebviewMessage({
+    const evalMsg = {
       type: 'harperEDD',
       cmd: 'eval',
       targets: [reqId],
       targetReqId: reqId,
       attachments: [],
       fix: { ...state, cycle, lastSignature: step.signature, lastKitOk: kitMsg.__result === 'ok' },
-    });
+    };
+    await handleWebviewMessage(evalMsg);
+    if (evalMsg.__report) msg.__report = evalMsg.__report;
   }
 }
 

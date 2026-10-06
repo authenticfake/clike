@@ -196,6 +196,19 @@
           "default": false,
           "description": "After a successful /kit, run the auto-eval (/eval REQ --fix) automatically."
         },
+        "clike.agentChat.approvals": {
+          "type": "string",
+          "enum": [
+            "ask",
+            "auto"
+          ],
+          "default": "ask",
+          "enumDescriptions": [
+            "Coding mode with an agent: every edit and command waits for Allow / Allow all this turn / Deny; writes outside generated/ are denied",
+            "Coding mode with an agent: edits under generated/ run without asking (Claude acceptEdits, Codex sandbox)"
+          ],
+          "markdownDescription": "Approvals in the agent chat (Coding mode). `ask`: CLike asks before each edit or command of Claude Code / Codex and denies writes outside the Coding output root. `auto`: no prompts (previous behaviour)."
+        },
         "clike.kit.acceptanceFirst": {
           "type": "boolean",
           "default": false,

@@ -24,7 +24,11 @@ With execution = agent, the chat **is** a conversation with Claude Code or Codex
   conversation (`/agent-session` shows the sessions, `/agent-session new` starts a fresh one);
 - the agent's answer and the tools it uses (files read or edited, commands) appear live;
 - **Cancel** stops the agent;
-- Free and Harper free text are read-only; Coding lets the agent write under `generated/`.
+- Free and Harper free text are read-only; Coding lets the agent write under `generated/`;
+- in **Coding**, every edit and command waits for your choice (**Allow**, **Allow all this turn**,
+  **Deny**) and writes outside `generated/` are denied without asking. Claude Code asks through
+  CLike, Codex runs through `codex app-server`. `clike.agentChat.approvals = auto` turns the
+  questions off (edits under `generated/` then run without asking).
 
 ## 2. A first Harper project
 
@@ -79,7 +83,9 @@ evaluate it with fix=true and run the gate. Report the outcome of each step.
 
 The operational tools (`harper_run_phase`, `eval_run`, `gate_check`, `harper_run_status`) run inside
 VS Code through CLike's normal flow: same test lock, gate and write rules as the chat. Long phases
-return `status: running` and a `run_id` to poll. Overrides, promotion and git are not exposed.
+return `status: running` and a `run_id` to poll; `eval_run` with `fix` returns the final report after
+the repairs. Overrides, promotion and git are not exposed. Codex: approve the CLike tools once
+(INSTALL §6) or each call asks.
 
 ## 6. See what happened
 

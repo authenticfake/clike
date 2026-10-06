@@ -292,6 +292,15 @@ of calling the gateway; the extension is the only component that spawns the CLI.
   root, mirroring the cloud generation layout.
 - The chat bubble shows the agent badge plus the generated-file list; the files
   are already on disk and are clickable in the **Files** tab (no Apply step).
+- **Approvals** (`clike.agentChat.approvals`, default `ask`): each edit and
+  command waits for **Allow** / **Allow all this turn** / **Deny** in VS Code
+  (closing the dialog denies); writes outside `generated/<id>/` are denied
+  without asking. Claude Code runs with `--permission-mode default` and
+  `--permission-prompt-tool`, answered by a local MCP server that lives for one
+  turn (`http://localhost:<random port>`, random token). Codex runs through
+  `codex app-server` (`workspace-write` sandbox, `untrusted` approval policy)
+  and keeps the same session as `codex exec`. `auto`: no questions (Claude
+  `acceptEdits`, Codex sandbox).
 
 ### Authentication
 Local agents authenticate through their own CLI session. No cloud API key is
