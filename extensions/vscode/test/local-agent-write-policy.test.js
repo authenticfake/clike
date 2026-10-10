@@ -23,10 +23,10 @@ test('Codex kit launch adds a write-capable sandbox by default', () => {
   assert.strictEqual(extractCodexSandboxModeFromArgs(result.args), 'workspace-write');
 });
 
-test('Codex inspect-only launch may remain read-only', () => {
+test('Codex auto stays read-only for a launch outside the Harper phases', () => {
   const result = buildCodexArgsForLocalAgent({
     argsBeforePrompt: ['exec'],
-    phase: 'extend',
+    phase: 'chat',
     reqId: 'REQ-002',
     configuredSandboxMode: 'auto',
   });
@@ -319,15 +319,33 @@ test('local-agent document phases require their canonical output', () => {
   );
 });
 
-test('Codex sandbox auto resolves by phase', () => {
+test('Codex sandbox auto resolves by phase: every Harper phase writes', () => {
+  for (const phase of ['idea', 'spec', 'plan', 'kit', 'eval', 'finalize', 'extend']) {
+    assert.strictEqual(
+      resolveCodexSandboxMode({ phase, configuredSandboxMode: 'auto' }),
+      'workspace-write',
+      phase
+    );
+  }
   assert.strictEqual(
-    resolveCodexSandboxMode({ phase: 'kit', configuredSandboxMode: 'auto' }),
-    'workspace-write'
-  );
-  assert.strictEqual(
-    resolveCodexSandboxMode({ phase: 'extend', configuredSandboxMode: 'auto' }),
+    resolveCodexSandboxMode({ phase: 'chat', configuredSandboxMode: 'auto' }),
     'read-only'
   );
+});
+
+test('Codex read-only sandbox is rejected for document phases too', () => {
+  for (const phase of ['idea', 'spec', 'plan', 'extend']) {
+    assert.throws(
+      () => buildCodexArgsForLocalAgent({
+        argsBeforePrompt: ['exec'],
+        phase,
+        reqId: 'SOLUTION',
+        configuredSandboxMode: 'read-only',
+      }),
+      (error) => error.code === 'LOCAL_AGENT_WRITE_MODE_UNAVAILABLE',
+      phase
+    );
+  }
 });
 
 test('lane guides must be Markdown, as the orchestrator accepts them (B12)', () => {
@@ -336,4 +354,154 @@ test('lane guides must be Markdown, as the orchestrator accepts them (B12)', () 
   if (!check) return;
   assert.equal(check('plan', 'docs/harper/lane-guides/python.md'), true);
   assert.equal(check('plan', 'docs/harper/lane-guides/run.sh'), false);
+});
+
+// BMAD companion documents of the local document phases. The contracts mirror
+// orchestrator/methodologies/bmad/manifest.json (sample project on PostgreSQL).
+const bmadPolicy = require('../local-agent-write-policy');
+
+const SPEC_PM_CONTRACT = {
+  methodology: 'bmad',
+  agent: 'pm',
+  required_outputs: [
+    'docs/harper/SPEC.md',
+    'docs/harper/bmad/spec/PRD.md',
+    'docs/harper/bmad/spec/EPICS.md',
+  ],
+  allowed_optional_output_globs: ['docs/harper/bmad/spec/**'],
+  forbidden_output_globs: ['docs/harper/PLAN.md', 'docs/harper/plan.json', 'src/**', 'test/**', 'tests/**'],
+};
+
+const SPEC_UX_CONTRACT = {
+  methodology: 'bmad',
+  agent: 'ux',
+  required_outputs: ['docs/harper/ux/DESIGN.md', 'docs/harper/ux/USER_JOURNEYS.md'],
+  allowed_optional_output_globs: ['docs/harper/ux/**'],
+  forbidden_output_globs: ['docs/harper/SPEC.md', 'docs/harper/PLAN.md', 'docs/harper/plan.json', 'src/**'],
+};
+
+const PLAN_ARCHITECT_CONTRACT = {
+  methodology: 'bmad',
+  agent: 'architect',
+  required_outputs: [
+    'docs/harper/PLAN.md',
+    'docs/harper/plan.json',
+    'docs/harper/lane-guides/**',
+    'docs/harper/bmad/architecture/ARCHITECTURE.md',
+  ],
+  allowed_optional_output_globs: ['docs/harper/bmad/architecture/**'],
+  forbidden_output_globs: ['docs/harper/IDEA.md', 'docs/harper/SPEC.md', 'src/**'],
+};
+
+const PG = '# PRD\n\nOrders are stored in PostgreSQL 16 (schema `orders`).\n';
+
+test('BMAD spec/pm: SPEC.md plus companions are accepted', () => {
+  const result = bmadPolicy.validateLocalAgentRequiredOutputs({
+    phase: 'spec',
+    outputContract: SPEC_PM_CONTRACT,
+    artifacts: [
+      { path: 'docs/harper/SPEC.md', content: '# SPEC' },
+      { path: 'docs/harper/bmad/spec/PRD.md', content: PG },
+      { path: 'docs/harper/bmad/spec/SCOPE_DECISIONS.md', content: '# Scope' },
+    ],
+  });
+  assert.strictEqual(result.ok, true);
+});
+
+test('BMAD spec/pm: SPEC.md stays required', () => {
+  assert.throws(
+    () => bmadPolicy.validateLocalAgentRequiredOutputs({
+      phase: 'spec',
+      outputContract: SPEC_PM_CONTRACT,
+      artifacts: [{ path: 'docs/harper/bmad/spec/PRD.md', content: PG }],
+    }),
+    (error) => error.code === 'LOCAL_AGENT_REQUIRED_OUTPUTS_MISSING'
+  );
+});
+
+test('BMAD spec/ux is companion-only: no SPEC.md required, SPEC.md forbidden', () => {
+  const ok = bmadPolicy.validateLocalAgentRequiredOutputs({
+    phase: 'spec',
+    outputContract: SPEC_UX_CONTRACT,
+    artifacts: [{ path: 'docs/harper/ux/DESIGN.md', content: '# Design' }],
+  });
+  assert.strictEqual(ok.ok, true);
+  assert.throws(
+    () => bmadPolicy.validateLocalAgentRequiredOutputs({
+      phase: 'spec',
+      outputContract: SPEC_UX_CONTRACT,
+      artifacts: [
+        { path: 'docs/harper/ux/DESIGN.md', content: '# Design' },
+        { path: 'docs/harper/SPEC.md', content: '# SPEC' },
+      ],
+    }),
+    (error) => error.code === 'LOCAL_AGENT_FORBIDDEN_OUTPUT_PATH'
+  );
+});
+
+test('BMAD plan/architect: architecture companions are accepted', () => {
+  const result = bmadPolicy.validateLocalAgentRequiredOutputs({
+    phase: 'plan',
+    outputContract: PLAN_ARCHITECT_CONTRACT,
+    artifacts: [
+      { path: 'docs/harper/PLAN.md', content: '# PLAN' },
+      { path: 'docs/harper/plan.json', content: '{}' },
+      { path: 'docs/harper/lane-guides/postgres.md', content: '# PostgreSQL lane' },
+      { path: 'docs/harper/bmad/architecture/ARCHITECTURE.md', content: PG },
+      { path: 'docs/harper/bmad/architecture/DECISIONS.md', content: '# ADR: PostgreSQL' },
+    ],
+  });
+  assert.strictEqual(result.ok, true);
+});
+
+test('BMAD companions outside the contract roots stay forbidden', () => {
+  for (const bad of [
+    'docs/harper/bmad/plan/STORIES.md',          // another agent's root
+    'docs/harper/bmad/architecture/schema.sql',  // not Markdown
+    'docs/harper/bmad/architecture/../SPEC.md',  // traversal
+    'docs/harper/AGENT_PLAN_CONTEXT.json',
+  ]) {
+    assert.throws(
+      () => bmadPolicy.validateLocalAgentRequiredOutputs({
+        phase: 'plan',
+        outputContract: PLAN_ARCHITECT_CONTRACT,
+        artifacts: [
+          { path: 'docs/harper/PLAN.md', content: '# PLAN' },
+          { path: 'docs/harper/plan.json', content: '{}' },
+          { path: bad, content: 'x' },
+        ],
+      }),
+      (error) => error.code === 'LOCAL_AGENT_FORBIDDEN_OUTPUT_PATH',
+      bad
+    );
+  }
+});
+
+test('without a BMAD contract companions are not accepted (native CLike unchanged)', () => {
+  assert.throws(
+    () => bmadPolicy.validateLocalAgentRequiredOutputs({
+      phase: 'spec',
+      outputContract: { methodology: 'native_clike', required_outputs: ['docs/harper/SPEC.md'] },
+      artifacts: [
+        { path: 'docs/harper/SPEC.md', content: '# SPEC' },
+        { path: 'docs/harper/bmad/spec/PRD.md', content: PG },
+      ],
+    }),
+    (error) => error.code === 'LOCAL_AGENT_FORBIDDEN_OUTPUT_PATH'
+  );
+});
+
+test('companion targets come only from the BMAD roots of the contract', () => {
+  assert.deepStrictEqual(bmadPolicy.documentPhaseCompanionTargets(PLAN_ARCHITECT_CONTRACT), {
+    files: ['docs/harper/bmad/architecture/ARCHITECTURE.md'],
+    dirs: ['docs/harper/bmad/architecture'],
+  });
+  assert.deepStrictEqual(
+    bmadPolicy.documentPhaseCompanionTargets({
+      methodology: 'bmad',
+      required_outputs: ['src/app.py', 'docs/harper/SPEC.md'],
+      allowed_optional_output_globs: ['src/**', 'docs/harper/**'],
+    }),
+    { files: [], dirs: [] }
+  );
 });

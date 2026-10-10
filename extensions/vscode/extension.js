@@ -92,6 +92,7 @@ const {
   evaluateDocumentPhaseInputPreflight,
   evaluateExtendInputPreflight,
   classifyBlockedLocalAgentOutput,
+  documentPhaseCompanionTargets,
 } = require('./local-agent-write-policy');
 
 // Harper phases that can run through the orchestrator-owned local-agent package
@@ -825,10 +826,11 @@ async function collectExtendCandidateFileArtifacts(workspaceRootUri) {
   return out;
 }
 
-// Early Harper document phases (idea/spec/plan) only ever produce their
-// canonical Harper documents. Collect just those phase-owned outputs so the
-// write policy validates real agent output and not pre-existing artifacts or
-// the orchestrator package context/prompt files.
+// Early Harper document phases (idea/spec/plan) produce their canonical Harper
+// documents and, under BMAD, the companion documents the package contract
+// declares. Collect just those phase-owned outputs so the write policy
+// validates real agent output and not pre-existing artifacts or the
+// orchestrator package context/prompt files.
 const DOCUMENT_PHASE_CANDIDATE_OUTPUTS = {
   idea: ['docs/harper/IDEA.md'],
   spec: ['docs/harper/SPEC.md'],
@@ -840,7 +842,7 @@ const DOCUMENT_PHASE_CANDIDATE_DIRS = {
   plan: ['docs/harper/lane-guides'],
 };
 
-async function collectDocumentPhaseCandidateFileArtifacts(workspaceRootUri, phase) {
+async function collectDocumentPhaseCandidateFileArtifacts(workspaceRootUri, phase, outputContract = null) {
   const p = String(phase || '').trim().toLowerCase();
   const rootFsPath = workspaceRootUri.fsPath || workspaceRootUri.path;
   const out = [];
@@ -859,11 +861,18 @@ async function collectDocumentPhaseCandidateFileArtifacts(workspaceRootUri, phas
     }
   }
 
-  for (const relPath of DOCUMENT_PHASE_CANDIDATE_OUTPUTS[p] || []) {
+  const companions = documentPhaseCompanionTargets(outputContract);
+  const relPaths = [...(DOCUMENT_PHASE_CANDIDATE_OUTPUTS[p] || [])];
+  for (const relPath of companions.files) {
+    if (!relPaths.includes(relPath)) relPaths.push(relPath);
+  }
+  const relDirs = [...(DOCUMENT_PHASE_CANDIDATE_DIRS[p] || []), ...companions.dirs];
+
+  for (const relPath of relPaths) {
     await readFileArtifact(relPath);
   }
 
-  for (const relDir of DOCUMENT_PHASE_CANDIDATE_DIRS[p] || []) {
+  for (const relDir of relDirs) {
     const dirUri = vscode.Uri.file(path.join(rootFsPath, relDir));
     let entries;
     try {
@@ -874,7 +883,8 @@ async function collectDocumentPhaseCandidateFileArtifacts(workspaceRootUri, phas
     for (const [name, type] of entries) {
       if (!name || name === '.DS_Store') continue;
       if (type !== vscode.FileType.File) continue;
-      await readFileArtifact(`${relDir}/${name}`);
+      const relPath = `${relDir}/${name}`;
+      if (!out.some((artifact) => artifact.path === relPath)) await readFileArtifact(relPath);
     }
   }
 
@@ -1013,7 +1023,11 @@ async function executeLocalAgentPackage({
   const candidateArtifacts = isFinalize
     ? await collectFinalizeCandidateFileArtifacts(wsroot)
     : isDocumentPhase
-      ? await collectDocumentPhaseCandidateFileArtifacts(wsroot, phaseForAgent)
+      ? await collectDocumentPhaseCandidateFileArtifacts(
+        wsroot,
+        phaseForAgent,
+        localAgentPackage.active_output_contract || null
+      )
       : isExtend
         ? await collectExtendCandidateFileArtifacts(wsroot)
         : await collectReqCandidateFileArtifacts(wsroot, reqForAgent);
@@ -1080,6 +1094,7 @@ async function executeLocalAgentPackage({
       reqId: reqForAgent,
       artifacts: completeArtifacts.files,
       kitStage,
+      outputContract: isDocumentPhase ? (localAgentPackage.active_output_contract || null) : null,
     });
   }
 
@@ -1089,6 +1104,9 @@ async function executeLocalAgentPackage({
     runId,
     executionPreference,
     localAgentExecutor: selectedExecutor,
+    // The orchestrator re-derives the BMAD companion paths from its manifest.
+    methodology: localAgentPackage.active_output_contract?.methodology || null,
+    methodology_agent: localAgentPackage.active_output_contract?.agent || null,
     allowed_write_roots: Array.isArray(localAgentPackage.allowed_write_roots)
       ? localAgentPackage.allowed_write_roots
       : [],

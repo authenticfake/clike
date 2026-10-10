@@ -1,4 +1,9 @@
-const WRITE_REQUIRED_PHASES = new Set(['kit', 'eval', 'finalize']);
+// Every local-agent phase writes its outputs to the workspace, which the
+// extension then reads back: Codex needs a write-capable sandbox for all of
+// them. The path policy below limits what is accepted.
+const WRITE_REQUIRED_PHASES = new Set([
+  'idea', 'spec', 'plan', 'kit', 'eval', 'finalize', 'extend',
+]);
 
 // Early Harper document phases may write only their exact canonical Harper
 // outputs. Everything else under docs/harper/ stays forbidden.
@@ -14,6 +19,11 @@ const DOCUMENT_PHASE_ALLOWED_PREFIXES = {
   spec: [],
   plan: ['docs/harper/lane-guides/'],
 };
+// BMAD companion documents (docs/harper/bmad/**, docs/harper/ux/**) are
+// declared per phase/agent by the orchestrator in active_output_contract.
+// Only these roots can ever be opened up by a contract.
+const BMAD_COMPANION_SAFE_ROOTS = ['docs/harper/bmad/', 'docs/harper/ux/'];
+
 const CODEX_SANDBOX_MODES = new Set([
   'auto',
   'read-only',
@@ -204,6 +214,70 @@ function isExtendAllowedOutput(candidatePath) {
   return isExtendAuditPath(rel);
 }
 
+function isBmadContract(outputContract) {
+  return !!outputContract && typeof outputContract === 'object' &&
+    String(outputContract.methodology || '').trim().toLowerCase() === 'bmad';
+}
+
+function isSafeCompanionPath(rel) {
+  return (
+    !rel.split('/').includes('..') &&
+    /\.md$/i.test(rel) &&
+    BMAD_COMPANION_SAFE_ROOTS.some((root) => rel.startsWith(root))
+  );
+}
+
+// Glob -> RegExp with the orchestrator's fnmatch semantics ("*" crosses "/").
+function globToRegExp(glob) {
+  const escaped = normalizeArtifactPath(glob)
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*+/g, '.*')
+    .replace(/\?/g, '.');
+  return new RegExp(`^${escaped}$`);
+}
+
+function matchesAnyGlob(rel, globs) {
+  return (Array.isArray(globs) ? globs : []).some((glob) => globToRegExp(glob).test(rel));
+}
+
+// Companion outputs a BMAD contract declares for a document phase: the exact
+// mandatory paths and the directories of the optional root globs, both
+// restricted to the BMAD companion roots.
+function documentPhaseCompanionTargets(outputContract) {
+  if (!isBmadContract(outputContract)) return { files: [], dirs: [] };
+  const files = (outputContract.required_outputs || [])
+    .map(normalizeArtifactPath)
+    .filter((rel) => !rel.includes('*') && isSafeCompanionPath(rel));
+  const dirs = (outputContract.allowed_optional_output_globs || [])
+    .map(normalizeArtifactPath)
+    .map((glob) => glob.replace(/\/?\*+$/, ''))
+    .filter((dir) => dir && !dir.includes('*') && isSafeCompanionPath(`${dir}/x.md`));
+  return { files: [...new Set(files)], dirs: [...new Set(dirs)] };
+}
+
+function isDocumentPhaseCompanionOutput(outputContract, candidatePath) {
+  if (!isBmadContract(outputContract)) return false;
+  const rel = normalizeArtifactPath(candidatePath);
+  if (!isSafeCompanionPath(rel)) return false;
+  if (matchesAnyGlob(rel, outputContract.forbidden_output_globs)) return false;
+  const targets = documentPhaseCompanionTargets(outputContract);
+  return targets.files.includes(rel) || targets.dirs.some((dir) => rel.startsWith(`${dir}/`));
+}
+
+function isDocumentPhaseContractOutput(phase, outputContract, rel) {
+  if (isDocumentPhaseCompanionOutput(outputContract, rel)) return true;
+  if (!isDocumentPhaseAllowedOutput(phase, rel)) return false;
+  return !(isBmadContract(outputContract) && matchesAnyGlob(rel, outputContract.forbidden_output_globs));
+}
+
+// Canonical outputs of a document phase, minus those the BMAD agent is
+// forbidden to write (the companion-only spec/ux agent never writes SPEC.md).
+function documentPhaseRequiredOutputs(phase, outputContract) {
+  const required = DOCUMENT_PHASE_REQUIRED_OUTPUTS[normalizePhase(phase)] || [];
+  if (!isBmadContract(outputContract)) return required;
+  return required.filter((rel) => !matchesAnyGlob(rel, outputContract.forbidden_output_globs));
+}
+
 function hasArtifactUnder(artifacts, root) {
   const normalizedRoot = normalizeArtifactPath(root);
   return (Array.isArray(artifacts) ? artifacts : []).some((artifact) => {
@@ -217,6 +291,7 @@ function validateLocalAgentRequiredOutputs({
   reqId,
   artifacts,
   kitStage = null,
+  outputContract = null,
 } = {}) {
   const artifactList = Array.isArray(artifacts) ? artifacts : [];
   const normalizedPhase = normalizePhase(phase);
@@ -229,7 +304,7 @@ function validateLocalAgentRequiredOutputs({
     .filter(
       (rel) =>
         isForbiddenCandidatePath(rel) &&
-        !(documentPhase && isDocumentPhaseAllowedOutput(normalizedPhase, rel)) &&
+        !(documentPhase && isDocumentPhaseContractOutput(normalizedPhase, outputContract, rel)) &&
         !(extendPhase && isExtendAllowedOutput(rel))
     );
 
@@ -242,7 +317,7 @@ function validateLocalAgentRequiredOutputs({
   }
 
   if (documentPhase) {
-    const required = DOCUMENT_PHASE_REQUIRED_OUTPUTS[normalizedPhase] || [];
+    const required = documentPhaseRequiredOutputs(normalizedPhase, outputContract);
     const present = new Set(artifactList.map(getArtifactPath).filter(Boolean));
     const missingOutputs = required.filter((output) => !present.has(output));
 
@@ -445,6 +520,9 @@ module.exports = {
   isForbiddenCandidatePath,
   isDocumentPhase,
   isDocumentPhaseAllowedOutput,
+  isDocumentPhaseCompanionOutput,
+  documentPhaseCompanionTargets,
+  documentPhaseRequiredOutputs,
   isWriteRequiredLocalAgentPhase,
   normalizeCodexSandboxMode,
   resolveCodexSandboxMode,

@@ -20,6 +20,9 @@ from services.local_agent.document import (
     _DOCUMENT_PHASE_SPECS,
     _path_accepted,
     _validate_document_phase_completeness,
+    document_phase_output_policy,
+    document_phase_path_accepted,
+    is_bmad_companion_path,
 )
 from services.local_agent.finalize_profiles import (
     _build_finalize_write_policy,
@@ -45,8 +48,15 @@ def normalize_local_agent_result(payload: Dict[str, Any]) -> Dict[str, Any]:
         # rejected (package internals live under runs/extend/, not docs/harper).
         return _path_accepted("extend", file_path)
 
+    # Native CLike, or the BMAD manifest policy of the phase/agent (canonical docs + companions).
+    document_output_policy = document_phase_output_policy(
+        phase, payload.get("methodology"), payload.get("methodology_agent")
+    )
+
     def _document_phase_allowed_path(doc_phase: str, file_path: str) -> bool:
-        return doc_phase in ("idea", "spec", "plan") and _path_accepted(doc_phase, file_path)
+        return doc_phase in ("idea", "spec", "plan") and document_phase_path_accepted(
+            document_output_policy, doc_phase, file_path
+        )
 
     def _finalize_allowed_path(file_path: str) -> bool:
         p = _normalize_relative_path(file_path)
@@ -470,19 +480,35 @@ def normalize_local_agent_result(payload: Dict[str, Any]) -> Dict[str, Any]:
                     + ",".join(credential_like_db_defaults[:10])
                 )
 
-    document_phase_required_outputs = {
-        doc_phase: list(spec["output_contract"]["always"]) for doc_phase, spec in _DOCUMENT_PHASE_SPECS.items()
-    }
-    if phase in document_phase_required_outputs:
+    if phase in _DOCUMENT_PHASE_SPECS:
         returned_paths = {
             _normalize_relative_path(item.get("path")) for item in normalized_files
         }
+        required_outputs = document_output_policy["required_outputs"]
         missing_outputs = [
             required
-            for required in document_phase_required_outputs[phase]
+            for required in required_outputs
             if required not in returned_paths
         ]
-        if missing_outputs:
+        companion_paths = sorted(
+            p for p in returned_paths if is_bmad_companion_path(document_output_policy, p)
+        )
+        missing_companions = [
+            p for p in document_output_policy["companion_outputs"] if p not in returned_paths
+        ]
+        if document_output_policy["methodology"] == "bmad":
+            warnings.append(f"bmad_companions_returned:{len(companion_paths)}")
+            if missing_companions:
+                warnings.append("bmad_companions_missing:" + ",".join(missing_companions[:20]))
+        if not required_outputs:
+            # Companion-only BMAD agent (spec/ux): no canonical doc, at least one companion.
+            if not companion_paths:
+                ok = False
+                errors.append("document_phase_required_outputs_missing")
+                warnings.append(
+                    "missing_required_outputs:" + ",".join(document_output_policy["companion_outputs"][:20])
+                )
+        elif missing_outputs:
             ok = False
             errors.append("document_phase_required_outputs_missing")
             warnings.append("missing_required_outputs:" + ",".join(missing_outputs))
@@ -582,7 +608,7 @@ def normalize_local_agent_result(payload: Dict[str, Any]) -> Dict[str, Any]:
         ok = False
         # Document phases report missing required outputs above; the generic kit
         # REQ-ID message would be misleading (req_id is SOLUTION, not a kit REQ).
-        if phase not in document_phase_required_outputs and phase != "extend":
+        if phase not in _DOCUMENT_PHASE_SPECS and phase != "extend":
             errors.append(f"no_candidate_files_returned_for:{req_id}")
             if exit_code_non_zero:
                 errors.append(f"local_agent_exit_code:{exit_code}")

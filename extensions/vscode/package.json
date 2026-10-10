@@ -366,7 +366,7 @@
             "workspace-write",
             "danger-full-access"
           ],
-          "description": "Codex CLI sandbox mode. auto uses workspace-write for write-required local-agent phases and read-only for inspect-only phases.",
+          "description": "Codex CLI sandbox mode for the Harper local-agent phases. auto uses workspace-write for every phase (IDEA, SPEC, PLAN, KIT, EVAL, FINALIZE, EXTEND all write their outputs; the CLike path policy limits what is accepted) and read-only elsewhere.",
           "scope": "machine"
         },
         "clike.localAgent.codex.timeoutMinutes": {

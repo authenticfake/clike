@@ -54,6 +54,15 @@ def _load_manifest(methodology: str) -> Dict[str, Any]:
         return json.load(handle)
 
 
+def _bmad_manifest(core_blobs: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """The bundled BMAD manifest, with the workspace vendor manifest overriding only the keys it
+    defines: the vendor copy carries no artifact_policy/agents/workflows/quality_contracts, so
+    those always come from the bundled manifest (companion outputs were silently dropped)."""
+    vendor = load_bmad_vendor_manifest_from_core_blobs(core_blobs)
+    bundled = _load_manifest("bmad")
+    return {**bundled, **vendor} if vendor else bundled
+
+
 def _normalize(value: Optional[str]) -> Optional[str]:
     text = str(value or "").strip().lower()
     return text or None
@@ -120,6 +129,21 @@ def _artifact_policy_context(
     }
 
 
+def bmad_artifact_policy(phase: str, agent: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Artifact policy of a BMAD phase/agent from the bundled manifest (None when not allowed).
+
+    Used server-side at local-agent completion, so the accepted companion paths never come
+    from the client.
+    """
+    manifest = _load_manifest("bmad")
+    phase_name = _normalize(phase) or ""
+    rules = _phase_rules(manifest, phase_name)
+    resolved_agent = _normalize(agent) or rules.get("default_agent")
+    if not resolved_agent or resolved_agent not in (rules.get("allowed_agents") or []):
+        return None
+    return _artifact_policy_context(manifest, phase_name, resolved_agent)
+
+
 def _quality_contract_context(manifest: Dict[str, Any], phase_name: str) -> Optional[Dict[str, Any]]:
     contracts = manifest.get("quality_contracts") or {}
     if not isinstance(contracts, dict):
@@ -176,7 +200,7 @@ def resolve_methodology_context(
             f"Unsupported methodology: {methodology_id}. Supported methodologies: bmad."
         )
 
-    manifest = load_bmad_vendor_manifest_from_core_blobs(core_blobs) or _load_manifest("bmad")
+    manifest = _bmad_manifest(core_blobs)
     supported_agents = {
         str(item).strip().lower()
         for item in (manifest.get("supported_agents") or [])
@@ -294,7 +318,7 @@ def ensure_bmad_skill_context(
     if _normalize(methodology_context.get("methodology")) != "bmad":
         return methodology_context
 
-    manifest = load_bmad_vendor_manifest_from_core_blobs(core_blobs) or _load_manifest("bmad")
+    manifest = _bmad_manifest(core_blobs)
     phase_name = (
         _normalize(phase)
         or _normalize(methodology_context.get("phase"))
