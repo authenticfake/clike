@@ -18,6 +18,7 @@ from utils.telemetry_retention import maybe_prune as maybe_prune_telemetry
 from utils.utils import   collect_rag_materials_http, decide_inline_or_rag
 from utils.rag_store import RagStore
 from utils.active_output_contract import (
+    NATIVE_CLOUD_REQUIRED_OUTPUTS,
     build_active_output_contract,
     output_path_matches,
     validate_files_against_active_output_contract,
@@ -2618,6 +2619,7 @@ async def run(req: HarperRunRequest,  request: Request):
         phase=phase,
         methodology_context=req.methodology_context,
         warnings=warnings,
+        native_required_outputs=NATIVE_CLOUD_REQUIRED_OUTPUTS.get((phase or "").lower()),
     )
 
     evidence_text = "\n\n".join(

@@ -62,7 +62,25 @@ def _doc_block(path: str, content: str) -> str:
     return f"BEGIN_FILE {path}\n{content.rstrip()}\nEND_FILE\n"
 
 
-def _canned_llm_result(phase: str) -> dict:
+def _bmad_contract_blocks(payload: dict, phase: str, text: str) -> str:
+    """BMAD runs: the canned model obeys the active output contract and also emits every exact
+    required path it did not write yet (the BMAD companions, the finalize documents)."""
+    context = payload.get("methodology_context") or {}
+    if context.get("methodology") != "bmad":
+        return ""
+    from utils.active_output_contract import build_active_output_contract
+
+    contract = build_active_output_contract(phase=phase, runner="cloud", methodology_context=context)
+    blocks = []
+    for path in contract.get("required_outputs") or []:
+        if "*" in path or "<" in path or f"BEGIN_FILE {path}\n" in text:
+            continue
+        title = path.rsplit("/", 1)[-1].rsplit(".", 1)[0].replace("_", " ").title()
+        blocks.append(_doc_block(path, f"# {title} — CoffeeBuddy\n\nOrders are stored in PostgreSQL 16 (schema `orders`)."))
+    return "".join(blocks)
+
+
+def _canned_llm_result(phase: str, payload: dict | None = None) -> dict:
     if phase == "kit":
         return json.loads(KIT_FIXTURE.read_text(encoding="utf-8"))["llm_result"]
     texts = {
@@ -70,6 +88,9 @@ def _canned_llm_result(phase: str) -> dict:
         "spec": _doc_block("docs/harper/SPEC.md", (COFFEEBUDDY / "SPEC.md").read_text(encoding="utf-8")),
     }
     text = texts.get(phase, f"Golden canned response for phase {phase}.")
+    extra = _bmad_contract_blocks(payload or {}, phase, text)
+    if extra:
+        text = text.rstrip("\n") + "\n" + extra
     return {"ok": True, "text": text, "files": [], "usage": {"input_tokens": 1, "output_tokens": 1}, "finish_reason": "stop", "raw": {}, "errors": []}
 
 
@@ -106,7 +127,7 @@ def _scenarios():
                 yield base + "__anthropic", call["payload"], "anthropic:claude-sonnet-4-6"
 
 
-def _run(payload: dict, model_override: str | None) -> dict:
+def _run(payload: dict, model_override: str | None, bare_model: bool = False) -> dict:
     payload = json.loads(json.dumps(payload).replace("<WORKSPACE>", _TMP).replace("<REPO>", str(REPO_ROOT)))
     if model_override:
         payload["model"] = model_override
@@ -115,11 +136,11 @@ def _run(payload: dict, model_override: str | None) -> dict:
 
     async def fake_openai(**kwargs):
         calls.append({"provider": "openai", **kwargs})
-        return _canned_llm_result(phase)
+        return _canned_llm_result(phase, None if bare_model else payload)
 
     async def fake_anthropic(base, api_key, model, messages, **kwargs):
         calls.append({"provider": "anthropic", "model": model, "messages": messages, **kwargs})
-        return _canned_llm_result(phase)
+        return _canned_llm_result(phase, None if bare_model else payload)
 
     app = FastAPI()
     app.include_router(harper_route.router)
@@ -153,6 +174,13 @@ class GoldenProviderBoundaryTests(unittest.TestCase):
                     continue
                 self.assertTrue(snap.exists(), f"missing snapshot {snap.name}; run with CLIKE_GOLDEN_UPDATE=1")
                 self.assertEqual(snap.read_text(encoding="utf-8"), rendered, f"golden drift: {name}")
+
+    def test_bmad_cloud_run_without_the_companions_is_rejected(self):
+        # BMAD companions are exact required outputs in the cloud (docs/integrations/bmad/COMMANDS.md)
+        _, payload, _ = next(sc for sc in _scenarios() if sc[0] == "spec__cloud__bmad")
+        out = _run(payload, None, bare_model=True)
+        self.assertEqual(out["status"], 502, out)
+        self.assertIn("docs/harper/bmad/spec/PRD.md", out["response"]["detail"])
 
     def test_missing_provider_key_reaches_the_caller(self):
         # used to be swallowed into an empty 200 result with a provider_error string

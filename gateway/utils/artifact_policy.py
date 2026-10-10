@@ -31,6 +31,7 @@ def filter_files_by_methodology_artifact_policy(
     phase: str,
     methodology_context: Optional[Dict[str, Any]],
     warnings: Optional[List[str]] = None,
+    native_required_outputs: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Enforce CLike-resolved methodology artifact policy on Gateway outputs.
@@ -53,7 +54,10 @@ def filter_files_by_methodology_artifact_policy(
     companion_only = bool(policy.get("companion_only", False))
     agent = str(methodology_context.get("agent") or "").strip().lower()
 
-    allowed_patterns = canonical_outputs + allowed_companion_roots
+    # The native required outputs of the phase stay allowed (the active output contract requires
+    # them too): BMAD finalize used to drop HOWTO_RUN.md, RELEASE_NOTES.md, ... and then fail.
+    native_required = [] if companion_only else list(native_required_outputs or [])
+    allowed_patterns = canonical_outputs + native_required + allowed_companion_roots
     if not allowed_patterns:
         return files or []
 

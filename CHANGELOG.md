@@ -25,6 +25,13 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   contract declares the companions again — locally and in the cloud prompt, where they are
   required outputs as documented in `docs/integrations/bmad/COMMANDS.md` (BMAD cloud prompts grow
   by 3–10 KB).
+- **BMAD `finalize` in the cloud always failed**: the gateway BMAD artifact filter dropped the native
+  finalize documents (`HOWTO_RUN.md`, `RELEASE_NOTES.md`, `SANITY_CHECKS.md`, `TODO_NEXT.md`,
+  `PR_BODY.md`) that the active output contract then required. The native required outputs of the
+  phase now stay allowed (except for companion-only agents).
+- **Local BMAD prompts name the outputs of the role**: canonical outputs, mandatory companions,
+  allowed companion roots and forbidden outputs of the selected agent (the workflow list mixed
+  `pm` and `ux` files).
 
 ## [1.2.1] — 2026-10-06 — Agent chat approvals, Harper chat can write, readable /help
 

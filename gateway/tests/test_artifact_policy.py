@@ -104,3 +104,58 @@ def test_non_bmad_output_validation_is_unchanged():
     ) == files
 
 
+
+
+def test_bmad_finalize_keeps_the_native_required_documents():
+    from utils.artifact_policy import filter_files_by_methodology_artifact_policy
+
+    context = {
+        "methodology": "bmad",
+        "agent": "tech-writer",
+        "artifact_policy": {
+            "canonical_outputs": ["README.md", "docs/harper/FINALIZE_NOTES.md"],
+            "allowed_companion_root_globs": ["docs/harper/bmad/finalize/**"],
+            "forbidden_outputs": ["docs/harper/PLAN.md", "docs/harper/plan.json", "runs/eval/**", ".git/**"],
+        },
+    }
+    paths = [
+        "README.md",
+        "docs/harper/HOWTO_RUN.md",
+        "docs/harper/RELEASE_NOTES.md",
+        "docs/harper/SANITY_CHECKS.md",
+        "docs/harper/TODO_NEXT.md",
+        "docs/harper/PR_BODY.md",
+        "docs/harper/bmad/finalize/DOC_REVIEW.md",
+        "docs/harper/PLAN.md",
+        "docs/harper/IDEA.md",
+    ]
+    from utils.active_output_contract import NATIVE_CLOUD_REQUIRED_OUTPUTS
+
+    kept = filter_files_by_methodology_artifact_policy(
+        [{"path": p, "content": "x"} for p in paths],
+        phase="finalize",
+        methodology_context=context,
+        native_required_outputs=NATIVE_CLOUD_REQUIRED_OUTPUTS["finalize"],
+    )
+    assert [f["path"] for f in kept] == paths[:7]
+
+
+def test_bmad_spec_ux_still_drops_spec_md():
+    from utils.artifact_policy import filter_files_by_methodology_artifact_policy
+
+    context = {
+        "methodology": "bmad",
+        "agent": "ux",
+        "artifact_policy": {
+            "canonical_outputs": [],
+            "companion_only": True,
+            "allowed_companion_root_globs": ["docs/harper/ux/**"],
+            "forbidden_outputs": ["docs/harper/SPEC.md"],
+        },
+    }
+    kept = filter_files_by_methodology_artifact_policy(
+        [{"path": "docs/harper/SPEC.md", "content": "x"}, {"path": "docs/harper/ux/DESIGN.md", "content": "x"}],
+        phase="spec",
+        methodology_context=context,
+    )
+    assert [f["path"] for f in kept] == ["docs/harper/ux/DESIGN.md"]
