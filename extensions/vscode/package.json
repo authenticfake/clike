@@ -2,7 +2,7 @@
   "name": "clike",
   "displayName": "Clike",
   "description": "From intent to impact. CLike keeps developers in flow, augments delivery with agentic workflows, and bakes in governance, eval‑driven quality, and a safe paved road for enterprises w/ an AI native pipeline.",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "license": "Apache-2.0",
   "publisher": "authenticfake",
   "icon": "images/clike_64x64.png",
@@ -366,7 +366,7 @@
             "workspace-write",
             "danger-full-access"
           ],
-          "description": "Codex CLI sandbox mode. auto uses workspace-write for write-required local-agent phases and read-only for inspect-only phases.",
+          "description": "Codex CLI sandbox mode for the Harper local-agent phases. auto uses workspace-write for every phase (IDEA, SPEC, PLAN, KIT, EVAL, FINALIZE, EXTEND all write their outputs; the CLike path policy limits what is accepted) and read-only elsewhere.",
           "scope": "machine"
         },
         "clike.localAgent.codex.timeoutMinutes": {

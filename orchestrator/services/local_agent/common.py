@@ -549,6 +549,27 @@ def _methodology_context_for_local_agent(
     }
 
 
+def _render_role_artifact_policy(policy: Any) -> List[str]:
+    """The outputs of this role (the workflow companion list above covers every role of the phase)."""
+    if not isinstance(policy, dict) or not any(
+        policy.get(key) for key in ("canonical_outputs", "mandatory_companion_outputs", "allowed_companion_root_globs")
+    ):
+        return []
+
+    def _join(key: str) -> str:
+        items = [str(x) for x in (policy.get(key) or []) if str(x or "").strip()]
+        return "; ".join(items) if items else "none"
+
+    return [
+        "Outputs of this role (write exactly these; companions outside these roots are discarded):",
+        f"- canonical_outputs: {_join('canonical_outputs')}",
+        f"- companion_only: {bool(policy.get('companion_only'))}",
+        f"- mandatory_companion_outputs: {_join('mandatory_companion_outputs')}",
+        f"- allowed_companion_roots: {_join('allowed_companion_root_globs')}",
+        f"- forbidden_outputs: {_join('forbidden_outputs')}",
+    ]
+
+
 def _render_methodology_prompt_block(methodology_context: Optional[Dict[str, Any]]) -> str:
     if not methodology_context:
         return ""
@@ -580,6 +601,7 @@ def _render_methodology_prompt_block(methodology_context: Optional[Dict[str, Any
             f"- workflow_focus: {'; '.join(str(x) for x in workflow_focus[:8]) if workflow_focus else 'none'}",
             f"- required_context: {'; '.join(str(x) for x in required_context[:8]) if required_context else 'none'}",
             f"- companion_artifacts: {'; '.join(str(x) for x in companion_artifacts[:8]) if companion_artifacts else 'none'}",
+            *_render_role_artifact_policy(methodology_context.get("artifact_policy")),
             *(
                 [
                     "### BMAD Skill Reference Context",

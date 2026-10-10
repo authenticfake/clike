@@ -2,6 +2,37 @@
 
 All notable changes to CLike. Extension, orchestrator and gateway share one version.
 
+## [1.2.2] — 2026-10-10 — Local document phases with Codex and BMAD companions
+
+### Fixed
+
+- **Codex in the local IDEA / SPEC / PLAN / EXTEND phases**: with `clike.localAgent.codex.sandboxMode`
+  = `auto` (the default) these phases started Codex `--sandbox read-only`, so the agent could not
+  write `IDEA.md`, `SPEC.md`, `PLAN.md`/`plan.json` or the EXTEND report and the phase failed with
+  missing outputs. Every Harper local-agent phase now runs `workspace-write`; an explicit
+  `read-only` is rejected up front with `LOCAL_AGENT_WRITE_MODE_UNAVAILABLE`.
+- **BMAD companions in the local document phases**: the companion documents of the BMAD agent
+  (`docs/harper/bmad/idea|spec|plan|architecture/**`, `docs/harper/ux/**`) are now collected by the
+  extension, accepted by the write policy and by the orchestrator (paths re-derived server-side from
+  the bundled BMAD manifest, Markdown only, never outside the agent's roots), and listed in the
+  package write roots. Missing companions are reported as a warning.
+- **BMAD `spec --agent ux` is companion-only locally too**: it no longer requires `SPEC.md`, and
+  writing `SPEC.md` is rejected.
+- **BMAD artifact policy lost with the workspace vendor manifest**: when the workspace carried
+  `.clike/skills/vendor/bmad/manifest.json` (every `harper-init` project), it replaced the bundled
+  manifest entirely and dropped its `artifact_policy`, agent profiles, workflows and quality
+  contracts. The vendor manifest now overrides only the keys it defines, so the active output
+  contract declares the companions again — locally and in the cloud prompt, where they are
+  required outputs as documented in `docs/integrations/bmad/COMMANDS.md` (BMAD cloud prompts grow
+  by 3–10 KB).
+- **BMAD `finalize` in the cloud always failed**: the gateway BMAD artifact filter dropped the native
+  finalize documents (`HOWTO_RUN.md`, `RELEASE_NOTES.md`, `SANITY_CHECKS.md`, `TODO_NEXT.md`,
+  `PR_BODY.md`) that the active output contract then required. The native required outputs of the
+  phase now stay allowed (except for companion-only agents).
+- **Local BMAD prompts name the outputs of the role**: canonical outputs, mandatory companions,
+  allowed companion roots and forbidden outputs of the selected agent (the workflow list mixed
+  `pm` and `ux` files).
+
 ## [1.2.1] — 2026-10-06 — Agent chat approvals, Harper chat can write, readable /help
 
 ### Added

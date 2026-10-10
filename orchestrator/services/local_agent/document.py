@@ -14,6 +14,7 @@ from services.capabilities import (
 )
 from services.phase_definitions import phase_definition, shared_definitions
 from services.methodologies.active_output_contract import build_active_output_contract
+from services.methodologies.resolver import bmad_artifact_policy
 
 from services.local_agent.common import (
     _capability_index_names,
@@ -73,6 +74,66 @@ def _path_accepted(phase: str, file_path: Any) -> bool:
     if not p:
         return False
     return any(fnmatch.fnmatchcase(p, pattern) for pattern in _ACCEPTED_RESULT_PATHS.get(phase, ()))
+
+
+# BMAD companion documents of the document phases may only live under these roots
+# (docs/harper/bmad/<phase>/**, docs/harper/ux/**), as Markdown.
+_BMAD_COMPANION_SAFE_ROOTS: Tuple[str, ...] = ("docs/harper/bmad/", "docs/harper/ux/")
+
+
+def _glob_matches(path: str, patterns: Any) -> bool:
+    return any(fnmatch.fnmatchcase(path, str(pattern)) for pattern in (patterns or ()))
+
+
+def document_phase_output_policy(
+    phase: str,
+    methodology: Any = None,
+    agent: Any = None,
+) -> Dict[str, Any]:
+    """Required canonical outputs and accepted BMAD companions of a local document phase.
+
+    Native CLike: the phase.yaml outputs, no companions. BMAD: the manifest policy of the
+    phase/agent (server-side), so a companion-only agent (spec/ux) requires no SPEC.md and
+    its forbidden outputs are rejected.
+    """
+    phase_norm = str(phase or "").strip().lower()
+    spec = _DOCUMENT_PHASE_SPECS.get(phase_norm) or {}
+    required = list((spec.get("output_contract") or {}).get("always") or [])
+    policy = None
+    if str(methodology or "").strip().lower() == "bmad":
+        policy = bmad_artifact_policy(phase_norm, _safe_text(agent) or None)
+    if not policy:
+        return {"methodology": "native_clike", "required_outputs": required,
+                "companion_outputs": [], "companion_globs": [], "forbidden_outputs": []}
+    forbidden = list(policy.get("forbidden_outputs") or [])
+    return {
+        "methodology": "bmad",
+        "required_outputs": [p for p in required if not _glob_matches(p, forbidden)],
+        "companion_outputs": list(policy.get("mandatory_companion_outputs") or []),
+        "companion_globs": list(policy.get("allowed_companion_root_globs") or []),
+        "forbidden_outputs": forbidden,
+    }
+
+
+def document_phase_path_accepted(output_policy: Dict[str, Any], phase: str, file_path: Any) -> bool:
+    """True for a canonical result path of the phase or a declared BMAD companion."""
+    p = _normalize_relative_path(file_path)
+    if not p or _glob_matches(p, output_policy.get("forbidden_outputs")):
+        return False
+    if _path_accepted(phase, p):
+        return True
+    return is_bmad_companion_path(output_policy, p)
+
+
+def is_bmad_companion_path(output_policy: Dict[str, Any], file_path: Any) -> bool:
+    p = _normalize_relative_path(file_path)
+    if not p or not p.lower().endswith(".md") or not p.startswith(_BMAD_COMPANION_SAFE_ROOTS):
+        return False
+    if _glob_matches(p, output_policy.get("forbidden_outputs")):
+        return False
+    return p in (output_policy.get("companion_outputs") or []) or _glob_matches(
+        p, output_policy.get("companion_globs")
+    )
 
 
 def _render_canonical_parity_block(phase_norm: str, title: str) -> List[str]:
@@ -155,7 +216,16 @@ def build_document_phase_local_agent_package(
         methodology_context=methodology_context,
     )
 
-    allowed_write_roots = list(spec["allowed_write_roots"])
+    # A BMAD agent never writes its forbidden canonical docs (spec/ux: no SPEC.md).
+    allowed_write_roots = [
+        root for root in spec["allowed_write_roots"]
+        if not _glob_matches(root, active_output_contract.get("forbidden_output_globs"))
+    ]
+    # BMAD companion roots of the agent (docs/harper/bmad/<phase>/, docs/harper/ux/).
+    for glob in active_output_contract.get("allowed_optional_output_globs") or []:
+        root = str(glob).rstrip("*").rstrip("/")
+        if f"{root}/".startswith(_BMAD_COMPANION_SAFE_ROOTS) and "*" not in root and root not in allowed_write_roots:
+            allowed_write_roots.append(root)
     forbidden_paths = list(_DOCUMENT_PHASE_FORBIDDEN_PATHS)
     title = spec["title"]
     attachment_manifest, attachment_package_files = _materialize_attachments(payload, phase_norm)
