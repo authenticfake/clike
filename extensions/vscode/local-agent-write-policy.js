@@ -128,6 +128,11 @@ function buildCodexArgsForLocalAgent({
   if (!existingSandboxMode) {
     args.push('--sandbox', sandboxMode);
   }
+  // A new Harper project is often not a git repository yet: without this flag Codex
+  // exits 1 ("Not inside a trusted directory"). The agent chat passes it too.
+  if (!args.includes('--skip-git-repo-check')) {
+    args.push('--skip-git-repo-check');
+  }
 
   assertLocalAgentWritePreflight({
     phase,
@@ -475,6 +480,33 @@ const LOCAL_AGENT_READ_BLOCK_PATTERNS = [
   /read tool .*(approval|permission)/i,
 ];
 
+// Document/extend phases read their outputs back from disk, where the template or an
+// earlier run already left IDEA.md, SPEC.md, ...: only files the agent wrote during this
+// run count (2 s tolerance for filesystem timestamp rounding).
+const FRESH_ARTIFACT_TOLERANCE_MS = 2000;
+
+function isFreshLocalAgentArtifact(mtimeMs, runStartedAtMs) {
+  if (!Number.isFinite(Number(runStartedAtMs))) return true;
+  return Number(mtimeMs) >= Number(runStartedAtMs) - FRESH_ARTIFACT_TOLERANCE_MS;
+}
+
+// A local agent that exits non-zero without writing anything: report its own error
+// (last stderr lines) instead of a misleading output-validation failure.
+function describeFailedLocalAgentRun({ exitCode, stderr = '', executorLabel = 'Local agent' } = {}) {
+  if (exitCode === 0 || exitCode === '0' || exitCode === null || exitCode === undefined) return null;
+  const tail = String(stderr || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !/^Reading prompt from stdin/i.test(line))
+    .slice(-6)
+    .join(' | ');
+  return {
+    code: 'LOCAL_AGENT_EXITED_WITH_ERROR',
+    message: `${executorLabel} exited with code ${exitCode} without writing any output` +
+      (tail ? `: ${tail}` : '.'),
+  };
+}
+
 function classifyBlockedLocalAgentOutput({ stdout = '', stderr = '' } = {}) {
   const text = `${String(stdout || '')}\n${String(stderr || '')}`;
 
@@ -509,6 +541,8 @@ function classifyBlockedLocalAgentOutput({ stdout = '', stderr = '' } = {}) {
 }
 
 module.exports = {
+  describeFailedLocalAgentRun,
+  isFreshLocalAgentArtifact,
   buildCodexArgsForLocalAgent,
   classifyBlockedLocalAgentOutput,
   evaluateDocumentPhaseInputPreflight,

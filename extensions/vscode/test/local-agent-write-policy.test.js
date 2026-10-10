@@ -18,7 +18,7 @@ test('Codex kit launch adds a write-capable sandbox by default', () => {
     allowedWriteRoots: ['runs/kit/REQ-002/'],
   });
 
-  assert.deepStrictEqual(result.args, ['exec', '--sandbox', 'workspace-write']);
+  assert.deepStrictEqual(result.args, ['exec', '--sandbox', 'workspace-write', '--skip-git-repo-check']);
   assert.strictEqual(result.sandboxMode, 'workspace-write');
   assert.strictEqual(extractCodexSandboxModeFromArgs(result.args), 'workspace-write');
 });
@@ -31,7 +31,7 @@ test('Codex auto stays read-only for a launch outside the Harper phases', () => 
     configuredSandboxMode: 'auto',
   });
 
-  assert.deepStrictEqual(result.args, ['exec', '--sandbox', 'read-only']);
+  assert.deepStrictEqual(result.args, ['exec', '--sandbox', 'read-only', '--skip-git-repo-check']);
   assert.strictEqual(result.sandboxMode, 'read-only');
 });
 
@@ -504,4 +504,24 @@ test('companion targets come only from the BMAD roots of the contract', () => {
     }),
     { files: [], dirs: [] }
   );
+});
+
+test('only files written during the run count as document-phase output', () => {
+  const started = Date.parse('2026-10-10T22:29:50Z');
+  assert.strictEqual(bmadPolicy.isFreshLocalAgentArtifact(Date.parse('2026-10-10T22:21:46Z'), started), false);
+  assert.strictEqual(bmadPolicy.isFreshLocalAgentArtifact(started - 1000, started), true);
+  assert.strictEqual(bmadPolicy.isFreshLocalAgentArtifact(started + 60000, started), true);
+  assert.strictEqual(bmadPolicy.isFreshLocalAgentArtifact(0, null), true);
+});
+
+test('a local agent that exits with an error reports its own stderr', () => {
+  const failed = bmadPolicy.describeFailedLocalAgentRun({
+    exitCode: 1,
+    stderr: 'Reading prompt from stdin...\nNot inside a trusted directory and --skip-git-repo-check was not specified.\n',
+    executorLabel: 'Codex',
+  });
+  assert.strictEqual(failed.code, 'LOCAL_AGENT_EXITED_WITH_ERROR');
+  assert.match(failed.message, /^Codex exited with code 1 without writing any output: Not inside a trusted directory/);
+  assert.doesNotMatch(failed.message, /Reading prompt/);
+  assert.strictEqual(bmadPolicy.describeFailedLocalAgentRun({ exitCode: 0, stderr: 'x' }), null);
 });

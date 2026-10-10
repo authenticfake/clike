@@ -2,6 +2,19 @@
 
 All notable changes to CLike. Extension, orchestrator and gateway share one version.
 
+## [1.2.3] — 2026-10-10 — Codex Harper phases in a project without git
+
+### Fixed
+
+- **Codex Harper phases in a project that is not a git repository** (a new `harper-init` project):
+  Codex exited 1 ("Not inside a trusted directory and --skip-git-repo-check was not specified").
+  The local-agent Harper phases now pass `--skip-git-repo-check`, as the agent chat already did.
+- **A failed local-agent run reported a misleading error**: when the agent wrote nothing, the
+  extension sent the files already on disk (the empty template `IDEA.md`) and the orchestrator
+  answered `document_phase_output_incomplete`. The document and EXTEND phases now send only the
+  files written during the run, and an agent that exits with an error and writes nothing reports
+  `LOCAL_AGENT_EXITED_WITH_ERROR` with its own stderr.
+
 ## [1.2.2] — 2026-10-10 — Local document phases with Codex and BMAD companions
 
 ### Fixed

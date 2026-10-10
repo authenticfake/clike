@@ -92,7 +92,9 @@ const {
   evaluateDocumentPhaseInputPreflight,
   evaluateExtendInputPreflight,
   classifyBlockedLocalAgentOutput,
+  describeFailedLocalAgentRun,
   documentPhaseCompanionTargets,
+  isFreshLocalAgentArtifact,
 } = require('./local-agent-write-policy');
 
 // Harper phases that can run through the orchestrator-owned local-agent package
@@ -777,7 +779,7 @@ async function callHarper(cmd, payload, headers, opts = {}) {
     throw new Error(`Harper ${cmd} fetch failed: ${errMsg}`);
   }
 }
-async function collectExtendCandidateFileArtifacts(workspaceRootUri) {
+async function collectExtendCandidateFileArtifacts(workspaceRootUri, runStartedAtMs = null) {
   const rootFsPath = workspaceRootUri.fsPath || workspaceRootUri.path;
   const docsRoot = path.join(rootFsPath, 'docs', 'harper');
   const baseUri = vscode.Uri.file(docsRoot);
@@ -809,6 +811,7 @@ async function collectExtendCandidateFileArtifacts(workspaceRootUri) {
 
       let data;
       try {
+        if (!isFreshLocalAgentArtifact((await vscode.workspace.fs.stat(childUri)).mtime, runStartedAtMs)) continue;
         data = await vscode.workspace.fs.readFile(childUri);
       } catch {
         continue;
@@ -842,7 +845,12 @@ const DOCUMENT_PHASE_CANDIDATE_DIRS = {
   plan: ['docs/harper/lane-guides'],
 };
 
-async function collectDocumentPhaseCandidateFileArtifacts(workspaceRootUri, phase, outputContract = null) {
+async function collectDocumentPhaseCandidateFileArtifacts(
+  workspaceRootUri,
+  phase,
+  outputContract = null,
+  runStartedAtMs = null
+) {
   const p = String(phase || '').trim().toLowerCase();
   const rootFsPath = workspaceRootUri.fsPath || workspaceRootUri.path;
   const out = [];
@@ -850,6 +858,8 @@ async function collectDocumentPhaseCandidateFileArtifacts(workspaceRootUri, phas
   async function readFileArtifact(relPath) {
     const fileUri = vscode.Uri.file(path.join(rootFsPath, relPath));
     try {
+      // Pre-existing files (template, earlier run) are not output of this run.
+      if (!isFreshLocalAgentArtifact((await vscode.workspace.fs.stat(fileUri)).mtime, runStartedAtMs)) return;
       const data = await vscode.workspace.fs.readFile(fileUri);
       out.push({
         path: relPath.replace(/\\/g, '/'),
@@ -1026,10 +1036,11 @@ async function executeLocalAgentPackage({
       ? await collectDocumentPhaseCandidateFileArtifacts(
         wsroot,
         phaseForAgent,
-        localAgentPackage.active_output_contract || null
+        localAgentPackage.active_output_contract || null,
+        agentStartedAt
       )
       : isExtend
-        ? await collectExtendCandidateFileArtifacts(wsroot)
+        ? await collectExtendCandidateFileArtifacts(wsroot, agentStartedAt)
         : await collectReqCandidateFileArtifacts(wsroot, reqForAgent);
 
   log(
@@ -1053,6 +1064,18 @@ async function executeLocalAgentPackage({
       const blockedError = new Error(`${blocked.code}: ${blocked.message}`);
       blockedError.code = blocked.code;
       throw blockedError;
+    }
+
+    const failedRun = describeFailedLocalAgentRun({
+      exitCode: agentResult.exitCode,
+      stderr: agentResult.stderr || '',
+      executorLabel,
+    });
+    if (failedRun) {
+      log(`[harperRun][agent] local-agent failed phase=${phaseForAgent} ${failedRun.message}`);
+      const failedError = new Error(`${failedRun.code}: ${failedRun.message}`);
+      failedError.code = failedRun.code;
+      throw failedError;
     }
 
     const expectedRoot = isFinalize
