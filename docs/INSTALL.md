@@ -38,6 +38,14 @@ cp docker/.env.example docker/.env   # where your projects live, sandbox memory 
 
 Your projects must live under `CLIKE_PROJECTS_DIR`: the eval sandbox reads them from there.
 
+Optional, for projects whose tests need a real database: `cp docker/eval.env.example docker/eval.env`
+(git-ignored, read only by the eval sandbox) and set `CLIKE_EVAL_POSTGRES_URL` to a local PostgreSQL
+admin URL as seen from the containers, e.g.
+`postgresql://<user>@host.containers.internal:5432/postgres`. CLike then creates a disposable
+database per project and REQ at every eval. Put there also the values only you have (a KIT marks
+them `external`); everything else the tests need is created by CLike. Recreate the stack after
+editing it (`docker/rebuild.sh`).
+
 ## 3. Services
 
 ```bash
@@ -54,7 +62,7 @@ Services listen on `127.0.0.1` only. After an update: `cd docker && ./rebuild.sh
 Install the packaged extension (or build it from source):
 
 ```bash
-code --install-extension extensions/vscode/clike-1.3.0.vsix
+code --install-extension extensions/vscode/clike-1.4.0.vsix
 # from source: cd extensions/vscode && npm ci && npm run check && npm run package
 ```
 

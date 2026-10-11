@@ -2,7 +2,7 @@
 
 All notable changes to CLike. Extension, orchestrator and gateway share one version.
 
-## [Unreleased]
+## [1.4.0] — 2026-10-11 — Autonomous eval and gate
 
 ### Added
 
