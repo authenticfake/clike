@@ -98,6 +98,32 @@ class GateIntegrityTests(unittest.TestCase):
         self.assertEqual(body["raw_eval_status"], "NOT_RUN")
         self.assertEqual(self._anomaly_kinds(g), {"modified"})
 
+    def test_eval_outputs_never_count_as_acceptance_changes(self):
+        reports = self.kit / "ci" / "reports"
+        (reports / "wheels").mkdir(parents=True)
+        (reports / "tests.xml").write_text("<testsuite tests='1'/>")
+        (reports / "wheels" / "app-0.1.0-py3-none-any.whl").write_bytes(b"PK1")
+        (self.kit / "ci" / "coverage.xml").write_text("<coverage/>")
+        self._eval()
+        (reports / "tests.xml").write_text("<testsuite tests='2'/>")
+        (reports / "wheels" / "app-0.1.0-py3-none-any.whl").write_bytes(b"PK2")
+        (self.kit / "ci" / "coverage.xml").write_text("<coverage line-rate='1'/>")
+        (self.kit / "test" / "__pycache__").mkdir()
+        (self.kit / "test" / "__pycache__" / "x.pyc").write_bytes(b"x")
+        g = self._gate()
+        self.assertEqual(g.json()["gate"], "PASS", g.text)
+        self.assertTrue(g.json()["integrity"]["ok"])
+
+    def test_stale_lock_listing_reports_is_still_accepted(self):
+        from services import gate_integrity
+
+        self._eval()
+        lock_path = gate_integrity._req_state_path(self.proj, REQ, "lock")
+        lock = json.loads(lock_path.read_text())
+        lock["files"]["ci/reports/tests.xml"] = "0" * 64  # written by an older CLike
+        lock_path.write_text(json.dumps(lock))
+        self.assertTrue(self._gate().json()["integrity"]["ok"])
+
     def test_removed_test_is_detected(self):
         self._eval()
         (self.kit / "test" / "test_app.py").unlink()

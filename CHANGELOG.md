@@ -2,6 +2,16 @@
 
 All notable changes to CLike. Extension, orchestrator and gateway share one version.
 
+## [Unreleased]
+
+### Fixed
+
+- **`/eval` failed with `ACCEPTANCE_TAMPERED` from the second run on.** The acceptance lock hashed
+  the files the eval itself writes (`ci/reports/**`: test/coverage/bandit reports, built wheels),
+  so every later run found them "modified". Eval outputs (`reports/`, coverage files, `dist/`,
+  `build/`, caches, `*.whl`, `*.pyc`, `*.log`) are no longer part of the acceptance surface, and
+  locks written by earlier versions ignore their entries for those paths, without re-locking.
+
 ## [1.3.0] — 2026-10-11 — Project context sources
 
 ### Added

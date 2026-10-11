@@ -33,6 +33,13 @@ LOCK_SCHEMA = "clike.acceptance_lock.v1"
 _SURFACE_DIRS = ("test", "ci")
 _MAX_FILES = 2000
 _MAX_FILE_BYTES = 5 * 1024 * 1024
+# Outputs written by the eval run itself (reports, coverage, builds, caches): never acceptance.
+_OUTPUT_DIRS = {
+    "reports", "node_modules", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+    ".venv", "venv", ".tox", "htmlcov", "dist", "build", "target", ".coverage",
+}
+_OUTPUT_SUFFIXES = (".whl", ".pyc", ".egg-info", ".log")
+_OUTPUT_NAMES = {".coverage", "coverage.xml", ".DS_Store"}
 
 # Markers that disable or skip tests in common frameworks.
 _SKIP_MARKER_RE = re.compile(
@@ -95,6 +102,14 @@ def kit_root(project_root: Path, req_id: str) -> Path:
     return Path(project_root).resolve() / "runs" / "kit" / validate_req_id(req_id)
 
 
+def is_output_path(rel: str) -> bool:
+    """Whether a kit-relative path is an eval output (ci/reports/**, coverage, builds, caches)."""
+    parts = rel.split("/")
+    if any(part in _OUTPUT_DIRS or part.endswith(".egg-info") for part in parts[:-1]):
+        return True
+    return parts[-1] in _OUTPUT_NAMES or parts[-1].endswith(_OUTPUT_SUFFIXES)
+
+
 def surface_manifest(project_root: Path, req_id: str) -> Dict[str, str]:
     """sha256 of every regular file of the acceptance surface (relative POSIX path -> digest)."""
     root = kit_root(project_root, req_id)
@@ -108,9 +123,9 @@ def surface_manifest(project_root: Path, req_id: str) -> Dict[str, str]:
                 break
             if path.is_symlink() or not path.is_file():
                 continue
-            if any(part in {"node_modules", "__pycache__", ".pytest_cache", ".venv"} for part in path.parts):
-                continue
             rel = path.relative_to(root).as_posix()
+            if is_output_path(rel):
+                continue
             try:
                 if path.stat().st_size > _MAX_FILE_BYTES:
                     files[rel] = "oversize:" + str(path.stat().st_size)
@@ -218,7 +233,8 @@ def compare_with_lock(project_root: Path, req_id: str, lock: Dict[str, Any]) -> 
     Returns ``{"ok": bool, "anomalies": [...], "added": [...], "lock_digest": ...}``.
     """
     root = kit_root(project_root, req_id)
-    locked: Dict[str, str] = lock.get("files") or {}
+    # locks written before outputs were excluded may still list ci/reports/**: ignore those entries
+    locked: Dict[str, str] = {rel: d for rel, d in (lock.get("files") or {}).items() if not is_output_path(rel)}
     texts: Dict[str, str] = lock.get("texts") or {}
     current = surface_manifest(project_root, req_id)
     anomalies: List[Dict[str, Any]] = []
