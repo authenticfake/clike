@@ -13,6 +13,12 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   `local-eval-workspaces`) is never sent, and within the budget `src/` and `test/` come first, then
   the CI profile and the docs; dropped files are logged.
 
+- **`/kit` failed with `CLIKE_SELECTED_CAPABILITIES_MISSING` on a REQ run again.** The selected
+  capability context was read from the first blob named like it: a copy left in the REQ's KIT by an
+  earlier run, sent back truncated, was not valid JSON and the context the orchestrator had just
+  built was ignored. This run's context now comes first, then the REQ's copy, and unreadable copies
+  are skipped (context envelope and cloud prompt).
+
 ## [1.4.0] — 2026-10-11 — Autonomous eval and gate
 
 ### Added

@@ -185,21 +185,16 @@ def _filter_core_blobs_for_kit(
 
 
 def _load_selected_capability_json_from_core(core_blobs: dict | None) -> dict:
-    for name, content in (core_blobs or {}).items():
-        if str(name or "").lower().endswith("clike_selected_capability_context.json"):
-            try:
-                data = json.loads(str(content or ""))
-                return data if isinstance(data, dict) else {}
-            except Exception:
-                return {}
-    return {}
+    # same lookup as the context envelope: this run's blob first, invalid/truncated copies skipped
+    from services.context_envelope import _load_selected_capability_json
+
+    return _load_selected_capability_json(core_blobs)
 
 
 def _load_selected_capability_markdown_from_core(core_blobs: dict | None) -> str:
-    for name, content in (core_blobs or {}).items():
-        if str(name or "").lower().endswith("clike_selected_capability_context.md"):
-            return str(content or "")
-    return ""
+    from services.context_envelope import _load_selected_capability_markdown
+
+    return _load_selected_capability_markdown(core_blobs)
 
 
 def _selected_capability_names(group: dict) -> list[str]:

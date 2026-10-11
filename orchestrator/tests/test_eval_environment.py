@@ -252,3 +252,17 @@ def test_relative_runs_kit_paths_resolve_in_normal_and_nested_regression_runs(tm
     nested = EvalRunner(project, eval_key="REQ-004/regression/REQ-003").run_profile(
         profile="runs/kit/REQ-003/ci/LTC.json", ltc=ltc, req_id="REQ-003")
     assert nested.status == "PASS", [(c.name, c.stderr[-400:]) for c in nested.cases]
+
+
+def test_selected_capabilities_prefer_this_run_and_skip_truncated_copies():
+    from services.context_envelope import build_context_envelope
+
+    fresh = json.dumps({"packs": [{"name": "enterprise-solution", "selected": True}], "skills": [], "design_profiles": []})
+    good = json.loads(fresh)
+    blobs = {
+        "runs/kit/REQ-005/docs/CLIKE_SELECTED_CAPABILITY_CONTEXT.json": fresh[:20],  # truncated stale copy
+        "CLIKE_SELECTED_CAPABILITY_CONTEXT.json": fresh,
+    }
+    env = build_context_envelope(phase="kit", req_id="REQ-005", execution_mode="cloud", core_blobs=blobs,
+                                 methodology_context=None, active_output_contract=None)
+    assert env["clike_capabilities"]["context_json"] == good
