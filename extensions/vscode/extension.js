@@ -4986,7 +4986,8 @@ async function cmdOpenChat(context) {
                     log(`[telemetry] eval pre-pass skipped: ${e?.message || e}`);
                   }
                   if (prepassAcceptanceBefore) {
-                    await governAcceptanceChanges(targets, prepassAcceptanceBefore, [], 'eval pre-pass');
+                    // Evidence for test fixes: the failures of the previous eval of the --fix loop.
+                    await governAcceptanceChanges(targets, prepassAcceptanceBefore, msg?.fix?.lastFailures || [], 'eval pre-pass');
                   }
                 } else {
                   log(
@@ -6083,7 +6084,7 @@ async function cmdOpenChat(context) {
       targets: [reqId],
       targetReqId: reqId,
       attachments: [],
-      fix: { ...state, cycle, lastSignature: step.signature, lastKitOk: kitMsg.__result === 'ok' },
+      fix: { ...state, cycle, lastSignature: step.signature, lastKitOk: kitMsg.__result === 'ok', lastFailures: step.failures },
     };
     await handleWebviewMessage(evalMsg);
     if (evalMsg.__report) msg.__report = evalMsg.__report;

@@ -149,25 +149,28 @@ it prepares the context, validates the output, runs eval and gate.
 ## Eval environment
 
 `/eval` runs the checks of `runs/kit/<REQ>/ci/LTC.json` in the CLike **eval sandbox**, a container
-without credentials, not in your terminal. When the tests need real infrastructure (for example a
-PostgreSQL test database), the KIT declares the variables in the LTC and explains them in the
-`## Run with CLike /eval` section of `ci/HOWTO.md`.
+without credentials, not in your terminal. CLike **creates** what the checks need from what the KIT
+declares in the LTC (`environment.required_variables`, `services`):
 
-Give them to the sandbox in `docker/eval.env` of the CLike repository:
+- generated values (sessions, ids, timestamps) for every run;
+- a disposable PostgreSQL test database per REQ, recreated at every eval;
+- services of other REQs (e.g. the API of REQ-001 for the integration tests of REQ-002), started
+  before the checks and stopped after them.
 
-```sh
-createdb -h localhost ${project.id}_test        # once: a disposable test database
-```
+You configure only, once, in `docker/eval.env` of the CLike repository:
 
 ```text
-APP_TEST_DATABASE_URL=postgresql+psycopg://<user>@host.containers.internal:5432/${project.id}_test
+CLIKE_EVAL_POSTGRES_URL=postgresql://<user>@host.containers.internal:5432/postgres
 ```
+
+plus the values only you have (the LTC marks them `external`; `ci/HOWTO.md`, section
+`## Run with CLike /eval`, lists them). Then recreate the stack (`docker/rebuild.sh`).
 
 - From the sandbox your machine is `host.containers.internal`, not `localhost`.
 - No credentials: names containing `TOKEN`, `SECRET` or `PASSWORD` are refused.
-- Recreate the stack after editing the file (`docker/rebuild.sh`).
-- A missing variable makes `/eval` report `BLOCKED` with its name; nothing runs and `--fix` does
-  not spend tokens.
+- If something is missing, `/eval` reports `BLOCKED` with the names and runs nothing. When the
+  KIT can declare it, `/eval --fix` does so by itself; when only you can give it, `--fix` stops
+  without spending tokens.
 
 ---
 
@@ -212,7 +215,8 @@ Keep the repository private unless the inputs can be published, and never commit
 |---|---|
 | The chat cannot reach CLike | the stack is down: start it and check `http://localhost:8080/health` |
 | `LOCAL_AGENT_MODEL_INVALID` | the agent model does not exist: use the suggestion or `/agent-model` |
-| `EVAL BLOCKED — missing in docker/eval.env` | add the variable named in the message (see [Eval environment](#eval-environment)) |
+| `EVAL BLOCKED — missing in docker/eval.env` | add the value named in the message (see [Eval environment](#eval-environment)) |
+| `EVAL BLOCKED — CLike cannot create yet` | run `/eval REQ-xxx --fix`: the repair declares how CLike creates it |
 | `ACCEPTANCE_TAMPERED` | tests or `ci/LTC.json` changed after the lock: re-run `/kit` to re-baseline |
 | `Repository not found` on push | create the GitHub repository first (see [Git](#git)) |
 | A phase ignores a document | it is not in a folder of `.clike/context.yaml` for that phase |

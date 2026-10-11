@@ -9,6 +9,26 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 - **Test infrastructure for the eval sandbox** (`docker/eval.env`, git-ignored, template
   `docker/eval.env.example`): variables the projects' tests need, such as a real PostgreSQL test
   database URL, reach the sandbox only. Credential-like names are still refused.
+- **Eval environment provisioning** (`orchestrator/eval_environment.py`): CLike creates what the
+  checks declare in `ci/LTC.json` instead of asking the developer: `environment.required_variables`
+  with `provision` `token` / `uuid` / `timestamp` / `template` (generated per run),
+  `postgres_database` (a disposable database per REQ, recreated every run, on the server of
+  `CLIKE_EVAL_POSTGRES_URL` in `docker/eval.env`), `service` or `external`; and
+  `services: [{name, req, cwd, setup, start, env, port_env, ready, exports}]`, started before the
+  checks from the composed source and dependencies of another REQ (e.g. the API of REQ-001 for the
+  integration tests of REQ-002) or of the candidate, on a free loopback port, and stopped after.
+  Values set in `docker/eval.env` win. KIT prompts (cloud and local agent) and `ci/HOWTO.md`
+  follow the contract.
+- **`/eval --fix` repairs a missing environment** when a repair can declare it (`BLOCKED` with
+  `environment_repairable`): the repair completes the LTC `environment` / `services` (an audited,
+  non-weakening amendment). Only values marked `external` or the database server stop it without
+  spending tokens.
+- **Locked JS/TS tests can be fixed when the eval shows the test itself is wrong** (a TypeScript
+  error reported on the test file, a TypeError/ReferenceError raised in it, an unresolvable
+  import), with every test title and assertion unchanged and no skip/only/todo added; flagged
+  `review_required` at the gate. Until now only Python tests had this, so a correct repair of a
+  TS fixture was reverted and `--fix` kept failing on it. The eval pre-pass now receives the
+  previous failures as evidence too.
 - **`/eval` checks the required variables first.** The KIT declares them in `ci/LTC.json`
   (`environment.required_variables: [{name, purpose, example}]`; the free-form
   `environment: {NAME: "Required ..."}` of earlier KITs is understood too). When one is missing

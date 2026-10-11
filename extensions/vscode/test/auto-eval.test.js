@@ -114,3 +114,16 @@ test('acceptance snapshot leaves out ci/HOWTO.md (documentation, editable by han
   assert.ok('ci/LTC.json' in snap);
   assert.ok(!('ci/HOWTO.md' in snap));
 });
+
+test('loop: a missing environment a repair can declare is repaired, not stopped', () => {
+  const report = {
+    status: 'BLOCKED',
+    reason_code: 'EVAL_ENVIRONMENT_MISSING',
+    environment_repairable: true,
+    passed: false,
+    cases: [{ name: 'env::required-variables', passed: false, blocked: true, blocking: true, code: 78, stderr: '  - APP_TEST_API_URL' }],
+  };
+  const step = nextAutoEvalStep({ cycle: 0, maxCycles: 2, hint: '' }, report);
+  assert.equal(step.action, 'repair');
+  assert.equal(step.failures[0].name, 'env::required-variables');
+});

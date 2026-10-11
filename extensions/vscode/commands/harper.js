@@ -17,7 +17,9 @@ function buildEvalMessage(res) {
   if (res?.reason_code === 'EVAL_ENVIRONMENT_MISSING') {
     const names = (String((res.cases || []).find(c => c.name === 'env::required-variables')?.stderr || '')
       .match(/^ {2}- ([A-Z][A-Z0-9_]+)/gm) || []).map(l => l.replace(/^ {2}- /, ''));
-    return `EVAL BLOCKED — missing in docker/eval.env: ${names.join(', ') || 'required variables'} (no check run)`;
+    return res.environment_repairable
+      ? `EVAL BLOCKED — CLike cannot create yet: ${names.join(', ') || 'required variables'} (no check run; /eval --fix declares them)`
+      : `EVAL BLOCKED — missing in docker/eval.env: ${names.join(', ') || 'required variables'} (no check run)`;
   }
 
   if (status === 'PASS') {

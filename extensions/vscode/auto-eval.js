@@ -102,14 +102,17 @@ function restoreAcceptanceFiles(workspaceRoot, reqId, before, rels) {
  */
 function nextAutoEvalStep(state, report) {
   if (evalPassed(report)) return { action: 'pass', reason: `eval PASS after ${state.cycle} repair cycle(s)` };
-  if (report?.reason_code === 'EVAL_ENVIRONMENT_MISSING') {
+  if (report?.reason_code === 'EVAL_ENVIRONMENT_MISSING' && !report.environment_repairable) {
+    // Only the developer can give these values (external ones, the database server URL).
     const env = (report.cases || []).find(c => c.name === 'env::required-variables');
     return {
       action: 'stop',
-      reason: 'the eval environment lacks variables the checks need (the code is not at fault, nothing to repair)' +
+      reason: 'the eval environment lacks values only you can give (the code is not at fault, nothing to repair)' +
         (env?.stderr ? `:\n${env.stderr}` : ''),
     };
   }
+  // A repairable missing environment falls through: the repair declares in ci/LTC.json how CLike
+  // provisions the variables (generated values, test databases, services of other REQs).
   if (report?.integrity && report.integrity.ok === false) {
     return { action: 'stop', reason: 'the acceptance surface (test/ or ci/) changed after the lock; re-run /kit to re-baseline' };
   }

@@ -16,6 +16,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import eval_environment
+from utils.safe_paths import validate_req_id
+
 log = logging.getLogger("eval_runner")
 
 
@@ -47,6 +50,8 @@ class EvalReport:
     junit_path: Optional[str] = None
     json_path: Optional[str] = None
     reason_code: Optional[str] = None
+    # EVAL_ENVIRONMENT_MISSING: a KIT repair can declare how CLike provisions the variables
+    environment_repairable: Optional[bool] = None
 
 
 def report_to_dict(rep: "EvalReport") -> Dict[str, Any]:
@@ -169,74 +174,34 @@ _NON_BEHAVIOURAL_CHECK_RE = re.compile(
 _TEST_FAILURES_RE = re.compile(r"\b\d+ (?:failed|errors?)\b|^FAILED ", re.MULTILINE)
 
 
-_ENV_VAR_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]{2,}$")
-_REQUIRED_WORD_RE = re.compile(r"\b(required|requires|must|needed|mandatory)\b", re.IGNORECASE)
-_OPTIONAL_WORD_RE = re.compile(r"\boptional\b", re.IGNORECASE)
 ENVIRONMENT_MISSING_REASON = "EVAL_ENVIRONMENT_MISSING"
 
 
-def _ltc_env_values(ltc: Dict[str, Any]) -> set:
-    """Names the LTC itself sets (top-level env and per-check env)."""
-    names = set((ltc.get("env") or {}) if isinstance(ltc.get("env"), dict) else ())
-    for key in ("checks", "cases", "commands", "steps"):
-        for item in ltc.get(key) or []:
-            if isinstance(item, dict) and isinstance(item.get("env"), dict):
-                names.update(item["env"])
-    return names
-
-
 def required_environment_variables(ltc: Dict[str, Any]) -> List[Dict[str, str]]:
-    """Variables the LTC declares the checks need from the environment, e.g. a test database URL.
-
-    ``environment.required_variables: [{name, purpose, example}]`` (KIT contract), or the
-    free-form ``environment: {NAME: "Required ..."}`` of earlier KITs. CLike's own CLIKE_*
-    variables, values set by the LTC and entries marked optional are not required.
-    """
-    env = ltc.get("environment") if isinstance(ltc, dict) else None
-    found: Dict[str, Dict[str, str]] = {}
-
-    def add(name: Any, purpose: Any = "", example: Any = "", optional: bool = False) -> None:
-        name = str(name or "").strip()
-        if not _ENV_VAR_NAME_RE.match(name) or name.startswith("CLIKE_") or optional:
-            return
-        found.setdefault(name, {"name": name, "purpose": str(purpose or "").strip(), "example": str(example or "").strip()})
-
-    if isinstance(env, dict):
-        for item in env.get("required_variables") or []:
-            if isinstance(item, dict):
-                add(item.get("name"), item.get("purpose"), item.get("example"), bool(item.get("optional")))
-            else:
-                add(item)
-        for name, value in env.items():
-            if name == "required_variables":
-                continue
-            if isinstance(value, dict):
-                add(name, value.get("purpose") or value.get("description"), value.get("example"),
-                    not value.get("required", True) or bool(value.get("optional")))
-            elif isinstance(value, str) and _REQUIRED_WORD_RE.search(value) and not _OPTIONAL_WORD_RE.search(value):
-                add(name, value)
-    elif isinstance(env, list):
-        for item in env:
-            if isinstance(item, dict):
-                add(item.get("name"), item.get("purpose"), item.get("example"), bool(item.get("optional")))
-    provided = _ltc_env_values(ltc)
-    return [v for k, v in found.items() if k not in provided]
+    """Variables the LTC declares the checks need (see eval_environment for the contract)."""
+    return [
+        {"name": spec.name, "purpose": spec.purpose, "example": spec.example, "provision": spec.effective_provision()}
+        for spec in eval_environment.variable_specs(ltc)
+    ]
 
 
 def missing_environment_case(ltc: Dict[str, Any], environ: Optional[Dict[str, str]] = None) -> Optional["EvalCase"]:
-    """A blocked case listing the required variables absent from the eval environment, or None."""
+    """A blocked case listing the required variables CLike can neither find nor create, or None."""
     environ = scrubbed_process_env() if environ is None else environ
-    missing = [v for v in required_environment_variables(ltc) if not str(environ.get(v["name"], "")).strip()]
+    missing = eval_environment.missing_variables(ltc, environ)
     if not missing:
         return None
+    example = missing[0][0]
     lines = [
-        "The checks need variables that the eval environment does not provide:",
-        *(f"  - {v['name']}" + (f": {v['purpose']}" if v["purpose"] else "") for v in missing),
-        "Add them to docker/eval.env (git-ignored; template docker/eval.env.example), one NAME=value per line;",
-        "from the eval sandbox the host machine is host.containers.internal, e.g.",
-        f"  {missing[0]['name']}=" + (missing[0]["example"] or "postgresql+psycopg://me@host.containers.internal:5432/test_db"),
+        "The checks need variables that the eval environment does not provide and CLike cannot create:",
+        *(f"  - {spec.name}" + (f": {spec.purpose}" if spec.purpose else "") + f" ({how})" for spec, how in missing),
+        "CLike creates variables declared in ci/LTC.json environment.required_variables with a `provision`",
+        "(token, uuid, timestamp, template, postgres_database, service; see docs/development.md).",
+        "External values go to docker/eval.env (git-ignored; template docker/eval.env.example), one NAME=value",
+        "per line; from the eval sandbox the host machine is host.containers.internal, e.g.",
+        f"  {example.name}=" + (example.example or "postgresql+psycopg://me@host.containers.internal:5432/test_db"),
         "then recreate the stack (docker/rebuild.sh) and re-run /eval. See the REQ's ci/HOWTO.md.",
-        "No check was run and no repair is attempted: the code is not at fault.",
+        "No check was run: the code is not at fault.",
     ]
     return EvalCase(
         name="env::required-variables",
@@ -2017,6 +1982,161 @@ class EvalRunner:
         req_id: Optional[str] = None,
         regression: bool = False,
     ) -> EvalReport:
+        self._services: List[eval_environment.RunningService] = []
+        try:
+            return self._run_profile(profile, ltc, mode, verdict, req_id, regression)
+        finally:
+            for svc in reversed(self._services):
+                eval_environment.stop_process(svc.proc)
+            self._services = []
+
+    def _provision_environment(
+        self,
+        *,
+        ltc: Dict[str, Any],
+        req_id: Optional[str],
+        env: Dict[str, str],
+        work_kit_root: Optional[Path],
+        logs_root: Path,
+    ) -> tuple[Dict[str, str], List[EvalCase]]:
+        """Create the variables and start the services the LTC declares (eval_environment).
+
+        Values already in the environment win. Each provisioned item is reported as an
+        env::provision::<name> / env::service::<name> case; a failure is blocking."""
+        specs = eval_environment.variable_specs(ltc)
+        services = eval_environment.service_specs(ltc)
+        if not specs and not services:
+            return env, []
+        cases: List[EvalCase] = []
+        values: Dict[str, str] = {k: v for k, v in env.items() if isinstance(v, str)}
+        provided: Dict[str, str] = {}
+        project_key = re.sub(r"[^A-Za-z0-9_.-]+", "_", self.project_root.name or "project")
+        req = self._safe_req_id(req_id)
+
+        def fail(name: str, message: str) -> None:
+            cases.append(EvalCase(name=name, passed=False, code=79, stdout="", stderr=message, blocking=True))
+
+        def note(name: str, message: str) -> None:
+            cases.append(EvalCase(name=name, passed=True, code=0, stdout=message, stderr="", blocking=False))
+
+        pending = [s for s in specs if not str(env.get(s.name, "")).strip()]
+        admin = str(env.get(eval_environment.ADMIN_URL_VAR, "")).strip()
+        # 1. generated values that need nothing else, then databases
+        for spec in list(pending):
+            kind = spec.effective_provision()
+            try:
+                if kind in {"token", "uuid", "timestamp"}:
+                    value = eval_environment.generate(spec, values)
+                elif kind == "postgres_database" and admin:
+                    value = eval_environment.provision_postgres(spec, admin, project_key, req)
+                else:
+                    continue
+            except Exception as exc:  # database server unreachable, bad URL...
+                fail(f"env::provision::{spec.name}", f"cannot provision {spec.name} ({kind}): {exc}")
+                pending.remove(spec)
+                continue
+            values[spec.name] = provided[spec.name] = value
+            pending.remove(spec)
+            note(f"env::provision::{spec.name}", f"{kind} provisioned" + (f": database {value.rsplit('/', 1)[-1]}" if kind == "postgres_database" else ""))
+
+        def resolve_templates() -> None:
+            for spec in list(pending):
+                if spec.effective_provision() != "template":
+                    continue
+                try:
+                    value = eval_environment.generate(spec, values)
+                except eval_environment.ProvisionError:
+                    continue  # needs a service export: retried after the services
+                values[spec.name] = provided[spec.name] = value or ""
+                pending.remove(spec)
+                note(f"env::provision::{spec.name}", "template provisioned")
+
+        resolve_templates()
+        # 2. services
+        for svc in services:
+            name = str(svc["name"])
+            try:
+                workdir, svc_env, setup_cases = self._service_runtime(svc, req_id=req_id, env={**env, **provided}, work_kit_root=work_kit_root)
+            except Exception as exc:
+                fail(f"env::service::{name}", f"cannot prepare service {name}: {exc}")
+                continue
+            cases.extend(setup_cases)
+            if any(not c.passed and c.blocking for c in setup_cases):
+                fail(f"env::service::{name}", f"service {name}: dependency setup failed (see the env:: cases above)")
+                continue
+
+            def run_setup(label: str, cmd: str, cwd: Path, setup_env: Dict[str, str]) -> tuple[bool, str]:
+                result = self._run(name=f"env::service::{label}", cmd=cmd, cwd=cwd, env=setup_env, timeout=300, blocking=True)
+                cases.append(result)
+                return result.passed, f"{result.stdout}\n{result.stderr}"
+
+            try:
+                running, exports, text = eval_environment.start_service(
+                    svc, workdir=workdir, env=svc_env, values=values, log_dir=logs_root / "services", run_setup=run_setup,
+                )
+            except eval_environment.ProvisionError as exc:
+                fail(f"env::service::{name}", f"service {name}: {exc}")
+                continue
+            if running is None:
+                fail(f"env::service::{name}", f"service {name}: {text}")
+                continue
+            self._services.append(running)
+            for key, value in exports.items():
+                if not str(env.get(key, "")).strip():
+                    values[key] = provided[key] = value
+                    pending[:] = [p for p in pending if p.name != key]
+            note(f"env::service::{name}", text)
+        resolve_templates()
+        for spec in pending:
+            if spec.effective_provision() in {"template", "service"}:
+                fail(f"env::provision::{spec.name}", f"{spec.name}: no value ({spec.effective_provision()} could not be resolved)")
+        return {**env, **provided}, cases
+
+    def _service_runtime(
+        self,
+        svc: Dict[str, Any],
+        *,
+        req_id: Optional[str],
+        env: Dict[str, str],
+        work_kit_root: Optional[Path],
+    ) -> tuple[Path, Dict[str, str], List[EvalCase]]:
+        """Working directory and environment of a service: the composed source of another REQ
+        (`req`, with its own Python venv / npm dependencies) or of the candidate."""
+        other = str(svc.get("req") or "").strip()
+        if not other or other == str(req_id or ""):
+            if work_kit_root is None:
+                raise OSError("no candidate workspace")
+            return (work_kit_root / str(svc.get("cwd") or "")).resolve(), dict(env), []
+        other = validate_req_id(other)
+        profile = self.project_root / "runs" / "kit" / other / "ci" / "LTC.json"
+        sub = EvalRunner(self.project_root, eval_key=f"{self._safe_req_id(req_id)}/services/{other}", cancel_event=self.cancel_event)
+        _work, _reports, _logs, path_map, kit_root, _deps = sub._prepare_eval_workspace(req_id=other, profile_path=profile)
+        if kit_root is None:
+            raise OSError(f"no KIT workspace for {other}")
+        src = path_map.get("CLIKE_EVAL_OVERLAY_SRC") or str(kit_root / "src")
+        svc_env = {**env, "PYTHONPATH": src, "PYTHONDONTWRITEBYTECODE": "1", "SERVICE_KIT_DIR": str(kit_root), "SERVICE_SRC_DIR": src}
+        cases: List[EvalCase] = []
+        requirements = kit_root / "ci" / "requirements.txt"
+        if requirements.is_file():
+            svc_env, setup = sub._ensure_eval_venv(req_id=other, requirements_file=str(requirements), env=svc_env, cwd=kit_root)
+            cases.extend(setup)
+        package_json = kit_root / "ci" / "package.json"
+        if package_json.is_file():
+            svc_env, setup = sub._ensure_node_dependencies(req_id=other, package_json=package_json, env=svc_env, cwd=kit_root)
+            cases.extend(setup)
+        for case in cases:
+            case.name = f"env::service::{svc.get('name')}::{case.name}"
+        return (kit_root / str(svc.get("cwd") or "")).resolve(), svc_env, cases
+
+    def _run_profile(
+        self,
+        profile: str,
+        ltc: Dict[str, Any],
+        mode: str = "auto",
+        verdict: Optional[str] = None,
+        req_id: Optional[str] = None,
+        regression: bool = False,
+    ) -> EvalReport:
         profile_path = Path(profile or "LTC.json")
         if not profile_path.is_absolute():
             profile_path = self.project_root / profile_path
@@ -2066,6 +2186,9 @@ class EvalRunner:
             )
             report.status = "BLOCKED"
             report.reason_code = ENVIRONMENT_MISSING_REASON
+            report.environment_repairable = eval_environment.repairable(
+                eval_environment.missing_variables(ltc, scrubbed_process_env())
+            )
             return report
 
         try:
@@ -2334,6 +2457,12 @@ class EvalRunner:
             for case in out_cases
             if case.name.startswith("env::")
         )
+
+        if not setup_failed:
+            eval_env, provision_cases = self._provision_environment(
+                ltc=ltc, req_id=eff_req, env=eval_env, work_kit_root=work_kit_root, logs_root=logs_root,
+            )
+            out_cases.extend(provision_cases)
 
         pre_cmds = ltc.get("pre") or []
         for i, pre in enumerate(pre_cmds, start=1):
