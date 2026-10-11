@@ -84,6 +84,7 @@ const {
 } = require('./auto-eval');
 const { buildAgentChatArgs, createAgentStreamParser, newSession, sessionKey } = require('./agent-chat');
 const { createApprovalGate, createCodexAppServerTurn, startClaudeApprovalServer } = require('./agent-approvals');
+const { readCodexModelSlugs, validateAgentModel } = require('./agent-model-validation');
 
 const {
   buildCodexArgsForLocalAgent,
@@ -901,6 +902,47 @@ async function collectDocumentPhaseCandidateFileArtifacts(
   return out;
 }
 
+// Rejects an invalid agent model before the agent starts (every run, until fixed).
+function assertAgentModelValid(executorId, executorConfig) {
+  const check = validateAgentModel({
+    executorId,
+    model: executorConfig?.model,
+    codexModels: readCodexModelSlugs(),
+  });
+  if (check.ok) return;
+  const error = new Error(`${check.code}: ${check.message}`);
+  error.code = check.code;
+  throw error;
+}
+
+// Settings check at activation and on change: an invalid model shows an error now,
+// not only when the next run fails.
+function reportInvalidAgentModels() {
+  const c = vscode.workspace.getConfiguration('clike');
+  const codexModels = readCodexModelSlugs();
+  for (const [executorId, key] of [['gpt_codex', 'localAgent.codex.model'], ['claude_code', 'claudeCode.model']]) {
+    const check = validateAgentModel({ executorId, model: c.get(key, ''), codexModels });
+    if (check.ok) continue;
+    out.appendLine(`[CLike][agent-model] ${check.message}`);
+    const fix = check.suggestion ? `Use "${check.suggestion}"` : null;
+    vscode.window
+      .showErrorMessage(`CLike: ${check.message}`, ...[fix, 'Open Settings'].filter(Boolean))
+      .then(async (choice) => {
+        if (choice === fix) {
+          const inspected = c.inspect(key) || {};
+          const target = inspected.workspaceFolderValue !== undefined
+            ? vscode.ConfigurationTarget.WorkspaceFolder
+            : inspected.workspaceValue !== undefined
+              ? vscode.ConfigurationTarget.Workspace
+              : vscode.ConfigurationTarget.Global;
+          await c.update(key, check.suggestion, target);
+        } else if (choice === 'Open Settings') {
+          vscode.commands.executeCommand('workbench.action.openSettings', `clike.${key}`);
+        }
+      });
+  }
+}
+
 async function executeLocalAgentPackage({
   localAgentPackage,
   phase,
@@ -949,6 +991,7 @@ async function executeLocalAgentPackage({
       `availability=${JSON.stringify(availability?.[selectedExecutor] || {})}`
     );
   }
+  assertAgentModelValid(selectedExecutor, executorConfig);
 
   const invocationArgs = Array.isArray(invocation.args) ? invocation.args : [];
   const promptTransport = String(invocation.prompt_transport || '').trim();
@@ -1021,6 +1064,7 @@ async function executeLocalAgentPackage({
     durationMs: Date.now() - agentStartedAt,
     fallbackModel: executorConfig.model || '',
   });
+  const rawAgentStdout = agentResult.stdout || '';
   agentResult.stdout = agentRun.text;
   log(`[harperRun][agent][telemetry] ${JSON.stringify(agentRun.telemetry)}`);
 
@@ -1069,6 +1113,7 @@ async function executeLocalAgentPackage({
     const failedRun = describeFailedLocalAgentRun({
       exitCode: agentResult.exitCode,
       stderr: agentResult.stderr || '',
+      stdout: rawAgentStdout,
       executorLabel,
     });
     if (failedRun) {
@@ -1262,6 +1307,7 @@ async function runLocalChatAgent({ pkg, executorId, settings, wsrootUri, out, se
   const badge = localAgentBadge(executorId);
   const prompt = String(pkg.prompt || '').trim();
   if (!prompt) throw new Error('Local execution package is missing a prompt.');
+  assertAgentModelValid(executorId, executorConfig);
 
   const timeoutMinutes = settings.localAgentTimeoutMinutes || 20;
   const parser = createAgentStreamParser(executorId);
@@ -1776,6 +1822,9 @@ async function runWriteCommand(context, op, label, { useContent = false } = {}) 
 
 // runtime feedback on AI settings
 vscode.workspace.onDidChangeConfiguration((e) => {
+  if (e.affectsConfiguration('clike.localAgent.codex.model') || e.affectsConfiguration('clike.claudeCode.model')) {
+    reportInvalidAgentModels();
+  }
   if (e.affectsConfiguration('clike.useAi') ||
       e.affectsConfiguration('clike.useAi.docstring') ||
       e.affectsConfiguration('clike.useAi.refactor')  ||
@@ -3405,6 +3454,7 @@ function activate(context) {
   const reg = (id, fn) => context.subscriptions.push(vscode.commands.registerCommand(id, () => fn(context)));
   //out.appendLine(`activate ${context}`);
   clikeExtensionContext = context;
+  reportInvalidAgentModels();
   const serviceAuthReady = initServiceAuth(context).catch((err) =>
     out.appendLine(`[CLike][auth] cannot load service token: ${err?.message || err}`)
   );
@@ -3841,6 +3891,7 @@ async function cmdOpenChat(context) {
             const agent = String(msg.agentName || '').trim().toLowerCase();
             const model = String(msg.agentModel || '').trim();
             let message;
+            let modelCheck;
             if (agent === 'list') {
               // Model ids from CLike's catalog (the same that fills the cloud model selector).
               let catalog = [];
@@ -3873,6 +3924,12 @@ async function cmdOpenChat(context) {
                 `Cloud model: ${state.model || 'auto'} (model selector).`;
             } else if (!keys[agent] || !model || !/^[A-Za-z0-9._:[\]-]+$/.test(model)) {
               message = '⚠ Usage: /agent-model [claude|codex] [model], e.g. /agent-model claude sonnet';
+            } else if (!(modelCheck = validateAgentModel({
+              executorId: agent === 'claude' ? 'claude_code' : 'gpt_codex',
+              model,
+              codexModels: readCodexModelSlugs(),
+            })).ok) {
+              message = `⚠ ${modelCheck.message}`;
             } else {
               await c.update(keys[agent], model, vscode.ConfigurationTarget.Workspace);
               message = `✔ AGENT-MODEL ${agent === 'claude' ? 'Claude Code' : 'Codex'} → ${model} (chat and Harper phases)`;
