@@ -3800,7 +3800,14 @@ async function cmdOpenChat(context) {
             '.env',
             '.env.*',
             '!.env.example',
-            'runs/',
+            // runs/kit/<REQ>/ is committed by the phase commits (the REQ candidate): only the
+            // eval scratch, installed dependencies and temporary stages are ignored
+            'runs/eval/',
+            'runs/context/',
+            'runs/**/node_modules/',
+            'runs/**/.tmp/',
+            'runs/**/.npm-cache/',
+            'runs/**/.venv/',
             'local-eval-workspaces/',
             '*.log',
             // CLike local state: chat sessions and telemetry stay on this machine
