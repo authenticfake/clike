@@ -2,7 +2,17 @@
 
 All notable changes to CLike. Extension, orchestrator and gateway share one version.
 
-## [Unreleased]
+## [1.2.4] — 2026-10-11 — Invalid agent model rejected up front, agent errors shown
+
+### Added
+
+- **Invalid agent model rejected before the agent starts**: `clike.localAgent.codex.model` is checked
+  against the models of the Codex login (`~/.codex/models_cache.json`), `clike.claudeCode.model`
+  against the Claude aliases (`opus`, `sonnet`, `haiku`) and `claude-*` ids. An invalid id blocks
+  every Harper phase and agent chat turn with `LOCAL_AGENT_MODEL_INVALID` and the closest valid id
+  (`gpt6-1-sol` → `gpt-6.1-sol`) until it is fixed; VS Code shows the error at start-up and when the
+  setting changes (with "Use …" and "Open Settings"), and `/agent-model` refuses an invalid id.
+  Without the Codex models cache the Codex id is not checked.
 
 ### Changed
 
@@ -11,6 +21,12 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   built and prunes dangling layers. The orchestrator and the eval sandbox share one image (built
   once instead of twice); the uv download cache is a build cache mount and no longer stored in the
   image layers.
+
+### Fixed
+
+- **A failed agent run showed no cause**: with machine-readable output the agent writes its error on
+  stdout (Codex `turn.failed`, Claude `is_error`), not on stderr; `LOCAL_AGENT_EXITED_WITH_ERROR` now
+  carries that message (for example the provider's 404 for an unknown model).
 
 ## [1.2.3] — 2026-10-10 — Codex Harper phases in a project without git
 
