@@ -142,3 +142,7 @@ test('/gate promotion flags', () => {
   assert.equal(parseSlash('/gate REQ-003').args.promote, undefined);
   assert.deepEqual(parseSlash('/gate REQ-003 --ask').args.targets, ['REQ-003']);
 });
+
+test('/gate --auto-merge forces the auto-merge promotion', () => {
+  assert.equal(parseSlash('/gate REQ-003 --auto-merge').args.promote, 'merge');
+});

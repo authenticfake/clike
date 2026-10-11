@@ -105,8 +105,10 @@ override) the REQ is promoted **without prompts** (`clike.gate.autoPromote`, def
   diff of everything written (`git apply -R` reverts it). The promoted files and the report are in
   the gate commit when `clike.git.autoCommit` is on.
 
-`/gate <REQ> --ask` uses the interactive strategies below for one run, `/gate <REQ> --no-promote`
-skips the promotion; `clike.gate.autoPromote: "ask" | "off"` makes that the default.
+Three ways to choose it: the setting `clike.gate.autoPromote` (`merge` default: no prompt;
+`ask`: the strategy list, with **auto-merge** first, then folder / suffix / backup / skip /
+overwrite; `off`: no promotion), or for one run `/gate <REQ> --auto-merge`, `--ask`,
+`--no-promote`.
 
 ## Promotion helpers
 

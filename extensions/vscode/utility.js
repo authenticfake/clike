@@ -168,7 +168,8 @@ async function copyTreeWithConflicts(srcRoot, destRoot, { strategy, reqId, ts, l
 /** QuickPick strategy selector with helpful descriptions. */
 async function pickPromotionStrategy() {
   const items = [
-    { label: 'folder',    detail: 'Copy into promoted/<REQ>_<timestamp> (safest; no conflicts in place).', picked: true },
+    { label: 'auto-merge', detail: '3-way merge per file into src/ and test/; conflicting files are not written; report + unified diff in runs/kit/<REQ>/promotion/.', picked: true },
+    { label: 'folder',    detail: 'Copy into promoted/<REQ>_<timestamp> (safest; no conflicts in place).' },
     { label: 'suffix',    detail: 'Keep existing; write conflicts as *.incoming-<REQ>-<timestamp> and open diffs.' },
     { label: 'backup',    detail: 'Backup existing as *.bak-<timestamp> and write new version; open diffs.' },
     { label: 'skip',      detail: 'Keep existing; skip conflicting incoming files.' },
@@ -1294,7 +1295,21 @@ async function saveGateCommand(projectRootUri, plan, targetReqId, report, out, o
 
     if (choice === 'Promote') {
       const strategy = await pickPromotionStrategy();
-      if (strategy) {
+      if (strategy === 'auto-merge') {
+        const picked = autoMergePromotion({ workspaceRoot: projectRootUri.fsPath, reqId: targetReqId });
+        filesToCommit.push(...picked.written, ...picked.reportFiles);
+        if (!picked.promoted) {
+          setReqStatus(effectivePlan, targetReqId, 'in_progress');
+          await writePlanJson(projectRootUri, effectivePlan);
+          await updatePlanMdInPlace(projectRootUri, effectivePlan);
+        }
+        autoMerge = picked;
+        const reportUri = vscode.Uri.file(picked.reportPath);
+        vscode.commands.executeCommand('markdown.showPreview', reportUri).then(undefined, () =>
+          vscode.window.showTextDocument(reportUri, { preview: true }));
+        (picked.promoted ? vscode.window.showInformationMessage : vscode.window.showWarningMessage)(`CLike: ${picked.summary}`);
+        log(`[saveGateCommand] promote strategy=auto-merge ${picked.summary}`);
+      } else if (strategy) {
         const result = await promoteReqSources(projectRootUri, targetReqId, strategy, out);
         const promotedFiles = Array.isArray(result?.filesToCommit) ? result.filesToCommit : [];
         filesToCommit.push(...promotedFiles);
@@ -1306,9 +1321,11 @@ async function saveGateCommand(projectRootUri, plan, targetReqId, report, out, o
       log('[saveGateCommand] promote skipped by user');
     }
 
-    try {
-      vscode.window.showInformationMessage(`REQ ${targetReqId} marked as done.`);
-    } catch {}
+    if (!autoMerge || autoMerge.promoted) {
+      try {
+        vscode.window.showInformationMessage(`REQ ${targetReqId} marked as done.`);
+      } catch {}
+    }
   } else {
     try {
       vscode.window.showWarningMessage(`Gate failed for ${targetReqId}. REQ not promoted.`);
