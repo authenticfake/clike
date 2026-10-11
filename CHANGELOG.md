@@ -2,6 +2,17 @@
 
 All notable changes to CLike. Extension, orchestrator and gateway share one version.
 
+## [Unreleased]
+
+### Fixed
+
+- **A local-agent KIT failed with `LOCAL_AGENT_REQUIRED_OUTPUTS_MISSING` although it wrote `src/`
+  and `test/`.** The artifacts sent to the orchestrator are capped (500 files, 8 MB) and were kept
+  in discovery order: an agent's scratch in `ci/.tmp` (27 MB of tool installs) filled the budget
+  and the code and tests were dropped. Scratch (`.tmp`, `.npm-cache`, `.npm`,
+  `local-eval-workspaces`) is never sent, and within the budget `src/` and `test/` come first, then
+  the CI profile and the docs; dropped files are logged.
+
 ## [1.4.0] — 2026-10-11 — Autonomous eval and gate
 
 ### Added

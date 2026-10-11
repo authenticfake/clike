@@ -595,134 +595,14 @@ async function collectKitRagItems(workspaceRoot, reqId, opts = {}) {
   return items;
 }
 
-const LOCAL_AGENT_COMPLETE_MAX_FILES = 500;
-const LOCAL_AGENT_COMPLETE_MAX_TOTAL_CHARS = 8 * 1024 * 1024;
-
-const LOCAL_AGENT_EXCLUDED_ARTIFACT_SEGMENTS = new Set([
-  '.git',
-  '.venv',
-  'node_modules',
-  '.next',
-  'dist',
-  'build',
-  'out',
-  'coverage',
-  '.turbo',
-  '.cache',
-  '.pytest_cache',
-  '.ruff_cache',
-  '.mypy_cache',
-  '__pycache__',
-  '__MACOSX',
-]);
-
-const LOCAL_AGENT_EXCLUDED_ARTIFACT_FILENAMES = new Set([
-  '.DS_Store',
-  'tsconfig.tsbuildinfo',
-]);
-
-function localAgentArtifactPath(artifact) {
-  return String(artifact?.path || artifact?.file || artifact?.name || '').replace(/\\/g, '/');
-}
-
-function localAgentArtifactSizeChars(artifact) {
-  if (!artifact || typeof artifact !== 'object') return 0;
-
-  if (typeof artifact.content === 'string') {
-    return artifact.content.length;
-  }
-
-  if (typeof artifact.text === 'string') {
-    return artifact.text.length;
-  }
-
-  if (typeof artifact.bytes_b64 === 'string') {
-    return artifact.bytes_b64.length;
-  }
-
-  if (typeof artifact.content_base64 === 'string') {
-    return artifact.content_base64.length;
-  }
-
-  try {
-    return JSON.stringify(artifact).length;
-  } catch {
-    return 0;
-  }
-}
-
-function shouldSendLocalAgentCompleteArtifact(artifact) {
-  const relPath = localAgentArtifactPath(artifact);
-  if (!relPath) return false;
-
-  const parts = relPath.split('/').filter(Boolean);
-  const filename = parts[parts.length - 1] || '';
-
-  if (LOCAL_AGENT_EXCLUDED_ARTIFACT_FILENAMES.has(filename)) {
-    return false;
-  }
-
-  if (parts.some((part) => LOCAL_AGENT_EXCLUDED_ARTIFACT_SEGMENTS.has(part))) {
-    return false;
-  }
-
-  return true;
-}
-
-function pruneLocalAgentCompleteArtifacts(artifacts, phaseForAgent, reqForAgent) {
-  const phase = String(phaseForAgent || '').trim().toLowerCase();
-  const req = String(reqForAgent || '').trim().toUpperCase();
-
-  const filtered = (Array.isArray(artifacts) ? artifacts : []).filter((artifact) => {
-    if (!shouldSendLocalAgentCompleteArtifact(artifact)) {
-      return false;
-    }
-
-    const relPath = localAgentArtifactPath(artifact);
-
-    if (phase === 'eval') {
-      const reqPrefix = `runs/kit/${req}/`;
-      if (!relPath.startsWith(reqPrefix)) {
-        return false;
-      }
-
-      return (
-        relPath.startsWith(`${reqPrefix}ci/`) ||
-        relPath.startsWith(`${reqPrefix}docs/`) ||
-        relPath.startsWith(`${reqPrefix}reports/`) ||
-        relPath.startsWith(`${reqPrefix}test/`)
-      );
-    }
-
-    return true;
-  });
-
-  const kept = [];
-  let totalChars = 0;
-
-  for (const artifact of filtered) {
-    if (kept.length >= LOCAL_AGENT_COMPLETE_MAX_FILES) {
-      break;
-    }
-
-    const sizeChars = localAgentArtifactSizeChars(artifact);
-    if (totalChars + sizeChars > LOCAL_AGENT_COMPLETE_MAX_TOTAL_CHARS) {
-      break;
-    }
-
-    kept.push(artifact);
-    totalChars += sizeChars;
-  }
-
-  return {
-    files: kept,
-    original_count: Array.isArray(artifacts) ? artifacts.length : 0,
-    filtered_count: filtered.length,
-    kept_count: kept.length,
-    total_chars: totalChars,
-    truncated: kept.length < filtered.length,
-  };
-}
+const {
+  LOCAL_AGENT_COMPLETE_MAX_FILES,
+  LOCAL_AGENT_COMPLETE_MAX_TOTAL_CHARS,
+  localAgentArtifactPath,
+  localAgentArtifactSizeChars,
+  pruneLocalAgentCompleteArtifacts,
+  shouldSendLocalAgentCompleteArtifact,
+} = require('./local-agent-artifacts');
 
 const HARPER_REQUEST_TIMEOUT_MS = 35 * 60 * 1000; // 35 minutes timeout ...maybe too long
 async function callHarper(cmd, payload, headers, opts = {}) {
@@ -1187,6 +1067,9 @@ async function executeLocalAgentPackage({
     `chars=${completeArtifacts.total_chars} ` +
     `truncated=${completeArtifacts.truncated}`
   );
+  if (completeArtifacts.truncated) {
+    log(`[harperRun][agent] artifacts over the size budget, not sent: ${completeArtifacts.dropped.slice(0, 20).join(', ')}`);
+  }
 
   if (!completeArtifacts.files.length) {
     throw new Error(
