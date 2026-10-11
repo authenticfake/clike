@@ -859,6 +859,26 @@ Use:
 - `blocking: true` for checks that can run in a normal local/dev environment.
 - `blocking: false` for integration or external-infra checks that may be skipped or blocked by missing infrastructure.
 
+### Eval environment variables (CLike `/eval`)
+
+CLike runs the LTC checks in an eval sandbox (a container without credentials). Infrastructure the
+checks need, such as a real test database, reaches it only through environment variables the
+developer puts in `docker/eval.env`; from the sandbox the developer's machine is
+`host.containers.internal`, not `localhost`.
+
+* Declare every such variable in `ci/LTC.json` as
+  `"environment": {"required_variables": [{"name": "<NAME>", "purpose": "<what it must point to>", "example": "<value valid from the sandbox>"}]}`.
+  Example value for PostgreSQL: `postgresql+psycopg://<user>@host.containers.internal:5432/<disposable_db>`
+  (use the URL scheme of the driver the KIT pins). Never put credentials in the example, and never
+  name a variable with TOKEN, SECRET, PASSWORD, API_KEY or CREDENTIAL: the sandbox refuses those.
+* CLike checks these variables before running anything: when one is missing, `/eval` reports
+  BLOCKED with the list and no repair is attempted.
+* `ci/HOWTO.md` MUST contain a section `## Run with CLike /eval` that lists the same variables, the
+  exact `docker/eval.env` lines to add, the one-time setup they need (e.g. `createdb <disposable_db>`),
+  the reminder to recreate the stack (`docker/rebuild.sh`) after editing the file, and the commands
+  `/eval <REQ-ID>` and `/eval <REQ-ID> --fix`. When no variable is needed, the section says so in
+  one line.
+
 If the KIT emits `requirements.txt`, LTC MUST include either:
 - `requirements_file: "runs/kit/<REQ-ID>/ci/requirements.txt"`
 or rely on CLike EvalRunner inference from the LTC path.

@@ -14,6 +14,12 @@ function buildEvalMessage(res) {
     return `EVAL PASS_WITH_WARNINGS — passed=${passed}, failed=${failed}, blocked=${blocked}, warnings=${warnings}`;
   }
 
+  if (res?.reason_code === 'EVAL_ENVIRONMENT_MISSING') {
+    const names = (String((res.cases || []).find(c => c.name === 'env::required-variables')?.stderr || '')
+      .match(/^ {2}- ([A-Z][A-Z0-9_]+)/gm) || []).map(l => l.replace(/^ {2}- /, ''));
+    return `EVAL BLOCKED — missing in docker/eval.env: ${names.join(', ') || 'required variables'} (no check run)`;
+  }
+
   if (status === 'PASS') {
     return `EVAL PASS — passed=${passed}, failed=${failed}, blocked=${blocked}`;
   }

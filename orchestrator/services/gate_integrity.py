@@ -39,6 +39,8 @@ _OUTPUT_DIRS = {
     ".venv", "venv", ".tox", "htmlcov", "dist", "build", "target", ".coverage",
 }
 _OUTPUT_SUFFIXES = (".whl", ".pyc", ".egg-info", ".log")
+# Documentation (ci/HOWTO.md: how to run the checks) is editable by hand: not acceptance either.
+_DOC_SUFFIXES = (".md",)
 _OUTPUT_NAMES = {".coverage", "coverage.xml", ".DS_Store"}
 
 # Markers that disable or skip tests in common frameworks.
@@ -102,12 +104,14 @@ def kit_root(project_root: Path, req_id: str) -> Path:
     return Path(project_root).resolve() / "runs" / "kit" / validate_req_id(req_id)
 
 
-def is_output_path(rel: str) -> bool:
-    """Whether a kit-relative path is an eval output (ci/reports/**, coverage, builds, caches)."""
+def is_outside_acceptance(rel: str) -> bool:
+    """Whether a kit-relative path under test/ or ci/ is not acceptance: eval outputs
+    (ci/reports/**, coverage, builds, caches) and documentation (ci/HOWTO.md)."""
     parts = rel.split("/")
     if any(part in _OUTPUT_DIRS or part.endswith(".egg-info") for part in parts[:-1]):
         return True
-    return parts[-1] in _OUTPUT_NAMES or parts[-1].endswith(_OUTPUT_SUFFIXES)
+    name = parts[-1]
+    return name in _OUTPUT_NAMES or name.endswith(_OUTPUT_SUFFIXES) or name.lower().endswith(_DOC_SUFFIXES)
 
 
 def surface_manifest(project_root: Path, req_id: str) -> Dict[str, str]:
@@ -124,7 +128,7 @@ def surface_manifest(project_root: Path, req_id: str) -> Dict[str, str]:
             if path.is_symlink() or not path.is_file():
                 continue
             rel = path.relative_to(root).as_posix()
-            if is_output_path(rel):
+            if is_outside_acceptance(rel):
                 continue
             try:
                 if path.stat().st_size > _MAX_FILE_BYTES:
@@ -233,8 +237,8 @@ def compare_with_lock(project_root: Path, req_id: str, lock: Dict[str, Any]) -> 
     Returns ``{"ok": bool, "anomalies": [...], "added": [...], "lock_digest": ...}``.
     """
     root = kit_root(project_root, req_id)
-    # locks written before outputs were excluded may still list ci/reports/**: ignore those entries
-    locked: Dict[str, str] = {rel: d for rel, d in (lock.get("files") or {}).items() if not is_output_path(rel)}
+    # locks written by earlier versions may list ci/reports/** or ci/HOWTO.md: ignore those entries
+    locked: Dict[str, str] = {rel: d for rel, d in (lock.get("files") or {}).items() if not is_outside_acceptance(rel)}
     texts: Dict[str, str] = lock.get("texts") or {}
     current = surface_manifest(project_root, req_id)
     anomalies: List[Dict[str, Any]] = []

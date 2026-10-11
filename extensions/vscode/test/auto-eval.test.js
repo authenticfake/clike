@@ -89,3 +89,28 @@ test('/agent-model shows or sets the local agent model', () => {
   assert.deepEqual(parseSlash('/agent-model codex gpt-5.5-codex').args, { agent: 'codex', model: 'gpt-5.5-codex' });
   assert.deepEqual(parseSlash('/agent-model').args, { agent: '', model: '' });
 });
+
+test('loop: a missing eval environment stops at once, without a repair', () => {
+  const report = {
+    status: 'BLOCKED',
+    reason_code: 'EVAL_ENVIRONMENT_MISSING',
+    passed: false,
+    cases: [{ name: 'env::required-variables', passed: false, blocked: true, blocking: true, stderr: '  - APP_TEST_DATABASE_URL: real PostgreSQL' }],
+  };
+  const step = nextAutoEvalStep({ cycle: 0, maxCycles: 2, hint: '' }, report);
+  assert.equal(step.action, 'stop');
+  assert.match(step.reason, /nothing to repair/);
+  assert.match(step.reason, /APP_TEST_DATABASE_URL/);
+});
+
+test('acceptance snapshot leaves out ci/HOWTO.md (documentation, editable by hand)', () => {
+  const { snapshotAcceptanceSurface } = require('../auto-eval');
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'clike-howto-'));
+  const kit = path.join(ws, 'runs', 'kit', 'REQ-001');
+  fs.mkdirSync(path.join(kit, 'ci'), { recursive: true });
+  fs.writeFileSync(path.join(kit, 'ci', 'LTC.json'), '{}');
+  fs.writeFileSync(path.join(kit, 'ci', 'HOWTO.md'), '# how');
+  const snap = snapshotAcceptanceSurface(ws, 'REQ-001');
+  assert.ok('ci/LTC.json' in snap);
+  assert.ok(!('ci/HOWTO.md' in snap));
+});

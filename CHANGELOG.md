@@ -9,6 +9,14 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 - **Test infrastructure for the eval sandbox** (`docker/eval.env`, git-ignored, template
   `docker/eval.env.example`): variables the projects' tests need, such as a real PostgreSQL test
   database URL, reach the sandbox only. Credential-like names are still refused.
+- **`/eval` checks the required variables first.** The KIT declares them in `ci/LTC.json`
+  (`environment.required_variables: [{name, purpose, example}]`; the free-form
+  `environment: {NAME: "Required ..."}` of earlier KITs is understood too). When one is missing
+  from the sandbox, the eval reports `BLOCKED` (`reason_code: EVAL_ENVIRONMENT_MISSING`) with the
+  variable names and the `docker/eval.env` line to add, runs no check, and `/eval --fix` stops
+  without a repair (no tokens spent on code that is not at fault).
+- KIT (cloud and local agent): `ci/HOWTO.md` gets a mandatory `## Run with CLike /eval` section
+  (required variables, `docker/eval.env` lines, one-time setup, rebuild, `/eval` and `--fix`).
 
 ### Fixed
 
@@ -17,6 +25,11 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   so every later run found them "modified". Eval outputs (`reports/`, coverage files, `dist/`,
   `build/`, caches, `*.whl`, `*.pyc`, `*.log`) are no longer part of the acceptance surface, and
   locks written by earlier versions ignore their entries for those paths, without re-locking.
+- `ci/HOWTO.md` (and any Markdown under `test/` or `ci/`) is documentation, no longer part of the
+  acceptance lock: editing it by hand no longer reports `ACCEPTANCE_TAMPERED`.
+- `/init`: `README_1st.md` showed `${project.org}` and escaped backticks; the Git steps now create
+  the GitHub repository first (`gh repo create … --source . --remote origin --push`), since pushing
+  to a repository that does not exist fails with "Repository not found".
 
 ## [1.3.0] — 2026-10-11 — Project context sources
 

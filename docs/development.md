@@ -50,6 +50,9 @@ the LTC `environment` section) get it through `docker/eval.env` (git-ignored; te
 Use a disposable database with local trust auth: variable names that look like credentials
 (`TOKEN`, `PASSWORD`, `SECRET`, …) make the sandbox refuse to start. After editing the file,
 recreate the containers (`./rebuild.sh` or `podman-compose up -d --force-recreate`).
+The KIT declares the variables in `ci/LTC.json` (`environment.required_variables`) and explains
+them in the `## Run with CLike /eval` section of `ci/HOWTO.md`; when one is missing the eval is
+`BLOCKED` (`EVAL_ENVIRONMENT_MISSING`) before any check runs, and `/eval --fix` does not repair.
 An eval whose caller disconnects (VS Code closed, benchmark stopped, client timeout) is
 cancelled: the orchestrator closes its request to the sandbox (HTTP 499), the sandbox kills the
 running check with its process group and skips the remaining ones.

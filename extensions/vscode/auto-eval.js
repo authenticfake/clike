@@ -65,7 +65,8 @@ function snapshotAcceptanceSurface(workspaceRoot, reqId) {
   const snapshot = {};
   for (const file of collectRepairFiles(workspaceRoot, reqId)) {
     const rel = file.path.slice(`runs/kit/${reqId}/`.length);
-    if (rel.startsWith('test/') || rel.startsWith('ci/')) snapshot[rel] = file.content;
+    // Markdown (ci/HOWTO.md) documents how to run the checks: not acceptance, freely editable.
+    if ((rel.startsWith('test/') || rel.startsWith('ci/')) && !rel.toLowerCase().endsWith('.md')) snapshot[rel] = file.content;
   }
   return snapshot;
 }
@@ -101,6 +102,14 @@ function restoreAcceptanceFiles(workspaceRoot, reqId, before, rels) {
  */
 function nextAutoEvalStep(state, report) {
   if (evalPassed(report)) return { action: 'pass', reason: `eval PASS after ${state.cycle} repair cycle(s)` };
+  if (report?.reason_code === 'EVAL_ENVIRONMENT_MISSING') {
+    const env = (report.cases || []).find(c => c.name === 'env::required-variables');
+    return {
+      action: 'stop',
+      reason: 'the eval environment lacks variables the checks need (the code is not at fault, nothing to repair)' +
+        (env?.stderr ? `:\n${env.stderr}` : ''),
+    };
+  }
   if (report?.integrity && report.integrity.ok === false) {
     return { action: 'stop', reason: 'the acceptance surface (test/ or ci/) changed after the lock; re-run /kit to re-baseline' };
   }

@@ -46,6 +46,7 @@ class EvalReport:
     status: str = "FAIL"
     junit_path: Optional[str] = None
     json_path: Optional[str] = None
+    reason_code: Optional[str] = None
 
 
 def report_to_dict(rep: "EvalReport") -> Dict[str, Any]:
@@ -166,6 +167,86 @@ _NON_BEHAVIOURAL_CHECK_RE = re.compile(
     re.IGNORECASE,
 )
 _TEST_FAILURES_RE = re.compile(r"\b\d+ (?:failed|errors?)\b|^FAILED ", re.MULTILINE)
+
+
+_ENV_VAR_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]{2,}$")
+_REQUIRED_WORD_RE = re.compile(r"\b(required|requires|must|needed|mandatory)\b", re.IGNORECASE)
+_OPTIONAL_WORD_RE = re.compile(r"\boptional\b", re.IGNORECASE)
+ENVIRONMENT_MISSING_REASON = "EVAL_ENVIRONMENT_MISSING"
+
+
+def _ltc_env_values(ltc: Dict[str, Any]) -> set:
+    """Names the LTC itself sets (top-level env and per-check env)."""
+    names = set((ltc.get("env") or {}) if isinstance(ltc.get("env"), dict) else ())
+    for key in ("checks", "cases", "commands", "steps"):
+        for item in ltc.get(key) or []:
+            if isinstance(item, dict) and isinstance(item.get("env"), dict):
+                names.update(item["env"])
+    return names
+
+
+def required_environment_variables(ltc: Dict[str, Any]) -> List[Dict[str, str]]:
+    """Variables the LTC declares the checks need from the environment, e.g. a test database URL.
+
+    ``environment.required_variables: [{name, purpose, example}]`` (KIT contract), or the
+    free-form ``environment: {NAME: "Required ..."}`` of earlier KITs. CLike's own CLIKE_*
+    variables, values set by the LTC and entries marked optional are not required.
+    """
+    env = ltc.get("environment") if isinstance(ltc, dict) else None
+    found: Dict[str, Dict[str, str]] = {}
+
+    def add(name: Any, purpose: Any = "", example: Any = "", optional: bool = False) -> None:
+        name = str(name or "").strip()
+        if not _ENV_VAR_NAME_RE.match(name) or name.startswith("CLIKE_") or optional:
+            return
+        found.setdefault(name, {"name": name, "purpose": str(purpose or "").strip(), "example": str(example or "").strip()})
+
+    if isinstance(env, dict):
+        for item in env.get("required_variables") or []:
+            if isinstance(item, dict):
+                add(item.get("name"), item.get("purpose"), item.get("example"), bool(item.get("optional")))
+            else:
+                add(item)
+        for name, value in env.items():
+            if name == "required_variables":
+                continue
+            if isinstance(value, dict):
+                add(name, value.get("purpose") or value.get("description"), value.get("example"),
+                    not value.get("required", True) or bool(value.get("optional")))
+            elif isinstance(value, str) and _REQUIRED_WORD_RE.search(value) and not _OPTIONAL_WORD_RE.search(value):
+                add(name, value)
+    elif isinstance(env, list):
+        for item in env:
+            if isinstance(item, dict):
+                add(item.get("name"), item.get("purpose"), item.get("example"), bool(item.get("optional")))
+    provided = _ltc_env_values(ltc)
+    return [v for k, v in found.items() if k not in provided]
+
+
+def missing_environment_case(ltc: Dict[str, Any], environ: Optional[Dict[str, str]] = None) -> Optional["EvalCase"]:
+    """A blocked case listing the required variables absent from the eval environment, or None."""
+    environ = scrubbed_process_env() if environ is None else environ
+    missing = [v for v in required_environment_variables(ltc) if not str(environ.get(v["name"], "")).strip()]
+    if not missing:
+        return None
+    lines = [
+        "The checks need variables that the eval environment does not provide:",
+        *(f"  - {v['name']}" + (f": {v['purpose']}" if v["purpose"] else "") for v in missing),
+        "Add them to docker/eval.env (git-ignored; template docker/eval.env.example), one NAME=value per line;",
+        "from the eval sandbox the host machine is host.containers.internal, e.g.",
+        f"  {missing[0]['name']}=" + (missing[0]["example"] or "postgresql+psycopg://me@host.containers.internal:5432/test_db"),
+        "then recreate the stack (docker/rebuild.sh) and re-run /eval. See the REQ's ci/HOWTO.md.",
+        "No check was run and no repair is attempted: the code is not at fault.",
+    ]
+    return EvalCase(
+        name="env::required-variables",
+        passed=False,
+        code=78,
+        stdout="",
+        stderr="\n".join(lines),
+        blocked=True,
+        blocking=True,
+    )
 
 
 def _is_regression_test_case(case: "EvalCase") -> bool:
@@ -1972,6 +2053,15 @@ class EvalRunner:
         eff_req = req_id or ltc.get("req_id")
         top_env = ltc.get("env") or {}
         out_cases: List[EvalCase] = []
+
+        missing_env = missing_environment_case(ltc)
+        if missing_env is not None:
+            report = self._report_from_cases(
+                profile_path=profile_path, req_id=eff_req, mode="auto", cases=[missing_env],
+            )
+            report.status = "BLOCKED"
+            report.reason_code = ENVIRONMENT_MISSING_REASON
+            return report
 
         try:
             workspace_result = self._prepare_eval_workspace(

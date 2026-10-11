@@ -114,6 +114,22 @@ class GateIntegrityTests(unittest.TestCase):
         self.assertEqual(g.json()["gate"], "PASS", g.text)
         self.assertTrue(g.json()["integrity"]["ok"])
 
+    def test_howto_is_documentation_and_editable(self):
+        (self.kit / "ci" / "HOWTO.md").write_text("# run")
+        self._eval()
+        (self.kit / "ci" / "HOWTO.md").write_text("# run\n\n## Run with CLike /eval\n")
+        self.assertTrue(self._gate().json()["integrity"]["ok"])
+
+    def test_missing_required_variable_is_blocked_not_failed(self):
+        ltc = dict(LTC, environment={"required_variables": [{"name": "CLIKETEST_DB_URL", "purpose": "real PostgreSQL"}]})
+        (self.kit / "ci" / "LTC.json").write_text(json.dumps(ltc))
+        body = self._eval().json()
+        self.assertEqual(body["status"], "BLOCKED", body)
+        self.assertEqual(body["reason_code"], "EVAL_ENVIRONMENT_MISSING")
+        self.assertEqual(body["environment_blocked"], ["env::required-variables"])
+        self.assertIn("CLIKETEST_DB_URL", body["cases"][0]["stderr"])
+        self.assertEqual(self._gate().json()["gate"], "FAIL")
+
     def test_stale_lock_listing_reports_is_still_accepted(self):
         from services import gate_integrity
 
@@ -121,6 +137,7 @@ class GateIntegrityTests(unittest.TestCase):
         lock_path = gate_integrity._req_state_path(self.proj, REQ, "lock")
         lock = json.loads(lock_path.read_text())
         lock["files"]["ci/reports/tests.xml"] = "0" * 64  # written by an older CLike
+        lock["files"]["ci/HOWTO.md"] = "0" * 64
         lock_path.write_text(json.dumps(lock))
         self.assertTrue(self._gate().json()["integrity"]["ok"])
 
