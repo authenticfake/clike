@@ -127,3 +127,11 @@ test('loop: a missing environment a repair can declare is repaired, not stopped'
   assert.equal(step.action, 'repair');
   assert.equal(step.failures[0].name, 'env::required-variables');
 });
+
+test('loop: extra cycles while the failures decrease, bounded', () => {
+  const base = { cycle: 2, maxCycles: 2, hint: '', extraCycles: 2, lastKitOk: true };
+  assert.equal(nextAutoEvalStep({ ...base, lastFailureCount: 3 }, failing(['integration'])).action, 'repair');
+  assert.equal(nextAutoEvalStep({ ...base, lastFailureCount: 1 }, failing(['integration'])).action, 'stop');
+  assert.equal(nextAutoEvalStep({ ...base, cycle: 4, lastFailureCount: 3 }, failing(['integration'])).action, 'stop');
+  assert.equal(nextAutoEvalStep({ ...base, extraCycles: 0, lastFailureCount: 3 }, failing(['integration'])).action, 'stop');
+});

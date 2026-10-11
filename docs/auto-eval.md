@@ -26,6 +26,7 @@ only when its own checks pass **and** it does not break what is already promoted
 | Continue after the loop stopped | run `/eval REQ-002 --fix ["hint"]` again: it restarts from the current files, with a new cycle budget |
 | Run it automatically after every `/kit` | `clike.autoEval.afterKit: true` (default `false`) |
 | Number of repair cycles | `clike.autoEval.maxCycles` (default `2`, max `5`) |
+| Extra cycles while improving | `clike.autoEval.extraCyclesOnProgress` (default `2`): after `maxCycles`, the loop goes on as long as each cycle leaves fewer failing checks |
 | Re-check the promoted REQs | `clike.eval.regression` (default `true`) |
 | Make warnings block the gate | `clike.gate.strictWarnings` (default `false`) |
 

@@ -6,7 +6,10 @@ from fastapi import APIRouter, Request, HTTPException
 from config import load_models_cfg
 from model_resolver import resolve_model
 from providers import openai_compat as oai
-from utils.openai_like import format_embeddings_response
+from utils.openai_like import format_embeddings_list_response, format_embeddings_response
+
+# OpenAI accepts up to 2048 inputs per request; RAG indexing sends batches of 64.
+MAX_BATCH_INPUTS = int(os.getenv("CLIKE_EMBED_MAX_BATCH", "256"))
 
 router = APIRouter()
 logger = logging.getLogger("gateway.embeddings")
@@ -18,9 +21,18 @@ async def embeddings(req: Request):
     model_name = (body.get("model") or "").strip()
     input_raw = body.get("input", "")
 
-    # 1) Normalize input
+    # 1) Normalize input: a string, or a list of strings embedded in one provider call
+    # (OpenAI semantics: one vector per item, in order).
+    batch: list[str] | None = None
     if isinstance(input_raw, list):
-        input_text = "\n\n".join([str(x) for x in input_raw if isinstance(x, (str, bytes))]).strip()
+        batch = [str(x) for x in input_raw if isinstance(x, (str, bytes))]
+        if not batch or any(not item.strip() for item in batch):
+            raise HTTPException(400, "missing or empty 'input' item for embeddings")
+        if len(batch) > MAX_BATCH_INPUTS:
+            raise HTTPException(400, f"embedding batch too large: at most {MAX_BATCH_INPUTS} inputs")
+        if any(len(item) > 12000 for item in batch):
+            raise HTTPException(400, "embedding input too large; caller must chunk before embedding")
+        input_text = batch[0]
     else:
         input_text = str(input_raw or "").strip()
 
@@ -76,6 +88,10 @@ async def embeddings(req: Request):
     )
 
     try:
+        if batch is not None and provider in {"ollama", "openai"}:
+            batch_base = (base if base.endswith("/v1") else f"{base}/v1") if provider == "ollama" else base
+            vectors = await oai.embeddings_batch(batch_base, api_key if provider == "openai" else "ollama", remote, batch)
+            return format_embeddings_list_response(m.get("name"), vectors)
         if provider == "ollama":
             # D3: Ollama's OpenAI-compatible /v1/embeddings (it ignores the bearer token)
             ollama_base = base if base.endswith("/v1") else f"{base}/v1"

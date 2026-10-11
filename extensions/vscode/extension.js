@@ -1870,6 +1870,7 @@ function cfg() {
     optimizeFor: c.get('optimizeFor', 'capability'),
     harperTimeout: c.get('harperTimeout', 25),
     autoEvalMaxCycles: c.get('autoEval.maxCycles', 2),
+    autoEvalExtraCyclesOnProgress: c.get('autoEval.extraCyclesOnProgress', 2),
     autoEvalAfterKit: c.get('autoEval.afterKit', false),
     agentChatApprovals: c.get('agentChat.approvals', 'ask'),
     kitAcceptanceFirst: c.get('kit.acceptanceFirst', false),
@@ -6032,6 +6033,8 @@ async function cmdOpenChat(context) {
     const state = {
       cycle: Number(msg.fix.cycle || 0),
       maxCycles: Math.max(1, Number(msg.fix.maxCycles || settings.autoEvalMaxCycles || 2)),
+      extraCycles: Math.max(0, Number(msg.fix.extraCycles ?? settings.autoEvalExtraCyclesOnProgress ?? 2)),
+      lastFailureCount: msg.fix.lastFailureCount,
       hint: String(msg.fix.hint || ''),
       lastSignature: msg.fix.lastSignature || '',
       lastKitOk: msg.fix.lastKitOk,
@@ -6084,7 +6087,7 @@ async function cmdOpenChat(context) {
       targets: [reqId],
       targetReqId: reqId,
       attachments: [],
-      fix: { ...state, cycle, lastSignature: step.signature, lastKitOk: kitMsg.__result === 'ok', lastFailures: step.failures },
+      fix: { ...state, cycle, lastSignature: step.signature, lastKitOk: kitMsg.__result === 'ok', lastFailures: step.failures, lastFailureCount: (step.failures || []).length },
     };
     await handleWebviewMessage(evalMsg);
     if (evalMsg.__report) msg.__report = evalMsg.__report;

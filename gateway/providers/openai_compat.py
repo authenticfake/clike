@@ -653,3 +653,22 @@ async def embeddings(base_url: str, api_key: str | None, model: str, input_text:
     if not isinstance(vec, list) or not vec:
         raise RuntimeError("OpenAI-compatible embeddings provider returned an empty vector")
     return vec
+
+async def embeddings_batch(base_url: str, api_key: str | None, model: str, inputs: list[str]) -> list[list[float]]:
+    """One request for many inputs (OpenAI-compatible list input); vectors in input order."""
+    if not api_key:
+        raise RuntimeError("missing API key for OpenAI-compatible embeddings provider")
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
+    async with httpx.AsyncClient(timeout=120) as client:
+        r = await client.post(
+            f"{base_url.rstrip('/')}/embeddings",
+            json={"model": model, "input": inputs},
+            headers=headers,
+        )
+        r.raise_for_status()
+        data = r.json() or {}
+    items = sorted((d for d in (data.get("data") or []) if isinstance(d, dict)), key=lambda d: d.get("index", 0))
+    vectors = [d.get("embedding") for d in items]
+    if len(vectors) != len(inputs) or not all(isinstance(v, list) and v for v in vectors):
+        raise RuntimeError(f"OpenAI-compatible embeddings provider returned {len(vectors)} vectors for {len(inputs)} inputs")
+    return vectors

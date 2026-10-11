@@ -191,6 +191,13 @@
           "maximum": 5,
           "description": "Maximum KIT repair cycles of /eval REQ --fix (auto-eval). Re-run the command to continue from the current state."
         },
+        "clike.autoEval.extraCyclesOnProgress": {
+          "type": "number",
+          "default": 2,
+          "minimum": 0,
+          "maximum": 5,
+          "description": "Extra repair cycles after clike.autoEval.maxCycles while every cycle reduces the failing checks (0 = stop at maxCycles)."
+        },
         "clike.autoEval.afterKit": {
           "type": "boolean",
           "default": false,

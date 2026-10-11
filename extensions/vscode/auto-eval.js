@@ -120,7 +120,20 @@ function nextAutoEvalStep(state, report) {
   if (!failures.length) return { action: 'stop', reason: 'eval failed without failing checks to repair (see the eval report)' };
   const signature = failureSignature(failures);
   if (state.cycle >= state.maxCycles) {
-    return { action: 'stop', reason: `still failing after ${state.cycle} repair cycle(s)`, failures, signature };
+    // Still improving (fewer failing checks than before the last repair): extra cycles, bounded.
+    const extra = Math.max(0, Number(state.extraCycles ?? 2));
+    const improving = Number.isFinite(state.lastFailureCount) && failures.length < state.lastFailureCount;
+    if (!improving || state.cycle >= state.maxCycles + extra) {
+      return { action: 'stop', reason: `still failing after ${state.cycle} repair cycle(s)`, failures, signature };
+    }
+    if (state.lastKitOk !== false) {
+      return {
+        action: 'repair',
+        reason: `${failures.length} failing check(s), down from ${state.lastFailureCount}: extra cycle ${state.cycle + 1 - state.maxCycles}/${extra}`,
+        failures,
+        signature,
+      };
+    }
   }
   if (state.lastKitOk === false) {
     return { action: 'stop', reason: 'the KIT repair request failed (see the chat for the error)', failures, signature };

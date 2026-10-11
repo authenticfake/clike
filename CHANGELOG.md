@@ -29,6 +29,14 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   `review_required` at the gate. Until now only Python tests had this, so a correct repair of a
   TS fixture was reverted and `--fix` kept failing on it. The eval pre-pass now receives the
   previous failures as evidence too.
+- **`/eval --fix` keeps going while it improves**: after `clike.autoEval.maxCycles`, up to
+  `clike.autoEval.extraCyclesOnProgress` (default 2) more cycles as long as each one leaves fewer
+  failing checks.
+- **RAG indexing is batched and incremental.** The orchestrator embedded one chunk per gateway
+  call (a project re-index took 5 minutes inside every `--fix` cycle); it now sends batches
+  (`RAG_EMBED_BATCH_SIZE`, default 64, `RAG_EMBED_CONCURRENCY` 4) and skips files whose content
+  is already indexed (point ids derive from path + content). The gateway `/v1/embeddings` accepts
+  a list input and returns one vector per item in one provider call (it joined the items before).
 - **`/eval` checks the required variables first.** The KIT declares them in `ci/LTC.json`
   (`environment.required_variables: [{name, purpose, example}]`; the free-form
   `environment: {NAME: "Required ..."}` of earlier KITs is understood too). When one is missing
