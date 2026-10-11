@@ -135,3 +135,10 @@ test('loop: extra cycles while the failures decrease, bounded', () => {
   assert.equal(nextAutoEvalStep({ ...base, cycle: 4, lastFailureCount: 3 }, failing(['integration'])).action, 'stop');
   assert.equal(nextAutoEvalStep({ ...base, extraCycles: 0, lastFailureCount: 3 }, failing(['integration'])).action, 'stop');
 });
+
+test('/gate promotion flags', () => {
+  assert.equal(parseSlash('/gate REQ-003 --ask').args.promote, 'ask');
+  assert.equal(parseSlash('/gate REQ-003 --no-promote').args.promote, 'off');
+  assert.equal(parseSlash('/gate REQ-003').args.promote, undefined);
+  assert.deepEqual(parseSlash('/gate REQ-003 --ask').args.targets, ['REQ-003']);
+});

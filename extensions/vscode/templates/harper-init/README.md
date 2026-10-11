@@ -60,7 +60,7 @@ Prerequisites: the CLike stack is running (orchestrator `http://localhost:8080`,
 | PLAN | `/plan` | `docs/harper/PLAN.md`, `docs/harper/plan.json` | REQ split, order, dependencies, tech choices |
 | KIT | `/kit REQ-xxx` | `runs/kit/REQ-xxx/` (src, test, ci, docs) | candidate code and tests of one REQ |
 | EVAL | `/eval REQ-xxx [--fix]` | eval report | every LTC check green |
-| GATE | `/gate REQ-xxx` | gate decision, promotion | the REQ is promoted to `src/` and `test/` |
+| GATE | `/gate REQ-xxx` | gate decision, auto-merge promotion, `runs/kit/REQ-xxx/promotion/*/report.md` | the REQ is merged into `src/` and `test/` (conflicts listed, never written) |
 | FINALIZE | `/finalize` | release README, `docs/harper/HOWTO_RUN.md`, release notes | the solution as delivered |
 
 Rules that keep the result trustworthy:
@@ -124,7 +124,7 @@ ${project.name}/
 | `/kit` / `/kit REQ-001` | implements the next open REQ / the given one |
 | `/eval REQ-001` | runs the REQ's LTC checks in the eval sandbox |
 | `/eval REQ-001 --fix ["hint"]` | evaluates and repairs failing checks automatically |
-| `/gate REQ-001` | decides promotion of the REQ |
+| `/gate REQ-001` | decides promotion; on PASS promotes by auto-merge and opens the promotion report (`--ask` to choose the strategy, `--no-promote` to skip) |
 | `/finalize` | release documents of the whole solution |
 | `/agent-default auto\|codex\|claude` | which local agent runs the phases |
 | `/agent-model codex <model>` | model of the local agent |

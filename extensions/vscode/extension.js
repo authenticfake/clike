@@ -5126,13 +5126,22 @@ async function cmdOpenChat(context) {
             }
 
             msg.__report = summarizeEvalReport(report);
-            const { report_file, filesToCommit, planFiles } = await saveGateCommand(
+            const { report_file, filesToCommit, planFiles, promotion } = await saveGateCommand(
               ws_root,
               plan,
               targets,
               report,
-              out
+              out,
+              { promote: msg.promote || undefined }
             );
+            if (promotion) {
+              panel.webview.postMessage({
+                type: 'echo',
+                message: `${promotion.promoted ? '✔' : '⚠'} PROMOTION ${promotion.summary}` +
+                  (promotion.report ? `\nReport: ${vscode.workspace.asRelativePath(promotion.report)}` : ''),
+              });
+              msg.__report = { ...(msg.__report || {}), promotion };
+            }
 
             log("report_file, filesToCommit, planFiles", report_file, filesToCommit, planFiles);
 

@@ -82,6 +82,32 @@ This separation is important for:
 - eval/gate reproducibility
 - Git traceability
 
+## Gate auto-merge promotion (default)
+
+On a passing `/gate` (`PASS`, `PASS_WITH_WARNINGS` with accepted warnings, or an audited
+override) the REQ is promoted **without prompts** (`clike.gate.autoPromote`, default `merge`;
+`extensions/vscode/promote-merge.js`):
+
+- only `runs/kit/<REQ>/{src,test,tests}/**` are promoted into the canonical roots; installed or
+  generated content (`node_modules`, `__pycache__`, `.venv`, caches, `.next`, `.tmp`) never is;
+- every file gets a **3-way merge**: base = the canonical file before the KIT of the REQ (the
+  parent of the first commit that added `runs/kit/<REQ>/`), ours = the canonical file now,
+  theirs = the candidate. Outcomes: `added`, `updated` (canonical unchanged since the KIT),
+  `merged` (both changed, merged cleanly by `git merge-file`), `kept_canonical`, `unchanged`,
+  `conflict`;
+- a conflicting file is **never written**: `<name>.conflict-<REQ>-<ts>` next to it holds the
+  merge with conflict markers, the other files are promoted, and the REQ stays `in_progress`
+  until the conflicts are resolved and `/gate` runs again;
+- without git history of the KIT there is no base: only new or identical files are promoted,
+  the others are conflicts (nothing is overwritten silently);
+- the report `runs/kit/<REQ>/promotion/<ts>/report.md` (opened at the end) lists every file with
+  its outcome and lines changed; `report.json` is the machine form and `promotion.diff` the unified
+  diff of everything written (`git apply -R` reverts it). The promoted files and the report are in
+  the gate commit when `clike.git.autoCommit` is on.
+
+`/gate <REQ> --ask` uses the interactive strategies below for one run, `/gate <REQ> --no-promote`
+skips the promotion; `clike.gate.autoPromote: "ask" | "off"` makes that the default.
+
 ## Promotion helpers
 
 The extension contains promotion-oriented helpers and manifests, including references to:

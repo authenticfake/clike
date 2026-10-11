@@ -529,7 +529,7 @@ var HELP_COMMANDS = [
   {cmd:'/eval <REQ-ID>', desc:'Runs the REQ acceptance checks (LTC) in the eval sandbox; with clike.eval.regression also the checks of the promoted REQs'},
   {cmd:'/eval <REQ-ID> --fix ["hint"]', desc:'Auto-eval: eval, then on failure a KIT repair from the real failures, then eval again (max clike.autoEval.maxCycles, default 2, plus up to clike.autoEval.extraCyclesOnProgress while the failures decrease). Tests stay locked. Re-run it to continue; the optional hint guides the fix'},
   {cmd:'/eval REQ-001 --methodology bmad --agent qa', desc:'Runs canonical eval, then attaches BMAD QA advisory guidance'},
-  {cmd:'/gate <REQ-ID>', desc:'Promotion gate: PASS if the checks (and the regression checks) pass; warnings do not block unless clike.gate.strictWarnings'},
+  {cmd:'/gate <REQ-ID> [--ask|--no-promote]', desc:'Promotion gate: PASS if the checks (and the regression checks) pass; warnings do not block unless clike.gate.strictWarnings. On PASS the REQ is promoted by auto-merge (3-way per file, conflicts never written) with a report in runs/kit/<REQ>/promotion/ (clike.gate.autoPromote: merge | ask | off); --ask chooses the strategy, --no-promote skips it'},
   {cmd:'/plan --methodology bmad --agent architect', desc:'Plans with BMAD architecture guidance while CLike owns PLAN.md and plan.json'},
   {cmd:'/plan --methodology bmad --agent pm', desc:'Plans with BMAD product slicing and acceptance guidance'},
   {cmd:'/spec --methodology bmad --agent ux', desc:'Builds SPEC guidance with UX journeys, states, and accessibility focus'},
@@ -1435,6 +1435,7 @@ function handleSlash(slash) {
     msg.running = slash.args?.testMode ?? null;
     msg.modeContent = slash.args?.modeContent ?? null;
     if (slash.args?.fix) msg.fix = { hint: slash.args.hint || '' };
+    if (slash.args?.promote) msg.promote = slash.args.promote;
     msg.path=path_ltc_json
     postAndLock(msg.type, msg);
     attachmentsByMode[currentMode()] = [];

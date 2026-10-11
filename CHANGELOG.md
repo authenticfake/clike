@@ -29,6 +29,13 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   `review_required` at the gate. Until now only Python tests had this, so a correct repair of a
   TS fixture was reverted and `--fix` kept failing on it. The eval pre-pass now receives the
   previous failures as evidence too.
+- **`/gate` promotes by auto-merge, without prompts** (`clike.gate.autoPromote`, default `merge`):
+  a 3-way merge per file of `runs/kit/<REQ>/{src,test,tests}` into the canonical roots (base =
+  the canonical state before the KIT), conflicting files never written (a `.conflict-<REQ>-<ts>`
+  file holds the markers and the REQ stays in progress), installed/generated content never
+  promoted, and a report with per-file outcome and unified diff in
+  `runs/kit/<REQ>/promotion/<ts>/` (`report.md`, `report.json`, `promotion.diff`), opened at the
+  end and summarized in the chat. `/gate --ask` / `--no-promote` override it for one run.
 - **`/eval --fix` keeps going while it improves**: after `clike.autoEval.maxCycles`, up to
   `clike.autoEval.extraCyclesOnProgress` (default 3) more cycles as long as each one leaves fewer
   failing checks.

@@ -1,5 +1,6 @@
 const { request: serviceRequest } = require('./orchestrator-client');
 const vscode = require('vscode');
+const { autoMergePromotion } = require('./promote-merge');
 const cp = require('child_process');
 const path = require('path');
 const { buildLocalAgentEnv, resolveLocalAgentCommandPath, buildLocalAgentSpawn, resolvePromptTransport, terminateProcessTree } = require('./local-agent-executors');
@@ -1215,7 +1216,7 @@ async function persistReports(projectRootUri, phase, rep, out, fallbackReqId = '
 /**
  * /gate → move REQ to done and sync artifacts
  */
-async function saveGateCommand(projectRootUri, plan, targetReqId, report, out) {
+async function saveGateCommand(projectRootUri, plan, targetReqId, report, out, options = {}) {
   const log = (m) => (out?.appendLine ? out.appendLine(m) : console.log(m));
   log(`[saveGateCommand] target=${targetReqId}`);
 
@@ -1230,10 +1231,27 @@ async function saveGateCommand(projectRootUri, plan, targetReqId, report, out) {
   // (clike.gate.strictWarnings off), so the REQ is promotable like a clean PASS.
   const isPass = (gateVerdict === 'pass' && ['PASS', 'PASS_WITH_WARNINGS'].includes(gateStatus)) || isOverride;
 
-  if (isPass) {
+  // clike.gate.autoPromote: "merge" (default) promotes without prompts by a 3-way merge and
+  // writes a report; "ask" keeps the interactive strategy choice; "off" never promotes.
+  const promoteMode = String(options.promote || vscode.workspace.getConfiguration('clike').get('gate.autoPromote', 'merge'));
+  let autoMerge = null;
+  if (isPass && promoteMode === 'merge') {
+    try {
+      autoMerge = autoMergePromotion({ workspaceRoot: projectRootUri.fsPath, reqId: targetReqId });
+      log(`[saveGateCommand] auto-merge: ${autoMerge.summary}`);
+    } catch (err) {
+      autoMerge = { promoted: false, error: String(err?.message || err), written: [], reportFiles: [], summary: `${targetReqId} NOT promoted: auto-merge failed (${err?.message || err}).` };
+      log(`[saveGateCommand] auto-merge failed: ${err?.stack || err}`);
+    }
+  }
+
+  if (isPass && (!autoMerge || autoMerge.promoted)) {
     if (!setReqStatus(effectivePlan, targetReqId, 'done')) {
       log(`[saveGateCommand] REQ ${targetReqId} not found in plan.json`);
     }
+  } else if (isPass) {
+    setReqStatus(effectivePlan, targetReqId, 'in_progress');
+    log(`[saveGateCommand] auto-merge left conflicts for ${targetReqId}; status kept as in_progress`);
   } else {
     setReqStatus(effectivePlan, targetReqId, 'in_progress');
     log(`[saveGateCommand] gate not passed for ${targetReqId}; status kept as in_progress`);
@@ -1252,7 +1270,18 @@ async function saveGateCommand(projectRootUri, plan, targetReqId, report, out) {
     planMdUri.fsPath,
   ];
 
-  if (isPass) {
+  if (isPass && autoMerge) {
+    filesToCommit.push(...autoMerge.written, ...autoMerge.reportFiles);
+    if (autoMerge.reportPath) {
+      const reportUri = vscode.Uri.file(autoMerge.reportPath);
+      vscode.commands.executeCommand('markdown.showPreview', reportUri).then(undefined, () =>
+        vscode.window.showTextDocument(reportUri, { preview: true }));
+    }
+    const notify = autoMerge.promoted ? vscode.window.showInformationMessage : vscode.window.showWarningMessage;
+    notify(`CLike: ${autoMerge.summary}`);
+  } else if (isPass && promoteMode === 'off') {
+    log(`[saveGateCommand] Gate passed for ${targetReqId}; promotion off (clike.gate.autoPromote)`);
+  } else if (isPass) {
     log(`[saveGateCommand] Gate passed for ${targetReqId}`);
 
     const choice = await vscode.window.showInformationMessage(
@@ -1296,6 +1325,7 @@ async function saveGateCommand(projectRootUri, plan, targetReqId, report, out) {
     report_file,
     filesToCommit,
     planFiles: [planJsonUri.fsPath, planMdUri.fsPath],
+    promotion: autoMerge ? { promoted: autoMerge.promoted, summary: autoMerge.summary, report: autoMerge.reportPath || null } : null,
   };
 }
 

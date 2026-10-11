@@ -198,6 +198,17 @@
           "maximum": 5,
           "description": "Extra repair cycles after clike.autoEval.maxCycles while every cycle reduces the failing checks (0 = stop at maxCycles)."
         },
+        "clike.gate.autoPromote": {
+          "type": "string",
+          "enum": ["merge", "ask", "off"],
+          "enumDescriptions": [
+            "On a PASS, promote without prompts: 3-way merge per file (base = canonical state before the KIT); conflicting files are not written and keep the REQ in progress; report in runs/kit/<REQ>/promotion/",
+            "On a PASS, ask whether to promote and with which strategy (folder, suffix, backup, skip, overwrite)",
+            "Never promote on /gate (mark the REQ done only)"
+          ],
+          "default": "merge",
+          "description": "How /gate promotes a passing REQ into src/ and test/. /gate --ask or --no-promote override it for one run."
+        },
         "clike.autoEval.afterKit": {
           "type": "boolean",
           "default": false,

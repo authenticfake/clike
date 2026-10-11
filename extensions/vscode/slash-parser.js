@@ -184,7 +184,7 @@ function parseSlash(input) {
   const cmd = String(parts[0] || '').toLowerCase();
   const phase = normalizePhaseFromCommand(cmd);
   const parsedFlags = parseMethodologyFlags(parts.slice(1).map(x => String(x).trim()).filter(Boolean), phase);
-  const rest = parsedFlags.rest;
+  let rest = parsedFlags.rest;
 
   const finish = (args) => {
     const parsed = { cmd, args: withMethodologyArgs(args, parsedFlags) };
@@ -202,6 +202,16 @@ function parseSlash(input) {
   }
 
   if (cmd === '/eval' || cmd === '/gate') {
+    // /gate promotion mode for this run: --ask (interactive strategy), --no-promote, --auto-merge
+    let promote;
+    if (cmd === '/gate') {
+      const flags = { '--ask': 'ask', '--no-promote': 'off', '--auto-merge': 'merge' };
+      rest = rest.filter((t) => {
+        const mode = flags[String(t).toLowerCase()];
+        if (mode) promote = mode;
+        return !mode;
+      });
+    }
     const fixArgs = cmd === '/eval' ? parseFixArgs(rest) : { fix: false, hint: '', rest };
     const tokens = fixArgs.rest;
     const testMode = tokens.slice(1) ? tokens.slice(1)[0] : 'auto';
@@ -217,7 +227,7 @@ function parseSlash(input) {
     }
 
     const fix = fixArgs.fix ? { fix: true, hint: fixArgs.hint } : {};
-    return finish({ targets, testMode, modeContent, ...fix });
+    return finish({ targets, testMode, modeContent, ...fix, ...(promote ? { promote } : {}) });
   }
 
   if (cmd === '/extend' || cmd === '/add-req') {
