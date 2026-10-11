@@ -1226,7 +1226,9 @@ async function saveGateCommand(projectRootUri, plan, targetReqId, report, out) {
   const gateStatus = String(report?.status || '').trim().toUpperCase();
   // OVERRIDE = audited developer override from the orchestrator (WP6): promotable, but tracked as such.
   const isOverride = gateVerdict === 'pass' && gateStatus === 'OVERRIDE' && !!report?.override?.audit_id;
-  const isPass = (gateVerdict === 'pass' && gateStatus === 'PASS') || isOverride;
+  // PASS_WITH_WARNINGS with gate=PASS: the warnings were accepted by the gate policy
+  // (clike.gate.strictWarnings off), so the REQ is promotable like a clean PASS.
+  const isPass = (gateVerdict === 'pass' && ['PASS', 'PASS_WITH_WARNINGS'].includes(gateStatus)) || isOverride;
 
   if (isPass) {
     if (!setReqStatus(effectivePlan, targetReqId, 'done')) {

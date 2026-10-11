@@ -94,6 +94,9 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   filled it, so the real files fell outside and were reported removed. Scratch and cache dirs
   (`.tmp`, `tmp`, `.cache`, `.npm-cache`, `.next`, `coverage`, `local-eval-workspaces`) are not
   acceptance, and a locked file is reported removed only if it is really gone.
+- **A gate PASS with accepted warnings did not promote.** `GATE_PASS_WITH_WARNINGS` (gate `PASS`,
+  warnings allowed by `clike.gate.strictWarnings` off) left the REQ `in_progress` without the
+  promotion prompt; it is now promotable like a clean PASS.
 - `ci/HOWTO.md` (and any Markdown under `test/` or `ci/`) is documentation, no longer part of the
   acceptance lock: editing it by hand no longer reports `ACCEPTANCE_TAMPERED`.
 - `/init`: `README_1st.md` showed `${project.org}` and escaped backticks; the Git steps now create
