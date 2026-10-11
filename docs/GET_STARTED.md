@@ -42,6 +42,9 @@ are small IDEAs to start with.
 3. Put the IDEA in `docs/harper/IDEA.md` (its *Technology Constraints* block becomes
    `TECH_CONSTRAINTS.yaml`), or write it with `/idea`.
 4. `/spec` then `/plan` → `docs/harper/SPEC.md`, `PLAN.md`, `plan.json` (the REQs).
+   Put requirement documents (docx, pdf, xlsx, pptx, md) in `docs/inputs/` and UI material (HTML
+   prototypes, CSS, screenshots) in `docs/harper/ux/`: the phases read them as declared in
+   `.clike/context.yaml` ([context sources](context-sources.md)).
 5. For each REQ:
    ```text
    /kit REQ-001            # code, tests, eval profile under runs/kit/REQ-001/

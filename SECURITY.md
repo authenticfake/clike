@@ -9,7 +9,7 @@ to report a vulnerability.
 CLike is designed for a **single developer on localhost**. The services are not meant to be exposed
 on a network or shared between users.
 
-## Security model (1.2.4)
+## Security model (1.3.0)
 
 | Area | Control |
 |---|---|
@@ -19,6 +19,7 @@ on a network or shared between users.
 | Secrets in the extension | The service token is stored in VS Code SecretStorage and sent only to the configured orchestrator/gateway origins. |
 | Workspace settings | Settings that select binaries, agent permission/sandbox modes, service URLs, Git remotes/push are machine-scoped; untrusted workspaces are not supported. |
 | File confinement | Paths originating from requests, models or agents are confined to their roots (workspace, `runs/kit/<REQ>`, telemetry), rejecting traversal, absolute, drive/UNC paths and symlink escapes. The extension is the only workspace writer. |
+| Project context sources | `.clike/context.yaml` sources are read by the orchestrator only inside the workspace (patterns with `..` or absolute paths and symlinks leaving it are ignored), read-only, size-capped, and presented to models as data, never as instructions; canonical documents win on conflict. |
 | Process execution | No shell for process execution in the extension (argv only); on Windows the agent prompt goes through stdin. |
 | Evaluation inputs | The gate executes the LTC profile stored in the workspace; an inline profile is accepted only if identical. The project root must be inside the configured projects directory. |
 | Evaluation environment | Eval commands run without credentials (API keys, service token and similar variables are removed). |

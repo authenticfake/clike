@@ -19,6 +19,7 @@ This documentation reflects the current source tree in the inspected package and
 - `auto-eval.md` — `/eval REQ --fix`: governed KIT ⇄ EVAL repair loop, regression of promoted REQs, gate warnings policy
 - `artifacts.md` — canonical docs, run artifacts, candidate artifacts, and promotion files
 - `local-agents.md` — current local execution path, GPT Codex / Claude Code integration, and restrictions
+- `context-sources.md` — `.clike/context.yaml`: project files (requirements, UI references, data, ...) read by the phases, formats and rules
 - `rag.md` — indexing, search, fetch, attachment strategy, and repository grounding
 - `git-and-promotion.md` — current Git behavior, branch strategy, promotion, and merge flow
 - `mcp.md` — MCP servers (orchestrator, extension), tools and authentication

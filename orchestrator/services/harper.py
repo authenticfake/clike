@@ -38,6 +38,11 @@ from services.execution_policy import (
     normalize_execution_preference,
     resolve_execution_policy,
 )
+from services.context_sources import (
+    append_context_sources_to_messages,
+    attach_context_sources_to_local_package,
+    resolve_context_sources,
+)
 from services.local_agent_package import (
     build_document_phase_local_agent_package,
     build_eval_local_agent_package,
@@ -179,7 +184,13 @@ async def _post_phase_run(payload: Dict[str, Any]) -> Dict[str, Any]:
     the orchestrator; the gateway adds RAG material and chat history and calls the provider.
     """
     composed = compose_phase_messages(payload)
-    return await _post_json("/v1/harper/run", {**payload, "composed_messages": composed})
+    # Project context sources (.clike/context.yaml) of this phase; not for its sub-runs
+    # (integrity eval, hardener, promotion eval), which carry another phase name.
+    context_sources = payload.get("context_sources") or {}
+    if context_sources.get("phase") == str(payload.get("phase") or "").lower():
+        composed = append_context_sources_to_messages(composed, context_sources)
+    body = {k: v for k, v in payload.items() if k != "context_sources"}
+    return await _post_json("/v1/harper/run", {**body, "composed_messages": composed})
 
 
 async def _normalize_message(msg: Dict[str, Any]) -> Dict[str, Any]:
@@ -2631,6 +2642,9 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
         ],
     )
 
+    # Project context sources declared in .clike/context.yaml, for both runners.
+    merged["context_sources"] = resolve_context_sources(_workspace_root_from_payload(merged), phase)
+
     # Orchestrator-owned local agent package.
     #
     # Important:
@@ -2646,10 +2660,13 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
             execution_policy.get("reason"),
         )
         try:
-            return build_document_phase_local_agent_package(
-                phase=phase,
-                payload=merged,
-                execution_policy=execution_policy,
+            return attach_context_sources_to_local_package(
+                build_document_phase_local_agent_package(
+                    phase=phase,
+                    payload=merged,
+                    execution_policy=execution_policy,
+                ),
+                merged.get("context_sources"),
             )
         except Exception as exc:
             log.exception("harper.local_agent %s package failed", phase)
@@ -2689,10 +2706,13 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
             execution_policy.get("reason"),
         )
         try:
-            return build_eval_local_agent_package(
-                payload=merged,
-                req_id=target_req_id,
-                execution_policy=execution_policy,
+            return attach_context_sources_to_local_package(
+                build_eval_local_agent_package(
+                    payload=merged,
+                    req_id=target_req_id,
+                    execution_policy=execution_policy,
+                ),
+                merged.get("context_sources"),
             )
         except Exception as exc:
             log.exception(
@@ -2753,9 +2773,12 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
             execution_policy.get("reason"),
         )
         try:
-            return build_extend_local_agent_package(
-                payload=merged,
-                execution_policy=execution_policy,
+            return attach_context_sources_to_local_package(
+                build_extend_local_agent_package(
+                    payload=merged,
+                    execution_policy=execution_policy,
+                ),
+                merged.get("context_sources"),
             )
         except Exception as exc:
             log.exception("harper.local_agent extend package failed")
@@ -2793,9 +2816,12 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
             execution_policy.get("reason"),
         )
         try:
-            return build_finalize_local_agent_package(
-                payload=merged,
-                execution_policy=execution_policy,
+            return attach_context_sources_to_local_package(
+                build_finalize_local_agent_package(
+                    payload=merged,
+                    execution_policy=execution_policy,
+                ),
+                merged.get("context_sources"),
             )
         except Exception as exc:
             log.exception("harper.local_agent finalize package failed")
@@ -2839,10 +2865,13 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
                 execution_policy.get("reason"),
             )
             try:
-                return build_kit_local_agent_package(
-                    payload=merged,
-                    req_id=target_req_id,
-                    execution_policy=execution_policy,
+                return attach_context_sources_to_local_package(
+                    build_kit_local_agent_package(
+                        payload=merged,
+                        req_id=target_req_id,
+                        execution_policy=execution_policy,
+                    ),
+                    merged.get("context_sources"),
                 )
             except Exception as exc:
                 log.exception(
