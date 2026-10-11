@@ -322,7 +322,7 @@ async function promoteReqSources(projectRootUri, reqId, strategy = 'folder', out
   );
   await vscode.workspace.fs.writeFile(
     manifestUri,
-    Buffer.from(JSON.stringify(manifest, null, 2), 'utf8')
+    Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
   );
   const uniqFilesToCommit = [...new Set(
   (filteredFilesToCommit || [])
@@ -1202,7 +1202,7 @@ async function persistReports(projectRootUri, phase, rep, out, fallbackReqId = '
 
   // Write JSON
   try {
-    const buf = Buffer.from(JSON.stringify(persisted, null, 2), 'utf8');
+    const buf = Buffer.from(`${JSON.stringify(persisted, null, 2)}\n`, 'utf8');
     await vscode.workspace.fs.writeFile(jsonUri, buf);
     log('[persistReports] wrote JSON ->', jsonUri.fsPath || jsonUri.path);
   } catch (e) {
@@ -1485,7 +1485,7 @@ function updatePlanSnapshot(plan) {
 
 async function writePlanJson(projectRootUri, obj) {
   const uri = vscode.Uri.joinPath(projectRootUri, 'docs', 'harper', 'plan.json');
-  await writeTextFile(uri, JSON.stringify(obj, null, 2));
+  await writeTextFile(uri, `${JSON.stringify(obj, null, 2)}\n`);
 }
 
 function findNextOpenReq(plan) {
@@ -2207,7 +2207,7 @@ async function writeAgentExecutionContext(workspaceRootUri, reqId, contextPayloa
   fs.mkdirSync(docsDir, { recursive: true });
 
   const filePath = path.join(docsDir, 'AGENT_EXECUTION_CONTEXT.json');
-  fs.writeFileSync(filePath, JSON.stringify(contextPayload, null, 2), 'utf8');
+  fs.writeFileSync(filePath, `${JSON.stringify(contextPayload, null, 2)}\n`, 'utf8');
   log('[agentExecutionContext] wrote', filePath);
   return filePath;
 }

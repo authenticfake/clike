@@ -60,6 +60,13 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   pre-pass changes go through the same audited amendment as the `--fix` repair: accepted ones are
   recorded, the others are restored. The eval agent is told that `test/` and `ci/` are locked and
   that evidence goes under `reports/`.
+- **Telemetry: prompt-cache tokens priced** (cloud and local-agent runs). OpenAI cached input was
+  charged at the full input price and Anthropic cache reads/writes were not charged at all; costs
+  now use the list prices of `configs/models.yaml` (`cached_input_per_1k`, and for Anthropic
+  `cache_write_per_1k` / `cache_write_1h_per_1k`, added from the Anthropic price page), rows
+  recorded before are recomputed when shown, and the portal shows the cached tokens.
+- Files CLike writes as JSON (promotion manifest, contexts, state) end with a newline: a KIT
+  format check failed on the promotion manifest of a promoted REQ.
 - **Telemetry portal: cost always 0 for Codex runs.** Codex reports tokens but no cost, so its
   rows had an empty `pricing`. The portal now estimates the API-equivalent cost from
   `configs/models.yaml` (new optional `cached_input_per_1k`; set for `gpt-6.1-sol`), also for the

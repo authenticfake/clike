@@ -114,6 +114,7 @@ _HTML = r"""<!doctype html>
               <th class="sortable" data-k="cost">Cost (USD)</th>
               <th class="sortable" data-k="tokens_in">In</th>
               <th class="sortable" data-k="tokens_out">Out</th>
+              <th title="Prompt-cache tokens: reads (OpenAI cached input, Anthropic cache hits) and Anthropic cache writes">Cached</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -276,7 +277,8 @@ async function loadOverview(){
     {scales:{y:{beginAtZero:true}}});
   renderChart('tokensDay','bar',{labels:days,datasets:[
       {label:'Input',data:days.map(d=>(agg.by_day[d]?.tokens_in)||0),stack:'tok'},
-      {label:'Output',data:days.map(d=>(agg.by_day[d]?.tokens_out)||0),stack:'tok'}
+      {label:'Output',data:days.map(d=>(agg.by_day[d]?.tokens_out)||0),stack:'tok'},
+      {label:'Cached',data:days.map(d=>(agg.by_day[d]?.tokens_cached)||0)}
     ]},{scales:{y:{beginAtZero:true}}});
 
   renderChart('costPhase','doughnut',{labels:phases,datasets:[{data:phases.map(p=>(agg.per_phase[p]?.cost_usd)||0)}]});
@@ -330,6 +332,7 @@ async function loadTable(){
       <td>${fmtUSD((r.pricing?.total_cost) ?? r.cost_usd_est ?? 0)}</td>
       <td>${(r.usage?.prompt_tokens ?? r.usage?.input_tokens ?? 0)}</td>
       <td>${(r.usage?.completion_tokens ?? r.usage?.output_tokens ?? 0)}</td>
+      <td>${(r._tokens_cached ?? 0)}</td>
     </tr>`).join('');
 
   const pages = Math.max(1, Math.ceil((data.total||0) / Number(ps)));

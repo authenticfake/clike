@@ -38,8 +38,9 @@ models:
     tags: [embeddings, local]
 
   # Prices per 1k tokens, checked against the OpenAI and Anthropic price pages on 2026-10-11.
-  # cached_input_per_1k = cache-read input (OpenAI "cached input", Anthropic "cache hits"); the
-  # telemetry portal uses it for the API-equivalent cost of local-agent runs.
+  # cached_input_per_1k = cache-read input (OpenAI "cached input", Anthropic "cache hits");
+  # cache_write_per_1k / cache_write_1h_per_1k = Anthropic 5-minute / 1-hour cache writes.
+  # Used for the cost of every run (cloud and local-agent API-equivalent).
   # gpt-6.1-sol: OpenAI list price per 1M tokens (2026-10-06): input $2.00, cached input $0.10,
   # cache writes $2.50, output $10.00. Cost estimates use input/output only.
   - id: openai:gpt-6.1-sol
@@ -290,6 +291,8 @@ models:
     pricing:
       input_per_1k: 0.001
       cached_input_per_1k: 0.0001
+      cache_write_per_1k: 0.00125
+      cache_write_1h_per_1k: 0.002
       output_per_1k: 0.005
     context_window: 200000
     privacy: low
@@ -309,6 +312,8 @@ models:
     pricing:
       input_per_1k: 0.003
       cached_input_per_1k: 0.0003
+      cache_write_per_1k: 0.00375
+      cache_write_1h_per_1k: 0.006
       output_per_1k: 0.015
     context_window: 200000
     privacy: low
@@ -328,6 +333,8 @@ models:
     pricing:
       input_per_1k: 0.005
       cached_input_per_1k: 0.0005
+      cache_write_per_1k: 0.00625
+      cache_write_1h_per_1k: 0.01
       output_per_1k: 0.025
     context_window: 1000000
     privacy: low
@@ -347,6 +354,8 @@ models:
     pricing:
       input_per_1k: 0.005
       cached_input_per_1k: 0.0005
+      cache_write_per_1k: 0.00625
+      cache_write_1h_per_1k: 0.01
       output_per_1k: 0.025
     context_window: 1000000
     privacy: low
@@ -368,6 +377,8 @@ models:
     pricing:
       input_per_1k: 0.002
       cached_input_per_1k: 0.0001
+      cache_write_per_1k: 0.0025
+      cache_write_1h_per_1k: 0.004
       output_per_1k: 0.010
     context_window: 1000000
     privacy: low
@@ -387,6 +398,8 @@ models:
     pricing:
       input_per_1k: 0.004
       cached_input_per_1k: 0.0002
+      cache_write_per_1k: 0.005
+      cache_write_1h_per_1k: 0.008
       output_per_1k: 0.020
     context_window: 1000000
     privacy: low

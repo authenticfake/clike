@@ -219,7 +219,7 @@ async function writeFileUtf8(filePath, content) {
 }
 async function writeJson(filePath, obj) {
   await ensureDir(path.dirname(filePath));
-  await fs.writeFile(filePath, JSON.stringify(obj, null, 2), 'utf8');
+  await fs.writeFile(filePath, `${JSON.stringify(obj, null, 2)}\n`, 'utf8');
 }
 function nowIso() { return new Date().toISOString(); }
 

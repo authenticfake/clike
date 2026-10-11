@@ -54,6 +54,17 @@ price in `configs/models.yaml` (`input_per_1k`, `cached_input_per_1k`, `output_p
 counts cache reads inside `input_tokens`), marked `pricing.estimated: true`, also for rows written
 before. A model without a price (or a wrong model name) stays at zero.
 
+**Prompt cache.** Costs include the provider prompt cache, priced from `configs/models.yaml`
+(OpenAI and Anthropic list prices): OpenAI counts cached input inside `input_tokens`
+(`input_tokens_details.cached_tokens`) and it is charged at `cached_input_per_1k`; Anthropic
+reports cache reads (`cache_read_input_tokens`, `cached_input_per_1k`) and writes
+(`cache_creation_input_tokens`, `cache_write_per_1k` for the 5-minute TTL, `cache_write_1h_per_1k`
+for 1 hour) apart from `input_tokens`. Each row's `pricing` has `cached_tokens`, `cached_cost`,
+`cache_write_tokens`, `cache_write_cost`; the aggregate has `tokens_cached` per phase and day and
+`total_tokens_cached`, and the raw table a **Cached** column. Rows recorded before this (OpenAI
+cache charged as normal input, Anthropic cache not charged) are recomputed when shown
+(`pricing.cache_recomputed`).
+
 ## Technical Architecture
 
 The telemetry UI is exposed by the Gateway service.
