@@ -36,6 +36,17 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   promoted, and a report with per-file outcome and unified diff in
   `runs/kit/<REQ>/promotion/<ts>/` (`report.md`, `report.json`, `promotion.diff`), opened at the
   end and summarized in the chat. `/gate --ask` / `--no-promote` override it for one run.
+- **Auto-merge base = what the KIT started from**: per file, the last direct dependency KIT
+  (`plan.json` `dependsOn`, the same composition the eval uses) that has it, else the canonical
+  file at the KIT commit, else at the last commit before the KIT was generated (KIT never
+  committed). Lines added at the same place by both sides (e.g. new `.env.example` entries) are
+  kept both; changes to the same existing lines stay a conflict. Conflict files show the base
+  (`|||||||`).
+- **Git: a new REQ branch no longer fails on an unmerged previous REQ.** With merge-on-gate off,
+  `feature/req-<n+1>` was created from `main`; local changes (plan, reports) made the switch fail
+  and every phase of the REQ stayed uncommitted, silently. The new branch is stacked on the
+  current branch when it is not merged into the default branch (it carries the code it depends
+  on; creating it never conflicts with local changes), and Git failures are shown as warnings.
 - **`/eval --fix` keeps going while it improves**: after `clike.autoEval.maxCycles`, up to
   `clike.autoEval.extraCyclesOnProgress` (default 3) more cycles as long as each one leaves fewer
   failing checks.

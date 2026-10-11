@@ -90,9 +90,11 @@ override) the REQ is promoted **without prompts** (`clike.gate.autoPromote`, def
 
 - only `runs/kit/<REQ>/{src,test,tests}/**` are promoted into the canonical roots; installed or
   generated content (`node_modules`, `__pycache__`, `.venv`, caches, `.next`, `.tmp`) never is;
-- every file gets a **3-way merge**: base = the canonical file before the KIT of the REQ (the
-  parent of the first commit that added `runs/kit/<REQ>/`), ours = the canonical file now,
-  theirs = the candidate. Outcomes: `added`, `updated` (canonical unchanged since the KIT),
+- every file gets a **3-way merge**: base = what the KIT started from (the file of the last
+  direct dependency KIT in `plan.json` `dependsOn` that has it, else the canonical file at the
+  parent of the KIT commit, else at the last commit before the KIT was generated), ours = the
+  canonical file now, theirs = the candidate. Lines added at the same place by both sides are
+  both kept. Outcomes: `added`, `updated` (canonical unchanged since the KIT),
   `merged` (both changed, merged cleanly by `git merge-file`), `kept_canonical`, `unchanged`,
   `conflict`;
 - a conflicting file is **never written**: `<name>.conflict-<REQ>-<ts>` next to it holds the
@@ -109,6 +111,13 @@ Three ways to choose it: the setting `clike.gate.autoPromote` (`merge` default: 
 `ask`: the strategy list, with **auto-merge** first, then folder / suffix / backup / skip /
 overwrite; `off`: no promotion), or for one run `/gate <REQ> --auto-merge`, `--ask`,
 `--no-promote`.
+
+## REQ branches
+
+Each REQ's phases are committed on `feature/req-<n>`. A new REQ branch starts from the default
+branch when the current work is merged into it, otherwise it is **stacked on the current branch**
+(merge-on-gate off: REQ-004 carries the REQ-003 commits it depends on). A phase that cannot be
+committed (switch refused, commit error) shows a warning instead of failing silently.
 
 ## Promotion helpers
 
