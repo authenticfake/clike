@@ -16,16 +16,16 @@ This documentation reflects the current source tree in the inspected package and
 - `setup-and-runtime.md` — local services, ports, configs, and startup model
 - `commands.md` — current slash commands, code actions, and extension commands
 - `harper-workflow.md` — IDEA → SPEC → PLAN → KIT → EVAL → GATE → FINALIZE
-- `auto-eval.md` — `/eval REQ --fix`: governed KIT ⇄ EVAL repair loop, regression of promoted REQs, gate warnings policy
+- `auto-eval.md` — `/eval REQ --fix`: governed KIT ⇄ EVAL repair loop, regression of promoted REQs, gate warnings policy, extra cycles while improving
 - `artifacts.md` — canonical docs, run artifacts, candidate artifacts, and promotion files
 - `local-agents.md` — current local execution path, GPT Codex / Claude Code integration, and restrictions
 - `context-sources.md` — `.clike/context.yaml`: project files (requirements, UI references, data, ...) read by the phases, formats and rules
 - `rag.md` — indexing, search, fetch, attachment strategy, and repository grounding
-- `git-and-promotion.md` — current Git behavior, branch strategy, promotion, and merge flow
+- `git-and-promotion.md` — current Git behavior, stacked REQ branches, gate auto-merge promotion (3-way, conflicts, report), merge flow
 - `mcp.md` — MCP servers (orchestrator, extension), tools and authentication
 - `api-reference.md` — endpoint census for orchestrator, gateway, and agent surfaces
 - `agent-operating-model.md` — developer→agent and agent→CLike operating models, methodology profiles
-- `development.md` — developer guide: local runs, tests, golden snapshots, lint baseline, hygiene, CI
+- `development.md` — developer guide: local runs, tests, golden snapshots, lint baseline, hygiene, CI, rebuild, eval sandbox and **eval environment** (`docker/eval.env`, provisioned variables, test databases, services of other REQs)
 - `../SECURITY.md` — security model, known limitations, vulnerability reporting
 - `../CHANGELOG.md` — release notes
 

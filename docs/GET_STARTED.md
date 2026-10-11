@@ -49,7 +49,7 @@ are small IDEAs to start with.
    ```text
    /kit REQ-001            # code, tests, eval profile under runs/kit/REQ-001/
    /eval REQ-001 --fix     # canonical eval; on failure a governed repair, then eval again
-   /gate REQ-001           # promotion decision
+   /gate REQ-001           # promotion decision; on PASS auto-merge into src/ and test/ + report
    ```
 6. `/finalize` when the REQs are done.
 
@@ -57,8 +57,15 @@ are small IDEAs to start with.
 
 ## 3. What CLike guarantees
 
-- **Tests are locked** at the first eval: a repair cannot weaken them. If a test is itself wrong,
-  the repair fixes the test (assertions unchanged) and the gate asks for your review.
+- **Tests are locked** at the first eval: a repair cannot weaken them. If a test is itself wrong
+  (Python or JS/TS), the repair fixes the test (assertions unchanged) and the gate asks for your review.
+- **The test environment is created for you**: sessions, ids, a disposable PostgreSQL database per
+  REQ and the services of other REQs (e.g. the API of REQ-001 for the integration tests of
+  REQ-002) are declared by the KIT and provisioned by CLike in the sandbox; you set only
+  `CLIKE_EVAL_POSTGRES_URL` and the values only you have in `docker/eval.env` ([INSTALL §2](INSTALL.md#2-configuration)).
+- **Promotion never overwrites your changes**: the gate merges file by file (base = what the KIT
+  started from); a file changed on both sides at the same lines is left untouched with a
+  `.conflict-<REQ>-<ts>` file next to it, and the REQ stays in progress until you resolve it.
 - **Regression**: eval and gate also re-run the tests of the REQs already promoted.
 - **Sandbox**: checks run in an isolated container without credentials.
 - **Audit**: every amendment and override is recorded.
@@ -67,11 +74,13 @@ are small IDEAs to start with.
 
 | Setting / command | Effect |
 |---|---|
-| `/eval REQ --fix ["hint"]` | auto-eval: up to `clike.autoEval.maxCycles` (2) governed repairs; rerun to continue, the hint guides the fix |
+| `/eval REQ --fix ["hint"]` | auto-eval: up to `clike.autoEval.maxCycles` (2) governed repairs, plus `clike.autoEval.extraCyclesOnProgress` (3) while the failures decrease; rerun to continue, the hint guides the fix |
 | `clike.autoEval.afterKit` | auto-eval after every `/kit` |
 | `clike.kit.acceptanceFirst` | tests written from SPEC/PLAN and locked **before** the code |
 | `clike.eval.regression` (on) | regression of promoted REQs in eval and gate |
 | `clike.gate.strictWarnings` | warnings block the gate |
+| `clike.gate.autoPromote` (`merge`) | how `/gate` promotes: `merge` auto-merge + report, `ask` strategy list, `off`; `/gate REQ --auto-merge`, `--ask`, `--no-promote` for one run |
+| `clike.git.autoCommit` | commit every phase on `feature/req-<n>` — **User settings only** (CLike warns if it is in the project) |
 | `/agent-default`, `/agent-model`, `/agent-session` | choose the agent, its model, its session |
 
 Details: [auto-eval](auto-eval.md) · [commands](commands.md) · [local agents](local-agents.md).
@@ -95,8 +104,9 @@ the repairs. Overrides, promotion and git are not exposed. Codex: approve the CL
 ## 6. See what happened
 
 - **Chat** and the **Files** / **Text** tabs for each run.
-- **Telemetry portal** `http://127.0.0.1:8000/v1/metrics/harper/ui`: tokens, cost, model per phase,
-  cloud and agent runs (agent cost is the API-equivalent cost).
+- **Telemetry portal** `http://127.0.0.1:8000/v1/metrics/harper/ui`: tokens (cached ones included),
+  cost, model per phase, cloud and agent runs (agent cost is the API-equivalent cost).
+- **Promotion reports** `runs/kit/<REQ>/promotion/<ts>/report.md` (per-file outcome) and `promotion.diff`.
 - **Reports** under `runs/eval`, `runs/gate` and the KIT folders.
 
 ## 7. Troubleshooting
@@ -107,3 +117,6 @@ the repairs. Overrides, promotion and git are not exposed. Codex: approve the CL
 | "No local agent is available" | install/log in `claude` or `codex`, or switch execution to cloud |
 | An answer from the agent seems to forget the conversation | `/agent-session` — a failed resume starts a new session |
 | Browser (Playwright) checks are slow the first time | Chromium is downloaded on first use in the sandbox |
+| `EVAL BLOCKED — missing in docker/eval.env` | set the named value in `docker/eval.env` and rebuild; `EVAL BLOCKED — CLike cannot create yet` → `/eval REQ --fix` declares it |
+| Gate PASS but the REQ stays in progress | the promotion left conflicts: see the report, resolve the `.conflict-…` files, `/gate` again |
+| Phases not committed although `autoCommit` is on | it is set in the project settings: apply it in User settings (CLike shows a warning) |
