@@ -2,6 +2,28 @@
 
 All notable changes to CLike. Extension, orchestrator and gateway share one version.
 
+## [1.3.0] — 2026-10-11 — Project context sources
+
+### Added
+
+- **Project context sources** (`.clike/context.yaml`, created by `/init`; see
+  [docs/context-sources.md](docs/context-sources.md)): the project files the Harper phases read as
+  context, each with a path glob, a role (`requirements`, `ui_reference`, `ux_requirements`,
+  `api_reference`, `data_sample`, `style_guide`, `domain_glossary`, `example_output`, `reference`)
+  and the phases that read it. Resolved server-side, read-only, and delivered to both runners: the
+  cloud phase message gets a `PROJECT CONTEXT SOURCES` block, the local agent the list of files to
+  read (converted documents written to `runs/context/<phase>/`). docx, xlsx/xls/xlsb, pptx and pdf
+  are converted to text; HTML, CSS, SVG and other text files are passed as they are; images are
+  opened by the local agents and listed by name for cloud models. Without the file: `docs/inputs/**`
+  → `requirements` (idea, spec, plan), `docs/harper/ux/**` → `ui_reference` (spec, plan, kit).
+  Canonical Harper documents win; size caps per file and per phase; unsafe paths ignored.
+- `/init` creates `docs/inputs/`, `docs/harper/ux/` and `docs/reference/`.
+
+### Changed
+
+- The office/PDF text extraction of RAG indexing moved to `services/document_text.py`, shared with
+  the context sources.
+
 ## [1.2.4] — 2026-10-11 — Invalid agent model rejected up front, agent errors shown
 
 ### Added

@@ -5,7 +5,7 @@
 [![Made with Python](https://img.shields.io/badge/Made%20with-Python%203.12-3776AB?logo=python)](https://www.python.org/)
 [![VS Code Extension](https://img.shields.io/badge/VS%20Code-Extension-007ACC?logo=visualstudiocode)](extensions/vscode)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.2.4-informational)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.3.0-informational)](CHANGELOG.md)
 
 > **From intent to impact.** CLike turns an idea into reviewed, tested and promotable software
 > through a governed lifecycle in which cloud models and local coding agents execute, while
@@ -45,10 +45,11 @@ Models and agents execute.  Eval and Gate decide.
 | 1.0.0 | 2026-10 | M3 — ready for evolution: typed phase contract and single source per phase definition; cloud KIT that produces promotable code; governed auto-eval (`/eval REQ --fix`) with regression of promoted REQs; Harper benchmark. |
 | 1.1.0 | 2026-10 | Governed auto-eval with local agents (Claude Code, Codex); acceptance-first KIT (tests from SPEC/PLAN locked before the code, opt-in); local-agent telemetry; `/agent-model`; leaner agent context; KIT self-check and safe lint fixes. |
 | 1.2.0 | 2026-10 | Native agent chat (one resumed Claude Code / Codex session per mode, live events, cancel); CLike usable from Claude Code and Codex via MCP with its governance; one FILE_REQUIREMENTS and aligned deliverables for cloud and agent; orphan evals cancelled; [INSTALL](docs/INSTALL.md) and [GET STARTED](docs/GET_STARTED.md). |
-| **1.2.4** | 2026-10 | Invalid agent model rejected before the run, with the closest valid id (Codex checked against the models of the login); agent errors shown in full; fast container rebuild (`docker/rebuild.sh`). See [CHANGELOG](CHANGELOG.md). |
-| **1.2.3** | 2026-10 | Codex Harper phases run in a project without git (`--skip-git-repo-check`); a failed local-agent run reports the agent error instead of validating the template files. See [CHANGELOG](CHANGELOG.md). |
-| **1.2.2** | 2026-10 | Codex writes in the local IDEA / SPEC / PLAN / EXTEND phases (sandbox `auto` = workspace-write); BMAD companion documents kept in the local document phases (`spec --agent ux` companion-only); BMAD artifact policy no longer lost with the workspace vendor manifest. See [CHANGELOG](CHANGELOG.md). |
-| **1.2.1** | 2026-10 | Approvals in the agent chat (Coding and Harper: Allow / Allow all this turn / Deny, writes outside `generated/` denied; Claude Code and Codex); Harper free text can create files under `generated/`; readable `/help`; MCP `eval_run` with fix returns the final report; Codex approval of the CLike MCP tools; `localhost` MCP URLs; gpt-6.1-sol pricing. See [CHANGELOG](CHANGELOG.md). |
+| 1.2.1 | 2026-10 | Approvals in the agent chat (Coding and Harper: Allow / Allow all this turn / Deny, writes outside `generated/` denied; Claude Code and Codex); Harper free text can create files under `generated/`; readable `/help`; MCP `eval_run` with fix returns the final report; Codex approval of the CLike MCP tools; `localhost` MCP URLs; gpt-6.1-sol pricing. See [CHANGELOG](CHANGELOG.md). |
+| 1.2.2 | 2026-10 | Codex writes in the local IDEA / SPEC / PLAN / EXTEND phases (sandbox `auto` = workspace-write); BMAD companion documents kept in the local document phases (`spec --agent ux` companion-only); BMAD artifact policy no longer lost with the workspace vendor manifest. See [CHANGELOG](CHANGELOG.md). |
+| 1.2.3 | 2026-10 | Codex Harper phases run in a project without git (`--skip-git-repo-check`); a failed local-agent run reports the agent error instead of validating the template files. See [CHANGELOG](CHANGELOG.md). |
+| 1.2.4 | 2026-10 | Invalid agent model rejected before the run, with the closest valid id (Codex checked against the models of the login); agent errors shown in full; fast container rebuild (`docker/rebuild.sh`). See [CHANGELOG](CHANGELOG.md). |
+| **1.3.0** | 2026-10 | Project context sources (`.clike/context.yaml`): requirement documents (docx, pdf, xlsx, pptx), UI references (HTML, CSS, images) and other project files read by the phases, for cloud and local agents. See [CHANGELOG](CHANGELOG.md). |
 
 CLike is research software under active development. Interfaces may change between minor versions.
 
@@ -125,7 +126,7 @@ Details: [docs/agent-operating-model.md](docs/agent-operating-model.md).
 | Runtime | [`docker/`](docker) | Local stack (Podman or Docker Compose) |
 
 Further reading: [architecture](docs/architecture.md) · [Harper workflow](docs/harper-workflow.md) ·
-[artifacts](docs/artifacts.md) · [RAG](docs/rag.md) · [Git and promotion](docs/git-and-promotion.md).
+[artifacts](docs/artifacts.md) · [context sources](docs/context-sources.md) · [RAG](docs/rag.md) · [Git and promotion](docs/git-and-promotion.md).
 
 ---
 
@@ -159,7 +160,7 @@ VM with at least 4 GB, provider API keys for cloud models, optionally the Claude
 cp .env.example .env                      # provider keys + CLIKE_API_TOKEN=$(openssl rand -hex 32)
 cp docker/.env.example docker/.env        # CLIKE_PROJECTS_DIR = host folder containing your projects
 cd docker && podman-compose up -d --build # services on 127.0.0.1, wait until (healthy)
-code --install-extension ../extensions/vscode/clike-1.2.4.vsix
+code --install-extension ../extensions/vscode/clike-1.3.0.vsix
 ```
 
 In VS Code: **CLike: Set Service Token** (the `CLIKE_API_TOKEN` value). Full guide, local agents
