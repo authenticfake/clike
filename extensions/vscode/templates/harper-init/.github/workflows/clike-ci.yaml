@@ -1,28 +1,27 @@
-name: CLike CI (Evals)
+# Repository checks for a CLike Harper project. They do not replace CLike's /eval and /gate (which
+# run the LTC checks in the eval sandbox, with the environment the KIT declares): they keep the
+# repository healthy on every pull request.
+name: CLike project checks
 on:
   pull_request:
     branches: [ main, feature/**, feat/** ]
+  push:
+    branches: [ main ]
 jobs:
-  evals:
+  checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: '3.11' }
-      - run: pip install -r requirements.txt
-      - name: SPEC & PLAN gates
+      - name: Harper plan is valid JSON
         run: |
-          python -m orchestrator.app.spec_plan_gates check-spec --file SPEC.md
-          python -m orchestrator.app.spec_plan_gates check-plan --file PLAN.md
-      - name: KIT gates (lint/type/tests/security-lite)
+          if [ -f docs/harper/plan.json ]; then python3 -c "import json; json.load(open('docs/harper/plan.json'))"; fi
+      - name: No environment files or local state committed
         run: |
-          ruff check .
-          mypy --hide-error-codes --no-color-output || true
-          pytest -q
-          bandit -q -r . || true
-      - name: Upload eval artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: eval-artifacts
-          path: runs/**/eval/*.*
+          bad=$(git ls-files | grep -E '(^|/)\.env($|\.)' | grep -v '\.env\.example$' || true)
+          bad="$bad$(git ls-files .clike/sessions .clike/telemetry)"
+          if [ -n "$bad" ]; then echo "Committed files that must stay local:"; echo "$bad"; exit 1; fi
+      - name: No merge leftovers in the canonical roots
+        run: |
+          left=$(git ls-files src test tests 2>/dev/null | grep -E '\.(conflict|incoming)-REQ-|\.bak-[0-9]' || true)
+          if [ -n "$left" ]; then echo "Unresolved promotion files:"; echo "$left"; exit 1; fi
+          if git grep -nE '^(<<<<<<< canonical|>>>>>>> REQ-)' -- src test tests 2>/dev/null; then exit 1; fi

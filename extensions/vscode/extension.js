@@ -3691,6 +3691,10 @@ async function cmdOpenChat(context) {
             'runs/**/.tmp/',
             'runs/**/.npm-cache/',
             'runs/**/.venv/',
+            // eval outputs, rewritten at every run: tracked, they keep the tree dirty and block
+            // the switch to the next REQ branch
+            'runs/**/ci/reports/',
+            'runs/**/reports/',
             'local-eval-workspaces/',
             '*.log',
             // CLike local state: chat sessions and telemetry stay on this machine

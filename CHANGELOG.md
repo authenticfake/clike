@@ -19,6 +19,13 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   built was ignored. This run's context now comes first, then the REQ's copy, and unreadable copies
   are skipped (context envelope and cloud prompt).
 
+- **`/init`: the project CI workflow failed on every project** (it installed a root
+  `requirements.txt` and ran a CLike-internal module). It now runs repository checks that fit any
+  Harper project: `plan.json` valid, no `.env`/local state committed, no promotion leftovers or
+  conflict markers in `src/`/`test/`. The generated `.gitignore` also ignores eval reports
+  (`runs/**/ci/reports/`, `runs/**/reports/`), which, tracked, kept the tree dirty and blocked the
+  switch to the next REQ branch.
+
 ## [1.4.0] — 2026-10-11 — Autonomous eval and gate
 
 ### Added
