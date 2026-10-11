@@ -35,6 +35,9 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   module") and its secret scans flagged files inside `node_modules`. Overlays skip installed and
   generated directories.
 - Context files CLike writes for the local agent end with a newline (KIT format checks).
+- `ci/FILE_REQUIREMENTS.json`, `ci/TARGET_CONTRACT.json` and `ci/REQ_PROMOTION_MANIFEST.md` are
+  written by CLike from the plan at every package: they are not part of the acceptance lock (a
+  rewrite reported `ACCEPTANCE_TAMPERED`).
 
 ## [1.4.0] — 2026-10-11 — Autonomous eval and gate
 
