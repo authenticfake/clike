@@ -80,9 +80,10 @@ RUN if [ "$ENABLE_BROWSER" = "true" ]; then \
       rm -rf /var/lib/apt/lists/* ; \
     else echo "Skip browser libraries"; fi
 
-# Tool JS globali (solo se Node abilitato)
+# Tool JS globali (solo se Node abilitato). npm 11: the npm 10 bundled with Node 22 crashes
+# resolving some peer sets ("Cannot read properties of null (reading 'edgesOut')").
 RUN if command -v npm >/dev/null 2>&1; then \
-      npm i -g --silent prettier eslint; \
+      npm i -g --silent npm@11 && npm i -g --silent prettier eslint; \
     else \
       echo "npm non presente, salto prettier/eslint"; \
     fi

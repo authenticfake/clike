@@ -40,7 +40,9 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   `npm install` exit 137 and every check `ENOENT`). Its work dirs (venvs, `node_modules`, npm
   cache) lived on the tmpfs `/tmp`, which counts against the container memory limit. They now live
   on the `eval_work` disk volume (`CLIKE_EVAL_BASE_DIR=/var/clike-eval`); `/tmp` is 1 GB. The image
-  ships Node.js 22 LTS instead of 20 (current Next/Vitest/ESLint need it).
+  ships Node.js 22 LTS instead of 20 (current Next/Vitest/ESLint need it) with npm 11 (the
+  bundled npm 10 crashed resolving some peer sets: `reading 'edgesOut'`); Playwright browsers and
+  other tool caches (`XDG_CACHE_HOME`, `PLAYWRIGHT_BROWSERS_PATH`) are on the volume as well.
 - `configs/models.yaml`: prices re-checked against the OpenAI and Anthropic price pages
   (2026-10-11); `gpt-5.4` input corrected to $2.50/M; `cached_input_per_1k` added where listed.
 - `ci/HOWTO.md` (and any Markdown under `test/` or `ci/`) is documentation, no longer part of the
