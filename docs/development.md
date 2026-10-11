@@ -27,10 +27,16 @@ cd docker && podman-compose up -d --build
 Code is baked into the images. After a change:
 
 ```bash
-podman-compose build && podman-compose up -d --force-recreate
+cd docker && ./rebuild.sh            # or ./rebuild.sh gateway | orchestrator
 ```
 
-`podman-compose` does not recreate containers when only the image changed, hence `--force-recreate`.
+The script prunes the dangling layers of earlier builds, builds with the layer cache (a source edit
+reruns only `COPY . /app`; dependencies reinstall only when `uv.lock` changes, from a uv cache
+mount that never lands in the image), recreates the containers (`podman-compose up -d` keeps the
+old container when only the image changed), waits for `(healthy)` and checks that each container
+runs the image just built. The orchestrator and the eval sandbox share one image
+(`localhost/clike-orchestrator`), built once. Do not use `--no-cache`: the cache keys on file
+contents, so it only slows the build and fills the VM disk (`podman system df`).
 
 The eval sandbox runs generated tests and is capped by `CLIKE_EVAL_SANDBOX_MEM_LIMIT` (docker/.env,
 default `4g`). Keep it below the memory of the container VM (`podman machine inspect`; the

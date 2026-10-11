@@ -2,6 +2,16 @@
 
 All notable changes to CLike. Extension, orchestrator and gateway share one version.
 
+## [Unreleased]
+
+### Changed
+
+- **Faster, always-current container rebuild**: `docker/rebuild.sh` builds with the layer cache,
+  recreates the containers, waits for `(healthy)`, checks that each container runs the image just
+  built and prunes dangling layers. The orchestrator and the eval sandbox share one image (built
+  once instead of twice); the uv download cache is a build cache mount and no longer stored in the
+  image layers.
+
 ## [1.2.3] — 2026-10-10 — Codex Harper phases in a project without git
 
 ### Fixed

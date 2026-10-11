@@ -102,7 +102,8 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
     PATH="/opt/venv/bin:$PATH"
 COPY pyproject.toml uv.lock /app/
 # Runtime deps + the tools KIT LTC commands may call while eval still runs here (WP6 moves eval to sandboxes)
-RUN uv sync --frozen --no-dev --group eval-toolchain
+# uv cache as a build cache mount: reused across builds, never stored in the image layer.
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --group eval-toolchain
 
 
 # ===== App source =====

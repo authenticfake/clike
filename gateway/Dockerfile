@@ -10,7 +10,8 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
     UV_LINK_MODE=copy \
     PATH="/opt/venv/bin:$PATH"
 COPY pyproject.toml uv.lock /app/
-RUN uv sync --frozen --no-dev
+# uv cache as a build cache mount: reused across builds, never stored in the image layer.
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev
 
 COPY . /app
 ENV MODELS_CONFIG=/workspace/configs/models.yaml

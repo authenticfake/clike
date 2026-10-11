@@ -47,7 +47,7 @@ podman ps --format "{{.Names}} {{.Status}}"     # wait until orchestrator, gatew
 curl -s http://127.0.0.1:8080/health && curl -s http://127.0.0.1:8000/health
 ```
 
-Services listen on `127.0.0.1` only. After an update: `podman-compose build && podman-compose up -d --force-recreate`.
+Services listen on `127.0.0.1` only. After an update: `cd docker && ./rebuild.sh` (cached build, recreated containers, health and image check).
 
 ## 4. VS Code extension
 
