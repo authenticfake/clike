@@ -37,6 +37,9 @@ models:
     context_window: 8192
     tags: [embeddings, local]
 
+  # Prices per 1k tokens, checked against the OpenAI and Anthropic price pages on 2026-10-11.
+  # cached_input_per_1k = cache-read input (OpenAI "cached input", Anthropic "cache hits"); the
+  # telemetry portal uses it for the API-equivalent cost of local-agent runs.
   # gpt-6.1-sol: OpenAI list price per 1M tokens (2026-10-06): input $2.00, cached input $0.10,
   # cache writes $2.50, output $10.00. Cost estimates use input/output only.
   - id: openai:gpt-6.1-sol
@@ -107,6 +110,7 @@ models:
     cost: medium
     pricing:
       input_per_1k: 0.005
+      cached_input_per_1k: 0.0005
       output_per_1k: 0.030
     privacy: low
     enabled: true
@@ -124,7 +128,8 @@ models:
     latency: medium
     cost: medium
     pricing:
-      input_per_1k: 0.00255
+      input_per_1k: 0.0025
+      cached_input_per_1k: 0.00025
       output_per_1k: 0.015
     privacy: low
     enabled: true
@@ -143,6 +148,7 @@ models:
     cost: low
     pricing:
       input_per_1k: 0.00075
+      cached_input_per_1k: 0.000075
       output_per_1k: 0.0045
     privacy: low
     enabled: true
@@ -179,6 +185,7 @@ models:
     cost: medium
     pricing:
       input_per_1k: 0.00175
+      cached_input_per_1k: 0.000175
       output_per_1k: 0.014
     privacy: low
     enabled: true
@@ -214,6 +221,7 @@ models:
     cost: high
     pricing:
       input_per_1k: 0.00125
+      cached_input_per_1k: 0.000125
       output_per_1k: 0.01
     context_window: 400000
     tags: [frontier, quality, reasoning]
@@ -231,6 +239,7 @@ models:
     cost: medium
     pricing:
       input_per_1k: 0.00025
+      cached_input_per_1k: 0.000025
       output_per_1k: 0.002
     context_window: 400000
     tags: [quality, reasoning, cheap]
@@ -249,6 +258,7 @@ models:
     cost: low
     pricing:
       input_per_1k: 0.00005
+      cached_input_per_1k: 0.000005
       output_per_1k: 0.0004
     context_window: 400000
     tags: [cheap, reasoning]
@@ -279,6 +289,7 @@ models:
     cost: low
     pricing:
       input_per_1k: 0.001
+      cached_input_per_1k: 0.0001
       output_per_1k: 0.005
     context_window: 200000
     privacy: low
@@ -297,6 +308,7 @@ models:
     cost: medium
     pricing:
       input_per_1k: 0.003
+      cached_input_per_1k: 0.0003
       output_per_1k: 0.015
     context_window: 200000
     privacy: low
@@ -315,6 +327,7 @@ models:
     cost: high
     pricing:
       input_per_1k: 0.005
+      cached_input_per_1k: 0.0005
       output_per_1k: 0.025
     context_window: 1000000
     privacy: low
@@ -333,6 +346,7 @@ models:
     cost: high
     pricing:
       input_per_1k: 0.005
+      cached_input_per_1k: 0.0005
       output_per_1k: 0.025
     context_window: 1000000
     privacy: low
@@ -353,6 +367,7 @@ models:
     cost: medium
     pricing:
       input_per_1k: 0.002
+      cached_input_per_1k: 0.0001
       output_per_1k: 0.010
     context_window: 1000000
     privacy: low
@@ -371,6 +386,7 @@ models:
     cost: high
     pricing:
       input_per_1k: 0.004
+      cached_input_per_1k: 0.0002
       output_per_1k: 0.020
     context_window: 1000000
     privacy: low

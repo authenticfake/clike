@@ -36,6 +36,13 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   rows had an empty `pricing`. The portal now estimates the API-equivalent cost from
   `configs/models.yaml` (new optional `cached_input_per_1k`; set for `gpt-6.1-sol`), also for the
   rows already recorded, marked `pricing.estimated`.
+- **Eval sandbox OOM-killed on large JavaScript installs** (`503 eval sandbox unavailable`, then
+  `npm install` exit 137 and every check `ENOENT`). Its work dirs (venvs, `node_modules`, npm
+  cache) lived on the tmpfs `/tmp`, which counts against the container memory limit. They now live
+  on the `eval_work` disk volume (`CLIKE_EVAL_BASE_DIR=/var/clike-eval`); `/tmp` is 1 GB. The image
+  ships Node.js 22 LTS instead of 20 (current Next/Vitest/ESLint need it).
+- `configs/models.yaml`: prices re-checked against the OpenAI and Anthropic price pages
+  (2026-10-11); `gpt-5.4` input corrected to $2.50/M; `cached_input_per_1k` added where listed.
 - `ci/HOWTO.md` (and any Markdown under `test/` or `ci/`) is documentation, no longer part of the
   acceptance lock: editing it by hand no longer reports `ACCEPTANCE_TAMPERED`.
 - `/init`: `README_1st.md` showed `${project.org}` and escaped backticks; the Git steps now create

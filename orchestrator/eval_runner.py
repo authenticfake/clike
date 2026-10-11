@@ -740,6 +740,11 @@ class EvalRunner:
         candidates.append(self.project_root / "runs" / "eval")
 
         project_key = re.sub(r"[^A-Za-z0-9_.-]+", "_", self.project_root.name or "project")
+        # Eval sandbox: a disk volume, so venvs, node_modules and caches do not take the memory
+        # of the container as a tmpfs /tmp does (an npm install of a Next app was OOM-killed).
+        base = os.getenv("CLIKE_EVAL_BASE_DIR", "").strip()
+        if base:
+            candidates.append(Path(base) / project_key)
         candidates.append(Path(tempfile.gettempdir()) / "clike-eval" / project_key)
 
         for candidate in candidates:
