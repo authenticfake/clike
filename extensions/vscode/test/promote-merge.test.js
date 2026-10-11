@@ -132,3 +132,14 @@ test('auto-merge: lines added at the same place by both sides are kept; dependen
   assert.equal(by['src/app.py'].base, 'REQ-003');
   assert.equal(r.promoted, true);
 });
+
+test('auto-merge: every conflict has its marker file, also without a merge base', () => {
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'clike-promote-markers-'));
+  write(ws, 'src/a.py', 'canonical\n');
+  write(ws, 'runs/kit/REQ-001/src/a.py', 'candidate\n');
+  const r = autoMergePromotion({ workspaceRoot: ws, reqId: 'REQ-001' });
+  const c = r.results[0];
+  assert.equal(c.outcome, 'conflict');
+  assert.equal(read(ws, c.conflictFile), '<<<<<<< canonical\ncanonical\n=======\ncandidate\n>>>>>>> REQ-001\n');
+  assert.match(fs.readFileSync(r.reportPath, 'utf8'), new RegExp(c.conflictFile.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+});

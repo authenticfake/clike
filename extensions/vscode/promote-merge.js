@@ -187,8 +187,24 @@ function lineStats(diff) {
   return { added, removed };
 }
 
-/** Decide the outcome of one file (pure: no writes). */
+/** Two-way conflict markers (no merge base): the whole canonical file against the candidate. */
+function twoWayMarkers(ours, theirs, reqId) {
+  const nl = (b) => (b.length && b[b.length - 1] !== 10 ? Buffer.concat([b, Buffer.from('\n')]) : b);
+  return Buffer.concat([
+    Buffer.from('<<<<<<< canonical\n'), nl(ours), Buffer.from('=======\n'), nl(theirs), Buffer.from(`>>>>>>> ${reqId}\n`),
+  ]);
+}
+
+/** Decide the outcome of one file (pure: no writes). Every conflict carries a marker file. */
 function decide({ ours, base, theirs, reqId }) {
+  const d = decideRaw({ ours, base, theirs, reqId });
+  if (d.outcome === 'conflict' && !d.markers && ours && theirs && !isBinary(ours) && !isBinary(theirs)) {
+    d.markers = twoWayMarkers(ours, theirs, reqId);
+  }
+  return d;
+}
+
+function decideRaw({ ours, base, theirs, reqId }) {
   if (ours == null) return base == null ? { outcome: 'added', content: theirs } : { outcome: 'conflict', reason: 'removed from the canonical root after the KIT' };
   if (ours.equals(theirs)) return { outcome: 'unchanged' };
   if (base != null && ours.equals(base)) return { outcome: 'updated', content: theirs };
@@ -218,18 +234,20 @@ function renderReport({ reqId, ts, baseRev, baseHow, results, promoted }) {
     '',
     '| File | Outcome | +/- | Note |',
     '|---|---|---|---|',
-    ...results.map((r) => `| \`${r.path}\` | ${r.outcome} | ${r.stats ? `+${r.stats.added} −${r.stats.removed}` : ''} | ${[r.reason || r.conflictFile, r.base ? `base: ${r.base} KIT` : ''].filter(Boolean).join('; ')} |`),
+    ...results.map((r) => `| \`${r.path}\` | ${r.outcome} | ${r.stats ? `+${r.stats.added} −${r.stats.removed}` : ''} | ${[r.reason, r.conflictFile ? `resolve with \`${r.conflictFile}\`` : '', r.base ? `base: ${r.base} KIT` : ''].filter(Boolean).join('; ')} |`),
     '',
   ];
   if (conflicts.length) {
     lines.push(
       '## Conflicts',
       '',
-      'These files were **not** changed. Next to each one, `<name>.conflict-' + `${reqId}-${ts}\` holds the merge with`,
-      'conflict markers (`<<<<<<< canonical`, `=======`, `>>>>>>> ' + `${reqId}\`). Resolve them into the canonical file,`,
-      'delete the `.conflict-…` file and run `/gate ' + `${reqId}\` again.`,
+      'These files were **not** changed. Next to each one (the **Note** column), `<name>.conflict-' + `${reqId}-${ts}\``,
+      'holds the merge with conflict markers: `<<<<<<< canonical` (src/ now), `||||||| base` (what the KIT',
+      'started from, when known), `=======`, `>>>>>>> ' + `${reqId}\` (the candidate); without a base the whole files are`,
+      'compared. Write the right content into the canonical file, delete the `.conflict-…` file and run',
+      '`/gate ' + `${reqId}\` again: the REQ becomes done when no conflict is left.`,
       '',
-      ...conflicts.map((r) => `- \`${r.path}\`: ${r.reason}`),
+      ...conflicts.map((r) => `- \`${r.path}\`: ${r.reason}${r.conflictFile ? ` → \`${r.conflictFile}\`` : ''}`),
       '',
     );
   }
