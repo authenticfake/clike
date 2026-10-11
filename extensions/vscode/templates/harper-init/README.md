@@ -1,1023 +1,201 @@
-# CLike - Yet Anther Ai Tool
+# ${project.name}
 
-> AI-native software engineering assistant for day-to-day coding, Harper-style solutioning, local-agent execution, RAG, Git-aware promotion, and MCP-driven agent interaction inside VS Code.
+![Status](https://img.shields.io/badge/status-initialized-lightgrey) ![Clike](https://img.shields.io/badge/clike-blue) ![Harper](https://img.shields.io/badge/Harper-blue) ![Phase](https://img.shields.io/badge/phase-IDEA-blue) ![Eval](https://img.shields.io/badge/eval-not--run-lightgrey) ![Gate](https://img.shields.io/badge/gate-not--run-lightgrey) ![Runtime](https://img.shields.io/badge/runtime-to--be--defined-lightgrey)
 
-![CLike logo](./images/clike/clike_128x128.png)
+> **${project.name}** is a CLike Harper workspace: the solution is specified, planned, implemented
+> and verified requirement by requirement (`IDEA → SPEC → PLAN → KIT → EVAL → GATE → FINALIZE`).
+> The developer leads, CLike governs, cloud models and local agents execute, Eval and Gate decide.
+> This README is the starting point; `/finalize` replaces it with the release README of the solution.
 
-The extension works with:
-
-- **CLike Orchestrator**;
-- **CLike Gateway**;
-- cloud model providers;
-- local coding agents;
-- repository RAG;
-- Harper workflow artifacts.
+<img src="./images/clike/clike_128x128.png" alt="CLike" width="64">
 
 ---
 
-## What the extension does today
+## Contents
 
-The extension supports three main interactive modes inside the chat panel:
-
-- **Free** — general Q&A and contextual assistance.
-- **Coding** — code generation and patch-oriented workflows with files, diffs, and apply flows.
-- **Harper** — structured solutioning workflow built around:
-  - `IDEA`
-  - `SPEC`
-  - `PLAN`
-  - `KIT`
-  - `EVAL`
-  - `GATE`
-  - `FINALIZE`
-
-It is designed to work with:
-
-- OpenAI models;
-- Anthropic models;
-- OpenAI-compatible models exposed by the Gateway;
-- local coding agents such as Claude Code and GPT Codex;
-- future provider-routed or local backends exposed by the CLike stack.
-
-The extension is provider-aware, model-aware, workspace-aware, agent-aware, and MCP-ready.
-
----
-
-## Current highlights
-
-### Chat modes
-
-#### Free
-
-- general questions;
-- architecture discussion;
-- lightweight contextual assistance;
-- optional RAG grounding.
-
-#### Coding
-
-- code generation;
-- text/diff/file rendering;
-- patch-oriented flows;
-- explicit review before apply.
-
-#### Harper
-
-- document-driven delivery;
-- REQ-based implementation flow;
-- SPEC/PLAN/KIT/EVAL/GATE lifecycle;
-- local-agent execution packages;
-- RAG-backed workspace context;
-- Git-aware promotion.
-
----
-
-## Agent-centric workflow support
-
-CLike supports two agentic operating models.
-
-### Model 1 — Developer activates a local agent through CLike
-
-Flow:
-
-```text
-Developer
-→ VS Code Extension
-→ Orchestrator
-→ Agent execution package
-→ Extension local actuator
-→ Claude Code or GPT Codex
-→ Extension collects result
-→ Orchestrator normalizes
-→ RAG/Git/Eval/Gate continue through CLike
-```
-
-The extension is the local actuator.
-
-It physically runs the agent CLI, but the orchestrator owns the workflow contract.
-
-The local agent receives files such as:
-
-```text
-runs/kit/<REQ-ID>/docs/AGENT_EXECUTION_CONTEXT.json
-runs/kit/<REQ-ID>/docs/AGENT_PROMPT.md
-```
-
-For eval pre-pass flows, it may receive:
-
-```text
-runs/kit/<REQ-ID>/docs/AGENT_EVAL_CONTEXT.json
-runs/kit/<REQ-ID>/docs/AGENT_EVAL_PROMPT.md
-```
-
-Local agents must write only under allowed candidate roots, such as:
-
-```text
-runs/kit/<REQ-ID>/src
-runs/kit/<REQ-ID>/test
-runs/kit/<REQ-ID>/ci
-runs/kit/<REQ-ID>/docs
-runs/kit/<REQ-ID>/reports
-```
-
-They must not write directly to canonical `src/`, `test/`, or `tests/`.
-
-### Model 2 — External/local agent interacts with CLike through MCP
-
-Flow:
-
-```text
-Agent
-→ Extension MCP operational server
-→ Extension dispatches normal slash command
-→ Normal CLike flow
-→ Orchestrator
-→ Gateway / local-agent / RAG / Git / Eval / Gate
-```
-
-The extension MCP server does not duplicate Harper logic.
-
-It dispatches the same slash commands the developer can type in chat.
-
----
-
-## MCP support
-
-### Extension MCP operational server
-
-The extension can expose a local MCP-compatible operational server.
-
-Its purpose is to let an external/local agent operate CLike safely.
-
-Example tool surface:
-
-- `clike_extension_status`
-- `harper_next_action`
-- `harper_run_phase`
-- `harper_kit_next`
-- `harper_continue_loop`
-- `rag_reindex`
-- `rag_docs_status`
-- `rag_docs_reindex_if_empty`
-
-Typical usage:
-
-```text
-Agent asks: run next kit
-Extension MCP resolves next open REQ
-Extension dispatches: /kit REQ-002
-Normal Harper flow continues
-```
-
-### MCP settings
-
-The extension can expose settings such as:
-
-- `clike.mcp.extensionServerEnabled`
-- `clike.mcp.extensionServerHost`
-- `clike.mcp.extensionServerPort`
-- `clike.mcp.extensionServerToken`
-
-Typical local endpoint:
-
-```text
-http://127.0.0.1:55742/mcp
-```
-
-Health check:
-
-```bash
-curl -s http://127.0.0.1:55742/health | jq
-```
-
-Tool list:
-
-```bash
-curl -s http://127.0.0.1:55742/mcp   -H 'content-type: application/json'   -d '{
-    "jsonrpc": "2.0",
-    "id": 1,
-    "method": "tools/list",
-    "params": {}
-  }' | jq
-```
-
-Run next KIT from an agent:
-
-```bash
-curl -s http://127.0.0.1:55742/mcp   -H 'content-type: application/json'   -d '{
-    "jsonrpc": "2.0",
-    "id": 2,
-    "method": "tools/call",
-    "params": {
-      "name": "harper_kit_next",
-      "arguments": {}
-    }
-  }' | jq -r '.result.content[0].text'
-```
-
-The next REQ policy is intentionally simple:
-
-```text
-first REQ in docs/harper/plan.json with status = open
-```
-
-If no open REQ exists and no in-progress REQ exists, CLike reports `finalize_only`.
+- [Quick start](#quick-start)
+- [Harper workflow](#harper-workflow)
+- [Project inputs](#project-inputs)
+- [Workspace layout](#workspace-layout)
+- [Commands](#commands)
+- [Cloud or local agent](#cloud-or-local-agent)
+- [Eval environment](#eval-environment)
+- [Git](#git)
+- [Troubleshooting](#troubleshooting)
 
 ---
 
 ## Quick start
 
-### 1. Backend
+Prerequisites: the CLike stack is running (orchestrator `http://localhost:8080`, gateway
+`http://localhost:8000`) and the CLike extension is installed in VS Code.
 
-Make sure these services are available:
-
-- Orchestrator: `http://localhost:8080`
-- Gateway: `http://localhost:8000`
-
-Model routing and provider configuration are resolved through backend configuration.
-
-### 2. Extension
-
-From the extension folder:
-
-```bash
-npm install
-```
-
-Then:
-
-- press **F5** to launch an Extension Development Host;
-- open Command Palette;
-- run **`CLike: Chat (Q&A / Harper / Coding)`**.
-
-### 3. Use the chat header
-
-Select:
-
-- mode;
-- model;
-- history scope.
-
-Then start working in Free, Coding, or Harper mode.
-
----
-
-## Slash commands
-
-Type commands directly in the chat input.
-
-### General
-
-| Command | Description |
-|---|---|
-| `/help` | Shows the quick help overlay. |
-| `/status` | Shows current Harper/project context status. |
-| `/where` | Shows current workspace and doc-root path. |
-| `/switch <name\|path>` | Switches to another Harper project. |
-
-### Harper workspace
-
-| Command | Description |
-|---|---|
-| `/init <name> [--path <abs>] [--force]` | Initializes a Harper project/workspace scaffold. |
-| `/idea` | Formalizes or updates `IDEA.md`. |
-| `/spec [file\|text]` | Generates or updates `SPEC.md` from IDEA/context. |
-| `/plan [spec_path]` | Generates or updates `PLAN.md`, `plan.json`, and lane guides. |
-
-### Agent selection
-
-| Command | Description |
-|---|---|
-| `/agent-default auto` | Let CLike select the local executor when local-agent execution is enabled. |
-| `/agent-default claude` | Prefer Claude Code as local executor. |
-| `/agent-default codex` | Prefer GPT Codex / Codex CLI as local executor. |
-
-Internal executor IDs may be normalized to:
+1. Open this folder in VS Code, then the **CLike Chat** panel (*CLike: Chat*), mode **Harper**.
+2. Describe the product in `docs/harper/IDEA.md`, or put the source documents in `docs/inputs/`
+   and run `/idea`.
+3. Run the phases in order and review each document before the next one:
 
 ```text
-claude_code
-gpt_codex
-auto
-```
-
-### KIT flow
-
-The extension supports both cloud-native and local-agent KIT execution models.
-
-| Command | Description |
-|---|---|
-| `/kit` | Runs KIT on the next target REQ. |
-| `/kit REQ-001` | Runs base KIT for the selected REQ. |
-| `/kit REQ-001 --integrity` | Runs `integrity_eval`. |
-| `/kit REQ-001 --hardener` | Runs `promotion_hardener`. |
-| `/kit REQ-001 --promotion-eval` | Runs `promotion_eval`. |
-| `/kit REQ-001 --phases=kit,integrity_eval,promotion_hardener,promotion_eval` | Runs an explicit chained multi-phase KIT pipeline. |
-
-KIT execution can run through:
-
-- cloud execution;
-- local-agent execution;
-- hybrid execution.
-
-### Cloud KIT execution
-
-Cloud KIT routes execution through:
-- OpenAI models;
-- Anthropic models;
-- Gateway-routed providers;
-- future compatible cloud backends.
-
-Cloud execution is optimized for:
-- larger contextual reasoning;
-- multi-pass orchestration;
-- repository-wide synthesis;
-- architectural generation;
-- iterative refinement;
-- richer planning interaction.
-
-Cloud KIT may internally execute:
-- multiple reasoning loops;
-- chained refinement passes;
-- RAG expansion;
-- broader contextual analysis;
-- structured synthesis iterations.
-
-This execution mode is ideal for:
-- architecture-heavy requirements;
-- greenfield scaffolding;
-- broad repository reasoning;
-- high-context generation flows.
-
-### Local-agent KIT execution
-
-Local-agent KIT delegates implementation execution to:
-- Claude Code;
-- GPT Codex;
-- future local coding agents.
-
-The extension acts as the local execution actuator while the Orchestrator remains responsible for:
-- workflow governance;
-- runtime contracts;
-- REQ lifecycle;
-- evaluation;
-- promotion.
-
-Typical flow:
-
-```text
-Developer
-→ VS Code Extension
-→ Orchestrator
-→ Agent execution package
-→ Extension local actuator
-→ Claude Code or GPT Codex
-→ Candidate artifacts
-→ Orchestrator normalization
-→ Eval/Gate continue through CLike
-```
-
-The local agent receives structured execution context files such as:
-
-```text
-runs/kit/<REQ-ID>/docs/AGENT_EXECUTION_CONTEXT.json
-runs/kit/<REQ-ID>/docs/AGENT_PROMPT.md
-runs/kit/<REQ-ID>/docs/TARGET_CONTRACT.json
-runs/kit/<REQ-ID>/docs/FILE_REQUIREMENTS.json
-```
-
-Candidate artifacts must remain inside allowed candidate roots:
-
-```text
-runs/kit/<REQ-ID>/src
-runs/kit/<REQ-ID>/test
-runs/kit/<REQ-ID>/ci
-runs/kit/<REQ-ID>/docs
-runs/kit/<REQ-ID>/reports
-```
-
-Canonical repository roots remain protected.
-
-### Execution preferences
-
-Execution strategy may be configured through:
-- `cloud_only`
-- `local_agent_only`
-- `prefer_local_agent`
-- `prefer_claude_code`
-- `prefer_gpt_codex`
-- `hybrid`
-- `auto`
-
-The Orchestrator may dynamically select the best execution strategy depending on:
-- phase;
-- repository state;
-- runtime availability;
-- execution policy;
-- model capability;
-- workspace constraints.
-
-KIT may execute through:
-- cloud path;
-- local Claude Code path;
-- local GPT Codex path.
-
-### Eval and Gate
-
-| Command | Description |
-|---|---|
-| `/eval <REQ-ID>` | Evaluates the current KIT output for that REQ. |
-| `/gate <REQ-ID>` | Runs gate checks and promotion logic for that REQ. |
-
-`/eval` supports:
-- cloud evaluation;
-- optional local-agent pre-pass evaluation;
-- hybrid evaluation flows.
-
-The authoritative eval and gate lifecycle always remains CLike-owned.
-
-### Cloud eval
-
-Cloud eval is optimized for:
-- repository-wide validation;
-- semantic analysis;
-- architecture consistency checks;
-- contract validation;
-- structured evaluation reporting;
-- broader contextual reasoning.
-
-Cloud evaluation may internally perform:
-- iterative analysis loops;
-- chained reasoning passes;
-- multi-stage validation;
-- RAG-assisted contextual inspection.
-
-Typical flow:
-
-```text
-Extension
-→ Orchestrator
-→ Cloud evaluation pipeline
-→ Structured eval report
-→ Gate preparation
-```
-
-### Local-agent eval pre-pass
-
-Local-agent eval acts as an optional pre-analysis step.
-
-Supported local evaluators include:
-- Claude Code;
-- GPT Codex;
-- future local agents.
-
-Typical flow:
-
-```text
-Extension
-→ Local agent
-→ Preliminary repository analysis
-→ Findings returned
-→ Canonical CLike eval continues
-```
-
-Local-agent eval may assist with:
-- implementation sanity checks;
-- repository inspection;
-- repair suggestions;
-- local reasoning loops.
-
-The canonical eval result remains governed by CLike.
-
-### Gate behavior
-
-`/gate` remains fully governance-owned by CLike.
-
-Gate is responsible for:
-- promotion validation;
-- lifecycle enforcement;
-- contract compliance;
-- eval verification;
-- quality policy enforcement;
-- promotability validation.
-
-Promotion occurs only when gate policies pass successfully.
-
-Gate may consume:
-- cloud eval outputs;
-- local-agent findings;
-- LTC artifacts;
-- repository state;
-- generated reports;
-- canonical workspace context.
-
-`/eval` can optionally run a local-agent pre-pass, but canonical eval and gate remain CLike-owned.
-
-### Finalization
-
-| Command | Description |
-|---|---|
-| `/finalize` | Runs final gates and closure step for Harper workflows. |
-
-`/finalize` remains fully orchestration-owned by CLike.
-
-The finalize lifecycle is responsible for:
-- final governance validation;
-- unresolved REQ checks;
-- promotion integrity verification;
-- workflow closure;
-- lifecycle state completion;
-- optional repository-level summarization.
-
-### Cloud finalize
-
-Cloud finalize is optimized for:
-- repository-wide reasoning;
-- cross-REQ analysis;
-- architectural consistency validation;
-- release-oriented synthesis;
-- broader contextual orchestration.
-
-Cloud finalize may internally perform:
-- iterative reasoning passes;
-- repository-wide inspection;
-- contextual synthesis loops;
-- final validation refinement.
-
-Typical flow:
-
-```text
-Extension
-→ Orchestrator
-→ Cloud finalize pipeline
-→ Final governance checks
-→ Workflow closure
-```
-
-### Local-agent participation
-
-Local agents do not own finalize.
-
-They may optionally contribute:
-- final repair loops;
-- unresolved issue suggestions;
-- repository cleanup recommendations;
-- implementation refinement proposals.
-
-The authoritative finalize lifecycle always remains CLike-owned.
-
-### Finalization philosophy
-
-CLike intentionally separates:
-- reasoning orchestration;
-- implementation execution;
-- governance lifecycle ownership.
-
-This allows:
-- cloud models to maximize orchestration and reasoning depth;
-- local agents to maximize repository-aware implementation efficiency;
-- CLike to retain governance, promotion, eval, and lifecycle control.
-
-### RAG
-
-| Command | Description |
-|---|---|
-| `/rag <query>` | Searches in RAG and shows top results. |
-| `/rag +<N>` | Attaches result `N` from the last RAG search. |
-| `/rag list` | Shows current attached files/RAG references. |
-| `/rag clear` | Clears current attachments. |
-| `/ragIndex [glob]` | Manually indexes content into RAG. |
-| `/ragSearch <query>` | Searches the RAG directly and returns top results. |
-
-Examples:
-
-```text
-/ragIndex docs/**/*.md
-/ragIndex docs/**/*
-/ragIndex runs/kit/REQ-001/**/*
-/ragSearch adapter registry
-```
-
----
-
-## Current Harper behavior
-
-### `/init`
-
-The workspace initializer creates Harper scaffold and support files such as:
-
-- `README.md`;
-- `.clike/`;
-- `.github/`;
-- `docs/harper/`;
-- `runs/`.
-
-### `/idea`
-
-Creates or updates product intent and problem framing.
-
-### `/spec`
-
-Creates or updates requirements and acceptance criteria.
-
-### `/plan`
-
-Produces promotion-grade planning artifacts:
-
-- `docs/harper/PLAN.md`;
-- `docs/harper/plan.json`;
-- lane guides under `docs/harper/lane-guides/`.
-
-### `/kit`
-
-Produces candidate artifacts per REQ.
-
-Expected candidate roots:
-
-```text
-runs/kit/<REQ-ID>/src
-runs/kit/<REQ-ID>/test
-runs/kit/<REQ-ID>/ci
-runs/kit/<REQ-ID>/docs
-```
-
-### `/eval`
-
-Validates candidate artifacts.
-
-Eval may read:
-
-- `LTC.json`;
-- `HOWTO.md`;
-- candidate source;
-- candidate tests;
-- generated reports;
-- dependency KITs;
-- canonical workspace source/test roots.
-
-### `/gate`
-
-Promotes only when quality gates pass.
-
-Gate remains CLike-owned.
-
----
-
-## Command Palette commands
-
-### Chat / core
-
-- **CLike: Chat (Q&A / Harper / Coding)**
-- **CLike: Clear Chat Session (current model)**
-- **CLike: Chat Session File (current model)**
-- **Clike: Ping Service**
-- **Clike: Check Services**
-- **Clike: List Models (via Gateway)**
-
-### Coding / patching
-
-- **Clike: Code Action…**
-- **Clike: Add Docstring (AI via Orchestrator)**
-- **Clike: Refactor (AI via Orchestrator)**
-- **Clike: Generate Tests (AI via Orchestrator)**
-- **Clike: Fix Errors (AI via Orchestrator)**
-- **Clike: Apply Unified Diff (Hardened)**
-- **Clike: Apply Unified Diff**
-- **Clike: Apply New Content**
-- **Clike: Apply Last Patch**
-
-### RAG
-
-- **Clike: RAG Reindex (via Orchestrator)**
-- **Clike: RAG Search (via Orchestrator)**
-
-### Git / promotion
-
-- **Clike: Git Create Branch**
-- **Clike: Git Commit Patch**
-- **Clike: Git Open PR**
-- **Clike: Git Smart PR**
-- **CLike: Promote source code**
-- **CLike: Quick Promote source code**
-
-### Eval / governance
-
-- **CLike: Run All Evals**
-- **CLike: Gate Check (Phase)**
-- **CLike: Sync Constraints (IDEA/SPEC)**
-- **CLike: Update PLAN Checklist from Eval**
-- **CLike: Harper Init…**
-
----
-
-## UI guide
-
-### Header
-
-The chat header contains:
-
-- mode selector;
-- model selector;
-- history scope selector.
-
-### Prompt area
-
-The prompt area supports:
-
-- slash commands;
-- attachments;
-- help overlay;
-- Harper/Coding/Free workflows.
-
-### Panels / tabs
-
-Generation output is rendered through tabs:
-
-- Text;
-- Diffs;
-- Files.
-
-### Bubble timeline
-
-The timeline keeps contextual continuity and supports timestamped interaction traces.
-
----
-
-## Settings
-
-### Chat / UI
-
-- `clike.chat.theme`
-  - `classic`
-  - `pro`
-  - `studio`
-  - `paper`
-- `clike.chat.autoOpenOnStartup`
-- `clike.chat.persistDir`
-- `clike.chat.never_send_source_to_cloud`
-- `clike.chat.maxInMemoryMessages`
-- `clike.chat.autoWriteGeneratedFiles`
-
-### Backend endpoints
-
-- `clike.orchestratorUrl`
-- `clike.gatewayUrl`
-
-### Harper behavior
-
-- `clike.harperTimeout`
-- `clike.docRoot`
-- `clike.verboseLogging`
-
-### Local agent
-
-- `clike.localAgent.enabled`
-- `clike.localAgent.preferredExecutor`
-- `clike.localAgent.claudeCode.enabled`
-- `clike.localAgent.claudeCode.command`
-- `clike.localAgent.codex.enabled`
-- `clike.localAgent.codex.command`
-
-### MCP extension server
-
-- `clike.mcp.extensionServerEnabled`
-- `clike.mcp.extensionServerHost`
-- `clike.mcp.extensionServerPort`
-- `clike.mcp.extensionServerToken`
-
-### Apply behavior
-
-- `clike.apply.backup`
-- `clike.apply.requireCleanGit`
-- `clike.apply.dryRunPreview`
-
-### Git integration
-
-- `clike.git.autoCommit`
-- `clike.git.gitMergeOnGate`
-- `clike.git.gitDeleteBranchOnMerge`
-- `clike.git.gitReturnToFeatureAfterMerge`
-- `clike.git.remoteUrl`
-- `clike.git.commitMessage`
-- `clike.git.openPR`
-- `clike.git.remote`
-- `clike.git.defaultBranch`
-- `clike.git.conventionalCommits`
-- `clike.git.pushRebase`
-- `clike.git.branchPrefix`
-- `clike.git.tagPrefix`
-- `clike.git.prPerReqDraft.enabled`
-- `clike.git.prPerReqDraft.useGhCli`
-- `clike.git.prBodyPath`
-
-### Routes
-
-- `clike.routes`
-  - orchestrator and gateway route mapping overrides.
-
----
-
-## Typical flows
-
-### Free mode
-
-- ask questions;
-- attach small files inline;
-- use RAG for larger context.
-
-### Coding mode
-
-- ask for code or patches;
-- review output in Text/Diffs/Files;
-- apply only after inspection.
-
-### Harper cloud flow
-
-```text
-/init <name>
 /idea
 /spec
 /plan
 /kit REQ-001
-/eval REQ-001
+/eval REQ-001 --fix
 /gate REQ-001
+...            (kit → eval → gate for every REQ in docs/harper/plan.json)
 /finalize
 ```
 
-### Harper local-agent KIT flow
+`/status` shows where the project is; `/help` lists every command.
+
+---
+
+## Harper workflow
+
+| Phase | Command | Produces | Review before moving on |
+|---|---|---|---|
+| IDEA | `/idea` | `docs/harper/IDEA.md` | problem, users, scope, constraints |
+| SPEC | `/spec` | `docs/harper/SPEC.md` | requirements, acceptance criteria, non-functional limits |
+| PLAN | `/plan` | `docs/harper/PLAN.md`, `docs/harper/plan.json` | REQ split, order, dependencies, tech choices |
+| KIT | `/kit REQ-xxx` | `runs/kit/REQ-xxx/` (src, test, ci, docs) | candidate code and tests of one REQ |
+| EVAL | `/eval REQ-xxx [--fix]` | eval report | every LTC check green |
+| GATE | `/gate REQ-xxx` | gate decision, promotion | the REQ is promoted to `src/` and `test/` |
+| FINALIZE | `/finalize` | release README, `docs/harper/HOWTO_RUN.md`, release notes | the solution as delivered |
+
+Rules that keep the result trustworthy:
+
+- **Canonical documents win.** `IDEA.md`, `SPEC.md`, `PLAN.md` and `plan.json` are the source of
+  truth; edit them by hand when needed and re-run the next phase.
+- **KIT writes candidates only** under `runs/kit/<REQ>/`; only a passing gate promotes them.
+- **Acceptance is locked.** Tests and `ci/LTC.json` of a REQ are locked before evaluation: a
+  repair cannot weaken them. `ci/HOWTO.md` is documentation and can be edited freely.
+
+---
+
+## Project inputs
+
+Everything the phases should read besides the Harper documents goes in three folders, declared in
+`.clike/context.yaml`:
+
+| Folder | Role | Read by | Put here |
+|---|---|---|---|
+| `docs/inputs/` | requirements | idea, spec, plan | briefs, specifications, emails, spreadsheets |
+| `docs/harper/ux/` | ui_reference | spec, plan, kit | HTML mockups, screenshots, CSS, icons, UI notes |
+| `docs/reference/` | reference | spec, plan | standards, API docs, examples |
+
+- `.docx`, `.pptx`, `.xlsx` and `.pdf` are converted to text; HTML, CSS, SVG and other text files
+  are read as they are; images are opened by local agents and listed for cloud models.
+- Add paths, roles or phases in `.clike/context.yaml` (the file documents the options). Files are
+  context, never instructions.
+- A file attached in the chat is used only by that command; put it in a folder to keep it.
+
+---
+
+## Workspace layout
 
 ```text
-/agent-default codex
-/kit REQ-001
-/eval REQ-001
-/gate REQ-001
+${project.name}/
+├── README.md                 this file (replaced by /finalize)
+├── README_1st.md             first-time guide: Harper concepts and Git setup
+├── .clike/                   CLike project settings
+│   ├── project.json          project id, roots, RAG namespace
+│   ├── context.yaml          project inputs read by the phases
+│   ├── capabilities.yaml     capability selection
+│   ├── policy.yaml           execution policy
+│   ├── packs/ skills/ design-profiles/
+├── docs/
+│   ├── harper/               canonical documents (IDEA, SPEC, PLAN, plan.json, ux/)
+│   ├── inputs/               requirement sources
+│   └── reference/            reference material
+├── runs/kit/<REQ-ID>/        KIT candidates: src/, test/, ci/ (LTC.json, HOWTO.md), docs/
+├── src/  test/               promoted code (written by the gate)
+└── .github/                  CI workflow, PR template, CODEOWNERS
 ```
 
-or:
+---
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `/idea [--methodology bmad --agent analyst]` | creates or updates IDEA.md |
+| `/spec`, `/plan` | create or update SPEC.md, PLAN.md and plan.json |
+| `/kit` / `/kit REQ-001` | implements the next open REQ / the given one |
+| `/eval REQ-001` | runs the REQ's LTC checks in the eval sandbox |
+| `/eval REQ-001 --fix ["hint"]` | evaluates and repairs failing checks automatically |
+| `/gate REQ-001` | decides promotion of the REQ |
+| `/finalize` | release documents of the whole solution |
+| `/agent-default auto\|codex\|claude` | which local agent runs the phases |
+| `/agent-model codex <model>` | model of the local agent |
+| `/rag <query>`, `/ragIndex [glob]` | search and index project context |
+| `/status`, `/where`, `/help` | project state, paths, all commands |
+
+---
+
+## Cloud or local agent
+
+Every phase can run on a **cloud model** (through the CLike gateway) or on a **local coding agent**
+(Codex or Claude Code, run by the extension in this workspace). CLike owns the workflow either way:
+it prepares the context, validates the output, runs eval and gate.
+
+- Choose the agent with `/agent-default` and its model with `/agent-model`; an invalid model name
+  is reported before the run.
+- Local agents write only where the phase allows (`docs/harper/` for document phases,
+  `runs/kit/<REQ>/` for KIT).
+
+---
+
+## Eval environment
+
+`/eval` runs the checks of `runs/kit/<REQ>/ci/LTC.json` in the CLike **eval sandbox**, a container
+without credentials, not in your terminal. When the tests need real infrastructure (for example a
+PostgreSQL test database), the KIT declares the variables in the LTC and explains them in the
+`## Run with CLike /eval` section of `ci/HOWTO.md`.
+
+Give them to the sandbox in `docker/eval.env` of the CLike repository:
+
+```sh
+createdb -h localhost ${project.id}_test        # once: a disposable test database
+```
 
 ```text
-/agent-default claude
-/kit REQ-001
-/eval REQ-001
-/gate REQ-001
+APP_TEST_DATABASE_URL=postgresql+psycopg://<user>@host.containers.internal:5432/${project.id}_test
 ```
 
-### Agent-driven Model 2 flow through MCP
+- From the sandbox your machine is `host.containers.internal`, not `localhost`.
+- No credentials: names containing `TOKEN`, `SECRET` or `PASSWORD` are refused.
+- Recreate the stack after editing the file (`docker/rebuild.sh`).
+- A missing variable makes `/eval` report `BLOCKED` with its name; nothing runs and `--fix` does
+  not spend tokens.
 
-```text
-Agent calls harper_next_action
-Agent calls harper_kit_next
-Extension dispatches /kit REQ-XXX
-Normal CLike flow runs
-Agent calls harper_run_phase phase=eval req_id=REQ-XXX
-Agent calls harper_run_phase phase=gate req_id=REQ-XXX
-If no REQ remains, agent calls /finalize
+---
+
+## Git
+
+The repository must exist on GitHub before the first push:
+
+```sh
+git init && git add . && git commit -m "chore(init): bootstrap Harper workspace from CLike template"
+git branch -M main
+gh repo create <owner>/${project.name} --private --source . --remote origin --push
 ```
+
+Keep the repository private unless the inputs can be published, and never commit `.env` files.
+`README_1st.md` has the full first-time setup.
 
 ---
 
 ## Troubleshooting
 
-### MCP extension server does not respond
-
-Check settings:
-
-- `clike.mcp.extensionServerEnabled`
-- `clike.mcp.extensionServerHost`
-- `clike.mcp.extensionServerPort`
-
-Then test:
-
-```bash
-curl -s http://127.0.0.1:55742/health | jq
-```
-
-### Agent command accepted but nothing runs
-
-Verify that the CLike chat panel is available and that the extension posted the slash command to the webview.
-
-Expected extension log pattern:
-
-```text
-[CLike][mcp-extension]
-Agent requested: /kit REQ-001
-[harperRun] normalized kit target='REQ-001'
-```
-
-### KIT target selection issues
-
-If `/kit REQ-XXX` does not behave as expected, verify:
-
-- slash parsing;
-- webview-to-extension bridge;
-- REQ resolution logic;
-- `docs/harper/plan.json` state.
-
-### Local agent issues
-
-Verify:
-
-- agent command is installed;
-- configured command is correct;
-- `/agent-default codex|claude|auto` is set as intended;
-- executor availability logs are clean.
-
-### Provider/model issues
-
-Verify:
-
-- gateway model catalog;
-- gateway model availability;
-- route configuration;
-- provider API keys.
-
-### RAG issues
-
-Verify:
-
-- orchestrator RAG endpoints;
-- Qdrant/vector-store availability;
-- reindex content with `/ragIndex docs/**/*`;
-- use `rag_docs_reindex_if_empty` through MCP if needed.
+| Symptom | Cause and fix |
+|---|---|
+| The chat cannot reach CLike | the stack is down: start it and check `http://localhost:8080/health` |
+| `LOCAL_AGENT_MODEL_INVALID` | the agent model does not exist: use the suggestion or `/agent-model` |
+| `EVAL BLOCKED — missing in docker/eval.env` | add the variable named in the message (see [Eval environment](#eval-environment)) |
+| `ACCEPTANCE_TAMPERED` | tests or `ci/LTC.json` changed after the lock: re-run `/kit` to re-baseline |
+| `Repository not found` on push | create the GitHub repository first (see [Git](#git)) |
+| A phase ignores a document | it is not in a folder of `.clike/context.yaml` for that phase |
 
 ---
 
-## Backend endpoints reference
-
-### Orchestrator
-
-- `POST /v1/chat`
-- `POST /v1/generate`
-- `POST /v1/harper/spec`
-- `POST /v1/harper/plan`
-- `POST /v1/harper/kit`
-- `POST /v1/harper/eval`
-- `POST /v1/harper/gate`
-- `POST /v1/harper/finalize`
-- `POST /v1/harper/local-agent/complete`
-- `POST /v1/rag/index`
-- `POST /v1/rag/search`
-- `POST /v1/rag/fetch`
-- `POST /mcp/`
-
-### Gateway
-
-- `GET /v1/models`
-- `POST /v1/chat`
-- `POST /v1/generate`
-- `POST /v1/embeddings`
-
-### Extension MCP
-
-- `GET /health`
-- `GET /tools`
-- `POST /mcp`
-
----
-
-## Current positioning
-
-This extension is a VS Code front-end for an AI-native software delivery workflow.
-
-It combines:
-
-- interactive chat;
-- coding assistance;
-- Harper document-driven delivery;
-- REQ-based KIT execution;
-- local-agent execution;
-- RAG-assisted context retrieval;
-- eval/gate flows;
-- Git-aware promotion;
-- MCP-driven agent interoperability.
-
----
-
-## Changelog summary for the current state
-
-Compared with earlier revisions, the extension now includes or exposes:
-
-- theme selection for the chat webview;
-- stronger multi-model / multi-provider awareness;
-- history scope handling;
-- persistent bubble timeline;
-- manual RAG indexing and attachment workflows;
-- richer Harper slash commands;
-- explicit KIT follow-up phases;
-- local-agent execution through Claude Code and GPT Codex;
-- `/agent-default auto|claude|codex`;
-- eval pre-pass support for local agents;
-- MCP operational server for agent-to-CLike workflows;
-- promote / quick-promote command palette actions;
-- expanded Git settings and promotion behavior;
-- configurable apply / backup / dry-run behavior.
-
----
-
-## Repo
-
-Part of the CLike project family:
-
-- VS Code extension;
-- Orchestrator;
-- Gateway.
-
-Use all three together for the full AI-native workflow.
+<sub>Generated by CLike <code>/init</code> · project id <code>${project.id}</code> · RAG namespace <code>${project.rag_namespace}</code></sub>
