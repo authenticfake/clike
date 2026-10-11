@@ -20,6 +20,7 @@
 - [Commands](#commands)
 - [Cloud or local agent](#cloud-or-local-agent)
 - [Eval environment](#eval-environment)
+- [Telemetry](#telemetry)
 - [Git](#git)
 - [Troubleshooting](#troubleshooting)
 
@@ -170,6 +171,26 @@ APP_TEST_DATABASE_URL=postgresql+psycopg://<user>@host.containers.internal:5432/
 
 ---
 
+## Telemetry
+
+Every phase run is recorded per project (id `${project.id}`): phase, cloud or local agent, model,
+tokens, duration and cost. Open the portal in the browser:
+
+```text
+http://127.0.0.1:8000/v1/metrics/harper/ui
+```
+
+- Log in with the CLike service token (`CLIKE_API_TOKEN` in `docker/.env` of the CLike
+  repository); the session lasts 8 hours.
+- Select the project `${project.id}`: totals, cost per phase/model/day, the most expensive runs and
+  the raw records.
+- Cloud runs show the provider cost. Local-agent runs show the **API-equivalent** cost (what the
+  same tokens would cost on the API; subscriptions are not billed per token): Claude Code reports
+  it, for Codex it is estimated from the model prices in `configs/models.yaml` (`estimated`).
+- A run with a wrong model name has no price and shows a zero cost.
+
+---
+
 ## Git
 
 The repository must exist on GitHub before the first push:
@@ -195,6 +216,7 @@ Keep the repository private unless the inputs can be published, and never commit
 | `ACCEPTANCE_TAMPERED` | tests or `ci/LTC.json` changed after the lock: re-run `/kit` to re-baseline |
 | `Repository not found` on push | create the GitHub repository first (see [Git](#git)) |
 | A phase ignores a document | it is not in a folder of `.clike/context.yaml` for that phase |
+| Telemetry shows zero cost | the model has no price in `configs/models.yaml`, or the name is wrong |
 
 ---
 
