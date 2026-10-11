@@ -539,7 +539,7 @@ var HELP_COMMANDS = [
   {cmd:'/agent-default codex|claude|auto', desc:'Sets the preferred local agent executor (works in Free, Coding and Harper; does not change mode)'},
   {cmd:'Agent chat (execution = agent)', desc:'Free: questions only, nothing is written. Coding and Harper free text: the agent can also create files, only under generated/<id>/ (Harper artifacts change only through /spec, /plan, /kit, ...)'},
   {cmd:'Settings (agent chat)', desc:'clike.agentChat.approvals: ask (default) — in Coding and Harper every edit/command of Claude Code or Codex waits for Allow / Allow all this turn / Deny, writes outside generated/ are denied; auto — no questions'},
-  {cmd:'Settings (auto-eval)', desc:'clike.autoEval.maxCycles (2), clike.autoEval.extraCyclesOnProgress (2), clike.autoEval.afterKit, clike.eval.regression (on), clike.gate.strictWarnings, clike.kit.acceptanceFirst — see docs/auto-eval.md'},
+  {cmd:'Settings (auto-eval)', desc:'clike.autoEval.maxCycles (2), clike.autoEval.extraCyclesOnProgress (3), clike.autoEval.afterKit, clike.eval.regression (on), clike.gate.strictWarnings, clike.kit.acceptanceFirst — see docs/auto-eval.md'},
   {cmd:'/finalize', desc:'Final gates and project closure (Harper)'},
   {cmd:'/finalize --methodology bmad --agent tech-writer', desc:'Finalizes with BMAD documentation guidance'},
   {cmd:'/rag <query>', desc:'Searches the RAG and shows top results'},

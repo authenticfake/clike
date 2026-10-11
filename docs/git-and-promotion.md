@@ -22,11 +22,14 @@ Git-related commands contributed by the extension:
 
 ## Current settings
 
-All automation is **off by default** (since the 2026-10 hardening):
+All automation is **off by default** (since the 2026-10 hardening). Machine-scoped settings are
+read by VS Code **only from User settings** (an opened project cannot turn on commits or pushes):
+a value in the project's `.vscode/settings.json` is ignored, and CLike warns about it with
+**Apply in User settings**.
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `clike.git.autoCommit` | `false` | Commit the files produced by each Harper phase — only those files |
+| `clike.git.autoCommit` | `false` | Commit the files produced by each Harper phase — only those files (machine-scoped) |
 | `clike.git.autoPush` | `false` | Push phase commits, tags and gate merges (machine-scoped) |
 | `clike.git.gitMergeOnGate` | `false` | After a PASS gate, merge the REQ branch into the default branch (`--no-ff`) |
 | `clike.git.openPR` | `false` | Open a PR on `/finalize` |

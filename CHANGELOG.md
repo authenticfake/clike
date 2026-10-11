@@ -30,7 +30,7 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   TS fixture was reverted and `--fix` kept failing on it. The eval pre-pass now receives the
   previous failures as evidence too.
 - **`/eval --fix` keeps going while it improves**: after `clike.autoEval.maxCycles`, up to
-  `clike.autoEval.extraCyclesOnProgress` (default 2) more cycles as long as each one leaves fewer
+  `clike.autoEval.extraCyclesOnProgress` (default 3) more cycles as long as each one leaves fewer
   failing checks.
 - **RAG indexing is batched and incremental.** The orchestrator embedded one chunk per gateway
   call (a project re-index took 5 minutes inside every `--fix` cycle); it now sends batches
@@ -73,6 +73,14 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   other tool caches (`XDG_CACHE_HOME`, `PLAYWRIGHT_BROWSERS_PATH`) are on the volume as well.
 - `configs/models.yaml`: prices re-checked against the OpenAI and Anthropic price pages
   (2026-10-11); `gpt-5.4` input corrected to $2.50/M; `cached_input_per_1k` added where listed.
+- **Git automation silently off when enabled in the project.** `clike.git.autoCommit` (like every
+  machine-scoped setting: binaries, agent permissions, service URLs, push) is read by VS Code only
+  from User settings, so a value in `.vscode/settings.json` was ignored without a word. CLike now
+  warns at startup and on change, with **Apply in User settings**.
+- `/init` wrote `.gitignore` with indented lines, so only `node_modules/` was ignored: chat
+  sessions, telemetry, `.vscode/` and `.env` files could be committed. Lines are no longer
+  indented, and `.clike/sessions/`, `.clike/telemetry/` and `.env.*` (except `.env.example`) are
+  ignored.
 - `ci/HOWTO.md` (and any Markdown under `test/` or `ci/`) is documentation, no longer part of the
   acceptance lock: editing it by hand no longer reports `ACCEPTANCE_TAMPERED`.
 - `/init`: `README_1st.md` showed `${project.org}` and escaped backticks; the Git steps now create

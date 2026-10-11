@@ -915,6 +915,45 @@ function assertAgentModelValid(executorId, executorConfig) {
   throw error;
 }
 
+// Machine-scoped CLike settings (binaries, agent permissions, service URLs, Git commit/push)
+// are read by VS Code only from User settings, so an opened project cannot turn them on. A value
+// put in the project's .vscode/settings.json is silently ignored: say so, and offer to apply it
+// in User settings (an explicit choice of the developer).
+const reportedIgnoredSettings = new Set();
+function machineScopedSettingKeys() {
+  const config = require('./package.json')?.contributes?.configuration;
+  const groups = Array.isArray(config) ? config : [config];
+  return groups
+    .flatMap((g) => Object.entries(g?.properties || {}))
+    .filter(([, spec]) => spec?.scope === 'machine')
+    .map(([key]) => key.replace(/^clike\./, ''));
+}
+
+function reportIgnoredWorkspaceSettings() {
+  const c = vscode.workspace.getConfiguration('clike');
+  for (const key of machineScopedSettingKeys()) {
+    const inspected = c.inspect(key) || {};
+    const projectValue = inspected.workspaceFolderValue !== undefined ? inspected.workspaceFolderValue : inspected.workspaceValue;
+    if (projectValue === undefined || JSON.stringify(projectValue) === JSON.stringify(inspected.globalValue)) continue;
+    const id = `${key}=${JSON.stringify(projectValue)}`;
+    if (reportedIgnoredSettings.has(id)) continue;
+    reportedIgnoredSettings.add(id);
+    const effective = inspected.globalValue !== undefined ? inspected.globalValue : inspected.defaultValue;
+    const message =
+      `CLike: "clike.${key}": ${JSON.stringify(projectValue)} is in this project's settings, but VS Code applies it ` +
+      `only from User settings, so CLike uses ${JSON.stringify(effective)}.`;
+    out.appendLine(`[CLike][settings] ${message}`);
+    vscode.window.showWarningMessage(message, 'Apply in User settings', 'Open User Settings').then(async (choice) => {
+      if (choice === 'Apply in User settings') {
+        await c.update(key, projectValue, vscode.ConfigurationTarget.Global);
+        vscode.window.showInformationMessage(`CLike: clike.${key} = ${JSON.stringify(projectValue)} set in User settings.`);
+      } else if (choice === 'Open User Settings') {
+        vscode.commands.executeCommand('workbench.action.openSettings', `clike.${key}`);
+      }
+    });
+  }
+}
+
 // Settings check at activation and on change: an invalid model shows an error now,
 // not only when the next run fails.
 function reportInvalidAgentModels() {
@@ -1825,6 +1864,7 @@ vscode.workspace.onDidChangeConfiguration((e) => {
   if (e.affectsConfiguration('clike.localAgent.codex.model') || e.affectsConfiguration('clike.claudeCode.model')) {
     reportInvalidAgentModels();
   }
+  if (e.affectsConfiguration('clike')) reportIgnoredWorkspaceSettings();
   if (e.affectsConfiguration('clike.useAi') ||
       e.affectsConfiguration('clike.useAi.docstring') ||
       e.affectsConfiguration('clike.useAi.refactor')  ||
@@ -1870,7 +1910,7 @@ function cfg() {
     optimizeFor: c.get('optimizeFor', 'capability'),
     harperTimeout: c.get('harperTimeout', 25),
     autoEvalMaxCycles: c.get('autoEval.maxCycles', 2),
-    autoEvalExtraCyclesOnProgress: c.get('autoEval.extraCyclesOnProgress', 2),
+    autoEvalExtraCyclesOnProgress: c.get('autoEval.extraCyclesOnProgress', 3),
     autoEvalAfterKit: c.get('autoEval.afterKit', false),
     agentChatApprovals: c.get('agentChat.approvals', 'ask'),
     kitAcceptanceFirst: c.get('kit.acceptanceFirst', false),
@@ -3456,6 +3496,7 @@ function activate(context) {
   //out.appendLine(`activate ${context}`);
   clikeExtensionContext = context;
   reportInvalidAgentModels();
+  reportIgnoredWorkspaceSettings();
   const serviceAuthReady = initServiceAuth(context).catch((err) =>
     out.appendLine(`[CLike][auth] cannot load service token: ${err?.message || err}`)
   );
@@ -3751,16 +3792,22 @@ async function cmdOpenChat(context) {
           copyRecursive(templatesDir, targetDir);
 
           // file seed
-          await writeFileUtf8(path.join(targetDir, '.gitignore'),`node_modules/
-          dist/
-          .vscode/
-          runs/eval/.venvs/
-          .env
-          runs/**/local-eval-workspaces/
-          local-eval-workspaces/
-          runs/
-          *.log
-          `);
+          await writeFileUtf8(path.join(targetDir, '.gitignore'), [
+            // no indentation: a leading space is part of a .gitignore pattern
+            'node_modules/',
+            'dist/',
+            '.vscode/',
+            '.env',
+            '.env.*',
+            '!.env.example',
+            'runs/',
+            'local-eval-workspaces/',
+            '*.log',
+            // CLike local state: chat sessions and telemetry stay on this machine
+            '.clike/sessions/',
+            '.clike/telemetry/',
+            '',
+          ].join('\n'));
 
           // handoff for the bubble in the new workspace
           const summary = {
@@ -6033,7 +6080,7 @@ async function cmdOpenChat(context) {
     const state = {
       cycle: Number(msg.fix.cycle || 0),
       maxCycles: Math.max(1, Number(msg.fix.maxCycles || settings.autoEvalMaxCycles || 2)),
-      extraCycles: Math.max(0, Number(msg.fix.extraCycles ?? settings.autoEvalExtraCyclesOnProgress ?? 2)),
+      extraCycles: Math.max(0, Number(msg.fix.extraCycles ?? settings.autoEvalExtraCyclesOnProgress ?? 3)),
       lastFailureCount: msg.fix.lastFailureCount,
       hint: String(msg.fix.hint || ''),
       lastSignature: msg.fix.lastSignature || '',

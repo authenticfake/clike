@@ -121,7 +121,7 @@ function nextAutoEvalStep(state, report) {
   const signature = failureSignature(failures);
   if (state.cycle >= state.maxCycles) {
     // Still improving (fewer failing checks than before the last repair): extra cycles, bounded.
-    const extra = Math.max(0, Number(state.extraCycles ?? 2));
+    const extra = Math.max(0, Number(state.extraCycles ?? 3));
     const improving = Number.isFinite(state.lastFailureCount) && failures.length < state.lastFailureCount;
     if (!improving || state.cycle >= state.maxCycles + extra) {
       return { action: 'stop', reason: `still failing after ${state.cycle} repair cycle(s)`, failures, signature };
