@@ -2,7 +2,39 @@
 
 All notable changes to CLike. Extension, orchestrator and gateway share one version.
 
-## [Unreleased]
+## [1.3.0] — 2026-10-11 — Project context sources
+
+### Added
+
+- **Project context sources** (`.clike/context.yaml`, created by `/init`; see
+  [docs/context-sources.md](docs/context-sources.md)): the project files the Harper phases read as
+  context, each with a path glob, a role (`requirements`, `ui_reference`, `ux_requirements`,
+  `api_reference`, `data_sample`, `style_guide`, `domain_glossary`, `example_output`, `reference`)
+  and the phases that read it. Resolved server-side, read-only, and delivered to both runners: the
+  cloud phase message gets a `PROJECT CONTEXT SOURCES` block, the local agent the list of files to
+  read (converted documents written to `runs/context/<phase>/`). docx, xlsx/xls/xlsb, pptx and pdf
+  are converted to text; HTML, CSS, SVG and other text files are passed as they are; images are
+  opened by the local agents and listed by name for cloud models. Without the file: `docs/inputs/**`
+  → `requirements` (idea, spec, plan), `docs/harper/ux/**` → `ui_reference` (spec, plan, kit).
+  Canonical Harper documents win; size caps per file and per phase; unsafe paths ignored.
+- `/init` creates `docs/inputs/`, `docs/harper/ux/` and `docs/reference/`.
+
+### Changed
+
+- The office/PDF text extraction of RAG indexing moved to `services/document_text.py`, shared with
+  the context sources.
+
+## [1.2.4] — 2026-10-11 — Invalid agent model rejected up front, agent errors shown
+
+### Added
+
+- **Invalid agent model rejected before the agent starts**: `clike.localAgent.codex.model` is checked
+  against the models of the Codex login (`~/.codex/models_cache.json`), `clike.claudeCode.model`
+  against the Claude aliases (`opus`, `sonnet`, `haiku`) and `claude-*` ids. An invalid id blocks
+  every Harper phase and agent chat turn with `LOCAL_AGENT_MODEL_INVALID` and the closest valid id
+  (`gpt6-1-sol` → `gpt-6.1-sol`) until it is fixed; VS Code shows the error at start-up and when the
+  setting changes (with "Use …" and "Open Settings"), and `/agent-model` refuses an invalid id.
+  Without the Codex models cache the Codex id is not checked.
 
 ### Changed
 
@@ -11,6 +43,12 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   built and prunes dangling layers. The orchestrator and the eval sandbox share one image (built
   once instead of twice); the uv download cache is a build cache mount and no longer stored in the
   image layers.
+
+### Fixed
+
+- **A failed agent run showed no cause**: with machine-readable output the agent writes its error on
+  stdout (Codex `turn.failed`, Claude `is_error`), not on stderr; `LOCAL_AGENT_EXITED_WITH_ERROR` now
+  carries that message (for example the provider's 404 for an unknown model).
 
 ## [1.2.3] — 2026-10-10 — Codex Harper phases in a project without git
 

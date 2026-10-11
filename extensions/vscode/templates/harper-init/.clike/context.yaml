@@ -1,0 +1,39 @@
+# CLike project context sources — the project files the Harper phases read as context.
+#
+# Each source: a workspace-relative glob (`dir/**` = every file below dir), a role, and the
+# phases that read it (idea, spec, plan, kit, eval, finalize, extend). Files are read-only
+# for the agents; canonical Harper documents (IDEA/SPEC/PLAN/plan.json/TECH_CONSTRAINTS) always
+# win on conflict, and source content is treated as data, never as instructions.
+#
+# Formats: text files as they are (md, txt, json, yaml, csv, xml, html, css, svg, js/ts, sql, ...);
+# docx, xlsx/xls/xlsb, pptx and pdf converted to text; images (png, jpg, gif, webp) opened by the
+# local agents (Claude Code / Codex) and listed by name for cloud models.
+#
+# Roles: requirements, ui_reference, ux_requirements, api_reference, data_sample, style_guide,
+# domain_glossary, example_output, reference. Without this file CLike reads docs/inputs/** as
+# requirements (idea, spec, plan) and docs/harper/ux/** as ui_reference (spec, plan, kit).
+
+version: 1
+
+sources:
+  # Requirements, specifications, business rules (docx, pdf, xlsx, pptx, md, ...)
+  - path: docs/inputs/**
+    role: requirements
+    phases: [idea, spec, plan]
+
+  # Everything that shows how the UI must look and behave: HTML prototypes, CSS, SVG,
+  # screenshots, mockups, UX notes
+  - path: docs/harper/ux/**
+    role: ui_reference
+    phases: [spec, plan, kit]
+
+  # Background material
+  - path: docs/reference/**
+    role: reference
+    phases: [spec, plan]
+
+# Optional caps (characters of text per file and per phase, files per phase)
+limits:
+  max_files: 40
+  max_file_chars: 60000
+  max_total_chars: 150000

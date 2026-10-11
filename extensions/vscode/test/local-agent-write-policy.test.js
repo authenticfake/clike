@@ -525,3 +525,31 @@ test('a local agent that exits with an error reports its own stderr', () => {
   assert.doesNotMatch(failed.message, /Reading prompt/);
   assert.strictEqual(bmadPolicy.describeFailedLocalAgentRun({ exitCode: 0, stderr: 'x' }), null);
 });
+
+test('a failed Codex --json run reports the turn.failed message from stdout', () => {
+  const stdout = [
+    '{"type":"turn.started"}',
+    '{"type":"error","message":"Reconnecting... 2/5 (unexpected status 404 Not Found: The model `gpt6-1-sol` does not exist or you do not have access to it.)"}',
+    '{"type":"turn.failed","error":{"message":"unexpected status 404 Not Found: The model `gpt6-1-sol` does not exist or you do not have access to it., url: https://api.openai.com/v1/responses, cf-ray: x, request id: req_1"}}',
+  ].join('\n');
+  const failed = bmadPolicy.describeFailedLocalAgentRun({
+    exitCode: 1,
+    stdout,
+    stderr: 'Reading prompt from stdin...\n',
+    executorLabel: 'GPT Codex',
+  });
+  assert.strictEqual(
+    failed.message,
+    'GPT Codex exited with code 1 without writing any output: ' +
+      'unexpected status 404 Not Found: The model `gpt6-1-sol` does not exist or you do not have access to it.'
+  );
+});
+
+test('a failed Claude --output-format json run reports its error result', () => {
+  const failed = bmadPolicy.describeFailedLocalAgentRun({
+    exitCode: 1,
+    stdout: '{"type":"result","is_error":true,"result":"Invalid API key · Please run /login"}',
+    executorLabel: 'Claude Code',
+  });
+  assert.match(failed.message, /Claude Code exited with code 1 without writing any output: Invalid API key/);
+});

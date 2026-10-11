@@ -492,13 +492,37 @@ function isFreshLocalAgentArtifact(mtimeMs, runStartedAtMs) {
 
 // A local agent that exits non-zero without writing anything: report its own error
 // (last stderr lines) instead of a misleading output-validation failure.
-function describeFailedLocalAgentRun({ exitCode, stderr = '', executorLabel = 'Local agent' } = {}) {
+// With machine-readable output the agent's own error is a JSON event on stdout
+// (Codex: turn.failed / error; Claude: a result with is_error), not on stderr.
+function localAgentErrorFromJsonOutput(stdout) {
+  let found = '';
+  for (const line of String(stdout || '').split(/\r?\n/)) {
+    const text = line.trim();
+    if (!text.startsWith('{')) continue;
+    let event;
+    try {
+      event = JSON.parse(text);
+    } catch {
+      continue;
+    }
+    if (event?.type === 'turn.failed' && event.error?.message) found = String(event.error.message);
+    else if (event?.type === 'error' && event.message && !found) found = String(event.message);
+    else if (event?.is_error && (event.result || event.error)) found = String(event.result || event.error);
+  }
+  return found.replace(/,\s*(url|cf-ray|request id):.*$/i, '').trim();
+}
+
+function describeFailedLocalAgentRun({ exitCode, stderr = '', stdout = '', executorLabel = 'Local agent' } = {}) {
   if (exitCode === 0 || exitCode === '0' || exitCode === null || exitCode === undefined) return null;
-  const tail = String(stderr || '')
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line && !/^Reading prompt from stdin/i.test(line))
-    .slice(-6)
+  const tail = [
+    localAgentErrorFromJsonOutput(stdout),
+    ...String(stderr || '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line && !/^Reading prompt from stdin/i.test(line))
+      .slice(-6),
+  ]
+    .filter(Boolean)
     .join(' | ');
   return {
     code: 'LOCAL_AGENT_EXITED_WITH_ERROR',

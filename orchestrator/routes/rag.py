@@ -5,15 +5,17 @@ from pydantic import BaseModel
 
 from typing import List, Optional
 import logging
-import io, os, base64
-from pdfminer.high_level import extract_text  # import INSIDE to avoid import warning at module load
-
-import docx
+import os, base64
 import pydantic
-import openpyxl  # .xlsx
-import xlrd  # .xls (legacy)
-from pyxlsb import open_workbook as open_xlsb  # .xlsb (optional)
-from pptx import Presentation  # .pptx
+
+from services.document_text import (  # shared with the project context sources
+    _extract_text_from_docx_bytes,
+    _extract_text_from_pdf_bytes,
+    _extract_text_from_pptx_bytes,
+    _extract_text_from_xls_bytes,
+    _extract_text_from_xlsb_bytes,
+    _extract_text_from_xlsx_bytes,
+)
 # Detect Pydantic major version once
 try:
     _PYD_VER = int((getattr(pydantic, "__version__", "1.0.0").split(".")[0]) or "1")
@@ -97,39 +99,6 @@ def _ext_from_path(p: str) -> str:
         return os.path.splitext((p or "").strip())[1].lower()
     except Exception:
         return ""
-# --- ADD: extraction helpers ---
-def _extract_text_from_pdf_bytes(raw: bytes) -> str:
-    # pdfminer.six
-    try:
-        return extract_text(io.BytesIO(raw)) or ""
-    except Exception as e:
-        log.warning("PDF extract failed: %s", e)
-        return ""
-    
-
-
-def _extract_text_from_docx_bytes(raw: bytes) -> str:
-    # python-docx
-    try:
-        doc = docx.Document(io.BytesIO(raw))
-        parts = []
-        # paragraphs
-        for p in doc.paragraphs:
-            t = (p.text or "").strip()
-            if t:
-                parts.append(t)
-        # tables (cells)
-        for tbl in getattr(doc, "tables", []):
-            for row in tbl.rows:
-                for cell in row.cells:
-                    t = (cell.text or "").strip()
-                    if t:
-                        parts.append(t)
-        return "\n".join(parts)
-    except Exception as e:
-        log.warning("DOCX extract failed: %s", e)
-        return ""
-
 @router.post("/v1/rag/fetch")
 async def rag_fetch(req: RagFetchRequest):
     store = RagStore(project_id=req.project_id)
@@ -153,90 +122,6 @@ async def rag_fetch(req: RagFetchRequest):
         return {"docs": docs, "count": len(docs)}
 
     raise HTTPException(400, detail="rag fetch requires explicit paths or path_prefix")
-
-def _extract_text_from_xlsx_bytes(raw: bytes) -> str:
-    if not openpyxl:
-        log.warning("openpyxl non disponibile: skip xlsx")
-        return ""
-    try:
-        wb = openpyxl.load_workbook(io.BytesIO(raw), data_only=True, read_only=True)
-        parts = []
-        for ws in wb.worksheets:
-            parts.append(f"# Sheet: {ws.title}")
-            for row in ws.iter_rows(values_only=True):
-                cells = [str(c) if c is not None else "" for c in row]
-                line = "\t".join(cells).strip()
-                if line:
-                    parts.append(line)
-        return "\n".join(parts)
-    except Exception as e:
-        log.warning("XLSX extract failed: %s", e)
-        return ""
-
-def _extract_text_from_xls_bytes(raw: bytes) -> str:
-    # Requires xlrd>=2.0 (reads .xls only)
-    if not xlrd:
-        log.warning("xlrd non disponibile: skip xls")
-        return ""
-    try:
-        book = xlrd.open_workbook(file_contents=raw)
-        parts = []
-        for si in range(book.nsheets):
-            sh = book.sheet_by_index(si)
-            parts.append(f"# Sheet: {sh.name}")
-            for r in range(sh.nrows):
-                row = [str(sh.cell_value(r, c)) for c in range(sh.ncols)]
-                line = "\t".join(row).strip()
-                if line:
-                    parts.append(line)
-        return "\n".join(parts)
-    except Exception as e:
-        log.warning("XLS extract failed: %s", e)
-        return ""
-
-def _extract_text_from_xlsb_bytes(raw: bytes) -> str:
-    if not open_xlsb:
-        log.warning("pyxlsb non disponibile: skip xlsb")
-        return ""
-    try:
-        parts = []
-        with open_xlsb(io.BytesIO(raw)) as wb:
-            for sheet_name in wb.sheets:
-                parts.append(f"# Sheet: {sheet_name}")
-                with wb.get_sheet(sheet_name) as sh:
-                    for row in sh.rows():
-                        vals = [str(c.v) if c.v is not None else "" for c in row]
-                        line = "\t".join(vals).strip()
-                        if line:
-                            parts.append(line)
-        return "\n".join(parts)
-    except Exception as e:
-        log.warning("XLSB extract failed: %s", e)
-        return ""
-
-def _extract_text_from_pptx_bytes(raw: bytes) -> str:
-    if not Presentation:
-        log.warning("python-pptx non disponibile: skip pptx")
-        return ""
-    try:
-        prs = Presentation(io.BytesIO(raw))
-        parts = []
-        for i, slide in enumerate(prs.slides, start=1):
-            parts.append(f"# Slide {i}")
-            for shape in slide.shapes:
-                if hasattr(shape, "text_frame") and shape.text_frame:
-                    for para in shape.text_frame.paragraphs:
-                        text = "".join(run.text or "" for run in para.runs).strip()
-                        if text:
-                            parts.append(text)
-                elif hasattr(shape, "text") and shape.text:
-                    t = (shape.text or "").strip()
-                    if t:
-                        parts.append(t)
-        return "\n".join(parts)
-    except Exception as e:
-        log.warning("PPTX extract failed: %s", e)
-        return ""
 
 @router.post("/v1/rag/fetch_by_paths")
 async def rag_fetch_by_paths(req: RagFetchByPathsRequest):
