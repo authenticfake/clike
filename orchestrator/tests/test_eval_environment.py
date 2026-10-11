@@ -226,3 +226,29 @@ def test_js_runtime_error_in_the_test_file_is_evidence(tmp_path):
     fixed = TS_TEST.replace("APP_ENV: 'local',", "APP_ENV: 'local', EXTRA: '1',")
     evidence = "TypeError: forward is not a function\n ❯ test/server-api.test.ts:7:12"
     assert _ts_issue(tmp_path, fixed, evidence) is None
+
+
+def test_relative_runs_kit_paths_resolve_in_normal_and_nested_regression_runs(tmp_path: Path, monkeypatch):
+    """A KIT check that reaches another REQ by ../../../../runs/kit/<REQ> from its src/ works in
+    its own eval and when re-run as a regression inside a later REQ's eval."""
+    tmp_path = tmp_path.resolve()  # /var -> /private/var on macOS: real sandbox paths are resolved
+    monkeypatch.setenv("CLIKE_EVAL_BASE_DIR", str(tmp_path / "eval"))
+    project = tmp_path / "proj"
+    dep = project / "runs/kit/REQ-001"
+    (dep / "test").mkdir(parents=True)
+    (dep / "ci").mkdir()
+    (dep / "test/test_dep.py").write_text("marker = 'dep'\n")
+    (dep / "ci/LTC.json").write_text(json.dumps({"req_id": "REQ-001", "checks": [{"id": "t", "command": "true"}]}))
+    kit = project / "runs/kit/REQ-003"
+    (kit / "src").mkdir(parents=True)
+    (kit / "src/app.py").write_text("")
+    (kit / "ci").mkdir()
+    probe = "test -f ../../../../runs/kit/REQ-001/test/test_dep.py"
+    ltc = {"req_id": "REQ-003", "run_from": "runs/kit/REQ-003", "checks": [{"id": "dependency", "command": f"cd src && {probe}"}]}
+    (kit / "ci/LTC.json").write_text(json.dumps(ltc))
+
+    own = EvalRunner(project).run_profile(profile="runs/kit/REQ-003/ci/LTC.json", ltc=ltc, req_id="REQ-003")
+    assert own.status == "PASS", [(c.name, c.cwd, c.stderr[-400:]) for c in own.cases]
+    nested = EvalRunner(project, eval_key="REQ-004/regression/REQ-003").run_profile(
+        profile="runs/kit/REQ-003/ci/LTC.json", ltc=ltc, req_id="REQ-003")
+    assert nested.status == "PASS", [(c.name, c.stderr[-400:]) for c in nested.cases]

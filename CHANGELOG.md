@@ -104,6 +104,15 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 - **A gate PASS with accepted warnings did not promote.** `GATE_PASS_WITH_WARNINGS` (gate `PASS`,
   warnings allowed by `clike.gate.strictWarnings` off) left the REQ `in_progress` without the
   promotion prompt; it is now promotable like a clean PASS.
+- **A promoted REQ's check that reaches another REQ by a relative path failed as a regression**
+  (`../../../../runs/kit/REQ-001/test` from its work copy: found in its own eval, not when re-run
+  inside a later REQ's eval, so the later REQ could never pass). Next to every eval dir, nested
+  regression and service runs included, `runs/kit/` now lists this REQ (work copy), its
+  dependencies (composed copies) and every other REQ (project KIT, read-only); before only the
+  current REQ was linked, and others resolved by chance.
+- **Eval path rewriting corrupted paths containing `src`/`test`** (e.g. a project under
+  `…/test-projects/` or a temp dir `pytest-of-…`): short keys were replaced as substrings, several
+  times. The rewrite is now one pass over whole path segments.
 - `ci/HOWTO.md` (and any Markdown under `test/` or `ci/`) is documentation, no longer part of the
   acceptance lock: editing it by hand no longer reports `ACCEPTANCE_TAMPERED`.
 - `/init`: `README_1st.md` showed `${project.org}` and escaped backticks; the Git steps now create

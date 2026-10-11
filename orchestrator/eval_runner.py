@@ -1555,26 +1555,17 @@ class EvalRunner:
         if rel_kit_root:
             path_map[rel_kit_root] = str(work_kit_root)
 
-        # Compatibility shim for CI scripts that still infer:        #   <eval-base>/runs/kit/<REQ-ID>
-        # from __dirname instead of using CLIKE_EVAL_KIT_DIR.
-        # This keeps already generated KITs runnable while future KITs migrate
-        # to explicit env vars.
-        compat_kit_root = self._eval_base_dir() / "runs" / "kit" / kit_root.name
-        try:
-            compat_kit_root.parent.mkdir(parents=True, exist_ok=True)
-            if compat_kit_root.exists() or compat_kit_root.is_symlink():
-                if compat_kit_root.is_symlink() or compat_kit_root.is_file():
-                    compat_kit_root.unlink()
-                else:
-                    shutil.rmtree(compat_kit_root)
-            try:
-                compat_kit_root.symlink_to(work_kit_root, target_is_directory=True)
-            except OSError:
-                shutil.copytree(work_kit_root, compat_kit_root)
-        except Exception:
-            # Best-effort compatibility only. The canonical path rewrite above
-            # remains the source of truth.
-            pass
+        # Compatibility view for CI scripts that infer runs/kit/<REQ> paths from their own location
+        # (e.g. ../../../../runs/kit/REQ-001/test) instead of using CLIKE_EVAL_KIT_DIR /
+        # CLIKE_EVAL_PROJECT_ROOT. Next to the eval dir (where such a relative path lands, also for
+        # the nested regression and service runs) runs/kit/ holds this REQ -> its work copy, its
+        # dependencies -> their composed copies, every other REQ -> the project KIT (read-only).
+        self._link_compat_kits(
+            self._eval_dir(req_id).parent / "runs" / "kit",
+            work_kit_root,
+            kit_root.name,
+            dependency_roots or [],
+        )
 
         if path_map is None:
             path_map = {}
@@ -1584,14 +1575,57 @@ class EvalRunner:
 
         return work_root, reports_root, logs_root, path_map, work_kit_root, dependency_roots
 
+    def _link_compat_kits(self, compat_root: Path, work_kit_root: Path, req_name: str, dependency_roots: List[str]) -> None:
+        targets: Dict[str, Path] = {}
+        project_kits = self.project_root / "runs" / "kit"
+        try:
+            for entry in sorted(project_kits.iterdir()):
+                if entry.is_dir() and re.match(r"^REQ-[A-Za-z0-9_.-]+$", entry.name):
+                    targets[entry.name] = entry
+        except OSError:
+            pass
+        for dep in dependency_roots:
+            targets[Path(dep).name] = Path(dep)
+        targets[req_name] = work_kit_root
+        try:
+            compat_root.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return
+        for name, target in targets.items():
+            link = compat_root / name
+            try:
+                if link.is_symlink() or link.is_file():
+                    link.unlink()
+                elif link.exists():
+                    shutil.rmtree(link)
+                link.symlink_to(target, target_is_directory=True)
+            except OSError:
+                try:
+                    shutil.copytree(target, link)
+                except Exception:
+                    pass  # best effort: the explicit CLIKE_EVAL_* paths remain the contract
+
     def _rewrite_for_eval_workspace(self, value: Any, path_map: Dict[str, str]) -> Any:
+        """Map project paths to the eval workspace: one pass (a rewritten path is never rewritten
+        again) and whole path segments only, so a short key such as "test" or "src" never matches
+        inside a word ("pytest", "/tmp/test-projects/...") or inside an already absolute path."""
         if not isinstance(value, str) or not path_map:
             return value
+        keys = sorted((k for k in path_map if k), key=len, reverse=True)
+        if not keys:
+            return value
+        pattern = re.compile(
+            r"(?<![^\s/'\"=:({$,])(" + "|".join(re.escape(k) for k in keys) + r")(?=$|[\s/'\":)};,])"
+        )
 
-        rewritten = value
-        for source, target in sorted(path_map.items(), key=lambda item: len(item[0]), reverse=True):
-            rewritten = rewritten.replace(source, target)
-        return rewritten
+        def replace(match: "re.Match[str]") -> str:
+            start = match.start()
+            # a relative key never applies inside an absolute path written in the value
+            if not match.group(1).startswith("/") and start > 0 and value[start - 1] == "/":
+                return match.group(0)
+            return path_map[match.group(1)]
+
+        return pattern.sub(replace, value)
 
     def _rewrite_command_for_eval_workspace(self, command: str, path_map: Dict[str, str]) -> str:
         """
