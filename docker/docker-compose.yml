@@ -5,11 +5,13 @@
 #   cd docker && podman-compose --profile ollama up -d   # optional local models
 #
 # Ports are published on loopback only (localhost deployment, decision D2).
-# Code is baked into the images: rebuild after changes (`podman-compose build`).
+# Code is baked into the images: rebuild after changes with ./rebuild.sh (cached build,
+# recreated containers, health and image check, dangling layers pruned).
 
 services:
   gateway:
     build: ../gateway
+    image: localhost/clike-gateway:latest
     environment:
       - MODELS_CONFIG=/workspace/configs/models.yaml
       - HARPER_TELEMETRY_DIR=/workspace/telemetry
@@ -41,6 +43,7 @@ services:
 
   orchestrator:
     build: ../orchestrator
+    image: localhost/clike-orchestrator:latest
     environment:
       - TZ=Europe/Rome
       - GATEWAY_URL=http://gateway:8000
@@ -100,7 +103,8 @@ services:
   # projects read-only. Egress is allowed so that dependency installs work; use
   # compose.eval-offline.yml to cut it.
   eval-sandbox:
-    build: ../orchestrator
+    # Same image as the orchestrator (built once), different entry point.
+    image: localhost/clike-orchestrator:latest
     command: ["uvicorn", "eval_sandbox_app:app", "--host", "0.0.0.0", "--port", "8090"]
     environment:
       - TZ=Europe/Rome
