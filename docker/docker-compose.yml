@@ -110,6 +110,11 @@ services:
       - TZ=Europe/Rome
       - HOME=/tmp
       - DEV_FOLDER=${CLIKE_PROJECTS_DIR:?set CLIKE_PROJECTS_DIR in docker/.env}
+    # Optional, git-ignored: variables the projects' tests need, e.g. a test database URL
+    # (see eval.env.example). Names that look like credentials are refused at startup.
+    env_file:
+      - path: eval.env
+        required: false
     volumes:
       - ${CLIKE_PROJECTS_DIR}:${CLIKE_PROJECTS_DIR}:ro
     read_only: true

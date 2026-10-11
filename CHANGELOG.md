@@ -4,6 +4,12 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+### Added
+
+- **Test infrastructure for the eval sandbox** (`docker/eval.env`, git-ignored, template
+  `docker/eval.env.example`): variables the projects' tests need, such as a real PostgreSQL test
+  database URL, reach the sandbox only. Credential-like names are still refused.
+
 ### Fixed
 
 - **`/eval` failed with `ACCEPTANCE_TAMPERED` from the second run on.** The acceptance lock hashed

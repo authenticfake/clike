@@ -42,6 +42,14 @@ The eval sandbox runs generated tests and is capped by `CLIKE_EVAL_SANDBOX_MEM_L
 default `4g`). Keep it below the memory of the container VM (`podman machine inspect`; the
 default machine has 2 GB → `1g`), otherwise a runaway test can exhaust the VM and the kernel kills
 another service (seen as the orchestrator exiting with 137).
+Tests that need real infrastructure (e.g. a PostgreSQL test database, declared by the KIT in
+the LTC `environment` section) get it through `docker/eval.env` (git-ignored; template
+`docker/eval.env.example`), loaded only by the eval sandbox. From the sandbox the Mac host is
+`host.containers.internal`, e.g.
+`LEADINTEL_TEST_DATABASE_URL=postgresql+psycopg://me@host.containers.internal:5432/leadintel_test`.
+Use a disposable database with local trust auth: variable names that look like credentials
+(`TOKEN`, `PASSWORD`, `SECRET`, …) make the sandbox refuse to start. After editing the file,
+recreate the containers (`./rebuild.sh` or `podman-compose up -d --force-recreate`).
 An eval whose caller disconnects (VS Code closed, benchmark stopped, client timeout) is
 cancelled: the orchestrator closes its request to the sandbox (HTTP 499), the sandbox kills the
 running check with its process group and skips the remaining ones.
