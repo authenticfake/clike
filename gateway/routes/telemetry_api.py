@@ -91,12 +91,85 @@ def _load_any_json(path: Path, max_lines: Optional[int] = None) -> List[dict]:
             continue
     return rows
 
+# Local agents that report no cost (Codex): provider of the price list and usage convention.
+_AGENT_PRICE_PROVIDER = {"gpt_codex": ("openai", True), "claude_code": ("anthropic", False)}
+_PRICING_MANAGER = None
+
+
+def _pricing_manager():
+    global _PRICING_MANAGER
+    if _PRICING_MANAGER is None:
+        from pricing import PricingManager
+
+        _PRICING_MANAGER = PricingManager.from_models_yaml(os.getenv("MODELS_CONFIG", "../config/models.yaml"))
+    return _PRICING_MANAGER
+
+
+def _cache_tokens(usage: dict) -> int:
+    details = usage.get("input_tokens_details") or usage.get("prompt_tokens_details") or {}
+    return int(
+        (usage.get("cache_read_input_tokens") or 0)
+        + (usage.get("cache_creation_input_tokens") or 0)
+        + ((details.get("cached_tokens") or 0) if isinstance(details, dict) else 0)
+    )
+
+
+def _with_cache_aware_cloud_cost(r: dict) -> None:
+    """Cloud rows written before the prompt cache was priced: OpenAI cached input was charged at
+    the full input price, Anthropic cache reads/writes were not charged. Recomputed from usage."""
+    usage = r.get("usage") or {}
+    pricing = r.get("pricing") or {}
+    if not _cache_tokens(usage) or "cached_tokens" in pricing:
+        return
+    provider = str(r.get("provider") or "").lower()
+    model = str(r.get("model") or "").strip()
+    if not provider or not model:
+        return
+    model_id = model if ":" in model else f"{provider}:{model}".lower()
+    pm = _pricing_manager()
+    if not pm.has_price(model_id):
+        return
+    est = pm.estimate_cost(model_id, provider, model, usage)
+    r["pricing"] = {**pricing, **est, "cache_recomputed": True}
+
+
+def _with_estimated_cost(rows: List[dict]) -> List[dict]:
+    """Local-agent rows without a cost get the API-equivalent estimate from models.yaml (rows
+    already written included), marked pricing.estimated; unknown models stay at zero. Cloud rows
+    with prompt-cache tokens get their cost recomputed with the cache prices."""
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        if r.get("execution") != "local_agent":
+            try:
+                _with_cache_aware_cloud_cost(r)
+            except Exception as exc:  # the portal never fails on pricing
+                log.warning("telemetry cache cost failed: %s", type(exc).__name__)
+            continue
+        if (r.get("pricing") or {}).get("total_cost") is not None:
+            continue
+        provider, includes_cached = _AGENT_PRICE_PROVIDER.get(str(r.get("executor") or r.get("provider") or ""), (None, False))
+        model = str(r.get("model") or "").strip()
+        if not provider or not model:
+            continue
+        try:
+            est = _pricing_manager().estimate_agent_run(
+                f"{provider}:{model}".lower(), r.get("usage") or {}, input_includes_cached=includes_cached
+            )
+        except Exception as exc:  # the portal never fails on pricing
+            log.warning("telemetry cost estimate failed: %s", type(exc).__name__)
+            return rows
+        if est:
+            r["pricing"] = est
+    return rows
+
+
 def _load_project(project_id: str) -> List[dict]:
     # 1) single file <id>.(json|ndjson|log|txt) in the root
     for ext in _EXTS:
         cand = TELEMETRY_DIR / f"{safe_segment(project_id, 'default')}{ext}"
         if cand.exists():
-            return _load_any_json(cand)
+            return _with_estimated_cost(_load_any_json(cand))
     # 2) folder telemetry/<project_id>/** with supported files
     folder = TELEMETRY_DIR / safe_segment(project_id, "default")
     rows: List[dict] = []
@@ -104,7 +177,7 @@ def _load_project(project_id: str) -> List[dict]:
         for p in sorted(folder.rglob("*")):
             if p.is_file() and p.suffix.lower() in _EXTS:
                 rows.extend(_load_any_json(p))
-    return rows
+    return _with_estimated_cost(rows)
 
 def _resolve_relpath(relpath: str) -> Path:
     base = _ensure_base_dir()
@@ -121,7 +194,7 @@ def _resolve_relpath(relpath: str) -> Path:
 
 def _load_file(relpath: str) -> List[dict]:
     p = _resolve_relpath(relpath)
-    return _load_any_json(p)
+    return _with_estimated_cost(_load_any_json(p))
 
 def _num(x, default=0.0) -> float:
     try:
@@ -232,6 +305,7 @@ def list_projects() -> dict:
 # === Helpers for aggregate/series/top/raw over a list of rows ===
 def _aggregate_rows(rows: List[dict]) -> dict:
     total_cost = 0.0
+    total_cached = 0
     per_phase: Dict[str, dict] = {}
     per_provider: Dict[str, dict] = {}
     per_model: Dict[str, dict] = {}
@@ -243,11 +317,13 @@ def _aggregate_rows(rows: List[dict]) -> dict:
         model = r.get("model") or ""
         tin   = _tokens_in_from_row(r)
         tout  = _tokens_out_from_row(r)
+        tcache = _cache_tokens(r.get("usage") or {})
         cost  = _cost_from_row(r)
         total_cost += cost
+        total_cached += tcache
 
-        per = per_phase.setdefault(phase, {"runs":0,"cost_usd":0.0,"tokens_in":0,"tokens_out":0})
-        per["runs"]+=1; per["cost_usd"]+=cost; per["tokens_in"]+=tin; per["tokens_out"]+=tout
+        per = per_phase.setdefault(phase, {"runs":0,"cost_usd":0.0,"tokens_in":0,"tokens_out":0,"tokens_cached":0})
+        per["runs"]+=1; per["cost_usd"]+=cost; per["tokens_in"]+=tin; per["tokens_out"]+=tout; per["tokens_cached"]+=tcache
 
         pp = per_provider.setdefault(prov, {"runs":0,"cost_usd":0.0})
         pp["runs"]+=1; pp["cost_usd"]+=cost
@@ -256,12 +332,13 @@ def _aggregate_rows(rows: List[dict]) -> dict:
         pm["runs"]+=1; pm["cost_usd"]+=cost
 
         day = datetime.utcfromtimestamp(_num(r.get("timestamp"),0)).strftime("%Y-%m-%d")
-        bd = by_day.setdefault(day, {"runs":0,"cost_usd":0.0,"tokens_in":0,"tokens_out":0})
-        bd["runs"]+=1; bd["cost_usd"]+=cost; bd["tokens_in"]+=tin; bd["tokens_out"]+=tout
+        bd = by_day.setdefault(day, {"runs":0,"cost_usd":0.0,"tokens_in":0,"tokens_out":0,"tokens_cached":0})
+        bd["runs"]+=1; bd["cost_usd"]+=cost; bd["tokens_in"]+=tin; bd["tokens_out"]+=tout; bd["tokens_cached"]+=tcache
 
     return {
         "total_runs": len(rows),
         "total_cost_usd": round(total_cost, 6),
+        "total_tokens_cached": total_cached,
         "per_phase": per_phase,
         "per_provider": per_provider,
         "per_model": per_model,
@@ -278,6 +355,7 @@ def _series_rows(rows: List[dict], phase: Optional[str]) -> List[dict]:
             "cost_usd": _cost_from_row(r),
             "tokens_in": _tokens_in_from_row(r),
             "tokens_out": _tokens_out_from_row(r),
+            "tokens_cached": _cache_tokens(r.get("usage") or {}),
             "phase": r.get("phase"),
             "model": r.get("model"),
             "provider": r.get("provider"),
@@ -298,6 +376,7 @@ def _raw_rows(rows: List[dict],
     for r in rows:
         r["_tokens_in"]  = _tokens_in_from_row(r)
         r["_tokens_out"] = _tokens_out_from_row(r)
+        r["_tokens_cached"] = _cache_tokens(r.get("usage") or {})
         r["_cost"]       = _cost_from_row(r)
         r["_ts"]         = _num(r.get("timestamp"), 0.0)
 

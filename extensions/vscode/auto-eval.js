@@ -6,7 +6,10 @@ const fs = require('fs');
 const path = require('path');
 
 const MAX_FILE_BYTES = 200 * 1024;
-const SKIPPED_DIRS = new Set(['__pycache__', '.venv', 'node_modules', '.pytest_cache', '.mypy_cache', '.ruff_cache', 'reports']);
+const SKIPPED_DIRS = new Set([
+  '__pycache__', '.venv', 'venv', 'node_modules', '.pytest_cache', '.mypy_cache', '.ruff_cache', 'reports',
+  '.tmp', 'tmp', '.cache', '.npm-cache', '.next', 'coverage', 'local-eval-workspaces',
+]);
 
 function evalPassed(report) {
   const status = String(report?.status || '').toUpperCase();
@@ -65,7 +68,8 @@ function snapshotAcceptanceSurface(workspaceRoot, reqId) {
   const snapshot = {};
   for (const file of collectRepairFiles(workspaceRoot, reqId)) {
     const rel = file.path.slice(`runs/kit/${reqId}/`.length);
-    if (rel.startsWith('test/') || rel.startsWith('ci/')) snapshot[rel] = file.content;
+    // Markdown (ci/HOWTO.md) documents how to run the checks: not acceptance, freely editable.
+    if ((rel.startsWith('test/') || rel.startsWith('ci/')) && !rel.toLowerCase().endsWith('.md')) snapshot[rel] = file.content;
   }
   return snapshot;
 }
@@ -101,6 +105,17 @@ function restoreAcceptanceFiles(workspaceRoot, reqId, before, rels) {
  */
 function nextAutoEvalStep(state, report) {
   if (evalPassed(report)) return { action: 'pass', reason: `eval PASS after ${state.cycle} repair cycle(s)` };
+  if (report?.reason_code === 'EVAL_ENVIRONMENT_MISSING' && !report.environment_repairable) {
+    // Only the developer can give these values (external ones, the database server URL).
+    const env = (report.cases || []).find(c => c.name === 'env::required-variables');
+    return {
+      action: 'stop',
+      reason: 'the eval environment lacks values only you can give (the code is not at fault, nothing to repair)' +
+        (env?.stderr ? `:\n${env.stderr}` : ''),
+    };
+  }
+  // A repairable missing environment falls through: the repair declares in ci/LTC.json how CLike
+  // provisions the variables (generated values, test databases, services of other REQs).
   if (report?.integrity && report.integrity.ok === false) {
     return { action: 'stop', reason: 'the acceptance surface (test/ or ci/) changed after the lock; re-run /kit to re-baseline' };
   }
@@ -108,7 +123,20 @@ function nextAutoEvalStep(state, report) {
   if (!failures.length) return { action: 'stop', reason: 'eval failed without failing checks to repair (see the eval report)' };
   const signature = failureSignature(failures);
   if (state.cycle >= state.maxCycles) {
-    return { action: 'stop', reason: `still failing after ${state.cycle} repair cycle(s)`, failures, signature };
+    // Still improving (fewer failing checks than before the last repair): extra cycles, bounded.
+    const extra = Math.max(0, Number(state.extraCycles ?? 3));
+    const improving = Number.isFinite(state.lastFailureCount) && failures.length < state.lastFailureCount;
+    if (!improving || state.cycle >= state.maxCycles + extra) {
+      return { action: 'stop', reason: `still failing after ${state.cycle} repair cycle(s)`, failures, signature };
+    }
+    if (state.lastKitOk !== false) {
+      return {
+        action: 'repair',
+        reason: `${failures.length} failing check(s), down from ${state.lastFailureCount}: extra cycle ${state.cycle + 1 - state.maxCycles}/${extra}`,
+        failures,
+        signature,
+      };
+    }
   }
   if (state.lastKitOk === false) {
     return { action: 'stop', reason: 'the KIT repair request failed (see the chat for the error)', failures, signature };

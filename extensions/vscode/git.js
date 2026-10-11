@@ -20,6 +20,15 @@ function mkLog(out) {
 }
 
 // Return true if the working tree has uncommitted/unstaged changes
+/** Git automation problems are shown, not only logged (silent failures left phases uncommitted). */
+function notifyGitProblem(message) {
+  try {
+    require('vscode').window.showWarningMessage(message);
+  } catch {
+    // outside VS Code (tests): the log line is enough
+  }
+}
+
 async function isWorkingTreeDirty(gitCtx) {
   try {
     const out = await gitRunVerbose(['status', '--porcelain'], gitCtx, 'diag');
@@ -294,12 +303,24 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
       if (await branchExists(targetBranch)) {
         await gitRunVerbose(['switch', targetBranch], gitCtx, 'git', out);
       } else {
-        const base = (await branchExists(defaultBranch)) ? defaultBranch : 'HEAD';
+        // A new REQ branch starts from the default branch only when the current work is already
+        // in it. Otherwise (earlier REQs promoted on their branches, merge-on-gate off) it is
+        // stacked on the current branch, so it carries the code it depends on; creating a branch
+        // at HEAD never conflicts with local changes.
+        let base = 'HEAD';
+        if (await branchExists(defaultBranch)) {
+          const merged = await gitRunVerbose(['merge-base', '--is-ancestor', 'HEAD', defaultBranch], gitCtx, 'diag', out)
+            .then(() => true, () => false);
+          base = merged ? defaultBranch : 'HEAD';
+          if (!merged) log(`[harperGit] ${current} is not merged into ${defaultBranch}: ${targetBranch} is stacked on it`);
+        }
         await gitRunVerbose(['switch', '-c', targetBranch, base], gitCtx, 'git', out);
       }
     } catch (e) {
       // Uncommitted changes that conflict with the target branch: keep everything as is.
-      log(`[harperGit] cannot switch to ${targetBranch}: ${e.message}. Phase files are left uncommitted in the working tree.`);
+      const message = `[harperGit] cannot switch to ${targetBranch}: ${e.message}. Phase files are left uncommitted in the working tree.`;
+      log(message);
+      notifyGitProblem(`CLike Git: ${phase} of ${reqId || 'the project'} not committed — cannot switch to ${targetBranch} (local changes would be overwritten). Commit or stash them, or switch branch, then re-run the phase.`);
       return;
     }
   }
@@ -367,6 +388,7 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
     await gitRunVerbose(['commit', '-m', message, '--', ...files], gitCtx, 'git', out);
   } catch (e) {
     log(`[harperGit] commit skipped: ${e.message}`);
+    notifyGitProblem(`CLike Git: ${phase} of ${reqId || 'the project'} not committed — ${String(e.message || e).split('\n')[0]}`);
     return;
   }
 

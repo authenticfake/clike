@@ -2,6 +2,134 @@
 
 All notable changes to CLike. Extension, orchestrator and gateway share one version.
 
+## [Unreleased]
+
+### Added
+
+- **Test infrastructure for the eval sandbox** (`docker/eval.env`, git-ignored, template
+  `docker/eval.env.example`): variables the projects' tests need, such as a real PostgreSQL test
+  database URL, reach the sandbox only. Credential-like names are still refused.
+- **Eval environment provisioning** (`orchestrator/eval_environment.py`): CLike creates what the
+  checks declare in `ci/LTC.json` instead of asking the developer: `environment.required_variables`
+  with `provision` `token` / `uuid` / `timestamp` / `template` (generated per run),
+  `postgres_database` (a disposable database per REQ, recreated every run, on the server of
+  `CLIKE_EVAL_POSTGRES_URL` in `docker/eval.env`), `service` or `external`; and
+  `services: [{name, req, cwd, setup, start, env, port_env, ready, exports}]`, started before the
+  checks from the composed source and dependencies of another REQ (e.g. the API of REQ-001 for the
+  integration tests of REQ-002) or of the candidate, on a free loopback port, and stopped after.
+  Values set in `docker/eval.env` win. KIT prompts (cloud and local agent) and `ci/HOWTO.md`
+  follow the contract.
+- **`/eval --fix` repairs a missing environment** when a repair can declare it (`BLOCKED` with
+  `environment_repairable`): the repair completes the LTC `environment` / `services` (an audited,
+  non-weakening amendment). Only values marked `external` or the database server stop it without
+  spending tokens.
+- **Locked JS/TS tests can be fixed when the eval shows the test itself is wrong** (a TypeScript
+  error reported on the test file, a TypeError/ReferenceError raised in it, an unresolvable
+  import), with every test title and assertion unchanged and no skip/only/todo added; flagged
+  `review_required` at the gate. Until now only Python tests had this, so a correct repair of a
+  TS fixture was reverted and `--fix` kept failing on it. The eval pre-pass now receives the
+  previous failures as evidence too.
+- **`/gate` promotes by auto-merge, without prompts** (`clike.gate.autoPromote`, default `merge`):
+  a 3-way merge per file of `runs/kit/<REQ>/{src,test,tests}` into the canonical roots (base =
+  the canonical state before the KIT), conflicting files never written (a `.conflict-<REQ>-<ts>`
+  file holds the markers and the REQ stays in progress), installed/generated content never
+  promoted, and a report with per-file outcome and unified diff in
+  `runs/kit/<REQ>/promotion/<ts>/` (`report.md`, `report.json`, `promotion.diff`), opened at the
+  end and summarized in the chat. `/gate --ask` / `--no-promote` override it for one run.
+- **Auto-merge base = what the KIT started from**: per file, the last direct dependency KIT
+  (`plan.json` `dependsOn`, the same composition the eval uses) that has it, else the canonical
+  file at the KIT commit, else at the last commit before the KIT was generated (KIT never
+  committed). Lines added at the same place by both sides (e.g. new `.env.example` entries) are
+  kept both; changes to the same existing lines stay a conflict. Conflict files show the base
+  (`|||||||`).
+- **Git: a new REQ branch no longer fails on an unmerged previous REQ.** With merge-on-gate off,
+  `feature/req-<n+1>` was created from `main`; local changes (plan, reports) made the switch fail
+  and every phase of the REQ stayed uncommitted, silently. The new branch is stacked on the
+  current branch when it is not merged into the default branch (it carries the code it depends
+  on; creating it never conflicts with local changes), and Git failures are shown as warnings.
+- **`/eval --fix` keeps going while it improves**: after `clike.autoEval.maxCycles`, up to
+  `clike.autoEval.extraCyclesOnProgress` (default 3) more cycles as long as each one leaves fewer
+  failing checks.
+- **RAG indexing is batched and incremental.** The orchestrator embedded one chunk per gateway
+  call (a project re-index took 5 minutes inside every `--fix` cycle); it now sends batches
+  (`RAG_EMBED_BATCH_SIZE`, default 64, `RAG_EMBED_CONCURRENCY` 4) and skips files whose content
+  is already indexed (point ids derive from path + content). The gateway `/v1/embeddings` accepts
+  a list input and returns one vector per item in one provider call (it joined the items before).
+- **`/eval` checks the required variables first.** The KIT declares them in `ci/LTC.json`
+  (`environment.required_variables: [{name, purpose, example}]`; the free-form
+  `environment: {NAME: "Required ..."}` of earlier KITs is understood too). When one is missing
+  from the sandbox, the eval reports `BLOCKED` (`reason_code: EVAL_ENVIRONMENT_MISSING`) with the
+  variable names and the `docker/eval.env` line to add, runs no check, and `/eval --fix` stops
+  without a repair (no tokens spent on code that is not at fault).
+- KIT (cloud and local agent): `ci/HOWTO.md` gets a mandatory `## Run with CLike /eval` section
+  (required variables, `docker/eval.env` lines, one-time setup, rebuild, `/eval` and `--fix`).
+
+### Fixed
+
+- **`/eval` failed with `ACCEPTANCE_TAMPERED` from the second run on.** The acceptance lock hashed
+  the files the eval itself writes (`ci/reports/**`: test/coverage/bandit reports, built wheels),
+  so every later run found them "modified". Eval outputs (`reports/`, coverage files, `dist/`,
+  `build/`, caches, `*.whl`, `*.pyc`, `*.log`) are no longer part of the acceptance surface, and
+  locks written by earlier versions ignore their entries for those paths, without re-locking.
+- **`/eval` with a local agent failed with `ACCEPTANCE_TAMPERED` after its own pre-pass.** The
+  eval pre-pass agent repairs the candidate and could edit locked files under `test/` and `ci/`
+  (e.g. add a test, rewrite a CI record) with no governance, so the canonical eval that follows
+  found the surface changed. The acceptance surface is now locked before the pre-pass and the
+  pre-pass changes go through the same audited amendment as the `--fix` repair: accepted ones are
+  recorded, the others are restored. The eval agent is told that `test/` and `ci/` are locked and
+  that evidence goes under `reports/`.
+- **Telemetry: prompt-cache tokens priced** (cloud and local-agent runs). OpenAI cached input was
+  charged at the full input price and Anthropic cache reads/writes were not charged at all; costs
+  now use the list prices of `configs/models.yaml` (`cached_input_per_1k`, and for Anthropic
+  `cache_write_per_1k` / `cache_write_1h_per_1k`, added from the Anthropic price page), rows
+  recorded before are recomputed when shown, and the portal shows the cached tokens.
+- Files CLike writes as JSON (promotion manifest, contexts, state) end with a newline: a KIT
+  format check failed on the promotion manifest of a promoted REQ.
+- **Telemetry portal: cost always 0 for Codex runs.** Codex reports tokens but no cost, so its
+  rows had an empty `pricing`. The portal now estimates the API-equivalent cost from
+  `configs/models.yaml` (new optional `cached_input_per_1k`; set for `gpt-6.1-sol`), also for the
+  rows already recorded, marked `pricing.estimated`.
+- **Eval sandbox OOM-killed on large JavaScript installs** (`503 eval sandbox unavailable`, then
+  `npm install` exit 137 and every check `ENOENT`). Its work dirs (venvs, `node_modules`, npm
+  cache) lived on the tmpfs `/tmp`, which counts against the container memory limit. They now live
+  on the `eval_work` disk volume (`CLIKE_EVAL_BASE_DIR=/var/clike-eval`); `/tmp` is 1 GB. The image
+  ships Node.js 22 LTS instead of 20 (current Next/Vitest/ESLint need it) with npm 11 (the
+  bundled npm 10 crashed resolving some peer sets: `reading 'edgesOut'`); Playwright browsers and
+  other tool caches (`XDG_CACHE_HOME`, `PLAYWRIGHT_BROWSERS_PATH`) are on the volume as well.
+- `configs/models.yaml`: prices re-checked against the OpenAI and Anthropic price pages
+  (2026-10-11); `gpt-5.4` input corrected to $2.50/M; `cached_input_per_1k` added where listed.
+- **Git automation silently off when enabled in the project.** `clike.git.autoCommit` (like every
+  machine-scoped setting: binaries, agent permissions, service URLs, push) is read by VS Code only
+  from User settings, so a value in `.vscode/settings.json` was ignored without a word. CLike now
+  warns at startup and on change, with **Apply in User settings**.
+- `/init` wrote `.gitignore` with indented lines, so only `node_modules/` was ignored: chat
+  sessions, telemetry, `.vscode/` and `.env` files could be committed. Lines are no longer
+  indented, and `.clike/sessions/`, `.clike/telemetry/`, `.env.*` (except `.env.example`) and the
+  eval scratch under `runs/` (`runs/eval/`, `node_modules/`, `.tmp/`, caches) are ignored;
+  `runs/kit/<REQ>/` stays committable by the phase commits.
+- **False `ACCEPTANCE_TAMPERED` ("removed: ci/LTC.json…") when a repair left scratch in `ci/`.**
+  The acceptance manifest is capped at 2000 files and a repair agent's `ci/.tmp` (5,700 tool files)
+  filled it, so the real files fell outside and were reported removed. Scratch and cache dirs
+  (`.tmp`, `tmp`, `.cache`, `.npm-cache`, `.next`, `coverage`, `local-eval-workspaces`) are not
+  acceptance, and a locked file is reported removed only if it is really gone.
+- **A gate PASS with accepted warnings did not promote.** `GATE_PASS_WITH_WARNINGS` (gate `PASS`,
+  warnings allowed by `clike.gate.strictWarnings` off) left the REQ `in_progress` without the
+  promotion prompt; it is now promotable like a clean PASS.
+- **A promoted REQ's check that reaches another REQ by a relative path failed as a regression**
+  (`../../../../runs/kit/REQ-001/test` from its work copy: found in its own eval, not when re-run
+  inside a later REQ's eval, so the later REQ could never pass). Next to every eval dir, nested
+  regression and service runs included, `runs/kit/` now lists this REQ (work copy), its
+  dependencies (composed copies) and every other REQ (project KIT, read-only); before only the
+  current REQ was linked, and others resolved by chance.
+- **Eval path rewriting corrupted paths containing `src`/`test`** (e.g. a project under
+  `…/test-projects/` or a temp dir `pytest-of-…`): short keys were replaced as substrings, several
+  times. The rewrite is now one pass over whole path segments.
+- `ci/HOWTO.md` (and any Markdown under `test/` or `ci/`) is documentation, no longer part of the
+  acceptance lock: editing it by hand no longer reports `ACCEPTANCE_TAMPERED`.
+- `/init`: `README_1st.md` showed `${project.org}` and escaped backticks; the Git steps now create
+  the GitHub repository first (`gh repo create … --source . --remote origin --push`), since pushing
+  to a repository that does not exist fails with "Repository not found".
+
 ## [1.3.0] — 2026-10-11 — Project context sources
 
 ### Added

@@ -43,38 +43,38 @@ Eval and Gate decide.
 
 Harper is an outcome-driven, AI-native workflow: IDEA → SPEC → PLAN → KIT → EVAL → GATE → FINALIZE.
 - Human = orchestrator/validator. AI = executor.
-- Core docs live in \`docs/harper/\` and are **always** part of the model context.
+- Core docs live in `docs/harper/` and are **always** part of the model context.
 
 ## How to use CLike in VS Code
-- Open the **CLike Chat** panel. Use \`/help\` to see commands.
+- Open the **CLike Chat** panel. Use `/help` to see commands.
 - Modes: *harper* (planning/generation), *coding* (implementation), *free* (Q&A).
 - Commands:
-  - \`/idea\`: generate/update IDEA from scratch/attachs.
-  - \`/spec\`: generate/update SPEC from IDEA.
-  - \`/plan\`: generate/update PLAN from SPEC.
-  - \`/kit\`: implement & test in short loops.
-  - \`/kit [REQ-ID] --integrity\`: → runs `integrity_eval` on the latest candidate for that REQ.
-  - \`/kit [REQ-ID] --hardener\`:→ runs `promotion_hardener` on the latest candidate for that REQ.
-  - \`/kit [REQ-ID] --promotion-eval\`: → runs `promotion_eval` on the latest candidate for that REQ.
-  - \`/kit [REQ-ID] --phases=kit,integrity_eval,promotion_hardener,promotion_eval:` → runs a chained KIT pipeline explicitly.  
-  - \`/finalize\`: package + SBOM + license checks.
-  - \`/eval <REQ-ID>\`: Performs an eval after kit phase for REQ-ID.
-  - \`/gate <REQ-ID>\`: Performs a gate after kit phase for REQ-ID.
-  - \`/rag <query>\`: Searches the RAG (shows top results) (cross).
-  - \`/rag list\`: Shows current attached files (inline+RAG) (cross).
-  - \`/rag +<N>\`: Adds RAG result #N from the last search to the attached files (cross).
-  - \`/ragIndex [glob]\`: Manually indexes into the RAG. Examples: /ragIndex docs.
-  - \`/ragSearch <query>\`: Searches the RAG and shows the best results in the Texts panel.
+  - `/idea`: generate/update IDEA from scratch/attachs.
+  - `/spec`: generate/update SPEC from IDEA.
+  - `/plan`: generate/update PLAN from SPEC.
+  - `/kit`: implement & test in short loops.
+  - `/kit [REQ-ID] --integrity`: → runs `integrity_eval` on the latest candidate for that REQ.
+  - `/kit [REQ-ID] --hardener`:→ runs `promotion_hardener` on the latest candidate for that REQ.
+  - `/kit [REQ-ID] --promotion-eval`: → runs `promotion_eval` on the latest candidate for that REQ.
+  - `/kit [REQ-ID] --phases=kit,integrity_eval,promotion_hardener,promotion_eval:` → runs a chained KIT pipeline explicitly.  
+  - `/finalize`: package + SBOM + license checks.
+  - `/eval <REQ-ID>`: Performs an eval after kit phase for REQ-ID.
+  - `/gate <REQ-ID>`: Performs a gate after kit phase for REQ-ID.
+  - `/rag <query>`: Searches the RAG (shows top results) (cross).
+  - `/rag list`: Shows current attached files (inline+RAG) (cross).
+  - `/rag +<N>`: Adds RAG result #N from the last search to the attached files (cross).
+  - `/ragIndex [glob]`: Manually indexes into the RAG. Examples: /ragIndex docs.
+  - `/ragSearch <query>`: Searches the RAG and shows the best results in the Texts panel.
 
 ## Project layout
-\`\`\`
+```
 docs/harper/
   PLAYBOOK.md   # how to fill IDEA/SPEC, gates & commands
   IDEA.md       # business/tech idea (human+assistant)
   SPEC.md       # system specification (human+assistant)
 runs/           # manifests, diffs, test logs
 .clike/         # project config & policy
-\`\`\`
+```
 
 ## CLike Capability System
 
@@ -101,14 +101,14 @@ They help Harper phases generate better SPEC, PLAN, KIT, EVAL, and GATE outputs 
 CLike is not just an agent that writes code; it is an AI-native platform that orchestrates verifiable capabilities across specs, plans, code, tests, reviews, and release gates.
 
 ## GitHub workflow (recommended)
-1. \`git init\`; first commit (bootstrap).
+1. `git init`; first commit (bootstrap).
 2. Create a repo on GitHub, then:
-   \`git remote add origin <your-repo-url>\`
-   \`git push -u origin main\`
+   `git remote add origin <your-repo-url>`
+   `git push -u origin main`
 3. SPEC approved (Gate G0) → tag/annotate.
 4. PLAN approved (Gate G1) → feature branches, PRs, CI checks.
 5. KIT cycles → PR with tests and quality gates.
-6. FINALIZE → tag release (e.g., \`v0.1.0\`) + FINAL_REPORT.md.
+6. FINALIZE → tag release (e.g., `v0.1.0`) + FINAL_REPORT.md.
 
 ## Next steps
 
@@ -117,23 +117,31 @@ CLike is not just an agent that writes code; it is an AI-native platform that or
 - brew install gh
 - gh auth login
 - gh auth setup-git
-- git ls-remote origin
 
-Init ${project.name} gith repository
+Init ${project.name} git repository
+
+The GitHub repository must exist before the first push ("Repository not found" otherwise).
+Replace `<owner>` with your GitHub user or organization.
 
 1. git init
 2. git add .
 3. git commit -m "chore(init): bootstrap Harper workspace from CLike template"
-4. git remote add origin https://github.com/${project.org}/${project.name}.git
-5. git config --global credential.helper osxkeychain
-6. git branch -M main
-7. git push -u origin main
+4. git branch -M main
+5. gh repo create <owner>/${project.name} --private --source . --remote origin --push
+
+Without gh: create the empty repository on github.com (no README, no license), then
+
+    git remote add origin https://github.com/<owner>/${project.name}.git
+    git push -u origin main
+
+If `origin` already points to the right URL, skip `git remote add`; `git ls-remote origin`
+checks that it is reachable.
 
 Start ${project.name} harper approach
 
-1. Open \`docs/harper/IDEA.md\` and complete it.
-2. Run \`/spec\` to generate \`SPEC.md\`.
-3. Review SPEC, then run \`/plan\`.
-4. Start \`/kit\` /\`/build\` cycles, verify gates, iterate.
+1. Open `docs/harper/IDEA.md` and complete it.
+2. Run `/spec` to generate `SPEC.md`.
+3. Review SPEC, then run `/plan`.
+4. Start `/kit` /`/build` cycles, verify gates, iterate.
 
-> Attachments in CLike are **supportive** only. Core docs from \`docs/harper/\` are **always** included in context.
+> Attachments in CLike are **supportive** only. Core docs from `docs/harper/` are **always** included in context.

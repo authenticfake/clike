@@ -33,6 +33,17 @@ LOCK_SCHEMA = "clike.acceptance_lock.v1"
 _SURFACE_DIRS = ("test", "ci")
 _MAX_FILES = 2000
 _MAX_FILE_BYTES = 5 * 1024 * 1024
+# Outputs written by the eval run itself (reports, coverage, builds, caches): never acceptance.
+_OUTPUT_DIRS = {
+    "reports", "node_modules", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+    ".venv", "venv", ".tox", "htmlcov", "dist", "build", "target", ".coverage",
+    # scratch of the eval and of repair agents (tool installs, staged copies, caches)
+    ".tmp", "tmp", ".cache", ".npm-cache", ".npm", ".next", "coverage", "local-eval-workspaces",
+}
+_OUTPUT_SUFFIXES = (".whl", ".pyc", ".egg-info", ".log")
+# Documentation (ci/HOWTO.md: how to run the checks) is editable by hand: not acceptance either.
+_DOC_SUFFIXES = (".md",)
+_OUTPUT_NAMES = {".coverage", "coverage.xml", ".DS_Store"}
 
 # Markers that disable or skip tests in common frameworks.
 _SKIP_MARKER_RE = re.compile(
@@ -95,6 +106,16 @@ def kit_root(project_root: Path, req_id: str) -> Path:
     return Path(project_root).resolve() / "runs" / "kit" / validate_req_id(req_id)
 
 
+def is_outside_acceptance(rel: str) -> bool:
+    """Whether a kit-relative path under test/ or ci/ is not acceptance: eval outputs
+    (ci/reports/**, coverage, builds, caches) and documentation (ci/HOWTO.md)."""
+    parts = rel.split("/")
+    if any(part in _OUTPUT_DIRS or part.endswith(".egg-info") for part in parts[:-1]):
+        return True
+    name = parts[-1]
+    return name in _OUTPUT_NAMES or name.endswith(_OUTPUT_SUFFIXES) or name.lower().endswith(_DOC_SUFFIXES)
+
+
 def surface_manifest(project_root: Path, req_id: str) -> Dict[str, str]:
     """sha256 of every regular file of the acceptance surface (relative POSIX path -> digest)."""
     root = kit_root(project_root, req_id)
@@ -108,9 +129,9 @@ def surface_manifest(project_root: Path, req_id: str) -> Dict[str, str]:
                 break
             if path.is_symlink() or not path.is_file():
                 continue
-            if any(part in {"node_modules", "__pycache__", ".pytest_cache", ".venv"} for part in path.parts):
-                continue
             rel = path.relative_to(root).as_posix()
+            if is_outside_acceptance(rel):
+                continue
             try:
                 if path.stat().st_size > _MAX_FILE_BYTES:
                     files[rel] = "oversize:" + str(path.stat().st_size)
@@ -218,12 +239,22 @@ def compare_with_lock(project_root: Path, req_id: str, lock: Dict[str, Any]) -> 
     Returns ``{"ok": bool, "anomalies": [...], "added": [...], "lock_digest": ...}``.
     """
     root = kit_root(project_root, req_id)
-    locked: Dict[str, str] = lock.get("files") or {}
+    # locks written by earlier versions may list ci/reports/** or ci/HOWTO.md: ignore those entries
+    locked: Dict[str, str] = {rel: d for rel, d in (lock.get("files") or {}).items() if not is_outside_acceptance(rel)}
     texts: Dict[str, str] = lock.get("texts") or {}
     current = surface_manifest(project_root, req_id)
     anomalies: List[Dict[str, Any]] = []
 
     for rel, digest in sorted(locked.items()):
+        if rel not in current:
+            # the manifest is capped at _MAX_FILES: a file left out is "removed" only if it is gone
+            path = root / rel
+            if path.is_file() and not path.is_symlink():
+                try:
+                    size = path.stat().st_size
+                    current[rel] = ("oversize:" + str(size)) if size > _MAX_FILE_BYTES else hashlib.sha256(path.read_bytes()).hexdigest()
+                except OSError:
+                    pass
         if rel not in current:
             anomalies.append({"path": rel, "kind": "removed"})
             continue
@@ -348,6 +379,52 @@ def _test_contract(source: str):
     return contract
 
 
+# JavaScript/TypeScript tests (Vitest, Jest, Playwright, node:test, Mocha).
+_JS_TEST_SUFFIXES = {".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"}
+_JS_ASSERTION_RE = re.compile(
+    r"\bexpect\s*[.(]|\bassert\w*\s*[.(]|\.(?:to|not)[A-Z.]\w*\s*\(|\.(?:rejects|resolves)\b|\bt\.(?:is|deepEqual|throws)\b"
+)
+_JS_TITLE_RE = re.compile(r"\b(?:it|test|describe|suite)(?:\.\w+)?\s*\(\s*(['\"`])((?:\\.|(?!\1).)*)\1")
+_JS_SKIP_RE = re.compile(
+    r"\b(?:it|test|describe|suite)\.(?:skip|only|todo|fails|fixme)\b|\bx(?:it|test|describe)\s*\(|\bf(?:it|describe)\s*\("
+    r"|\btest\.describe\.(?:skip|only|fixme)\b"
+)
+_JS_HARNESS_ERRORS = r"TypeError|ReferenceError|SyntaxError|RangeError"
+
+
+def _js_harness_error_in(evidence: str, path: Path) -> bool:
+    """The eval shows an error raised in this JS/TS test file itself: a TypeScript compile error
+    reported on it ("x.test.ts(7,7): error TS2741"), a TypeError/ReferenceError/SyntaxError whose
+    stack points into it, or an import it cannot resolve."""
+    name = re.escape(path.name)
+    return bool(
+        re.search(rf"{name}\(\d+,\d+\): error TS\d+", evidence)
+        or re.search(rf"{name}:\d+:\d+ - error TS\d+", evidence)
+        or re.search(rf"\b(?:{_JS_HARNESS_ERRORS})\b[^\n]*(?:\n[^\n]*){{0,8}}?{name}:\d+", evidence)
+        or re.search(rf"(?:Cannot find module|Failed to resolve import|Failed to load url)[^\n]*{name}", evidence)
+        or re.search(rf"{name}[^\n]*(?:Cannot find module|Failed to resolve import)", evidence)
+    )
+
+
+def _js_test_contract(source: str):
+    """What a JS/TS test asserts: its test/describe titles and every assertion line."""
+    titles = sorted(m.group(2) for m in _JS_TITLE_RE.finditer(source))
+    assertions = sorted(
+        re.sub(r"\s+", "", line) for line in source.splitlines() if _JS_ASSERTION_RE.search(line)
+    )
+    return titles, assertions
+
+
+def _js_test_change_issue(path: Path, before: str, content: str, evidence: str) -> Optional[str]:
+    if not _js_harness_error_in(evidence, path):
+        return _LOCKED_TEST_ISSUE + " (the eval does not show an error in the test itself)"
+    if _js_test_contract(content) != _js_test_contract(before):
+        return _LOCKED_TEST_ISSUE + " (a test fix must keep every test title and assertion identical)"
+    if len(_JS_SKIP_RE.findall(content)) > len(_JS_SKIP_RE.findall(before)):
+        return _LOCKED_TEST_ISSUE + " (a test fix cannot add skip/only/todo)"
+    return None
+
+
 def _test_change_issue(
     path: Path, locked_digest: Optional[str], content: str, evidence: str = "", previous: Optional[str] = None
 ) -> Optional[str]:
@@ -355,7 +432,7 @@ def _test_change_issue(
     "imports" (only unused imports removed, e.g. for lint) or "test_fix" (the eval showed the test
     itself is wrong: an API-misuse/import/fixture error raised in the test file; every assertion
     stays identical and no skip/xfail is added)."""
-    if path.suffix != ".py" or not locked_digest or (previous is None and not path.is_file()):
+    if path.suffix not in {".py", *_JS_TEST_SUFFIXES} or not locked_digest or (previous is None and not path.is_file()):
         return _LOCKED_TEST_ISSUE
     # A local agent has already written the new content: the extension sends the previous one,
     # trusted only if it is the locked version.
@@ -363,6 +440,8 @@ def _test_change_issue(
     if hashlib.sha256(raw).hexdigest() != locked_digest:
         return _LOCKED_TEST_ISSUE
     before = raw.decode("utf-8", errors="replace")
+    if path.suffix in _JS_TEST_SUFFIXES:
+        return _js_test_change_issue(path, before, content, evidence)
     try:
         old_imports, old_body = _imports_and_body(before)
         new_imports, new_body = _imports_and_body(content)
@@ -380,6 +459,8 @@ def _test_change_issue(
 
 
 def _test_change_kind(path: Path, content: str, previous: Optional[str] = None) -> str:
+    if path.suffix in _JS_TEST_SUFFIXES:
+        return "test_fix"
     try:
         before = previous if previous is not None else path.read_text(encoding="utf-8", errors="replace")
         old_imports, old_body = _imports_and_body(before)
@@ -409,11 +490,11 @@ def amend_acceptance_surface(
 
     ``changes`` maps KIT-relative paths (``ci/LTC.json``, ``test/...``) to new content.
 
-    * ``test/**``: a repair makes the code pass the locked tests. Exceptions, Python only: a test
-      that only drops unused imports (lint), and a test the eval shows to be wrong itself
-      (``evidence``: an API-misuse/import/fixture error raised in that test file), fixed with
-      every test and assertion unchanged and no skip/xfail added; such test fixes are marked for
-      the developer's review.
+    * ``test/**``: a repair makes the code pass the locked tests. Exceptions: a Python test that
+      only drops unused imports (lint), and a test the eval shows to be wrong itself
+      (``evidence``: an API-misuse/import/fixture error raised in that test file, or for JS/TS a
+      TypeScript error reported on it), fixed with every test and assertion unchanged and no
+      skip/xfail/only added; such test fixes are marked for the developer's review.
     * ``ci/LTC.json`` may change only the commands of existing checks (e.g. a path that does not
       exist in the sandbox): no check removed, none made non-blocking.
     * other ``ci/**`` files (requirements, manifests) may change, e.g. to upgrade a vulnerable

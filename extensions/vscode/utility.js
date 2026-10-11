@@ -1,5 +1,6 @@
 const { request: serviceRequest } = require('./orchestrator-client');
 const vscode = require('vscode');
+const { autoMergePromotion } = require('./promote-merge');
 const cp = require('child_process');
 const path = require('path');
 const { buildLocalAgentEnv, resolveLocalAgentCommandPath, buildLocalAgentSpawn, resolvePromptTransport, terminateProcessTree } = require('./local-agent-executors');
@@ -167,7 +168,8 @@ async function copyTreeWithConflicts(srcRoot, destRoot, { strategy, reqId, ts, l
 /** QuickPick strategy selector with helpful descriptions. */
 async function pickPromotionStrategy() {
   const items = [
-    { label: 'folder',    detail: 'Copy into promoted/<REQ>_<timestamp> (safest; no conflicts in place).', picked: true },
+    { label: 'auto-merge', detail: '3-way merge per file into src/ and test/; conflicting files are not written; report + unified diff in runs/kit/<REQ>/promotion/.', picked: true },
+    { label: 'folder',    detail: 'Copy into promoted/<REQ>_<timestamp> (safest; no conflicts in place).' },
     { label: 'suffix',    detail: 'Keep existing; write conflicts as *.incoming-<REQ>-<timestamp> and open diffs.' },
     { label: 'backup',    detail: 'Backup existing as *.bak-<timestamp> and write new version; open diffs.' },
     { label: 'skip',      detail: 'Keep existing; skip conflicting incoming files.' },
@@ -322,7 +324,7 @@ async function promoteReqSources(projectRootUri, reqId, strategy = 'folder', out
   );
   await vscode.workspace.fs.writeFile(
     manifestUri,
-    Buffer.from(JSON.stringify(manifest, null, 2), 'utf8')
+    Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
   );
   const uniqFilesToCommit = [...new Set(
   (filteredFilesToCommit || [])
@@ -1202,7 +1204,7 @@ async function persistReports(projectRootUri, phase, rep, out, fallbackReqId = '
 
   // Write JSON
   try {
-    const buf = Buffer.from(JSON.stringify(persisted, null, 2), 'utf8');
+    const buf = Buffer.from(`${JSON.stringify(persisted, null, 2)}\n`, 'utf8');
     await vscode.workspace.fs.writeFile(jsonUri, buf);
     log('[persistReports] wrote JSON ->', jsonUri.fsPath || jsonUri.path);
   } catch (e) {
@@ -1215,7 +1217,7 @@ async function persistReports(projectRootUri, phase, rep, out, fallbackReqId = '
 /**
  * /gate → move REQ to done and sync artifacts
  */
-async function saveGateCommand(projectRootUri, plan, targetReqId, report, out) {
+async function saveGateCommand(projectRootUri, plan, targetReqId, report, out, options = {}) {
   const log = (m) => (out?.appendLine ? out.appendLine(m) : console.log(m));
   log(`[saveGateCommand] target=${targetReqId}`);
 
@@ -1226,12 +1228,31 @@ async function saveGateCommand(projectRootUri, plan, targetReqId, report, out) {
   const gateStatus = String(report?.status || '').trim().toUpperCase();
   // OVERRIDE = audited developer override from the orchestrator (WP6): promotable, but tracked as such.
   const isOverride = gateVerdict === 'pass' && gateStatus === 'OVERRIDE' && !!report?.override?.audit_id;
-  const isPass = (gateVerdict === 'pass' && gateStatus === 'PASS') || isOverride;
+  // PASS_WITH_WARNINGS with gate=PASS: the warnings were accepted by the gate policy
+  // (clike.gate.strictWarnings off), so the REQ is promotable like a clean PASS.
+  const isPass = (gateVerdict === 'pass' && ['PASS', 'PASS_WITH_WARNINGS'].includes(gateStatus)) || isOverride;
 
-  if (isPass) {
+  // clike.gate.autoPromote: "merge" (default) promotes without prompts by a 3-way merge and
+  // writes a report; "ask" keeps the interactive strategy choice; "off" never promotes.
+  const promoteMode = String(options.promote || vscode.workspace.getConfiguration('clike').get('gate.autoPromote', 'merge'));
+  let autoMerge = null;
+  if (isPass && promoteMode === 'merge') {
+    try {
+      autoMerge = autoMergePromotion({ workspaceRoot: projectRootUri.fsPath, reqId: targetReqId });
+      log(`[saveGateCommand] auto-merge: ${autoMerge.summary}`);
+    } catch (err) {
+      autoMerge = { promoted: false, error: String(err?.message || err), written: [], reportFiles: [], summary: `${targetReqId} NOT promoted: auto-merge failed (${err?.message || err}).` };
+      log(`[saveGateCommand] auto-merge failed: ${err?.stack || err}`);
+    }
+  }
+
+  if (isPass && (!autoMerge || autoMerge.promoted)) {
     if (!setReqStatus(effectivePlan, targetReqId, 'done')) {
       log(`[saveGateCommand] REQ ${targetReqId} not found in plan.json`);
     }
+  } else if (isPass) {
+    setReqStatus(effectivePlan, targetReqId, 'in_progress');
+    log(`[saveGateCommand] auto-merge left conflicts for ${targetReqId}; status kept as in_progress`);
   } else {
     setReqStatus(effectivePlan, targetReqId, 'in_progress');
     log(`[saveGateCommand] gate not passed for ${targetReqId}; status kept as in_progress`);
@@ -1250,7 +1271,18 @@ async function saveGateCommand(projectRootUri, plan, targetReqId, report, out) {
     planMdUri.fsPath,
   ];
 
-  if (isPass) {
+  if (isPass && autoMerge) {
+    filesToCommit.push(...autoMerge.written, ...autoMerge.reportFiles);
+    if (autoMerge.reportPath) {
+      const reportUri = vscode.Uri.file(autoMerge.reportPath);
+      vscode.commands.executeCommand('markdown.showPreview', reportUri).then(undefined, () =>
+        vscode.window.showTextDocument(reportUri, { preview: true }));
+    }
+    const notify = autoMerge.promoted ? vscode.window.showInformationMessage : vscode.window.showWarningMessage;
+    notify(`CLike: ${autoMerge.summary}`);
+  } else if (isPass && promoteMode === 'off') {
+    log(`[saveGateCommand] Gate passed for ${targetReqId}; promotion off (clike.gate.autoPromote)`);
+  } else if (isPass) {
     log(`[saveGateCommand] Gate passed for ${targetReqId}`);
 
     const choice = await vscode.window.showInformationMessage(
@@ -1263,7 +1295,21 @@ async function saveGateCommand(projectRootUri, plan, targetReqId, report, out) {
 
     if (choice === 'Promote') {
       const strategy = await pickPromotionStrategy();
-      if (strategy) {
+      if (strategy === 'auto-merge') {
+        const picked = autoMergePromotion({ workspaceRoot: projectRootUri.fsPath, reqId: targetReqId });
+        filesToCommit.push(...picked.written, ...picked.reportFiles);
+        if (!picked.promoted) {
+          setReqStatus(effectivePlan, targetReqId, 'in_progress');
+          await writePlanJson(projectRootUri, effectivePlan);
+          await updatePlanMdInPlace(projectRootUri, effectivePlan);
+        }
+        autoMerge = picked;
+        const reportUri = vscode.Uri.file(picked.reportPath);
+        vscode.commands.executeCommand('markdown.showPreview', reportUri).then(undefined, () =>
+          vscode.window.showTextDocument(reportUri, { preview: true }));
+        (picked.promoted ? vscode.window.showInformationMessage : vscode.window.showWarningMessage)(`CLike: ${picked.summary}`);
+        log(`[saveGateCommand] promote strategy=auto-merge ${picked.summary}`);
+      } else if (strategy) {
         const result = await promoteReqSources(projectRootUri, targetReqId, strategy, out);
         const promotedFiles = Array.isArray(result?.filesToCommit) ? result.filesToCommit : [];
         filesToCommit.push(...promotedFiles);
@@ -1275,9 +1321,11 @@ async function saveGateCommand(projectRootUri, plan, targetReqId, report, out) {
       log('[saveGateCommand] promote skipped by user');
     }
 
-    try {
-      vscode.window.showInformationMessage(`REQ ${targetReqId} marked as done.`);
-    } catch {}
+    if (!autoMerge || autoMerge.promoted) {
+      try {
+        vscode.window.showInformationMessage(`REQ ${targetReqId} marked as done.`);
+      } catch {}
+    }
   } else {
     try {
       vscode.window.showWarningMessage(`Gate failed for ${targetReqId}. REQ not promoted.`);
@@ -1294,6 +1342,7 @@ async function saveGateCommand(projectRootUri, plan, targetReqId, report, out) {
     report_file,
     filesToCommit,
     planFiles: [planJsonUri.fsPath, planMdUri.fsPath],
+    promotion: autoMerge ? { promoted: autoMerge.promoted, summary: autoMerge.summary, report: autoMerge.reportPath || null } : null,
   };
 }
 
@@ -1485,7 +1534,7 @@ function updatePlanSnapshot(plan) {
 
 async function writePlanJson(projectRootUri, obj) {
   const uri = vscode.Uri.joinPath(projectRootUri, 'docs', 'harper', 'plan.json');
-  await writeTextFile(uri, JSON.stringify(obj, null, 2));
+  await writeTextFile(uri, `${JSON.stringify(obj, null, 2)}\n`);
 }
 
 function findNextOpenReq(plan) {
@@ -2207,7 +2256,7 @@ async function writeAgentExecutionContext(workspaceRootUri, reqId, contextPayloa
   fs.mkdirSync(docsDir, { recursive: true });
 
   const filePath = path.join(docsDir, 'AGENT_EXECUTION_CONTEXT.json');
-  fs.writeFileSync(filePath, JSON.stringify(contextPayload, null, 2), 'utf8');
+  fs.writeFileSync(filePath, `${JSON.stringify(contextPayload, null, 2)}\n`, 'utf8');
   log('[agentExecutionContext] wrote', filePath);
   return filePath;
 }

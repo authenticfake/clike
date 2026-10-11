@@ -110,11 +110,23 @@ services:
       - TZ=Europe/Rome
       - HOME=/tmp
       - DEV_FOLDER=${CLIKE_PROJECTS_DIR:?set CLIKE_PROJECTS_DIR in docker/.env}
+      # Eval work dirs (venvs, node_modules, caches) on a disk volume, not on the tmpfs /tmp,
+      # which counts against mem_limit: large installs were OOM-killed.
+      - CLIKE_EVAL_BASE_DIR=/var/clike-eval
+      # Tool caches on the volume too: Playwright browsers (~700 MB) filled the 1 GB /tmp.
+      - XDG_CACHE_HOME=/var/clike-eval/.cache
+      - PLAYWRIGHT_BROWSERS_PATH=/var/clike-eval/.cache/ms-playwright
+    # Optional, git-ignored: variables the projects' tests need, e.g. a test database URL
+    # (see eval.env.example). Names that look like credentials are refused at startup.
+    env_file:
+      - path: eval.env
+        required: false
     volumes:
       - ${CLIKE_PROJECTS_DIR}:${CLIKE_PROJECTS_DIR}:ro
+      - eval_work:/var/clike-eval
     read_only: true
     tmpfs:
-      - /tmp:size=4g,mode=1777
+      - /tmp:size=1g,mode=1777
     cap_drop: [ALL]
     security_opt: [no-new-privileges]
     pids_limit: 1024
@@ -174,5 +186,6 @@ networks:
   evalnet: {}
 
 volumes:
+  eval_work:
   qdrant_data:
   ollama_data:

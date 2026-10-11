@@ -59,10 +59,11 @@ RUN if [ "$ENABLE_JAVA" = "true" ]; then \
       rm -rf /var/lib/apt/lists/* ; \
     else echo "Skip Java"; fi
 
-# ===== Node.js 20 (facoltativo, per prettier/eslint) =====
+# ===== Node.js 22 LTS (facoltativo: prettier/eslint and the JS/TS eval checks) =====
+# 22: current toolchains (Next 16, Vitest 4, ESLint 9) require node >= 20.19 / 22.
 RUN if [ "$ENABLE_NODE" = "true" ]; then \
       apt-get update && apt-get install -y --no-install-recommends gnupg && \
-      curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+      curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
       apt-get install -y --no-install-recommends nodejs && \
       rm -rf /var/lib/apt/lists/* ; \
     else echo "Skip Node"; fi
@@ -79,9 +80,10 @@ RUN if [ "$ENABLE_BROWSER" = "true" ]; then \
       rm -rf /var/lib/apt/lists/* ; \
     else echo "Skip browser libraries"; fi
 
-# Tool JS globali (solo se Node abilitato)
+# Tool JS globali (solo se Node abilitato). npm 11: the npm 10 bundled with Node 22 crashes
+# resolving some peer sets ("Cannot read properties of null (reading 'edgesOut')").
 RUN if command -v npm >/dev/null 2>&1; then \
-      npm i -g --silent prettier eslint; \
+      npm i -g --silent npm@11 && npm i -g --silent prettier eslint; \
     else \
       echo "npm non presente, salto prettier/eslint"; \
     fi
@@ -128,8 +130,8 @@ ENV CLIKE_TOOLS_PY_BLACK=true \
 # ===== Non-root runtime user (WP4) =====
 # uid 1000; on Podman for macOS files written to bind mounts show up as the host user.
 RUN useradd --create-home --uid 1000 --shell /bin/bash clike \
- && mkdir -p /runs /app/runs \
- && chown -R clike:clike /runs /app/runs
+ && mkdir -p /runs /app/runs /var/clike-eval \
+ && chown -R clike:clike /runs /app/runs /var/clike-eval
 USER clike
 ENV HOME=/home/clike
 

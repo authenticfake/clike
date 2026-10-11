@@ -42,6 +42,39 @@ The eval sandbox runs generated tests and is capped by `CLIKE_EVAL_SANDBOX_MEM_L
 default `4g`). Keep it below the memory of the container VM (`podman machine inspect`; the
 default machine has 2 GB → `1g`), otherwise a runaway test can exhaust the VM and the kernel kills
 another service (seen as the orchestrator exiting with 137).
+**Eval environment.** CLike creates what the checks need from what the KIT declares in
+`ci/LTC.json` (`orchestrator/eval_environment.py`):
+
+| `provision` | What CLike does |
+|---|---|
+| `token`, `uuid`, `timestamp` (`offset_s`) | generates the value for this eval run |
+| `template` (`value`: `"${OTHER}"`) | builds it from other variables (e.g. the same session for two processes) |
+| `postgres_database` (`scheme`) | drops and creates `clike_<project>_<req>_<hash>` on the `CLIKE_EVAL_POSTGRES_URL` server, every run |
+| `service` | URL exported by a `services[]` entry |
+| `external` | nothing: the developer sets it in `docker/eval.env` |
+
+`services: [{name, req, cwd, setup, start, env, port_env, ready: {http_path}, exports}]` start,
+before the checks, from the composed source and dependencies (venv / npm) of another REQ (`req`,
+e.g. the API of REQ-001 for the integration tests of REQ-002) or of the candidate, on a free
+loopback port (`${PORT}`); setup commands (migrations) run first; they are stopped after the
+checks, and their log is in the eval `logs/services/`. Each step is reported as an
+`env::provision::<NAME>` / `env::service::<name>` case; a failure is blocking.
+
+The developer configures once, in `docker/eval.env` (git-ignored; template
+`docker/eval.env.example`, loaded only by the eval sandbox): `CLIKE_EVAL_POSTGRES_URL` (an admin
+URL of a local PostgreSQL, e.g. `postgresql://me@host.containers.internal:5432/postgres`; from the
+sandbox the Mac host is `host.containers.internal`) and the `external` values. A value already in
+the environment wins over provisioning. Credential-like names (`TOKEN`, `PASSWORD`, `SECRET`, …)
+make the sandbox refuse to start. After editing the file recreate the containers
+(`./rebuild.sh` or `podman-compose up -d --force-recreate`).
+
+When a required variable is neither set nor creatable, the eval is `BLOCKED`
+(`EVAL_ENVIRONMENT_MISSING`) before any check runs. If a repair can fix it (the variable is not
+declared as `external`), `/eval --fix` runs a KIT repair that completes the LTC `environment` /
+`services` (an audited, non-weakening amendment of the lock); otherwise it stops without spending
+tokens. KITs written before this contract (`environment: {NAME: "Required ..."}`) are understood
+too, and a `*DATABASE_URL` described as PostgreSQL is provisioned as a test database.
+
 An eval whose caller disconnects (VS Code closed, benchmark stopped, client timeout) is
 cancelled: the orchestrator closes its request to the sandbox (HTTP 499), the sandbox kills the
 running check with its process group and skips the remaining ones.

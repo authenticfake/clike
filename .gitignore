@@ -83,3 +83,6 @@ extensions/vscode/test/plan.json
 
 # Harper benchmark results (machine-specific, may contain generated code)
 benchmark/results/
+
+# Eval sandbox variables (local, may point to local databases)
+docker/eval.env

@@ -20,6 +20,7 @@ dependencies = [
     "python-pptx==0.6.23",
     "xlrd==2.0.1",
     "pyxlsb==1.0.10",
+    "psycopg[binary]>=3.2",
 ]
 
 [dependency-groups]

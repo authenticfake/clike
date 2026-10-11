@@ -89,3 +89,60 @@ test('/agent-model shows or sets the local agent model', () => {
   assert.deepEqual(parseSlash('/agent-model codex gpt-5.5-codex').args, { agent: 'codex', model: 'gpt-5.5-codex' });
   assert.deepEqual(parseSlash('/agent-model').args, { agent: '', model: '' });
 });
+
+test('loop: a missing eval environment stops at once, without a repair', () => {
+  const report = {
+    status: 'BLOCKED',
+    reason_code: 'EVAL_ENVIRONMENT_MISSING',
+    passed: false,
+    cases: [{ name: 'env::required-variables', passed: false, blocked: true, blocking: true, stderr: '  - APP_TEST_DATABASE_URL: real PostgreSQL' }],
+  };
+  const step = nextAutoEvalStep({ cycle: 0, maxCycles: 2, hint: '' }, report);
+  assert.equal(step.action, 'stop');
+  assert.match(step.reason, /nothing to repair/);
+  assert.match(step.reason, /APP_TEST_DATABASE_URL/);
+});
+
+test('acceptance snapshot leaves out ci/HOWTO.md (documentation, editable by hand)', () => {
+  const { snapshotAcceptanceSurface } = require('../auto-eval');
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'clike-howto-'));
+  const kit = path.join(ws, 'runs', 'kit', 'REQ-001');
+  fs.mkdirSync(path.join(kit, 'ci'), { recursive: true });
+  fs.writeFileSync(path.join(kit, 'ci', 'LTC.json'), '{}');
+  fs.writeFileSync(path.join(kit, 'ci', 'HOWTO.md'), '# how');
+  const snap = snapshotAcceptanceSurface(ws, 'REQ-001');
+  assert.ok('ci/LTC.json' in snap);
+  assert.ok(!('ci/HOWTO.md' in snap));
+});
+
+test('loop: a missing environment a repair can declare is repaired, not stopped', () => {
+  const report = {
+    status: 'BLOCKED',
+    reason_code: 'EVAL_ENVIRONMENT_MISSING',
+    environment_repairable: true,
+    passed: false,
+    cases: [{ name: 'env::required-variables', passed: false, blocked: true, blocking: true, code: 78, stderr: '  - APP_TEST_API_URL' }],
+  };
+  const step = nextAutoEvalStep({ cycle: 0, maxCycles: 2, hint: '' }, report);
+  assert.equal(step.action, 'repair');
+  assert.equal(step.failures[0].name, 'env::required-variables');
+});
+
+test('loop: extra cycles while the failures decrease, bounded', () => {
+  const base = { cycle: 2, maxCycles: 2, hint: '', extraCycles: 2, lastKitOk: true };
+  assert.equal(nextAutoEvalStep({ ...base, lastFailureCount: 3 }, failing(['integration'])).action, 'repair');
+  assert.equal(nextAutoEvalStep({ ...base, lastFailureCount: 1 }, failing(['integration'])).action, 'stop');
+  assert.equal(nextAutoEvalStep({ ...base, cycle: 4, lastFailureCount: 3 }, failing(['integration'])).action, 'stop');
+  assert.equal(nextAutoEvalStep({ ...base, extraCycles: 0, lastFailureCount: 3 }, failing(['integration'])).action, 'stop');
+});
+
+test('/gate promotion flags', () => {
+  assert.equal(parseSlash('/gate REQ-003 --ask').args.promote, 'ask');
+  assert.equal(parseSlash('/gate REQ-003 --no-promote').args.promote, 'off');
+  assert.equal(parseSlash('/gate REQ-003').args.promote, undefined);
+  assert.deepEqual(parseSlash('/gate REQ-003 --ask').args.targets, ['REQ-003']);
+});
+
+test('/gate --auto-merge forces the auto-merge promotion', () => {
+  assert.equal(parseSlash('/gate REQ-003 --auto-merge').args.promote, 'merge');
+});

@@ -132,18 +132,42 @@ class EmbeddingClient:
 
         return vec
 
+    async def _embed_batch_gateway(self, client: httpx.AsyncClient, texts: List[str]) -> List[List[float]]:
+        payload: Dict[str, Any] = {"input": texts}
+        if self.model_name:
+            payload["model"] = self.model_name
+        r = await client.post(f"{self.base}/embeddings", json=payload)
+        r.raise_for_status()
+        items = sorted(
+            (d for d in ((r.json() or {}).get("data") or []) if isinstance(d, dict) and "embedding" in d),
+            key=lambda d: d.get("index", 0),
+        )
+        vecs = [d["embedding"] for d in items]
+        if len(vecs) != len(texts):
+            raise RuntimeError(f"gateway embeddings returned {len(vecs)} vectors for {len(texts)} inputs")
+        for vec in vecs:
+            if not isinstance(vec, list) or len(vec) != EMB_DIM:
+                raise RuntimeError(f"embedding dimension mismatch: expected={EMB_DIM} got={len(vec) if isinstance(vec, list) else 0}")
+        return vecs
+
     async def embed(self, texts: List[str]) -> List[List[float]]:
-        results: List[List[float]] = []
+        """Vectors in input order: batches of RAG_EMBED_BATCH_SIZE inputs per gateway call,
+        RAG_EMBED_CONCURRENCY calls at a time (one call per text took minutes on a project)."""
+        clean = [(raw or "")[:MAX_EMBED_TEXT_CHARS] for raw in texts]
+        clean = [t for t in clean if t.strip()]
+        if not clean:
+            return []
+        size = max(1, int(os.getenv("RAG_EMBED_BATCH_SIZE", "64")))
+        limit = asyncio.Semaphore(max(1, int(os.getenv("RAG_EMBED_CONCURRENCY", "4"))))
+        batches = [clean[i:i + size] for i in range(0, len(clean), size)]
+        async with httpx.AsyncClient(timeout=120, headers=internal_auth_headers()) as client:
 
-        for raw in texts:
-            text = (raw or "")[:MAX_EMBED_TEXT_CHARS]
-            if not text.strip():
-                continue
+            async def one(batch: List[str]) -> List[List[float]]:
+                async with limit:
+                    return await self._embed_batch_gateway(client, batch)
 
-            vec = await self._embed_one_gateway(text)
-            results.append(vec)
-
-        return results
+            parts = await asyncio.gather(*(one(b) for b in batches))
+        return [vec for part in parts for vec in part]
 
 
 class RagStore:
@@ -188,6 +212,35 @@ class RagStore:
             raise
 
 
+    async def _unchanged_paths(self, per_path: Dict[str, List[tuple]]) -> set:
+        """Paths whose every chunk point already exists (same content): nothing to embed."""
+        ids_by_path = {
+            p: [_point_id(EMB_FAMILY, m["path"], m["sha"], int(m["chunk"])) for _ch, m in entries]
+            for p, entries in per_path.items()
+            if entries
+        }
+        all_ids = [i for ids in ids_by_path.values() for i in ids]
+        if not all_ids:
+            return set()
+        existing: set = set()
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                for start in range(0, len(all_ids), 256):
+                    r = await _request_with_retry(
+                        client,
+                        "POST",
+                        f"{self.q}/collections/{self.c}/points",
+                        json_body={"ids": all_ids[start:start + 256], "with_payload": False, "with_vector": False},
+                        attempts=2,
+                    )
+                    if not r.is_success:
+                        return set()
+                    existing.update(str(pt.get("id")) for pt in ((r.json() or {}).get("result") or []))
+        except Exception as exc:  # never block indexing on the optimisation
+            log.warning("RAG unchanged-path lookup skipped: %s", exc)
+            return set()
+        return {p for p, ids in ids_by_path.items() if all(str(i) in existing for i in ids)}
+
     async def index_texts(self, items: List[Dict[str, Any]]) -> Dict[str, Any]:
         await self.ensure()
 
@@ -195,30 +248,31 @@ class RagStore:
         metas: List[Dict[str, Any]] = []
         paths_to_replace: set[str] = set()
 
+        per_path: Dict[str, List[tuple]] = {}
         for it in items:
             p = _norm_path(it.get("path") or "unknown")
             t = it.get("text") or ""
             if not p or not isinstance(t, str) or not t.strip():
                 continue
-
-            paths_to_replace.add(p)
             file_sha = _sha1(t)
+            per_path[p] = [
+                (ch, {"path": p, "sha": file_sha, "chunk": idx})
+                for idx, ch in enumerate(_split_chunks(t))
+                if ch.strip()
+            ]
 
-            chunks = _split_chunks(t)
-            for idx, ch in enumerate(chunks):
-                if not ch.strip():
-                    continue
+        # Unchanged files keep their points: ids derive from path + content sha + chunk.
+        unchanged = await self._unchanged_paths(per_path)
+        for p, entries in per_path.items():
+            if p in unchanged:
+                continue
+            paths_to_replace.add(p)
+            for ch, meta in entries:
                 texts.append(ch)
-                metas.append(
-                    {
-                        "path": p,
-                        "sha": file_sha,
-                        "chunk": idx,
-                    }
-                )
+                metas.append(meta)
 
         if not texts:
-            return {"ok": True, "upserts": 0, "indexed_paths": 0}
+            return {"ok": True, "upserts": 0, "indexed_paths": 0, "unchanged_paths": len(unchanged)}
 
         vecs = await self.emb.embed(texts)
         if len(vecs) != len(metas):
@@ -302,6 +356,7 @@ class RagStore:
             "ok": True,
             "upserts": len(points),
             "indexed_paths": len(paths_to_replace),
+            "unchanged_paths": len(unchanged),
         }
         
 

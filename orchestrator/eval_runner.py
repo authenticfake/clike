@@ -16,6 +16,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import eval_environment
+from utils.safe_paths import validate_req_id
+
 log = logging.getLogger("eval_runner")
 
 
@@ -46,6 +49,9 @@ class EvalReport:
     status: str = "FAIL"
     junit_path: Optional[str] = None
     json_path: Optional[str] = None
+    reason_code: Optional[str] = None
+    # EVAL_ENVIRONMENT_MISSING: a KIT repair can declare how CLike provisions the variables
+    environment_repairable: Optional[bool] = None
 
 
 def report_to_dict(rep: "EvalReport") -> Dict[str, Any]:
@@ -166,6 +172,46 @@ _NON_BEHAVIOURAL_CHECK_RE = re.compile(
     re.IGNORECASE,
 )
 _TEST_FAILURES_RE = re.compile(r"\b\d+ (?:failed|errors?)\b|^FAILED ", re.MULTILINE)
+
+
+ENVIRONMENT_MISSING_REASON = "EVAL_ENVIRONMENT_MISSING"
+
+
+def required_environment_variables(ltc: Dict[str, Any]) -> List[Dict[str, str]]:
+    """Variables the LTC declares the checks need (see eval_environment for the contract)."""
+    return [
+        {"name": spec.name, "purpose": spec.purpose, "example": spec.example, "provision": spec.effective_provision()}
+        for spec in eval_environment.variable_specs(ltc)
+    ]
+
+
+def missing_environment_case(ltc: Dict[str, Any], environ: Optional[Dict[str, str]] = None) -> Optional["EvalCase"]:
+    """A blocked case listing the required variables CLike can neither find nor create, or None."""
+    environ = scrubbed_process_env() if environ is None else environ
+    missing = eval_environment.missing_variables(ltc, environ)
+    if not missing:
+        return None
+    example = missing[0][0]
+    lines = [
+        "The checks need variables that the eval environment does not provide and CLike cannot create:",
+        *(f"  - {spec.name}" + (f": {spec.purpose}" if spec.purpose else "") + f" ({how})" for spec, how in missing),
+        "CLike creates variables declared in ci/LTC.json environment.required_variables with a `provision`",
+        "(token, uuid, timestamp, template, postgres_database, service; see docs/development.md).",
+        "External values go to docker/eval.env (git-ignored; template docker/eval.env.example), one NAME=value",
+        "per line; from the eval sandbox the host machine is host.containers.internal, e.g.",
+        f"  {example.name}=" + (example.example or "postgresql+psycopg://me@host.containers.internal:5432/test_db"),
+        "then recreate the stack (docker/rebuild.sh) and re-run /eval. See the REQ's ci/HOWTO.md.",
+        "No check was run: the code is not at fault.",
+    ]
+    return EvalCase(
+        name="env::required-variables",
+        passed=False,
+        code=78,
+        stdout="",
+        stderr="\n".join(lines),
+        blocked=True,
+        blocking=True,
+    )
 
 
 def _is_regression_test_case(case: "EvalCase") -> bool:
@@ -659,6 +705,11 @@ class EvalRunner:
         candidates.append(self.project_root / "runs" / "eval")
 
         project_key = re.sub(r"[^A-Za-z0-9_.-]+", "_", self.project_root.name or "project")
+        # Eval sandbox: a disk volume, so venvs, node_modules and caches do not take the memory
+        # of the container as a tmpfs /tmp does (an npm install of a Next app was OOM-killed).
+        base = os.getenv("CLIKE_EVAL_BASE_DIR", "").strip()
+        if base:
+            candidates.append(Path(base) / project_key)
         candidates.append(Path(tempfile.gettempdir()) / "clike-eval" / project_key)
 
         for candidate in candidates:
@@ -1504,26 +1555,17 @@ class EvalRunner:
         if rel_kit_root:
             path_map[rel_kit_root] = str(work_kit_root)
 
-        # Compatibility shim for CI scripts that still infer:        #   <eval-base>/runs/kit/<REQ-ID>
-        # from __dirname instead of using CLIKE_EVAL_KIT_DIR.
-        # This keeps already generated KITs runnable while future KITs migrate
-        # to explicit env vars.
-        compat_kit_root = self._eval_base_dir() / "runs" / "kit" / kit_root.name
-        try:
-            compat_kit_root.parent.mkdir(parents=True, exist_ok=True)
-            if compat_kit_root.exists() or compat_kit_root.is_symlink():
-                if compat_kit_root.is_symlink() or compat_kit_root.is_file():
-                    compat_kit_root.unlink()
-                else:
-                    shutil.rmtree(compat_kit_root)
-            try:
-                compat_kit_root.symlink_to(work_kit_root, target_is_directory=True)
-            except OSError:
-                shutil.copytree(work_kit_root, compat_kit_root)
-        except Exception:
-            # Best-effort compatibility only. The canonical path rewrite above
-            # remains the source of truth.
-            pass
+        # Compatibility view for CI scripts that infer runs/kit/<REQ> paths from their own location
+        # (e.g. ../../../../runs/kit/REQ-001/test) instead of using CLIKE_EVAL_KIT_DIR /
+        # CLIKE_EVAL_PROJECT_ROOT. Next to the eval dir (where such a relative path lands, also for
+        # the nested regression and service runs) runs/kit/ holds this REQ -> its work copy, its
+        # dependencies -> their composed copies, every other REQ -> the project KIT (read-only).
+        self._link_compat_kits(
+            self._eval_dir(req_id).parent / "runs" / "kit",
+            work_kit_root,
+            kit_root.name,
+            dependency_roots or [],
+        )
 
         if path_map is None:
             path_map = {}
@@ -1533,14 +1575,57 @@ class EvalRunner:
 
         return work_root, reports_root, logs_root, path_map, work_kit_root, dependency_roots
 
+    def _link_compat_kits(self, compat_root: Path, work_kit_root: Path, req_name: str, dependency_roots: List[str]) -> None:
+        targets: Dict[str, Path] = {}
+        project_kits = self.project_root / "runs" / "kit"
+        try:
+            for entry in sorted(project_kits.iterdir()):
+                if entry.is_dir() and re.match(r"^REQ-[A-Za-z0-9_.-]+$", entry.name):
+                    targets[entry.name] = entry
+        except OSError:
+            pass
+        for dep in dependency_roots:
+            targets[Path(dep).name] = Path(dep)
+        targets[req_name] = work_kit_root
+        try:
+            compat_root.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return
+        for name, target in targets.items():
+            link = compat_root / name
+            try:
+                if link.is_symlink() or link.is_file():
+                    link.unlink()
+                elif link.exists():
+                    shutil.rmtree(link)
+                link.symlink_to(target, target_is_directory=True)
+            except OSError:
+                try:
+                    shutil.copytree(target, link)
+                except Exception:
+                    pass  # best effort: the explicit CLIKE_EVAL_* paths remain the contract
+
     def _rewrite_for_eval_workspace(self, value: Any, path_map: Dict[str, str]) -> Any:
+        """Map project paths to the eval workspace: one pass (a rewritten path is never rewritten
+        again) and whole path segments only, so a short key such as "test" or "src" never matches
+        inside a word ("pytest", "/tmp/test-projects/...") or inside an already absolute path."""
         if not isinstance(value, str) or not path_map:
             return value
+        keys = sorted((k for k in path_map if k), key=len, reverse=True)
+        if not keys:
+            return value
+        pattern = re.compile(
+            r"(?<![^\s/'\"=:({$,])(" + "|".join(re.escape(k) for k in keys) + r")(?=$|[\s/'\":)};,])"
+        )
 
-        rewritten = value
-        for source, target in sorted(path_map.items(), key=lambda item: len(item[0]), reverse=True):
-            rewritten = rewritten.replace(source, target)
-        return rewritten
+        def replace(match: "re.Match[str]") -> str:
+            start = match.start()
+            # a relative key never applies inside an absolute path written in the value
+            if not match.group(1).startswith("/") and start > 0 and value[start - 1] == "/":
+                return match.group(0)
+            return path_map[match.group(1)]
+
+        return pattern.sub(replace, value)
 
     def _rewrite_command_for_eval_workspace(self, command: str, path_map: Dict[str, str]) -> str:
         """
@@ -1931,6 +2016,161 @@ class EvalRunner:
         req_id: Optional[str] = None,
         regression: bool = False,
     ) -> EvalReport:
+        self._services: List[eval_environment.RunningService] = []
+        try:
+            return self._run_profile(profile, ltc, mode, verdict, req_id, regression)
+        finally:
+            for svc in reversed(self._services):
+                eval_environment.stop_process(svc.proc)
+            self._services = []
+
+    def _provision_environment(
+        self,
+        *,
+        ltc: Dict[str, Any],
+        req_id: Optional[str],
+        env: Dict[str, str],
+        work_kit_root: Optional[Path],
+        logs_root: Path,
+    ) -> tuple[Dict[str, str], List[EvalCase]]:
+        """Create the variables and start the services the LTC declares (eval_environment).
+
+        Values already in the environment win. Each provisioned item is reported as an
+        env::provision::<name> / env::service::<name> case; a failure is blocking."""
+        specs = eval_environment.variable_specs(ltc)
+        services = eval_environment.service_specs(ltc)
+        if not specs and not services:
+            return env, []
+        cases: List[EvalCase] = []
+        values: Dict[str, str] = {k: v for k, v in env.items() if isinstance(v, str)}
+        provided: Dict[str, str] = {}
+        project_key = re.sub(r"[^A-Za-z0-9_.-]+", "_", self.project_root.name or "project")
+        req = self._safe_req_id(req_id)
+
+        def fail(name: str, message: str) -> None:
+            cases.append(EvalCase(name=name, passed=False, code=79, stdout="", stderr=message, blocking=True))
+
+        def note(name: str, message: str) -> None:
+            cases.append(EvalCase(name=name, passed=True, code=0, stdout=message, stderr="", blocking=False))
+
+        pending = [s for s in specs if not str(env.get(s.name, "")).strip()]
+        admin = str(env.get(eval_environment.ADMIN_URL_VAR, "")).strip()
+        # 1. generated values that need nothing else, then databases
+        for spec in list(pending):
+            kind = spec.effective_provision()
+            try:
+                if kind in {"token", "uuid", "timestamp"}:
+                    value = eval_environment.generate(spec, values)
+                elif kind == "postgres_database" and admin:
+                    value = eval_environment.provision_postgres(spec, admin, project_key, req)
+                else:
+                    continue
+            except Exception as exc:  # database server unreachable, bad URL...
+                fail(f"env::provision::{spec.name}", f"cannot provision {spec.name} ({kind}): {exc}")
+                pending.remove(spec)
+                continue
+            values[spec.name] = provided[spec.name] = value
+            pending.remove(spec)
+            note(f"env::provision::{spec.name}", f"{kind} provisioned" + (f": database {value.rsplit('/', 1)[-1]}" if kind == "postgres_database" else ""))
+
+        def resolve_templates() -> None:
+            for spec in list(pending):
+                if spec.effective_provision() != "template":
+                    continue
+                try:
+                    value = eval_environment.generate(spec, values)
+                except eval_environment.ProvisionError:
+                    continue  # needs a service export: retried after the services
+                values[spec.name] = provided[spec.name] = value or ""
+                pending.remove(spec)
+                note(f"env::provision::{spec.name}", "template provisioned")
+
+        resolve_templates()
+        # 2. services
+        for svc in services:
+            name = str(svc["name"])
+            try:
+                workdir, svc_env, setup_cases = self._service_runtime(svc, req_id=req_id, env={**env, **provided}, work_kit_root=work_kit_root)
+            except Exception as exc:
+                fail(f"env::service::{name}", f"cannot prepare service {name}: {exc}")
+                continue
+            cases.extend(setup_cases)
+            if any(not c.passed and c.blocking for c in setup_cases):
+                fail(f"env::service::{name}", f"service {name}: dependency setup failed (see the env:: cases above)")
+                continue
+
+            def run_setup(label: str, cmd: str, cwd: Path, setup_env: Dict[str, str]) -> tuple[bool, str]:
+                result = self._run(name=f"env::service::{label}", cmd=cmd, cwd=cwd, env=setup_env, timeout=300, blocking=True)
+                cases.append(result)
+                return result.passed, f"{result.stdout}\n{result.stderr}"
+
+            try:
+                running, exports, text = eval_environment.start_service(
+                    svc, workdir=workdir, env=svc_env, values=values, log_dir=logs_root / "services", run_setup=run_setup,
+                )
+            except eval_environment.ProvisionError as exc:
+                fail(f"env::service::{name}", f"service {name}: {exc}")
+                continue
+            if running is None:
+                fail(f"env::service::{name}", f"service {name}: {text}")
+                continue
+            self._services.append(running)
+            for key, value in exports.items():
+                if not str(env.get(key, "")).strip():
+                    values[key] = provided[key] = value
+                    pending[:] = [p for p in pending if p.name != key]
+            note(f"env::service::{name}", text)
+        resolve_templates()
+        for spec in pending:
+            if spec.effective_provision() in {"template", "service"}:
+                fail(f"env::provision::{spec.name}", f"{spec.name}: no value ({spec.effective_provision()} could not be resolved)")
+        return {**env, **provided}, cases
+
+    def _service_runtime(
+        self,
+        svc: Dict[str, Any],
+        *,
+        req_id: Optional[str],
+        env: Dict[str, str],
+        work_kit_root: Optional[Path],
+    ) -> tuple[Path, Dict[str, str], List[EvalCase]]:
+        """Working directory and environment of a service: the composed source of another REQ
+        (`req`, with its own Python venv / npm dependencies) or of the candidate."""
+        other = str(svc.get("req") or "").strip()
+        if not other or other == str(req_id or ""):
+            if work_kit_root is None:
+                raise OSError("no candidate workspace")
+            return (work_kit_root / str(svc.get("cwd") or "")).resolve(), dict(env), []
+        other = validate_req_id(other)
+        profile = self.project_root / "runs" / "kit" / other / "ci" / "LTC.json"
+        sub = EvalRunner(self.project_root, eval_key=f"{self._safe_req_id(req_id)}/services/{other}", cancel_event=self.cancel_event)
+        _work, _reports, _logs, path_map, kit_root, _deps = sub._prepare_eval_workspace(req_id=other, profile_path=profile)
+        if kit_root is None:
+            raise OSError(f"no KIT workspace for {other}")
+        src = path_map.get("CLIKE_EVAL_OVERLAY_SRC") or str(kit_root / "src")
+        svc_env = {**env, "PYTHONPATH": src, "PYTHONDONTWRITEBYTECODE": "1", "SERVICE_KIT_DIR": str(kit_root), "SERVICE_SRC_DIR": src}
+        cases: List[EvalCase] = []
+        requirements = kit_root / "ci" / "requirements.txt"
+        if requirements.is_file():
+            svc_env, setup = sub._ensure_eval_venv(req_id=other, requirements_file=str(requirements), env=svc_env, cwd=kit_root)
+            cases.extend(setup)
+        package_json = kit_root / "ci" / "package.json"
+        if package_json.is_file():
+            svc_env, setup = sub._ensure_node_dependencies(req_id=other, package_json=package_json, env=svc_env, cwd=kit_root)
+            cases.extend(setup)
+        for case in cases:
+            case.name = f"env::service::{svc.get('name')}::{case.name}"
+        return (kit_root / str(svc.get("cwd") or "")).resolve(), svc_env, cases
+
+    def _run_profile(
+        self,
+        profile: str,
+        ltc: Dict[str, Any],
+        mode: str = "auto",
+        verdict: Optional[str] = None,
+        req_id: Optional[str] = None,
+        regression: bool = False,
+    ) -> EvalReport:
         profile_path = Path(profile or "LTC.json")
         if not profile_path.is_absolute():
             profile_path = self.project_root / profile_path
@@ -1972,6 +2212,18 @@ class EvalRunner:
         eff_req = req_id or ltc.get("req_id")
         top_env = ltc.get("env") or {}
         out_cases: List[EvalCase] = []
+
+        missing_env = missing_environment_case(ltc)
+        if missing_env is not None:
+            report = self._report_from_cases(
+                profile_path=profile_path, req_id=eff_req, mode="auto", cases=[missing_env],
+            )
+            report.status = "BLOCKED"
+            report.reason_code = ENVIRONMENT_MISSING_REASON
+            report.environment_repairable = eval_environment.repairable(
+                eval_environment.missing_variables(ltc, scrubbed_process_env())
+            )
+            return report
 
         try:
             workspace_result = self._prepare_eval_workspace(
@@ -2239,6 +2491,12 @@ class EvalRunner:
             for case in out_cases
             if case.name.startswith("env::")
         )
+
+        if not setup_failed:
+            eval_env, provision_cases = self._provision_environment(
+                ltc=ltc, req_id=eff_req, env=eval_env, work_kit_root=work_kit_root, logs_root=logs_root,
+            )
+            out_cases.extend(provision_cases)
 
         pre_cmds = ltc.get("pre") or []
         for i, pre in enumerate(pre_cmds, start=1):

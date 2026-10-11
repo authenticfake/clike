@@ -371,6 +371,9 @@ def build_eval_local_agent_package(
             "notes_output_path": f"runs/kit/{req_id}/reports/BMAD_EVAL_REPAIR_NOTES.md",
             "canonical_eval_remains_required": True,
             "environment_blockers_require_exact_evidence": True,
+            # Locked before the pre-pass; CLike reverts changes it does not accept (ci/HOWTO.md excepted).
+            "locked_acceptance_surface": [f"runs/kit/{req_id}/test", f"runs/kit/{req_id}/ci"],
+            "evidence_output_root": f"runs/kit/{req_id}/reports",
             "do_not_weaken": [
                 "tests",
                 "LTC.json",

@@ -98,6 +98,66 @@ class GateIntegrityTests(unittest.TestCase):
         self.assertEqual(body["raw_eval_status"], "NOT_RUN")
         self.assertEqual(self._anomaly_kinds(g), {"modified"})
 
+    def test_eval_outputs_never_count_as_acceptance_changes(self):
+        reports = self.kit / "ci" / "reports"
+        (reports / "wheels").mkdir(parents=True)
+        (reports / "tests.xml").write_text("<testsuite tests='1'/>")
+        (reports / "wheels" / "app-0.1.0-py3-none-any.whl").write_bytes(b"PK1")
+        (self.kit / "ci" / "coverage.xml").write_text("<coverage/>")
+        self._eval()
+        (reports / "tests.xml").write_text("<testsuite tests='2'/>")
+        (reports / "wheels" / "app-0.1.0-py3-none-any.whl").write_bytes(b"PK2")
+        (self.kit / "ci" / "coverage.xml").write_text("<coverage line-rate='1'/>")
+        (self.kit / "test" / "__pycache__").mkdir()
+        (self.kit / "test" / "__pycache__" / "x.pyc").write_bytes(b"x")
+        g = self._gate()
+        self.assertEqual(g.json()["gate"], "PASS", g.text)
+        self.assertTrue(g.json()["integrity"]["ok"])
+
+    def test_howto_is_documentation_and_editable(self):
+        (self.kit / "ci" / "HOWTO.md").write_text("# run")
+        self._eval()
+        (self.kit / "ci" / "HOWTO.md").write_text("# run\n\n## Run with CLike /eval\n")
+        self.assertTrue(self._gate().json()["integrity"]["ok"])
+
+    def test_missing_required_variable_is_blocked_not_failed(self):
+        ltc = dict(LTC, environment={"required_variables": [{"name": "CLIKETEST_DB_URL", "purpose": "real PostgreSQL"}]})
+        (self.kit / "ci" / "LTC.json").write_text(json.dumps(ltc))
+        body = self._eval().json()
+        self.assertEqual(body["status"], "BLOCKED", body)
+        self.assertEqual(body["reason_code"], "EVAL_ENVIRONMENT_MISSING")
+        self.assertEqual(body["environment_blocked"], ["env::required-variables"])
+        self.assertIn("CLIKETEST_DB_URL", body["cases"][0]["stderr"])
+        self.assertEqual(self._gate().json()["gate"], "FAIL")
+
+    def test_scratch_and_many_files_never_hide_the_locked_files(self):
+        self._eval()
+        scratch = self.kit / "ci" / ".tmp" / "repair-tools"
+        scratch.mkdir(parents=True)
+        for i in range(30):
+            (scratch / f"t{i}.js").write_text("x")
+        many = self.kit / "ci" / "0data"  # sorts before LTC.json, beyond the manifest cap
+        many.mkdir()
+        from services import gate_integrity
+
+        with patch.object(gate_integrity, "_MAX_FILES", 10):
+            for i in range(20):
+                (many / f"f{i}.txt").write_text("x")
+            integrity = self._gate().json()["integrity"]
+        self.assertTrue(integrity["ok"], integrity)
+        self.assertFalse(any(a["path"].startswith("ci/.tmp") for a in integrity["anomalies"]))
+
+    def test_stale_lock_listing_reports_is_still_accepted(self):
+        from services import gate_integrity
+
+        self._eval()
+        lock_path = gate_integrity._req_state_path(self.proj, REQ, "lock")
+        lock = json.loads(lock_path.read_text())
+        lock["files"]["ci/reports/tests.xml"] = "0" * 64  # written by an older CLike
+        lock["files"]["ci/HOWTO.md"] = "0" * 64
+        lock_path.write_text(json.dumps(lock))
+        self.assertTrue(self._gate().json()["integrity"]["ok"])
+
     def test_removed_test_is_detected(self):
         self._eval()
         (self.kit / "test" / "test_app.py").unlink()

@@ -188,3 +188,20 @@ test('merge-on-gate is opt-in', async () => {
   assert.ok(isAncestor(dir, kitCommit, 'main'), 'merged when enabled');
   assert.equal(git(dir, 'rev-parse', '--abbrev-ref', 'HEAD'), 'main');
 });
+
+test('the next REQ branch is stacked on an unmerged REQ branch, even with local changes', async () => {
+  const dir = makeRepo();
+  write(dir, 'docs/harper/plan.json', '{"v":1}\n');
+  git(dir, 'add', '-A'); git(dir, 'commit', '-q', '-m', 'plan');
+  await sync(dir, 'kit', 'REQ-003', [write(dir, 'runs/kit/REQ-003/src/a.py', 'a\n')]);
+  await sync(dir, 'gate', 'REQ-003', [write(dir, 'src/a.py', 'a\n')]);
+  const req003 = git(dir, 'rev-parse', 'feature/req-003');
+  // local changes that differ between main and the REQ-003 branch (as plan.json/PLAN.md did)
+  write(dir, 'docs/harper/plan.json', '{"v":2}\n');
+  write(dir, 'src/a.py', 'a changed locally\n');
+  await sync(dir, 'kit', 'REQ-004', [write(dir, 'runs/kit/REQ-004/src/b.py', 'b\n')]);
+  assert.equal(git(dir, 'rev-parse', '--abbrev-ref', 'HEAD'), 'feature/req-004');
+  assert.ok(isAncestor(dir, req003, 'feature/req-004'), 'REQ-004 carries the REQ-003 commits it depends on');
+  assert.match(git(dir, 'log', '-1', '--format=%s'), /^feat\(req-004\): implement/);
+  assert.equal(fs.readFileSync(path.join(dir, 'src/a.py'), 'utf8'), 'a changed locally\n'); // nothing lost
+});

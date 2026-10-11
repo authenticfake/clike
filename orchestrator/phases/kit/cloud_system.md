@@ -859,6 +859,35 @@ Use:
 - `blocking: true` for checks that can run in a normal local/dev environment.
 - `blocking: false` for integration or external-infra checks that may be skipped or blocked by missing infrastructure.
 
+### Eval environment (CLike `/eval`)
+
+CLike runs the LTC checks in an eval sandbox (a container without credentials) and **creates** the
+environment the checks need from what `ci/LTC.json` declares; the developer configures nothing
+except values only they have.
+
+* Declare every variable the checks read in
+  `"environment": {"required_variables": [{"name": "<NAME>", "purpose": "<what it is>", "provision": "<kind>"}]}`:
+  * `token` (random secret, e.g. a fixture session), `uuid`, `timestamp` (`"offset_s": 3600`),
+    `template` (`"value": "${OTHER_VAR}"`, e.g. the same session for the frontend server);
+  * `postgres_database`: a disposable PostgreSQL database per REQ, recreated at every eval
+    (`"scheme": "postgresql+psycopg"` = the driver the KIT pins);
+  * `service`: the URL exported by a service below;
+  * `external`: only for values only the developer has (a real provider key); they go in
+    `docker/eval.env`, and a missing one makes `/eval` BLOCKED with its name.
+* When a check needs another REQ running (e.g. the API of REQ-001), declare it in
+  `"services": [{"name": "req001-api", "req": "REQ-001", "cwd": "src", "setup": ["<migrations>"],
+  "start": "<start command>", "env": {"<NAME>": "${<VAR>}", "<PORT_VAR>": "${PORT}"},
+  "ready": {"http_path": "/health"}, "exports": {"<URL_VAR>": "http://127.0.0.1:${PORT}"}}]`.
+  CLike runs it from that REQ's composed source and dependencies on a free loopback port before
+  the checks and stops it after. Configure it from the dependency's settings and `.env.example`.
+* Never name a variable with TOKEN, SECRET, PASSWORD, API_KEY or CREDENTIAL (the sandbox refuses
+  them; use e.g. `_SESSION`), and never hardcode values in tests or scripts.
+* `ci/HOWTO.md` MUST contain a section `## Run with CLike /eval`: what CLike provisions (variables,
+  databases, services), the `external` values and the exact `docker/eval.env` lines for them, and
+  the commands `/eval <REQ-ID>` and `/eval <REQ-ID> --fix`. For a test database the developer sets
+  once `CLIKE_EVAL_POSTGRES_URL=postgresql://<user>@host.containers.internal:5432/postgres` in
+  `docker/eval.env` (from the sandbox the developer's machine is `host.containers.internal`).
+
 If the KIT emits `requirements.txt`, LTC MUST include either:
 - `requirements_file: "runs/kit/<REQ-ID>/ci/requirements.txt"`
 or rely on CLike EvalRunner inference from the LTC path.

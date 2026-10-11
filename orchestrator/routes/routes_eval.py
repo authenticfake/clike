@@ -562,6 +562,8 @@ def _eval_payload(rep: EvalReport, req_id: Optional[str]) -> Dict[str, Any]:
         "req_id": rep.req_id,
         "mode": rep.mode,
         "status": rep.status,
+        "reason_code": rep.reason_code,
+        "environment_repairable": rep.environment_repairable,
         "passed": promotable,
         "execution_ok": not environment_blocked,
         "quality_passed": quality_passed,
