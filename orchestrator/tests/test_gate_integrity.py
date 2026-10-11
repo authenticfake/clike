@@ -130,6 +130,23 @@ class GateIntegrityTests(unittest.TestCase):
         self.assertIn("CLIKETEST_DB_URL", body["cases"][0]["stderr"])
         self.assertEqual(self._gate().json()["gate"], "FAIL")
 
+    def test_scratch_and_many_files_never_hide_the_locked_files(self):
+        self._eval()
+        scratch = self.kit / "ci" / ".tmp" / "repair-tools"
+        scratch.mkdir(parents=True)
+        for i in range(30):
+            (scratch / f"t{i}.js").write_text("x")
+        many = self.kit / "ci" / "0data"  # sorts before LTC.json, beyond the manifest cap
+        many.mkdir()
+        from services import gate_integrity
+
+        with patch.object(gate_integrity, "_MAX_FILES", 10):
+            for i in range(20):
+                (many / f"f{i}.txt").write_text("x")
+            integrity = self._gate().json()["integrity"]
+        self.assertTrue(integrity["ok"], integrity)
+        self.assertFalse(any(a["path"].startswith("ci/.tmp") for a in integrity["anomalies"]))
+
     def test_stale_lock_listing_reports_is_still_accepted(self):
         from services import gate_integrity
 

@@ -89,6 +89,11 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   indented, and `.clike/sessions/`, `.clike/telemetry/`, `.env.*` (except `.env.example`) and the
   eval scratch under `runs/` (`runs/eval/`, `node_modules/`, `.tmp/`, caches) are ignored;
   `runs/kit/<REQ>/` stays committable by the phase commits.
+- **False `ACCEPTANCE_TAMPERED` ("removed: ci/LTC.json…") when a repair left scratch in `ci/`.**
+  The acceptance manifest is capped at 2000 files and a repair agent's `ci/.tmp` (5,700 tool files)
+  filled it, so the real files fell outside and were reported removed. Scratch and cache dirs
+  (`.tmp`, `tmp`, `.cache`, `.npm-cache`, `.next`, `coverage`, `local-eval-workspaces`) are not
+  acceptance, and a locked file is reported removed only if it is really gone.
 - `ci/HOWTO.md` (and any Markdown under `test/` or `ci/`) is documentation, no longer part of the
   acceptance lock: editing it by hand no longer reports `ACCEPTANCE_TAMPERED`.
 - `/init`: `README_1st.md` showed `${project.org}` and escaped backticks; the Git steps now create

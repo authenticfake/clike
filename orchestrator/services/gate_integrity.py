@@ -37,6 +37,8 @@ _MAX_FILE_BYTES = 5 * 1024 * 1024
 _OUTPUT_DIRS = {
     "reports", "node_modules", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
     ".venv", "venv", ".tox", "htmlcov", "dist", "build", "target", ".coverage",
+    # scratch of the eval and of repair agents (tool installs, staged copies, caches)
+    ".tmp", "tmp", ".cache", ".npm-cache", ".npm", ".next", "coverage", "local-eval-workspaces",
 }
 _OUTPUT_SUFFIXES = (".whl", ".pyc", ".egg-info", ".log")
 # Documentation (ci/HOWTO.md: how to run the checks) is editable by hand: not acceptance either.
@@ -244,6 +246,15 @@ def compare_with_lock(project_root: Path, req_id: str, lock: Dict[str, Any]) -> 
     anomalies: List[Dict[str, Any]] = []
 
     for rel, digest in sorted(locked.items()):
+        if rel not in current:
+            # the manifest is capped at _MAX_FILES: a file left out is "removed" only if it is gone
+            path = root / rel
+            if path.is_file() and not path.is_symlink():
+                try:
+                    size = path.stat().st_size
+                    current[rel] = ("oversize:" + str(size)) if size > _MAX_FILE_BYTES else hashlib.sha256(path.read_bytes()).hexdigest()
+                except OSError:
+                    pass
         if rel not in current:
             anomalies.append({"path": rel, "kind": "removed"})
             continue

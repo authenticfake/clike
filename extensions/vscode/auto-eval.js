@@ -6,7 +6,10 @@ const fs = require('fs');
 const path = require('path');
 
 const MAX_FILE_BYTES = 200 * 1024;
-const SKIPPED_DIRS = new Set(['__pycache__', '.venv', 'node_modules', '.pytest_cache', '.mypy_cache', '.ruff_cache', 'reports']);
+const SKIPPED_DIRS = new Set([
+  '__pycache__', '.venv', 'venv', 'node_modules', '.pytest_cache', '.mypy_cache', '.ruff_cache', 'reports',
+  '.tmp', 'tmp', '.cache', '.npm-cache', '.next', 'coverage', 'local-eval-workspaces',
+]);
 
 function evalPassed(report) {
   const status = String(report?.status || '').toUpperCase();
