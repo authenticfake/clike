@@ -922,7 +922,10 @@ async function executeLocalAgentPackage({
     : [];
 
   if (packageFiles.length) {
-    await saveGeneratedFiles(packageFiles);
+    // CLike-written context files end with a newline (KIT format checks scan the KIT tree)
+    await saveGeneratedFiles(packageFiles.map((f) => (
+      typeof f?.content === 'string' && f.content && !f.content.endsWith('\n') ? { ...f, content: `${f.content}\n` } : f
+    )));
     log(`[harperRun][agent] wrote orchestrator package files=${packageFiles.length} phase=${phaseForAgent}`);
   }
 

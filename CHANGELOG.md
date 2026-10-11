@@ -26,6 +26,16 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   (`runs/**/ci/reports/`, `runs/**/reports/`), which, tracked, kept the tree dirty and blocked the
   switch to the next REQ branch.
 
+- **Eval: `CLIKE_EVAL_TEMP_ROOT` is exported to the checks.** The KIT prompts tell CI scripts
+  that CLike provides it, but it was only in the internal path map: scripts that require it
+  failed (`build`, `e2e`, `integration` of a Next.js KIT).
+- **Regressions no longer receive the candidate's installed dependencies.** The candidate's
+  source overlaid into the workspaces of promoted REQs included `node_modules` (and `.next`,
+  `.venv`, caches): another REQ's tests loaded the wrong Vitest ("cannot be imported in a CommonJS
+  module") and its secret scans flagged files inside `node_modules`. Overlays skip installed and
+  generated directories.
+- Context files CLike writes for the local agent end with a newline (KIT format checks).
+
 ## [1.4.0] — 2026-10-11 — Autonomous eval and gate
 
 ### Added

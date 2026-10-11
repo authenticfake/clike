@@ -266,3 +266,27 @@ def test_selected_capabilities_prefer_this_run_and_skip_truncated_copies():
     env = build_context_envelope(phase="kit", req_id="REQ-005", execution_mode="cloud", core_blobs=blobs,
                                  methodology_context=None, active_output_contract=None)
     assert env["clike_capabilities"]["context_json"] == good
+
+
+def test_temp_root_is_exported_to_the_checks(tmp_path: Path, monkeypatch):
+    tmp_path = tmp_path.resolve()
+    monkeypatch.setenv("CLIKE_EVAL_BASE_DIR", str(tmp_path / "eval"))
+    project = tmp_path / "p"
+    (project / "runs/kit/REQ-001/ci").mkdir(parents=True)
+    (project / "runs/kit/REQ-001/src").mkdir()
+    (project / "runs/kit/REQ-001/src/a.py").write_text("")
+    ltc = {"req_id": "REQ-001", "checks": [{"id": "t", "command": f"{sys.executable} -c \"import os; assert os.environ['CLIKE_EVAL_TEMP_ROOT']\""}]}
+    report = EvalRunner(project).run_profile(profile="runs/kit/REQ-001/ci/LTC.json", ltc=ltc, req_id="REQ-001")
+    assert report.status == "PASS", [(c.name, c.stderr[-300:]) for c in report.cases]
+
+
+def test_overlays_never_copy_installed_dependencies(tmp_path: Path):
+    src = tmp_path / "candidate/src"
+    (src / "web/node_modules/vitest").mkdir(parents=True)
+    (src / "web/node_modules/vitest/index.cjs").write_text("x")
+    (src / "web/.next/cache").mkdir(parents=True)
+    (src / "web/app.ts").write_text("export {}")
+    dst = tmp_path / "composed"
+    EvalRunner(tmp_path)._copy_tree_overlay(src, dst)
+    assert (dst / "web/app.ts").is_file()
+    assert not (dst / "web/node_modules").exists() and not (dst / "web/.next").exists()

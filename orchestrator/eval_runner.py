@@ -738,7 +738,13 @@ class EvalRunner:
         if not src.exists():
             return
 
-        ignored_names = {"__pycache__", "__MACOSX", ".DS_Store", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
+        # installed dependencies, build output and scratch are never composed: a candidate's
+        # node_modules overlaid into a regression workspace shadowed the other REQ's own install
+        ignored_names = {
+            "__pycache__", "__MACOSX", ".DS_Store", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+            "node_modules", ".venv", ".next", ".turbo", ".tmp", ".cache", ".npm-cache", ".npm",
+            "local-eval-workspaces",
+        }
 
         if src.is_file():
             if src.name not in ignored_names and src.suffix not in {".pyc", ".pyo"}:
@@ -2291,6 +2297,9 @@ class EvalRunner:
         eval_path_env = {
             "CLIKE_EVAL_WORK_DIR": str(work_root),
             "CLIKE_EVAL_REPORT_DIR": str(reports_root),
+            # documented to KIT scripts as the writable temp/staging root (it was only in the
+            # internal path map, so scripts requiring it failed)
+            "CLIKE_EVAL_TEMP_ROOT": path_map.get("CLIKE_EVAL_TEMP_ROOT") or str(self._eval_dir(eff_req) / "tmp"),
             "CLIKE_EVAL_LOG_DIR": str(logs_root),
             "CLIKE_EVAL_KIT_DIR": str(work_kit_root or ""),
             "CLIKE_EVAL_CANDIDATE_KIT_DIR": str(work_kit_root or ""),
