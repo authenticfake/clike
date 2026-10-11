@@ -58,6 +58,7 @@ text:
   - removing tests to pass eval
   - creating unconditional secondary overlays
   - modifying canonical src/test/tests roots
+  - 'editing the locked acceptance surface: files under runs/kit/<REQ-ID>/test/ and runs/kit/<REQ-ID>/ci/ (LTC.json, CI scripts, manifests, records) are locked before eval and changes are reverted; repair src/ only, write evidence and notes under runs/kit/<REQ-ID>/reports/ (ci/HOWTO.md is documentation and may be corrected)'
   package.allowed_for:
   - external infrastructure boundaries
   - object storage adapters

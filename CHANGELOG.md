@@ -25,6 +25,13 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   so every later run found them "modified". Eval outputs (`reports/`, coverage files, `dist/`,
   `build/`, caches, `*.whl`, `*.pyc`, `*.log`) are no longer part of the acceptance surface, and
   locks written by earlier versions ignore their entries for those paths, without re-locking.
+- **`/eval` with a local agent failed with `ACCEPTANCE_TAMPERED` after its own pre-pass.** The
+  eval pre-pass agent repairs the candidate and could edit locked files under `test/` and `ci/`
+  (e.g. add a test, rewrite a CI record) with no governance, so the canonical eval that follows
+  found the surface changed. The acceptance surface is now locked before the pre-pass and the
+  pre-pass changes go through the same audited amendment as the `--fix` repair: accepted ones are
+  recorded, the others are restored. The eval agent is told that `test/` and `ci/` are locked and
+  that evidence goes under `reports/`.
 - `ci/HOWTO.md` (and any Markdown under `test/` or `ci/`) is documentation, no longer part of the
   acceptance lock: editing it by hand no longer reports `ACCEPTANCE_TAMPERED`.
 - `/init`: `README_1st.md` showed `${project.org}` and escaped backticks; the Git steps now create

@@ -4954,6 +4954,16 @@ async function cmdOpenChat(context) {
                 })}`);
 
                 if (evalLocalAgentPackage?.action === 'local_agent_required') {
+                  // The pre-pass agent repairs the candidate: lock the acceptance surface first
+                  // (idempotent) and govern what it changed in test/ and ci/ afterwards, as the
+                  // --fix repair does; otherwise its edits make the canonical eval ACCEPTANCE_TAMPERED.
+                  let prepassAcceptanceBefore = null;
+                  try {
+                    await postAcceptanceLock(ws_root, targets);
+                    prepassAcceptanceBefore = snapshotAcceptanceSurface(getWorkspaceRoot().fsPath, targets);
+                  } catch (err) {
+                    log(`[harperEDD][agent] acceptance lock before the eval pre-pass failed: ${err?.message || err}`);
+                  }
                   const evalAgentOut = await executeLocalAgentPackage({
                     localAgentPackage: evalLocalAgentPackage,
                     phase: 'eval',
@@ -4974,6 +4984,9 @@ async function cmdOpenChat(context) {
                     });
                   } catch (e) {
                     log(`[telemetry] eval pre-pass skipped: ${e?.message || e}`);
+                  }
+                  if (prepassAcceptanceBefore) {
+                    await governAcceptanceChanges(targets, prepassAcceptanceBefore, [], 'eval pre-pass');
                   }
                 } else {
                   log(
