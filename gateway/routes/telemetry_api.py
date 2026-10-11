@@ -91,12 +91,50 @@ def _load_any_json(path: Path, max_lines: Optional[int] = None) -> List[dict]:
             continue
     return rows
 
+# Local agents that report no cost (Codex): provider of the price list and usage convention.
+_AGENT_PRICE_PROVIDER = {"gpt_codex": ("openai", True), "claude_code": ("anthropic", False)}
+_PRICING_MANAGER = None
+
+
+def _pricing_manager():
+    global _PRICING_MANAGER
+    if _PRICING_MANAGER is None:
+        from pricing import PricingManager
+
+        _PRICING_MANAGER = PricingManager.from_models_yaml(os.getenv("MODELS_CONFIG", "../config/models.yaml"))
+    return _PRICING_MANAGER
+
+
+def _with_estimated_cost(rows: List[dict]) -> List[dict]:
+    """Local-agent rows without a cost get the API-equivalent estimate from models.yaml (rows
+    already written included), marked pricing.estimated; unknown models stay at zero."""
+    for r in rows:
+        if not isinstance(r, dict) or r.get("execution") != "local_agent":
+            continue
+        if (r.get("pricing") or {}).get("total_cost") is not None:
+            continue
+        provider, includes_cached = _AGENT_PRICE_PROVIDER.get(str(r.get("executor") or r.get("provider") or ""), (None, False))
+        model = str(r.get("model") or "").strip()
+        if not provider or not model:
+            continue
+        try:
+            est = _pricing_manager().estimate_agent_run(
+                f"{provider}:{model}".lower(), r.get("usage") or {}, input_includes_cached=includes_cached
+            )
+        except Exception as exc:  # the portal never fails on pricing
+            log.warning("telemetry cost estimate failed: %s", type(exc).__name__)
+            return rows
+        if est:
+            r["pricing"] = est
+    return rows
+
+
 def _load_project(project_id: str) -> List[dict]:
     # 1) single file <id>.(json|ndjson|log|txt) in the root
     for ext in _EXTS:
         cand = TELEMETRY_DIR / f"{safe_segment(project_id, 'default')}{ext}"
         if cand.exists():
-            return _load_any_json(cand)
+            return _with_estimated_cost(_load_any_json(cand))
     # 2) folder telemetry/<project_id>/** with supported files
     folder = TELEMETRY_DIR / safe_segment(project_id, "default")
     rows: List[dict] = []
@@ -104,7 +142,7 @@ def _load_project(project_id: str) -> List[dict]:
         for p in sorted(folder.rglob("*")):
             if p.is_file() and p.suffix.lower() in _EXTS:
                 rows.extend(_load_any_json(p))
-    return rows
+    return _with_estimated_cost(rows)
 
 def _resolve_relpath(relpath: str) -> Path:
     base = _ensure_base_dir()
@@ -121,7 +159,7 @@ def _resolve_relpath(relpath: str) -> Path:
 
 def _load_file(relpath: str) -> List[dict]:
     p = _resolve_relpath(relpath)
-    return _load_any_json(p)
+    return _with_estimated_cost(_load_any_json(p))
 
 def _num(x, default=0.0) -> float:
     try:

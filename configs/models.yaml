@@ -51,6 +51,7 @@ models:
     cost: high
     pricing:
       input_per_1k: 0.002
+      cached_input_per_1k: 0.0001
       output_per_1k: 0.01
     privacy: low
     enabled: true

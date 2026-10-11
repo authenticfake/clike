@@ -49,6 +49,10 @@ orchestrator reports them with `POST /v1/harper/telemetry` (from `/local-agent/c
 rows have `execution: "local_agent"`, `provider`/`executor` = `claude_code` | `gpt_codex`, the
 model reported by the agent, `usage`, `duration_ms` and `pricing.total_cost` as the
 **API-equivalent** cost (`unit: usd_api_equivalent`; subscription runs are not billed per token).
+Claude Code reports that cost itself. Codex does not: the portal estimates it from the model's
+price in `configs/models.yaml` (`input_per_1k`, `cached_input_per_1k`, `output_per_1k`; Codex
+counts cache reads inside `input_tokens`), marked `pricing.estimated: true`, also for rows written
+before. A model without a price (or a wrong model name) stays at zero.
 
 ## Technical Architecture
 

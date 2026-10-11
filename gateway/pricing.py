@@ -17,6 +17,8 @@ log = logging.getLogger(__name__)
 class Pricing:
     input_per_1k: float = 0.0
     output_per_1k: float = 0.0
+    # price of cache-read input tokens; None = not listed (charged as normal input)
+    cached_input_per_1k: Optional[float] = None
 
     def estimate(self, input_tokens: int = 0, output_tokens: int = 0) -> Dict[str, float]:
         ic = (input_tokens / 1000.0) * self.input_per_1k
@@ -55,7 +57,8 @@ class PricingManager:
             # also supports price_* aliases used in some repos
             inp = pr.get("input_per_1k", pr.get("price_input_per_1k", 0.0)) or 0.0
             out = pr.get("output_per_1k", pr.get("price_output_per_1k", 0.0)) or 0.0
-            table[str(mid)] = Pricing(float(inp), float(out))
+            cached = pr.get("cached_input_per_1k")
+            table[str(mid)] = Pricing(float(inp), float(out), None if cached is None else float(cached))
 
         # optional fallback from env (JSON dict {model_id: {input_per_1k, output_per_1k}})
         extra = os.getenv("HARPER_PRICING_JSON")
@@ -98,6 +101,36 @@ class PricingManager:
         itok = int(usage.get("input_tokens") or 0)
         otok = int(usage.get("output_tokens") or 0)
         return p.estimate(itok, otok)
+
+    def has_price(self, model_id: str) -> bool:
+        p = self._table.get(model_id)
+        return bool(p and (p.input_per_1k or p.output_per_1k))
+
+    def estimate_agent_run(self, model_id: str, usage: Dict[str, Any], *, input_includes_cached: bool) -> Optional[Dict[str, Any]]:
+        """API-equivalent cost of a local-agent run (the subscription is not billed per token).
+
+        Codex (OpenAI usage) counts cache reads inside input_tokens; Claude Code (Anthropic usage)
+        reports them apart, with cache writes in cache_creation_input_tokens. None if unpriced."""
+        if not self.has_price(model_id):
+            return None
+        p = self._table[model_id]
+        cached_rate = p.input_per_1k if p.cached_input_per_1k is None else p.cached_input_per_1k
+        inp = int(usage.get("input_tokens") or 0)
+        cached = int(usage.get("cache_read_input_tokens") or usage.get("cached_input_tokens") or 0)
+        written = int(usage.get("cache_creation_input_tokens") or 0)
+        out = int(usage.get("output_tokens") or 0)
+        fresh = max(inp - cached, 0) if input_includes_cached else inp + written
+        ic = fresh / 1000.0 * p.input_per_1k + cached / 1000.0 * cached_rate
+        oc = out / 1000.0 * p.output_per_1k
+        return {
+            "input_cost": round(ic, 6),
+            "output_cost": round(oc, 6),
+            "total_cost": round(ic + oc, 6),
+            "unit": "usd_api_equivalent",
+            "estimated": True,
+            "price_source": model_id,
+        }
+
 
 def _mk_id(provider: Optional[str], name: Optional[str]) -> str:
     return f"{provider}:{name}".lower()

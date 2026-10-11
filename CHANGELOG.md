@@ -32,6 +32,10 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   pre-pass changes go through the same audited amendment as the `--fix` repair: accepted ones are
   recorded, the others are restored. The eval agent is told that `test/` and `ci/` are locked and
   that evidence goes under `reports/`.
+- **Telemetry portal: cost always 0 for Codex runs.** Codex reports tokens but no cost, so its
+  rows had an empty `pricing`. The portal now estimates the API-equivalent cost from
+  `configs/models.yaml` (new optional `cached_input_per_1k`; set for `gpt-6.1-sol`), also for the
+  rows already recorded, marked `pricing.estimated`.
 - `ci/HOWTO.md` (and any Markdown under `test/` or `ci/`) is documentation, no longer part of the
   acceptance lock: editing it by hand no longer reports `ACCEPTANCE_TAMPERED`.
 - `/init`: `README_1st.md` showed `${project.org}` and escaped backticks; the Git steps now create
