@@ -81,6 +81,9 @@ NATIVE_CLOUD_OPTIONAL_OUTPUTS: Dict[str, List[str]] = {
         "docker-compose.yml",
         "Dockerfile",
         "Makefile",
+        # the solution eval profile CLike runs after /finalize (services/finalize_verify.py)
+        "ci/SOLUTION_LTC.json",
+        "ci/solution/**",
     ],
 }
 

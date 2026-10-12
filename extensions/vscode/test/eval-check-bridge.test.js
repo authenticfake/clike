@@ -6,7 +6,7 @@ const os = require('os');
 const path = require('path');
 const { execFile } = require('child_process');
 
-const { compactResult, startEvalCheckBridge, CHANNEL_DIR, HELPER_PATH } = require('../eval-check-bridge');
+const { agentArgsForEvalCheck, compactResult, startEvalCheckBridge, CHANNEL_DIR, HELPER_PATH } = require('../eval-check-bridge');
 
 function runHelper(root, args) {
   return new Promise((resolve) => {
@@ -66,4 +66,35 @@ test('result: PASS only when every requested check passed', () => {
   assert.equal(compactResult({ cases: [{ name: 'lint', passed: true }] }).status, 'PASS');
   assert.equal(compactResult({ cases: [] }).status, 'FAIL');
   assert.equal(compactResult({ cases: [{ name: 'env::provision::X', passed: false, code: 1, stderr: 'no db' }] }).status, 'FAIL');
+});
+
+test('agent args: Claude Code allows the helper before its other options, Codex unchanged', () => {
+  assert.deepEqual(agentArgsForEvalCheck('claude_code', ['-p', '--permission-mode', 'acceptEdits']),
+    ['--allowedTools', 'Bash(node .clike/bin/eval-check.mjs:*)', '-p', '--permission-mode', 'acceptEdits']);
+  assert.deepEqual(agentArgsForEvalCheck('gpt_codex', ['exec', '--sandbox', 'workspace-write']), ['exec', '--sandbox', 'workspace-write']);
+});
+
+test('a helper stopped by the agent timeout resumes the same run', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'clike-evalcheck-'));
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  let calls = 0;
+  const bridge = startEvalCheckBridge({ workspaceRoot: root, pollMs: 50, runChecks: async () => {
+    calls += 1; await gate; return { cases: [{ name: 'lint', passed: true }] };
+  } });
+  try {
+    const killed = execFile(process.execPath, [path.join(root, HELPER_PATH), 'lint'], { cwd: root });
+    await new Promise((r) => setTimeout(r, 400));
+    killed.kill();
+    const resumed = runHelper(root, ['lint']);
+    await new Promise((r) => setTimeout(r, 300));
+    release();
+    const res = await resumed;
+    assert.equal(res.code, 0);
+    assert.match(res.stdout, /still running lint/);
+    assert.equal(calls, 1);
+  } finally {
+    bridge.stop();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });

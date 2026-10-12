@@ -31,17 +31,27 @@ if (!alive()) {
   console.error('CLike is not serving eval checks now (it does during a CLike repair run).');
   process.exit(2);
 }
-const id = \`\${Date.now()}-\${process.pid}\`;
-const tmp = path.join(dir, \`\${id}.tmp\`);
-fs.writeFileSync(tmp, JSON.stringify({ checks }));
-fs.renameSync(tmp, path.join(dir, \`\${id}.request.json\`));
+// A run stopped by the agent's command timeout is resumed: the same checks wait for the same run.
+const pending = path.join(dir, \`\${(checks.join('_') || 'all').replace(/[^\\w.-]+/g, '_').slice(0, 80)}.pending\`);
+let id = '';
+try { id = fs.readFileSync(pending, 'utf8').trim(); } catch { id = ''; }
+if (!/^[\\w-]{1,64}$/.test(id)) {
+  id = \`\${Date.now()}-\${process.pid}\`;
+  const tmp = path.join(dir, \`\${id}.tmp\`);
+  fs.writeFileSync(tmp, JSON.stringify({ checks }));
+  fs.renameSync(tmp, path.join(dir, \`\${id}.request.json\`));
+  fs.writeFileSync(pending, id);
+  console.log(\`CLike eval sandbox: running \${checks.join(' ') || 'all the checks'} (a few minutes)...\`);
+} else {
+  console.log(\`CLike eval sandbox: still running \${checks.join(' ') || 'all the checks'}, waiting for it...\`);
+}
 const result = path.join(dir, \`\${id}.result.json\`);
-console.log(\`CLike eval sandbox: running \${checks.join(' ') || 'all the checks of the REQ'} (a few minutes)...\`);
 const deadline = Date.now() + 40 * 60 * 1000;
 while (Date.now() < deadline) {
   if (fs.existsSync(result)) {
     const r = JSON.parse(fs.readFileSync(result, 'utf8'));
     fs.rmSync(result, { force: true });
+    fs.rmSync(pending, { force: true });
     if (r.error) console.log(\`\${r.status}: \${r.error}\`);
     for (const c of r.checks || []) {
       console.log(\`\${c.passed ? 'PASS' : c.blocked ? 'BLOCKED' : 'FAIL'} \${c.name}\${c.passed ? '' : \` (exit \${c.code})\`}\`);
@@ -149,4 +159,15 @@ function startEvalCheckBridge({ workspaceRoot, runChecks, maxRuns = 8, pollMs = 
   };
 }
 
-module.exports = { CHANNEL_DIR, HELPER_PATH, compactResult, startEvalCheckBridge };
+/**
+ * Agent CLI arguments that let it run the helper. Claude Code -p denies shell commands not
+ * allowed up front: --allowedTools takes a list of values, so it goes first, where the next
+ * argument is always an option (never the prompt). Codex (workspace-write) needs nothing.
+ */
+function agentArgsForEvalCheck(executorId, args) {
+  const list = Array.isArray(args) ? [...args] : [];
+  if (executorId !== 'claude_code' || list.includes('--allowedTools')) return list;
+  return ['--allowedTools', `Bash(node ${HELPER_PATH.split(path.sep).join('/')}:*)`, ...(list.length ? list : ['-p'])];
+}
+
+module.exports = { CHANNEL_DIR, HELPER_PATH, agentArgsForEvalCheck, compactResult, startEvalCheckBridge };

@@ -917,6 +917,12 @@ def compose_phase_messages(payload: dict) -> list[dict]:
     if isinstance(stage_options, dict) and stage_options:
         lines = ["### Stage options", *[f"- {k}: {v}" for k, v in stage_options.items() if v not in (None, "")]]
         messages[-1] = {**messages[-1], "content": messages[-1]["content"] + "\n\n" + "\n".join(lines)}
+    verify = payload.get("finalize_verify")
+    if phase.lower() == "finalize" and isinstance(verify, dict) and verify:
+        from services.finalize_verify import cloud_finalize_section, deployment_hint
+
+        section = cloud_finalize_section(verify, deployment_hint(payload))
+        messages[-1] = {**messages[-1], "content": messages[-1]["content"] + "\n\n" + section}
     if targets and phase.lower() in {"kit", "acceptance"}:
         messages[-1] = {**messages[-1], "content": messages[-1]["content"] + "\n\n" + kit_self_check_section(str(targets[0]))}
     if targets and phase.lower() == "acceptance":

@@ -1202,6 +1202,8 @@ class HarperRunRequest(BaseModel):
     gen: Optional[dict] = None  # {temperature, max_tokens, top_p, stop, presence_penalty, frequency_penalty, seed}
     workspace: Optional[dict] = None
     kit: Optional[HarperKitOptions] = None
+    # /finalize verification (solution eval profile, REQ profiles, repair of a failed solution eval)
+    finalize_verify: Optional[Dict[str, Any]] = None
     # WP8.7: system + user messages composed by the orchestrator (phase prompt, context, checklist)
     composed_messages: Optional[List[Dict[str, Any]]] = None
 
@@ -2765,7 +2767,10 @@ async def run(req: HarperRunRequest,  request: Request):
             + ", ".join(str(item) for item in missing_required)
         )
         warnings.append(detail)
-        is_repair = bool(req.kit is not None and isinstance(getattr(req.kit, "repair", None), dict) and req.kit.repair)
+        # a repair (auto-eval KIT, /finalize verification) returns only the files it fixes
+        is_repair = bool(req.kit is not None and isinstance(getattr(req.kit, "repair", None), dict) and req.kit.repair) or bool(
+            phase == "finalize" and isinstance(req.finalize_verify, dict) and req.finalize_verify.get("repair")
+        )
         if active_output_contract.get("strict_missing_required_outputs") and not is_repair:
             raise HTTPException(502, detail)
 

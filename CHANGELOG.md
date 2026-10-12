@@ -27,6 +27,18 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   agent gets neither the orchestrator token nor network access; a partial run (`/v1/eval/run`
   `checks`) is never a verdict.
 
+- **`/finalize` verifies that the integrated solution runs end to end, and repairs it** (no flag;
+  `clike.finalize.verify`, `clike.finalize.verifyMaxCycles`). `/finalize` writes
+  `ci/SOLUTION_LTC.json`, the eval profile of the whole solution (install, the promoted test
+  suites on the canonical tree, build, the solution started as services, e2e), derived from the
+  REQs' eval profiles it now receives; CLike runs it in the sandbox against the canonical tree
+  (without `runs/`, `.git`, `.clike/`) and, while it fails, runs `/finalize` again with its errors.
+  A local agent checks the profile in the sandbox while it works and runs the local scripts on the
+  developer's machine. On-prem: the local run is the target; cloud: guarded, non-mutating deploy
+  checks. Evidence in `docs/harper/SOLUTION_EVAL.md`.
+- The eval-check helper resumes the same run when an agent's command timeout stops it (Claude
+  Code stops shell commands after 2 minutes by default); Claude Code gets `--allowedTools` for it.
+
 ### Fixed
 
 - **A local-agent KIT failed with `LOCAL_AGENT_REQUIRED_OUTPUTS_MISSING` although it wrote `src/`

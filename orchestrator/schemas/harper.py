@@ -84,6 +84,8 @@ class HarperPhaseRequest(BaseModel):
     workspace: Optional[dict] = None  # {root, repo, branch}
     kit: Optional[HarperKitOptions] = None
     eval: Optional[Dict[str, Any]] = None
+    # /finalize: the solution eval profile, the REQs' eval profiles and a verification repair
+    finalize_verify: Optional[Dict[str, Any]] = None
     rag_strategy: Optional[str] = None
     context_hard_limit: Optional[int] = None
     project_id: Optional[str] = None

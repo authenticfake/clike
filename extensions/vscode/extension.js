@@ -15,7 +15,8 @@ const {
 } = require('./service-auth');
 const { validateLocalMcpRequest } = require('./mcp-request-guard');
 const { postAcceptanceAmend, postAcceptanceLock, postEvalChecks, postGateOverride } = require('./api');
-const { startEvalCheckBridge } = require('./eval-check-bridge');
+const { agentArgsForEvalCheck, startEvalCheckBridge } = require('./eval-check-bridge');
+const finalizeVerify = require('./finalize-verify');
 const { request: serviceRequest, orchestratorUrl, serviceBaseUrls } = require('./orchestrator-client');
 const { safeRelativePath, safeWorkspaceUri, resolveInsideWorkspace } = require('./safe-workspace');
 const {  handleGate, handleEval } = require('./commands/harper');
@@ -977,10 +978,7 @@ async function executeLocalAgentPackage({
       runChecks: (checks) => postEvalChecks(evalCheck.profile, wsroot, reqForAgent, checks),
       log,
     });
-    if (selectedExecutor === 'claude_code' && !launcherArgs.includes('--allowedTools')) {
-      // -p mode denies shell commands that are not allowed up front
-      launcherArgs = [...launcherArgs, '--allowedTools', 'Bash(node .clike/bin/eval-check.mjs:*)'];
-    }
+    launcherArgs = agentArgsForEvalCheck(selectedExecutor, launcherArgs);
     panel.webview.postMessage({
       type: 'echo',
       message: `🔁 ${executorLabel} can re-run the failed checks in the CLike eval sandbox during this repair (up to ${evalCheck.max_runs || 8} runs).`,
@@ -1827,6 +1825,8 @@ function cfg() {
     autoEvalMaxCycles: c.get('autoEval.maxCycles', 2),
     autoEvalExtraCyclesOnProgress: c.get('autoEval.extraCyclesOnProgress', 3),
     autoEvalAgentEvalChecks: c.get('autoEval.agentEvalChecks', 8),
+    finalizeVerify: c.get('finalize.verify', true),
+    finalizeVerifyMaxCycles: c.get('finalize.verifyMaxCycles', 3),
     autoEvalAfterKit: c.get('autoEval.afterKit', false),
     agentChatApprovals: c.get('agentChat.approvals', 'ask'),
     kitAcceptanceFirst: c.get('kit.acceptanceFirst', false),
@@ -4273,6 +4273,17 @@ async function cmdOpenChat(context) {
               ...(msg.acceptanceFirst ? { acceptance_first: true } : {})
             };
           }
+          if (phase === 'finalize' && cfg().finalizeVerify) {
+            // the solution eval profile CLike runs after /finalize, the REQs' profiles to derive
+            // it from and, in a verification repair, the failures (finalize-verify.js)
+            const agentChecks = Number(cfg().autoEvalAgentEvalChecks ?? 8);
+            payload["finalize_verify"] = {
+              profile: finalizeVerify.SOLUTION_PROFILE,
+              req_profiles: finalizeVerify.collectReqEvalProfiles(wsroot.fsPath),
+              ...(agentChecks > 0 ? { eval_check: true, eval_check_max_runs: agentChecks } : {}),
+              ...(msg.finalizeRepair ? { repair: msg.finalizeRepair } : {}),
+            };
+          }
           //log(`[harperRun] payload (gen):`,  JSON.stringify(payload.gen));
           msg_bubble = phase==='idea' ? project_id : targets; 
           // Persist the user's input in the MODE session (the model badge is shown at render time)
@@ -4702,6 +4713,10 @@ async function cmdOpenChat(context) {
           if (phase === 'kit' && msg.acceptanceFirst && msg.__acceptanceBefore) {
             // a local agent may have touched the locked tests: govern and restore
             await governAcceptanceChanges(targetReqId, msg.__acceptanceBefore, [], 0);
+          }
+          if (phase === 'finalize' && cfg().finalizeVerify) {
+            clikeHarperBlockingRun = false;
+            await continueFinalizeVerify(msg);
           }
           if (phase === 'kit' && !msg.autoEvalRepair && !msg.acceptanceStage && targetReqId && cfg().autoEvalAfterKit) {
             panel.webview.postMessage({ type: 'echo', message: `↻ AUTO-EVAL ${targetReqId} (clike.autoEval.afterKit)` });
@@ -6016,6 +6031,69 @@ async function cmdOpenChat(context) {
 
   // Auto-eval (roadmap §3): after an eval of `/eval REQ --fix`, repair and re-evaluate until the
   // eval passes, the cycles are exhausted or nothing improves. msg.fix carries the loop state.
+  // /finalize verification (no flag): run the solution eval profile in the sandbox; while it fails
+  // and cycles remain, /finalize runs again with its errors. msg.finalizeVerifyState: loop state.
+  async function continueFinalizeVerify(msg) {
+    const settings = cfg();
+    const ws = getWorkspaceRoot();
+    const say = (text) => panel.webview.postMessage({ type: 'echo', message: text });
+    const prev = msg.finalizeVerifyState || {};
+    const state = {
+      cycle: Number(prev.cycle || 0),
+      maxCycles: Math.max(1, Number(settings.finalizeVerifyMaxCycles || 3)),
+      extraCycles: Math.max(0, Number(settings.autoEvalExtraCyclesOnProgress ?? 3)),
+      lastFailureCount: prev.lastFailureCount,
+      hint: String(prev.hint || ''),
+      lastSignature: prev.lastSignature || '',
+      lastKitOk: msg.__result === 'ok',
+    };
+    let report;
+    if (!fsSync.existsSync(path.join(ws.fsPath, ...finalizeVerify.SOLUTION_PROFILE.split('/')))) {
+      report = finalizeVerify.missingProfileReport();
+    } else {
+      say(`▶ SOLUTION EVAL ${finalizeVerify.SOLUTION_PROFILE} in the CLike eval sandbox (canonical tree)…`);
+      try {
+        report = await postEvalChecks(finalizeVerify.SOLUTION_PROFILE, ws, finalizeVerify.SOLUTION_EVAL_ID, []);
+      } catch (e) {
+        say(`✖ SOLUTION EVAL could not run: ${e?.message || e}`);
+        return;
+      }
+    }
+    try {
+      await saveGeneratedFiles([{ path: finalizeVerify.EVIDENCE_PATH, content: finalizeVerify.solutionEvalMarkdown(report, { cycle: state.cycle }) }]);
+    } catch (e) {
+      log(`[finalizeVerify] evidence not written: ${e?.message || e}`);
+    }
+    const step = nextAutoEvalStep(state, report);
+    log(`[finalizeVerify] cycle=${state.cycle}/${state.maxCycles} action=${step.action} reason=${step.reason}`);
+    if (step.action === 'pass') {
+      say(`✔ SOLUTION EVAL PASS (${step.reason}): the integrated solution installs, passes the promoted tests, starts and answers end to end. Evidence: ${finalizeVerify.EVIDENCE_PATH}`);
+      return;
+    }
+    if (step.action === 'stop') {
+      const names = (step.failures || []).map(f => f.name).slice(0, 8).join(', ');
+      say(`✖ SOLUTION EVAL stopped: ${step.reason}.` + (names ? ` Failing: ${names}.` : '') +
+        ` Run /finalize again to continue (it repairs from the current state). Evidence: ${finalizeVerify.EVIDENCE_PATH}`);
+      return;
+    }
+    const cycle = state.cycle + 1;
+    say(`↻ SOLUTION REPAIR cycle ${cycle}/${state.maxCycles} — ${step.reason}`);
+    await handleWebviewMessage({
+      type: 'harperRun',
+      cmd: 'finalize',
+      targets: [],
+      attachments: [],
+      finalizeRepair: {
+        cycle,
+        max_cycles: state.maxCycles,
+        failures: step.failures,
+        files: finalizeVerify.collectSolutionFiles(ws.fsPath),
+        hint: state.hint,
+      },
+      finalizeVerifyState: { ...state, cycle, lastSignature: step.signature, lastFailureCount: (step.failures || []).length },
+    });
+  }
+
   async function continueAutoEval(msg, report, reqId) {
     const settings = cfg();
     const state = {

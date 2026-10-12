@@ -417,6 +417,8 @@ text:
   - docker-compose.yml
   - Dockerfile
   - Makefile
+  - ci/SOLUTION_LTC.json
+  - ci/solution
   build_finalize_write_policy.forbidden_paths:
   - .git
   - node_modules

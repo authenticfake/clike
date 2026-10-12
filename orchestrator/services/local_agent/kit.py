@@ -14,6 +14,7 @@ from utils.namespace_paths import (
     namespace_materialization_context,
 )
 
+from services.finalize_verify import EVAL_CHECK_TIMEOUT_NOTE
 from services.kit_repair import acceptance_first_code_rules, acceptance_stage_rules, kit_self_check_rules
 from services.local_agent.common import (
     _parse_json_core_blob,
@@ -219,6 +220,7 @@ def _kit_stage(req_id: str, payload: Dict[str, Any], repair_context: Dict[str, A
                 "those checks of the canonical eval (composed workspace, provisioned variables and services) and prints "
                 "their errors; it takes a few minutes. Run it after fixing, read the new errors and iterate until the checks "
                 f"pass (at most {eval_check.get('max_runs')} runs). The verdict is CLike's full eval after you finish."
+                + EVAL_CHECK_TIMEOUT_NOTE
             )
         else:
             verify = "Reproduce each failure by running its command in the workspace when the tools are available, fix it, and run it again before finishing."

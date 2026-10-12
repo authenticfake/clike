@@ -1392,24 +1392,37 @@ class EvalRunner:
         if work_kit_root.exists():
             shutil.rmtree(work_kit_root)
 
-        shutil.copytree(
-            kit_root,
-            work_kit_root,
-            ignore=shutil.ignore_patterns(
-                "node_modules",
-                ".npm-*",
-                ".venv",
-                "__pycache__",
-                "__MACOSX",
-                ".DS_Store",
-                "*.pyc",
-                "*.pyo",
-                ".pytest_cache",
-                ".mypy_cache",
-                ".ruff_cache",
-                "reports",
-            ),
+        everywhere = shutil.ignore_patterns(
+            "node_modules",
+            ".npm-*",
+            ".venv",
+            "__pycache__",
+            "__MACOSX",
+            ".DS_Store",
+            "*.pyc",
+            "*.pyo",
+            ".pytest_cache",
+            ".mypy_cache",
+            ".ruff_cache",
+            "reports",
         )
+        # The solution profile (ci/SOLUTION_LTC.json at the project root, /finalize): the canonical
+        # tree without CLike's runs, the local state and the git history (top level only: a
+        # source directory may be called runs).
+        solution_root = kit_root == self.project_root
+        top_level_skip = {".git", "runs", ".clike", ".vscode", ".idea", "local-eval-workspaces", ".next", "coverage"}
+
+        def ignore(directory: str, names: List[str]) -> set:
+            skipped = set(everywhere(directory, names))
+            if solution_root:
+                here = Path(directory).resolve()
+                if here == kit_root:
+                    skipped |= {n for n in names if n in top_level_skip}
+                elif here == kit_root / "docs":
+                    skipped |= {n for n in names if n == "_private"}
+            return skipped
+
+        shutil.copytree(kit_root, work_kit_root, ignore=ignore)
         
         plan_path = self.project_root / "docs" / "harper" / "plan.json"
         try:
