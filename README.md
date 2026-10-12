@@ -179,6 +179,13 @@ With execution = agent the chat is a continuing conversation with Claude Code or
 (`/agent-model`, `/agent-session`), and Claude Code / Codex can drive CLike through MCP.
 Walkthrough, options and troubleshooting: **[docs/GET_STARTED.md](docs/GET_STARTED.md)**.
 
+### Telemetry
+
+Every phase run (cloud or local agent) is recorded per project: model, tokens (cached ones
+included), duration and cost. Open **http://127.0.0.1:8000/v1/metrics/harper/ui** and log in with
+`CLIKE_API_TOKEN`. Local-agent cost is the API-equivalent cost. Details:
+[telemetry portal](docs/CLike_Harper_Telemetry_Portal.md).
+
 ---
 
 ## Extensibility

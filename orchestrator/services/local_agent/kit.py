@@ -14,6 +14,7 @@ from utils.namespace_paths import (
     namespace_materialization_context,
 )
 
+from services.finalize_verify import EVAL_CHECK_TIMEOUT_NOTE
 from services.kit_repair import acceptance_first_code_rules, acceptance_stage_rules, kit_self_check_rules
 from services.local_agent.common import (
     _parse_json_core_blob,
@@ -130,7 +131,8 @@ _STAGE_TASKS = {
     "code_after_locked_acceptance": "write the implementation that passes the locked acceptance tests already in the workspace",
     "repair": "REPAIR the existing candidate KIT: the canonical CLike eval failed; fix the causes of the failed checks listed below. The KIT already exists: do not regenerate it, change what makes the checks fail",
 }
-_FAILED_CHECK_PROMPT_CHARS = 1500
+_FAILED_CHECK_PROMPT_CHARS = 6000     # per failed check (the eval runner's error excerpt)
+_FAILED_CHECKS_PROMPT_CHARS = 36000   # all failed checks
 
 
 # Agent-only guidance kept next to the shared obligations (prose and policies, not obligations).
@@ -197,16 +199,35 @@ def _kit_stage(req_id: str, payload: Dict[str, Any], repair_context: Dict[str, A
             *acceptance_first_code_rules(req_id), f"Locked: {', '.join(locked)} (already in the workspace)."]
     auto_eval = repair_context.get("auto_eval") if isinstance(repair_context, dict) else None
     if isinstance(auto_eval, dict):
-        failed = [
-            f"Failed check `{item.get('name')}` (exit {item.get('code')}, command `{item.get('command')}`): "
-            + " ".join(str(item.get("output") or "").split())[-_FAILED_CHECK_PROMPT_CHARS:]
-            for item in auto_eval.get("failed_checks") or []
-        ]
+        # Every failed check with its errors as the eval runner extracted them (line structure
+        # kept: stack frames and code frames are unreadable on one line).
+        failed: List[str] = []
+        budget = _FAILED_CHECKS_PROMPT_CHARS
+        checks = [item for item in auto_eval.get("failed_checks") or [] if isinstance(item, dict)]
+        for item in checks:
+            output = str(item.get("output") or "").strip()[:max(0, min(_FAILED_CHECK_PROMPT_CHARS, budget))]
+            budget -= len(output)
+            failed.append(
+                f"Failed check `{item.get('name')}` (exit {item.get('code')}, command `{item.get('command')}`):"
+                + (f"\n```text\n{output}\n```" if output else " (no output)")
+            )
         hint = str(auto_eval.get("developer_hint") or "").strip()
+        eval_check = auto_eval.get("eval_check") if isinstance(auto_eval.get("eval_check"), dict) else None
+        if eval_check:
+            names = " ".join(str(item.get("name")) for item in checks if not str(item.get("name") or "").startswith("regression::"))
+            verify = (
+                f"Verify in the real CLike eval sandbox, not only locally: `{eval_check.get('command')} {names}` re-runs "
+                "those checks of the canonical eval (composed workspace, provisioned variables and services) and prints "
+                "their errors; it takes a few minutes. Run it after fixing, read the new errors and iterate until the checks "
+                f"pass (at most {eval_check.get('max_runs')} runs). The verdict is CLike's full eval after you finish."
+                + EVAL_CHECK_TIMEOUT_NOTE
+            )
+        else:
+            verify = "Reproduce each failure by running its command in the workspace when the tools are available, fix it, and run it again before finishing."
         rules = [
             *failed,
             *([f"Developer hint: {hint}"] if hint else []),
-            "Reproduce each failure by running its command in the workspace when the tools are available, fix it, and run it again before finishing.",
+            verify,
             *list(auto_eval.get("rules") or []),
         ]
         cycle = f" — cycle {auto_eval.get('cycle')} of {auto_eval.get('max_cycles')}" if auto_eval.get("cycle") else ""
@@ -602,6 +623,11 @@ def build_kit_local_agent_package(
             "prompt_path": prompt_path,
             "prompt_content": prompt,
             "invocation": _local_agent_invocation(local_executor, payload),
+            # the extension serves eval checks to the agent during this run (eval-check-bridge.js)
+            **({"eval_check": {**(repair_context.get("auto_eval") or {}).get("eval_check"),
+                               "profile": f"runs/kit/{req_id}/ci/LTC.json"}}
+               if isinstance(repair_context.get("auto_eval"), dict) and (repair_context.get("auto_eval") or {}).get("eval_check")
+               else {}),
             "allowed_write_roots": allowed_write_roots,
             "forbidden_paths": forbidden_paths,
             "active_output_contract": active_output_contract,

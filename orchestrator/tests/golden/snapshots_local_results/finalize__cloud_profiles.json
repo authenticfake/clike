@@ -87,7 +87,9 @@
       "Cargo.lock",
       "docker-compose.yml",
       "Dockerfile",
-      "Makefile"
+      "Makefile",
+      "ci/SOLUTION_LTC.json",
+      "ci/solution"
     ],
     "available_capabilities": null,
     "capability_metadata": null,

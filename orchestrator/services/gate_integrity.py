@@ -44,6 +44,9 @@ _OUTPUT_SUFFIXES = (".whl", ".pyc", ".egg-info", ".log")
 # Documentation (ci/HOWTO.md: how to run the checks) is editable by hand: not acceptance either.
 _DOC_SUFFIXES = (".md",)
 _OUTPUT_NAMES = {".coverage", "coverage.xml", ".DS_Store"}
+# Written by CLike from the plan at every KIT/eval package (inputs to the agent, not acceptance
+# criteria of the candidate): rewriting them is never tampering.
+_CLIKE_OWNED_NAMES = {"FILE_REQUIREMENTS.json", "TARGET_CONTRACT.json", "REQ_PROMOTION_MANIFEST.md"}
 
 # Markers that disable or skip tests in common frameworks.
 _SKIP_MARKER_RE = re.compile(
@@ -108,11 +111,14 @@ def kit_root(project_root: Path, req_id: str) -> Path:
 
 def is_outside_acceptance(rel: str) -> bool:
     """Whether a kit-relative path under test/ or ci/ is not acceptance: eval outputs
-    (ci/reports/**, coverage, builds, caches) and documentation (ci/HOWTO.md)."""
+    (ci/reports/**, coverage, builds, caches), documentation (ci/HOWTO.md) and the files CLike
+    itself writes from the plan (ci/FILE_REQUIREMENTS.json, ci/TARGET_CONTRACT.json)."""
     parts = rel.split("/")
     if any(part in _OUTPUT_DIRS or part.endswith(".egg-info") for part in parts[:-1]):
         return True
     name = parts[-1]
+    if parts[0] == "ci" and len(parts) == 2 and name in _CLIKE_OWNED_NAMES:
+        return True
     return name in _OUTPUT_NAMES or name.endswith(_OUTPUT_SUFFIXES) or name.lower().endswith(_DOC_SUFFIXES)
 
 

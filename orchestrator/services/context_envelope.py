@@ -11,21 +11,39 @@ def _as_list(value: Any) -> list[str]:
     return [str(item) for item in raw if str(item or "").strip()]
 
 
-def _load_selected_capability_json(core_blobs: Dict[str, Any] | None) -> Dict[str, Any]:
-    for key, value in (core_blobs or {}).items():
-        if str(key or "").lower().endswith("clike_selected_capability_context.json"):
-            try:
-                data = json.loads(str(value or ""))
-                return data if isinstance(data, dict) else {}
-            except Exception:
-                return {}
+def _selected_capability_candidates(core_blobs: Dict[str, Any] | None, suffix: str, req_id: Optional[str] = None):
+    """Blobs ending with the selected-capability file name, best first: the one the orchestrator
+    built for this run (bare name), then the target REQ's KIT copy, then any other. Copies of the
+    file left in KITs by earlier runs come from the workspace and may be stale or truncated."""
+    items = [(str(k or ""), v) for k, v in (core_blobs or {}).items() if str(k or "").lower().endswith(suffix)]
+    req = str(req_id or "").lower()
+
+    def rank(item):
+        key = item[0].lower()
+        if key == suffix:
+            return 0
+        if req and f"/{req}/" in key:
+            return 1
+        return 2
+
+    return [v for _k, v in sorted(items, key=rank)]
+
+
+def _load_selected_capability_json(core_blobs: Dict[str, Any] | None, req_id: Optional[str] = None) -> Dict[str, Any]:
+    for value in _selected_capability_candidates(core_blobs, "clike_selected_capability_context.json", req_id):
+        try:
+            data = json.loads(str(value or ""))
+        except Exception:
+            continue  # truncated or invalid copy: try the next one
+        if isinstance(data, dict):
+            return data
     return {}
 
 
-def _load_selected_capability_markdown(core_blobs: Dict[str, Any] | None) -> str:
-    for key, value in (core_blobs or {}).items():
-        if str(key or "").lower().endswith("clike_selected_capability_context.md"):
-            return str(value or "")
+def _load_selected_capability_markdown(core_blobs: Dict[str, Any] | None, req_id: Optional[str] = None) -> str:
+    for value in _selected_capability_candidates(core_blobs, "clike_selected_capability_context.md", req_id):
+        if str(value or "").strip():
+            return str(value)
     return ""
 
 
@@ -62,8 +80,8 @@ def build_context_envelope(
     require_bmad_core_blobs: bool = False,
 ) -> Dict[str, Any]:
     """Build a compact, Orchestrator-owned context envelope for cloud/local-agent paths."""
-    selected_json = _load_selected_capability_json(core_blobs)
-    selected_markdown = _load_selected_capability_markdown(core_blobs)
+    selected_json = _load_selected_capability_json(core_blobs, req_id)
+    selected_markdown = _load_selected_capability_markdown(core_blobs, req_id)
     methodology_context = methodology_context if isinstance(methodology_context, dict) else None
     methodology_context = ensure_bmad_skill_context(
         methodology_context,

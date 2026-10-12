@@ -928,6 +928,12 @@ def _kit_repair_context(req_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
                 "failed_checks": repair_failures(request),
                 "developer_hint": str(request.get("hint") or ""),
                 "rules": repair_rules(req_id),
+                # The extension serves `node .clike/bin/eval-check.mjs <check>...` while the agent
+                # runs: the named checks re-run in the real eval sandbox (see eval-check-bridge.js).
+                **({"eval_check": {
+                    "command": "node .clike/bin/eval-check.mjs",
+                    "max_runs": int(request.get("eval_check_max_runs") or 8),
+                }} if request.get("eval_check") else {}),
             },
             "previous_eval_context_paths": [],
             "guidance": (

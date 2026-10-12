@@ -147,6 +147,12 @@ class GateIntegrityTests(unittest.TestCase):
         self.assertTrue(integrity["ok"], integrity)
         self.assertFalse(any(a["path"].startswith("ci/.tmp") for a in integrity["anomalies"]))
 
+    def test_files_clike_writes_from_the_plan_are_not_acceptance(self):
+        (self.kit / "ci" / "FILE_REQUIREMENTS.json").write_text("{}")
+        self._eval()
+        (self.kit / "ci" / "FILE_REQUIREMENTS.json").write_text("{}\n")  # rewritten by CLike
+        self.assertTrue(self._gate().json()["integrity"]["ok"])
+
     def test_stale_lock_listing_reports_is_still_accepted(self):
         from services import gate_integrity
 

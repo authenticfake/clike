@@ -29,6 +29,8 @@ from services.local_agent.finalize_profiles import (
 from services.phase_definitions import phase_text
 
 
+from services.finalize_verify import SOLUTION_PROFILE, agent_finalize_lines, deployment_hint, solution_verify_rules
+
 def _text(key: str) -> list:
     """Static text of this module, kept in phases/finalize/text.yaml (WP8.5)."""
     return list(phase_text("finalize")[key])
@@ -416,11 +418,23 @@ def build_finalize_local_agent_package(
 
     context_json = json.dumps(context, indent=2, ensure_ascii=False)
 
+    verify = payload.get("finalize_verify") if isinstance(payload.get("finalize_verify"), dict) else {}
+    eval_check_runs = int(verify.get("eval_check_max_runs") or 8) if verify.get("eval_check") else 0
+    deployment = deployment_hint(payload) or ("cloud" if cloud_provisioning_profile.get("cloud_detected") else "")
+    if verify:
+        context["solution_verification"] = {
+            "profile": SOLUTION_PROFILE,
+            "rules": solution_verify_rules(deployment),
+            "repair": bool(verify.get("repair")),
+        }
+        context_json = json.dumps(context, indent=2, ensure_ascii=False)
+
     prompt = "\n".join(
         [
             *_text("package.lines"),
             _render_methodology_prompt_block(methodology_context),
             *_text("package.lines.2"),
+            *(agent_finalize_lines(verify, deployment, eval_check_runs) if verify else []),
         ]
     )
 
@@ -444,6 +458,8 @@ def build_finalize_local_agent_package(
             "prompt_path": prompt_path,
             "prompt_content": prompt,
             "invocation": _local_agent_invocation(local_executor, payload),
+            # the extension serves eval checks of the solution profile during this run
+            **({"eval_check": {"profile": SOLUTION_PROFILE, "max_runs": eval_check_runs}} if eval_check_runs else {}),
             "allowed_write_roots": allowed_write_roots,
             "forbidden_paths": forbidden_paths,
             "expected_outputs": final_outputs,

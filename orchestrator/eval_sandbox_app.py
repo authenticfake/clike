@@ -17,7 +17,7 @@ import logging
 import os
 import threading
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
@@ -44,6 +44,7 @@ class SandboxRunRequest(BaseModel):
     verdict: Optional[str] = None
     req_id: Optional[str] = None
     regression: bool = False
+    checks: Optional[List[str]] = None
 
 
 @app.get("/health")
@@ -78,7 +79,7 @@ async def run(req: SandboxRunRequest, request: Request):
     task = asyncio.create_task(asyncio.to_thread(
         runner.run_profile,
         profile=str(profile_path), ltc=ltc, mode=req.mode or "auto", verdict=req.verdict, req_id=req.req_id,
-        regression=req.regression,
+        regression=req.regression, checks=req.checks,
     ))
     # An eval whose caller went away is stopped (its processes killed) instead of running on.
     while not task.done():

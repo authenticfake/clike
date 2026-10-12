@@ -198,6 +198,25 @@
           "maximum": 5,
           "description": "Extra repair cycles after clike.autoEval.maxCycles while every cycle reduces the failing checks (0 = stop at maxCycles)."
         },
+        "clike.finalize.verify": {
+          "type": "boolean",
+          "default": true,
+          "description": "After /finalize, run ci/SOLUTION_LTC.json (the eval profile of the whole solution) in the CLike eval sandbox against the canonical tree and, while it fails, run /finalize again with its errors. Evidence in docs/harper/SOLUTION_EVAL.md."
+        },
+        "clike.finalize.verifyMaxCycles": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 5,
+          "description": "Repair cycles of the /finalize verification (plus clike.autoEval.extraCyclesOnProgress while the failures decrease)."
+        },
+        "clike.autoEval.agentEvalChecks": {
+          "type": "number",
+          "default": 8,
+          "minimum": 0,
+          "maximum": 20,
+          "description": "Local agent repairs (Codex, Claude Code): how many times the agent may re-run failed checks in the real CLike eval sandbox during one repair (node .clike/bin/eval-check.mjs), to iterate until they pass (0 = off)."
+        },
         "clike.gate.autoPromote": {
           "type": "string",
           "enum": ["merge", "ask", "off"],

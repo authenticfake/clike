@@ -32,6 +32,8 @@ class EvalRunRequest(BaseModel):
     project_name: Optional[str] = None
     # L2 auto-eval: also re-run the acceptance checks of dependency and promoted REQs.
     regression: Optional[bool] = False
+    # Only these checks (by name), no regression: a re-run of failed checks while repairing.
+    checks: Optional[List[str]] = None
 
     class Config:
         extra = "ignore"
@@ -173,6 +175,7 @@ async def _execute_profile(
     verdict: Optional[str],
     req_id: Optional[str],
     regression: bool = False,
+    checks: Optional[List[str]] = None,
 ) -> Tuple[EvalReport, str]:
     """Run the profile in the eval sandbox when configured (containers), otherwise in-process (dev).
     A caller that disconnects stops the eval: the sandbox request is closed (the sandbox then kills
@@ -186,6 +189,7 @@ async def _execute_profile(
             "verdict": verdict,
             "req_id": req_id,
             "regression": regression,
+            "checks": checks or None,
         }
         async with httpx.AsyncClient(timeout=_SANDBOX_TIMEOUT_S) as client:
             task = asyncio.create_task(client.post(f"{sandbox}/run", json=body))
@@ -203,6 +207,7 @@ async def _execute_profile(
     task = asyncio.create_task(asyncio.to_thread(
         runner.run_profile,
         profile=str(profile_path), ltc=ltc, mode=mode, verdict=verdict, req_id=req_id, regression=regression,
+        checks=checks,
     ))
     rep = await _until_done_or_disconnected(request, task, cancel.set)
     return rep, "local"
@@ -479,6 +484,7 @@ def _merge_eval_args(
         project_name=body.project_name or project_name_q,
         ltc=body.ltc if body.ltc else None,
         regression=bool(body.regression),
+        checks=[str(c) for c in (body.checks or []) if str(c).strip()][:50] or None,
     )
 
 
@@ -541,6 +547,8 @@ def _case_payload(case: Any) -> Dict[str, Any]:
         "expect": case.expect,
         "blocked": case.blocked,
         "blocking": case.blocking,
+        **({"excerpt": case.excerpt, "fingerprint": getattr(case, "fingerprint", None)}
+           if not case.passed and getattr(case, "excerpt", None) else {}),
     }
 
 
@@ -622,7 +630,9 @@ async def eval_run(
     profile_path, ltc = _load_trusted_ltc(prj, args.profile, args.ltc, required=not is_manual)
 
     integrity = None
-    if not is_manual:
+    # A partial run (the agent re-running checks while it repairs) is never a verdict: the
+    # acceptance changes it may contain are governed when the agent finishes, then the full eval.
+    if not is_manual and not args.checks:
         req = _effective_req_id(args.req_id, ltc, profile_path)
         integrity = _acceptance_integrity(prj, req)
         if integrity and not integrity["ok"]:
@@ -638,7 +648,8 @@ async def eval_run(
     try:
         rep, executor = await _execute_profile(
             request,
-            prj, profile_path, ltc, args.mode or "auto", args.verdict, args.req_id, regression=bool(args.regression)
+            prj, profile_path, ltc, args.mode or "auto", args.verdict, args.req_id,
+            regression=bool(args.regression) and not args.checks, checks=args.checks,
         )
     except HTTPException:
         raise
@@ -653,7 +664,12 @@ async def eval_run(
     payload = _eval_payload(rep, args.req_id)
     payload["integrity"] = integrity
     payload["executor"] = executor
-    payload["regression"] = bool(args.regression)
+    payload["regression"] = bool(args.regression) and not args.checks
+    if args.checks:
+        # A partial run (repair loop): never the REQ's verdict.
+        payload["checks"] = args.checks
+        payload["partial"] = True
+        payload["promotable"] = False
     return payload
 
 

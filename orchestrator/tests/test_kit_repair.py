@@ -100,3 +100,49 @@ def test_kit_options_accept_bmad_flag_and_auto_eval_request():
     assert HarperKitOptions(repair=True).repair is True
     request = {"cycle": 1, "max_cycles": 2, "failures": [], "files": []}
     assert HarperKitOptions(repair=request).repair == request
+
+
+def test_repair_prompt_shows_code_first_and_lists_clike_context_files():
+    """A big KIT: the files named in the failures, tests and sources are shown before docs; CLike's
+    context files and lockfiles (often > the whole budget) are listed, never shown."""
+    from services.cloud_prompt.messages import _kit_repair_section
+
+    kit = f"runs/kit/{REQ}"
+    files = [
+        {"path": f"{kit}/ci/package-lock.json", "content": "L" * 90000},
+        {"path": f"{kit}/docs/CLIKE_SELECTED_CAPABILITY_CONTEXT.json", "content": "C" * 97000},
+        {"path": f"{kit}/docs/CLIKE_SELECTED_CAPABILITY_CONTEXT.md", "content": "C" * 88000},
+        {"path": f"{kit}/docs/NOTES.md", "content": "notes"},
+        {"path": f"{kit}/src/web/features/runs/RunMonitor.tsx", "content": "export function RunMonitor() {}"},
+        {"path": f"{kit}/src/web/lib/api.ts", "content": "export const api = 1;"},
+        {"path": f"{kit}/test/runs.states.test.tsx", "content": "it('renders', () => {});"},
+    ]
+    repair = {"cycle": 1, "max_cycles": 3, "files": files, "failures": [{
+        "name": "test:unit", "code": 1, "command": "node ci/check.mjs unit",
+        "output": "FAIL test/runs.states.test.tsx\n ❯ src/web/features/runs/RunMonitor.tsx:40:3",
+    }]}
+    text = _kit_repair_section(repair, REQ)
+    order = [text.index(f"#### {kit}/{rel}") for rel in (
+        "test/runs.states.test.tsx", "src/web/features/runs/RunMonitor.tsx", "src/web/lib/api.ts", "docs/NOTES.md")]
+    assert order[1] < order[2] < order[3] and order[0] < order[2]
+    assert "CCCC" not in text and "LLLL" not in text
+    assert f"- {kit}/docs/CLIKE_SELECTED_CAPABILITY_CONTEXT.json" in text
+    assert "group them by root cause" in text
+
+
+def test_agent_repair_prompt_keeps_the_errors_and_offers_the_sandbox_re_run():
+    from services.local_agent.common import _kit_repair_context
+    from services.local_agent.kit import _kit_stage
+
+    excerpt = "FAIL test/a.test.ts > x\nAssertionError: expected 1 to be 2\n ❯ test/a.test.ts:7:3\n" + "y" * 3000
+    payload = {"kit": {"repair": {"cycle": 2, "max_cycles": 3, "eval_check": True, "failures": [
+        {"name": "test:unit", "code": 1, "command": "node ci/check.mjs unit", "output": excerpt},
+        {"name": "regression::REQ-000::lint", "code": 1, "command": "x", "output": "E1"},
+    ]}}}
+    _stage, _title, rules = _kit_stage(REQ, payload, _kit_repair_context(REQ, payload))
+    text = "\n".join(rules)
+    assert "AssertionError: expected 1 to be 2\n ❯ test/a.test.ts:7:3" in text  # lines kept, start kept
+    assert "y" * 3000 in text
+    assert "`node .clike/bin/eval-check.mjs test:unit`" in text  # regression checks are not re-run by name
+    without = {"kit": {"repair": {**payload["kit"]["repair"], "eval_check": False}}}
+    assert "eval-check" not in "\n".join(_kit_stage(REQ, without, _kit_repair_context(REQ, without))[2])

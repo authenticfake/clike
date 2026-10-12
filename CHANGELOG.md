@@ -2,6 +2,78 @@
 
 All notable changes to CLike. Extension, orchestrator and gateway share one version.
 
+## [Unreleased]
+
+### Improved
+
+- **`/eval --fix` repairs from all the errors, in both modes.** Measured on a Next.js REQ, three
+  defects hid the errors from the model:
+  - the cloud repair prompt filled its 160k-character file budget alphabetically with CLike's own
+    context files, so **no `src/` or `test/` file** reached the model; the files named in the
+    errors now come first, then tests, sources, CI and docs, and CLike context files and lockfiles
+    are listed, not shown;
+  - a failed check carried only the **tail** of its output, with ANSI codes and DOM dumps (the
+    first failing test was lost), and the local-agent prompt cut it to 1500 characters on one line;
+    the eval runner now extracts the error blocks of the whole output (`excerpt`, `fingerprint` in
+    the report) and both prompts get them whole;
+  - a test that ran and failed (`element(s) not found`, a missing module of the candidate) was
+    classified **environment-blocked**, i.e. "the sandbox, do not change code".
+  Checks with the same errors are listed once, non-blocking regression warnings of other REQs are
+  left out, the repair rules ask to group the failures by root cause and fix them all, and "no
+  progress" now means the same errors, not only the same check names.
+- **The local agent re-runs the failed checks in the real eval sandbox while it repairs**
+  (`node .clike/bin/eval-check.mjs <check>…`, served by the extension; `clike.autoEval.agentEvalChecks`,
+  default 8 runs): it iterates until they pass in one session instead of one attempt per cycle. The
+  agent gets neither the orchestrator token nor network access; a partial run (`/v1/eval/run`
+  `checks`) is never a verdict.
+
+- **`/finalize` verifies that the integrated solution runs end to end, and repairs it** (no flag;
+  `clike.finalize.verify`, `clike.finalize.verifyMaxCycles`). `/finalize` writes
+  `ci/SOLUTION_LTC.json`, the eval profile of the whole solution (install, the promoted test
+  suites on the canonical tree, build, the solution started as services, e2e), derived from the
+  REQs' eval profiles it now receives; CLike runs it in the sandbox against the canonical tree
+  (without `runs/`, `.git`, `.clike/`) and, while it fails, runs `/finalize` again with its errors.
+  A local agent checks the profile in the sandbox while it works and runs the local scripts on the
+  developer's machine. On-prem: the local run is the target; cloud: guarded, non-mutating deploy
+  checks. Evidence in `docs/harper/SOLUTION_EVAL.md`.
+- The eval-check helper resumes the same run when an agent's command timeout stops it (Claude
+  Code stops shell commands after 2 minutes by default); Claude Code gets `--allowedTools` for it.
+
+### Fixed
+
+- **A local-agent KIT failed with `LOCAL_AGENT_REQUIRED_OUTPUTS_MISSING` although it wrote `src/`
+  and `test/`.** The artifacts sent to the orchestrator are capped (500 files, 8 MB) and were kept
+  in discovery order: an agent's scratch in `ci/.tmp` (27 MB of tool installs) filled the budget
+  and the code and tests were dropped. Scratch (`.tmp`, `.npm-cache`, `.npm`,
+  `local-eval-workspaces`) is never sent, and within the budget `src/` and `test/` come first, then
+  the CI profile and the docs; dropped files are logged.
+
+- **`/kit` failed with `CLIKE_SELECTED_CAPABILITIES_MISSING` on a REQ run again.** The selected
+  capability context was read from the first blob named like it: a copy left in the REQ's KIT by an
+  earlier run, sent back truncated, was not valid JSON and the context the orchestrator had just
+  built was ignored. This run's context now comes first, then the REQ's copy, and unreadable copies
+  are skipped (context envelope and cloud prompt).
+
+- **`/init`: the project CI workflow failed on every project** (it installed a root
+  `requirements.txt` and ran a CLike-internal module). It now runs repository checks that fit any
+  Harper project: `plan.json` valid, no `.env`/local state committed, no promotion leftovers or
+  conflict markers in `src/`/`test/`. The generated `.gitignore` also ignores eval reports
+  (`runs/**/ci/reports/`, `runs/**/reports/`), which, tracked, kept the tree dirty and blocked the
+  switch to the next REQ branch.
+
+- **Eval: `CLIKE_EVAL_TEMP_ROOT` is exported to the checks.** The KIT prompts tell CI scripts
+  that CLike provides it, but it was only in the internal path map: scripts that require it
+  failed (`build`, `e2e`, `integration` of a Next.js KIT).
+- **Regressions no longer receive the candidate's installed dependencies.** The candidate's
+  source overlaid into the workspaces of promoted REQs included `node_modules` (and `.next`,
+  `.venv`, caches): another REQ's tests loaded the wrong Vitest ("cannot be imported in a CommonJS
+  module") and its secret scans flagged files inside `node_modules`. Overlays skip installed and
+  generated directories.
+- Context files CLike writes for the local agent end with a newline (KIT format checks).
+- `ci/FILE_REQUIREMENTS.json`, `ci/TARGET_CONTRACT.json` and `ci/REQ_PROMOTION_MANIFEST.md` are
+  written by CLike from the plan at every package: they are not part of the acceptance lock (a
+  rewrite reported `ACCEPTANCE_TAMPERED`).
+
 ## [1.4.0] — 2026-10-11 — Autonomous eval and gate
 
 ### Added

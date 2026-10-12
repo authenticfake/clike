@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import eval_environment
+import eval_failures
 from utils.safe_paths import validate_req_id
 
 log = logging.getLogger("eval_runner")
@@ -34,6 +35,9 @@ class EvalCase:
     expect: Optional[int] = None
     blocked: bool = False
     blocking: bool = True
+    # A failed check: its error blocks from the whole output (eval_failures.excerpt) and their id.
+    excerpt: Optional[str] = None
+    fingerprint: Optional[str] = None
 
 
 @dataclass
@@ -271,8 +275,8 @@ class EvalRunner:
         env = _with_pytest_hang_dump(env, timeout)
         try:
             proc = _run_process_group(cmd, cwd=cwd, env=env, timeout=timeout, cancel=self.cancel_event)
-            stderr = proc.stderr or ""
-            stdout = proc.stdout or ""
+            stderr = eval_failures.strip_ansi(proc.stderr or "")
+            stdout = eval_failures.strip_ansi(proc.stdout or "")
             ok = proc.returncode == expect
             blocked = False
             if not ok:
@@ -290,6 +294,7 @@ class EvalRunner:
                     "missing tool, unavailable dependency, native binary mismatch, "
                     "network restriction, or sandbox/runtime incompatibility."
                 )[-4000:]
+            excerpt = None if ok else eval_failures.excerpt(stdout, stderr)
             return EvalCase(
                 name=name,
                 passed=ok,
@@ -301,6 +306,8 @@ class EvalRunner:
                 expect=expect,
                 blocked=blocked and not ok,
                 blocking=blocking,
+                excerpt=excerpt,
+                fingerprint=eval_failures.fingerprint(excerpt) if excerpt else None,
             )
         except EvalCancelled:
             return EvalCase(
@@ -579,7 +586,13 @@ class EvalRunner:
         if code not in {126, 127} and self._looks_like_executed_diagnostic_failure(text):
             return False
 
-        if "cannot find module './" in text or 'cannot find module "../' in text:
+        # A module of the candidate itself (relative, absolute in the workspace, or a path alias)
+        # that cannot be resolved is a code defect (a missing file, a wrong import), not the sandbox.
+        if re.search(
+            r"(cannot find module|failed to resolve import|module not found: (error: )?can't resolve)"
+            r" ['\"](\.{1,2}/|@/|~/|/(?![^'\"]*node_modules)[^'\"]*/(work|test|tests|src)/)",
+            text,
+        ):
             return False
 
         # A generated CI script that calls mkdtemp under a local eval workspace
@@ -594,7 +607,6 @@ class EvalRunner:
         markers = [
             # Missing local tools/dependencies.
             "command not found",
-            "not found",
             "sqlite3: not found",
             ": not found",
             "no module named",
@@ -660,7 +672,23 @@ class EvalRunner:
             r"\bcritical\b.*\bvulnerabilit",
             r"\bhigh\b.*\bvulnerabilit",
         ]
-        return any(re.search(marker, text, flags=re.IGNORECASE | re.DOTALL) for marker in diagnostic_markers)
+        # A test runner ran the tests and some failed (vitest, jest, Playwright, pytest, go, cargo,
+        # node --test): its errors are the candidate's, whatever their wording ("element(s) not
+        # found", "Unable to find an element"). Matched line by line.
+        runner_markers = [
+            r"^\s*\d+ failed\b",
+            r"\btests?\b[^\n]*\b\d+ failed\b",
+            r"=+ .*\d+ failed",
+            r"\bassertionerror\b",
+            r"\btestinglibraryelementerror\b",
+            r"\bexpect\([^\n]*\)\.\w+",
+            r"^--- fail:",
+            r"test result: failed",
+            r"^# fail\s+[1-9]",
+        ]
+        return any(
+            re.search(marker, text, flags=re.IGNORECASE | re.DOTALL) for marker in diagnostic_markers
+        ) or any(re.search(marker, text, flags=re.IGNORECASE | re.MULTILINE) for marker in runner_markers)
 
     def _safe_req_id(self, req_id: Optional[str]) -> str:
         raw = req_id or "REQ-UNKNOWN"
@@ -738,7 +766,13 @@ class EvalRunner:
         if not src.exists():
             return
 
-        ignored_names = {"__pycache__", "__MACOSX", ".DS_Store", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
+        # installed dependencies, build output and scratch are never composed: a candidate's
+        # node_modules overlaid into a regression workspace shadowed the other REQ's own install
+        ignored_names = {
+            "__pycache__", "__MACOSX", ".DS_Store", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+            "node_modules", ".venv", ".next", ".turbo", ".tmp", ".cache", ".npm-cache", ".npm",
+            "local-eval-workspaces",
+        }
 
         if src.is_file():
             if src.name not in ignored_names and src.suffix not in {".pyc", ".pyo"}:
@@ -1358,24 +1392,37 @@ class EvalRunner:
         if work_kit_root.exists():
             shutil.rmtree(work_kit_root)
 
-        shutil.copytree(
-            kit_root,
-            work_kit_root,
-            ignore=shutil.ignore_patterns(
-                "node_modules",
-                ".npm-*",
-                ".venv",
-                "__pycache__",
-                "__MACOSX",
-                ".DS_Store",
-                "*.pyc",
-                "*.pyo",
-                ".pytest_cache",
-                ".mypy_cache",
-                ".ruff_cache",
-                "reports",
-            ),
+        everywhere = shutil.ignore_patterns(
+            "node_modules",
+            ".npm-*",
+            ".venv",
+            "__pycache__",
+            "__MACOSX",
+            ".DS_Store",
+            "*.pyc",
+            "*.pyo",
+            ".pytest_cache",
+            ".mypy_cache",
+            ".ruff_cache",
+            "reports",
         )
+        # The solution profile (ci/SOLUTION_LTC.json at the project root, /finalize): the canonical
+        # tree without CLike's runs, the local state and the git history (top level only: a
+        # source directory may be called runs).
+        solution_root = kit_root == self.project_root
+        top_level_skip = {".git", "runs", ".clike", ".vscode", ".idea", "local-eval-workspaces", ".next", "coverage"}
+
+        def ignore(directory: str, names: List[str]) -> set:
+            skipped = set(everywhere(directory, names))
+            if solution_root:
+                here = Path(directory).resolve()
+                if here == kit_root:
+                    skipped |= {n for n in names if n in top_level_skip}
+                elif here == kit_root / "docs":
+                    skipped |= {n for n in names if n == "_private"}
+            return skipped
+
+        shutil.copytree(kit_root, work_kit_root, ignore=ignore)
         
         plan_path = self.project_root / "docs" / "harper" / "plan.json"
         try:
@@ -1978,6 +2025,10 @@ class EvalRunner:
         mode: str,
         cases: List[EvalCase],
     ) -> EvalReport:
+        for case in cases:
+            if not case.passed and not case.excerpt:
+                case.excerpt = eval_failures.excerpt(case.stdout or "", case.stderr or "")
+                case.fingerprint = eval_failures.fingerprint(case.excerpt) or None
         passed = sum(1 for case in cases if case.passed)
         blocked = sum(1 for case in cases if case.blocked)
         hard_failed = sum(
@@ -2015,10 +2066,14 @@ class EvalRunner:
         verdict: Optional[str] = None,
         req_id: Optional[str] = None,
         regression: bool = False,
+        checks: Optional[List[str]] = None,
     ) -> EvalReport:
+        """Run the LTC. ``checks``: only these checks (by name), after the same environment
+        setup, and no regression — a quick re-run of failed checks while repairing."""
         self._services: List[eval_environment.RunningService] = []
+        self._only_checks = {str(c) for c in (checks or []) if str(c).strip()} or None
         try:
-            return self._run_profile(profile, ltc, mode, verdict, req_id, regression)
+            return self._run_profile(profile, ltc, mode, verdict, req_id, regression and not self._only_checks)
         finally:
             for svc in reversed(self._services):
                 eval_environment.stop_process(svc.proc)
@@ -2291,6 +2346,9 @@ class EvalRunner:
         eval_path_env = {
             "CLIKE_EVAL_WORK_DIR": str(work_root),
             "CLIKE_EVAL_REPORT_DIR": str(reports_root),
+            # documented to KIT scripts as the writable temp/staging root (it was only in the
+            # internal path map, so scripts requiring it failed)
+            "CLIKE_EVAL_TEMP_ROOT": path_map.get("CLIKE_EVAL_TEMP_ROOT") or str(self._eval_dir(eff_req) / "tmp"),
             "CLIKE_EVAL_LOG_DIR": str(logs_root),
             "CLIKE_EVAL_KIT_DIR": str(work_kit_root or ""),
             "CLIKE_EVAL_CANDIDATE_KIT_DIR": str(work_kit_root or ""),
@@ -2533,6 +2591,18 @@ class EvalRunner:
                 mode="auto",
                 cases=out_cases,
             )
+
+        only = getattr(self, "_only_checks", None)
+        if only:
+            unknown = sorted(only - {str(c.get("name") or "case") for c in norm_cases})
+            if unknown:
+                out_cases.append(EvalCase(
+                    name="ltc::unknown-checks", passed=False, code=4, stdout="",
+                    stderr=f"unknown check(s) {unknown}; the LTC checks are "
+                    f"{[str(c.get('name') or 'case') for c in norm_cases]}",
+                    cmd=None, cwd=str(default_cwd), blocking=True,
+                ))
+            norm_cases = [c for c in norm_cases if str(c.get("name") or "case") in only]
 
         for case in norm_cases:
             if self.cancel_event is not None and self.cancel_event.is_set():

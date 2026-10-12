@@ -144,7 +144,27 @@ non-blocking checks) do not block unless `clike.gate.strictWarnings`; regression
 block with `GATE_BLOCKED_REGRESSION`.
 
 ### `/finalize`
-Runs release-oriented finalization.
+Runs release-oriented finalization: README, HOWTO_RUN, release notes, local run scripts and
+`ci/SOLUTION_LTC.json`, the eval profile of the **whole solution**.
+
+Then, with no flag (`clike.finalize.verify`, default on), CLike **verifies the integrated
+solution**: it runs `ci/SOLUTION_LTC.json` in the eval sandbox against the canonical tree (the
+sources and tests promoted by the gates; `runs/`, `.git`, `.clike/` are not copied):
+
+1. install of every component, 2. the test suites of every promoted REQ on the canonical tree,
+3. build, 4. the solution started as services (migrations, backend, workers, frontend, with
+readiness), 5. end-to-end checks against the running solution (UI e2e, API smoke).
+
+When it fails, `/finalize` runs again with all its errors (same loop rules as `/eval --fix`:
+`clike.finalize.verifyMaxCycles`, default 3, plus extra cycles while the failures decrease). A
+local agent (Codex, Claude Code) re-runs the profile's checks in the sandbox itself while it works
+(`node .clike/bin/eval-check.mjs`) and runs `scripts/check_solution_local.sh` / `.ps1` on your
+machine. The outcome is written to `docs/harper/SOLUTION_EVAL.md` (truthful evidence for the PR).
+
+Deployment target from `TECH_CONSTRAINTS.yaml`: **on-premises/local** — the local run is the
+target and must work on the developer's machine; **cloud** — guarded deploy scripts too (mutating
+only with `CLIKE_ALLOW_CLOUD_MUTATION=1`), checked non-mutating (validate/plan); the deploy itself
+is always an explicit action.
 
 ## KIT follow-up phases
 

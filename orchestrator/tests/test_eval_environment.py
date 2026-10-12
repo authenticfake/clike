@@ -252,3 +252,41 @@ def test_relative_runs_kit_paths_resolve_in_normal_and_nested_regression_runs(tm
     nested = EvalRunner(project, eval_key="REQ-004/regression/REQ-003").run_profile(
         profile="runs/kit/REQ-003/ci/LTC.json", ltc=ltc, req_id="REQ-003")
     assert nested.status == "PASS", [(c.name, c.stderr[-400:]) for c in nested.cases]
+
+
+def test_selected_capabilities_prefer_this_run_and_skip_truncated_copies():
+    from services.context_envelope import build_context_envelope
+
+    fresh = json.dumps({"packs": [{"name": "enterprise-solution", "selected": True}], "skills": [], "design_profiles": []})
+    good = json.loads(fresh)
+    blobs = {
+        "runs/kit/REQ-005/docs/CLIKE_SELECTED_CAPABILITY_CONTEXT.json": fresh[:20],  # truncated stale copy
+        "CLIKE_SELECTED_CAPABILITY_CONTEXT.json": fresh,
+    }
+    env = build_context_envelope(phase="kit", req_id="REQ-005", execution_mode="cloud", core_blobs=blobs,
+                                 methodology_context=None, active_output_contract=None)
+    assert env["clike_capabilities"]["context_json"] == good
+
+
+def test_temp_root_is_exported_to_the_checks(tmp_path: Path, monkeypatch):
+    tmp_path = tmp_path.resolve()
+    monkeypatch.setenv("CLIKE_EVAL_BASE_DIR", str(tmp_path / "eval"))
+    project = tmp_path / "p"
+    (project / "runs/kit/REQ-001/ci").mkdir(parents=True)
+    (project / "runs/kit/REQ-001/src").mkdir()
+    (project / "runs/kit/REQ-001/src/a.py").write_text("")
+    ltc = {"req_id": "REQ-001", "checks": [{"id": "t", "command": f"{sys.executable} -c \"import os; assert os.environ['CLIKE_EVAL_TEMP_ROOT']\""}]}
+    report = EvalRunner(project).run_profile(profile="runs/kit/REQ-001/ci/LTC.json", ltc=ltc, req_id="REQ-001")
+    assert report.status == "PASS", [(c.name, c.stderr[-300:]) for c in report.cases]
+
+
+def test_overlays_never_copy_installed_dependencies(tmp_path: Path):
+    src = tmp_path / "candidate/src"
+    (src / "web/node_modules/vitest").mkdir(parents=True)
+    (src / "web/node_modules/vitest/index.cjs").write_text("x")
+    (src / "web/.next/cache").mkdir(parents=True)
+    (src / "web/app.ts").write_text("export {}")
+    dst = tmp_path / "composed"
+    EvalRunner(tmp_path)._copy_tree_overlay(src, dst)
+    assert (dst / "web/app.ts").is_file()
+    assert not (dst / "web/node_modules").exists() and not (dst / "web/.next").exists()

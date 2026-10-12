@@ -22,6 +22,7 @@ from services.kit_repair import (
     acceptance_stage_section,
     kit_self_check_section,
     repair_failures,
+    repair_file_priority,
     repair_rules,
 )
 from services.cloud_prompt.canonical_validation import validate_current_canonical_core_blobs
@@ -185,21 +186,16 @@ def _filter_core_blobs_for_kit(
 
 
 def _load_selected_capability_json_from_core(core_blobs: dict | None) -> dict:
-    for name, content in (core_blobs or {}).items():
-        if str(name or "").lower().endswith("clike_selected_capability_context.json"):
-            try:
-                data = json.loads(str(content or ""))
-                return data if isinstance(data, dict) else {}
-            except Exception:
-                return {}
-    return {}
+    # same lookup as the context envelope: this run's blob first, invalid/truncated copies skipped
+    from services.context_envelope import _load_selected_capability_json
+
+    return _load_selected_capability_json(core_blobs)
 
 
 def _load_selected_capability_markdown_from_core(core_blobs: dict | None) -> str:
-    for name, content in (core_blobs or {}).items():
-        if str(name or "").lower().endswith("clike_selected_capability_context.md"):
-            return str(content or "")
-    return ""
+    from services.context_envelope import _load_selected_capability_markdown
+
+    return _load_selected_capability_markdown(core_blobs)
 
 
 def _selected_capability_names(group: dict) -> list[str]:
@@ -865,17 +861,28 @@ def _kit_repair_section(repair: dict, req_id: str) -> str:
         lines += ["", "### Developer hint", hint]
     budget = _REPAIR_TOTAL_BUDGET
     files = [f for f in (repair.get("files") or []) if isinstance(f, dict) and f.get("path")]
+    # Files named in the failures first, then tests, sources, CI, docs (stable within a group);
+    # CLike's context files and lockfiles are not the candidate's code: listed, not shown.
+    failures_text = "\n".join(f"{i['command']}\n{i['output']}" for i in repair_failures(repair))
+    ranked = sorted(
+        ((repair_file_priority(str(f["path"]), failures_text, req_id), n, f) for n, f in enumerate(files)),
+        key=lambda item: (item[0] < 0, item[0], item[1]),
+    )
     if files:
         lines += ["", "### Current candidate files"]
-        for f in files:
+        omitted = []
+        for priority, _, f in ranked:
             content = str(f.get("content") or "")
-            if budget <= 0:
-                lines.append(f"- {f['path']} (omitted: budget exhausted)")
+            if priority < 0 or budget <= 0:
+                omitted.append(str(f["path"]))
                 continue
             shown = content[:min(_REPAIR_FILE_BUDGET, budget)]
             budget -= len(shown)
             truncated = " (truncated)" if len(shown) < len(content) else ""
             lines += [f"#### {f['path']}{truncated}", "```", shown.rstrip(), "```"]
+        if omitted:
+            lines += ["", "Other files of the KIT (not shown; unchanged unless you return them):"]
+            lines += [f"- {path}" for path in omitted]
     return "\n".join(lines)
 
 
@@ -910,6 +917,12 @@ def compose_phase_messages(payload: dict) -> list[dict]:
     if isinstance(stage_options, dict) and stage_options:
         lines = ["### Stage options", *[f"- {k}: {v}" for k, v in stage_options.items() if v not in (None, "")]]
         messages[-1] = {**messages[-1], "content": messages[-1]["content"] + "\n\n" + "\n".join(lines)}
+    verify = payload.get("finalize_verify")
+    if phase.lower() == "finalize" and isinstance(verify, dict) and verify:
+        from services.finalize_verify import cloud_finalize_section, deployment_hint
+
+        section = cloud_finalize_section(verify, deployment_hint(payload))
+        messages[-1] = {**messages[-1], "content": messages[-1]["content"] + "\n\n" + section}
     if targets and phase.lower() in {"kit", "acceptance"}:
         messages[-1] = {**messages[-1], "content": messages[-1]["content"] + "\n\n" + kit_self_check_section(str(targets[0]))}
     if targets and phase.lower() == "acceptance":
