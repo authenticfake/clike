@@ -41,6 +41,10 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **Git: the KIT of an `/eval --fix` repair (and every eval report) was staged but never committed.**
+  The phase files included paths the project ignores (`runs/eval/…`, `runs/kit/<REQ>/reports`,
+  `ci/reports`): one ignored path makes `git add` fail, and the phase commit was skipped. Ignored
+  paths are now left out (logged) and the rest of the phase is committed.
 - **`/gate` auto-merge: a new file under a Next.js dynamic route (`app/runs/[run_id]/page.tsx`) was
   a false conflict** ("removed from the canonical root after the KIT", no marker file): for a path
   with `[ ]` that is not in the base commit `git show rev:path` exits 0 with no output, so the base

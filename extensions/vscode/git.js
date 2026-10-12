@@ -347,7 +347,7 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
     if (typeof val === 'string') return val.split(',').map(x => x.trim()).filter(Boolean);
     return [String(val)];
   };
-  const files = [...new Set(toArray(changedFiles)
+  let files = [...new Set(toArray(changedFiles)
     .map(f => { try { return toFsPath(f); } catch { return String(f || ''); } })
     .filter(Boolean)
     .map(p => path.resolve(workTree, p))
@@ -358,6 +358,15 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
       return inside && fs.existsSync(abs);
     })
     .map(abs => path.relative(workTree, abs)))];
+
+  // Paths the project ignores (eval reports, KIT report dirs, caches) are never committed: one
+  // of them in `git add` fails the whole add, and the phase was left staged but not committed.
+  const ignored = new Set((await gitRunVerbose(['check-ignore', '--', ...files], gitCtx, 'diag', out).catch(() => ''))
+    .split('\n').map(l => l.trim()).filter(Boolean));
+  if (ignored.size) {
+    log(`[harperGit] not committing ${ignored.size} ignored path(s): ${[...ignored].slice(0, 10).join(', ')}`);
+    files = files.filter(f => !ignored.has(f));
+  }
 
   if (!files.length) {
     log('[harperGit] no phase files to commit → skip (unrelated changes are never committed)');

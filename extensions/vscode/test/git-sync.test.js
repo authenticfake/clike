@@ -205,3 +205,19 @@ test('the next REQ branch is stacked on an unmerged REQ branch, even with local 
   assert.match(git(dir, 'log', '-1', '--format=%s'), /^feat\(req-004\): implement/);
   assert.equal(fs.readFileSync(path.join(dir, 'src/a.py'), 'utf8'), 'a changed locally\n'); // nothing lost
 });
+
+test('ignored phase paths (eval reports, KIT report dirs) are left out; the rest is committed', async () => {
+  const dir = makeRepo();
+  write(dir, '.gitignore', 'runs/eval/\nruns/**/reports/\n');
+  git(dir, 'add', '.gitignore'); git(dir, 'commit', '-q', '-m', 'ignore');
+  const files = [
+    write(dir, 'runs/kit/REQ-005/src/web/polling.ts', 'fix\n'),
+    write(dir, 'runs/kit/REQ-005/reports/unit.xml', '<x/>'),
+    path.join(dir, 'runs/kit/REQ-005/reports'),
+    write(dir, 'runs/eval/REQ-005/report.json', '{}'),
+  ];
+  await sync(dir, 'kit', 'REQ-005', files);
+  const committed = git(dir, 'show', '--name-only', '--format=', 'feature/req-005').split('\n').filter(Boolean);
+  assert.deepEqual(committed, ['runs/kit/REQ-005/src/web/polling.ts']);
+  assert.doesNotMatch(git(dir, 'status', '--porcelain', '--untracked-files=no'), /polling/);
+});
