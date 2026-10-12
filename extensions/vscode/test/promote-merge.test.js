@@ -143,3 +143,15 @@ test('auto-merge: every conflict has its marker file, also without a merge base'
   assert.equal(read(ws, c.conflictFile), '<<<<<<< canonical\ncanonical\n=======\ncandidate\n>>>>>>> REQ-001\n');
   assert.match(fs.readFileSync(r.reportPath, 'utf8'), new RegExp(c.conflictFile.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 });
+
+test('auto-merge: a new file under a [dynamic] route directory is added, not a false conflict', () => {
+  const ws = repo();
+  write(ws, 'src/app/clash.py', 'value = 1\n');
+  sh(ws, 'add', '-A'); sh(ws, 'commit', '-qm', 'canonical edits');
+  write(ws, 'runs/kit/REQ-004/src/web/app/runs/[run_id]/page.tsx', 'export default function Page() {}\n');
+  sh(ws, 'add', '-A'); sh(ws, 'commit', '-qm', 'feat(req-004): dynamic route');
+  const r = autoMergePromotion({ workspaceRoot: ws, reqId: 'REQ-004' });
+  const entry = r.results.find((e) => e.path === 'src/web/app/runs/[run_id]/page.tsx');
+  assert.equal(entry.outcome, 'added', JSON.stringify(entry));
+  assert.equal(read(ws, 'src/web/app/runs/[run_id]/page.tsx'), 'export default function Page() {}\n');
+});

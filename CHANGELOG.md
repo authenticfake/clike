@@ -41,6 +41,10 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **`/gate` auto-merge: a new file under a Next.js dynamic route (`app/runs/[run_id]/page.tsx`) was
+  a false conflict** ("removed from the canonical root after the KIT", no marker file): for a path
+  with `[ ]` that is not in the base commit `git show rev:path` exits 0 with no output, so the base
+  looked like an empty file. The base is read with `git cat-file blob`, which fails on a missing path.
 - **`/eval --fix`: the eval pre-pass undid a verified repair, and every cycle took ~15 minutes.**
   On a Next.js REQ the local-agent pre-pass of the eval after a repair rewrote the fix the repair
   had just verified in the sandbox (unit tests 37/37 → the same failures again). The eval after a
