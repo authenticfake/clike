@@ -15,7 +15,7 @@ const {
 } = require('./service-auth');
 const { validateLocalMcpRequest } = require('./mcp-request-guard');
 const { postAcceptanceAmend, postAcceptanceLock, postEvalChecks, postGateOverride } = require('./api');
-const { agentArgsForEvalCheck, startEvalCheckBridge } = require('./eval-check-bridge');
+const { agentArgsForEvalCheck, agentTimeoutMinutes, startEvalCheckBridge } = require('./eval-check-bridge');
 const finalizeVerify = require('./finalize-verify');
 const { request: serviceRequest, orchestratorUrl, serviceBaseUrls } = require('./orchestrator-client');
 const { safeRelativePath, safeWorkspaceUri, resolveInsideWorkspace } = require('./safe-workspace');
@@ -999,7 +999,8 @@ async function executeLocalAgentPackage({
         ...(launcherArgs.includes('--model') ? [] : buildLocalAgentModelArgs(selectedExecutor, executorConfig)),
       ]),
       promptTransport,
-      timeoutMinutes: Math.ceil(Number(invocation.timeout_seconds || 1800) / 60),
+      // the time spent waiting for eval checks in the sandbox does not eat the agent's own budget
+      timeoutMinutes: agentTimeoutMinutes(Number(invocation.timeout_seconds || 1800) / 60, evalCheck),
       out,
     });
   } finally {
@@ -4837,8 +4838,12 @@ async function cmdOpenChat(context) {
 
         switch (msg.cmd) {
           case 'eval': {
+            // The eval right after an auto-eval repair runs without the pre-pass: the repair already
+            // changed (and checked in the sandbox) the candidate; a pre-pass would change it again
+            // unverified (it once undid a repair that had made the unit tests pass).
+            const afterRepair = !!msg.fix && Number(msg.fix.cycle || 0) > 0;
             const evalAgentPrepassRequested =
-              executionPreference !== 'cloud_only' && !!selectedLocalExecutor;
+              executionPreference !== 'cloud_only' && !!selectedLocalExecutor && !afterRepair;
 
             if (evalAgentPrepassRequested) {
               log(
@@ -5009,7 +5014,7 @@ async function cmdOpenChat(context) {
             else {
               log(
                 `[harperEDD][agent] local eval pre-pass skipped; ` +
-                `reason=${executionPreference === 'cloud_only' ? 'cloud_only' : 'no_local_executor_available'} ` +
+                `reason=${afterRepair ? 'after_auto_eval_repair' : executionPreference === 'cloud_only' ? 'cloud_only' : 'no_local_executor_available'} ` +
                 `req=${targets}`
               );
             }

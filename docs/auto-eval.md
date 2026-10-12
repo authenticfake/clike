@@ -56,6 +56,19 @@ Then promote as usual with `/gate REQ-002`.
   gets neither the token nor network access), up to `clike.autoEval.agentEvalChecks` runs. Such a
   partial run is never the REQ's verdict: the full eval follows.
 
+## Time of a cycle
+
+A cycle is: the repair (the agent verifies its fix with eval checks, ~1 minute each), then the
+full eval. To keep it short and stable:
+
+- the eval right after a repair runs **without the local-agent pre-pass**: the repair already
+  changed and checked the candidate; a pre-pass changed it again unverified (it once undid a repair
+  that had made the unit tests pass) and cost 3–5 minutes per cycle;
+- the **regression of the promoted REQs runs only once the REQ's own blocking checks pass**: while
+  they fail the REQ is not promotable anyway, and the regression (every other REQ's environment,
+  services and suites: ~4 of the ~6 minutes of a full eval in a 5-REQ project) would only delay
+  the loop. `/gate` is unaffected: it needs the REQ's checks to pass, then runs the regression.
+
 ## When the loop stops
 
 | Outcome | Message | What to do |

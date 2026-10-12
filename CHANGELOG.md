@@ -41,6 +41,13 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **`/eval --fix`: the eval pre-pass undid a verified repair, and every cycle took ~15 minutes.**
+  On a Next.js REQ the local-agent pre-pass of the eval after a repair rewrote the fix the repair
+  had just verified in the sandbox (unit tests 37/37 → the same failures again). The eval after a
+  repair now runs without the pre-pass, and the regression of the promoted REQs runs only once the
+  REQ's own blocking checks pass (~4 of ~6 minutes saved per failing cycle). A local agent's run
+  timeout is extended by the eval checks it may wait for.
+
 - **A local-agent KIT failed with `LOCAL_AGENT_REQUIRED_OUTPUTS_MISSING` although it wrote `src/`
   and `test/`.** The artifacts sent to the orchestrator are capped (500 files, 8 MB) and were kept
   in discovery order: an agent's scratch in `ci/.tmp` (27 MB of tool installs) filled the budget

@@ -2764,7 +2764,13 @@ class EvalRunner:
                     blocking=True,
                 )
             )
-        if regression and work_kit_root and not cancelled:
+        # The regression of the promoted REQs runs once the REQ's own blocking checks pass: while
+        # they fail the REQ is not promotable anyway, and the regression (minutes: every other REQ's
+        # environment, services and suites) would only delay the repair loop.
+        own_failed = any(not c.passed and c.blocking for c in out_cases)
+        if regression and work_kit_root and not cancelled and own_failed:
+            log.info("regression deferred req=%s: the REQ's own blocking checks fail", eff_req)
+        elif regression and work_kit_root and not cancelled:
             out_cases.extend(self.run_regression(eff_req, work_kit_root / "src"))
 
         return self._report_from_cases(
