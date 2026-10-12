@@ -4,21 +4,57 @@ repair (roadmap §3) and the acceptance-first KIT (tests written and locked befo
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List
 
-_OUTPUT_TAIL = 4000
+_OUTPUT_TAIL = 6500
+
+# Files CLike writes into a KIT as context for the model (selected capabilities, prompts, the
+# file contract): not the candidate's code, and large. Lockfiles: generated, and large.
+_CLIKE_CONTEXT_NAMES = {
+    "CLIKE_SELECTED_CAPABILITY_CONTEXT.json", "CLIKE_SELECTED_CAPABILITY_CONTEXT.md",
+    "CLIKE_CAPABILITY_MANIFEST.md", "CLIKE_CAPABILITY_INDEX.json", "AGENT_PROMPT.md",
+    "AGENT_EVAL_PROMPT.md", "AGENT_EVAL_CONTEXT.json", "FILE_REQUIREMENTS.json",
+    "TARGET_CONTRACT.json", "VALIDATION_EVIDENCE.json", "REQ_PROMOTION_MANIFEST.md",
+}
+_LOCKFILES = {
+    "package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock",
+    "uv.lock", "Pipfile.lock", "Cargo.lock", "go.sum", "composer.lock", "Gemfile.lock",
+}
 
 
 def repair_rules(req_id: str) -> List[str]:
     return [
+        "Read ALL the failed checks before changing anything and group them by root cause: one cause often fails several checks (unit, coverage, build and e2e run the same code). For each failing test read the test and the code it exercises, find why the observed value differs from the expected one, and fix every cause in this one response.",
         f"Tests under runs/kit/{req_id}/test/ are locked acceptance criteria: make the code pass them; never edit, skip or weaken them. Exceptions: (a) you may remove an unused import from a test file when lint fails on it; (b) when a failed check shows the TEST itself is wrong (an error raised in the test file: TypeError/AttributeError/NameError/ImportError from a wrong API call, import or fixture, or a TypeScript compile error reported on the test file such as `test/x.test.ts(7,7): error TS2741`), fix the test, not the code: keep every test function/title, every assert/expect line and every pytest.raises/approx identical and add no skip/xfail/only/todo. Prefer fixing configuration or source when the defect is there (e.g. a build type-checking files it should not).",
         f"runs/kit/{req_id}/ci/LTC.json: you may fix the command of a check that cannot run (wrong path, module or flag), and complete its `environment` and `services` sections (below). Never remove a check or make it non-blocking.",
         "Configuration the checks need (a check fails or the eval is BLOCKED because a variable, a test database or the running API of another REQ is missing): never hardcode values or skip the check. Declare it in ci/LTC.json and CLike creates it in the eval sandbox: `environment.required_variables: [{name, purpose, provision}]` with provision `token` (random secret), `uuid`, `timestamp` (`offset_s`), `template` (`value` with ${OTHER_VAR}), `postgres_database` (a disposable database; `scheme` e.g. postgresql+psycopg) or `service` (exported by a service); `services: [{name, req (the REQ whose composed source runs it, e.g. REQ-001; omit for this candidate), cwd (relative to that KIT), setup: [commands, e.g. migrations], start, env: {NAME: '${VAR}' or '${PORT}'}, port_env, ready: {http_path}, exports: {NAME: 'http://127.0.0.1:${PORT}'}}]`. A dependency REQ's service is configured from its HOWTO, settings module and .env.example (read them; do not modify that KIT). Use provision `external` only for values only the developer has (a real provider key); the developer puts those in docker/eval.env.",
         f"Vulnerable dependencies: upgrade the affected packages in runs/kit/{req_id}/ci/requirements.txt (or the ecosystem manifest) to current versions without known vulnerabilities.",
-        f"A failure caused by the sandbox itself (network down, missing system tool) is not fixed by changing code: explain it in runs/kit/{req_id}/docs/KIT_{req_id}.md.",
+        f"A failure caused by the sandbox itself (network down, missing system tool) is not fixed by changing code: explain it in runs/kit/{req_id}/docs/KIT_{req_id}.md. A test that ran and failed (an assertion, an element not found, a module of the candidate not found, a timeout in the code) is never a sandbox failure: fix it.",
         f"Keep runs/kit/{req_id}/ci/HOWTO.md (`## Run with CLike /eval`) in line with what you declared.",
         "Fix the root cause in the source; do not special-case the tests.",
     ]
+
+
+def repair_file_priority(path: str, failures_text: str, req_id: str) -> int:
+    """Order of the candidate files shown to a repair model (lower first); -1: not shown.
+
+    Files named in the failures come first, then tests and sources, then the eval profile and
+    CI, then the KIT's own docs. CLike's context files and lockfiles are not shown."""
+    name = path.rsplit("/", 1)[-1]
+    if name in _CLIKE_CONTEXT_NAMES or name in _LOCKFILES:
+        return -1
+    rel = path.split(f"runs/kit/{req_id}/", 1)[-1]
+    top = rel.split("/", 1)[0]
+    if re.search(rf"(^|[/\s'\"(]){re.escape(name)}(?![\w.])", failures_text):
+        return 0
+    if top in ("test", "tests"):
+        return 1
+    if top == "src":
+        return 2
+    if top == "ci":
+        return 3
+    return 4
 
 
 def repair_failures(repair: Dict[str, Any]) -> List[Dict[str, Any]]:

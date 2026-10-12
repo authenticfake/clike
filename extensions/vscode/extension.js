@@ -14,7 +14,8 @@ const {
   generateServiceToken,
 } = require('./service-auth');
 const { validateLocalMcpRequest } = require('./mcp-request-guard');
-const { postAcceptanceAmend, postAcceptanceLock, postGateOverride } = require('./api');
+const { postAcceptanceAmend, postAcceptanceLock, postEvalChecks, postGateOverride } = require('./api');
+const { startEvalCheckBridge } = require('./eval-check-bridge');
 const { request: serviceRequest, orchestratorUrl, serviceBaseUrls } = require('./orchestrator-client');
 const { safeRelativePath, safeWorkspaceUri, resolveInsideWorkspace } = require('./safe-workspace');
 const {  handleGate, handleEval } = require('./commands/harper');
@@ -966,21 +967,49 @@ async function executeLocalAgentPackage({
       `CLike remains the workflow owner; the agent is the local actuator/hardener.`
   });
 
+  // Eval checks the agent can re-run in the real sandbox during this run (repair, finalize).
+  const evalCheck = localAgentPackage.eval_check && localAgentPackage.eval_check.profile ? localAgentPackage.eval_check : null;
+  let evalCheckBridge = null;
+  if (evalCheck) {
+    evalCheckBridge = startEvalCheckBridge({
+      workspaceRoot: toFsPath(wsroot),
+      maxRuns: Number(evalCheck.max_runs || 8),
+      runChecks: (checks) => postEvalChecks(evalCheck.profile, wsroot, reqForAgent, checks),
+      log,
+    });
+    if (selectedExecutor === 'claude_code' && !launcherArgs.includes('--allowedTools')) {
+      // -p mode denies shell commands that are not allowed up front
+      launcherArgs = [...launcherArgs, '--allowedTools', 'Bash(node .clike/bin/eval-check.mjs:*)'];
+    }
+    panel.webview.postMessage({
+      type: 'echo',
+      message: `🔁 ${executorLabel} can re-run the failed checks in the CLike eval sandbox during this repair (up to ${evalCheck.max_runs || 8} runs).`,
+    });
+  }
+
   const agentStartedAt = Date.now();
-  const agentResult = await runLocalAgentSync({
-    workspaceRootUri: wsroot,
-    prompt: promptContent,
-    executorId: selectedExecutor,
-    command: executorConfig.command,
-    // clike.claudeCode.model / clike.localAgent.codex.model apply to Harper phases too
-    argsBeforePrompt: withMachineReadableOutput(selectedExecutor, [
-      ...launcherArgs,
-      ...(launcherArgs.includes('--model') ? [] : buildLocalAgentModelArgs(selectedExecutor, executorConfig)),
-    ]),
-    promptTransport,
-    timeoutMinutes: Math.ceil(Number(invocation.timeout_seconds || 1800) / 60),
-    out,
-  });
+  let agentResult;
+  try {
+    agentResult = await runLocalAgentSync({
+      workspaceRootUri: wsroot,
+      prompt: promptContent,
+      executorId: selectedExecutor,
+      command: executorConfig.command,
+      // clike.claudeCode.model / clike.localAgent.codex.model apply to Harper phases too
+      argsBeforePrompt: withMachineReadableOutput(selectedExecutor, [
+        ...launcherArgs,
+        ...(launcherArgs.includes('--model') ? [] : buildLocalAgentModelArgs(selectedExecutor, executorConfig)),
+      ]),
+      promptTransport,
+      timeoutMinutes: Math.ceil(Number(invocation.timeout_seconds || 1800) / 60),
+      out,
+    });
+  } finally {
+    if (evalCheckBridge) {
+      log(`[evalCheck] agent used ${evalCheckBridge.runs} eval-check run(s)`);
+      evalCheckBridge.stop();
+    }
+  }
   // Usage/cost/model of the run; downstream code keeps reading plain text.
   const agentRun = parseLocalAgentRun(selectedExecutor, agentResult.stdout, {
     durationMs: Date.now() - agentStartedAt,
@@ -1797,6 +1826,7 @@ function cfg() {
     harperTimeout: c.get('harperTimeout', 25),
     autoEvalMaxCycles: c.get('autoEval.maxCycles', 2),
     autoEvalExtraCyclesOnProgress: c.get('autoEval.extraCyclesOnProgress', 3),
+    autoEvalAgentEvalChecks: c.get('autoEval.agentEvalChecks', 8),
     autoEvalAfterKit: c.get('autoEval.afterKit', false),
     agentChatApprovals: c.get('agentChat.approvals', 'ask'),
     kitAcceptanceFirst: c.get('kit.acceptanceFirst', false),
@@ -3076,6 +3106,8 @@ function shouldIndexWorkspacePathForRag(relPath) {
     'runs/',
     '.clike/sessions/',
     '.clike/telemetry/',
+    '.clike/eval-check/',
+    '.clike/bin/',
     '.git/',
     'node_modules/',
     'dist/',
@@ -3703,6 +3735,9 @@ async function cmdOpenChat(context) {
             // CLike local state: chat sessions and telemetry stay on this machine
             '.clike/sessions/',
             '.clike/telemetry/',
+            // eval checks served to a local agent during a repair (removed when it ends)
+            '.clike/eval-check/',
+            '.clike/bin/',
             '',
           ].join('\n'));
 
@@ -6028,6 +6063,10 @@ async function cmdOpenChat(context) {
         failures: step.failures,
         files: collectRepairFiles(getWorkspaceRoot().fsPath, reqId),
         hint: state.hint,
+        // a local agent may re-run the failed checks in the sandbox while it repairs
+        ...(Number(settings.autoEvalAgentEvalChecks ?? 8) > 0
+          ? { eval_check: true, eval_check_max_runs: Number(settings.autoEvalAgentEvalChecks ?? 8) }
+          : {}),
       },
     };
     const wsPath = getWorkspaceRoot().fsPath;

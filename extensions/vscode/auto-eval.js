@@ -16,22 +16,42 @@ function evalPassed(report) {
   return report?.passed === true || status === 'PASS';
 }
 
-/** Failed checks in the shape the KIT repair prompt reads. */
+/**
+ * Failed checks in the shape the KIT repair prompt reads.
+ * - output: the error blocks of the whole output (report `excerpt`, built by the eval runner),
+ *   else stderr head + stdout tail;
+ * - a check with the same errors as one already listed (unit and coverage run the same tests)
+ *   points to it instead of repeating them;
+ * - non-blocking failures of the regression of other REQs (their coverage, warnings) are not
+ *   this REQ's to repair: left out (the eval is not failed by them).
+ */
 function collectRepairFailures(report) {
-  return (Array.isArray(report?.cases) ? report.cases : [])
-    .filter((c) => c && !c.passed)
-    .map((c) => ({
+  const seen = new Map();
+  const out = [];
+  for (const c of (Array.isArray(report?.cases) ? report.cases : [])) {
+    if (!c || c.passed) continue;
+    if (c.blocking === false && String(c.name || '').startsWith('regression::')) continue;
+    const output = c.excerpt
+      ? String(c.excerpt)
+      : `${String(c.stderr || '').slice(0, 1500)}\n${String(c.stdout || '').slice(-2500)}`;
+    const fingerprint = String(c.fingerprint || '');
+    const same = fingerprint ? seen.get(fingerprint) : undefined;
+    if (fingerprint && !same) seen.set(fingerprint, c.name);
+    out.push({
       name: c.name,
       code: c.code,
       command: c.cmd || '',
       blocking: c.blocking !== false,
-      // stderr head (timeout note, hang dump: innermost frame first) + stdout tail (test failures).
-      output: `${String(c.stderr || '').slice(0, 1500)}\n${String(c.stdout || '').slice(-2500)}`,
-    }));
+      fingerprint,
+      output: same ? `Same errors as the check ${same} above.` : output,
+    });
+  }
+  return out;
 }
 
+/** Identity of a set of failures: the checks and their errors (a different error is progress). */
 function failureSignature(failures) {
-  return (failures || []).map((f) => String(f.name || '')).sort().join('|');
+  return (failures || []).map((f) => `${String(f.name || '')}#${String(f.fingerprint || '')}`).sort().join('|');
 }
 
 /** Current candidate files of the REQ (runs/kit/<REQ>/**), workspace-relative. */

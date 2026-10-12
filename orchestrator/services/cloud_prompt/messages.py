@@ -22,6 +22,7 @@ from services.kit_repair import (
     acceptance_stage_section,
     kit_self_check_section,
     repair_failures,
+    repair_file_priority,
     repair_rules,
 )
 from services.cloud_prompt.canonical_validation import validate_current_canonical_core_blobs
@@ -860,17 +861,28 @@ def _kit_repair_section(repair: dict, req_id: str) -> str:
         lines += ["", "### Developer hint", hint]
     budget = _REPAIR_TOTAL_BUDGET
     files = [f for f in (repair.get("files") or []) if isinstance(f, dict) and f.get("path")]
+    # Files named in the failures first, then tests, sources, CI, docs (stable within a group);
+    # CLike's context files and lockfiles are not the candidate's code: listed, not shown.
+    failures_text = "\n".join(f"{i['command']}\n{i['output']}" for i in repair_failures(repair))
+    ranked = sorted(
+        ((repair_file_priority(str(f["path"]), failures_text, req_id), n, f) for n, f in enumerate(files)),
+        key=lambda item: (item[0] < 0, item[0], item[1]),
+    )
     if files:
         lines += ["", "### Current candidate files"]
-        for f in files:
+        omitted = []
+        for priority, _, f in ranked:
             content = str(f.get("content") or "")
-            if budget <= 0:
-                lines.append(f"- {f['path']} (omitted: budget exhausted)")
+            if priority < 0 or budget <= 0:
+                omitted.append(str(f["path"]))
                 continue
             shown = content[:min(_REPAIR_FILE_BUDGET, budget)]
             budget -= len(shown)
             truncated = " (truncated)" if len(shown) < len(content) else ""
             lines += [f"#### {f['path']}{truncated}", "```", shown.rstrip(), "```"]
+        if omitted:
+            lines += ["", "Other files of the KIT (not shown; unchanged unless you return them):"]
+            lines += [f"- {path}" for path in omitted]
     return "\n".join(lines)
 
 

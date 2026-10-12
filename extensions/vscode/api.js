@@ -52,6 +52,23 @@ async function postEvalRun(profile, workspaceRoot,req_id, mode, modeResult) {
 }
 
 /**
+ * Re-runs only the named checks of a REQ's eval in the sandbox (no regression, never a verdict):
+ * the eval checks a local agent asks for while it repairs (eval-check-bridge.js).
+ */
+async function postEvalChecks(profile, workspaceRoot, reqId, checks) {
+  const projectName = getProjectNameFromWorkspace();
+  if (!projectName) throw new Error('Cannot resolve current project name');
+  const url = orchestratorUrl('/v1/eval/run') +
+    `?profile=${encodeURIComponent(profile)}` +
+    `&project_root=${encodeURIComponent(asFsPath(workspaceRoot))}` +
+    `&req_id=${encodeURIComponent(reqId)}` +
+    `&project_name=${encodeURIComponent(projectName)}`;
+  const raw = await readTextFile(vscode.Uri.joinPath(workspaceRoot, profile));
+  const body = { ltc: raw ? JSON.parse(raw) : null, regression: false, checks: checks && checks.length ? checks : null };
+  return requestJson('POST', url, { body, timeoutMs: evalTimeoutMs() });
+}
+
+/**
  * Runs /v1/gate/check
  */
 async function postGateCheck(profile, workspaceRoot, req_id, options = {}) {
@@ -135,6 +152,7 @@ module.exports = {
   postAcceptanceAmend,
   postAcceptanceLock,
   postGateOverride,
+  postEvalChecks,
   postEvalRun,
   postGateCheck,
 };

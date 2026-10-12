@@ -29,8 +29,29 @@ test('/eval --fix carries the hint; /gate ignores --fix', () => {
 
 test('failures carry name, command, exit code and output for the repair prompt', () => {
   assert.deepEqual(collectRepairFailures(failing(['unit'])), [
-    { name: 'unit', code: 1, command: 'run unit', blocking: true, output: 'unit broke\n' },
+    { name: 'unit', code: 1, command: 'run unit', blocking: true, fingerprint: '', output: 'unit broke\n' },
   ]);
+});
+
+test('failures: runner excerpt, same errors not repeated, regression warnings of other REQs left out', () => {
+  const report = { status: 'FAIL', cases: [
+    { name: 'test:unit', passed: false, code: 1, cmd: 'u', stdout: 'tail only', excerpt: 'FAIL a.test.ts\nAssertionError', fingerprint: 'f1' },
+    { name: 'test:coverage', passed: false, code: 1, cmd: 'c', stdout: 'x', excerpt: 'FAIL a.test.ts\nAssertionError', fingerprint: 'f1' },
+    { name: 'regression::REQ-001::test:integration', passed: false, blocking: false, code: 1, excerpt: 'coverage 54 < 80', fingerprint: 'f2' },
+    { name: 'regression::REQ-002::test:unit', passed: false, blocking: true, code: 1, excerpt: 'broken by this REQ', fingerprint: 'f3' },
+  ] };
+  const failures = collectRepairFailures(report);
+  assert.deepEqual(failures.map((f) => f.name), ['test:unit', 'test:coverage', 'regression::REQ-002::test:unit']);
+  assert.equal(failures[0].output, 'FAIL a.test.ts\nAssertionError');
+  assert.match(failures[1].output, /Same errors as the check test:unit/);
+});
+
+test('loop: the same check failing with different errors is progress', () => {
+  const base = { cycle: 0, maxCycles: 3, hint: '' };
+  const report = (fp) => ({ status: 'FAIL', cases: [{ name: 'test:unit', passed: false, code: 1, excerpt: fp, fingerprint: fp }] });
+  const first = nextAutoEvalStep(base, report('a'));
+  assert.equal(nextAutoEvalStep({ ...base, cycle: 1, lastSignature: first.signature }, report('b')).action, 'repair');
+  assert.match(nextAutoEvalStep({ ...base, cycle: 1, lastSignature: first.signature }, report('a')).reason, /no progress/);
 });
 
 test('loop: repair, then stop on pass, no progress, exhausted cycles or a failed KIT', () => {

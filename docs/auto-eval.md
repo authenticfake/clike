@@ -27,10 +27,34 @@ only when its own checks pass **and** it does not break what is already promoted
 | Run it automatically after every `/kit` | `clike.autoEval.afterKit: true` (default `false`) |
 | Number of repair cycles | `clike.autoEval.maxCycles` (default `2`, max `5`) |
 | Extra cycles while improving | `clike.autoEval.extraCyclesOnProgress` (default `3`): after `maxCycles`, the loop goes on as long as each cycle leaves fewer failing checks |
+| Agent re-runs failed checks in the sandbox | `clike.autoEval.agentEvalChecks` (default `8` runs per repair, `0` = off) |
 | Re-check the promoted REQs | `clike.eval.regression` (default `true`) |
 | Make warnings block the gate | `clike.gate.strictWarnings` (default `false`) |
 
 Then promote as usual with `/gate REQ-002`.
+
+## What the repair model receives
+
+- **Every failed check with its errors**, not the tail of its output: the eval runner extracts the
+  error blocks of the whole output (failed tests, assertions, TypeScript/lint errors, code frames,
+  the final summary) without ANSI codes, DOM dumps, passing-test lines and library stack frames
+  (`excerpt` in the eval report, ≤ 6000 characters per check).
+- Checks with the **same errors** (unit and coverage run the same tests) are listed once.
+- Non-blocking failures of the **regression of other REQs** (their coverage) are left out: they do
+  not fail the eval and this REQ cannot fix them. A blocking regression failure (this REQ broke a
+  promoted REQ) is included.
+- A test that ran and failed is **never classified as environment-blocked** (`element(s) not
+  found`, a module of the candidate not found): only missing tools, registries, native binaries and
+  sandbox limits are.
+- **Cloud**: the files named in the errors first, then tests, sources, the eval profile and CI, then
+  the KIT docs (160k characters). CLike's own context files (`CLIKE_SELECTED_CAPABILITY_CONTEXT.*`,
+  `AGENT_PROMPT.md`, `FILE_REQUIREMENTS.json`…) and lockfiles are listed, not shown.
+- **Local agent** (Codex, Claude Code): the same errors in its prompt, and it can **re-run the failed
+  checks in the real eval sandbox** while it repairs: `node .clike/bin/eval-check.mjs test:unit
+  test:e2e` (composed workspace, provisioned variables, services of other REQs), so it iterates
+  until they pass in one session. The extension serves the requests (it holds the token; the agent
+  gets neither the token nor network access), up to `clike.autoEval.agentEvalChecks` runs. Such a
+  partial run is never the REQ's verdict: the full eval follows.
 
 ## When the loop stops
 
@@ -38,7 +62,7 @@ Then promote as usual with `/gate REQ-002`.
 |---|---|---|
 | Eval passes | `✔ AUTO-EVAL REQ-002: eval PASS after N repair cycle(s)` | `/gate REQ-002` |
 | Cycles exhausted | `still failing after N repair cycle(s)` and the failing checks | read the eval report, re-run with a hint, or fix manually |
-| No progress | `no progress: the same checks still fail` | a hint usually helps; or the failure is environmental |
+| No progress | `no progress: the same checks still fail` (same checks **and** same errors; different errors in the same check are progress) | a hint usually helps; or the failure is environmental |
 | Repair request failed | `the KIT repair request failed` | see the error in the chat (provider, validation) |
 | Acceptance surface changed | `the acceptance surface (test/ or ci/) changed after the lock` | tests/LTC were edited outside the governed path: re-run `/kit` to re-baseline |
 | Nothing to repair | `eval failed without failing checks` | see the eval report (e.g. integrity or setup errors) |

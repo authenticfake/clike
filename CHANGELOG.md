@@ -4,6 +4,29 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+### Improved
+
+- **`/eval --fix` repairs from all the errors, in both modes.** Measured on a Next.js REQ, three
+  defects hid the errors from the model:
+  - the cloud repair prompt filled its 160k-character file budget alphabetically with CLike's own
+    context files, so **no `src/` or `test/` file** reached the model; the files named in the
+    errors now come first, then tests, sources, CI and docs, and CLike context files and lockfiles
+    are listed, not shown;
+  - a failed check carried only the **tail** of its output, with ANSI codes and DOM dumps (the
+    first failing test was lost), and the local-agent prompt cut it to 1500 characters on one line;
+    the eval runner now extracts the error blocks of the whole output (`excerpt`, `fingerprint` in
+    the report) and both prompts get them whole;
+  - a test that ran and failed (`element(s) not found`, a missing module of the candidate) was
+    classified **environment-blocked**, i.e. "the sandbox, do not change code".
+  Checks with the same errors are listed once, non-blocking regression warnings of other REQs are
+  left out, the repair rules ask to group the failures by root cause and fix them all, and "no
+  progress" now means the same errors, not only the same check names.
+- **The local agent re-runs the failed checks in the real eval sandbox while it repairs**
+  (`node .clike/bin/eval-check.mjs <check>…`, served by the extension; `clike.autoEval.agentEvalChecks`,
+  default 8 runs): it iterates until they pass in one session instead of one attempt per cycle. The
+  agent gets neither the orchestrator token nor network access; a partial run (`/v1/eval/run`
+  `checks`) is never a verdict.
+
 ### Fixed
 
 - **A local-agent KIT failed with `LOCAL_AGENT_REQUIRED_OUTPUTS_MISSING` although it wrote `src/`
