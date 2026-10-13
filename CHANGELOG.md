@@ -60,6 +60,9 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **Extension dev dependencies: 0 known vulnerabilities.** `@vscode/vsce` 3.9.2 → 4.0.0 (packaging
+  tool only, not in the VSIX): its `secretlint → globby → fast-glob → micromatch → braces` chain had a
+  high-severity DoS (`braces`, no patched version). Requires Node ≥ 22 to build the VSIX.
 - **Merge-on-gate left `main` unpushed when the remote `main` had moved** (e.g. a PR merged on
   GitHub): the push was rejected as non-fast-forward and only logged, so the REQ branch reached
   the remote and `main` did not. CLike now fetches and merges `origin/main` before merging the
