@@ -357,7 +357,8 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
       if (!inside) log(`[harperGit] skip path outside the work tree: ${abs}`);
       return inside && fs.existsSync(abs);
     })
-    .map(abs => path.relative(workTree, abs)))];
+    // git paths use '/', also on Windows: check-ignore and status answer with them.
+    .map(abs => path.relative(workTree, abs).split(path.sep).join('/')))];
 
   // Paths the project ignores (eval reports, KIT report dirs, caches) are never committed: one
   // of them in `git add` fails the whole add, and the phase was left staged but not committed.
