@@ -4,6 +4,25 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.4.1] — 2026-10-13 — The gate repairs what it finds
+
+### Added
+
+- **`/gate REQ --fix ["hint"]`: the gate repairs what it finds.** A gate re-runs every check and
+  the regression, so it can fail where the eval passed. With `--fix` a failing gate gets the same
+  KIT repair as `/eval --fix` (tests locked, governed test/ci changes, same cycle limits and stop
+  rules), then a full gate again: only a gate run on the repaired candidate promotes it. Missing
+  required outputs reach the repair as failures; a tampered acceptance surface and promotion
+  conflicts are not repaired.
+- **Intermittent failures are diagnosed without a hint.** Before a repair (`/eval --fix`,
+  `/gate --fix`) CLike reads the earlier eval/gate reports of the REQ; a failing check (or test)
+  that passed before reaches the repair flagged as nondeterministic: make the code deterministic,
+  do not change the asserted value. Found on a test whose count depended on jobs ordered by random
+  UUIDs: it passed in 3 of 5 runs.
+- **What each repair received is written next to the report**:
+  `runs/<eval|gate>/<REQ>/repair_<REQ>_<ts>.md` (the developer hint, if any, CLike's diagnosis,
+  the failing checks).
+
 ### Improved
 
 - **`/eval --fix` repairs from all the errors, in both modes.** Measured on a Next.js REQ, three
@@ -40,6 +59,29 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   Code stops shell commands after 2 minutes by default); Claude Code gets `--allowedTools` for it.
 
 ### Fixed
+
+- **Extension dev dependencies: 0 known vulnerabilities.** `@vscode/vsce` 3.9.2 → 4.0.0 (packaging
+  tool only, not in the VSIX): its `secretlint → globby → fast-glob → micromatch → braces` chain had a
+  high-severity DoS (`braces`, no patched version). Requires Node ≥ 22 to build the VSIX.
+- **Merge-on-gate left `main` unpushed when the remote `main` had moved** (e.g. a PR merged on
+  GitHub): the push was rejected as non-fast-forward and only logged, so the REQ branch reached
+  the remote and `main` did not. CLike now fetches and merges `origin/main` before merging the
+  REQ, then pushes; a conflict or a failed push is shown as a warning with the command to run.
+
+- **Git: the KIT of an `/eval --fix` repair (and every eval report) was staged but never committed.**
+  The phase files included paths the project ignores (`runs/eval/…`, `runs/kit/<REQ>/reports`,
+  `ci/reports`): one ignored path makes `git add` fail, and the phase commit was skipped. Ignored
+  paths are now left out (logged) and the rest of the phase is committed.
+- **`/gate` auto-merge: a new file under a Next.js dynamic route (`app/runs/[run_id]/page.tsx`) was
+  a false conflict** ("removed from the canonical root after the KIT", no marker file): for a path
+  with `[ ]` that is not in the base commit `git show rev:path` exits 0 with no output, so the base
+  looked like an empty file. The base is read with `git cat-file blob`, which fails on a missing path.
+- **`/eval --fix`: the eval pre-pass undid a verified repair, and every cycle took ~15 minutes.**
+  On a Next.js REQ the local-agent pre-pass of the eval after a repair rewrote the fix the repair
+  had just verified in the sandbox (unit tests 37/37 → the same failures again). The eval after a
+  repair now runs without the pre-pass, and the regression of the promoted REQs runs only once the
+  REQ's own blocking checks pass (~4 of ~6 minutes saved per failing cycle). A local agent's run
+  timeout is extended by the eval checks it may wait for.
 
 - **A local-agent KIT failed with `LOCAL_AGENT_REQUIRED_OUTPUTS_MISSING` although it wrote `src/`
   and `test/`.** The artifacts sent to the orchestrator are capped (500 files, 8 MB) and were kept

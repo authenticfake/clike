@@ -15,7 +15,7 @@ const {
 } = require('./service-auth');
 const { validateLocalMcpRequest } = require('./mcp-request-guard');
 const { postAcceptanceAmend, postAcceptanceLock, postEvalChecks, postGateOverride } = require('./api');
-const { agentArgsForEvalCheck, startEvalCheckBridge } = require('./eval-check-bridge');
+const { agentArgsForEvalCheck, agentTimeoutMinutes, startEvalCheckBridge } = require('./eval-check-bridge');
 const finalizeVerify = require('./finalize-verify');
 const { request: serviceRequest, orchestratorUrl, serviceBaseUrls } = require('./orchestrator-client');
 const { safeRelativePath, safeWorkspaceUri, resolveInsideWorkspace } = require('./safe-workspace');
@@ -81,7 +81,12 @@ const {
   acceptanceChanges,
   collectRepairFiles,
   nextAutoEvalStep,
+  nextAutoGateStep,
+  annotateIntermittentFailures,
+  readEarlierReports,
+  repairNotesMarkdown,
   restoreAcceptanceFiles,
+  writeRepairNotes,
   snapshotAcceptanceSurface,
 } = require('./auto-eval');
 const { buildAgentChatArgs, createAgentStreamParser, newSession, sessionKey } = require('./agent-chat');
@@ -999,7 +1004,8 @@ async function executeLocalAgentPackage({
         ...(launcherArgs.includes('--model') ? [] : buildLocalAgentModelArgs(selectedExecutor, executorConfig)),
       ]),
       promptTransport,
-      timeoutMinutes: Math.ceil(Number(invocation.timeout_seconds || 1800) / 60),
+      // the time spent waiting for eval checks in the sandbox does not eat the agent's own budget
+      timeoutMinutes: agentTimeoutMinutes(Number(invocation.timeout_seconds || 1800) / 60, evalCheck),
       out,
     });
   } finally {
@@ -4837,8 +4843,12 @@ async function cmdOpenChat(context) {
 
         switch (msg.cmd) {
           case 'eval': {
+            // The eval right after an auto-eval repair runs without the pre-pass: the repair already
+            // changed (and checked in the sandbox) the candidate; a pre-pass would change it again
+            // unverified (it once undid a repair that had made the unit tests pass).
+            const afterRepair = !!msg.fix && Number(msg.fix.cycle || 0) > 0;
             const evalAgentPrepassRequested =
-              executionPreference !== 'cloud_only' && !!selectedLocalExecutor;
+              executionPreference !== 'cloud_only' && !!selectedLocalExecutor && !afterRepair;
 
             if (evalAgentPrepassRequested) {
               log(
@@ -5009,7 +5019,7 @@ async function cmdOpenChat(context) {
             else {
               log(
                 `[harperEDD][agent] local eval pre-pass skipped; ` +
-                `reason=${executionPreference === 'cloud_only' ? 'cloud_only' : 'no_local_executor_available'} ` +
+                `reason=${afterRepair ? 'after_auto_eval_repair' : executionPreference === 'cloud_only' ? 'cloud_only' : 'no_local_executor_available'} ` +
                 `req=${targets}`
               );
             }
@@ -5166,6 +5176,9 @@ async function cmdOpenChat(context) {
         panel.webview.postMessage({ type: 'busy', on: false, force: true });
         if (phase === 'eval' && msg.fix && !isManual) {
           await continueAutoEval(msg, report, targets);
+        }
+        if (phase === 'gate' && msg.fix && !isManual) {
+          await continueAutoGate(msg, report, targets);
         }
 
       } 
@@ -6129,6 +6142,18 @@ async function cmdOpenChat(context) {
     }
     const cycle = state.cycle + 1;
     say(`↻ AUTO-EVAL ${reqId}: repair cycle ${cycle}/${state.maxCycles} — ${step.reason}`);
+    // Failures that passed in earlier runs of this REQ are flagged as nondeterministic for the repair.
+    const repairFailures = annotateIntermittentFailures(step.failures, readEarlierReports(getWorkspaceRoot().fsPath, reqId));
+    const intermittent = repairFailures.filter((f) => f.intermittent).map((f) => f.name);
+    if (intermittent.length) say(`ℹ AUTO-EVAL ${reqId}: ${intermittent.join(', ')} passed in earlier runs: repairing it as a nondeterministic failure`);
+    try {
+      const notes = writeRepairNotes(getWorkspaceRoot().fsPath, 'eval', reqId, repairNotesMarkdown({
+        reqId, phase: 'eval', cycle, maxCycles: state.maxCycles, reason: step.reason, hint: state.hint, failures: repairFailures,
+      }));
+      say(`ℹ AUTO-EVAL ${reqId}: what the repair receives (hint and CLike diagnosis): ${notes}`);
+    } catch (err) {
+      log(`[autoEval] repair notes not written: ${err?.message || err}`);
+    }
     const kitMsg = {
       type: 'harperRun',
       cmd: 'kit',
@@ -6138,7 +6163,7 @@ async function cmdOpenChat(context) {
       autoEvalRepair: {
         cycle,
         max_cycles: state.maxCycles,
-        failures: step.failures,
+        failures: repairFailures,
         files: collectRepairFiles(getWorkspaceRoot().fsPath, reqId),
         hint: state.hint,
         // a local agent may re-run the failed checks in the sandbox while it repairs
@@ -6161,6 +6186,88 @@ async function cmdOpenChat(context) {
     };
     await handleWebviewMessage(evalMsg);
     if (evalMsg.__report) msg.__report = evalMsg.__report;
+  }
+
+  // `/gate REQ --fix`: the gate re-runs the checks; when they fail, the same KIT repair as
+  // /eval --fix (same locked tests, governance and cycle bounds), then a full gate again. A
+  // repaired candidate is promoted only by a gate that ran on it.
+  async function continueAutoGate(msg, report, reqId) {
+    const settings = cfg();
+    const state = {
+      cycle: Number(msg.fix.cycle || 0),
+      maxCycles: Math.max(1, Number(msg.fix.maxCycles || settings.autoEvalMaxCycles || 2)),
+      extraCycles: Math.max(0, Number(msg.fix.extraCycles ?? settings.autoEvalExtraCyclesOnProgress ?? 3)),
+      lastFailureCount: msg.fix.lastFailureCount,
+      hint: String(msg.fix.hint || ''),
+      lastSignature: msg.fix.lastSignature || '',
+      lastKitOk: msg.fix.lastKitOk,
+    };
+    const step = nextAutoGateStep(state, report);
+    const say = (text) => panel.webview.postMessage({ type: 'echo', message: text });
+    log(`[autoGate] ${reqId} cycle=${state.cycle}/${state.maxCycles} action=${step.action} reason=${step.reason}`);
+    const finish = (outcome) => {
+      msg.__report = { ...(msg.__report || {}), auto_gate: { outcome, cycles: state.cycle, reason: step.reason } };
+    };
+    if (step.action === 'pass') {
+      say(`✔ AUTO-GATE ${reqId}: ${step.reason}.`);
+      finish('pass');
+      return;
+    }
+    if (step.action === 'stop') {
+      const names = (step.failures || []).map(f => f.name).slice(0, 8).join(', ');
+      say(
+        `✖ AUTO-GATE ${reqId} stopped: ${step.reason}.` +
+        (names ? ` Failing: ${names}.` : '') +
+        ` Re-run /gate ${reqId} --fix "<hint>" to continue with guidance, or fix the code manually.`
+      );
+      finish('stopped');
+      return;
+    }
+    const cycle = state.cycle + 1;
+    say(`↻ AUTO-GATE ${reqId}: repair cycle ${cycle}/${state.maxCycles} — ${step.reason}`);
+    // Failures that passed in earlier runs of this REQ are flagged as nondeterministic for the repair.
+    const repairFailures = annotateIntermittentFailures(step.failures, readEarlierReports(getWorkspaceRoot().fsPath, reqId));
+    const intermittent = repairFailures.filter((f) => f.intermittent).map((f) => f.name);
+    if (intermittent.length) say(`ℹ AUTO-GATE ${reqId}: ${intermittent.join(', ')} passed in earlier runs: repairing it as a nondeterministic failure`);
+    try {
+      const notes = writeRepairNotes(getWorkspaceRoot().fsPath, 'gate', reqId, repairNotesMarkdown({
+        reqId, phase: 'gate', cycle, maxCycles: state.maxCycles, reason: step.reason, hint: state.hint, failures: repairFailures,
+      }));
+      say(`ℹ AUTO-GATE ${reqId}: what the repair receives (hint and CLike diagnosis): ${notes}`);
+    } catch (err) {
+      log(`[autoGate] repair notes not written: ${err?.message || err}`);
+    }
+    const kitMsg = {
+      type: 'harperRun',
+      cmd: 'kit',
+      targets: [reqId],
+      targetReqId: reqId,
+      attachments: [],
+      autoEvalRepair: {
+        cycle,
+        max_cycles: state.maxCycles,
+        failures: repairFailures,
+        files: collectRepairFiles(getWorkspaceRoot().fsPath, reqId),
+        hint: state.hint,
+        ...(Number(settings.autoEvalAgentEvalChecks ?? 8) > 0
+          ? { eval_check: true, eval_check_max_runs: Number(settings.autoEvalAgentEvalChecks ?? 8) }
+          : {}),
+      },
+    };
+    const acceptanceBefore = snapshotAcceptanceSurface(getWorkspaceRoot().fsPath, reqId);
+    await handleWebviewMessage(kitMsg);
+    await governAcceptanceChanges(reqId, acceptanceBefore, step.failures, cycle);
+    const gateMsg = {
+      type: 'harperEDD',
+      cmd: 'gate',
+      targets: [reqId],
+      targetReqId: reqId,
+      attachments: [],
+      ...(msg.promote ? { promote: msg.promote } : {}),
+      fix: { ...state, cycle, lastSignature: step.signature, lastKitOk: kitMsg.__result === 'ok', lastFailures: step.failures, lastFailureCount: (step.failures || []).length },
+    };
+    await handleWebviewMessage(gateMsg);
+    if (gateMsg.__report) msg.__report = gateMsg.__report;
   }
 }
 

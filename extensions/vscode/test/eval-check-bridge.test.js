@@ -6,7 +6,7 @@ const os = require('os');
 const path = require('path');
 const { execFile } = require('child_process');
 
-const { agentArgsForEvalCheck, compactResult, startEvalCheckBridge, CHANNEL_DIR, HELPER_PATH } = require('../eval-check-bridge');
+const { agentArgsForEvalCheck, agentTimeoutMinutes, compactResult, startEvalCheckBridge, CHANNEL_DIR, HELPER_PATH } = require('../eval-check-bridge');
 
 function runHelper(root, args) {
   return new Promise((resolve) => {
@@ -97,4 +97,10 @@ test('a helper stopped by the agent timeout resumes the same run', async () => {
     bridge.stop();
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('agent timeout: extended by the eval checks it may wait for', () => {
+  assert.equal(agentTimeoutMinutes(30, null), 30);
+  assert.equal(agentTimeoutMinutes(30, { max_runs: 8 }), 78);
+  assert.equal(agentTimeoutMinutes(1800 / 60, { max_runs: 0 }), 30);
 });

@@ -167,13 +167,138 @@ function nextAutoEvalStep(state, report) {
   return { action: 'repair', reason: `${failures.length} failing check(s)`, failures, signature };
 }
 
+const _FAILED_TEST_RE = /^FAILED\s+(\S+?)(?:\s+-\s|\s*$)/gm;
+
+/** Test ids of a pytest-style output that failed ("FAILED path::test - ..."). */
+function failedTestIds(output) {
+  return [...String(output || '').matchAll(_FAILED_TEST_RE)].map((m) => m[1].split('::').pop());
+}
+
+/**
+ * Earlier eval/gate reports of the REQ (runs/{eval,gate}/<REQ>/report_*.json), oldest first,
+ * reduced to what the flakiness check needs: per check, passed or not, and its output.
+ */
+function readEarlierReports(workspaceRoot, reqId) {
+  const out = [];
+  for (const phase of ['eval', 'gate']) {
+    const dir = path.join(workspaceRoot, 'runs', phase, reqId);
+    let names = [];
+    try { names = fs.readdirSync(dir).filter((n) => /^report_.*\.json$/.test(n)); } catch { continue; }
+    for (const name of names) {
+      try {
+        const rep = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8'));
+        const ts = Number((name.match(/_(\d+)\.json$/) || [])[1] || 0);
+        out.push({ phase, ts, cases: Array.isArray(rep.cases) ? rep.cases : [] });
+      } catch { /* unreadable report: ignore */ }
+    }
+  }
+  return out.sort((a, b) => a.ts - b.ts);
+}
+
+/**
+ * Mark the failures that passed in earlier runs of the same REQ: the repair is told that the
+ * failure is likely nondeterministic (ordering, timing, random ids) so it makes the code
+ * deterministic instead of chasing the asserted value. Derived from CLike's own reports: no
+ * developer hint needed. A test-level match (the failing test id PASSED earlier) is preferred.
+ */
+function annotateIntermittentFailures(failures, earlierReports) {
+  return (failures || []).map((f) => {
+    const runs = (earlierReports || [])
+      .map((r) => (r.cases || []).find((c) => c && c.name === f.name))
+      .filter(Boolean);
+    const passedRuns = runs.filter((c) => c.passed);
+    if (!passedRuns.length) return f;
+    const tests = failedTestIds(f.output);
+    const passedTests = tests.filter((t) =>
+      passedRuns.some((c) => new RegExp(`${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b[^\\n]*PASSED`).test(String(c.stdout || '')))
+    );
+    const subject = passedTests.length ? passedTests.join(', ') : `the check ${f.name}`;
+    const note =
+      `CLike note: ${subject} passed in ${passedRuns.length} of ${runs.length} earlier eval/gate run(s) of this REQ. ` +
+      'If the code did not change in between, the failure is nondeterministic (order of rows or jobs by random ids, ' +
+      'timing, concurrency, unseeded randomness): make the behavior deterministic in src/, do not adjust the asserted value.';
+    return { ...f, intermittent: true, output: `${note}\n\n${f.output || ''}` };
+  });
+}
+
+/**
+ * What a repair cycle was given, readable next to the eval/gate report that started it: the
+ * developer hint (optional) and CLike's own diagnosis (the notes derived from earlier runs).
+ */
+function repairNotesMarkdown({ reqId, phase, cycle, maxCycles, reason, hint, failures }) {
+  const lines = [
+    `# ${phase === 'gate' ? 'AUTO-GATE' : 'AUTO-EVAL'} ${reqId} — repair cycle ${cycle}/${maxCycles}`,
+    '',
+    `- **Why:** ${reason}`,
+    `- **Developer hint:** ${hint ? hint : 'none (optional: `--fix "<hint>"`)'}`,
+    '',
+    '## CLike diagnosis',
+    '',
+  ];
+  const notes = (failures || []).filter((f) => f.intermittent);
+  if (notes.length) {
+    for (const f of notes) lines.push(`- \`${f.name}\`: ${String(f.output || '').split('\n\n')[0]}`);
+  } else {
+    lines.push('- No failing check passed in earlier runs of this REQ: the failures are treated as steady.');
+  }
+  lines.push('', '## Failing checks given to the repair', '');
+  for (const f of failures || []) lines.push(`- \`${f.name}\`${f.command ? ` (\`${f.command}\`)` : ''}`);
+  return lines.join('\n') + '\n';
+}
+
+/** Write the notes as runs/<phase>/<REQ>/repair_<REQ>_<ts>.md; returns the workspace-relative path. */
+function writeRepairNotes(workspaceRoot, phase, reqId, markdown) {
+  const rel = ['runs', phase, reqId, `repair_${reqId}_${Date.now()}.md`];
+  const full = path.join(workspaceRoot, ...rel);
+  fs.mkdirSync(path.dirname(full), { recursive: true });
+  fs.writeFileSync(full, markdown, 'utf8');
+  return rel.join('/');
+}
+
+/**
+ * Decide the next step after a gate of `/gate REQ --fix`: the same repair loop as /eval --fix
+ * (same locked tests, same cycle bounds, same stop rules), driven by the gate verdict. A gate
+ * PASS ends the loop even when the promotion left conflicts: those are merges of the canonical
+ * tree, not defects of the candidate, and a KIT repair cannot resolve them.
+ */
+function nextAutoGateStep(state, report) {
+  if (String(report?.gate || '').toUpperCase() === 'PASS') {
+    return { action: 'pass', reason: `gate PASS after ${state.cycle} repair cycle(s)` };
+  }
+  const reasonCode = String(report?.reason_code || '');
+  if (reasonCode === 'GATE_MANUAL_OVERRIDE') return { action: 'stop', reason: 'manual gate override: nothing to repair' };
+  if (reasonCode === 'GATE_BLOCKED_ACCEPTANCE_TAMPERED') {
+    return { action: 'stop', reason: 'the acceptance surface (test/ or ci/) changed after the lock; restore it or re-run /kit to re-baseline' };
+  }
+  // Missing required outputs are not checks: hand them to the repair as failures of their own.
+  const blockers = (Array.isArray(report?.structural_blockers) ? report.structural_blockers : []).map((b) => ({
+    name: `required-output::${String(b?.role || 'unknown')}`,
+    passed: false,
+    code: 1,
+    blocking: true,
+    excerpt: String(b?.reason || 'required output missing'),
+    fingerprint: `required-output::${String(b?.role || 'unknown')}`,
+  }));
+  const failedReport = { ...(report || {}), status: 'FAIL', passed: false, cases: [...(report?.cases || []), ...blockers] };
+  const step = nextAutoEvalStep(state, failedReport);
+  if (step.action === 'pass') return { action: 'stop', reason: 'gate failed without failing checks to repair (see the gate report)' };
+  return step.reason.startsWith('eval failed')
+    ? { ...step, reason: step.reason.replace('eval failed', 'gate failed').replace('the eval report', 'the gate report') }
+    : step;
+}
+
 module.exports = {
   acceptanceChanges,
+  annotateIntermittentFailures,
+  readEarlierReports,
   collectRepairFailures,
   collectRepairFiles,
   evalPassed,
   failureSignature,
   nextAutoEvalStep,
+  nextAutoGateStep,
+  repairNotesMarkdown,
   restoreAcceptanceFiles,
   snapshotAcceptanceSurface,
+  writeRepairNotes,
 };

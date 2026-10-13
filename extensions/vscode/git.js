@@ -347,7 +347,7 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
     if (typeof val === 'string') return val.split(',').map(x => x.trim()).filter(Boolean);
     return [String(val)];
   };
-  const files = [...new Set(toArray(changedFiles)
+  let files = [...new Set(toArray(changedFiles)
     .map(f => { try { return toFsPath(f); } catch { return String(f || ''); } })
     .filter(Boolean)
     .map(p => path.resolve(workTree, p))
@@ -357,7 +357,17 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
       if (!inside) log(`[harperGit] skip path outside the work tree: ${abs}`);
       return inside && fs.existsSync(abs);
     })
-    .map(abs => path.relative(workTree, abs)))];
+    // git paths use '/', also on Windows: check-ignore and status answer with them.
+    .map(abs => path.relative(workTree, abs).split(path.sep).join('/')))];
+
+  // Paths the project ignores (eval reports, KIT report dirs, caches) are never committed: one
+  // of them in `git add` fails the whole add, and the phase was left staged but not committed.
+  const ignored = new Set((await gitRunVerbose(['check-ignore', '--', ...files], gitCtx, 'diag', out).catch(() => ''))
+    .split('\n').map(l => l.trim()).filter(Boolean));
+  if (ignored.size) {
+    log(`[harperGit] not committing ${ignored.size} ignored path(s): ${[...ignored].slice(0, 10).join(', ')}`);
+    files = files.filter(f => !ignored.has(f));
+  }
 
   if (!files.length) {
     log('[harperGit] no phase files to commit → skip (unrelated changes are never committed)');
@@ -417,10 +427,36 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
     try {
       sessionNoiseStashed = await stashLocalSessionNoise(gitCtx, log);
       await gitRunVerbose(['switch', defaultBranch], gitCtx, 'git', out);
-      await gitRunVerbose(['merge', '--no-ff', targetBranch, '-m', `merge: ${reqId} via gate [runId=${runId}]`], gitCtx, 'git', out);
+      // The remote default branch may have moved (a PR merged on the host): bring it in first,
+      // otherwise the push below is rejected as non-fast-forward and main stays local only.
+      let remoteInSync = true;
       if (hasRemote && autoPush) {
+        try {
+          await gitRunVerbose(['fetch', s.gitRemote, defaultBranch], gitCtx, 'git', out);
+          await gitRunVerbose(
+            ['merge', '--no-edit', `${s.gitRemote}/${defaultBranch}`, '-m', `merge: ${s.gitRemote}/${defaultBranch} into ${defaultBranch} before ${reqId}`],
+            gitCtx, 'git', out
+          );
+        } catch (e) {
+          remoteInSync = false;
+          try { await gitRunVerbose(['merge', '--abort'], gitCtx, 'git', out); } catch {}
+          log(`[harperGit] sync ${defaultBranch} with ${s.gitRemote} warn: ${e.message}`);
+          notifyGitProblem(
+            `CLike Git: ${s.gitRemote}/${defaultBranch} has commits that do not merge cleanly into ${defaultBranch}: ` +
+            `${reqId} is merged locally but ${defaultBranch} is not pushed. Merge ${s.gitRemote}/${defaultBranch}, then git push ${s.gitRemote} ${defaultBranch}.`
+          );
+        }
+      }
+      await gitRunVerbose(['merge', '--no-ff', targetBranch, '-m', `merge: ${reqId} via gate [runId=${runId}]`], gitCtx, 'git', out);
+      if (hasRemote && autoPush && remoteInSync) {
         try { await gitRunVerbose(['push', s.gitRemote, defaultBranch], gitCtx, 'git', out); }
-        catch (e) { log(`[harperGit] push ${defaultBranch} warn: ${e.message}`); }
+        catch (e) {
+          log(`[harperGit] push ${defaultBranch} warn: ${e.message}`);
+          notifyGitProblem(
+            `CLike Git: ${reqId} is merged into ${defaultBranch} locally, but pushing ${defaultBranch} failed — ` +
+            `${String(e.message || e).split('\n')[0]}. Run git push ${s.gitRemote} ${defaultBranch}.`
+          );
+        }
       }
       if (s.gitDeleteBranchOnMerge === true) {
         try { await gitRunVerbose(['branch', '-d', targetBranch], gitCtx, 'git', out); }

@@ -112,7 +112,9 @@ function baseContent(workspaceRoot, rev, rel, dependencies = []) {
     if (fs.existsSync(candidate)) return { content: fs.readFileSync(candidate), from: dep };
   }
   if (!rev) return null;
-  const r = git(workspaceRoot, ['show', `${rev}:${rel}`]);
+  // cat-file, not show: for a path with [ ] (Next.js dynamic routes such as app/runs/[run_id]/)
+  // that is not in rev, `git show rev:path` exits 0 with no output, i.e. an empty base file.
+  const r = git(workspaceRoot, ['cat-file', 'blob', `${rev}:${rel}`]);
   return r.code === 0 ? { content: r.stdout, from: 'git' } : null;
 }
 

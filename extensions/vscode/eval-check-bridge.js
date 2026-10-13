@@ -170,4 +170,14 @@ function agentArgsForEvalCheck(executorId, args) {
   return ['--allowedTools', `Bash(node ${HELPER_PATH.split(path.sep).join('/')}:*)`, ...(list.length ? list : ['-p'])];
 }
 
-module.exports = { CHANNEL_DIR, HELPER_PATH, agentArgsForEvalCheck, compactResult, startEvalCheckBridge };
+// Time an agent may spend waiting for its eval checks (one full eval of a REQ with e2e and
+// services takes ~6 minutes): added to its run timeout, so a repair that verifies is not killed.
+const MINUTES_PER_EVAL_CHECK = 6;
+
+function agentTimeoutMinutes(baseMinutes, evalCheck) {
+  const base = Math.max(1, Math.ceil(Number(baseMinutes) || 30));
+  const runs = evalCheck ? Math.max(0, Number(evalCheck.max_runs ?? 8)) : 0;
+  return base + runs * MINUTES_PER_EVAL_CHECK;
+}
+
+module.exports = { CHANNEL_DIR, HELPER_PATH, agentArgsForEvalCheck, agentTimeoutMinutes, compactResult, startEvalCheckBridge };

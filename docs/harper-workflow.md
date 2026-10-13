@@ -196,7 +196,8 @@ Works with the cloud and with local agents. Benchmark: `--acceptance-first`.
 ### Auto-eval and regression
 `/eval <REQ-ID> --fix ["hint"]` runs a bounded, governed repair loop (KIT repair from the real
 failures → eval) and, by default, eval and gate also re-run the acceptance checks of the promoted
-REQs. See `auto-eval.md`.
+REQs. `/gate <REQ-ID> --fix ["hint"]` runs the same loop from a failing gate. The hint is optional:
+CLike flags failures that passed in earlier runs as nondeterministic. See `auto-eval.md`.
 
 ## GATE model
 

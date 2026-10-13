@@ -117,3 +117,19 @@ def test_only_the_requested_checks_run(tmp_path: Path, monkeypatch):
     )
     assert [c.name for c in unknown.cases if not c.name.startswith("env::")] == ["ltc::unknown-checks"]
     assert "'a', 'b'" in unknown.cases[-1].stderr
+
+
+def test_regression_waits_until_the_req_own_checks_pass(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("CLIKE_EVAL_ROOT", str(tmp_path / "eval"))
+    kit = tmp_path / "runs" / "kit" / "REQ-001"
+    (kit / "ci").mkdir(parents=True)
+    (kit / "src").mkdir()
+    called = []
+    monkeypatch.setattr(EvalRunner, "run_regression", lambda self, req, src: called.append(req) or [])
+    profile = str(kit / "ci" / "LTC.json")
+    failing = {"req_id": "REQ-001", "checks": [{"id": "unit", "command": "exit 1", "blocking": True}]}
+    EvalRunner(tmp_path).run_profile(profile=profile, ltc=failing, req_id="REQ-001", regression=True)
+    assert called == []
+    passing = {"req_id": "REQ-001", "checks": [{"id": "unit", "command": "true", "blocking": True}]}
+    EvalRunner(tmp_path).run_profile(profile=profile, ltc=passing, req_id="REQ-001", regression=True)
+    assert called == ["REQ-001"]

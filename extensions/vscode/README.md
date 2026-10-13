@@ -284,6 +284,12 @@ The extension currently supports a **base KIT run by default**, plus optional ex
 - **`/gate <REQ-ID>`**
   - runs gate checks and promotion logic for that REQ
 
+- **`/gate <REQ-ID> --fix ["hint"]`**
+  - auto-gate: on a failing gate, the same KIT repair as `/eval --fix` (tests locked, same cycle
+    limits), then a full gate again. The hint is optional: CLike adds its own diagnosis (failures
+    that passed in earlier runs are flagged as nondeterministic) and writes what each repair
+    received in `runs/<eval|gate>/<REQ>/repair_<REQ>_<ts>.md`. See `docs/auto-eval.md`
+
 ### Finalization
 
 - **`/finalize`**
@@ -465,7 +471,7 @@ Current configuration keys exposed by the extension include:
 
 - `clike.eval.regression` — default `true`; `/eval` and `/gate` also re-run the acceptance checks of the promoted REQs
 - `clike.gate.strictWarnings` — default `false`; warnings (failed non-blocking checks) block the gate
-- `clike.autoEval.maxCycles` — default `2`; repair cycles of `/eval REQ --fix`
+- `clike.autoEval.maxCycles` — default `2`; repair cycles of `/eval REQ --fix` and `/gate REQ --fix`
 - `clike.autoEval.afterKit` — default `false`; run the auto-eval after every successful `/kit`
 - `clike.kit.acceptanceFirst` — default `false`; `/kit` first writes and locks the acceptance tests (from SPEC/PLAN), then the code against them
 

@@ -13,7 +13,7 @@ Claude Code and Codex use CLike.
 | Container VM memory | **at least 4 GB, 6 GB recommended** | eval sandbox (tests, browser e2e) |
 | Provider API keys | OpenAI and/or Anthropic | cloud execution |
 | Claude Code CLI (`claude`) and/or Codex CLI (`codex`) | logged in | agent execution (optional) |
-| Node.js 20+, Python 3.12 + [`uv`](https://docs.astral.sh/uv/) | — | only to build or develop CLike |
+| Node.js 22+, Python 3.12 + [`uv`](https://docs.astral.sh/uv/) | — | only to build or develop CLike |
 
 With Podman on macOS, check and raise the VM memory:
 
@@ -62,7 +62,7 @@ Services listen on `127.0.0.1` only. After an update: `cd docker && ./rebuild.sh
 Install the packaged extension (or build it from source):
 
 ```bash
-code --install-extension extensions/vscode/clike-1.4.0.vsix
+code --install-extension extensions/vscode/clike-1.4.1.vsix
 # from source: cd extensions/vscode && npm ci && npm run check && npm run package
 ```
 
