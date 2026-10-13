@@ -4,6 +4,25 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.4.1] — 2026-10-13 — The gate repairs what it finds
+
+### Added
+
+- **`/gate REQ --fix ["hint"]`: the gate repairs what it finds.** A gate re-runs every check and
+  the regression, so it can fail where the eval passed. With `--fix` a failing gate gets the same
+  KIT repair as `/eval --fix` (tests locked, governed test/ci changes, same cycle limits and stop
+  rules), then a full gate again: only a gate run on the repaired candidate promotes it. Missing
+  required outputs reach the repair as failures; a tampered acceptance surface and promotion
+  conflicts are not repaired.
+- **Intermittent failures are diagnosed without a hint.** Before a repair (`/eval --fix`,
+  `/gate --fix`) CLike reads the earlier eval/gate reports of the REQ; a failing check (or test)
+  that passed before reaches the repair flagged as nondeterministic: make the code deterministic,
+  do not change the asserted value. Found on a test whose count depended on jobs ordered by random
+  UUIDs: it passed in 3 of 5 runs.
+- **What each repair received is written next to the report**:
+  `runs/<eval|gate>/<REQ>/repair_<REQ>_<ts>.md` (the developer hint, if any, CLike's diagnosis,
+  the failing checks).
+
 ### Improved
 
 - **`/eval --fix` repairs from all the errors, in both modes.** Measured on a Next.js REQ, three
@@ -40,6 +59,11 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   Code stops shell commands after 2 minutes by default); Claude Code gets `--allowedTools` for it.
 
 ### Fixed
+
+- **Merge-on-gate left `main` unpushed when the remote `main` had moved** (e.g. a PR merged on
+  GitHub): the push was rejected as non-fast-forward and only logged, so the REQ branch reached
+  the remote and `main` did not. CLike now fetches and merges `origin/main` before merging the
+  REQ, then pushes; a conflict or a failed push is shown as a warning with the command to run.
 
 - **Git: the KIT of an `/eval --fix` repair (and every eval report) was staged but never committed.**
   The phase files included paths the project ignores (`runs/eval/…`, `runs/kit/<REQ>/reports`,
