@@ -221,3 +221,30 @@ test('ignored phase paths (eval reports, KIT report dirs) are left out; the rest
   assert.deepEqual(committed, ['runs/kit/REQ-005/src/web/polling.ts']);
   assert.doesNotMatch(git(dir, 'status', '--porcelain', '--untracked-files=no'), /polling/);
 });
+
+test('merge-on-gate pushes main even when the remote main moved (a PR merged on the host)', async () => {
+  const remote = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'clike-remote-')));
+  git(remote, 'init', '-q', '--bare', '-b', 'main');
+  const dir = makeRepo();
+  git(dir, 'remote', 'add', 'origin', remote);
+  git(dir, 'push', '-q', 'origin', 'main');
+  // Someone merges a PR on the host: origin/main gets a commit the local main does not have.
+  const other = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'clike-other-')));
+  git(other, 'clone', '-q', remote, '.');
+  git(other, 'config', 'user.name', 'Host');
+  git(other, 'config', 'user.email', 'host@example.com');
+  git(other, 'config', 'commit.gpgsign', 'false');
+  git(other, 'commit', '-q', '--allow-empty', '-m', 'Merge pull request #2');
+  git(other, 'push', '-q', 'origin', 'main');
+  const hostCommit = git(other, 'rev-parse', 'HEAD');
+
+  await sync(dir, 'kit', 'REQ-001', [write(dir, 'runs/kit/REQ-001/src/a.py', 'a\n')]);
+  const kitCommit = git(dir, 'rev-parse', 'feature/req-001');
+  await sync(dir, 'gate', 'REQ-001', [write(dir, 'runs/kit/REQ-001/gate.json', '{}\n')],
+    settings({ gitMergeOnGate: true, gitAutoPush: true }));
+
+  const remoteMain = git(remote, 'rev-parse', 'main');
+  assert.ok(isAncestor(remote, kitCommit, remoteMain), 'the REQ reached the remote main');
+  assert.ok(isAncestor(remote, hostCommit, remoteMain), 'the host commit is kept');
+  assert.equal(git(dir, 'rev-parse', 'main'), remoteMain, 'local and remote main are in sync');
+});

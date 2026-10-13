@@ -426,10 +426,36 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
     try {
       sessionNoiseStashed = await stashLocalSessionNoise(gitCtx, log);
       await gitRunVerbose(['switch', defaultBranch], gitCtx, 'git', out);
-      await gitRunVerbose(['merge', '--no-ff', targetBranch, '-m', `merge: ${reqId} via gate [runId=${runId}]`], gitCtx, 'git', out);
+      // The remote default branch may have moved (a PR merged on the host): bring it in first,
+      // otherwise the push below is rejected as non-fast-forward and main stays local only.
+      let remoteInSync = true;
       if (hasRemote && autoPush) {
+        try {
+          await gitRunVerbose(['fetch', s.gitRemote, defaultBranch], gitCtx, 'git', out);
+          await gitRunVerbose(
+            ['merge', '--no-edit', `${s.gitRemote}/${defaultBranch}`, '-m', `merge: ${s.gitRemote}/${defaultBranch} into ${defaultBranch} before ${reqId}`],
+            gitCtx, 'git', out
+          );
+        } catch (e) {
+          remoteInSync = false;
+          try { await gitRunVerbose(['merge', '--abort'], gitCtx, 'git', out); } catch {}
+          log(`[harperGit] sync ${defaultBranch} with ${s.gitRemote} warn: ${e.message}`);
+          notifyGitProblem(
+            `CLike Git: ${s.gitRemote}/${defaultBranch} has commits that do not merge cleanly into ${defaultBranch}: ` +
+            `${reqId} is merged locally but ${defaultBranch} is not pushed. Merge ${s.gitRemote}/${defaultBranch}, then git push ${s.gitRemote} ${defaultBranch}.`
+          );
+        }
+      }
+      await gitRunVerbose(['merge', '--no-ff', targetBranch, '-m', `merge: ${reqId} via gate [runId=${runId}]`], gitCtx, 'git', out);
+      if (hasRemote && autoPush && remoteInSync) {
         try { await gitRunVerbose(['push', s.gitRemote, defaultBranch], gitCtx, 'git', out); }
-        catch (e) { log(`[harperGit] push ${defaultBranch} warn: ${e.message}`); }
+        catch (e) {
+          log(`[harperGit] push ${defaultBranch} warn: ${e.message}`);
+          notifyGitProblem(
+            `CLike Git: ${reqId} is merged into ${defaultBranch} locally, but pushing ${defaultBranch} failed — ` +
+            `${String(e.message || e).split('\n')[0]}. Run git push ${s.gitRemote} ${defaultBranch}.`
+          );
+        }
       }
       if (s.gitDeleteBranchOnMerge === true) {
         try { await gitRunVerbose(['branch', '-d', targetBranch], gitCtx, 'git', out); }
