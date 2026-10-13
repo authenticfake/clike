@@ -5,7 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { collectRepairFailures, collectRepairFiles, nextAutoEvalStep } = require('../auto-eval');
+const { annotateIntermittentFailures, collectRepairFailures, collectRepairFiles, nextAutoEvalStep, nextAutoGateStep, readEarlierReports, repairNotesMarkdown, writeRepairNotes } = require('../auto-eval');
 const { parseSlash } = require('../slash-parser');
 
 const failing = (names) => ({
@@ -17,14 +17,16 @@ const failing = (names) => ({
   ],
 });
 
-test('/eval --fix carries the hint; /gate ignores --fix', () => {
+test('/eval and /gate --fix carry the hint', () => {
   const withHint = parseSlash('/eval REQ-001 --fix "use the repository layer"').args;
   assert.deepEqual([withHint.targets, withHint.fix, withHint.hint], [['REQ-001'], true, 'use the repository layer']);
   const bare = parseSlash('/eval REQ-001 --fix').args;
   assert.deepEqual([bare.targets, bare.fix, bare.hint], [['REQ-001'], true, '']);
   assert.equal(parseSlash('/eval REQ-001').args.fix, undefined);
   assert.equal(parseSlash('/eval REQ-001 manual pass').args.testMode, 'manual');
-  assert.equal(parseSlash('/gate REQ-001 --fix').args.fix, undefined);
+  const gate = parseSlash('/gate REQ-001 --no-promote --fix "keep the worker order"').args;
+  assert.deepEqual([gate.targets, gate.fix, gate.hint, gate.promote], [['REQ-001'], true, 'keep the worker order', 'off']);
+  assert.equal(parseSlash('/gate REQ-001').args.fix, undefined);
 });
 
 test('failures carry name, command, exit code and output for the repair prompt', () => {
@@ -166,4 +168,70 @@ test('/gate promotion flags', () => {
 
 test('/gate --auto-merge forces the auto-merge promotion', () => {
   assert.equal(parseSlash('/gate REQ-003 --auto-merge').args.promote, 'merge');
+});
+
+test('auto-gate: same loop as auto-eval, driven by the gate verdict', () => {
+  const base = { cycle: 0, maxCycles: 2, hint: '' };
+  const gateFail = (names) => ({ ...failing(names), gate: 'FAIL', reason_code: 'GATE_BLOCKED_FAILED_CHECKS' });
+  const first = nextAutoGateStep(base, gateFail(['test:integration']));
+  assert.equal(first.action, 'repair');
+  assert.deepEqual(first.failures.map((f) => f.name), ['test:integration']);
+  // PASS_WITH_WARNINGS accepted by the gate ends the loop; promotion conflicts are not repaired.
+  assert.equal(nextAutoGateStep({ ...base, cycle: 1 }, { gate: 'PASS', status: 'PASS_WITH_WARNINGS', passed: true, cases: [] }).action, 'pass');
+  assert.match(nextAutoGateStep({ ...base, cycle: 1, lastSignature: first.signature }, gateFail(['test:integration'])).reason, /no progress/);
+  assert.match(nextAutoGateStep({ ...base, cycle: 2 }, gateFail(['unit'])).reason, /after 2 repair cycle/);
+  const tampered = { gate: 'FAIL', reason_code: 'GATE_BLOCKED_ACCEPTANCE_TAMPERED', integrity: { ok: false }, cases: [] };
+  assert.equal(nextAutoGateStep(base, tampered).action, 'stop');
+  assert.equal(nextAutoGateStep(base, { gate: 'OVERRIDE', reason_code: 'GATE_MANUAL_OVERRIDE', cases: [] }).action, 'stop');
+  const missing = nextAutoGateStep(base, {
+    gate: 'FAIL', status: 'FAIL', reason_code: 'GATE_BLOCKED_REQUIRED_OUTPUTS_MISSING', cases: [{ name: 'lint', passed: true }],
+    structural_blockers: [{ role: 'module_launcher', reason: 'no composition root' }],
+  });
+  assert.equal(missing.action, 'repair');
+  assert.deepEqual(missing.failures.map((f) => [f.name, f.output]), [['required-output::module_launcher', 'no composition root']]);
+  assert.match(nextAutoGateStep(base, { gate: 'FAIL', status: 'FAIL', cases: [] }).reason, /gate failed without failing checks/);
+});
+
+test('intermittent failures: a check that passed in earlier runs is flagged for the repair', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'clike-flaky-'));
+  const write = (phase, ts, cases) => {
+    const dir = path.join(root, 'runs', phase, 'REQ-006');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, `report_REQ-006_${ts}.json`), JSON.stringify({ cases }));
+  };
+  write('eval', 1, [{ name: 'test:integration', passed: true, stdout: 'x.py::test_foreign_records <- y PASSED [ 91%]' }]);
+  write('gate', 2, [{ name: 'test:integration', passed: false }]);
+  write('gate', 3, [{ name: 'acceptance::integrity', passed: false }]);
+  const reports = readEarlierReports(root, 'REQ-006');
+  assert.deepEqual(reports.map((r) => r.phase), ['eval', 'gate', 'gate']);
+  const failures = [
+    { name: 'test:integration', output: 'E assert 1 == 3\nFAILED src/x.py::test_foreign_records - assert 1 == 3' },
+    { name: 'lint', output: 'E501' },
+  ];
+  const [flaky, steady] = annotateIntermittentFailures(failures, reports);
+  assert.equal(flaky.intermittent, true);
+  assert.match(flaky.output, /^CLike note: test_foreign_records passed in 1 of 2 earlier/);
+  assert.match(flaky.output, /make the behavior deterministic in src\//);
+  assert.match(flaky.output, /assert 1 == 3/);
+  assert.equal(steady, failures[1]);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('repair notes: hint and CLike diagnosis next to the report, never read back as a report', () => {
+  const failures = [
+    { name: 'test:integration', command: 'python ci/check.py tests', intermittent: true, output: 'CLike note: t passed in 3 of 5 earlier runs.\n\nassert 1 == 3' },
+    { name: 'lint', output: 'E501' },
+  ];
+  const md = repairNotesMarkdown({ reqId: 'REQ-006', phase: 'gate', cycle: 1, maxCycles: 2, reason: '1 failing check(s)', hint: '', failures });
+  assert.match(md, /^# AUTO-GATE REQ-006 — repair cycle 1\/2/);
+  assert.match(md, /Developer hint:\*\* none/);
+  assert.match(md, /`test:integration`: CLike note: t passed in 3 of 5 earlier runs\.\n/);
+  assert.doesNotMatch(md, /assert 1 == 3/);
+  assert.match(repairNotesMarkdown({ reqId: 'R', phase: 'eval', cycle: 1, maxCycles: 2, reason: 'x', hint: 'keep order', failures: [] }), /Developer hint:\*\* keep order/);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'clike-notes-'));
+  const rel = writeRepairNotes(root, 'gate', 'REQ-006', md);
+  assert.match(rel, /^runs\/gate\/REQ-006\/repair_REQ-006_\d+\.md$/);
+  assert.equal(fs.readFileSync(path.join(root, rel), 'utf8'), md);
+  assert.deepEqual(readEarlierReports(root, 'REQ-006'), []);
+  fs.rmSync(root, { recursive: true, force: true });
 });

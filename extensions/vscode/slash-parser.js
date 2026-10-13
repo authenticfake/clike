@@ -159,7 +159,7 @@ function withMethodologyArgs(args, flags) {
   return next;
 }
 
-/** `/eval REQ --fix ["hint"]`: tokens after --fix are the developer hint for the KIT repair. */
+/** `/eval|/gate REQ --fix ["hint"]`: tokens after --fix are the developer hint for the KIT repair. */
 function parseFixArgs(tokens) {
   const rest = [];
   const hint = [];
@@ -212,7 +212,7 @@ function parseSlash(input) {
         return !mode;
       });
     }
-    const fixArgs = cmd === '/eval' ? parseFixArgs(rest) : { fix: false, hint: '', rest };
+    const fixArgs = parseFixArgs(rest);
     const tokens = fixArgs.rest;
     const testMode = tokens.slice(1) ? tokens.slice(1)[0] : 'auto';
     const modeContent = tokens.slice(2) ? tokens.slice(2)[0] : 'pass';

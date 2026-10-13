@@ -36,6 +36,7 @@ The current webview parser supports the following slash commands.
 - `/eval <REQ-ID>`
 - `/eval <REQ-ID> --fix ["hint"]` — auto-eval: repair from the real failures and re-evaluate (see `auto-eval.md`)
 - `/gate <REQ-ID>`
+- `/gate <REQ-ID> --fix ["hint"]` — auto-gate: on a failing gate, the same repair as `/eval --fix`, then a full gate again (see `auto-eval.md`)
 - `/gate <REQ-ID> manual pass` — developer override **without executing checks**: asks for a reason
   (≥ 10 characters), is recorded by the orchestrator in an audit log with a digest of the REQ
   artifacts, and is reported as `OVERRIDE`, never as `PASS`. Use only when the gate cannot run
@@ -135,13 +136,20 @@ promoted REQ (plan status `done`) against the new code (`regression::<REQ>::<che
 ### `/eval <REQ-ID> --fix ["hint"]`
 Auto-eval: eval, then on failure a KIT repair built from the failed checks and the current
 candidate files, then eval again, up to `clike.autoEval.maxCycles` (default 2). Tests stay
-locked; LTC command fixes are audited. Re-run to continue; the hint guides the repair. See
-`auto-eval.md`.
+locked; LTC command fixes are audited. Re-run to continue. The hint is optional: CLike flags
+failures that passed in earlier runs as nondeterministic, and writes what each repair received
+in `runs/eval/<REQ>/repair_<REQ>_<ts>.md`. See `auto-eval.md`.
 
 ### `/gate <REQ-ID>`
 Runs gate checks for the target REQ using eval output and gate policy. Warnings (failed
 non-blocking checks) do not block unless `clike.gate.strictWarnings`; regression failures
 block with `GATE_BLOCKED_REGRESSION`.
+
+### `/gate <REQ-ID> --fix ["hint"]`
+Auto-gate: when the gate fails (checks, regression, required outputs), a KIT repair with the same
+rules as `/eval --fix`, then a full gate again; only a gate run on the repaired candidate
+promotes it. It stops on a tampered acceptance surface and does not try to resolve promotion
+conflicts. Notes per cycle in `runs/gate/<REQ>/repair_<REQ>_<ts>.md`.
 
 ### `/finalize`
 Runs release-oriented finalization: README, HOWTO_RUN, release notes, local run scripts and

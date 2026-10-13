@@ -24,6 +24,7 @@ only when its own checks pass **and** it does not break what is already promoted
 | Evaluate and repair | `/eval REQ-002 --fix` |
 | Repair with guidance | `/eval REQ-002 --fix "price() must stay in pricing.py; add the discount in checkout"` |
 | Continue after the loop stopped | run `/eval REQ-002 --fix ["hint"]` again: it restarts from the current files, with a new cycle budget |
+| Repair a failing gate | `/gate REQ-002 --fix ["hint"]` (see [Auto-gate](#auto-gate-gate---fix)) |
 | Run it automatically after every `/kit` | `clike.autoEval.afterKit: true` (default `false`) |
 | Number of repair cycles | `clike.autoEval.maxCycles` (default `2`, max `5`) |
 | Extra cycles while improving | `clike.autoEval.extraCyclesOnProgress` (default `3`): after `maxCycles`, the loop goes on as long as each cycle leaves fewer failing checks |
@@ -32,6 +33,11 @@ only when its own checks pass **and** it does not break what is already promoted
 | Make warnings block the gate | `clike.gate.strictWarnings` (default `false`) |
 
 Then promote as usual with `/gate REQ-002`.
+
+The hint is **optional**. Without it the repair works from the failures alone, plus CLike's own
+diagnosis (below); with it, both reach the repair. What each cycle received is written next to the
+report: `runs/eval/<REQ>/repair_<REQ>_<ts>.md` (`runs/gate/...` for `/gate --fix`), and the chat
+shows its path.
 
 ## What the repair model receives
 
@@ -56,6 +62,56 @@ Then promote as usual with `/gate REQ-002`.
   gets neither the token nor network access), up to `clike.autoEval.agentEvalChecks` runs. Such a
   partial run is never the REQ's verdict: the full eval follows.
 
+## CLike diagnosis: intermittent failures
+
+Before each repair CLike reads the earlier eval and gate reports of the REQ
+(`runs/eval/<REQ>/report_*.json`, `runs/gate/<REQ>/report_*.json`). A failing check that passed in
+an earlier run is flagged: its errors reach the repair behind a note such as
+
+> CLike note: test_foreign_records passed in 3 of 5 earlier eval/gate run(s) of this REQ. If the
+> code did not change in between, the failure is nondeterministic (order of rows or jobs by random
+> ids, timing, concurrency, unseeded randomness): make the behavior deterministic in src/, do not
+> adjust the asserted value.
+
+The note names the test when its id appears as `PASSED` in an earlier output, else the check. The
+chat says `ℹ AUTO-EVAL REQ: <check> passed in earlier runs`. Why it matters: from a single failing
+run (`assert 1 == 3`) a model tends to change the value; the history is what shows that the code
+is not deterministic. The tests stay locked either way.
+
+## Auto-gate: `/gate --fix`
+
+`/gate` re-runs every check and the regression of the promoted REQs, so it can fail where the
+last eval passed (an intermittent test, a change in the canonical tree). `/gate REQ --fix ["hint"]`
+then runs the same loop as `/eval --fix`, driven by the gate verdict:
+
+```
+/gate REQ-006 --fix
+  GATE ── PASS ──▶ promotion (auto-merge) → done
+    │ FAIL (checks, regression, required outputs)
+    ▼
+  KIT repair (same failures shape, same governance, same CLike diagnosis)
+    ▼
+  GATE (full) ── PASS ──▶ promotion
+    │ FAIL → next cycle, or stop (same limits as /eval --fix)
+```
+
+- Same rules as `/eval --fix`: tests locked, test/ci changes governed, `clike.autoEval.maxCycles`
+  and `extraCyclesOnProgress`, stop on no progress or a failed KIT request.
+- A repaired candidate is promoted only by a gate that ran on it: there is no eval in between,
+  the gate runs the same checks and more.
+- Missing required outputs (`GATE_BLOCKED_REQUIRED_OUTPUTS_MISSING`) reach the repair as failures
+  `required-output::<role>`.
+- It stops without repairing on a tampered acceptance surface (`GATE_BLOCKED_ACCEPTANCE_TAMPERED`:
+  restore the files or re-run `/kit`) and on a manual override.
+- A gate **PASS whose promotion left conflicts** ends the loop: the conflict is a merge with the
+  canonical tree (`<file>.conflict-<REQ>-<ts>`), not a defect of the candidate, and a KIT repair
+  cannot resolve it. Resolve it, commit, and run `/gate REQ` again.
+- Messages: `↻ AUTO-GATE REQ: repair cycle n/m`, `✔ AUTO-GATE REQ: gate PASS after n repair
+  cycle(s)`, `✖ AUTO-GATE REQ stopped: <reason>`.
+
+Even when the gate passes after a repair of an intermittent failure, look at what the repair
+changed (`src/` of the KIT): a passing run of a nondeterministic test may still be luck.
+
 ## Time of a cycle
 
 A cycle is: the repair (the agent verifies its fix with eval checks, ~1 minute each), then the
@@ -79,6 +135,8 @@ full eval. To keep it short and stable:
 | Repair request failed | `the KIT repair request failed` | see the error in the chat (provider, validation) |
 | Acceptance surface changed | `the acceptance surface (test/ or ci/) changed after the lock` | tests/LTC were edited outside the governed path: re-run `/kit` to re-baseline |
 | Nothing to repair | `eval failed without failing checks` | see the eval report (e.g. integrity or setup errors) |
+
+The same outcomes apply to `/gate --fix` (`AUTO-GATE`, `gate failed without failing checks`).
 
 ## What the repair may change (governance)
 
