@@ -220,3 +220,23 @@ def test_harper_init_template_manifest_is_valid():
     assert manifest["limits"]["max_total_chars"] == 150_000
     # the template folders hold only .gitkeep, which is never read as a source
     assert resolve_context_sources(template, "spec")["items"] == []
+
+
+def test_existing_source_code_is_read_as_context(tmp_path):
+    # Brownfield modules and integration clients are context: a .py or .go file is not "unsupported".
+    (tmp_path / ".clike").mkdir()
+    (tmp_path / ".clike" / "context.yaml").write_text(
+        "version: 1\nsources:\n  - path: legacy/**\n    role: existing_code\n    phases: [plan, kit]\n"
+    )
+    (tmp_path / "legacy").mkdir()
+    (tmp_path / "legacy" / "billing.py").write_text("def invoice_number(year):\n    return f'{year}-0001'\n")
+    (tmp_path / "legacy" / "client.go").write_text("package client\n")
+    (tmp_path / "legacy" / "blob.bin").write_bytes(b"\x00\x01")
+    context = resolve_context_sources(tmp_path, "kit")
+    items = {i["path"]: i for i in context["items"]}
+    assert items["legacy/billing.py"]["kind"] == "text"
+    assert "invoice_number" in items["legacy/billing.py"]["text"]
+    assert items["legacy/client.go"]["kind"] == "text"
+    assert items["legacy/blob.bin"]["kind"] == "skipped"
+    block = render_context_sources_for_cloud(context)
+    assert "existing_code: code that already exists" in block

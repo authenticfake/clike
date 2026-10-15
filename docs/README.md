@@ -25,6 +25,7 @@ This documentation reflects the current source tree in the inspected package and
 - `mcp.md` — MCP servers (orchestrator, extension), tools and authentication
 - `api-reference.md` — endpoint census for orchestrator, gateway, and agent surfaces
 - `agent-operating-model.md` — developer→agent and agent→CLike operating models, methodology profiles
+- `architecture/ADOPT_AND_IDEA_EXTEND.md` — design proposal (not implemented): `/adopt` for brownfield repositories (any origin, foreign tool artifacts included) and `/idea --extend` for evolving CLike projects with ADDED/MODIFIED/REMOVED requirements
 - `development.md` — developer guide: local runs, tests, golden snapshots, lint baseline, hygiene, CI, rebuild, eval sandbox and **eval environment** (`docker/eval.env`, provisioned variables, test databases, services of other REQs)
 - `../SECURITY.md` — security model, known limitations, vulnerability reporting
 - `../CHANGELOG.md` — release notes

@@ -38,12 +38,13 @@ Without the file CLike reads `docs/inputs/**` as `requirements` (idea, spec, pla
 | `domain_glossary` | domain terms |
 | `example_output` | expected outputs or reports to match |
 | `reference` | background material |
+| `existing_code` | code that already exists (this project or one to integrate with): follow its interfaces and conventions, call it instead of rewriting it |
 
 ## Formats
 
 | Format | Cloud model | Local agent |
 |---|---|---|
-| md, txt, json, yaml, csv, xml, html, css, svg, js/ts, sql, … | inlined | reads the file in place |
+| md, txt, json, yaml, csv, xml, html, css, svg, sql, … and source code (py, js/ts, java/kt, go, rs, cs, rb, php, c/cpp, sh, tf, …) | inlined | reads the file in place |
 | docx, xlsx/xls/xlsb, pptx, pdf | converted to text, inlined | reads the text written to `runs/context/<phase>/<path>.txt` |
 | png, jpg, gif, webp | listed by name (no vision yet) | opens the image |
 | anything else | listed as not readable | told to state it as a gap |
