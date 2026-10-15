@@ -93,13 +93,23 @@ override) the REQ is promoted **without prompts** (`clike.gate.autoPromote`, def
 - every file gets a **3-way merge**: base = what the KIT started from (the file of the last
   direct dependency KIT in `plan.json` `dependsOn` that has it, else the canonical file at the
   parent of the KIT commit, else at the last commit before the KIT was generated), ours = the
-  canonical file now, theirs = the candidate. Lines added at the same place by both sides are
-  both kept. Outcomes: `added`, `updated` (canonical unchanged since the KIT),
+  canonical file now, theirs = the candidate. Two kinds of overlapping change resolve without
+  you: lines added at the same place by both sides (both kept, canonical first), and a spot where
+  the candidate holds the whole canonical side plus its own additions (a later KIT rewrote a line
+  from the code an earlier REQ had already promoted; compared word by word, whitespace ignored):
+  the candidate is kept, nothing of `src/` is lost and it is what the gate tested. The opposite
+  (canonical holds the whole candidate) stays a conflict: `src/` was not tested with this REQ.
+  Without a merge base the same rule applies to the whole file. Outcomes: `added`, `updated` (canonical unchanged since the KIT),
   `merged` (both changed, merged cleanly by `git merge-file`), `kept_canonical`, `unchanged`,
   `conflict`;
 - a conflicting file is **never written**: `<name>.conflict-<REQ>-<ts>` next to it holds the
-  merge with conflict markers, the other files are promoted, and the REQ stays `in_progress`
-  until the conflicts are resolved and `/gate` runs again;
+  merge with conflict markers (only the spots still in conflict), the other files are promoted,
+  and the REQ stays `in_progress` until the conflicts are resolved and `/gate` runs again;
+- **`conflicts.md`** next to the report explains every spot still in conflict without markers:
+  what `src/` has now, what the REQ wants, the diff between the two, the base, and what to do.
+  To resolve: write the right content into the canonical file, delete its `.conflict-…` file,
+  `/gate` again. The `.conflict-…`, `.incoming-…` and `.bak-…` files are never copied into an
+  eval workspace, so one left behind does not fail a check;
 - without git history of the KIT there is no base: only new or identical files are promoted,
   the others are conflicts (nothing is overwritten silently);
 - the report `runs/kit/<REQ>/promotion/<ts>/report.md` (opened at the end) lists every file with

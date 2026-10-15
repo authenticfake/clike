@@ -1,6 +1,7 @@
 const { request: serviceRequest } = require('./orchestrator-client');
 const vscode = require('vscode');
 const { autoMergePromotion } = require('./promote-merge');
+const { inputsFingerprint } = require('./auto-eval');
 const cp = require('child_process');
 const path = require('path');
 const { buildLocalAgentEnv, resolveLocalAgentCommandPath, buildLocalAgentSpawn, resolvePromptTransport, terminateProcessTree } = require('./local-agent-executors');
@@ -1185,6 +1186,7 @@ async function persistReports(projectRootUri, phase, rep, out, fallbackReqId = '
       bmad_advisory: rep.bmad_advisory || undefined,
       advisory: rep.advisory || undefined,
       summary: rep.summary || undefined,
+      inputs_fingerprint: (() => { try { return inputsFingerprint(rootUri.fsPath, req_id); } catch { return undefined; } })(),
       cases: cases.map(c => ({
       name: c.name,
       passed: !!c.passed,

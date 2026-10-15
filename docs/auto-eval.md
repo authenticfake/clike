@@ -65,13 +65,21 @@ shows its path.
 ## CLike diagnosis: intermittent failures
 
 Before each repair CLike reads the earlier eval and gate reports of the REQ
-(`runs/eval/<REQ>/report_*.json`, `runs/gate/<REQ>/report_*.json`). A failing check that passed in
-an earlier run is flagged: its errors reach the repair behind a note such as
+(`runs/eval/<REQ>/report_*.json`, `runs/gate/<REQ>/report_*.json`). Each report stores
+`inputs_fingerprint`, a hash of what the run used: the canonical `src/`, `test/`, `tests/` and the
+KIT (`src/`, `test/`, `tests/`, `ci/`). Installed dependencies and CLike's promotion leftovers
+(`.conflict-…`, `.incoming-…`) are not counted. A failing check that passed earlier is flagged:
 
-> CLike note: test_foreign_records passed in 3 of 5 earlier eval/gate run(s) of this REQ. If the
-> code did not change in between, the failure is nondeterministic (order of rows or jobs by random
-> ids, timing, concurrency, unseeded randomness): make the behavior deterministic in src/, do not
-> adjust the asserted value.
+- **passed on the same code** (same fingerprint): its errors reach the repair behind a note such as
+
+  > CLike note: test_foreign_records passed in 3 of 5 earlier eval/gate run(s) of this REQ on the
+  > same code (src/, test/ and the KIT unchanged), so the failure is nondeterministic (order of
+  > rows or jobs by random ids, timing, concurrency, unseeded randomness): make the behavior
+  > deterministic in src/, do not adjust the asserted value.
+
+- **passed only on other code** (or in a report without a fingerprint): the note says that the
+  code changed since then and that the failure most likely comes from that change, not from
+  nondeterminism.
 
 The note names the test when its id appears as `PASSED` in an earlier output, else the check. The
 chat says `ℹ AUTO-EVAL REQ: <check> passed in earlier runs`. Why it matters: from a single failing

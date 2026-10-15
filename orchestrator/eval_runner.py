@@ -176,6 +176,10 @@ _NON_BEHAVIOURAL_CHECK_RE = re.compile(
     re.IGNORECASE,
 )
 _TEST_FAILURES_RE = re.compile(r"\b\d+ (?:failed|errors?)\b|^FAILED ", re.MULTILINE)
+# CLike's own promotion leftovers next to canonical files (<name>.conflict-REQ-…, .incoming-REQ-…,
+# .bak-<n>): never source, so never composed into an eval workspace (a format check walked into
+# a .conflict-… file the developer had not deleted yet and failed the gate).
+_PROMOTION_SCRATCH_RE = re.compile(r"\.(?:incoming|conflict)-REQ-|\.bak-\d")
 
 
 ENVIRONMENT_MISSING_REASON = "EVAL_ENVIRONMENT_MISSING"
@@ -775,7 +779,7 @@ class EvalRunner:
         }
 
         if src.is_file():
-            if src.name not in ignored_names and src.suffix not in {".pyc", ".pyo"}:
+            if src.name not in ignored_names and src.suffix not in {".pyc", ".pyo"} and not _PROMOTION_SCRATCH_RE.search(src.name):
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src, dst)
             return
@@ -784,7 +788,7 @@ class EvalRunner:
             rel = item.relative_to(src)
             if any(part in ignored_names for part in rel.parts):
                 continue
-            if item.suffix in {".pyc", ".pyo"}:
+            if item.suffix in {".pyc", ".pyo"} or _PROMOTION_SCRATCH_RE.search(item.name):
                 continue
 
             target = dst / rel
@@ -1414,6 +1418,7 @@ class EvalRunner:
 
         def ignore(directory: str, names: List[str]) -> set:
             skipped = set(everywhere(directory, names))
+            skipped |= {n for n in names if _PROMOTION_SCRATCH_RE.search(n)}
             if solution_root:
                 here = Path(directory).resolve()
                 if here == kit_root:

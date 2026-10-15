@@ -126,39 +126,78 @@ function mergeThreeWay(ours, base, theirs, reqId) {
     fs.writeFileSync(o, ours); fs.writeFileSync(b, base); fs.writeFileSync(t, theirs);
     const r = spawnSync('git', ['merge-file', '-p', '--diff3', '-L', 'canonical', '-L', 'base', '-L', reqId, o, b, t], { encoding: 'buffer' });
     if (r.status == null || r.status < 0) throw new Error(`git merge-file failed: ${String(r.stderr || r.error || '')}`);
-    if (r.status === 0) return { text: r.stdout, conflicts: 0, unions: 0 };
-    return resolveAdditionOnlyHunks(r.stdout, r.status, reqId);
+    if (r.status === 0) return { text: r.stdout, conflicts: 0, unions: 0, contained: 0 };
+    return resolveHunks(r.stdout, r.status, reqId);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 }
 
-/**
- * A conflict hunk whose base part is empty means both sides only ADDED lines at the same place
- * (e.g. new entries at the end of .env.example): keep both, canonical first. Any hunk where both
- * sides changed existing lines stays a conflict and the file is not written.
- */
-function resolveAdditionOnlyHunks(buf, conflicts, reqId) {
-  const lines = buf.toString('utf8').split('\n');
-  const out = [];
+/** Split git merge-file --diff3 output into context lines and conflict hunks, in order. */
+function parseConflictHunks(text, reqId) {
+  const lines = text.split('\n');
+  const parts = [];
   let i = 0;
-  let unions = 0;
+  let canonicalLine = 1;
   while (i < lines.length) {
-    if (!lines[i].startsWith('<<<<<<< canonical')) { out.push(lines[i]); i += 1; continue; }
-    const ours = []; const base = []; const theirs = [];
-    let part = ours; i += 1;
+    if (!lines[i].startsWith('<<<<<<< canonical')) { parts.push(lines[i]); canonicalLine += 1; i += 1; continue; }
+    const hunk = { ours: [], base: null, theirs: [], line: canonicalLine };
+    let part = hunk.ours; i += 1;
     while (i < lines.length && !lines[i].startsWith(`>>>>>>> ${reqId}`)) {
-      if (lines[i].startsWith('||||||| base')) part = base;
-      else if (lines[i] === '=======') part = theirs;
+      if (lines[i].startsWith('||||||| base')) { hunk.base = []; part = hunk.base; }
+      else if (lines[i] === '=======') part = hunk.theirs;
       else part.push(lines[i]);
       i += 1;
     }
     i += 1; // closing marker
-    if (base.some((l) => l.trim() !== '')) return { text: buf, conflicts, unions: 0 };
-    out.push(...ours, ...theirs);
-    unions += 1;
+    canonicalLine += hunk.ours.length;
+    parts.push(hunk);
   }
-  return { text: Buffer.from(out.join('\n'), 'utf8'), conflicts: 0, unions };
+  return parts;
+}
+
+// Words, numbers and single punctuation marks; whitespace does not count.
+const tokens = (lines) => lines.join('\n').match(/[A-Za-z0-9_]+|[^\sA-Za-z0-9_]/g) || [];
+
+/** True when every token of `small`, in order, is also in `big` (big only inserts). */
+function containsInOrder(big, small) {
+  let j = 0;
+  for (let k = 0; k < big.length && j < small.length; k += 1) if (big[k] === small[j]) j += 1;
+  return j === small.length;
+}
+
+/**
+ * How one conflict hunk resolves without a human, or null:
+ * - both sides only ADDED lines at the same place (empty base, e.g. new entries at the end of
+ *   .env.example): keep both, canonical first;
+ * - the candidate holds the whole canonical side plus its own additions (a later KIT rewrote the
+ *   same line from the code an earlier REQ had already promoted): keep the candidate. Nothing of
+ *   src/ is lost and the candidate is exactly what the gate tested (the KIT file wins in the
+ *   eval workspace). The opposite (canonical contains the candidate) stays a conflict: keeping
+ *   src/ would promote code the gate did not test.
+ */
+function resolveHunk(hunk) {
+  if (hunk.base && hunk.base.every((l) => l.trim() === '')) return { lines: [...hunk.ours, ...hunk.theirs], how: 'union' };
+  const ours = tokens(hunk.ours);
+  if (ours.length && containsInOrder(tokens(hunk.theirs), ours)) return { lines: hunk.theirs, how: 'contains' };
+  return null;
+}
+
+/** Resolve what resolveHunk can; the rest stays as conflict markers (fewer to resolve by hand). */
+function resolveHunks(buf, conflicts, reqId) {
+  const out = [];
+  const counts = { union: 0, contains: 0 };
+  let left = 0;
+  for (const part of parseConflictHunks(buf.toString('utf8'), reqId)) {
+    if (typeof part === 'string') { out.push(part); continue; }
+    const r = resolveHunk(part);
+    if (r) { out.push(...r.lines); counts[r.how] += 1; continue; }
+    left += 1;
+    out.push('<<<<<<< canonical', ...part.ours);
+    if (part.base) out.push('||||||| base', ...part.base);
+    out.push('=======', ...part.theirs, `>>>>>>> ${reqId}`);
+  }
+  return { text: Buffer.from(out.join('\n'), 'utf8'), conflicts: left, unions: counts.union, contained: counts.contains };
 }
 
 /** Unified diff of one file (before → after), paths relative to the workspace. */
@@ -189,6 +228,57 @@ function lineStats(diff) {
   return { added, removed };
 }
 
+const FENCE_LANG = { ts: 'ts', tsx: 'tsx', js: 'js', mjs: 'js', cjs: 'js', jsx: 'jsx', py: 'python', json: 'json', css: 'css', md: 'md', yml: 'yaml', yaml: 'yaml', toml: 'toml', sh: 'sh', sql: 'sql', html: 'html' };
+
+function fenced(lines, lang = '') {
+  const body = lines.join('\n');
+  const fence = body.includes('```') ? '~~~~' : '```';
+  return [`${fence}${lang}`, ...(lines.length ? lines : ['(nothing: this side has no lines here)']), fence];
+}
+
+/** Line diff of one hunk, canonical → candidate, without file headers. */
+function hunkDiff(ours, theirs) {
+  const diff = unifiedDiff('x', Buffer.from(`${ours.join('\n')}\n`), Buffer.from(`${theirs.join('\n')}\n`));
+  return diff.split('\n').filter((l) => !/^(diff --git|--- |\+\+\+ |@@ )/.test(l) && l !== '');
+}
+
+/**
+ * conflicts.md: every spot still in conflict, readable without conflict markers: what src/ has
+ * now, what the REQ wants, the diff between the two, the base, and what to do.
+ */
+function renderConflicts({ reqId, ts, conflicts }) {
+  const lines = [
+    `# ${reqId} — conflicts to resolve (${ts})`,
+    '',
+    `For each spot: **src/ now** (what earlier REQs promoted), **${reqId} wants** (the candidate the`,
+    `gate tested), the diff between them (\`-\` only in src/, \`+\` only in ${reqId}) and the base`,
+    'the KIT started from. Write the right content into the canonical file, delete its',
+    `\`.conflict-…\` file and run \`/gate ${reqId}\` again.`,
+    '',
+  ];
+  for (const r of conflicts) {
+    const lang = FENCE_LANG[path.extname(r.path).slice(1).toLowerCase()] || '';
+    const hunks = r.markers ? parseConflictHunks(r.markers.toString('utf8'), reqId).filter((p) => typeof p !== 'string') : [];
+    lines.push(`## \`${r.path}\``, '', `${r.reason}${r.conflictFile ? ` — markers in \`${r.conflictFile}\`` : ''}`, '');
+    if (!hunks.length) {
+      lines.push('No text to compare (binary, or removed from src/ after the KIT): decide by hand which file to keep.', '');
+      continue;
+    }
+    hunks.forEach((h, n) => {
+      lines.push(`### Spot ${n + 1} of ${hunks.length} — line ${h.line} of src/`, '');
+      lines.push('**src/ now**', '', ...fenced(h.ours, lang), '');
+      lines.push(`**${reqId} wants**`, '', ...fenced(h.theirs, lang), '');
+      lines.push(`**src/ → ${reqId}**`, '', ...fenced(hunkDiff(h.ours, h.theirs), 'diff'), '');
+      if (h.base) lines.push('<details><summary>base (what the KIT started from)</summary>', '', ...fenced(h.base, lang), '', '</details>', '');
+      const theirsInOurs = h.theirs.length && containsInOrder(tokens(h.ours), tokens(h.theirs));
+      lines.push(theirsInOurs
+        ? `**What to do:** src/ already holds everything ${reqId} adds here, plus more: keeping src/ is likely right, but ${reqId} was tested with its own version, so run \`/gate ${reqId}\` and check its tests.`
+        : `**What to do:** each side has something the other lacks: write one version with both (from the diff: keep the \`-\` lines src/ needs and add the \`+\` lines ${reqId} needs).`, '');
+    });
+  }
+  return lines.join('\n');
+}
+
 /** Two-way conflict markers (no merge base): the whole canonical file against the candidate. */
 function twoWayMarkers(ours, theirs, reqId) {
   const nl = (b) => (b.length && b[b.length - 1] !== 10 ? Buffer.concat([b, Buffer.from('\n')]) : b);
@@ -211,15 +301,22 @@ function decideRaw({ ours, base, theirs, reqId }) {
   if (ours.equals(theirs)) return { outcome: 'unchanged' };
   if (base != null && ours.equals(base)) return { outcome: 'updated', content: theirs };
   if (base != null && theirs.equals(base)) return { outcome: 'kept_canonical' };
-  if (base == null) return { outcome: 'conflict', reason: 'exists in the canonical root with different content and no merge base' };
-  if (isBinary(ours) || isBinary(base) || isBinary(theirs)) return { outcome: 'conflict', reason: 'binary file changed on both sides' };
-  const merged = mergeThreeWay(ours, base, theirs, reqId);
-  if (merged.conflicts === 0) {
-    return merged.unions
-      ? { outcome: 'merged', content: merged.text, reason: `${merged.unions} place(s) where both sides only added lines: both kept` }
-      : { outcome: 'merged', content: merged.text };
+  if (isBinary(ours) || isBinary(theirs) || (base != null && isBinary(base))) {
+    return { outcome: 'conflict', reason: base == null ? 'exists in the canonical root with different content and no merge base' : 'binary file changed on both sides' };
   }
-  return { outcome: 'conflict', reason: `${merged.conflicts} overlapping change(s)`, markers: merged.text };
+  if (base == null) {
+    const r = resolveHunk({ ours: ours.toString('utf8').split('\n'), base: null, theirs: theirs.toString('utf8').split('\n') });
+    return r
+      ? { outcome: 'merged', content: theirs, reason: `no merge base, but ${reqId} contains the whole canonical file plus its own additions: ${reqId} kept` }
+      : { outcome: 'conflict', reason: 'exists in the canonical root with different content and no merge base' };
+  }
+  const merged = mergeThreeWay(ours, base, theirs, reqId);
+  const auto = [
+    merged.unions ? `${merged.unions} place(s) where both sides only added lines: both kept` : '',
+    merged.contained ? `${merged.contained} place(s) where ${reqId} contains src/ plus its own additions: ${reqId} kept` : '',
+  ].filter(Boolean).join('; ');
+  if (merged.conflicts === 0) return auto ? { outcome: 'merged', content: merged.text, reason: auto } : { outcome: 'merged', content: merged.text };
+  return { outcome: 'conflict', reason: [`${merged.conflicts} overlapping change(s)`, auto].filter(Boolean).join('; '), markers: merged.text };
 }
 
 function renderReport({ reqId, ts, baseRev, baseHow, results, promoted }) {
@@ -246,7 +343,8 @@ function renderReport({ reqId, ts, baseRev, baseHow, results, promoted }) {
       'These files were **not** changed. Next to each one (the **Note** column), `<name>.conflict-' + `${reqId}-${ts}\``,
       'holds the merge with conflict markers: `<<<<<<< canonical` (src/ now), `||||||| base` (what the KIT',
       'started from, when known), `=======`, `>>>>>>> ' + `${reqId}\` (the candidate); without a base the whole files are`,
-      'compared. Write the right content into the canonical file, delete the `.conflict-…` file and run',
+      'compared. **`conflicts.md`** (next to this report) shows every spot side by side with its diff.',
+      'Write the right content into the canonical file, delete the `.conflict-…` file and run',
       '`/gate ' + `${reqId}\` again: the REQ becomes done when no conflict is left.`,
       '',
       ...conflicts.map((r) => `- \`${r.path}\`: ${r.reason}${r.conflictFile ? ` → \`${r.conflictFile}\`` : ''}`),
@@ -270,6 +368,7 @@ function autoMergePromotion({ workspaceRoot, reqId, now = new Date() }) {
   const results = [];
   const writes = [];
   const diffs = [];
+  const conflictDetails = [];
   for (const rel of promotableFiles(kitRoot)) {
     const dest = path.join(workspaceRoot, rel);
     const theirs = fs.readFileSync(path.join(kitRoot, rel));
@@ -289,6 +388,7 @@ function autoMergePromotion({ workspaceRoot, reqId, now = new Date() }) {
       entry.conflictFile = `${rel}.conflict-${reqId}-${ts}`;
       writes.push({ dest: path.join(workspaceRoot, entry.conflictFile), content: d.markers, conflict: true });
     }
+    if (d.outcome === 'conflict') conflictDetails.push({ ...entry, markers: d.markers });
     results.push(entry);
   }
   const promoted = !results.some((r) => r.outcome === 'conflict');
@@ -307,11 +407,17 @@ function autoMergePromotion({ workspaceRoot, reqId, now = new Date() }) {
   fs.writeFileSync(reportPath, renderReport({ reqId, ts, baseRev, baseHow: baseInfo && baseInfo.how, results, promoted }));
   fs.writeFileSync(jsonPath, `${JSON.stringify({ req_id: reqId, strategy: 'auto-merge', timestamp: ts, merge_base: baseRev, merge_base_source: baseInfo && baseInfo.how, promoted, results }, null, 2)}\n`);
   fs.writeFileSync(diffPath, diffs.filter(Boolean).map((d) => (d.endsWith('\n') ? d : `${d}\n`)).join(''));
+  const reportFiles = [reportPath, jsonPath, diffPath];
+  if (conflictDetails.length) {
+    const conflictsPath = path.join(reportDir, 'conflicts.md');
+    fs.writeFileSync(conflictsPath, renderConflicts({ reqId, ts, conflicts: conflictDetails }));
+    reportFiles.push(conflictsPath);
+  }
   const n = (k) => results.filter((r) => r.outcome === k).length;
   const summary = promoted
     ? `${reqId} promoted by auto-merge: ${n('added')} added, ${n('updated')} updated, ${n('merged')} merged, ${n('unchanged') + n('kept_canonical')} unchanged.`
-    : `${reqId} NOT promoted: ${n('conflict')} conflict(s); ${written.length} file(s) merged cleanly were written. See the report.`;
-  return { ts, promoted, results, written, reportFiles: [reportPath, jsonPath, diffPath], reportPath, summary };
+    : `${reqId} NOT promoted: ${n('conflict')} conflict(s); ${written.length} file(s) merged cleanly were written. Each spot to resolve, with its diff: runs/kit/${reqId}/promotion/${ts}/conflicts.md`;
+  return { ts, promoted, results, written, reportFiles, reportPath, summary };
 }
 
-module.exports = { autoMergePromotion, baseContent, decide, planDependencies, promotableFiles, kitBaseRevision, mergeThreeWay, unifiedDiff };
+module.exports = { autoMergePromotion, baseContent, decide, renderConflicts, resolveHunk, planDependencies, promotableFiles, kitBaseRevision, mergeThreeWay, unifiedDiff };

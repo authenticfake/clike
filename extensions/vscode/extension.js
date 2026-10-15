@@ -83,6 +83,7 @@ const {
   nextAutoEvalStep,
   nextAutoGateStep,
   annotateIntermittentFailures,
+  inputsFingerprint,
   readEarlierReports,
   repairNotesMarkdown,
   restoreAcceptanceFiles,
@@ -6142,8 +6143,8 @@ async function cmdOpenChat(context) {
     }
     const cycle = state.cycle + 1;
     say(`↻ AUTO-EVAL ${reqId}: repair cycle ${cycle}/${state.maxCycles} — ${step.reason}`);
-    // Failures that passed in earlier runs of this REQ are flagged as nondeterministic for the repair.
-    const repairFailures = annotateIntermittentFailures(step.failures, readEarlierReports(getWorkspaceRoot().fsPath, reqId));
+    // Failures that passed in earlier runs of this REQ on the same code are flagged as nondeterministic.
+    const repairFailures = annotateIntermittentFailures(step.failures, readEarlierReports(getWorkspaceRoot().fsPath, reqId), inputsFingerprint(getWorkspaceRoot().fsPath, reqId));
     const intermittent = repairFailures.filter((f) => f.intermittent).map((f) => f.name);
     if (intermittent.length) say(`ℹ AUTO-EVAL ${reqId}: ${intermittent.join(', ')} passed in earlier runs: repairing it as a nondeterministic failure`);
     try {
@@ -6225,8 +6226,8 @@ async function cmdOpenChat(context) {
     }
     const cycle = state.cycle + 1;
     say(`↻ AUTO-GATE ${reqId}: repair cycle ${cycle}/${state.maxCycles} — ${step.reason}`);
-    // Failures that passed in earlier runs of this REQ are flagged as nondeterministic for the repair.
-    const repairFailures = annotateIntermittentFailures(step.failures, readEarlierReports(getWorkspaceRoot().fsPath, reqId));
+    // Failures that passed in earlier runs of this REQ on the same code are flagged as nondeterministic.
+    const repairFailures = annotateIntermittentFailures(step.failures, readEarlierReports(getWorkspaceRoot().fsPath, reqId), inputsFingerprint(getWorkspaceRoot().fsPath, reqId));
     const intermittent = repairFailures.filter((f) => f.intermittent).map((f) => f.name);
     if (intermittent.length) say(`ℹ AUTO-GATE ${reqId}: ${intermittent.join(', ')} passed in earlier runs: repairing it as a nondeterministic failure`);
     try {

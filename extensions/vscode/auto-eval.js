@@ -2,6 +2,7 @@
 // Auto-eval (roadmap §3): eval → KIT repair from the real failures → eval, a bounded number of
 // cycles. The extension drives the loop (it is the only workspace writer); the orchestrator
 // builds the repair prompt and governs changes to the acceptance surface (tests stay locked).
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
@@ -188,33 +189,83 @@ function readEarlierReports(workspaceRoot, reqId) {
       try {
         const rep = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8'));
         const ts = Number((name.match(/_(\d+)\.json$/) || [])[1] || 0);
-        out.push({ phase, ts, cases: Array.isArray(rep.cases) ? rep.cases : [] });
+        out.push({ phase, ts, inputs: rep.inputs_fingerprint || null, cases: Array.isArray(rep.cases) ? rep.cases : [] });
       } catch { /* unreadable report: ignore */ }
     }
   }
   return out.sort((a, b) => a.ts - b.ts);
 }
 
+// CLike's promotion leftovers and generated files: never inputs of an eval.
+const SCRATCH_INPUT_RE = /(\.pyc|\.pyo|\.log)$|^\.DS_Store$|\.(incoming|conflict)-REQ-|\.bak-\d/;
+
 /**
- * Mark the failures that passed in earlier runs of the same REQ: the repair is told that the
- * failure is likely nondeterministic (ordering, timing, random ids) so it makes the code
- * deterministic instead of chasing the asserted value. Derived from CLike's own reports: no
- * developer hint needed. A test-level match (the failing test id PASSED earlier) is preferred.
+ * Fingerprint of what an eval/gate of the REQ runs on: the canonical roots and the KIT
+ * (src/, test/, tests/, plus the KIT's ci/). Stored in each report, so a check that passed
+ * earlier is called nondeterministic only when it passed on the same code.
  */
-function annotateIntermittentFailures(failures, earlierReports) {
+function inputsFingerprint(workspaceRoot, reqId) {
+  const hash = crypto.createHash('sha256');
+  const roots = [
+    ...['src', 'test', 'tests'].map((r) => r),
+    ...['src', 'test', 'tests', 'ci'].map((r) => `runs/kit/${reqId}/${r}`),
+  ];
+  const walk = (rel) => {
+    let entries = [];
+    try { entries = fs.readdirSync(path.join(workspaceRoot, rel), { withFileTypes: true }); } catch { return; }
+    for (const e of entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
+      const child = `${rel}/${e.name}`;
+      if (e.isDirectory()) {
+        if (!SKIPPED_DIRS.has(e.name) && !e.name.endsWith('.egg-info')) walk(child);
+      } else if (e.isFile() && !SCRATCH_INPUT_RE.test(e.name)) {
+        try { hash.update(`${child}\0`).update(fs.readFileSync(path.join(workspaceRoot, child))).update('\0'); } catch { /* vanished */ }
+      }
+    }
+  };
+  roots.forEach(walk);
+  return hash.digest('hex').slice(0, 16);
+}
+
+/**
+ * Mark the failures that passed in earlier runs of the same REQ, derived from CLike's own
+ * reports (no developer hint needed). With `currentInputs` (the inputsFingerprint of this run):
+ * - passed earlier on the same code → nondeterministic: the repair makes the code deterministic
+ *   instead of chasing the asserted value;
+ * - passed earlier only on other code → not flaky: the failure comes from what changed since.
+ * Reports without a fingerprint count as other code. A test-level match is preferred.
+ */
+function annotateIntermittentFailures(failures, earlierReports, currentInputs) {
   return (failures || []).map((f) => {
     const runs = (earlierReports || [])
-      .map((r) => (r.cases || []).find((c) => c && c.name === f.name))
-      .filter(Boolean);
-    const passedRuns = runs.filter((c) => c.passed);
+      .map((r) => ({ inputs: r.inputs, c: (r.cases || []).find((c) => c && c.name === f.name) }))
+      .filter((r) => r.c);
+    const passedRuns = runs.filter((r) => r.c.passed);
     if (!passedRuns.length) return f;
     const tests = failedTestIds(f.output);
-    const passedTests = tests.filter((t) =>
-      passedRuns.some((c) => new RegExp(`${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b[^\\n]*PASSED`).test(String(c.stdout || '')))
-    );
-    const subject = passedTests.length ? passedTests.join(', ') : `the check ${f.name}`;
+    const subjectOf = (passed) => {
+      const passedTests = tests.filter((t) =>
+        passed.some((r) => new RegExp(`${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b[^\\n]*PASSED`).test(String(r.c.stdout || '')))
+      );
+      return passedTests.length ? passedTests.join(', ') : `the check ${f.name}`;
+    };
+    if (currentInputs) {
+      const same = runs.filter((r) => r.inputs === currentInputs);
+      const passedSame = same.filter((r) => r.c.passed);
+      if (!passedSame.length) {
+        const note =
+          `CLike note: ${subjectOf(passedRuns)} passed in ${passedRuns.length} earlier eval/gate run(s) of this REQ, ` +
+          'but src/, test/ or the KIT changed since then: the failure most likely comes from that change. ' +
+          'Read the error and fix its cause; it is not a nondeterministic failure.';
+        return { ...f, changedSince: true, output: `${note}\n\n${f.output || ''}` };
+      }
+      const note =
+        `CLike note: ${subjectOf(passedSame)} passed in ${passedSame.length} of ${same.length} earlier eval/gate run(s) of this REQ ` +
+        'on the same code (src/, test/ and the KIT unchanged), so the failure is nondeterministic (order of rows or jobs by ' +
+        'random ids, timing, concurrency, unseeded randomness): make the behavior deterministic in src/, do not adjust the asserted value.';
+      return { ...f, intermittent: true, output: `${note}\n\n${f.output || ''}` };
+    }
     const note =
-      `CLike note: ${subject} passed in ${passedRuns.length} of ${runs.length} earlier eval/gate run(s) of this REQ. ` +
+      `CLike note: ${subjectOf(passedRuns)} passed in ${passedRuns.length} of ${runs.length} earlier eval/gate run(s) of this REQ. ` +
       'If the code did not change in between, the failure is nondeterministic (order of rows or jobs by random ids, ' +
       'timing, concurrency, unseeded randomness): make the behavior deterministic in src/, do not adjust the asserted value.';
     return { ...f, intermittent: true, output: `${note}\n\n${f.output || ''}` };
@@ -235,7 +286,7 @@ function repairNotesMarkdown({ reqId, phase, cycle, maxCycles, reason, hint, fai
     '## CLike diagnosis',
     '',
   ];
-  const notes = (failures || []).filter((f) => f.intermittent);
+  const notes = (failures || []).filter((f) => f.intermittent || f.changedSince);
   if (notes.length) {
     for (const f of notes) lines.push(`- \`${f.name}\`: ${String(f.output || '').split('\n\n')[0]}`);
   } else {
@@ -290,6 +341,7 @@ function nextAutoGateStep(state, report) {
 module.exports = {
   acceptanceChanges,
   annotateIntermittentFailures,
+  inputsFingerprint,
   readEarlierReports,
   collectRepairFailures,
   collectRepairFiles,
