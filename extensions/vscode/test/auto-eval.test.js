@@ -5,7 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { annotateIntermittentFailures, collectRepairFailures, collectRepairFiles, nextAutoEvalStep, nextAutoGateStep, readEarlierReports, repairNotesMarkdown, writeRepairNotes } = require('../auto-eval');
+const { annotateIntermittentFailures, collectRepairFailures, inputsFingerprint, collectRepairFiles, nextAutoEvalStep, nextAutoGateStep, readEarlierReports, repairNotesMarkdown, writeRepairNotes } = require('../auto-eval');
 const { parseSlash } = require('../slash-parser');
 
 const failing = (names) => ({
@@ -214,6 +214,38 @@ test('intermittent failures: a check that passed in earlier runs is flagged for 
   assert.match(flaky.output, /make the behavior deterministic in src\//);
   assert.match(flaky.output, /assert 1 == 3/);
   assert.equal(steady, failures[1]);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('intermittent failures: nondeterministic only when the check passed on the same code', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'clike-flaky-inputs-'));
+  const put = (rel, text) => { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); };
+  put('src/web/lib/server-api.ts', 'export {}\n');
+  put('runs/kit/REQ-008/src/web/lib/server-api.ts', 'export const a = 1;\n');
+  const before = inputsFingerprint(root, 'REQ-008');
+  // promotion leftovers and installed dependencies are not inputs
+  put('src/web/lib/server-api.ts.conflict-REQ-008-2026-10-15T10-23-51-361Z', '<<<<<<< canonical\n');
+  put('src/web/node_modules/x/index.js', 'x');
+  assert.equal(inputsFingerprint(root, 'REQ-008'), before);
+  put('src/web/lib/server-api.ts', 'export const b = 2;\n');
+  const after = inputsFingerprint(root, 'REQ-008');
+  assert.notEqual(after, before);
+  const reports = [
+    { phase: 'eval', ts: 1, inputs: before, cases: [{ name: 'contract:format', passed: true }] },
+    { phase: 'gate', ts: 2, inputs: null, cases: [{ name: 'contract:format', passed: true }] },
+    { phase: 'gate', ts: 3, inputs: after, cases: [{ name: 'contract:format', passed: false }] },
+  ];
+  const failure = { name: 'contract:format', output: 'trailing whitespace' };
+  const [changed] = annotateIntermittentFailures([failure], reports, after);
+  assert.equal(changed.intermittent, undefined);
+  assert.equal(changed.changedSince, true);
+  assert.match(changed.output, /^CLike note: the check contract:format passed in 2 earlier eval\/gate run\(s\) of this REQ, but src\/, test\/ or the KIT changed since then/);
+  assert.match(changed.output, /it is not a nondeterministic failure\.\n\ntrailing whitespace$/);
+  const [flaky] = annotateIntermittentFailures([failure], [...reports, { phase: 'gate', ts: 4, inputs: after, cases: [{ name: 'contract:format', passed: true }] }], after);
+  assert.equal(flaky.intermittent, true);
+  assert.match(flaky.output, /passed in 1 of 2 earlier eval\/gate run\(s\) of this REQ on the same code/);
+  const md = repairNotesMarkdown({ reqId: 'REQ-008', phase: 'gate', cycle: 1, maxCycles: 2, reason: '1 failing check(s)', hint: '', failures: [changed] });
+  assert.match(md, /- `contract:format`: CLike note: .* changed since then/);
   fs.rmSync(root, { recursive: true, force: true });
 });
 

@@ -67,7 +67,8 @@ are small IDEAs to start with.
   `CLIKE_EVAL_POSTGRES_URL` and the values only you have in `docker/eval.env` ([INSTALL §2](INSTALL.md#2-configuration)).
 - **Promotion never overwrites your changes**: the gate merges file by file (base = what the KIT
   started from); a file changed on both sides at the same lines is left untouched with a
-  `.conflict-<REQ>-<ts>` file next to it, and the REQ stays in progress until you resolve it.
+  `.conflict-<REQ>-<ts>` file next to it, and the REQ stays in progress until you resolve it;
+  `conflicts.md` in the promotion report shows each spot with its diff.
 - **Regression**: eval and gate also re-run the tests of the REQs already promoted.
 - **Sandbox**: checks run in an isolated container without credentials.
 - **Audit**: every amendment and override is recorded.
@@ -120,5 +121,5 @@ the repairs. Overrides, promotion and git are not exposed. Codex: approve the CL
 | An answer from the agent seems to forget the conversation | `/agent-session` — a failed resume starts a new session |
 | Browser (Playwright) checks are slow the first time | Chromium is downloaded on first use in the sandbox |
 | `EVAL BLOCKED — missing in docker/eval.env` | set the named value in `docker/eval.env` and rebuild; `EVAL BLOCKED — CLike cannot create yet` → `/eval REQ --fix` declares it |
-| Gate PASS but the REQ stays in progress | the promotion left conflicts: see the report, resolve the `.conflict-…` files, `/gate` again |
+| Gate PASS but the REQ stays in progress | the promotion left conflicts: read `conflicts.md` in the promotion report, resolve the `.conflict-…` files, `/gate` again |
 | Phases not committed although `autoCommit` is on | it is set in the project settings: apply it in User settings (CLike shows a warning) |

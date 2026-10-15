@@ -155,3 +155,69 @@ test('auto-merge: a new file under a [dynamic] route directory is added, not a f
   assert.equal(entry.outcome, 'added', JSON.stringify(entry));
   assert.equal(read(ws, 'src/web/app/runs/[run_id]/page.tsx'), 'export default function Page() {}\n');
 });
+
+/** One file at the KIT start (base), the candidate, then the canonical edit made after the KIT. */
+function threeWay(base, candidate, canonical) {
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'clike-promote-contains-'));
+  sh(ws, 'init', '-q', '-b', 'main');
+  sh(ws, 'config', 'user.email', 't@example.com'); sh(ws, 'config', 'user.name', 't');
+  write(ws, 'src/api.ts', base);
+  sh(ws, 'add', '-A'); sh(ws, 'commit', '-qm', 'base');
+  write(ws, 'runs/kit/REQ-008/src/api.ts', candidate);
+  sh(ws, 'add', '-A'); sh(ws, 'commit', '-qm', 'feat(req-008): kit');
+  write(ws, 'src/api.ts', canonical);
+  return ws;
+}
+
+const API = (routes, keys, tail = 'return 1;') => `${LINES(4)}const routes = /^(${routes})$/;\n${LINES(4, 'b')}const keys = [${keys}];\n${LINES(4, 'c')}${tail}\n`;
+
+test('auto-merge: where the candidate holds the whole canonical side plus additions, the candidate wins', () => {
+  // REQ-007 promoted companies/<id> after the KIT base; REQ-008 rewrote the same lines from it.
+  const ws = threeWay(API('runs', "'q'"), API('runs|companies/id(/evidence)?', "'q', 'country', 'fit_min'"), API('runs|companies/id', "'q', 'country'"));
+  const r = autoMergePromotion({ workspaceRoot: ws, reqId: 'REQ-008' });
+  assert.equal(r.promoted, true);
+  assert.equal(r.results[0].outcome, 'merged');
+  assert.match(r.results[0].reason, /2 place\(s\) where REQ-008 contains src\/ plus its own additions: REQ-008 kept/);
+  assert.equal(read(ws, 'src/api.ts'), API('runs|companies/id(/evidence)?', "'q', 'country', 'fit_min'"));
+  assert.ok(!fs.existsSync(path.join(path.dirname(r.reportPath), 'conflicts.md')));
+});
+
+test('auto-merge: the resolvable spots are merged, only the real ones stay, explained in conflicts.md', () => {
+  // keys: canonical added 'owner', which the candidate lacks: a real conflict. routes: contained.
+  const ws = threeWay(API('runs', "'q'"), API('runs|companies/id(/evidence)?', "'q', 'fit_min'"), API('runs|companies/id', "'q', 'owner'"));
+  const r = autoMergePromotion({ workspaceRoot: ws, reqId: 'REQ-008' });
+  const c = r.results[0];
+  assert.equal(r.promoted, false);
+  assert.equal(c.outcome, 'conflict');
+  assert.match(c.reason, /^1 overlapping change\(s\); 1 place\(s\) where REQ-008 contains/);
+  const markers = read(ws, c.conflictFile);
+  assert.match(markers, /const routes = \/\^\(runs\|companies\/id\(\/evidence\)\?\)\$\/;/);
+  assert.equal(markers.match(/^<<<<<<< canonical$/gm).length, 1);
+  assert.equal(read(ws, 'src/api.ts'), API('runs|companies/id', "'q', 'owner'"));
+  const md = read(ws, path.relative(ws, path.join(path.dirname(r.reportPath), 'conflicts.md')));
+  assert.ok(r.reportFiles.some((f) => f.endsWith('conflicts.md')));
+  assert.match(md, /### Spot 1 of 1 — line 10 of src\//);
+  assert.match(md, /\*\*src\/ now\*\*\n\n```ts\nconst keys = \['q', 'owner'\];\n```/);
+  assert.match(md, /\*\*REQ-008 wants\*\*\n\n```ts\nconst keys = \['q', 'fit_min'\];\n```/);
+  assert.match(md, /```diff\n-const keys = \['q', 'owner'\];\n\+const keys = \['q', 'fit_min'\];\n```/);
+  assert.match(md, /each side has something the other lacks/);
+  assert.match(fs.readFileSync(r.reportPath, 'utf8'), /`conflicts\.md`/);
+});
+
+test('auto-merge: canonical holding the whole candidate stays a conflict (src/ was not tested with this REQ)', () => {
+  const ws = threeWay(API('runs', "'q'"), API('runs', "'q', 'fit_min'"), API('runs', "'q', 'fit_min', 'owner'"));
+  const r = autoMergePromotion({ workspaceRoot: ws, reqId: 'REQ-008' });
+  assert.equal(r.results[0].outcome, 'conflict');
+  const md = fs.readFileSync(path.join(path.dirname(r.reportPath), 'conflicts.md'), 'utf8');
+  assert.match(md, /src\/ already holds everything REQ-008 adds here, plus more: keeping src\/ is likely right/);
+});
+
+test('auto-merge: without a merge base, a candidate holding the whole canonical file is kept', () => {
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'clike-promote-nobase-'));
+  write(ws, 'src/a.ts', "export const keys = ['q'];\n");
+  write(ws, 'runs/kit/REQ-001/src/a.ts', "export const keys = ['q', 'fit_min'];\nexport const more = 1;\n");
+  const r = autoMergePromotion({ workspaceRoot: ws, reqId: 'REQ-001' });
+  assert.equal(r.results[0].outcome, 'merged');
+  assert.match(r.results[0].reason, /no merge base, but REQ-001 contains the whole canonical file/);
+  assert.equal(read(ws, 'src/a.ts'), "export const keys = ['q', 'fit_min'];\nexport const more = 1;\n");
+});

@@ -4,6 +4,29 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+### Added
+
+- **`conflicts.md` in the promotion report**: every spot still in conflict, readable without
+  conflict markers: what `src/` has now, what the REQ wants, the diff between the two, the base,
+  and what to do. The report and the chat point to it.
+
+### Improved
+
+- **Fewer promotion conflicts**: a spot where the candidate holds the whole canonical side plus
+  its own additions (a later KIT rewrote a line an earlier REQ had already promoted) now merges,
+  keeping the candidate: nothing of `src/` is lost and it is what the gate tested. A file with
+  both kinds of spot is merged where it can be; its `.conflict-…` file holds only the rest.
+- **The "nondeterministic failure" diagnosis needs the same code**: each eval/gate report stores
+  `inputs_fingerprint` (canonical roots + KIT); a check is called nondeterministic only when it
+  passed earlier on the same code. Otherwise the repair is told the failure most likely comes from
+  what changed since.
+
+### Fixed
+
+- **A `.conflict-…` file left in `src/` failed the gate**: the eval workspace copied CLike's
+  promotion leftovers (`.conflict-…`, `.incoming-…`, `.bak-…`) and a format check read them
+  (`trailing whitespace`). They are never copied now.
+
 ## [1.4.1] — 2026-10-13 — The gate repairs what it finds
 
 ### Added

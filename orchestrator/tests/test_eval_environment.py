@@ -290,3 +290,16 @@ def test_overlays_never_copy_installed_dependencies(tmp_path: Path):
     EvalRunner(tmp_path)._copy_tree_overlay(src, dst)
     assert (dst / "web/app.ts").is_file()
     assert not (dst / "web/node_modules").exists() and not (dst / "web/.next").exists()
+
+
+def test_overlay_skips_promotion_leftovers(tmp_path):
+    # A .conflict-… file the developer had not deleted yet failed a format check of the gate.
+    src = tmp_path / "src"
+    (src / "web/lib").mkdir(parents=True)
+    (src / "web/lib/server-api.ts").write_text("export {}\n")
+    (src / "web/lib/server-api.ts.conflict-REQ-008-2026-10-15T10-23-51-361Z").write_text("<<<<<<< canonical \n")
+    (src / "web/lib/api.ts.incoming-REQ-008-1").write_text("x")
+    (src / "web/lib/api.ts.bak-1").write_text("x")
+    dst = tmp_path / "composed"
+    EvalRunner(tmp_path)._copy_tree_overlay(src, dst)
+    assert sorted(p.name for p in (dst / "web/lib").iterdir()) == ["server-api.ts"]
