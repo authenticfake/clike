@@ -21,7 +21,7 @@ The current webview parser supports the following slash commands.
 
 ### Project / workspace commands
 - `/help`
-- `/init <name> [--path <abs>] [--force]`
+- `/init <name> [--path <abs>] [--force]` — `--force` adds CLike to a folder that already has files: only missing template files are created, existing ones are kept, `.gitignore` gets only the CLike rules it lacks
 - `/status`
 - `/where`
 - `/switch <name|path>`

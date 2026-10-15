@@ -242,6 +242,7 @@ class EvalRunner:
         eval_key: Optional[str] = None,
         extra_src_roots: Optional[List[Path]] = None,
         cancel_event: Optional[threading.Event] = None,
+        regression: bool = False,
     ):
         self.project_root = project_root.resolve()
         # set when the caller goes away: the running check is stopped and no further check starts
@@ -249,6 +250,9 @@ class EvalRunner:
         # Regression runs: own eval directory and the candidate's source overlaid last.
         self.eval_key = eval_key
         self.extra_src_roots = list(extra_src_roots or [])
+        # A regression run re-checks a promoted REQ: its own KIT source is already in the canonical
+        # tree (merged with what later REQs changed), so the stale KIT copy is not overlaid.
+        self.regression = regression
 
     def _merge_env(
         self,
@@ -824,6 +828,35 @@ class EvalRunner:
 
     
 
+    def _promoted_into_canonical(self, req_id: str) -> bool:
+        """True when the REQ is done and an auto-merge promotion of it succeeded: the canonical tree
+        already holds its source, merged with what later REQs changed. Overlaying its KIT copy
+        again would put back files those later REQs had changed (stale code in the eval)."""
+        cache = getattr(self, "_promoted_cache", None)
+        if cache is None:
+            cache = self._promoted_cache = {}
+        if req_id in cache:
+            return cache[req_id]
+        promoted = False
+        try:
+            plan = json.loads((self.project_root / "docs" / "harper" / "plan.json").read_text(encoding="utf-8"))
+            reqs = plan.get("reqs") or plan.get("req") or []
+            entry = next((r for r in reqs if isinstance(r, dict) and str(r.get("id") or "") == str(req_id)), None)
+            if isinstance(entry, dict) and str(entry.get("status") or "").strip().lower() in PROMOTED_REQ_STATUSES:
+                promotion_dir = self.project_root / "runs" / "kit" / self._safe_req_id(str(req_id)) / "promotion"
+                for report in sorted(promotion_dir.glob("*/report.json")):
+                    try:
+                        data = json.loads(report.read_text(encoding="utf-8"))
+                    except (OSError, ValueError):
+                        data = {}  # unreadable report: not a promotion record
+                    if isinstance(data, dict) and data.get("promoted") is True:
+                        promoted = True
+                        break
+        except (OSError, ValueError, AttributeError):
+            promoted = False
+        cache[req_id] = promoted
+        return promoted
+
     def _prepare_eval_overlay_workspace(
         self,
         *,
@@ -865,12 +898,15 @@ class EvalRunner:
                 continue
 
             dependency_roots.append(str(dep_root))
+            if self._promoted_into_canonical(dep_id):
+                continue  # already in the canonical roots copied above
             self._copy_tree_overlay(dep_root / "src", overlay / "src")
             self._copy_tree_overlay(dep_root / "test", overlay / "test")
             self._copy_tree_overlay(dep_root / "tests", overlay / "tests")
 
-        # Current KIT wins last.
-        self._copy_tree_overlay(kit_root / "src", overlay / "src")
+        # Current KIT wins last (its source too, unless this is a regression of a promoted REQ).
+        if not (self.regression and self._promoted_into_canonical(kit_root.name)):
+            self._copy_tree_overlay(kit_root / "src", overlay / "src")
         self._copy_tree_overlay(kit_root / "test", overlay / "test")
         self._copy_tree_overlay(kit_root / "tests", overlay / "tests")
 
@@ -1514,15 +1550,18 @@ class EvalRunner:
 
                     for dep_work_raw in dependency_roots:
                         dep_work = Path(dep_work_raw)
+                        if self._promoted_into_canonical(dep_work.name):
+                            continue  # already in the promoted src copied above
                         self._copy_tree_overlay(
                             dep_work / logical_root,
                             composed_logical_root,
                         )
 
-                    self._copy_tree_overlay(
-                        kit_root / logical_root,
-                        composed_logical_root,
-                    )
+                    if not (self.regression and self._promoted_into_canonical(kit_root.name)):
+                        self._copy_tree_overlay(
+                            kit_root / logical_root,
+                            composed_logical_root,
+                        )
 
                     for extra_src in self.extra_src_roots:
                         self._copy_tree_overlay(Path(extra_src), composed_logical_root)
@@ -2830,6 +2869,7 @@ class EvalRunner:
                 eval_key=f"{self._safe_req_id(req_id)}/regression/{self._safe_req_id(other)}",
                 extra_src_roots=[candidate_src],
                 cancel_event=self.cancel_event,
+                regression=True,
             )
             report = runner.run_profile(profile=str(profile), ltc=ltc, req_id=other)
             for case in report.cases:

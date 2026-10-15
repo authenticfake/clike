@@ -26,7 +26,7 @@ def _ltc(req_id, name, *, extra_checks=()):
     return {"req_id": req_id, "run_from": f"runs/kit/{req_id}", "checks": checks}
 
 
-class EvalRegressionTests(unittest.TestCase):
+class _RegressionProject(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = Path(tempfile.mkdtemp(prefix="clike-regression-")).resolve()
@@ -85,6 +85,7 @@ class EvalRegressionTests(unittest.TestCase):
     def _case_names(self, response):
         return [c["name"] for c in response.json()["cases"]]
 
+class EvalRegressionTests(_RegressionProject):
     def test_regression_set_is_the_promoted_reqs(self):
         from eval_runner import EvalRunner
 
@@ -192,3 +193,43 @@ class EvalRegressionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PromotedKitCompositionTests(_RegressionProject):
+    """A promoted KIT is already in the canonical tree, merged with what later REQs changed: its
+    stale KIT copy must not shadow the canonical files, neither as a dependency nor in its own
+    regression run."""
+
+    def setUp(self):
+        super().setUp()
+        plan = json.loads((self.proj / "docs" / "harper" / "plan.json").read_text())
+        plan["reqs"].append({"id": "REQ-004", "status": "done", "dependsOn": ["REQ-001"]})
+        (self.proj / "docs" / "harper" / "plan.json").write_text(json.dumps(plan))
+        # REQ-004, promoted after REQ-001, added discount() to pricing.py in the canonical tree.
+        self._kit("REQ-004", "pricing", "def price():\n    return 10\n\ndef discount():\n    return 1\n",
+                  "from pricing import discount\nassert discount() == 1\n", ltc=_ltc("REQ-004", "pricing"))
+        (self.proj / "src").mkdir(exist_ok=True)
+        (self.proj / "src" / "pricing.py").write_text("def price():\n    return 10\n\ndef discount():\n    return 1\n")
+        # REQ-002 (depends on REQ-001) uses the canonical discount().
+        kit = self.proj / "runs" / "kit" / "REQ-002"
+        (kit / "src" / "checkout.py").write_text("from pricing import price, discount\n\ndef total(n):\n    return n * price() - discount()\n")
+        (kit / "test" / "test_checkout.py").write_text("from checkout import total\nassert total(2) == 19\n")
+
+    def _promoted(self, *req_ids):
+        for req_id in req_ids:
+            report = self.proj / "runs" / "kit" / req_id / "promotion" / "2026-10-15T00-00-00-000Z" / "report.json"
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(json.dumps({"req_id": req_id, "promoted": True}))
+
+    def test_a_promoted_dependency_kit_does_not_shadow_the_canonical_tree(self):
+        self._promoted("REQ-001", "REQ-004")
+        body = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        self.assertEqual(body["status"], "PASS", [(c["name"], c.get("stderr", "")[-300:]) for c in body["cases"] if not c["passed"]])
+        self.assertIn("regression::REQ-001::unit", [c["name"] for c in body["cases"]])
+        self.assertIn("regression::REQ-004::unit", [c["name"] for c in body["cases"]])
+
+    def test_without_a_promotion_record_the_kit_is_still_composed(self):
+        # done but never auto-merged (e.g. an older strategy): the KIT stays the source of truth,
+        # so REQ-001's pricing.py (no discount) wins over the canonical one, as before.
+        body = self._post("/v1/eval/run", "REQ-002").json()
+        self.assertEqual(body["status"], "FAIL")

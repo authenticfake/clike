@@ -90,6 +90,8 @@ const {
   writeRepairNotes,
   snapshotAcceptanceSurface,
 } = require('./auto-eval');
+const { validateExtendPlan, readPlanText } = require('./extend-guard');
+const { copyTemplateTree, mergeGitignore } = require('./init-merge');
 const { buildAgentChatArgs, createAgentStreamParser, newSession, sessionKey } = require('./agent-chat');
 const { createApprovalGate, createCodexAppServerTurn, startClaudeApprovalServer } = require('./agent-approvals');
 const { readCodexModelSlugs, validateAgentModel } = require('./agent-model-validation');
@@ -3665,7 +3667,7 @@ async function cmdOpenChat(context) {
           const targetDir = path.join(parentUri.fsPath, name);
           const exists = await pathExists(targetDir);
           if (exists && !(await isDirEmpty(targetDir)) && !force) {
-            panel.webview.postMessage({ type: 'error', message: `Target not empty: ${targetDir}. Use --force to proceed.` });
+            panel.webview.postMessage({ type: 'error', message: `Target not empty: ${targetDir}. Use --force to add CLike to it (existing files are kept).` });
             panel.webview.postMessage({ type: 'busy', on: false });
             return;
           }
@@ -3684,40 +3686,16 @@ async function cmdOpenChat(context) {
           const extRoot = context.extensionPath;
           
           const templatesDir = path.join(extRoot, 'templates', 'harper-init');
-          function copyRecursive(src, dest) {
-            //out.appendLine(`copyRecursive ${src} -> ${dest}`);
-            if (fsSync.statSync(src).isDirectory()) {
-              fsSync.mkdirSync(dest, { recursive: true });
-              for (const entry of fsSync.readdirSync(src)) {
-                copyRecursive(path.join(src, entry), path.join(dest, entry));
-              }
-            } else {
-              if (fsSync.existsSync(dest) && !force) {
-                panel.webview.postMessage({ type: 'busy', on: false });
-                return;
-              }
-
-              const ext = path.extname(src).toLowerCase();
-              const BINARY_EXTENSIONS = new Set([
-                '.png', '.jpg', '.jpeg', '.gif', '.pdf', '.zip', '.exe', '.dll',
-                '.so', '.dylib', '.woff', '.woff2', '.ttf', '.eot'
-              ]);
-
-              if (BINARY_EXTENSIONS.has(ext) || !isTextFile(src)) {
-                fsSync.copyFileSync(src, dest);
-              } else {
-                let content = fsSync.readFileSync(src, 'utf-8');
-                for (const [token, value] of Object.entries(templateVars)) {
-                  content = content.split(token).join(String(value));
-                }
-                fsSync.writeFileSync(dest, content);
-              }
-            }
+          // Never overwrites: in a non-empty folder (--force) only the missing template files are added.
+          const copied = copyTemplateTree(templatesDir, targetDir, { vars: templateVars, isText: isTextFile });
+          if (copied.kept.length) {
+            out.appendLine(`[harperInit] kept ${copied.kept.length} existing file(s): ${copied.kept.join(', ')}`);
+            panel.webview.postMessage({ type: 'echo', message: `ℹ /init kept ${copied.kept.length} existing file(s) unchanged (${copied.kept.slice(0, 8).join(', ')}${copied.kept.length > 8 ? ', …' : ''})` });
           }
-          copyRecursive(templatesDir, targetDir);
 
-          // file seed
-          await writeFileUtf8(path.join(targetDir, '.gitignore'), [
+          // file seed: an existing .gitignore keeps its rules and gets only the missing CLike ones
+          const gitignorePath = path.join(targetDir, '.gitignore');
+          const clikeIgnoreRules = [
             // no indentation: a leading space is part of a .gitignore pattern
             'node_modules/',
             'dist/',
@@ -3745,8 +3723,9 @@ async function cmdOpenChat(context) {
             // eval checks served to a local agent during a repair (removed when it ends)
             '.clike/eval-check/',
             '.clike/bin/',
-            '',
-          ].join('\n'));
+          ];
+          const existingIgnore = fsSync.existsSync(gitignorePath) ? fsSync.readFileSync(gitignorePath, 'utf8') : null;
+          await writeFileUtf8(gitignorePath, mergeGitignore(existingIgnore, clikeIgnoreRules).text);
 
           // handoff for the bubble in the new workspace
           const summary = {
@@ -4351,6 +4330,14 @@ async function cmdOpenChat(context) {
           }
           //fals is for RAG chucks - TODO: RAG management via attachments is almost oden 70%
           const body = await buildHarperBody(phase, payload, wsroot, out);
+          // /extend is append-only: keep the plan as it was, to check the result against it
+          // (and to restore it when a local agent already wrote a plan that breaks the rule).
+          const extendBefore = phase === 'extend'
+            ? {
+                plan: readPlanText(toFsPath(wsroot)),
+                planMd: (() => { try { return fsSync.readFileSync(path.join(toFsPath(wsroot), 'docs', 'harper', 'PLAN.md'), 'utf8'); } catch { return null; } })(),
+              }
+            : null;
 
           if (phase === 'extend') {
             body.extend = {
@@ -4571,6 +4558,39 @@ async function cmdOpenChat(context) {
           }
 
           panel.webview.postMessage({ type: 'busy', on: false });
+          if (extendBefore) {
+            const commandLabel = String(cmd || '').toUpperCase();
+            const root = toFsPath(wsroot);
+            const isAgent = String(_out?.execution?.selected || '').trim() === 'local_agent';
+            const returnedPlan = (_out?.files || []).find((f) => String(f?.path || '').replace(/^\.?\//, '') === 'docs/harper/plan.json');
+            const verdict = validateExtendPlan({
+              beforeText: extendBefore.plan,
+              afterText: returnedPlan && typeof returnedPlan.content === 'string' ? returnedPlan.content : readPlanText(root),
+              anchorReq: msg.anchorReq || '',
+              explicitReq: msg.explicitReq || '',
+            });
+            for (const w of verdict.warnings) panel.webview.postMessage({ type: 'echo', message: `⚠ ${commandLabel}: ${w}` });
+            if (verdict.ok && verdict.restored.length) {
+              // Keep the repaired plan: in the files to write (cloud) and on disk (local agent).
+              if (returnedPlan) returnedPlan.content = verdict.planText;
+              if (isAgent) fsSync.writeFileSync(path.join(root, 'docs', 'harper', 'plan.json'), verdict.planText, 'utf8');
+            }
+            if (!verdict.ok) {
+              // The local agent already wrote the workspace: put PLAN.md and plan.json back.
+              if (isAgent) {
+                for (const [rel, text] of [['plan.json', extendBefore.plan], ['PLAN.md', extendBefore.planMd]]) {
+                  if (text != null) fsSync.writeFileSync(path.join(root, 'docs', 'harper', rel), text, 'utf8');
+                }
+              }
+              const message = `✖ ${commandLabel} rejected — the plan breaks the append-only rule, nothing kept:\n` +
+                verdict.errors.map((e) => `- ${e}`).join('\n');
+              panel.webview.postMessage({ type: 'echo', message });
+              await appendSessionJSONL(activeMode, { ts: Date.now(), role: 'system', content: message, model: state.model || 'auto', attachments: [] });
+              clikeHarperBlockingRun = false;
+              panel.webview.postMessage({ type: 'busy', on: false, force: true });
+              return;
+            }
+          }
           // 3) POST-RUN: persist the outcome (summary + optional echo/text)
           const summary = [
             _out?.echo ? `[echo] ${_out.echo}` : null,

@@ -201,6 +201,16 @@ After `/extend`, CLike must validate:
 - Existing consolidated REQs are not modified.
 - An `EXTEND_*.md` audit report is written.
 
+The extension enforces the plan rules deterministically before keeping the result
+(`extensions/vscode/extend-guard.js`, cloud and local agent alike):
+
+- existing REQs the agent changed or removed are **restored** as they were (fields CLike derives,
+  `capabilities` and `capability_exclusions`, excepted), with a warning naming them;
+- duplicate ids, ids that are not `REQ-<number>` or do not continue the sequence, a missing anchor,
+  a requested REQ that was not added, a new REQ depending on an unknown REQ, or no new REQ at all
+  **reject** the result: nothing is kept (a local agent's PLAN.md and plan.json are put back);
+- a gap in the sequence and a stale `snapshot.total` are warnings.
+
 ## Audit Report
 
 Example:

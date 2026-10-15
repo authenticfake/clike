@@ -39,12 +39,18 @@ ROLE_GUIDANCE: Dict[str, str] = {
     "domain_glossary": "domain terms and their meaning; use them consistently",
     "example_output": "examples of expected outputs or reports; match their structure",
     "reference": "background material; use where relevant",
+    "existing_code": "code that already exists (this project or one to integrate with): follow its "
+    "interfaces, names and conventions, call it instead of rewriting it",
 }
 
 TEXT_EXTENSIONS = frozenset({
     ".md", ".markdown", ".txt", ".rst", ".json", ".yaml", ".yml", ".csv", ".tsv", ".xml",
     ".html", ".htm", ".css", ".scss", ".less", ".svg", ".js", ".mjs", ".ts", ".jsx", ".tsx",
     ".vue", ".sql", ".graphql", ".proto", ".ini", ".toml",
+    # source code: existing code is context too (brownfield modules, client SDKs, examples)
+    ".py", ".pyi", ".java", ".kt", ".kts", ".scala", ".go", ".rs", ".rb", ".php", ".cs", ".fs",
+    ".swift", ".m", ".c", ".h", ".cc", ".cpp", ".hpp", ".cjs", ".dart", ".lua", ".pl", ".r",
+    ".sh", ".bash", ".ps1", ".gradle", ".cfg", ".properties", ".tf", ".hcl",
 })
 IMAGE_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"})
 

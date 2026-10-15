@@ -23,6 +23,20 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **Eval and regression ran on stale code of promoted REQs.** The eval workspace overlaid the KIT
+  of every dependency, and the regression of a promoted REQ its own KIT, over the canonical tree:
+  a file a later promoted REQ had changed came back in its old version (a candidate using it
+  failed, a regression ran on code that does not exist). A REQ that is done with a successful
+  auto-merge promotion is now taken from the canonical tree only; REQs without a promotion record
+  are composed as before.
+- **`/extend` could change existing REQs**: the append-only rule was only in the prompt. The
+  extension now checks the returned plan.json: changed or removed existing REQs are restored,
+  broken ids/sequence/anchor/dependencies reject the result (a local agent's plan is put back).
+- **`/init --force` overwrote an existing project** (README, docs, every template file) and
+  replaced `.gitignore`. `--force` now only allows a non-empty folder: missing template files are
+  added, existing ones kept, `.gitignore` gets the CLike rules it lacks.
+- **Context sources skipped source code** (`.py`, `.java`, `.go`, … were "unsupported format").
+  They are read now, with the new role `existing_code`.
 - **A `.conflict-…` file left in `src/` failed the gate**: the eval workspace copied CLike's
   promotion leftovers (`.conflict-…`, `.incoming-…`, `.bak-…`) and a format check read them
   (`trailing whitespace`). They are never copied now.
