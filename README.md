@@ -5,7 +5,7 @@
 [![Made with Python](https://img.shields.io/badge/Made%20with-Python%203.12-3776AB?logo=python)](https://www.python.org/)
 [![VS Code Extension](https://img.shields.io/badge/VS%20Code-Extension-007ACC?logo=visualstudiocode)](extensions/vscode)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.4.1-informational)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.4.2-informational)](CHANGELOG.md)
 
 > **From intent to impact.** CLike turns an idea into reviewed, tested and promotable software
 > through a governed lifecycle in which cloud models and local coding agents execute, while
@@ -51,6 +51,7 @@ Models and agents execute.  Eval and Gate decide.
 | 1.2.4 | 2026-10 | Invalid agent model rejected before the run, with the closest valid id (Codex checked against the models of the login); agent errors shown in full; fast container rebuild (`docker/rebuild.sh`). See [CHANGELOG](CHANGELOG.md). |
 | 1.3.0 | 2026-10 | Project context sources (`.clike/context.yaml`): requirement documents (docx, pdf, xlsx, pptx), UI references (HTML, CSS, images) and other project files read by the phases, for cloud and local agents. See [CHANGELOG](CHANGELOG.md). |
 | 1.4.0 | 2026-10 | Autonomous eval and gate: CLike creates the test environment the KIT declares (generated sessions/ids, disposable PostgreSQL databases, services of other REQs), `/eval --fix` repairs code, tests (Python and JS/TS, assertions unchanged) and environment and keeps going while it improves; `/gate` promotes by auto-merge (3-way per file, conflicts never written, report + diff); REQ branches stacked; prompt-cache costs in telemetry; faster RAG. See [CHANGELOG](CHANGELOG.md). |
+| **1.4.2** | 2026-10 | Readable promotion conflicts (`conflicts.md`) and fewer of them (a candidate that contains the canonical side merges); eval and regression run on the promoted code, not on stale KIT copies; `/extend` append-only enforced in code; `/init --force` keeps existing files; source code readable as context; design of `/adopt` and `/idea --extend`. See [CHANGELOG](CHANGELOG.md). |
 | **1.4.1** | 2026-10 | The gate repairs what it finds: `/gate --fix` runs the `/eval --fix` loop from a failing gate (tests locked); intermittent failures are diagnosed from earlier runs without a hint and every repair writes what it received next to the report; merge-on-gate pushes `main` even when the remote moved; faster eval loop and auto-merge fixes. See [CHANGELOG](CHANGELOG.md). |
 
 CLike is research software under active development. Interfaces may change between minor versions.
@@ -162,7 +163,7 @@ VM with at least 4 GB, provider API keys for cloud models, optionally the Claude
 cp .env.example .env                      # provider keys + CLIKE_API_TOKEN=$(openssl rand -hex 32)
 cp docker/.env.example docker/.env        # CLIKE_PROJECTS_DIR = host folder containing your projects
 cd docker && podman-compose up -d --build # services on 127.0.0.1, wait until (healthy)
-code --install-extension ../extensions/vscode/clike-1.4.1.vsix
+code --install-extension ../extensions/vscode/clike-1.4.2.vsix
 ```
 
 In VS Code: **CLike: Set Service Token** (the `CLIKE_API_TOKEN` value). Full guide, local agents
