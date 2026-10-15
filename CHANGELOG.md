@@ -4,6 +4,8 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.4.2] — 2026-10-15 — Conflicts you can read, plans that stay intact
+
 ### Added
 
 - **`conflicts.md` in the promotion report**: every spot still in conflict, readable without
