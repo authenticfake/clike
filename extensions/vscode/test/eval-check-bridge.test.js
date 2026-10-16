@@ -66,6 +66,9 @@ test('result: PASS only when every requested check passed', () => {
   assert.equal(compactResult({ cases: [{ name: 'lint', passed: true }] }).status, 'PASS');
   assert.equal(compactResult({ cases: [] }).status, 'FAIL');
   assert.equal(compactResult({ cases: [{ name: 'env::provision::X', passed: false, code: 1, stderr: 'no db' }] }).status, 'FAIL');
+  const exhausted = compactResult({ reason_code: 'EVAL_SANDBOX_EXHAUSTED', cases: [{ name: 'test:e2e', passed: false, code: 1, excerpt: 'spawn EAGAIN' }] });
+  assert.equal(exhausted.status, 'BLOCKED');
+  assert.match(exhausted.error, /Do not change code/);
 });
 
 test('agent args: Claude Code allows the helper before its other options, Codex unchanged', () => {

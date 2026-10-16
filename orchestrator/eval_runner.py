@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional
 
 import eval_environment
 import eval_failures
+import sandbox_resources
 from utils.safe_paths import validate_req_id
 
 log = logging.getLogger("eval_runner")
@@ -118,7 +119,7 @@ def _stop_group(proc: subprocess.Popen) -> None:
             os.killpg(proc.pid, signal.SIGKILL)
         except OSError:
             pass
-    else:
+    elif proc.poll() is None:
         proc.kill()
 
 
@@ -148,6 +149,9 @@ def _run_process_group(
         step = 1.0 if deadline is None else max(0.0, min(1.0, deadline - time.monotonic()))
         try:
             stdout, stderr = proc.communicate(timeout=step)
+            # What the check left running in its group (a server, a browser) is stopped too: an
+            # orphan per check exhausted the sandbox's process limit within a day of evals.
+            _stop_group(proc)
             return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
         except subprocess.TimeoutExpired:
             if cancel is not None and cancel.is_set():
@@ -158,6 +162,16 @@ def _run_process_group(
                 _stop_group(proc)
                 stdout, stderr = proc.communicate()
                 raise subprocess.TimeoutExpired(cmd, timeout, output=stdout, stderr=stderr)
+
+
+_SANDBOX_EXHAUSTED_NOTE = "[CLike EvalRunner] Sandbox resources exhausted"
+
+
+def _sandbox_exhausted_case(case: "EvalCase") -> bool:
+    """A check that failed because the sandbox ran out of processes, threads, memory or disk."""
+    return not case.passed and (
+        case.name.endswith("env::sandbox-resources") or _SANDBOX_EXHAUSTED_NOTE in (case.stderr or "")
+    )
 
 
 def scrubbed_process_env() -> Dict[str, str]:
@@ -287,7 +301,15 @@ class EvalRunner:
             stdout = eval_failures.strip_ansi(proc.stdout or "")
             ok = proc.returncode == expect
             blocked = False
-            if not ok:
+            exhausted = None if ok else sandbox_resources.exhaustion(f"{stdout}\n{stderr}")
+            if exhausted:
+                blocked = True
+                stderr = (
+                    stderr
+                    + f"\n{_SANDBOX_EXHAUSTED_NOTE} ({exhausted}): the OS refused a process, "
+                    "thread, memory or disk space. Not a defect of the code. " + sandbox_resources.RESTART_HINT
+                )
+            elif not ok:
                 blocked = self._is_environment_blocked(
                     code=proc.returncode,
                     stdout=stdout,
@@ -295,7 +317,7 @@ class EvalRunner:
                     environment_requirements=environment_requirements or [],
                 )
 
-            if blocked and not ok:
+            if blocked and not ok and not exhausted:
                 stderr = (
                     stderr
                     + "\n[CLike EvalRunner] Classified as environment-blocked: "
@@ -2117,11 +2139,27 @@ class EvalRunner:
         self._services: List[eval_environment.RunningService] = []
         self._only_checks = {str(c) for c in (checks or []) if str(c).strip()} or None
         try:
-            return self._run_profile(profile, ltc, mode, verdict, req_id, regression and not self._only_checks)
+            exhausted = sandbox_resources.preflight()
+            if exhausted:
+                return self._sandbox_exhausted_report(profile, req_id or (ltc or {}).get("req_id"), exhausted)
+            report = self._run_profile(profile, ltc, mode, verdict, req_id, regression and not self._only_checks)
+            if any(_sandbox_exhausted_case(c) for c in report.cases):
+                report.reason_code = sandbox_resources.SANDBOX_EXHAUSTED_REASON
+            return report
         finally:
             for svc in reversed(self._services):
                 eval_environment.stop_process(svc.proc)
             self._services = []
+
+    def _sandbox_exhausted_report(self, profile: str, req_id: Optional[str], reason: str) -> EvalReport:
+        case = EvalCase(
+            name="env::sandbox-resources", passed=False, code=1, stdout="", stderr=reason, blocked=True,
+            excerpt=reason, fingerprint="sandbox-resources",
+        )
+        report = self._report_from_cases(profile_path=Path(profile), req_id=req_id, mode="auto", cases=[case])
+        report.status = "BLOCKED"
+        report.reason_code = sandbox_resources.SANDBOX_EXHAUSTED_REASON
+        return report
 
     def _provision_environment(
         self,

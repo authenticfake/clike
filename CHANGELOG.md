@@ -4,6 +4,23 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+### Fixed
+
+- **`/gate --fix` repaired correct code for a broken sandbox.** The eval sandbox ran with uvicorn
+  as PID 1, which never reaps the processes the checks orphan (servers, browsers, esbuild): their
+  zombies filled `pids_limit` within a day of evals, and every check then failed with
+  `spawn EAGAIN`, `pthread_create: Resource temporarily unavailable`, a closing browser or a web
+  server that "exited early". Those failures were treated as code defects and sent to the repair,
+  with the note "the failure most likely comes from that change". Now:
+  - the sandbox runs with an init (`init: true`) and what a check or a service leaves in its
+    process group is stopped when it ends;
+  - the OS refusing a process, thread, memory or disk is environment-blocked, the report says
+    `EVAL_SANDBOX_EXHAUSTED` / `GATE_BLOCKED_SANDBOX_EXHAUSTED` and `--fix` (eval, gate, finalize
+    verification) stops with how to recover; a local agent's `eval-check` answers `BLOCKED`;
+  - an eval does not start in a sandbox already at 60% of its process limit;
+  - environment-blocked failures get no "passed in earlier runs" note;
+  - the sandbox `/health` shows processes in use, zombies and PID 1.
+
 ## [1.4.2] — 2026-10-15 — Conflicts you can read, plans that stay intact
 
 ### Added
