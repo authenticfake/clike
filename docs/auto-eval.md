@@ -52,6 +52,15 @@ shows its path.
 - A test that ran and failed is **never classified as environment-blocked** (`element(s) not
   found`, a module of the candidate not found): only missing tools, registries, native binaries and
   sandbox limits are.
+- **An eval sandbox out of resources stops the loop.** When the OS refuses a process, a thread,
+  memory or disk (`spawn node EAGAIN`, `pthread_create: Resource temporarily unavailable`, `ENOMEM`,
+  `ENOSPC`, `EMFILE`) the check is environment-blocked and the report says
+  `EVAL_SANDBOX_EXHAUSTED` (gate: `GATE_BLOCKED_SANDBOX_EXHAUSTED`): `--fix` stops instead of
+  changing correct code, and a local agent's `eval-check` answers `BLOCKED`. An eval does not start
+  when the sandbox already uses 60% of its process limit. The sandbox runs with an init (`init:
+  true`) that reaps the processes the checks orphan, and what a check leaves running in its process
+  group (a server, a browser) is stopped when it ends; `GET /health` of the sandbox shows the
+  processes in use, the zombies and PID 1. To recover: `podman restart docker_eval-sandbox_1`.
 - **Cloud**: the files named in the errors first, then tests, sources, the eval profile and CI, then
   the KIT docs (160k characters). CLike's own context files (`CLIKE_SELECTED_CAPABILITY_CONTEXT.*`,
   `AGENT_PROMPT.md`, `FILE_REQUIREMENTS.json`…) and lockfiles are listed, not shown.

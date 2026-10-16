@@ -15,6 +15,7 @@ from pydantic import BaseModel
 import httpx
 
 from eval_runner import EvalCase, EvalReport, EvalRunner, report_from_dict
+from sandbox_resources import SANDBOX_EXHAUSTED_REASON
 from utils.safe_paths import UnsafePathError, is_within_any, resolve_within, validate_req_id
 from services.gate_integrity import allowed_eval_roots, compare_with_lock, ensure_lock, lock_amendments, record_override
 
@@ -572,6 +573,7 @@ def _eval_payload(rep: EvalReport, req_id: Optional[str]) -> Dict[str, Any]:
         "status": rep.status,
         "reason_code": rep.reason_code,
         "environment_repairable": rep.environment_repairable,
+        "sandbox_exhausted": rep.reason_code == SANDBOX_EXHAUSTED_REASON,
         "passed": promotable,
         "execution_ok": not environment_blocked,
         "quality_passed": quality_passed,
@@ -778,7 +780,10 @@ async def gate_check(
         amendments = []
 
     reason_code = "GATE_PASS"
-    if structural_blockers:
+    if rep.reason_code == SANDBOX_EXHAUSTED_REASON and hard_gate != "PASS":
+        # The sandbox ran out of processes/memory: no verdict on the code, nothing to repair.
+        reason_code = "GATE_BLOCKED_SANDBOX_EXHAUSTED"
+    elif structural_blockers:
         reason_code = "GATE_BLOCKED_REQUIRED_OUTPUTS_MISSING"
     elif effective_status == "PASS":
         reason_code = "GATE_PASS"
@@ -798,6 +803,7 @@ async def gate_check(
         "status": effective_status,
         "raw_eval_status": rep.status,
         "reason_code": reason_code,
+        "sandbox_exhausted": rep.reason_code == SANDBOX_EXHAUSTED_REASON,
         "structural_blockers": structural_blockers,
         "profile": rep.profile,
         "req_id": rep.req_id,

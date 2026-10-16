@@ -331,13 +331,13 @@ def stop_process(proc: subprocess.Popen) -> None:
     import os
     import signal
 
-    if proc.poll() is not None:
-        return
+    # The group, even when its leader exited: `npm start` may have left the server it launched.
     try:
         os.killpg(proc.pid, signal.SIGTERM)
         proc.wait(timeout=10)
     except Exception:
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except Exception:
-            pass
+        pass
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)  # what ignored SIGTERM
+    except Exception:
+        pass

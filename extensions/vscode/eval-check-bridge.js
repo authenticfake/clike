@@ -82,6 +82,14 @@ function compactResult(report) {
           .slice(0, ERRORS_PER_CHECK),
       }),
     }));
+  if (String(report?.reason_code || '') === 'EVAL_SANDBOX_EXHAUSTED') {
+    return {
+      status: 'BLOCKED',
+      error: 'the CLike eval sandbox ran out of processes/memory: these errors are not defects of the code. ' +
+        'Do not change code for them and do not run more eval checks; finish with what you have.',
+      checks,
+    };
+  }
   const failed = checks.some((c) => !c.passed && !String(c.name).startsWith('structure::'));
   return { status: failed || !checks.length ? 'FAIL' : 'PASS', checks };
 }

@@ -192,6 +192,23 @@ test('auto-gate: same loop as auto-eval, driven by the gate verdict', () => {
   assert.match(nextAutoGateStep(base, { gate: 'FAIL', status: 'FAIL', cases: [] }).reason, /gate failed without failing checks/);
 });
 
+test('an exhausted eval sandbox stops eval and gate loops: nothing to repair', () => {
+  const base = { cycle: 1, maxCycles: 3, hint: '' };
+  const exhausted = { ...failing(['test:e2e']), gate: 'FAIL', reason_code: 'GATE_BLOCKED_SANDBOX_EXHAUSTED' };
+  const gate = nextAutoGateStep(base, exhausted);
+  assert.equal(gate.action, 'stop');
+  assert.match(gate.reason, /ran out of resources[\s\S]*podman restart/);
+  assert.equal(nextAutoEvalStep(base, { ...failing(['unit']), reason_code: 'EVAL_SANDBOX_EXHAUSTED' }).action, 'stop');
+  assert.equal(nextAutoEvalStep(base, { ...failing(['unit']), sandbox_exhausted: true }).action, 'stop');
+});
+
+test('environment-blocked failures get no history note', () => {
+  const failures = collectRepairFailures({ cases: [{ name: 'e2e', passed: false, blocked: true, excerpt: 'browser closed' }] });
+  assert.equal(failures[0].blocked, true);
+  const earlier = [{ inputs: 'old', cases: [{ name: 'e2e', passed: true }] }];
+  assert.equal(annotateIntermittentFailures(failures, earlier, 'new')[0].output, 'browser closed');
+});
+
 test('intermittent failures: a check that passed in earlier runs is flagged for the repair', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'clike-flaky-'));
   const write = (phase, ts, cases) => {

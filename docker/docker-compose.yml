@@ -129,6 +129,9 @@ services:
       - /tmp:size=1g,mode=1777
     cap_drop: [ALL]
     security_opt: [no-new-privileges]
+    # An init as PID 1 reaps the processes the checks orphan (servers, browsers, esbuild):
+    # uvicorn as PID 1 does not, and their zombies filled pids_limit within a day of evals.
+    init: true
     pids_limit: 1024
     mem_limit: ${CLIKE_EVAL_SANDBOX_MEM_LIMIT:-4g}
     # A runaway test can get the sandbox OOM-killed; it comes back for the next eval.

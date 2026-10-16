@@ -22,6 +22,7 @@ from typing import List, Optional
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
+import sandbox_resources
 from eval_runner import _SECRET_ENV_NAME_RE, EvalRunner, report_to_dict
 from services.gate_integrity import allowed_eval_roots
 from utils.safe_paths import UnsafePathError, is_within_any, resolve_within
@@ -49,7 +50,8 @@ class SandboxRunRequest(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "eval-sandbox"}
+    # Processes in use against the limit: zombies piling up mean the container has no init.
+    return {"status": "ok", "service": "eval-sandbox", "resources": sandbox_resources.snapshot()}
 
 
 @app.post("/run")
