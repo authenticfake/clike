@@ -26,6 +26,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import sandbox_resources
 from config import runs_dir
 from utils.safe_paths import is_within_any, safe_segment, validate_req_id
 
@@ -216,7 +217,13 @@ def _checks(ltc_text: str) -> Dict[str, Dict[str, Any]]:
         doc = json.loads(ltc_text)
     except ValueError:
         return {}
-    items = doc.get("checks") or doc.get("cases") or []
+    # the same shapes the eval runner reads: checks / cases / commands (a list, or a dict by name)
+    items = doc.get("checks") or doc.get("cases") or doc.get("commands") or []
+    if isinstance(items, dict):
+        items = [
+            {**raw, "id": name} if isinstance(raw, dict) else {"id": name, "run": raw}
+            for name, raw in items.items()
+        ]
     out: Dict[str, Dict[str, Any]] = {}
     for index, item in enumerate(items if isinstance(items, list) else []):
         if isinstance(item, str):
@@ -229,6 +236,21 @@ def _checks(ltc_text: str) -> Dict[str, Dict[str, Any]]:
                 "blocking": bool(item.get("blocking", required)),
             }
     return out
+
+
+def _evidence_of(evidence: str, check: str) -> str:
+    """The part of the repair evidence (``<check name>\\n<its errors>`` per failure) about one check."""
+    match = re.search(rf"^{re.escape(check)}\n", evidence or "", re.MULTILINE)
+    return (evidence or "")[match.end():match.end() + 8000] if match else ""
+
+
+def _needs_container_runtime(issue: str, evidence: str) -> bool:
+    """A check made non-blocking because the eval showed it needs a container runtime, which the
+    sandbox never has: the only way such a check stops blocking an eval it cannot pass."""
+    prefix = "check made non-blocking: "
+    return issue.startswith(prefix) and sandbox_resources.container_runtime_missing(
+        _evidence_of(evidence, issue[len(prefix):])
+    )
 
 
 def _ltc_weakening(before: str, after: str) -> List[str]:
@@ -350,7 +372,8 @@ def _imports_and_body(source: str):
 
 
 # Errors that show the test itself is wrong (API misuse, broken import or fixture), raised in the
-# test file: e.g. "test/x/test_a.py:243: TypeError" or "ERROR collecting test/x/test_a.py".
+# test file: e.g. "test/x/test_a.py:243: TypeError", "ERROR collecting test/x/test_a.py" or a mypy /
+# pyright error on it.
 _HARNESS_ERRORS = r"TypeError|AttributeError|NameError|ImportError|ModuleNotFoundError|SyntaxError|IndentationError"
 _ASSERTION_CALLS = {"raises", "warns", "approx", "fail", "deprecated_call"}
 _SKIP_RE = re.compile(r"\b(?:skip|skipif|xfail|importorskip)\b")
@@ -360,6 +383,9 @@ def _harness_error_in(evidence: str, path: Path) -> bool:
     name = re.escape(path.name)
     return bool(
         re.search(rf"{name}:\d+: (?:{_HARNESS_ERRORS})\b", evidence)
+        # a type checker error reported on the test file (mypy "x.py:286: error: … [arg-type]",
+        # pyright "x.py:286:5 - error: …"), like a TypeScript error on a JS/TS test
+        or re.search(rf"{name}:\d+(?::\d+)?:? (?:- )?error: ", evidence)
         or re.search(rf"ERROR collecting [^\n]*{name}", evidence)
         or re.search(rf"fixture '[^']+' not found[\s\S]{{0,400}}{name}|{name}[\s\S]{{0,400}}fixture '[^']+' not found", evidence)
     )
@@ -502,7 +528,8 @@ def amend_acceptance_surface(
       TypeScript error reported on it), fixed with every test and assertion unchanged and no
       skip/xfail/only added; such test fixes are marked for the developer's review.
     * ``ci/LTC.json`` may change only the commands of existing checks (e.g. a path that does not
-      exist in the sandbox): no check removed, none made non-blocking.
+      exist in the sandbox): no check removed, none made non-blocking — except a check the eval
+      showed needs a container runtime (docker, podman, compose), which the sandbox never has.
     * other ``ci/**`` files (requirements, manifests) may change, e.g. to upgrade a vulnerable
       dependency.
 
@@ -540,7 +567,10 @@ def amend_acceptance_surface(
             before = texts.get(rel)
             if before is None and (root / rel).is_file():
                 before = (root / rel).read_text(encoding="utf-8", errors="replace")
-            issues = [i for i in _ltc_weakening(before or "{}", content) if not i.startswith("check command changed")]
+            issues = [
+                i for i in _ltc_weakening(before or "{}", content)
+                if not i.startswith("check command changed") and not _needs_container_runtime(i, evidence)
+            ]
             if issues:
                 rejected[rel] = issues
                 continue

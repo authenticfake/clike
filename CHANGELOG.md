@@ -6,6 +6,22 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **`/eval --fix` repeated the same errors when a locked test was wrong for the type checker.** A
+  mypy/pyright error reported on a test file (`test_a.py:286: error: … [arg-type]`) now counts as
+  evidence that the test is wrong, like a TypeScript error: the fix, with every assertion
+  unchanged, is accepted for review instead of being reverted at every cycle.
+- **A local agent's rejected test change was committed.** The phase commit ran before the
+  governance restored the file: `HEAD` held the rejected change, the working tree the locked test.
+  The governance now runs before the commit.
+- **Backup/restore checks failed for a missing `pg_dump`.** The eval sandbox image has the
+  PostgreSQL client tools (`psql`, `pg_dump`, `pg_restore`, major 18 from PGDG).
+- **A blocking check that needs Docker could never pass.** The sandbox has no container runtime:
+  such a failure is recognised (`docker: not found`, `Docker Compose … required`, daemon not
+  reachable), the repair is told to make the check non-blocking and the governance accepts that one
+  change; non-blocking, it is a warning. The KIT rules list what the sandbox has and lacks.
+- **Acceptance governance ignored LTC files written with `commands`.** Checks are read in every
+  shape the runner accepts, so removing or relaxing a check is detected there too.
+
 - **`/gate --fix` repaired correct code for a broken sandbox.** The eval sandbox ran with uvicorn
   as PID 1, which never reaps the processes the checks orphan (servers, browsers, esbuild): their
   zombies filled `pids_limit` within a day of evals, and every check then failed with

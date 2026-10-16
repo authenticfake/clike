@@ -80,6 +80,21 @@ RUN if [ "$ENABLE_BROWSER" = "true" ]; then \
       rm -rf /var/lib/apt/lists/* ; \
     else echo "Skip browser libraries"; fi
 
+# ===== PostgreSQL client tools (optional, for checks that back up/restore the eval database) =====
+# pg_dump / pg_restore / psql from the PostgreSQL project's repository (PGDG): a client at least as
+# new as the server of CLIKE_EVAL_POSTGRES_URL (pg_dump refuses newer servers; it dumps older ones).
+ARG ENABLE_PG_CLIENT=true
+ARG PG_CLIENT_MAJOR=18
+RUN if [ "$ENABLE_PG_CLIENT" = "true" ]; then \
+      codename="$(. /etc/os-release && echo "${VERSION_CODENAME}")" && \
+      apt-get update && apt-get install -y --no-install-recommends gnupg && \
+      curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/pgdg.gpg && \
+      echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] https://apt.postgresql.org/pub/repos/apt ${codename}-pgdg main" \
+        > /etc/apt/sources.list.d/pgdg.list && \
+      apt-get update && apt-get install -y --no-install-recommends "postgresql-client-${PG_CLIENT_MAJOR}" && \
+      rm -rf /var/lib/apt/lists/* ; \
+    else echo "Skip PostgreSQL client"; fi
+
 # Tool JS globali (solo se Node abilitato). npm 11: the npm 10 bundled with Node 22 crashes
 # resolving some peer sets ("Cannot read properties of null (reading 'edgesOut')").
 RUN if command -v npm >/dev/null 2>&1; then \

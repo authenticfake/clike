@@ -168,12 +168,16 @@ The repair prompt (cloud) and the orchestrator enforce the same rules:
   - *unused imports* (lint failures): a Python test may only drop imports;
   - *the test itself is wrong*: when the eval shows an error raised **in the test file** that is
     not a failed assertion (`TypeError`, `AttributeError`, `NameError`, `ImportError`, a missing
-    fixture — e.g. a wrong API call), the test is fixed, not the code. Every test function, every
+    fixture — e.g. a wrong API call), or a type checker error reported on it (mypy
+    `test_a.py:286: error: … [arg-type]`, pyright, TypeScript `error TS…`), the test is fixed, not the code. Every test function, every
     `assert` and every `pytest.raises/warns/approx` must stay identical and no skip/xfail may be
     added. The fix is reported as `repair_test_fixed_review_required:<file>` and the gate shows
     `review_required: true` (VS Code: *REVIEW* in the gate message) so the developer checks it.
 - **`ci/LTC.json`**: only the *command* of a check that cannot run may be fixed (wrong path,
-  module or flag). Removing a check, making it non-blocking or weakening it is rejected. Accepted
+  module or flag). Removing a check, making it non-blocking or weakening it is rejected, with one
+  exception: a check the eval shows needs a **container runtime** (docker, podman, compose — the
+  sandbox has none) may become `"blocking": false`; it stays runnable on the developer's machine.
+  The checks are read in every shape the runner accepts (`checks`, `cases`, `commands`). Accepted
   changes are recorded as audited amendments of the acceptance lock
   (`audit/acceptance_amendments.jsonl` in the CLike state directory) and reported as
   `repair_amendment_accepted:...`.
@@ -181,6 +185,12 @@ The repair prompt (cloud) and the orchestrator enforce the same rules:
   vulnerable dependencies. Vulnerable dependencies keep blocking the gate until upgraded.
 - **Environment failures** (network, missing system tool) are not "fixed" in code: the model
   documents them in `docs/KIT_<REQ>.md`.
+- **Local agents**: the changes it made to locked files are governed (the rejected ones restored)
+  *before* the phase commit, so git never holds a change CLike then reverts.
+
+The eval sandbox has Python 3.12, Node 22, Java 21, Chromium's system libraries and the PostgreSQL
+client tools (`psql`, `pg_dump`, `pg_restore`, major 18: they also work with older servers; build
+argument `PG_CLIENT_MAJOR`). It has no container runtime and no privileges.
 
 With a local agent (Claude Code, Codex) the repair follows the same rules:
 - the agent package carries the failed checks, the hint and the rules

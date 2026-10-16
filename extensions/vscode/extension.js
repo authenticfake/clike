@@ -4661,6 +4661,14 @@ async function cmdOpenChat(context) {
             }
             panel.webview.postMessage({ type: 'files', data: _out.files });
             log(`[harperRun] written ${written.length} files`);
+            // Locked tests a local agent changed are governed (and the rejected ones restored)
+            // before the commit: otherwise the commit holds a change CLike then reverts.
+            const acceptance = phase === 'kit' && (msg.__acceptance ||
+              (msg.acceptanceFirst && msg.__acceptanceBefore ? { before: msg.__acceptanceBefore, failures: [], cycle: 0 } : null));
+            if (acceptance && !msg.__acceptanceGoverned) {
+              await governAcceptanceChanges(targetReqId, acceptance.before, acceptance.failures, acceptance.cycle);
+              msg.__acceptanceGoverned = true;
+            }
             const settings = cfg();
             if (settings.gitAutoCommit) {
                try {
@@ -4737,7 +4745,7 @@ async function cmdOpenChat(context) {
             files: (Array.isArray(_out?.files) ? _out.files : []).map(f => f.path).filter(Boolean),
             warnings: Array.isArray(_out?.warnings) ? _out.warnings.slice(0, 20) : [],
           };
-          if (phase === 'kit' && msg.acceptanceFirst && msg.__acceptanceBefore) {
+          if (phase === 'kit' && msg.acceptanceFirst && msg.__acceptanceBefore && !msg.__acceptanceGoverned) {
             // a local agent may have touched the locked tests: govern and restore
             await governAcceptanceChanges(targetReqId, msg.__acceptanceBefore, [], 0);
           }
@@ -6195,8 +6203,9 @@ async function cmdOpenChat(context) {
     };
     const wsPath = getWorkspaceRoot().fsPath;
     const acceptanceBefore = snapshotAcceptanceSurface(wsPath, reqId);
+    kitMsg.__acceptance = { before: acceptanceBefore, failures: step.failures, cycle };
     await handleWebviewMessage(kitMsg);
-    await governAcceptanceChanges(reqId, acceptanceBefore, step.failures, cycle);
+    if (!kitMsg.__acceptanceGoverned) await governAcceptanceChanges(reqId, acceptanceBefore, step.failures, cycle);
     const evalMsg = {
       type: 'harperEDD',
       cmd: 'eval',
@@ -6276,8 +6285,9 @@ async function cmdOpenChat(context) {
       },
     };
     const acceptanceBefore = snapshotAcceptanceSurface(getWorkspaceRoot().fsPath, reqId);
+    kitMsg.__acceptance = { before: acceptanceBefore, failures: step.failures, cycle };
     await handleWebviewMessage(kitMsg);
-    await governAcceptanceChanges(reqId, acceptanceBefore, step.failures, cycle);
+    if (!kitMsg.__acceptanceGoverned) await governAcceptanceChanges(reqId, acceptanceBefore, step.failures, cycle);
     const gateMsg = {
       type: 'harperEDD',
       cmd: 'gate',
