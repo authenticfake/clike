@@ -79,6 +79,7 @@ are small IDEAs to start with.
 |---|---|
 | `/eval REQ --fix ["hint"]` | auto-eval: up to `clike.autoEval.maxCycles` (2) governed repairs, plus `clike.autoEval.extraCyclesOnProgress` (3) while the failures decrease; rerun to continue, the hint guides the fix |
 | `clike.autoEval.afterKit` | auto-eval after every `/kit` |
+| `/tools`, `clike.evalTools.install` (`ask`) | native tools of the eval sandbox (kcat, mysqldump, aws, kubectl, jdk@17…): installed when an eval needs them, after asking; `/tools add <tool>[@version]` installs and approves for the project (`.clike/eval-tools.yaml`) |
 | `clike.kit.acceptanceFirst` | tests written from SPEC/PLAN and locked **before** the code |
 | `clike.eval.regression` (on) | regression of promoted REQs in eval and gate |
 | `clike.gate.strictWarnings` | warnings block the gate |
