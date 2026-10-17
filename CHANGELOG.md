@@ -4,6 +4,8 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.4.4] — 2026-10-17 — The solution running and configured on the developer's machine
+
 ### Changed
 
 - **`/finalize` brings the solution to running and configured, without running the tests
