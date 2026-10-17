@@ -213,7 +213,8 @@ What you get:
 
 The profile, its smoke scripts, the evidence and the report are committed when the verification
 ends; changes you had in the working tree before `/finalize` and that it did not touch are left
-out of its commits.
+out of its commits (recorded by content in `runs/finalize/DIRTY_BEFORE.json` until a finalize
+commit succeeds, so the work of an earlier run that ended before its commit is still committed).
 
 Deployment target from `TECH_CONSTRAINTS.yaml`: **on-premises/local** — the local run is the
 target and must work on the developer's machine; **cloud** — guarded deploy scripts too (mutating

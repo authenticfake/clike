@@ -527,6 +527,7 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
       else await vscode.commands.executeCommand('github.createPullRequest');
     } catch (e) { log(`[harperGit] finalize PR skipped: ${e.message}`); }
   }
+  return { committed: true };
 }
 
 

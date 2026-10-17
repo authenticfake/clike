@@ -32,7 +32,8 @@ Module._load = originalLoad;
 
 const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8' });
 
-test('finalize collects the solution profile and smoke scripts, not the developer\'s untouched changes', async () => {
+test('finalize collects its work, also in new directories and from an uncommitted earlier run, not the developer\'s changes', async () => {
+  const fv = require('../finalize-verify');
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'clike-finalize-art-')));
   const put = (rel, text) => {
     fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
@@ -44,20 +45,26 @@ test('finalize collects the solution profile and smoke scripts, not the develope
   git(root, 'add', '.');
   git(root, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'init');
   put('src/pkg/__init__.py', 'A = 2\n'); // the developer's own change, before /finalize
-  const old = new Date(Date.now() - 60000);
-  fs.utimesSync(path.join(root, 'src/pkg/__init__.py'), old, old);
-  const since = Date.now() - 1000;
+  fv.ensureDirtyBaseline(root);
+  // a first /finalize run writes, then ends before its commit
+  put('src/runtime/compose.yaml', 'services: {app: {}}\n');
+  put('scripts/solution_local.py', 'print(1)\n'); // scripts/ is a new, untracked directory
+  // the next run: the baseline of the round is kept
+  fv.ensureDirtyBaseline(root);
   put('ci/SOLUTION_LTC.json', '{"req_id":"SOLUTION","checks":[]}\n');
   put('ci/solution/smoke.mjs', 'console.log(1)\n');
   put('docs/harper/FINALIZE_REPORT.md', '# Report\n');
-  put('src/runtime/compose.yaml', 'services: {app: {}}\n');
 
-  const paths = (await collectFinalizeCandidateFileArtifacts({ fsPath: root }, { since })).map((a) => a.path);
-  for (const rel of ['ci/SOLUTION_LTC.json', 'ci/solution/smoke.mjs', 'docs/harper/FINALIZE_REPORT.md', 'src/runtime/compose.yaml']) {
+  const paths = (await collectFinalizeCandidateFileArtifacts({ fsPath: root }, { baseline: fv.readDirtyBaseline(root) })).map((a) => a.path);
+  for (const rel of ['ci/SOLUTION_LTC.json', 'ci/solution/smoke.mjs', 'docs/harper/FINALIZE_REPORT.md',
+    'src/runtime/compose.yaml', 'scripts/solution_local.py']) {
     assert.ok(paths.includes(rel), `${rel} collected`);
   }
-  assert.ok(!paths.includes('src/pkg/__init__.py'), 'untouched developer change left out');
-  const all = (await collectFinalizeCandidateFileArtifacts({ fsPath: root })).map((a) => a.path);
-  assert.ok(all.includes('src/pkg/__init__.py'), 'without a start time every change is collected (as before)');
+  assert.ok(!paths.includes('src/pkg/__init__.py'), 'the developer\'s untouched change left out');
+  put('src/pkg/__init__.py', 'A = 3\n'); // finalize changed it too: now it is finalize's
+  const again = (await collectFinalizeCandidateFileArtifacts({ fsPath: root }, { baseline: fv.readDirtyBaseline(root) })).map((a) => a.path);
+  assert.ok(again.includes('src/pkg/__init__.py'));
+  fv.clearDirtyBaseline(root);
+  assert.equal(fv.readDirtyBaseline(root), null);
   fs.rmSync(root, { recursive: true, force: true });
 });

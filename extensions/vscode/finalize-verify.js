@@ -28,6 +28,49 @@ const SOLUTION_FILES = [
   'docker-compose.yml', 'docker-compose.yaml', 'compose.yml', 'compose.yaml', 'Dockerfile', 'Makefile',
 ];
 
+// The developer's working-tree changes before the first /finalize of a round, {path: sha1}: kept
+// until a /finalize commit succeeds, so the work of a run that ended before its commit is not
+// mistaken for the developer's at the next run (runs/ is never committed).
+const BASELINE_PATH = 'runs/finalize/DIRTY_BEFORE.json';
+
+function fileSha1(absPath) {
+  try { return require('crypto').createHash('sha1').update(fs.readFileSync(absPath)).digest('hex'); } catch { return 'missing'; }
+}
+
+function ensureDirtyBaseline(workspaceRoot) {
+  const full = path.join(workspaceRoot, ...BASELINE_PATH.split('/'));
+  if (fs.existsSync(full)) return readDirtyBaseline(workspaceRoot);
+  let raw = '';
+  try {
+    raw = require('child_process').execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], {
+      cwd: workspaceRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    });
+  } catch {
+    return null;
+  }
+  const files = {};
+  for (const line of raw.split(/\r?\n/).map((l) => l.trimEnd()).filter(Boolean)) {
+    const p = line.slice(3).trim();
+    const rel = (p.includes(' -> ') ? p.split(' -> ').pop() : p).replace(/^"(.*)"$/, '$1');
+    if (!rel.startsWith('runs/')) files[rel] = fileSha1(path.join(workspaceRoot, rel));
+  }
+  fs.mkdirSync(path.dirname(full), { recursive: true });
+  fs.writeFileSync(full, JSON.stringify({ created_at: new Date().toISOString(), files }, null, 1));
+  return files;
+}
+
+function readDirtyBaseline(workspaceRoot) {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(workspaceRoot, ...BASELINE_PATH.split('/')), 'utf8')).files || null;
+  } catch {
+    return null;
+  }
+}
+
+function clearDirtyBaseline(workspaceRoot) {
+  try { fs.rmSync(path.join(workspaceRoot, ...BASELINE_PATH.split('/')), { force: true }); } catch { /* best effort */ }
+}
+
 function readPlanReqs(workspaceRoot) {
   try {
     const plan = JSON.parse(fs.readFileSync(path.join(workspaceRoot, 'docs', 'harper', 'plan.json'), 'utf8'));
@@ -220,6 +263,9 @@ module.exports = {
   REPORT_PATH,
   gateEvidence,
   pendingReqs,
+  ensureDirtyBaseline,
+  readDirtyBaseline,
+  clearDirtyBaseline,
   unmergedReqBranches,
   withReportCheck,
   SOLUTION_EVAL_ID,

@@ -2676,7 +2676,8 @@ function isFinalizeAllowedPath(relPath) {
 
 function collectGitChangedFinalizePaths(rootPath) {
   try {
-    const raw = cp.execFileSync('git', ['status', '--porcelain'], {
+    // every untracked file, also inside a new directory (plain porcelain lists only "dir/")
+    const raw = cp.execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], {
       cwd: rootPath,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
@@ -2851,11 +2852,13 @@ function collectFinalizeSupportPaths(rootPath) {
 
 
 /**
- * Files a /finalize run produced. `since` (the agent's start, ms): a file that was already
- * modified in the working tree before the run and that the run did not touch is the developer's
- * own change — left out, so it is neither normalized nor committed as part of the finalize.
+ * Files a /finalize run produced. `baseline` ({path: content hash}, finalize-verify.js): the
+ * working-tree changes the developer had before the first /finalize of this round; one still
+ * with the same content is the developer's own change — left out, so it is neither normalized
+ * nor committed. A file an earlier, uncommitted /finalize run wrote is not in the baseline, so it
+ * is kept.
  */
-async function collectFinalizeCandidateFileArtifacts(projectRootUri, { since = 0 } = {}) {
+async function collectFinalizeCandidateFileArtifacts(projectRootUri, { baseline = null } = {}) {
   const rootPath = projectRootUri?.fsPath || projectRootUri?.path || '';
   if (!rootPath) return [];
 
@@ -2901,8 +2904,9 @@ async function collectFinalizeCandidateFileArtifacts(projectRootUri, { since = 0
   const changed = collectGitChangedFinalizePaths(rootPath);
   const support = collectFinalizeSupportPaths(rootPath);
   const smoke = listFilesUnder(rootPath, 'ci/solution');
-  const untouched = new Set(since > 0
-    ? changed.filter((rel) => !expected.includes(rel) && mtimeOf(path.join(rootPath, rel)) < since)
+  const untouched = new Set(baseline
+    ? changed.filter((rel) => !expected.includes(rel) && Object.prototype.hasOwnProperty.call(baseline, rel)
+      && baseline[rel] === contentHash(path.join(rootPath, rel)))
     : []);
   const paths = [...new Set([...changed, ...expected, ...support, ...smoke].filter(isFinalizeAllowedPath))]
     .filter((rel) => !untouched.has(rel));
@@ -2930,8 +2934,8 @@ async function collectFinalizeCandidateFileArtifacts(projectRootUri, { since = 0
   return artifacts;
 }
 
-function mtimeOf(absPath) {
-  try { return fs.statSync(absPath).mtimeMs; } catch { return 0; }
+function contentHash(absPath) {
+  try { return require('crypto').createHash('sha1').update(fs.readFileSync(absPath)).digest('hex'); } catch { return 'missing'; }
 }
 
 /** Workspace-relative files under a directory (bounded, '/' separators). */

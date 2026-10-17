@@ -100,7 +100,9 @@ def solution_verify_rules(deployment: str = "") -> List[str]:
         "is needed, where to get it, where to put it, what does not work without it (write 'none' when nothing is "
         "missing); (5) everything this /finalize did, file by file: the change and why (the problem found, its cause, "
         "the fix); (6) problems met during the verification and how each was solved; (7) limitations left, with the "
-        "reason. Facts only, from the files and the errors you saw.",
+        "reason. Facts only, from the files and the errors you saw. When the report already exists (an earlier "
+        "/finalize run or repair cycle), extend it: keep the earlier entries of (5) and (6), marked with their run, and "
+        "add this run's — a change an earlier run made is not 'already present', it is part of this /finalize.",
         "Make the profile pass by fixing code, configuration and wiring (composition roots, settings, routes, scripts) inside "
         "your write roots. The promoted tests under test/ are the REQs' acceptance: do not change them.",
     ]

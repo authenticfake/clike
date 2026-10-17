@@ -1029,13 +1029,13 @@ async function executeLocalAgentPackage({
   log(`[harperRun][agent][telemetry] ${JSON.stringify(agentRun.telemetry)}`);
 
   const candidateFiles = (isFinalize)
-    ? await collectFinalizeCandidateFiles(wsroot, { since: agentStartedAt })
+    ? await collectFinalizeCandidateFiles(wsroot, { baseline: finalizeVerify.readDirtyBaseline(toFsPath(wsroot)) })
     : (isExtend || isDocumentPhase)
       ? []
       : await collectReqCandidateFiles(wsroot, reqForAgent);
 
   const candidateArtifacts = isFinalize
-    ? await collectFinalizeCandidateFileArtifacts(wsroot, { since: agentStartedAt })
+    ? await collectFinalizeCandidateFileArtifacts(wsroot, { baseline: finalizeVerify.readDirtyBaseline(toFsPath(wsroot)) })
     : isDocumentPhase
       ? await collectDocumentPhaseCandidateFileArtifacts(
         wsroot,
@@ -3841,6 +3841,11 @@ async function cmdOpenChat(context) {
             }
           }
 
+          if (phase === 'finalize') {
+            // the developer's own changes, recorded once per round (finalize-verify.js)
+            try { finalizeVerify.ensureDirtyBaseline(getWorkspaceRoot().fsPath); } catch (e) { log(`[finalize] baseline: ${e?.message || e}`); }
+          }
+
           const project_id = getProjectId();
           const { cmd, attachments = [] } = msg;
           const state = context.workspaceState.get('clike.uiState') || {
@@ -4705,7 +4710,7 @@ async function cmdOpenChat(context) {
             const settings = cfg();
             if (settings.gitAutoCommit) {
                try {
-                await clikeGitSync(
+                const synced = await clikeGitSync(
                 phase,
                 runId,
                 targetReqId,
@@ -4714,6 +4719,8 @@ async function cmdOpenChat(context) {
                 settings,
                 out
               );
+                // committed: the next /finalize records the developer's changes afresh
+                if (phase === 'finalize' && synced?.committed) finalizeVerify.clearDirtyBaseline(toFsPath(wsroot));
               } catch (err) {
                 log(`[harperRun] gitSync error ${err}`);
 
