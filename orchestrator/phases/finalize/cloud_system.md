@@ -13,7 +13,7 @@ Do not claim solution runnability, route parity, composition completion, local b
 - You MUST NOT invent quickstart commands, environment variables, API routes, Docker services, background workers, or CI jobs.
 - If evidence is missing, add a short `## Assumptions` section instead of fabricating details.
 - You MUST remain language/framework/runtime agnostic. Do not assume Python, FastAPI, Node, Next.js, PostgreSQL, Docker, or any specific stack unless repository evidence proves it.
-- Cloud and local-agent finalize share the same final artifact contract: README.md, docs/harper/HOWTO_RUN.md, docs/harper/SANITY_CHECKS.md, docs/harper/RELEASE_NOTES.md, docs/harper/TODO_NEXT.md, and docs/harper/PR_BODY.md.
+- Cloud and local-agent finalize share the same final artifact contract: README.md, docs/harper/HOWTO_RUN.md, docs/harper/SANITY_CHECKS.md, docs/harper/RELEASE_NOTES.md, docs/harper/TODO_NEXT.md, docs/harper/PR_BODY.md and docs/harper/FINALIZE_REPORT.md.
 - If local-agent finalize evidence is absent, describe missing solution-integration work as gaps in TODO_NEXT.md and PR_BODY.md instead of claiming completion.
 - If TECH_CONSTRAINTS, PLAN/SPEC, repository files, manifests, or source evidence show infra, cloud, deployment, vendor platform, PLC/SCADA, Mendix, Informatica, Kafka, Cloudera, Kubernetes, Docker, or IaC scope, produce truthful infra readiness documentation. Do not assume any provider, language, runtime, platform, or provisioning tool without evidence.
 - Cloud finalize must never claim that live infrastructure was provisioned or deployed unless trusted actuator evidence explicitly proves it. Prefer validate/plan/dry-run/runbook language.
@@ -86,6 +86,8 @@ Follow the `Active Output Contract` supplied in the user message.
 7) `BEGIN_FILE docs/harper/TODO_NEXT.md` … `END_FILE`
 
 8) `BEGIN_FILE docs/harper/PR_BODY.md` … `END_FILE`
+
+8b) `BEGIN_FILE docs/harper/FINALIZE_REPORT.md` … `END_FILE` — the detailed report for the developer (see SOLUTION VERIFICATION).
 
 9) `BEGIN_FILE scripts/check_solution_local.sh` … `END_FILE` when runnable code exists and a stack-native local check can be expressed from evidence.
 

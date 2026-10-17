@@ -53,3 +53,39 @@ test('a missing solution profile is a repairable failure; evidence lists the che
   assert.doesNotMatch(md, /env::provision/);
   assert.match(md, /Repair cycles: 2/);
 });
+
+test('REQs not promoted, gate evidence and verification cycles in the solution evidence', () => {
+  const root = project();
+  const put = (rel, text) => {
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+    fs.writeFileSync(path.join(root, rel), text);
+  };
+  put('docs/harper/plan.json', JSON.stringify({ reqs: [{ id: 'REQ-001', status: 'done' }, { id: 'REQ-002', status: 'in_progress' }] }));
+  put('runs/gate/REQ-001/report_REQ-001_1.json', JSON.stringify({ gate: 'PASS', cases: [{}, {}] }));
+  assert.deepEqual(fv.pendingReqs(root), [{ id: 'REQ-002', status: 'in_progress' }]);
+  const gates = fv.gateEvidence(root);
+  assert.deepEqual(gates[0], { id: 'REQ-001', status: 'done', report: 'runs/gate/REQ-001/report_REQ-001_1.json', verdict: 'PASS', cases: 2 });
+  assert.deepEqual(gates[1], { id: 'REQ-002', status: 'in_progress' });
+  const md = fv.solutionEvalMarkdown({ status: 'PASS', cases: [{ name: 'smoke:api', passed: true }] }, {
+    cycle: 1, history: [{ cycle: 0, status: 'FAIL', failing: ['service:web'] }, { cycle: 1, status: 'PASS', failing: [] }], gates,
+  });
+  assert.match(md, /test suites are not run again/);
+  assert.match(md, /\| 0 \| FAIL \| service:web \|/);
+  assert.match(md, /\| REQ-001 \| done \| PASS \| 2 \| `runs\/gate\/REQ-001\/report_REQ-001_1.json` \|/);
+  assert.match(md, /\| REQ-002 \| in_progress \| no gate \| - \| - \|/);
+  assert.match(md, /docs\/harper\/FINALIZE_REPORT.md/);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('a missing developer report is a repairable failure of the verification', () => {
+  const root = project();
+  const checked = fv.withReportCheck(root, { status: 'PASS', passed: true, cases: [{ name: 'smoke', passed: true }] });
+  assert.equal(checked.passed, false);
+  const step = nextAutoEvalStep({ cycle: 0, maxCycles: 3, hint: '' }, checked);
+  assert.equal(step.action, 'repair');
+  assert.deepEqual(step.failures.map((f) => f.name), ['structure::finalize-report']);
+  fs.mkdirSync(path.join(root, 'docs', 'harper'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'docs', 'harper', 'FINALIZE_REPORT.md'), '# Report\n');
+  assert.equal(fv.withReportCheck(root, { status: 'PASS', passed: true, cases: [] }).passed, true);
+  fs.rmSync(root, { recursive: true, force: true });
+});

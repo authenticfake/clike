@@ -10,9 +10,14 @@ text:
   - docs/harper/RELEASE_NOTES.md
   - docs/harper/TODO_NEXT.md
   - docs/harper/PR_BODY.md
+  - docs/harper/FINALIZE_REPORT.md
   package.required_scripts_when_runnable_code_exists:
   - scripts/check_solution_local.sh
   - scripts/check_solution_local.ps1
+  - scripts/setup_local.sh
+  - scripts/setup_local.ps1
+  - scripts/start_solution_local.sh
+  - scripts/start_solution_local.ps1
   - runtime-specific run scripts for backend/frontend/workers only when those execution areas exist
   package.conditional_solution_artifacts:
   - composition root per execution area when missing or incomplete
@@ -83,7 +88,7 @@ text:
   - Do not run git commands.
   - Before final output, normalize every created or modified text file by stripping trailing whitespace and ensuring a final newline.
   - Do not commit, branch, push, tag, or open pull requests.
-  - Do not write secrets, credentials, private keys, or real .env files.
+  - Do not write secrets, credentials, private keys, or real .env files (scripts/setup_local creates the local, git-ignored configuration on the developer's machine).
   - Do not write under .git, node_modules, .venv, __pycache__, __MACOSX, .next, dist, build, .ruff_cache, or .mypy_cache.
   - Do not rewrite the solution from scratch.
   - Do not duplicate business logic, repositories, services, adapters, routers, controllers, handlers, or launchers already present.
@@ -172,7 +177,9 @@ text:
   - '- docs/harper/RELEASE_NOTES.md'
   - '- docs/harper/TODO_NEXT.md'
   - '- docs/harper/PR_BODY.md'
+  - '- docs/harper/FINALIZE_REPORT.md: the detailed report for the developer (how to start and see the solution, configuration, missing information, what this /finalize changed and why)'
   - '- scripts/check_solution_local.sh and scripts/check_solution_local.ps1 when runnable code exists'
+  - '- scripts/setup_local.sh/.ps1 (local configuration) and scripts/start_solution_local.sh/.ps1 (start the whole solution) when runnable code exists'
   - '- runtime-specific run scripts for backend/frontend/workers only when those execution areas exist'
   - ''
   - 'README.md release-grade format:'
@@ -415,6 +422,9 @@ text:
   - Cargo.toml
   - Cargo.lock
   - docker-compose.yml
+  - docker-compose.yaml
+  - compose.yml
+  - compose.yaml
   - Dockerfile
   - Makefile
   - ci/SOLUTION_LTC.json

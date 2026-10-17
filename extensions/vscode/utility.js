@@ -2622,6 +2622,8 @@ function isFinalizeAllowedPath(relPath) {
   if (p.startsWith('src/')) return true;
   if (p.startsWith('scripts/')) return true;
   if (p.startsWith('docs/harper/')) return true;
+  // the solution eval profile and its smoke scripts (finalize_verify.py)
+  if (p === 'ci/SOLUTION_LTC.json' || p.startsWith('ci/solution/')) return true;
 
 
   const platformRoots = [
@@ -2659,6 +2661,9 @@ function isFinalizeAllowedPath(relPath) {
     'Cargo.toml',
     'Cargo.lock',
     'docker-compose.yml',
+    'docker-compose.yaml',
+    'compose.yml',
+    'compose.yaml',
     'Dockerfile',
     'Makefile',
   ]);
@@ -2845,7 +2850,12 @@ function collectFinalizeSupportPaths(rootPath) {
 }
 
 
-async function collectFinalizeCandidateFileArtifacts(projectRootUri) {
+/**
+ * Files a /finalize run produced. `since` (the agent's start, ms): a file that was already
+ * modified in the working tree before the run and that the run did not touch is the developer's
+ * own change — left out, so it is neither normalized nor committed as part of the finalize.
+ */
+async function collectFinalizeCandidateFileArtifacts(projectRootUri, { since = 0 } = {}) {
   const rootPath = projectRootUri?.fsPath || projectRootUri?.path || '';
   if (!rootPath) return [];
 
@@ -2858,8 +2868,14 @@ async function collectFinalizeCandidateFileArtifacts(projectRootUri) {
     'docs/harper/RELEASE_NOTES.md',
     'docs/harper/TODO_NEXT.md',
     'docs/harper/PR_BODY.md',
+    'docs/harper/FINALIZE_REPORT.md',
+    'ci/SOLUTION_LTC.json',
     'scripts/check_solution_local.sh',
     'scripts/check_solution_local.ps1',
+    'scripts/setup_local.sh',
+    'scripts/setup_local.ps1',
+    'scripts/start_solution_local.sh',
+    'scripts/start_solution_local.ps1',
     'scripts/run_backend_local.sh',
     'scripts/run_backend_local.ps1',
     'scripts/run_frontend_local.sh',
@@ -2884,7 +2900,12 @@ async function collectFinalizeCandidateFileArtifacts(projectRootUri) {
 
   const changed = collectGitChangedFinalizePaths(rootPath);
   const support = collectFinalizeSupportPaths(rootPath);
-  const paths = [...new Set([...changed, ...expected, ...support].filter(isFinalizeAllowedPath))];
+  const smoke = listFilesUnder(rootPath, 'ci/solution');
+  const untouched = new Set(since > 0
+    ? changed.filter((rel) => !expected.includes(rel) && mtimeOf(path.join(rootPath, rel)) < since)
+    : []);
+  const paths = [...new Set([...changed, ...expected, ...support, ...smoke].filter(isFinalizeAllowedPath))]
+    .filter((rel) => !untouched.has(rel));
 
   const artifacts = [];
 
@@ -2909,8 +2930,29 @@ async function collectFinalizeCandidateFileArtifacts(projectRootUri) {
   return artifacts;
 }
 
-async function collectFinalizeCandidateFiles(projectRootUri) {
-  const artifacts = await collectFinalizeCandidateFileArtifacts(projectRootUri);
+function mtimeOf(absPath) {
+  try { return fs.statSync(absPath).mtimeMs; } catch { return 0; }
+}
+
+/** Workspace-relative files under a directory (bounded, '/' separators). */
+function listFilesUnder(rootPath, relDir, limit = 200) {
+  const out = [];
+  const walk = (dir) => {
+    let entries = [];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      if (out.length >= limit) return;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.isFile()) out.push(path.relative(rootPath, full).split(path.sep).join('/'));
+    }
+  };
+  walk(path.join(rootPath, ...relDir.split('/')));
+  return out;
+}
+
+async function collectFinalizeCandidateFiles(projectRootUri, opts = {}) {
+  const artifacts = await collectFinalizeCandidateFileArtifacts(projectRootUri, opts);
   return artifacts.map((item) => item.path);
 }
 

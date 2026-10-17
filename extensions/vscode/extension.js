@@ -1029,13 +1029,13 @@ async function executeLocalAgentPackage({
   log(`[harperRun][agent][telemetry] ${JSON.stringify(agentRun.telemetry)}`);
 
   const candidateFiles = (isFinalize)
-    ? await collectFinalizeCandidateFiles(wsroot)
+    ? await collectFinalizeCandidateFiles(wsroot, { since: agentStartedAt })
     : (isExtend || isDocumentPhase)
       ? []
       : await collectReqCandidateFiles(wsroot, reqForAgent);
 
   const candidateArtifacts = isFinalize
-    ? await collectFinalizeCandidateFileArtifacts(wsroot)
+    ? await collectFinalizeCandidateFileArtifacts(wsroot, { since: agentStartedAt })
     : isDocumentPhase
       ? await collectDocumentPhaseCandidateFileArtifacts(
         wsroot,
@@ -3810,6 +3810,23 @@ async function cmdOpenChat(context) {
         //log(`[harperRun] inside ${JSON.stringify(msg)}`);
         const phase = msg.cmd;
         try {
+          if (phase === 'finalize' && !msg.finalizeRepair && !msg.finalizePendingConfirmed) {
+            // /finalize integrates what the gates promoted: a REQ not done yet is not in it.
+            const pending = finalizeVerify.pendingReqs(getWorkspaceRoot().fsPath);
+            if (pending.length) {
+              const list = pending.slice(0, 8).map(r => `${r.id} (${r.status})`).join(', ') + (pending.length > 8 ? ', …' : '');
+              const go = 'Run /finalize anyway';
+              const choice = await vscode.window.showWarningMessage(
+                `${pending.length} REQ(s) not promoted yet: ${list}. /finalize integrates only what the gates promoted.`,
+                { modal: true }, go);
+              if (choice !== go) {
+                panel.webview.postMessage({ type: 'echo', message: `ℹ /finalize not run: ${pending.length} REQ(s) not promoted yet (${list}). Run their /gate first, or confirm to finalize anyway.` });
+                panel.webview.postMessage({ type: 'busy', on: false });
+                return;
+              }
+              msg.finalizePendingConfirmed = true;
+            }
+          }
 
           const project_id = getProjectId();
           const { cmd, attachments = [] } = msg;
@@ -4766,6 +4783,11 @@ async function cmdOpenChat(context) {
         } catch (e) {
           panel.webview.postMessage({ type: 'busy', on: false }) 
           panel.webview.postMessage({ type: 'error', message: formatHarperError(e) });
+          if (phase === 'finalize' && msg.finalizeRepair) {
+            panel.webview.postMessage({ type: 'echo', message:
+              `✖ SOLUTION REPAIR cycle ${msg.finalizeRepair.cycle} could not run (${String(e?.message || e).split('\n')[0]}). ` +
+              `The verification stopped: run /finalize again to continue from the current state. Evidence: ${finalizeVerify.EVIDENCE_PATH}` });
+          }
         }
         clikeHarperBlockingRun = false;
         panel.webview.postMessage({ type: 'busy', on: false, force: true });
@@ -6172,6 +6194,7 @@ async function cmdOpenChat(context) {
       hint: String(prev.hint || ''),
       lastSignature: prev.lastSignature || '',
       lastKitOk: msg.__result === 'ok',
+      history: Array.isArray(prev.history) ? prev.history : [],
     };
     let report;
     if (!fsSync.existsSync(path.join(ws.fsPath, ...finalizeVerify.SOLUTION_PROFILE.split('/')))) {
@@ -6190,21 +6213,34 @@ async function cmdOpenChat(context) {
         return;
       }
     }
-    try {
-      await saveGeneratedFiles([{ path: finalizeVerify.EVIDENCE_PATH, content: finalizeVerify.solutionEvalMarkdown(report, { cycle: state.cycle }) }]);
-    } catch (e) {
-      log(`[finalizeVerify] evidence not written: ${e?.message || e}`);
-    }
+    report = finalizeVerify.withReportCheck(ws.fsPath, report);
+    const failing = (Array.isArray(report?.cases) ? report.cases : [])
+      .filter(c => c && !c.passed && c.blocking !== false).map(c => String(c.name));
+    state.history = [...state.history, { cycle: state.cycle, status: String(report?.status || (report?.passed ? 'PASS' : 'FAIL')), failing }];
+    const writeEvidence = async () => {
+      try {
+        await saveGeneratedFiles([{ path: finalizeVerify.EVIDENCE_PATH, content: finalizeVerify.solutionEvalMarkdown(report, {
+          cycle: state.cycle, history: state.history, gates: finalizeVerify.gateEvidence(ws.fsPath) }) }]);
+      } catch (e) {
+        log(`[finalizeVerify] evidence not written: ${e?.message || e}`);
+      }
+    };
+    await writeEvidence();
     const step = nextAutoEvalStep(state, report);
     log(`[finalizeVerify] cycle=${state.cycle}/${state.maxCycles} action=${step.action} reason=${step.reason}`);
+    if (step.action === 'pass' || step.action === 'stop') {
+      await commitFinalizeEvidence(ws, settings);
+    }
     if (step.action === 'pass') {
-      say(`✔ SOLUTION EVAL PASS (${step.reason}): the integrated solution installs, passes the promoted tests, starts and answers end to end. Evidence: ${finalizeVerify.EVIDENCE_PATH}`);
+      say(`✔ SOLUTION EVAL PASS (${step.reason}): the integrated solution installs, builds, is configured, starts and answers. ` +
+        `What /finalize did, how to start and see it, and what is still to provide: ${finalizeVerify.REPORT_PATH}. Evidence: ${finalizeVerify.EVIDENCE_PATH}`);
+      await offerLocalSolutionRun(ws);
       return;
     }
     if (step.action === 'stop') {
       const names = (step.failures || []).map(f => f.name).slice(0, 8).join(', ');
       say(`✖ SOLUTION EVAL stopped: ${step.reason}.` + (names ? ` Failing: ${names}.` : '') +
-        ` Run /finalize again to continue (it repairs from the current state). Evidence: ${finalizeVerify.EVIDENCE_PATH}`);
+        ` Run /finalize again to continue (it repairs from the current state). Report: ${finalizeVerify.REPORT_PATH}. Evidence: ${finalizeVerify.EVIDENCE_PATH}`);
       return;
     }
     const cycle = state.cycle + 1;
@@ -6222,7 +6258,62 @@ async function cmdOpenChat(context) {
         hint: state.hint,
       },
       finalizeVerifyState: { ...state, cycle, lastSignature: step.signature, lastFailureCount: (step.failures || []).length },
+      finalizePendingConfirmed: true,
     });
+  }
+
+  // The verification's own files (the profile, its smoke scripts, the evidence, the report the last
+  // repair updated) are committed when the loop ends: the finalize commit ran before them.
+  async function commitFinalizeEvidence(ws, settings) {
+    if (!settings.gitAutoCommit) return;
+    const files = [finalizeVerify.SOLUTION_PROFILE, finalizeVerify.EVIDENCE_PATH, finalizeVerify.REPORT_PATH,
+      ...listSolutionSmokeFiles(ws.fsPath)];
+    try {
+      await clikeGitSync('finalize', `verify-${Date.now().toString(16)}`, null, files,
+        { workspaceRoot: ws.fsPath, finalizeOpenPr: false }, settings, out);
+    } catch (e) {
+      log(`[finalizeVerify] evidence not committed: ${e?.message || e}`);
+    }
+  }
+
+  function listSolutionSmokeFiles(root) {
+    const out = [];
+    const walk = (dir) => {
+      let entries = [];
+      try { entries = fsSync.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+      for (const e of entries) {
+        const full = path.join(dir, e.name);
+        if (e.isDirectory()) walk(full);
+        else if (e.isFile() && out.length < 200) out.push(path.relative(root, full).split(path.sep).join('/'));
+      }
+    };
+    walk(path.join(root, 'ci', 'solution'));
+    return out;
+  }
+
+  // After a passing verification: the developer can have the local configuration created and the
+  // solution started on this machine, in a terminal they see (scripts written by /finalize).
+  async function offerLocalSolutionRun(ws) {
+    const win = process.platform === 'win32';
+    const script = (name) => {
+      const rel = `scripts/${name}.${win ? 'ps1' : 'sh'}`;
+      return fsSync.existsSync(path.join(ws.fsPath, ...rel.split('/'))) ? rel : '';
+    };
+    const setup = script('setup_local');
+    const start = script('start_solution_local');
+    if (!setup && !start) return;
+    const configure = 'Configure locally';
+    const run = 'Configure and start';
+    const choices = [setup && configure, start && run].filter(Boolean);
+    const choice = await vscode.window.showInformationMessage(
+      `The solution passed the CLike verification. Prepare it on this machine (${[setup, start].filter(Boolean).join(', ')})? ` +
+      `Values only you can give are listed in ${finalizeVerify.REPORT_PATH}.`, ...choices);
+    if (!choice) return;
+    const command = (rel) => win ? `powershell -ExecutionPolicy Bypass -File ${rel}` : `bash ${rel}`;
+    const steps = [setup && command(setup), choice === run && start && command(start)].filter(Boolean);
+    const terminal = vscode.window.createTerminal({ name: 'CLike solution', cwd: ws.fsPath });
+    terminal.show();
+    terminal.sendText(steps.join(win ? '; ' : ' && '));
   }
 
   async function continueAutoEval(msg, report, reqId) {

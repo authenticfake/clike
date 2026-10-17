@@ -1,10 +1,12 @@
-"""/finalize verification: the integrated solution must run end to end, checked by CLike.
+"""/finalize verification: the integrated solution must start and answer, checked by CLike.
 
 /finalize writes ``ci/SOLUTION_LTC.json``, the eval profile of the whole solution (same LTC
-contract as a KIT). After /finalize the extension runs it in the eval sandbox against the
-canonical tree (the sources and tests promoted by the gates); when it fails, /finalize runs again
-with the errors (``finalize_verify.repair``), a bounded number of cycles, no flag needed. A local
-agent can re-run the profile's checks in the sandbox while it works (eval-check bridge).
+contract as a KIT). It does not run the REQs' test suites again: every REQ passed them at its gate.
+It installs, builds, configures and starts the solution and checks that it answers. After
+/finalize the extension runs it in the eval sandbox against the canonical tree; when it fails,
+/finalize runs again with the errors (``finalize_verify.repair``), a bounded number of cycles, no
+flag needed. A local agent can re-run the profile's checks in the sandbox while it works
+(eval-check bridge).
 Shared by the cloud prompt and the local-agent package, so both paths follow the same rules."""
 
 from __future__ import annotations
@@ -22,7 +24,8 @@ EVAL_CHECK_TIMEOUT_NOTE = (
     " Give the command a long timeout (it takes minutes); if it is stopped by a timeout, run the same command again: it resumes waiting for the same run."
 )
 
-_PROFILES_BUDGET = 30000       # chars of the REQs' eval profiles shown to the model
+_PROFILES_BUDGET = 30000       # chars of the REQs' environments and services shown to the model
+REPORT_PATH = "docs/harper/FINALIZE_REPORT.md"
 _REPAIR_FILE_BUDGET = 16000
 _REPAIR_TOTAL_BUDGET = 160000
 
@@ -53,37 +56,56 @@ def solution_verify_rules(deployment: str = "") -> List[str]:
         "On-premises / local deployment: the local run below is the target — every step must work on the developer's machine."
     )
     return [
-        f"Write {SOLUTION_PROFILE}: the eval profile of the WHOLE solution. CLike runs it automatically after /finalize in "
-        "its eval sandbox (a Linux container; the project is copied without runs/ and .git) against the canonical tree: "
-        "the sources and tests the gates promoted under src/ and test/. When it fails, CLike sends you its errors to fix.",
+        f"Write {SOLUTION_PROFILE}: the eval profile of the WHOLE solution running. CLike runs it automatically after "
+        "/finalize in its eval sandbox (a Linux container; the project is copied without runs/ and .git) against the "
+        "canonical tree the gates promoted. When it fails, CLike sends you its errors to fix.",
         'Format: the LTC contract of a KIT — {"req_id": "SOLUTION", "checks": [{"id", "command", "cwd" (relative to the '
         'project root), "blocking": true, "timeout"}], "environment": {"required_variables": [{name, purpose, provision}], "tools": [native programs the checks run, e.g. "kcat", "jdk@17"]}, '
         '"services": [{name, cwd, setup, start, env, port_env, ready: {http_path}, exports}]} — provision token | uuid | '
         "timestamp | template | postgres_database | service | external, as in the KIT rules; omit `req` in services: they run "
-        "from the canonical tree.",
+        "from the canonical tree. Reuse the environments and services the REQs already declared (listed below).",
+        "Do NOT run the REQs' test suites, linters, type checks or coverage again: every REQ passed them at its gate. "
+        "The profile proves that the integrated solution runs.",
         "Blocking checks, in order: (1) install every component from its manifest (lockfile when present) inside the "
-        "tree, no global installs; (2) the test suites of every promoted REQ on the canonical tree — derive them from each "
-        "REQ's eval profile listed below, re-pointing runs/kit/<REQ>/ paths to the root; (3) build/type-check of every "
-        "component; (4) the solution started as the user runs it (database migrations, backend, workers, frontend) as "
-        "`services` with readiness probes; (5) end-to-end checks against the running solution: the promoted UI e2e tests "
-        "with the base URL the services export, and an API smoke of the main user flow (health plus one real request per "
-        "main capability).",
-        "Reports, caches and temp files only under CLIKE_EVAL_REPORT_DIR / CLIKE_EVAL_TEMP_ROOT. No hardcoded secrets: "
-        "values come from provisioning; checks that need a real external provider are non-blocking and their variables "
-        "provision `external`.",
-        "Local run on the developer's machine: scripts/check_solution_local.sh and .ps1 run the same steps as the profile "
-        "(install, migrate, start, smoke, stop) with the variables of .env.example; docs/harper/HOWTO_RUN.md documents "
-        "prerequisites, the one command that starts the solution, its URLs, how to stop it and how to run the checks.",
+        "tree, no global installs; (2) build every component that needs a build to run; (3) the solution configured and "
+        "started as the user runs it (database migrations, backend, workers, frontend) as `services` with readiness "
+        "probes; (4) smoke checks against the running solution, as small scripts under ci/solution/: health of each "
+        "service, one real request per main capability of the SPEC through the public API, and every main UI page "
+        "answering with its content. A smoke check asserts what the user would see, it is not a test suite.",
+        "Configuration: the solution runs with configuration only, never with code edits. Every variable the solution "
+        "reads is in .env.example (or the ecosystem equivalent) with its purpose; in the profile it is provisioned "
+        "(token, uuid, template, postgres_database, service) or `external` when only the developer can give it "
+        "(a real provider key). Checks that need an external value are non-blocking.",
+        "Reports, caches and temp files only under CLIKE_EVAL_REPORT_DIR / CLIKE_EVAL_TEMP_ROOT. No hardcoded secrets.",
+        "Ready for the developer: scripts/setup_local.sh and .ps1 create the local configuration (.env or the ecosystem "
+        "equivalent, git-ignored) from .env.example when it is missing — local URLs and ports, generated local secrets "
+        "and tokens, the local database — never overwriting a value already set, and print the external values still "
+        "to fill in. scripts/start_solution_local.sh and .ps1 start the whole solution with that configuration (setup "
+        "first when needed) and print its URLs. scripts/check_solution_local.sh and .ps1 run the profile's steps "
+        "(setup, install, build, start, smoke, stop).",
         deploy_rule,
+        f"Write {REPORT_PATH}, the report of this /finalize for the developer, exhaustive and specific: (1) what the "
+        "solution is and its components; (2) how to start it (the one command, what it starts, the URLs) and how to see "
+        "each main capability (page or request, what to do, what to expect); (3) configuration: a table of every "
+        "variable — purpose, value or how it is generated, who sets it (setup script, provisioned, developer), required "
+        "or optional; (4) MISSING INFORMATION: every value or decision only the developer can provide — what, why it "
+        "is needed, where to get it, where to put it, what does not work without it (write 'none' when nothing is "
+        "missing); (5) everything this /finalize did, file by file: the change and why (the problem found, its cause, "
+        "the fix); (6) problems met during the verification and how each was solved; (7) limitations left, with the "
+        "reason. Facts only, from the files and the errors you saw.",
         "Make the profile pass by fixing code, configuration and wiring (composition roots, settings, routes, scripts) inside "
-        "your write roots. The promoted tests under test/ are the REQs' acceptance: do not change them; if one cannot "
-        "pass, explain why in docs/harper/TODO_NEXT.md.",
+        "your write roots. The promoted tests under test/ are the REQs' acceptance: do not change them.",
     ]
 
 
 def req_profiles_text(req_profiles: Any) -> str:
-    """The eval profiles of the promoted REQs (checks, environment, services), bounded."""
-    items = [p for p in (req_profiles or []) if isinstance(p, dict) and p.get("req")]
+    """How the promoted REQs ran: their environment (variables, tools) and services, bounded. Their
+    checks are left out: the solution profile does not run the REQs' test suites again."""
+    items = [
+        {k: v for k, v in p.items() if k in ("req", "run_from", "environment", "services")}
+        for p in (req_profiles or []) if isinstance(p, dict) and p.get("req")
+    ]
+    items = [p for p in items if p.get("environment") or p.get("services")]
     if not items:
         return ""
     text = json.dumps(items, indent=1, ensure_ascii=False)
@@ -95,11 +117,16 @@ def req_profiles_text(req_profiles: Any) -> str:
 def solution_repair_rules() -> List[str]:
     return [
         f"The solution eval ({SOLUTION_PROFILE}) failed: its errors are below. Read ALL of them before changing anything, "
-        "group them by root cause (one cause often fails install, tests, build and e2e) and fix every cause in this run.",
+        "group them by root cause (one cause often fails install, build, start and smoke) and fix every cause in this run.",
+        "Find the cause in this order: configuration (a variable missing or wrong, a URL, port or host, a service not "
+        "ready or started in the wrong order, a migration not run), a native tool missing (declare it in "
+        "environment.tools), the wiring (composition root, routes, settings), then the code. A missing variable is "
+        "provisioned in the profile and documented in .env.example, never hardcoded.",
         "Fix the code, the configuration, the scripts and the wiring. A profile command that is wrong (path, flag, cwd) may "
-        "be fixed; never remove a check, make it non-blocking or weaken a test.",
-        "A check that ran and failed (an assertion, an element not found, a module not found, a timeout) is a defect of "
-        "the solution, not of the sandbox.",
+        "be fixed; never remove a check, make it non-blocking or weaken a smoke check.",
+        "A check that ran and failed (an error response, a page without its content, a module not found, a timeout) is a "
+        "defect of the solution, not of the sandbox.",
+        f"Update {REPORT_PATH}: add each problem of this cycle, its cause and the fix.",
     ]
 
 
@@ -110,7 +137,7 @@ def cloud_finalize_section(verify: Dict[str, Any], deployment: str = "") -> str:
     lines += [f"- Emit `BEGIN_FILE {SOLUTION_PROFILE}` … `END_FILE` (valid JSON) whenever runnable code exists under src/."]
     profiles = req_profiles_text(verify.get("req_profiles"))
     if profiles:
-        lines += ["", "### Eval profiles of the promoted REQs", "```json", profiles, "```"]
+        lines += ["", "### Environments and services of the promoted REQs", "```json", profiles, "```"]
     repair = verify.get("repair")
     if isinstance(repair, dict) and repair:
         lines += ["", repair_section(repair)]
@@ -170,7 +197,7 @@ def agent_finalize_lines(verify: Dict[str, Any], deployment: str = "", eval_chec
     ]
     profiles = req_profiles_text(verify.get("req_profiles"))
     if profiles:
-        lines += ["- Eval profiles of the promoted REQs (also under runs/kit/<REQ>/ci/LTC.json):", "```json", profiles, "```"]
+        lines += ["- Environments and services of the promoted REQs (also under runs/kit/<REQ>/ci/LTC.json):", "```json", profiles, "```"]
     repair = verify.get("repair")
     if isinstance(repair, dict) and repair:
         lines += ["", f"SOLUTION REPAIR — cycle {repair.get('cycle') or 1} of {repair.get('max_cycles') or 1}:"]

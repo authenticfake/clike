@@ -363,7 +363,8 @@ python benchmark/run_benchmark.py --runner cloud --projects pingboard --auto-eva
 
 The summary has a *Repair cycles* column; see `benchmark/README.md`.
 
-## Not yet covered (L3)
+## The whole solution (`/finalize`)
 
-An end-to-end smoke test of the whole solution (all promoted REQs started together, e.g. at
-`/finalize`) is planned; today regression runs each REQ's own acceptance checks.
+The solution started as a whole is verified at `/finalize` (see `commands.md`): CLike installs,
+builds, configures and starts every component together in the sandbox and smoke-checks it while it
+runs. It does not run the REQs' tests again: the regression of each gate already did.

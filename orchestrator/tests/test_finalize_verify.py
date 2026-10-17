@@ -45,7 +45,11 @@ def test_cloud_finalize_prompt_carries_rules_profiles_and_repair():
     from services.cloud_prompt.messages import compose_phase_messages
 
     verify = {
-        "req_profiles": [{"req": "REQ-001", "checks": [{"id": "unit", "command": "pytest test"}]}],
+        "req_profiles": [
+            {"req": "REQ-001", "checks": [{"id": "unit", "command": "pytest test"}],
+             "environment": {"required_variables": [{"name": "DB_URL", "provision": "postgres_database"}]}},
+            {"req": "REQ-002", "checks": [{"id": "lint", "command": "ruff check"}]},
+        ],
         "repair": {"cycle": 1, "max_cycles": 3, "failures": [
             {"name": "e2e", "code": 1, "command": "npx playwright test", "output": "Error: element(s) not found"}],
             "files": [{"path": "src/web/app/page.tsx", "content": "export default 1"},
@@ -55,7 +59,11 @@ def test_cloud_finalize_prompt_carries_rules_profiles_and_repair():
         "TECH_CONSTRAINTS.yaml": 'classification:\n  deployment_context: "on-premises"\n'}}
     text = compose_phase_messages(payload)[-1]["content"]
     assert "## SOLUTION VERIFICATION" in text and "BEGIN_FILE ci/SOLUTION_LTC.json" in text
-    assert '"req": "REQ-001"' in text
+    # how the REQs ran (environment, services), never their test suites: the gates passed them
+    assert '"req": "REQ-001"' in text and "DB_URL" in text
+    assert "pytest test" not in text and "REQ-002" not in text
+    assert "Do NOT run the REQs' test suites" in text and "FINALIZE_REPORT.md" in text
+    assert "MISSING INFORMATION" in text and "scripts/setup_local.sh" in text
     assert "On-premises / local deployment" in text
     assert "## SOLUTION REPAIR — cycle 1 of 3" in text and "element(s) not found" in text
     assert "#### src/web/app/page.tsx" in text and "LLLL" not in text and "- package-lock.json" in text

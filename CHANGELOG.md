@@ -4,7 +4,27 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+### Changed
+
+- **`/finalize` brings the solution to running and configured, without running the tests
+  again.** Every REQ passed its tests at its gate: the solution profile now installs, builds,
+  configures and starts the solution and smoke-checks it while it runs (health, one real request
+  per main capability, the main pages). The repair looks for configuration causes first
+  (variables, URLs, ports, services, migrations), then tools, wiring and code. `/finalize` writes
+  `docs/harper/FINALIZE_REPORT.md` for the developer — how to start and see the solution, every
+  variable, the information only the developer can give, every change and why, the problems met
+  and how they were solved — and `scripts/setup_local` / `start_solution_local`; after a passing
+  verification CLike offers to configure and start it on the developer's machine.
+  `docs/harper/SOLUTION_EVAL.md` also lists the verification cycles and the last gate of every
+  REQ.
+
 ### Fixed
+
+- **`/finalize` left its verification uncommitted.** `ci/SOLUTION_LTC.json`, the smoke scripts,
+  the evidence and the report are committed when the verification ends; compose files are
+  finalize outputs too. Changes the developer had in the working tree before `/finalize`, and that
+  it did not touch, stay out of its commits. `/finalize` lists the REQs not promoted yet and asks
+  before it runs; a repair cycle that cannot run says so.
 
 - **Promotion repeated code at every gate.** Where both sides only added lines, auto-merge kept
   both even when `src/` already had the candidate's additions (an earlier REQ promoted them, or
