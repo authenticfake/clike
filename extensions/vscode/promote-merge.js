@@ -336,7 +336,7 @@ function invalidSource(rel, content) {
       if (r.error && r.error.code === 'ENOENT') continue;
       if (r.status === 0) return null;
       if (r.status == null) return null;  // timed out: no verdict
-      return String(r.stderr || r.stdout || '').trim().split('\n').slice(-2).join(' ').slice(0, 200);
+      return String(r.stderr || r.stdout || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(-2).join(' ').slice(0, 200);
     }
     return null;
   };
