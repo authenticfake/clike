@@ -172,6 +172,63 @@ def _run_process_group(
 _SANDBOX_EXHAUSTED_NOTE = "[CLike EvalRunner] Sandbox resources exhausted"
 _MISSING_TOOLS_NOTE = "[CLike EvalRunner] Missing in the eval sandbox"
 _NONDETERMINISTIC_NOTE = "[CLike EvalRunner] Nondeterministic"
+_SHARED_FILES_NOTE = "[CLike EvalRunner] Shared files changed"
+_SHARED_SCAN_SKIP = {
+    "node_modules", "__pycache__", ".venv", ".next", "dist", ".tmp", ".cache", "reports", "target", ".gradle", "obj",
+}
+
+
+def _shared_file_changes(project_root: Path, candidate_root: Path, other_kit: Path, limit: int = 8) -> List[str]:
+    """Files the promoted REQ delivered (its KIT src/ and test/) that the candidate KIT replaces with
+    different content, each with a short diff against the canonical copy (the state the promoted REQ
+    passed with; its KIT copy when the file was never promoted). Empty when the candidate touches
+    none of them, so the regression failure has another cause."""
+    import difflib
+
+    changes: List[str] = []
+    for top in ("src", "test", "tests"):
+        base = other_kit / top
+        if not base.is_dir():
+            continue
+        for dirpath, dirnames, filenames in os.walk(base):
+            dirnames[:] = sorted(d for d in dirnames if d not in _SHARED_SCAN_SKIP)
+            for filename in sorted(filenames):
+                rel = (Path(dirpath) / filename).relative_to(other_kit)
+                candidate = candidate_root / rel
+                if not candidate.is_file():
+                    continue
+                baseline = project_root / rel if (project_root / rel).is_file() else other_kit / rel
+                try:
+                    old, new = baseline.read_bytes(), candidate.read_bytes()
+                except OSError:
+                    continue
+                if old == new:
+                    continue
+                try:
+                    diff = list(difflib.unified_diff(
+                        old.decode("utf-8").splitlines(), new.decode("utf-8").splitlines(),
+                        "canonical", "candidate", n=1, lineterm="",
+                    ))[2:]
+                except UnicodeDecodeError:
+                    diff = ["(binary content differs)"]
+                shown = diff[:24] + ([f"... {len(diff) - 24} more diff lines"] if len(diff) > 24 else [])
+                changes.append(f"- {rel.as_posix()}\n" + "\n".join(f"    {line}" for line in shown))
+                if len(changes) >= limit:
+                    return changes
+    return changes
+
+
+def _shared_files_note(other: str, changes: List[str]) -> str:
+    return (
+        f"{_SHARED_FILES_NOTE}: this candidate replaces files that {other} also delivers, and a check of "
+        f"{other} fails with the candidate overlaid. A shared file keeps what {other} put there and adds this "
+        "REQ's part: test runner selectors (match/include patterns, test directories, projects, suites) keep the "
+        "existing entries and add new ones; infrastructure, build and route files keep their entries. When "
+        f"a check of {other} pins the file's content (an exact set of services or files), add this REQ's part "
+        "in a separate file instead (a compose override, an extra test config or project). If this REQ changes "
+        f"{other}'s behaviour on purpose, reconcile {other}'s test in the candidate test root.\n"
+        + "\n".join(changes)
+    )
 
 
 def _sandbox_exhausted_case(case: "EvalCase") -> bool:
@@ -2966,6 +3023,27 @@ class EvalRunner:
                 case.excerpt = f"{note}\n\n{case.excerpt or ''}"
                 log.info("regression %s::%s nondeterministic (passed on retry)", other, case.name)
 
+    def _note_shared_file_changes(self, other: str, candidate_root: Path, report: EvalReport) -> None:
+        """Name, on each failing blocking check of a promoted REQ, the files of that REQ the candidate
+        replaced and how: the repair then sees the cause ("No tests found" after a rewritten test
+        runner config, an exact-set check after a new compose service) instead of guessing it."""
+        failing = [c for c in report.cases if not c.passed and c.blocking and not c.blocked]
+        if not failing:
+            return
+        other_kit = self.project_root / "runs" / "kit" / self._safe_req_id(other)
+        try:
+            changes = _shared_file_changes(self.project_root, candidate_root, other_kit)
+        except Exception as exc:  # a diagnosis only: the verdict stands without it
+            log.warning("shared-file diagnosis of %s failed: %s", other, exc)
+            return
+        if not changes:
+            return
+        note = _shared_files_note(other, changes)
+        for case in failing:
+            case.stderr = f"{case.stderr or ''}\n{note}"[-8000:]
+            case.excerpt = f"{note}\n\n{case.excerpt or ''}"
+        log.info("regression %s: candidate replaced %d shared file(s)", other, len(changes))
+
     def run_regression(self, req_id: Optional[str], candidate_src: Path) -> List[EvalCase]:
         """L2 auto-eval: re-run each regression REQ's own acceptance checks against its composed
         source with the candidate's composed source overlaid last (the state after promotion).
@@ -2996,6 +3074,7 @@ class EvalRunner:
             )
             report = runner.run_profile(profile=str(profile), ltc=ltc, req_id=other)
             self._retry_failed_regression_tests(runner, profile, ltc, other, report)
+            self._note_shared_file_changes(other, candidate_src.parent, report)
             for case in report.cases:
                 if not _is_regression_test_case(case):
                     # Lint, types, coverage of the other REQ now measure the candidate's code too

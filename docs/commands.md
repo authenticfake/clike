@@ -158,7 +158,8 @@ conflicts. Notes per cycle in `runs/gate/<REQ>/repair_<REQ>_<ts>.md`.
 `/eval --fix` and `/gate --fix` stop, instead of repairing code, when the failure is not the code:
 the sandbox ran out of resources (`EVAL_SANDBOX_EXHAUSTED`), a native tool is still missing
 (`missing_tools`), or CLike could not prepare the eval workspace. A promoted REQ's test that fails
-and then passes on a re-run is a nondeterministic warning, not a regression.
+and then passes on a re-run is a nondeterministic warning, not a regression. A regression caused by
+files the candidate replaced names those files, with a short diff, for the repair.
 
 ### `/tools [search <text> | add <tool[@version]>… | remove <tool>…]`
 Native tools of the eval sandbox. CLike installs what an eval needs on its own: before an eval or

@@ -230,6 +230,17 @@ it is nondeterministic (timing, order, asynchronous UI): it is reported as a non
 (`[CLike EvalRunner] Nondeterministic: … make the test of REQ-0xx deterministic`), does not block
 the gate and is not sent to the candidate's repair. Failing twice, it is a regression.
 
+When a check of a promoted REQ fails and the candidate KIT replaces files that REQ also delivered
+(its `src/` or `test/` files, compared with the canonical copy), CLike names them on the failing
+check, with a short diff: `[CLike EvalRunner] Shared files changed: …`. It works on files, so in
+any language: a test runner config whose selectors no longer match the earlier tests ("No tests
+found"), a compose file or manifest an earlier check pins, a component whose behaviour changed.
+The repair is told to keep what the promoted REQ put there and add its own part, or to put it in a
+separate file (a compose override, an extra test config or project) when an earlier check pins the
+content; the repair notes list the replaced files. The KIT rules say the same up front: test runner
+configs, infrastructure and build manifests are shared files, and checks assert what their REQ
+contributes, never that a shared file contains only that.
+
 The eval workspace is composed from the KIT and the canonical tree without installs, caches and
 scratch (`node_modules`, `.tmp`, `.cache`, `.npm-cache`, `.next`, `local-eval-workspaces`…); a
 file removed while it is copied is skipped. If CLike still cannot compose it, the preparation is

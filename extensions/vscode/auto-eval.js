@@ -26,6 +26,9 @@ function evalPassed(report) {
  * - non-blocking failures of the regression of other REQs (their coverage, warnings) are not
  *   this REQ's to repair: left out (the eval is not failed by them).
  */
+// Prefix of the eval runner's note naming the files of a promoted REQ the candidate replaced.
+const SHARED_FILES_NOTE = '[CLike EvalRunner] Shared files changed';
+
 function collectRepairFailures(report) {
   const seen = new Map();
   const out = [];
@@ -44,6 +47,7 @@ function collectRepairFailures(report) {
       command: c.cmd || '',
       blocking: c.blocking !== false,
       ...(c.blocked ? { blocked: true } : {}),
+      ...(output.startsWith(SHARED_FILES_NOTE) ? { sharedFiles: true } : {}),
       fingerprint,
       output: same ? `Same errors as the check ${same} above.` : output,
     });
@@ -324,9 +328,14 @@ function repairNotesMarkdown({ reqId, phase, cycle, maxCycles, reason, hint, fai
     '## CLike diagnosis',
     '',
   ];
-  const notes = (failures || []).filter((f) => f.intermittent || f.changedSince);
+  const notes = (failures || []).filter((f) => f.intermittent || f.changedSince || f.sharedFiles);
   if (notes.length) {
-    for (const f of notes) lines.push(`- \`${f.name}\`: ${String(f.output || '').split('\n\n')[0]}`);
+    for (const f of notes) {
+      const note = String(f.output || '').split('\n\n')[0].split('\n');
+      // shared files: the explanation and the replaced files, not their diffs (in the report)
+      const shown = f.sharedFiles ? [note[0], ...note.slice(1).filter((l) => l.startsWith('- '))] : note;
+      lines.push(`- \`${f.name}\`: ${shown.join('\n  ')}`);
+    }
   } else {
     lines.push('- No failing check passed in earlier runs of this REQ: the failures are treated as steady.');
   }

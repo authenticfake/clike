@@ -284,3 +284,14 @@ test('repair notes: hint and CLike diagnosis next to the report, never read back
   assert.deepEqual(readEarlierReports(root, 'REQ-006'), []);
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+test('repair notes: a regression broken by replaced shared files names them, without the diffs', () => {
+  const excerpt = '[CLike EvalRunner] Shared files changed: this candidate replaces files that REQ-002 also delivers.\n'
+    + '- src/web/playwright.config.ts\n    -  testMatch: \'**/workspace.spec.ts\'\n    +  testMatch: \'**/integration.spec.ts\'\n\nError: No tests found';
+  const [failure] = collectRepairFailures({ cases: [{ name: 'regression::REQ-002::test:e2e', passed: false, blocking: true, excerpt }] });
+  assert.equal(failure.sharedFiles, true);
+  assert.match(failure.output, /No tests found$/);
+  const md = repairNotesMarkdown({ reqId: 'REQ-014', phase: 'eval', cycle: 1, maxCycles: 2, reason: '1 failing check(s)', hint: '', failures: [failure] });
+  assert.match(md, /`regression::REQ-002::test:e2e`: \[CLike EvalRunner\] Shared files changed: .*\n {2}- src\/web\/playwright\.config\.ts\n/);
+  assert.doesNotMatch(md, /testMatch/);
+});
