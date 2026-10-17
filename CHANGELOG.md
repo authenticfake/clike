@@ -4,6 +4,8 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.4.3] — 2026-10-17 — A sandbox that stays healthy, tools when an eval needs them
+
 ### Added
 
 - **Eval tools stay current, on purpose.** `/tools update` and `./rebuild.sh --update-tools`
