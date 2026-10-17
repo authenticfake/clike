@@ -553,3 +553,25 @@ test('a failed Claude --output-format json run reports its error result', () => 
   });
   assert.match(failed.message, /Claude Code exited with code 1 without writing any output: Invalid API key/);
 });
+
+test('finalize writes the canonical solution inside its package write roots, never tests, runs or secrets', () => {
+  const roots = ['src', 'scripts', 'docs/harper', 'README.md', '.env.example', 'ci/SOLUTION_LTC.json', 'ci/solution'];
+  const forbiddenPaths = ['.git', 'node_modules', '.env', 'secrets'];
+  const ok = ['src/leadintel/execution/worker.py', 'src/runtime/compose.yaml', 'docs/harper/FINALIZE_REPORT.md',
+    'README.md', '.env.example', 'ci/SOLUTION_LTC.json', 'ci/solution/smoke.py', 'scripts/setup_local.sh'];
+  assert.deepEqual(validateLocalAgentRequiredOutputs({
+    phase: 'finalize', artifacts: ok.map((path) => ({ path, content: 'x' })), allowedWriteRoots: roots, forbiddenPaths,
+  }), { ok: true, missing_required_roots: [] });
+  for (const bad of ['test/test_app.py', 'runs/kit/REQ-001/src/a.py', 'src/web/node_modules/x/index.js', '.env', 'ci/other.json', 'README.md.bak']) {
+    assert.throws(
+      () => validateLocalAgentRequiredOutputs({ phase: 'finalize', artifacts: [{ path: bad, content: 'x' }], allowedWriteRoots: roots, forbiddenPaths }),
+      (error) => error.code === 'LOCAL_AGENT_FORBIDDEN_OUTPUT_PATH',
+      bad
+    );
+  }
+  // the KIT rule is unchanged: a KIT never writes the canonical src/
+  assert.throws(
+    () => validateLocalAgentRequiredOutputs({ phase: 'kit', reqId: 'REQ-001', artifacts: [{ path: 'src/a.py', content: 'x' }] }),
+    (error) => error.code === 'LOCAL_AGENT_FORBIDDEN_OUTPUT_PATH'
+  );
+});

@@ -171,6 +171,26 @@ function isForbiddenCandidatePath(candidatePath) {
   );
 }
 
+// /finalize integrates the canonical solution: it writes inside the write roots of its package
+// (src/, scripts/, docs/harper/, root manifests, ci/SOLUTION_LTC.json…) — the KIT rule above
+// (src/, docs/harper/ forbidden: a KIT stages under runs/kit/) does not apply. Never the REQs'
+// acceptance tests, CLike's runs/ or git, nor a path the package forbids (.env, caches, secrets).
+const FINALIZE_NEVER_ROOTS = ['.git/', 'test/', 'tests/', 'runs/'];
+
+function isUnderRoot(rel, root) {
+  const r = normalizeArtifactPath(root).replace(/\/+$/, '');
+  return Boolean(r) && (rel === r || rel.startsWith(`${r}/`));
+}
+
+function isFinalizeForbiddenPath(candidatePath, { allowedWriteRoots = [], forbiddenPaths = [] } = {}) {
+  const rel = normalizeArtifactPath(candidatePath);
+  if (!rel || rel === '.git' || FINALIZE_NEVER_ROOTS.some((root) => rel.startsWith(root))) return true;
+  const parts = rel.split('/');
+  if ((Array.isArray(forbiddenPaths) ? forbiddenPaths : []).some((f) => parts.includes(String(f)))) return true;
+  const roots = Array.isArray(allowedWriteRoots) ? allowedWriteRoots : [];
+  return roots.length ? !roots.some((root) => isUnderRoot(rel, root)) : false;
+}
+
 function isDocumentPhase(phase) {
   return Object.prototype.hasOwnProperty.call(
     DOCUMENT_PHASE_REQUIRED_OUTPUTS,
@@ -297,21 +317,23 @@ function validateLocalAgentRequiredOutputs({
   artifacts,
   kitStage = null,
   outputContract = null,
+  allowedWriteRoots = [],
+  forbiddenPaths = [],
 } = {}) {
   const artifactList = Array.isArray(artifacts) ? artifacts : [];
   const normalizedPhase = normalizePhase(phase);
   const documentPhase = isDocumentPhase(normalizedPhase);
   const extendPhase = isExtendPhase(normalizedPhase);
+  const finalizePhase = normalizedPhase === 'finalize';
 
   const forbidden = artifactList
     .map(getArtifactPath)
     .filter(Boolean)
-    .filter(
-      (rel) =>
-        isForbiddenCandidatePath(rel) &&
+    .filter((rel) => (finalizePhase
+      ? isFinalizeForbiddenPath(rel, { allowedWriteRoots, forbiddenPaths })
+      : isForbiddenCandidatePath(rel) &&
         !(documentPhase && isDocumentPhaseContractOutput(normalizedPhase, outputContract, rel)) &&
-        !(extendPhase && isExtendAllowedOutput(rel))
-    );
+        !(extendPhase && isExtendAllowedOutput(rel))));
 
   if (forbidden.length) {
     throw makePolicyError(

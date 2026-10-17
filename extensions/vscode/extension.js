@@ -1126,6 +1126,8 @@ async function executeLocalAgentPackage({
       artifacts: completeArtifacts.files,
       kitStage,
       outputContract: isDocumentPhase ? (localAgentPackage.active_output_contract || null) : null,
+      allowedWriteRoots: Array.isArray(localAgentPackage.allowed_write_roots) ? localAgentPackage.allowed_write_roots : [],
+      forbiddenPaths: Array.isArray(localAgentPackage.forbidden_paths) ? localAgentPackage.forbidden_paths : [],
     });
   }
 
