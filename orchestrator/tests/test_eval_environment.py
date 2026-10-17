@@ -303,3 +303,24 @@ def test_overlay_skips_promotion_leftovers(tmp_path):
     dst = tmp_path / "composed"
     EvalRunner(tmp_path)._copy_tree_overlay(src, dst)
     assert sorted(p.name for p in (dst / "web/lib").iterdir()) == ["server-api.ts"]
+
+
+def test_setup_runs_before_the_services_and_a_failing_step_stops_them(tmp_path, monkeypatch):
+    # A solution profile: the services run what `setup` installed, so setup comes first.
+    monkeypatch.setenv("CLIKE_EVAL_BASE_DIR", str(tmp_path / "eval"))
+    installed = tmp_path / "installed"
+    ltc = _ltc(tmp_path, setup=[{"id": "install", "command": f"{sys.executable} -c \"open('{installed}', 'w').write('ok')\""}])
+    ltc["services"][0]["start"] = f"{sys.executable} -c \"open('{installed}').read()\" && {sys.executable} server.py"
+    project = _project(tmp_path, ltc)
+    report = EvalRunner(project).run_profile(profile="runs/kit/REQ-002/ci/LTC.json", ltc=ltc, req_id="REQ-002")
+    names = [c.name for c in report.cases]
+    assert report.status == "PASS", [(c.name, c.stderr[-500:]) for c in report.cases if not c.passed]
+    assert names.index("setup::install") < names.index("env::service::provider-api")
+
+    installed.unlink()
+    ltc["setup"] = [f"{sys.executable} -c \"import sys; print('npm ERR! missing lockfile'); sys.exit(1)\""]
+    report = EvalRunner(project).run_profile(profile="runs/kit/REQ-002/ci/LTC.json", ltc=ltc, req_id="REQ-002")
+    cases = {c.name: c for c in report.cases}
+    assert report.status == "FAIL" and not cases["setup::1"].passed and cases["setup::1"].blocking
+    assert "missing lockfile" in cases["setup::1"].stdout
+    assert "env::service::provider-api" not in cases  # no service started on a failed setup

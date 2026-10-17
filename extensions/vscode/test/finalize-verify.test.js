@@ -89,3 +89,19 @@ test('a missing developer report is a repairable failure of the verification', (
   assert.equal(fv.withReportCheck(root, { status: 'PASS', passed: true, cases: [] }).passed, true);
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+test('REQ branches not merged into the default branch are found', () => {
+  const { execFileSync } = require('child_process');
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'clike-finalize-git-')));
+  const git = (...args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' });
+  git('init', '-q', '-b', 'main');
+  git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'base');
+  git('branch', 'feature/req-001');
+  git('switch', '-q', '-c', 'feature/req-002');
+  git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'req-002');
+  git('switch', '-q', '-c', 'other');
+  git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'other');
+  assert.deepEqual(fv.unmergedReqBranches(dir, 'main', 'feature'), ['feature/req-002']);
+  assert.deepEqual(fv.unmergedReqBranches(path.join(dir, 'missing'), 'main', 'feature'), []);
+  fs.rmSync(dir, { recursive: true, force: true });
+});

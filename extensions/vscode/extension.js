@@ -3811,16 +3811,27 @@ async function cmdOpenChat(context) {
         const phase = msg.cmd;
         try {
           if (phase === 'finalize' && !msg.finalizeRepair && !msg.finalizePendingConfirmed) {
-            // /finalize integrates what the gates promoted: a REQ not done yet is not in it.
-            const pending = finalizeVerify.pendingReqs(getWorkspaceRoot().fsPath);
+            // /finalize integrates what the gates promoted (a REQ not done yet is not in it) and
+            // commits on the default branch (a REQ branch not merged there is missing from it).
+            const root = getWorkspaceRoot().fsPath;
+            const gitSettings = cfg();
+            const defaultBranch = gitSettings.gitDefaultBranch || 'main';
+            const pending = finalizeVerify.pendingReqs(root);
+            const unmerged = finalizeVerify.unmergedReqBranches(root, defaultBranch, gitSettings.gitBranchPrefix || 'feature');
+            const problems = [];
             if (pending.length) {
               const list = pending.slice(0, 8).map(r => `${r.id} (${r.status})`).join(', ') + (pending.length > 8 ? ', …' : '');
+              problems.push(`${pending.length} REQ(s) not promoted yet: ${list} — /finalize integrates only what the gates promoted.`);
+            }
+            if (unmerged.length) {
+              problems.push(`${unmerged.join(', ')} not merged into ${defaultBranch} — /finalize commits on ${defaultBranch}: ` +
+                `merge first (git switch ${defaultBranch} && git merge --no-ff ${unmerged[0]}).`);
+            }
+            if (problems.length) {
               const go = 'Run /finalize anyway';
-              const choice = await vscode.window.showWarningMessage(
-                `${pending.length} REQ(s) not promoted yet: ${list}. /finalize integrates only what the gates promoted.`,
-                { modal: true }, go);
+              const choice = await vscode.window.showWarningMessage(problems.join(' '), { modal: true }, go);
               if (choice !== go) {
-                panel.webview.postMessage({ type: 'echo', message: `ℹ /finalize not run: ${pending.length} REQ(s) not promoted yet (${list}). Run their /gate first, or confirm to finalize anyway.` });
+                panel.webview.postMessage({ type: 'echo', message: `ℹ /finalize not run: ${problems.join(' ')}` });
                 panel.webview.postMessage({ type: 'busy', on: false });
                 return;
               }

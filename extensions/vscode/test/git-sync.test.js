@@ -13,7 +13,7 @@ Module._load = function (request, parent, isMain) {
   if (request === 'vscode') return { commands: { executeCommand: async () => undefined } };
   return originalLoad.call(this, request, parent, isMain);
 };
-const { clikeGitSync } = require('../git');
+const { clikeGitSync, porcelainPaths } = require('../git');
 Module._load = originalLoad;
 
 const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
@@ -257,4 +257,22 @@ test('merge-on-gate pushes main even when the remote main moved (a PR merged on 
   assert.ok(isAncestor(remote, kitCommit, remoteMain), 'the REQ reached the remote main');
   assert.ok(isAncestor(remote, hostCommit, remoteMain), 'the host commit is kept');
   assert.equal(git(dir, 'rev-parse', 'main'), remoteMain, 'local and remote main are in sync');
+});
+
+test('porcelain paths keep their first character even when the output arrives trimmed', () => {
+  assert.deepEqual(porcelainPaths('M docs/harper/PLAN.md\n M src/a.py\n?? new file.txt\nR  old.py -> new.py\n'),
+    ['docs/harper/PLAN.md', 'src/a.py', 'new file.txt', 'new.py']);
+});
+
+test('a CLike agent package file rewritten by an eval does not block merge-on-gate', async () => {
+  const dir = makeRepo();
+  const pkg = 'runs/kit/REQ-001/docs/AGENT_EVAL_CONTEXT.json';
+  await sync(dir, 'kit', 'REQ-001', [write(dir, 'runs/kit/REQ-001/src/a.py', 'a\n'), write(dir, pkg, '{"v":1}\n')]);
+  write(dir, pkg, '{"v":2}\n'); // the eval pre-pass rewrote it; not in the gate's file list
+  write(dir, 'notes.txt', 'mine\n'); // the developer's own change stays theirs
+  await sync(dir, 'gate', 'REQ-001', [write(dir, 'runs/kit/REQ-001/gate.json', '{}\n')], settings({ gitMergeOnGate: true }));
+  assert.equal(git(dir, 'rev-parse', '--abbrev-ref', 'HEAD'), 'main');
+  assert.ok(isAncestor(dir, 'feature/req-001', 'main'), 'merged into main');
+  assert.equal(git(dir, 'show', `main:${pkg}`), '{"v":2}');
+  assert.match(git(dir, 'status', '--porcelain'), /\?\? notes\.txt/);
 });
