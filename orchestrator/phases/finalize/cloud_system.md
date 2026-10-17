@@ -117,11 +117,11 @@ When runnability is evidenced but incomplete, prefer emitting minimal patches fo
 
 BEGIN_FILE README.md
 ### README.md (root, GitHub grade)
-- Badges GIT (clike, and other badges base on language and other tools used i.e.:python, docker,...)
+- Badges (shields.io): CLike linked to https://github.com/authenticfake/clike, Harper linked to https://github.com/authenticfake/clike#harper-lifecycle, Finalize linked to docs/harper/FINALIZE_REPORT.md, then eval, gate and the languages and tools used (python, docker, ...)
 - Project overview, architecture sketch (text / asciiart), repo layout
 - Quickstart (CLI & Docker), minimal commands
 - Configuration/env variables and table, services & ports
-- Made with CLike
+- Last section "Made with CLike": delivered with [CLike](https://github.com/authenticfake/clike) through the Harper process (IDEA → SPEC → PLAN → KIT → EVAL → GATE → FINALIZE); links to docs/harper/ (IDEA, SPEC, PLAN), docs/harper/FINALIZE_REPORT.md and docs/harper/SOLUTION_EVAL.md
 - Testing notes using only detected stack-native tools if present. Examples: pytest only for Python projects, npm scripts only for Node/TS projects, Maven/Gradle only for Java projects, go test/build only for Go projects, cargo only for Rust projects, dotnet only for .NET projects, or vendor/platform validation tools when evidenced.
 
 END_FILE

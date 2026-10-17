@@ -306,7 +306,9 @@ The extension currently supports a **base KIT run by default**, plus optional ex
     starts and smoke-checks it in the sandbox (the REQ tests are not run again: the gates did) and
     repairs it until it passes
   - writes `docs/harper/FINALIZE_REPORT.md` (how to start and see it, configuration, missing
-    information, what changed and why) and `scripts/setup_local` / `start_solution_local`; then
+    information, what changed and why), a `README.md` marked as a CLike project (badges and a
+    *Made with CLike* section linked to the CLike repository) and `scripts/setup_local` /
+    `start_solution_local`; then
     offers to configure and start it on your machine (Docker, Podman or native; a host port already
     taken is replaced by a free one in the local configuration)
 

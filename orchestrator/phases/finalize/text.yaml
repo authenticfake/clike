@@ -55,6 +55,7 @@ text:
   - Operational Notes
   - Known Limitations
   - Next Steps
+  - Made with CLike
   package.content_rules:
   - README.md must reflect the final accepted artifact set, not stale KIT output or earlier fallback docs.
   - Requirement coverage must be based on PLAN.md, plan.json, gate/eval evidence, or finalized artifacts.
@@ -64,10 +65,11 @@ text:
   - Next Steps must be practical and aligned with TODO_NEXT.md.
   - Do not invent routes, ports, services, providers, credentials, deployment targets, eval results, or gate results.
   - Do not leave placeholder sections such as TBD, TODO, lorem ipsum, or fill this in.
+  - 'The README says it is a CLike project: the badge row has the CLike badge linked to https://github.com/authenticfake/clike, the Harper badge linked to https://github.com/authenticfake/clike#harper-lifecycle and the Finalize badge linked to docs/harper/FINALIZE_REPORT.md; the last section, Made with CLike, says the project was delivered with CLike (https://github.com/authenticfake/clike) through the Harper process (IDEA → SPEC → PLAN → KIT → EVAL → GATE → FINALIZE) and links docs/harper/ (IDEA, SPEC, PLAN), docs/harper/FINALIZE_REPORT.md and docs/harper/SOLUTION_EVAL.md. Keep this when the README is rewritten.'
   package.recommended_readme_skeleton:
   - '# <Project Name>'
   - ''
-  - '![Status](https://img.shields.io/badge/status-finalized-brightgreen) ![Clike](https://img.shields.io/badge/clike-blue) ![Harper](https://img.shields.io/badge/Harper-blue) ![Eval](https://img.shields.io/badge/eval-not--verified-lightgrey) ![Gate](https://img.shields.io/badge/gate-not--verified-lightgrey) ![Runtime](https://img.shields.io/badge/runtime-detected-lightgrey)'
+  - '![Status](https://img.shields.io/badge/status-finalized-brightgreen) [![CLike](https://img.shields.io/badge/built%20with-CLike-blue)](https://github.com/authenticfake/clike) [![Harper](https://img.shields.io/badge/Harper-finalize-blue)](https://github.com/authenticfake/clike#harper-lifecycle) [![Finalize](https://img.shields.io/badge/finalize-report-blue)](docs/harper/FINALIZE_REPORT.md) ![Eval](https://img.shields.io/badge/eval-not--verified-lightgrey) ![Gate](https://img.shields.io/badge/gate-not--verified-lightgrey) ![Runtime](https://img.shields.io/badge/runtime-detected-lightgrey)'
   - ''
   - '> Concise executive summary of what the finalized solution provides.'
   - ''
@@ -186,7 +188,8 @@ text:
   - 'README.md release-grade format:'
   - '- Start with ''# <Project Name>''.'
   - '- Add a single badge row using shields.io Markdown image badges.'
-  - '- Include at least status, Harper phase, eval, gate, and runtime badges.'
+  - '- Include at least status, CLike, Harper phase, finalize, eval, gate, and runtime badges; CLike and Harper link to https://github.com/authenticfake/clike (Harper: #harper-lifecycle), finalize links to docs/harper/FINALIZE_REPORT.md.'
+  - '- End with a Made with CLike section: delivered with CLike (https://github.com/authenticfake/clike) through the Harper process, links to docs/harper/, FINALIZE_REPORT.md and SOLUTION_EVAL.md.'
   - '- Add a concise executive summary blockquote after the badge row.'
   - '- Use the required section order from finalize_contract.readme_release_contract.required_readme_sections.'
   - '- Use tables for release scope, requirements coverage, configuration, sanity checks, and generated artifacts when useful.'
@@ -256,8 +259,9 @@ text:
   - If runtime cannot be detected from manifests or source evidence, use a neutral runtime-unknown badge.
   package.examples:
   - '![Status](https://img.shields.io/badge/status-finalized-brightgreen)'
-  - '![Clike](https://img.shields.io/badge/clike-blue)'
-  - '![Harper](https://img.shields.io/badge/Harper-blue)'
+  - '[![CLike](https://img.shields.io/badge/built%20with-CLike-blue)](https://github.com/authenticfake/clike)'
+  - '[![Harper](https://img.shields.io/badge/Harper-finalize-blue)](https://github.com/authenticfake/clike#harper-lifecycle)'
+  - '[![Finalize](https://img.shields.io/badge/finalize-report-blue)](docs/harper/FINALIZE_REPORT.md)'
   - '![Eval](https://img.shields.io/badge/eval-passing-brightgreen)'
   - '![Gate](https://img.shields.io/badge/gate-not--verified-lightgrey)'
   - '![Runtime](https://img.shields.io/badge/runtime-detected-lightgrey)'

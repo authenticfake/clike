@@ -197,6 +197,11 @@ while it works (`node .clike/bin/eval-check.mjs`) and runs `scripts/check_soluti
 
 What you get:
 
+- `README.md` — the project README, marked as a CLike project: CLike, Harper and Finalize badges
+  (linked to the [CLike repository](https://github.com/authenticfake/clike), its Harper lifecycle
+  and `FINALIZE_REPORT.md`) and a closing **Made with CLike** section with links to the Harper
+  documents, the report and the solution evidence. A README without it fails the verification
+  and the next repair cycle adds it.
 - `docs/harper/FINALIZE_REPORT.md` — the report for you: how to start the solution and see each
   main capability, every configuration variable (purpose, value or how it is generated, who sets
   it), **missing information** only you can give (what, why, where to get it, where to put it),

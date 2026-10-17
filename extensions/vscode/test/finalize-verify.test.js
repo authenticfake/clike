@@ -83,9 +83,14 @@ test('a missing developer report is a repairable failure of the verification', (
   assert.equal(checked.passed, false);
   const step = nextAutoEvalStep({ cycle: 0, maxCycles: 3, hint: '' }, checked);
   assert.equal(step.action, 'repair');
-  assert.deepEqual(step.failures.map((f) => f.name), ['structure::finalize-report']);
+  assert.deepEqual(step.failures.map((f) => f.name), ['structure::finalize-report', 'structure::readme-clike']);
   fs.mkdirSync(path.join(root, 'docs', 'harper'), { recursive: true });
   fs.writeFileSync(path.join(root, 'docs', 'harper', 'FINALIZE_REPORT.md'), '# Report\n');
+  // the README must say it is a CLike project, with the link to the CLike repository
+  fs.writeFileSync(path.join(root, 'README.md'), '# App\n');
+  assert.deepEqual(fv.withReportCheck(root, { status: 'PASS', passed: true, cases: [] }).cases.map((c) => c.name),
+    ['structure::readme-clike']);
+  fs.writeFileSync(path.join(root, 'README.md'), `# App\n\n## Made with CLike\n\nDelivered with [CLike](${fv.CLIKE_REPO_URL}).\n`);
   assert.equal(fv.withReportCheck(root, { status: 'PASS', passed: true, cases: [] }).passed, true);
   fs.rmSync(root, { recursive: true, force: true });
 });
