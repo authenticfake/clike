@@ -20,6 +20,12 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **`/finalize` committed only part of the solution it verified.** Files in a new directory were
+  missed (`git status` listed only the directory), and the work of an earlier `/finalize` run that
+  ended before its commit was taken for the developer's own changes. The developer's changes are
+  now recorded once per round (`runs/finalize/DIRTY_BEFORE.json`, by content) and the record is
+  dropped only after a finalize commit succeeds; the developer report accumulates the changes and
+  problems of every run.
 - **A local-agent `/finalize` was rejected for writing the solution.** The extension checked its
   files with the KIT rule (no `src/`, no `docs/harper/`): `/finalize` writes exactly there. It is
   now checked against the write roots and forbidden paths of its own package (never `test/`,
