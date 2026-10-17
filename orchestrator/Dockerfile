@@ -85,7 +85,10 @@ RUN if [ "$ENABLE_BROWSER" = "true" ]; then \
 # new as the server of CLIKE_EVAL_POSTGRES_URL (pg_dump refuses newer servers; it dumps older ones).
 ARG ENABLE_PG_CLIENT=true
 ARG PG_CLIENT_MAJOR=18
-RUN if [ "$ENABLE_PG_CLIENT" = "true" ]; then \
+# docker/rebuild.sh --update-tools sets it to the current time: this step runs again and takes the
+# latest PostgreSQL client of the major (otherwise the layer cache keeps the one of the first build).
+ARG CLIKE_TOOLS_REFRESH=0
+RUN echo "tools refresh: ${CLIKE_TOOLS_REFRESH}" && if [ "$ENABLE_PG_CLIENT" = "true" ]; then \
       codename="$(. /etc/os-release && echo "${VERSION_CODENAME}")" && \
       apt-get update && apt-get install -y --no-install-recommends gnupg && \
       curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/pgdg.gpg && \

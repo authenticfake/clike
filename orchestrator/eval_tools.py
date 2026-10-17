@@ -94,6 +94,22 @@ def search_path(path: Optional[str] = None) -> str:
     return f"{base}{os.pathsep}{tools}" if base else str(tools)
 
 
+def installed_versions() -> Dict[str, Dict[str, str]]:
+    """Versions of the tools in the volume this process sees (``installed.json`` next to the bin
+    directory): recorded in each eval/gate report, the evidence of what the checks ran with."""
+    bin_dir = tools_bin_dir()
+    if bin_dir is None:
+        return {}
+    try:
+        import json
+
+        data = json.loads((bin_dir.parent / "installed.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    tools = data.get("tools") if isinstance(data, dict) else None
+    return {str(n): dict(r.get("versions") or {}) for n, r in (tools or {}).items() if isinstance(r, dict)}
+
+
 def available(binary: str) -> bool:
     return shutil.which(binary, path=search_path()) is not None
 
@@ -202,10 +218,22 @@ def needs(
     return list(wanted.values())
 
 
+_RUNTIME_ONLY = re.compile(r"^(python|pip)([=<>!].*)?$")
+
+
+def _pinned(spec: str, version: str, pip: bool = False) -> str:
+    name = re.split(r"[=<>!~]", spec, 1)[0]
+    if pip:
+        return f"{name}=={version}" if "*" not in version else f"{name}=={version}"
+    return f"{name}={version}{'' if '*' in version else '.*'}"
+
+
 def resolve(names: Iterable[str], catalog: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
-    """conda-forge packages and binaries of the requested tools (``name`` or ``name@version``)."""
-    packages: List[str] = []
-    binaries: List[str] = []
+    """One install spec per requested tool (``name``, a program it provides, or ``name@version``):
+    ``{"tools": [{name, packages, pip, download, binaries}], "unknown": [...]}``. A version pins
+    the entry's ``pin`` package, else its first conda package, else (CLIs from PyPI) its first pip
+    package."""
+    tools: List[Dict[str, Any]] = []
     unknown: List[str] = []
     for raw in names:
         raw = str(raw).strip()
@@ -218,15 +246,27 @@ def resolve(names: Iterable[str], catalog: Dict[str, Dict[str, Any]]) -> Dict[st
             unknown.append(raw)
             continue
         entry = catalog[tool]
-        specs = [str(p) for p in entry.get("packages") or []]
-        if version and specs:
-            specs[0] = f"{re.split(r'[=<>!]', specs[0], 1)[0]}={version}{'' if '*' in version else '.*'}"
-        if not specs or not all(_PACKAGE_SPEC.match(p) for p in specs):
+        packages = [str(p) for p in entry.get("packages") or []]
+        pip = [str(p) for p in entry.get("pip") or []]
+        download = entry.get("download") if isinstance(entry.get("download"), dict) else {}
+        if version:
+            pin = str(entry.get("pin") or "")
+            conda_real = [p for p in packages if not _RUNTIME_ONLY.match(p)]
+            if pin and pin in [re.split(r"[=<>!~]", p, 1)[0] for p in pip]:
+                pip = [_pinned(p, version, pip=True) if re.split(r"[=<>!~]", p, 1)[0] == pin else p for p in pip]
+            elif pin or conda_real:
+                target = pin or re.split(r"[=<>!~]", conda_real[0], 1)[0]
+                packages = [_pinned(p, version) if re.split(r"[=<>!~]", p, 1)[0] == target else p for p in packages]
+            elif pip:
+                pip = [_pinned(pip[0], version, pip=True), *pip[1:]]
+        if not (packages or download) or not all(_PACKAGE_SPEC.match(p) for p in packages):
             unknown.append(raw)
             continue
-        packages += [p for p in specs if p not in packages]
-        binaries += [b for b in entry.get("binaries") or [] if b not in binaries]
-    return {"packages": packages, "binaries": binaries, "unknown": unknown}
+        name = tool + (f"@{version}" if version else "")
+        if name not in [t["name"] for t in tools]:
+            tools.append({"name": name, "packages": packages, "pip": pip, "download": download,
+                          "binaries": [str(b) for b in entry.get("binaries") or []]})
+    return {"tools": tools, "unknown": unknown}
 
 
 def package_spec_ok(spec: str) -> bool:

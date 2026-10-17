@@ -167,8 +167,10 @@ asks *Install / Always for this project / No* (`clike.evalTools.install`: `ask` 
 `never`). `/tools` lists the catalog by group and what is installed; `search` matches name,
 description or program; `add` accepts a catalog name or the program (`mysqldump`, `kcat`), with
 an optional version (`jdk@17`), installs it and approves it for the project in
-`.clike/eval-tools.yaml`; `remove` withdraws the approval (the installed files stay in the shared
-tools volume). Libraries of a language belong to the project manifest. See `auto-eval.md`.
+`.clike/eval-tools.yaml`; `update [tool…]` rebuilds them at the latest versions and prints
+`old → new` (a failed rebuild keeps the previous version); `remove` withdraws the approval (the
+installed files stay in the shared tools volume). `/tools` shows the installed versions and reminds
+you after 30 days. Libraries of a language belong to the project manifest. See `auto-eval.md`.
 
 ### `/finalize`
 Runs release-oriented finalization: README, HOWTO_RUN, release notes, local run scripts and

@@ -293,8 +293,10 @@ The extension currently supports a **base KIT run by default**, plus optional ex
 - **`/tools [search <text> | add <tool[@version]>… | remove <tool>…]`**
   - native tools of the eval sandbox (kcat, mysqldump, aws, kubectl, terraform, jdk@17…): CLike installs what an eval needs on its own, after asking (`clike.evalTools.install`). `/tools` lists the catalog
     and what is installed (with versions), `search` finds an entry by name or program, `add`
-    installs and approves for this project (`.clike/eval-tools.yaml`), `remove` withdraws the
-    approval. A library of your language (psycopg, ojdbc…) goes in the project manifest instead.
+    installs and approves for this project (`.clike/eval-tools.yaml`), `update [tool…]` rebuilds
+    them at the latest versions and shows what changed (versions are otherwise locked; reminder
+    after 30 days), `remove` withdraws the approval. A library of your language (psycopg, ojdbc…)
+    goes in the project manifest instead.
     See `docs/auto-eval.md`
 
 ### Finalization

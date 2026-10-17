@@ -60,6 +60,8 @@ class EvalReport:
     environment_repairable: Optional[bool] = None
     # programs of CLike's tools catalog a check reported missing (installed on confirmation)
     missing_tools: Optional[List[str]] = None
+    # versions of the tools installed in the sandbox's tools volume when the eval ran
+    tools: Optional[Dict[str, Dict[str, str]]] = None
 
 
 def report_to_dict(rep: "EvalReport") -> Dict[str, Any]:
@@ -2171,6 +2173,8 @@ class EvalRunner:
             })
             if missing:
                 report.missing_tools = missing
+            if not self.eval_key:
+                report.tools = eval_tools.installed_versions() or None
             return report
         finally:
             for svc in reversed(self._services):

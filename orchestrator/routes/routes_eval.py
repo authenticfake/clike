@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import threading
+import time
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -576,6 +577,7 @@ def _eval_payload(rep: EvalReport, req_id: Optional[str]) -> Dict[str, Any]:
         "environment_repairable": rep.environment_repairable,
         "sandbox_exhausted": rep.reason_code == SANDBOX_EXHAUSTED_REASON,
         "missing_tools": rep.missing_tools or [],
+        "tools": rep.tools or {},
         "passed": promotable,
         "execution_ok": not environment_blocked,
         "quality_passed": quality_passed,
@@ -807,6 +809,7 @@ async def gate_check(
         "reason_code": reason_code,
         "sandbox_exhausted": rep.reason_code == SANDBOX_EXHAUSTED_REASON,
         "missing_tools": rep.missing_tools or [],
+        "tools": rep.tools or {},
         "structural_blockers": structural_blockers,
         "profile": rep.profile,
         "req_id": rep.req_id,
@@ -982,51 +985,100 @@ async def eval_tools_check(body: EvalToolsRequest):
     return result
 
 
-@router.post("/v1/eval/tools/install")
-async def eval_tools_install(body: EvalToolsRequest):
-    """Install catalog tools (``name`` or ``name@version``) into the sandbox tools volume."""
-    prj = _resolve_project_root(body.project_root, body.project_name)
+async def _tools_call(method: str, path: str, body: Optional[Dict[str, Any]] = None, timeout: float = 1800) -> Dict[str, Any]:
     service = _tools_service()
     if not service:
         raise HTTPException(status_code=503, detail="the eval tools service is not configured (CLIKE_EVAL_TOOLS_URL)")
-    resolved = eval_tools.resolve(body.tools, eval_tools.load_catalog(prj))
-    if resolved["unknown"] or not resolved["packages"]:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": "unknown tools", "unknown": resolved["unknown"], "hint": "see GET /v1/eval/tools for the catalog"},
-        )
     try:
-        async with httpx.AsyncClient(timeout=1800) as client:
-            response = await client.post(
-                f"{service}/install",
-                json={"packages": resolved["packages"], "binaries": resolved["binaries"], "tools": list(body.tools)},
-            )
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.request(method, f"{service}{path}", json=body)
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=503, detail=f"eval tools service unavailable: {type(exc).__name__}") from exc
     if response.status_code != 200:
         raise HTTPException(status_code=response.status_code, detail=f"eval tools: {response.text[:3000]}")
-    log.info("eval tools installed: %s", ", ".join(body.tools))
     return response.json()
+
+
+def _tools_lock_path() -> Path:
+    """Exact lock of the installed tools, kept by the orchestrator outside the tools volume: a new
+    volume (another machine, a reset) is rebuilt with the same versions by /v1/eval/tools/restore."""
+    from services.gate_integrity import state_dir
+
+    return state_dir() / "eval-tools" / "lock.json"
+
+
+async def _save_tools_lock() -> None:
+    try:
+        lock = await _tools_call("GET", "/lock", timeout=30)
+        path = _tools_lock_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(lock, indent=1), encoding="utf-8")
+    except Exception as exc:  # the install succeeded; the lock is a convenience
+        log.warning("eval tools lock not saved: %s", exc)
+
+
+@router.post("/v1/eval/tools/install")
+async def eval_tools_install(body: EvalToolsRequest):
+    """Install catalog tools (``name``, a program, or ``name@version``) into the sandbox tools volume."""
+    prj = _resolve_project_root(body.project_root, body.project_name)
+    if not _tools_service():
+        raise HTTPException(status_code=503, detail="the eval tools service is not configured (CLIKE_EVAL_TOOLS_URL)")
+    resolved = eval_tools.resolve(body.tools, eval_tools.load_catalog(prj))
+    if resolved["unknown"] or not resolved["tools"]:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "unknown tools", "unknown": resolved["unknown"], "hint": "see GET /v1/eval/tools for the catalog"},
+        )
+    result = await _tools_call("POST", "/install", {"tools": resolved["tools"]})
+    await _save_tools_lock()
+    log.info("eval tools installed: %s", ", ".join(t["name"] for t in resolved["tools"]))
+    return result
+
+
+@router.post("/v1/eval/tools/update")
+async def eval_tools_update(body: EvalToolsRequest):
+    """Rebuild the installed tools (all, or ``tools``) at the latest versions; returns what changed."""
+    result = await _tools_call("POST", "/update", {"tools": list(body.tools)})
+    await _save_tools_lock()
+    log.info("eval tools updated: %s", json.dumps(result.get("changes") or {})[:500])
+    return result
+
+
+@router.post("/v1/eval/tools/restore")
+async def eval_tools_restore():
+    """Rebuild, from the orchestrator's lock, the tools the volume lacks (same exact versions)."""
+    try:
+        lock = json.loads(_tools_lock_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"restored": [], "failed": {}, "lock": False}
+    result = await _tools_call("POST", "/restore", {"lock": lock})
+    if result.get("restored"):
+        await _save_tools_lock()
+    return {**result, "lock": True}
+
+
+STALE_TOOLS_DAYS = int(os.getenv("CLIKE_EVAL_TOOLS_STALE_DAYS", "30") or 30)
 
 
 @router.get("/v1/eval/tools")
 async def eval_tools_list(project_root: Optional[str] = Query(default=None), project_name: Optional[str] = Query(default=None)):
-    """The catalog (with the project's own entries), what is installed and what the project approved."""
-    prj = _resolve_project_root(project_root, project_name)
+    """The catalog (with the project's own entries), what is installed (with versions), what the
+    project approved, and whether the tools are due for an update (no project: the catalog alone)."""
+    prj = _resolve_project_root(project_root, project_name) if (project_root or project_name) else None
     installed: Dict[str, Any] = {}
-    service = _tools_service()
-    if service:
+    if _tools_service():
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                response = await client.get(f"{service}/installed")
-            if response.status_code == 200:
-                installed = response.json()
-        except httpx.HTTPError:
+            installed = await _tools_call("GET", "/installed", timeout=10)
+        except HTTPException:
             installed = {}
+    tools = installed.get("tools") or {}
+    last = installed.get("updated_at") or max((t.get("at") or 0 for t in tools.values()), default=0)
+    age_days = int((time.time() - last) / 86400) if last else None
     return {
         "catalog": eval_tools.load_catalog(prj),
-        "installed": installed.get("tools") or {},
-        "versions": installed.get("packages") or {},
+        "installed": tools,
         "approved": eval_tools.approved_tools(prj),
-        "installable": bool(service),
+        "installable": bool(_tools_service()),
+        "updated_days_ago": age_days,
+        "update_due": bool(tools) and age_days is not None and age_days >= STALE_TOOLS_DAYS,
     }

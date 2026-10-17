@@ -2,7 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { addApproved, catalogTool, ensureEvalTools, questionText, readApproved, removeApproved, toolsListing, unknownToolHint } = require('../eval-tools');
+const { addApproved, catalogTool, ensureEvalTools, questionText, readApproved, removeApproved, toolsListing, unknownToolHint, updateSummary } = require('../eval-tools');
 const { nextAutoEvalStep, nextAutoGateStep } = require('../auto-eval');
 const { parseSlash } = require('../slash-parser');
 
@@ -104,4 +104,21 @@ test('a workspace CLike could not prepare stops the loop: no check ran, nothing 
   assert.equal(step.action, 'stop');
   assert.match(step.reason, /could not prepare the eval workspace[\s\S]*vanished/);
   assert.equal(nextAutoGateStep({ cycle: 0, maxCycles: 2 }, { ...report, gate: 'FAIL' }).action, 'stop');
+});
+
+test('/tools shows versions and reminds an update; /tools update shows what changed', () => {
+  const data = {
+    catalog: { jdk: { group: 'runtimes', about: 'JDK', binaries: ['javac'] } },
+    installed: { 'jdk@17': { versions: { openjdk: '17.0.12' } } }, approved: [], installable: true,
+    updated_days_ago: 41, update_due: true,
+  };
+  const text = toolsListing(data);
+  assert.match(text, /Installed in the eval sandbox: jdk@17 \(openjdk 17\.0\.12\)/);
+  assert.match(text, /last updated 41 days ago: \/tools update/);
+  assert.match(text, /✔ jdk openjdk 17\.0\.12 — JDK/);
+  assert.match(updateSummary({ updated: ['jdk@17'], changes: { 'jdk@17': { openjdk: ['17.0.12', '17.0.13'] } }, failed: {} }),
+    /jdk@17: openjdk 17\.0\.12 → 17\.0\.13/);
+  assert.match(updateSummary({ updated: ['jq'], changes: {}, failed: {} }), /already at their latest/);
+  assert.match(updateSummary({ updated: [], changes: {}, failed: { az: 'solver failed' } }), /✖ az not updated \(the previous version stays\)/);
+  assert.equal(parseSlash('/tools update jq').args.action, 'update');
 });

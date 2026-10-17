@@ -8,7 +8,11 @@
 #     packages: [conda-forge packages, optionally pinned: "postgresql=18.*"]
 #     binaries: [programs the checks run; CLike puts them on the sandbox PATH]
 #     about: one line shown to the developer
-#   <name>@<version> (e.g. jdk@17) pins the first package to that version.
+#     pip: [PyPI packages, for CLIs distributed there; installed in the tool's own Python]
+#     download: {linux-64: {url: https://…, sha256: …, version: …}, linux-aarch64: {…}}
+#               a vendor archive (tar/zip or a single binary), verified before it is unpacked
+#     pin: the package that <name>@<version> pins (default: the first conda, else pip, package)
+#   <name>@<version> (e.g. jdk@17) pins that version. Each tool has its own environment.
 tools:
   postgresql-client:
     group: core
@@ -63,7 +67,7 @@ tools:
   kafkacat:
     group: messaging
     packages: ["kafkacat"]
-    binaries: [kcat, kafkacat]
+    binaries: [kafkacat, kcat]
     about: "Kafka producer/consumer CLI (linux-64 only on conda-forge)"
   awscli:
     group: aws
@@ -72,7 +76,8 @@ tools:
     about: "AWS CLI (no credentials in the sandbox: validation and dry runs)"
   azure-cli:
     group: azure
-    packages: ["azure-cli"]
+    packages: ["python=3.12", "pip"]
+    pip: ["azure-cli"]  # conda-forge's azure-cli does not resolve (missing azure-batch): PyPI
     binaries: [az]
     about: "Azure CLI (no credentials in the sandbox)"
   google-cloud-sdk:
@@ -127,7 +132,7 @@ tools:
     about: "Java Development Kit (the image has only a Java 21 runtime); jdk@17 for another version"
   maven:
     group: runtimes
-    packages: ["maven", "openjdk"]  # maven@3.9 pins maven
+    packages: ["maven", "openjdk"]  # maven@3.9 pins maven, its JDK resolves with it
     binaries: [mvn]
     about: "Apache Maven (with a JDK)"
   gradle:

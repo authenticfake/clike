@@ -1178,6 +1178,8 @@ async function persistReports(projectRootUri, phase, rep, out, fallbackReqId = '
       status: rep.status || rep.gate || undefined,
       gate: rep.gate || undefined,
       reason_code: rep.reason_code || undefined,
+      tools: rep.tools && Object.keys(rep.tools).length ? rep.tools : undefined,
+      missing_tools: Array.isArray(rep.missing_tools) && rep.missing_tools.length ? rep.missing_tools : undefined,
       passed,
       failed,
       passed_count: rep.passed_count,

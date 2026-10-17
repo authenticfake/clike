@@ -55,7 +55,7 @@ podman ps --format "{{.Names}} {{.Status}}"     # wait until orchestrator, gatew
 curl -s http://127.0.0.1:8080/health && curl -s http://127.0.0.1:8000/health
 ```
 
-Services listen on `127.0.0.1` only. After an update: `cd docker && ./rebuild.sh` (cached build, recreated containers, health and image check).
+Services listen on `127.0.0.1` only. After an update: `cd docker && ./rebuild.sh` (cached build, recreated containers, health and image check; the eval tools are restored from their lock). `./rebuild.sh --update-tools` also updates the eval tools to their latest versions and prints what changed.
 
 ## 4. VS Code extension
 

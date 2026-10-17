@@ -68,8 +68,16 @@ function toolsListing(data, query = '') {
   const approved = data?.approved || [];
   const q = String(query || '').toLowerCase();
   const lines = [];
+  const versionsOf = (rec) => Object.entries(rec?.versions || {}).map(([k, v]) => `${k} ${v}`).join(', ');
+  const installedAs = (name) => Object.keys(installed).filter((k) => k === name || k.split('@')[0] === name);
   if (!q) {
-    lines.push(`Installed in the eval sandbox: ${Object.keys(installed).join(', ') || 'none (PostgreSQL client tools are in the image)'}`);
+    const list = Object.entries(installed).map(([k, rec]) => `${k}${versionsOf(rec) ? ` (${versionsOf(rec)})` : ''}`);
+    lines.push(`Installed in the eval sandbox: ${list.join('; ') || 'none (PostgreSQL client tools are in the image)'}`);
+    if (data?.update_due) {
+      lines.push(`⚠ Tools last updated ${data.updated_days_ago} days ago: /tools update (or ./rebuild.sh --update-tools).`);
+    } else if (list.length && data?.updated_days_ago != null) {
+      lines.push(`Tools updated ${data.updated_days_ago} day(s) ago.`);
+    }
     lines.push(`Approved for this project (.clike/eval-tools.yaml): ${approved.join(', ') || 'none'}`);
     if (data && data.installable === false) lines.push('⚠ The eval-tools service is not configured: tools cannot be installed here.');
     lines.push('', 'Catalog (/tools add <tool>[@version]):');
@@ -78,8 +86,10 @@ function toolsListing(data, query = '') {
   for (const [name, entry] of Object.entries(catalog)) {
     const text = `${name} ${entry.about || ''} ${(entry.binaries || []).join(' ')} ${entry.group || ''}`.toLowerCase();
     if (q && !text.includes(q)) continue;
+    const here = installedAs(name);
+    const version = here.map((k) => versionsOf(installed[k])).filter(Boolean).join(' / ');
     (groups[entry.group || 'other'] = groups[entry.group || 'other'] || []).push(
-      `  ${installed[name] ? '✔' : '·'} ${name} — ${entry.about || ''} [${(entry.binaries || []).join(', ')}]`
+      `  ${here.length ? '✔' : '·'} ${name}${version ? ` ${version}` : ''} — ${entry.about || ''} [${(entry.binaries || []).join(', ')}]`
     );
   }
   for (const [group, items] of Object.entries(groups)) lines.push(`${group}:`, ...items);
@@ -88,6 +98,17 @@ function toolsListing(data, query = '') {
       'a library of your language (psycopg, ojdbc, kafka-python…) goes in the project manifest instead.');
   }
   return lines.join('\n');
+}
+
+/** Text of `/tools update`: what changed, what stayed, what failed. */
+function updateSummary(result) {
+  const changes = result?.changes || {};
+  const lines = Object.entries(changes).map(([name, diff]) =>
+    `  ${name}: ${Object.entries(diff).map(([pkg, [from, to]]) => `${pkg} ${from || '-'} → ${to}`).join(', ')}`);
+  if (!(result?.updated || []).length && !Object.keys(result?.failed || {}).length) return 'No tools installed: nothing to update.';
+  if (!lines.length && (result?.updated || []).length) lines.push('All tools are already at their latest versions.');
+  for (const [name, error] of Object.entries(result?.failed || {})) lines.push(`  ✖ ${name} not updated (the previous version stays): ${String(error).slice(0, 300)}`);
+  return `Eval tools updated:\n${lines.join('\n')}`;
 }
 
 /** Why `/tools add` does not take a name that is not in the catalog (a library, an unknown package). */
@@ -183,5 +204,5 @@ function questionText(reqId, items) {
 
 module.exports = {
   PROJECT_FILE, addApproved, approveForProject, catalogTool, ensureEvalTools, questionText, readApproved, removeApproved,
-  toolsListing, unknownToolHint, withdrawForProject,
+  toolsListing, unknownToolHint, updateSummary, withdrawForProject,
 };
