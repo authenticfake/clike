@@ -180,6 +180,7 @@ text:
   - '- docs/harper/FINALIZE_REPORT.md: the detailed report for the developer (how to start and see the solution, configuration, missing information, what this /finalize changed and why)'
   - '- scripts/check_solution_local.sh and scripts/check_solution_local.ps1 when runnable code exists'
   - '- scripts/setup_local.sh/.ps1 (local configuration) and scripts/start_solution_local.sh/.ps1 (start the whole solution) when runnable code exists'
+  - '- Published host ports come from the local configuration: setup picks a free port when one is taken on the developer machine, start names the busy port and its variable'
   - '- runtime-specific run scripts for backend/frontend/workers only when those execution areas exist'
   - ''
   - 'README.md release-grade format:'

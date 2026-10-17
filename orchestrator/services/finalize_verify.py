@@ -86,6 +86,12 @@ def solution_verify_rules(deployment: str = "") -> List[str]:
         "to fill in. scripts/start_solution_local.sh and .ps1 start the whole solution with that configuration (setup "
         "first when needed) and print its URLs. scripts/check_solution_local.sh and .ps1 run the profile's steps "
         "(setup, install, build, start, smoke, stop).",
+        "Host ports on the developer's machine: other programs already listen there (the sandbox ports being free "
+        "proves nothing). Every published host port comes from the local configuration, never a fixed number in "
+        "compose files or scripts; setup checks each one is free and, when it is taken, picks a free one, writes it "
+        "and every value derived from it (origins, URLs) and says which it changed; start checks the ports again "
+        "before starting and names the port and the variable to change when one is taken. The report lists the "
+        "ports and their variables.",
         "Container runtime on the developer's machine: scripts that use containers detect what is installed — "
         "`docker compose`, `podman compose` or `podman-compose` (many developers run Podman, not Docker) — and say "
         "exactly which is missing. When the solution also runs natively (as the profile runs it in the sandbox), the "

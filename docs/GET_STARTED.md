@@ -55,7 +55,9 @@ are small IDEAs to start with.
    brings the solution to running and configured: CLike installs, builds, configures and starts it
    in the sandbox, checks that it answers and repairs it until it passes. Read
    `docs/harper/FINALIZE_REPORT.md` (how to start and see it, configuration, what you still have
-   to provide, what changed and why); CLike then offers to configure and start it on your machine.
+   to provide, what changed and why); CLike then offers to configure and start it on your machine
+   (`scripts/setup_local`, then `scripts/start_solution_local`; with Docker or Podman, or natively).
+   A host port already taken on your machine is replaced by a free one in your local `.env`.
 
 `/help` lists every command; `/status` shows where you are.
 
