@@ -42,6 +42,28 @@ class ExhaustionMarkersTests(unittest.TestCase):
             self.assertIsNone(sandbox_resources.exhaustion(text), text)
 
 
+class ContainerRuntimeTests(unittest.TestCase):
+    def test_a_missing_container_runtime_is_recognised(self):
+        for text in (
+            "Docker Compose v2 and cached/obtainable declared images are required",
+            "sh: 1: docker: not found",
+            "Cannot connect to the Docker daemon at unix:///var/run/docker.sock",
+            "podman is not installed",
+        ):
+            self.assertTrue(sandbox_resources.container_runtime_missing(text), text)
+        self.assertFalse(sandbox_resources.container_runtime_missing("AssertionError: compose file invalid"))
+
+    def test_a_blocking_check_is_blocked_a_non_blocking_one_is_a_warning(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cmd = f"{sys.executable} -c \"import sys; print('Docker Compose v2 is required'); sys.exit(2)\""
+            blocking = EvalRunner(root)._run(name="test:compose", cmd=cmd, cwd=root, timeout=30)
+            self.assertTrue(blocking.blocked)
+            self.assertIn('"blocking": false', blocking.excerpt)
+            warning = EvalRunner(root)._run(name="test:compose", cmd=cmd, cwd=root, timeout=30, blocking=False)
+            self.assertFalse(warning.blocked)
+
+
 class PreflightTests(unittest.TestCase):
     def _fake(self, root, current, limit, zombies):
         cg = root / "cg"

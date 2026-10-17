@@ -301,14 +301,20 @@ class EvalRunner:
             stdout = eval_failures.strip_ansi(proc.stdout or "")
             ok = proc.returncode == expect
             blocked = False
+            noted = False  # a specific note already explains the failure
             exhausted = None if ok else sandbox_resources.exhaustion(f"{stdout}\n{stderr}")
             if exhausted:
-                blocked = True
+                blocked = noted = True
                 stderr = (
                     stderr
                     + f"\n{_SANDBOX_EXHAUSTED_NOTE} ({exhausted}): the OS refused a process, "
                     "thread, memory or disk space. Not a defect of the code. " + sandbox_resources.RESTART_HINT
                 )
+            elif not ok and sandbox_resources.container_runtime_missing(f"{stdout}\n{stderr}"):
+                # Blocking: no verdict without it, and the repair is told to make it non-blocking.
+                # Non-blocking: a warning, it runs on the developer's machine.
+                blocked, noted = blocking, True
+                stderr = stderr + "\n[CLike EvalRunner] " + sandbox_resources.CONTAINER_RUNTIME_NOTE
             elif not ok:
                 blocked = self._is_environment_blocked(
                     code=proc.returncode,
@@ -317,7 +323,7 @@ class EvalRunner:
                     environment_requirements=environment_requirements or [],
                 )
 
-            if blocked and not ok and not exhausted:
+            if blocked and not ok and not noted:
                 stderr = (
                     stderr
                     + "\n[CLike EvalRunner] Classified as environment-blocked: "
@@ -325,6 +331,8 @@ class EvalRunner:
                     "network restriction, or sandbox/runtime incompatibility."
                 )[-4000:]
             excerpt = None if ok else eval_failures.excerpt(stdout, stderr)
+            if noted and excerpt is not None:
+                excerpt = f"{excerpt.rstrip()}\n{stderr.rstrip().splitlines()[-1]}"  # CLike's note, always shown
             return EvalCase(
                 name=name,
                 passed=ok,

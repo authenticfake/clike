@@ -27,6 +27,25 @@ _EXHAUSTION = re.compile(
     re.IGNORECASE,
 )
 
+# A check that needs a container runtime: the sandbox has none (no docker/podman, no privileges).
+_NO_CONTAINER_RUNTIME = re.compile(
+    r"((?:docker|podman)(?:[- ]compose)?(?: v\d)?[^\n]{0,120}\b(?:is |are )?(?:required|not found|not installed|"
+    r"unavailable|not available|is not running)\b|Cannot connect to the Docker daemon|"
+    r"(?:docker|podman)(?:-compose)?: (?:command )?not found)",
+    re.IGNORECASE,
+)
+
+CONTAINER_RUNTIME_NOTE = (
+    "The CLike eval sandbox has no container runtime (docker, podman, compose): this check cannot run "
+    "there. Not a defect of the code: make it non-blocking (\"blocking\": false) in ci/LTC.json, keep it "
+    "runnable on the developer's machine (ci/HOWTO.md)."
+)
+
+
+def container_runtime_missing(text: str) -> bool:
+    return bool(_NO_CONTAINER_RUNTIME.search(text or ""))
+
+
 # Fraction of pids.max at which a new eval is refused: a REQ eval with services, a build and a
 # browser starts hundreds of processes and threads.
 PIDS_PREFLIGHT_RATIO = 0.6

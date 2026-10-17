@@ -295,6 +295,28 @@ class GateIntegrityTests(unittest.TestCase):
         self.assertIn("check made non-blocking: unit", result["rejected"]["ci/LTC.json"])
         self.assertIn("test/test_app.py", result["rejected"])
 
+    def test_a_check_that_needs_a_container_runtime_may_become_non_blocking(self):
+        from services import gate_integrity
+
+        self._eval()
+        relaxed = json.dumps({**LTC, "checks": [LTC["checks"][0], {**LTC["checks"][1], "blocking": False}]})
+        no_docker = "lint\nDocker Compose v2 and cached/obtainable declared images are required\n"
+        other = "unit\nDocker Compose v2 is required\nlint\nAssertionError\n"
+        self.assertIn("check made non-blocking: lint", gate_integrity.amend_acceptance_surface(
+            self.proj, REQ, {"ci/LTC.json": relaxed}, reason="r", evidence=other)["rejected"]["ci/LTC.json"])
+        result = gate_integrity.amend_acceptance_surface(self.proj, REQ, {"ci/LTC.json": relaxed}, reason="r", evidence=no_docker)
+        self.assertEqual((result["accepted"], result["rejected"]), (["ci/LTC.json"], {}))
+
+    def test_ltc_commands_are_governed_like_checks(self):
+        from services import gate_integrity
+
+        listed = {"commands": [{"id": "unit", "cmd": "pytest", "blocking": True}]}
+        named = {"commands": {"unit": {"run": "pytest"}, "lint": "ruff check ."}}
+        self.assertEqual(gate_integrity._checks(json.dumps(listed)), {"unit": {"run": "pytest", "blocking": True}})
+        self.assertEqual(set(gate_integrity._checks(json.dumps(named))), {"unit", "lint"})
+        weaker = {"commands": [{"id": "unit", "cmd": "pytest", "blocking": False}]}
+        self.assertEqual(gate_integrity._ltc_weakening(json.dumps(listed), json.dumps(weaker)), ["check made non-blocking: unit"])
+
     def test_repair_may_only_drop_imports_from_a_locked_test(self):
         from services import gate_integrity
 
@@ -351,6 +373,31 @@ class GateIntegrityTests(unittest.TestCase):
         gate = self._gate().json()
         self.assertTrue(gate["review_required"])
         self.assertEqual(gate["acceptance_amendments"][-1]["kinds"], {"test/test_api.py": "test_fix"})
+
+    def test_a_type_checker_error_on_the_test_is_evidence_of_a_wrong_test(self):
+        from services import gate_integrity
+
+        broken = (
+            "def test_query(url):\n"
+            "    restore = url.update_query_dict(url.query)\n"
+            "    assert restore.render() == 'x'\n"
+        )
+        (self.kit / "test" / "test_db.py").write_text(broken)
+        self._eval()
+        fixed = broken.replace("url.update_query_dict(url.query)", "url.update_query_dict(dict(url.query))")
+        for evidence in (
+            'test/test_db.py:2: error: Argument 1 to "update_query_dict" of "URL" has incompatible type  [arg-type]',
+            "  /w/test/test_db.py:2:15 - error: Argument of type \"immutabledict\" cannot be assigned (reportArgumentType)",
+        ):
+            with self.subTest(evidence[:20]):
+                result = gate_integrity._test_change_issue(
+                    self.kit / "test" / "test_db.py", gate_integrity.ensure_lock(self.proj, REQ)["files"]["test/test_db.py"],
+                    fixed, evidence,
+                )
+                self.assertIsNone(result)
+        result = gate_integrity.amend_acceptance_surface(
+            self.proj, REQ, {"test/test_db.py": fixed}, reason="r", evidence="src/app.py:2: error: something  [arg-type]")
+        self.assertIn("does not show an error", result["rejected"]["test/test_db.py"][0])
 
     def test_local_agent_repair_is_governed_through_the_amend_endpoint(self):
         # The agent already wrote its changes: the extension sends them with the previous content.
