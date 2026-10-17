@@ -4,6 +4,24 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+### Fixed
+
+- **Promotion repeated code at every gate.** Where both sides only added lines, auto-merge kept
+  both even when `src/` already had the candidate's additions (an earlier REQ promoted them, or
+  the same REQ was gated again, against a KIT base older than `src/`): composition files such as
+  `app.py`, `conftest.py`, CSS tokens and `.env.example` grew a copy per promotion, up to code
+  that no longer compiled — unseen by the gates, which run the KIT copy. Now the side that
+  contains the other wins, overlapping additions are a conflict, a merge that would repeat lines
+  both sides added is a conflict, and merged Python/JSON/JS files are checked before they are
+  written. Promoting the same REQ twice changes nothing.
+- **A resolved promotion conflict came back at every gate.** After the developer writes the
+  right content into `src/` and deletes the `.conflict-…` file, the next gate keeps `src/` for that
+  file (while the KIT file is the one that conflicted). KIT rules: a shared file several REQs
+  extend keeps what the others put there, and REQ-specific test fixtures go in the REQ's own
+  test package, not in the root conftest.
+- **A REQ with promotion conflicts was merged into `main`.** Merge-on-gate now runs only for a
+  promoted REQ; otherwise CLike says it stays on its branch until the conflicts are resolved.
+
 ## [1.4.3] — 2026-10-17 — A sandbox that stays healthy, tools when an eval needs them
 
 ### Added

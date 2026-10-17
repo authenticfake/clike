@@ -12,6 +12,8 @@ const sh = (cwd, ...args) => execFileSync('git', args, { cwd, stdio: ['ignore', 
 const write = (root, rel, text) => { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); };
 const read = (root, rel) => fs.readFileSync(path.join(root, rel), 'utf8');
 const LINES = (n, tag = '') => Array.from({ length: n }, (_, i) => `line ${i + 1}${tag}`).join('\n') + '\n';
+// Python files are checked after a merge: their fixtures are valid Python.
+const PYLINES = (n) => Array.from({ length: n }, (_, i) => `line_${i + 1} = ${i + 1}`).join('\n') + '\n';
 
 /** canonical src at the KIT start, then the KIT commit, then optional canonical edits. */
 function repo() {
@@ -20,14 +22,14 @@ function repo() {
   sh(ws, 'config', 'user.email', 't@example.com'); sh(ws, 'config', 'user.name', 't');
   write(ws, 'src/app/same.py', 'same\n');
   write(ws, 'src/app/update.py', 'v1\n');
-  write(ws, 'src/app/merge.py', LINES(12));
+  write(ws, 'src/app/merge.py', PYLINES(12));
   write(ws, 'src/app/clash.py', 'value = 1\n');
   write(ws, 'src/app/canon_only.py', 'c1\n');
   sh(ws, 'add', '-A'); sh(ws, 'commit', '-qm', 'base');
   const kit = 'runs/kit/REQ-004';
   write(ws, `${kit}/src/app/same.py`, 'same\n');
   write(ws, `${kit}/src/app/update.py`, 'v2\n');
-  write(ws, `${kit}/src/app/merge.py`, LINES(12).replace('line 11\n', 'line 11 candidate\n'));
+  write(ws, `${kit}/src/app/merge.py`, PYLINES(12).replace('line_11 = 11\n', 'line_11 = "candidate"\n'));
   write(ws, `${kit}/src/app/clash.py`, 'value = 2\n');
   write(ws, `${kit}/src/app/canon_only.py`, 'c1\n');
   write(ws, `${kit}/src/app/new.py`, 'new\n');
@@ -38,7 +40,7 @@ function repo() {
   write(ws, `${kit}/reports/unit.xml`, '<x/>');
   sh(ws, 'add', '-A'); sh(ws, 'commit', '-qm', 'feat(req-004): implement');
   // canonical edits after the KIT
-  write(ws, 'src/app/merge.py', LINES(12).replace('line 2\n', 'line 2 canonical\n'));
+  write(ws, 'src/app/merge.py', PYLINES(12).replace('line_2 = 2\n', 'line_2 = "canonical"\n'));
   write(ws, 'src/app/clash.py', 'value = 3\n');
   write(ws, 'src/app/canon_only.py', 'c2\n');
   return ws;
@@ -59,7 +61,7 @@ test('auto-merge: add, update, merge, keep and conflict per file; scratch never 
   });
   assert.equal(r.promoted, false);
   assert.equal(read(ws, 'src/app/update.py'), 'v2\n');
-  assert.match(read(ws, 'src/app/merge.py'), /line 2 canonical\n[\s\S]*line 11 candidate\n/);
+  assert.match(read(ws, 'src/app/merge.py'), /line_2 = "canonical"\n[\s\S]*line_11 = "candidate"\n/);
   assert.equal(read(ws, 'src/app/clash.py'), 'value = 3\n'); // conflict: canonical untouched
   const conflict = r.results.find((x) => x.path === 'src/app/clash.py').conflictFile;
   assert.match(read(ws, conflict), /<<<<<<< canonical\nvalue = 3\n\|\|\|\|\|\|\| base\nvalue = 1\n=======\nvalue = 2\n>>>>>>> REQ-004/);
@@ -220,4 +222,89 @@ test('auto-merge: without a merge base, a candidate holding the whole canonical 
   assert.equal(r.results[0].outcome, 'merged');
   assert.match(r.results[0].reason, /no merge base, but REQ-001 contains the whole canonical file/);
   assert.equal(read(ws, 'src/a.ts'), "export const keys = ['q', 'fit_min'];\nexport const more = 1;\n");
+});
+
+// Promotion is idempotent: a block src/ already received (from an earlier REQ, or the same REQ
+// promoted before) is never added again. Real case: create_app() repeated 5 times in app.py.
+const BLOCK = 'if qualification_config is None and "Q" in os.environ:\n    qualification_config = QualificationConfig.from_env()\n';
+const APP = (...blocks) => `import os\n\n${LINES(3)}def create_app():\n${blocks.join('')}    return app\n`;
+
+test('auto-merge: what src/ already has is not added again (same REQ twice, or an older KIT base)', () => {
+  // KIT base without the block; src/ already received it from an earlier REQ, plus another one.
+  const extra = 'if scoring_config is None and "S" in os.environ:\n    scoring_config = ScoringConfig.from_env()\n';
+  const ws = threeWay(APP(), APP(BLOCK), APP(BLOCK, extra));
+  const r = autoMergePromotion({ workspaceRoot: ws, reqId: 'REQ-008' });
+  assert.equal(r.promoted, true);
+  assert.match(r.results[0].reason || '', /src\/ already has what REQ-008 adds: src\/ kept/);
+  assert.equal(read(ws, 'src/api.ts'), APP(BLOCK, extra));
+  const again = autoMergePromotion({ workspaceRoot: ws, reqId: 'REQ-008' });
+  assert.equal(read(ws, 'src/api.ts'), APP(BLOCK, extra));
+  assert.equal(again.promoted, true);
+});
+
+test('auto-merge: different additions at the same place are still both kept; overlapping ones are a conflict', () => {
+  const mine = 'if contacts_config is None and "C" in os.environ:\n    contacts_config = ContactsConfig.from_env()\n';
+  const ws = threeWay(APP(), APP(mine), APP(BLOCK));
+  const r = autoMergePromotion({ workspaceRoot: ws, reqId: 'REQ-008' });
+  assert.equal(r.promoted, true);
+  assert.equal(read(ws, 'src/api.ts'), APP(BLOCK, mine));
+  // the candidate repeats the canonical block and adds its own: shared lines, neither contains the other
+  const ws2 = threeWay(APP(), APP(`${mine}${BLOCK.replace('from_env()', 'from_env(strict=True)')}`), APP(BLOCK, 'x_value = compute_something_else()\n'));
+  const r2 = autoMergePromotion({ workspaceRoot: ws2, reqId: 'REQ-008' });
+  assert.equal(r2.results[0].outcome, 'conflict');
+});
+
+test('auto-merge: a clean merge that would repeat lines both sides added is a conflict', () => {
+  // src/ received the block near the top; the KIT (older base) adds it near the bottom
+  const top = (b) => `import os\n${b}${LINES(10)}`;
+  const bottom = (b) => `import os\n${LINES(10)}${b}`;
+  const ws = threeWay(`import os\n${LINES(10)}`, bottom(BLOCK), top(BLOCK));
+  const r = autoMergePromotion({ workspaceRoot: ws, reqId: 'REQ-008' });
+  assert.equal(r.results[0].outcome, 'conflict');
+  assert.match(r.results[0].reason, /would repeat 2 line\(s\) both sides added/);
+  assert.equal(read(ws, 'src/api.ts'), top(BLOCK));  // not written
+});
+
+test('auto-merge: a merged Python file that does not compile is not written', () => {
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'clike-promote-invalid-'));
+  sh(ws, 'init', '-q', '-b', 'main');
+  sh(ws, 'config', 'user.email', 't@example.com'); sh(ws, 'config', 'user.name', 't');
+  const sig = (params) => `${PYLINES(3)}def create_app(\n    settings=None,\n${params}):\n    return settings\n`;
+  write(ws, 'src/app.py', sig(''));
+  sh(ws, 'add', '-A'); sh(ws, 'commit', '-qm', 'base');
+  write(ws, 'runs/kit/REQ-009/src/app.py', sig('    review_config=None,\n'));
+  sh(ws, 'add', '-A'); sh(ws, 'commit', '-qm', 'feat(req-009): kit');
+  write(ws, 'src/app.py', sig('    settings=None,\n'));  // src/ already broken: a duplicate argument
+  const r = autoMergePromotion({ workspaceRoot: ws, reqId: 'REQ-009' });
+  const has = spawnPython();
+  if (!has) return;  // no Python on this machine: nothing to check
+  assert.equal(r.results[0].outcome, 'conflict');
+  assert.match(r.results[0].reason, /not valid Python .*duplicate argument/);
+  assert.equal(read(ws, 'src/app.py'), sig('    settings=None,\n'));
+  assert.ok(fs.existsSync(path.join(ws, r.results[0].conflictFile)));
+});
+
+function spawnPython() {
+  const { spawnSync } = require('child_process');
+  return ['python3', 'python'].some((c) => !spawnSync(c, ['--version']).error);
+}
+
+test('auto-merge: a conflict the developer resolved (conflict file removed) does not come back', () => {
+  const ws = threeWay(API('runs', "'q'"), API('runs', "'q', 'fit_min'"), API('runs', "'q', 'owner'"));
+  const first = autoMergePromotion({ workspaceRoot: ws, reqId: 'REQ-008', now: new Date('2026-10-17T10:00:00Z') });
+  assert.equal(first.promoted, false);
+  const c = first.results[0];
+  assert.ok(c.theirs_sha256);
+  // the developer writes both keys into src/ and deletes the conflict file, as conflicts.md asks
+  write(ws, 'src/api.ts', API('runs', "'q', 'owner', 'fit_min'"));
+  fs.rmSync(path.join(ws, c.conflictFile));
+  const second = autoMergePromotion({ workspaceRoot: ws, reqId: 'REQ-008', now: new Date('2026-10-17T11:00:00Z') });
+  assert.equal(second.promoted, true);
+  assert.equal(second.results[0].outcome, 'kept_canonical');
+  assert.match(second.results[0].reason, /resolved in src\/ \(its conflict file was removed\)/);
+  assert.equal(read(ws, 'src/api.ts'), API('runs', "'q', 'owner', 'fit_min'"));
+  // a KIT that changed since the conflict is merged again
+  write(ws, 'runs/kit/REQ-008/src/api.ts', API('runs', "'q', 'fit_max'"));
+  const third = autoMergePromotion({ workspaceRoot: ws, reqId: 'REQ-008', now: new Date('2026-10-17T12:00:00Z') });
+  assert.equal(third.results[0].outcome, 'conflict');
 });
