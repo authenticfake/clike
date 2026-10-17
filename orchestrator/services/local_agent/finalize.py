@@ -128,6 +128,7 @@ def build_finalize_local_agent_package(
                 "status",
                 "Clike",
                 "Harper phase",
+                "finalize",
                 "eval",
                 "gate",
                 "runtime",

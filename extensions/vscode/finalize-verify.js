@@ -11,6 +11,7 @@ const SOLUTION_PROFILE = 'ci/SOLUTION_LTC.json';
 const SOLUTION_EVAL_ID = 'SOLUTION';
 const EVIDENCE_PATH = 'docs/harper/SOLUTION_EVAL.md';
 const REPORT_PATH = 'docs/harper/FINALIZE_REPORT.md';
+const CLIKE_REPO_URL = 'https://github.com/authenticfake/clike';
 const PROMOTED_STATUSES = new Set(['done']);
 
 const MAX_FILE_BYTES = 200 * 1024;
@@ -206,15 +207,28 @@ function missingProfileReport() {
  * /finalize did not write it, a repairable failure is added, so the next repair cycle writes it.
  */
 function withReportCheck(workspaceRoot, report) {
-  if (fs.existsSync(path.join(workspaceRoot, ...REPORT_PATH.split('/')))) return report;
-  const message = `/finalize did not write ${REPORT_PATH}, the report for the developer: write it (how to start and see ` +
-    'the solution, configuration, missing information, what /finalize changed and why, problems met and how they were solved).';
+  const failures = [];
+  if (!fs.existsSync(path.join(workspaceRoot, ...REPORT_PATH.split('/')))) {
+    failures.push(['structure::finalize-report', 'missing-finalize-report',
+      `/finalize did not write ${REPORT_PATH}, the report for the developer: write it (how to start and see ` +
+      'the solution, configuration, missing information, what /finalize changed and why, problems met and how they were solved).']);
+  }
+  let readme = '';
+  try { readme = fs.readFileSync(path.join(workspaceRoot, 'README.md'), 'utf8'); } catch { /* missing README */ }
+  if (!readme.includes(CLIKE_REPO_URL)) {
+    failures.push(['structure::readme-clike', 'readme-without-clike',
+      `README.md does not say it is a CLike project: add the CLike badge linked to ${CLIKE_REPO_URL}, the Harper badge ` +
+      `linked to ${CLIKE_REPO_URL}#harper-lifecycle, the Finalize badge linked to ${REPORT_PATH}, and a last section ` +
+      `"Made with CLike" (delivered with CLike through the Harper process; links to docs/harper/, ${REPORT_PATH}, ${EVIDENCE_PATH}).`]);
+  }
+  if (!failures.length) return report;
   const cases = Array.isArray(report?.cases) ? report.cases : [];
   return {
     ...(report || {}),
     status: 'FAIL',
     passed: false,
-    cases: [...cases, { name: 'structure::finalize-report', passed: false, code: 1, blocking: true, stderr: message, excerpt: message, fingerprint: 'missing-finalize-report' }],
+    cases: [...cases, ...failures.map(([name, fingerprint, message]) =>
+      ({ name, passed: false, code: 1, blocking: true, stderr: message, excerpt: message, fingerprint }))],
   };
 }
 
@@ -261,6 +275,7 @@ function solutionEvalMarkdown(report, { cycle = 0, when = new Date(), history = 
 module.exports = {
   EVIDENCE_PATH,
   REPORT_PATH,
+  CLIKE_REPO_URL,
   gateEvidence,
   pendingReqs,
   ensureDirtyBaseline,
