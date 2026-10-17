@@ -288,3 +288,23 @@ function spawnPython() {
   const { spawnSync } = require('child_process');
   return ['python3', 'python'].some((c) => !spawnSync(c, ['--version']).error);
 }
+
+test('auto-merge: a conflict the developer resolved (conflict file removed) does not come back', () => {
+  const ws = threeWay(API('runs', "'q'"), API('runs', "'q', 'fit_min'"), API('runs', "'q', 'owner'"));
+  const first = autoMergePromotion({ workspaceRoot: ws, reqId: 'REQ-008', now: new Date('2026-10-17T10:00:00Z') });
+  assert.equal(first.promoted, false);
+  const c = first.results[0];
+  assert.ok(c.theirs_sha256);
+  // the developer writes both keys into src/ and deletes the conflict file, as conflicts.md asks
+  write(ws, 'src/api.ts', API('runs', "'q', 'owner', 'fit_min'"));
+  fs.rmSync(path.join(ws, c.conflictFile));
+  const second = autoMergePromotion({ workspaceRoot: ws, reqId: 'REQ-008', now: new Date('2026-10-17T11:00:00Z') });
+  assert.equal(second.promoted, true);
+  assert.equal(second.results[0].outcome, 'kept_canonical');
+  assert.match(second.results[0].reason, /resolved in src\/ \(its conflict file was removed\)/);
+  assert.equal(read(ws, 'src/api.ts'), API('runs', "'q', 'owner', 'fit_min'"));
+  // a KIT that changed since the conflict is merged again
+  write(ws, 'runs/kit/REQ-008/src/api.ts', API('runs', "'q', 'fit_max'"));
+  const third = autoMergePromotion({ workspaceRoot: ws, reqId: 'REQ-008', now: new Date('2026-10-17T12:00:00Z') });
+  assert.equal(third.results[0].outcome, 'conflict');
+});

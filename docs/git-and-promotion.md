@@ -114,6 +114,10 @@ override) the REQ is promoted **without prompts** (`clike.gate.autoPromote`, def
 - a conflicting file is **never written**: `<name>.conflict-<REQ>-<ts>` next to it holds the
   merge with conflict markers (only the spots still in conflict), the other files are promoted,
   and the REQ stays `in_progress` until the conflicts are resolved and `/gate` runs again;
+- **a resolved conflict stays resolved**: once `src/` holds the right content and the
+  `.conflict-…` file is deleted (as `conflicts.md` asks), the next gate keeps `src/` for that file
+  (`kept_canonical`, "resolved in src/") instead of raising the same conflict again — as long as
+  the KIT file is still the one that conflicted (its sha256 is recorded in `report.json`);
 - **`conflicts.md`** next to the report explains every spot still in conflict without markers:
   what `src/` has now, what the REQ wants, the diff between the two, the base, and what to do.
   To resolve: write the right content into the canonical file, delete its `.conflict-…` file,

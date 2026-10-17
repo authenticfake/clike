@@ -446,6 +446,34 @@ function renderReport({ reqId, ts, baseRev, baseHow, results, promoted }) {
  * Promote reqId with a 3-way merge per file. Returns
  * { ts, promoted, results, written, reportFiles, reportPath, summary }.
  */
+const sha = (buf) => require('crypto').createHash('sha256').update(buf).digest('hex');
+
+/**
+ * Conflicts of earlier promotions of this REQ the developer resolved: the conflict file was
+ * deleted (what conflicts.md asks once src/ holds the right content) and the KIT file is the one
+ * that conflicted (same digest, when the report recorded it). A resolved file keeps src/: without
+ * this, the same 3-way merge raised the same conflict at every gate.
+ * → Map<path, {ts}>
+ */
+function resolvedConflicts(workspaceRoot, kitRoot, theirsDigest) {
+  const resolved = new Map();
+  const dir = path.join(kitRoot, 'promotion');
+  let stamps = [];
+  try { stamps = fs.readdirSync(dir).sort(); } catch { return resolved; }
+  for (const ts of stamps) {
+    let report;
+    try { report = JSON.parse(fs.readFileSync(path.join(dir, ts, 'report.json'), 'utf8')); } catch { continue; }
+    for (const r of report.results || []) {
+      if (r.outcome !== 'conflict' || !r.conflictFile || !r.path) continue;
+      const stillThere = fs.existsSync(path.join(workspaceRoot, r.conflictFile));
+      const sameKit = !r.theirs_sha256 || r.theirs_sha256 === theirsDigest(r.path);
+      if (!stillThere && sameKit) resolved.set(r.path, { ts });
+      else resolved.delete(r.path);
+    }
+  }
+  return resolved;
+}
+
 function autoMergePromotion({ workspaceRoot, reqId, now = new Date() }) {
   const ts = now.toISOString().replace(/[:.]/g, '-');
   const kitRoot = path.join(workspaceRoot, 'runs', 'kit', reqId);
@@ -456,6 +484,9 @@ function autoMergePromotion({ workspaceRoot, reqId, now = new Date() }) {
   const writes = [];
   const diffs = [];
   const conflictDetails = [];
+  const resolved = resolvedConflicts(workspaceRoot, kitRoot, (rel) => {
+    try { return sha(fs.readFileSync(path.join(kitRoot, rel))); } catch { return null; }
+  });
   for (const rel of promotableFiles(kitRoot)) {
     const dest = path.join(workspaceRoot, rel);
     const theirs = fs.readFileSync(path.join(kitRoot, rel));
@@ -468,6 +499,9 @@ function autoMergePromotion({ workspaceRoot, reqId, now = new Date() }) {
         d = { outcome: 'conflict', reason: `the merged file is ${invalid}: not written`, markers: twoWayMarkers(ours, theirs, reqId) };
       }
     }
+    if (d.outcome === 'conflict' && ours && resolved.has(rel)) {
+      d = { outcome: 'kept_canonical', reason: `conflict of ${resolved.get(rel).ts} resolved in src/ (its conflict file was removed): src/ kept` };
+    }
     const entry = { path: rel, outcome: d.outcome };
     if (baseFile && baseFile.from !== 'git' && d.outcome !== 'added' && d.outcome !== 'unchanged') entry.base = baseFile.from;
     if (d.reason) entry.reason = d.reason;
@@ -477,6 +511,7 @@ function autoMergePromotion({ workspaceRoot, reqId, now = new Date() }) {
       diffs.push(diff);
       writes.push({ dest, content: d.content });
     }
+    if (d.outcome === 'conflict') entry.theirs_sha256 = sha(theirs);
     if (d.outcome === 'conflict' && d.markers) {
       entry.conflictFile = `${rel}.conflict-${reqId}-${ts}`;
       writes.push({ dest: path.join(workspaceRoot, entry.conflictFile), content: d.markers, conflict: true });

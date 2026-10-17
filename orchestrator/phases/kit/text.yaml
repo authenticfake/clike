@@ -73,7 +73,8 @@ text:
   - Do not hardcode public bind addresses such as 0.0.0.0 in local launcher defaults; use loopback defaults or explicit runtime configuration.
   - Keep KIT/EVAL manifests under runs/kit/<REQ-ID>/ci/.
   - Do not hardcode runs/kit, ci/, temporary overlay paths, or REQ-specific eval paths in promotion-ready runtime manifests.
-  - It is allowed to regenerate files already emitted by previous KITs when they are functionally required for the current KIT; CLike promotion/merge handles reconciliation later.
+  - It is allowed to regenerate files already emitted by previous KITs when they are functionally required for the current KIT; CLike promotion/merge handles reconciliation later. A shared file several REQs extend (an application composition root, a root test conftest/setup, shared styles, .env.example) keeps everything the canonical or dependency version has and adds to it: never drop or rewrite what other REQs put there.
+  - Fixtures and test setup specific to this REQ go in a conftest/setup file inside this REQ's own test package (e.g. test/<package>/<module>/conftest.py), not in the root test conftest/setup shared by every REQ.
   - Do not duplicate modules, adapters, ports, models, services, or test helpers already present in dependency KITs or canonical src/test roots. If needed you can extend the module/file with all necessary code in the current req, but we need to be sure that the generated code is consistent with the dependency KITs and canonical roots for applying unified diffs later.
   - Reuse dependency KIT contracts and canonical source contracts whenever they exist.
   - If a dependency KIT or canonical source root is missing, explicitly report it as an implementation assumption or gap.
