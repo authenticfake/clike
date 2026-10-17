@@ -6254,7 +6254,8 @@ async function cmdOpenChat(context) {
     if (step.action === 'pass') {
       say(`✔ SOLUTION EVAL PASS (${step.reason}): the integrated solution installs, builds, is configured, starts and answers. ` +
         `What /finalize did, how to start and see it, and what is still to provide: ${finalizeVerify.REPORT_PATH}. Evidence: ${finalizeVerify.EVIDENCE_PATH}`);
-      await offerLocalSolutionRun(ws);
+      // not awaited: the notification waits for the developer, the chat is free meanwhile
+      offerLocalSolutionRun(ws).catch(e => log(`[finalizeVerify] local run offer: ${e?.message || e}`));
       return;
     }
     if (step.action === 'stop') {
