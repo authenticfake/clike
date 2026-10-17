@@ -20,6 +20,8 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **The chat stayed busy after a passing `/finalize`** until the developer answered the offer to
+  configure and start the solution locally; the offer no longer holds the chat.
 - **`/finalize` committed only part of the solution it verified.** Files in a new directory were
   missed (`git status` listed only the directory), and the work of an earlier `/finalize` run that
   ended before its commit was taken for the developer's own changes. The developer's changes are
