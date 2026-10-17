@@ -127,6 +127,15 @@ const SANDBOX_EXHAUSTED_STOP =
   'the eval sandbox ran out of resources (processes, threads, memory or disk): the failures are not defects of the code, ' +
   'nothing to repair. Restart the sandbox (`podman restart docker_eval-sandbox_1`, or docker/rebuild.sh) and run again.';
 
+// Checks stopped on native programs the sandbox still lacks (not installed: declined, no answer,
+// or not installable): a repair cannot add a program, so the loop stops and says how.
+function missingTools(report) {
+  const names = Array.isArray(report?.missing_tools) ? report.missing_tools.filter(Boolean) : [];
+  if (!names.length) return null;
+  return `the eval sandbox lacks ${names.join(', ')}: the code is not at fault, nothing to repair. ` +
+    `Install ${names.length > 1 ? 'them' : 'it'} with \`/tools add ${names.join(' ')}\` (or answer Install when asked) and run again.`;
+}
+
 function sandboxExhausted(report) {
   const code = String(report?.reason_code || '');
   return report?.sandbox_exhausted === true || code === 'EVAL_SANDBOX_EXHAUSTED' || code === 'GATE_BLOCKED_SANDBOX_EXHAUSTED';
@@ -140,6 +149,8 @@ function sandboxExhausted(report) {
 function nextAutoEvalStep(state, report) {
   if (evalPassed(report)) return { action: 'pass', reason: `eval PASS after ${state.cycle} repair cycle(s)` };
   if (sandboxExhausted(report)) return { action: 'stop', reason: SANDBOX_EXHAUSTED_STOP };
+  const tools = missingTools(report);
+  if (tools) return { action: 'stop', reason: tools };
   if (report?.reason_code === 'EVAL_ENVIRONMENT_MISSING' && !report.environment_repairable) {
     // Only the developer can give these values (external ones, the database server URL).
     const env = (report.cases || []).find(c => c.name === 'env::required-variables');
@@ -334,6 +345,8 @@ function nextAutoGateStep(state, report) {
   }
   const reasonCode = String(report?.reason_code || '');
   if (sandboxExhausted(report)) return { action: 'stop', reason: SANDBOX_EXHAUSTED_STOP };
+  const tools = missingTools(report);
+  if (tools) return { action: 'stop', reason: tools };
   if (reasonCode === 'GATE_MANUAL_OVERRIDE') return { action: 'stop', reason: 'manual gate override: nothing to repair' };
   if (reasonCode === 'GATE_BLOCKED_ACCEPTANCE_TAMPERED') {
     return { action: 'stop', reason: 'the acceptance surface (test/ or ci/) changed after the lock; restore it or re-run /kit to re-baseline' };
@@ -363,6 +376,7 @@ module.exports = {
   collectRepairFailures,
   collectRepairFiles,
   evalPassed,
+  missingTools,
   sandboxExhausted,
   failureSignature,
   nextAutoEvalStep,

@@ -121,3 +121,89 @@ def preflight(cgroup_root: Path = Path("/sys/fs/cgroup"), proc_root: Path = Path
         f"evals; PID 1 is {snap['pid1'] or 'unknown'}): checks would fail to start processes and threads. "
         "This is not a defect of the REQ. " + RESTART_HINT
     )
+
+
+# --- eval disk: the eval directories are caches (composed workspaces, node_modules, venvs) ------
+
+_REQ_DIR = re.compile(r"^REQ-[\w-]+$")
+KEEP_REQ_DIRS = int(os.getenv("CLIKE_EVAL_KEEP_REQS", "3") or 3)
+MIN_FREE_GB = float(os.getenv("CLIKE_EVAL_MIN_FREE_GB", "10") or 10)
+
+
+def _free_bytes(path: Path) -> int:
+    try:
+        stat = os.statvfs(path)
+    except (OSError, AttributeError):
+        return -1
+    return stat.f_bavail * stat.f_frsize
+
+
+def _last_used(path: Path) -> float:
+    """When an eval directory was last used: its newest direct entry (cheap, no full walk)."""
+    times = [path.stat().st_mtime]
+    try:
+        times += [child.stat().st_mtime for child in path.iterdir()]
+    except OSError:
+        pass
+    return max(times)
+
+
+def prune_eval_dirs(
+    project_dir: Path, current_req: Optional[str], *, keep: int = KEEP_REQ_DIRS, min_free_gb: float = MIN_FREE_GB,
+    remove=None,
+) -> list:
+    """Free the eval volume before an eval; returns the directories removed.
+
+    Each REQ eval directory holds a composed workspace per regression REQ and per service, each
+    with its own installs (1 GB with node_modules): kept for every REQ they grew with the square
+    of the REQs (48 GB for 13 REQs). They are rebuilt when needed, so CLike keeps the ``keep`` REQ
+    directories of this project used last (and the current one), and when the volume has less
+    than ``min_free_gb`` free, removes the least recently used ones of any project.
+    Only under CLIKE_EVAL_BASE_DIR (the sandbox volume), never a project's runs/.
+    """
+    import shutil
+
+    base = os.getenv("CLIKE_EVAL_BASE_DIR", "").strip()
+    try:
+        root = Path(base).resolve() if base else None
+        project_dir = project_dir.resolve()
+    except OSError:
+        return []
+    if root is None or project_dir.parent != root:
+        return []
+    remove = remove or (lambda p: shutil.rmtree(p, ignore_errors=True))
+
+    def req_dirs(project: Path) -> list:
+        try:
+            dirs = [d for d in project.iterdir() if d.is_dir() and _REQ_DIR.match(d.name) and d.name != current_req]
+        except OSError:
+            return []
+        return sorted(dirs, key=_last_used, reverse=True)  # most recent first
+
+    removed = []
+    for stale in req_dirs(project_dir)[max(0, keep - (1 if current_req else 0)):]:
+        remove(stale)
+        removed.append(str(stale))
+    min_free = int(min_free_gb * 1024 ** 3)
+    if 0 <= _free_bytes(root) < min_free:
+        others = []
+        for project in (p for p in root.iterdir() if p.is_dir()):
+            others += req_dirs(project)
+        for stale in sorted(others, key=_last_used):  # least recent first
+            if _free_bytes(root) >= min_free:
+                break
+            remove(stale)
+            removed.append(str(stale))
+    return removed
+
+
+def disk_preflight(path: Path, min_free_gb: float = 2.0) -> Optional[str]:
+    """Why the eval volume cannot hold an eval now (even after pruning), or None."""
+    free = _free_bytes(path)
+    if free < 0 or free >= min_free_gb * 1024 ** 3:
+        return None
+    return (
+        f"The eval volume has only {free / 1024 ** 3:.1f} GB free: installs and builds would fail with ENOSPC. "
+        "This is not a defect of the REQ. Free the Podman machine disk (`podman image prune -a`, `podman system df`) "
+        "and run again."
+    )

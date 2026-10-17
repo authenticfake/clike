@@ -148,7 +148,37 @@ async function postGateOverride(workspaceRoot, reqId, reason, author) {
   });
 }
 
+/** Native tools the REQ (or, without reqId, the solution profile) needs that the eval sandbox lacks. */
+async function postEvalToolsCheck(workspaceRoot, reqId, profile) {
+  return requestJson('POST', orchestratorUrl('/v1/eval/tools/check'), {
+    body: {
+      project_root: asFsPath(workspaceRoot),
+      project_name: getProjectNameFromWorkspace() || null,
+      req_id: reqId || null,
+      profile: profile || null,
+    },
+    timeoutMs: 90 * 1000,
+  });
+}
+
+/** Install catalog tools (`name` or `name@version`) into the eval sandbox tools volume. */
+async function postEvalToolsInstall(workspaceRoot, tools) {
+  return requestJson('POST', orchestratorUrl('/v1/eval/tools/install'), {
+    body: { project_root: asFsPath(workspaceRoot), project_name: getProjectNameFromWorkspace() || null, tools },
+    timeoutMs: 30 * 60 * 1000,
+  });
+}
+
+/** The tools catalog, what is installed and what the project approved. */
+async function getEvalTools(workspaceRoot) {
+  const qs = new URLSearchParams({ project_root: asFsPath(workspaceRoot), project_name: getProjectNameFromWorkspace() || '' });
+  return requestJson('GET', orchestratorUrl(`/v1/eval/tools?${qs.toString()}`), { timeoutMs: 30 * 1000 });
+}
+
 module.exports = {
+  getEvalTools,
+  postEvalToolsCheck,
+  postEvalToolsInstall,
   postAcceptanceAmend,
   postAcceptanceLock,
   postGateOverride,

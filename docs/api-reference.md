@@ -184,6 +184,13 @@ Confinement rules (also for `/v1/gate/check`):
   and any `*KEY*`/`*TOKEN*`/`*SECRET*`/`*PASSWORD*`-style variables are removed).
 - In containers the profile is executed by the `eval-sandbox` service (`CLIKE_EVAL_SANDBOX_URL`);
   responses carry `executor: "sandbox" | "local"`.
+- Responses carry `missing_tools` (catalog programs a check reported missing) and
+  `sandbox_exhausted`.
+- `POST /v1/eval/tools/check` `{project_root, req_id | profile}` → `{missing: [{tool, binaries,
+  source: declared | used, about, in_catalog, approved}], approved, installable}`;
+  `POST /v1/eval/tools/install` `{project_root, tools: ["kafkacat", "jdk@17"]}` → installed
+  programs and versions; `GET /v1/eval/tools?project_root=` → catalog (with the project's
+  `custom:` entries), installed, approved.
 - **Acceptance integrity**: the REQ acceptance surface (`runs/kit/<REQ>/test/**` and `ci/**`) is
   locked server-side the first time it is evaluated after a KIT generation. If files were removed
   or modified, LTC checks removed/made non-blocking/changed, or skip markers added, eval and gate

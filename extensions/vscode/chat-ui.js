@@ -526,6 +526,7 @@ var HELP_COMMANDS = [
   {cmd:'/kit [REQ-ID] [--integrity|--hardener|--promotion-eval|--phases=...]', desc:'Runs base KIT by default, or explicit follow-up KIT phases on an existing/generated candidate'},
   {cmd:'/kit <REQ-ID> (clike.kit.acceptanceFirst)', desc:'Acceptance-first: tests and eval profile from SPEC/PLAN written and locked first, then the code against them'},
   {cmd:'/kit REQ-001 --repair --methodology bmad --agent developer', desc:'Runs a governed BMAD developer repair pass inside KIT candidate roots'},
+  {cmd:'/tools [search <text> | add <tool[@version]>… | remove <tool>…]', desc:'Native tools of the eval sandbox (kcat, mysqldump, aws, kubectl, terraform, jdk@17…). CLike installs what an eval needs on its own (it asks first, clike.evalTools.install); /tools lists the catalog and what is installed, add installs and approves for this project (.clike/eval-tools.yaml), remove withdraws the approval'},
   {cmd:'/eval <REQ-ID>', desc:'Runs the REQ acceptance checks (LTC) in the eval sandbox; with clike.eval.regression also the checks of the promoted REQs'},
   {cmd:'/eval <REQ-ID> --fix ["hint"]', desc:'Auto-eval: eval, then on failure a KIT repair from the real failures, then eval again (max clike.autoEval.maxCycles, default 2, plus up to clike.autoEval.extraCyclesOnProgress while the failures decrease). Tests stay locked. Re-run it to continue; the optional hint guides the fix'},
   {cmd:'/eval REQ-001 --methodology bmad --agent qa', desc:'Runs canonical eval, then attaches BMAD QA advisory guidance'},
@@ -1005,7 +1006,7 @@ function helpStartsWith(c, prefixes) {
 var HELP_GROUPS = [
   { title: 'Start & project', test: function (c) { return helpStartsWith(c, ['/help', 'Docs', '/init', '/status', '/where', '/switch']); } },
   { title: 'Agents', test: function (c) { return helpStartsWith(c, ['/agent-', 'Agent chat', 'Settings (agent']); } },
-  { title: 'Eval & gate', test: function (c) { return helpStartsWith(c, ['/eval', '/gate', 'Settings (auto-eval']); } },
+  { title: 'Eval & gate', test: function (c) { return helpStartsWith(c, ['/eval', '/gate', '/tools', 'Settings (auto-eval']); } },
   { title: 'Harper phases', test: function (c) { return helpStartsWith(c, ['/idea', '/spec', '/plan', '/extend', '/add-req', '/kit', '/finalize']); } },
   { title: 'RAG', test: function (c) { return helpStartsWith(c, ['/rag']); } },
   { title: 'Other', test: function () { return true; } },
@@ -1087,6 +1088,7 @@ function handleSlash(slash) {
     '/kit',
     '/eval',
     '/gate',
+    '/tools',
     '/finalize',
     '/extend',
     '/add-req',
@@ -1261,6 +1263,12 @@ function handleSlash(slash) {
   } catch (eRagSlash) { console.warn('rag slash err', eRagSlash); }
   if (slash.cmd === '/where') {
     vscode.postMessage({ type: 'where' });
+    return;
+  }
+  if (slash.cmd === '/tools') {
+    try { bubble('user', '/tools ' + [slash.args.action].concat(slash.args.names || []).join(' '), 'system'); } catch {}
+    vscode.postMessage({ type: 'evalTools', action: slash.args.action, names: slash.args.names || [] });
+    try { prompt.value = ''; } catch {}
     return;
   }
   if (slash.cmd === '/status') {

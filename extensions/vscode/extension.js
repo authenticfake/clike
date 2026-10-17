@@ -14,7 +14,9 @@ const {
   generateServiceToken,
 } = require('./service-auth');
 const { validateLocalMcpRequest } = require('./mcp-request-guard');
-const { postAcceptanceAmend, postAcceptanceLock, postEvalChecks, postGateOverride } = require('./api');
+const { getEvalTools, postAcceptanceAmend, postAcceptanceLock, postEvalChecks, postEvalToolsCheck, postEvalToolsInstall, postGateOverride } = require('./api');
+const evalToolsLib = require('./eval-tools');
+const { approveForProject, ensureEvalTools, questionText } = evalToolsLib;
 const { agentArgsForEvalCheck, agentTimeoutMinutes, startEvalCheckBridge } = require('./eval-check-bridge');
 const finalizeVerify = require('./finalize-verify');
 const { request: serviceRequest, orchestratorUrl, serviceBaseUrls } = require('./orchestrator-client');
@@ -1834,6 +1836,7 @@ function cfg() {
     autoEvalMaxCycles: c.get('autoEval.maxCycles', 2),
     autoEvalExtraCyclesOnProgress: c.get('autoEval.extraCyclesOnProgress', 3),
     autoEvalAgentEvalChecks: c.get('autoEval.agentEvalChecks', 8),
+    evalToolsInstall: c.get('evalTools.install', 'ask'),
     finalizeVerify: c.get('finalize.verify', true),
     finalizeVerifyMaxCycles: c.get('finalize.verifyMaxCycles', 3),
     autoEvalAfterKit: c.get('autoEval.afterKit', false),
@@ -5053,7 +5056,11 @@ async function cmdOpenChat(context) {
               );
             }
             log("[harperEDD] Calling canonical eval for req:" + targets + " in: " + ws_root);
+            if (!isManual) await ensureToolsForEval(targets);
             report = await handleEval(path_ltc_json, ws_root, targets, mode, modeContent);
+            if (!isManual && await installReportedTools(targets, report)) {
+              report = await handleEval(path_ltc_json, ws_root, targets, mode, modeContent);
+            }
             const evalMethodologyContext = buildEffectiveEvalMethodologyContext(
               msg.methodology_context || {
                 methodology: msg.methodology,
@@ -5096,12 +5103,12 @@ async function cmdOpenChat(context) {
               } catch {}
               report = await postGateOverride(ws_root, targets, reason.trim(), author || require('os').userInfo().username);
             } else {
-              report = await handleGate(
-                path_ltc_json,
-                ws_root,
-                targets,
-                { promote: false, reqId: targets, mode: mode, result: modeContent }
-              );
+              await ensureToolsForEval(targets);
+              const gateOpts = { promote: false, reqId: targets, mode: mode, result: modeContent };
+              report = await handleGate(path_ltc_json, ws_root, targets, gateOpts);
+              if (await installReportedTools(targets, report)) {
+                report = await handleGate(path_ltc_json, ws_root, targets, gateOpts);
+              }
             }
 
             msg.__report = summarizeEvalReport(report);
@@ -5312,6 +5319,38 @@ async function cmdOpenChat(context) {
           model: 'system'
         });
         
+      }
+      if (msg.type === 'evalTools') {
+        // /tools: the native tools of the eval sandbox (catalog, installed, approved for the project)
+        const say = (text) => panel.webview.postMessage({ type: 'echo', message: text });
+        const ws = getWorkspaceRoot();
+        const action = String(msg.action || 'list');
+        const names = (Array.isArray(msg.names) ? msg.names : []).map(String).filter(Boolean);
+        try {
+          if (action === 'list' || action === 'search') {
+            say(evalToolsLib.toolsListing(await getEvalTools(ws), action === 'search' ? names.join(' ') : ''));
+          } else if (action === 'add' && names.length) {
+            const data = await getEvalTools(ws);
+            const known = names.filter((n) => evalToolsLib.catalogTool(data.catalog, n));
+            const unknown = names.filter((n) => !known.includes(n));
+            if (unknown.length) say(evalToolsLib.unknownToolHint(unknown));
+            if (known.length) {
+              say(`⬇ Installing in the eval sandbox: ${known.join(', ')}…`);
+              const res = await postEvalToolsInstall(ws, known);
+              evalToolsLib.approveForProject(ws.fsPath, known);
+              const versions = Object.entries(res?.versions || {}).map(([k, v]) => `${k} ${v}`).join(', ');
+              say(`✔ Installed ${known.join(', ')}${versions ? ` (${versions})` : ''}; approved for this project in .clike/eval-tools.yaml.`);
+            }
+          } else if (action === 'remove' && names.length) {
+            evalToolsLib.withdrawForProject(ws.fsPath, names);
+            say(`Removed ${names.join(', ')} from .clike/eval-tools.yaml: CLike will ask again before using ${names.length > 1 ? 'them' : 'it'}. ` +
+              'The installed files stay in the tools volume (shared by your projects).');
+          } else {
+            say('Usage: /tools | /tools search <text> | /tools add <tool[@version]>… | /tools remove <tool>…');
+          }
+        } catch (err) {
+          say(`✖ /tools ${action}: ${err?.message || err}`);
+        }
       }
       if (msg.type === 'where') {
         out.appendLine('[CLike] where state ' + state.mode);
@@ -6041,6 +6080,43 @@ async function cmdOpenChat(context) {
   panel.webview.onDidReceiveMessage(handleWebviewMessage);
   clikeRunChatMessage = handleWebviewMessage;
 
+  // Native tools of the eval sandbox (eval-tools.js): what the REQ declares or runs and the
+  // sandbox lacks is installed from CLike's catalog, on the developer's confirmation, before the
+  // eval. Never blocks the eval: a failed check or install is reported and the eval runs.
+  async function ensureToolsForEval(reqId, { profile = null, extra = [] } = {}) {
+    const ws = getWorkspaceRoot();
+    let result;
+    try {
+      result = await ensureEvalTools({
+      check: () => postEvalToolsCheck(ws, reqId, profile),
+      install: (names) => postEvalToolsInstall(ws, names),
+      ask: async (items) => {
+        const pick = await vscode.window.showInformationMessage(
+          questionText(reqId, items), 'Install', 'Always for this project', 'No'
+        );
+        return pick === 'Install' ? 'install' : pick === 'Always for this project' ? 'always' : 'no';
+      },
+      approve: (names) => approveForProject(ws.fsPath, names),
+      policy: String(cfg().evalToolsInstall || 'ask'),
+      extra,
+      say: (text) => panel.webview.postMessage({ type: 'echo', message: text }),
+      });
+    } catch (err) {
+      result = { installed: [], declined: [], unavailable: [], error: String(err?.message || err) };
+    }
+    if (result.error) log(`[evalTools] ${result.error}`);
+    return result;
+  }
+
+  // A check stopped on a program the sandbox lacks (report.missing_tools): offer it, and say
+  // whether the eval should run again (once per run) instead of going to a repair.
+  async function installReportedTools(reqId, report, opts = {}) {
+    const missing = Array.isArray(report?.missing_tools) ? report.missing_tools : [];
+    if (!missing.length) return false;
+    const result = await ensureToolsForEval(reqId, { ...opts, extra: missing });
+    return result.installed.length > 0;
+  }
+
   // A local agent writes its repair directly: changed tests/LTC/ci files are submitted to the
   // orchestrator's governance, and what it rejects (and any deleted file) is restored. For a cloud
   // repair the orchestrator already filtered the files, so this finds nothing to do.
@@ -6095,7 +6171,12 @@ async function cmdOpenChat(context) {
     } else {
       say(`▶ SOLUTION EVAL ${finalizeVerify.SOLUTION_PROFILE} in the CLike eval sandbox (canonical tree)…`);
       try {
+        const toolOpts = { profile: finalizeVerify.SOLUTION_PROFILE };
+        await ensureToolsForEval(null, toolOpts);
         report = await postEvalChecks(finalizeVerify.SOLUTION_PROFILE, ws, finalizeVerify.SOLUTION_EVAL_ID, []);
+        if (await installReportedTools(null, report, toolOpts)) {
+          report = await postEvalChecks(finalizeVerify.SOLUTION_PROFILE, ws, finalizeVerify.SOLUTION_EVAL_ID, []);
+        }
       } catch (e) {
         say(`✖ SOLUTION EVAL could not run: ${e?.message || e}`);
         return;

@@ -201,6 +201,12 @@ function parseSlash(input) {
     return finish({ name, path, force });
   }
 
+  if (cmd === '/tools') {
+    // /tools [list|search <q>|add <name[@version]>…|remove <name>…]: native tools of the eval sandbox
+    const action = String(rest[0] || 'list').toLowerCase();
+    return finish({ action, names: rest.slice(1) });
+  }
+
   if (cmd === '/eval' || cmd === '/gate') {
     // /gate promotion mode for this run: --ask (interactive strategy), --no-promote, --auto-merge
     let promote;

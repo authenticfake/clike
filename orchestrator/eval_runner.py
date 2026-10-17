@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional
 
 import eval_environment
 import eval_failures
+import eval_tools
 import sandbox_resources
 from utils.safe_paths import validate_req_id
 
@@ -57,6 +58,8 @@ class EvalReport:
     reason_code: Optional[str] = None
     # EVAL_ENVIRONMENT_MISSING: a KIT repair can declare how CLike provisions the variables
     environment_repairable: Optional[bool] = None
+    # programs of CLike's tools catalog a check reported missing (installed on confirmation)
+    missing_tools: Optional[List[str]] = None
 
 
 def report_to_dict(rep: "EvalReport") -> Dict[str, Any]:
@@ -165,6 +168,7 @@ def _run_process_group(
 
 
 _SANDBOX_EXHAUSTED_NOTE = "[CLike EvalRunner] Sandbox resources exhausted"
+_MISSING_TOOLS_NOTE = "[CLike EvalRunner] Missing in the eval sandbox"
 
 
 def _sandbox_exhausted_case(case: "EvalCase") -> bool:
@@ -175,8 +179,11 @@ def _sandbox_exhausted_case(case: "EvalCase") -> bool:
 
 
 def scrubbed_process_env() -> Dict[str, str]:
-    """Copy of os.environ without credentials, used as the base env of every eval command."""
-    return {k: v for k, v in os.environ.items() if not _SECRET_ENV_NAME_RE.search(k)}
+    """Copy of os.environ without credentials, used as the base env of every eval command. The
+    tools CLike installed (eval_tools) are on its PATH, after the image's own programs."""
+    env = {k: v for k, v in os.environ.items() if not _SECRET_ENV_NAME_RE.search(k)}
+    env["PATH"] = eval_tools.search_path(env.get("PATH", ""))
+    return env
 
 
 # plan.json status of a promoted REQ (set by the extension after a passing gate).
@@ -315,6 +322,10 @@ class EvalRunner:
                 # Non-blocking: a warning, it runs on the developer's machine.
                 blocked, noted = blocking, True
                 stderr = stderr + "\n[CLike EvalRunner] " + sandbox_resources.CONTAINER_RUNTIME_NOTE
+            elif not ok and eval_tools.missing_from_failure(f"{stdout}\n{stderr}", self._tools_catalog()):
+                missing = eval_tools.missing_from_failure(f"{stdout}\n{stderr}", self._tools_catalog())
+                blocked, noted = True, True
+                stderr = stderr + f"\n{_MISSING_TOOLS_NOTE}: {', '.join(missing)}. Not a defect of the code: CLike asks the developer to install them (its tools catalog) and runs the check again."
             elif not ok:
                 blocked = self._is_environment_blocked(
                     code=proc.returncode,
@@ -789,6 +800,12 @@ class EvalRunner:
         )
 
 
+
+    def _npm_cache_dir(self) -> Path:
+        """One npm cache per project, shared by the REQ, its regression and its services: the
+        REQs install the same packages (one cache per eval directory held 40 copies, 7.6 GB, and
+        every regression downloaded them again). npm's cache is safe to share."""
+        return self._eval_base_dir() / ".npm-cache"
 
     def _resolve_req_file(self, req_file: str) -> Path:
         raw = Path(req_file)
@@ -1974,7 +1991,7 @@ class EvalRunner:
         marker = manifest_dir / f".npm-{self._requirements_hash(package_json)}-{lock_hash}.installed"
 
         node_env = dict(env)
-        npm_cache = self._eval_dir(req_id) / ".npm-cache"
+        npm_cache = self._npm_cache_dir()
         npm_cache.mkdir(parents=True, exist_ok=True)
         node_env["npm_config_cache"] = str(npm_cache)
         node_env["NPM_CONFIG_CACHE"] = str(npm_cache)
@@ -2148,16 +2165,43 @@ class EvalRunner:
         self._only_checks = {str(c) for c in (checks or []) if str(c).strip()} or None
         try:
             exhausted = sandbox_resources.preflight()
+            if not exhausted and not self.eval_key:  # the top-level run, not a nested regression or service
+                exhausted = self._prepare_eval_disk(req_id or (ltc or {}).get("req_id"))
             if exhausted:
                 return self._sandbox_exhausted_report(profile, req_id or (ltc or {}).get("req_id"), exhausted)
             report = self._run_profile(profile, ltc, mode, verdict, req_id, regression and not self._only_checks)
             if any(_sandbox_exhausted_case(c) for c in report.cases):
                 report.reason_code = sandbox_resources.SANDBOX_EXHAUSTED_REASON
+            missing = sorted({
+                b for c in report.cases if not c.passed and _MISSING_TOOLS_NOTE in (c.stderr or "")
+                for b in eval_tools.missing_from_failure(f"{c.stdout}\n{c.stderr}", self._tools_catalog())
+            })
+            if missing:
+                report.missing_tools = missing
             return report
         finally:
             for svc in reversed(self._services):
                 eval_environment.stop_process(svc.proc)
             self._services = []
+
+    def _tools_catalog(self) -> Dict[str, Dict[str, Any]]:
+        if getattr(self, "_catalog", None) is None:
+            try:
+                self._catalog = eval_tools.load_catalog(self.project_root)
+            except Exception:
+                self._catalog = {}
+        return self._catalog
+
+    def _prepare_eval_disk(self, req_id: Optional[str]) -> Optional[str]:
+        """Prune stale eval directories of the sandbox volume; why the eval cannot run, or None."""
+        try:
+            base = self._eval_base_dir()
+        except OSError:
+            return None
+        removed = sandbox_resources.prune_eval_dirs(base, self._safe_req_id(req_id) if req_id else None)
+        if removed:
+            log.info("eval disk: removed %d stale eval directories: %s", len(removed), ", ".join(Path(r).name for r in removed))
+        return sandbox_resources.disk_preflight(base)
 
     def _sandbox_exhausted_report(self, profile: str, req_id: Optional[str], reason: str) -> EvalReport:
         case = EvalCase(
@@ -2480,8 +2524,8 @@ class EvalRunner:
             "MYPY_CACHE_DIR": str(self._eval_dir(eff_req) / ".mypy-cache"),
             "PYTHONPYCACHEPREFIX": str(self._eval_dir(eff_req) / ".pycache"),
 
-            "npm_config_cache": str(self._eval_dir(eff_req) / ".npm-cache"),
-            "NPM_CONFIG_CACHE": str(self._eval_dir(eff_req) / ".npm-cache"),
+            "npm_config_cache": str(self._npm_cache_dir()),
+            "NPM_CONFIG_CACHE": str(self._npm_cache_dir()),
         }
 
         base_env = self._merge_env(

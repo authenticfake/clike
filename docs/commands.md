@@ -41,6 +41,10 @@ The current webview parser supports the following slash commands.
   (≥ 10 characters), is recorded by the orchestrator in an audit log with a digest of the REQ
   artifacts, and is reported as `OVERRIDE`, never as `PASS`. Use only when the gate cannot run
   (e.g. environment-blocked checks).
+- `/tools [search <text> | add <tool[@version]>… | remove <tool>…]` — native tools of the eval
+  sandbox (kcat, mysqldump, aws, kubectl, terraform, jdk@17…). CLike installs what an eval needs on
+  its own after asking; `/tools` shows the catalog and what is installed, `add` installs and
+  approves for the project (`.clike/eval-tools.yaml`). See `auto-eval.md`.
 - `/finalize`
 - `/extend` — extends requirements of an existing plan (see `CLike_Harper_Extend_Feature.md`)
 

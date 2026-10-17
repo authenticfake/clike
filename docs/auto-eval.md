@@ -241,6 +241,49 @@ browser is not downloaded, the EvalRunner downloads Chromium in the version of t
 Playwright (`npx playwright@<version> install chromium`) and runs the check once more; the report
 says so. The download needs egress and memory (see `docs/development.md`).
 
+## Native tools of the sandbox (`/tools`)
+
+The image has Python, Node, a Java runtime, Chromium's libraries and the PostgreSQL client tools.
+Any other native program a check runs — a database or messaging client (`mysqldump`, `mongodump`,
+`kcat`), a cloud or IaC CLI (`aws`, `az`, `gcloud`, `kubectl`, `helm`, `terraform`), a toolchain
+(`jdk@17`, `mvn`, `gradle`, `dotnet`, `go`) — comes from CLike's **tools catalog**
+(`orchestrator/eval_tools_catalog.yaml`, conda-forge, linux-64 and linux-aarch64), installed into a
+volume the sandbox mounts read-only and appends to the PATH of the checks (never before the
+image's own programs).
+
+CLike finds what an eval needs **before** running it:
+
+- *declared*: `"environment": {"tools": ["kcat", "jdk@17"]}` in `ci/LTC.json` (the KIT rules ask
+  for it);
+- *used*: a catalog program the KIT's code, tests or scripts run (`"pg_dump"`, `["kcat", …]`, a
+  script line `aws s3 ls`);
+- *failed*: a check that stopped on a missing program (`kcat: command not found`, `spawn kcat
+  ENOENT`, `No such file or directory: 'kcat'`, `Cannot run program "mvn"`): it is
+  environment-blocked (`missing_tools` in the report), never sent to a repair.
+
+What is missing is installed after the developer's confirmation (VS Code: *Install*, *Always for
+this project*, *No*; `clike.evalTools.install`: `ask` | `always` | `never`); tools listed in
+`.clike/eval-tools.yaml` (`tools:`) install without asking, so a team shares the same tools. A
+check that stopped on a missing tool runs again once it is installed; without an answer within 5
+minutes the eval runs without it, and `--fix` stops saying how to install it. A project can add
+other conda-forge packages under `custom:` in the same file. Libraries of a language (psycopg,
+ojdbc, kafka-python…) are not tools: the project's manifests install them.
+
+`/tools` lists the catalog and what is installed, `/tools search <text>` finds an entry, `/tools add
+<tool>[@version]…` installs and approves for the project, `/tools remove <tool>` withdraws the
+approval. The installs run in the `eval-tools` service: only the orchestrator reaches it (its own
+network), no credentials, conda-forge packages only (no scripts or URLs), versions recorded in
+`/opt/clike-tools/installed.json` and returned to the chat.
+
+## Eval disk
+
+Eval directories (composed workspaces, `node_modules`, venvs) are caches on the sandbox volume.
+Before an eval CLike keeps the directories of the 3 REQs of the project used last
+(`CLIKE_EVAL_KEEP_REQS`) and, when the volume has less than 10 GB free (`CLIKE_EVAL_MIN_FREE_GB`),
+removes the least recently used ones of any project; below 2 GB free the eval does not start
+(`EVAL_SANDBOX_EXHAUSTED`, with how to free the Podman disk). The npm cache is one per project,
+shared by the REQ, its regression and its services.
+
 ## Gate warnings policy
 
 A *warning* is a failed check marked `blocking: false` in the LTC (style, optional scans).

@@ -1,0 +1,152 @@
+# Native clients and toolchains CLike can add to the eval sandbox (conda-forge, linux-64 and
+# linux-aarch64). A check that runs one of the `binaries` gets it after the developer's confirmation
+# (VS Code), or at once when the project lists it in .clike/eval-tools.yaml. Libraries of a language
+# (psycopg, ojdbc, kafka-python…) are not here: the project's manifests install them.
+#
+#   <name>:
+#     group: core | databases | messaging | aws | azure | gcp | k8s-iac | quality | runtimes
+#     packages: [conda-forge packages, optionally pinned: "postgresql=18.*"]
+#     binaries: [programs the checks run; CLike puts them on the sandbox PATH]
+#     about: one line shown to the developer
+#   <name>@<version> (e.g. jdk@17) pins the first package to that version.
+tools:
+  postgresql-client:
+    group: core
+    packages: ["postgresql"]
+    binaries: [psql, pg_dump, pg_restore, pg_dumpall, pg_isready, createdb, dropdb]
+    about: "PostgreSQL client tools (also in the sandbox image)"
+  sqlite:
+    group: core
+    packages: ["sqlite"]
+    binaries: [sqlite3]
+    about: "SQLite command-line shell"
+  redis-cli:
+    group: core
+    packages: ["redis-server"]
+    binaries: [redis-cli, redis-server]
+    about: "Redis CLI and server"
+  jq:
+    group: core
+    packages: ["jq"]
+    binaries: [jq]
+    about: "JSON processor"
+  yq:
+    group: core
+    packages: ["go-yq"]
+    binaries: [yq]
+    about: "YAML processor"
+  mysql-client:
+    group: databases
+    packages: ["mysql-client"]
+    binaries: [mysql, mysqldump, mysqladmin]
+    about: "MySQL / MariaDB client tools"
+  mongo-tools:
+    group: databases
+    packages: ["mongo-tools"]
+    binaries: [mongodump, mongorestore, mongoexport, mongoimport]
+    about: "MongoDB database tools"
+  unixodbc:
+    group: databases
+    packages: ["unixodbc"]
+    binaries: [isql, odbcinst]
+    about: "ODBC driver manager (SQL Server, Oracle, DB2 drivers through ODBC)"
+  nats-server:
+    group: messaging
+    packages: ["nats-server"]
+    binaries: [nats-server]
+    about: "NATS server"
+  rabbitmq-server:
+    group: messaging
+    packages: ["rabbitmq-server"]
+    binaries: [rabbitmq-server, rabbitmqctl]
+    about: "RabbitMQ server and control"
+  kafkacat:
+    group: messaging
+    packages: ["kafkacat"]
+    binaries: [kcat, kafkacat]
+    about: "Kafka producer/consumer CLI (linux-64 only on conda-forge)"
+  awscli:
+    group: aws
+    packages: ["awscli"]
+    binaries: [aws]
+    about: "AWS CLI (no credentials in the sandbox: validation and dry runs)"
+  azure-cli:
+    group: azure
+    packages: ["azure-cli"]
+    binaries: [az]
+    about: "Azure CLI (no credentials in the sandbox)"
+  google-cloud-sdk:
+    group: gcp
+    packages: ["google-cloud-sdk"]
+    binaries: [gcloud, gsutil, bq]
+    about: "Google Cloud CLI (no credentials in the sandbox)"
+  kubectl:
+    group: k8s-iac
+    packages: ["kubernetes-client"]
+    binaries: [kubectl]
+    about: "Kubernetes CLI (manifest validation, dry runs)"
+  helm:
+    group: k8s-iac
+    packages: ["kubernetes-helm"]
+    binaries: [helm]
+    about: "Helm (lint, template)"
+  kustomize:
+    group: k8s-iac
+    packages: ["kustomize"]
+    binaries: [kustomize]
+    about: "Kustomize"
+  terraform:
+    group: k8s-iac
+    packages: ["terraform"]
+    binaries: [terraform]
+    about: "Terraform (init -backend=false, validate)"
+  opentofu:
+    group: k8s-iac
+    packages: ["opentofu"]
+    binaries: [tofu]
+    about: "OpenTofu"
+  tflint:
+    group: k8s-iac
+    packages: ["tflint"]
+    binaries: [tflint]
+    about: "Terraform linter"
+  trivy:
+    group: quality
+    packages: ["trivy"]
+    binaries: [trivy]
+    about: "Vulnerability and misconfiguration scanner"
+  shellcheck:
+    group: quality
+    packages: ["shellcheck"]
+    binaries: [shellcheck]
+    about: "Shell script linter"
+  jdk:
+    group: runtimes
+    packages: ["openjdk"]
+    binaries: [javac, jar, jshell]
+    about: "Java Development Kit (the image has only a Java 21 runtime); jdk@17 for another version"
+  maven:
+    group: runtimes
+    packages: ["maven", "openjdk"]  # maven@3.9 pins maven
+    binaries: [mvn]
+    about: "Apache Maven (with a JDK)"
+  gradle:
+    group: runtimes
+    packages: ["gradle", "openjdk"]
+    binaries: [gradle]
+    about: "Gradle (with a JDK)"
+  dotnet:
+    group: runtimes
+    packages: ["dotnet"]
+    binaries: [dotnet]
+    about: ".NET SDK"
+  go:
+    group: runtimes
+    packages: ["go"]
+    binaries: [go, gofmt]
+    about: "Go toolchain"
+  rust:
+    group: runtimes
+    packages: ["rust"]
+    binaries: [cargo, rustc]
+    about: "Rust toolchain"

@@ -51,7 +51,7 @@ editing it (`docker/rebuild.sh`).
 ```bash
 cd docker
 podman-compose up -d --build
-podman ps --format "{{.Names}} {{.Status}}"     # wait until orchestrator, gateway, eval-sandbox are (healthy)
+podman ps --format "{{.Names}} {{.Status}}"     # wait until orchestrator, gateway, eval-sandbox, eval-tools are (healthy)
 curl -s http://127.0.0.1:8080/health && curl -s http://127.0.0.1:8000/health
 ```
 
