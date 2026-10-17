@@ -1,14 +1,17 @@
 'use strict';
 // /finalize verification (no flag): after /finalize, CLike runs ci/SOLUTION_LTC.json — the eval
-// profile of the whole solution — in the eval sandbox against the canonical tree; when it fails,
-// /finalize runs again with the errors, a bounded number of cycles (same loop rules as auto-eval).
-// This module gathers what the finalize model needs and writes the evidence.
+// profile of the whole solution: install, build, configure, start, smoke; the REQs' test suites are
+// not run again, every REQ passed them at its gate — in the eval sandbox against the canonical
+// tree; when it fails, /finalize runs again with the errors, a bounded number of cycles (same loop
+// rules as auto-eval). This module gathers what the finalize model needs and writes the evidence.
 const fs = require('fs');
 const path = require('path');
 
 const SOLUTION_PROFILE = 'ci/SOLUTION_LTC.json';
 const SOLUTION_EVAL_ID = 'SOLUTION';
 const EVIDENCE_PATH = 'docs/harper/SOLUTION_EVAL.md';
+const REPORT_PATH = 'docs/harper/FINALIZE_REPORT.md';
+const PROMOTED_STATUSES = new Set(['done']);
 
 const MAX_FILE_BYTES = 200 * 1024;
 const MAX_FILES = 400;
@@ -20,11 +23,46 @@ const SKIPPED_DIRS = new Set([
 // run docs and root manifests (runs/, .clike/ and private docs are not the solution).
 const SOLUTION_ROOTS = ['src', 'test', 'tests', 'scripts', 'ci', 'infra', 'deploy', 'config', 'configs'];
 const SOLUTION_FILES = [
-  'README.md', 'docs/harper/HOWTO_RUN.md', 'docs/harper/SANITY_CHECKS.md', EVIDENCE_PATH, '.env.example',
-  'package.json', 'pyproject.toml', 'requirements.txt', 'docker-compose.yml', 'Dockerfile', 'Makefile',
+  'README.md', 'docs/harper/HOWTO_RUN.md', 'docs/harper/SANITY_CHECKS.md', EVIDENCE_PATH, REPORT_PATH, '.env.example',
+  'package.json', 'pyproject.toml', 'requirements.txt', 'pom.xml', 'build.gradle', 'go.mod', 'Cargo.toml',
+  'docker-compose.yml', 'docker-compose.yaml', 'compose.yml', 'compose.yaml', 'Dockerfile', 'Makefile',
 ];
 
-/** Eval profiles of the REQs (runs/kit/<REQ>/ci/LTC.json): checks, environment, services. */
+function readPlanReqs(workspaceRoot) {
+  try {
+    const plan = JSON.parse(fs.readFileSync(path.join(workspaceRoot, 'docs', 'harper', 'plan.json'), 'utf8'));
+    return (plan.reqs || plan.req || []).filter((r) => r && typeof r === 'object' && r.id);
+  } catch {
+    return [];
+  }
+}
+
+/** REQs of the plan not promoted yet (status other than done): /finalize asks before it runs. */
+function pendingReqs(workspaceRoot) {
+  return readPlanReqs(workspaceRoot)
+    .filter((r) => !PROMOTED_STATUSES.has(String(r.status || '').trim().toLowerCase()))
+    .map((r) => ({ id: String(r.id), status: String(r.status || 'open') }));
+}
+
+/** The last gate of every REQ of the plan (runs/gate/<REQ>/report_*.json): the acceptance evidence. */
+function gateEvidence(workspaceRoot) {
+  return readPlanReqs(workspaceRoot).map((r) => {
+    const id = String(r.id);
+    const dir = path.join(workspaceRoot, 'runs', 'gate', id);
+    let last = null;
+    try {
+      const reports = fs.readdirSync(dir).filter((n) => /^report_.*\.json$/.test(n))
+        .map((n) => ({ n, t: fs.statSync(path.join(dir, n)).mtimeMs })).sort((a, b) => b.t - a.t);
+      if (reports.length) {
+        const data = JSON.parse(fs.readFileSync(path.join(dir, reports[0].n), 'utf8'));
+        last = { report: `runs/gate/${id}/${reports[0].n}`, verdict: String(data.gate || data.status || '?'), cases: Array.isArray(data.cases) ? data.cases.length : 0 };
+      }
+    } catch { /* no gate yet */ }
+    return { id, status: String(r.status || 'open'), ...(last || {}) };
+  });
+}
+
+/** How the REQs ran (runs/kit/<REQ>/ci/LTC.json): environment and services, the checks for reference. */
 function collectReqEvalProfiles(workspaceRoot) {
   const kitRoot = path.join(workspaceRoot, 'runs', 'kit');
   let reqs = [];
@@ -95,7 +133,7 @@ function collectSolutionFiles(workspaceRoot) {
 /** The report of a missing profile, in the eval report shape (a repair writes it). */
 function missingProfileReport() {
   const message = `/finalize did not write ${SOLUTION_PROFILE}, the eval profile of the whole solution: ` +
-    'write it (install, the promoted test suites on the canonical tree, build, the solution started as services, e2e).';
+    'write it (install, build, the solution configured and started as services, smoke checks of the running solution).';
   return {
     status: 'FAIL',
     passed: false,
@@ -103,32 +141,69 @@ function missingProfileReport() {
   };
 }
 
-/** docs/harper/SOLUTION_EVAL.md: what CLike verified, from the eval report (truthful evidence). */
-function solutionEvalMarkdown(report, { cycle = 0, when = new Date() } = {}) {
+/**
+ * The verification also needs the developer's report (docs/harper/FINALIZE_REPORT.md): when
+ * /finalize did not write it, a repairable failure is added, so the next repair cycle writes it.
+ */
+function withReportCheck(workspaceRoot, report) {
+  if (fs.existsSync(path.join(workspaceRoot, ...REPORT_PATH.split('/')))) return report;
+  const message = `/finalize did not write ${REPORT_PATH}, the report for the developer: write it (how to start and see ` +
+    'the solution, configuration, missing information, what /finalize changed and why, problems met and how they were solved).';
+  const cases = Array.isArray(report?.cases) ? report.cases : [];
+  return {
+    ...(report || {}),
+    status: 'FAIL',
+    passed: false,
+    cases: [...cases, { name: 'structure::finalize-report', passed: false, code: 1, blocking: true, stderr: message, excerpt: message, fingerprint: 'missing-finalize-report' }],
+  };
+}
+
+/**
+ * docs/harper/SOLUTION_EVAL.md: what CLike verified, from the eval reports (truthful evidence) —
+ * the run of the solution, the repair cycles and the acceptance tests each REQ passed at its gate.
+ */
+function solutionEvalMarkdown(report, { cycle = 0, when = new Date(), history = [], gates = [] } = {}) {
   const cases = Array.isArray(report?.cases) ? report.cases : [];
   const status = String(report?.status || (report?.passed ? 'PASS' : 'FAIL'));
+  const cell = (v) => String(v ?? '').replace(/\|/g, '/');
   const rows = cases
     .filter((c) => c && !(String(c.name || '').startsWith('env::provision::') && c.passed))
-    .map((c) => `| ${String(c.name).replace(/\|/g, '/')} | ${c.passed ? 'PASS' : c.blocked ? 'BLOCKED' : c.blocking === false ? 'WARN' : 'FAIL'} |`);
-  return [
+    .map((c) => `| ${cell(c.name)} | ${c.passed ? 'PASS' : c.blocked ? 'BLOCKED' : c.blocking === false ? 'WARN' : 'FAIL'} |`);
+  const lines = [
     '# Solution eval',
     '',
-    `CLike ran \`${SOLUTION_PROFILE}\` in its eval sandbox against the canonical tree (the sources and tests promoted ` +
-      'by the gates), after `/finalize`.',
+    `CLike ran \`${SOLUTION_PROFILE}\` in its eval sandbox against the canonical tree after \`/finalize\`: the ` +
+      'solution installed, built, configured, started and checked while running. The REQs\' test suites are not run ' +
+      'again: each REQ passed them at its gate (below).',
     '',
     `- Result: **${status}**`,
     `- Date: ${when.toISOString()}`,
     `- Repair cycles: ${cycle}`,
+    `- Report for the developer: \`${REPORT_PATH}\``,
     '',
     '| Check | Result |',
     '|---|---|',
     ...rows,
-    '',
-  ].join('\n');
+  ];
+  if (history.length) {
+    lines.push('', '## Verification cycles', '', '| Cycle | Result | Failing checks |', '|---|---|---|');
+    for (const h of history) lines.push(`| ${h.cycle} | ${cell(h.status)} | ${cell((h.failing || []).join(', ') || '-')} |`);
+  }
+  if (gates.length) {
+    lines.push('', '## Acceptance tests (passed at each REQ\'s gate, not run again)', '',
+      '| REQ | Plan status | Last gate | Checks | Report |', '|---|---|---|---|---|');
+    for (const g of gates) lines.push(`| ${cell(g.id)} | ${cell(g.status)} | ${cell(g.verdict || 'no gate')} | ${g.cases || '-'} | ${g.report ? `\`${g.report}\`` : '-'} |`);
+  }
+  lines.push('');
+  return lines.join('\n');
 }
 
 module.exports = {
   EVIDENCE_PATH,
+  REPORT_PATH,
+  gateEvidence,
+  pendingReqs,
+  withReportCheck,
   SOLUTION_EVAL_ID,
   SOLUTION_PROFILE,
   collectReqEvalProfiles,

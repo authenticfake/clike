@@ -57,7 +57,7 @@ Harper is an outcome-driven, AI-native workflow: IDEA → SPEC → PLAN → KIT 
   - `/kit [REQ-ID] --hardener`:→ runs `promotion_hardener` on the latest candidate for that REQ.
   - `/kit [REQ-ID] --promotion-eval`: → runs `promotion_eval` on the latest candidate for that REQ.
   - `/kit [REQ-ID] --phases=kit,integrity_eval,promotion_hardener,promotion_eval:` → runs a chained KIT pipeline explicitly.  
-  - `/finalize`: package + SBOM + license checks.
+  - `/finalize`: the promoted solution running and configured (verified in the sandbox, REQ tests not run again) + `docs/harper/FINALIZE_REPORT.md`.
   - `/eval <REQ-ID>`: Performs an eval after kit phase for REQ-ID.
   - `/gate <REQ-ID>`: Performs a gate after kit phase for REQ-ID.
   - `/tools`: Native tools of the eval sandbox (catalog, installed, approved); `/tools add <tool>[@version]`, `/tools search <text>`, `/tools update`, `/tools remove <tool>`. CLike installs what an eval needs on its own, after asking.
@@ -109,7 +109,7 @@ CLike is not just an agent that writes code; it is an AI-native platform that or
 3. SPEC approved (Gate G0) → tag/annotate.
 4. PLAN approved (Gate G1) → feature branches, PRs, CI checks.
 5. KIT cycles → PR with tests and quality gates.
-6. FINALIZE → tag release (e.g., `v0.1.0`) + FINAL_REPORT.md.
+6. FINALIZE → solution running and configured + `docs/harper/FINALIZE_REPORT.md` (how to start it, configuration, missing information, what changed and why); then tag a release (e.g., `v0.1.0`).
 
 ## Next steps
 

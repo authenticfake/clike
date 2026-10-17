@@ -302,7 +302,12 @@ The extension currently supports a **base KIT run by default**, plus optional ex
 ### Finalization
 
 - **`/finalize`**
-  - final gates / closure step for Harper workflows
+  - brings the promoted solution to running and configured: CLike installs, builds, configures,
+    starts and smoke-checks it in the sandbox (the REQ tests are not run again: the gates did) and
+    repairs it until it passes
+  - writes `docs/harper/FINALIZE_REPORT.md` (how to start and see it, configuration, missing
+    information, what changed and why) and `scripts/setup_local` / `start_solution_local`; then
+    offers to configure and start it on your machine
 
 ### RAG
 

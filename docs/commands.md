@@ -174,22 +174,46 @@ installed files stay in the shared tools volume). `/tools` shows the installed v
 you after 30 days. Libraries of a language belong to the project manifest. See `auto-eval.md`.
 
 ### `/finalize`
-Runs release-oriented finalization: README, HOWTO_RUN, release notes, local run scripts and
-`ci/SOLUTION_LTC.json`, the eval profile of the **whole solution**.
+Brings the promoted solution to **running and configured**: it wires what is missing, writes the
+run docs and scripts and `ci/SOLUTION_LTC.json`, the eval profile of the **whole solution
+running**. If some REQs are not promoted yet, CLike lists them and asks before it starts.
 
-Then, with no flag (`clike.finalize.verify`, default on), CLike **verifies the integrated
-solution**: it runs `ci/SOLUTION_LTC.json` in the eval sandbox against the canonical tree (the
-sources and tests promoted by the gates; `runs/`, `.git`, `.clike/` are not copied):
+The REQs' tests are **not run again**: each REQ passed them at its gate. With no flag
+(`clike.finalize.verify`, default on) CLike runs `ci/SOLUTION_LTC.json` in the eval sandbox
+against the canonical tree (`runs/`, `.git`, `.clike/` are not copied):
 
-1. install of every component, 2. the test suites of every promoted REQ on the canonical tree,
-3. build, 4. the solution started as services (migrations, backend, workers, frontend, with
-readiness), 5. end-to-end checks against the running solution (UI e2e, API smoke).
+1. install of every component, 2. build of what needs one to run, 3. the solution configured and
+started as services (migrations, backend, workers, frontend, with readiness), 4. smoke checks of
+the running solution (`ci/solution/`): health, one real request per main capability, the main UI
+pages answering with their content.
 
 When it fails, `/finalize` runs again with all its errors (same loop rules as `/eval --fix`:
-`clike.finalize.verifyMaxCycles`, default 3, plus extra cycles while the failures decrease). A
-local agent (Codex, Claude Code) re-runs the profile's checks in the sandbox itself while it works
-(`node .clike/bin/eval-check.mjs`) and runs `scripts/check_solution_local.sh` / `.ps1` on your
-machine. The outcome is written to `docs/harper/SOLUTION_EVAL.md` (truthful evidence for the PR).
+`clike.finalize.verifyMaxCycles`, default 3, plus extra cycles while the failures decrease). The
+repair looks for the cause in order: configuration (variables, URLs, ports, services, migrations),
+missing native tools, wiring, then code; a missing variable is provisioned and documented, never
+hardcoded. A local agent (Codex, Claude Code) re-runs the profile's checks in the sandbox itself
+while it works (`node .clike/bin/eval-check.mjs`) and runs `scripts/check_solution_local.sh` /
+`.ps1` on your machine. A repair cycle that cannot run says so and stops.
+
+What you get:
+
+- `docs/harper/FINALIZE_REPORT.md` — the report for you: how to start the solution and see each
+  main capability, every configuration variable (purpose, value or how it is generated, who sets
+  it), **missing information** only you can give (what, why, where to get it, where to put it),
+  everything `/finalize` changed file by file and why, the problems met and how they were solved,
+  the limitations left. If `/finalize` does not write it, the verification fails and the next
+  repair cycle writes it.
+- `scripts/setup_local.sh` / `.ps1` (creates the local, git-ignored configuration from
+  `.env.example`: local URLs, generated secrets, local database; never overwrites a value) and
+  `scripts/start_solution_local.sh` / `.ps1` (starts everything and prints the URLs). After a
+  passing verification CLike offers **Configure locally** or **Configure and start**, in a
+  terminal you see.
+- `docs/harper/SOLUTION_EVAL.md` — what CLike verified: the checks, the verification cycles and the
+  last gate of every REQ (the acceptance tests, not run again).
+
+The profile, its smoke scripts, the evidence and the report are committed when the verification
+ends; changes you had in the working tree before `/finalize` and that it did not touch are left
+out of its commits.
 
 Deployment target from `TECH_CONSTRAINTS.yaml`: **on-premises/local** — the local run is the
 target and must work on the developer's machine; **cloud** — guarded deploy scripts too (mutating

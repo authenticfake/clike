@@ -51,9 +51,11 @@ are small IDEAs to start with.
    /eval REQ-001 --fix     # canonical eval; on failure a governed repair, then eval again
    /gate REQ-001           # promotion decision; on PASS auto-merge into src/ and test/ + report
    ```
-6. `/finalize` when the REQs are done: it writes the run docs and scripts and the solution eval
-   profile, then CLike runs the integrated solution end to end in the sandbox and repairs it until
-   it passes (`docs/harper/SOLUTION_EVAL.md`).
+6. `/finalize` when the REQs are done: it does not run the REQs' tests again (the gates did). It
+   brings the solution to running and configured: CLike installs, builds, configures and starts it
+   in the sandbox, checks that it answers and repairs it until it passes. Read
+   `docs/harper/FINALIZE_REPORT.md` (how to start and see it, configuration, what you still have
+   to provide, what changed and why); CLike then offers to configure and start it on your machine.
 
 `/help` lists every command; `/status` shows where you are.
 

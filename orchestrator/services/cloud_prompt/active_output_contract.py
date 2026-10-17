@@ -79,6 +79,9 @@ NATIVE_CLOUD_OPTIONAL_OUTPUTS: Dict[str, List[str]] = {
         "Cargo.toml",
         "Cargo.lock",
         "docker-compose.yml",
+        "docker-compose.yaml",
+        "compose.yml",
+        "compose.yaml",
         "Dockerfile",
         "Makefile",
         # the solution eval profile CLike runs after /finalize (services/finalize_verify.py)
