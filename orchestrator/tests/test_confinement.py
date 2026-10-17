@@ -152,7 +152,10 @@ class EvalRouteConfinementTests(unittest.TestCase):
         cls.ltc = {"req_id": "REQ-001", "checks": [{"id": "ok", "command": "true", "blocking": True}]}
         (cls.proj / "ci" / "LTC.json").write_text(json.dumps(cls.ltc))
         (cls.tmp / "outside").mkdir()
-        cls._env = patch.dict(os.environ, {"CLIKE_API_TOKEN": TOKEN, "DEV_FOLDER": str(cls.projects)})
+        # CLIKE_STATE_DIR in the temp dir: acceptance locks must not land in orchestrator/runs/state
+        cls._env = patch.dict(
+            os.environ, {"CLIKE_API_TOKEN": TOKEN, "DEV_FOLDER": str(cls.projects), "CLIKE_STATE_DIR": str(cls.tmp / "state")}
+        )
         cls._env.start()
         os.environ.pop("CLIKE_ALLOW_INLINE_LTC", None)
         os.environ.pop("CLIKE_EVAL_ALLOWED_ROOTS", None)
