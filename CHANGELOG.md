@@ -20,6 +20,10 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **The solution started by `/finalize` could not start on the developer's machine when a host
+  port was taken** (the CLike gateway listens on 8000): the setup script now picks a free port
+  and updates the values derived from it, the start script names the busy port and its variable,
+  and the report lists the ports.
 - **The chat stayed busy after a passing `/finalize`** until the developer answered the offer to
   configure and start the solution locally; the offer no longer holds the chat.
 - **`/finalize` committed only part of the solution it verified.** Files in a new directory were
@@ -48,7 +52,6 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   finalize outputs too. Changes the developer had in the working tree before `/finalize`, and that
   it did not touch, stay out of its commits. `/finalize` lists the REQs not promoted yet and asks
   before it runs; a repair cycle that cannot run says so.
-
 - **Promotion repeated code at every gate.** Where both sides only added lines, auto-merge kept
   both even when `src/` already had the candidate's additions (an earlier REQ promoted them, or
   the same REQ was gated again, against a KIT base older than `src/`): composition files such as

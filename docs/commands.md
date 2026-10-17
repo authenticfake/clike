@@ -205,7 +205,10 @@ What you get:
   repair cycle writes it.
 - `scripts/setup_local.sh` / `.ps1` (creates the local, git-ignored configuration from
   `.env.example`: local URLs, generated secrets, local database; never overwrites a value) and
-  `scripts/start_solution_local.sh` / `.ps1` (starts everything and prints the URLs). After a
+  `scripts/start_solution_local.sh` / `.ps1` (starts everything and prints the URLs). Published
+  host ports come from that configuration: setup picks a free port when the default is taken on
+  your machine (for example by the CLike gateway on 8000), start names the port and the variable
+  to change when one is busy. After a
   passing verification CLike offers **Configure locally** or **Configure and start**, in a
   terminal you see.
 - `docs/harper/SOLUTION_EVAL.md` — what CLike verified: the checks, the verification cycles and the

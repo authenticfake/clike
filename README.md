@@ -71,7 +71,7 @@ CLike is research software under active development. Interfaces may change betwe
 | `/kit <REQ>` | Implement one REQ as a candidate: code, tests, docs, CI profile | `runs/kit/<REQ>/…` |
 | `/eval <REQ>` | Run the REQ's checks and collect evidence | eval report |
 | `/gate <REQ>` | Decide promotability from the evidence | gate report |
-| `/finalize` | Close the delivery | release documentation |
+| `/finalize` | Bring the promoted solution to running and configured (verified in the sandbox, REQ tests not run again) | `docs/harper/FINALIZE_REPORT.md`, `SOLUTION_EVAL.md`, `scripts/setup_local` / `start_solution_local` |
 
 `/kit → /eval → /gate` is an iterative control loop per REQ, not a one-shot generation step.
 Candidates live under `runs/kit/<REQ>/` and are promoted into canonical source roots only after a gate.

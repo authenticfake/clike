@@ -64,6 +64,7 @@ def test_cloud_finalize_prompt_carries_rules_profiles_and_repair():
     assert "pytest test" not in text and "REQ-002" not in text
     assert "Do NOT run the REQs' test suites" in text and "FINALIZE_REPORT.md" in text
     assert "MISSING INFORMATION" in text and "scripts/setup_local.sh" in text
+    assert "Host ports on the developer's machine" in text
     assert "On-premises / local deployment" in text
     assert "## SOLUTION REPAIR — cycle 1 of 3" in text and "element(s) not found" in text
     assert "#### src/web/app/page.tsx" in text and "LLLL" not in text and "- package-lock.json" in text
