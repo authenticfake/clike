@@ -280,11 +280,36 @@ minutes the eval runs without it, and `--fix` stops saying how to install it. A 
 other conda-forge packages under `custom:` in the same file. Libraries of a language (psycopg,
 ojdbc, kafka-python…) are not tools: the project's manifests install them.
 
-`/tools` lists the catalog and what is installed, `/tools search <text>` finds an entry, `/tools add
-<tool>[@version]…` installs and approves for the project, `/tools remove <tool>` withdraws the
-approval. The installs run in the `eval-tools` service: only the orchestrator reaches it (its own
-network), no credentials, conda-forge packages only (no scripts or URLs), versions recorded in
-`/opt/clike-tools/installed.json` and returned to the chat.
+`/tools` lists the catalog and what is installed with versions, `/tools search <text>` finds an
+entry, `/tools add <tool>[@version]…` installs and approves for the project, `/tools update
+[tool…]` rebuilds them at the latest versions and shows what changed, `/tools remove <tool>`
+withdraws the approval.
+
+How the tools are installed (the `eval-tools` service: only the orchestrator reaches it, its own
+network, no credentials):
+
+- **One environment per tool** (`/opt/clike-tools/envs/<tool>`): installing Maven never changes
+  the `jdk@17` already there; micromamba's package cache keeps the copies small.
+- **Three kinds of catalog entry**: conda-forge `packages`; `pip` for CLIs distributed on PyPI
+  (e.g. `azure-cli`, whose conda-forge package does not resolve), installed in the tool's own
+  Python; `download` for a vendor archive — an `https` URL per platform (`linux-64`,
+  `linux-aarch64`) with its **sha256**, verified before it is unpacked (tar/zip, no paths outside
+  the tool directory), never executed by CLike. A project adds its own entries of any kind under
+  `custom:` in `.clike/eval-tools.yaml`.
+- **Versions are locked.** Each tool records its top-level versions and an exact lock (micromamba
+  explicit spec with md5, `pip freeze`, archive digest); the orchestrator keeps a copy outside
+  the volume (`<state>/eval-tools/lock.json`). On a new volume `docker/rebuild.sh` rebuilds the
+  same tools with the same versions (`restore`).
+- **Updates are deliberate.** A rebuild does not change versions, so two gates on the same code
+  give the same result. `/tools update` or `./rebuild.sh --update-tools` rebuilds every tool at
+  its latest version (the image's PostgreSQL client too) and prints `old → new`; a tool whose
+  rebuild fails keeps its previous version. `/tools` and the rebuild remind you when the tools
+  are older than 30 days (`CLIKE_EVAL_TOOLS_STALE_DAYS`).
+- **Evidence.** Every eval and gate report records the versions of the installed tools
+  (`tools`), next to `missing_tools`.
+
+Verified on conda-forge for both architectures (dry-run resolution, 2026-10): every catalog entry
+except `kafkacat` on `linux-aarch64` (not published there).
 
 ## Eval disk
 

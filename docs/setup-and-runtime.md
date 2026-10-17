@@ -61,7 +61,11 @@ database and messaging clients, cloud and IaC CLIs, toolchains — conda-forge) 
 `eval_tools` volume, after the developer's confirmation in VS Code (see `auto-eval.md`). Only the
 orchestrator reaches it (`toolsnet`), it holds no credentials, runs non-root on a read-only root
 filesystem and installs conda-forge packages only. The sandbox mounts the volume read-only and
-appends `/opt/clike-tools/bin` to the PATH of the checks. The offline overlay
+appends `/opt/clike-tools/bin` to the PATH of the checks. Each tool has its own environment
+(`/opt/clike-tools/envs/<tool>`); the exact versions are locked in `docker/runs/state/eval-tools/lock.json`,
+from which `./rebuild.sh` restores a new volume. `./rebuild.sh --update-tools` also updates every
+tool (and the image's PostgreSQL client) to its latest version and prints the changes; without it
+versions do not change. The offline overlay
 (`compose.eval-offline.yml`) cuts the sandbox egress only: tools can still be installed.
 
 Gate integrity state (acceptance locks, override audit log) lives in `docker/runs/state`.
@@ -90,6 +94,7 @@ Runs as the vector store backing RAG persistence.
 - `CLIKE_EVAL_SANDBOX_URL` — eval sandbox endpoint (compose: `http://eval-sandbox:8090`; unset = in-process).
 - `CLIKE_EVAL_TOOLS_URL` — eval tools service (compose: `http://eval-tools:8091`; unset = tools cannot be installed).
 - `CLIKE_EVAL_KEEP_REQS` (3), `CLIKE_EVAL_MIN_FREE_GB` (10) — eval disk pruning in the sandbox volume.
+- `CLIKE_EVAL_TOOLS_STALE_DAYS` (30) — after how many days `/tools` and `rebuild.sh` remind you to update the eval tools; `CLIKE_EVAL_TOOLS_MAX_DOWNLOAD_MB` (1500) — size limit of a vendor archive.
 - `CLIKE_STATE_DIR` — gate integrity state (compose: `/app/runs/state`).
 - `CLIKE_EVAL_ALLOWED_ROOTS` — additional allowed roots (path-separator list).
 - `CLIKE_ALLOW_INLINE_LTC` — `1` to accept inline-only LTC profiles (default: the workspace profile

@@ -14,7 +14,7 @@ const {
   generateServiceToken,
 } = require('./service-auth');
 const { validateLocalMcpRequest } = require('./mcp-request-guard');
-const { getEvalTools, postAcceptanceAmend, postAcceptanceLock, postEvalChecks, postEvalToolsCheck, postEvalToolsInstall, postGateOverride } = require('./api');
+const { getEvalTools, postEvalToolsUpdate, postAcceptanceAmend, postAcceptanceLock, postEvalChecks, postEvalToolsCheck, postEvalToolsInstall, postGateOverride } = require('./api');
 const evalToolsLib = require('./eval-tools');
 const { approveForProject, ensureEvalTools, questionText } = evalToolsLib;
 const { agentArgsForEvalCheck, agentTimeoutMinutes, startEvalCheckBridge } = require('./eval-check-bridge');
@@ -5341,12 +5341,15 @@ async function cmdOpenChat(context) {
               const versions = Object.entries(res?.versions || {}).map(([k, v]) => `${k} ${v}`).join(', ');
               say(`✔ Installed ${known.join(', ')}${versions ? ` (${versions})` : ''}; approved for this project in .clike/eval-tools.yaml.`);
             }
+          } else if (action === 'update') {
+            say(`⬇ Updating the eval tools${names.length ? `: ${names.join(', ')}` : ''} (each one is rebuilt; the previous version stays if it fails)…`);
+            say(evalToolsLib.updateSummary(await postEvalToolsUpdate(names)));
           } else if (action === 'remove' && names.length) {
             evalToolsLib.withdrawForProject(ws.fsPath, names);
             say(`Removed ${names.join(', ')} from .clike/eval-tools.yaml: CLike will ask again before using ${names.length > 1 ? 'them' : 'it'}. ` +
               'The installed files stay in the tools volume (shared by your projects).');
           } else {
-            say('Usage: /tools | /tools search <text> | /tools add <tool[@version]>… | /tools remove <tool>…');
+            say('Usage: /tools | /tools search <text> | /tools add <tool[@version]>… | /tools update [tool…] | /tools remove <tool>…');
           }
         } catch (err) {
           say(`✖ /tools ${action}: ${err?.message || err}`);

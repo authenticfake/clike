@@ -6,6 +6,18 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Added
 
+- **Eval tools stay current, on purpose.** `/tools update` and `./rebuild.sh --update-tools`
+  rebuild every installed tool at its latest version (the image's PostgreSQL client too) and show
+  `old → new`; a failed rebuild keeps the previous version. Versions are otherwise locked: each
+  tool records an exact lock (micromamba explicit spec, `pip freeze`, archive digest), the
+  orchestrator keeps a copy and the rebuild restores a new volume identically. `/tools` and the
+  rebuild remind you after 30 days. Eval and gate reports record the tool versions they ran with.
+- **One environment per tool**, so two tools never change each other's versions (`jdk@17` and
+  `maven`), and two new kinds of catalog entry: `pip` for CLIs published on PyPI (`azure-cli`,
+  whose conda-forge package does not resolve) and `download` for vendor archives, https only,
+  verified by sha256 before they are unpacked. All catalog entries checked on conda-forge for
+  linux-64 and linux-aarch64.
+
 - **Native tools in the eval sandbox, installed when an eval needs them.** A catalog of clients
   and toolchains (databases, messaging, AWS/Azure/GCP CLIs, Kubernetes/IaC, quality scanners, JDK,
   Maven/Gradle, .NET, Go, Rust — conda-forge, both architectures). Before an eval CLike finds

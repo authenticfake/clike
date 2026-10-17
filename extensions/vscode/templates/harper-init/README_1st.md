@@ -60,7 +60,7 @@ Harper is an outcome-driven, AI-native workflow: IDEA → SPEC → PLAN → KIT 
   - `/finalize`: package + SBOM + license checks.
   - `/eval <REQ-ID>`: Performs an eval after kit phase for REQ-ID.
   - `/gate <REQ-ID>`: Performs a gate after kit phase for REQ-ID.
-  - `/tools`: Native tools of the eval sandbox (catalog, installed, approved); `/tools add <tool>[@version]`, `/tools search <text>`, `/tools remove <tool>`. CLike installs what an eval needs on its own, after asking.
+  - `/tools`: Native tools of the eval sandbox (catalog, installed, approved); `/tools add <tool>[@version]`, `/tools search <text>`, `/tools update`, `/tools remove <tool>`. CLike installs what an eval needs on its own, after asking.
   - `/rag <query>`: Searches the RAG (shows top results) (cross).
   - `/rag list`: Shows current attached files (inline+RAG) (cross).
   - `/rag +<N>`: Adds RAG result #N from the last search to the attached files (cross).

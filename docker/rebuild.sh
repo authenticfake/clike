@@ -4,6 +4,7 @@
 #   ./rebuild.sh                 # build gateway + orchestrator (eval-sandbox and eval-tools share its image)
 #   ./rebuild.sh gateway         # build only the gateway
 #   ./rebuild.sh orchestrator    # build only the orchestrator image
+#   ./rebuild.sh --update-tools  # also update the eval tools to their latest versions (prints the changes)
 # The three services are always recreated (seconds): the orchestrator depends on the gateway,
 # so recreating one alone fails with "has dependent containers".
 #
@@ -18,6 +19,16 @@ cd "$(dirname "$0")"
 
 PROJECT="$(basename "$PWD")"
 TIMEOUT_S="${CLIKE_REBUILD_TIMEOUT_S:-180}"
+
+# --update-tools: also update the eval tools (PostgreSQL client of the image, every tool installed
+# in the eval-tools volume) and print what changed. Without it the versions stay as they are, so
+# gates stay reproducible; the rebuild reminds you when they are more than 30 days old.
+UPDATE_TOOLS=false
+args=()
+for a in "$@"; do
+  if [ "$a" = "--update-tools" ]; then UPDATE_TOOLS=true; else args+=("$a"); fi
+done
+set -- "${args[@]+"${args[@]}"}"
 
 case "${1:-all}" in
   all) build=(gateway orchestrator) ;;
@@ -38,7 +49,11 @@ echo "==> pruning dangling layers"
 podman image prune -f >/dev/null
 
 echo "==> building: ${build[*]}"
-podman-compose build "${build[@]}"
+if $UPDATE_TOOLS; then
+  podman-compose build --build-arg "CLIKE_TOOLS_REFRESH=$(date +%s)" "${build[@]}"
+else
+  podman-compose build "${build[@]}"
+fi
 
 echo "==> recreating: ${run[*]}"
 podman-compose up -d --force-recreate "${run[@]}"
@@ -63,6 +78,16 @@ for svc in "${run[@]}"; do
   fi
   echo "    $name healthy, image ${built:0:12}"
 done
+
+# Eval tools: a new volume is rebuilt from the orchestrator's lock (same versions); with
+# --update-tools every tool is rebuilt at its latest version and the changes are printed.
+orch="${PROJECT}_orchestrator_1"
+echo "==> eval tools"
+podman exec "$orch" python -m eval_tools_cli restore || true
+if $UPDATE_TOOLS; then
+  podman exec "$orch" python -m eval_tools_cli update || true
+fi
+podman exec "$orch" python -m eval_tools_cli status || true
 
 podman image prune -f >/dev/null
 podman system df | sed -n '1,2p'

@@ -190,7 +190,10 @@ Confinement rules (also for `/v1/gate/check`):
   source: declared | used, about, in_catalog, approved}], approved, installable}`;
   `POST /v1/eval/tools/install` `{project_root, tools: ["kafkacat", "jdk@17"]}` → installed
   programs and versions; `GET /v1/eval/tools?project_root=` → catalog (with the project's
-  `custom:` entries), installed, approved.
+  `custom:` entries), installed with versions, approved, `updated_days_ago`, `update_due`;
+  `POST /v1/eval/tools/update` `{tools: []}` (empty: all) → `{updated, changes: {tool: {pkg: [old, new]}}, failed}`;
+  `POST /v1/eval/tools/restore` → rebuilds from the orchestrator's lock the tools the volume lacks.
+- Eval and gate responses carry `tools`: the versions of the installed eval tools.
 - **Acceptance integrity**: the REQ acceptance surface (`runs/kit/<REQ>/test/**` and `ci/**`) is
   locked server-side the first time it is evaluated after a KIT generation. If files were removed
   or modified, LTC checks removed/made non-blocking/changed, or skip markers added, eval and gate

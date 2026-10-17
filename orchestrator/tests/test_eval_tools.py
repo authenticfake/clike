@@ -30,9 +30,13 @@ class CatalogTests(unittest.TestCase):
 
     def test_resolve_names_binaries_and_versions(self):
         catalog = eval_tools.load_catalog()
-        r = eval_tools.resolve(["kcat", "jdk@17", "maven"], catalog)
-        self.assertEqual(r["packages"], ["kafkacat", "openjdk=17.*", "maven", "openjdk"])
-        self.assertIn("mvn", r["binaries"])
+        r = eval_tools.resolve(["kcat", "jdk@17", "maven", "az@2.80.0"], catalog)
+        by = {t["name"]: t for t in r["tools"]}
+        self.assertEqual(list(by), ["kafkacat", "jdk@17", "maven", "azure-cli@2.80.0"])
+        self.assertEqual(by["jdk@17"]["packages"], ["openjdk=17.*"])
+        self.assertEqual(by["maven"]["packages"], ["maven", "openjdk"])  # its own environment
+        self.assertEqual(by["azure-cli@2.80.0"]["pip"], ["azure-cli==2.80.0"])  # a PyPI CLI is pinned on pip
+        self.assertIn("mvn", by["maven"]["binaries"])
         self.assertEqual(eval_tools.resolve(["nope", "a;rm -rf /"], catalog)["unknown"], ["nope", "a;rm -rf /"])
 
     def test_project_entries_and_approvals(self):
@@ -43,7 +47,7 @@ class CatalogTests(unittest.TestCase):
                 "tools: [kafkacat, jdk@17]\ncustom:\n  sqlcl: {packages: [sqlcl], binaries: [sql], about: Oracle SQLcl}\n"
             )
             self.assertEqual(eval_tools.approved_tools(root), ["kafkacat", "jdk@17"])
-            self.assertEqual(eval_tools.resolve(["sqlcl"], eval_tools.load_catalog(root))["packages"], ["sqlcl"])
+            self.assertEqual(eval_tools.resolve(["sqlcl"], eval_tools.load_catalog(root))["tools"][0]["packages"], ["sqlcl"])
 
     def test_tools_go_after_the_image_programs_on_path(self):
         with patch.dict(os.environ, {"CLIKE_EVAL_TOOLS_BIN": "/opt/clike-tools/bin"}):
@@ -149,41 +153,202 @@ class RoutesTests(_RegressionProject):
         self.assertIn("kafkacat", listed["catalog"])
 
 
+class ToolsServiceTests(unittest.TestCase):
+    """The service with a fake micromamba: one environment per tool, exact lock, update, restore."""
+
+    FAKE = r"""#!/usr/bin/env python3
+import json, os, sys
+args = sys.argv[1:]
+log = os.environ["FAKE_LOG"]
+open(log, "a").write(" ".join(args) + "\n")
+version = os.environ.get("FAKE_VERSION", "1.0")
+prefix = args[args.index("-p") + 1] if "-p" in args else ""
+if args[:1] == ["list"]:
+    names = open(os.path.join(prefix, "conda-meta", "names")).read().split()
+    print(json.dumps({"packages": [{"name": n, "version": version} for n in names]}))
+elif args[:2] == ["env", "export"]:
+    print("@EXPLICIT\nhttps://conda.anaconda.org/conda-forge/fake-" + version + ".conda#md5")
+elif args[:1] == ["create"]:
+    if os.environ.get("FAKE_FAIL"):
+        sys.exit("solver failed")
+    os.makedirs(os.path.join(prefix, "bin"), exist_ok=True)
+    os.makedirs(os.path.join(prefix, "conda-meta"), exist_ok=True)
+    pkgs = [a.split("=")[0] for a in args[args.index("--strict-channel-priority") + 1:]] if "--strict-channel-priority" in args else ["fake"]
+    open(os.path.join(prefix, "conda-meta", "names"), "w").write(" ".join(pkgs))
+    for name in pkgs + ["python"]:
+        path = os.path.join(prefix, "bin", "kcat" if name == "kafkacat" else name)
+        if name == "python":
+            body = "#!/bin/sh\nif [ \"$3\" = freeze ]; then echo azure-cli==" + version + "; fi\n"
+        else:
+            body = "#!/bin/sh\necho " + name + "-" + version + "\n"
+        open(path, "w").write(body)
+        os.chmod(path, 0o755)
+"""
+
+    def setUp(self):
+        from eval_runner import _SECRET_ENV_NAME_RE
+
+        self.tmp = tempfile.TemporaryDirectory()
+        base = Path(self.tmp.name)
+        self.root = base / "tools"
+        fakebin = base / "fakebin"
+        fakebin.mkdir()
+        (fakebin / "micromamba").write_text(self.FAKE)
+        (fakebin / "micromamba").chmod(0o755)
+        self.log = base / "calls.log"
+        env = {k: v for k, v in os.environ.items() if not _SECRET_ENV_NAME_RE.search(k)}
+        env.update({"CLIKE_EVAL_TOOLS_ROOT": str(self.root), "FAKE_LOG": str(self.log),
+                    "PATH": f"{fakebin}{os.pathsep}{os.environ['PATH']}"})
+        self.env = patch.dict(os.environ, env, clear=True)
+        self.env.start()
+        sys.modules.pop("eval_tools_app", None)
+        import eval_tools_app
+        from starlette.testclient import TestClient
+
+        self.app = eval_tools_app
+        self.client = TestClient(eval_tools_app.app)
+
+    def tearDown(self):
+        self.env.stop()
+        sys.modules.pop("eval_tools_app", None)
+        self.tmp.cleanup()
+
+    def _install(self, *tools):
+        return self.client.post("/install", json={"tools": list(tools)})
+
+    def test_each_tool_gets_its_own_environment_and_only_its_programs(self):
+        body = self._install({"name": "kafkacat", "packages": ["kafkacat"], "binaries": ["kafkacat", "kcat"]},
+                             {"name": "jdk@17", "packages": ["openjdk=17.*"], "binaries": ["openjdk"]}).json()
+        self.assertEqual(body["binaries"], ["kcat", "openjdk"])
+        self.assertEqual(body["missing_binaries"], ["kafkacat"])
+        self.assertEqual(body["versions"]["kafkacat"], {"kafkacat": "1.0"})
+        self.assertTrue((self.root / "envs" / "kafkacat" / "bin" / "kcat").is_file())
+        self.assertTrue((self.root / "envs" / "jdk-17").is_dir())
+        self.assertFalse((self.root / "bin" / "python").exists())  # never shadows the image's python
+        lock = self.client.get("/lock").json()
+        self.assertIn("@EXPLICIT", lock["kafkacat"]["lock"]["explicit"])
+        self.assertNotIn("lock", self.client.get("/installed").json()["tools"]["kafkacat"])
+
+    def test_update_reports_the_changes_and_a_failed_rebuild_keeps_the_old_one(self):
+        self._install({"name": "kafkacat", "packages": ["kafkacat"], "binaries": ["kcat"]})
+        os.environ["FAKE_VERSION"] = "2.0"
+        result = self.client.post("/update", json={"tools": []}).json()
+        self.assertEqual(result["changes"], {"kafkacat": {"kafkacat": ["1.0", "2.0"]}})
+        self.assertTrue(result["updated_at"])
+        os.environ["FAKE_VERSION"], os.environ["FAKE_FAIL"] = "3.0", "1"
+        result = self.client.post("/update", json={"tools": ["kafkacat"]}).json()
+        self.assertIn("kafkacat", result["failed"])
+        self.assertIn("kafkacat-2.0", (self.root / "envs" / "kafkacat" / "bin" / "kcat").read_text())
+
+    def test_restore_rebuilds_from_the_exact_lock(self):
+        self._install({"name": "kafkacat", "packages": ["kafkacat"], "binaries": ["kcat"]})
+        lock = self.client.get("/lock").json()
+        import shutil as _shutil
+
+        _shutil.rmtree(self.root / "envs")
+        (self.root / "installed.json").unlink()
+        result = self.client.post("/restore", json={"lock": lock}).json()
+        self.assertEqual(result["restored"], ["kafkacat"])
+        self.assertIn("--file", self.log.read_text().splitlines()[-3])  # created from the explicit spec
+
+    def test_pip_clis_and_invalid_specs(self):
+        body = self._install({"name": "azure-cli", "packages": ["python=3.12", "pip"], "pip": ["azure-cli"],
+                              "binaries": ["python"]}).json()
+        self.assertEqual(body["versions"]["azure-cli"], {"python": "1.0", "pip": "1.0", "azure-cli": "1.0"})
+        for bad in ({"name": "x", "packages": ["https://evil/x.tar"]}, {"name": "x", "pip": ["a;b"], "packages": ["p"]},
+                    {"name": "x", "download": {"linux-64": {"url": "http://plain", "sha256": "0" * 64}}},
+                    {"name": "x", "download": {"linux-64": {"url": "https://ok", "sha256": "short"}}}):
+            self.assertEqual(self._install(bad).status_code, 400, bad)
+
+    def test_a_verified_vendor_archive(self):
+        import io
+        import tarfile as _tarfile
+
+        payload = io.BytesIO()
+        with _tarfile.open(fileobj=payload, mode="w:gz") as tar:
+            data = b"#!/bin/sh\necho vendor-ok\n"
+            info = _tarfile.TarInfo("vendor-1.0/bin/vtool")
+            info.size, info.mode = len(data), 0o755
+            tar.addfile(info, io.BytesIO(data))
+        archive = payload.getvalue()
+        import hashlib as _hashlib
+
+        digest = _hashlib.sha256(archive).hexdigest()
+
+        def fake_fetch(url, sha256, dest):
+            if sha256 != digest:
+                raise self.app.HTTPException(status_code=422, detail="sha256 mismatch")
+            dest.write_bytes(archive)
+
+        plat = self.app._platform()
+        with patch.object(self.app, "_fetch", side_effect=fake_fetch):
+            ok = self._install({"name": "vtool", "binaries": ["vtool"],
+                                "download": {plat: {"url": "https://vendor.example/v.tgz", "sha256": digest, "version": "1.0"}}})
+            self.assertEqual(ok.json()["binaries"], ["vtool"], ok.text)
+            bad = self._install({"name": "vtool2", "binaries": ["vtool"],
+                                 "download": {plat: {"url": "https://vendor.example/v.tgz", "sha256": "f" * 64}}})
+            self.assertEqual(bad.status_code, 422)
+        self.assertEqual(self.client.get("/installed").json()["tools"]["vtool"]["versions"], {"vtool": "1.0"})
+
+
+class ReportToolsTests(unittest.TestCase):
+    def test_the_report_records_the_installed_tool_versions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            tools = root / "tools"
+            (tools / "bin").mkdir(parents=True)
+            (tools / "installed.json").write_text(json.dumps({"tools": {"kafkacat": {"versions": {"kafkacat": "1.7.1"}}}}))
+            kit = root / "runs" / "kit" / "REQ-001"
+            (kit / "ci").mkdir(parents=True)
+            ltc = {"req_id": "REQ-001", "checks": [{"id": "ok", "command": "true"}]}
+            (kit / "ci" / "LTC.json").write_text(json.dumps(ltc))
+            with patch.dict(os.environ, {"CLIKE_EVAL_TOOLS_BIN": str(tools / "bin")}):
+                report = EvalRunner(root).run_profile(profile=str(kit / "ci" / "LTC.json"), ltc=ltc, req_id="REQ-001")
+            self.assertEqual(report.tools, {"kafkacat": {"kafkacat": "1.7.1"}})
+
+
+class LockRoutesTests(_RegressionProject):
+    def test_update_and_restore_keep_the_lock_outside_the_volume(self):
+        import routes.routes_eval as routes
+
+        calls = []
+
+        async def fake(method, path, body=None, timeout=0):
+            calls.append((method, path))
+            return {"/lock": {"kafkacat": {"spec": {}, "lock": {}}}, "/update": {"updated": ["kafkacat"], "changes": {}},
+                    "/restore": {"restored": ["kafkacat"], "failed": {}}}.get(path, {})
+
+        with patch.dict(os.environ, {"CLIKE_EVAL_TOOLS_URL": "http://tools"}), patch.object(routes, "_tools_call", side_effect=fake):
+            self.assertEqual(self.client.post("/v1/eval/tools/restore", headers=AUTH).json()["lock"], False)
+            self.client.post("/v1/eval/tools/update", json={"tools": []}, headers=AUTH)
+            self.assertTrue(routes._tools_lock_path().is_file())
+            restored = self.client.post("/v1/eval/tools/restore", headers=AUTH).json()
+        self.assertEqual((restored["restored"], restored["lock"]), (["kafkacat"], True))
+        self.assertIn(("POST", "/restore"), calls)
+
+
+class CliTests(unittest.TestCase):
+    def test_status_restore_and_update_print_what_matters(self):
+        import contextlib
+        import io
+
+        import eval_tools_cli
+
+        answers = {
+            ("GET", "/v1/eval/tools"): {"installed": {"jq": {"versions": {"jq": "1.8.2"}}}, "updated_days_ago": 40, "update_due": True},
+            ("POST", "/v1/eval/tools/restore"): {"restored": ["jq"], "failed": {}, "lock": True},
+            ("POST", "/v1/eval/tools/update"): {"updated": ["jq"], "changes": {"jq": {"jq": ["1.8.2", "1.9.0"]}}, "failed": {}},
+        }
+        out = io.StringIO()
+        with patch.object(eval_tools_cli, "_call", side_effect=lambda m, p, b=None, timeout=0: answers[(m, p)]), \
+                contextlib.redirect_stdout(out):
+            codes = [eval_tools_cli.main(["x", c]) for c in ("status", "restore", "update")]
+        self.assertEqual(codes, [0, 0, 0])
+        text = out.getvalue()
+        self.assertIn("jq: jq 1.8.2", text)
+        self.assertIn("40 days ago", text)
+        self.assertIn("restored from the lock: jq", text)
+        self.assertIn("jq 1.8.2 -> 1.9.0", text)
+
 if __name__ == "__main__":
     unittest.main()
-
-
-class ToolsServiceTests(unittest.TestCase):
-    def test_install_exposes_only_the_requested_programs(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp) / "tools"
-            fakebin = Path(tmp) / "fakebin"
-            fakebin.mkdir()
-            # a fake micromamba: "create -p ENV …" makes ENV/bin/{kcat,python}; "list" prints versions
-            (fakebin / "micromamba").write_text(
-                "#!/bin/sh\n"
-                'if [ "$1" = list ]; then echo \'{"log_history": [], "packages": [{"name": "kafkacat", "version": "1.7.1"}]}\'; exit 0; fi\n'
-                'env="$4"; mkdir -p "$env/bin" "$env/conda-meta"\n'
-                'printf "#!/bin/sh\\necho kcat-ok\\n" > "$env/bin/kcat"; chmod +x "$env/bin/kcat"\n'
-                'printf "#!/bin/sh\\n" > "$env/bin/python"; chmod +x "$env/bin/python"\n'
-            )
-            (fakebin / "micromamba").chmod(0o755)
-            from eval_runner import _SECRET_ENV_NAME_RE
-
-            env = {k: v for k, v in os.environ.items() if not _SECRET_ENV_NAME_RE.search(k)}
-            env.update({"CLIKE_EVAL_TOOLS_ROOT": str(root), "PATH": f"{fakebin}{os.pathsep}{os.environ['PATH']}"})
-            with patch.dict(os.environ, env, clear=True):
-                sys.modules.pop("eval_tools_app", None)
-                import eval_tools_app
-                from starlette.testclient import TestClient
-
-                client = TestClient(eval_tools_app.app)
-                body = client.post("/install", json={"packages": ["kafkacat"], "binaries": ["kcat", "kafkacat"], "tools": ["kafkacat"]}).json()
-                self.assertEqual(body["binaries"], ["kcat"])
-                self.assertEqual(body["missing_binaries"], ["kafkacat"])
-                self.assertEqual(body["versions"], {"kafkacat": "1.7.1"})
-                self.assertTrue((root / "bin" / "kcat").is_file())
-                self.assertFalse((root / "bin" / "python").exists())  # never shadows the image's python
-                self.assertIn("kafkacat", client.get("/health").json()["installed"])
-                self.assertEqual(client.post("/install", json={"packages": ["https://evil/x.tar"], "binaries": []}).status_code, 400)
-            sys.modules.pop("eval_tools_app", None)
