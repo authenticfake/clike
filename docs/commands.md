@@ -182,10 +182,10 @@ The REQs' tests are **not run again**: each REQ passed them at its gate. With no
 (`clike.finalize.verify`, default on) CLike runs `ci/SOLUTION_LTC.json` in the eval sandbox
 against the canonical tree (`runs/`, `.git`, `.clike/` are not copied):
 
-1. install of every component, 2. build of what needs one to run, 3. the solution configured and
-started as services (migrations, backend, workers, frontend, with readiness), 4. smoke checks of
-the running solution (`ci/solution/`): health, one real request per main capability, the main UI
-pages answering with their content.
+1. `setup`: install of every component and build of what needs one to run, before anything
+starts, 2. the solution configured and started as services (migrations, backend, workers,
+frontend, with readiness), 3. smoke checks of the running solution (`ci/solution/`): health, one
+real request per main capability, the main UI pages answering with their content.
 
 When it fails, `/finalize` runs again with all its errors (same loop rules as `/eval --fix`:
 `clike.finalize.verifyMaxCycles`, default 3, plus extra cycles while the failures decrease). The

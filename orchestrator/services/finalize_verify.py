@@ -59,17 +59,20 @@ def solution_verify_rules(deployment: str = "") -> List[str]:
         f"Write {SOLUTION_PROFILE}: the eval profile of the WHOLE solution running. CLike runs it automatically after "
         "/finalize in its eval sandbox (a Linux container; the project is copied without runs/ and .git) against the "
         "canonical tree the gates promoted. When it fails, CLike sends you its errors to fix.",
-        'Format: the LTC contract of a KIT — {"req_id": "SOLUTION", "checks": [{"id", "command", "cwd" (relative to the '
+        'Format: the LTC contract of a KIT — {"req_id": "SOLUTION", "setup": [{"id", "command", "cwd", "timeout"}], '
+        '"checks": [{"id", "command", "cwd" (relative to the '
         'project root), "blocking": true, "timeout"}], "environment": {"required_variables": [{name, purpose, provision}], "tools": [native programs the checks run, e.g. "kcat", "jdk@17"]}, '
         '"services": [{name, cwd, setup, start, env, port_env, ready: {http_path}, exports}]} — provision token | uuid | '
         "timestamp | template | postgres_database | service | external, as in the KIT rules; omit `req` in services: they run "
         "from the canonical tree. Reuse the environments and services the REQs already declared (listed below).",
         "Do NOT run the REQs' test suites, linters, type checks or coverage again: every REQ passed them at its gate. "
         "The profile proves that the integrated solution runs.",
-        "Blocking checks, in order: (1) install every component from its manifest (lockfile when present) inside the "
-        "tree, no global installs; (2) build every component that needs a build to run; (3) the solution configured and "
-        "started as the user runs it (database migrations, backend, workers, frontend) as `services` with readiness "
-        "probes; (4) smoke checks against the running solution, as small scripts under ci/solution/: health of each "
+        "CLike runs the profile in this order: `setup`, then the environment and the `services`, then the `checks`. So: "
+        "(1) `setup` installs every component from its manifest (lockfile when present) inside the tree, no global "
+        "installs, and builds every component that needs a build to run — the services start from what setup "
+        "installed; (2) `services`: the solution configured and started as the user runs it (database migrations in "
+        "the setup of the service that owns them, backend, workers, frontend) with readiness probes; (3) blocking "
+        "`checks`: smoke checks against the running solution, as small scripts under ci/solution/ — health of each "
         "service, one real request per main capability of the SPEC through the public API, and every main UI page "
         "answering with its content. A smoke check asserts what the user would see, it is not a test suite.",
         "Configuration: the solution runs with configuration only, never with code edits. Every variable the solution "

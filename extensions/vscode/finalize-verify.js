@@ -44,6 +44,23 @@ function pendingReqs(workspaceRoot) {
     .map((r) => ({ id: String(r.id), status: String(r.status || 'open') }));
 }
 
+/**
+ * REQ branches not merged into the default branch (e.g. merge-on-gate off or failed): /finalize
+ * commits on the default branch, where those REQs are missing. Empty when git cannot answer.
+ */
+function unmergedReqBranches(workspaceRoot, defaultBranch = 'main', prefix = 'feature') {
+  const git = (...args) => require('child_process').execFileSync('git', args, {
+    cwd: workspaceRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  try {
+    return git('branch', '--format=%(refname:short)', '--no-merged', defaultBranch)
+      .split(/\r?\n/).map((b) => b.trim())
+      .filter((b) => b.toLowerCase().startsWith(`${String(prefix).toLowerCase()}/req-`));
+  } catch {
+    return [];
+  }
+}
+
 /** The last gate of every REQ of the plan (runs/gate/<REQ>/report_*.json): the acceptance evidence. */
 function gateEvidence(workspaceRoot) {
   return readPlanReqs(workspaceRoot).map((r) => {
@@ -203,6 +220,7 @@ module.exports = {
   REPORT_PATH,
   gateEvidence,
   pendingReqs,
+  unmergedReqBranches,
   withReportCheck,
   SOLUTION_EVAL_ID,
   SOLUTION_PROFILE,

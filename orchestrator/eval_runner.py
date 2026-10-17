@@ -2744,6 +2744,30 @@ class EvalRunner:
             if case.name.startswith("env::")
         )
 
+        # setup: what must happen before the environment and its services start — installing and
+        # building the components the services run (a solution profile: the services are the
+        # solution itself). Each step blocks; a failing one stops the eval before the services.
+        if not setup_failed:
+            for i, step in enumerate(ltc.get("setup") or [], start=1):
+                item = step if isinstance(step, dict) else {"command": step}
+                command = str(item.get("command") or item.get("run") or "").strip()
+                if not command:
+                    continue
+                step_cwd = (default_cwd / str(item["cwd"])) if item.get("cwd") else default_cwd
+                case = self._run(
+                    name=f"setup::{item.get('id') or i}",
+                    cmd=str(self._rewrite_for_eval_workspace(command, path_map)),
+                    cwd=step_cwd,
+                    expect=0,
+                    env=eval_env,
+                    timeout=int(item.get("timeout") or 1800),
+                    blocking=True,
+                )
+                out_cases.append(case)
+                if not case.passed:
+                    setup_failed = True
+                    break
+
         if not setup_failed:
             eval_env, provision_cases = self._provision_environment(
                 ltc=ltc, req_id=eff_req, env=eval_env, work_kit_root=work_kit_root, logs_root=logs_root,

@@ -21,6 +21,17 @@ function mkLog(out) {
 
 // Return true if the working tree has uncommitted/unstaged changes
 /** Git automation problems are shown, not only logged (silent failures left phases uncommitted). */
+/**
+ * Paths of `git status --porcelain`. The output may arrive trimmed, so the first line can miss
+ * its leading status column (" M docs/x" → "M docs/x"): the status is the first token, not the
+ * first three characters. Renames give their new path.
+ */
+function porcelainPaths(raw) {
+  return String(raw || '').split('\n').map(l => l.trimEnd()).filter(Boolean)
+    .map(l => l.replace(/^\s*\S{1,2}\s+/, ''))
+    .map(p => (p.includes(' -> ') ? p.split(' -> ').pop() : p).replace(/^"(.*)"$/, '$1'));
+}
+
 function notifyGitProblem(message) {
   try {
     require('vscode').window.showWarningMessage(message);
@@ -374,8 +385,16 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
     return;
   }
 
-  const dirtyBefore = (await gitRunVerbose(['status', '--porcelain'], gitCtx, 'diag', out).catch(() => ''))
-    .split('\n').map(l => l.slice(3).trim()).filter(Boolean);
+  const dirtyBefore = porcelainPaths(await gitRunVerbose(['status', '--porcelain'], gitCtx, 'diag', out).catch(() => ''));
+  // CLike's agent package of the REQ (runs/kit/<REQ>/docs/AGENT_*), rewritten at every eval and
+  // repair: committed with the phase, otherwise a modified one blocks the switch to the default
+  // branch and merge-on-gate fails.
+  if (reqId && (phase === 'kit' || phase === 'eval' || phase === 'gate')) {
+    const prefix = `runs/kit/${String(reqId).toUpperCase()}/docs/AGENT_`;
+    for (const p of dirtyBefore) {
+      if (p.startsWith(prefix) && !files.includes(p) && fs.existsSync(path.join(workTree, p))) files.push(p);
+    }
+  }
   const unrelated = dirtyBefore.filter(p => !files.includes(p));
   if (unrelated.length) {
     log(`[harperGit] leaving ${unrelated.length} unrelated change(s) uncommitted: ${unrelated.slice(0, 10).join(', ')}`);
@@ -475,6 +494,11 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
     } catch (e) {
       try { await gitRunVerbose(['merge', '--abort'], gitCtx, 'git', out); } catch {}
       log(`[harperGit] merge-on-gate warn: ${e.message}`);
+      const cause = String(e?.stderr || e?.message || e).split('\n').filter(Boolean).slice(0, 3).join(' ');
+      notifyGitProblem(
+        `CLike Git: ${reqId} passed the gate and was promoted, but it is NOT merged into ${defaultBranch}: ${cause}. ` +
+        `Commit or restore those files, then: git switch ${defaultBranch} && git merge --no-ff ${targetBranch}`
+      );
     } finally {
       if (sessionNoiseStashed) await popLocalSessionNoise(gitCtx, log);
     }
@@ -530,6 +554,7 @@ async function popLocalSessionNoise(gitCtx, log) {
 }
 
 module.exports = {
+    porcelainPaths,
     clikeGitSync,
     toFsPath,
     mapKitSrcToWorkspaceTarget

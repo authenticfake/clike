@@ -20,6 +20,15 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **A solution's services started before it was installed.** The eval starts the services before
+  the checks, so an install written as a check came too late (the frontend could not find its
+  framework). Eval profiles get a `setup` step that runs before the variables and the services;
+  the `/finalize` profile installs and builds there.
+- **A REQ promoted by its gate was not merged into `main`, without a word.** A CLike agent file
+  of the REQ (`runs/kit/<REQ>/docs/AGENT_*`, rewritten at every eval) was modified and blocked
+  the switch; it is now committed with the phase, and a failed merge-on-gate shows the cause and
+  the commands. `/finalize` warns when REQ branches are not merged into the default branch it
+  commits on. Git status paths no longer lose their first character in the log.
 - **`/finalize` left its verification uncommitted.** `ci/SOLUTION_LTC.json`, the smoke scripts,
   the evidence and the report are committed when the verification ends; compose files are
   finalize outputs too. Changes the developer had in the working tree before `/finalize`, and that

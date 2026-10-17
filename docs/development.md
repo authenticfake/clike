@@ -60,6 +60,12 @@ loopback port (`${PORT}`); setup commands (migrations) run first; they are stopp
 checks, and their log is in the eval `logs/services/`. Each step is reported as an
 `env::provision::<NAME>` / `env::service::<name>` case; a failure is blocking.
 
+`setup: [{id, command, cwd, timeout}]` (or plain command strings) runs **before** the variables
+and the services: what the services need installed or built first — the solution profile of
+`/finalize` installs and builds every component there, since its services are the solution
+itself. Each step is a blocking `setup::<id>` case; a failing one stops the eval before any
+service starts. `pre` commands, instead, run after the services, just before the checks.
+
 The developer configures once, in `docker/eval.env` (git-ignored; template
 `docker/eval.env.example`, loaded only by the eval sandbox): `CLIKE_EVAL_POSTGRES_URL` (an admin
 URL of a local PostgreSQL, e.g. `postgresql://me@host.containers.internal:5432/postgres`; from the
