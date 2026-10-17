@@ -126,7 +126,7 @@ function mergeThreeWay(ours, base, theirs, reqId) {
     fs.writeFileSync(o, ours); fs.writeFileSync(b, base); fs.writeFileSync(t, theirs);
     const r = spawnSync('git', ['merge-file', '-p', '--diff3', '-L', 'canonical', '-L', 'base', '-L', reqId, o, b, t], { encoding: 'buffer' });
     if (r.status == null || r.status < 0) throw new Error(`git merge-file failed: ${String(r.stderr || r.error || '')}`);
-    if (r.status === 0) return { text: r.stdout, conflicts: 0, unions: 0, contained: 0 };
+    if (r.status === 0) return { text: r.stdout, conflicts: 0, unions: 0, contained: 0, already: 0 };
     return resolveHunks(r.stdout, r.status, reqId);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -166,10 +166,17 @@ function containsInOrder(big, small) {
   return j === small.length;
 }
 
+// A line that identifies code (not a brace, a blank or a short keyword): what a repeated merge
+// would duplicate.
+const significant = (line) => line.trim().length >= 12 && /[A-Za-z0-9]/.test(line);
+
 /**
  * How one conflict hunk resolves without a human, or null:
  * - both sides only ADDED lines at the same place (empty base, e.g. new entries at the end of
- *   .env.example): keep both, canonical first;
+ *   .env.example): the side that already contains the other wins (a REQ promoted again, or a KIT
+ *   whose base is older than src/, adds lines src/ already has: keeping both repeated them at
+ *   every gate); additions that share lines without one containing the other are a conflict;
+ *   otherwise keep both, canonical first;
  * - the candidate holds the whole canonical side plus its own additions (a later KIT rewrote the
  *   same line from the code an earlier REQ had already promoted): keep the candidate. Nothing of
  *   src/ is lost and the candidate is exactly what the gate tested (the KIT file wins in the
@@ -177,7 +184,15 @@ function containsInOrder(big, small) {
  *   src/ would promote code the gate did not test.
  */
 function resolveHunk(hunk) {
-  if (hunk.base && hunk.base.every((l) => l.trim() === '')) return { lines: [...hunk.ours, ...hunk.theirs], how: 'union' };
+  if (hunk.base && hunk.base.every((l) => l.trim() === '')) {
+    const oursTokens = tokens(hunk.ours);
+    const theirsTokens = tokens(hunk.theirs);
+    if (!theirsTokens.length || containsInOrder(oursTokens, theirsTokens)) return { lines: hunk.ours, how: 'already' };
+    if (!oursTokens.length || containsInOrder(theirsTokens, oursTokens)) return { lines: hunk.theirs, how: 'contains' };
+    const ourLines = new Set(hunk.ours.filter(significant).map((l) => l.trim()));
+    if (hunk.theirs.some((l) => significant(l) && ourLines.has(l.trim()))) return null;
+    return { lines: [...hunk.ours, ...hunk.theirs], how: 'union' };
+  }
   const ours = tokens(hunk.ours);
   if (ours.length && containsInOrder(tokens(hunk.theirs), ours)) return { lines: hunk.theirs, how: 'contains' };
   return null;
@@ -186,7 +201,7 @@ function resolveHunk(hunk) {
 /** Resolve what resolveHunk can; the rest stays as conflict markers (fewer to resolve by hand). */
 function resolveHunks(buf, conflicts, reqId) {
   const out = [];
-  const counts = { union: 0, contains: 0 };
+  const counts = { union: 0, contains: 0, already: 0 };
   let left = 0;
   for (const part of parseConflictHunks(buf.toString('utf8'), reqId)) {
     if (typeof part === 'string') { out.push(part); continue; }
@@ -197,7 +212,9 @@ function resolveHunks(buf, conflicts, reqId) {
     if (part.base) out.push('||||||| base', ...part.base);
     out.push('=======', ...part.theirs, `>>>>>>> ${reqId}`);
   }
-  return { text: Buffer.from(out.join('\n'), 'utf8'), conflicts: left, unions: counts.union, contained: counts.contains };
+  return {
+    text: Buffer.from(out.join('\n'), 'utf8'), conflicts: left, unions: counts.union, contained: counts.contains, already: counts.already,
+  };
 }
 
 /** Unified diff of one file (before → after), paths relative to the workspace. */
@@ -280,6 +297,67 @@ function renderConflicts({ reqId, ts, conflicts }) {
 }
 
 /** Two-way conflict markers (no merge base): the whole canonical file against the candidate. */
+/**
+ * Significant lines a merge would repeat: added by BOTH sides (since the base) and present in the
+ * result more often than in either side. A clean 3-way merge does this when the candidate adds,
+ * at another place, lines src/ already received from an earlier REQ. Promoting must be idempotent.
+ */
+function repeatedLines(ours, base, theirs, merged) {
+  const count = (buf) => {
+    const m = new Map();
+    for (const l of buf.toString('utf8').split('\n')) if (significant(l)) m.set(l.trim(), (m.get(l.trim()) || 0) + 1);
+    return m;
+  };
+  const [o, b, t, r] = [ours, base, theirs, merged].map(count);
+  const out = [];
+  for (const [line, n] of r) {
+    const inOurs = o.get(line) || 0;
+    const inTheirs = t.get(line) || 0;
+    const inBase = b.get(line) || 0;
+    if (inOurs > inBase && inTheirs > inBase && n > Math.max(inOurs, inTheirs)) out.push(line);
+  }
+  return out;
+}
+
+/**
+ * Why merged content (new text, which the gate never ran) is not valid for its language, or null.
+ * Python compiles, JSON parses, JS/MJS pass `node --check`; a tool that is not installed checks
+ * nothing (null). The KIT's own files are not checked: the gate ran them.
+ */
+function invalidSource(rel, content) {
+  const ext = path.extname(rel).toLowerCase();
+  const text = content.toString('utf8');
+  if (ext === '.json') {
+    try { JSON.parse(text); return null; } catch (e) { return `not valid JSON (${String(e.message).slice(0, 120)})`; }
+  }
+  const run = (cmds, args, input, file) => {
+    for (const cmd of cmds) {
+      const r = spawnSync(cmd, file ? [...args, file] : args, { input, encoding: 'utf8', timeout: 30000 });
+      if (r.error && r.error.code === 'ENOENT') continue;
+      if (r.status === 0) return null;
+      if (r.status == null) return null;  // timed out: no verdict
+      return String(r.stderr || r.stdout || '').trim().split('\n').slice(-2).join(' ').slice(0, 200);
+    }
+    return null;
+  };
+  if (ext === '.py') {
+    const err = run(['python3', 'python'], ['-c', 'import sys; compile(sys.stdin.read(), sys.argv[1], "exec")', rel], text);
+    return err ? `not valid Python (${err})` : null;
+  }
+  if (['.js', '.mjs', '.cjs'].includes(ext)) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'clike-check-'));
+    try {
+      const file = path.join(dir, `check${ext}`);
+      fs.writeFileSync(file, content);
+      const err = run(['node'], ['--check'], undefined, file);
+      return err ? `not valid JavaScript (${err})` : null;
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+  return null;
+}
+
 function twoWayMarkers(ours, theirs, reqId) {
   const nl = (b) => (b.length && b[b.length - 1] !== 10 ? Buffer.concat([b, Buffer.from('\n')]) : b);
   return Buffer.concat([
@@ -311,9 +389,18 @@ function decideRaw({ ours, base, theirs, reqId }) {
       : { outcome: 'conflict', reason: 'exists in the canonical root with different content and no merge base' };
   }
   const merged = mergeThreeWay(ours, base, theirs, reqId);
+  const repeated = merged.conflicts === 0 ? repeatedLines(ours, base, theirs, merged.text) : [];
+  if (repeated.length) {
+    return {
+      outcome: 'conflict',
+      reason: `the merge would repeat ${repeated.length} line(s) both sides added (e.g. \`${repeated[0].slice(0, 80)}\`): ` +
+        'src/ already has them; write the file once by hand',
+    };
+  }
   const auto = [
     merged.unions ? `${merged.unions} place(s) where both sides only added lines: both kept` : '',
     merged.contained ? `${merged.contained} place(s) where ${reqId} contains src/ plus its own additions: ${reqId} kept` : '',
+    merged.already ? `${merged.already} place(s) where src/ already has what ${reqId} adds: src/ kept` : '',
   ].filter(Boolean).join('; ');
   if (merged.conflicts === 0) return auto ? { outcome: 'merged', content: merged.text, reason: auto } : { outcome: 'merged', content: merged.text };
   return { outcome: 'conflict', reason: [`${merged.conflicts} overlapping change(s)`, auto].filter(Boolean).join('; '), markers: merged.text };
@@ -374,7 +461,13 @@ function autoMergePromotion({ workspaceRoot, reqId, now = new Date() }) {
     const theirs = fs.readFileSync(path.join(kitRoot, rel));
     const ours = fs.existsSync(dest) ? fs.readFileSync(dest) : null;
     const baseFile = baseContent(workspaceRoot, baseRev, rel, dependencies);
-    const d = decide({ ours, base: baseFile ? baseFile.content : null, theirs, reqId });
+    let d = decide({ ours, base: baseFile ? baseFile.content : null, theirs, reqId });
+    if (d.outcome === 'merged' && d.content && !d.content.equals(theirs)) {
+      const invalid = invalidSource(rel, d.content);
+      if (invalid) {
+        d = { outcome: 'conflict', reason: `the merged file is ${invalid}: not written`, markers: twoWayMarkers(ours, theirs, reqId) };
+      }
+    }
     const entry = { path: rel, outcome: d.outcome };
     if (baseFile && baseFile.from !== 'git' && d.outcome !== 'added' && d.outcome !== 'unchanged') entry.base = baseFile.from;
     if (d.reason) entry.reason = d.reason;
@@ -420,4 +513,4 @@ function autoMergePromotion({ workspaceRoot, reqId, now = new Date() }) {
   return { ts, promoted, results, written, reportFiles, reportPath, summary };
 }
 
-module.exports = { autoMergePromotion, baseContent, decide, renderConflicts, resolveHunk, planDependencies, promotableFiles, kitBaseRevision, mergeThreeWay, unifiedDiff };
+module.exports = { autoMergePromotion, baseContent, decide, invalidSource, renderConflicts, resolveHunk, planDependencies, promotableFiles, kitBaseRevision, mergeThreeWay, unifiedDiff };

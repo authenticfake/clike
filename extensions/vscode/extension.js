@@ -5192,7 +5192,12 @@ async function cmdOpenChat(context) {
                 runId,
                 targets,
                 files_git,
-                { workspaceRoot: toFsPath(wsRoot), finalizeOpenPr: (phase === 'finalize') },
+                {
+                  workspaceRoot: toFsPath(wsRoot),
+                  finalizeOpenPr: (phase === 'finalize'),
+                  // a gate that passed but left promotion conflicts does not reach the default branch
+                  skipMergeOnGate: phase === 'gate' && msg.__report?.promotion?.promoted === false,
+                },
                 settings,
                 out
               );

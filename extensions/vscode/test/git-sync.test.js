@@ -189,6 +189,16 @@ test('merge-on-gate is opt-in', async () => {
   assert.equal(git(dir, 'rev-parse', '--abbrev-ref', 'HEAD'), 'main');
 });
 
+test('merge-on-gate skips a REQ whose promotion left conflicts', async () => {
+  const dir = makeRepo();
+  await sync(dir, 'kit', 'REQ-001', [write(dir, 'runs/kit/REQ-001/src/a.py', 'a\n')]);
+  const kitCommit = git(dir, 'rev-parse', 'feature/req-001');
+  await clikeGitSync('gate', 'run-gate', 'REQ-001', [write(dir, 'runs/kit/REQ-001/gate.json', '{}\n')],
+    { workspaceRoot: dir, skipMergeOnGate: true }, settings({ gitMergeOnGate: true }), quietOut);
+  assert.ok(!isAncestor(dir, kitCommit, 'main'), 'not merged while the promotion has conflicts');
+  assert.ok(isAncestor(dir, kitCommit, 'feature/req-001'), 'the gate commit stays on the REQ branch');
+});
+
 test('the next REQ branch is stacked on an unmerged REQ branch, even with local changes', async () => {
   const dir = makeRepo();
   write(dir, 'docs/harper/plan.json', '{"v":1}\n');

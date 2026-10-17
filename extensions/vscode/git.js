@@ -421,8 +421,15 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
     log('[harperGit] no remote configured → committed locally.');
   }
 
-  // 9) Merge into the default branch after a PASS gate (opt-in)
-  if (phase === 'gate' && s.gitMergeOnGate === true) {
+  // 9) Merge into the default branch after a PASS gate (opt-in), only for a promoted REQ: a REQ
+  // whose promotion left conflicts is still in progress (src/ incomplete) and stays on its branch.
+  if (phase === 'gate' && s.gitMergeOnGate === true && opts?.skipMergeOnGate) {
+    log(`[harperGit] ${reqId} not merged into ${defaultBranch}: promotion left conflicts (resolve them and run /gate again).`);
+    notifyGitProblem(
+      `CLike Git: ${reqId} passed the gate but is NOT merged into ${defaultBranch}: its promotion left conflicts. ` +
+      `Resolve them (runs/kit/${reqId}/promotion/<latest>/conflicts.md) and run /gate ${reqId} again.`
+    );
+  } else if (phase === 'gate' && s.gitMergeOnGate === true) {
     let sessionNoiseStashed = false;
     try {
       sessionNoiseStashed = await stashLocalSessionNoise(gitCtx, log);

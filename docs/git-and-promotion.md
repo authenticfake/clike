@@ -52,7 +52,9 @@ Other settings: `gitDeleteBranchOnMerge`, `gitReturnToFeatureAfterMerge`, `remot
   phase files uncommitted in the working tree.
 - A new repository is bootstrapped with an empty commit: existing workspace files
   (for example `.env`) are never committed implicitly.
-- The default branch changes only through an explicit merge-on-gate after a PASS gate.
+- The default branch changes only through an explicit merge-on-gate after a PASS gate, and only
+  for a REQ that was promoted: a gate that passed but left promotion conflicts keeps the REQ on
+  its branch (CLike says so) until the conflicts are resolved and `/gate` runs again.
 - Tags `harper/<phase>/<runId>` are created locally; pushes only with `autoPush`.
 - These guarantees are covered by tests against real temporary repositories
   (`extensions/vscode/test/git-sync.test.js`).
@@ -94,12 +96,19 @@ override) the REQ is promoted **without prompts** (`clike.gate.autoPromote`, def
   direct dependency KIT in `plan.json` `dependsOn` that has it, else the canonical file at the
   parent of the KIT commit, else at the last commit before the KIT was generated), ours = the
   canonical file now, theirs = the candidate. Two kinds of overlapping change resolve without
-  you: lines added at the same place by both sides (both kept, canonical first), and a spot where
+  you: lines added at the same place by both sides (both kept, canonical first — unless one side
+  already contains the other: then that side alone, so a REQ promoted again, or a KIT whose base
+  is older than `src/`, never adds lines `src/` already has; additions that share lines without
+  one containing the other are a conflict), and a spot where
   the candidate holds the whole canonical side plus its own additions (a later KIT rewrote a line
   from the code an earlier REQ had already promoted; compared word by word, whitespace ignored):
   the candidate is kept, nothing of `src/` is lost and it is what the gate tested. The opposite
   (canonical holds the whole candidate) stays a conflict: `src/` was not tested with this REQ.
-  Without a merge base the same rule applies to the whole file. Outcomes: `added`, `updated` (canonical unchanged since the KIT),
+  Without a merge base the same rule applies to the whole file. **Promotion is idempotent:** a
+  merge that would repeat significant lines both sides added (the same block received earlier
+  from another REQ, placed elsewhere) is a conflict, never written. **Merged files are checked**
+  before they are written — Python compiles, JSON parses, JS/MJS pass `node --check` — and a
+  merged file that is not valid is a conflict with the reason. Outcomes: `added`, `updated` (canonical unchanged since the KIT),
   `merged` (both changed, merged cleanly by `git merge-file`), `kept_canonical`, `unchanged`,
   `conflict`;
 - a conflicting file is **never written**: `<name>.conflict-<REQ>-<ts>` next to it holds the
