@@ -86,6 +86,11 @@ def solution_verify_rules(deployment: str = "") -> List[str]:
         "to fill in. scripts/start_solution_local.sh and .ps1 start the whole solution with that configuration (setup "
         "first when needed) and print its URLs. scripts/check_solution_local.sh and .ps1 run the profile's steps "
         "(setup, install, build, start, smoke, stop).",
+        "Container runtime on the developer's machine: scripts that use containers detect what is installed — "
+        "`docker compose`, `podman compose` or `podman-compose` (many developers run Podman, not Docker) — and say "
+        "exactly which is missing. When the solution also runs natively (as the profile runs it in the sandbox), the "
+        "start and check scripts offer that native path when no container runtime is available, with the language "
+        "versions it needs.",
         deploy_rule,
         f"Write {REPORT_PATH}, the report of this /finalize for the developer, exhaustive and specific: (1) what the "
         "solution is and its components; (2) how to start it (the one command, what it starts, the URLs) and how to see "

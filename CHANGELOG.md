@@ -20,6 +20,12 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **A local-agent `/finalize` was rejected for writing the solution.** The extension checked its
+  files with the KIT rule (no `src/`, no `docs/harper/`): `/finalize` writes exactly there. It is
+  now checked against the write roots and forbidden paths of its own package (never `test/`,
+  `runs/`, `.git`, `.env` or caches). The finalize run scripts detect `docker compose`,
+  `podman compose` or `podman-compose`, and offer the native run when no container runtime is
+  installed.
 - **A solution's services started before it was installed.** The eval starts the services before
   the checks, so an install written as a check came too late (the frontend could not find its
   framework). Eval profiles get a `setup` step that runs before the variables and the services;
