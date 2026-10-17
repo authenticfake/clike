@@ -199,6 +199,10 @@ failures → eval) and, by default, eval and gate also re-run the acceptance che
 REQs. `/gate <REQ-ID> --fix ["hint"]` runs the same loop from a failing gate. The hint is optional:
 CLike flags failures that passed in earlier runs as nondeterministic. See `auto-eval.md`.
 
+Native programs a check needs (database and messaging clients, cloud and IaC CLIs, a JDK…) are
+installed in the eval sandbox from CLike's tools catalog when an eval needs them, after the
+developer's confirmation; `/tools` shows and manages them. See `auto-eval.md`.
+
 ## GATE model
 
 Current gate characteristics:

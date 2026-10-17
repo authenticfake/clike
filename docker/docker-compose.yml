@@ -53,6 +53,7 @@ services:
       - RUNS_DIR=/app/runs
       - CLIKE_STATE_DIR=/app/runs/state
       - CLIKE_EVAL_SANDBOX_URL=http://eval-sandbox:8090
+      - CLIKE_EVAL_TOOLS_URL=http://eval-tools:8091
       - WORKSPACE_ROOT=/workspace/
       - CODE_ROOT_BASE=src
       - TEST_ROOT_BASE=tests
@@ -83,13 +84,15 @@ services:
       - ./runs:/app/runs
       - ${CLIKE_PROJECTS_DIR}:${CLIKE_PROJECTS_DIR}:ro
     ports: ["127.0.0.1:8080:8080"]
-    networks: [default, evalnet]
+    networks: [default, evalnet, toolsnet]
     depends_on:
       gateway:
         condition: service_healthy
       qdrant:
         condition: service_started
       eval-sandbox:
+        condition: service_started
+      eval-tools:
         condition: service_started
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2).status == 200 else 1)"]
@@ -116,6 +119,8 @@ services:
       # Tool caches on the volume too: Playwright browsers (~700 MB) filled the 1 GB /tmp.
       - XDG_CACHE_HOME=/var/clike-eval/.cache
       - PLAYWRIGHT_BROWSERS_PATH=/var/clike-eval/.cache/ms-playwright
+      # Native tools installed on the developer's confirmation (eval-tools), after the image's own on PATH.
+      - CLIKE_EVAL_TOOLS_BIN=/opt/clike-tools/bin
     # Optional, git-ignored: variables the projects' tests need, e.g. a test database URL
     # (see eval.env.example). Names that look like credentials are refused at startup.
     env_file:
@@ -124,6 +129,7 @@ services:
     volumes:
       - ${CLIKE_PROJECTS_DIR}:${CLIKE_PROJECTS_DIR}:ro
       - eval_work:/var/clike-eval
+      - eval_tools:/opt/clike-tools:ro
     read_only: true
     tmpfs:
       - /tmp:size=1g,mode=1777
@@ -139,6 +145,33 @@ services:
     networks: [evalnet]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=2).status == 200 else 1)"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+
+  # Installs the native tools of the eval tools catalog (conda-forge only) into the volume the
+  # sandbox mounts read-only. Only the orchestrator reaches it (toolsnet): a check cannot install
+  # anything. No credentials, non-root, read-only root filesystem; egress to conda-forge.
+  eval-tools:
+    image: localhost/clike-orchestrator:latest
+    command: ["uvicorn", "eval_tools_app:app", "--host", "0.0.0.0", "--port", "8091"]
+    environment:
+      - TZ=Europe/Rome
+      - HOME=/tmp
+      - CLIKE_EVAL_TOOLS_ROOT=/opt/clike-tools
+      - MAMBA_ROOT_PREFIX=/opt/clike-tools/mamba
+    volumes:
+      - eval_tools:/opt/clike-tools
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges]
+    init: true
+    restart: unless-stopped
+    networks: [toolsnet]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8091/health', timeout=2).status == 200 else 1)"]
       interval: 10s
       timeout: 3s
       retries: 12
@@ -187,8 +220,10 @@ services:
 networks:
   default: {}
   evalnet: {}
+  toolsnet: {}
 
 volumes:
   eval_work:
+  eval_tools:
   qdrant_data:
   ollama_data:

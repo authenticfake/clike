@@ -41,6 +41,10 @@ The current webview parser supports the following slash commands.
   (≥ 10 characters), is recorded by the orchestrator in an audit log with a digest of the REQ
   artifacts, and is reported as `OVERRIDE`, never as `PASS`. Use only when the gate cannot run
   (e.g. environment-blocked checks).
+- `/tools [search <text> | add <tool[@version]>… | remove <tool>…]` — native tools of the eval
+  sandbox (kcat, mysqldump, aws, kubectl, terraform, jdk@17…). CLike installs what an eval needs on
+  its own after asking; `/tools` shows the catalog and what is installed, `add` installs and
+  approves for the project (`.clike/eval-tools.yaml`). See `auto-eval.md`.
 - `/finalize`
 - `/extend` — extends requirements of an existing plan (see `CLike_Harper_Extend_Feature.md`)
 
@@ -150,6 +154,21 @@ Auto-gate: when the gate fails (checks, regression, required outputs), a KIT rep
 rules as `/eval --fix`, then a full gate again; only a gate run on the repaired candidate
 promotes it. It stops on a tampered acceptance surface and does not try to resolve promotion
 conflicts. Notes per cycle in `runs/gate/<REQ>/repair_<REQ>_<ts>.md`.
+
+`/eval --fix` and `/gate --fix` stop, instead of repairing code, when the failure is not the code:
+the sandbox ran out of resources (`EVAL_SANDBOX_EXHAUSTED`), a native tool is still missing
+(`missing_tools`), or CLike could not prepare the eval workspace. A promoted REQ's test that fails
+and then passes on a re-run is a nondeterministic warning, not a regression.
+
+### `/tools [search <text> | add <tool[@version]>… | remove <tool>…]`
+Native tools of the eval sandbox. CLike installs what an eval needs on its own: before an eval or
+gate it finds the programs the REQ declares (`environment.tools` in `ci/LTC.json`) or runs, and
+asks *Install / Always for this project / No* (`clike.evalTools.install`: `ask` | `always` |
+`never`). `/tools` lists the catalog by group and what is installed; `search` matches name,
+description or program; `add` accepts a catalog name or the program (`mysqldump`, `kcat`), with
+an optional version (`jdk@17`), installs it and approves it for the project in
+`.clike/eval-tools.yaml`; `remove` withdraws the approval (the installed files stay in the shared
+tools volume). Libraries of a language belong to the project manifest. See `auto-eval.md`.
 
 ### `/finalize`
 Runs release-oriented finalization: README, HOWTO_RUN, release notes, local run scripts and

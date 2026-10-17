@@ -110,6 +110,9 @@ RUN if [ "$ENABLE_JAVA" = "true" ]; then \
       https://github.com/google/google-java-format/releases/download/v1.22.0/google-java-format-1.22.0-all-deps.jar ; \
     else echo "Skip GJF jar"; fi
 
+# ===== micromamba: installs the native tools of the eval tools catalog (eval_tools_app) =====
+COPY --from=docker.io/mambaorg/micromamba:2.9.0-debian13 /bin/micromamba /usr/local/bin/micromamba
+
 # ===== Python deps (locked, uv) =====
 COPY --from=ghcr.io/astral-sh/uv:0.12.22 /uv /usr/local/bin/uv
 WORKDIR /app
@@ -145,8 +148,8 @@ ENV CLIKE_TOOLS_PY_BLACK=true \
 # ===== Non-root runtime user (WP4) =====
 # uid 1000; on Podman for macOS files written to bind mounts show up as the host user.
 RUN useradd --create-home --uid 1000 --shell /bin/bash clike \
- && mkdir -p /runs /app/runs /var/clike-eval \
- && chown -R clike:clike /runs /app/runs /var/clike-eval
+ && mkdir -p /runs /app/runs /var/clike-eval /opt/clike-tools \
+ && chown -R clike:clike /runs /app/runs /var/clike-eval /opt/clike-tools
 USER clike
 ENV HOME=/home/clike
 

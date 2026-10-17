@@ -36,6 +36,7 @@ Supported Harper commands:
 /kit <REQ-ID>
 /eval <REQ-ID>
 /gate <REQ-ID>
+/tools [search <text> | add <tool[@version]> | remove <tool>]
 /finalize
 /ragIndex <glob>
 /ragSearch <query>

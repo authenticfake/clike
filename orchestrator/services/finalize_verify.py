@@ -57,7 +57,7 @@ def solution_verify_rules(deployment: str = "") -> List[str]:
         "its eval sandbox (a Linux container; the project is copied without runs/ and .git) against the canonical tree: "
         "the sources and tests the gates promoted under src/ and test/. When it fails, CLike sends you its errors to fix.",
         'Format: the LTC contract of a KIT — {"req_id": "SOLUTION", "checks": [{"id", "command", "cwd" (relative to the '
-        'project root), "blocking": true, "timeout"}], "environment": {"required_variables": [{name, purpose, provision}]}, '
+        'project root), "blocking": true, "timeout"}], "environment": {"required_variables": [{name, purpose, provision}], "tools": [native programs the checks run, e.g. "kcat", "jdk@17"]}, '
         '"services": [{name, cwd, setup, start, env, port_env, ready: {http_path}, exports}]} — provision token | uuid | '
         "timestamp | template | postgres_database | service | external, as in the KIT rules; omit `req` in services: they run "
         "from the canonical tree.",

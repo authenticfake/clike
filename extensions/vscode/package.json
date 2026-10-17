@@ -217,6 +217,21 @@
           "maximum": 20,
           "description": "Local agent repairs (Codex, Claude Code): how many times the agent may re-run failed checks in the real CLike eval sandbox during one repair (node .clike/bin/eval-check.mjs), to iterate until they pass (0 = off)."
         },
+        "clike.evalTools.install": {
+          "type": "string",
+          "enum": [
+            "ask",
+            "always",
+            "never"
+          ],
+          "default": "ask",
+          "enumDescriptions": [
+            "Ask before installing a native tool the eval needs (kcat, mysqldump, aws, a JDK…) in the eval sandbox.",
+            "Install the tools of CLike's catalog the eval needs without asking.",
+            "Never install: checks that need a missing tool are reported, not repaired."
+          ],
+          "description": "Native tools of the eval sandbox: before an eval or gate CLike finds the programs the REQ declares (ci/LTC.json environment.tools) or runs, and installs the missing ones from its catalog (conda-forge). Tools listed in .clike/eval-tools.yaml are installed without asking."
+        },
         "clike.gate.autoPromote": {
           "type": "string",
           "enum": [

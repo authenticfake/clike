@@ -22,6 +22,7 @@ from typing import List, Optional
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
+import eval_tools
 import sandbox_resources
 from eval_runner import _SECRET_ENV_NAME_RE, EvalRunner, report_to_dict
 from services.gate_integrity import allowed_eval_roots
@@ -52,6 +53,27 @@ class SandboxRunRequest(BaseModel):
 def health():
     # Processes in use against the limit: zombies piling up mean the container has no init.
     return {"status": "ok", "service": "eval-sandbox", "resources": sandbox_resources.snapshot()}
+
+
+class ToolsCheckRequest(BaseModel):
+    project_root: str
+    req_id: Optional[str] = None
+    profile: Optional[str] = None
+
+
+@app.post("/tools/check")
+def tools_check(req: ToolsCheckRequest):
+    """Native tools the REQ needs that this sandbox lacks (seen with its own PATH and tools volume)."""
+    roots = allowed_eval_roots()
+    prj = Path(req.project_root).resolve()
+    if not roots or not is_within_any(prj, roots) or not prj.is_dir():
+        raise HTTPException(status_code=403, detail="project_root is outside the allowed eval roots")
+    if req.profile:
+        try:
+            resolve_within(prj, req.profile, allow_absolute_inside=True)
+        except UnsafePathError as exc:
+            raise HTTPException(status_code=400, detail=f"invalid profile path: {exc}") from exc
+    return eval_tools.check(prj, req.req_id, req.profile)
 
 
 @app.post("/run")

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fast rebuild of the CLike stack that always runs the current code.
 #
-#   ./rebuild.sh                 # build gateway + orchestrator (eval-sandbox shares its image)
+#   ./rebuild.sh                 # build gateway + orchestrator (eval-sandbox and eval-tools share its image)
 #   ./rebuild.sh gateway         # build only the gateway
 #   ./rebuild.sh orchestrator    # build only the orchestrator image
 # The three services are always recreated (seconds): the orchestrator depends on the gateway,
@@ -25,7 +25,7 @@ case "${1:-all}" in
   orchestrator | eval-sandbox) build=(orchestrator) ;;
   *) echo "usage: $0 [all|gateway|orchestrator]" >&2; exit 2 ;;
 esac
-run=(gateway orchestrator eval-sandbox)
+run=(gateway orchestrator eval-sandbox eval-tools)
 
 image_of() {
   case "$1" in

@@ -8,6 +8,7 @@ The inspected `docker/docker-compose.yml` defines these services:
 - `orchestrator` on `127.0.0.1:8080`
 - `qdrant` on `127.0.0.1:6333`
 - `eval-sandbox` — not published; executes eval/gate commands (see below)
+- `eval-tools` — not published; installs native tools of the eval tools catalog into the volume the sandbox mounts read-only
 - `ollama` on `127.0.0.1:11434` — optional, only with `--profile ollama`
 
 All ports are published on loopback only. Set `CLIKE_PROJECTS_DIR` in `docker/.env`
@@ -52,6 +53,17 @@ evaluation (dependencies already available) start the stack with:
 podman-compose -f docker-compose.yml -f compose.eval-offline.yml up -d
 ```
 
+The sandbox runs with an init (`init: true`) that reaps the processes the checks orphan.
+
+### Eval tools
+`eval-tools` installs the native tools an eval needs (`orchestrator/eval_tools_catalog.yaml`:
+database and messaging clients, cloud and IaC CLIs, toolchains — conda-forge) into the
+`eval_tools` volume, after the developer's confirmation in VS Code (see `auto-eval.md`). Only the
+orchestrator reaches it (`toolsnet`), it holds no credentials, runs non-root on a read-only root
+filesystem and installs conda-forge packages only. The sandbox mounts the volume read-only and
+appends `/opt/clike-tools/bin` to the PATH of the checks. The offline overlay
+(`compose.eval-offline.yml`) cuts the sandbox egress only: tools can still be installed.
+
 Gate integrity state (acceptance locks, override audit log) lives in `docker/runs/state`.
 
 ### Ollama (optional)
@@ -76,6 +88,8 @@ Runs as the vector store backing RAG persistence.
 ### Eval / gate (orchestrator)
 - `DEV_FOLDER` — allowed root for eval/gate project roots (set from `CLIKE_PROJECTS_DIR`).
 - `CLIKE_EVAL_SANDBOX_URL` — eval sandbox endpoint (compose: `http://eval-sandbox:8090`; unset = in-process).
+- `CLIKE_EVAL_TOOLS_URL` — eval tools service (compose: `http://eval-tools:8091`; unset = tools cannot be installed).
+- `CLIKE_EVAL_KEEP_REQS` (3), `CLIKE_EVAL_MIN_FREE_GB` (10) — eval disk pruning in the sandbox volume.
 - `CLIKE_STATE_DIR` — gate integrity state (compose: `/app/runs/state`).
 - `CLIKE_EVAL_ALLOWED_ROOTS` — additional allowed roots (path-separator list).
 - `CLIKE_ALLOW_INLINE_LTC` — `1` to accept inline-only LTC profiles (default: the workspace profile

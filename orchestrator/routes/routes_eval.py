@@ -15,6 +15,7 @@ from pydantic import BaseModel
 import httpx
 
 from eval_runner import EvalCase, EvalReport, EvalRunner, report_from_dict
+import eval_tools
 from sandbox_resources import SANDBOX_EXHAUSTED_REASON
 from utils.safe_paths import UnsafePathError, is_within_any, resolve_within, validate_req_id
 from services.gate_integrity import allowed_eval_roots, compare_with_lock, ensure_lock, lock_amendments, record_override
@@ -574,6 +575,7 @@ def _eval_payload(rep: EvalReport, req_id: Optional[str]) -> Dict[str, Any]:
         "reason_code": rep.reason_code,
         "environment_repairable": rep.environment_repairable,
         "sandbox_exhausted": rep.reason_code == SANDBOX_EXHAUSTED_REASON,
+        "missing_tools": rep.missing_tools or [],
         "passed": promotable,
         "execution_ok": not environment_blocked,
         "quality_passed": quality_passed,
@@ -804,6 +806,7 @@ async def gate_check(
         "raw_eval_status": rep.status,
         "reason_code": reason_code,
         "sandbox_exhausted": rep.reason_code == SANDBOX_EXHAUSTED_REASON,
+        "missing_tools": rep.missing_tools or [],
         "structural_blockers": structural_blockers,
         "profile": rep.profile,
         "req_id": rep.req_id,
@@ -938,4 +941,92 @@ def gate_override(payload: GateOverrideRequest):
                 "blocking": False,
             }
         ],
+    }
+
+
+# --- eval tools: native programs a REQ needs in the sandbox (eval_tools) -----------------------
+
+class EvalToolsRequest(BaseModel):
+    project_root: Optional[str] = None
+    project_name: Optional[str] = None
+    req_id: Optional[str] = None
+    profile: Optional[str] = None
+    tools: List[str] = []
+
+
+def _tools_service() -> str:
+    return os.getenv("CLIKE_EVAL_TOOLS_URL", "").strip().rstrip("/")
+
+
+@router.post("/v1/eval/tools/check")
+async def eval_tools_check(body: EvalToolsRequest):
+    """Tools the REQ declares or uses that the sandbox lacks, before its eval runs."""
+    prj = _resolve_project_root(body.project_root, body.project_name)
+    req = validate_req_id(body.req_id) if body.req_id else None
+    sandbox = os.getenv("CLIKE_EVAL_SANDBOX_URL", "").strip().rstrip("/")
+    result: Dict[str, Any]
+    if sandbox:
+        try:
+            async with httpx.AsyncClient(timeout=60) as client:
+                response = await client.post(
+                    f"{sandbox}/tools/check", json={"project_root": str(prj), "req_id": req, "profile": body.profile}
+                )
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=503, detail=f"eval sandbox unavailable: {type(exc).__name__}") from exc
+        if response.status_code != 200:
+            raise HTTPException(status_code=response.status_code, detail=f"eval sandbox: {response.text[:500]}")
+        result = response.json()
+    else:
+        result = await asyncio.to_thread(eval_tools.check, prj, req, body.profile)
+    result["installable"] = bool(_tools_service())
+    return result
+
+
+@router.post("/v1/eval/tools/install")
+async def eval_tools_install(body: EvalToolsRequest):
+    """Install catalog tools (``name`` or ``name@version``) into the sandbox tools volume."""
+    prj = _resolve_project_root(body.project_root, body.project_name)
+    service = _tools_service()
+    if not service:
+        raise HTTPException(status_code=503, detail="the eval tools service is not configured (CLIKE_EVAL_TOOLS_URL)")
+    resolved = eval_tools.resolve(body.tools, eval_tools.load_catalog(prj))
+    if resolved["unknown"] or not resolved["packages"]:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "unknown tools", "unknown": resolved["unknown"], "hint": "see GET /v1/eval/tools for the catalog"},
+        )
+    try:
+        async with httpx.AsyncClient(timeout=1800) as client:
+            response = await client.post(
+                f"{service}/install",
+                json={"packages": resolved["packages"], "binaries": resolved["binaries"], "tools": list(body.tools)},
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=503, detail=f"eval tools service unavailable: {type(exc).__name__}") from exc
+    if response.status_code != 200:
+        raise HTTPException(status_code=response.status_code, detail=f"eval tools: {response.text[:3000]}")
+    log.info("eval tools installed: %s", ", ".join(body.tools))
+    return response.json()
+
+
+@router.get("/v1/eval/tools")
+async def eval_tools_list(project_root: Optional[str] = Query(default=None), project_name: Optional[str] = Query(default=None)):
+    """The catalog (with the project's own entries), what is installed and what the project approved."""
+    prj = _resolve_project_root(project_root, project_name)
+    installed: Dict[str, Any] = {}
+    service = _tools_service()
+    if service:
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                response = await client.get(f"{service}/installed")
+            if response.status_code == 200:
+                installed = response.json()
+        except httpx.HTTPError:
+            installed = {}
+    return {
+        "catalog": eval_tools.load_catalog(prj),
+        "installed": installed.get("tools") or {},
+        "versions": installed.get("packages") or {},
+        "approved": eval_tools.approved_tools(prj),
+        "installable": bool(service),
     }

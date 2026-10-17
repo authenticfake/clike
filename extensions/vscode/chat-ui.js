@@ -526,8 +526,9 @@ var HELP_COMMANDS = [
   {cmd:'/kit [REQ-ID] [--integrity|--hardener|--promotion-eval|--phases=...]', desc:'Runs base KIT by default, or explicit follow-up KIT phases on an existing/generated candidate'},
   {cmd:'/kit <REQ-ID> (clike.kit.acceptanceFirst)', desc:'Acceptance-first: tests and eval profile from SPEC/PLAN written and locked first, then the code against them'},
   {cmd:'/kit REQ-001 --repair --methodology bmad --agent developer', desc:'Runs a governed BMAD developer repair pass inside KIT candidate roots'},
-  {cmd:'/eval <REQ-ID>', desc:'Runs the REQ acceptance checks (LTC) in the eval sandbox; with clike.eval.regression also the checks of the promoted REQs'},
-  {cmd:'/eval <REQ-ID> --fix ["hint"]', desc:'Auto-eval: eval, then on failure a KIT repair from the real failures, then eval again (max clike.autoEval.maxCycles, default 2, plus up to clike.autoEval.extraCyclesOnProgress while the failures decrease). Tests stay locked. Re-run it to continue; the optional hint guides the fix'},
+  {cmd:'/tools [search <text> | add <tool[@version]>… | remove <tool>…]', desc:'Native tools of the eval sandbox (kcat, mysqldump, aws, kubectl, terraform, jdk@17…). CLike installs what an eval needs on its own (it asks first, clike.evalTools.install); /tools lists the catalog and what is installed, add installs and approves for this project (.clike/eval-tools.yaml), remove withdraws the approval'},
+  {cmd:'/eval <REQ-ID>', desc:'Runs the REQ acceptance checks (LTC) in the eval sandbox; with clike.eval.regression also the checks of the promoted REQs. A promoted REQ test that fails once and passes on a re-run is a nondeterministic warning, not a regression'},
+  {cmd:'/eval <REQ-ID> --fix ["hint"]', desc:'Auto-eval: eval, then on failure a KIT repair from the real failures, then eval again (max clike.autoEval.maxCycles, default 2, plus up to clike.autoEval.extraCyclesOnProgress while the failures decrease). Tests stay locked. Re-run it to continue; the optional hint guides the fix. It stops instead of repairing when the failure is not the code: sandbox out of resources (restart it), a native tool missing (/tools), a workspace CLike could not prepare'},
   {cmd:'/eval REQ-001 --methodology bmad --agent qa', desc:'Runs canonical eval, then attaches BMAD QA advisory guidance'},
   {cmd:'/gate <REQ-ID> [--auto-merge|--ask|--no-promote] [--fix ["hint"]]', desc:'Promotion gate: PASS if the checks (and the regression checks) pass; warnings do not block unless clike.gate.strictWarnings. With --fix a failing gate gets the same KIT repair as /eval --fix (tests stay locked, same cycle limits), then a full gate again. On PASS the REQ is promoted by auto-merge (3-way per file, conflicts never written) with a report in runs/kit/<REQ>/promotion/ (clike.gate.autoPromote: merge | ask | off); --auto-merge forces it, --ask shows the strategy list (auto-merge first), --no-promote skips it'},
   {cmd:'/plan --methodology bmad --agent architect', desc:'Plans with BMAD architecture guidance while CLike owns PLAN.md and plan.json'},
@@ -539,7 +540,8 @@ var HELP_COMMANDS = [
   {cmd:'/agent-default codex|claude|auto', desc:'Sets the preferred local agent executor (works in Free, Coding and Harper; does not change mode)'},
   {cmd:'Agent chat (execution = agent)', desc:'Free: questions only, nothing is written. Coding and Harper free text: the agent can also create files, only under generated/<id>/ (Harper artifacts change only through /spec, /plan, /kit, ...)'},
   {cmd:'Settings (agent chat)', desc:'clike.agentChat.approvals: ask (default) — in Coding and Harper every edit/command of Claude Code or Codex waits for Allow / Allow all this turn / Deny, writes outside generated/ are denied; auto — no questions'},
-  {cmd:'Settings (auto-eval)', desc:'clike.autoEval.maxCycles (2), clike.autoEval.extraCyclesOnProgress (3), clike.autoEval.afterKit, clike.eval.regression (on), clike.gate.strictWarnings, clike.kit.acceptanceFirst — see docs/auto-eval.md'},
+  {cmd:'Settings (eval tools)', desc:'clike.evalTools.install: ask (default) — before an eval or gate CLike finds the native tools the REQ needs (environment.tools in ci/LTC.json, programs the code runs, a check that stopped on a missing program) and asks Install / Always for this project / No; always installs from the catalog without asking; never does not install. .clike/eval-tools.yaml: tools approved for the project (installed without asking) and custom conda-forge entries — see docs/auto-eval.md'},
+  {cmd:'Settings (auto-eval)', desc:'clike.autoEval.maxCycles (2), clike.autoEval.extraCyclesOnProgress (3), clike.autoEval.afterKit, clike.autoEval.agentEvalChecks (8: re-runs of failed checks a local agent may do in the sandbox while it repairs), clike.eval.regression (on), clike.gate.strictWarnings, clike.kit.acceptanceFirst — see docs/auto-eval.md'},
   {cmd:'/finalize', desc:'Final gates and project closure (Harper)'},
   {cmd:'/finalize --methodology bmad --agent tech-writer', desc:'Finalizes with BMAD documentation guidance'},
   {cmd:'/rag <query>', desc:'Searches the RAG and shows top results'},
@@ -1005,7 +1007,7 @@ function helpStartsWith(c, prefixes) {
 var HELP_GROUPS = [
   { title: 'Start & project', test: function (c) { return helpStartsWith(c, ['/help', 'Docs', '/init', '/status', '/where', '/switch']); } },
   { title: 'Agents', test: function (c) { return helpStartsWith(c, ['/agent-', 'Agent chat', 'Settings (agent']); } },
-  { title: 'Eval & gate', test: function (c) { return helpStartsWith(c, ['/eval', '/gate', 'Settings (auto-eval']); } },
+  { title: 'Eval & gate', test: function (c) { return helpStartsWith(c, ['/eval', '/gate', '/tools', 'Settings (auto-eval', 'Settings (eval tools']); } },
   { title: 'Harper phases', test: function (c) { return helpStartsWith(c, ['/idea', '/spec', '/plan', '/extend', '/add-req', '/kit', '/finalize']); } },
   { title: 'RAG', test: function (c) { return helpStartsWith(c, ['/rag']); } },
   { title: 'Other', test: function () { return true; } },
@@ -1087,6 +1089,7 @@ function handleSlash(slash) {
     '/kit',
     '/eval',
     '/gate',
+    '/tools',
     '/finalize',
     '/extend',
     '/add-req',
@@ -1261,6 +1264,12 @@ function handleSlash(slash) {
   } catch (eRagSlash) { console.warn('rag slash err', eRagSlash); }
   if (slash.cmd === '/where') {
     vscode.postMessage({ type: 'where' });
+    return;
+  }
+  if (slash.cmd === '/tools') {
+    try { bubble('user', '/tools ' + [slash.args.action].concat(slash.args.names || []).join(' '), 'system'); } catch {}
+    vscode.postMessage({ type: 'evalTools', action: slash.args.action, names: slash.args.names || [] });
+    try { prompt.value = ''; } catch {}
     return;
   }
   if (slash.cmd === '/status') {

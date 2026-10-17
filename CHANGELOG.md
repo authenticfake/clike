@@ -4,8 +4,33 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+### Added
+
+- **Native tools in the eval sandbox, installed when an eval needs them.** A catalog of clients
+  and toolchains (databases, messaging, AWS/Azure/GCP CLIs, Kubernetes/IaC, quality scanners, JDK,
+  Maven/Gradle, .NET, Go, Rust — conda-forge, both architectures). Before an eval CLike finds
+  what the REQ declares (`environment.tools`) or runs and the sandbox lacks, asks the developer
+  (`clike.evalTools.install`: ask | always | never) and installs it into a volume the sandbox
+  mounts read-only; a check that stops on a missing program is installed for and run again, never
+  repaired. `.clike/eval-tools.yaml` approves tools for a project and adds its own conda-forge
+  packages. `/tools` lists, searches, adds and removes.
+
+### Improved
+
+- **Eval disk under control.** One npm cache per project instead of one per eval directory (40
+  copies, 7.6 GB on a real project), and stale eval directories are pruned before an eval (the
+  3 REQs used last kept; least recently used removed when the volume runs low; no eval below 2 GB).
+
 ### Fixed
 
+- **A flaky test of a promoted REQ blocked the gate of another REQ.** A blocking regression test
+  that fails is run once more; passing then, it is a nondeterministic warning naming its REQ, not
+  a regression, and is not sent to the candidate's repair.
+- **A cache a local agent wrote inside the KIT broke the eval.** The KIT copy now skips scratch and
+  caches (`.tmp`, `.cache`, `.npm-cache`, `.next`, `local-eval-workspaces`) like the overlay copy,
+  skips files removed during the copy, retries the preparation once, and a workspace CLike cannot
+  compose is environment-blocked: `--fix` stops instead of "repairing" it. KIT and repair rules ask
+  agents to keep their caches outside `runs/kit/<REQ>/`.
 - **`/eval --fix` repeated the same errors when a locked test was wrong for the type checker.** A
   mypy/pyright error reported on a test file (`test_a.py:286: error: … [arg-type]`) now counts as
   evidence that the test is wrong, like a TypeScript error: the fix, with every assertion
