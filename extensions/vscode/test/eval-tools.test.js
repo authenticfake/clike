@@ -97,3 +97,11 @@ test('a check still missing a tool stops the repair loop with how to install it'
   assert.match(step.reason, /\/tools add kcat/);
   assert.equal(nextAutoGateStep({ cycle: 0, maxCycles: 2 }, { ...report, gate: 'FAIL' }).action, 'stop');
 });
+
+test('a workspace CLike could not prepare stops the loop: no check ran, nothing to repair', () => {
+  const report = { status: 'FAIL', cases: [{ name: 'env::prepare-workspace', passed: false, blocked: true, stderr: 'prepare eval workspace failed: vanished\nmore' }] };
+  const step = nextAutoEvalStep({ cycle: 2, maxCycles: 2 }, report);
+  assert.equal(step.action, 'stop');
+  assert.match(step.reason, /could not prepare the eval workspace[\s\S]*vanished/);
+  assert.equal(nextAutoGateStep({ cycle: 0, maxCycles: 2 }, { ...report, gate: 'FAIL' }).action, 'stop');
+});

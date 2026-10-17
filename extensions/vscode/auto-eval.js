@@ -136,6 +136,15 @@ function missingTools(report) {
     `Install ${names.length > 1 ? 'them' : 'it'} with \`/tools add ${names.join(' ')}\` (or answer Install when asked) and run again.`;
 }
 
+// CLike could not compose the eval workspace (copying the KIT and the canonical tree): no check
+// ran, so there is nothing for a repair to see; the cause is outside the code.
+function workspaceNotPrepared(report) {
+  const c = (Array.isArray(report?.cases) ? report.cases : []).find((x) => x && !x.passed && x.name === 'env::prepare-workspace');
+  if (!c) return null;
+  return 'CLike could not prepare the eval workspace (no check ran, nothing to repair): ' +
+    `${String(c.stderr || '').split('\n')[0].slice(0, 400)}. Check that nothing is writing into runs/kit/ and run again.`;
+}
+
 function sandboxExhausted(report) {
   const code = String(report?.reason_code || '');
   return report?.sandbox_exhausted === true || code === 'EVAL_SANDBOX_EXHAUSTED' || code === 'GATE_BLOCKED_SANDBOX_EXHAUSTED';
@@ -151,6 +160,8 @@ function nextAutoEvalStep(state, report) {
   if (sandboxExhausted(report)) return { action: 'stop', reason: SANDBOX_EXHAUSTED_STOP };
   const tools = missingTools(report);
   if (tools) return { action: 'stop', reason: tools };
+  const workspace = workspaceNotPrepared(report);
+  if (workspace) return { action: 'stop', reason: workspace };
   if (report?.reason_code === 'EVAL_ENVIRONMENT_MISSING' && !report.environment_repairable) {
     // Only the developer can give these values (external ones, the database server URL).
     const env = (report.cases || []).find(c => c.name === 'env::required-variables');
@@ -347,6 +358,8 @@ function nextAutoGateStep(state, report) {
   if (sandboxExhausted(report)) return { action: 'stop', reason: SANDBOX_EXHAUSTED_STOP };
   const tools = missingTools(report);
   if (tools) return { action: 'stop', reason: tools };
+  const workspace = workspaceNotPrepared(report);
+  if (workspace) return { action: 'stop', reason: workspace };
   if (reasonCode === 'GATE_MANUAL_OVERRIDE') return { action: 'stop', reason: 'manual gate override: nothing to repair' };
   if (reasonCode === 'GATE_BLOCKED_ACCEPTANCE_TAMPERED') {
     return { action: 'stop', reason: 'the acceptance surface (test/ or ci/) changed after the lock; restore it or re-run /kit to re-baseline' };
@@ -378,6 +391,7 @@ module.exports = {
   evalPassed,
   missingTools,
   sandboxExhausted,
+  workspaceNotPrepared,
   failureSignature,
   nextAutoEvalStep,
   nextAutoGateStep,

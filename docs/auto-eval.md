@@ -225,6 +225,17 @@ A REQ that passes its own tests but breaks a promoted REQ fails the eval; the ga
 `GATE_BLOCKED_REGRESSION` with the list in `regression_failures`. In an auto-eval loop the
 regression failures are part of what the repair receives.
 
+A blocking test of a promoted REQ that fails is **run once more** on the same code. If it passes,
+it is nondeterministic (timing, order, asynchronous UI): it is reported as a non-blocking warning
+(`[CLike EvalRunner] Nondeterministic: … make the test of REQ-0xx deterministic`), does not block
+the gate and is not sent to the candidate's repair. Failing twice, it is a regression.
+
+The eval workspace is composed from the KIT and the canonical tree without installs, caches and
+scratch (`node_modules`, `.tmp`, `.cache`, `.npm-cache`, `.next`, `local-eval-workspaces`…); a
+file removed while it is copied is skipped. If CLike still cannot compose it, the preparation is
+retried once, then `env::prepare-workspace` is environment-blocked: no check ran, `--fix` stops
+instead of sending it to a repair.
+
 ## Required outputs in the eval
 
 Required outputs missing from the candidate (FILE_REQUIREMENTS, e.g. a runnable launcher) block

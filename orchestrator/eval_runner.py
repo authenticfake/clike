@@ -169,6 +169,7 @@ def _run_process_group(
 
 _SANDBOX_EXHAUSTED_NOTE = "[CLike EvalRunner] Sandbox resources exhausted"
 _MISSING_TOOLS_NOTE = "[CLike EvalRunner] Missing in the eval sandbox"
+_NONDETERMINISTIC_NOTE = "[CLike EvalRunner] Nondeterministic"
 
 
 def _sandbox_exhausted_case(case: "EvalCase") -> bool:
@@ -176,6 +177,23 @@ def _sandbox_exhausted_case(case: "EvalCase") -> bool:
     return not case.passed and (
         case.name.endswith("env::sandbox-resources") or _SANDBOX_EXHAUSTED_NOTE in (case.stderr or "")
     )
+
+
+# Never copied into an eval workspace: installs, caches and scratch a KIT may hold (a local agent
+# kept an npm cache in ci/.tmp; npm removed files from it during the copy and the eval failed).
+_KIT_COPY_IGNORE = shutil.ignore_patterns(
+    "node_modules", ".npm-*", ".npm", ".npm-cache", ".venv", "__pycache__", "__MACOSX", ".DS_Store",
+    "*.pyc", "*.pyo", ".pytest_cache", ".mypy_cache", ".ruff_cache", "reports", ".tmp", ".cache",
+    ".next", ".turbo", "local-eval-workspaces",
+)
+
+
+def _copy_if_present(src: str, dst: str) -> None:
+    """shutil.copy2 that skips a file removed while the tree is being copied."""
+    try:
+        shutil.copy2(src, dst)
+    except FileNotFoundError:
+        pass
 
 
 def scrubbed_process_env() -> Dict[str, str]:
@@ -1479,20 +1497,7 @@ class EvalRunner:
         if work_kit_root.exists():
             shutil.rmtree(work_kit_root)
 
-        everywhere = shutil.ignore_patterns(
-            "node_modules",
-            ".npm-*",
-            ".venv",
-            "__pycache__",
-            "__MACOSX",
-            ".DS_Store",
-            "*.pyc",
-            "*.pyo",
-            ".pytest_cache",
-            ".mypy_cache",
-            ".ruff_cache",
-            "reports",
-        )
+        everywhere = _KIT_COPY_IGNORE
         # The solution profile (ci/SOLUTION_LTC.json at the project root, /finalize): the canonical
         # tree without CLike's runs, the local state and the git history (top level only: a
         # source directory may be called runs).
@@ -1510,7 +1515,7 @@ class EvalRunner:
                     skipped |= {n for n in names if n == "_private"}
             return skipped
 
-        shutil.copytree(kit_root, work_kit_root, ignore=ignore)
+        shutil.copytree(kit_root, work_kit_root, ignore=ignore, copy_function=_copy_if_present)
         
         plan_path = self.project_root / "docs" / "harper" / "plan.json"
         try:
@@ -1542,20 +1547,8 @@ class EvalRunner:
                 shutil.copytree(
                     dep_kit,
                     dep_work,
-                    ignore=shutil.ignore_patterns(
-                        "node_modules",
-                        ".npm-*",
-                        ".venv",
-                        "__pycache__",
-                        "__MACOSX",
-                        ".DS_Store",
-                        "*.pyc",
-                        "*.pyo",
-                        ".pytest_cache",
-                        ".mypy_cache",
-                        ".ruff_cache",
-                        "reports",
-                    ),
+                    ignore=_KIT_COPY_IGNORE,
+                    copy_function=_copy_if_present,
                 )
                 dependency_roots.append(str(dep_work))
         except Exception:
@@ -2415,10 +2408,11 @@ class EvalRunner:
             return report
 
         try:
-            workspace_result = self._prepare_eval_workspace(
-                req_id=eff_req,
-                profile_path=profile_path,
-            )
+            try:
+                workspace_result = self._prepare_eval_workspace(req_id=eff_req, profile_path=profile_path)
+            except Exception as first:  # a file changed during the copy: once more, then report
+                log.warning("prepare eval workspace failed, retrying once: %s", first)
+                workspace_result = self._prepare_eval_workspace(req_id=eff_req, profile_path=profile_path)
         except Exception as exc:
             return self._report_from_cases(
                 profile_path=profile_path,
@@ -2430,10 +2424,14 @@ class EvalRunner:
                         passed=False,
                         code=997,
                         stdout="",
-                        stderr=f"prepare eval workspace failed: {exc}",
+                        stderr=(
+                            f"prepare eval workspace failed: {exc}\n[CLike EvalRunner] CLike could not compose the "
+                            "eval workspace (copying the KIT and the canonical tree): not a defect of the code, nothing "
+                            "to repair. Check that no process is writing into runs/kit/<REQ>/ and run again."
+                        ),
                         cmd=None,
                         cwd=str(self.project_root),
-                        blocked=False,
+                        blocked=True,
                         blocking=True,
                     )
                 ],
@@ -2453,7 +2451,7 @@ class EvalRunner:
                         stderr=f"prepare eval workspace returned invalid result: {workspace_result!r}",
                         cmd=None,
                         cwd=str(self.project_root),
-                        blocked=False,
+                        blocked=True,
                         blocking=True,
                     )
                 ],
@@ -2933,6 +2931,37 @@ class EvalRunner:
             and (self.project_root / "runs" / "kit" / self._safe_req_id(str(r["id"])) / "ci" / "LTC.json").is_file()
         ]
 
+    def _retry_failed_regression_tests(
+        self, runner: "EvalRunner", profile: Path, ltc: Dict[str, Any], other: str, report: EvalReport
+    ) -> None:
+        """Re-run once the blocking tests of a promoted REQ that failed in its regression. One that
+        passes the second time is nondeterministic (timing, order, async UI): a warning naming the
+        REQ, not a regression of the candidate, so it neither blocks the gate nor goes to the
+        candidate's repair (it is the promoted REQ's own test to make deterministic)."""
+        failed = [
+            c.name for c in report.cases
+            if not c.passed and c.blocking and not c.blocked and _is_regression_test_case(c)
+            and not c.name.startswith(("env::", "structure::", "ltc::"))
+        ]
+        if not failed or (self.cancel_event is not None and self.cancel_event.is_set()):
+            return
+        try:
+            retry = runner.run_profile(profile=str(profile), ltc=ltc, req_id=other, checks=failed)
+        except Exception as exc:  # the first verdict stands
+            log.warning("regression retry of %s failed to run: %s", other, exc)
+            return
+        passed_now = {c.name for c in retry.cases if c.passed and c.name in failed}
+        for case in report.cases:
+            if case.name in passed_now:
+                note = (
+                    f"{_NONDETERMINISTIC_NOTE}: {case.name} of {other} failed, then passed on a re-run of the same code. "
+                    f"Not a regression of this candidate: make the test of {other} deterministic."
+                )
+                case.blocking = False
+                case.stderr = f"{case.stderr or ''}\n{note}"[-4000:]
+                case.excerpt = f"{note}\n\n{case.excerpt or ''}"
+                log.info("regression %s::%s nondeterministic (passed on retry)", other, case.name)
+
     def run_regression(self, req_id: Optional[str], candidate_src: Path) -> List[EvalCase]:
         """L2 auto-eval: re-run each regression REQ's own acceptance checks against its composed
         source with the candidate's composed source overlaid last (the state after promotion).
@@ -2962,6 +2991,7 @@ class EvalRunner:
                 regression=True,
             )
             report = runner.run_profile(profile=str(profile), ltc=ltc, req_id=other)
+            self._retry_failed_regression_tests(runner, profile, ltc, other, report)
             for case in report.cases:
                 if not _is_regression_test_case(case):
                     # Lint, types, coverage of the other REQ now measure the candidate's code too

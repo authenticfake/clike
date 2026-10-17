@@ -118,6 +118,7 @@ def kit_self_check_rules(req_id: str) -> List[str]:
         "Use only APIs that exist in the library versions you pin; when unsure, prefer the documented generic form (e.g. a test client's request(method, url, ...) rather than a convenience method with an unusual argument).",
         "Every test is bounded in time: timeouts on network calls and waits, servers, processes and tasks stopped in teardown, no fixed sleeps.",
         f"Checks run in a sandbox where the project root is read-only: write reports, coverage, caches and temporary files only under CLIKE_EVAL_REPORT_DIR / CLIKE_EVAL_TEMP_ROOT, and make the LTC commands work from their declared cwd.",
+        f"When you run installs or checks yourself (npm, pip, browsers, test runners), keep their caches and temporary files outside runs/kit/{req_id}/ (the system temp directory or CLIKE_EVAL_TEMP_ROOT): CLike copies the KIT into the eval workspace, and a cache written there while it copies breaks the eval.",
     ]
 
 

@@ -23,6 +23,14 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **A flaky test of a promoted REQ blocked the gate of another REQ.** A blocking regression test
+  that fails is run once more; passing then, it is a nondeterministic warning naming its REQ, not
+  a regression, and is not sent to the candidate's repair.
+- **A cache a local agent wrote inside the KIT broke the eval.** The KIT copy now skips scratch and
+  caches (`.tmp`, `.cache`, `.npm-cache`, `.next`, `local-eval-workspaces`) like the overlay copy,
+  skips files removed during the copy, retries the preparation once, and a workspace CLike cannot
+  compose is environment-blocked: `--fix` stops instead of "repairing" it. KIT and repair rules ask
+  agents to keep their caches outside `runs/kit/<REQ>/`.
 - **`/eval --fix` repeated the same errors when a locked test was wrong for the type checker.** A
   mypy/pyright error reported on a test file (`test_a.py:286: error: … [arg-type]`) now counts as
   evidence that the test is wrong, like a TypeScript error: the fix, with every assertion
