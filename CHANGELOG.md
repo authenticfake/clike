@@ -19,6 +19,12 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   file (while the KIT file is the one that conflicted). KIT rules: a shared file several REQs
   extend keeps what the others put there, and REQ-specific test fixtures go in the REQ's own
   test package, not in the root conftest.
+- **A REQ that broke an earlier REQ through a shared file had to guess why.** When a promoted
+  REQ's check fails in the regression, the eval now names the files of that REQ the candidate
+  replaced, with a short diff, and the repair notes list them (any language: test runner configs
+  whose selectors no longer find the earlier tests, compose files and manifests, changed
+  components). KIT rules: test runner configs, infrastructure and build manifests are shared
+  files that keep the earlier entries; checks assert what their REQ adds, never an exact set.
 - **A REQ with promotion conflicts was merged into `main`.** Merge-on-gate now runs only for a
   promoted REQ; otherwise CLike says it stays on its branch until the conflicts are resolved.
 

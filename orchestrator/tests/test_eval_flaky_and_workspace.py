@@ -47,6 +47,34 @@ class FlakyRegressionTests(_RegressionProject):
         self.assertEqual(gate["reason_code"], "GATE_BLOCKED_REGRESSION")
 
 
+class SharedFileDiagnosisTests(_RegressionProject):
+    def test_a_regression_names_the_shared_files_the_candidate_replaced(self):
+        # REQ-002 rewrites REQ-001's pricing.py: REQ-001's failing check names the file and the diff.
+        (self.proj / "src").mkdir(exist_ok=True)
+        (self.proj / "src" / "pricing.py").write_text("def price():\n    return 10\n")  # promoted
+        kit = self.proj / "runs" / "kit" / "REQ-002"
+        (kit / "src" / "pricing.py").write_text("def price():\n    return 12\n")
+        (kit / "test" / "test_checkout.py").write_text("from checkout import total\nassert total(2) == 24\n")
+        gate = self._post("/v1/gate/check", "REQ-002", regression=True).json()
+        case = next(c for c in gate["cases"] if c["name"] == "regression::REQ-001::unit")
+        self.assertIn("Shared files changed", case["stderr"])
+        self.assertIn("- src/pricing.py", case["stderr"])
+        self.assertIn("+    return 12", case["stderr"])
+        self.assertTrue(case["excerpt"].startswith(eval_runner._SHARED_FILES_NOTE))
+
+    def test_no_note_when_the_candidate_touches_no_file_of_the_promoted_req(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "runs" / "kit" / "REQ-001" / "src").mkdir(parents=True)
+            (root / "runs" / "kit" / "REQ-001" / "src" / "a.py").write_text("A = 1\n")
+            (root / "cand" / "src").mkdir(parents=True)
+            (root / "cand" / "src" / "b.py").write_text("B = 1\n")
+            (root / "cand" / "src" / "node_modules").mkdir()
+            self.assertEqual(eval_runner._shared_file_changes(root, root / "cand", root / "runs" / "kit" / "REQ-001"), [])
+            (root / "cand" / "src" / "a.py").write_text("A = 1\n")  # same content: not a change
+            self.assertEqual(eval_runner._shared_file_changes(root, root / "cand", root / "runs" / "kit" / "REQ-001"), [])
+
+
 class WorkspaceCopyTests(unittest.TestCase):
     def test_scratch_of_the_kit_is_not_copied_and_vanished_files_are_skipped(self):
         names = ["src", ".tmp", ".cache", "node_modules", ".npm-cache", "local-eval-workspaces", "app.py"]
