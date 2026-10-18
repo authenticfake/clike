@@ -1,5 +1,7 @@
 # MCP
 
+> Step by step, from setup to a delivered project: [howto-mcp-project.md](howto-mcp-project.md).
+
 ## Overview
 
 The orchestrator currently exposes a **read-only MCP server** based on FastMCP.
@@ -137,7 +139,7 @@ operate CLike through the same slash commands available in chat (see
 It runs normal commands (`/kit REQ-001`, `/eval REQ-001 --fix`, `/gate REQ-001`, `/finalize`, …)
 through the chat's governed handlers and does not duplicate Harper logic:
 
-- `harper_run_phase {phase, req_id?, text?, methodology?, agent?, extend?, release?, dry_run?,
+- `harper_run_phase {phase, req_id?, text?, attachments?, methodology?, agent?, extend?, release?, dry_run?,
   confirm?, wait_seconds?, await?}` covers `idea`, `spec`, `plan`, `kit`, `eval`, `gate`,
   `finalize`; `phase: "idea", extend: true` is `/idea --extend` (release inputs from
   `docs/inputs/vN/`).

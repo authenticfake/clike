@@ -4,6 +4,16 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+### Added
+
+- **`docs/howto-mcp-project.md`**: run a whole CLike project from Claude Code or Codex through MCP —
+  setup (`.mcp.json` with `${CLIKE_API_TOKEN}`, Codex, the extension server), the phase loop with
+  the tool calls, the next release, what MCP does not do, troubleshooting.
+- **`harper_run_phase` takes `attachments`** (workspace-relative files, as *Attach → Workspace
+  files*): `/idea` and `/idea --extend` can run fully through MCP.
+- **`docs/images/clike-overview.svg`**: CLike at a glance (lifecycle, release loop, who writes,
+  governance, runtime, MCP, outputs), in the README.
+
 ### Fixed (MCP)
 
 - **Run reports of other locations could be read through the orchestrator MCP**: `runs_read`,

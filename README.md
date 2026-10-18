@@ -11,6 +11,8 @@
 > through a governed lifecycle in which cloud models and local coding agents execute, while
 > deterministic evaluation and gates decide.
 
+![CLike at a glance](docs/images/clike-overview.svg)
+
 ---
 
 ## Abstract

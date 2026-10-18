@@ -112,7 +112,8 @@ codex mcp add clike --url http://localhost:8080/mcp/ --bearer-token-env-var CLIK
 
 `claude mcp add ... --header "Authorization: Bearer $CLIKE_API_TOKEN"` works too, but expands the
 token when you run it (empty if the variable is not set). A "Dynamic Client Registration rejected
-(HTTP 401)" error means the header is missing: CLike has no OAuth.
+(HTTP 401)" error means the header is missing: CLike has no OAuth. A whole project driven from
+Claude Code or Codex: [howto-mcp-project.md](howto-mcp-project.md).
 
 Extension MCP: enable `clike.mcp.extensionServerEnabled`, run **CLike: Copy Extension MCP Token**,
 then:

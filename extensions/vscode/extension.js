@@ -2012,7 +2012,8 @@ async function runHarperPhaseForMcp({ phase, reqId = '', fix = null, waitSeconds
   }
   const isEdd = phase === 'eval' || phase === 'gate';
   // an MCP run has nobody in front of the modals: it confirms with confirm=true or stops with a reason
-  const common = { attachments: [], __fromMcp: true, confirm: !!options.confirm };
+  const attachments = options.attachments && options.attachments.length ? await mcpWorkspaceAttachments(options.attachments) : [];
+  const common = { attachments, __fromMcp: true, confirm: !!options.confirm };
   const msg = isEdd
     ? { type: 'harperEDD', cmd: phase, targets: [reqId], targetReqId: reqId, ...common, ...(fix ? { fix } : {}) }
     : {
@@ -2021,7 +2022,7 @@ async function runHarperPhaseForMcp({ phase, reqId = '', fix = null, waitSeconds
         ...(options.agent ? { agent: options.agent } : {}),
         ...(options.text ? { rawInput: options.text } : {}),
         ...(phase === 'idea' && options.extend ? {
-          cmd: 'extend', extendMode: 'cascade', fromAttachment: false, dryRun: !!options.dry_run,
+          cmd: 'extend', extendMode: 'cascade', fromAttachment: attachments.length > 0, dryRun: !!options.dry_run,
           release: String(options.release || ''),
         } : {}),
       };
@@ -2066,6 +2067,27 @@ async function runHarperPhaseForMcp({ phase, reqId = '', fix = null, waitSeconds
   const waitMs = Math.max(0, Math.min(Number(waitSeconds) || 0, 600)) * 1000;
   await Promise.race([done, new Promise(resolve => setTimeout(resolve, waitMs))]);
   return { ...run };
+}
+
+/** Workspace files given to an MCP run as attachments (as the chat's Attach → Workspace files). */
+async function mcpWorkspaceAttachments(relPaths) {
+  const root = getWorkspaceRoot();
+  if (!root) throw new Error('No VS Code workspace is open.');
+  const atts = [];
+  for (const raw of Array.isArray(relPaths) ? relPaths : []) {
+    const rel = String(raw || '').replace(/\\/g, '/').replace(/^\.\//, '');
+    if (!rel || rel.startsWith('/') || rel.split('/').includes('..')) throw new Error(`attachment must be a workspace-relative path: ${raw}`);
+    const uri = vscode.Uri.joinPath(root, ...rel.split('/'));
+    const stat = await vscode.workspace.fs.stat(uri);
+    const baseName = rel.split('/').pop() || 'file';
+    const common = { origin: 'workspace', source: 'workspace', name: baseName, path: rel, size: stat.size || 0, mime: guessAttachmentMime(baseName) };
+    if ((stat.size || 0) > ATTACH_MAX_INLINE_BYTES) { atts.push(common); continue; }
+    const bytes = await vscode.workspace.fs.readFile(uri);
+    atts.push(isTextAttachment(baseName)
+      ? { ...common, content: Buffer.from(bytes).toString('utf8') }
+      : { ...common, bytes_b64: Buffer.from(bytes).toString('base64') });
+  }
+  return atts;
 }
 
 /** Cancel the phase an MCP client started (the same as the chat's Cancel). */
@@ -2196,6 +2218,7 @@ async function runExtensionMcpTool(name, args = {}) {
       confirm: args.confirm === true, text: args.text ? String(args.text) : '', extend: args.extend === true,
       dry_run: args.dry_run === true, release: args.release ? String(args.release) : '',
       methodology: args.methodology ? String(args.methodology).toLowerCase() : '', agent: args.agent ? String(args.agent).toLowerCase() : '',
+      attachments: Array.isArray(args.attachments) ? args.attachments.map(String) : [],
     };
     if (options.extend && phase !== 'idea') throw new Error('extend applies to phase idea (/idea --extend).');
     // await=false: started and tracked like any run (run_id), the call returns at once
@@ -2308,6 +2331,7 @@ function extensionMcpToolsList() {
           extend: { type: 'boolean', description: 'with phase idea: /idea --extend, the next release (inputs from docs/inputs/vN/)' },
           release: { type: 'string', description: 'with extend: target release, e.g. v2' },
           dry_run: { type: 'boolean', description: 'with extend: write only the EXTEND report' },
+          attachments: { type: 'array', items: { type: 'string' }, description: 'workspace-relative files to attach (e.g. docs/inputs/brief.docx): /idea needs at least one' },
           methodology: { type: 'string', enum: ['bmad'] },
           agent: { type: 'string', description: 'BMAD role (analyst, pm, architect, ux, developer, qa, tech-writer)' },
           confirm: { type: 'boolean', description: 'answer yes to the confirmations the chat would ask (e.g. /finalize with REQs not promoted); without it such a run stops with the reason' },
