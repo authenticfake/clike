@@ -139,3 +139,13 @@ def test_dependency_sources_are_found_past_the_first_page_of_the_collection(monk
     monkeypatch.setattr(rag_store.httpx, "AsyncClient", FakeClient)
     docs = asyncio.run(store.fetch_docs_by_prefix("runs/kit/REQ-002/src", limit_points=200))
     assert [d.get("path") for d in docs] == ["runs/kit/REQ-002/src/app/contracts.py"]
+
+
+def test_repair_output_keeps_clike_diagnosis_and_the_runner_error():
+    from services.kit_repair import repair_failures
+
+    output = "[CLike EvalRunner] Shared files changed: src/app.py\n" + "noise\n" * 3000 + "AssertionError: expected 2"
+    failure = repair_failures({"failures": [{"name": "unit", "output": output}]})[0]
+    assert failure["output"].startswith("[CLike EvalRunner] Shared files changed")
+    assert failure["output"].endswith("AssertionError: expected 2")
+    assert "chars cut by CLike" in failure["output"] and len(failure["output"]) < 7000

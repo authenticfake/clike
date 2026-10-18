@@ -496,7 +496,7 @@ async function collectKitRagItems(workspaceRoot, reqId, opts = {}) {
   const rootFsPath = workspaceRoot.fsPath;
   const reqNorm = String(reqId || '').trim().toUpperCase();
 
-  const candidateSubroots = ['src', 'test', 'ci', 'docs', 'reports'];
+  const candidateSubroots = ['src', 'test', 'ci', 'docs', 'reports', 'root'];
   const items = [];
 
   const CODE_EXTENSIONS = [
@@ -4154,7 +4154,7 @@ async function cmdOpenChat(context) {
             //log(`CLike preIndexRag: ${JSON.stringify(attachments)}`);
             const { inline_files, rag_files } =  partitionAttachments(attachments);
             log(`CLike rag_files size: ${rag_files.length} and inline_files size: ${inline_files.length}`);
-            if (rag_files) {
+            if (rag_files.length) {
               const res = await preIndexRag(project_id, rag_files, urlRag, out); 
               log((`CLike preIndexRag: ${JSON.stringify(res)} ${res}`));
             }
@@ -4787,14 +4787,15 @@ async function cmdOpenChat(context) {
       
           }
           log(`[harperRun] written files done`);
-          if (phase === 'plan') {
+          // /extend and /idea --extend change lane guides too: the index follows them
+          if (phase === 'plan' || phase === 'extend') {
             try {
               const laneItems = await collectLaneGuidesRagItems(wsroot, {
                 maxFiles: 200,
                 maxBytes: 512 * 1024,
               });
               const count = (laneItems && laneItems.length) || 0;
-              log(`[harperRAG] lane-guides collection after /plan: ${count} items`);
+              log(`[harperRAG] lane-guides collection after /${phase}: ${count} items`);
               if (count > 0) {
                 await preIndexRag(project_id, laneItems, urlRag, out);
                 log(`[harperRAG] indexed ${count} lane-guide items for project ${project_id}`);

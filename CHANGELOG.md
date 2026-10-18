@@ -37,6 +37,10 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 - The acceptance stage of an acceptance-first KIT reads the context sources and the dependency
   sources; a manual `/kit --repair` carries the latest failures and files; the local KIT and
   FINALIZE packages receive the attachments; cloud `/idea` accepts the project's context sources.
+- The repair receives the head and the tail of a long check output (CLike's diagnosis is at the
+  head, the runner's error at the end; only the tail was kept). Lane guides are indexed again after
+  `/extend` and `/idea --extend`, and the KIT `root/` files are indexed with the candidate. The
+  selected-capability guidance reaches the cloud KIT up to 20k chars (8k before).
 - **A cloud run that cannot fit is refused with its size** (`cloud_context_too_large`,
   `CLIKE_CLOUD_MAX_PROMPT_CHARS`, `CLIKE_CLOUD_MAX_OUTPUT_CHARS`) instead of overflowing the model.
 

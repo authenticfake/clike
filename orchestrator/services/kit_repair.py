@@ -58,8 +58,20 @@ def repair_file_priority(path: str, failures_text: str, req_id: str) -> int:
     return 4
 
 
+_OUTPUT_HEAD = 1500
+
+
+def _bounded_output(text: str) -> str:
+    """Head and tail of a long check output: CLike's diagnosis (intermittent failure, shared files
+    replaced) is prepended to the output, the runner's error is at its end — keep both."""
+    if len(text) <= _OUTPUT_TAIL:
+        return text
+    tail = _OUTPUT_TAIL - _OUTPUT_HEAD
+    return f"{text[:_OUTPUT_HEAD].rstrip()}\n…[{len(text) - _OUTPUT_TAIL} chars cut by CLike]…\n{text[-tail:]}"
+
+
 def repair_failures(repair: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """The failed checks of a repair request, normalized (output tail bounded)."""
+    """The failed checks of a repair request, normalized (output bounded: head + tail)."""
     out = []
     for item in repair.get("failures") or []:
         if isinstance(item, dict):
@@ -67,7 +79,7 @@ def repair_failures(repair: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "name": str(item.get("name") or "check"),
                 "code": item.get("code"),
                 "command": str(item.get("command") or ""),
-                "output": str(item.get("output") or "")[-_OUTPUT_TAIL:],
+                "output": _bounded_output(str(item.get("output") or "")),
             })
     return out
 
