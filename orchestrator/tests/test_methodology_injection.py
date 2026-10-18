@@ -620,6 +620,7 @@ class MethodologyInjectionTests(unittest.TestCase):
                 "runs/kit/REQ-001/test",
                 "runs/kit/REQ-001/ci",
                 "runs/kit/REQ-001/docs",
+                "runs/kit/REQ-001/root",
             ],
         )
         self.assertIn("src", local_agent["forbidden_paths"])

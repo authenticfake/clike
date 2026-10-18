@@ -278,3 +278,44 @@ class DeclaredChangeRegressionTests(_RegressionProject):
         self.assertEqual(EvalRunner(self.proj).regression_req_ids("REQ-002"), [])
         # another candidate still regresses REQ-001 until REQ-002 is promoted
         self.assertEqual(EvalRunner(self.proj).regression_req_ids("REQ-003"), ["REQ-001"])
+
+
+class RootFilesEvalTests(_RegressionProject):
+    """KIT root/ deliverables (scripts/, deploy/…) are at the eval workspace root, as after promotion."""
+
+    def _script(self, path, body):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body)
+
+    def test_candidate_root_files_are_at_the_workspace_root(self):
+        self._script(self.proj / "scripts" / "common.sh", "echo canonical\n")
+        kit = self.proj / "runs" / "kit" / "REQ-002"
+        self._script(kit / "root" / "scripts" / "deploy_check.sh", "test -f scripts/common.sh && echo ok\n")
+        ltc = _ltc("REQ-002", "checkout", extra_checks=[
+            {"id": "root-script", "command": "sh scripts/deploy_check.sh", "blocking": True}])
+        (kit / "ci" / "LTC.json").write_text(json.dumps(ltc))
+        body = self._post("/v1/eval/run", "REQ-002").json()
+        self.assertEqual(body["status"], "PASS", body)
+        self.assertIn("root-script", self._case_names_from(body))
+
+    def test_regression_sees_the_candidate_root_files_and_names_them(self):
+        # REQ-001 (promoted) delivered a root script and checks it; the candidate rewrites it.
+        self._script(self.proj / "scripts" / "common.sh", "exit 0\n")
+        self._script(self.proj / "runs" / "kit" / "REQ-001" / "root" / "scripts" / "common.sh", "exit 0\n")
+        ltc1 = _ltc("REQ-001", "pricing", extra_checks=[
+            {"id": "common", "command": "sh scripts/common.sh", "blocking": True}])
+        (self.proj / "runs" / "kit" / "REQ-001" / "ci" / "LTC.json").write_text(json.dumps(ltc1))
+        kit = self.proj / "runs" / "kit" / "REQ-002"
+        self._script(kit / "root" / "scripts" / "common.sh", "exit 3\n")
+        body = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        self.assertEqual(body["status"], "FAIL", body)
+        self.assertIn("regression::REQ-001::common", body["blocking_failures"])
+        failing = next(c for c in body["cases"] if c["name"] == "regression::REQ-001::common")
+        self.assertIn("- scripts/common.sh", failing["stderr"])  # the candidate's root file, named
+        # without the candidate's change the promoted check passes on the canonical script
+        (kit / "root" / "scripts" / "common.sh").unlink()
+        body = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        self.assertNotIn("regression::REQ-001::common", body.get("blocking_failures") or [])
+
+    def _case_names_from(self, body):
+        return [c["name"] for c in body["cases"]]

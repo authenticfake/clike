@@ -801,6 +801,7 @@ Rules:
 - Do not wrap file blocks in markdown fences unless explicitly requested.
 - Do not emit free-form prose outside file blocks.
 - If you cannot emit a valid file block, emit nothing for that file.
+- Repository-root deliverables (scripts/, deploy/, infra/, ops/, config/, configs/, migrations/, db/, .env.example, compose files, Dockerfile, Makefile, Procfile, plus root_folders / root_files declared in .clike/project.json) go under runs/kit/<REQ-ID>/root/<repository path> — e.g. runs/kit/<REQ-ID>/root/scripts/setup_local.sh — never as ../ paths; the gate promotes them to the repository root and the eval sees them at the workspace root. Never .env, secrets, docs/, src/, test/ or ci/ under root/.
 
 Example:
 file:/runs/kit/<REQ-ID>/src/path/to/file.ext

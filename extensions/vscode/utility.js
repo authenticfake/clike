@@ -2166,6 +2166,8 @@ function buildAgentExecutionContext({
         `runs/kit/${base.req.id}/test`,
         `runs/kit/${base.req.id}/ci`,
         `runs/kit/${base.req.id}/docs`,
+        // repository-root deliverables (scripts/, deploy/, root manifests), promoted to the root
+        `runs/kit/${base.req.id}/root`,
       ],
       forbidden_paths: [
         'docs/harper/PLAN.md',

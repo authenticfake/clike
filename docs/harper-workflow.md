@@ -129,6 +129,8 @@ Current allowed candidate roots are:
 - `runs/kit/<REQ-ID>/test`
 - `runs/kit/<REQ-ID>/ci`
 - `runs/kit/<REQ-ID>/docs`
+- `runs/kit/<REQ-ID>/root` — repository-root deliverables (`scripts/`, `deploy/`, root manifests),
+  promoted to the repository root (see `git-and-promotion.md`)
 
 ### Canonical protection
 The current execution contract explicitly protects canonical roots from direct local-agent mutation:

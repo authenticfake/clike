@@ -5,6 +5,8 @@
   "target_test": "runs/kit/$REQ-ID/test",
   "source_folder": "src",
   "test_folder": "test",
+  "root_folders": [],
+  "root_files": [],
   "harper_doc_root": "docs/harper",
   "rag_namespace": "${project.rag_namespace}",
   "clike_version": "v1"

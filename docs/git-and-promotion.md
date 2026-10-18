@@ -99,8 +99,9 @@ On a passing `/gate` (`PASS`, `PASS_WITH_WARNINGS` with accepted warnings, or an
 override) the REQ is promoted **without prompts** (`clike.gate.autoPromote`, default `merge`;
 `extensions/vscode/promote-merge.js`):
 
-- only `runs/kit/<REQ>/{src,test,tests}/**` are promoted into the canonical roots; installed or
-  generated content (`node_modules`, `__pycache__`, `.venv`, caches, `.next`, `.tmp`) never is;
+- only `runs/kit/<REQ>/{src,test,tests}/**` are promoted into the canonical roots, plus
+  `runs/kit/<REQ>/root/<path>` → `<path>` for repository-root deliverables (see below); installed
+  or generated content (`node_modules`, `__pycache__`, `.venv`, caches, `.next`, `.tmp`) never is;
 - every file gets a **3-way merge**: base = what the KIT started from (the file of the last
   direct dependency KIT in `plan.json` `dependsOn` that has it, else the canonical file at the
   parent of the KIT commit, else at the last commit before the KIT was generated), ours = the
@@ -143,6 +144,25 @@ Three ways to choose it: the setting `clike.gate.autoPromote` (`merge` default: 
 `ask`: the strategy list, with **auto-merge** first, then folder / suffix / backup / skip /
 overwrite; `off`: no promotion), or for one run `/gate <REQ> --auto-merge`, `--ask`,
 `--no-promote`.
+
+### Repository-root deliverables (`runs/kit/<REQ>/root/`)
+
+Some REQs deliver files outside `src/` and `test/`: run and setup scripts, deployment scripts,
+infrastructure, root manifests. The KIT writes them under `runs/kit/<REQ>/root/<repository path>`
+(for example `runs/kit/REQ-033/root/deploy/aws/01_inventory.sh`) and the gate promotes them to
+`<repository path>` with the same 3-way merge, report and conflict files.
+
+- Allowed by default: the folders `scripts/`, `deploy/`, `infra/`, `ops/`, `config/`, `configs/`,
+  `migrations/`, `db/` and the files `.env.example`, `compose.yml|yaml`, `docker-compose.yml|yaml`,
+  `Dockerfile`, `Makefile`, `Procfile`. A project adds more in `.clike/project.json`:
+  `"root_folders": ["tools"], "root_files": ["Procfile.dev"]`.
+- Never: `.git`, `.clike`, `runs`, `docs`, `src`, `test`, `tests`, `ci`, `.env` and other private
+  files (keys, certificates), generated folders. A file outside the policy is listed as `rejected`
+  in the report and never written; the rest of the promotion goes on.
+- The eval sees them where they will be: the workspace root of the eval holds the canonical
+  root deliverables, those of dependency KITs not promoted yet, then the candidate's
+  (`./scripts/...`, `./deploy/...`); the regression of promoted REQs runs with the candidate's
+  root files too, and names them when a promoted check fails on them.
 
 ## REQ branches
 
