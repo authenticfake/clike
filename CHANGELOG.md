@@ -4,6 +4,8 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.4.4] — 2026-10-18 — The solution running and configured on the developer's machine
+
 ### Changed
 
 - **The README written by `/finalize` says it is a CLike project**: CLike, Harper and Finalize
@@ -11,11 +13,6 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   closing *Made with CLike* section with links to the Harper documents, the report and the
   solution evidence (cloud and local agents). A README without it fails the solution
   verification (`structure::readme-clike`) and the repair adds it.
-
-## [1.4.4] — 2026-10-17 — The solution running and configured on the developer's machine
-
-### Changed
-
 - **`/finalize` brings the solution to running and configured, without running the tests
   again.** Every REQ passed its tests at its gate: the solution profile now installs, builds,
   configures and starts the solution and smoke-checks it while it runs (health, one real request
