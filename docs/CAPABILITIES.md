@@ -56,6 +56,8 @@ Capabilities live inside the application workspace under `.clike/`.
 .clike/
   project.json
   capabilities.yaml
+  policy.yaml
+  context.yaml        # project context sources read by the phases (docs/context-sources.md)
   skills/
   packs/
   design-profiles/
@@ -167,7 +169,9 @@ Each skill should use this structure:
 | `mvp-e2e-promotability` | Convert requirements into narrow but end-to-end promotable MVP slices instead of shallow demos or decorative code. |
 | `backoffice-workflow-ux` | Generate enterprise backoffice workflows with route-based capability pages, scalable lists, task flows, filters, actions, and role-aware UX. |
 | `enterprise-solution-architecture` | Keep enterprise solutions coherent across requirements, runtime profiles, integration boundaries, observability, audit, and release readiness. |
-| `secure-config-secrets` | nforce safe configuration, secret handling, auth boundaries, restricted egress, and security evidence for promotable software. |
+| `figma-fidelity` | Generate frontend UI that reflects a Figma design when one is provided, default styling otherwise |
+| `design-tokens-sync` | Use named design tokens instead of magic values (advisory) |
+| `secure-config-secrets` | Enforce safe configuration, secret handling, auth boundaries, restricted egress, and security evidence for promotable software. |
 
 
 ### Example: Backend REQ
@@ -493,9 +497,11 @@ Gate must not be overridden by:
 - cloud model summary
 - plugin/tool result
 - generated prose
-- `PASS_WITH_WARNINGS`
 
-Promotion requires a full PASS and satisfied policy.
+Promotion requires a gate PASS and satisfied policy. Failed non-blocking checks are warnings: the
+gate passes with `GATE_PASS_WITH_WARNINGS` and promotes, unless strict warnings are on
+(`clike.gate.strictWarnings`). A passing gate promotes by 3-way auto-merge into the canonical
+roots; conflicting files are never written.
 
 ---
 
@@ -521,7 +527,8 @@ The local agent may:
 - read previous KIT artifacts for compatibility
 - diagnose failing checks
 - repair candidate artifacts inside the target REQ folder
-- improve LTC/HOWTO when they are not executable
+- improve LTC/HOWTO when they are not executable (changes to the locked `test/` and `ci/` are
+  governed: accepted ones audited, the others restored)
 
 The local agent must not:
 
@@ -599,7 +606,7 @@ It does not yet implement:
 - external tool runtime
 - marketplace distribution
 - automatic third-party skill import
-- autonomous promotion
+- promotion without a passing gate
 - Evo-like optimization loops
 - uncontrolled multi-agent workflows
 

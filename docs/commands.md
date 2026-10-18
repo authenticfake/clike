@@ -28,6 +28,7 @@ The current webview parser supports the following slash commands.
 
 ### Harper commands
 - `/idea`
+- `/idea --extend [--from attachment] [--release vN] [--dry-run]` — the next release of a delivered project (see below)
 - `/spec`
 - `/plan`
 - `/kit`
@@ -46,7 +47,7 @@ The current webview parser supports the following slash commands.
   its own after asking; `/tools` shows the catalog and what is installed, `add` installs and
   approves for the project (`.clike/eval-tools.yaml`). See `auto-eval.md`.
 - `/finalize`
-- `/extend` — extends requirements of an existing plan (see `CLike_Harper_Extend_Feature.md`)
+- `/extend` — appends REQs to the existing plan, plan only (see `CLike_Harper_Extend_Feature.md`); for a new release use `/idea --extend`
 
 ### Local agent selection
 - `/agent-default auto` — let CLike choose the local executor
@@ -102,6 +103,45 @@ Attachment handling (via local agent):
 > Non-text binaries are intentionally **not** sent to the RAG index (only their
 > materialized copy reaches the agent), so attaching many images/PDFs no longer
 > blocks the run.
+
+### `/idea --extend [--from attachment] [--release vN] [--dry-run] [text]`
+The next release of a project whose REQs are delivered. One command runs the cascade
+IDEA → SPEC → PLAN in continuity with what exists:
+
+- **Inputs, by release folder.** Put the new requirements of release N in `docs/inputs/vN/`
+  (for example `docs/inputs/v2/`, then `docs/inputs/v3/` for the release after) and background
+  material in `docs/reference/vN/`; attachments and free text are inputs too. The targeted release
+  is `--release vN`, else the highest folder above what the plan already holds, else the next one.
+  Inputs of earlier releases (and unversioned files in `docs/inputs/`) are read as history, never as
+  new requirements. The folders of the targeted release are read even when `.clike/context.yaml`
+  does not declare them.
+- **Baseline.** CLike checks that the REQs of the current release are delivered (it asks before
+  going on when some are not) and tags the delivered state `harper/v<N-1>` before changing the
+  documents.
+- **Merge, never regenerate.** IDEA.md and SPEC.md keep every section of earlier releases; the new
+  release is added inside the sections it belongs to, plus a `## Release vN` section.
+  TECH_CONSTRAINTS.yaml changes only by addition. A document that drops a section of the earlier
+  release is restored and the run says so.
+- **PLAN delta.** Delivered REQs are read-only (CLike restores any change). New REQs continue the
+  sequence with `release`, `origin` and `change`:
+  - `ADDED` — a new capability (prefer extending an existing seam);
+  - `MODIFIED` — changes behavior a delivered REQ verifies: `amends: ["REQ-x"]`, the changed
+    criteria restated in full, `supersedes: [{"check": "REQ-x#<LTC check id>", "reason": …}]`,
+    `unchanged: [...]`;
+  - `REMOVED` — retires a capability: `retires: ["REQ-x"]`.
+  Targets must exist and be delivered; a superseded check must exist in the REQ's LTC. A plan that
+  breaks these rules is rejected and nothing is kept.
+- **Report.** `docs/harper/EXTEND_<date>_<first>_<last>.md` with the changes and why, the delta
+  table, impact, unchanged behavior and open questions, plus a **CLike verification** section CLike
+  writes itself. `--dry-run` keeps only the report.
+- **Then as usual:** `/kit`, `/eval --fix` and `/gate` for each new REQ, `/finalize` at the end of the
+  release. In the regression, the checks a `MODIFIED` REQ supersedes leave the amended REQ's
+  regression (reported as `superseded`), and a REQ retired by a `REMOVED` REQ leaves the regression
+  set; every other check of delivered REQs keeps running.
+
+Projects not built with CLike: put their documentation in `docs/reference/` and the new needs in
+`docs/inputs/v2/`; taking over the existing code base inside `/idea --extend` is the next step
+(see `architecture/ADOPT_AND_IDEA_EXTEND.md`). Until then `/idea --extend` needs a plan with REQs.
 
 ### `/spec`
 Generates or updates `SPEC.md` from current Harper context.

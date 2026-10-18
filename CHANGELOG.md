@@ -4,6 +4,29 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+### Added
+
+- **`/idea --extend` — the next release of a delivered project.** One command runs the cascade
+  IDEA → SPEC → PLAN in continuity with what exists. The release inputs live in versioned folders,
+  `docs/inputs/vN/` (requirements) and `docs/reference/vN/` (background), or are attached; earlier
+  releases are read as history, never as new requirements. IDEA, SPEC and TECH_CONSTRAINTS are
+  merged, not regenerated (a document that drops a section of the earlier release is restored);
+  the PLAN gets new REQs typed `ADDED`, `MODIFIED` (`amends`, `supersedes` the checks it replaces,
+  `unchanged`) or `REMOVED` (`retires`), with `release` and `origin`, while delivered REQs stay
+  read-only. CLike checks the baseline is delivered, tags it `harper/v<N-1>`, validates the delta
+  and appends its own verification to the EXTEND report; `--dry-run` writes only the report. Then
+  `/kit`, `/eval --fix`, `/gate` and `/finalize` as usual.
+- **The regression follows declared changes.** Checks a `MODIFIED` REQ supersedes are not run for
+  the REQ it amends (reported as `superseded`, with the reason); a REQ retired by a `REMOVED` REQ
+  leaves the regression set. Every other check of delivered REQs keeps running.
+
+### Changed
+
+- Context sources: release folders (`docs/inputs/vN/`, `docs/reference/vN/`) split the current
+  release from history (role `previous_release`); `docs/reference/**` is part of the default
+  convention. `/extend` never changes TECH_CONSTRAINTS, and its cloud prompt now carries the
+  request of the command (anchor, REQ id, text).
+
 ## [1.4.4] — 2026-10-18 — The solution running and configured on the developer's machine
 
 ### Changed

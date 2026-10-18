@@ -50,6 +50,7 @@ Harper is an outcome-driven, AI-native workflow: IDEA → SPEC → PLAN → KIT 
 - Modes: *harper* (planning/generation), *coding* (implementation), *free* (Q&A).
 - Commands:
   - `/idea`: generate/update IDEA from scratch/attachs.
+  - `/idea --extend`: next release of a delivered project — put its requirements in `docs/inputs/v2/` (`v3/` for the one after) and background in `docs/reference/v2/`; IDEA/SPEC merged, new REQs typed ADDED / MODIFIED / REMOVED; then `/kit` `/eval` `/gate` the new REQs and `/finalize`.
   - `/spec`: generate/update SPEC from IDEA.
   - `/plan`: generate/update PLAN from SPEC.
   - `/kit`: implement & test in short loops.
@@ -110,6 +111,7 @@ CLike is not just an agent that writes code; it is an AI-native platform that or
 4. PLAN approved (Gate G1) → feature branches, PRs, CI checks.
 5. KIT cycles → PR with tests and quality gates.
 6. FINALIZE → solution running and configured + `docs/harper/FINALIZE_REPORT.md` (how to start it, configuration, missing information, what changed and why); then tag a release (e.g., `v0.1.0`).
+7. Next release → requirements in `docs/inputs/v2/`, `/idea --extend`, review the EXTEND report, then steps 5–6 for the new REQs.
 
 ## Next steps
 

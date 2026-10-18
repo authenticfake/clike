@@ -27,10 +27,17 @@ The orchestrator exposes RAG APIs under `/v1/rag/*`.
 
 Relevant files:
 - `orchestrator/routes/rag.py`
-- `orchestrator/services/rag_store.py`
+- `orchestrator/services/rag_store.py` (Qdrant store, embeddings through the gateway)
+- `orchestrator/services/document_text.py` (office/PDF text extraction, shared with the context sources)
+
+Indexing is batched and incremental: chunks are embedded in batches (`RAG_EMBED_BATCH_SIZE`,
+default 64, `RAG_EMBED_CONCURRENCY` 4 calls at a time) and files whose content is already indexed
+are skipped (point ids derive from path + content).
 
 ### Gateway
-The gateway can consume RAG materials during Harper execution and also references RAG store utilities.
+The gateway can consume RAG materials during Harper execution. It is a client of the orchestrator
+`/v1/rag` API (no store of its own); its `/v1/embeddings` accepts a list input and returns one
+vector per item.
 
 Relevant files:
 - `gateway/routes/harper.py`
@@ -83,15 +90,13 @@ Best suited for:
 
 ## Extension-side RAG behavior
 
-The extension-side helper `gatherRagChunks` currently reads from:
-- `docs/harper/IDEA.md`
-- `docs/harper/SPEC.md`
+The extension no longer chunks Harper documents itself (its `rag.js` helper was removed in 1.0.0):
+indexing and retrieval go through the orchestrator `/v1/rag/*` APIs.
 
-It chunks text heuristically by:
-- headings
-- bounded text size
-
-This helper is lightweight and does not replace orchestrator/gateway RAG APIs.
+Project inputs that every phase should read (requirements, UI references, release folders
+`docs/inputs/vN/`, `docs/reference/vN/`) can be declared as context sources instead
+(`.clike/context.yaml`, see `context-sources.md`): they are delivered whole to the phases that
+read them, not retrieved by similarity.
 
 ## Current RAG decision parameters in runtime config
 

@@ -8,6 +8,10 @@ CLike is an AI-native, agent-centric software delivery environment governed by t
 IDEA → SPEC → PLAN → KIT → EVAL → GATE → FINALIZE
 ```
 
+A delivered project evolves by releases: `/idea --extend` starts the next one (IDEA, SPEC and
+TECH_CONSTRAINTS merged, new REQs typed ADDED / MODIFIED / REMOVED appended to the plan), then
+KIT → EVAL → GATE → FINALIZE again.
+
 The core idea is simple: the developer stays in control, CLike owns the workflow, and models or agents execute bounded work through explicit contracts. CLike is not only a chat interface. It is a repository-aware delivery pipeline that combines a VS Code extension, an orchestrator, a cloud gateway, RAG, Git integration, local agents, and MCP surfaces.
 
 At functional level, CLike provides:
@@ -100,21 +104,20 @@ Agent
 → Gateway / Local Agent / RAG / Git / Eval / Gate
 ```
 
-Model 2 deliberately does not duplicate Harper logic inside MCP tools. The MCP extension server dispatches the same slash commands that a human would type:
+Model 2 deliberately does not duplicate Harper logic inside MCP tools. The MCP extension server runs the same slash commands that a human would type, through the chat's governed handlers:
 
 ```text
 /idea
 /spec
 /plan
 /kit REQ-001
-/eval REQ-001
-/gate REQ-001
+/eval REQ-001 [--fix "hint"]   (eval_run)
+/gate REQ-001                  (gate_check)
 /finalize
-/ragIndex docs/**/*
-/ragSearch <query>
-/agent-default claude
-/agent-default codex
 ```
+
+plus RAG reindexing of the workspace. `/extend`, `/idea --extend`, overrides, promotion choices and
+Git stay in the chat.
 
 This keeps the architecture stable: the agent can request work, but CLike still governs execution.
 
@@ -133,7 +136,7 @@ It captures:
 - constraints;
 - technology assumptions.
 
-This phase is orchestrator-owned and cloud-oriented.
+This phase is orchestrator-owned; it runs with a cloud model or a local agent.
 
 ### `/spec`
 
@@ -147,7 +150,7 @@ It produces:
 - constraints;
 - measurable success criteria.
 
-This phase is orchestrator-owned and cloud-oriented.
+This phase is orchestrator-owned; it runs with a cloud model or a local agent.
 
 ### `/plan`
 
@@ -164,7 +167,7 @@ It produces:
 - implementation order;
 - gate strategy.
 
-This phase is orchestrator-owned and cloud-oriented.
+This phase is orchestrator-owned; it runs with a cloud model or a local agent.
 
 ### `/kit`
 
@@ -225,6 +228,10 @@ When local-agent pre-pass is enabled:
 
 The agent is a hardener, not the judge. The canonical eval remains the final authority.
 
+`/eval REQ-ID --fix ["hint"]` runs the governed repair loop (eval → KIT repair from the real
+failures → eval, tests locked), and the eval also re-runs the checks of the promoted REQs
+(regression). See `auto-eval.md`.
+
 ### `/gate`
 
 The GATE phase decides whether a REQ can be promoted.
@@ -236,6 +243,10 @@ It validates:
 - Git state;
 - promotion readiness;
 - plan status consistency.
+
+On a pass the REQ is promoted into the canonical roots by a 3-way auto-merge (conflicting files
+are never written) and, with merge-on-gate, its branch is merged into the default branch.
+`/gate REQ-ID --fix` repairs a failing gate with the same loop as `/eval --fix`.
 
 The agent does not own gate decisions.
 
@@ -251,7 +262,13 @@ Typical outputs:
 - SANITY_CHECKS;
 - TODO_NEXT;
 - PR_BODY;
-- final project summary.
+- final project summary;
+- `docs/harper/FINALIZE_REPORT.md` for the developer and `scripts/setup_local` /
+  `start_solution_local`.
+
+`/finalize` then verifies the integrated solution in the eval sandbox (`ci/SOLUTION_LTC.json`:
+install, build, configure, start, smoke checks; the REQs' tests are not run again) and repairs it
+while it fails; evidence in `docs/harper/SOLUTION_EVAL.md`.
 
 When all REQs are complete, Model 2 reports `finalize_only`.
 
@@ -270,6 +287,9 @@ Typical tools:
 - `clike_extension_status`;
 - `harper_next_action`;
 - `harper_run_phase`;
+- `harper_run_status`;
+- `eval_run`;
+- `gate_check`;
 - `harper_kit_next`;
 - `harper_continue_loop`;
 - `rag_reindex`;

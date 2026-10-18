@@ -8,6 +8,13 @@ It appends new requirements to an already generated `PLAN.md` and `plan.json` wi
 
 The command is designed for projects that have already moved through `IDEA → SPEC → PLAN → KIT → EVAL → GATE` and need to add new REQs after a stable anchor, for example after `REQ-006`.
 
+> **Plan-only append vs next release.** `/extend` appends REQs to the current plan. To evolve a
+> delivered project to its next release — new needs merged into IDEA, SPEC and TECH_CONSTRAINTS,
+> REQs typed `ADDED` / `MODIFIED` / `REMOVED`, release folders `docs/inputs/vN/` and
+> `docs/reference/vN/` — use `/idea --extend`, the cascade mode of the same phase (see
+> `commands.md` and `architecture/ADOPT_AND_IDEA_EXTEND.md` §12). This page describes `/extend`;
+> the cascade shares its guard and adds its own rules.
+
 ## Public Commands
 
 ```text
@@ -179,11 +186,13 @@ The orchestrator emits an `AGENT_EXTEND_CONTEXT.json` package with:
 The agent may write only:
 
 ```text
+docs/harper/IDEA.md
 docs/harper/PLAN.md
 docs/harper/plan.json
 docs/harper/SPEC.md
 docs/harper/lane-guides/
 docs/harper/EXTEND_*.md
+docs/harper/TECH_CONSTRAINTS.yaml   (cascade only: /extend gets it restored)
 ```
 
 ## Validation Rules
@@ -209,7 +218,11 @@ The extension enforces the plan rules deterministically before keeping the resul
 - duplicate ids, ids that are not `REQ-<number>` or do not continue the sequence, a missing anchor,
   a requested REQ that was not added, a new REQ depending on an unknown REQ, or no new REQ at all
   **reject** the result: nothing is kept (a local agent's PLAN.md and plan.json are put back);
-- a gap in the sequence and a stale `snapshot.total` are warnings.
+- a gap in the sequence and a stale `snapshot.total` are warnings;
+- `TECH_CONSTRAINTS.yaml` is not an `/extend` output: a changed one is restored.
+
+The cloud prompt carries the request of the command (anchor, requested REQ id, text, attachments)
+in an `EXTEND REQUEST` section, so the cloud and the local agent receive the same instructions.
 
 ## Audit Report
 

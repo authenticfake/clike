@@ -8,6 +8,14 @@ The current codebase implements Harper as an iterative, repository-aware pipelin
 IDEA → SPEC → PLAN → KIT → EVAL → GATE → FINALIZE
 ```
 
+A delivered project evolves release by release with `/idea --extend` (IDEA, SPEC and PLAN of the
+next release merged in continuity, then the same KIT → EVAL → GATE → FINALIZE per new REQ):
+
+```text
+release v1: IDEA → SPEC → PLAN → (KIT → EVAL → GATE)* → FINALIZE
+release v2: /idea --extend → (KIT → EVAL → GATE)* for the new REQs → FINALIZE
+```
+
 This is not a purely prompt-only flow. It is backed by:
 - canonical docs in `docs/harper`
 - machine-readable artifacts such as `plan.json`
@@ -29,6 +37,8 @@ Primary output:
 Entry:
 - `/idea`
 - `POST /v1/harper/idea`
+- `/idea --extend` for the next release of a delivered project: runs the `extend` phase in cascade
+  mode (`POST /v1/harper/extend` with `extend.mode = "cascade"`), see "Evolving a delivered project"
 
 ### SPEC
 Purpose:
@@ -219,12 +229,29 @@ The current docs should treat GATE as a policy-and-promotion decision phase, not
 
 ## FINALIZE model
 
-Finalize is present as a first-class Harper phase in both the extension and orchestrator/gateway APIs.
+`/finalize` closes a release: it brings the promoted solution to running and configured. The REQ
+test suites are not run again (each REQ passed them at its gate); CLike installs, builds,
+configures, starts and smoke-checks the solution in the eval sandbox (`ci/SOLUTION_LTC.json`,
+`ci/solution/`) and repairs it until it passes. It writes the README (marked as a CLike project),
+`docs/harper/FINALIZE_REPORT.md` for the developer, `docs/harper/SOLUTION_EVAL.md`, and
+`scripts/setup_local` / `start_solution_local` (Docker, Podman or native; free host ports), then
+offers to configure and start the solution on the developer's machine. See `commands.md`.
 
-Current intent:
-- prepare release notes
-- close the workflow
-- optionally integrate with broader governance or Git release behavior
+## Evolving a delivered project (`/idea --extend`)
+
+- Release inputs live in versioned folders: `docs/inputs/vN/` (requirements) and
+  `docs/reference/vN/` (background). The targeted release is the delta; earlier releases are
+  history (context role `previous_release`).
+- The cascade merges the release into IDEA.md, SPEC.md and TECH_CONSTRAINTS.yaml and appends a PLAN
+  delta of REQs typed `ADDED` / `MODIFIED` / `REMOVED` (`amends`, `supersedes`, `retires`,
+  `release`, `origin`). Delivered REQs stay read-only.
+- The extension checks the result deterministically (`release-extend.js`): merged documents keep
+  every earlier section, the delta rules hold, the EXTEND report gets a CLike verification section,
+  and the delivered baseline is tagged `harper/v<N-1>`.
+- The regression honors the declared changes: superseded checks of an amended REQ are not run
+  (reported as `superseded`), a retired REQ leaves the regression set.
+- Design and the next steps (taking over projects not built with CLike):
+  `architecture/ADOPT_AND_IDEA_EXTEND.md`.
 
 ## History scope and core context
 

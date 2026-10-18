@@ -14,8 +14,8 @@ Current runtime split:
 | Layer | Responsibility |
 |---|---|
 | **VS Code Extension** | Chat UX, slash commands, workspace file collection, local file writes, local-agent actuation, Git promotion, extension operational MCP server. |
-| **Orchestrator** | Harper control plane, RAG APIs, phase request shaping, local-agent package generation, local-agent result normalization, canonical eval/gate endpoints, service/read-only MCP server. |
-| **Gateway** | Model routing, provider calls, OpenAI/Anthropic/Ollama/vLLM/DeepSeek compatible chat, embeddings, Harper prompt execution, telemetry APIs. |
+| **Orchestrator** | Harper control plane, phase message composition (prompts in `orchestrator/phases/`), project context sources, RAG APIs, local-agent package generation, local-agent result normalization, canonical eval/gate endpoints (run in the isolated eval sandbox), service/read-only MCP server. |
+| **Gateway** | Model routing, provider calls (OpenAI, Anthropic, Ollama through its OpenAI-compatible API), embeddings, Harper phase execution of the `composed_messages` the orchestrator sends, telemetry APIs. |
 | **Local Agent Executors** | Optional non-interactive execution through **Claude Code** or **GPT Codex** for compatible local flows. They are actuators, not final gate authorities. |
 | **Human Harper Orchestrator** | Final product/engineering authority. Approves scope, reviews outputs, runs/accepts evidence, and controls promotion. |
 
@@ -32,6 +32,7 @@ Each phase lists **Inputs**, **LLM / Agent Responsibilities**, **Outputs**, and 
 **Inputs**
 - Chat intent and business context.
 - Optional attachments and RAG context.
+- Project context sources (`.clike/context.yaml`, default `docs/inputs/**` as requirements and `docs/reference/**` as background; see `context-sources.md`).
 - Existing `docs/harper/*` documents when the project is being reshaped rather than initialized.
 - Optional `TECH_CONSTRAINTS.yaml` or constraint material embedded in IDEA/SPEC.
 
@@ -57,6 +58,7 @@ Each phase lists **Inputs**, **LLM / Agent Responsibilities**, **Outputs**, and 
 - Chat history in Harper mode.
 - Inline attachments and/or RAG attachments.
 - Repository context, when available.
+- Project context sources (requirements, references, UI references in `docs/harper/ux/**`).
 - Constraints from `TECH_CONSTRAINTS.yaml`, IDEA, or existing canonical docs.
 
 **Responsibilities**
@@ -129,7 +131,7 @@ Each phase lists **Inputs**, **LLM / Agent Responsibilities**, **Outputs**, and 
 - Orchestrator MCP `harper_req_*` tools
 
 
-👉 Read how to extend PLAN for new REQs
+👉 Read how to extend PLAN for new REQs (`/extend`) and how to evolve a delivered project to its next release (`/idea --extend`, see §6.1)
 [CLike_Harper_Extend_Feature.md](./CLike_Harper_Extend_Feature.md)
 
 ---
@@ -159,6 +161,7 @@ runs/kit/<REQ-ID>/test/               # Candidate tests
 runs/kit/<REQ-ID>/ci/LTC.json         # Machine-readable validation contract
 runs/kit/<REQ-ID>/ci/HOWTO.md         # Human-readable execution recipe
 runs/kit/<REQ-ID>/ci/requirements.txt # Optional REQ-local tooling/deps
+runs/kit/<REQ-ID>/ci/FILE_REQUIREMENTS.json, ci/TARGET_CONTRACT.json  # written by CLike from the plan
 runs/kit/<REQ-ID>/docs/README_<REQ-ID>.md
 runs/kit/<REQ-ID>/docs/KIT_<REQ-ID>.md
 runs/kit/<REQ-ID>/docs/AGENT_EXECUTION_CONTEXT.json  # local-agent package context when used
@@ -178,7 +181,7 @@ The current KIT flow can be executed as a single base phase or as a staged chain
 
 ### 2.1 Base KIT
 
-Base KIT is the only local-agent-compatible generation phase today.
+Base KIT can run on the cloud path or a local agent (local agents run every Harper phase: IDEA, SPEC, PLAN, KIT, EXTEND, FINALIZE and the `/eval` pre-pass). With `clike.kit.acceptanceFirst` the acceptance tests and eval profile are generated and locked first, then the code KIT is written against them.
 
 ```text
 /kit REQ-001
@@ -287,7 +290,7 @@ The extension is not allowed to reinterpret the Harper contract or promote files
 
 ### 3.4 Local-Agent Hard Rules
 
-Local agents must:
+In `/kit`, local agents must:
 
 - write only under `runs/kit/<REQ-ID>/src`, `runs/kit/<REQ-ID>/test`, `runs/kit/<REQ-ID>/ci`, and `runs/kit/<REQ-ID>/docs`;
 - never modify canonical `src/`, `test/`, `tests/`, `docs/harper/PLAN.md`, or `docs/harper/plan.json`;
@@ -295,6 +298,8 @@ Local agents must:
 - inspect `PLAN.md`, `plan.json`, dependency KITs, canonical source roots, and canonical test roots before generating;
 - avoid duplicate modules, ports, adapters, services, models, and helpers;
 - produce immediately promotable candidate files aligned to the target REQ.
+
+Document phases (IDEA, SPEC, PLAN, EXTEND) write their `docs/harper/` outputs, and `/finalize` writes the solution files within the write roots and forbidden paths of its own package (never `test/`, `runs/`, `.git`, `.env`). Changes a local agent makes to locked acceptance files are governed through `POST /v1/acceptance/amend`.
 
 ---
 
@@ -323,20 +328,22 @@ POST /v1/eval/run
 ```
 
 **Engine**
-- LLM Cloud Provider
-- Agent
+- The LTC commands, run in the `eval-sandbox` container (no credentials, no LLM) on a workspace composed from the canonical tree, the dependency KITs and the candidate KIT.
 
 **Inputs**
 - `profile`: validation profile.
 - `req_id`: target REQ.
 - `mode`: usually `auto`.
+- `regression: true`: also re-run the checks of every promoted REQ (except the checks a MODIFIED REQ supersedes and the REQs a REMOVED REQ retires).
 - Candidate artifacts and/or workspace files.
-- LTC/HOWTO where available.
+- LTC/HOWTO where available: `setup` steps, provisioned `environment`, `services`, eval `tools`.
 
 **Outputs**
-- `runs/<runId>/eval.summary.json`
-- Raw logs under `runs/<runId>/logs/`, when produced.
+- `runs/eval/<REQ-ID>/report_*.json` (checks, `integrity`, `inputs_fingerprint`, `tools`, `missing_tools`)
+- Raw logs, when produced.
 - A normalized check result compatible with gate.
+
+`/eval REQ --fix ["hint"]` runs the governed repair loop (KIT repair from the real failures, tests locked) until the eval passes or the cycle limits stop it (see `auto-eval.md`).
 
 **Checks**
 - `tests`
@@ -351,13 +358,12 @@ POST /v1/eval/run
 ## 5) GATE Phase
 
 **Engine**
-- LLM Cloud Provider
-- Agent 
+- The same sandbox checks as the eval, plus the regression of promoted REQs and the gate policy (no LLM). `/gate REQ --fix` repairs a failing gate like `/eval --fix`.
 
 **Inputs**
 - `docs/harper/plan.json`
 - Candidate artifacts from `runs/kit/<REQ-ID>/...`
-- Latest or selected `runs/<runId>/eval.summary.json`
+- The REQ's LTC checks, re-run by the gate (earlier `runs/eval/<REQ-ID>/` reports feed the repair diagnosis)
 - LTC/HOWTO and lane guide policies
 - Git/workspace status
 
@@ -365,14 +371,15 @@ POST /v1/eval/run
 - Enforce dependency sequencing.
 - Apply gate policy and thresholds.
 - Decide eligible/blocked/conflict outcomes.
-- Promote safe candidate files into canonical roots only after checks pass.
+- Promote candidate files into canonical roots only after checks pass, by a 3-way auto-merge per file (`clike.gate.autoPromote`, default `merge`); conflicting files are never written.
 - Update plan status and write decisions.
 
 **Outputs**
-- `runs/<runId>/gate.decisions.json`
+- `runs/gate/<REQ-ID>/report_<REQ-ID>_<ts>.json`
 - Updated `docs/harper/plan.json`
 - Updated `docs/harper/PLAN.md` gate snapshot
-- Optional Git commit, merge, tag, or PR depending on workspace settings
+- `runs/kit/<REQ-ID>/promotion/<ts>/` (`report.md`, `report.json`, `promotion.diff`, `conflicts.md`)
+- Optional Git commit, merge-on-gate (only for a promoted REQ), tag, or PR depending on settings
 
 Canonical gate check endpoint:
 
@@ -387,6 +394,7 @@ POST /v1/gate/check
 **Engine**
 - LLM Cloud Provider
 - Agent
+- Solution verification: `ci/SOLUTION_LTC.json` run in the eval sandbox against the canonical tree (`clike.finalize.verify`)
 
 **Inputs**
 - Final `docs/harper/plan.json`
@@ -400,6 +408,7 @@ POST /v1/gate/check
 - Summarize completed REQs and quality evidence.
 - Prepare PR body and release notes.
 - Keep scope and evidence traceable.
+- Bring the integrated solution to installed, built, configured and running, smoke-checked while it runs (the REQs' tests are not run again: each gate did), and repair it while the verification fails.
 
 **Outputs**
 
@@ -408,6 +417,12 @@ docs/harper/RELEASE_NOTES.md
 docs/harper/PR_BODY.md
 docs/harper/SANITY_CHECKS.md
 docs/harper/TODO_NEXT.md
+docs/harper/HOWTO_RUN.md
+docs/harper/FINALIZE_REPORT.md     # developer report: start, variables, changes, problems met
+docs/harper/SOLUTION_EVAL.md       # verification evidence
+ci/SOLUTION_LTC.json               # eval profile of the whole solution
+scripts/setup_local.sh|.ps1, scripts/start_solution_local.sh|.ps1, scripts/check_solution_local.sh|.ps1
+README.md                          # marked as a CLike project (badges, "Made with CLike")
 ```
 
 Optional Git tag:
@@ -415,6 +430,20 @@ Optional Git tag:
 ```text
 harper/finalize/<runId>
 ```
+
+### 6.1 EXTEND — the next release
+
+`/extend` appends REQs to the plan (plan-only). `/idea --extend [--from attachment] [--release vN] [--dry-run]` evolves a delivered project to its next release.
+
+**Inputs**
+- `docs/inputs/vN/` (requirements of release N), `docs/reference/vN/` (background), attachments; earlier releases and unversioned inputs are history (`previous_release`).
+- `IDEA.md`, `SPEC.md`, `PLAN.md`, `plan.json`, `TECH_CONSTRAINTS.yaml` of the delivered baseline.
+
+**Outputs**
+- `IDEA.md`, `SPEC.md` merged (nothing of earlier releases dropped), `TECH_CONSTRAINTS.yaml` changed only by addition.
+- New REQs in `PLAN.md` / `plan.json` typed ADDED / MODIFIED / REMOVED (`release`, `origin`, `amends`, `supersedes`, `retires`); delivered REQs read-only.
+- `docs/harper/EXTEND_<date>_<FIRST_REQ>_<LAST_REQ>.md` with a *CLike verification* section.
+- Git tag `harper/v<N-1>` on the delivered baseline.
 
 ---
 
@@ -634,7 +663,7 @@ http://127.0.0.1:55742/mcp
 Purpose:
 
 - operational surface for external/local agents;
-- dispatch normal CLike slash commands through the same chat flow used by a developer;
+- dispatch normal CLike slash commands through the same chat flow used by a developer and return their outcome;
 - expose next-action and RAG helper tools;
 - preserve the Orchestrator as workflow owner.
 
@@ -643,6 +672,9 @@ Supported operational tools:
 - `clike_extension_status`
 - `harper_next_action`
 - `harper_run_phase`
+- `harper_run_status`
+- `eval_run`
+- `gate_check`
 - `harper_kit_next`
 - `harper_continue_loop`
 - `rag_reindex`
@@ -677,7 +709,7 @@ Relevant settings include:
 }
 ```
 
-Promotion copies candidate files from:
+Promotion merges candidate files (3-way, per file) from:
 
 ```text
 runs/kit/<REQ-ID>/src  -> src
@@ -694,19 +726,16 @@ Promotion must never be confused with candidate generation.
 
 ```text
 GET  /health
-GET  /models
-POST /chat
-POST /generate
+GET  /v1/models
+POST /v1/chat
+POST /v1/generate
 POST /agent/code
-POST /spec
-POST /idea
-POST /plan
-POST /kit
-POST /eval
-POST /gate via /v1/gate/check
-POST /finalize
-POST /local-agent/complete
+POST /v1/harper/idea|spec|plan|kit|eval|extend|finalize
+POST /v1/harper/local-agent/complete
 POST /v1/eval/run
+POST /v1/gate/check, /v1/gate/override
+POST /v1/acceptance/lock, /v1/acceptance/amend
+GET  /v1/eval/tools, POST /v1/eval/tools/*
 POST /v1/rag/*
 MCP  /mcp
 ```
@@ -719,9 +748,10 @@ GET  /v1/models
 GET  /v1/models/validate
 POST /v1/chat/completions
 POST /v1/embeddings
-POST /v1/harper/run or /run, depending on mounted prefix
-GET  /harper/ui
-GET  /harper/files|projects|aggregate|series|top|raw
+POST /v1/harper/run
+POST /v1/harper/telemetry
+GET  /v1/metrics/harper/ui
+GET  /v1/metrics/harper/files|projects|aggregate|series|top|raw
 ```
 
 ---
@@ -735,5 +765,5 @@ GET  /harper/files|projects|aggregate|series|top|raw
 - **HITL** — Human in the loop; the developer remains final authority.
 - **LTC** — LLM Test Contract; machine-readable validation recipe.
 - **Orchestrator MCP** — Read-only/service MCP server exposed by the Orchestrator.
-- **Promotion** — Controlled copy from `runs/kit/<REQ-ID>/...` into canonical project roots after eval/gate success.
+- **Promotion** — Controlled 3-way merge from `runs/kit/<REQ-ID>/...` into canonical project roots after eval/gate success.
 - **Skill** — A declared implementation competency needed by a REQ, used to guide prompts and local-agent behavior.

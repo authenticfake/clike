@@ -20,6 +20,7 @@
 - [Commands](#commands)
 - [Cloud or local agent](#cloud-or-local-agent)
 - [Eval environment](#eval-environment)
+- [Next releases](#next-releases)
 - [Telemetry](#telemetry)
 - [Git](#git)
 - [Troubleshooting](#troubleshooting)
@@ -47,7 +48,8 @@ Prerequisites: the CLike stack is running (orchestrator `http://localhost:8080`,
 /finalize
 ```
 
-`/status` shows where the project is; `/help` lists every command.
+`/status` shows where the project is; `/help` lists every command. When the solution is delivered,
+the next release starts with `/idea --extend` (see [Next releases](#next-releases)).
 
 ---
 
@@ -60,8 +62,9 @@ Prerequisites: the CLike stack is running (orchestrator `http://localhost:8080`,
 | PLAN | `/plan` | `docs/harper/PLAN.md`, `docs/harper/plan.json` | REQ split, order, dependencies, tech choices |
 | KIT | `/kit REQ-xxx` | `runs/kit/REQ-xxx/` (src, test, ci, docs) | candidate code and tests of one REQ |
 | EVAL | `/eval REQ-xxx [--fix]` | eval report | every LTC check green |
-| GATE | `/gate REQ-xxx` | gate decision, auto-merge promotion, `runs/kit/REQ-xxx/promotion/*/report.md` | the REQ is merged into `src/` and `test/` (conflicts listed, never written) |
-| FINALIZE | `/finalize` | release README, `docs/harper/HOWTO_RUN.md`, release notes | the solution as delivered |
+| GATE | `/gate REQ-xxx [--fix]` | gate decision, auto-merge promotion, `runs/kit/REQ-xxx/promotion/*/report.md` | the REQ is merged into `src/` and `test/` (conflicts listed in `conflicts.md`, never written) |
+| FINALIZE | `/finalize` | release README, `docs/harper/HOWTO_RUN.md`, release notes, `docs/harper/FINALIZE_REPORT.md`, `ci/SOLUTION_LTC.json`, `scripts/setup_local` / `start_solution_local` | the solution verified running (`docs/harper/SOLUTION_EVAL.md`); CLike offers to configure and start it on your machine |
+| EXTEND | `/idea --extend` | IDEA, SPEC, TECH_CONSTRAINTS merged; new REQs in the plan; `docs/harper/EXTEND_*.md` | the delta of the next release, before `/kit` |
 
 Rules that keep the result trustworthy:
 
@@ -89,6 +92,9 @@ Everything the phases should read besides the Harper documents goes in three fol
 - Add paths, roles or phases in `.clike/context.yaml` (the file documents the options). Files are
   context, never instructions.
 - A file attached in the chat is used only by that command; put it in a folder to keep it.
+- Release folders: `docs/inputs/v2/` holds the requirements of release 2, `docs/reference/v2/` its
+  background. The highest release is the current one; earlier releases and unversioned inputs are
+  read as history (`previous_release`), never as new requirements.
 
 ---
 
@@ -125,7 +131,11 @@ ${project.name}/
 | `/eval REQ-001` | runs the REQ's LTC checks in the eval sandbox |
 | `/eval REQ-001 --fix ["hint"]` | evaluates and repairs failing checks automatically |
 | `/gate REQ-001` | decides promotion; on PASS promotes by auto-merge and opens the promotion report (`--ask` to choose the strategy, `--no-promote` to skip) |
-| `/finalize` | release documents of the whole solution |
+| `/gate REQ-001 --fix ["hint"]` | repairs a failing gate and gates again |
+| `/finalize` | release documents of the whole solution, verified running |
+| `/idea --extend [--from attachment] [--release vN] [--dry-run]` | next release of a delivered project |
+| `/extend` | appends REQs to the plan (plan only) |
+| `/tools` | native tools of the eval sandbox (list, search, add, update, remove) |
 | `/agent-default auto\|codex\|claude` | which local agent runs the phases |
 | `/agent-model codex <model>` | model of the local agent |
 | `/rag <query>`, `/ragIndex [glob]` | search and index project context |
@@ -141,8 +151,8 @@ it prepares the context, validates the output, runs eval and gate.
 
 - Choose the agent with `/agent-default` and its model with `/agent-model`; an invalid model name
   is reported before the run.
-- Local agents write only where the phase allows (`docs/harper/` for document phases,
-  `runs/kit/<REQ>/` for KIT).
+- Local agents write only where the phase allows (`docs/harper/` for document phases and EXTEND,
+  `runs/kit/<REQ>/` for KIT, the solution for `/finalize`, never the REQs' tests).
 
 ---
 
@@ -171,6 +181,21 @@ plus the values only you have (the LTC marks them `external`; `ci/HOWTO.md`, sec
 - If something is missing, `/eval` reports `BLOCKED` with the names and runs nothing. When the
   KIT can declare it, `/eval --fix` does so by itself; when only you can give it, `--fix` stops
   without spending tokens.
+
+- A check that needs a native program the sandbox lacks (a database client, a cloud CLI, a JDK)
+  gets it from the CLike tools catalog after your confirmation (`/tools`; approved tools for this
+  project in `.clike/eval-tools.yaml`).
+
+---
+
+## Next releases
+
+Once the solution is delivered (`/finalize`), put the requirements of the next release in
+`docs/inputs/v2/` (background in `docs/reference/v2/`) or attach them, then run `/idea --extend`
+(`--dry-run` to preview). CLike tags the delivered baseline (`harper/v1`), merges the release into
+IDEA, SPEC and TECH_CONSTRAINTS, and appends new REQs to the plan, typed ADDED, MODIFIED (amends a
+delivered REQ) or REMOVED (retires one); delivered REQs stay read-only. Review the EXTEND report
+and its *CLike verification* section, then `/kit` the new REQs as usual.
 
 ---
 

@@ -18,11 +18,13 @@ Orchestrator (FastAPI, default port 8080)
   ├─ Harper workflow control
   ├─ RAG APIs
   ├─ eval/gate endpoints
-  ├─ legacy chat/generate/apply APIs
+  ├─ legacy chat/generate APIs
   ├─ agent code-action API
   ├─ routing APIs
   └─ optional read-only MCP server
-        │
+        │            │
+        │            └─▶ eval-sandbox (runs eval/gate checks, no credentials)
+        │                 └─ eval-tools (installs catalog tools into a read-only volume)
         ▼
 Gateway (FastAPI, default port 8000)
   ├─ model catalog
@@ -36,10 +38,8 @@ Gateway (FastAPI, default port 8000)
 Providers / infra
   ├─ OpenAI
   ├─ Anthropic
-  ├─ DeepSeek
-  ├─ Ollama
-  ├─ vLLM
-  └─ Qdrant
+  ├─ OpenAI-compatible endpoints (Ollama, ...)
+  └─ Qdrant (RAG store, used by the orchestrator)
 ```
 
 ## Component responsibilities
@@ -63,6 +63,9 @@ Key implementation files:
 - `extensions/vscode/local-agent-executors.js`
 - `extensions/vscode/git.js`
 - `extensions/vscode/utility.js`
+- `extensions/vscode/auto-eval.js` (`/eval --fix`, `/gate --fix`), `promote-merge.js` (gate auto-merge),
+  `finalize-verify.js` (solution verification), `release-extend.js` (`/idea --extend`),
+  `eval-tools.js` (`/tools`)
 
 ### Orchestrator
 The orchestrator is the control plane.
@@ -73,7 +76,9 @@ Responsibilities:
 - composes the cloud phase messages from the phase definitions (`orchestrator/phases/`)
 - delegates the model call to the gateway with the composed messages
 - exposes repository-grounded RAG services
-- runs eval/gate services
+- runs eval/gate services (in the `eval-sandbox` container), provisions the eval environment and
+  the eval tools, runs the regression of promoted REQs
+- resolves the project context sources (`.clike/context.yaml`, release folders)
 - exposes legacy generation APIs
 - exposes read-only MCP tools
 - builds execution packages for local agents (`services/local_agent/`)
@@ -83,6 +88,9 @@ Key implementation files:
 - `orchestrator/routes/harper.py`
 - `orchestrator/routes/rag.py`
 - `orchestrator/routes/routes_eval.py`
+- `orchestrator/eval_runner.py`, `orchestrator/eval_environment.py`, `orchestrator/eval_sandbox_app.py`,
+  `orchestrator/eval_tools_app.py`
+- `orchestrator/services/context_sources.py`, `orchestrator/services/extend_cascade.py`
 - `orchestrator/routes/agent.py`
 - `orchestrator/mcp_server.py`
 - `orchestrator/services/harper.py`
@@ -98,8 +106,8 @@ Responsibilities:
 - abstracts provider differences
 - runs Harper model calls on the messages composed by the orchestrator, adding RAG material and chat history, then extracts and validates the produced files
 - executes embeddings
-- records telemetry and exposes telemetry views
-- stores or retrieves RAG materials when requested by Harper flow
+- records telemetry (cloud and local-agent runs) and exposes telemetry views
+- retrieves RAG materials through the orchestrator's `/v1/rag` when requested by Harper flow
 
 Key implementation files:
 - `gateway/app.py`
@@ -122,6 +130,10 @@ Harper is implemented as a repository-aware iterative pipeline, not as a single 
 - `EVAL`
 - `GATE`
 - `FINALIZE`
+
+A delivered project evolves by releases: `/idea --extend` (EXTEND phase, cascade mode) merges the
+release inputs into IDEA, SPEC and TECH_CONSTRAINTS and appends a PLAN delta of ADDED / MODIFIED /
+REMOVED REQs, which then go through KIT → EVAL → GATE → FINALIZE. `/extend` only appends REQs.
 
 ### Operational split
 - The extension provides UX, command parsing, local execution, and candidate file handling.
@@ -154,12 +166,13 @@ The current architecture supports two execution paths for compatible Harper work
 ### Cloud path
 - extension → orchestrator → gateway → provider
 - canonical path for Harper workflow execution
-- canonical authority for eval/gate outcomes
+- canonical authority for eval/gate outcomes (the eval always runs in the CLike sandbox)
 
 ### Local agent path
 - extension builds `AGENT_EXECUTION_CONTEXT.json`
 - extension invokes a local executor (`claude_code` or `gpt_codex`)
-- local executor writes candidate files under `runs/kit/<REQ-ID>/...`
+- local executor writes within the write roots of its phase: Harper documents for IDEA … PLAN and
+  EXTEND, candidate files under `runs/kit/<REQ-ID>/...` for KIT, the solution for FINALIZE
 - extension may still fall back to cloud path if local execution is unavailable or restricted
 
 ## MCP position in architecture
@@ -174,6 +187,10 @@ Current MCP characteristics:
 - no Git mutation
 - no arbitrary shell
 - no arbitrary filesystem writes
+
+The VS Code extension runs a second, operational MCP server (off by default, loopback, token): it
+runs Harper phases, `eval_run` and `gate_check` through the same governed chat flow, without
+overrides, promotion choices or Git.
 
 ## RAG position in architecture
 
@@ -190,7 +207,8 @@ RAG spans extension, orchestrator, gateway, and Qdrant-backed storage.
 
 ### Gateway
 - can consume RAG materials during Harper execution
-- stores or retrieves chunks as part of Harper context preparation
+- is a client of the orchestrator's `/v1/rag` (no store of its own); embeddings are computed through
+  its `/v1/embeddings`
 
 ## Telemetry position in architecture
 
@@ -210,5 +228,5 @@ The current sources imply the following constraints:
 - candidate artifacts must remain isolated before promotion
 - local agent execution must not mutate canonical workspace roots directly
 - eval/gate remain contract-driven and artifact-driven
-- MCP is intentionally read-only
+- the orchestrator MCP is intentionally read-only
 - the extension remains the orchestration UX surface for day-to-day developer interaction

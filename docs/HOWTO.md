@@ -82,8 +82,9 @@ Recommended preparation:
 /init → read README_1st.md → configure git → /idea → review IDEA.md
 → /spec → review SPEC.md
 → /plan → review PLAN.md and plan.json
-→ (/kit → /eval → /gate) repeated for each REQ-ID
+→ (/kit → /eval [--fix] → /gate [--fix]) repeated for each REQ-ID
 → /finalize
+→ next release: /idea --extend → (/kit → /eval → /gate) for the new REQs → /finalize
 ```
 
 The first phases define intent and structure.
@@ -204,6 +205,10 @@ Attach the file that best represents the initial project intent, for example:
 * a customer request
 * a requirements outline
 * a business brief
+
+Instead of attaching, you can put the source documents in `docs/inputs/` (requirements) and
+`docs/reference/` (background): the phases read them as context sources
+(see [context-sources.md](context-sources.md)).
 
 ### Model and execution selection
 
@@ -473,7 +478,9 @@ Run the validation phase after `/kit`.
 
 ### Purpose
 
-This phase is used to execute tests and validation checks manually and confirm that the generated implementation behaves correctly.
+This phase runs the REQ's eval profile (`ci/LTC.json`) in the CLike eval sandbox and confirms that the generated implementation behaves correctly. It also re-runs the checks of the REQs already promoted (regression).
+
+`/eval REQ-001 --fix ["hint"]` turns a failing eval into a governed repair loop: the code is repaired from the real failures, the tests stay locked (see [auto-eval.md](auto-eval.md)).
 
 Typical checks include:
 
@@ -518,6 +525,8 @@ Use this when:
 * the evidence is strong
 * you want to explicitly confirm readiness
 
+This is an audited override: CLike asks for a reason and reports `OVERRIDE`, never `PASS`.
+
 ### Path B — Standard gate verification
 
 ```text
@@ -528,6 +537,11 @@ Use this when:
 
 * you want CLike to verify gate criteria and KPIs
 * the requirement should go through the standard gate path
+
+A passing gate promotes the REQ into `src/` and `test/` by auto-merge, without prompts, and
+writes a promotion report (conflicting files are never written: see
+[git-and-promotion.md](git-and-promotion.md)). `/gate REQ-001 --fix ["hint"]` repairs a failing
+gate like `/eval --fix`.
 
 ### Developer checkpoint
 
@@ -576,7 +590,9 @@ Once all REQ-IDs are completed, run the final closing step.
 
 ### Purpose
 
-This phase finalizes the documentation and prepares the delivery artifacts.
+This phase finalizes the documentation and prepares the delivery artifacts, then verifies that
+the integrated solution installs, builds, configures, starts and answers (it does not run the
+REQs' tests again: each gate did) and repairs it while it fails (`clike.finalize.verify`).
 
 Typical outputs may include:
 
@@ -584,10 +600,29 @@ Typical outputs may include:
 * final Harper status updates
 * PR-oriented material
 * release notes or summary docs
+* `docs/harper/FINALIZE_REPORT.md` (how to start and see the solution, variables, changes, problems met) and `docs/harper/SOLUTION_EVAL.md`
+* `scripts/setup_local` and `scripts/start_solution_local`: after a passing verification CLike offers to configure and start the solution on your machine (Podman or Docker, or native; a busy host port is replaced by a free one)
 
 ### Developer checkpoint
 
 Before considering the work complete, perform one last serious review of the full documentation set and confirm that the final result matches the intended solution.
+
+---
+
+## Step 12 — The Next Release
+
+A delivered project evolves by releases. Put the requirements of the next release in
+`docs/inputs/v2/` (background in `docs/reference/v2/`) or attach them, then:
+
+```text
+/idea --extend [--from attachment] [--release v2] [--dry-run]
+```
+
+CLike merges the release into `IDEA.md`, `SPEC.md` and `TECH_CONSTRAINTS.yaml`, appends new REQs
+typed ADDED / MODIFIED / REMOVED to the plan (delivered REQs stay read-only), writes an EXTEND
+report with a *CLike verification* section, and tags the delivered baseline `harper/v1`. Review
+the report, then run the loop of steps 7–9 on the new REQs and `/finalize` at the end of the
+release. `/extend` remains the plan-only way to append REQs.
 
 ---
 
@@ -664,6 +699,7 @@ Check:
 * missing or failed validation evidence
 * incomplete `/eval`
 * requirement not actually ready
+* promotion conflicts: read `runs/kit/<REQ>/promotion/<latest>/conflicts.md`, write the right content into `src/`, delete the `.conflict-…` file, run `/gate` again
 
 ---
 
@@ -685,6 +721,7 @@ For a new project such as **CoffeeBuddy**, the recommended operational journey i
 12. promote or verify with `/gate`
 13. repeat until all REQs are complete
 14. close with `/finalize`
+15. evolve the delivered project with `/idea --extend` for the next release
 
 ---
 

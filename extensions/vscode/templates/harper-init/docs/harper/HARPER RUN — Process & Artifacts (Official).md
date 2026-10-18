@@ -55,9 +55,10 @@ In practical day-to-day use, the developer often experiences it like this:
 /init → read bootstrap docs → /idea → review IDEA.md
 → /spec → review SPEC.md
 → /plan → review PLAN.md and plan.json
-→ /kit REQ-xxx → /eval → /gate
+→ /kit REQ-xxx → /eval [--fix] → /gate [--fix]
 → repeat for remaining REQ-IDs
 → /finalize
+→ next release: /idea --extend → the same loop on the new REQs → /finalize
 ```
 
 The first half establishes **intent and structure**.  
@@ -100,22 +101,26 @@ docs/harper/
   SPEC.md
   PLAN.md
   plan.json
+  TECH_CONSTRAINTS.yaml
   KIT.md
   RELEASE_NOTES.md
-  constraints.json
+  FINALIZE_REPORT.md
+  SOLUTION_EVAL.md
+  EXTEND_<date>_<FIRST_REQ>_<LAST_REQ>.md
 ```
+
+Project inputs, read as context and never written by CLike: `docs/inputs/` (requirements;
+`docs/inputs/vN/` for release N), `docs/reference/` (background; `docs/reference/vN/`) and
+`docs/harper/ux/` (UI references).
 
 These are the project-level artifacts that describe what the solution is, how it is broken down, and how it evolves.
 
 ### 2) Run-scoped evidence
 
 ```text
-runs/<runId>/
-  kit.report.json
-  eval.summary.json
-  gate.decisions.json
-  telemetry.json
-  logs/
+runs/kit/<REQ-ID>/            # candidate KIT (src, test, ci/LTC.json, docs, promotion/<ts>/)
+runs/eval/<REQ-ID>/           # eval reports (report_*.json) and repair notes
+runs/gate/<REQ-ID>/           # gate reports
 ```
 
 These capture what happened during a specific iteration.
@@ -138,7 +143,9 @@ Typical shared inputs include:
 - chat history in Harper mode
 - canonical docs in `docs/harper/`
 - RAG attachments when the material is too large to inline
-- synced constraints in `constraints.json`
+- technology constraints in `TECH_CONSTRAINTS.yaml`
+- project context sources declared in `.clike/context.yaml` (default: `docs/inputs/**`,
+  `docs/reference/**`, `docs/harper/ux/**`)
 
 ### Core document behavior
 
@@ -519,7 +526,7 @@ Implement one or more REQ-IDs through requirement-scoped candidate artifacts.
 - tests
 - `docs/harper/KIT.md` with an iteration block
 - iteration README material where useful
-- `runs/<runId>/kit.report.json`
+- the candidate under `runs/kit/<REQ-ID>/` (`src/`, `test/`, `ci/LTC.json`, `ci/HOWTO.md`, `docs/`)
 
 ### Typical KIT iteration contents
 
@@ -664,7 +671,8 @@ Run or ingest validation evidence for the generated requirement slice.
 
 ```text
 /eval
-/eval --all
+/eval REQ-001
+/eval REQ-001 --fix ["hint"]
 ```
 
 ### Common evaluation areas
@@ -681,12 +689,16 @@ Depending on stack and profile, `/eval` may include:
 ### Scoping
 
 - default: validate only the REQ-IDs targeted in the last kit batch
-- `--all`: broader regression-style validation
+- the checks of the REQs already promoted are re-run as regression (`clike.eval.regression`)
+- `--fix`: governed repair loop, tests locked (see the CLike `auto-eval.md`)
+
+The checks run in the CLike eval sandbox, with the variables, test databases, services and tools
+the KIT declares in `ci/LTC.json`.
 
 ### Primary output
 
 ```text
-runs/<runId>/eval.summary.json
+runs/eval/<REQ-ID>/report_<REQ-ID>_<ts>.json
 ```
 
 ### What a strong eval summary answers quickly
@@ -700,7 +712,7 @@ runs/<runId>/eval.summary.json
 
 ### Manual evaluation reality
 
-In some workflows, `/eval` is also the place where the developer manually executes the required tests and confirms that the evidence is solid before proceeding to `/gate`.
+The verdict is always the sandbox eval. The developer still reads the evidence and confirms that it is solid before proceeding to `/gate`.
 
 ### Agent-aware usage
 
@@ -729,8 +741,8 @@ Decide whether a validated REQ can be promoted.
 
 ```text
 /gate
-/gate --all
 /gate REQ-001
+/gate REQ-001 --fix ["hint"]
 /gate REQ-001 manual pass
 ```
 
@@ -742,7 +754,10 @@ Decide whether a validated REQ can be promoted.
 /gate REQ-001
 ```
 
-Use this when the system should verify gate criteria in the normal way.
+Use this when the system should verify gate criteria in the normal way. A passing gate promotes
+the REQ into `src/` and `test/` by a 3-way auto-merge, without prompts (`--ask` or
+`--no-promote` for one run); conflicting files are never written and are explained in
+`runs/kit/<REQ-ID>/promotion/<ts>/conflicts.md`.
 
 #### Manual positive override
 
@@ -750,20 +765,21 @@ Use this when the system should verify gate criteria in the normal way.
 /gate REQ-001 manual pass
 ```
 
-Use this when the developer has manually verified the evidence and intentionally confirms the promotion.
+Use this when the developer has manually verified the evidence and intentionally confirms the promotion. It is an audited override with a reason, reported as `OVERRIDE`.
 
-#### Batch evaluation
+#### Repair a failing gate
 
 ```text
-/gate --all
+/gate REQ-001 --fix
 ```
 
-Use this when multiple open REQs are already green and should be considered together.
+Use this when the gate fails where the eval passed: the same repair loop as `/eval --fix`, then a full gate again.
 
 ### Main outputs
 
 ```text
-runs/<runId>/gate.decisions.json
+runs/gate/<REQ-ID>/report_<REQ-ID>_<ts>.json
+runs/kit/<REQ-ID>/promotion/<ts>/report.md
 ```
 
 Plus:
@@ -815,6 +831,22 @@ Preferred: `Prefer Agent`
 - summary materials
 - PR-oriented outputs
 - tag and merge-related material depending on configuration
+- `docs/harper/FINALIZE_REPORT.md`: how to start and see the solution, every variable, what only
+  the developer can provide, the changes and the problems met
+- `docs/harper/SOLUTION_EVAL.md` and `ci/SOLUTION_LTC.json`: the solution verification
+- `scripts/setup_local` and `scripts/start_solution_local`
+
+`/finalize` verifies that the integrated solution installs, builds, configures, starts and answers
+(the REQs' tests are not run again: each gate did) and repairs it while it fails. After a passing
+verification CLike offers to configure and start it on the developer's machine.
+
+### The next release
+
+A delivered project evolves with `/idea --extend [--from attachment] [--release vN] [--dry-run]`:
+the inputs in `docs/inputs/vN/` (background in `docs/reference/vN/`) are merged into IDEA, SPEC and
+TECH_CONSTRAINTS, and new REQs typed ADDED / MODIFIED / REMOVED are appended to the plan; delivered
+REQs stay read-only and the baseline is tagged `harper/v<N-1>`. `/extend` only appends REQs to the
+plan.
 
 ### What finalize should feel like
 
@@ -832,14 +864,17 @@ Harper assumes Git is part of the control plane.
 
 ### Typical conventions
 
-- branch naming: `harper/<phase>/<runId>`
-- commit messages: `harper(<phase>): <title> [runId=…] [model=…] [profile=…]`
+- branch naming: `feature/req-<n>` per REQ; tags `harper/<phase>/<runId>`
+- commit messages: conventional per phase (`feat(req-001): implement`, `chore(req-001): gate report & promotion`, …) with a `[harper:<phase>] runId=…` trailer; only the phase files are committed
 
 ### Typical toggles
 
-- `git.autoCommit=true|false`
-- `git.createPR=true|false`
-- `git.mergeOnGate=true|false`
+All off by default, read from VS Code User settings:
+
+- `clike.git.autoCommit=true|false`
+- `clike.git.autoPush=true|false`
+- `clike.git.openPR=true|false`
+- `clike.git.gitMergeOnGate=true|false`
 
 ### Why this matters
 
@@ -865,11 +900,8 @@ Typical telemetry includes:
 - gate decision counts
 - prompt system hash
 
-Typical location:
-
-```text
-runs/<runId>/telemetry.json
-```
+Typical location: the gateway telemetry portal (`/v1/metrics/harper/ui`), with local-agent runs
+also recorded in `.clike/telemetry/`.
 
 Telemetry turns “it looked okay” into “we know what happened.”
 

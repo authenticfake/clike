@@ -27,16 +27,16 @@ Display labels used by the extension:
 ## Execution preference model
 
 ### Current normalized execution preferences
-- `auto`
 - `cloud_only`
 - `prefer_local_agent`
-- `local_agent_only`
-- `hybrid`
+- `local_agent_only` (default of `clike.execution.defaultPreference`)
 
 ### Backward compatibility normalization
 The extension normalizes legacy values:
 - `prefer_claude_code` → `prefer_local_agent`
 - `claude_code_only` → `local_agent_only`
+- `auto` → `cloud_only`
+- `hybrid` → `prefer_local_agent`
 
 ## Executor selection model
 
@@ -83,21 +83,27 @@ The extension checks:
 ### GPT Codex settings
 - `clike.localAgent.codex.enabled`
 - `clike.localAgent.codex.command`
-- `clike.localAgent.codex.approvalMode`
-- `clike.localAgent.codex.printModeFlag`
+- `clike.localAgent.codex.model`
 - `clike.localAgent.codex.sandboxMode`
 - `clike.localAgent.codex.timeoutMinutes`
 
 `clike.localAgent.codex.sandboxMode` defaults to `auto`. In `auto`, CLike launches
-Codex with `--sandbox workspace-write` for phases that must generate files and
-with `--sandbox read-only` for inspect-only work. The supported explicit values
-are `read-only`, `workspace-write`, and `danger-full-access`; `workspace-write`
-is the expected mode for normal candidate generation.
+Codex with `--sandbox workspace-write` for every Harper phase (they all write
+files) and for Coding, and `--sandbox read-only` for Free (Q&A) chat. The supported
+explicit values are `read-only`, `workspace-write`, and `danger-full-access`; an
+explicit `read-only` is rejected for Harper phases (see below). Harper phases also
+pass `--skip-git-repo-check`, so they work in a project that is not a git repository yet.
+
+The configured model is checked before the agent starts: `clike.localAgent.codex.model`
+against the models of the Codex login (`~/.codex/models_cache.json`),
+`clike.claudeCode.model` against the Claude aliases and `claude-*` ids. An invalid id
+blocks the run with `LOCAL_AGENT_MODEL_INVALID` and the closest valid id. A failed run
+reports `LOCAL_AGENT_EXITED_WITH_ERROR` with the agent's own error message.
 
 ## Codex write mode
 
-KIT, eval repair/hardening, and finalize local-agent runs are write-required
-tasks. CLike must not launch Codex for those phases in `read-only` mode because
+Every Harper local-agent run (document phases, EXTEND, KIT, eval repair/hardening,
+finalize) is a write-required task. CLike must not launch Codex for those phases in `read-only` mode because
 the agent is expected to create or patch controlled candidate artifacts.
 
 For `/kit`, Codex may write only inside the CLike candidate tree for the active
@@ -113,6 +119,10 @@ Canonical workspace roots remain forbidden local-agent outputs:
 - `tests/**`
 - `docs/harper/**`
 - `.git/**`
+
+`/finalize` writes the integrated solution instead: inside the write roots of its
+package (`src/`, `scripts/`, `docs/harper/`, root manifests, `ci/SOLUTION_LTC.json`, …),
+never `test/`, `tests/`, `runs/`, `.git` or a path the package forbids (`.env`, caches).
 
 If the selected Codex sandbox mode is not write-capable for a write-required
 phase, CLike aborts before launching Codex with
@@ -142,7 +152,7 @@ phases as well as the existing actuator phases:
 - `/kit`
 - `/eval`
 - `/finalize`
-- `/extend`
+- `/extend` and `/idea --extend`
 
 All phases share the same architecture: orchestrator execution policy,
 `run_phase` dispatch, the local-agent package envelope, the
@@ -159,10 +169,25 @@ narrow:
 - `/plan` local agent writes `docs/harper/PLAN.md` and `docs/harper/plan.json`
   (plus `docs/harper/lane-guides/<lane>.md` for each detected lane).
 
-`docs/harper/` remains protected: any other `docs/harper/` path, and all of
-`src/`, `test/`, `tests/`, and `.git/`, stay forbidden for these phases.
+`docs/harper/` remains protected: any other `docs/harper/` path (except the BMAD
+companion documents of the selected BMAD agent), and all of `src/`, `test/`,
+`tests/`, and `.git/`, stay forbidden for these phases.
 Methodology/BMAD context is passed through when enabled, but BMAD is never
 mandatory and the canonical Harper outputs above are always required.
+
+The project context sources (`.clike/context.yaml`, see `context-sources.md`) reach
+the agent as a list of files to read in place; office and PDF documents are converted
+to text under `runs/context/<phase>/`.
+
+### EXTEND (`/extend`, `/idea --extend`)
+The agent may write `docs/harper/IDEA.md`, `SPEC.md`, `PLAN.md`, `plan.json`, lane
+guides and the dated `docs/harper/EXTEND_<date>_<first>_<last>.md` report;
+`TECH_CONSTRAINTS.yaml` only in the release cascade (`/idea --extend`, by addition).
+The extension then checks the result: existing REQs are restored if changed, IDEA/SPEC
+sections of the earlier release are restored if dropped, the delta rules
+(ADDED/MODIFIED/REMOVED, `release`, `amends`/`supersedes`/`retires`) are verified, and a
+*CLike verification* section is appended to the EXTEND report. `/extend` gets
+`TECH_CONSTRAINTS.yaml` restored.
 
 #### Attachments and run tracking
 
@@ -236,12 +261,15 @@ Both local executors currently support:
 - base `kit`
 - the acceptance-first stages (`clike.kit.acceptanceFirst`): the acceptance stage writes only
   `test/`, `ci/` and `docs/ACCEPTANCE_<REQ>.md`; the code stage implements against the locked tests
-- the auto-eval repair (`/eval REQ --fix`): the package states the repair task, the failed checks
-  (with their output) and the rules in the prompt itself (`repair_context.auto_eval` in the context)
+- the auto-eval / auto-gate repair (`/eval REQ --fix`, `/gate REQ --fix`): the package states the
+  repair task, the failed checks (with their errors) and the rules in the prompt itself
+  (`repair_context.auto_eval` in the context); the agent can re-run the failed checks in the real
+  eval sandbox with `node .clike/bin/eval-check.mjs <check>…` (served by the extension,
+  `clike.autoEval.agentEvalChecks`), without the token or network access
 
 Governance with agents: the agent writes directly, so the extension snapshots `test/` and `ci/`
 before a repair or a code-only KIT, submits what changed to `POST /v1/acceptance/amend` and
-restores what is rejected (and any deleted file). Safe mechanical lint fixes (e.g. import order)
+restores what is rejected (and any deleted file), before the phase commit. Safe mechanical lint fixes (e.g. import order)
 computed by the orchestrator come back as `format_fixes` and are written before the first eval.
 
 Every KIT prompt ends with an eval-readiness self-check (checks the LTC runs, files asserted by
@@ -258,14 +286,13 @@ Both local executors can participate in:
 - local eval pre-pass when `clike.localAgent.allowEval=true`
 
 ### Follow-up KIT phases
-Current sources explicitly treat follow-up phases as restricted when:
-- `clike.localAgent.restrictToKitPhases=true`
+`clike.localAgent.restrictToKitPhases` and `clike.claudeCode.restrictToKitPhases` are still
+declared and read, but no phase is currently restricted by them. Follow-up KIT stages work on
+the current candidate: once the tests are locked, their changes to `test/` and `ci/` are
+governed like a repair.
 
-This means local agents are currently intended first for:
-- base KIT generation
-- optional eval pre-pass
-
-They are not currently a full unrestricted replacement for all Harper phases.
+The eval verdict is never the agent's: `/eval` and `/gate` always end with the canonical eval
+in the CLike sandbox.
 
 ## Standalone Free (Q&A) and Coding local execution
 
@@ -318,9 +345,9 @@ the spawned process environment by default.
 Provider availability is computed once at the gateway, which is the only process
 that holds the cloud API keys:
 
-- Cloud providers (`openai`, `anthropic`, `deepseek`) are available when their API
+- Cloud providers (`openai`, `anthropic`) are available when their API
   key env var is set to a non-empty value.
-- Local providers (`ollama`, `vllm`) are available when their base URL responds.
+- Local providers (`ollama`, through its OpenAI-compatible API) are available when their base URL responds.
 
 `GET /v1/providers` exposes this snapshot and `GET /v1/models` annotates each
 model with `available` / `unavailable_reason`. The orchestrator hides models whose
@@ -427,5 +454,4 @@ If local eval pre-pass fails:
 - Provider/key availability gates the model list and the Execution selector
 
 ### Not stable enough to document as unrestricted capability
-- unrestricted follow-up KIT phase execution
-- local agents as canonical gate authority
+- local agents as canonical eval or gate authority

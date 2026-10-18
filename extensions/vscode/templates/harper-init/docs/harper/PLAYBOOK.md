@@ -4,7 +4,7 @@
 ---
 
 ## Overview
-Harper turns a high-level IDEA into a working solution via short, testable steps: IDEA → SPEC → PLAN → KIT → FINALIZE.
+Harper turns a high-level IDEA into a working solution via short, testable steps: IDEA → SPEC → PLAN → KIT → EVAL → GATE → FINALIZE, then `/idea --extend` for each next release.
 
 ## How to author IDEA.md
 - Problem Statement (users, pains, opportunity)
@@ -23,10 +23,13 @@ Harper turns a high-level IDEA into a working solution via short, testable steps
 - **Gate G0 Checklist** (Definition of Ready)
 
 ## Commands
-- \`/spec\` → Use IDEA as source-of-truth, produce/update SPEC.
-- \`/plan\` → Use SPEC to produce/update PLAN (WBS, milestones, acceptance).
-- \`/kit\`  → Implement in short loops with tests.
-- \`/finalize\` → Final release packaging, howto, git PR & report.
+- `/idea` → Produce/update IDEA from the inputs in `docs/inputs/` (and attachments).
+- `/spec` → Use IDEA as source-of-truth, produce/update SPEC.
+- `/plan` → Use SPEC to produce/update PLAN (WBS, milestones, acceptance).
+- `/kit`  → Implement in short loops with tests.
+- `/eval REQ-xxx [--fix]`, `/gate REQ-xxx [--fix]` → Verify each REQ; a passing gate promotes it.
+- `/finalize` → Final release packaging, howto, solution verified running, developer report.
+- `/idea --extend` → Next release: inputs in `docs/inputs/vN/`, new REQs appended to the plan.
 
 ## Gates
 - **G0 (SPEC)**: requirements coherent, constraints explicit, acceptance clear.
@@ -53,14 +56,14 @@ This section summarizes the SPEC → PLAN → KIT workflow and the commands to r
 - `/kit`  → Generate initial kit/scaffold and then incremental build steps.
 
 ### RAG
-- `/ragIndex [--path <p>] [--glob "<g>"] [--tags "<t>"]`  
+- `/ragIndex [glob]`  
   Ingest/update the vector store with docs and attachments.
-- `/ragSearch [<querySearch>] [top_k]`  
-  Search docs by vector (via querySearch).
+- `/ragSearch <query>`  
+  Search docs by vector.
 
 ### Evals & Gates
-- `/eval <kit>` → Run phase evaluations and show PASS/FAIL.
-- `/gate <kit` → Enforce gates for the selected phase.
+- `/eval <REQ> [--fix]` → Run the REQ's checks in the CLike eval sandbox and show PASS/FAIL; `--fix` repairs failing checks.
+- `/gate <REQ> [--fix]` → Enforce the gate for the REQ; on PASS it is promoted into `src/` and `test/`.
 
 ## Workflow Expectations
 

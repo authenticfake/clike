@@ -56,6 +56,11 @@ Other settings: `gitDeleteBranchOnMerge`, `gitReturnToFeatureAfterMerge`, `remot
   for a REQ that was promoted: a gate that passed but left promotion conflicts keeps the REQ on
   its branch (CLike says so) until the conflicts are resolved and `/gate` runs again.
 - Tags `harper/<phase>/<runId>` are created locally; pushes only with `autoPush`.
+- `/idea --extend` tags the delivered baseline `harper/v<N-1>` (annotated, on `HEAD`, once; not
+  on `--dry-run`) before the release changes the documents.
+- Paths the project ignores are left out of a phase commit (logged), so one ignored path does not
+  skip the commit; CLike agent files of the REQ (`runs/kit/<REQ>/docs/AGENT_*`) are committed with
+  the phase, so they never block the switch to the default branch.
 - These guarantees are covered by tests against real temporary repositories
   (`extensions/vscode/test/git-sync.test.js`).
 
@@ -68,7 +73,11 @@ The inspected codebase and reference docs support this phase-aware model:
 - `/kit` produces candidate artifacts under `runs/kit/<REQ-ID>/...`
 - `/eval` produces eval evidence
 - `/gate` produces gate decisions and may allow promotion
-- `/finalize` is release-oriented
+- `/finalize` is release-oriented: it commits the verified solution on the default branch (only
+  its own files; the developer's earlier changes stay out) and warns when REQ branches are not
+  merged into it
+- `/idea --extend` starts the next release: IDEA/SPEC/TECH_CONSTRAINTS merged, new REQs appended
+  to the plan
 
 ## Candidate-first promotion
 
@@ -161,7 +170,10 @@ Promotion should therefore be documented as:
 The settings indicate support for merge-on-gate behavior:
 - `clike.git.gitMergeOnGate`
 
-Merge is opt-in (default `false`) and happens only after a PASS gate.
+Merge is opt-in (default `false`) and happens only after a PASS gate that promoted the REQ.
+With `autoPush` and a remote, CLike first fetches and merges `<remote>/<default>` into the default
+branch (a PR merged on the host), then merges the REQ (`--no-ff`) and pushes; a conflict, a failed
+switch or a failed push is shown as a warning with its cause and the commands to run.
 
 ## Current branch conventions
 

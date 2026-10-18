@@ -2,7 +2,7 @@
 - [ ] SPEC Gates — PASS (attach eval link/artifacts)
 - [ ] PLAN Gates — PASS (Traceability 100%, hooks present)
 - [ ] KIT Gates — PASS (lint/type/tests, coverage ≥ policy)
-- [ ] Artifacts uploaded (`runs/<ts>/eval/*.xml|*.json`)
+- [ ] Eval/gate evidence linked (`runs/eval/<REQ>/report_*.json`, `runs/gate/<REQ>/`, promotion report `runs/kit/<REQ>/promotion/<ts>/report.md`)
 
 ## Scope & Traceability
 - [ ] Link SPEC requirement IDs

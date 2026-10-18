@@ -9,7 +9,7 @@ version: 1
 sources:
   - path: docs/inputs/**          # every file below docs/inputs
     role: requirements
-    phases: [idea, spec, plan]
+    phases: [idea, spec, plan, extend]
   - path: docs/harper/ux/**        # HTML prototypes, CSS, SVG, screenshots, UX notes
     role: ui_reference
     phases: [spec, plan, kit]
@@ -22,8 +22,17 @@ limits:                            # optional
   max_total_chars: 150000
 ```
 
-Without the file CLike reads `docs/inputs/**` as `requirements` (idea, spec, plan) and
-`docs/harper/ux/**` as `ui_reference` (spec, plan, kit).
+Without the file CLike reads `docs/inputs/**` as `requirements` and `docs/reference/**` as
+`reference` (idea, spec, plan, extend), and `docs/harper/ux/**` as `ui_reference` (spec, plan, kit).
+
+## Release folders
+
+A delivered project evolves by releases (`/idea --extend`): `docs/inputs/vN/` holds the
+requirements of release N, `docs/reference/vN/` its background. The highest release folder (or the
+one named with `--release vN`) is the current release; its folders are read even when
+`context.yaml` does not declare them. `requirements` and `reference` files of earlier releases, and
+unversioned files once release folders exist, are history: they get the role `previous_release`
+(what the project already is, never a new requirement).
 
 ## Roles
 
@@ -38,6 +47,7 @@ Without the file CLike reads `docs/inputs/**` as `requirements` (idea, spec, pla
 | `domain_glossary` | domain terms |
 | `example_output` | expected outputs or reports to match |
 | `reference` | background material |
+| `previous_release` | requirements or background of an earlier, delivered release (assigned by CLike, see *Release folders*) |
 | `existing_code` | code that already exists (this project or one to integrate with): follow its interfaces and conventions, call it instead of rewriting it |
 
 ## Formats

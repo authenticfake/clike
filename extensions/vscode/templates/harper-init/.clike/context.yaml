@@ -11,7 +11,13 @@
 #
 # Roles: requirements, ui_reference, ux_requirements, api_reference, data_sample, style_guide,
 # domain_glossary, example_output, reference. Without this file CLike reads docs/inputs/** as
-# requirements (idea, spec, plan) and docs/harper/ux/** as ui_reference (spec, plan, kit).
+# requirements and docs/reference/** as reference (idea, spec, plan, extend), and docs/harper/ux/**
+# as ui_reference (spec, plan, kit).
+#
+# Releases: put the requirements of release N in docs/inputs/vN/ and its background in
+# docs/reference/vN/ (v2, v3, ...). The current release is the delta; earlier releases and
+# unversioned inputs are read as history (role previous_release). /idea --extend always reads the
+# folders of the release it targets.
 
 version: 1
 
@@ -19,7 +25,7 @@ sources:
   # Requirements, specifications, business rules (docx, pdf, xlsx, pptx, md, ...)
   - path: docs/inputs/**
     role: requirements
-    phases: [idea, spec, plan]
+    phases: [idea, spec, plan, extend]
 
   # Everything that shows how the UI must look and behave: HTML prototypes, CSS, SVG,
   # screenshots, mockups, UX notes
@@ -30,7 +36,7 @@ sources:
   # Background material
   - path: docs/reference/**
     role: reference
-    phases: [spec, plan]
+    phases: [idea, spec, plan, extend]
 
 # Optional caps (characters of text per file and per phase, files per phase)
 limits:

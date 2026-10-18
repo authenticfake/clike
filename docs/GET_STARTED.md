@@ -58,6 +58,13 @@ are small IDEAs to start with.
    to provide, what changed and why); CLike then offers to configure and start it on your machine
    (`scripts/setup_local`, then `scripts/start_solution_local`; with Docker or Podman, or natively).
    A host port already taken on your machine is replaced by a free one in your local `.env`.
+7. **Next release.** Put the new requirements in `docs/inputs/v2/` (background, blueprints in
+   `docs/reference/v2/`; `v3/` for the release after) and run `/idea --extend`. CLike merges the
+   release into IDEA, SPEC and TECH_CONSTRAINTS, adds the new REQs to the PLAN typed `ADDED`,
+   `MODIFIED` (changes a delivered REQ, naming the checks it replaces) or `REMOVED`, keeps every
+   delivered REQ as it is, tags the delivered state `harper/v1` and writes
+   `docs/harper/EXTEND_<date>_<first>_<last>.md`. Review it (`--dry-run` writes only the report),
+   then step 5 for each new REQ and step 6 at the end of the release.
 
 `/help` lists every command; `/status` shows where you are.
 
