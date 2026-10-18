@@ -191,7 +191,8 @@ plus the values only you have (the LTC marks them `external`; `ci/HOWTO.md`, sec
 ## Next releases
 
 Once the solution is delivered (`/finalize`), put the requirements of the next release in
-`docs/inputs/v2/` (background in `docs/reference/v2/`) or attach them, then run `/idea --extend`
+`docs/inputs/v2/` (background in `docs/reference/v2/`) and run `/idea --extend`; attached files add
+to them, and are required only when `docs/inputs/v2/` is empty
 (`--dry-run` to preview). CLike tags the delivered baseline (`harper/v1`), merges the release into
 IDEA, SPEC and TECH_CONSTRAINTS, and appends new REQs to the plan, typed ADDED, MODIFIED (amends a
 delivered REQ) or REMOVED (retires one); delivered REQs stay read-only. Review the EXTEND report

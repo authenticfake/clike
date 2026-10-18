@@ -110,9 +110,10 @@ IDEA → SPEC → PLAN in continuity with what exists:
 
 - **Inputs, by release folder.** Put the new requirements of release N in `docs/inputs/vN/`
   (for example `docs/inputs/v2/`, then `docs/inputs/v3/` for the release after) and background
-  material in `docs/reference/vN/`. With files in `docs/inputs/vN/` no attachment is needed;
-  otherwise attach the requirements (required, as for `/idea`). Text after the command adds to
-  them. The targeted release
+  material in `docs/reference/vN/`. With files in `docs/inputs/vN/` no attachment is needed,
+  and you can still attach more files (notes, documents, examples): they add to the folder, both
+  are inputs of the release. With `docs/inputs/vN/` empty or missing an attachment is required
+  (as for `/idea`). Text after the command adds to them. The targeted release
   is `--release vN`, else the highest folder above what the plan already holds, else the next one.
   Inputs of earlier releases (and unversioned files in `docs/inputs/`) are read as history, never as
   new requirements. The folders of the targeted release are read even when `.clike/context.yaml`

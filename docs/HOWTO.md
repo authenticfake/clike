@@ -612,7 +612,8 @@ Before considering the work complete, perform one last serious review of the ful
 ## Step 12 — The Next Release
 
 A delivered project evolves by releases. Put the requirements of the next release in
-`docs/inputs/v2/` (background in `docs/reference/v2/`) or attach them, then:
+`docs/inputs/v2/` (background in `docs/reference/v2/`) — no attachment needed; attached files add to
+them, and an attachment is required only when `docs/inputs/v2/` is empty — then:
 
 ```text
 /idea --extend [--from attachment] [--release v2] [--dry-run]

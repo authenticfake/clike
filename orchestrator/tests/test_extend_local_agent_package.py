@@ -272,3 +272,23 @@ def test_cloud_extend_section_carries_the_request_and_the_cascade():
     cascade = cloud_extend_section({"extend": {"mode": "cascade", "release": "v2", "baseline": "v1"}})
     assert "### Release cascade (/idea --extend)" in cascade and "docs/harper/TECH_CONSTRAINTS.yaml" in cascade
     assert cloud_extend_section({}) == ""
+
+
+def test_cascade_reads_the_release_folder_and_the_attachments_together(tmp_path):
+    from services.context_sources import attach_context_sources_to_local_package, resolve_context_sources
+
+    (tmp_path / "docs" / "inputs" / "v2").mkdir(parents=True)
+    (tmp_path / "docs" / "inputs" / "v2" / "IDEA_EXTEND_R2.md").write_text("# Release 2\n", encoding="utf-8")
+    payload = {
+        "runId": "ext-run",
+        "extend": {"mode": "cascade", "release": "v2", "baseline": "v1"},
+        "attachments": [{"name": "pricing.md", "path": "notes/pricing.md", "origin": "workspace",
+                         "mime": "text/markdown", "content": "# Pricing\n\nServer bundles.\n"}],
+    }
+    package = _package(payload)
+    context = resolve_context_sources(tmp_path, "extend", release="v2", phases=["idea", "spec", "plan"])
+    prompt = attach_context_sources_to_local_package(package, context)["local_agent"]["prompt_content"]
+    # both are inputs of the release: the files in docs/inputs/v2/ and the extra attachment
+    assert "docs/inputs/v2/IDEA_EXTEND_R2.md — role: requirements — release v2" in prompt
+    assert "runs/extend/attachments/pricing.md" in prompt
+    assert any(f["path"] == "runs/extend/attachments/pricing.md" for f in _materialized(package))
