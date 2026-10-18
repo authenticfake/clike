@@ -248,7 +248,7 @@ def _render_clike_selected_capability_context_for_cloud(core_blobs: dict | None)
             [
                 "- selected capability markdown:",
                 "```markdown",
-                bounded_markdown[:8000].rstrip() + ("\n...[truncated]" if len(bounded_markdown) > 8000 else ""),
+                bounded_markdown[:20000].rstrip() + ("\n...[truncated]" if len(bounded_markdown) > 20000 else ""),
                 "```",
             ]
         )
