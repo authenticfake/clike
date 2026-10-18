@@ -542,3 +542,12 @@ def test_gateway_enriches_stale_bmad_context_from_context_envelope():
     ]
     assert context["selected_skill_context"]["snippets"]
     assert context["skill_reference_policy"]["cloud_context_enabled"] is True
+
+
+def test_kit_root_deliverables_are_valid_file_headers():
+    _is_valid_file_header_path = harper._is_valid_file_header_path
+
+    assert _is_valid_file_header_path("runs/kit/REQ-033/root/deploy/aws/01_inventory.sh", phase="kit")
+    assert _is_valid_file_header_path("/runs/kit/REQ-016/root/scripts/setup_local.sh", phase="kit")
+    assert not _is_valid_file_header_path("runs/kit/REQ-016/other/x.sh", phase="kit")
+    assert not _is_valid_file_header_path("scripts/setup_local.sh", phase="kit")

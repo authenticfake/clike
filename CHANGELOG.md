@@ -48,6 +48,9 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **Cloud KITs could not deliver repository-root files**: the gateway accepted only
+  `runs/kit/<REQ>/{src,test,docs,ci}` file blocks, so `root/` deliverables were dropped on the cloud
+  path; cloud, Codex and Claude Code now share the same KIT roots.
 - **A document phase run from a REQ branch hid the KIT.** `/spec` (and the other document
   phases) committed on the default branch and stayed there: the REQ's KIT disappeared from the
   working tree. CLike now switches back to the REQ branch and merges the documents into it.
