@@ -9,7 +9,7 @@ to report a vulnerability.
 CLike is designed for a **single developer on localhost**. The services are not meant to be exposed
 on a network or shared between users.
 
-## Security model (1.4.4)
+## Security model (1.5.0)
 
 | Area | Control |
 |---|---|
@@ -27,6 +27,8 @@ on a network or shared between users.
 | Eval tools | Native tools for the checks are installed only from CLike's catalog (or the project's `.clike/eval-tools.yaml`) after the developer's confirmation, by a separate service reachable only by the orchestrator, without credentials; vendor archives are https-only and verified by sha256; the sandbox mounts them read-only. |
 | Acceptance integrity | The acceptance surface of each requirement (tests, CI profile) is locked server-side before evaluation; removed/modified tests, weakened profiles and added skip markers block the gate. Auto-eval repairs may amend it only in audited, non-weakening ways (LTC command fixes, `ci/` dependency upgrades, unused imports, and test fixes with every assertion unchanged, flagged `review_required` at the gate). |
 | Gate override | Manual overrides require a reason, are recorded in an audit log with an artifact digest and are reported as `OVERRIDE`, never `PASS`. |
+| Gate verdict reuse | The gate reuses an eval verdict only when a digest the orchestrator computes from the project itself (code, KIT, every LTC, `plan.json`, CLike version) matches the one recorded with the passing eval in `CLIKE_STATE_DIR`, which agents cannot write; acceptance integrity and required outputs are still checked. A report edited by hand never produces a PASS. |
+| KIT repository-root files | A KIT writes root deliverables only under `runs/kit/<REQ>/root/`; promotion writes them only within an allowlist (`scripts/`, `deploy/`, `infra/`, … plus `.clike/project.json` `root_folders` / `root_files`) and never `.git`, `.clike`, `runs`, `docs`, `src`, `test`, `ci`, `.env*` or keys; anything else is reported `rejected` and not written. |
 | Containers | Services run as a non-root user; the CLike repository (including `.git`) is mounted read-only. |
 | Git | Only the files of a phase are committed; no branch is rewritten; commit, push, merge-on-gate and PR automation are opt-in. |
 | Logging | Request bodies are never logged; unhandled errors return a correlation id instead of internal details. |
