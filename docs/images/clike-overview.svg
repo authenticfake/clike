@@ -1,0 +1,175 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#334155"/>
+    </marker>
+    <marker id="arrowAccent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#7c3aed"/>
+    </marker>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f8fafc"/>
+      <stop offset="1" stop-color="#eef2ff"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1600" height="1000" fill="url(#bg)"/>
+
+  <!-- Title -->
+  <text x="40" y="58" font-size="34" font-weight="700" fill="#0f172a">CLike</text>
+  <text x="150" y="58" font-size="22" fill="#334155">governed AI delivery — from an idea to a running solution, release after release</text>
+  <text x="40" y="88" font-size="15" fill="#64748b">Cloud models, Codex and Claude Code write the code · CLike decides what is verified, promoted and delivered</text>
+
+  <!-- Inputs band -->
+  <rect x="40" y="110" width="1520" height="74" rx="12" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="60" y="138" font-size="15" font-weight="700" fill="#0f172a">INPUTS</text>
+  <text x="60" y="164" font-size="14" fill="#334155">docs/inputs/vN/ (requirements of release N)  ·  docs/reference/vN/ (background, blueprints)  ·  docs/harper/ux/ (HTML, CSS, mockups)  ·  attachments (docx, pdf, xlsx, pptx, images)  ·  .clike/context.yaml  ·  existing code</text>
+
+  <!-- Left: who works -->
+  <rect x="40" y="206" width="300" height="420" rx="12" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="60" y="236" font-size="15" font-weight="700" fill="#0f172a">WHO WRITES</text>
+  <g font-size="14" fill="#1e293b">
+    <rect x="60" y="252" width="260" height="58" rx="8" fill="#e0f2fe"/>
+    <text x="74" y="276" font-weight="600">VS Code chat</text>
+    <text x="74" y="297" fill="#475569">Harper · Coding · Q&amp;A, approvals</text>
+    <rect x="60" y="320" width="260" height="58" rx="8" fill="#ede9fe"/>
+    <text x="74" y="344" font-weight="600">Claude Code (local agent)</text>
+    <text x="74" y="365" fill="#475569">reads the workspace, writes the KIT</text>
+    <rect x="60" y="388" width="260" height="58" rx="8" fill="#dcfce7"/>
+    <text x="74" y="412" font-weight="600">Codex (local agent)</text>
+    <text x="74" y="433" fill="#475569">same packages, same rules</text>
+    <rect x="60" y="456" width="260" height="58" rx="8" fill="#fef3c7"/>
+    <text x="74" y="480" font-weight="600">Cloud models (gateway)</text>
+    <text x="74" y="501" fill="#475569">OpenAI · Anthropic · others, same context</text>
+    <rect x="60" y="524" width="260" height="84" rx="8" fill="#f1f5f9"/>
+    <text x="74" y="548" font-weight="600">Methodology</text>
+    <text x="74" y="569" fill="#475569">native Harper or BMAD roles</text>
+    <text x="74" y="590" fill="#475569">analyst · pm · architect · ux · dev · qa</text>
+  </g>
+
+  <!-- Center: Harper lifecycle -->
+  <rect x="360" y="206" width="880" height="420" rx="12" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="380" y="236" font-size="15" font-weight="700" fill="#0f172a">HARPER LIFECYCLE</text>
+
+  <g font-size="15" font-weight="700" fill="#ffffff" text-anchor="middle">
+    <rect x="384" y="268" width="120" height="54" rx="10" fill="#0ea5e9"/><text x="444" y="301">IDEA</text>
+    <rect x="534" y="268" width="120" height="54" rx="10" fill="#0284c7"/><text x="594" y="301">SPEC</text>
+    <rect x="684" y="268" width="120" height="54" rx="10" fill="#0369a1"/><text x="744" y="301">PLAN</text>
+    <rect x="1094" y="268" width="128" height="54" rx="10" fill="#16a34a"/><text x="1158" y="301">FINALIZE</text>
+  </g>
+  <g stroke="#334155" stroke-width="2" fill="none">
+    <line x1="504" y1="295" x2="530" y2="295" marker-end="url(#arrow)"/>
+    <line x1="654" y1="295" x2="680" y2="295" marker-end="url(#arrow)"/>
+    <line x1="804" y1="295" x2="846" y2="295" marker-end="url(#arrow)"/>
+    <line x1="1064" y1="295" x2="1090" y2="295" marker-end="url(#arrow)"/>
+  </g>
+  <!-- per-REQ loop -->
+  <rect x="850" y="250" width="212" height="152" rx="10" fill="#f5f3ff" stroke="#7c3aed" stroke-dasharray="5 4"/>
+  <text x="956" y="270" font-size="13" font-weight="700" fill="#5b21b6" text-anchor="middle">for each REQ (dependency order)</text>
+  <g font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">
+    <rect x="866" y="282" width="56" height="34" rx="7" fill="#7c3aed"/><text x="894" y="304">KIT</text>
+    <rect x="928" y="282" width="56" height="34" rx="7" fill="#6d28d9"/><text x="956" y="304">EVAL</text>
+    <rect x="990" y="282" width="56" height="34" rx="7" fill="#5b21b6"/><text x="1018" y="304">GATE</text>
+  </g>
+  <g font-size="12" fill="#4c1d95" text-anchor="middle">
+    <text x="956" y="338">--fix: governed repair loop</text>
+    <text x="956" y="356">PASS → 3-way promotion</text>
+    <text x="956" y="374">src/ · test/ · root/ (scripts, deploy)</text>
+    <text x="956" y="392">merge on gate · tags</text>
+  </g>
+
+  <!-- next release loop -->
+  <path d="M 1158 322 L 1158 466 Q 1158 476 1148 476 L 382 476 Q 372 476 372 466 L 372 305 Q 372 295 380 295" stroke="#7c3aed" stroke-width="2.5" fill="none" marker-end="url(#arrowAccent)"/>
+  <rect x="610" y="451" width="380" height="50" rx="10" fill="#ffffff" stroke="#7c3aed"/>
+  <text x="800" y="473" font-size="15" font-weight="700" fill="#5b21b6" text-anchor="middle">next release: /idea --extend</text>
+  <text x="800" y="493" font-size="13" fill="#4c1d95" text-anchor="middle">IDEA/SPEC merged · new REQs ADDED / MODIFIED / REMOVED</text>
+
+  <g font-size="13" fill="#334155">
+    <text x="384" y="352">• IDEA, SPEC, PLAN + plan.json: canonical</text>
+    <text x="384" y="372">  documents in docs/harper/, always in context</text>
+    <text x="384" y="392">• one REQ per KIT, candidate in runs/kit/&lt;REQ&gt;/</text>
+    <text x="384" y="412">• acceptance-first: tests locked before code</text>
+  </g>
+  <g font-size="13" fill="#334155">
+    <text x="384" y="532">• Delivered REQs read-only; a MODIFIED REQ names the checks it supersedes · baseline tagged harper/v&lt;N-1&gt;</text>
+    <text x="384" y="554">• Release folders vN: the current release is the delta, earlier ones are history</text>
+    <text x="384" y="576">• Same context for cloud and local agents: REQ slice of the plan, dependency code,</text>
+    <text x="384" y="598">  locked tests, companions — with an explicit budget</text>
+  </g>
+
+  <!-- Right: governance -->
+  <rect x="1260" y="206" width="300" height="420" rx="12" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="1280" y="236" font-size="15" font-weight="700" fill="#0f172a">GOVERNANCE</text>
+  <g font-size="14" fill="#1e293b">
+    <text x="1280" y="266" font-weight="600">Locked acceptance</text>
+    <text x="1280" y="286" fill="#475569">tests can't be weakened; fixes audited</text>
+    <text x="1280" y="318" font-weight="600">Regression of delivered REQs</text>
+    <text x="1280" y="338" fill="#475569">behaviour checks · superseded ones declared</text>
+    <text x="1280" y="370" font-weight="600">Gate</text>
+    <text x="1280" y="390" fill="#475569">verdict from evidence · reused if unchanged</text>
+    <text x="1280" y="422" font-weight="600">Promotion</text>
+    <text x="1280" y="442" fill="#475569">3-way merge, conflicts never written</text>
+    <text x="1280" y="474" font-weight="600">Diagnosis</text>
+    <text x="1280" y="494" fill="#475569">flaky checks · shared files · conftest</text>
+    <text x="1280" y="526" font-weight="600">Git</text>
+    <text x="1280" y="546" fill="#475569">REQ branches · merge on gate · tags</text>
+    <text x="1280" y="578" font-weight="600">Audit &amp; telemetry</text>
+    <text x="1280" y="598" fill="#475569">overrides · amendments · cost per run</text>
+  </g>
+
+  <!-- Bottom: runtime -->
+  <rect x="40" y="648" width="1000" height="230" rx="12" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="60" y="678" font-size="15" font-weight="700" fill="#0f172a">RUNTIME (local, Podman or Docker)</text>
+  <g font-size="14" fill="#1e293b">
+    <rect x="60" y="694" width="300" height="168" rx="8" fill="#ecfeff"/>
+    <text x="76" y="720" font-weight="600">Eval sandbox</text>
+    <text x="76" y="742" fill="#475569">runs the checks of each REQ</text>
+    <text x="76" y="762" fill="#475569">PostgreSQL, services, browsers</text>
+    <text x="76" y="782" fill="#475569">tools catalog (/tools): DB clients,</text>
+    <text x="76" y="802" fill="#475569">cloud &amp; IaC CLIs, JDK, .NET…</text>
+    <text x="76" y="822" fill="#475569">shared installs · per-check durations</text>
+    <text x="76" y="842" fill="#475569">no network to providers, no secrets</text>
+
+    <rect x="374" y="694" width="300" height="168" rx="8" fill="#f0fdf4"/>
+    <text x="390" y="720" font-weight="600">Orchestrator · Gateway</text>
+    <text x="390" y="742" fill="#475569">phase prompts and contracts</text>
+    <text x="390" y="762" fill="#475569">local-agent packages</text>
+    <text x="390" y="782" fill="#475569">providers and model routing</text>
+    <text x="390" y="802" fill="#475569">RAG on Qdrant</text>
+    <text x="390" y="822" fill="#475569">service token, localhost only</text>
+    <text x="390" y="842" fill="#475569">state the agents cannot write</text>
+
+    <rect x="688" y="694" width="336" height="168" rx="8" fill="#faf5ff"/>
+    <text x="704" y="720" font-weight="600">MCP for agents</text>
+    <text x="704" y="742" fill="#475569">clike (orchestrator): plan, REQs,</text>
+    <text x="704" y="762" fill="#475569">status, reports, RAG search</text>
+    <text x="704" y="782" fill="#475569">clike-ext (VS Code): run phases,</text>
+    <text x="704" y="802" fill="#475569">eval --fix, gate, finalize, cancel</text>
+    <text x="704" y="822" fill="#475569">Claude Code &amp; Codex drive a whole</text>
+    <text x="704" y="842" fill="#475569">project — CLike still governs</text>
+  </g>
+
+  <!-- Bottom right: outputs -->
+  <rect x="1060" y="648" width="500" height="230" rx="12" fill="#ffffff" stroke="#16a34a"/>
+  <text x="1080" y="678" font-size="15" font-weight="700" fill="#14532d">WHAT YOU GET</text>
+  <g font-size="14" fill="#1e293b">
+    <text x="1080" y="708">✔ working code and tests, promoted REQ by REQ</text>
+    <text x="1080" y="736">✔ the solution verified running (SOLUTION_EVAL.md)</text>
+    <text x="1080" y="764">✔ FINALIZE_REPORT.md: how to start it, configuration,</text>
+    <text x="1080" y="784">   missing information, every change and why</text>
+    <text x="1080" y="812">✔ setup_local · start_solution_local</text>
+    <text x="1080" y="832">   (Docker, Podman or native, free host ports)</text>
+    <text x="1080" y="860">✔ README "Made with CLike", Harper docs, git history</text>
+  </g>
+
+  <!-- connectors -->
+  <g stroke="#94a3b8" stroke-width="2" fill="none">
+    <line x1="340" y1="416" x2="356" y2="416" marker-end="url(#arrow)"/>
+    <line x1="1240" y1="416" x2="1256" y2="416" marker-end="url(#arrow)"/>
+    <line x1="800" y1="184" x2="800" y2="202" marker-end="url(#arrow)"/>
+    <line x1="1158" y1="626" x2="1158" y2="644" marker-end="url(#arrow)"/>
+    <line x1="540" y1="626" x2="540" y2="644" marker-end="url(#arrow)"/>
+  </g>
+
+  <text x="40" y="930" font-size="14" fill="#64748b">github.com/authenticfake/clike · IDEA → SPEC → PLAN → (KIT → EVAL → GATE)* → FINALIZE → /idea --extend → …</text>
+  <text x="40" y="956" font-size="13" fill="#94a3b8">Multi-language and stack-agnostic: Python, TypeScript, Java, Go, .NET, infrastructure — the rules are CLike's, the stack is the project's.</text>
+</svg>
