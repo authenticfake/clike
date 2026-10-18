@@ -75,6 +75,22 @@ Use the PM role during planning when scope slicing, acceptance criteria, impleme
 
 The PM role should help clarify what each REQ builds now, what it intentionally defers, and what downstream REQs may assume.
 
+### Next Release (`/idea --extend`)
+
+The release cascade does the work of idea, spec and plan in one run, so it accepts the roles of
+those phases. The chosen role leads the angle; CLike's cascade rules, the extend write roots and the
+deterministic checks of `/idea --extend` stay in charge.
+
+```text
+/idea --extend --methodology bmad --agent analyst    # intent, users and scope of the release
+/idea --extend --methodology bmad --agent pm         # requirements and acceptance (default role)
+/idea --extend --methodology bmad --agent architect  # REQ slicing, seams, MODIFIED/supersedes
+/idea --extend --methodology bmad --agent ux         # new screens and journeys (guidance only)
+```
+
+`/extend` (plan-only append) accepts the same roles. UX companion files under `docs/harper/ux/` are
+not an extend output: write them with `/spec --methodology bmad --agent ux` after the cascade.
+
 ### KIT Development
 
 Use the developer role for candidate-first implementation guidance.

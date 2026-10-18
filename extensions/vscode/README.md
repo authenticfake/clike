@@ -245,6 +245,7 @@ Type commands directly in the chat input.
     required. Merged into IDEA, SPEC and TECH_CONSTRAINTS
   - PLAN delta: new REQs typed `ADDED` / `MODIFIED` (amends, supersedes) / `REMOVED` (retires);
     delivered REQs read-only; EXTEND report with CLike's verification; baseline tagged `harper/v<N-1>`
+  - `--methodology bmad --agent analyst|pm|architect|ux` (default `pm`) guides the cascade
   - then `/kit`, `/eval --fix`, `/gate` for the new REQs and `/finalize`
 
 - **`/spec [file|text]`**

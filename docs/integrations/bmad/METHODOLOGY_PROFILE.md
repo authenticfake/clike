@@ -64,6 +64,7 @@ The orchestrator is the single resolver for `methodology_context`. Clients may p
 | `idea` | `analyst` | `analyst` | Discovery and intent framing |
 | `spec` | `pm` | `pm`, `ux` | Requirements and UX acceptance detail |
 | `plan` | `architect` | `architect`, `pm` | Technical slicing and dependencies |
+| `extend` (`/extend`, `/idea --extend`) | `pm` | `pm`, `analyst`, `architect`, `ux` | Next release: the cascade does the work of idea, spec and plan; the role leads the angle (analyst: intent and scope of the release, pm: requirements and acceptance, architect: REQ slicing, seams and supersedes, ux: new screens and journeys). Guidance only: UX companion files are written by `/spec --methodology bmad --agent ux` |
 | `kit` | `developer` | `developer` | Candidate implementation guidance |
 | `eval` | `qa` | `qa`, `developer` | Advisory only; EvalRunner remains authoritative |
 | `gate` | none | none | CLike-only authority |

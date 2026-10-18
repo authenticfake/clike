@@ -29,6 +29,8 @@ BMAD_PHASE_ROLES: Dict[str, Dict[str, Any]] = {
     "idea": {"default_agent": "analyst", "allowed_agents": ["analyst"]},
     "spec": {"default_agent": "pm", "allowed_agents": ["pm", "ux"]},
     "plan": {"default_agent": "architect", "allowed_agents": ["architect", "pm"]},
+    # /extend and /idea --extend: the release cascade does the work of idea, spec and plan
+    "extend": {"default_agent": "pm", "allowed_agents": ["pm", "analyst", "architect", "ux"]},
     "kit": {"default_agent": "developer", "allowed_agents": ["developer"]},
     "eval": {
         "default_agent": "qa",

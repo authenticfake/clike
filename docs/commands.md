@@ -134,6 +134,9 @@ IDEA → SPEC → PLAN in continuity with what exists:
   - `REMOVED` — retires a capability: `retires: ["REQ-x"]`.
   Targets must exist and be delivered; a superseded check must exist in the REQ's LTC. A plan that
   breaks these rules is rejected and nothing is kept.
+- **BMAD.** `--methodology bmad --agent analyst|pm|architect|ux` works on the cascade (default role
+  `pm`): the role leads the angle, CLike's rules and checks stay in charge (see
+  `integrations/bmad/COMMANDS.md`).
 - **Report.** `docs/harper/EXTEND_<date>_<first>_<last>.md` with the changes and why, the delta
   table, impact, unchanged behavior and open questions, plus a **CLike verification** section CLike
   writes itself. `--dry-run` keeps only the report.

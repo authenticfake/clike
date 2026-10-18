@@ -519,6 +519,7 @@ var HELP_COMMANDS = [
   {cmd:'/idea', desc:'Formalizes the IDEA.md (optional)'},
   {cmd:'/idea --methodology bmad --agent analyst', desc:'Frames IDEA.md with BMAD analyst guidance'},
   {cmd:'/idea --extend [--from attachment] [--release vN] [--dry-run]', desc:'Next release of a delivered project. Inputs: the files in docs/inputs/vN/ (background in docs/reference/vN/), no attachment needed; attach more files to add to them; with docs/inputs/vN/ empty an attachment is required. They are merged into IDEA, SPEC and TECH_CONSTRAINTS; PLAN gets new REQs typed ADDED / MODIFIED / REMOVED; delivered REQs read-only; EXTEND report with CLike verification; baseline tagged harper/v<N-1>. Then /kit /eval /gate the new REQs and /finalize'},
+  {cmd:'/idea --extend --methodology bmad --agent analyst|pm|architect|ux', desc:'Next release with BMAD guidance: the role leads the angle (analyst: intent and scope, pm: requirements, default; architect: REQ slicing and supersedes; ux: new screens, guidance only)'},
   {cmd:'/spec [file|text]', desc:'Generates/Updates SPEC.md from the IDEA'},
   {cmd:'/spec --methodology bmad --agent pm', desc:'Builds SPEC guidance with BMAD product management focus'},
   {cmd:'/plan [spec_path]', desc:'Generates/Updates PLAN.md from the SPEC'},
