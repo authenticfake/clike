@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "clike": {
+      "type": "http",
+      "url": "http://localhost:8080/mcp/",
+      "headers": {
+        "Authorization": "Bearer ${CLIKE_API_TOKEN}"
+      }
+    }
+  }
+}
