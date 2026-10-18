@@ -38,6 +38,8 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   graph, per-REQ test strategy and KIT readiness) did not list the new REQs when the agent put them
   only in the `## Release vN` section: CLike now adds them (table rebuilt from plan.json, pointers to
   the REQ's own subsections) and says so in its verification.
+- The chat could not send any message (Enter or Send) after the previous fix: the webview copy of
+  the command parser missed a constant; it is now included and tested by running that copy.
 - A command pasted with a terminal border or a quote marker in front (`│ /idea --extend`) was sent
   as plain chat text to the agent; decoration before the `/` is now ignored.
 

@@ -431,6 +431,7 @@ const CLIKE_SLASH_PARSER = (() => {
   ${getSlashCommandName.toString()}
   ${getHarperSlashCommandName.toString()}
   ${isHarperSlashText.toString()}
+  const SLASH_PREFIX_NOISE = ${SLASH_PREFIX_NOISE.toString()};
   ${tokenizeSlash.toString()}
   ${normalizeReqToken.toString()}
   ${normalizePhaseFromCommand.toString()}
