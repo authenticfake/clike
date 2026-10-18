@@ -39,7 +39,7 @@
     <text x="74" y="433" fill="#475569">same packages, same rules</text>
     <rect x="60" y="456" width="260" height="58" rx="8" fill="#fef3c7"/>
     <text x="74" y="480" font-weight="600">Cloud models (gateway)</text>
-    <text x="74" y="501" fill="#475569">OpenAI · Anthropic · others, same context</text>
+    <text x="74" y="501" fill="#475569">OpenAI · Anthropic · others</text>
     <rect x="60" y="524" width="260" height="84" rx="8" fill="#f1f5f9"/>
     <text x="74" y="548" font-weight="600">Methodology</text>
     <text x="74" y="569" fill="#475569">native Harper or BMAD roles</text>
@@ -64,7 +64,7 @@
   </g>
   <!-- per-REQ loop -->
   <rect x="850" y="250" width="212" height="152" rx="10" fill="#f5f3ff" stroke="#7c3aed" stroke-dasharray="5 4"/>
-  <text x="956" y="270" font-size="13" font-weight="700" fill="#5b21b6" text-anchor="middle">for each REQ (dependency order)</text>
+  <text x="956" y="270" font-size="12" font-weight="700" fill="#5b21b6" text-anchor="middle">each REQ, by dependencies</text>
   <g font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">
     <rect x="866" y="282" width="56" height="34" rx="7" fill="#7c3aed"/><text x="894" y="304">KIT</text>
     <rect x="928" y="282" width="56" height="34" rx="7" fill="#6d28d9"/><text x="956" y="304">EVAL</text>
@@ -79,9 +79,9 @@
 
   <!-- next release loop -->
   <path d="M 1158 322 L 1158 466 Q 1158 476 1148 476 L 382 476 Q 372 476 372 466 L 372 305 Q 372 295 380 295" stroke="#7c3aed" stroke-width="2.5" fill="none" marker-end="url(#arrowAccent)"/>
-  <rect x="610" y="451" width="380" height="50" rx="10" fill="#ffffff" stroke="#7c3aed"/>
+  <rect x="580" y="451" width="440" height="50" rx="10" fill="#ffffff" stroke="#7c3aed"/>
   <text x="800" y="473" font-size="15" font-weight="700" fill="#5b21b6" text-anchor="middle">next release: /idea --extend</text>
-  <text x="800" y="493" font-size="13" fill="#4c1d95" text-anchor="middle">IDEA/SPEC merged · new REQs ADDED / MODIFIED / REMOVED</text>
+  <text x="800" y="493" font-size="13" fill="#4c1d95" text-anchor="middle">IDEA/SPEC merged · REQs ADDED / MODIFIED / REMOVED</text>
 
   <g font-size="13" fill="#334155">
     <text x="384" y="352">• IDEA, SPEC, PLAN + plan.json: canonical</text>
@@ -103,9 +103,9 @@
     <text x="1280" y="266" font-weight="600">Locked acceptance</text>
     <text x="1280" y="286" fill="#475569">tests can't be weakened; fixes audited</text>
     <text x="1280" y="318" font-weight="600">Regression of delivered REQs</text>
-    <text x="1280" y="338" fill="#475569">behaviour checks · superseded ones declared</text>
+    <text x="1280" y="338" fill="#475569">behaviour checks · supersedes declared</text>
     <text x="1280" y="370" font-weight="600">Gate</text>
-    <text x="1280" y="390" fill="#475569">verdict from evidence · reused if unchanged</text>
+    <text x="1280" y="390" fill="#475569">evidence-based · reused if unchanged</text>
     <text x="1280" y="422" font-weight="600">Promotion</text>
     <text x="1280" y="442" fill="#475569">3-way merge, conflicts never written</text>
     <text x="1280" y="474" font-weight="600">Diagnosis</text>
