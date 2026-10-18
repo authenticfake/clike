@@ -3,6 +3,7 @@ name = "clike-orchestrator"
 version = "1.5.1"
 description = "CLike Orchestrator: Harper workflow, execution packages, RAG, eval/gate, MCP"
 requires-python = ">=3.12,<3.13"
+license = "Apache-2.0"
 dependencies = [
     "fastapi==0.111.*",
     "uvicorn>=0.31.1",

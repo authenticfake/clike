@@ -19,6 +19,7 @@ from typing import Iterable
 FORBIDDEN_PATHS = [
     (re.compile(r"^telemetry/"), "runtime telemetry (prompts and LLM outputs)"),
     (re.compile(r"^docs/_private/"), "private analysis notes"),
+    (re.compile(r"(^|/)\.clike/sessions/"), "chat session history"),
     (re.compile(r"(^|/)\.env$"), "environment file with secrets"),
     (re.compile(r"(^|/)node_modules/"), "installed dependencies"),
     (re.compile(r"\.vsix$"), "packaged extension build"),

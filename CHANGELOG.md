@@ -13,6 +13,17 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   with one ready instruction and a human check after PLAN.
 - **`docs/clike-at-a-glance.md`**: the overview picture with a description area by area; the
   README gets a *Highlights* section linking to it (the picture is no longer embedded there).
+- **Community files**: `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1),
+  `SUPPORT.md`, `NOTICE`, issue forms (bug, feature request) and a pull request template.
+
+### Changed
+
+- **`LICENSE` is now the verbatim Apache License 2.0 text**, so it is recognised as Apache-2.0
+  (the previous file was a reformatted copy with a modified section 9). Copyright moves to
+  `NOTICE`; both `pyproject.toml` declare `license = "Apache-2.0"`, the extension declares its
+  issue tracker.
+- **Chat sessions are no longer tracked**: `.clike/sessions/` is ignored as a whole and the
+  hygiene check rejects it.
 
 ## [1.5.1] — 2026-10-18 — CLike from Claude Code and Codex: MCP hardened, eval repairs that converge
 

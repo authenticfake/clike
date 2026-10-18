@@ -19,6 +19,7 @@ class RepoHygieneTests(unittest.TestCase):
             "telemetry/clike_raw/x.json",
             "telemetry/project.jsonl",
             "docs/_private/01_assessment.md",
+            ".clike/sessions/coding.jsonl",
             ".env",
             "gateway/.env",
             "extensions/vscode/node_modules/diff/index.js",

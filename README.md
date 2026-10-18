@@ -280,10 +280,17 @@ Open research questions the project works on:
 | Reference | [commands](docs/commands.md), [API](docs/api-reference.md), [MCP](docs/mcp.md), [capabilities](docs/CAPABILITIES.md) |
 | Operations | [setup and runtime](docs/setup-and-runtime.md), [Git and promotion](docs/git-and-promotion.md), [telemetry portal](docs/CLike_Harper_Telemetry_Portal.md) |
 | Development | [developer guide](docs/development.md), [CHANGELOG](CHANGELOG.md), [SECURITY](SECURITY.md) |
+| Community | [CONTRIBUTING](CONTRIBUTING.md), [Code of Conduct](CODE_OF_CONDUCT.md), [SUPPORT](SUPPORT.md), [Discussions](https://github.com/authenticfake/clike/discussions) |
+
+## Contributing
+
+Issues, ideas and pull requests are welcome: start from [CONTRIBUTING.md](CONTRIBUTING.md).
+Questions go to [Discussions](https://github.com/authenticfake/clike/discussions), security
+problems are reported privately as described in [SECURITY.md](SECURITY.md).
 
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE).
+Apache License 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 ---
 
