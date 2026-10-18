@@ -86,7 +86,17 @@ test('a document phase never moves main onto an unreviewed REQ branch', async ()
   await sync(dir, 'spec', null, [write(dir, 'docs/harper/SPEC.md', '# SPEC\n')]);
   assert.equal(git(dir, 'rev-parse', 'main~1'), mainBefore, 'main advances by exactly the spec commit');
   assert.ok(!isAncestor(dir, kitCommit, 'main'), 'REQ work must not land on main');
-  assert.equal(git(dir, 'rev-parse', 'feature/req-001'), kitCommit, 'REQ branch untouched');
+  // the developer is back on the REQ branch, which keeps its KIT and gets the documents
+  assert.equal(git(dir, 'rev-parse', '--abbrev-ref', 'HEAD'), 'feature/req-001');
+  assert.ok(isAncestor(dir, kitCommit, 'feature/req-001'), 'KIT commit kept');
+  assert.ok(isAncestor(dir, 'main', 'feature/req-001'), 'spec commit merged into the REQ branch');
+  assert.ok(fs.existsSync(path.join(dir, 'runs/kit/REQ-001/src/a.py')), 'KIT still in the working tree');
+});
+
+test('spec/ux companion documents get their own commit message', async () => {
+  const dir = makeRepo();
+  await sync(dir, 'spec', null, [write(dir, 'docs/harper/ux/DESIGN.md', '# UX\n')]);
+  assert.match(git(dir, 'log', '-1', '--format=%s'), /^docs\(spec\): update DESIGN\.md/);
 });
 
 test('only the phase files are committed; unrelated user changes stay uncommitted', async () => {

@@ -15,6 +15,10 @@ text:
   - '- For every REQ in plan.json, set packs/skills/design_profiles to the applicable capabilities above (arrays of names). Read .clike/capabilities.yaml and .clike/{packs,skills,design-profiles}/** to choose correctly.'
   - '- Do NOT default packs/skills/design_profiles to "not_applicable" when capabilities are available; use "not_applicable" only when no listed capability genuinely applies to that REQ.'
   - '- Never invent capabilities that are not in the lists above.'
+  document_package.companion_only_lines:
+  - 'Mission (companion-only role): write the companion documents of this role listed in the methodology block above. The canonical document of this phase is NOT an output of this run: it is the current, approved source — read it (with IDEA.md and TECH_CONSTRAINTS.yaml), never write, regenerate or reconcile it.'
+  - '- Read the existing companion files of this role first: update them so they cover what the canonical documents now say (every release, including the latest), keep what they define for earlier releases unless the canonical documents changed it, and say which release each new part belongs to.'
+  - '- Never write docs/harper/IDEA.md, SPEC.md, PLAN.md, plan.json or TECH_CONSTRAINTS.yaml.'
   document_package.lines:
   - ''
   - 'Forbidden writes:'

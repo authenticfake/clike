@@ -50,6 +50,11 @@ Other settings: `gitDeleteBranchOnMerge`, `gitReturnToFeatureAfterMerge`, `remot
   No `git add -A`. Paths outside the work tree are ignored.
 - If switching branch would overwrite local changes, the sync stops and leaves the
   phase files uncommitted in the working tree.
+- A document phase (`/idea`, `/spec`, `/plan`, `/idea --extend`, `/finalize`) commits on the default
+  branch; when it was run from another branch (a REQ branch with a KIT in progress), CLike then
+  switches back to that branch and merges the default branch into it, so the REQ keeps its KIT in
+  the working tree and gets the new documents. On a merge conflict it stays on the REQ branch and
+  says how to merge.
 - A new repository is bootstrapped with an empty commit: existing workspace files
   (for example `.env`) are never committed implicitly.
 - The default branch changes only through an explicit merge-on-gate after a PASS gate, and only
