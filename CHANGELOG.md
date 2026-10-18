@@ -22,6 +22,11 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   the REQ it amends (reported as `superseded`, with the reason); a REQ retired by a `REMOVED` REQ
   leaves the regression set. Every other check of delivered REQs keeps running.
 
+### Fixed
+
+- A command pasted with a terminal border or a quote marker in front (`│ /idea --extend`) was sent
+  as plain chat text to the agent; decoration before the `/` is now ignored.
+
 ### Changed
 
 - Context sources: release folders (`docs/inputs/vN/`, `docs/reference/vN/`) split the current

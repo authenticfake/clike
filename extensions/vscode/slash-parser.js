@@ -57,8 +57,12 @@ function shouldBlockHarperSlashFromGenericChatMessage(message) {
   );
 }
 
+// Decoration pasted in front of a command (terminal box borders, quote markers, bullets,
+// non-breaking and zero-width spaces) must not turn it into plain chat text.
+const SLASH_PREFIX_NOISE = /^[\s\u00a0\u200b-\u200d\ufeff\u2500-\u257f>•·]+(?=\/)/;
+
 function tokenizeSlash(input) {
-  const text = String(input || '').trim();
+  const text = String(input || '').trim().replace(SLASH_PREFIX_NOISE, '');
   if (!text.startsWith('/')) return [];
   return text.match(/"([^"]*)"|'([^']*)'|[^\s]+/g) || [];
 }
