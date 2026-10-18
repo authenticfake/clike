@@ -60,7 +60,8 @@ are small IDEAs to start with.
    A host port already taken on your machine is replaced by a free one in your local `.env`.
 7. **Next release.** Put the new requirements in `docs/inputs/v2/` (background, blueprints in
    `docs/reference/v2/`; `v3/` for the release after) and run `/idea --extend` — or attach them
-   to the command (an attachment is required when `docs/inputs/v2/` is empty). CLike merges the
+   to the command (an attachment is required when `docs/inputs/v2/` is empty; with files there you
+   can still attach more, they add to them). CLike merges the
    release into IDEA, SPEC and TECH_CONSTRAINTS, adds the new REQs to the PLAN typed `ADDED`,
    `MODIFIED` (changes a delivered REQ, naming the checks it replaces) or `REMOVED`, keeps every
    delivered REQ as it is, tags the delivered state `harper/v1` and writes

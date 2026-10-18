@@ -32,7 +32,8 @@ requirements of release N, `docs/reference/vN/` its background. The highest rele
 one named with `--release vN`) is the current release; its folders are read even when
 `context.yaml` does not declare them. `requirements` and `reference` files of earlier releases, and
 unversioned files once release folders exist, are history: they get the role `previous_release`
-(what the project already is, never a new requirement).
+(what the project already is, never a new requirement). Files attached to `/idea --extend` are
+inputs of the targeted release too, next to its folders.
 
 ## Roles
 

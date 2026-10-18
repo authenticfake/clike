@@ -847,7 +847,8 @@ verification CLike offers to configure and start it on the developer's machine.
 ### The next release
 
 A delivered project evolves with `/idea --extend [--from attachment] [--release vN] [--dry-run]`:
-the inputs in `docs/inputs/vN/` (background in `docs/reference/vN/`) are merged into IDEA, SPEC and
+the inputs in `docs/inputs/vN/` (background in `docs/reference/vN/`) plus any attached file
+(required only when `docs/inputs/vN/` is empty) are merged into IDEA, SPEC and
 TECH_CONSTRAINTS, and new REQs typed ADDED / MODIFIED / REMOVED are appended to the plan; delivered
 REQs stay read-only and the baseline is tagged `harper/v<N-1>`. `/extend` only appends REQs to the
 plan.

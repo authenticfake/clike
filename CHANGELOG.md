@@ -8,7 +8,8 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 - **`/idea --extend` — the next release of a delivered project.** One command runs the cascade
   IDEA → SPEC → PLAN in continuity with what exists. The release inputs live in versioned folders,
-  `docs/inputs/vN/` (requirements) and `docs/reference/vN/` (background), or are attached; earlier
+  `docs/inputs/vN/` (requirements) and `docs/reference/vN/` (background), plus any attached file (an
+  attachment is required only when `docs/inputs/vN/` is empty); earlier
   releases are read as history, never as new requirements. IDEA, SPEC and TECH_CONSTRAINTS are
   merged, not regenerated (a document that drops a section of the earlier release is restored);
   the PLAN gets new REQs typed `ADDED`, `MODIFIED` (`amends`, `supersedes` the checks it replaces,

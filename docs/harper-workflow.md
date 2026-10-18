@@ -241,7 +241,8 @@ offers to configure and start the solution on the developer's machine. See `comm
 
 - Release inputs live in versioned folders: `docs/inputs/vN/` (requirements) and
   `docs/reference/vN/` (background). The targeted release is the delta; earlier releases are
-  history (context role `previous_release`).
+  history (context role `previous_release`). Files attached to the command add to the folder; an
+  attachment is required only when `docs/inputs/vN/` is empty.
 - The cascade merges the release into IDEA.md, SPEC.md and TECH_CONSTRAINTS.yaml and appends a PLAN
   delta of REQs typed `ADDED` / `MODIFIED` / `REMOVED` (`amends`, `supersedes`, `retires`,
   `release`, `origin`). Delivered REQs stay read-only.
