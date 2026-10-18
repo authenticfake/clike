@@ -66,8 +66,9 @@ class BmadSafetyBoundaryTests(unittest.TestCase):
     def test_orchestrator_mcp_surface_remains_read_only(self):
         source = (REPO_ROOT / "orchestrator" / "mcp_server.py").read_text(encoding="utf-8")
 
-        self.assertIn("Read-only MCP server for CLike", source)
-        self.assertIn("No phase execution, no git mutation, no arbitrary shell or filesystem writes.", source)
+        # read-only except the RAG index (stated in the server instructions), no phase execution
+        self.assertIn("Read-only except rag_reindex_docs / rag_reindex_docs_if_empty", source)
+        self.assertIn("No phase execution (that is the extension's operational MCP), no git mutation, no shell or file writes.", source)
         self.assertIn("# MCP tools (read-only / contract-first)", source)
         self.assertIn('"arbitrary filesystem write"', source)
         self.assertNotIn("write_text(", source)

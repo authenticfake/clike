@@ -288,6 +288,7 @@ Typical tools:
 - `harper_next_action`;
 - `harper_run_phase`;
 - `harper_run_status`;
+- `cancel_run` (stops a run started over MCP);
 - `eval_run`;
 - `gate_check`;
 - `harper_kit_next`;

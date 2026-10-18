@@ -72,7 +72,7 @@ External / local agent
 The agent does not call the orchestrator with invented Harper payloads: it asks the extension to
 run the same phases a developer would type (`harper_run_phase`, `eval_run` with optional `fix`,
 `gate_check`, `harper_kit_next`, `harper_continue_loop`, `rag_reindex`) and gets their outcome
-(files, warnings, the eval/gate verdict; long runs via `harper_run_status`). Overrides, promotion
+(files, warnings, the eval/gate verdict; long runs via `harper_run_status`, stopped with `cancel_run`; confirmations with `confirm: true`; `/idea --extend` with `phase: idea, extend: true`). Overrides, promotion
 choices and Git are not available from MCP. This keeps the
 workflow simple, auditable and aligned with the developer path. When there are no open or
 in-progress REQs, Model 2 tools report `finalize_only`.

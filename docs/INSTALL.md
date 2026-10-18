@@ -95,12 +95,24 @@ organisation policies for Claude Code often allow only `http://localhost*` MCP s
 | Orchestrator (read-only) | `http://localhost:8080/mcp/` | reads project docs, plan, REQs, runs, RAG (`project_root` selects the project) |
 | VS Code extension (operational) | `http://localhost:55742/mcp` | **runs** Harper phases, eval and gate through CLike's governance; needs VS Code open |
 
-Orchestrator MCP (token = `CLIKE_API_TOKEN`):
+Orchestrator MCP (token = `CLIKE_API_TOKEN`; export it in your shell profile, the same value as in
+`.env`). Claude Code: a project `.mcp.json` that reads the token from the environment (no secret in
+the file):
+
+```json
+{ "mcpServers": { "clike": { "type": "http", "url": "http://localhost:8080/mcp/",
+  "headers": { "Authorization": "Bearer ${CLIKE_API_TOKEN}" } } } }
+```
+
+Codex:
 
 ```bash
-claude mcp add --transport http clike http://localhost:8080/mcp/ --header "Authorization: Bearer $CLIKE_API_TOKEN"
 codex mcp add clike --url http://localhost:8080/mcp/ --bearer-token-env-var CLIKE_API_TOKEN
 ```
+
+`claude mcp add ... --header "Authorization: Bearer $CLIKE_API_TOKEN"` works too, but expands the
+token when you run it (empty if the variable is not set). A "Dynamic Client Registration rejected
+(HTTP 401)" error means the header is missing: CLike has no OAuth.
 
 Extension MCP: enable `clike.mcp.extensionServerEnabled`, run **CLike: Copy Extension MCP Token**,
 then:

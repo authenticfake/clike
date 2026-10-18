@@ -99,12 +99,32 @@ curl -s http://127.0.0.1:8080/mcp/ \
   -d '{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}' | jq
 ```
 
-Registering it in an MCP client, e.g. Claude Code (use `localhost`: managed Claude Code policies
-often allow only `http://localhost*` servers):
+Registering it in an MCP client:
 
-```bash
-claude mcp add --transport http clike http://localhost:8080/mcp/ --header "Authorization: Bearer $CLIKE_API_TOKEN"
+The token must reach the client as a header. With Claude Code, prefer a project `.mcp.json` that
+reads it from the environment (safe to commit: no secret inside) and export `CLIKE_API_TOKEN` in
+your shell before starting `claude`:
+
+```json
+{
+  "mcpServers": {
+    "clike": {
+      "type": "http",
+      "url": "http://localhost:8080/mcp/",
+      "headers": { "Authorization": "Bearer ${CLIKE_API_TOKEN}" }
+    }
+  }
+}
 ```
+
+`claude mcp add --transport http clike http://localhost:8080/mcp/ --header "Authorization: Bearer $CLIKE_API_TOKEN"`
+also works, but the shell expands the token when you add the server: with the variable unset it
+stores an empty bearer, otherwise it writes the token into `~/.claude.json`. Use `localhost`, not
+`127.0.0.1` (managed policies often allow only `http://localhost*`), and keep the trailing `/`.
+
+**"Dynamic Client Registration rejected (HTTP 401)"** means the client reached CLike without the
+header and tried OAuth: CLike has no OAuth (its `/.well-known/oauth-*` and `/register` answer 404) —
+add the `Authorization` header as above.
 
 ## Extension operational MCP server
 
@@ -112,12 +132,25 @@ The VS Code extension can expose a second, **operational** MCP-compatible server
 operate CLike through the same slash commands available in chat (see
 [agent-operating-model.md](agent-operating-model.md), Model 2). Typical tools:
 `clike_extension_status`, `harper_next_action`, `harper_run_phase`, `harper_run_status`,
-`eval_run`, `gate_check`, `harper_kit_next`, `harper_continue_loop`, `rag_reindex`,
+`cancel_run`, `eval_run`, `gate_check`, `harper_kit_next`, `harper_continue_loop`, `rag_reindex`,
 `rag_docs_status`, `rag_docs_reindex_if_empty`.
-It runs normal commands (`/kit REQ-001`, `/eval REQ-001`, `/gate REQ-001`, `/finalize`, …) through
-the chat's governed handlers and does not duplicate Harper logic. `harper_run_phase` covers
-`idea`, `spec`, `plan`, `kit`, `eval`, `gate` and `finalize`: `/extend` and `/idea --extend` run
-from the chat only.
+It runs normal commands (`/kit REQ-001`, `/eval REQ-001 --fix`, `/gate REQ-001`, `/finalize`, …)
+through the chat's governed handlers and does not duplicate Harper logic:
+
+- `harper_run_phase {phase, req_id?, text?, methodology?, agent?, extend?, release?, dry_run?,
+  confirm?, wait_seconds?, await?}` covers `idea`, `spec`, `plan`, `kit`, `eval`, `gate`,
+  `finalize`; `phase: "idea", extend: true` is `/idea --extend` (release inputs from
+  `docs/inputs/vN/`).
+- Every run gets a `run_id`; a run longer than `wait_seconds` (default 50, max 600 — keep it under
+  your client's tool timeout, e.g. Codex `tool_timeout_sec`) returns `status: running`, then
+  `harper_run_status` tells its end and `cancel_run` stops it. Only one phase runs at a time.
+- Nobody answers the chat's confirmations during an MCP run: `/finalize` with REQs not promoted,
+  or `/idea --extend` on an undelivered baseline, stop with the reason unless `confirm: true`. A run
+  that stops before doing anything says why (`reason`, last chat `messages`).
+- `harper_next_action` returns the in-progress REQ, else the first open REQ whose dependencies are
+  done, `blocked` when every open REQ waits for one, `finalize_only` when all are done.
+- Streamable HTTP: notifications get `202`, `GET /mcp` is `405`, `ping` answers, the protocol
+  version is negotiated; `/.well-known/oauth-*` and `/register` are `404` (no OAuth).
 
 Because it can trigger phases that make local agents write files, it is locked down:
 
@@ -162,14 +195,17 @@ This makes MCP useful as an informational surface for external agents or tools w
 
 ## Security posture
 
-The current code is aligned with a conservative MCP posture:
-- token-protected (orchestrator: service token; extension: dedicated token)
-- read-only tool exposure (orchestrator server)
-- path-safe reads
-- explicit exclusions
-- no execution side effects
-
-Official docs should preserve this conservative positioning until the codebase intentionally expands the MCP contract.
+- Token-protected: orchestrator with the service token, extension with its own token; no OAuth
+  (discovery paths answer 404 so clients report a missing header).
+- Orchestrator server: read tools, except `rag_reindex_docs` / `rag_reindex_docs_if_empty`, which
+  write the project's RAG index; no phase execution, no git, no file writes.
+- Path-safe reads: `project_root` confined to `CLIKE_PROJECTS_DIR`; a `run_id` is a run directory
+  name, never a path (`..`, `/`, CLike's `state/` are refused); `eval_read_summary` /
+  `gate_read_decision` with `project_root` + `req_id` read that project's latest report.
+- Extension server: loopback only, no browser origins, phases through the chat's governance
+  (locked tests, gate, write rules, no overrides from MCP), one phase at a time.
+- CLike's own Harper agent runs load no MCP server (Claude: `--strict-mcp-config`): the eval checks
+  they need go through the file bridge, without token or network.
 
 
 ## Using CLike from Claude Code and Codex (H2)
