@@ -11,10 +11,31 @@ Main canonical files:
 - `docs/harper/SPEC.md`
 - `docs/harper/PLAN.md`
 - `docs/harper/plan.json`
+- `docs/harper/TECH_CONSTRAINTS.yaml` (`constraints.json` is read when present)
 - `docs/harper/KIT.md`
-- `docs/harper/constraints.json`
-- `docs/harper/RELEASE_NOTES.md`
 - `docs/harper/lane-guides/*`
+- `docs/harper/EXTEND_<date>_<FIRST_REQ>_<LAST_REQ>.md` — report of `/extend` and `/idea --extend`
+  (the cascade adds a *CLike verification* section)
+
+Written by `/finalize`:
+- `docs/harper/HOWTO_RUN.md`, `SANITY_CHECKS.md`, `RELEASE_NOTES.md`, `TODO_NEXT.md`, `PR_BODY.md`
+  (`INFRA_READINESS.md` when infrastructure is detected)
+- `docs/harper/FINALIZE_REPORT.md` — the developer report: how to start and see the solution,
+  every variable, what only the developer can provide, changes and problems met
+- `docs/harper/SOLUTION_EVAL.md` — evidence of the solution verification (cycles, last gate of
+  every REQ)
+- `ci/SOLUTION_LTC.json` — the eval profile of the whole solution
+- `scripts/setup_local`, `scripts/start_solution_local`, `scripts/check_solution_local`
+  (`.sh` / `.ps1`) — configure, start and check the solution on the developer's machine
+
+## Project inputs
+
+Read as context by the phases (see `context-sources.md`), never written by CLike:
+- `docs/inputs/**` — requirements; `docs/inputs/vN/` = requirements of release N
+- `docs/reference/**` — background; `docs/reference/vN/` = background of release N
+- `docs/harper/ux/**` — UI references
+
+Earlier release folders (and unversioned inputs, once release folders exist) are history.
 
 ## Candidate artifacts under `runs/kit/<REQ-ID>/`
 
@@ -30,6 +51,8 @@ The current sources treat these paths as the primary candidate area for REQ work
 - `runs/kit/<REQ-ID>/ci/LTC.json`
 - `runs/kit/<REQ-ID>/ci/HOWTO.md`
 - `runs/kit/<REQ-ID>/ci/requirements.txt`
+- `runs/kit/<REQ-ID>/ci/FILE_REQUIREMENTS.json`, `ci/TARGET_CONTRACT.json`,
+  `ci/REQ_PROMOTION_MANIFEST.md` — written by CLike from the plan, not part of the acceptance lock
 
 ### Candidate docs
 - `runs/kit/<REQ-ID>/docs/README_<REQ-ID>.md`
@@ -42,6 +65,18 @@ Current sources also reference additional artifacts such as:
 - `runs/kit/<REQ-ID>/docs/INTEGRITY_EVAL.json`
 
 These are required by some explicit follow-up KIT phases.
+
+### Promotion reports
+- `runs/kit/<REQ-ID>/promotion/<ts>/report.md`, `report.json`, `promotion.diff`, `conflicts.md` —
+  gate auto-merge promotion (see `git-and-promotion.md`)
+- `<file>.conflict-<REQ>-<ts>` next to a canonical file that could not be merged
+
+## Eval and gate reports
+
+- `runs/eval/<REQ-ID>/report_*.json`, `runs/gate/<REQ-ID>/report_*.json` — eval/gate evidence
+  (with `inputs_fingerprint`, `tools`, `missing_tools`)
+- `runs/<eval|gate>/<REQ-ID>/repair_<REQ-ID>_<ts>.md` — what each `--fix` repair received
+- `runs/finalize/DIRTY_BEFORE.json` — the developer's changes before `/finalize`, kept out of its commits
 
 ## Run-level artifacts under `runs/<runId>/`
 
@@ -57,6 +92,10 @@ Common files:
 - `runs/<runId>/logs/`
 - `runs/<runId>/artifacts/`
 - `runs/<runId>/diffs/`
+
+This layout is what the orchestrator MCP run tools (`runs_list`, `runs_read`) read; the eval and
+gate evidence of the extension flow is REQ-scoped under `runs/eval/<REQ-ID>/` and
+`runs/gate/<REQ-ID>/` (see above).
 
 Different parts of the codebase reference slightly different subsets, but the important distinction is stable:
 - **candidate artifacts are REQ-scoped under `runs/kit/<REQ-ID>/...`**
@@ -90,7 +129,8 @@ Current responsibilities:
 `LTC.json` is the REQ-level execution contract generated under candidate artifacts.
 
 Current responsibilities:
-- define tools and commands
+- define tools and commands (`checks`), `setup` steps run before the services, `environment`
+  (`required_variables` with `provision`, `tools`) and `services` started for the checks
 - define execution recipe
 - define report expectations
 - define gate policy hints

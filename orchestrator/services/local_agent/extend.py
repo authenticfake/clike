@@ -24,6 +24,7 @@ from services.local_agent.document import (
     _render_canonical_parity_block,
 )
 from services.phase_definitions import phase_text
+from services.extend_cascade import CASCADE_EXTRA_WRITE_ROOTS, cascade_options, cascade_rules
 
 
 def _text(key: str) -> list:
@@ -87,13 +88,26 @@ def build_extend_local_agent_package(
 
     # Narrow, phase-owned write roots only. EXTEND files use a dynamic date/REQ
     # name, so the EXTEND_*.md glob is advertised; normalization is the real gate.
-    allowed_write_roots = extend_def["allowed_write_roots"]
+    cascade = cascade_options(payload)
+    allowed_write_roots = list(extend_def["allowed_write_roots"]) + (CASCADE_EXTRA_WRITE_ROOTS if cascade else [])
+    output_contract = extend_def["output_contract"]
+    if cascade:
+        # /idea --extend: IDEA, SPEC and the PLAN delta always, TECH_CONSTRAINTS when the release adds to it
+        output_contract = {
+            "always": ["docs/harper/IDEA.md", "docs/harper/SPEC.md", *output_contract["always"]],
+            "conditional": [
+                "docs/harper/TECH_CONSTRAINTS.yaml only by addition, when the release adds technology",
+                "docs/harper/lane-guides/<concern>.md only when lane guidance is introduced or extended",
+            ],
+        }
 
     forbidden_paths = list(_DOCUMENT_PHASE_FORBIDDEN_PATHS)
 
     context = {
         "schema_version": extend_def["schema_version"],
         "phase": "extend",
+        "mode": "cascade" if cascade else "plan",
+        **({"release": cascade.get("release"), "baseline": cascade.get("baseline")} if cascade else {}),
         "run_id": run_id,
         "anchor_req": anchor_req,
         "explicit_req": explicit_req,
@@ -110,7 +124,7 @@ def build_extend_local_agent_package(
         "required_reads": extend_def["required_reads"],
         "allowed_write_roots": allowed_write_roots,
         "forbidden_paths": forbidden_paths,
-        "output_contract": extend_def["output_contract"],
+        "output_contract": output_contract,
         "hard_rules": extend_def["hard_rules"],
         "validation_expectations": extend_def["validation_expectations"],
     }
@@ -152,6 +166,10 @@ def build_extend_local_agent_package(
             *attachment_prompt_lines,
             *_render_canonical_parity_block("extend", "EXTEND"),
             *_text("package.lines.3"),
+            *(["", "Release cascade (/idea --extend) — these rules replace the 'only when' conditions above for "
+               "IDEA.md and SPEC.md:", *[f"- {rule}" for rule in cascade_rules(cascade)],
+               "- You may read src/, test/ and runs/kit/*/ci/LTC.json to ground the delta; never write them."]
+              if cascade else []),
             f"- anchor_req: {anchor_req or '<auto-detect-last-req>'}",
             f"- explicit_req: {explicit_req or '<none>'}",
             f"- from_attachment: {from_attachment}",

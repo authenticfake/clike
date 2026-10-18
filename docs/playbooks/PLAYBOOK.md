@@ -2,6 +2,10 @@
 
 This playbook operationalizes the Harper workflow **SPEC → PLAN → KIT** for AI‑native, eval‑driven development in CLike.
 
+> Early design reference (2025): the phase prompts now live in `orchestrator/phases/<phase>/`, and run
+> evidence under `runs/kit|eval|gate/<REQ>/`. The current process (IDEA → … → FINALIZE, `/idea --extend`)
+> is documented in [../harper-workflow.md](../harper-workflow.md).
+
 ## Purpose & Scope
 It defines:
 - roles (Human Orchestrator, Orchestrator Service, LLMs)

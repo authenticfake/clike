@@ -239,6 +239,13 @@ Type commands directly in the chat input.
 - **`/idea`**
   - formalizes or updates `IDEA.md`
 
+- **`/idea --extend [--from attachment] [--release vN] [--dry-run]`**
+  - the next release of a delivered project: new requirements in `docs/inputs/vN/` (background in
+    `docs/reference/vN/`) or attached, merged into IDEA, SPEC and TECH_CONSTRAINTS
+  - PLAN delta: new REQs typed `ADDED` / `MODIFIED` (amends, supersedes) / `REMOVED` (retires);
+    delivered REQs read-only; EXTEND report with CLike's verification; baseline tagged `harper/v<N-1>`
+  - then `/kit`, `/eval --fix`, `/gate` for the new REQs and `/finalize`
+
 - **`/spec [file|text]`**
   - generates or updates `SPEC.md` from IDEA/context
 

@@ -23,10 +23,13 @@ For each project, against a running stack, with the same payloads the VS Code ex
 2. `/spec` (TECH_CONSTRAINTS.yaml extracted from IDEA.md, as the extension does) → `/plan`;
 3. for the first `--max-reqs` REQs of the plan: `/kit` → write the files → `/eval` → `/gate`.
    Eval and gate run with `regression: true`, like the extension. A REQ that passes the gate is
-   promoted (its KIT `src/` joins the project `src/`, `status: done`), so later REQs are
-   regression-checked against it.
+   promoted (its KIT `src/` is copied into the project `src/`, `status: done` — a minimal
+   promotion, not the extension's 3-way auto-merge), so later REQs are regression-checked
+   against it.
 4. with `--auto-eval N`: after a failed eval, up to N KIT repair cycles from the real failures
    (as `/eval REQ --fix`, see `docs/auto-eval.md`), then the gate.
+5. with `--acceptance-first`: the acceptance tests and eval profile are generated and locked
+   before the code KIT (as `clike.kit.acceptanceFirst`).
 
 ## Metrics
 
@@ -57,6 +60,7 @@ Live runs call the model provider and cost money: `--max-reqs` and `--projects` 
 
 ## Scope and limits (v1)
 
-Cloud and local-agent runners; KIT⇄EVAL repair with `--auto-eval` (cloud runner); the stack-compliance check is a keyword check on the
+Cloud and local-agent runners; KIT⇄EVAL repair with `--auto-eval` (both runners); no `/gate
+--fix`, `/finalize` or `/idea --extend`; the stack-compliance check is a keyword check on the
 generated source. These are deliberate: the benchmark should be cheap and fast enough to run after
 every improvement, and grow only when a decision needs more precision.

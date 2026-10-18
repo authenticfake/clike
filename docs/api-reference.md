@@ -75,7 +75,21 @@ Runs PLAN phase.
 Runs KIT phase.
 
 #### `POST /v1/harper/finalize`
-Runs FINALIZE phase.
+Runs FINALIZE phase (with `finalize_verify`: the solution eval profile, the REQs' eval profiles
+and a verification repair).
+
+#### `POST /v1/harper/extend`
+Runs EXTEND phase: `/extend` (append REQs to the plan) and `/idea --extend` (release cascade: IDEA,
+SPEC, TECH_CONSTRAINTS merged, PLAN delta). Options in `gen` (`anchorReq`, `explicitReq`,
+`rawInput`).
+
+#### `POST /v1/harper/eval`
+Prepares the optional local-agent `/eval` pre-pass package; never a verdict (the canonical eval is
+`POST /v1/eval/run`).
+
+#### `POST /v1/harper/local-agent/complete`
+Normalizes a local-agent result (stdout/stderr/exit code and produced files) and validates its
+write roots.
 
 Current request model used by these phase endpoints:
 - `cmd`
@@ -84,6 +98,7 @@ Current request model used by these phase endpoints:
 - `model`
 - `profileHint`
 - `executionPreference`
+- `methodology`, `agent`, `methodology_context`
 - `docRoot`
 - `core`
 - `attachments`
@@ -91,7 +106,8 @@ Current request model used by these phase endpoints:
 - `runId`
 - `historyScope`
 - `repository_context`
-- `localAgentExecutor`
+- `flags`, `gen`
+- `localAgentExecutor`, `localAgentCapabilities`, `localAgentTimeoutSeconds`, `localRuntime`
 - `idea_md`
 - `spec_md`
 - `plan_md`
@@ -100,7 +116,9 @@ Current request model used by these phase endpoints:
 - `telemetry`
 - `core_blobs`
 - `workspace`
-- `kit`
+- `kit` (`kit.repair`: auto-eval / auto-gate repair request, see `auto-eval.md`)
+- `eval`
+- `finalize_verify`
 - `rag_strategy`
 - `context_hard_limit`
 - `project_id`
@@ -276,6 +294,9 @@ Returns model catalog with alias-aware information.
 #### `GET /v1/models/validate`
 Returns model catalog validation information.
 
+#### `GET /v1/providers`
+Returns which providers are configured.
+
 ### Chat and completions
 
 #### `POST /v1/chat/completions`
@@ -300,7 +321,8 @@ Current request model includes:
 ### Embeddings
 
 #### `POST /v1/embeddings`
-Embeddings endpoint for provider-routed embedding requests.
+Embeddings endpoint for provider-routed embedding requests; `input` may be a list (one vector per
+item, one provider call).
 
 Current request body is request-json driven and includes:
 - `model`
@@ -319,6 +341,7 @@ Prefix:
 Main Harper execution endpoint on the gateway.
 
 Current request model includes:
+- `composed_messages` (**required**: the phase messages composed by the orchestrator)
 - `project_id`
 - `project_name`
 - `cmd`
@@ -351,12 +374,14 @@ Current request model includes:
 - `rag_files`
 
 The gateway route also contains logic for:
-- Harper prompt composition
 - plan JSON derivation
 - candidate path enforcement
 - RAG retrieval and injection
 - telemetry writing
 - provider-specific execution
+
+#### `POST /v1/harper/telemetry`
+Records the telemetry of a local-agent run (usage, API-equivalent cost, model, duration).
 
 ### Telemetry API
 
@@ -398,6 +423,9 @@ Raw-by-file view.
 #### `GET /v1/metrics/harper/ui`
 Serves HTML telemetry UI.
 
+#### `POST /v1/metrics/login`, `POST /v1/metrics/logout`
+Telemetry UI login with the service token (`HttpOnly` cookie) and logout.
+
 ## Agent surface summary
 
 Although the agent route lives in the orchestrator runtime, it is conceptually its own file-oriented API surface.
@@ -433,4 +461,5 @@ Current exposed tools include:
 - gate decision reading
 - status reading
 
-MCP is currently read-only and should not be treated as a writable or phase-executing API.
+The orchestrator MCP is read-only and should not be treated as a writable or phase-executing API.
+Phases, `eval_run` and `gate_check` are exposed by the VS Code extension MCP server (see `mcp.md`).

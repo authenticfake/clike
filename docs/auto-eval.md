@@ -221,6 +221,11 @@ Dependencies that are not promoted yet are not regression targets: their source 
 of the candidate's eval (promoted `src/` + dependency KITs + current KIT), and a REQ that never
 passed has nothing to regress from.
 
+Declared changes of a release (`/idea --extend`) narrow the regression, when the REQ that declares
+them is promoted or is the candidate: the checks a MODIFIED REQ `supersedes` (`REQ-x#check`) are
+not run in the amended REQ's regression (reported as `regression::<REQ>::<check>::superseded`, its
+other checks still run), and a REQ a REMOVED REQ `retires` leaves the regression set.
+
 A REQ that passes its own tests but breaks a promoted REQ fails the eval; the gate reports
 `GATE_BLOCKED_REGRESSION` with the list in `regression_failures`. In an auto-eval loop the
 regression failures are part of what the repair receives.

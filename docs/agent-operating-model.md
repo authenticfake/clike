@@ -6,7 +6,7 @@ Harper lifecycle and its governance; agents and models are executors.
 ## Model 1 — Developer activates an agent through CLike
 
 This is the local-agent (execution-agent) path. It covers the Harper phases `/idea`, `/spec`,
-`/plan`, `/kit`, `/eval`, `/finalize` and `/extend`. All phases reuse the same execution-agent
+`/plan`, `/kit`, `/eval`, `/finalize`, `/extend` and `/idea --extend`. All phases reuse the same execution-agent
 architecture; only the expected output files, allowed write paths, phase prompt and phase
 validation differ.
 
@@ -21,7 +21,9 @@ Developer
 
 For the document phases the local agent writes `docs/harper/IDEA.md` (idea),
 `docs/harper/SPEC.md` (spec), and `docs/harper/PLAN.md` plus `docs/harper/plan.json` (plan); all
-other `docs/harper/` paths stay protected. Cloud and local execution remain semantically
+other `docs/harper/` paths stay protected (BMAD companions excepted). EXTEND also writes its dated
+report and, in the release cascade, `TECH_CONSTRAINTS.yaml` by addition; `/finalize` writes the
+integrated solution, never the REQs' tests. Cloud and local execution remain semantically
 equivalent and CLike governance stays canonical.
 
 ### Responsibilities
@@ -36,7 +38,7 @@ equivalent and CLike governance stays canonical.
 | Result normalization | Git integration |
 
 Local agents are executors only. They must not promote files, run Git operations, or write
-directly to canonical `src/`, `test/` or `tests/` roots. They authenticate through their own CLI
+directly to canonical `test/` or `tests/` roots, nor to `src/` outside `/finalize`. They authenticate through their own CLI
 session: cloud API keys are removed from their environment.
 
 ### Free chat (Q&A) and Coding via local agent
@@ -68,8 +70,10 @@ External / local agent
 ```
 
 The agent does not call the orchestrator with invented Harper payloads: it asks the extension to
-dispatch the same slash commands a developer would type (`/kit REQ-001`, `/eval REQ-001`,
-`/gate REQ-001`, `/finalize`, `/ragIndex docs/**/*`, `/agent-default codex`, …). This keeps the
+run the same phases a developer would type (`harper_run_phase`, `eval_run` with optional `fix`,
+`gate_check`, `harper_kit_next`, `harper_continue_loop`, `rag_reindex`) and gets their outcome
+(files, warnings, the eval/gate verdict; long runs via `harper_run_status`). Overrides, promotion
+choices and Git are not available from MCP. This keeps the
 workflow simple, auditable and aligned with the developer path. When there are no open or
 in-progress REQs, Model 2 tools report `finalize_only`.
 

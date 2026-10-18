@@ -2998,22 +2998,49 @@ class EvalRunner:
             cases=out_cases,
         )
 
-    def regression_req_ids(self, req_id: Optional[str]) -> List[str]:
-        """Promoted REQs (plan status done) whose acceptance checks must still pass with this
-        candidate, in plan order, when they have an LTC profile. Dependencies that are not
-        promoted are not regression targets: their source is already composed into the
-        candidate's eval and they have no passing state to regress from."""
+    def _plan_reqs(self) -> List[Dict[str, Any]]:
         plan_path = self.project_root / "docs" / "harper" / "plan.json"
         try:
             plan = json.loads(plan_path.read_text(encoding="utf-8"))
         except Exception:
             return []
-        reqs = [r for r in (plan.get("reqs") or plan.get("req") or []) if isinstance(r, dict) and r.get("id")]
+        return [r for r in (plan.get("reqs") or plan.get("req") or []) if isinstance(r, dict) and r.get("id")]
+
+    def _declared_changes(self, req_id: Optional[str]) -> List[Dict[str, Any]]:
+        """REQs whose declared changes (/idea --extend: MODIFIED supersedes, REMOVED retires) hold
+        for this eval: the promoted ones, and the candidate itself."""
+        return [
+            r for r in self._plan_reqs()
+            if str(r["id"]) == str(req_id) or str(r.get("status") or "").strip().lower() in PROMOTED_REQ_STATUSES
+        ]
+
+    def superseded_checks(self, req_id: Optional[str]) -> Dict[str, Dict[str, str]]:
+        """{amended REQ: {check id: "REQ-y: reason"}} — checks a MODIFIED REQ declared it replaces.
+        They leave the amended REQ's regression (its other checks stay); the replacement lives,
+        locked, in the changing REQ's own KIT."""
+        out: Dict[str, Dict[str, str]] = {}
+        for r in self._declared_changes(req_id):
+            for entry in r.get("supersedes") or []:
+                ref = str(entry.get("check") if isinstance(entry, dict) else entry or "")
+                other, sep, check = ref.partition("#")
+                if sep and other and check:
+                    reason = str(entry.get("reason") or "") if isinstance(entry, dict) else ""
+                    out.setdefault(other, {})[check] = f"{r['id']}: {reason}".rstrip(": ")
+        return out
+
+    def regression_req_ids(self, req_id: Optional[str]) -> List[str]:
+        """Promoted REQs (plan status done) whose acceptance checks must still pass with this
+        candidate, in plan order, when they have an LTC profile. Dependencies that are not
+        promoted are not regression targets: their source is already composed into the
+        candidate's eval and they have no passing state to regress from. A REQ retired by a
+        REMOVED REQ (promoted, or the candidate) leaves the regression set."""
+        retired = {str(t) for r in self._declared_changes(req_id) for t in (r.get("retires") or [])}
         return [
             str(r["id"])
-            for r in reqs
+            for r in self._plan_reqs()
             if str(r.get("status") or "").strip().lower() in PROMOTED_REQ_STATUSES
             and str(r["id"]) != str(req_id)
+            and str(r["id"]) not in retired
             and (self.project_root / "runs" / "kit" / self._safe_req_id(str(r["id"])) / "ci" / "LTC.json").is_file()
         ]
 
@@ -3074,6 +3101,7 @@ class EvalRunner:
         source with the candidate's composed source overlaid last (the state after promotion).
         Cases are named ``regression::<REQ>::<case>`` and keep their blocking flag."""
         cases: List[EvalCase] = []
+        superseded = self.superseded_checks(req_id)
         for other in self.regression_req_ids(req_id):
             profile = self.project_root / "runs" / "kit" / self._safe_req_id(other) / "ci" / "LTC.json"
             try:
@@ -3090,6 +3118,17 @@ class EvalRunner:
                     )
                 )
                 continue
+            dropped = superseded.get(other) or {}
+            if dropped:
+                # declared, approved change: these checks of the amended REQ no longer hold
+                ltc = {**ltc, "checks": [c for c in ltc.get("checks") or [] if str(c.get("id") or "") not in dropped]}
+                for check, by in sorted(dropped.items()):
+                    note = f"superseded by {by} — not run (declared change of /idea --extend)"
+                    cases.append(EvalCase(name=f"regression::{other}::{check}::superseded", passed=True, code=0,
+                                          stdout=note, stderr="", blocking=False))
+                    log.info("regression %s: check %s superseded by %s", other, check, by)
+                if not ltc["checks"]:
+                    continue  # every check of the amended REQ is replaced: nothing left to regress
             runner = EvalRunner(
                 self.project_root,
                 eval_key=f"{self._safe_req_id(req_id)}/regression/{self._safe_req_id(other)}",

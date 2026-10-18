@@ -1,7 +1,7 @@
 # Brownfield and evolution: `/adopt` and `/idea --extend`
 
-- **Status:** design proposal, not implemented
-- **Date:** 2026-10-15
+- **Status:** F0 done; F2 core implemented (`/idea --extend`, 2026-10-18, see §12); F1, F3, F4 open
+- **Date:** 2026-10-15, updated 2026-10-18
 - **Scope:** how CLike (1) takes over a project it did not create, whether hand-written, built with
   another agent or method, or a CLike project that drifted, and (2) evolves a CLike project
   with new or changed requirements, integrations included.
@@ -378,7 +378,7 @@ hot fixes), or adopted earlier:
 |---|---|---|
 | **F0** ✅ done | D1 validator for `/extend`; D2 reproduced and fixed; D3 code files in `context.yaml`; D4 `/init` merge mode | each has a failing test before the fix and a passing one after |
 | **F1** | `project.json` roots and commands honored everywhere; KIT mirror of declared roots; `PROMOTION.json` delete/rename | a fixture repo with `backend/app` and `frontend/src` goes KIT → eval → gate → promotion; existing CLike projects unchanged (the full suite passes) |
-| **F2** | `/idea --extend` cascade with ADDED/MODIFIED/REMOVED, supersedes and lock retirement, living SPEC, impact, integration acceptance (contract and live) | **B2B pilot:** the real financial-data adapter behind `EvidencePort` as a MODIFIED change of REQ-006, gated with superseded checks audited and the live check attached |
+| **F2** ◐ core done (§12) | `/idea --extend` cascade with ADDED/MODIFIED/REMOVED, supersedes and lock retirement, living SPEC, impact, integration acceptance (contract and live) | **B2B pilot:** the real financial-data adapter behind `EvidencePort` as a MODIFIED change of REQ-006, gated with superseded checks audited and the live check attached |
 | **F3** | `/adopt`: survey, baseline run, map-reduce analysis, proposal, baseline lock, characterization | a non-CLike fixture repository is adopted, and a deliberately breaking change to an adopted area is blocked by the regression |
 | **F4** | importers (Spec Kit, BMAD and CLAUDE.md/AGENTS.md first, then Kiro and OpenSpec); `--refresh` drift | **VoiceSurveyAgent pilot** (built with CLike, grown outside it): `--refresh` reconciles it, `/idea --extend` evolves it |
 
@@ -401,3 +401,37 @@ hot fixes), or adopted earlier:
 - Editing or deleting foreign tool artifacts.
 - Any change that alters locked tests in place; supersession only.
 - Live provider calls inside the eval sandbox.
+
+## 12. Implemented: `/idea --extend` (F2 core, 2026-10-18)
+
+Decisions taken while implementing, which refine §6:
+
+- **One entry point.** `/idea --extend` is the command for every evolution. Taking over a project
+  not built with CLike (§7) will run inside the same command when there is no plan (state
+  detection), instead of a separate `/adopt` the developer has to learn. Until F3, a project without
+  a plan gets a message pointing to `docs/reference/` and `docs/inputs/v2/`.
+- **Release folders.** The release inputs live in `docs/inputs/vN/` (requirements) and
+  `docs/reference/vN/` (background). The targeted release is `--release vN`, else the highest folder
+  above the releases already in `plan.json`, else the next one. Earlier releases and unversioned
+  inputs get the context role `previous_release` (history, never new requirements). The targeted
+  folders are read even when `.clike/context.yaml` does not declare them; `docs/reference/**` joined
+  the default convention.
+- **The cascade is one extend run** (`extend.mode = "cascade"`), not three phases: the agent sees
+  IDEA, SPEC, PLAN, plan.json and TECH_CONSTRAINTS together and returns them merged, with the EXTEND
+  report. One set of rules for cloud and local agent: `orchestrator/services/extend_cascade.py`.
+- **Deterministic checks in the extension** (`extensions/vscode/release-extend.js`): merged
+  IDEA/SPEC keep every heading of the earlier release (otherwise the file is restored), TECH_CONSTRAINTS
+  only grows, delivered REQs are restored when changed (`extend-guard.js`), new REQs need `change`,
+  valid `amends`/`retires` targets (delivered, not in progress) and `supersedes` checks that exist
+  in the amended REQ's LTC; `release` is filled in when missing. `--dry-run` keeps only the report.
+  CLike appends a "CLike verification" section to the EXTEND report and tags the delivered
+  baseline `harper/v<N-1>`.
+- **Regression** (`eval_runner.run_regression`): the checks superseded by the candidate or by a
+  promoted MODIFIED REQ are not run for the amended REQ and appear as
+  `regression::<REQ>::<check>::superseded` with the reason; a REQ retired by a REMOVED REQ leaves the
+  regression set. Supersession is by LTC check id.
+
+Still open from §6: `history.json` (living SPEC trace), the impact step from promotion reports with
+code slices for the cloud agent (the local agent reads the code), the lock `retired` section and
+`amended_by` written at promotion, test-id deselection inside a check, `LIVE_LTC.json`.
+

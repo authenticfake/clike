@@ -233,3 +233,48 @@ class PromotedKitCompositionTests(_RegressionProject):
         # so REQ-001's pricing.py (no discount) wins over the canonical one, as before.
         body = self._post("/v1/eval/run", "REQ-002").json()
         self.assertEqual(body["status"], "FAIL")
+
+
+class DeclaredChangeRegressionTests(_RegressionProject):
+    """/idea --extend: a MODIFIED REQ supersedes checks of the REQ it amends; a REMOVED REQ retires one."""
+
+    def _declare(self, **fields):
+        plan_path = self.proj / "docs" / "harper" / "plan.json"
+        plan = json.loads(plan_path.read_text())
+        plan["reqs"][1].update(fields)
+        plan_path.write_text(json.dumps(plan))
+
+    def test_a_declared_change_replaces_exactly_the_superseded_checks(self):
+        # REQ-002 changes the price on purpose and declares it: REQ-001's unit check is superseded.
+        kit = self.proj / "runs" / "kit" / "REQ-002"
+        (kit / "src" / "pricing.py").write_text("def price():\n    return 12\n")
+        (kit / "test" / "test_checkout.py").write_text("from checkout import total\nassert total(2) == 24\n")
+        self._declare(change="MODIFIED", amends=["REQ-001"],
+                      supersedes=[{"check": "REQ-001#unit", "reason": "price list v2"}])
+
+        evaluated = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        self.assertEqual(evaluated["status"], "PASS", evaluated)
+        names = [c["name"] for c in evaluated["cases"]]
+        self.assertIn("regression::REQ-001::unit::superseded", names)
+        self.assertNotIn("regression::REQ-001::unit", names)
+        note = next(c for c in evaluated["cases"] if c["name"].endswith("::superseded"))
+        self.assertIn("REQ-002: price list v2", note["stdout"])
+        gate = self._post("/v1/gate/check", "REQ-002", regression=True).json()
+        self.assertEqual(gate["gate"], "PASS", gate)
+
+    def test_an_undeclared_change_still_fails(self):
+        kit = self.proj / "runs" / "kit" / "REQ-002"
+        (kit / "src" / "pricing.py").write_text("def price():\n    return 12\n")
+        (kit / "test" / "test_checkout.py").write_text("from checkout import total\nassert total(2) == 24\n")
+        self._declare(change="MODIFIED", amends=["REQ-001"], supersedes=[{"check": "REQ-001#lint", "reason": "x"}])
+        evaluated = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        self.assertEqual(evaluated["status"], "FAIL")
+        self.assertIn("regression::REQ-001::unit", evaluated["blocking_failures"])
+
+    def test_a_retired_req_leaves_the_regression_set(self):
+        from eval_runner import EvalRunner
+
+        self._declare(change="REMOVED", retires=["REQ-001"])
+        self.assertEqual(EvalRunner(self.proj).regression_req_ids("REQ-002"), [])
+        # another candidate still regresses REQ-001 until REQ-002 is promoted
+        self.assertEqual(EvalRunner(self.proj).regression_req_ids("REQ-003"), ["REQ-001"])

@@ -45,7 +45,8 @@ There is no `--reload` in containers: rebuild the images after code changes.
 `eval-sandbox` runs the LTC commands of eval/gate (they are authored by models during `/kit`).
 It holds no credentials (it refuses to start if any are present), lives only on the dedicated
 `evalnet` network (it cannot reach the gateway or Qdrant), runs non-root on a read-only root
-filesystem with a tmpfs `/tmp`, all capabilities dropped and resource limits, and sees the
+filesystem with a 1 GB tmpfs `/tmp` and its work dirs (venvs, `node_modules`, npm cache,
+Playwright browsers) on the `eval_work` volume (`CLIKE_EVAL_BASE_DIR=/var/clike-eval`), all capabilities dropped and resource limits, and sees the
 projects directory read-only. Egress is allowed so that dependency installs work; for offline
 evaluation (dependencies already available) start the stack with:
 
@@ -60,7 +61,8 @@ The sandbox runs with an init (`init: true`) that reaps the processes the checks
 database and messaging clients, cloud and IaC CLIs, toolchains — conda-forge) into the
 `eval_tools` volume, after the developer's confirmation in VS Code (see `auto-eval.md`). Only the
 orchestrator reaches it (`toolsnet`), it holds no credentials, runs non-root on a read-only root
-filesystem and installs conda-forge packages only. The sandbox mounts the volume read-only and
+filesystem and installs catalog entries only: conda-forge packages, `pip` CLIs and `download`
+vendor archives (https, verified by sha256). The sandbox mounts the volume read-only and
 appends `/opt/clike-tools/bin` to the PATH of the checks. Each tool has its own environment
 (`/opt/clike-tools/envs/<tool>`); the exact versions are locked in `docker/runs/state/eval-tools/lock.json`,
 from which `./rebuild.sh` restores a new volume. `./rebuild.sh --update-tools` also updates every
@@ -113,6 +115,8 @@ Important environment variables in compose:
 - `INLINE_MAX_FILE_KB=64`
 - `INLINE_MAX_TOTAL_KB=256`
 - `RAG_SIZE_THRESHOLD_KB=64`
+- `EMBEDDING_DIM=1536`, `RAG_EMBED_MODEL=openai:text-embedding-3-small`, `RAG_SCORE_THRESHOLD=0.30`
+- `RAG_EMBED_BATCH_SIZE` (64), `RAG_EMBED_CONCURRENCY` (4) — batched, incremental indexing
 - `CLIKE_MCP_SERVER_ENABLED=true`
 
 ### Gateway
@@ -125,9 +129,10 @@ Important environment variables in compose:
 - `GATEWAY_DUMP_DIR=/app/runs/gateway_dumps`
 - `RAG_BASE_URL=http://orchestrator:8080/v1/rag`
 - `RAG_TOP_K=12`
-- `EMBEDDING_DIM=1536`
 - `RAG_EMBED_MODEL=openai:text-embedding-3-small`
-- `RAG_SCORE_THRESHOLD=0.30`
+
+RAG storage, the embedding dimension and the score threshold belong to the orchestrator
+(`EMBEDDING_DIM`, `RAG_SCORE_THRESHOLD`): the gateway is a client of `/v1/rag`.
 
 ## Model catalog
 
@@ -180,6 +185,15 @@ Current extension settings include:
 
 ### Execution
 - `clike.execution.defaultPreference`
+- `clike.agentChat.approvals` (`ask`) — approvals of the agent chat's edits and commands
+
+### Eval, gate, finalize
+- `clike.eval.regression` (`true`), `clike.gate.strictWarnings` (`false`), `clike.gate.autoPromote` (`merge`)
+- `clike.autoEval.maxCycles`, `clike.autoEval.extraCyclesOnProgress`, `clike.autoEval.afterKit`,
+  `clike.autoEval.agentEvalChecks` (see [auto-eval.md](auto-eval.md))
+- `clike.evalTools.install` (`ask` | `always` | `never`)
+- `clike.kit.acceptanceFirst` (`false`)
+- `clike.finalize.verify`, `clike.finalize.verifyMaxCycles` — `/finalize` solution verification
 
 ### Local agents
 - `clike.localAgent.enabled`
@@ -191,6 +205,7 @@ Current extension settings include:
 ### Claude Code
 - `clike.claudeCode.enabled`
 - `clike.claudeCode.command`
+- `clike.claudeCode.model`
 - `clike.claudeCode.printModeFlag`
 - `clike.claudeCode.permissionMode`
 
@@ -253,7 +268,8 @@ A normal local startup sequence is:
 4. open the CLike chat, fetch models and verify health from the extension
 5. initialize or switch the Harper project if needed
 
-After code changes: `podman-compose build && podman-compose up -d --force-recreate`.
+After code changes: `cd docker && ./rebuild.sh` (cached build, recreated containers, health and
+image check, eval tools restored from their lock).
 
 ## Operational cautions
 

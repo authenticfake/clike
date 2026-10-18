@@ -21,6 +21,8 @@ The delivery loop is:
 IDEA → SPEC → PLAN → KIT → EVAL → GATE → FINALIZE
 ```
 
+and, for the next release of a delivered project, `/idea --extend` → KIT → EVAL → GATE → FINALIZE.
+
 ## VS Code Extension Capabilities
 
 The VS Code extension is the operational frontend of CLike.
@@ -30,17 +32,22 @@ The VS Code extension is the operational frontend of CLike.
 Supported Harper commands:
 
 ```text
+/init
 /idea
+/idea --extend [--from attachment] [--release vN] [--dry-run]
 /spec
 /plan
+/extend
 /kit <REQ-ID>
-/eval <REQ-ID>
-/gate <REQ-ID>
-/tools [search <text> | add <tool[@version]> | remove <tool>]
+/eval <REQ-ID> [--fix ["hint"]]
+/gate <REQ-ID> [--fix ["hint"]]
+/tools [search <text> | add <tool[@version]> | update [tool…] | remove <tool>]
 /finalize
 /ragIndex <glob>
 /ragSearch <query>
 /agent-default claude|codex|auto
+/agent-model [claude|codex] [model|list]
+/agent-session [new|new all]
 ```
 
 The extension manages:
@@ -146,13 +153,17 @@ Tools include:
 - `clike_extension_status`;
 - `harper_next_action`;
 - `harper_run_phase`;
+- `harper_run_status`;
+- `eval_run` (optionally `fix`);
+- `gate_check`;
 - `harper_kit_next`;
 - `harper_continue_loop`;
 - `rag_reindex`;
 - `rag_docs_status`;
 - `rag_docs_reindex_if_empty`.
 
-This server dispatches normal slash commands into the existing CLike flow.
+This server runs normal slash commands through the existing, governed CLike flow and returns
+their outcome; no overrides, promotion choices or Git from MCP.
 
 ## Orchestrator Capabilities
 
@@ -188,14 +199,15 @@ The orchestrator decides whether a phase should use:
 - canonical eval;
 - fallback strategy.
 
-Execution preferences may include:
+Execution preferences:
 
 ```text
 cloud_only
-prefer_cloud
 prefer_local_agent
 local_agent_only
 ```
+
+(legacy values are normalized: `auto` → `cloud_only`, `hybrid` → `prefer_local_agent`).
 
 The extension can request a preference, but the orchestrator decides valid behavior.
 
@@ -306,8 +318,8 @@ The gateway supports cloud model families such as:
 It provides endpoints such as:
 
 - `/v1/models`;
-- `/v1/chat`;
-- `/v1/generate`;
+- `/v1/chat/completions`;
+- `/v1/harper/run` (phase messages composed by the orchestrator);
 - `/v1/embeddings`.
 
 ### Provider Normalization
@@ -381,13 +393,15 @@ CLike supports local software generation agents.
 
 ### Claude Code
 
-Claude Code can execute local KIT and EVAL pre-pass packages.
+Claude Code can execute every local Harper phase package (IDEA … FINALIZE, `/extend`,
+`/idea --extend`), the EVAL pre-pass and auto-eval repairs, and the agent chat.
 
 It receives orchestrator-owned prompts and context files.
 
 ### GPT Codex
 
-GPT Codex can execute local packages, typically through a non-interactive CLI flow.
+GPT Codex can execute the same local packages, typically through a non-interactive CLI flow
+(`codex exec`; the agent chat with approvals uses `codex app-server`).
 
 It may receive prompts through stdin or another configured prompt transport.
 
@@ -396,8 +410,8 @@ It may receive prompts through stdin or another configured prompt transport.
 Agents must not:
 
 - write canonical `src/`, `test/`, or `tests/`;
-- modify `docs/harper/PLAN.md`;
-- modify `docs/harper/plan.json`;
+- modify `docs/harper/PLAN.md` or `docs/harper/plan.json` outside the phases that own them (PLAN,
+  `/extend`, `/idea --extend`; delivered REQs stay read-only);
 - run Git commands;
 - promote files;
 - decide final eval/gate pass status;
@@ -433,15 +447,26 @@ Generates candidate implementation through cloud or local-agent execution.
 
 ### EVAL
 
-Validates candidate implementation. Can include local-agent pre-pass, but canonical eval remains final.
+Validates candidate implementation in the eval sandbox, with the regression of the promoted REQs.
+Can include local-agent pre-pass, but canonical eval remains final. `--fix` runs the governed
+repair loop (tests locked).
 
 ### GATE
 
-Decides promotability and coordinates Git/promotion state.
+Decides promotability, promotes by 3-way auto-merge and coordinates Git state (merge-on-gate).
+`--fix` repairs a failing gate.
 
 ### FINALIZE
 
-Produces release and handoff documentation.
+Produces release and handoff documentation (`FINALIZE_REPORT.md`, local setup and start scripts)
+and verifies the integrated solution in the sandbox (`ci/SOLUTION_LTC.json`), repairing it while
+it fails.
+
+### EXTEND
+
+`/extend` appends REQs to the plan. `/idea --extend` evolves a delivered project to its next
+release: release inputs (`docs/inputs/vN/`, `docs/reference/vN/`) merged into IDEA, SPEC and
+TECH_CONSTRAINTS, new REQs typed ADDED / MODIFIED / REMOVED, baseline tagged `harper/v<N-1>`.
 
 ## Model 2 Agent Capabilities
 
@@ -450,7 +475,7 @@ Through MCP, an agent can ask the extension to:
 - report current CLike state;
 - identify the next open REQ;
 - run `/kit`;
-- run `/eval`;
+- run `/eval` (optionally with the `--fix` loop);
 - run `/gate`;
 - run `/finalize`;
 - trigger RAG reindex;

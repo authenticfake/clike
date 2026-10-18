@@ -518,6 +518,7 @@ var HELP_COMMANDS = [
   {cmd:'/switch <name|path>', desc:'Switches to another Harper project'},
   {cmd:'/idea', desc:'Formalizes the IDEA.md (optional)'},
   {cmd:'/idea --methodology bmad --agent analyst', desc:'Frames IDEA.md with BMAD analyst guidance'},
+  {cmd:'/idea --extend [--from attachment] [--release vN] [--dry-run]', desc:'Next release of a delivered project: new needs from docs/inputs/vN/ (background in docs/reference/vN/) or the attachments merged into IDEA, SPEC and TECH_CONSTRAINTS; PLAN gets new REQs typed ADDED / MODIFIED / REMOVED; delivered REQs read-only; EXTEND report with CLike verification; baseline tagged harper/v<N-1>. Then /kit /eval /gate the new REQs and /finalize'},
   {cmd:'/spec [file|text]', desc:'Generates/Updates SPEC.md from the IDEA'},
   {cmd:'/spec --methodology bmad --agent pm', desc:'Builds SPEC guidance with BMAD product management focus'},
   {cmd:'/plan [spec_path]', desc:'Generates/Updates PLAN.md from the SPEC'},
@@ -1369,6 +1370,14 @@ function handleSlash(slash) {
       msg.fromAttachment = !!slash.args?.fromAttachment;
       msg.rawInput = slash.args?.rawInput || '';
       msg.alias = slash.args?.alias || null;
+    } else if (slash.cmd === '/idea' && slash.args?.extend) {
+      // /idea --extend runs the extend phase in cascade mode (IDEA → SPEC → PLAN delta)
+      msg.cmd = 'extend';
+      msg.extendMode = 'cascade';
+      msg.fromAttachment = !!slash.args.fromAttachment;
+      msg.dryRun = !!slash.args.dryRun;
+      msg.release = slash.args.release || '';
+      msg.rawInput = slash.args.rawInput || '';
     } else if (slash.cmd === '/idea') {
       msg.name = slash.args.name || '';
     } 

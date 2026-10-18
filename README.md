@@ -72,6 +72,7 @@ CLike is research software under active development. Interfaces may change betwe
 | `/kit <REQ>` | Implement one REQ as a candidate: code, tests, docs, CI profile | `runs/kit/<REQ>/…` |
 | `/eval <REQ>` | Run the REQ's checks and collect evidence | eval report |
 | `/gate <REQ>` | Decide promotability from the evidence | gate report |
+| `/idea --extend` | Next release of a delivered project: new needs from `docs/inputs/vN/` merged into IDEA/SPEC, PLAN delta of REQs typed ADDED / MODIFIED / REMOVED, delivered REQs read-only | IDEA/SPEC/PLAN merged, `docs/harper/EXTEND_*.md` |
 | `/finalize` | Bring the promoted solution to running and configured (verified in the sandbox, REQ tests not run again) | `docs/harper/FINALIZE_REPORT.md`, `SOLUTION_EVAL.md`, `scripts/setup_local` / `start_solution_local` |
 
 `/kit → /eval → /gate` is an iterative control loop per REQ, not a one-shot generation step.
@@ -177,6 +178,8 @@ Open a project under `CLIKE_PROJECTS_DIR`, run **CLike: Chat (Q&A / Harper / Cod
 
 ```text
 /init → /idea → /spec → /plan → ( /kit REQ-xxx → /eval REQ-xxx --fix → /gate REQ-xxx )* → /finalize
+
+next release:  /idea --extend → ( /kit → /eval --fix → /gate )* for the new REQs → /finalize
 ```
 
 With execution = agent the chat is a continuing conversation with Claude Code or Codex
@@ -243,7 +246,7 @@ Open research questions the project works on:
 |---|---|
 | **M2** | Gate in an isolated sandbox, acceptance lock with tamper detection and audited overrides (done); provider and functional fixes |
 | **M3** | Typed, versioned phase contract; one definition per phase rendered for cloud and agents |
-| **Next** | Native agent chat with streaming, inline approvals and runtime policy enforcement · Harper usable from Claude Code / Codex (skills, MCP, CLI) and as a CI gate · autonomous KIT ⇄ EVAL loops · parallel REQs on Git worktrees · brownfield reverse-SPEC · traceability and delivery metrics |
+| **Next** | Native agent chat with streaming, inline approvals and runtime policy enforcement · Harper usable from Claude Code / Codex (skills, MCP, CLI) and as a CI gate · autonomous KIT ⇄ EVAL loops · parallel REQs on Git worktrees · taking over projects not built with CLike inside `/idea --extend` · traceability and delivery metrics |
 
 ---
 

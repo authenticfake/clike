@@ -241,3 +241,34 @@ def test_extend_rejects_plan_md_req_missing_from_plan_json():
     assert result["ok"] is False
     assert "extend_output_incomplete" in result["errors"]
     assert any("REQ-2" in w for w in result["warnings"])
+
+
+def test_cascade_mode_evolves_idea_spec_and_plan_for_the_release():
+    package = _package({"runId": "ext-run", "extend": {"mode": "cascade", "release": "v2", "baseline": "v1"}})
+    local = package["local_agent"]
+    context = _context_file(package)
+    assert context["mode"] == "cascade" and context["release"] == "v2" and context["baseline"] == "v1"
+    assert "docs/harper/IDEA.md" in context["output_contract"]["always"]
+    assert "docs/harper/SPEC.md" in context["output_contract"]["always"]
+    assert "docs/harper/TECH_CONSTRAINTS.yaml" in local["allowed_write_roots"]
+    prompt = local["prompt_content"]
+    assert "Release cascade (/idea --extend)" in prompt and "`release: \"v2\"`" in prompt
+    assert "supersedes" in prompt and "never write them" in prompt
+
+
+def test_plan_mode_extend_is_unchanged():
+    package = _package()
+    context = _context_file(package)
+    assert context["mode"] == "plan"
+    assert "docs/harper/TECH_CONSTRAINTS.yaml" not in package["local_agent"]["allowed_write_roots"]
+    assert "Release cascade" not in package["local_agent"]["prompt_content"]
+
+
+def test_cloud_extend_section_carries_the_request_and_the_cascade():
+    from services.extend_cascade import cloud_extend_section
+
+    plain = cloud_extend_section({"extend": {"anchorReq": "REQ-006", "rawInput": "loyalty points"}})
+    assert "- anchor: REQ-006" in plain and "- request: loyalty points" in plain and "cascade" not in plain
+    cascade = cloud_extend_section({"extend": {"mode": "cascade", "release": "v2", "baseline": "v1"}})
+    assert "### Release cascade (/idea --extend)" in cascade and "docs/harper/TECH_CONSTRAINTS.yaml" in cascade
+    assert cloud_extend_section({}) == ""

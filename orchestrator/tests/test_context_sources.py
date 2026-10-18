@@ -12,6 +12,7 @@ from services import harper
 from services.context_sources import (
     append_context_sources_to_messages,
     attach_context_sources_to_local_package,
+    PREVIOUS_RELEASE_ROLE,
     load_context_manifest,
     render_context_sources_for_cloud,
     resolve_context_sources,
@@ -125,7 +126,54 @@ def test_default_convention_without_manifest(tmp_path):
     assert manifest["origin"] == "default_convention"
     spec = _paths(resolve_context_sources(ws, "spec"))
     assert "docs/inputs/Specifiche.docx" in spec and "docs/harper/ux/UI_DEMO.html" in spec
-    assert "docs/reference/UI_REFERENCE.html" not in spec  # docs/reference only when declared
+    # docs/reference is part of the convention: background material (as-is docs of a brownfield project)
+    assert spec["docs/reference/UI_REFERENCE.html"]["role"] == "reference"
+
+
+def _release_workspace(tmp_path):
+    for rel, text in {
+        "docs/inputs/brief_v1.md": "# Brief v1\n",
+        "docs/inputs/v2/IDEA_EXTEND_R2.md": "# Release 2\n",
+        "docs/reference/v2/blueprint.md": "# Blueprint 2\n",
+        "docs/inputs/v3/next.md": "# Release 3\n",
+        "docs/harper/ux/UI_DEMO.html": "<html></html>",
+    }.items():
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text(text, encoding="utf-8")
+    return tmp_path
+
+
+def test_release_folders_split_current_release_from_history(tmp_path):
+    ws = _release_workspace(tmp_path)
+    # the highest release folder is the current release by default
+    ctx = resolve_context_sources(ws, "spec")
+    items = {item["path"]: item for item in ctx["items"]}
+    assert ctx["release"] == "v3"
+    assert items["docs/inputs/v3/next.md"]["role"] == "requirements"
+    assert "release v3: this release" in items["docs/inputs/v3/next.md"]["note"]
+    for older in ("docs/inputs/v2/IDEA_EXTEND_R2.md", "docs/reference/v2/blueprint.md", "docs/inputs/brief_v1.md"):
+        assert items[older]["role"] == PREVIOUS_RELEASE_ROLE
+    assert items["docs/harper/ux/UI_DEMO.html"]["role"] == "ui_reference"  # not a release document
+
+    # the run can target an explicit release: v2 inputs are the delta, v3 is not history of v2
+    ctx = resolve_context_sources(ws, "extend", release="v2", phases=["idea", "spec", "plan"])
+    items = {item["path"]: item for item in ctx["items"]}
+    assert ctx["release"] == "v2"
+    assert items["docs/inputs/v2/IDEA_EXTEND_R2.md"]["role"] == "requirements"
+    assert items["docs/reference/v2/blueprint.md"]["role"] == "reference"
+    assert items["docs/inputs/brief_v1.md"]["role"] == PREVIOUS_RELEASE_ROLE
+    block = render_context_sources_for_cloud(ctx)
+    assert "Current release: v2" in block and "— release v2" in block
+
+
+def test_no_release_folders_change_nothing(tmp_path):
+    (tmp_path / "docs" / "inputs").mkdir(parents=True)
+    (tmp_path / "docs" / "inputs" / "brief.md").write_text("# Brief\n", encoding="utf-8")
+    ctx = resolve_context_sources(tmp_path, "idea")
+    assert ctx["release"] is None and ctx["items"][0]["role"] == "requirements"
+    # a cascade towards v2 without release folders: the existing inputs are the v1 history
+    ctx = resolve_context_sources(tmp_path, "extend", release="v2")
+    assert ctx["items"][0]["role"] == PREVIOUS_RELEASE_ROLE
 
 
 def test_invalid_manifest_falls_back_to_the_convention(tmp_path):
@@ -240,3 +288,15 @@ def test_existing_source_code_is_read_as_context(tmp_path):
     assert items["legacy/blob.bin"]["kind"] == "skipped"
     block = render_context_sources_for_cloud(context)
     assert "existing_code: code that already exists" in block
+
+
+def test_targeted_release_folders_are_read_even_when_not_declared(tmp_path):
+    ws = _release_workspace(tmp_path)
+    (tmp_path / ".clike").mkdir()
+    (tmp_path / ".clike" / "context.yaml").write_text(
+        "version: 1\nsources:\n  - path: docs/inputs/*.docx\n    role: requirements\n    phases: [idea]\n", encoding="utf-8")
+    ctx = resolve_context_sources(ws, "extend", release="v2", phases=["idea", "spec", "plan"])
+    roles = {item["path"]: item["role"] for item in ctx["items"]}
+    assert roles["docs/inputs/v2/IDEA_EXTEND_R2.md"] == "requirements"
+    assert roles["docs/reference/v2/blueprint.md"] == "reference"
+    assert "docs/inputs/v3/next.md" not in roles

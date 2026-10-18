@@ -90,7 +90,7 @@ Gateway prompt debug now records structured methodology evidence when it receive
 
 ### Cloud Rendering
 
-The KIT cloud prompt path preserves the selected capability blobs in `orchestrator/services/cloud_prompt/messages.py::_filter_core_blobs_for_kit(...)` (composed by the orchestrator since 0.9.6; the gateway receives `composed_messages`). `_build_kit_user_message(...)` renders:
+The KIT cloud prompt path preserves the selected capability blobs in `orchestrator/services/cloud_prompt/messages.py::_filter_core_blobs_for_kit(...)` (composed by the orchestrator since 1.0.0; the gateway receives `composed_messages`). `_build_kit_user_message(...)` renders:
 
 - `### CLike Selected Capability Context`
 - `### BMAD Skill Reference Context` through the methodology renderer

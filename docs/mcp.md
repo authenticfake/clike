@@ -72,12 +72,18 @@ Current tool inventory from `mcp_server.py`:
 
 ### RAG
 - `rag_search`
+- `rag_docs_status`
+- `rag_reindex_docs`, `rag_reindex_docs_if_empty` (index the project's `docs/` into RAG; they
+  write the vector store, never the workspace)
 
 ### Run artifacts
 - `runs_list`
 - `runs_read`
 - `eval_read_summary`
 - `gate_read_decision`
+
+### Operating model
+- `clike_operational_model_explain`
 
 ## Authentication
 
@@ -105,10 +111,13 @@ claude mcp add --transport http clike http://localhost:8080/mcp/ --header "Autho
 The VS Code extension can expose a second, **operational** MCP-compatible server that lets agents
 operate CLike through the same slash commands available in chat (see
 [agent-operating-model.md](agent-operating-model.md), Model 2). Typical tools:
-`clike_extension_status`, `harper_next_action`, `harper_run_phase`, `harper_kit_next`,
-`harper_continue_loop`, `rag_reindex`, `rag_docs_status`, `rag_docs_reindex_if_empty`.
-It dispatches normal commands (`/kit REQ-001`, `/eval REQ-001`, `/gate REQ-001`, `/finalize`, …) and
-does not duplicate Harper logic.
+`clike_extension_status`, `harper_next_action`, `harper_run_phase`, `harper_run_status`,
+`eval_run`, `gate_check`, `harper_kit_next`, `harper_continue_loop`, `rag_reindex`,
+`rag_docs_status`, `rag_docs_reindex_if_empty`.
+It runs normal commands (`/kit REQ-001`, `/eval REQ-001`, `/gate REQ-001`, `/finalize`, …) through
+the chat's governed handlers and does not duplicate Harper logic. `harper_run_phase` covers
+`idea`, `spec`, `plan`, `kit`, `eval`, `gate` and `finalize`: `/extend` and `/idea --extend` run
+from the chat only.
 
 Because it can trigger phases that make local agents write files, it is locked down:
 

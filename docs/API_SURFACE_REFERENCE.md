@@ -18,35 +18,38 @@ telemetry API also accepts the `clike_token` cookie set by `POST /v1/metrics/log
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/health` | Basic orchestrator health. |
-| `GET` | `/version` | Harper route version metadata. |
-| `GET` | `/models` | Models visible through orchestrator/gateway integration. |
-| `GET` | `/models/defaults` | Default model/profile metadata. |
-| `GET` | `/profiles` | Available model routing profiles. |
-| `GET` | `/routing/resolve` | Resolve a routing request. |
-| `GET` | `/resolve` | Router compatibility endpoint. |
-| `POST` | `/session/clear` | Clear a session scope. |
-| `GET` | `/runs/{run_id}` | Read a run bundle or run metadata. |
+| `GET` | `/v1/harper/health` | Harper namespace health. |
+| `GET` | `/v1/harper/version` | Harper route version metadata. |
+| `GET` | `/v1/harper/models` | Models visible through orchestrator/gateway integration. |
+| `GET` | `/v1/harper/models/defaults` | Default model/profile metadata. |
+| `GET` | `/v1/harper/profiles` | Available model routing profiles. |
+| `GET` | `/v1/harper/routing/resolve` | Resolve a routing request. |
+| `GET` | `/v1/router/resolve` | Router compatibility endpoint. |
+| `POST` | `/v1/harper/session/clear` | Clear a session scope. |
+| `GET` | `/v1/harper/runs/{run_id}` | Read a run bundle or run metadata. |
 
 ### General chat/code actions
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/models` | v1 model list compatibility route. |
-| `POST` | `/chat` | Chat route through orchestrator service layer. |
-| `POST` | `/generate` | Coding/file-generation route. |
-| `POST` | `/apply` | Apply generated patch/content. |
+| `GET` | `/v1/models` | v1 model list compatibility route. |
+| `POST` | `/v1/chat` | Chat route through orchestrator service layer. |
+| `POST` | `/v1/generate` | Coding/file-generation route. |
 | `POST` | `/agent/code` | Editor code actions: docstring, refactor, tests, fix errors, new file style actions. |
 
 ### Harper phases
+
+Prefix `/v1/harper`.
 
 | Method | Path | Purpose |
 |---|---|---|
 | `POST` | `/idea` | Generate/update `docs/harper/IDEA.md`. |
 | `POST` | `/spec` | Generate/update `docs/harper/SPEC.md`. |
 | `POST` | `/plan` | Generate/update `PLAN.md` and `plan.json`. |
-| `POST` | `/kit` | Generate or harden REQ candidate artifacts; supports staged KIT phases. |
+| `POST` | `/kit` | Generate or harden REQ candidate artifacts; supports staged KIT phases and `kit.repair` (auto-eval / auto-gate). |
 | `POST` | `/eval` | Harper eval pre-pass / local-agent diagnostic package route. |
-| `POST` | `/finalize` | Generate final release/PR artifacts. |
+| `POST` | `/extend` | `/extend` (append REQs) and `/idea --extend` (release cascade: IDEA/SPEC/TECH_CONSTRAINTS merged, PLAN delta). |
+| `POST` | `/finalize` | Generate final release/PR artifacts, the solution eval profile and the developer report; verification repair. |
 | `POST` | `/local-agent/complete` | Normalize local-agent execution result and returned candidate artifacts. |
 
 ### Canonical eval/gate
@@ -55,6 +58,11 @@ telemetry API also accepts the `clike_token` cookie set by `POST /v1/metrics/log
 |---|---|---|
 | `POST` | `/v1/eval/run` | Run canonical eval and produce normalized eval evidence. |
 | `POST` | `/v1/gate/check` | Apply gate policy and produce gate decisions. |
+| `POST` | `/v1/gate/override` | Audited developer override of a gate. |
+| `POST` | `/v1/acceptance/lock` | Lock the acceptance tests and eval profile (acceptance-first KIT). |
+| `POST` | `/v1/acceptance/amend` | Govern acceptance files a local agent changed. |
+| `GET` | `/v1/eval/tools` | Eval tools catalog, installed tools and versions, approvals. |
+| `POST` | `/v1/eval/tools/check`, `/install`, `/update`, `/restore` | Find, install, update or restore eval tools. |
 
 ### RAG
 
@@ -84,6 +92,7 @@ telemetry API also accepts the `clike_token` cookie set by `POST /v1/metrics/log
 | `GET` | `/health` | Gateway health. |
 | `GET` | `/v1/models` | Model catalog. |
 | `GET` | `/v1/models/validate` | Validate configured model catalog. |
+| `GET` | `/v1/providers` | Configured providers. |
 
 ### Model IO
 
@@ -91,12 +100,16 @@ telemetry API also accepts the `clike_token` cookie set by `POST /v1/metrics/log
 |---|---|---|
 | `POST` | `/v1/chat/completions` | OpenAI-compatible chat completions with provider routing. |
 | `POST` | `/v1/embeddings` | Embeddings endpoint. |
-| `POST` | `/run` | Gateway Harper run route; mounted prefix may expose this as `/v1/harper/run` through client configuration. |
+| `POST` | `/v1/harper/run` | Gateway Harper run route: calls the provider with the `composed_messages` of the orchestrator (plus RAG and history). |
+| `POST` | `/v1/harper/telemetry` | Record the telemetry of a local-agent run. |
 
 ### Telemetry
 
+Prefix `/v1/metrics`.
+
 | Method | Path | Purpose |
 |---|---|---|
+| `POST` | `/login`, `/logout` | Telemetry UI session (service token, `HttpOnly` cookie). |
 | `GET` | `/harper/ui` | Telemetry UI. |
 | `GET` | `/harper/files` | Harper telemetry files. |
 | `GET` | `/harper/projects` | Harper projects telemetry. |
@@ -149,16 +162,22 @@ telemetry API also accepts the `clike_token` cookie set by `POST /v1/metrics/log
 
 | Slash command | Purpose |
 |---|---|
+| `/init` | Create a Harper project from the template. |
 | `/idea` | Generate/update IDEA. |
+| `/idea --extend [--from attachment] [--release vN] [--dry-run]` | Release cascade of a delivered project: IDEA/SPEC/TECH_CONSTRAINTS merged, PLAN delta (ADDED/MODIFIED/REMOVED REQs). |
 | `/spec` | Generate/update SPEC. |
 | `/plan` | Generate/update PLAN and plan JSON. |
+| `/extend`, `/add-req` | Append REQs to the plan (plan-only). |
 | `/kit [REQ-ID]` | Generate/harden candidate artifacts for a REQ. |
-| `/eval [REQ-ID]` | Run/prepare eval for a REQ. |
-| `/gate [REQ-ID]` | Gate and promote a REQ when evidence passes. |
-| `/finalize` | Generate final release artifacts. |
+| `/eval [REQ-ID] [--fix ["hint"]]` | Run eval for a REQ; `--fix` runs the governed repair loop. |
+| `/gate [REQ-ID] [--fix ["hint"]]` | Gate and promote (auto-merge) a REQ when evidence passes; `--fix` repairs a failing gate. |
+| `/finalize` | Generate final release artifacts and verify the integrated solution. |
+| `/tools [search|add|update|remove]` | Eval tools catalog of the sandbox. |
 | `/ragIndex <glob-or-path>` | Index workspace content into RAG. |
 | `/ragSearch <query>` | Search indexed RAG context. |
 | `/agent-default codex|claude|auto` | Set preferred local-agent executor. |
+| `/agent-model [claude|codex] [model|list]` | Show or set the local agent model. |
+| `/agent-session [new|new all]` | Show or restart the agent chat sessions. |
 
 ---
 
@@ -215,7 +234,10 @@ Supported JSON-RPC methods:
 |---|---|
 | `clike_extension_status` | Read extension state, workspace, chat status, and next Harper action. |
 | `harper_next_action` | Return next REQ or `finalize_only`. |
-| `harper_run_phase` | Dispatch `/idea`, `/spec`, `/plan`, `/kit`, `/eval`, `/gate`, or `/finalize`. |
+| `harper_run_phase` | Run `/idea`, `/spec`, `/plan`, `/kit`, `/eval`, `/gate`, or `/finalize` through the governed chat flow and return its outcome (waits up to `wait_seconds`). |
+| `harper_run_status` | Status and outcome of a run started by `harper_run_phase`, `eval_run` or `gate_check`. |
+| `eval_run` | Run `/eval` for a REQ, optionally `fix` (auto-eval) with a `hint`. |
+| `gate_check` | Run `/gate` for a REQ. |
 | `harper_kit_next` | Dispatch `/kit <next-REQ>`. |
 | `harper_continue_loop` | Dispatch next `kit`, `eval`, or `gate`, or `/finalize` when all REQs are done. |
 | `rag_reindex` | Reindex workspace files through extension collector. |
@@ -227,7 +249,7 @@ Supported JSON-RPC methods:
 ## 7) Security and Boundaries
 
 - Orchestrator MCP is service/read-only and does not expose arbitrary shell, Git mutation, raw provider proxying, or direct phase execution.
-- Extension MCP is operational but only dispatches normal CLike slash commands.
+- Extension MCP is operational but only dispatches normal CLike slash commands: no overrides, promotion choices or Git from MCP.
 - Local agents are constrained by `AGENT_EXECUTION_CONTEXT.json`.
 - Local agents must not run Git, promote files, or write outside allowed candidate roots.
 - Canonical eval/gate remain CLike-owned.
