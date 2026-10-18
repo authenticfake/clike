@@ -22,6 +22,20 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   the REQ it amends (reported as `superseded`, with the reason); a REQ retired by a `REMOVED` REQ
   leaves the regression set. Every other check of delivered REQs keeps running.
 
+### Changed (speed, same verdicts)
+
+- **The gate does not run the eval again when nothing changed.** A full `/eval` records its
+  verdict with a digest of its inputs computed by the orchestrator (canonical code, root
+  deliverables, the REQ's KIT, every LTC, `plan.json`, CLike version); `/gate` on the same inputs
+  reuses a passing verdict and still checks acceptance integrity and required outputs. Any change
+  runs it again.
+- **The regression runs only what guards behaviour.** Lint, types, security scans, coverage,
+  syntax and SBOM checks of promoted REQs (non-blocking there, passed at their own gate) are not
+  run; tests, installs and builds are. On B2B this is about two thirds of the regression cases.
+- **Installed `node_modules` are shared** across work copies by package.json + lockfile digest
+  (hard links), instead of an npm install per REQ and per eval.
+- **Each check reports its duration** (`duration_s`).
+
 ### Added (KIT)
 
 - **A KIT can deliver repository-root files.** Run and setup scripts, deployment scripts,

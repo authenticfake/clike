@@ -200,7 +200,9 @@ in `runs/eval/<REQ>/repair_<REQ>_<ts>.md`. See `auto-eval.md`.
 ### `/gate <REQ-ID>`
 Runs gate checks for the target REQ using eval output and gate policy. Warnings (failed
 non-blocking checks) do not block unless `clike.gate.strictWarnings`; regression failures
-block with `GATE_BLOCKED_REGRESSION`.
+block with `GATE_BLOCKED_REGRESSION`. When nothing changed since a passing `/eval` (same files,
+LTCs and REQ statuses), the gate reuses that verdict instead of running everything again; the
+acceptance integrity and required outputs are still checked (see `auto-eval.md`, *Speed*).
 
 ### `/gate <REQ-ID> --fix ["hint"]`
 Auto-gate: when the gate fails (checks, regression, required outputs), a KIT repair with the same

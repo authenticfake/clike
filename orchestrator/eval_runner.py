@@ -41,6 +41,8 @@ class EvalCase:
     # A failed check: its error blocks from the whole output (eval_failures.excerpt) and their id.
     excerpt: Optional[str] = None
     fingerprint: Optional[str] = None
+    # seconds the check took (CLike's own steps have none)
+    duration_s: Optional[float] = None
 
 
 @dataclass
@@ -277,6 +279,25 @@ _NON_BEHAVIOURAL_CHECK_RE = re.compile(
     r"vuln|sast|build|compile|syntax|coverage",
     re.IGNORECASE,
 )
+# In the regression of a promoted REQ only what guards behaviour runs: its static/quality checks
+# (lint, types, security scans, coverage, syntax) passed at its own gate, now measure the candidate's
+# code too and never block there (see _is_regression_test_case), so they are not run at all.
+# Installs and builds stay: the tests need them.
+_STATIC_CHECK_TOKENS = frozenset({
+    "lint", "linter", "format", "fmt", "style", "ruff", "flake8", "pylint", "eslint", "prettier", "typecheck",
+    "types", "type", "typing", "mypy", "pyright", "tsc", "security", "sast", "secret", "secrets", "audit",
+    "bandit", "vuln", "vulns", "coverage", "cov", "syntax", "sbom", "license", "licenses",
+})
+_TEST_CHECK_TOKENS = frozenset({
+    "test", "tests", "unit", "integration", "e2e", "smoke", "pytest", "vitest", "jest", "playwright", "acceptance",
+})
+
+
+def _is_static_regression_check(name: str) -> bool:
+    tokens = {t for t in re.split(r"[^a-z0-9]+", str(name or "").lower()) if t}
+    return bool(tokens & _STATIC_CHECK_TOKENS) and not tokens & _TEST_CHECK_TOKENS
+
+
 _TEST_FAILURES_RE = re.compile(r"\b\d+ (?:failed|errors?)\b|^FAILED ", re.MULTILINE)
 # CLike's own promotion leftovers next to canonical files (<name>.conflict-REQ-…, .incoming-REQ-…,
 # .bak-<n>): never source, so never composed into an eval workspace (a format check walked into
@@ -884,6 +905,38 @@ class EvalRunner:
         )
 
 
+
+    def _npm_store_dir(self, key: str) -> Path:
+        """Installed node_modules by manifest + lockfile digest, shared by every eval and regression
+        of the project: a fresh work copy links them instead of running npm again (minutes per JS
+        REQ in each regression)."""
+        return self._eval_base_dir() / ".npm-store" / key
+
+    @staticmethod
+    def _link_tree(src: Path, dst: Path) -> bool:
+        """Copy a tree with hard links (instant, no extra disk); copies when linking is not possible.
+        Directories are new, so files a test creates never reach the store."""
+        try:
+            for dirpath, dirnames, filenames in os.walk(src):
+                rel = Path(dirpath).relative_to(src)
+                (dst / rel).mkdir(parents=True, exist_ok=True)
+                for name in filenames:
+                    s_file, d_file = Path(dirpath) / name, dst / rel / name
+                    if s_file.is_symlink():
+                        os.symlink(os.readlink(s_file), d_file)
+                        continue
+                    try:
+                        os.link(s_file, d_file)
+                    except OSError:
+                        shutil.copy2(s_file, d_file)
+                for name in dirnames:  # symlinked directories (npm bin links, workspaces)
+                    if (Path(dirpath) / name).is_symlink():
+                        os.symlink(os.readlink(Path(dirpath) / name), dst / rel / name)
+            return True
+        except OSError as exc:
+            log.info("npm store link %s -> %s failed: %s", src, dst, exc)
+            shutil.rmtree(dst, ignore_errors=True)
+            return False
 
     def _npm_cache_dir(self) -> Path:
         """One npm cache per project, shared by the REQ, its regression and its services: the
@@ -2091,6 +2144,21 @@ class EvalRunner:
             else f"{package_node_modules}{os.pathsep}{existing_node_path}"
         )
 
+        store = self._npm_store_dir(marker.name.removeprefix(".npm-").removesuffix(".installed"))
+        if not (node_modules.exists() and marker.exists()) and (store / "node_modules" / ".clike-complete").is_file():
+            shutil.rmtree(node_modules, ignore_errors=True)
+            if self._link_tree(store / "node_modules", node_modules):
+                try:
+                    marker.write_text("ok\n", encoding="utf-8")
+                except OSError:
+                    pass
+                cases.append(EvalCase(
+                    name="env::npm-install", passed=True, code=0,
+                    stdout=f"npm dependencies linked from the install store {store} (same package.json and lockfile)",
+                    stderr="", cmd=None, cwd=str(cwd), blocking=False,
+                ))
+                return node_env, cases
+
         if node_modules.exists() and marker.exists():
             cases.append(
                 EvalCase(
@@ -2145,6 +2213,14 @@ class EvalRunner:
                 marker.write_text("ok\n", encoding="utf-8")
             except Exception as exc:
                 install_case.stderr = (install_case.stderr + f"\nmarker write warning: {exc}")[-4000:]
+            # keep this install for the next work copies with the same manifest and lockfile
+            if node_modules.is_dir() and not (store / "node_modules" / ".clike-complete").is_file():
+                shutil.rmtree(store, ignore_errors=True)
+                if self._link_tree(node_modules, store / "node_modules"):
+                    try:
+                        (store / "node_modules" / ".clike-complete").write_text("ok\n", encoding="utf-8")
+                    except OSError:
+                        pass
         else:
             install_case.blocked = False
             install_case.blocking = True
@@ -2855,8 +2931,29 @@ class EvalRunner:
                     cmd=None, cwd=str(default_cwd), blocking=True,
                 ))
             norm_cases = [c for c in norm_cases if str(c.get("name") or "case") in only]
+        elif self.regression:
+            static = [str(c.get("name") or "case") for c in norm_cases if _is_static_regression_check(str(c.get("name") or ""))]
+            if static:
+                norm_cases = [c for c in norm_cases if str(c.get("name") or "case") not in static]
+                out_cases.append(EvalCase(
+                    name="static-checks::not-run", passed=True, code=0,
+                    stdout=f"regression runs only what guards behaviour; not run: {', '.join(static)} "
+                    "(static/quality checks of a promoted REQ: passed at its gate, never blocking here)",
+                    stderr="", cmd=None, cwd=str(default_cwd), blocking=False,
+                ))
+
+        # each check's duration (seconds), in the report: where an eval spends its time
+        stamp_from, stamp_at = len(out_cases), time.monotonic()
+
+        def _stamp() -> None:
+            now = time.monotonic()
+            for done in out_cases[stamp_from:]:
+                if done.duration_s is None:
+                    done.duration_s = round(now - stamp_at, 2)
 
         for case in norm_cases:
+            _stamp()
+            stamp_from, stamp_at = len(out_cases), time.monotonic()
             if self.cancel_event is not None and self.cancel_event.is_set():
                 break
             raw_cmd = case.get("run")
@@ -3002,6 +3099,7 @@ class EvalRunner:
             result = self._normalize_raw_secret_scan_result(result)
 
             out_cases.append(result)
+        _stamp()
 
         cancelled = self.cancel_event is not None and self.cancel_event.is_set()
         if cancelled:
@@ -3023,7 +3121,9 @@ class EvalRunner:
         if regression and work_kit_root and not cancelled and own_failed:
             log.info("regression deferred req=%s: the REQ's own blocking checks fail", eff_req)
         elif regression and work_kit_root and not cancelled:
+            started = time.monotonic()
             out_cases.extend(self.run_regression(eff_req, work_kit_root / "src"))
+            log.info("regression req=%s took %.1fs", eff_req, time.monotonic() - started)
 
         return self._report_from_cases(
             profile_path=profile_path,
