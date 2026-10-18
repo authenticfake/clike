@@ -24,7 +24,8 @@ This documentation reflects the current source tree in the inspected package and
 - `git-and-promotion.md` — current Git behavior, stacked REQ branches, gate auto-merge promotion (3-way, conflicts, report), merge flow
 - `mcp.md` — MCP servers (orchestrator, extension), tools and authentication
 - `howto-mcp-project.md` — run a whole project from Claude Code or Codex through MCP (setup, the phase loop, next release, troubleshooting)
-- `images/clike-overview.svg` (and `.png`) — CLike at a glance
+- `clike-at-a-glance.md` — CLike at a glance: the picture of the whole, area by area
+- `howto-mcp-bmad-claude.md` — from `/init` to `/finalize` with BMAD, driven by Claude Code through MCP
 - `api-reference.md` — endpoint census for orchestrator, gateway, and agent surfaces
 - `agent-operating-model.md` — developer→agent and agent→CLike operating models, methodology profiles
 - `architecture/ADOPT_AND_IDEA_EXTEND.md` — `/idea --extend` (implemented: release cascade of a delivered project with ADDED/MODIFIED/REMOVED requirements) and the `/adopt` proposal for brownfield repositories (not implemented)

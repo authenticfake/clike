@@ -4,6 +4,16 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+### Added
+
+- **`harper_init` MCP tool**: `/init` of the folder open in VS Code, in place (existing files kept),
+  so an agent can run a project from `/init` to `/finalize` through MCP.
+- **`docs/howto-mcp-bmad-claude.md`**: the sequence `/init` → IDEA (analyst) → SPEC (pm, ux) → PLAN
+  (architect) → KIT (developer) / EVAL --fix / GATE → FINALIZE (tech-writer) driven by Claude Code,
+  with one ready instruction and a human check after PLAN.
+- **`docs/clike-at-a-glance.md`**: the overview picture with a description area by area; the
+  README gets a *Highlights* section linking to it (the picture is no longer embedded there).
+
 ## [1.5.1] — 2026-10-18 — CLike from Claude Code and Codex: MCP hardened, eval repairs that converge
 
 ### Added
