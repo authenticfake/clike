@@ -502,3 +502,18 @@ def test_canonical_expectations_are_derived_from_gateway_prompts():
             assert expectation in gateway_text, (
                 f"{phase}: expectation {expectation!r} not found in {prompt_path.name}"
             )
+
+
+def test_bmad_ux_on_spec_is_companion_only_and_reads_the_canonical_spec():
+    from services.local_agent_package import build_document_phase_local_agent_package as build
+
+    policy = {"requested": "local_agent_only", "selected": "local_agent", "reason": "test", "phase_supported": True}
+    result = build(phase="spec", payload={"runId": "r", "methodology": "bmad", "agent": "ux",
+                                          "idea_md": "# IDEA — X\n", "core_blobs": _bmad_vendor_core_blobs()}, execution_policy=policy)
+    local = result["local_agent"]
+    prompt = local["prompt_content"]
+    assert "companion-only role" in prompt
+    assert "Regenerate the canonical docs/harper/SPEC.md" not in prompt
+    assert "Do NOT read docs/harper/SPEC.md" not in prompt
+    assert "docs/harper/SPEC.md (canonical, read-only)" in prompt
+    assert "docs/harper/SPEC.md" not in local["allowed_write_roots"]

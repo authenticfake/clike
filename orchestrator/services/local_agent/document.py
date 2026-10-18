@@ -228,6 +228,12 @@ def build_document_phase_local_agent_package(
             allowed_write_roots.append(root)
     forbidden_paths = list(_DOCUMENT_PHASE_FORBIDDEN_PATHS)
     title = spec["title"]
+    # Companion-only role (BMAD spec/ux): the canonical document is input, not output — the
+    # regenerative mission of the phase ("regenerate SPEC.md, do not read it") does not apply.
+    companion_only = bool(active_output_contract.get("forbidden_output_globs")) and all(
+        _glob_matches(out, active_output_contract.get("forbidden_output_globs"))
+        for out in (spec.get("output_contract") or {}).get("always") or []
+    )
     attachment_manifest, attachment_package_files = _materialize_attachments(payload, phase_norm)
 
     # /idea source-of-truth is current-run attachments only. Fail safely if the
@@ -257,6 +263,12 @@ def build_document_phase_local_agent_package(
             plan_capability_metadata = None
         if plan_capability_context["has_capabilities"]:
             required_reads = required_reads + _text("document_package.lines.3")
+    if companion_only:
+        # the canonical documents are this role's input
+        required_reads = required_reads + [
+            f"docs/harper/{name} (canonical, read-only)" for name in ("IDEA.md", "SPEC.md", "PLAN.md")
+            if f"docs/harper/{name}" not in " ".join(required_reads)
+        ]
 
     context = {
         "schema_version": spec["schema_version"],
@@ -272,13 +284,13 @@ def build_document_phase_local_agent_package(
         "attachments": attachment_manifest,
         **({"capabilities": plan_capability_context} if plan_capability_context else {}),
         **({"methodology_context": methodology_context} if methodology_context else {}),
-        "mission": spec["mission"],
+        "mission": {"companion_only": True, "rules": _text("document_package.companion_only_lines")} if companion_only else spec["mission"],
         "required_reads": required_reads,
         "allowed_write_roots": allowed_write_roots,
         "forbidden_paths": forbidden_paths,
         "output_contract": spec["output_contract"],
         "active_output_contract": active_output_contract,
-        "hard_rules": list(spec["hard_rules"]),
+        "hard_rules": [r for r in spec["hard_rules"] if not (companion_only and "overwrite target" in r)],
         "validation_expectations": list(spec["validation_expectations"]),
     }
 
@@ -345,9 +357,9 @@ def build_document_phase_local_agent_package(
             *[f"- {item}" for item in required_reads],
             *attachment_prompt_lines,
             *capability_prompt_lines,
-            *_render_canonical_parity_block(phase_norm, title),
+            *([] if companion_only else _render_canonical_parity_block(phase_norm, title)),
             "",
-            *spec["prompt_lines"],
+            *(_text("document_package.companion_only_lines") if companion_only else spec["prompt_lines"]),
             *_text("document_package.lines"),
         ]
     )

@@ -152,7 +152,10 @@ Projects not built with CLike: put their documentation in `docs/reference/` and 
 (see `architecture/ADOPT_AND_IDEA_EXTEND.md`). Until then `/idea --extend` needs a plan with REQs.
 
 ### `/spec`
-Generates or updates `SPEC.md` from current Harper context.
+Generates or updates `SPEC.md` from current Harper context. It also writes `TECH_CONSTRAINTS.yaml`
+from the *Technology Constraints* block of IDEA.md — except with `--methodology bmad --agent ux`
+(companion-only: UX documents in `docs/harper/ux/` only) and once the project has releases
+(`/idea --extend` owns TECH_CONSTRAINTS from then on, by addition).
 
 ### `/plan`
 Generates or updates `PLAN.md` and `plan.json`.

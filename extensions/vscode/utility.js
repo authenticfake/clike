@@ -1374,9 +1374,19 @@ async function buildHarperBody(phase, payload, projectRootUri, out) {
   // 1) Attachments/core files
   var idea_md = (phase === 'spec') ? await loadMd(_docRoot, 'IDEA.md') : null;
   try {
-    // 2: extract and save TECH_CONSTRAINTS.yaml from IDEA.md (overwrites)
+    // 2: extract and save TECH_CONSTRAINTS.yaml from IDEA.md (overwrites) — not for a companion-only
+    // role (spec/ux writes only UX documents) and not once the project has releases: from then on
+    // /idea --extend owns TECH_CONSTRAINTS (additive), and the IDEA block would drop the release parts.
     if (phase === 'spec' && idea_md) {
-      const yaml = extractTechConstraintsYaml(idea_md || '');
+      const companionOnly = String(payload.methodology || '').toLowerCase() === 'bmad' && String(payload.agent || '').toLowerCase() === 'ux';
+      const released = (() => {
+        try {
+          const plan = JSON.parse(require('fs').readFileSync(path.join(_docRoot.fsPath, 'plan.json'), 'utf8'));
+          return (plan.reqs || plan.req || []).some((r) => r && r.release);
+        } catch { return false; }
+      })();
+      const yaml = (companionOnly || released) ? null : extractTechConstraintsYaml(idea_md || '');
+      if (companionOnly || released) log(`[CLike] /spec keeps TECH_CONSTRAINTS.yaml (${companionOnly ? 'companion-only role' : 'project with releases: /idea --extend owns it'})`);
       if (yaml) {
         await saveTechConstraintsYaml(_docRoot, yaml);
         // make sure it is among the core docs (no duplicates)

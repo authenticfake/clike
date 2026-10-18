@@ -47,7 +47,10 @@ Use the UX role when user journeys, interaction states, accessibility, terminolo
 /spec --methodology bmad --agent ux
 ```
 
-UX is companion-only in the MVP. It must not overwrite `docs/harper/SPEC.md`; PM-owned canonical SPEC remains authoritative. UX output belongs under `docs/harper/ux/**`, such as `DESIGN.md`, `EXPERIENCE.md`, `USER_JOURNEYS.md`, `INTERACTION_STATES.md`, and `SPEC_UX_APPENDIX.md`. These artifacts are consumed by `/plan` as bounded context and do not override CLike output contracts or eval/gate policy.
+UX is companion-only. It reads the canonical `docs/harper/SPEC.md` (with IDEA, PLAN and
+TECH_CONSTRAINTS) as its source and never writes it, nor `TECH_CONSTRAINTS.yaml`; it updates the
+existing UX companions so they cover the latest release and keep what earlier releases defined. It
+must not overwrite `docs/harper/SPEC.md`; PM-owned canonical SPEC remains authoritative. UX output belongs under `docs/harper/ux/**`, such as `DESIGN.md`, `EXPERIENCE.md`, `USER_JOURNEYS.md`, `INTERACTION_STATES.md`, and `SPEC_UX_APPENDIX.md`. These artifacts are consumed by `/plan` as bounded context and do not override CLike output contracts or eval/gate policy.
 
 ### Plan With Architecture
 

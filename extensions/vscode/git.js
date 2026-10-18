@@ -411,6 +411,10 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
     gate: `chore(${slug}): gate report & promotion\n\n${base}`,
     finalize: `chore: finalize\n\n${base}`,
   };
+  // spec/ux (BMAD) writes only companion documents: the message names what changed
+  if (phase === 'spec' && !files.includes('docs/harper/SPEC.md')) {
+    messages.spec = `docs(spec): update ${files.map((f) => path.basename(f)).slice(0, 4).join(', ')}${files.length > 4 ? ', …' : ''}\n\n${base}`;
+  }
   const message = conventional === false ? base : (messages[phase] || base);
   try {
     await gitRunVerbose(['add', '--', ...files], gitCtx, 'git', out);
@@ -438,6 +442,27 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
     log('[harperGit] committed locally (clike.git.autoPush is off).');
   } else {
     log('[harperGit] no remote configured → committed locally.');
+  }
+
+  // 8b) A document phase run from another branch (a REQ branch with its KIT in progress) is
+  // committed on the default branch, then the developer is put back on that branch, which gets
+  // the documents: switching to the default branch alone hid the KIT from the working tree.
+  const documentPhase = !['kit', 'eval', 'gate'].includes(phase);
+  if (documentPhase && current && current !== 'HEAD' && current !== targetBranch) {
+    try {
+      await gitRunVerbose(['switch', current], gitCtx, 'git', out);
+      try {
+        await gitRunVerbose(['merge', '--no-edit', targetBranch, '-m', `merge: ${phase} documents from ${targetBranch}`], gitCtx, 'git', out);
+        log(`[harperGit] back on ${current}, with the ${phase} documents of ${targetBranch}`);
+      } catch (e) {
+        try { await gitRunVerbose(['merge', '--abort'], gitCtx, 'git', out); } catch {}
+        notifyGitProblem(`CLike Git: ${phase} committed on ${targetBranch}; you are back on ${current}, which does not have it yet ` +
+          `(merge conflict: ${String(e.message || e).split('\n')[0]}). Run: git merge ${targetBranch}`);
+      }
+    } catch (e) {
+      notifyGitProblem(`CLike Git: ${phase} committed on ${targetBranch}, but switching back to ${current} failed: ` +
+        `${String(e.message || e).split('\n')[0]}. Run: git switch ${current}`);
+    }
   }
 
   // 9) Merge into the default branch after a PASS gate (opt-in), only for a promoted REQ: a REQ
