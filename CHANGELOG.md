@@ -34,6 +34,14 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **A document phase run from a REQ branch hid the KIT.** `/spec` (and the other document
+  phases) committed on the default branch and stayed there: the REQ's KIT disappeared from the
+  working tree. CLike now switches back to the REQ branch and merges the documents into it.
+- **`/spec --methodology bmad --agent ux` overwrote TECH_CONSTRAINTS.yaml** from the IDEA block,
+  dropping the release additions of `/idea --extend`, and its prompt told the agent to regenerate
+  SPEC.md without reading it. The UX role is companion-only: it reads the canonical SPEC and never
+  writes SPEC or TECH_CONSTRAINTS; `/spec` no longer derives TECH_CONSTRAINTS once the project has
+  releases. Its commit names the UX documents.
 - After `/idea --extend`, the PLAN.md sections that index every REQ (REQ-IDs table, dependency
   graph, per-REQ test strategy and KIT readiness) did not list the new REQs when the agent put them
   only in the `## Release vN` section: CLike now adds them (table rebuilt from plan.json, pointers to
