@@ -91,3 +91,36 @@ def test_a_root_conftest_must_keep_the_shared_fixtures(tmp_path: Path):
     (kit / "test" / "conftest.py").write_text((tmp_path / "test" / "conftest.py").read_text() + "\ndef provider():\n    pass\n")
     report = EvalRunner(tmp_path).run_profile(profile=str(kit / "ci" / "LTC.json"), ltc=ltc, req_id="REQ-015")
     assert next(c for c in report.cases if c.name == "structure::shared-conftest::test").passed
+
+
+def test_a_support_file_the_eval_asked_to_drop_can_be_removed_tests_cannot(tmp_path: Path, monkeypatch):
+    from services import gate_integrity as gi
+
+    monkeypatch.setenv("CLIKE_STATE_DIR", str(tmp_path / "state"))
+    kit = tmp_path / "runs" / "kit" / "REQ-015"
+    (kit / "test" / "pkg").mkdir(parents=True)
+    (kit / "ci").mkdir()
+    (kit / "ci" / "LTC.json").write_text('{"checks": []}')
+    conftest = "import pytest\n\n@pytest.fixture\ndef provider():\n    return 1\n"
+    test_file = "def test_login():\n    assert True\n"
+    (kit / "test" / "conftest.py").write_text(conftest)
+    (kit / "test" / "pkg" / "test_login.py").write_text(test_file)
+    gi.ensure_lock(tmp_path, "REQ-015")
+    (kit / "test" / "conftest.py").unlink()
+    (kit / "test" / "pkg" / "test_login.py").unlink()
+    evidence = "structure::shared-conftest::test\nruns/kit/REQ-015/test/conftest.py replaces the shared test/conftest.py"
+    result = gi.amend_acceptance_surface(
+        tmp_path, "REQ-015", {}, reason="repair", evidence=evidence,
+        previous={"test/conftest.py": conftest, "test/pkg/test_login.py": test_file},
+        deleted=["test/conftest.py", "test/pkg/test_login.py"],
+    )
+    assert result["accepted"] == ["test/conftest.py"]
+    assert "test/pkg/test_login.py" in result["rejected"]
+    lock = gi.ensure_lock(tmp_path, "REQ-015")
+    assert "test/conftest.py" not in lock["files"] and "test/pkg/test_login.py" in lock["files"]
+    # not named by the eval: kept
+    (kit / "test" / "conftest.py").write_text(conftest)
+    gi.ensure_lock(tmp_path, "REQ-015")
+    other = gi.amend_acceptance_surface(tmp_path, "REQ-015", {}, reason="r", evidence="unit failed",
+                                        previous={"test/conftest.py": conftest}, deleted=["test/conftest.py"])
+    assert other["accepted"] == [] or "test/conftest.py" in other["rejected"]

@@ -508,6 +508,13 @@ def lock_amendments(project_root: Path, req_id: str) -> List[Dict[str, Any]]:
     return list(lock.get("amendments") or [])
 
 
+# A test definition in Python, JS/TS, Java/Kotlin, Go, C#: a file with one of them is a test file.
+_DEFINES_TESTS_RE = re.compile(
+    r"^\s*(async\s+)?def\s+test_|^\s*class\s+Test|\b(it|test|describe)\s*\(|@Test\b|func\s+Test\w*\(|\[(Fact|Test|TestMethod)\]",
+    re.MULTILINE,
+)
+
+
 def amend_acceptance_surface(
     project_root: Path,
     req_id: str,
@@ -517,8 +524,14 @@ def amend_acceptance_surface(
     author: str = "auto-eval",
     evidence: str = "",
     previous: Optional[Dict[str, str]] = None,
+    deleted: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Accept non-weakening repairs of the locked acceptance surface (auto-eval).
+
+    ``deleted``: KIT-relative files the repair removed. Accepted only for a test-support file that
+    defines no test (conftest, fixtures, helpers) and that the eval itself named in ``evidence``
+    (e.g. ``structure::shared-conftest`` asks to drop a root conftest that shadows the shared one):
+    removing it cannot drop an assertion, and the next eval runs every locked test without it.
 
     ``changes`` maps KIT-relative paths (``ci/LTC.json``, ``test/...``) to new content.
 
@@ -577,6 +590,22 @@ def amend_acceptance_surface(
             texts[rel] = content
         files[rel] = hashlib.sha256(content.encode("utf-8")).hexdigest()
         accepted.append(rel)
+    for raw_rel in deleted or []:
+        rel = str(raw_rel or "").replace("\\", "/").lstrip("/")
+        if rel not in files:
+            continue
+        before_text = previous.get(rel) or ""
+        if not rel.startswith("test/"):
+            rejected[rel] = ["only test-support files may be removed"]
+        elif _DEFINES_TESTS_RE.search(before_text):
+            rejected[rel] = ["the file defines tests: locked tests are never removed"]
+        elif f"runs/kit/{req}/{rel}" not in (evidence or "") and rel not in (evidence or ""):
+            rejected[rel] = ["the eval did not ask to remove it"]
+        else:
+            files.pop(rel, None)
+            texts.pop(rel, None)
+            kinds[rel] = "support_removed"
+            accepted.append(rel)
     entry: Dict[str, Any] = {}
     if accepted:
         entry = {

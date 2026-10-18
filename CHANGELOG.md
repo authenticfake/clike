@@ -4,6 +4,15 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+### Fixed
+
+- **`/eval --fix` could not remove a root conftest it was asked to remove.** The repair moved the
+  REQ's fixtures into its package and deleted the KIT root `test/conftest.py` that
+  `structure::shared-conftest` flagged, but CLike restored every deleted locked file: the same
+  failures came back at every cycle. A test-support file that defines no test and that the eval
+  itself named can now be removed (audited, out of the lock); a test file never.
+- The eval reports saved by the extension keep each check's `duration_s`.
+
 ## [1.5.0] — 2026-10-18 — Release after release: /idea --extend, faster eval and gate, cloud context parity
 
 ### Added

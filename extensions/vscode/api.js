@@ -115,7 +115,7 @@ async function postAcceptanceLock(workspaceRoot, reqId) {
  * Auto-eval with a local agent: submit the acceptance files the repair changed (with their
  * previous content); the orchestrator accepts audited, non-weakening amendments only.
  */
-async function postAcceptanceAmend(workspaceRoot, reqId, changes, previous, evidence, reason) {
+async function postAcceptanceAmend(workspaceRoot, reqId, changes, previous, evidence, reason, deleted = []) {
   return requestJson('POST', orchestratorUrl('/v1/acceptance/amend'), {
     body: {
       project_root: asFsPath(workspaceRoot),
@@ -125,6 +125,7 @@ async function postAcceptanceAmend(workspaceRoot, reqId, changes, previous, evid
       previous,
       evidence,
       reason,
+      deleted,
     },
     timeoutMs: 60 * 1000,
   });

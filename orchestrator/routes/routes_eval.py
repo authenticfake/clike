@@ -881,6 +881,8 @@ class AcceptanceAmendRequest(BaseModel):
     previous: Optional[Dict[str, str]] = None
     evidence: Optional[str] = ""
     reason: Optional[str] = None
+    # KIT-relative files the repair removed (test-support files the eval asked to drop)
+    deleted: Optional[List[str]] = None
 
 
 @router.post("/v1/acceptance/amend")
@@ -902,6 +904,7 @@ def acceptance_amend(payload: AcceptanceAmendRequest):
         reason=payload.reason or "auto-eval repair (local agent)",
         evidence=payload.evidence or "",
         previous=payload.previous,
+        deleted=payload.deleted,
     )
 
 
