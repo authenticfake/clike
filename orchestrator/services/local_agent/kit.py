@@ -17,6 +17,8 @@ from utils.namespace_paths import (
 from services.finalize_verify import EVAL_CHECK_TIMEOUT_NOTE
 from services.kit_repair import acceptance_first_code_rules, acceptance_stage_rules, kit_self_check_rules
 from services.local_agent.common import (
+    _attachment_prompt_lines,
+    _materialize_attachments,
     _parse_json_core_blob,
     _bmad_expected_outputs,
     _build_related_reqs,
@@ -609,6 +611,10 @@ def build_kit_local_agent_package(
         final_checks=kit_self_check_rules(req_id),
     )
 
+    # attachments of this run: the agent reads workspace-local copies (the cloud gets their text)
+    attachment_manifest, attachment_files = _materialize_attachments(payload, "kit")
+    prompt = prompt + "\n".join(_attachment_prompt_lines(attachment_manifest)) + ("\n" if attachment_manifest.get("present") else "")
+
     return _package_envelope(
         phase="kit",
         echo=f"Local agent execution package prepared for {req_id}",
@@ -638,6 +644,7 @@ def build_kit_local_agent_package(
             "package_files": [
                 _package_file(context_path, context_json, "application/json"),
                 _package_file(prompt_path, prompt, "text/markdown"),
+                *attachment_files,
                 _package_file(f"runs/kit/{req_id}/docs/TARGET_CONTRACT.json", json.dumps(target_contract, indent=2, ensure_ascii=False), "application/json"),
                 _package_file(f"runs/kit/{req_id}/docs/FILE_REQUIREMENTS.json", json.dumps(file_requirements, indent=2, ensure_ascii=False), "application/json"),
                 # the copy the gate reads first: under ci/, i.e. in the locked acceptance surface

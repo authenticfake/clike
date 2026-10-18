@@ -295,3 +295,19 @@ test('repair notes: a regression broken by replaced shared files names them, wit
   assert.match(md, /`regression::REQ-002::test:e2e`: \[CLike EvalRunner\] Shared files changed: .*\n {2}- src\/web\/playwright\.config\.ts\n/);
   assert.doesNotMatch(md, /testMatch/);
 });
+
+test('a manual /kit --repair carries the latest failures and the candidate files', () => {
+  const { manualRepairRequest } = require('../auto-eval');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'clike-manual-repair-'));
+  assert.equal(manualRepairRequest(root, 'REQ-001'), null);
+  fs.mkdirSync(path.join(root, 'runs', 'eval', 'REQ-001'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'runs', 'eval', 'REQ-001', 'report_REQ-001_100.json'),
+    JSON.stringify({ cases: [{ name: 'unit', passed: false, code: 1, stderr: 'boom', blocking: true }] }));
+  fs.mkdirSync(path.join(root, 'runs', 'kit', 'REQ-001', 'src'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'runs', 'kit', 'REQ-001', 'src', 'a.py'), 'x = 1\n');
+  const req = manualRepairRequest(root, 'REQ-001', 'look at a.py');
+  assert.equal(req.failures[0].name, 'unit');
+  assert.ok(req.files.some((f) => String(f.path || f).includes('a.py')));
+  assert.equal(req.hint, 'look at a.py');
+  fs.rmSync(root, { recursive: true, force: true });
+});

@@ -34,7 +34,7 @@ from services.capabilities import (
     enrich_plan_json_text,
 )
 from services.context_envelope import build_context_envelope
-from services.extend_cascade import context_phases, extend_options
+from services.extend_cascade import cascade_options, context_phases, extend_options
 from services.execution_policy import (
     normalize_execution_preference,
     resolve_execution_policy,
@@ -188,10 +188,45 @@ async def _post_phase_run(payload: Dict[str, Any]) -> Dict[str, Any]:
     # Project context sources (.clike/context.yaml) of this phase; not for its sub-runs
     # (integrity eval, hardener, promotion eval), which carry another phase name.
     context_sources = payload.get("context_sources") or {}
-    if context_sources.get("phase") == str(payload.get("phase") or "").lower():
+    run_phase_name = str(payload.get("phase") or "").lower()
+    # the acceptance stage of an acceptance-first KIT is the KIT's own work: it reads the KIT's sources
+    if context_sources.get("phase") == run_phase_name or (run_phase_name == "acceptance" and context_sources.get("phase") == "kit"):
         composed = append_context_sources_to_messages(composed, context_sources)
+    _check_cloud_budget(payload, composed)
     body = {k: v for k, v in payload.items() if k != "context_sources"}
     return await _post_json("/v1/harper/run", {**body, "composed_messages": composed})
+
+
+def _check_cloud_budget(payload: Dict[str, Any], composed: List[Dict[str, Any]]) -> None:
+    """Refuse, with sizes, a cloud run that cannot fit, instead of overflowing the model silently.
+
+    Prompt: CLIKE_CLOUD_MAX_PROMPT_CHARS (default 600k chars, ~150k tokens). A release cascade
+    returns IDEA, SPEC, PLAN and plan.json whole: CLIKE_CLOUD_MAX_OUTPUT_CHARS (default 240k chars,
+    ~60k tokens) bounds what it must write back."""
+    prompt_chars = sum(len(str(msg.get("content") or "")) for msg in composed)
+    max_prompt = int(os.getenv("CLIKE_CLOUD_MAX_PROMPT_CHARS", "600000") or 600000)
+    phase = str(payload.get("phase") or "")
+    if prompt_chars > max_prompt:
+        raise GatewayUpstreamError(
+            413,
+            f"the {phase} context is {prompt_chars} chars (~{prompt_chars // 4} tokens), over the cloud budget of "
+            f"{max_prompt} chars: run it with a local agent (Codex / Claude Code), which reads the workspace "
+            "instead of receiving it, or raise CLIKE_CLOUD_MAX_PROMPT_CHARS for a model with a larger context.",
+            "cloud_context_too_large",
+        )
+    if phase == "extend" and cascade_options(payload):
+        docs = payload.get("core_blobs") or {}
+        output_chars = sum(len(str(v or "")) for k, v in docs.items()
+                           if str(k).rsplit("/", 1)[-1] in {"IDEA.md", "SPEC.md", "PLAN.md", "plan.json"})
+        max_output = int(os.getenv("CLIKE_CLOUD_MAX_OUTPUT_CHARS", "240000") or 240000)
+        if output_chars > max_output:
+            raise GatewayUpstreamError(
+                413,
+                f"/idea --extend must return IDEA, SPEC, PLAN and plan.json whole ({output_chars} chars, ~{output_chars // 4} "
+                f"tokens), over what a cloud model can write back ({max_output} chars): run it with a local agent "
+                "(Codex / Claude Code), which edits the files in place.",
+                "cloud_context_too_large",
+            )
 
 
 async def _normalize_message(msg: Dict[str, Any]) -> Dict[str, Any]:

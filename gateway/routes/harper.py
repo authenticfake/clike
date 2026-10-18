@@ -2154,8 +2154,10 @@ async def run(req: HarperRunRequest,  request: Request):
     #RAG context loading     
     result = await loadAttachments(rag_enabled, project_id, phase, messages, inline_files, rag_files, attachments, model_route_label, req.runId)
     log.info("loadAttachments result=%s", result) 
+    # the project's own requirement documents (.clike/context.yaml, docs/inputs/) are a source too
+    has_context_sources = any("## PROJECT CONTEXT SOURCES" in str(m.get("content") or "") for m in messages)
     if (phase or "").lower() == "idea":      
-        if not rag_enabled:
+        if not rag_enabled and not has_context_sources:
         
             log.info("RAG context not appended, no materials found for IDEA.md")
             return {
@@ -2174,7 +2176,7 @@ async def run(req: HarperRunRequest,  request: Request):
         
     
     # --- KIT: rag_strategy="deps_only" → use plan.json from core_blobs to retrieve the code of dependent REQs ---
-    if (phase or "").lower() == "kit":
+    if (phase or "").lower() in {"kit", "acceptance"}:
         log.info("harper.kit.rag: Retrive source code via RAG")
         strategy = (rag_strategy or "").strip().lower()
         log.info("harper.kit.rag: strtegy:%s", strategy)

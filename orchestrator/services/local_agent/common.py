@@ -1120,6 +1120,23 @@ def _safe_attachment_filename(name: str, fallback_index: int) -> str:
     return base[:180]
 
 
+def _attachment_prompt_lines(manifest: Dict[str, Any]) -> List[str]:
+    """Read instructions for the materialized attachments of a run (same wording in every phase)."""
+    if not manifest.get("present"):
+        return []
+    items = [
+        "- " + " ".join(part for part in (item.get("workspace_path") or item.get("name") or "",
+                                           f"({item['mime']})" if item.get("mime") else "") if part)
+        for item in manifest.get("items") or []
+    ]
+    return [
+        "",
+        f"Attachments ({manifest.get('count')}) — current-run source (workspace-local copies):",
+        *items,
+        "- Read every workspace_path listed above. Do NOT read original_path — it is metadata only and may be outside the workspace.",
+    ]
+
+
 def _materialize_attachments(
     payload: Dict[str, Any], phase_norm: str
 ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:

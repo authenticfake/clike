@@ -1418,6 +1418,22 @@ async function buildHarperBody(phase, payload, projectRootUri, out) {
   Object.assign(core_blobs, await collectBmadVendorSkillCoreBlobs(projectRootUri, payload));
   payload["idea_md"] = idea_md;
   payload["core_blobs"] = core_blobs;
+  // Cloud models see only the prompt: the code the phase builds on goes with it, chosen
+  // deterministically from the promotion reports (a local agent reads the workspace instead).
+  try {
+    const surface = require('./dependency-surface');
+    const rootFs = projectRootUri.fsPath;
+    if (phase === 'kit') {
+      const target = String(((payload["kit"] || {}).targets || [])[0] || '').trim().toUpperCase();
+      const text = target ? surface.buildDependencySurface(rootFs, target) : '';
+      if (text) core_blobs['DEPENDENCY_SURFACE.md'] = text;
+    } else if (phase === 'finalize') {
+      const text = surface.buildSolutionSurface(rootFs);
+      if (text) core_blobs['SOLUTION_SURFACE.md'] = text;
+    }
+  } catch (err) {
+    log('[CLike] dependency surface failed:', err);
+  }
 
   if (phase === 'kit') {
     const requestedKit = payload["kit"] || {};
@@ -1741,7 +1757,8 @@ function defaultCoreForPhase(phase) {
     case "spec":
       return [];
     case "plan":
-      return ["SPEC.md", "TECH_CONSTRAINTS.yaml"];
+      // /plan turns IDEA + SPEC into REQs: the cloud needs IDEA's content too
+      return ["IDEA.md", "SPEC.md", "TECH_CONSTRAINTS.yaml"];
     case "kit":
       return ["IDEA.md", "SPEC.md", "PLAN.md", "plan.json", "TECH_CONSTRAINTS.yaml"];
     case "eval":
