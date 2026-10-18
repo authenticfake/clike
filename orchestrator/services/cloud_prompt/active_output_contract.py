@@ -40,6 +40,8 @@ NATIVE_CLOUD_OPTIONAL_OUTPUTS: Dict[str, List[str]] = {
         "runs/kit/<REQ-ID>/test/**",
         "runs/kit/<REQ-ID>/ci/**",
         "runs/kit/<REQ-ID>/docs/**",
+        # repository-root deliverables (scripts/, deploy/, root manifests), promoted to the root
+        "runs/kit/<REQ-ID>/root/**",
     ],
     "acceptance": [
         "runs/kit/<REQ-ID>/test/**",

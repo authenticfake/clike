@@ -115,7 +115,7 @@ function pruneLocalAgentCompleteArtifacts(artifacts, phaseForAgent, reqForAgent)
   const priority = (artifact) => {
     const rel = localAgentArtifactPath(artifact);
     const sub = rel.startsWith(`runs/kit/${req}/`) ? rel.slice(`runs/kit/${req}/`.length) : rel;
-    if (/^(src|test|tests)\//.test(sub)) return 0;
+    if (/^(src|test|tests|root)\//.test(sub)) return 0;
     if (/^ci\/(LTC\.json|HOWTO\.md|[^/]+\.(json|txt|toml|mjs|cjs|js|py|sh))$/.test(sub)) return 1;
     if (/^docs\//.test(sub)) return 2;
     return 3;

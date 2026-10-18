@@ -51,7 +51,7 @@ STUB_DIR = os.getenv("HARPER_STUB_DIR", "/workspace/gateway/stub")  # .jsonl fil
 
 
 _KIT_FILE_HEADER_RE = re.compile(
-    r"^/?runs/kit/REQ-[A-Za-z0-9._-]+/(src|test|docs|ci)/[^\s][^\r\n]*$"
+    r"^/?runs/kit/REQ-[A-Za-z0-9._-]+/(src|test|docs|ci|root)/[^\s][^\r\n]*$"
 )
 
 _PLAN_FILE_HEADER_RE = re.compile(
@@ -113,7 +113,7 @@ PHASE_MODEL_PARAMS = {
 # --- RAG helpers: filter out docs and non-source hits -----------------------
 
 _DOC_EXTS: set[str] = {".md", ".markdown", ".rst", ".txt", ".adoc", ".tex", ".pdf", ".doc",".docx", ".xlsx", "xls", ".ppt", ".pptx" }
-_VALID_FILE_HEADER_RE = re.compile(r"^/?runs/kit/REQ-[A-Za-z0-9._-]+/(src|test|docs|ci)/[^\s][^\r\n]*$")
+_VALID_FILE_HEADER_RE = re.compile(r"^/?runs/kit/REQ-[A-Za-z0-9._-]+/(src|test|docs|ci|root)/[^\s][^\r\n]*$")
 
 def _is_valid_file_header_path(
     raw_path: str,
