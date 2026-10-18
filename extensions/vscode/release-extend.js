@@ -316,7 +316,11 @@ function tagBaseline(root, baseline) {
   try {
     git('rev-parse', '--verify', 'HEAD');
     try { git('rev-parse', '--verify', `refs/tags/${tag}`); return tag; } catch { /* not there yet */ }
-    git('tag', '-a', tag, '-m', `Harper baseline ${baseline}: delivered before the next release cascade`);
+    try {
+      git('tag', '-a', tag, '-m', `Harper baseline ${baseline}: delivered before the next release cascade`);
+    } catch {
+      git('tag', tag); // no committer identity configured: a lightweight tag still marks the baseline
+    }
     return tag;
   } catch { return ''; }
 }

@@ -192,6 +192,8 @@ test('the baseline tag is created once on HEAD', () => {
   const { root } = project();
   const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' });
   git('init', '-q', '-b', 'main');
+  git('config', 'user.email', 't@t');
+  git('config', 'user.name', 't');
   git('add', '-A');
   git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'v1');
   assert.equal(re.tagBaseline(root, 'v1'), 'harper/v1');
