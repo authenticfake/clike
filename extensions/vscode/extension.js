@@ -6238,22 +6238,25 @@ async function cmdOpenChat(context) {
     const { modified, deleted } = acceptanceChanges(before, snapshotAcceptanceSurface(wsPath, reqId));
     const say = (text) => panel.webview.postMessage({ type: 'echo', message: text });
     let rejected = [];
-    if (Object.keys(modified).length) {
-      const previous = Object.fromEntries(Object.keys(modified).map((rel) => [rel, before[rel]]));
+    if (Object.keys(modified).length || deleted.length) {
+      // deleted files go too: a test-support file the eval asked to drop (e.g. a root conftest
+      // shadowing the shared one) is accepted; anything else is put back
+      const previous = Object.fromEntries([...Object.keys(modified), ...deleted].map((rel) => [rel, before[rel]]));
       const evidence = (failures || []).map((f) => `${f.name}\n${f.output || ''}`).join('\n');
       try {
         const result = await postAcceptanceAmend(
-          getWorkspaceRoot(), reqId, modified, previous, evidence, `auto-eval repair cycle ${cycle}`
+          getWorkspaceRoot(), reqId, modified, previous, evidence, `auto-eval repair cycle ${cycle}`, deleted
         );
-        rejected = Object.keys(result?.rejected || {});
-        for (const rel of result?.accepted || []) say(`ℹ AUTO-EVAL ${reqId}: amendment accepted (audited): ${rel}`);
+        const accepted = new Set(result?.accepted || []);
+        rejected = [...Object.keys(result?.rejected || {}), ...deleted.filter((rel) => !accepted.has(rel) && !(rel in (result?.rejected || {})))];
+        for (const rel of result?.accepted || []) say(`ℹ AUTO-EVAL ${reqId}: amendment accepted (audited): ${rel}${deleted.includes(rel) ? ' (removed)' : ''}`);
         for (const rel of result?.test_fixes || []) say(`⚠ AUTO-EVAL ${reqId}: test fixed — review required: ${rel}`);
       } catch (err) {
-        rejected = Object.keys(modified);
+        rejected = [...Object.keys(modified), ...deleted];
         log(`[autoEval] amend failed: ${err?.message || err}`);
       }
     }
-    const restore = [...rejected, ...deleted];
+    const restore = [...new Set(rejected)];
     if (restore.length) {
       restoreAcceptanceFiles(wsPath, reqId, before, restore);
       say(`↺ AUTO-EVAL ${reqId}: restored locked acceptance files the repair may not change: ${restore.join(', ')}`);

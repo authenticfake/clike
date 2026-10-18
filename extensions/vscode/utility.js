@@ -1199,7 +1199,8 @@ async function persistReports(projectRootUri, phase, rep, out, fallbackReqId = '
       blocked: !!c.blocked,
       blocking: c.blocking !== false,
       stdout: c.stdout || undefined,
-      stderr: c.stderr || undefined
+      stderr: c.stderr || undefined,
+      duration_s: typeof c.duration_s === 'number' ? c.duration_s : undefined,
     }))
   };
 

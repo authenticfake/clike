@@ -280,6 +280,9 @@ A KIT's root `test/conftest.py` (or `tests/conftest.py`) is promoted over the ca
 every delivered REQ shares: the eval fails it (`structure::shared-conftest::<root>`, blocking) when it
 drops a fixture or helper the canonical one defines, so the repair keeps them or moves the REQ's
 fixtures into its own package conftest — instead of a promotion conflict after a passing gate.
+Removing that root conftest is the one deletion the acceptance governance accepts: a test-support
+file that defines no test and that the eval named is taken out of the lock (audited); a deleted test
+file is always restored.
 
 ## Required outputs in the eval
 
