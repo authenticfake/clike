@@ -3,6 +3,7 @@ name = "clike-gateway"
 version = "1.5.1"
 description = "CLike model Gateway: provider abstraction, Harper prompt composition, telemetry"
 requires-python = ">=3.12,<3.13"
+license = "Apache-2.0"
 dependencies = [
     "fastapi==0.115.0",
     "uvicorn[standard]==0.30.6",

@@ -37,6 +37,9 @@
     "type": "git",
     "url": "https://github.com/authenticfake/clike.git"
   },
+  "bugs": {
+    "url": "https://github.com/authenticfake/clike/issues"
+  },
   "homepage": "https://github.com/authenticfake/clike/tree/main",
   "contributes": {
     "commands": [

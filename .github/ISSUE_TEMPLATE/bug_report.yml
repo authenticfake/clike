@@ -1,0 +1,75 @@
+name: Bug report
+description: Something in CLike does not work as documented
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Before submitting, remove secrets, tokens (`CLIKE_API_TOKEN`, provider
+        keys) and private project content from anything you paste. Security problems go through
+        [SECURITY.md](https://github.com/authenticfake/clike/blob/main/SECURITY.md), not here.
+  - type: input
+    id: version
+    attributes:
+      label: CLike version
+      description: Extension version (VS Code → Extensions → CLike) or the git tag / commit.
+      placeholder: "1.5.1"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Harper phase (IDEA / SPEC / PLAN / KIT)
+        - Eval / gate / promotion
+        - Finalize
+        - Chat (Coding / Q&A)
+        - MCP
+        - Installation / runtime (Podman, Docker)
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: executor
+    attributes:
+      label: Executor
+      options:
+        - Cloud model (gateway)
+        - Claude Code
+        - Codex
+        - Not relevant
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, VS Code version, container runtime, project language/stack.
+      placeholder: "macOS 15, VS Code 1.105, Podman 5.6, Python + TypeScript project"
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The command(s) you ran, e.g. `/eval REQ-003 --fix`.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or report excerpt
+      description: Relevant lines from the CLike output channel, eval report or service logs (redacted).
+      render: text

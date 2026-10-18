@@ -158,7 +158,7 @@ Commit the updated file. The baseline can only shrink.
 ## Repository hygiene
 
 The repository is public. `tools/check_repo_hygiene.py` blocks telemetry, private notes
-(`docs/_private/`), `.env` files, keys/certificates, virtualenvs, builds and key-shaped secrets.
+(`docs/_private/`), chat sessions (`.clike/sessions/`), `.env` files, keys/certificates, virtualenvs, builds and key-shaped secrets.
 Install it as a pre-commit hook in every clone:
 
 ```bash
@@ -173,6 +173,9 @@ CI runs the same check with `--all`.
 `.github/workflows/ci.yml` runs on pushes to `main` and `hardening/**` and on pull requests:
 repository hygiene, orchestrator and gateway tests (Python 3.12, `uv sync --frozen`), extension
 lint/tests on Linux and Windows (Windows is informational), and `.vsix` packaging (artifact).
+
+`main` is protected: changes land only through pull requests with these checks green.
+How to propose a change is described in [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## Versioning
 

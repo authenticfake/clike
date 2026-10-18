@@ -7,8 +7,7 @@ extract_history/*
 .project
 .classpath
 .settings/
-.clike/sessions/free*
-.clike/sessions/coding*
+.clike/sessions/
 .vscode/
 build/
 dist/

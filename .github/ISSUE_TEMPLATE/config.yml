@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/authenticfake/clike/discussions
+    about: Ask how to use CLike or discuss an idea before opening an issue.
+  - name: Report a security vulnerability
+    url: https://github.com/authenticfake/clike/security/advisories/new
+    about: Report security problems privately, never in a public issue.
