@@ -24,6 +24,10 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- After `/idea --extend`, the PLAN.md sections that index every REQ (REQ-IDs table, dependency
+  graph, per-REQ test strategy and KIT readiness) did not list the new REQs when the agent put them
+  only in the `## Release vN` section: CLike now adds them (table rebuilt from plan.json, pointers to
+  the REQ's own subsections) and says so in its verification.
 - A command pasted with a terminal border or a quote marker in front (`│ /idea --extend`) was sent
   as plain chat text to the agent; decoration before the `/` is now ignored.
 

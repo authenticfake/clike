@@ -229,3 +229,22 @@ test('the baseline tag is created once on HEAD', () => {
   assert.equal(re.tagBaseline(plain, 'v1'), '');
   fs.rmSync(plain, { recursive: true, force: true });
 });
+
+test('PLAN.md index sections list the new REQs (table, dependency graph, per-REQ bullets)', () => {
+  const md = [
+    '# PLAN', '', '## REQ-IDs Table', '', '| ID | Title | Acceptance | DependsOn | Track | Status |', '|---|---|---|---|---|---|',
+    '| REQ-001 | Config | a | | | done |', '| REQ-002 | Discovery | b | REQ-001 | | done |', '',
+    '## Dependency Graph', '', '- REQ-001 <- none', '- REQ-002 <- REQ-001', '',
+    '## Test Strategy', '', '**REQ-001** — unit.', '', '**REQ-002** — e2e.', '',
+    '## Release v2', '', '### Test Strategy — REQ-003', 'OIDC tests.', '',
+  ].join('\n');
+  const plan = JSON.parse(planV2());
+  plan.reqs[2].release = 'v2';
+  const out = re.syncPlanMd(md, JSON.stringify(plan));
+  assert.match(out.text, /\| REQ-003 \| OIDC sign-in \| login \| REQ-001 \|/);
+  assert.match(out.text, /- REQ-004 <- REQ-002\n/);
+  assert.match(out.text, /\*\*REQ-003\*\* — see `### Test Strategy — REQ-003` \(Release v2\)\./);
+  assert.match(out.text, /\*\*REQ-004\*\* — see the REQ-004 section\./);
+  assert.match(out.text, /\| REQ-001 \| Config \| a \|/);     // delivered rows unchanged
+  assert.equal(re.syncPlanMd(out.text, JSON.stringify(plan)).added.length, 0); // idempotent
+});
