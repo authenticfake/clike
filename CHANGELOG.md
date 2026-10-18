@@ -4,6 +4,8 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.5.0] — 2026-10-18 — Release after release: /idea --extend, faster eval and gate, cloud context parity
+
 ### Added
 
 - **`/idea --extend` — the next release of a delivered project.** One command runs the cascade
