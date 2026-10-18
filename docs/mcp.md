@@ -133,12 +133,13 @@ add the `Authorization` header as above.
 The VS Code extension can expose a second, **operational** MCP-compatible server that lets agents
 operate CLike through the same slash commands available in chat (see
 [agent-operating-model.md](agent-operating-model.md), Model 2). Typical tools:
-`clike_extension_status`, `harper_next_action`, `harper_run_phase`, `harper_run_status`,
+`clike_extension_status`, `harper_init`, `harper_next_action`, `harper_run_phase`, `harper_run_status`,
 `cancel_run`, `eval_run`, `gate_check`, `harper_kit_next`, `harper_continue_loop`, `rag_reindex`,
 `rag_docs_status`, `rag_docs_reindex_if_empty`.
 It runs normal commands (`/kit REQ-001`, `/eval REQ-001 --fix`, `/gate REQ-001`, `/finalize`, …)
 through the chat's governed handlers and does not duplicate Harper logic:
 
+- `harper_init` is `/init` of the folder open in VS Code, in place (existing files kept).
 - `harper_run_phase {phase, req_id?, text?, attachments?, methodology?, agent?, extend?, release?, dry_run?,
   confirm?, wait_seconds?, await?}` covers `idea`, `spec`, `plan`, `kit`, `eval`, `gate`,
   `finalize`; `phase: "idea", extend: true` is `/idea --extend` (release inputs from

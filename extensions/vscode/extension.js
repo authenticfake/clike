@@ -2188,6 +2188,19 @@ async function runExtensionMcpTool(name, args = {}) {
     return await getHarperNextAction();
   }
 
+  if (tool === 'harper_init') {
+    // /init of the folder open in VS Code, in place (existing files are kept, as /init --force)
+    const root = getWorkspaceRoot();
+    if (!root) throw new Error('No VS Code workspace is open: open the (empty) project folder first.');
+    await ensureClikeChatPanelForAgent();
+    if (clikeHarperBlockingRun || mcpRunInFlight) throw new Error('CLike is running another Harper phase; retry when it ends.');
+    const name = path.basename(root.fsPath);
+    const msg = { type: 'harperInit', name, path: path.dirname(root.fsPath), force: true, __inPlace: true, __fromMcp: true };
+    await clikeRunChatMessage(msg);
+    return { ok: msg.__result === 'ok', ...(msg.__outcome || {}),
+      next: 'put the requirement documents in docs/inputs/ (UI material in docs/harper/ux/), then harper_run_phase idea with attachments' };
+  }
+
   if (tool === 'harper_run_phase') {
     const phase = String(args.phase || '').trim().toLowerCase();
     let reqId = String(args.req_id || '').trim().toUpperCase();
@@ -2372,6 +2385,11 @@ function extensionMcpToolsList() {
         properties: { run_id: { type: 'string' } },
         required: ['run_id'],
       },
+    },
+    {
+      name: 'harper_init',
+      description: '/init of the folder open in VS Code, in place: creates docs/harper, .clike, runs and the Harper templates; existing files are kept. Run it once, in a folder under CLIKE_PROJECTS_DIR.',
+      inputSchema: { type: 'object', properties: {} },
     },
     {
       name: 'cancel_run',
@@ -3599,9 +3617,11 @@ async function cmdOpenChat(context) {
             '${project.rag_namespace}': projectId,
           };
 
-          // choose the parent folder
+          // choose the parent folder (MCP: the open workspace itself, initialized in place)
           let parentUri = null;
-          if (passedPath) {
+          if (msg.__inPlace) {
+            parentUri = vscode.Uri.file(path.dirname(getWorkspaceRoot().fsPath));
+          } else if (passedPath) {
             parentUri = vscode.Uri.file(path.resolve(passedPath));
           } else {
             const pick = await vscode.window.showOpenDialog({
@@ -3742,8 +3762,10 @@ async function cmdOpenChat(context) {
           });
 
 
-          // open the new workspace in a new window
-          await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(targetDir), true);
+          msg.__outcome = { project: name, project_root: targetDir, files_created: summary.files_created };
+          msg.__result = 'ok';
+          // open the new workspace in a new window (not when an agent initialized the open one in place)
+          if (!msg.__inPlace) await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(targetDir), true);
           //await context.workspaceState.update('clike.initSummary', msgText);
 
 

@@ -11,8 +11,6 @@
 > through a governed lifecycle in which cloud models and local coding agents execute, while
 > deterministic evaluation and gates decide.
 
-![CLike at a glance](docs/images/clike-overview.svg)
-
 ---
 
 ## Abstract
@@ -38,6 +36,24 @@ The developer leads.        CLike governs.
 Models and agents execute.  Eval and Gate decide.
 ```
 
+## Highlights
+
+- **From idea to running solution** — `IDEA → SPEC → PLAN → (KIT → EVAL → GATE)* → FINALIZE`:
+  every REQ is implemented, verified in a sandbox and promoted only through a gate; `/finalize`
+  delivers the solution configured and started, with a report of everything it did.
+- **Release after release** — `/idea --extend` evolves a delivered project: new needs in
+  `docs/inputs/vN/` merged into IDEA and SPEC, new REQs typed ADDED / MODIFIED / REMOVED,
+  delivered REQs protected by the regression.
+- **Any executor, same rules** — cloud models, Claude Code and Codex receive the same context and
+  the same contracts; BMAD roles can guide each phase.
+- **Governance that cannot be bypassed** — locked acceptance tests, regression of delivered REQs,
+  evidence-based gate, 3-way promotion, audit; repairs from the real failures (`/eval --fix`).
+- **Drivable by agents** — through MCP, Claude Code and Codex can run a whole project from `/init`
+  to `/finalize`, while CLike still governs every step.
+- **Local and stack-agnostic** — Podman or Docker, any language and infrastructure.
+
+**[CLike at a glance →](docs/clike-at-a-glance.md)** — the picture of the whole, area by area.
+
 ## Status
 
 | Version | Date | Milestone |
@@ -58,7 +74,7 @@ Models and agents execute.  Eval and Gate decide.
 | 1.4.3 | 2026-10 | A sandbox that stays healthy and tools when an eval needs them: an init reaps orphaned processes, resource exhaustion stops `--fix` instead of repairing correct code, eval disk pruned automatically; native tools (database and messaging clients, cloud and IaC CLIs, JDK/Maven/Gradle, .NET, Go…) installed from a catalog after asking, with `/tools`, locked versions and deliberate updates (`./rebuild.sh --update-tools`); type-checker-wrong tests fixed, flaky regressions of promoted REQs reported as warnings. See [CHANGELOG](CHANGELOG.md). |
 | 1.4.4 | 2026-10 | `/finalize` brings the solution to running and configured: install, build, configuration and start verified in the sandbox (REQ tests not run again), `FINALIZE_REPORT.md` for the developer (configuration, missing information, every change and why), `setup_local` / `start_solution_local` with Docker, Podman or native and free host ports; a README marked as a CLike project (linked CLike/Harper/Finalize badges, *Made with CLike*); LTC `setup` step; regressions name the shared files a REQ replaced; idempotent promotion; merge-on-gate no longer blocked by agent files. See [CHANGELOG](CHANGELOG.md). |
 | 1.5.0 | 2026-10 | Evolve a delivered project release by release: `/idea --extend` merges the new release (`docs/inputs/vN/`, `docs/reference/vN/`, attachments) into IDEA, SPEC and TECH_CONSTRAINTS and adds REQs typed ADDED / MODIFIED / REMOVED, with regression honoring superseded checks; KITs deliver repository-root files (`runs/kit/<REQ>/root/`); faster eval and gate (the gate reuses an unchanged eval verdict, regression runs only behavioural checks, shared node_modules, per-check durations); cloud phases get the context a local agent reads (REQ slice of the plan, dependency code, locked tests, explicit budget). See [CHANGELOG](CHANGELOG.md). |
-| **1.5.1** | 2026-10 | CLike from Claude Code and Codex: MCP hardened (confined run ids, no OAuth confusion, streamable HTTP, `cancel_run`, confirmations, attachments and `/idea --extend` over MCP, next REQ by dependencies) with a [HOWTO](docs/howto-mcp-project.md); eval repairs that converge (shared conftest check, removable support files, durations in reports); [CLike at a glance](docs/images/clike-overview.svg). See [CHANGELOG](CHANGELOG.md). |
+| **1.5.1** | 2026-10 | CLike from Claude Code and Codex: MCP hardened (confined run ids, no OAuth confusion, streamable HTTP, `cancel_run`, confirmations, attachments and `/idea --extend` over MCP, next REQ by dependencies) with a [HOWTO](docs/howto-mcp-project.md); eval repairs that converge (shared conftest check, removable support files, durations in reports); [CLike at a glance](docs/clike-at-a-glance.md). See [CHANGELOG](CHANGELOG.md). |
 
 CLike is research software under active development. Interfaces may change between minor versions.
 
@@ -258,8 +274,8 @@ Open research questions the project works on:
 
 | Topic | Document |
 |---|---|
-| Overview and reading order | [docs/README.md](docs/README.md) |
-| Getting operational | [HOWTO](docs/HOWTO.md), [Harper run walkthrough](docs/Clike%20HARPER%20RUN.md) |
+| Overview and reading order | [CLike at a glance](docs/clike-at-a-glance.md), [docs/README.md](docs/README.md) |
+| Getting operational | [HOWTO](docs/HOWTO.md), [Harper run walkthrough](docs/Clike%20HARPER%20RUN.md), [project via MCP](docs/howto-mcp-project.md), [/init → /finalize with BMAD from Claude Code](docs/howto-mcp-bmad-claude.md) |
 | Concepts | [architecture](docs/architecture.md), [Harper workflow](docs/harper-workflow.md), [agent operating model](docs/agent-operating-model.md), [artifacts](docs/artifacts.md) |
 | Reference | [commands](docs/commands.md), [API](docs/api-reference.md), [MCP](docs/mcp.md), [capabilities](docs/CAPABILITIES.md) |
 | Operations | [setup and runtime](docs/setup-and-runtime.md), [Git and promotion](docs/git-and-promotion.md), [telemetry portal](docs/CLike_Harper_Telemetry_Portal.md) |

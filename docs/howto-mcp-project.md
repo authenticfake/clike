@@ -6,7 +6,8 @@ reports, run the Harper phases, `/eval --fix`, `/gate`, `/finalize`, and the nex
 chat (locked tests, regression, gate, promotion, write rules), so an agent cannot do through MCP
 what the developer could not do in the chat.
 
-![CLike overview](images/clike-overview.svg)
+The whole picture: [clike-at-a-glance.md](clike-at-a-glance.md). The same flow with BMAD, from
+`/init`: [howto-mcp-bmad-claude.md](howto-mcp-bmad-claude.md).
 
 ## 1. The two MCP servers
 
@@ -57,8 +58,8 @@ The extension server needs VS Code open on the project, with the CLike extension
 
 ## 3. Run a project
 
-`/init` (creating the project) and attaching files from your disk stay in the VS Code chat. From
-then on everything can run through MCP. Put the requirement documents in `docs/inputs/` (UI
+Open the project folder in VS Code (under `CLIKE_PROJECTS_DIR`); `harper_init` initializes it in
+place. From then on everything can run through MCP. Put the requirement documents in `docs/inputs/` (UI
 material in `docs/harper/ux/`, background in `docs/reference/`).
 
 | Step | Tool call (clike-ext unless noted) |
@@ -100,7 +101,7 @@ then the same KIT → EVAL → GATE loop on the new REQs and FINALIZE. `methodol
 
 ## 5. What MCP does not do
 
-No `/init`, no `/tools` installs, no gate overrides, no git commands, no file writes outside the
+No `/init` into a new folder (`harper_init` initializes the open one), no `/tools` installs, no gate overrides, no git commands, no file writes outside the
 phases: those stay with the developer in VS Code. The orchestrator server only reads (its
 `rag_reindex_*` tools rebuild the RAG index).
 
