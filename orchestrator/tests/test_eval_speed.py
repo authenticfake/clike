@@ -74,3 +74,20 @@ def test_a_recorded_verdict_is_reusable_only_while_its_inputs_stay_the_same(tmp_
         assert eval_verdicts.reusable(proj, "REQ-002", True) is None, rel
     eval_verdicts.record(proj, "REQ-002", True, {"status": "FAIL", "cases": []})
     assert eval_verdicts.reusable(proj, "REQ-002", True) is None            # only a passing verdict
+
+
+def test_a_root_conftest_must_keep_the_shared_fixtures(tmp_path: Path):
+    (tmp_path / "test").mkdir()
+    (tmp_path / "test" / "conftest.py").write_text("import pytest\n\n@pytest.fixture\ndef workspace():\n    return 1\n\ndef helper():\n    pass\n")
+    kit = tmp_path / "runs" / "kit" / "REQ-015"
+    (kit / "test").mkdir(parents=True)
+    (kit / "ci").mkdir()
+    (kit / "test" / "conftest.py").write_text("import pytest\n\n@pytest.fixture\ndef provider():\n    return 2\n")
+    ltc = _ltc("test:unit")
+    report = EvalRunner(tmp_path).run_profile(profile=str(kit / "ci" / "LTC.json"), ltc=ltc, req_id="REQ-015")
+    case = next(c for c in report.cases if c.name == "structure::shared-conftest::test")
+    assert not case.passed and case.blocking and "helper, workspace" in case.stderr
+    # keeping them (and adding its own) passes
+    (kit / "test" / "conftest.py").write_text((tmp_path / "test" / "conftest.py").read_text() + "\ndef provider():\n    pass\n")
+    report = EvalRunner(tmp_path).run_profile(profile=str(kit / "ci" / "LTC.json"), ltc=ltc, req_id="REQ-015")
+    assert next(c for c in report.cases if c.name == "structure::shared-conftest::test").passed

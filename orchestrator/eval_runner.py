@@ -948,6 +948,47 @@ class EvalRunner:
         raw = Path(req_file)
         return raw if raw.is_absolute() else (self.project_root / raw).resolve()
 
+    def _shared_conftest_cases(self, req_id: str) -> List[EvalCase]:
+        """A KIT's root conftest.py replaces the canonical one shared by every promoted REQ at
+        promotion: it must keep each fixture/helper the canonical one defines. Dropping them breaks
+        the earlier REQs' tests and stops the promotion on a conflict after a passing gate; caught
+        here, the repair moves the REQ's fixtures into its own test package."""
+        import ast
+
+        cases: List[EvalCase] = []
+        kit = self.project_root / "runs" / "kit" / self._safe_req_id(req_id)
+        for top in ("test", "tests"):
+            canonical, candidate = self.project_root / top / "conftest.py", kit / top / "conftest.py"
+            if not (canonical.is_file() and candidate.is_file()):
+                continue
+
+            def names(path: Path) -> Optional[set]:
+                try:
+                    tree = ast.parse(path.read_text(encoding="utf-8"))
+                except (OSError, SyntaxError, ValueError):
+                    return None
+                return {n.name for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))}
+
+            before, after = names(canonical), names(candidate)
+            if before is None or after is None:
+                continue
+            missing = sorted(before - after)
+            name = f"structure::shared-conftest::{top}"
+            if missing:
+                message = (
+                    f"runs/kit/{req_id}/{top}/conftest.py replaces the shared {top}/conftest.py of the promoted REQs "
+                    f"and drops {len(missing)} of its definitions: {', '.join(missing)}. The root conftest is shared: "
+                    f"keep every existing fixture and helper (copy the canonical {top}/conftest.py and add to it), or "
+                    f"put this REQ's fixtures in its own package conftest (runs/kit/{req_id}/{top}/<package>/conftest.py) "
+                    f"and do not ship a root conftest."
+                )
+                cases.append(EvalCase(name=name, passed=False, code=1, stdout="", stderr=message, blocking=True,
+                                      excerpt=message, fingerprint=f"shared-conftest-{top}"))
+            else:
+                cases.append(EvalCase(name=name, passed=True, code=0, stdout="keeps every shared definition",
+                                      stderr="", blocking=False))
+        return cases
+
     def _compose_root_files(self, kit_root: Path, work_kit_root: Path, dependency_roots: List[str]) -> None:
         """Repository-root deliverables (scripts/, deploy/, root manifests…) at the workspace root, as
         they will be after promotion: the canonical ones, the root/ of the dependency KITs not
@@ -3117,6 +3158,8 @@ class EvalRunner:
         # The regression of the promoted REQs runs once the REQ's own blocking checks pass: while
         # they fail the REQ is not promotable anyway, and the regression (minutes: every other REQ's
         # environment, services and suites) would only delay the repair loop.
+        if not self.regression and eff_req:
+            out_cases.extend(self._shared_conftest_cases(eff_req))
         own_failed = any(not c.passed and c.blocking for c in out_cases)
         if regression and work_kit_root and not cancelled and own_failed:
             log.info("regression deferred req=%s: the REQ's own blocking checks fail", eff_req)
