@@ -236,6 +236,7 @@ Supported JSON-RPC methods:
 | `harper_next_action` | Return next REQ or `finalize_only`. |
 | `harper_run_phase` | Run `/idea`, `/spec`, `/plan`, `/kit`, `/eval`, `/gate`, or `/finalize` through the governed chat flow and return its outcome (waits up to `wait_seconds`). |
 | `harper_run_status` | Status and outcome of a run started by `harper_run_phase`, `eval_run` or `gate_check`. |
+| `cancel_run` | Stop a run started over MCP (same as the chat's Cancel). |
 | `eval_run` | Run `/eval` for a REQ, optionally `fix` (auto-eval) with a `hint`. |
 | `gate_check` | Run `/gate` for a REQ. |
 | `harper_kit_next` | Dispatch `/kit <next-REQ>`. |

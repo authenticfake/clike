@@ -14,6 +14,7 @@ const {
   generateServiceToken,
 } = require('./service-auth');
 const { validateLocalMcpRequest } = require('./mcp-request-guard');
+const extensionMcp = require('./extension-mcp');
 const { getEvalTools, postEvalToolsUpdate, postAcceptanceAmend, postAcceptanceLock, postEvalChecks, postEvalToolsCheck, postEvalToolsInstall, postGateOverride } = require('./api');
 const evalToolsLib = require('./eval-tools');
 const { approveForProject, ensureEvalTools, questionText } = evalToolsLib;
@@ -36,6 +37,7 @@ const {
   buildLocalAgentModelArgs,
   parseLocalAgentRun,
   withMachineReadableOutput,
+  withIsolatedMcp,
   buildLocalAgentDisplayLabel,
   terminateProcessTree,
 } = require('./local-agent-executors');
@@ -1006,10 +1008,10 @@ async function executeLocalAgentPackage({
       executorId: selectedExecutor,
       command: executorConfig.command,
       // clike.claudeCode.model / clike.localAgent.codex.model apply to Harper phases too
-      argsBeforePrompt: withMachineReadableOutput(selectedExecutor, [
+      argsBeforePrompt: withIsolatedMcp(selectedExecutor, withMachineReadableOutput(selectedExecutor, [
         ...launcherArgs,
         ...(launcherArgs.includes('--model') ? [] : buildLocalAgentModelArgs(selectedExecutor, executorConfig)),
-      ]),
+      ])),
       promptTransport,
       // the time spent waiting for eval checks in the sandbox does not eat the agent's own budget
       timeoutMinutes: agentTimeoutMinutes(Number(invocation.timeout_seconds || 1800) / 60, evalCheck),
@@ -1908,34 +1910,6 @@ function sendMcpJson(res, status, body) {
   res.end(raw);
 }
 
-function mcpTextResult(id, payload, isError = false) {
-  return {
-    jsonrpc: '2.0',
-    id,
-    result: {
-      content: [
-        {
-          type: 'text',
-          text: typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2),
-        },
-      ],
-      isError,
-    },
-  };
-}
-
-function mcpError(id, code, message, data = null) {
-  return {
-    jsonrpc: '2.0',
-    id,
-    error: {
-      code,
-      message,
-      data,
-    },
-  };
-}
-
 async function readRequestJson(req) {
   const chunks = [];
   for await (const chunk of req) {
@@ -1987,60 +1961,8 @@ async function getHarperNextAction() {
     };
   }
 
-  const firstOpen = reqs.find(req => {
-    const status = String(req?.status || '').trim().toLowerCase();
-    return status === 'open';
-  });
-
-  if (firstOpen) {
-    const reqId = String(firstOpen?.id || '').trim().toUpperCase();
-    const deps = Array.isArray(firstOpen?.dependsOn)
-      ? firstOpen.dependsOn.map(x => String(x || '').trim().toUpperCase()).filter(Boolean)
-      : [];
-
-    return {
-      ok: true,
-      action: 'run_req',
-      selection_policy: 'first_open_in_plan_order',
-      next_phase: 'kit',
-      req_id: reqId,
-      req: firstOpen,
-      dependsOn: deps,
-      message: `Next open REQ is ${reqId}.`,
-    };
-  }
-
-  const inProgress = reqs.find(req => {
-    const status = String(req?.status || '').trim().toLowerCase();
-    return status === 'in_progress';
-  });
-
-  if (inProgress) {
-    const reqId = String(inProgress?.id || '').trim().toUpperCase();
-    const deps = Array.isArray(inProgress?.dependsOn)
-      ? inProgress.dependsOn.map(x => String(x || '').trim().toUpperCase()).filter(Boolean)
-      : [];
-
-    return {
-      ok: true,
-      action: 'run_req',
-      selection_policy: 'first_in_progress_fallback',
-      next_phase: 'kit',
-      req_id: reqId,
-      req: inProgress,
-      dependsOn: deps,
-      message: `No open REQ found. Continuing first in_progress REQ ${reqId}.`,
-    };
-  }
-
-  return {
-    ok: true,
-    action: 'finalize_only',
-    next_phase: 'finalize',
-    req_id: null,
-    selection_policy: 'no_open_or_in_progress_req',
-    message: 'All REQs are done. Only /finalize is available.',
-  };
+  // the first open REQ whose dependencies are done (an in-progress one first); blocked otherwise
+  return extensionMcp.nextActionFromPlan(reqs);
 }
 
 async function ensureClikeChatPanelForAgent() {
@@ -2079,76 +2001,93 @@ function summarizeEvalReport(report) {
  * lock/gate/write policy) and wait for it up to waitSeconds; longer runs keep going and are read
  * with harper_run_status(run_id).
  */
-async function runHarperPhaseForMcp({ phase, reqId = '', fix = null, waitSeconds = 50 }) {
+let mcpRunInFlight = null;
+
+async function runHarperPhaseForMcp({ phase, reqId = '', fix = null, waitSeconds = 50, options = {} }) {
   await ensureClikeChatPanelForAgent();
   if (typeof clikeRunChatMessage !== 'function') throw new Error('CLike chat is not ready.');
-  if (clikeHarperBlockingRun) throw new Error('CLike is running another Harper phase; retry when it ends (see harper_run_status).');
+  // one phase at a time: set here, before the chat handler takes its own lock
+  if (clikeHarperBlockingRun || mcpRunInFlight) {
+    throw new Error(`CLike is running another Harper phase${mcpRunInFlight ? ` (${mcpRunInFlight})` : ''}; retry when it ends (see harper_run_status).`);
+  }
   const isEdd = phase === 'eval' || phase === 'gate';
+  // an MCP run has nobody in front of the modals: it confirms with confirm=true or stops with a reason
+  const common = { attachments: [], __fromMcp: true, confirm: !!options.confirm };
   const msg = isEdd
-    ? { type: 'harperEDD', cmd: phase, targets: [reqId], targetReqId: reqId, attachments: [], ...(fix ? { fix } : {}) }
-    : { type: 'harperRun', cmd: phase, targets: reqId ? [reqId] : null, targetReqId: reqId || null, attachments: [] };
+    ? { type: 'harperEDD', cmd: phase, targets: [reqId], targetReqId: reqId, ...common, ...(fix ? { fix } : {}) }
+    : {
+        type: 'harperRun', cmd: phase, targets: reqId ? [reqId] : null, targetReqId: reqId || null, ...common,
+        ...(options.methodology ? { methodology: options.methodology } : {}),
+        ...(options.agent ? { agent: options.agent } : {}),
+        ...(options.text ? { rawInput: options.text } : {}),
+        ...(phase === 'idea' && options.extend ? {
+          cmd: 'extend', extendMode: 'cascade', fromAttachment: false, dryRun: !!options.dry_run,
+          release: String(options.release || ''),
+        } : {}),
+      };
   const runId = `mcp-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 6)}`;
-  const run = { run_id: runId, status: 'running', phase, req_id: reqId || null, started_at: new Date().toISOString(), result: null };
+  const run = { run_id: runId, status: 'running', phase: msg.cmd, req_id: reqId || null, started_at: new Date().toISOString(), result: null };
   mcpRuns.set(runId, run);
+  extensionMcp.pruneRuns(mcpRuns);
+  mcpRunInFlight = runId;
+  // what the chat says during the run: the reason when a phase stops early
+  const transcript = [];
+  const webview = clikeChatPanel?.webview;
+  const originalPost = webview?.postMessage;
   try {
-    clikeChatPanel?.webview.postMessage({ type: 'echo', message: `▶ MCP ${phase.toUpperCase()}${reqId ? ' ' + reqId : ''} (requested by an external agent)` });
+    if (webview && originalPost) {
+      webview.postMessage = (m) => {
+        if (m && (m.type === 'error' || m.type === 'echo') && m.message) transcript.push(String(m.message));
+        return originalPost.call(webview, m);
+      };
+    }
+    webview?.postMessage({ type: 'echo', message: `▶ MCP ${msg.cmd.toUpperCase()}${reqId ? ' ' + reqId : ''} (requested by an external agent)` });
   } catch { /* the chat only mirrors the run */ }
+  const finish = () => {
+    if (mcpRunInFlight === runId) mcpRunInFlight = null;
+    try { if (webview && originalPost) webview.postMessage = originalPost; } catch { /* keep going */ }
+  };
   const done = Promise.resolve(clikeRunChatMessage(msg)).then(() => {
     run.status = 'done';
-    run.result = isEdd
-      ? { ok: !!msg.__report, ...(msg.__report || {}) }
+    const base = isEdd
+      ? { ok: !!msg.__report && msg.__report.status !== 'FAIL' && msg.__report.gate !== 'FAIL', ...(msg.__report || {}) }
       : { ok: msg.__result === 'ok', ...(msg.__outcome || {}), failed: msg.__result === 'failed' };
+    if (!msg.__report && !msg.__result) {
+      // stopped before running: say why (needs confirmation, missing input, blocked…)
+      base.ok = false;
+      base.reason = (msg.__outcome && msg.__outcome.error) || transcript.filter((t) => /not run|✖|blocked|cannot|required|missing/i.test(t)).slice(-3).join(' | ') || 'the phase did not run';
+    }
+    base.messages = transcript.slice(-8);
+    run.result = base;
   }).catch((err) => {
     run.status = 'failed';
-    run.result = { ok: false, error: String(err?.message || err) };
-  });
+    run.result = { ok: false, error: String(err?.message || err), messages: transcript.slice(-8) };
+  }).finally(finish);
   const waitMs = Math.max(0, Math.min(Number(waitSeconds) || 0, 600)) * 1000;
   await Promise.race([done, new Promise(resolve => setTimeout(resolve, waitMs))]);
   return { ...run };
 }
 
-async function dispatchAgentSlashCommand(command) {
-  const clean = String(command || '').trim();
-  if (!clean.startsWith('/')) {
-    throw new Error('Agent command must be a slash command.');
+/** Cancel the phase an MCP client started (the same as the chat's Cancel). */
+function cancelMcpRun(runId) {
+  const run = mcpRuns.get(String(runId || '').trim());
+  if (!run) throw new Error('Unknown run_id.');
+  if (run.status !== 'running') return { ...run, cancelled: false, message: 'the run is not running' };
+  if (inflightController) inflightController.abort();
+  inflightController = null;
+  if (activeChatAgentChild) {
+    terminateProcessTree(activeChatAgentChild);
+    activeChatAgentChild = null;
   }
+  run.cancel_requested_at = new Date().toISOString();
+  return { ...run, cancelled: true, message: 'cancel requested: the run stops at the next step (harper_run_status shows its end)' };
+}
 
-  const allowedPrefixes = [
-    '/agent-default',
-    '/agent-model',
-    '/agent-session',
-    '/idea',
-    '/spec',
-    '/plan',
-    '/kit',
-    '/eval',
-    '/gate',
-    '/finalize',
-    '/ragIndex',
-    '/ragSearch',
-  ];
-
-  if (!allowedPrefixes.some(prefix => clean === prefix || clean.startsWith(prefix + ' '))) {
-    throw new Error(`Unsupported CLike agent command: ${clean}`);
-  }
-
-  const panel = await ensureClikeChatPanelForAgent();
-
-  extensionMcpState.lastCommand = clean;
-  extensionMcpState.lastAcceptedAt = new Date().toISOString();
-  extensionMcpState.lastError = null;
-
-  panel.webview.postMessage({
-    type: 'agentRunSlash',
-    command: clean,
-  });
-
-  return {
-    ok: true,
-    accepted: true,
-    command: clean,
-    note: 'Command dispatched to chat clike. The normal extension/orchestrator flow will execute it.',
-  };
+/** Modal confirmation, or for an MCP run the caller's confirm flag (nobody is there to click). */
+async function confirmOrMcp(msg, text, go) {
+  if (msg && msg.__fromMcp) return msg.confirm === true;
+  const choice = await vscode.window.showWarningMessage(text, { modal: true }, go);
+  return choice === go;
 }
 
 async function ragDocsStatus(projectId = '') {
@@ -2253,11 +2192,14 @@ async function runExtensionMcpTool(name, args = {}) {
       reqId = next.req_id;
     }
 
-    if (args.await === false) {
-      const command = reqPhases.has(phase) ? `/${phase} ${reqId}` : `/${phase}`;
-      return await dispatchAgentSlashCommand(command);
-    }
-    return await runHarperPhaseForMcp({ phase, reqId, waitSeconds: args.wait_seconds ?? 50 });
+    const options = {
+      confirm: args.confirm === true, text: args.text ? String(args.text) : '', extend: args.extend === true,
+      dry_run: args.dry_run === true, release: args.release ? String(args.release) : '',
+      methodology: args.methodology ? String(args.methodology).toLowerCase() : '', agent: args.agent ? String(args.agent).toLowerCase() : '',
+    };
+    if (options.extend && phase !== 'idea') throw new Error('extend applies to phase idea (/idea --extend).');
+    // await=false: started and tracked like any run (run_id), the call returns at once
+    return await runHarperPhaseForMcp({ phase, reqId, waitSeconds: args.await === false ? 0 : (args.wait_seconds ?? 50), options });
   }
 
   if (tool === 'eval_run' || tool === 'gate_check') {
@@ -2273,6 +2215,10 @@ async function runExtensionMcpTool(name, args = {}) {
     return { ...run };
   }
 
+  if (tool === 'cancel_run') {
+    return cancelMcpRun(args.run_id);
+  }
+
   if (tool === 'harper_kit_next') {
     const next = await getHarperNextAction();
     if (next.action === 'finalize_only') {
@@ -2283,7 +2229,7 @@ async function runExtensionMcpTool(name, args = {}) {
       return next;
     }
 
-    return await dispatchAgentSlashCommand(`/kit ${next.req_id}`);
+    return await runHarperPhaseForMcp({ phase: 'kit', reqId: next.req_id, waitSeconds: args.wait_seconds ?? 50 });
   }
 
   if (tool === 'harper_continue_loop') {
@@ -2291,7 +2237,7 @@ async function runExtensionMcpTool(name, args = {}) {
 
     if (next.action === 'finalize_only') {
       return {
-        ...(await dispatchAgentSlashCommand('/finalize')),
+        ...(await runHarperPhaseForMcp({ phase: 'finalize', waitSeconds: args.wait_seconds ?? 50, options: { confirm: args.confirm === true } })),
         next_action: next,
       };
     }
@@ -2306,7 +2252,7 @@ async function runExtensionMcpTool(name, args = {}) {
     }
 
     return {
-      ...(await dispatchAgentSlashCommand(`/${phase} ${next.req_id}`)),
+      ...(await runHarperPhaseForMcp({ phase, reqId: next.req_id, waitSeconds: args.wait_seconds ?? 50 })),
       next_action: next,
     };
   }
@@ -2344,7 +2290,7 @@ function extensionMcpToolsList() {
     },
     {
       name: 'harper_next_action',
-      description: 'Return the next eligible REQ or say that only finalize is available.',
+      description: 'The next eligible REQ: an in-progress one, else the first open REQ whose dependencies are done; blocked when every open REQ waits for dependencies; finalize_only when all are done.',
       inputSchema: {
         type: 'object',
         properties: {},
@@ -2358,8 +2304,15 @@ function extensionMcpToolsList() {
         properties: {
           phase: { type: 'string', enum: ['idea', 'spec', 'plan', 'kit', 'eval', 'gate', 'finalize'] },
           req_id: { type: 'string' },
+          text: { type: 'string', description: 'request text, as typed after the command in the chat' },
+          extend: { type: 'boolean', description: 'with phase idea: /idea --extend, the next release (inputs from docs/inputs/vN/)' },
+          release: { type: 'string', description: 'with extend: target release, e.g. v2' },
+          dry_run: { type: 'boolean', description: 'with extend: write only the EXTEND report' },
+          methodology: { type: 'string', enum: ['bmad'] },
+          agent: { type: 'string', description: 'BMAD role (analyst, pm, architect, ux, developer, qa, tech-writer)' },
+          confirm: { type: 'boolean', description: 'answer yes to the confirmations the chat would ask (e.g. /finalize with REQs not promoted); without it such a run stops with the reason' },
           wait_seconds: { type: 'number' },
-          await: { type: 'boolean' },
+          await: { type: 'boolean', description: 'false: start and return the run_id at once' },
         },
         required: ['phase'],
       },
@@ -2390,6 +2343,15 @@ function extensionMcpToolsList() {
     {
       name: 'harper_run_status',
       description: 'Status and outcome of a phase started with harper_run_phase / eval_run / gate_check (status running|done|failed).',
+      inputSchema: {
+        type: 'object',
+        properties: { run_id: { type: 'string' } },
+        required: ['run_id'],
+      },
+    },
+    {
+      name: 'cancel_run',
+      description: 'Cancel a phase started over MCP (same as the chat Cancel): the running agent or request is stopped.',
       inputSchema: {
         type: 'object',
         properties: { run_id: { type: 'string' } },
@@ -2448,67 +2410,20 @@ function extensionMcpToolsList() {
 }
 
 async function handleExtensionMcpRpc(body) {
-  const method = String(body?.method || '').trim();
-  const id = body?.id ?? null;
-
-  if (method === 'initialize') {
-    return {
-      jsonrpc: '2.0',
-      id,
-      result: {
-        protocolVersion: '2024-11-05',
-        capabilities: {
-          tools: {},
-        },
-        serverInfo: {
-          name: 'CLike Extension Operational MCP',
-          version: 'v1',
-        },
-        instructions: (
-          'Operational CLike MCP surface. Use it to ask the VS Code extension to run normal CLike slash commands. ' +
-          'The extension never bypasses the orchestrator; it dispatches into the same chat-driven flow used by developers.'
-        ),
-      },
-    };
-  }
-
-  if (method === 'notifications/initialized') {
-    return {
-      jsonrpc: '2.0',
-      id,
-      result: {},
-    };
-  }
-
-  if (method === 'tools/list') {
-    return {
-      jsonrpc: '2.0',
-      id,
-      result: {
-        tools: extensionMcpToolsList(),
-      },
-    };
-  }
-
-  if (method === 'tools/call') {
-    const params = body?.params || {};
-    const name = String(params.name || '').trim();
-    const args = params.arguments || {};
-
-    try {
-      const result = await runExtensionMcpTool(name, args);
-      return mcpTextResult(id, result, false);
-    } catch (err) {
-      extensionMcpState.lastError = String(err?.message || err);
-      return mcpTextResult(id, {
-        ok: false,
-        tool: name,
-        error: String(err?.message || err),
-      }, true);
-    }
-  }
-
-  return mcpError(id, -32601, `Unsupported MCP method: ${method}`);
+  return extensionMcp.handleRpc(body, {
+    serverInfo: { name: 'CLike Extension Operational MCP', version: String(require('./package.json').version || 'v1') },
+    instructions: 'Operational CLike MCP surface: runs Harper phases, eval and gate through the same governed flow as the chat. ' +
+      'Long runs return status=running and a run_id for harper_run_status; cancel_run stops them.',
+    tools: extensionMcpToolsList,
+    callTool: async (name, args) => {
+      try {
+        return await runExtensionMcpTool(name, args);
+      } catch (err) {
+        extensionMcpState.lastError = String(err?.message || err);
+        throw err;
+      }
+    },
+  });
 }
 
 async function startExtensionOperationalMcpServer(context) {
@@ -2530,6 +2445,10 @@ async function startExtensionOperationalMcpServer(context) {
   extensionMcpServer = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url || '/', `http://${host}:${port}`);
+      // OAuth discovery does not exist here: 404 before auth, so a client without the token
+      // reports the missing header instead of a failed OAuth registration
+      const early = extensionMcp.preAuthRoute(req.method, url.pathname);
+      if (early) return sendMcpJson(res, early.status, early.body);
 
       const verdict = validateLocalMcpRequest(req, { token: mcpToken, port });
       if (!verdict.ok) {
@@ -2552,17 +2471,18 @@ async function startExtensionOperationalMcpServer(context) {
         });
       }
 
-      if (req.method === 'POST' && (url.pathname === '/mcp' || url.pathname === '/')) {
-        const body = await readRequestJson(req);
-        const response = await handleExtensionMcpRpc(body);
-        return sendMcpJson(res, 200, response);
+      const route = extensionMcp.postAuthRoute(req.method, url.pathname);
+      if (route) {
+        if (route.headers) for (const [k, v] of Object.entries(route.headers)) res.setHeader(k, v);
+        return sendMcpJson(res, route.status, route.body);
       }
-
-      return sendMcpJson(res, 404, {
-        ok: false,
-        error: 'not_found',
-        path: url.pathname,
-      });
+      const body = await readRequestJson(req);
+      const response = await handleExtensionMcpRpc(body);
+      if (response === null) {
+        res.statusCode = 202; // notification: accepted, no body
+        return res.end();
+      }
+      return sendMcpJson(res, 200, response);
     } catch (err) {
       extensionMcpState.lastError = String(err?.message || err);
       out.appendLine(`[CLike][mcp-extension] request error: ${extensionMcpState.lastError}`);
@@ -3833,8 +3753,8 @@ async function cmdOpenChat(context) {
             }
             if (problems.length) {
               const go = 'Run /finalize anyway';
-              const choice = await vscode.window.showWarningMessage(problems.join(' '), { modal: true }, go);
-              if (choice !== go) {
+              if (!(await confirmOrMcp(msg, problems.join(' '), go))) {
+                msg.__outcome = { error: `/finalize not run: ${problems.join(' ')}${msg.__fromMcp ? ' (MCP: pass confirm=true to run it anyway)' : ''}`, code: 'needs_confirmation' };
                 panel.webview.postMessage({ type: 'echo', message: `ℹ /finalize not run: ${problems.join(' ')}` });
                 panel.webview.postMessage({ type: 'busy', on: false });
                 return;
@@ -3848,6 +3768,7 @@ async function cmdOpenChat(context) {
             const root = getWorkspaceRoot().fsPath;
             const baselineInfo = releaseExtend.baselineStatus(root);
             const stop = (text) => {
+              msg.__outcome = { error: `/idea --extend not run: ${text}`, code: 'not_run' };
               panel.webview.postMessage({ type: 'echo', message: `ℹ /idea --extend not run: ${text}` });
               panel.webview.postMessage({ type: 'busy', on: false, force: true });
             };
@@ -3861,10 +3782,10 @@ async function cmdOpenChat(context) {
             if (!inputCheck.ok) return stop(inputCheck.message);
             if (baselineInfo.notDone.length) {
               const go = 'Extend anyway';
-              const choice = await vscode.window.showWarningMessage(
+              const ok = await confirmOrMcp(msg,
                 `${baselineInfo.notDone.length} REQ(s) of the current release are not delivered: ` +
-                `${baselineInfo.notDone.slice(0, 8).join(', ')}. The new release builds on what is delivered.`, { modal: true }, go);
-              if (choice !== go) return stop(`REQs not delivered: ${baselineInfo.notDone.join(', ')}`);
+                `${baselineInfo.notDone.slice(0, 8).join(', ')}. The new release builds on what is delivered.`, go);
+              if (!ok) return stop(`REQs not delivered: ${baselineInfo.notDone.join(', ')}${msg.__fromMcp ? ' (MCP: pass confirm=true to extend anyway)' : ''}`);
             }
             msg.__cascade = { ...rel, baselineInfo, dryRun: !!msg.dryRun, attachments: (msg.attachments || []).map((a) => a?.name || a?.path).filter(Boolean) };
             panel.webview.postMessage({ type: 'echo', message: `▶ /idea --extend: ${rel.baseline} → ${rel.release}` +

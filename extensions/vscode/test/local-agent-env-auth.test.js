@@ -127,5 +127,5 @@ test('agent runs are machine-readable and their usage, cost and model are record
 
 test('Harper agent runs pass the configured model (clike.claudeCode.model / codex.model)', () => {
   const source = require('fs').readFileSync(require('path').join(__dirname, '..', 'extension.js'), 'utf8');
-  assert.match(source, /argsBeforePrompt: withMachineReadableOutput\(selectedExecutor, \[\s*\.\.\.launcherArgs,\s*\.\.\.\(launcherArgs\.includes\('--model'\) \? \[\] : buildLocalAgentModelArgs\(selectedExecutor, executorConfig\)\)/);
+  assert.match(source, /argsBeforePrompt: withIsolatedMcp\(selectedExecutor, withMachineReadableOutput\(selectedExecutor, \[\s*\.\.\.launcherArgs,\s*\.\.\.\(launcherArgs\.includes\('--model'\) \? \[\] : buildLocalAgentModelArgs\(selectedExecutor, executorConfig\)\)/);
 });

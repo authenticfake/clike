@@ -27,9 +27,9 @@ log = logging.getLogger("orchestrator.mcp")
 mcp = FastMCP(
     "CLike MCP",
     instructions=(
-        "Read-only MCP server for CLike. "
-        "Exposes Harper context, contracts, run artifacts, routing metadata, and RAG retrieval. "
-        "No phase execution, no git mutation, no arbitrary shell or filesystem writes."
+        "CLike MCP server: Harper context, contracts, run artifacts, routing metadata and RAG retrieval. "
+        "Read-only except rag_reindex_docs / rag_reindex_docs_if_empty, which write the project's RAG index. "
+        "No phase execution (that is the extension's operational MCP), no git mutation, no shell or file writes."
     ),
     stateless_http=True,
     json_response=True,
@@ -186,12 +186,34 @@ def _core_blobs_for_prepare(doc_root: str = "docs/harper") -> Dict[str, str]:
     return blobs
 
 
+# CLike's own state (acceptance locks, audit logs, recorded verdicts) is never a run.
+_NOT_RUNS = frozenset({"state", "eval-tools", "kit"})
+
+
+def _run_dir(run_id: str) -> Path:
+    """The directory of a run, confined to the runs root (no '..', no absolute path, no state dir)."""
+    rid = str(run_id or "").strip()
+    if not rid or "/" in rid or "\\" in rid or rid in {".", ".."} or rid in _NOT_RUNS:
+        raise ValueError("run_id must be the name of a run directory (see runs_list)")
+    return _safe_child(_runs_root(), rid)
+
+
+def _latest_project_report(kind: str, req_id: str) -> Optional[Path]:
+    """Newest runs/<kind>/<REQ>/report_*.json of the current project (project_root)."""
+    from utils.safe_paths import validate_req_id
+
+    req = validate_req_id(req_id)
+    folder = _safe_child(_workspace_root(), f"runs/{kind}/{req}")
+    reports = sorted(folder.glob("report_*.json")) if folder.is_dir() else []
+    return reports[-1] if reports else None
+
+
 def _latest_run_dirs(limit: int = 20) -> List[Path]:
     runs_root = _runs_root()
     if not runs_root.exists() or not runs_root.is_dir():
         return []
 
-    dirs = [p for p in runs_root.iterdir() if p.is_dir()]
+    dirs = [p for p in runs_root.iterdir() if p.is_dir() and p.name not in _NOT_RUNS]
     dirs.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     return dirs[: max(1, int(limit))]
 
@@ -831,10 +853,7 @@ def runs_list(limit: int = 20) -> Dict[str, Any]:
 @mcp.tool()
 def runs_read(run_id: str) -> Dict[str, Any]:
     rid = str(run_id or "").strip()
-    if not rid:
-        raise ValueError("run_id is required")
-
-    run_dir = _runs_root() / rid
+    run_dir = _run_dir(rid)
     if not run_dir.exists() or not run_dir.is_dir():
         return {
             "ok": False,
@@ -849,9 +868,14 @@ def runs_read(run_id: str) -> Dict[str, Any]:
 
 
 @mcp.tool()
-def eval_read_summary(run_id: str = "") -> Dict[str, Any]:
-    if run_id:
-        path = _runs_root() / str(run_id).strip() / "eval.summary.json"
+def eval_read_summary(run_id: str = "", project_root: str = "", req_id: str = "") -> Dict[str, Any]:
+    """Eval result: with project_root + req_id the REQ's latest eval report of that project
+    (runs/eval/<REQ>/), else a run of the orchestrator's runs directory."""
+    if req_id:
+        _use_project(project_root)
+        path = _latest_project_report("eval", req_id)
+    elif run_id:
+        path = _run_dir(run_id) / "eval.summary.json"
     else:
         path = _latest_file_by_name("eval.summary.json")
 
@@ -864,9 +888,14 @@ def eval_read_summary(run_id: str = "") -> Dict[str, Any]:
 
 
 @mcp.tool()
-def gate_read_decision(run_id: str = "") -> Dict[str, Any]:
-    if run_id:
-        path = _runs_root() / str(run_id).strip() / "gate.decisions.json"
+def gate_read_decision(run_id: str = "", project_root: str = "", req_id: str = "") -> Dict[str, Any]:
+    """Gate decision: with project_root + req_id the REQ's latest gate report of that project
+    (runs/gate/<REQ>/), else a run of the orchestrator's runs directory."""
+    if req_id:
+        _use_project(project_root)
+        path = _latest_project_report("gate", req_id)
+    elif run_id:
+        path = _run_dir(run_id) / "gate.decisions.json"
     else:
         path = _latest_file_by_name("gate.decisions.json")
 

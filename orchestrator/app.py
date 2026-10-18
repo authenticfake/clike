@@ -99,7 +99,20 @@ class RequestLogMiddleware:
 # Starlette: the last middleware added is the outermost. Logging wraps auth so
 # rejected requests are logged too. No CORS: only the extension host and the
 # CLike services call these APIs (never a browser page).
-app.add_middleware(ServiceAuthMiddleware, open_paths=("/health",))
+# OAuth discovery does not exist here: answered 404 without auth, so an MCP client without the
+# service token reports a missing Authorization header instead of a failed OAuth registration.
+_NO_OAUTH_PREFIXES = ("/.well-known/oauth-protected-resource", "/.well-known/oauth-authorization-server", "/.well-known/openid-configuration")
+
+
+@app.api_route("/register", methods=["GET", "POST"], include_in_schema=False)
+@app.api_route("/.well-known/{rest:path}", methods=["GET"], include_in_schema=False)
+async def no_oauth(rest: str = ""):
+    return JSONResponse(status_code=404, content={
+        "code": "not_found", "detail": "No OAuth: send Authorization: Bearer <CLIKE_API_TOKEN>",
+    })
+
+
+app.add_middleware(ServiceAuthMiddleware, open_paths=("/health", "/register"), open_prefixes=_NO_OAUTH_PREFIXES)
 app.add_middleware(RequestLogMiddleware)
 
 

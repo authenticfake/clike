@@ -518,6 +518,17 @@ function withMachineReadableOutput(executorId, args) {
   return list;
 }
 
+// Harper phase runs use no MCP server (eval checks go through the file bridge): Claude is started
+// with --strict-mcp-config so the servers of the user/project config (a broken or slow one
+// included) are not loaded into a non-interactive run whose tools could not be approved anyway.
+function withIsolatedMcp(executorId, args) {
+  const list = Array.isArray(args) ? [...args] : [];
+  if (normalizeLocalAgentExecutor(executorId) === 'claude_code' && !list.includes('--strict-mcp-config') && !list.includes('--mcp-config')) {
+    list.push('--strict-mcp-config');
+  }
+  return list;
+}
+
 function addTokens(total, key, value) {
   const n = Number(value);
   if (Number.isFinite(n)) total[key] = (total[key] || 0) + n;
@@ -648,6 +659,7 @@ module.exports = {
   parseClaudeResultEnvelope,
   parseLocalAgentRun,
   withMachineReadableOutput,
+  withIsolatedMcp,
   buildLocalAgentDisplayLabel,
   buildLocalAgentEnv,
   localAgentSupportsPhase,

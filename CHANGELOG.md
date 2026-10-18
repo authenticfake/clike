@@ -4,6 +4,26 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+### Fixed (MCP)
+
+- **Run reports of other locations could be read through the orchestrator MCP**: `runs_read`,
+  `eval_read_summary` and `gate_read_decision` accepted any `run_id` (`..` left the runs
+  directory). A run id is now a run directory name only, CLike's `state/` is never a run, and with
+  `project_root` + `req_id` the eval/gate tools read that project's latest report.
+- **Claude Code reported "Dynamic Client Registration rejected (HTTP 401)"** when the
+  `Authorization` header was missing: OAuth discovery and `/register` answered 401, so the client
+  attempted OAuth. They answer 404 now (orchestrator and extension), and the docs show the
+  `.mcp.json` with `${CLIKE_API_TOKEN}` and `localhost`.
+- **Extension operational MCP**: streamable HTTP as clients expect (202 for notifications, 405 for
+  GET, `ping`, negotiated protocol version); one phase at a time, locked before the run starts;
+  every run gets a `run_id` (also `harper_kit_next`, `harper_continue_loop`, `await: false`), the
+  registry is bounded, `cancel_run` stops a run; a run that stops early says why, and confirmations
+  are answered with `confirm: true` instead of a modal nobody sees; `harper_run_phase` takes `text`,
+  `methodology`, `agent` and `extend` / `release` / `dry_run` (`/idea --extend`);
+  `harper_next_action` follows `dependsOn` and finishes an in-progress REQ first.
+- CLike's own Claude Harper runs load no MCP server (`--strict-mcp-config`). The orchestrator MCP
+  states that its `rag_reindex_*` tools write the RAG index.
+
 ### Fixed
 
 - **`/eval --fix` could not remove a root conftest it was asked to remove.** The repair moved the
