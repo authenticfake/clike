@@ -157,7 +157,8 @@ def _base_payload(phase: str, workspace: Path, methodology: str | None, variant:
         )
     if methodology:
         payload["methodology"] = methodology
-        payload["agent"] = {"idea": "analyst", "spec": "pm", "plan": "architect", "finalize": "tech-writer"}.get(phase, "developer")
+        payload["agent"] = {"idea": "analyst", "spec": "pm", "plan": "architect", "finalize": "tech-writer",
+                            "extend": "analyst"}.get(phase, "developer")
     return payload
 
 
@@ -274,6 +275,8 @@ def _scenarios():
     yield "extend", "cloud", None, "attach"
     yield "extend", "local", None, "cascade"
     yield "extend", "cloud", None, "cascade"
+    yield "extend", "local", "bmad", "cascade"
+    yield "extend", "cloud", "bmad", "cascade"
     yield "eval", "local", None, "contractblobs"
     yield "finalize", "local", None, "cloudinfra"
     yield "finalize", "cloud", None, "cloudinfra"

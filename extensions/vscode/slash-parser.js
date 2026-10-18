@@ -13,6 +13,8 @@ const BMAD_PHASE_ROLES = {
   idea: { defaultAgent: 'analyst', allowedAgents: ['analyst'] },
   spec: { defaultAgent: 'pm', allowedAgents: ['pm', 'ux'] },
   plan: { defaultAgent: 'architect', allowedAgents: ['architect', 'pm'] },
+  // /extend and /idea --extend: the release cascade does the work of idea, spec and plan
+  extend: { defaultAgent: 'pm', allowedAgents: ['pm', 'analyst', 'architect', 'ux'] },
   kit: { defaultAgent: 'developer', allowedAgents: ['developer'] },
   eval: { defaultAgent: 'qa', allowedAgents: ['qa', 'developer'], advisoryOnly: true },
   gate: { clikeOnly: true, allowedAgents: [] },
@@ -182,7 +184,10 @@ function parseSlash(input) {
   if (!parts.length) return null;
 
   const cmd = String(parts[0] || '').toLowerCase();
-  const phase = normalizePhaseFromCommand(cmd);
+  // /idea --extend runs the extend phase: its BMAD agents are those of extend
+  const phase = cmd === '/idea' && parts.some((t) => String(t).toLowerCase() === '--extend')
+    ? 'extend'
+    : normalizePhaseFromCommand(cmd);
   const parsedFlags = parseMethodologyFlags(parts.slice(1).map(x => String(x).trim()).filter(Boolean), phase);
   let rest = parsedFlags.rest;
 

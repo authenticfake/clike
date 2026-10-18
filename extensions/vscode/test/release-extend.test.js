@@ -58,6 +58,14 @@ test('/idea --extend is parsed as the release cascade; plain /idea is unchanged'
   assert.equal(s.args.release, 'v3');
   assert.equal(s.args.rawInput, 'add sign-in');
   assert.deepEqual(parseSlash('/idea MyProject').args, { name: 'MyProject' });
+  // BMAD on the cascade: the agents of the extend phase (analyst, pm, architect, ux)
+  const bmad = parseSlash('/idea --extend --methodology bmad --agent analyst');
+  assert.equal(bmad.error, undefined);
+  assert.equal(bmad.args.extend, true);
+  assert.equal(bmad.args.methodology, 'bmad');
+  assert.equal(bmad.args.agent, 'analyst');
+  assert.match(parseSlash('/idea --extend --methodology bmad --agent developer').error, /not allowed for phase 'extend'/);
+  assert.equal(parseSlash('/extend --methodology bmad --agent architect').error, undefined);
 });
 
 test('the target release comes from the release folders, the plan or the command', () => {

@@ -16,7 +16,8 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   `unchanged`) or `REMOVED` (`retires`), with `release` and `origin`, while delivered REQs stay
   read-only. CLike checks the baseline is delivered, tags it `harper/v<N-1>`, validates the delta
   and appends its own verification to the EXTEND report; `--dry-run` writes only the report. Then
-  `/kit`, `/eval --fix`, `/gate` and `/finalize` as usual.
+  `/kit`, `/eval --fix`, `/gate` and `/finalize` as usual. BMAD works on it:
+  `--methodology bmad --agent analyst|pm|architect|ux` (default `pm`), also on `/extend`.
 - **The regression follows declared changes.** Checks a `MODIFIED` REQ supersedes are not run for
   the REQ it amends (reported as `superseded`, with the reason); a REQ retired by a `REMOVED` REQ
   leaves the regression set. Every other check of delivered REQs keeps running.
