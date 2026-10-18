@@ -318,6 +318,56 @@ def _kit_project_context(filtered_core: dict, target_req: str) -> list[str]:
     return parts
 
 
+_KIT_MANIFEST_PREFIXES = (
+    "REQ_PROMOTION_MANIFEST", "REPO_ACCESS_MANIFEST", "REPO_STRUCTURE_EVIDENCE", "REPO_COMPOSITION_MANIFEST",
+)
+
+
+def _kit_document_rendered(name: str) -> bool:
+    """Documents _kit_project_context and the summaries above already render."""
+    base = str(name or "").replace("\\", "/").rsplit("/", 1)[-1].lower()
+    return base in {"spec.md", "idea.md", "plan.json", "target_contract.json", "file_requirements.json"} or base.startswith(
+        ("tech_constraints", "clike_selected_capability", "clike_capability"))
+
+
+def _kit_req_material(full_core: dict, filtered_core: dict, target_req: str) -> tuple[list[str], set[str]]:
+    """What a local agent reads from the workspace for this REQ, verbatim and bounded: its slice of
+    PLAN.md, the promoted code of its dependencies, the repository/promotion manifests, the
+    candidate files (locked tests in acceptance-first) and the REQ/BMAD companion documents."""
+    from services.cloud_prompt.context_budget import plan_md_slice, render_bounded_blobs
+
+    lines: list[str] = []
+    rendered: set[str] = set()
+    plan_md_name = next((k for k in full_core if str(k).replace("\\", "/").rsplit("/", 1)[-1].lower() == "plan.md"), None)
+    plan_json = next((v for k, v in full_core.items() if str(k).replace("\\", "/").rsplit("/", 1)[-1].lower() == "plan.json"), "")
+    deps: list[str] = []
+    try:
+        for r in (json.loads(plan_json or "") or {}).get("reqs") or []:
+            if isinstance(r, dict) and str(r.get("id") or "").upper() == target_req.upper():
+                deps = [str(d) for d in (r.get("dependsOn") or [])]
+    except ValueError:
+        pass
+    if plan_md_name:
+        excerpt = plan_md_slice(full_core[plan_md_name], [target_req, *deps])
+        if excerpt:
+            lines += [f"### PLAN.md — {target_req} and its dependencies (verbatim excerpt)", excerpt, ""]
+        rendered.add(plan_md_name)
+    for name, content in full_core.items():
+        if str(name).startswith("DEPENDENCY_SURFACE") and str(content or "").strip():
+            lines += ["## DEPENDENCY SURFACE (promoted code the target builds on, verbatim; read-only)", str(content).strip(), ""]
+            rendered.add(name)
+    groups = (
+        ("manifest", [k for k in filtered_core if str(k).startswith(_KIT_MANIFEST_PREFIXES)], 20_000, 60_000),
+        ("candidate file", [k for k in filtered_core if str(k).startswith("candidate::")], 16_000, 160_000),
+        ("companion document", [k for k in filtered_core if str(k).lower().startswith("companion::")], 12_000, 48_000),
+    )
+    for title, names, max_each, max_total in groups:
+        block, omitted = render_bounded_blobs(((n, filtered_core[n]) for n in names), title=title, max_each=max_each, max_total=max_total)
+        lines += block
+        rendered.update(n for n in names if n not in omitted)
+    return lines, rendered
+
+
 def _build_kit_user_message(
     phase: str,
     user: str,
@@ -333,10 +383,6 @@ def _build_kit_user_message(
 
     target_contract = _load_target_contract_from_core_blobs(filtered_core)
     file_requirements = _load_file_requirements_from_core_blobs(filtered_core)
-
-    refs = []
-    for name, content in filtered_core.items():
-        refs.append(f"- {name} ({len(str(content or ''))} chars)")
 
     parts = []
     if str(active_contract_text or "").strip():
@@ -448,7 +494,14 @@ def _build_kit_user_message(
         parts.append("")
 
     # project-wide documents come from the full core (the KIT filter keeps REQ-scoped material)
-    parts.extend(_kit_project_context({**(core_blobs or {}), **filtered_core}, target_req))
+    full_core = {**(core_blobs or {}), **filtered_core}
+    parts.extend(_kit_project_context(full_core, target_req))
+    material, rendered = _kit_req_material(full_core, filtered_core, target_req)
+    parts.extend(material)
+    refs = [
+        f"- {name} ({len(str(content or ''))} chars)" for name, content in filtered_core.items()
+        if name not in rendered and not _kit_document_rendered(name)
+    ]
 
     parts.extend([
         "## HARD RULES",
@@ -710,14 +763,25 @@ def _compose_system_messages(
             "INTEGRITY_EVAL.json",
         ),
         "extend": (
+            # the cascade (/idea --extend) merges into IDEA.md too: it must see it
+            "IDEA.md",
             "SPEC.md",
             "PLAN.md",
             "plan.json",
             "TECH_CONSTRAINTS.yaml",
         ),
+        # /finalize writes the README and the report from the documents: their content, not names
+        # (PLAN.md and plan.json as a digest and an index, below).
+        "finalize": (
+            "IDEA.md",
+            "SPEC.md",
+            "TECH_CONSTRAINTS.yaml",
+        ),
     }
 
     normative_prefixes = (
+        "SOLUTION_SURFACE",
+        "DEPENDENCY_SURFACE",
         "REQ_PROMOTION_MANIFEST",
         "REPO_ACCESS_MANIFEST",
         "REPO_STRUCTURE_EVIDENCE",
@@ -728,7 +792,42 @@ def _compose_system_messages(
 
     active_verbatim_suffixes = verbatim_suffixes_for_phase.get((phase or "").lower(), tuple())
 
+    from services.cloud_prompt.context_budget import (
+        bounded, plan_json_index, plan_json_slice, plan_md_digest, plan_md_slice,
+    )
+
+    lphase = (phase or "").lower()
+    single_req_phase = lphase in {"integrity_eval", "promotion_hardener", "promotion_eval"} and target_req_id
+    req_scope: list[str] = [target_req_id] if target_req_id else []
+    if single_req_phase:
+        plan_text = next((v for k, v in other_core.items() if str(k).rsplit("/", 1)[-1] == "plan.json"), "")
+        try:
+            for r in (json.loads(plan_text or "") or {}).get("reqs") or []:
+                if isinstance(r, dict) and str(r.get("id") or "").upper() == target_req_id.upper():
+                    req_scope += [str(d) for d in (r.get("dependsOn") or [])]
+        except ValueError:
+            pass
+    companion_used = 0
+
     for name, content in other_core.items():
+        base = str(name or "").replace("\\", "/").rsplit("/", 1)[-1]
+        if str(name or "").lower().startswith("companion::"):
+            # BMAD/UX/REQ companion documents: their content within a budget, not just their name
+            room = min(12_000, 60_000 - companion_used)
+            if room >= 500 and str(content or "").strip():
+                shown = bounded(content, room)
+                companion_used += len(shown)
+                suffix_parts.append(f"\n\n### {name} (companion, verbatim)\n{shown}")
+                continue
+        if single_req_phase and base in {"PLAN.md", "plan.json"}:
+            # one REQ under review: its slice of the plan, not the whole document
+            excerpt = plan_md_slice(content, req_scope) if base == "PLAN.md" else plan_json_slice(content, target_req_id)
+            suffix_parts.append(f"\n\n### {name} — {target_req_id} and its dependencies (verbatim excerpt)\n{excerpt}")
+            continue
+        if lphase == "finalize" and base in {"PLAN.md", "plan.json"}:
+            digest = plan_md_digest(content) if base == "PLAN.md" else plan_json_index(content)
+            suffix_parts.append(f"\n\n### {name} (digest: outline and every REQ)\n{digest}")
+            continue
         if any((name or "").startswith(prefix) for prefix in normative_prefixes):
             suffix_parts.append(f"\n\n### {name} (verbatim)\n{content}")
             continue

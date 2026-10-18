@@ -103,6 +103,11 @@ Runs as the vector store backing RAG persistence.
   file is authoritative).
 
 ### Orchestrator
+- `CLIKE_CLOUD_MAX_PROMPT_CHARS` — largest cloud prompt CLike sends (default `600000` chars, about
+  150k tokens); a larger one is refused with its size (`cloud_context_too_large`) instead of
+  overflowing the model. Raise it for a model with a larger context.
+- `CLIKE_CLOUD_MAX_OUTPUT_CHARS` — largest set of documents a cloud `/idea --extend` must write back
+  (default `240000` chars, about 60k tokens); larger projects run the cascade with a local agent.
 Important environment variables in compose:
 - `GATEWAY_URL=http://gateway:8000`
 - `RUNS_DIR=/app/runs`

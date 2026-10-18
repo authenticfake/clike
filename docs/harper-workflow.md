@@ -256,6 +256,29 @@ offers to configure and start the solution on the developer's machine. See `comm
 - Design and the next steps (taking over projects not built with CLike):
   `architecture/ADOPT_AND_IDEA_EXTEND.md`.
 
+## Cloud and local agents get the same context
+
+A local agent (Codex, Claude Code) reads the workspace; a cloud model sees only its prompt. CLike
+puts in the prompt what the local agent would read, bounded:
+
+- **KIT** (base, acceptance stage, follow-ups, repairs): TECH_CONSTRAINTS, IDEA, SPEC, the REQ and
+  its dependencies from plan.json, **the REQ's slice of PLAN.md** (its table rows and sections and
+  those of its dependencies), the repository and promotion manifests, the candidate files (the
+  locked tests in acceptance-first), the REQ and BMAD companion documents, and the **dependency
+  surface**: the code its dependencies delivered (from their promotion reports, read from the
+  canonical tree; the KIT copy for a dependency not promoted yet), interfaces first, plus their
+  `ci/HOWTO.md` — chosen by the extension, no RAG. A manual `/kit <REQ> --repair` carries the latest
+  failures and the candidate files, like `/eval --fix`.
+- **FINALIZE**: IDEA, SPEC, TECH_CONSTRAINTS, a digest of PLAN.md and an index of plan.json, and the
+  **solution surface** (manifests, entry points and interfaces of every delivered REQ).
+- **`/idea --extend`**: the IDEA it merges into, SPEC, PLAN and plan.json; **PLAN** gets IDEA too.
+- Companion documents (BMAD, UX) go with their content in every phase, within a budget.
+- Context sources (`.clike/context.yaml`) reach the acceptance stage too; attachments reach the
+  local KIT and FINALIZE packages as workspace copies.
+- A cloud run that cannot fit is refused with its size (`cloud_context_too_large`): see
+  `CLIKE_CLOUD_MAX_PROMPT_CHARS` / `CLIKE_CLOUD_MAX_OUTPUT_CHARS` in `setup-and-runtime.md`; the
+  local agents have no such limit.
+
 ## History scope and core context
 
 Harper requests carry contextual state including:

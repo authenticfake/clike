@@ -82,6 +82,7 @@ const {
 const {
   acceptanceChanges,
   collectRepairFiles,
+  manualRepairRequest,
   nextAutoEvalStep,
   nextAutoGateStep,
   annotateIntermittentFailures,
@@ -4324,7 +4325,8 @@ async function cmdOpenChat(context) {
             payload["kit"] = {
               targets: [targetReqId],
               ...(requestedKitPhases ? { phases: requestedKitPhases } : {}),
-              ...(msg.autoEvalRepair ? { repair: msg.autoEvalRepair } : (msg.repair ? { repair: true } : {})),
+              // a manual /kit --repair carries the latest failures like auto-eval (the cloud sees only the prompt)
+              ...(msg.autoEvalRepair ? { repair: msg.autoEvalRepair } : (msg.repair ? { repair: manualRepairRequest(toFsPath(wsroot), targetReqId) || true } : {})),
               ...(msg.acceptanceFirst ? { acceptance_first: true } : {})
             };
           }

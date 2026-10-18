@@ -485,14 +485,16 @@ class RagStore:
 
         collected: List[Dict[str, Any]] = []
         offset = None
-
+        prefix_norm = prefix.rstrip("/") + "/"
+        scanned = 0
+        # Qdrant has no prefix match on a keyword field: scan the collection page by page and keep
+        # the points under the prefix. limit_points bounds the MATCHING points; the scan goes on
+        # until the collection ends (it used to stop after the first limit_points of any path, so
+        # in a real project the dependency sources were mostly never reached).
         try:
             async with httpx.AsyncClient(timeout=60) as client:
-                while len(collected) < max(10, int(limit_points)):
-                    body: Dict[str, Any] = {
-                        "with_payload": True,
-                        "limit": min(256, max(10, int(limit_points)) - len(collected)),
-                    }
+                while len(collected) < max(10, int(limit_points)) and scanned < 200_000:
+                    body: Dict[str, Any] = {"with_payload": True, "limit": 512}
                     if offset is not None:
                         body["offset"] = offset
 
@@ -507,14 +509,16 @@ class RagStore:
                     points = result.get("points") or []
                     if not points:
                         break
-
-                    collected.extend(points)
+                    scanned += len(points)
+                    collected.extend(
+                        pt for pt in points
+                        if _norm_path((pt.get("payload") or {}).get("path") or "").startswith(prefix_norm)
+                    )
                     offset = result.get("next_page_offset")
                     if offset is None:
                         break
 
             by_path: Dict[str, List[Dict[str, Any]]] = {}
-            prefix_norm = prefix.rstrip("/") + "/"
 
             for pt in collected:
                 pl = pt.get("payload") or {}

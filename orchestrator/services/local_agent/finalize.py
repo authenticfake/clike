@@ -11,6 +11,8 @@ from typing import Any, Dict
 from services.context_envelope import build_context_envelope
 
 from services.local_agent.common import (
+    _attachment_prompt_lines,
+    _materialize_attachments,
     _extract_capability_manifest,
     _local_agent_invocation,
     _methodology_context_for_local_agent,
@@ -442,6 +444,10 @@ def build_finalize_local_agent_package(
     context_path = "runs/finalize/docs/AGENT_FINALIZE_CONTEXT.json"
     prompt_path = "runs/finalize/docs/AGENT_FINALIZE_PROMPT.md"
 
+    # attachments of this run: the agent reads workspace-local copies (the cloud gets their text)
+    attachment_manifest, attachment_files = _materialize_attachments(payload, "finalize")
+    prompt = prompt + "\n".join(_attachment_prompt_lines(attachment_manifest)) + ("\n" if attachment_manifest.get("present") else "")
+
     return _package_envelope(
         phase="finalize",
         echo="Local agent finalize package prepared for SOLUTION",
@@ -470,6 +476,7 @@ def build_finalize_local_agent_package(
             "package_files": [
                 _package_file(context_path, context_json, "application/json"),
                 _package_file(prompt_path, prompt, "text/markdown"),
+                *attachment_files,
             ],
         },
     )

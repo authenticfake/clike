@@ -397,7 +397,22 @@ function nextAutoGateStep(state, report) {
     : step;
 }
 
+/**
+ * A manual `/kit <REQ> --repair`: the same repair request as auto-eval, from the latest eval or
+ * gate report of the REQ, so the cloud model receives the failures and the candidate files (a
+ * local agent reads the reports itself). null when there is no failing report.
+ */
+function manualRepairRequest(workspaceRoot, reqId, hint = '') {
+  const reports = readEarlierReports(workspaceRoot, reqId);
+  const latest = reports[reports.length - 1];
+  if (!latest) return null;
+  const failures = collectRepairFailures({ cases: latest.cases });
+  if (!failures.length) return null;
+  return { cycle: 1, max_cycles: 1, failures, files: collectRepairFiles(workspaceRoot, reqId), hint: String(hint || ''), source: `${latest.phase} report ${latest.ts}` };
+}
+
 module.exports = {
+  manualRepairRequest,
   acceptanceChanges,
   annotateIntermittentFailures,
   inputsFingerprint,

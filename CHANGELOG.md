@@ -22,6 +22,24 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   the REQ it amends (reported as `superseded`, with the reason); a REQ retired by a `REMOVED` REQ
   leaves the regression set. Every other check of delivered REQs keeps running.
 
+### Changed (cloud context = local agent context)
+
+- **A cloud KIT now receives what a local agent reads**: the REQ's slice of PLAN.md, the code its
+  dependencies delivered (dependency surface, chosen deterministically from the promotion reports,
+  interfaces first, with their HOWTOs), the repository and promotion manifests, the locked tests of
+  acceptance-first, the REQ and BMAD companion documents — before, the KIT message kept only their
+  names. The KIT follow-ups get the REQ's slice of PLAN.md and plan.json instead of the whole files.
+- **Dependency sources via RAG were mostly missed**: the prefix lookup scanned only the first 200
+  points of the collection; it now scans the whole collection.
+- **Cloud FINALIZE** receives IDEA, SPEC, TECH_CONSTRAINTS, a PLAN digest, a plan.json index and the
+  solution surface (it used to get their names and 12 chunks of `src/`); **`/idea --extend`** sees the
+  IDEA it merges into; **PLAN** gets IDEA; companion documents go with their content.
+- The acceptance stage of an acceptance-first KIT reads the context sources and the dependency
+  sources; a manual `/kit --repair` carries the latest failures and files; the local KIT and
+  FINALIZE packages receive the attachments; cloud `/idea` accepts the project's context sources.
+- **A cloud run that cannot fit is refused with its size** (`cloud_context_too_large`,
+  `CLIKE_CLOUD_MAX_PROMPT_CHARS`, `CLIKE_CLOUD_MAX_OUTPUT_CHARS`) instead of overflowing the model.
+
 ### Changed (speed, same verdicts)
 
 - **The gate does not run the eval again when nothing changed.** A full `/eval` records its
