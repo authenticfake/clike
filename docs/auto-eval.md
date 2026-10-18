@@ -265,6 +265,13 @@ configs, infrastructure and build manifests are shared files (test selectors nev
 test files exist: after promotion they all do), and checks assert what their REQ
 contributes, never that a shared file contains only that.
 
+When the candidate changes a promoted REQ's behaviour on purpose, it reconciles that REQ's test in
+its own test root, at the same path (`runs/kit/<candidate>/test/...`). The regression runs that
+version, since promotion delivers it: the candidate's copy replaces only test files the promoted
+REQ already has, and its other tests are not added to that REQ's checks. The change is never silent:
+the report carries the warning `regression::<REQ>::reconciled-tests` with the replaced files, for
+review before the gate. It is not sent to a repair.
+
 The eval workspace is composed from the KIT and the canonical tree without installs, caches and
 scratch (`node_modules`, `.tmp`, `.cache`, `.npm-cache`, `.next`, `local-eval-workspaces`…); a
 file removed while it is copied is skipped. If CLike still cannot compose it, the preparation is
