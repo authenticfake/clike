@@ -22,6 +22,16 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   the REQ it amends (reported as `superseded`, with the reason); a REQ retired by a `REMOVED` REQ
   leaves the regression set. Every other check of delivered REQs keeps running.
 
+### Added (KIT)
+
+- **A KIT can deliver repository-root files.** Run and setup scripts, deployment scripts,
+  infrastructure and root manifests go under `runs/kit/<REQ>/root/<path>`; the gate promotes them
+  to `<path>` with the same 3-way merge and report, the eval and the regression see them at the
+  workspace root, and the regression names them when a promoted check fails on them. Allowed:
+  `scripts/`, `deploy/`, `infra/`, `ops/`, `config(s)/`, `migrations/`, `db/`, `.env.example`, compose
+  files, `Dockerfile`, `Makefile`, `Procfile`, plus `root_folders` / `root_files` in
+  `.clike/project.json`; never `.git`, `.clike`, `runs`, `docs`, `src`, `test`, `ci` or private files.
+
 ### Fixed
 
 - After `/idea --extend`, the PLAN.md sections that index every REQ (REQ-IDs table, dependency

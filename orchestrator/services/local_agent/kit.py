@@ -359,9 +359,10 @@ def build_kit_local_agent_package(
         f"runs/kit/{req_id}/test",
         f"runs/kit/{req_id}/ci",
         f"runs/kit/{req_id}/docs",
+        f"runs/kit/{req_id}/root",
     ]
     if kit_stage == "acceptance":
-        allowed_write_roots = [root for root in allowed_write_roots if not root.endswith("/src")]
+        allowed_write_roots = [root for root in allowed_write_roots if not root.endswith(("/src", "/root"))]
 
     forbidden_paths = [
         "src",
@@ -512,6 +513,8 @@ def build_kit_local_agent_package(
             "test": f"runs/kit/{req_id}/test",
             "ci": f"runs/kit/{req_id}/ci",
             "docs": f"runs/kit/{req_id}/docs",
+            # repository-root deliverables (scripts/, deploy/, root manifests): promoted to the root
+            "root_files": f"runs/kit/{req_id}/root",
         },
         "candidate_contract_paths": {
             "target_contract": f"runs/kit/{req_id}/docs/TARGET_CONTRACT.json",

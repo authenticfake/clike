@@ -60,7 +60,8 @@
       "runs/kit/REQ-001/src",
       "runs/kit/REQ-001/test",
       "runs/kit/REQ-001/ci",
-      "runs/kit/REQ-001/docs"
+      "runs/kit/REQ-001/docs",
+      "runs/kit/REQ-001/root"
     ],
     "available_capabilities": null,
     "capability_metadata": null,

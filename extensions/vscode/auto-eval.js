@@ -5,6 +5,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { KIT_ROOT_DIR, rootPolicy } = require('./root-files-policy');
 
 const MAX_FILE_BYTES = 200 * 1024;
 const SKIPPED_DIRS = new Set([
@@ -246,9 +247,12 @@ const SCRATCH_INPUT_RE = /(\.pyc|\.pyo|\.log)$|^\.DS_Store$|\.(incoming|conflict
  */
 function inputsFingerprint(workspaceRoot, reqId) {
   const hash = crypto.createHash('sha256');
+  // repository-root deliverables (scripts/, deploy/, root manifests) are inputs too
+  const policy = rootPolicy(workspaceRoot);
   const roots = [
     ...['src', 'test', 'tests'].map((r) => r),
-    ...['src', 'test', 'tests', 'ci'].map((r) => `runs/kit/${reqId}/${r}`),
+    ...policy.folders,
+    ...['src', 'test', 'tests', 'ci', KIT_ROOT_DIR].map((r) => `runs/kit/${reqId}/${r}`),
   ];
   const walk = (rel) => {
     let entries = [];
@@ -263,6 +267,9 @@ function inputsFingerprint(workspaceRoot, reqId) {
     }
   };
   roots.forEach(walk);
+  for (const name of policy.files) {
+    try { hash.update(`${name}\0`).update(fs.readFileSync(path.join(workspaceRoot, name))).update('\0'); } catch { /* absent */ }
+  }
   return hash.digest('hex').slice(0, 16);
 }
 

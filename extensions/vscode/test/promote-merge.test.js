@@ -308,3 +308,50 @@ test('auto-merge: a conflict the developer resolved (conflict file removed) does
   const third = autoMergePromotion({ workspaceRoot: ws, reqId: 'REQ-008', now: new Date('2026-10-17T12:00:00Z') });
   assert.equal(third.results[0].outcome, 'conflict');
 });
+
+test('root/ files of a KIT are promoted to the repository root, within the root policy', () => {
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'clike-promote-root-'));
+  sh(ws, 'init', '-q', '-b', 'main');
+  sh(ws, 'config', 'user.email', 't@example.com'); sh(ws, 'config', 'user.name', 't');
+  write(ws, 'scripts/setup_local.sh', 'echo v1\n');
+  write(ws, '.env.example', 'A=1\n');
+  sh(ws, 'add', '-A'); sh(ws, 'commit', '-qm', 'base');
+  const kit = 'runs/kit/REQ-016';
+  write(ws, `${kit}/root/scripts/setup_local.sh`, 'echo v2\n');
+  write(ws, `${kit}/root/deploy/aws/01_inventory.sh`, 'aws sts get-caller-identity\n');
+  write(ws, `${kit}/root/.env.example`, 'A=1\nOIDC_ISSUER_URL=\n');
+  write(ws, `${kit}/root/.env`, 'SECRET=1\n');                 // private: never
+  write(ws, `${kit}/root/docs/harper/PLAN.md`, 'x\n');         // Harper documents: never
+  write(ws, `${kit}/root/tools/x.sh`, 'x\n');                  // not in the policy until declared
+  write(ws, `${kit}/ci/LTC.json`, '{}');
+  sh(ws, 'add', '-A'); sh(ws, 'commit', '-qm', 'kit');
+  let r = autoMergePromotion({ workspaceRoot: ws, reqId: 'REQ-016' });
+  const outcome = Object.fromEntries(r.results.map((x) => [x.path, x.outcome]));
+  assert.deepEqual(outcome, {
+    'scripts/setup_local.sh': 'updated',
+    'deploy/aws/01_inventory.sh': 'added',
+    '.env.example': 'updated',
+    '.env': 'rejected',
+    'docs/harper/PLAN.md': 'rejected',
+    'tools/x.sh': 'rejected',
+  });
+  assert.equal(r.promoted, true);
+  assert.equal(read(ws, 'scripts/setup_local.sh'), 'echo v2\n');
+  assert.equal(read(ws, 'deploy/aws/01_inventory.sh'), 'aws sts get-caller-identity\n');
+  assert.ok(!fs.existsSync(path.join(ws, '.env')) && !fs.existsSync(path.join(ws, 'tools')));
+  assert.equal(r.results.find((x) => x.path === 'deploy/aws/01_inventory.sh').kit_path, 'root/deploy/aws/01_inventory.sh');
+  assert.match(r.summary, /3 root file\(s\) rejected/);
+  // a project declares more root folders in .clike/project.json
+  write(ws, '.clike/project.json', JSON.stringify({ root_folders: ['tools'] }));
+  r = autoMergePromotion({ workspaceRoot: ws, reqId: 'REQ-016' });
+  assert.equal(r.results.find((x) => x.path === 'tools/x.sh').outcome, 'added');
+  fs.rmSync(ws, { recursive: true, force: true });
+});
+
+test('the root policy is the same in the extension and in the orchestrator', () => {
+  const policy = require('../root-files-policy');
+  const py = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'orchestrator', 'services', 'root_files.py'), 'utf8');
+  const list = (name) => JSON.parse(py.match(new RegExp(`${name} = (\\[[\\s\\S]*?\\])`))[1].replace(/,\s*\]/, ']'));
+  assert.deepEqual(list('DEFAULT_ROOT_FOLDERS'), policy.DEFAULT_ROOT_FOLDERS);
+  assert.deepEqual(list('DEFAULT_ROOT_FILES'), policy.DEFAULT_ROOT_FILES);
+});

@@ -11,6 +11,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { KIT_ROOT_DIR, rootPolicy, isAllowedRootPath } = require('./root-files-policy');
 
 const PROMOTED_ROOTS = ['src', 'test', 'tests'];
 // Generated or installed content, never source (names a real package could use are not listed).
@@ -27,6 +28,37 @@ function git(cwd, args, input) {
 
 function isBinary(buf) {
   return !!buf && buf.subarray(0, 8000).includes(0);
+}
+
+/**
+ * Candidate files to promote: [{ kitRel, rel }] — kitRel inside the KIT, rel in the repository.
+ * src/, test/, tests/ keep their path; root/<path> (repository-root deliverables: scripts/,
+ * deploy/, root manifests…) is promoted to <path> when the root policy allows it, otherwise it
+ * is listed with `rejected` (never written).
+ */
+function promotableEntries(kitRoot, policy) {
+  const entries = promotableFiles(kitRoot).map((rel) => ({ kitRel: rel, rel }));
+  const prefix = `${KIT_ROOT_DIR}/`;
+  for (const kitRel of walkFiles(path.join(kitRoot, KIT_ROOT_DIR), KIT_ROOT_DIR)) {
+    const rel = kitRel.slice(prefix.length);
+    entries.push(isAllowedRootPath(rel, policy) ? { kitRel, rel } : { kitRel, rel, rejected: true });
+  }
+  return entries;
+}
+
+function walkFiles(dir, rel) {
+  const out = [];
+  let entries = [];
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
+  for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    const childRel = `${rel}/${e.name}`;
+    if (e.isDirectory()) {
+      if (!SCRATCH_DIRS.has(e.name) && !e.name.endsWith('.egg-info')) out.push(...walkFiles(path.join(dir, e.name), childRel));
+    } else if (e.isFile() && !SCRATCH_FILE_RE.test(e.name)) {
+      out.push(childRel);
+    }
+  }
+  return out;
 }
 
 /** Candidate files to promote, KIT-relative (src/…, test/…), scratch excluded. */
@@ -106,9 +138,9 @@ function planDependencies(workspaceRoot, reqId) {
  * root overlaid by the direct dependency KITs in plan order. So the base is the file of the last
  * dependency KIT that has it, else the canonical file at the merge-base commit.
  */
-function baseContent(workspaceRoot, rev, rel, dependencies = []) {
+function baseContent(workspaceRoot, rev, rel, dependencies = [], kitRel = rel) {
   for (const dep of [...dependencies].reverse()) {
-    const candidate = path.join(workspaceRoot, 'runs', 'kit', dep, rel);
+    const candidate = path.join(workspaceRoot, 'runs', 'kit', dep, kitRel);
     if (fs.existsSync(candidate)) return { content: fs.readFileSync(candidate), from: dep };
   }
   if (!rev) return null;
@@ -438,7 +470,7 @@ function renderReport({ reqId, ts, baseRev, baseHow, results, promoted }) {
       '',
     );
   }
-  lines.push('Outcomes: `added` new file · `updated` canonical unchanged since the KIT, candidate written · `merged` both changed, merged cleanly · `kept_canonical` only the canonical side changed · `unchanged` identical · `conflict` overlapping changes, not written.', '');
+  lines.push('Outcomes: `added` new file · `updated` canonical unchanged since the KIT, candidate written · `merged` both changed, merged cleanly · `kept_canonical` only the canonical side changed · `unchanged` identical · `conflict` overlapping changes, not written · `rejected` a root/ file outside the repository-root policy, not written.', '');
   return lines.join('\n');
 }
 
@@ -484,14 +516,20 @@ function autoMergePromotion({ workspaceRoot, reqId, now = new Date() }) {
   const writes = [];
   const diffs = [];
   const conflictDetails = [];
+  const entries = promotableEntries(kitRoot, rootPolicy(workspaceRoot));
+  const kitPathOf = new Map(entries.map((e) => [e.rel, e.kitRel]));
   const resolved = resolvedConflicts(workspaceRoot, kitRoot, (rel) => {
-    try { return sha(fs.readFileSync(path.join(kitRoot, rel))); } catch { return null; }
+    try { return sha(fs.readFileSync(path.join(kitRoot, kitPathOf.get(rel) || rel))); } catch { return null; }
   });
-  for (const rel of promotableFiles(kitRoot)) {
+  for (const { kitRel, rel, rejected } of entries) {
+    if (rejected) {
+      results.push({ path: rel, kit_path: kitRel, outcome: 'rejected', reason: 'not a repository-root path a KIT may deliver (.clike/project.json root_folders / root_files)' });
+      continue;
+    }
     const dest = path.join(workspaceRoot, rel);
-    const theirs = fs.readFileSync(path.join(kitRoot, rel));
+    const theirs = fs.readFileSync(path.join(kitRoot, kitRel));
     const ours = fs.existsSync(dest) ? fs.readFileSync(dest) : null;
-    const baseFile = baseContent(workspaceRoot, baseRev, rel, dependencies);
+    const baseFile = baseContent(workspaceRoot, baseRev, rel, dependencies, kitRel);
     let d = decide({ ours, base: baseFile ? baseFile.content : null, theirs, reqId });
     if (d.outcome === 'merged' && d.content && !d.content.equals(theirs)) {
       const invalid = invalidSource(rel, d.content);
@@ -503,6 +541,7 @@ function autoMergePromotion({ workspaceRoot, reqId, now = new Date() }) {
       d = { outcome: 'kept_canonical', reason: `conflict of ${resolved.get(rel).ts} resolved in src/ (its conflict file was removed): src/ kept` };
     }
     const entry = { path: rel, outcome: d.outcome };
+    if (kitRel !== rel) entry.kit_path = kitRel;
     if (baseFile && baseFile.from !== 'git' && d.outcome !== 'added' && d.outcome !== 'unchanged') entry.base = baseFile.from;
     if (d.reason) entry.reason = d.reason;
     if (d.content) {
@@ -543,9 +582,9 @@ function autoMergePromotion({ workspaceRoot, reqId, now = new Date() }) {
   }
   const n = (k) => results.filter((r) => r.outcome === k).length;
   const summary = promoted
-    ? `${reqId} promoted by auto-merge: ${n('added')} added, ${n('updated')} updated, ${n('merged')} merged, ${n('unchanged') + n('kept_canonical')} unchanged.`
+    ? `${reqId} promoted by auto-merge: ${n('added')} added, ${n('updated')} updated, ${n('merged')} merged, ${n('unchanged') + n('kept_canonical')} unchanged${n('rejected') ? `, ${n('rejected')} root file(s) rejected (see the report)` : ''}.`
     : `${reqId} NOT promoted: ${n('conflict')} conflict(s); ${written.length} file(s) merged cleanly were written. Each spot to resolve, with its diff: runs/kit/${reqId}/promotion/${ts}/conflicts.md`;
   return { ts, promoted, results, written, reportFiles, reportPath, summary };
 }
 
-module.exports = { autoMergePromotion, baseContent, decide, invalidSource, renderConflicts, resolveHunk, planDependencies, promotableFiles, kitBaseRevision, mergeThreeWay, unifiedDiff };
+module.exports = { autoMergePromotion, promotableEntries, baseContent, decide, invalidSource, renderConflicts, resolveHunk, planDependencies, promotableFiles, kitBaseRevision, mergeThreeWay, unifiedDiff };

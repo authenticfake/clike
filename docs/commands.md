@@ -158,7 +158,9 @@ Generates or updates `SPEC.md` from current Harper context.
 Generates or updates `PLAN.md` and `plan.json`.
 
 ### `/kit`
-Runs the base KIT flow by default or explicit follow-up KIT phases.
+Runs the base KIT flow by default or explicit follow-up KIT phases. The candidate lives in
+`runs/kit/<REQ>/` (`src/`, `test/`, `ci/`, `docs/`, and `root/<path>` for repository-root files such
+as `scripts/` or `deploy/`, promoted to `<path>` — see `git-and-promotion.md`).
 
 Supported patterns in current parser:
 ```text

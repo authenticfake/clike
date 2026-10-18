@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional
 
 import eval_environment
 import eval_failures
+from services.root_files import KIT_ROOT_DIR, root_policy
 import eval_tools
 import sandbox_resources
 from utils.safe_paths import validate_req_id
@@ -186,7 +187,7 @@ def _shared_file_changes(project_root: Path, candidate_root: Path, other_kit: Pa
     import difflib
 
     changes: List[str] = []
-    for top in ("src", "test", "tests"):
+    for top in ("src", "test", "tests", KIT_ROOT_DIR):
         base = other_kit / top
         if not base.is_dir():
             continue
@@ -197,7 +198,9 @@ def _shared_file_changes(project_root: Path, candidate_root: Path, other_kit: Pa
                 candidate = candidate_root / rel
                 if not candidate.is_file():
                     continue
-                baseline = project_root / rel if (project_root / rel).is_file() else other_kit / rel
+                # root/<path> is delivered to <path> in the repository
+                canon = rel.relative_to(KIT_ROOT_DIR) if top == KIT_ROOT_DIR else rel
+                baseline = project_root / canon if (project_root / canon).is_file() else other_kit / rel
                 try:
                     old, new = baseline.read_bytes(), candidate.read_bytes()
                 except OSError:
@@ -212,7 +215,7 @@ def _shared_file_changes(project_root: Path, candidate_root: Path, other_kit: Pa
                 except UnicodeDecodeError:
                     diff = ["(binary content differs)"]
                 shown = diff[:24] + ([f"... {len(diff) - 24} more diff lines"] if len(diff) > 24 else [])
-                changes.append(f"- {rel.as_posix()}\n" + "\n".join(f"    {line}" for line in shown))
+                changes.append(f"- {canon.as_posix()}\n" + "\n".join(f"    {line}" for line in shown))
                 if len(changes) >= limit:
                     return changes
     return changes
@@ -342,6 +345,7 @@ class EvalRunner:
         extra_src_roots: Optional[List[Path]] = None,
         cancel_event: Optional[threading.Event] = None,
         regression: bool = False,
+        extra_root_roots: Optional[List[Path]] = None,
     ):
         self.project_root = project_root.resolve()
         # set when the caller goes away: the running check is stopped and no further check starts
@@ -349,6 +353,8 @@ class EvalRunner:
         # Regression runs: own eval directory and the candidate's source overlaid last.
         self.eval_key = eval_key
         self.extra_src_roots = list(extra_src_roots or [])
+        # Regression runs: the candidate's repository-root deliverables (its KIT root/) overlaid last.
+        self.extra_root_roots = list(extra_root_roots or [])
         # A regression run re-checks a promoted REQ: its own KIT source is already in the canonical
         # tree (merged with what later REQs changed), so the stale KIT copy is not overlaid.
         self.regression = regression
@@ -888,6 +894,27 @@ class EvalRunner:
     def _resolve_req_file(self, req_file: str) -> Path:
         raw = Path(req_file)
         return raw if raw.is_absolute() else (self.project_root / raw).resolve()
+
+    def _compose_root_files(self, kit_root: Path, work_kit_root: Path, dependency_roots: List[str]) -> None:
+        """Repository-root deliverables (scripts/, deploy/, root manifests…) at the workspace root, as
+        they will be after promotion: the canonical ones, the root/ of the dependency KITs not
+        promoted yet, then the candidate's root/ (and, in a regression, the candidate being checked)."""
+        policy = root_policy(self.project_root)
+        layers: List[Path] = [self.project_root]
+        for dep_raw in dependency_roots:
+            dep = Path(dep_raw)
+            if not self._promoted_into_canonical(dep.name):
+                layers.append(dep / KIT_ROOT_DIR)
+        if not (self.regression and self._promoted_into_canonical(kit_root.name)):
+            layers.append(kit_root / KIT_ROOT_DIR)
+        layers += [Path(p) for p in self.extra_root_roots]
+        for layer in layers:
+            for name in policy["folders"]:
+                if (layer / name).is_dir():
+                    self._copy_tree_overlay(layer / name, work_kit_root / name)
+            for name in policy["files"]:
+                if (layer / name).is_file():
+                    shutil.copy2(layer / name, work_kit_root / name)
 
     def _copy_tree_overlay(self, src: Path, dst: Path) -> None:
         """
@@ -1688,6 +1715,8 @@ class EvalRunner:
                         dirs_exist_ok=True,
                     )
 
+            self._compose_root_files(kit_root, work_kit_root, dependency_roots or [])
+
             log.info(
                 "prepared composed eval work kit for %s: work_kit=%s dependencies=%s",
                 req_id,
@@ -1745,6 +1774,11 @@ class EvalRunner:
         rel_kit_root = self._path_relative_to_project(kit_root)
         if rel_kit_root:
             path_map[rel_kit_root] = str(work_kit_root)
+        # absolute repository-root deliverables point to their composed copy (bare names never rewritten)
+        policy = root_policy(self.project_root)
+        for name in [*policy["folders"], *policy["files"]]:
+            if (work_kit_root / name).exists():
+                path_map[str(self.project_root / name)] = str(work_kit_root / name)
 
         # Compatibility view for CI scripts that infer runs/kit/<REQ> paths from their own location
         # (e.g. ../../../../runs/kit/REQ-001/test) instead of using CLIKE_EVAL_KIT_DIR /
@@ -3133,6 +3167,7 @@ class EvalRunner:
                 self.project_root,
                 eval_key=f"{self._safe_req_id(req_id)}/regression/{self._safe_req_id(other)}",
                 extra_src_roots=[candidate_src],
+                extra_root_roots=[candidate_src.parent / KIT_ROOT_DIR],
                 cancel_event=self.cancel_event,
                 regression=True,
             )
