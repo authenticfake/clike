@@ -137,6 +137,16 @@ def _base_payload(phase: str, workspace: Path, methodology: str | None, variant:
              "content": "# Loyalty\n\nFrequent buyers earn one free coffee every ten orders.\n"}
         ]
         payload["extend"] = {"fromAttachment": True}
+    if variant == "cascade":
+        # /idea --extend: release v2 of a delivered v1, from the attachment and docs/inputs/v2/
+        payload["attachments"] = [
+            {"name": "IDEA_EXTEND_R2.md", "path": "docs/inputs/v2/IDEA_EXTEND_R2.md", "origin": "workspace",
+             "mime": "text/markdown", "content": "# Release 2\n\nSign-in through OIDC; saved orders.\n"}
+        ]
+        payload["extend"] = {"mode": "cascade", "fromAttachment": True, "release": "v2", "baseline": "v1"}
+        (workspace / "docs" / "inputs" / "v2").mkdir(parents=True, exist_ok=True)
+        (workspace / "docs" / "inputs" / "v2" / "IDEA_EXTEND_R2.md").write_text("# Release 2\n\nSign-in through OIDC.\n", encoding="utf-8")
+        (workspace / "docs" / "inputs" / "brief_v1.md").write_text("# Brief v1\n\nCoffee orders.\n", encoding="utf-8")
     if variant == "contractblobs":
         core_blobs["TARGET_CONTRACT.json"] = json.dumps({"req_id": "REQ-001", "lane": "python", "acceptance": ["Orders can be created"]})
         core_blobs["FILE_REQUIREMENTS.json"] = json.dumps({"req_id": "REQ-001", "required_outputs": [{"role": "source", "path": "runs/kit/REQ-001/src/app.py"}]})
@@ -262,6 +272,8 @@ def _scenarios():
     yield "kit", "local", None, "audit"
     yield "extend", "local", None, "attach"
     yield "extend", "cloud", None, "attach"
+    yield "extend", "local", None, "cascade"
+    yield "extend", "cloud", None, "cascade"
     yield "eval", "local", None, "contractblobs"
     yield "finalize", "local", None, "cloudinfra"
     yield "finalize", "cloud", None, "cloudinfra"

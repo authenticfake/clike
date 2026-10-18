@@ -16,6 +16,8 @@ You may update:
 - `docs/harper/lane-guides/*.md` only when new concern-lane guidance is needed
 - `docs/harper/EXTEND_<YYYY-MM-DD>_<FIRST_REQ>_<LAST_REQ>.md`
 
+In a release cascade (`/idea --extend`, the EXTEND REQUEST says so) you also merge the release into `docs/harper/IDEA.md` and `docs/harper/SPEC.md`, and extend `docs/harper/TECH_CONSTRAINTS.yaml` by addition, following the cascade rules of the request.
+
 ## Hard Rules
 
 - Do not regenerate the plan from scratch.

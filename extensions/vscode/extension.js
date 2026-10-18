@@ -93,6 +93,7 @@ const {
   snapshotAcceptanceSurface,
 } = require('./auto-eval');
 const { validateExtendPlan, readPlanText } = require('./extend-guard');
+const releaseExtend = require('./release-extend');
 const { copyTemplateTree, mergeGitignore } = require('./init-merge');
 const { buildAgentChatArgs, createAgentStreamParser, newSession, sessionKey } = require('./agent-chat');
 const { createApprovalGate, createCodexAppServerTurn, startClaudeApprovalServer } = require('./agent-approvals');
@@ -3841,6 +3842,37 @@ async function cmdOpenChat(context) {
             }
           }
 
+          if (phase === 'extend' && msg.extendMode === 'cascade' && !msg.__cascade) {
+            // /idea --extend: the next release of a delivered project (release-extend.js)
+            const root = getWorkspaceRoot().fsPath;
+            const baselineInfo = releaseExtend.baselineStatus(root);
+            const stop = (text) => {
+              panel.webview.postMessage({ type: 'echo', message: `ℹ /idea --extend not run: ${text}` });
+              panel.webview.postMessage({ type: 'busy', on: false, force: true });
+            };
+            if (!baselineInfo.hasPlan) {
+              return stop('docs/harper/plan.json has no REQs to extend. For a new project run /idea; for a project ' +
+                'not built with CLike put its documentation in docs/reference/ and its new needs in docs/inputs/v2/ ' +
+                '(taking over an existing code base is the next step of /idea --extend, see docs/architecture/ADOPT_AND_IDEA_EXTEND.md).');
+            }
+            const rel = releaseExtend.detectRelease(root, { release: msg.release });
+            const attached = Array.isArray(msg.attachments) ? msg.attachments.length : 0;
+            if (!attached && !rel.inputs.length && !msg.rawInput) {
+              return stop(`no input for ${rel.release}: put the new requirements in docs/inputs/${rel.release}/ ` +
+                `(background in docs/reference/${rel.release}/) or attach them.`);
+            }
+            if (baselineInfo.notDone.length) {
+              const go = 'Extend anyway';
+              const choice = await vscode.window.showWarningMessage(
+                `${baselineInfo.notDone.length} REQ(s) of the current release are not delivered: ` +
+                `${baselineInfo.notDone.slice(0, 8).join(', ')}. The new release builds on what is delivered.`, { modal: true }, go);
+              if (choice !== go) return stop(`REQs not delivered: ${baselineInfo.notDone.join(', ')}`);
+            }
+            msg.__cascade = { ...rel, baselineInfo, dryRun: !!msg.dryRun, attachments: (msg.attachments || []).map((a) => a?.name || a?.path).filter(Boolean) };
+            panel.webview.postMessage({ type: 'echo', message: `▶ /idea --extend: ${rel.baseline} → ${rel.release}` +
+              ` (inputs: ${[...msg.__cascade.attachments, ...rel.inputs, ...rel.references].join(', ') || 'request text'})${msg.dryRun ? ' — dry run' : ''}` });
+          }
+
           if (phase === 'finalize') {
             // the developer's own changes, recorded once per round (finalize-verify.js)
             try { finalizeVerify.ensureDirtyBaseline(getWorkspaceRoot().fsPath); } catch (e) { log(`[finalize] baseline: ${e?.message || e}`); }
@@ -4131,6 +4163,8 @@ async function cmdOpenChat(context) {
           } catch (e) { log(`CLike preIndexRag error: ${e}`); }
           // Core docs per phase
           let core = defaultCoreForPhase(phase);
+          // the cascade merges into IDEA too
+          if (msg.__cascade) core = ['IDEA.md', 'SPEC.md', 'PLAN.md', 'plan.json', 'TECH_CONSTRAINTS.yaml'];
           // Privacy flags (if already present elsewhere, reuse them)
           const flags = {
             neverSendSourceToCloud: !!cfgChat().neverSendSourceToCloud || false,
@@ -4157,7 +4191,7 @@ async function cmdOpenChat(context) {
           let msg_bubble='';
           const _gen={
             temperature: 0.2,
-            max_tokens: (phase === 'plan' ? 45000 : phase === 'spec' ? 10500 : 9999),
+            max_tokens: (msg.__cascade ? 64000 : phase === 'plan' ? 45000 : phase === 'spec' ? 10500 : 9999),
             top_p: 0.9,
             stop: ["```.:: END ::.```"],
             presence_penalty: 0.0,
@@ -4370,12 +4404,8 @@ async function cmdOpenChat(context) {
           const body = await buildHarperBody(phase, payload, wsroot, out);
           // /extend is append-only: keep the plan as it was, to check the result against it
           // (and to restore it when a local agent already wrote a plan that breaks the rule).
-          const extendBefore = phase === 'extend'
-            ? {
-                plan: readPlanText(toFsPath(wsroot)),
-                planMd: (() => { try { return fsSync.readFileSync(path.join(toFsPath(wsroot), 'docs', 'harper', 'PLAN.md'), 'utf8'); } catch { return null; } })(),
-              }
-            : null;
+          const extendBefore = phase === 'extend' ? releaseExtend.snapshotDocs(toFsPath(wsroot)) : null;
+          const extendStartedAt = Date.now();
 
           if (phase === 'extend') {
             body.extend = {
@@ -4388,6 +4418,12 @@ async function cmdOpenChat(context) {
               updateSpecIfNeeded: true,
               updateLaneGuidesIfNeeded: true,
               emitAudit: true,
+              ...(msg.__cascade ? {
+                mode: 'cascade',
+                release: msg.__cascade.release,
+                baseline: msg.__cascade.baseline,
+                dryRun: !!msg.__cascade.dryRun,
+              } : {}),
             };
 
             body.gen = {
@@ -4597,36 +4633,59 @@ async function cmdOpenChat(context) {
 
           panel.webview.postMessage({ type: 'busy', on: false });
           if (extendBefore) {
-            const commandLabel = String(cmd || '').toUpperCase();
+            const commandLabel = msg.__cascade ? '/IDEA --EXTEND' : String(cmd || '').toUpperCase();
             const root = toFsPath(wsroot);
             const isAgent = String(_out?.execution?.selected || '').trim() === 'local_agent';
-            const returnedPlan = (_out?.files || []).find((f) => String(f?.path || '').replace(/^\.?\//, '') === 'docs/harper/plan.json');
-            const verdict = validateExtendPlan({
-              beforeText: extendBefore.plan,
-              afterText: returnedPlan && typeof returnedPlan.content === 'string' ? returnedPlan.content : readPlanText(root),
-              anchorReq: msg.anchorReq || '',
-              explicitReq: msg.explicitReq || '',
-            });
-            for (const w of verdict.warnings) panel.webview.postMessage({ type: 'echo', message: `⚠ ${commandLabel}: ${w}` });
-            if (verdict.ok && verdict.restored.length) {
-              // Keep the repaired plan: in the files to write (cloud) and on disk (local agent).
-              if (returnedPlan) returnedPlan.content = verdict.planText;
-              if (isAgent) fsSync.writeFileSync(path.join(root, 'docs', 'harper', 'plan.json'), verdict.planText, 'utf8');
-            }
-            if (!verdict.ok) {
-              // The local agent already wrote the workspace: put PLAN.md and plan.json back.
-              if (isAgent) {
+            if (!Array.isArray(_out.files)) _out.files = [];
+            const returnedPlan = _out.files.find((f) => String(f?.path || '').replace(/^\.?\//, '') === 'docs/harper/plan.json');
+            let verdict;
+            if (msg.__cascade) {
+              verdict = releaseExtend.reconcileExtend({
+                root, before: extendBefore, files: _out.files, isAgent, mode: 'cascade',
+                cascade: msg.__cascade, validateExtendPlan, startedAt: extendStartedAt,
+              });
+            } else {
+              verdict = validateExtendPlan({
+                beforeText: extendBefore.plan,
+                afterText: returnedPlan && typeof returnedPlan.content === 'string' ? returnedPlan.content : readPlanText(root),
+                anchorReq: msg.anchorReq || '',
+                explicitReq: msg.explicitReq || '',
+              });
+              if (verdict.ok && verdict.restored.length) {
+                // Keep the repaired plan: in the files to write (cloud) and on disk (local agent).
+                if (returnedPlan) returnedPlan.content = verdict.planText;
+                if (isAgent) fsSync.writeFileSync(path.join(root, 'docs', 'harper', 'plan.json'), verdict.planText, 'utf8');
+              }
+              if (!verdict.ok && isAgent) {
+                // The local agent already wrote the workspace: put PLAN.md and plan.json back.
                 for (const [rel, text] of [['plan.json', extendBefore.plan], ['PLAN.md', extendBefore.planMd]]) {
                   if (text != null) fsSync.writeFileSync(path.join(root, 'docs', 'harper', rel), text, 'utf8');
                 }
               }
-              const message = `✖ ${commandLabel} rejected — the plan breaks the append-only rule, nothing kept:\n` +
+              if (verdict.ok) {
+                const tech = releaseExtend.reconcileExtend({ root, before: extendBefore, files: _out.files, isAgent, mode: 'plan' });
+                verdict.warnings.push(...tech.warnings);
+              }
+            }
+            for (const w of verdict.warnings) panel.webview.postMessage({ type: 'echo', message: `⚠ ${commandLabel}: ${w}` });
+            if (!verdict.ok) {
+              const message = `✖ ${commandLabel} rejected — the plan breaks the extend rules, nothing kept:\n` +
                 verdict.errors.map((e) => `- ${e}`).join('\n');
               panel.webview.postMessage({ type: 'echo', message });
               await appendSessionJSONL(activeMode, { ts: Date.now(), role: 'system', content: message, model: state.model || 'auto', attachments: [] });
               clikeHarperBlockingRun = false;
               panel.webview.postMessage({ type: 'busy', on: false, force: true });
               return;
+            }
+            if (msg.__cascade) {
+              // the delivered baseline gets its tag before the release changes the documents
+              const tag = msg.__cascade.dryRun ? '' : releaseExtend.tagBaseline(root, msg.__cascade.baseline);
+              const ids = verdict.delta.map((r) => `${r.id} ${r.change}`).join(', ');
+              const message = `✔ /idea --extend ${msg.__cascade.baseline} → ${msg.__cascade.release}${msg.__cascade.dryRun ? ' (dry run)' : ''}: ` +
+                `${verdict.delta.length} new REQ(s) — ${ids}. Review ${verdict.report}${tag ? `; baseline tagged ${tag}` : ''}.` +
+                (msg.__cascade.dryRun ? '' : ` Next: /kit ${verdict.delta[0]?.id || ''}.`);
+              panel.webview.postMessage({ type: 'echo', message });
+              await appendSessionJSONL(activeMode, { ts: Date.now(), role: 'system', content: message, model: state.model || 'auto', attachments: [] });
             }
           }
           // 3) POST-RUN: persist the outcome (summary + optional echo/text)

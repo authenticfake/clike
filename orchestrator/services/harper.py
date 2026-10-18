@@ -34,6 +34,7 @@ from services.capabilities import (
     enrich_plan_json_text,
 )
 from services.context_envelope import build_context_envelope
+from services.extend_cascade import context_phases, extend_options
 from services.execution_policy import (
     normalize_execution_preference,
     resolve_execution_policy,
@@ -2643,7 +2644,10 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
     )
 
     # Project context sources declared in .clike/context.yaml, for both runners.
-    merged["context_sources"] = resolve_context_sources(_workspace_root_from_payload(merged), phase)
+    merged["context_sources"] = resolve_context_sources(
+        _workspace_root_from_payload(merged), phase,
+        release=(extend_options(merged).get("release") or None), phases=context_phases(merged, phase),
+    )
 
     # Orchestrator-owned local agent package.
     #

@@ -355,7 +355,23 @@ function parseSlash(input) {
   }
 
   if (cmd === '/idea') {
-    return finish({ name: rest[0] });
+    // /idea --extend [--from attachment] [--dry-run] [--release vN] [text]: the release cascade
+    if (!rest.some((t) => t.toLowerCase() === '--extend')) return finish({ name: rest[0] });
+    let fromAttachment = false;
+    let dryRun = false;
+    let release = '';
+    const text = [];
+    for (let i = 0; i < rest.length; i += 1) {
+      const lower = rest[i].toLowerCase();
+      if (lower === '--extend') continue;
+      if (lower === '--dry-run') { dryRun = true; continue; }
+      if (lower === '--from=attachment') { fromAttachment = true; continue; }
+      if (lower === '--from' && String(rest[i + 1] || '').toLowerCase() === 'attachment') { fromAttachment = true; i += 1; continue; }
+      if (lower.startsWith('--release=')) { release = lower.split('=').slice(1).join('='); continue; }
+      if (lower === '--release') { release = String(rest[i + 1] || '').toLowerCase(); i += 1; continue; }
+      text.push(rest[i]);
+    }
+    return finish({ extend: true, fromAttachment, dryRun, release, rawInput: text.join(' ').trim() });
   }
 
   if (cmd === '/agent-default') {

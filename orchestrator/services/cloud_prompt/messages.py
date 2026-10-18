@@ -923,6 +923,12 @@ def compose_phase_messages(payload: dict) -> list[dict]:
 
         section = cloud_finalize_section(verify, deployment_hint(payload))
         messages[-1] = {**messages[-1], "content": messages[-1]["content"] + "\n\n" + section}
+    if phase.lower() == "extend":
+        from services.extend_cascade import cloud_extend_section
+
+        section = cloud_extend_section(payload)
+        if section:
+            messages[-1] = {**messages[-1], "content": messages[-1]["content"] + "\n\n" + section}
     if targets and phase.lower() in {"kit", "acceptance"}:
         messages[-1] = {**messages[-1], "content": messages[-1]["content"] + "\n\n" + kit_self_check_section(str(targets[0]))}
     if targets and phase.lower() == "acceptance":

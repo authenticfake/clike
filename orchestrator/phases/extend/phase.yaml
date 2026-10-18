@@ -85,3 +85,4 @@ accepted_result_paths:
 - docs/harper/plan.json
 - docs/harper/lane-guides/*.md
 - docs/harper/EXTEND_*.md
+- docs/harper/TECH_CONSTRAINTS.yaml

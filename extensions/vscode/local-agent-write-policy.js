@@ -216,11 +216,13 @@ function isLaneGuideFile(rel) {
 // (IDEA/SPEC/PLAN/plan.json), lane-guides, and must emit a dated EXTEND audit
 // report. Everything else under docs/harper/ (including AGENT_* internals) and
 // all src/test/runs roots remain forbidden.
+// TECH_CONSTRAINTS: /idea --extend extends it by addition; /extend gets it restored (release-extend.js).
 const EXTEND_ALLOWED_EXACT = [
   'docs/harper/IDEA.md',
   'docs/harper/SPEC.md',
   'docs/harper/PLAN.md',
   'docs/harper/plan.json',
+  'docs/harper/TECH_CONSTRAINTS.yaml',
 ];
 const EXTEND_ALLOWED_PREFIXES = ['docs/harper/lane-guides/'];
 
