@@ -70,6 +70,11 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **A KIT that rewrote the shared root `conftest.py` passed the gate and then stopped the
+  promotion on a conflict** (B2B REQ-015 replaced `test/conftest.py` and dropped 15 fixtures of the
+  delivered REQs). The eval now checks it (`structure::shared-conftest::test`, blocking): a root
+  conftest of a KIT keeps every fixture and helper of the canonical one; the REQ's own fixtures go in
+  its package conftest. `/eval --fix` repairs it before the gate.
 - **Cloud KITs could not deliver repository-root files**: the gateway accepted only
   `runs/kit/<REQ>/{src,test,docs,ci}` file blocks, so `root/` deliverables were dropped on the cloud
   path; cloud, Codex and Claude Code now share the same KIT roots.
