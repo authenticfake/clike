@@ -5209,6 +5209,10 @@ async function cmdOpenChat(context) {
               }
             }
 
+            if (report?.executor === 'reused_eval') {
+              const at = report.reused_eval_at ? new Date(report.reused_eval_at * 1000).toLocaleTimeString() : '';
+              panel.webview.postMessage({ type: 'echo', message: `⚡ GATE ${targets}: nothing changed since the passing eval${at ? ` of ${at}` : ''} — its verdict is reused (no second run); acceptance integrity and required outputs checked now.` });
+            }
             msg.__report = summarizeEvalReport(report);
             const { report_file, filesToCommit, planFiles, promotion } = await saveGateCommand(
               ws_root,

@@ -114,8 +114,16 @@ class EvalSandboxTests(unittest.TestCase):
             auth = {"Authorization": f"Bearer {TOKEN}"}
             with patch.object(routes_eval.httpx.AsyncClient, "post", new=fake_post):
                 ev = client.post("/v1/eval/run", params=params, headers=auth)
+                # nothing changed since the passing eval: the gate reuses its verdict
+                reused = client.post("/v1/gate/check", params=params, headers=auth)
+                # a changed input: the gate runs the profile again, in the sandbox
+                touched = self.proj / "runs" / "kit" / REQ / "src" / "touched.txt"
+                touched.parent.mkdir(parents=True, exist_ok=True)
+                touched.write_text("changed\n")
                 gate = client.post("/v1/gate/check", params=params, headers=auth)
             self.assertEqual((ev.status_code, ev.json()["executor"]), (200, "sandbox"), ev.text)
+            self.assertEqual((reused.json()["gate"], reused.json()["executor"]), ("PASS", "reused_eval"), reused.text)
+            self.assertIn("reused_eval_at", reused.json())
             self.assertEqual((gate.json()["gate"], gate.json()["executor"]), ("PASS", "sandbox"), gate.text)
             self.assertEqual(calls, ["http://eval-sandbox:8090/run"] * 2)
 

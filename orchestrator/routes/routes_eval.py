@@ -15,7 +15,8 @@ from pydantic import BaseModel
 
 import httpx
 
-from eval_runner import EvalCase, EvalReport, EvalRunner, report_from_dict
+from eval_runner import EvalCase, EvalReport, EvalRunner, report_from_dict, report_to_dict
+from services import eval_verdicts
 import eval_tools
 from sandbox_resources import SANDBOX_EXHAUSTED_REASON
 from utils.safe_paths import UnsafePathError, is_within_any, resolve_within, validate_req_id
@@ -550,6 +551,7 @@ def _case_payload(case: Any) -> Dict[str, Any]:
         "expect": case.expect,
         "blocked": case.blocked,
         "blocking": case.blocking,
+        **({"duration_s": case.duration_s} if getattr(case, "duration_s", None) is not None else {}),
         **({"excerpt": case.excerpt, "fingerprint": getattr(case, "fingerprint", None)}
            if not case.passed and getattr(case, "excerpt", None) else {}),
     }
@@ -667,6 +669,12 @@ async def eval_run(
 
     if not is_manual:
         rep = _with_structural_cases(rep, _required_output_blockers(prj, args.req_id or rep.req_id))
+    if not is_manual and not args.checks:
+        # the full verdict, reusable by the gate while its inputs stay the same
+        try:
+            eval_verdicts.record(prj, _effective_req_id(args.req_id, ltc, profile_path), bool(args.regression), report_to_dict(rep))
+        except Exception as exc:  # an optimisation only
+            log.warning("eval verdict not recorded: %s", exc)
     payload = _eval_payload(rep, args.req_id)
     payload["integrity"] = integrity
     payload["executor"] = executor
@@ -759,11 +767,22 @@ async def gate_check(
             )
             return blocked
 
+    reused = None
+    if (args.mode or "auto").lower() != "manual":
+        try:
+            reused = eval_verdicts.reusable(prj, req, bool(args.regression))
+        except Exception as exc:
+            log.warning("eval verdict reuse check failed: %s", exc)
     try:
-        rep, executor = await _execute_profile(
-            request,
-            prj, profile_path, ltc, args.mode or "auto", args.verdict, args.req_id, regression=bool(args.regression)
-        )
+        if reused:
+            # Same inputs as a passing full eval (digest computed here): its verdict, not a second run.
+            rep, executor = report_from_dict(reused["report"]), "reused_eval"
+            log.info("gate_check req=%s: reused the eval verdict of %s (inputs unchanged)", req, reused["at"])
+        else:
+            rep, executor = await _execute_profile(
+                request,
+                prj, profile_path, ltc, args.mode or "auto", args.verdict, args.req_id, regression=bool(args.regression)
+            )
     except HTTPException:
         raise
     except FileNotFoundError as exc:
@@ -824,6 +843,7 @@ async def gate_check(
         "promote_info": None,
         "integrity": integrity,
         "executor": executor,
+        **({"reused_eval_at": reused["at"]} if reused else {}),
         "regression": bool(args.regression),
         "regression_failures": regression_failures,
         "acceptance_amendments": amendments,

@@ -212,10 +212,28 @@ overlaid on top, i.e. the code as it would be after promotion. These cases appea
 `regression::<REQ>::<check>`, run in `runs/eval/<REQ>/regression/<OTHER>/` (the other REQ's own
 eval results are not touched), and their acceptance locks are verified first.
 
-Only behavioural checks of the promoted REQ block (tests, contract/e2e checks). Its lint, types,
-security, build and coverage checks now also measure the candidate's code, which the candidate's
-own checks already cover: they are reported as non-blocking warnings, and so is a test check whose
-only failure is the coverage threshold.
+Only behavioural checks of the promoted REQ run and block (tests, contract/e2e checks, with the
+installs and builds they need). Its static checks — lint, format, types, security scans, coverage,
+syntax, SBOM/licence — passed at its own gate and would now measure the candidate's code, which the
+candidate's own checks already cover: they are **not run** in the regression (one non-blocking
+`static-checks::not-run` case lists them). A test check whose only failure is the coverage threshold
+is a warning.
+
+## Speed: what is not done twice
+
+- **The gate reuses the eval verdict when nothing changed.** Every full `/eval` records its
+  verdict with a digest the orchestrator computes from the project itself (canonical `src/`,
+  `test/`, repository-root deliverables, the REQ's KIT, every LTC, `plan.json`, CLike's version),
+  in `CLIKE_STATE_DIR` where agents cannot write. `/gate` on the same inputs with the same
+  regression mode takes that passing verdict instead of running everything again (`executor:
+  reused_eval`, chat: "nothing changed since the passing eval"); the acceptance integrity and the
+  required outputs are still checked by the gate. Any changed file, LTC or REQ status, a failed
+  verdict, or a verdict older than 24 h: the gate runs the profile as before.
+- **Installed `node_modules` are shared** by package.json + lockfile digest
+  (`<eval base>/.npm-store/`): a fresh work copy of the REQ or of a regression REQ links them
+  (hard links, no extra disk) instead of running npm again. Python venvs were already kept per REQ.
+- **Every check has its duration** (`duration_s` in the report cases), and the log has the
+  regression time: where an eval spends its time is measurable.
 
 Dependencies that are not promoted yet are not regression targets: their source is already part
 of the candidate's eval (promoted `src/` + dependency KITs + current KIT), and a REQ that never
