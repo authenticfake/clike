@@ -69,6 +69,19 @@ function detectRelease(root, { release = '', planText = null } = {}) {
   };
 }
 
+/**
+ * The release needs its own input: files in docs/inputs/<release>/ or attachments of the run (as
+ * /idea needs an attachment). The text of the command adds to them, it does not replace them.
+ */
+function cascadeInputCheck(rel, attachmentCount) {
+  if (rel.inputs.length || Number(attachmentCount) > 0) return { ok: true };
+  return {
+    ok: false,
+    message: `no input for ${rel.release}: put the new requirements in docs/inputs/${rel.release}/ ` +
+      `(background in docs/reference/${rel.release}/) or attach them.`,
+  };
+}
+
 /** What the baseline is: REQs not delivered and the last solution verification. */
 function baselineStatus(root) {
   let reqs = [];
@@ -333,6 +346,7 @@ module.exports = {
   releaseNumber,
   detectRelease,
   baselineStatus,
+  cascadeInputCheck,
   snapshotDocs,
   compareMarkdown,
   compareAdditive,
