@@ -134,6 +134,8 @@ IDEA → SPEC → PLAN in continuity with what exists:
   - `REMOVED` — retires a capability: `retires: ["REQ-x"]`.
   Targets must exist and be delivered; a superseded check must exist in the REQ's LTC. A plan that
   breaks these rules is rejected and nothing is kept.
+  The PLAN.md sections that index every REQ (REQ-IDs table, dependency graph, test strategy, KIT
+  readiness) list the new REQs too: CLike adds any the agent left out.
 - **BMAD.** `--methodology bmad --agent analyst|pm|architect|ux` works on the cascade (default role
   `pm`): the role leads the angle, CLike's rules and checks stay in charge (see
   `integrations/bmad/COMMANDS.md`).

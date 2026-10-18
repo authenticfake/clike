@@ -60,8 +60,9 @@ def cascade_rules(opts: Dict[str, Any]) -> List[str]:
         "holding; `unchanged: [...]` names what REQ-x keeps doing. REMOVED (retires a capability): "
         "`retires: [\"REQ-x\"]` with acceptance proving the removal. A REQ that is `in_progress` is never amended.",
         f"PLAN.md: keep every existing REQ section; add a `## Release {release}` section with the new REQs in "
-        "the same per-REQ format, and append them to the dependency and milestone sections. snapshot counts "
-        "match the REQs. Bounded, testable REQs; new REQs may depend on delivered ones.",
+        "the same per-REQ format. The sections that index every REQ (REQ-IDs table, dependency graph, test "
+        "strategy, KIT readiness, milestones) list the new REQs too, appended after the delivered ones. "
+        "snapshot counts match the REQs. Bounded, testable REQs; new REQs may depend on delivered ones.",
         "Shared files (composition roots, test runner configs, compose files, manifests, .env.example) are "
         "extended by new REQs, never rewritten: say so in their acceptance where relevant.",
         "Open questions: a decision the input leaves open that a REQ needs (provider, licensing, privacy, "

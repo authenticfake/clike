@@ -226,6 +226,69 @@ function verificationMarkdown({ release, baseline, inputs = [], references = [],
   ].filter((l) => l !== null).join('\n');
 }
 
+/**
+ * PLAN.md sections that index every REQ must list the new ones too, wherever the agent put their
+ * detail: the REQ-IDs table (rebuilt from plan.json, as CLike does on every status change), the
+ * dependency graph (`- REQ-x <- deps`), and the per-REQ bullet sections (`**REQ-x** — ...`), which
+ * get a pointer to the REQ's own subsection. Returns { text, added: ["section: REQ-x", ...] }.
+ */
+function syncPlanMd(md, planText) {
+  let reqs = [];
+  try { const p = JSON.parse(planText || ''); reqs = Array.isArray(p.reqs) ? p.reqs : p.req || []; } catch { return { text: md, added: [] }; }
+  if (md == null || !reqs.length) return { text: md, added: [] };
+  const added = [];
+  const lines = String(md).split('\n');
+  const sections = [];
+  lines.forEach((l, i) => { if (/^## /.test(l)) sections.push(i); });
+  const bounds = (start) => { const next = sections.find((i) => i > start); return [start, next === undefined ? lines.length : next]; };
+  const cell = (v) => String(v ?? '').replace(/\|/g, '/').replace(/\n/g, ' ');
+  const edits = [];
+  for (const start of sections) {
+    const heading = lines[start].replace(/^##\s+/, '').trim();
+    const [, end] = bounds(start);
+    const body = lines.slice(start + 1, end);
+    const has = (id) => body.some((l) => l.includes(id));
+    if (/^REQ[- ]IDs table$/i.test(heading)) {
+      const tableEnd = body.findIndex((l, i) => i > 0 && !l.startsWith('|') && body[i - 1].startsWith('|'));
+      const tableStart = body.findIndex((l) => l.startsWith('|'));
+      if (tableStart < 0) continue;
+      const rows = reqs.map((r) => `| ${cell(r.id)} | ${cell(r.title)} | ${cell((Array.isArray(r.acceptance) ? r.acceptance.map((a) => String(a).trim()) : [r.acceptance || '']).join('<br/>'))} | ${cell((r.dependsOn || []).join(', '))} | ${cell(r.track)} | ${cell(r.status)} |`);
+      const missing = reqs.filter((r) => !has(`| ${r.id} |`)).map((r) => r.id);
+      if (!missing.length) continue;
+      const stop = tableEnd < 0 ? body.length : tableEnd;
+      edits.push({ from: start + 1 + tableStart + 2, to: start + 1 + stop, insert: rows });
+      missing.forEach((id) => added.push(`${heading}: ${id}`));
+      continue;
+    }
+    if (body.some((l) => /^- REQ-\d+ <- /.test(l))) {
+      const last = start + 1 + body.map((l) => /^- REQ-\d+ <- /.test(l)).lastIndexOf(true);
+      const missing = reqs.filter((r) => !body.some((l) => l.startsWith(`- ${r.id} <- `)));
+      if (missing.length) {
+        edits.push({ from: last + 1, to: last + 1, insert: missing.map((r) => `- ${r.id} <- ${(r.dependsOn || []).join(', ') || 'none'}`) });
+        missing.forEach((r) => added.push(`${heading}: ${r.id}`));
+      }
+      continue;
+    }
+    const bulletIds = body.filter((l) => /^\*\*REQ-\d+\*\*/.test(l)).length;
+    if (bulletIds >= 2) {
+      const missing = reqs.filter((r) => !body.some((l) => l.startsWith(`**${r.id}**`)));
+      if (!missing.length) continue;
+      const prefix = heading.replace(/\s*\(.*\)\s*$/, '');
+      let insertAt = end;
+      while (insertAt > start + 1 && !lines[insertAt - 1].trim()) insertAt -= 1;
+      const pointer = (r) => {
+        const sub = `### ${prefix} — ${r.id}`;
+        const where = lines.includes(sub) ? `\`${sub}\`` : `the ${r.id} section`;
+        return ['', `**${r.id}** — see ${where}${r.release ? ` (Release ${r.release})` : ''}.`];
+      };
+      edits.push({ from: insertAt, to: insertAt, insert: missing.flatMap(pointer) });
+      missing.forEach((r) => added.push(`${heading}: ${r.id}`));
+    }
+  }
+  edits.sort((a, b) => b.from - a.from).forEach((e) => lines.splice(e.from, e.to - e.from, ...e.insert));
+  return { text: lines.join('\n'), added };
+}
+
 const norm = (p) => String(p || '').replace(/\\/g, '/').replace(/^\.?\//, '');
 
 /**
@@ -297,6 +360,14 @@ function reconcileExtend({ root, before, files, isAgent, mode = 'plan', cascade 
       warnings.push(`${DOC_FILES.tech} removed earlier lines: restored — it changes only by addition`);
     }
   }
+  if (!cascade.dryRun) {
+    const synced = syncPlanMd(current(PLAN_FILES.planMd), current(PLAN_FILES.plan));
+    if (synced.added.length) {
+      put(PLAN_FILES.planMd, synced.text);
+      if (!find(PLAN_FILES.planMd) && !isAgent) files.push({ path: PLAN_FILES.planMd, content: synced.text });
+      warnings.push(`PLAN.md index sections did not list the new REQs: CLike added ${synced.added.length} entr${synced.added.length === 1 ? 'y' : 'ies'} (${[...new Set(synced.added.map((a) => a.split(':')[0]))].join('; ')})`);
+    }
+  }
   if (cascade.dryRun) restoreAll();
 
   // the EXTEND report of this run: returned (cloud) or the newest on disk (local agent)
@@ -340,6 +411,7 @@ function tagBaseline(root, baseline) {
 
 module.exports = {
   reconcileExtend,
+  syncPlanMd,
   tagBaseline,
   DOC_FILES,
   PLAN_FILES,
