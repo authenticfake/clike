@@ -248,3 +248,15 @@ test('PLAN.md index sections list the new REQs (table, dependency graph, per-REQ
   assert.match(out.text, /\| REQ-001 \| Config \| a \|/);     // delivered rows unchanged
   assert.equal(re.syncPlanMd(out.text, JSON.stringify(plan)).added.length, 0); // idempotent
 });
+
+test('the chat (webview) copy of the slash parser runs: every constant it uses is included', () => {
+  const vm = require('vm');
+  const { buildBrowserSlashParserSource } = require('../slash-parser');
+  const sandbox = {};
+  vm.runInNewContext(`${buildBrowserSlashParserSource()}\nthis.out = [parseSlash('│ /idea --extend --methodology bmad --agent analyst'), parseSlash('/kit REQ-015'), parseSlash('hello')];`, sandbox);
+  const [extend, kit, chat] = sandbox.out;
+  assert.equal(extend.args.extend, true);
+  assert.equal(extend.args.agent, 'analyst');
+  assert.equal(kit.cmd, '/kit');
+  assert.equal(chat, null);
+});
