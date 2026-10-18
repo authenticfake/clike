@@ -25,6 +25,13 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 - **Chat sessions are no longer tracked**: `.clike/sessions/` is ignored as a whole and the
   hygiene check rejects it.
 
+### Fixed
+
+- **Regression ran the old test after a reconciliation**: when a candidate reconciles a promoted
+  REQ's test in its own test root (as the *Shared files changed* diagnosis asks), the regression of
+  that REQ now runs the candidate's version, which is what promotion delivers. It is reported as
+  the warning `regression::<REQ>::reconciled-tests`. Before, the repair could never converge.
+
 ## [1.5.1] — 2026-10-18 — CLike from Claude Code and Codex: MCP hardened, eval repairs that converge
 
 ### Added

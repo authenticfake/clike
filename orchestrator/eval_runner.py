@@ -367,6 +367,7 @@ class EvalRunner:
         cancel_event: Optional[threading.Event] = None,
         regression: bool = False,
         extra_root_roots: Optional[List[Path]] = None,
+        extra_test_roots: Optional[List[Path]] = None,
     ):
         self.project_root = project_root.resolve()
         # set when the caller goes away: the running check is stopped and no further check starts
@@ -376,6 +377,10 @@ class EvalRunner:
         self.extra_src_roots = list(extra_src_roots or [])
         # Regression runs: the candidate's repository-root deliverables (its KIT root/) overlaid last.
         self.extra_root_roots = list(extra_root_roots or [])
+        # Regression runs: the candidate KIT, whose copies of the regressed REQ's test files win (a
+        # reconciled test of that REQ is what promotion delivers). Only files the REQ already has.
+        self.extra_test_roots = list(extra_test_roots or [])
+        self.reconciled_tests: List[str] = []
         # A regression run re-checks a promoted REQ: its own KIT source is already in the canonical
         # tree (merged with what later REQs changed), so the stale KIT copy is not overlaid.
         self.regression = regression
@@ -1047,6 +1052,29 @@ class EvalRunner:
                 continue
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(item, target)
+
+    def _overlay_existing_files(self, src: Path, dst: Path) -> List[str]:
+        """Copy over ``dst`` only the files of ``src`` that ``dst`` already has with different content
+        (the candidate's version of a regressed REQ's test); its other files stay out. Returns the
+        replaced relative paths."""
+        replaced: List[str] = []
+        if not src.is_dir() or not dst.is_dir():
+            return replaced
+        for target in sorted(dst.rglob("*")):
+            if not target.is_file():
+                continue
+            rel = target.relative_to(dst)
+            item = src / rel
+            if not item.is_file():
+                continue
+            try:
+                if item.read_bytes() == target.read_bytes():
+                    continue
+            except OSError:
+                continue
+            shutil.copy2(item, target)
+            replaced.append(rel.as_posix())
+        return replaced
 
     def _load_plan_dependencies(self, req_id: Optional[str]) -> List[str]:
         if not req_id:
@@ -1798,6 +1826,11 @@ class EvalRunner:
                         kit_root / logical_root,
                         composed_logical_root,
                     )
+                    for extra_test in self.extra_test_roots:
+                        self.reconciled_tests += [
+                            f"{logical_root}/{rel}"
+                            for rel in self._overlay_existing_files(Path(extra_test) / logical_root, composed_logical_root)
+                        ]
 
                 if composed_logical_root.exists():
                     target_logical_root = work_kit_root / logical_root
@@ -3311,10 +3344,23 @@ class EvalRunner:
                 eval_key=f"{self._safe_req_id(req_id)}/regression/{self._safe_req_id(other)}",
                 extra_src_roots=[candidate_src],
                 extra_root_roots=[candidate_src.parent / KIT_ROOT_DIR],
+                extra_test_roots=[candidate_src.parent],
                 cancel_event=self.cancel_event,
                 regression=True,
             )
             report = runner.run_profile(profile=str(profile), ltc=ltc, req_id=other)
+            if runner.reconciled_tests:
+                # visible, never silent: the candidate changes tests another REQ delivered
+                files = sorted(set(runner.reconciled_tests))
+                cases.append(EvalCase(
+                    # a warning (non-blocking failure): shown in the report, never repaired
+                    name=f"regression::{other}::reconciled-tests", passed=False, code=1, blocking=False,
+                    stdout=(f"{other}'s checks ran with the candidate's version of {len(files)} of its test file(s) "
+                            "(the state after promotion); review the change before the gate:\n"
+                            + "\n".join(f"- {f}" for f in files)),
+                    stderr="",
+                ))
+                log.info("regression %s: candidate reconciles %d test file(s)", other, len(files))
             self._retry_failed_regression_tests(runner, profile, ltc, other, report)
             self._note_shared_file_changes(other, candidate_src.parent, report)
             for case in report.cases:

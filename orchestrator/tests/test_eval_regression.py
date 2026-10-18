@@ -130,6 +130,24 @@ class EvalRegressionTests(_RegressionProject):
         self.assertEqual(gate["reason_code"], "GATE_BLOCKED_REGRESSION")
         self.assertEqual(gate["regression_failures"], ["regression::REQ-001::unit"])
 
+    def test_a_test_reconciled_in_the_candidate_is_the_one_the_regression_runs(self):
+        # REQ-002 changes price() on purpose and reconciles REQ-001's test in its own test root: the
+        # regression runs that version (what promotion delivers) and names it as a warning.
+        kit = self.proj / "runs" / "kit" / "REQ-002"
+        (kit / "src" / "pricing.py").write_text("def price():\n    return 12\n")
+        (kit / "test" / "test_checkout.py").write_text("from checkout import total\nassert total(2) == 24\n")
+        (kit / "test" / "test_pricing.py").write_text("from pricing import price\nassert price() == 12\n")
+
+        body = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        self.assertEqual(body["status"], "PASS_WITH_WARNINGS", body)
+        self.assertIn("regression::REQ-001::unit", [c["name"] for c in body["cases"] if c["passed"]])
+        audit = next(c for c in body["cases"] if c["name"] == "regression::REQ-001::reconciled-tests")
+        self.assertFalse(audit["passed"])
+        self.assertFalse(audit["blocking"])
+        self.assertIn("test/test_pricing.py", audit["stdout"])
+        # the candidate's own tests are not added to the regressed REQ's checks
+        self.assertNotIn("test_checkout.py", audit["stdout"])
+
     def test_regression_does_not_overwrite_the_promoted_req_eval(self):
         self._post("/v1/eval/run", "REQ-002", regression=True)
         base = self.proj / "runs" / "eval"
