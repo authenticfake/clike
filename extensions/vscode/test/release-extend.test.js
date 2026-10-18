@@ -58,6 +58,11 @@ test('/idea --extend is parsed as the release cascade; plain /idea is unchanged'
   assert.equal(s.args.release, 'v3');
   assert.equal(s.args.rawInput, 'add sign-in');
   assert.deepEqual(parseSlash('/idea MyProject').args, { name: 'MyProject' });
+  // a command pasted with a terminal border or a quote marker in front is still a command
+  for (const pasted of ['│ /idea --extend', '┃/idea --extend', '> /idea --extend', '\u00a0/idea --extend']) {
+    assert.equal(parseSlash(pasted)?.args?.extend, true, pasted);
+  }
+  assert.equal(parseSlash('hello /idea --extend'), null);
   // BMAD on the cascade: the agents of the extend phase (analyst, pm, architect, ux)
   const bmad = parseSlash('/idea --extend --methodology bmad --agent analyst');
   assert.equal(bmad.error, undefined);
