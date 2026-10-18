@@ -78,6 +78,18 @@ test('the target release comes from the release folders, the plan or the command
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+test('the release needs files in docs/inputs/<release>/ or an attachment', () => {
+  const { root } = project();
+  const rel = re.detectRelease(root);
+  assert.equal(re.cascadeInputCheck(rel, 0).ok, true);            // docs/inputs/v2/ has the requirements
+  const empty = re.detectRelease(root, { release: 'v3' });
+  assert.equal(re.cascadeInputCheck(empty, 1).ok, true);          // attached
+  const none = re.cascadeInputCheck(empty, 0);
+  assert.equal(none.ok, false);
+  assert.match(none.message, /docs\/inputs\/v3\//);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
 test('the baseline reports REQs not delivered and the last solution verification', () => {
   const { root, put } = project();
   assert.deepEqual(re.baselineStatus(root), { hasPlan: true, total: 2, notDone: [], solution: 'not run' });

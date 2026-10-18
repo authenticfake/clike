@@ -3856,11 +3856,8 @@ async function cmdOpenChat(context) {
                 '(taking over an existing code base is the next step of /idea --extend, see docs/architecture/ADOPT_AND_IDEA_EXTEND.md).');
             }
             const rel = releaseExtend.detectRelease(root, { release: msg.release });
-            const attached = Array.isArray(msg.attachments) ? msg.attachments.length : 0;
-            if (!attached && !rel.inputs.length && !msg.rawInput) {
-              return stop(`no input for ${rel.release}: put the new requirements in docs/inputs/${rel.release}/ ` +
-                `(background in docs/reference/${rel.release}/) or attach them.`);
-            }
+            const inputCheck = releaseExtend.cascadeInputCheck(rel, Array.isArray(msg.attachments) ? msg.attachments.length : 0);
+            if (!inputCheck.ok) return stop(inputCheck.message);
             if (baselineInfo.notDone.length) {
               const go = 'Extend anyway';
               const choice = await vscode.window.showWarningMessage(
@@ -3870,7 +3867,7 @@ async function cmdOpenChat(context) {
             }
             msg.__cascade = { ...rel, baselineInfo, dryRun: !!msg.dryRun, attachments: (msg.attachments || []).map((a) => a?.name || a?.path).filter(Boolean) };
             panel.webview.postMessage({ type: 'echo', message: `▶ /idea --extend: ${rel.baseline} → ${rel.release}` +
-              ` (inputs: ${[...msg.__cascade.attachments, ...rel.inputs, ...rel.references].join(', ') || 'request text'})${msg.dryRun ? ' — dry run' : ''}` });
+              ` (inputs: ${[...msg.__cascade.attachments, ...rel.inputs, ...rel.references].join(', ')})${msg.dryRun ? ' — dry run' : ''}` });
           }
 
           if (phase === 'finalize') {
