@@ -2,6 +2,8 @@
 
 ![Logo di Clike](images/clike_64x64.png)
 
+![CLike at a glance](https://raw.githubusercontent.com/authenticfake/clike/main/docs/images/clike-overview.png)
+
 > AI-native software engineering assistant for day-to-day coding and Harper-style solutioning inside VS Code.
 > Works with the **CLike Orchestrator** and **CLike Gateway** across multiple providers and model families.
 

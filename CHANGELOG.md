@@ -4,6 +4,8 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.5.1] — 2026-10-18 — CLike from Claude Code and Codex: MCP hardened, eval repairs that converge
+
 ### Added
 
 - **`docs/howto-mcp-project.md`**: run a whole CLike project from Claude Code or Codex through MCP —
