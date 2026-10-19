@@ -4947,7 +4947,9 @@ async function cmdOpenChat(context) {
             // changed (and checked in the sandbox) the candidate; a pre-pass would change it again
             // unverified (it once undid a repair that had made the unit tests pass).
             const afterRepair = !!msg.fix && Number(msg.fix.cycle || 0) > 0;
+            // clike.localAgent.allowEval = false: straight to the canonical eval, no pre-pass
             const evalAgentPrepassRequested =
+              settings.localAgentAllowEval !== false &&
               executionPreference !== 'cloud_only' && !!selectedLocalExecutor && !afterRepair;
 
             if (evalAgentPrepassRequested) {
