@@ -40,6 +40,8 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   promoted REQ) could not be fixed by a later repair, and the extension restored it. Such files
   are not locked acceptance: they are kept (returned as `unlocked`), for cloud repairs as for
   Claude Code and Codex.
+- **`clike.localAgent.allowEval: false` was ignored**: `/eval` ran the local-agent pre-pass whenever
+  a local executor was selected. The setting now skips it and the eval goes straight to the sandbox.
 
 ## [1.5.1] — 2026-10-18 — CLike from Claude Code and Codex: MCP hardened, eval repairs that converge
 
