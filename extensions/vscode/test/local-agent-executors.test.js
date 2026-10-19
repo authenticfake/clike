@@ -4,6 +4,8 @@ const test = require('node:test');
 const {
   localAgentSupportsPhase,
   getExecutorConfig,
+  resolveLocalAgentTimeoutMinutes,
+  timeoutSettingKey,
 } = require('../local-agent-executors');
 
 const DOCUMENT_PHASES = ['idea', 'spec', 'plan'];
@@ -51,4 +53,25 @@ test('Windows never passes the prompt as a cmd.exe argument (WP4.8)', () => {
   assert.equal(resolvePromptTransport('claude_code', '', 'linux'), 'argv_last');
   assert.equal(resolvePromptTransport('gpt_codex', '', 'darwin'), 'stdin');
   assert.equal(resolvePromptTransport('gpt_codex', 'stdin', 'win32'), 'stdin');
+});
+
+test('an executor timeout set by the user wins over the common local-agent timeout', () => {
+  const settings = { localAgentTimeoutMinutes: 30, codexTimeoutMinutes: 60 };
+  assert.strictEqual(resolveLocalAgentTimeoutMinutes('gpt_codex', settings), 60);
+  assert.strictEqual(getExecutorConfig('gpt_codex', settings).timeoutMinutes, 60);
+  // Claude Code has no own timeout set: the common one applies
+  assert.strictEqual(getExecutorConfig('claude_code', settings).timeoutMinutes, 30);
+  assert.strictEqual(resolveLocalAgentTimeoutMinutes('claude_code', { claudeCodeTimeoutMinutes: 45 }), 45);
+});
+
+test('auto resolves the timeout of the preferred executor, with 30 minutes as the fallback', () => {
+  const settings = { localAgentPreferredExecutor: 'gpt_codex', codexTimeoutMinutes: 50 };
+  assert.strictEqual(resolveLocalAgentTimeoutMinutes('auto', settings), 50);
+  assert.strictEqual(resolveLocalAgentTimeoutMinutes('auto', {}), 30);
+});
+
+test('a timeout names the setting of the executor that timed out', () => {
+  assert.strictEqual(timeoutSettingKey('gpt_codex'), 'clike.localAgent.codex.timeoutMinutes');
+  assert.strictEqual(timeoutSettingKey('claude_code'), 'clike.claudeCode.timeoutMinutes');
+  assert.strictEqual(timeoutSettingKey('auto'), 'clike.localAgent.timeoutMinutes');
 });

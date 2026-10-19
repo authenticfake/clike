@@ -205,7 +205,7 @@ Current extension settings include:
 - `clike.localAgent.preferredExecutor`
 - `clike.localAgent.allowEval`
 - `clike.localAgent.restrictToKitPhases`
-- `clike.localAgent.timeoutMinutes`
+- `clike.localAgent.timeoutMinutes` — used by executors without their own timeout set (see [local-agents.md](local-agents.md#timeouts))
 
 ### Claude Code
 - `clike.claudeCode.enabled`

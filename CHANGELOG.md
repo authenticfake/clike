@@ -27,6 +27,11 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **Local agent timeouts**: `clike.localAgent.codex.timeoutMinutes` and
+  `clike.claudeCode.timeoutMinutes` were ignored (the common `clike.localAgent.timeoutMinutes`
+  always won); now the executor's own timeout applies when set. A run that times out is no
+  longer thrown away: CLike checks the files the agent wrote and, if the required outputs are
+  there, the phase continues (normalization, eval); otherwise the error names the setting to raise.
 - **Regression ran the old test after a reconciliation**: when a candidate reconciles a promoted
   REQ's test in its own test root (as the *Shared files changed* diagnosis asks), the regression of
   that REQ now runs the candidate's version, which is what promotion delivers. It is reported as
