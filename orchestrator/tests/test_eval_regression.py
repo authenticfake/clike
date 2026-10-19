@@ -148,6 +148,27 @@ class EvalRegressionTests(_RegressionProject):
         # the candidate's own tests are not added to the regressed REQ's checks
         self.assertNotIn("test_checkout.py", audit["stdout"])
 
+    def test_a_reconciled_test_gets_the_candidate_support_files_next_to_it(self):
+        # The reconciled test imports a helper the candidate added beside it: the helper comes too,
+        # a new test of the candidate in the same directory does not.
+        kit = self.proj / "runs" / "kit" / "REQ-002"
+        (kit / "src" / "pricing.py").write_text("def price():\n    return 12\n")
+        (kit / "test" / "test_checkout.py").write_text("from checkout import total\nassert total(2) == 24\n")
+        (kit / "test" / "expected.py").write_text("PRICE = 12\n")
+        (kit / "test" / "test_extra.py").write_text("def test_never_in_regression():\n    assert False\n")
+        (kit / "test" / "test_pricing.py").write_text(
+            "import sys, os\nsys.path.insert(0, os.path.dirname(__file__))\n"
+            "from expected import PRICE\nfrom pricing import price\nassert price() == PRICE\n"
+        )
+
+        body = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        self.assertEqual(body["status"], "PASS_WITH_WARNINGS", body)
+        audit = next(c for c in body["cases"] if c["name"] == "regression::REQ-001::reconciled-tests")
+        self.assertIn("test/expected.py", audit["stdout"])
+        self.assertNotIn("test_extra.py", audit["stdout"])
+        work = self.proj / "runs" / "eval" / "REQ-002" / "regression" / "REQ-001" / "work" / "REQ-001" / "test"
+        self.assertFalse((work / "test_extra.py").exists())
+
     def test_regression_does_not_overwrite_the_promoted_req_eval(self):
         self._post("/v1/eval/run", "REQ-002", regression=True)
         base = self.proj / "runs" / "eval"

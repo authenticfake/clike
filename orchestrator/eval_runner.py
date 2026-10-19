@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional
 
 import eval_environment
 import eval_failures
+from services.gate_integrity import _DEFINES_TESTS_RE
 from services.root_files import KIT_ROOT_DIR, root_policy
 import eval_tools
 import sandbox_resources
@@ -176,6 +177,8 @@ _SANDBOX_EXHAUSTED_NOTE = "[CLike EvalRunner] Sandbox resources exhausted"
 _MISSING_TOOLS_NOTE = "[CLike EvalRunner] Missing in the eval sandbox"
 _NONDETERMINISTIC_NOTE = "[CLike EvalRunner] Nondeterministic"
 _SHARED_FILES_NOTE = "[CLike EvalRunner] Shared files changed"
+# A test file by name in Python, JS/TS, Java/Kotlin, Go, C# (test_x.py, x_test.go, x.test.ts, x.spec.js, XTest.java, XTests.cs).
+_TEST_FILE_NAME_RE = re.compile(r"^test_|_test\.\w+$|\.(test|spec)\.\w+$|Tests?\.\w+$")
 _SHARED_SCAN_SKIP = {
     "node_modules", "__pycache__", ".venv", ".next", "dist", ".tmp", ".cache", "reports", "target", ".gradle", "obj",
 }
@@ -1054,16 +1057,20 @@ class EvalRunner:
             shutil.copy2(item, target)
 
     def _overlay_existing_files(self, src: Path, dst: Path) -> List[str]:
-        """Copy over ``dst`` only the files of ``src`` that ``dst`` already has with different content
-        (the candidate's version of a regressed REQ's test); its other files stay out. Returns the
-        replaced relative paths."""
-        replaced: List[str] = []
+        """Copy over ``dst`` the files of ``src`` that ``dst`` already has with different content (the
+        candidate's version of a regressed REQ's test) and, once one is replaced, the candidate's new
+        support files next to the regressed REQ's files (a package marker, a conftest, a helper: any
+        file that defines no test), which a reconciled test may import. The candidate's own tests
+        stay out. Returns the replaced or added relative paths."""
+        changed: List[str] = []
         if not src.is_dir() or not dst.is_dir():
-            return replaced
+            return changed
+        owned_dirs = set()
         for target in sorted(dst.rglob("*")):
             if not target.is_file():
                 continue
             rel = target.relative_to(dst)
+            owned_dirs.add(rel.parent)
             item = src / rel
             if not item.is_file():
                 continue
@@ -1073,8 +1080,24 @@ class EvalRunner:
             except OSError:
                 continue
             shutil.copy2(item, target)
-            replaced.append(rel.as_posix())
-        return replaced
+            changed.append(rel.as_posix())
+        if not changed:
+            return changed
+        for item in sorted(src.rglob("*")):
+            rel = item.relative_to(src)
+            if not item.is_file() or rel.parent not in owned_dirs or (dst / rel).exists():
+                continue
+            if any(part in _SHARED_SCAN_SKIP for part in rel.parts) or item.suffix in {".pyc", ".pyo"}:
+                continue
+            try:
+                text = item.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            if _TEST_FILE_NAME_RE.search(item.name) or _DEFINES_TESTS_RE.search(text):
+                continue  # a test of the candidate: its own checks run it
+            shutil.copy2(item, dst / rel)
+            changed.append(rel.as_posix())
+        return changed
 
     def _load_plan_dependencies(self, req_id: Optional[str]) -> List[str]:
         if not req_id:
@@ -3355,7 +3378,7 @@ class EvalRunner:
                 cases.append(EvalCase(
                     # a warning (non-blocking failure): shown in the report, never repaired
                     name=f"regression::{other}::reconciled-tests", passed=False, code=1, blocking=False,
-                    stdout=(f"{other}'s checks ran with the candidate's version of {len(files)} of its test file(s) "
+                    stdout=(f"{other}'s checks ran with the candidate's version of {len(files)} file(s) in its test directories "
                             "(the state after promotion); review the change before the gate:\n"
                             + "\n".join(f"- {f}" for f in files)),
                     stderr="",
