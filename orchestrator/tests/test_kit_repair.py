@@ -88,6 +88,17 @@ class KitRepairTests(unittest.TestCase):
         self.assertTrue(any(w.startswith(f"repair_change_rejected:test/test_app.py") for w in out["warnings"]))
         self.assertEqual(out["repair"]["amendments"]["accepted"], ["ci/LTC.json"])
 
+    def test_a_cloud_repair_keeps_a_test_the_lock_does_not_hold(self):
+        # parity with local agents: a test file added after the lock is not locked acceptance
+        added = f"runs/kit/{REQ}/test/test_reconciled.py"
+        out, _sent, _gen = self._run([
+            {"path": f"runs/kit/{REQ}/src/app.py", "content": "def f():\n    return 1\n"},
+            {"path": added, "content": "from app import f\n\ndef test_g():\n    assert f() == 1\n"},
+        ])
+        self.assertIn(added, [f["path"] for f in out["files"]])
+        self.assertEqual(out["repair"]["amendments"]["unlocked"], ["test/test_reconciled.py"])
+        self.assertFalse(any(w.startswith("repair_change_rejected:test/test_reconciled.py") for w in out["warnings"]))
+
 
 if __name__ == "__main__":
     unittest.main()

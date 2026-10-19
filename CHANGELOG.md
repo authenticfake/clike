@@ -35,6 +35,11 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   to the promoted REQ's tests (`__init__.py`, `conftest`, helpers; never tests, by name or content)
   now come with the reconciled test. Before, a relative import (`from .conftest import …`) failed in
   the regression only.
+- **A repair of an unlocked test was undone**: governance rejected any change to a `test/` file
+  without a digest in the acceptance lock, so a test added after the lock (a reconciled test of a
+  promoted REQ) could not be fixed by a later repair, and the extension restored it. Such files
+  are not locked acceptance: they are kept (returned as `unlocked`), for cloud repairs as for
+  Claude Code and Codex.
 
 ## [1.5.1] — 2026-10-18 — CLike from Claude Code and Codex: MCP hardened, eval repairs that converge
 

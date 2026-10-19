@@ -162,7 +162,9 @@ The repair prompt (cloud) and the orchestrator enforce the same rules:
 - **Source and docs** (`runs/kit/<REQ>/src/**`, `docs/**`): free to change. Only the changed files
   are returned; the others stay as they are.
 - **Tests** (`runs/kit/<REQ>/test/**`): **locked**. They are the acceptance criteria taken at the
-  first eval: the repair makes the code pass them. Other changes are rejected
+  first eval: the repair makes the code pass them. A test file the lock does not hold (new, or added by an
+  earlier repair, e.g. a reconciled test of a promoted REQ) is not locked: it is kept as written,
+  by a cloud model or a local agent alike. Other changes are rejected
   (`repair_change_rejected:...`) and never written. Two exceptions, both checked by the
   orchestrator on the AST and audited:
   - *unused imports* (lint failures): a Python test may only drop imports;

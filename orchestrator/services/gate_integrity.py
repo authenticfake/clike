@@ -535,7 +535,8 @@ def amend_acceptance_surface(
 
     ``changes`` maps KIT-relative paths (``ci/LTC.json``, ``test/...``) to new content.
 
-    * ``test/**``: a repair makes the code pass the locked tests. Exceptions: a Python test that
+    * ``test/**``: a repair makes the code pass the locked tests (a test file the lock does not
+      hold — new, or added after the lock — is not locked: returned in ``unlocked``, kept as is). Exceptions: a Python test that
       only drops unused imports (lint), and a test the eval shows to be wrong itself
       (``evidence``: an API-misuse/import/fixture error raised in that test file, or for JS/TS a
       TypeScript error reported on it), fixed with every test and assertion unchanged and no
@@ -559,6 +560,7 @@ def amend_acceptance_surface(
     texts: Dict[str, str] = dict(lock.get("texts") or {})
     accepted: List[str] = []
     rejected: Dict[str, List[str]] = {}
+    unlocked: List[str] = []
     kinds: Dict[str, str] = {}
     previous = {str(k).replace("\\", "/").lstrip("/"): v for k, v in (previous or {}).items()}
     for raw_rel, content in (changes or {}).items():
@@ -566,6 +568,11 @@ def amend_acceptance_surface(
         if files.get(rel) == hashlib.sha256(content.encode("utf-8")).hexdigest():
             continue  # already the locked content
         if rel.startswith("test/"):
+            if rel not in files:
+                # not in the lock (added after it, e.g. by an earlier repair): not locked acceptance,
+                # like a new file it is left alone; restoring it would undo a repair of an unlocked test
+                unlocked.append(rel)
+                continue
             issue = _test_change_issue(root / rel, files.get(rel), content, evidence, previous.get(rel))
             if issue:
                 rejected[rel] = [issue]
@@ -634,6 +641,7 @@ def amend_acceptance_surface(
     return {
         "accepted": sorted(accepted),
         "rejected": rejected,
+        "unlocked": sorted(unlocked),
         "audit_id": entry.get("audit_id"),
         "test_fixes": sorted(rel for rel, kind in kinds.items() if kind == "test_fix"),
     }
