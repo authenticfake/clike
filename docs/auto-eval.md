@@ -270,9 +270,10 @@ contributes, never that a shared file contains only that.
 When the candidate changes a promoted REQ's behaviour on purpose, it reconciles that REQ's test in
 its own test root, at the same path (`runs/kit/<candidate>/test/...`). The regression runs that
 version, since promotion delivers it: the candidate's copy replaces the test files the promoted
-REQ already has, and the candidate's new support files in the same directories come with it (a
-package marker such as `__init__.py`, a `conftest`, a helper: any file that is not a test by name
-or content), so a reconciled test can import them. The candidate's own tests are not added to
+REQ already has, and every new support file of the candidate's test tree comes with it, in any
+directory (a package marker such as `__init__.py`, a `conftest`, a helper at the test root or in a
+`helpers/` folder: any file that is not a test by name or content), so a reconciled test can import
+them, as it will after promotion. The candidate's own tests are not added to
 that REQ's checks. The change is never silent:
 the report carries the warning `regression::<REQ>::reconciled-tests` with the replaced files, for
 review before the gate. It is not sent to a repair.
