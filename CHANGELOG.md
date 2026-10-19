@@ -42,8 +42,10 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   the regression only.
 - **A reconciled test could not import a helper outside its directory**: a reconciled test in
   `test/v2/` importing a helper the candidate put at the test root failed with
-  `ModuleNotFoundError` in the regression only, and the repair could not fix it. Every new support
-  file of the candidate's test tree now comes with a reconciled test, in any directory.
+  `ModuleNotFoundError` in the regression only, and the repair could not fix it. A reconciled test
+  now gets the support modules it imports (also through another helper) from anywhere in the
+  candidate's test tree, plus a package marker or `conftest` beside it; a `conftest` elsewhere stays
+  out, since the test runner would load it into the promoted REQ's own tests.
 - **A repair of an unlocked test was undone**: governance rejected any change to a `test/` file
   without a digest in the acceptance lock, so a test added after the lock (a reconciled test of a
   promoted REQ) could not be fixed by a later repair, and the extension restored it. Such files

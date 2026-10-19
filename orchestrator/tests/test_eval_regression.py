@@ -160,7 +160,9 @@ class EvalRegressionTests(_RegressionProject):
             "import sys, os\nsys.path.insert(0, os.path.dirname(__file__))\n"
             "from expected import PRICE\nfrom pricing import price\nassert price() == PRICE\n"
         )
+        # the candidate's conftest for its own tests elsewhere, and a helper nobody imports
         (kit / "test" / "helpers").mkdir()
+        (kit / "test" / "helpers" / "conftest.py").write_text("import missing_dependency\n")
         (kit / "test" / "helpers" / "fixtures.py").write_text("PRICE = 12\n")
 
         body = self._post("/v1/eval/run", "REQ-002", regression=True).json()
@@ -168,8 +170,8 @@ class EvalRegressionTests(_RegressionProject):
         audit = next(c for c in body["cases"] if c["name"] == "regression::REQ-001::reconciled-tests")
         self.assertIn("test/expected.py", audit["stdout"])
         self.assertNotIn("test_extra.py", audit["stdout"])
-        # a helper in a directory the promoted REQ does not have comes too: promotion delivers it
-        self.assertIn("test/helpers/fixtures.py", audit["stdout"])
+        # only what the reconciled test imports: a conftest elsewhere would load into REQ-001's run
+        self.assertNotIn("test/helpers/", audit["stdout"])
         work = self.proj / "runs" / "eval" / "REQ-002" / "regression" / "REQ-001" / "work" / "REQ-001" / "test"
         self.assertFalse((work / "test_extra.py").exists())
 
@@ -186,8 +188,13 @@ class EvalRegressionTests(_RegressionProject):
         kit = self.proj / "runs" / "kit" / "REQ-002"
         (kit / "src" / "pricing.py").write_text("def price():\n    return 12\n")
         (kit / "test" / "test_checkout.py").write_text("from checkout import total\nassert total(2) == 24\n")
-        (kit / "test" / "req001_support.py").write_text("PRICE = 12\n")
-        (kit / "test" / "v2").mkdir()
+        (kit / "test" / "req001_support.py").write_text("from req001_values import PRICE\n")
+        # a package marker of the candidate named like a source package: importing from the source
+        # package does not bring it (it would shadow src/pricing)
+        (kit / "test" / "stubs" / "pricing").mkdir(parents=True)
+        (kit / "test" / "stubs" / "pricing" / "__init__.py").write_text("")
+        (kit / "test" / "v2" / "req001_values.py").parent.mkdir()
+        (kit / "test" / "v2" / "req001_values.py").write_text("PRICE = 12\n")
         (kit / "test" / "v2" / "test_pricing.py").write_text(
             "from req001_support import PRICE\nfrom pricing import price\nassert price() == PRICE\n"
         )
@@ -196,6 +203,9 @@ class EvalRegressionTests(_RegressionProject):
         self.assertEqual(body["status"], "PASS_WITH_WARNINGS", body)
         audit = next(c for c in body["cases"] if c["name"] == "regression::REQ-001::reconciled-tests")
         self.assertIn("test/req001_support.py", audit["stdout"])
+        self.assertNotIn("test/stubs/", audit["stdout"])
+        # imported by the helper, not by the test: it comes too
+        self.assertIn("test/v2/req001_values.py", audit["stdout"])
         self.assertNotIn("test_checkout.py", audit["stdout"])
 
     def test_regression_does_not_overwrite_the_promoted_req_eval(self):
