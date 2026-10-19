@@ -64,8 +64,10 @@ Other settings: `gitDeleteBranchOnMerge`, `gitReturnToFeatureAfterMerge`, `remot
 - `/idea --extend` tags the delivered baseline `harper/v<N-1>` (annotated, on `HEAD`, once; not
   on `--dry-run`) before the release changes the documents.
 - Paths the project ignores are left out of a phase commit (logged), so one ignored path does not
-  skip the commit; CLike agent files of the REQ (`runs/kit/<REQ>/docs/AGENT_*`) are committed with
-  the phase, so they never block the switch to the default branch.
+  skip the commit; tracked files of the REQ's own KIT (`runs/kit/<REQ>/`) changed outside the
+  phase — CLike's agent package `docs/AGENT_*`, a `ci/HOWTO.md` a pre-pass or repair updated — are
+  committed with the KIT, eval and gate phases, so they never block the switch to the default
+  branch. Untracked files there (agent scratch, reports) and changes outside the KIT stay yours.
 - These guarantees are covered by tests against real temporary repositories
   (`extensions/vscode/test/git-sync.test.js`).
 

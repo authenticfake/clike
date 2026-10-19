@@ -42,6 +42,10 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   Claude Code and Codex.
 - **`clike.localAgent.allowEval: false` was ignored**: `/eval` ran the local-agent pre-pass whenever
   a local executor was selected. The setting now skips it and the eval goes straight to the sandbox.
+- **Merge-on-gate blocked by a KIT file of the REQ**: a tracked file of `runs/kit/<REQ>/` changed
+  after its phase (e.g. `ci/HOWTO.md` updated by an eval pre-pass) was left out of the gate commit,
+  and the switch to the default branch failed ("Your local changes … would be overwritten"). Every
+  tracked change of the REQ's own KIT is now committed with the KIT, eval and gate phases.
 
 ## [1.5.1] — 2026-10-18 — CLike from Claude Code and Codex: MCP hardened, eval repairs that converge
 
