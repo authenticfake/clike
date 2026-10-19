@@ -63,6 +63,17 @@ The extension checks:
 - `clike.localAgent.restrictToKitPhases`
 - `clike.localAgent.timeoutMinutes`
 
+### Timeouts
+- A run uses the executor's own timeout (`clike.claudeCode.timeoutMinutes`,
+  `clike.localAgent.codex.timeoutMinutes`) when you set it, otherwise
+  `clike.localAgent.timeoutMinutes` (default 30). A repair that re-runs eval checks gets
+  extra time for each check it may run.
+- A timeout is a time budget, not a verdict. CLike stops the agent and checks the files it
+  wrote: if the phase's required outputs are there, the run continues like a finished one
+  (orchestrator normalization, then eval decides the quality) and the chat says the agent
+  timed out. If they are not, the error says so and names the setting to raise; the files
+  stay on disk for the next run.
+
 ### Model of the local agent
 - `clike.claudeCode.model` (default `opus`) and `clike.localAgent.codex.model` are passed as
   `--model` to every run, chat and Harper phases alike.

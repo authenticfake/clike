@@ -354,7 +354,7 @@
           "type": "number",
           "default": 30,
           "minimum": 1,
-          "description": "Default timeout in minutes for local agent runs triggered by CLike."
+          "description": "Timeout in minutes for local agent runs triggered by CLike, for executors without their own timeout set. When a run times out, CLike still checks the files the agent wrote: if the required outputs are there the phase continues (normalization, eval); otherwise the error names the setting to raise."
         },
         "clike.claudeCode.enabled": {
           "type": "boolean",
@@ -387,7 +387,7 @@
           "type": "number",
           "default": 30,
           "minimum": 1,
-          "description": "Timeout in minutes for synchronous Claude Code runs triggered by CLike."
+          "description": "Timeout in minutes for Claude Code runs triggered by CLike. When set, it overrides clike.localAgent.timeoutMinutes for Claude Code."
         },
         "clike.claudeCode.enableEval": {
           "type": "boolean",
@@ -432,7 +432,7 @@
           "type": "number",
           "default": 30,
           "minimum": 1,
-          "description": "Timeout in minutes for GPT Codex runs triggered by CLike."
+          "description": "Timeout in minutes for GPT Codex runs triggered by CLike. When set, it overrides clike.localAgent.timeoutMinutes for Codex."
         },
         "clike.mcp.extensionServerEnabled": {
           "type": "boolean",

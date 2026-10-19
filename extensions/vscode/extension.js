@@ -34,6 +34,8 @@ const {
   detectLocalAgentAvailability,
   reconcileExecutionPreference,
   getExecutorConfig,
+  resolveLocalAgentTimeoutMinutes,
+  timeoutSettingKey,
   buildLocalAgentModelArgs,
   parseLocalAgentRun,
   withMachineReadableOutput,
@@ -1001,6 +1003,12 @@ async function executeLocalAgentPackage({
 
   const agentStartedAt = Date.now();
   let agentResult;
+  let timedOut = null;
+  // after a timeout, an output check failure says so and names the setting to raise
+  const unlessTimedOut = (message) => (timedOut
+    ? `${executorLabel} timed out after ${timedOut.timeoutMinutes} minute(s) before finishing (${message}). ` +
+      `The files it wrote are kept; raise ${timeoutSettingKey(selectedExecutor)} and re-run.`
+    : message);
   try {
     agentResult = await runLocalAgentSync({
       workspaceRootUri: wsroot,
@@ -1016,6 +1024,18 @@ async function executeLocalAgentPackage({
       // the time spent waiting for eval checks in the sandbox does not eat the agent's own budget
       timeoutMinutes: agentTimeoutMinutes(Number(invocation.timeout_seconds || 1800) / 60, evalCheck),
       out,
+    });
+  } catch (err) {
+    // A timeout is a time budget, not a verdict: what the agent wrote goes through the
+    // same output validation, orchestrator normalization and eval as a finished run.
+    if (!err || err.code !== 'LOCAL_AGENT_TIMEOUT') throw err;
+    timedOut = err;
+    agentResult = { exitCode: 124, stdout: err.stdout || '', stderr: err.stderr || '' };
+    log(`[harperRun][agent] ${selectedExecutor} timed out after ${err.timeoutMinutes} min; checking the outputs it wrote`);
+    panel.webview.postMessage({
+      type: 'echo',
+      message: `⏱️ ${executorLabel} timed out after ${err.timeoutMinutes} minute(s). CLike checks the files it wrote: ` +
+        `if the required outputs are there the run continues, otherwise raise ${timeoutSettingKey(selectedExecutor)} and re-run.`,
     });
   } finally {
     if (evalCheckBridge) {
@@ -1057,6 +1077,7 @@ async function executeLocalAgentPackage({
   );
 
   if (!candidateArtifacts.length) {
+    if (timedOut) throw timedOut;
     // The agent may have exited 0 yet been blocked (auth/login) or unable to read
     // a required source. Surface that precise cause instead of a generic empty
     // result, and never treat a blocked run as successful artifact generation.
@@ -1117,22 +1138,27 @@ async function executeLocalAgentPackage({
   }
 
   if (!completeArtifacts.files.length) {
-    throw new Error(
+    throw new Error(unlessTimedOut(
       `${executorLabel} completed but no safe local-agent/complete artifacts remained after filtering. ` +
       `original=${completeArtifacts.original_count}`
-    );
+    ));
   }
 
   if (['kit', 'eval', 'finalize', 'idea', 'spec', 'plan', 'extend'].includes(phaseForAgent)) {
-    validateLocalAgentRequiredOutputs({
-      phase: phaseForAgent,
-      reqId: reqForAgent,
-      artifacts: completeArtifacts.files,
-      kitStage,
-      outputContract: isDocumentPhase ? (localAgentPackage.active_output_contract || null) : null,
-      allowedWriteRoots: Array.isArray(localAgentPackage.allowed_write_roots) ? localAgentPackage.allowed_write_roots : [],
-      forbiddenPaths: Array.isArray(localAgentPackage.forbidden_paths) ? localAgentPackage.forbidden_paths : [],
-    });
+    try {
+      validateLocalAgentRequiredOutputs({
+        phase: phaseForAgent,
+        reqId: reqForAgent,
+        artifacts: completeArtifacts.files,
+        kitStage,
+        outputContract: isDocumentPhase ? (localAgentPackage.active_output_contract || null) : null,
+        allowedWriteRoots: Array.isArray(localAgentPackage.allowed_write_roots) ? localAgentPackage.allowed_write_roots : [],
+        forbiddenPaths: Array.isArray(localAgentPackage.forbidden_paths) ? localAgentPackage.forbidden_paths : [],
+      });
+    } catch (err) {
+      if (timedOut) err.message = unlessTimedOut(err.message);
+      throw err;
+    }
   }
 
   const completeBody = {
@@ -1186,14 +1212,17 @@ async function executeLocalAgentPackage({
   if (completeOut && !completeOut.usage) completeOut.usage = agentRun.telemetry.usage;
 
   if (!completeOut?.ok) {
-    throw new Error(
+    throw new Error(unlessTimedOut(
       `Orchestrator rejected local-agent result: ${(completeOut?.errors || []).join(' | ') || 'unknown error'}`
-    );
+    ));
   }
 
   panel.webview.postMessage({
     type: 'echo',
-    message: `✅ ${executorLabel} local ${phaseForAgent.toUpperCase()} normalized by orchestrator for ${reqForAgent}.`
+    message: timedOut
+      ? `✅ ${executorLabel} local ${phaseForAgent.toUpperCase()} normalized by orchestrator for ${reqForAgent} ` +
+        `(the agent timed out, but its required outputs were complete).`
+      : `✅ ${executorLabel} local ${phaseForAgent.toUpperCase()} normalized by orchestrator for ${reqForAgent}.`
   });
 
   return completeOut;
@@ -1278,7 +1307,7 @@ async function runLocalChatAgent({ pkg, executorId, settings, wsrootUri, out, se
   if (!prompt) throw new Error('Local execution package is missing a prompt.');
   assertAgentModelValid(executorId, executorConfig);
 
-  const timeoutMinutes = settings.localAgentTimeoutMinutes || 20;
+  const timeoutMinutes = executorConfig.timeoutMinutes;
   const parser = createAgentStreamParser(executorId);
   let streamResult = null;
   let streamError = '';
@@ -1813,6 +1842,13 @@ function documentInfoFromEditor(editor) {
 }
 
 
+// The value the user set (any scope), or undefined when only the package default applies.
+function explicitSetting(c, key) {
+  const i = typeof c.inspect === 'function' ? c.inspect(key) : null;
+  if (!i) return c.get(key);
+  return i.workspaceFolderValue ?? i.workspaceValue ?? i.globalValue;
+}
+
 function cfg() {
   const c = vscode.workspace.getConfiguration('clike');
 
@@ -1862,13 +1898,14 @@ function cfg() {
     claudeCodeModel: c.get('claudeCode.model', 'opus'),
     claudeCodePermissionMode: c.get('claudeCode.permissionMode', 'acceptEdits'),
     claudeCodePrintModeFlag: c.get('claudeCode.printModeFlag', '-p'),
-    claudeCodeTimeoutMinutes: c.get('claudeCode.timeoutMinutes', 30),
+    // executor-specific timeouts apply only when set; otherwise localAgent.timeoutMinutes
+    claudeCodeTimeoutMinutes: explicitSetting(c, 'claudeCode.timeoutMinutes'),
 
     codexEnabled: c.get('localAgent.codex.enabled', true),
     codexCommand: c.get('localAgent.codex.command', 'codex'),
     codexModel: c.get('localAgent.codex.model', 'gpt-5.5'),
     codexSandboxMode: c.get('localAgent.codex.sandboxMode', 'auto'),
-    codexTimeoutMinutes: c.get('localAgent.codex.timeoutMinutes', 30),
+    codexTimeoutMinutes: explicitSetting(c, 'localAgent.codex.timeoutMinutes'),
 
     requireCleanGit: c.get('apply.requireCleanGit', false),
     backup: c.get('apply.backup', true),
@@ -4408,7 +4445,7 @@ async function cmdOpenChat(context) {
             body.localAgentCapabilities = detectLocalAgentAvailability(settings);
             body.localAgentTimeoutSeconds = Math.max(
               60,
-              Number(settings.localAgentTimeoutMinutes || 20) * 60
+              resolveLocalAgentTimeoutMinutes(body.localAgentExecutor, settings) * 60
             );
 
             body.localRuntime = {
@@ -5015,7 +5052,7 @@ async function cmdOpenChat(context) {
               evalBody.localAgentCapabilities = detectLocalAgentAvailability(settings);
               evalBody.localAgentTimeoutSeconds = Math.max(
                 60,
-                Number(settings.localAgentTimeoutMinutes || 20) * 60
+                resolveLocalAgentTimeoutMinutes(evalBody.localAgentExecutor, settings) * 60
               );
 
               evalBody.localRuntime = {

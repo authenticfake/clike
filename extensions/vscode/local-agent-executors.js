@@ -101,6 +101,27 @@ function localAgentSupportsPhase(executorId, phase, settings) {
   return false;
 }
 
+// Agent run timeout in minutes: the executor's own setting (clike.claudeCode.timeoutMinutes,
+// clike.localAgent.codex.timeoutMinutes) when the user set it, else clike.localAgent.timeoutMinutes.
+// 'auto' resolves to the preferred executor.
+function resolveLocalAgentTimeoutMinutes(executorId, settings = {}) {
+  let normalized = normalizeLocalAgentExecutor(executorId);
+  if (normalized === 'auto') normalized = normalizeLocalAgentExecutor(settings.localAgentPreferredExecutor);
+  const own = normalized === 'claude_code'
+    ? settings.claudeCodeTimeoutMinutes
+    : normalized === 'gpt_codex' ? settings.codexTimeoutMinutes : null;
+  const minutes = Number(own || settings.localAgentTimeoutMinutes || 30);
+  return Number.isFinite(minutes) && minutes > 0 ? minutes : 30;
+}
+
+// The setting a user raises when this executor's runs time out.
+function timeoutSettingKey(executorId) {
+  const normalized = normalizeLocalAgentExecutor(executorId);
+  if (normalized === 'claude_code') return 'clike.claudeCode.timeoutMinutes';
+  if (normalized === 'gpt_codex') return 'clike.localAgent.codex.timeoutMinutes';
+  return 'clike.localAgent.timeoutMinutes';
+}
+
 function getExecutorConfig(executorId, settings) {
   const normalized = normalizeLocalAgentExecutor(executorId);
 
@@ -114,7 +135,7 @@ function getExecutorConfig(executorId, settings) {
       argsBeforePrompt: [],
       printModeFlag: settings.claudeCodePrintModeFlag || '-p',
       permissionMode: settings.claudeCodePermissionMode || 'acceptEdits',
-      timeoutMinutes: settings.localAgentTimeoutMinutes || settings.claudeCodeTimeoutMinutes || 20,
+      timeoutMinutes: resolveLocalAgentTimeoutMinutes('claude_code', settings),
       supports: {
         idea: true,
         spec: true,
@@ -142,7 +163,7 @@ function getExecutorConfig(executorId, settings) {
       argsBeforePrompt: ['exec'],
       printModeFlag: '',
       permissionMode: '',
-      timeoutMinutes: settings.localAgentTimeoutMinutes || settings.codexTimeoutMinutes || 20,
+      timeoutMinutes: resolveLocalAgentTimeoutMinutes('gpt_codex', settings),
       supports: {
         idea: true,
         spec: true,
@@ -655,6 +676,8 @@ module.exports = {
   executionPreferenceRequestsLocalAgent,
   resolveSelectedLocalAgentExecutor,
   getExecutorConfig,
+  resolveLocalAgentTimeoutMinutes,
+  timeoutSettingKey,
   buildLocalAgentModelArgs,
   parseClaudeResultEnvelope,
   parseLocalAgentRun,

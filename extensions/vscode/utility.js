@@ -2485,12 +2485,16 @@ async function runLocalAgentSync({
 
       terminateProcessTree(child);
 
-      reject(
-        new Error(
-          `${normalizedExecutor} timed out after ${timeoutMinutes} minute(s). ` +
-          `stdout=${stdout.slice(-2000)} stderr=${stderr.slice(-2000)}`
-        )
+      const timeoutError = new Error(
+        `${normalizedExecutor} timed out after ${timeoutMinutes} minute(s). ` +
+        `stdout=${stdout.slice(-2000)} stderr=${stderr.slice(-2000)}`
       );
+      // the caller may still use what the agent wrote before the timeout
+      timeoutError.code = 'LOCAL_AGENT_TIMEOUT';
+      timeoutError.timeoutMinutes = timeoutMinutes;
+      timeoutError.stdout = stdout;
+      timeoutError.stderr = stderr;
+      reject(timeoutError);
     }, timeoutMs);
 
     let pendingLine = '';
