@@ -1058,19 +1058,18 @@ class EvalRunner:
 
     def _overlay_existing_files(self, src: Path, dst: Path) -> List[str]:
         """Copy over ``dst`` the files of ``src`` that ``dst`` already has with different content (the
-        candidate's version of a regressed REQ's test) and, once one is replaced, the candidate's new
-        support files next to the regressed REQ's files (a package marker, a conftest, a helper: any
-        file that defines no test), which a reconciled test may import. The candidate's own tests
-        stay out. Returns the replaced or added relative paths."""
+        candidate's version of a regressed REQ's test) and, once one is replaced, every new support
+        file of the candidate's tree (a package marker, a conftest, a helper in any directory: any
+        file that defines no test), which a reconciled test may import; after promotion they all sit
+        in the same tree. The candidate's own tests stay out. Returns the replaced or added relative
+        paths."""
         changed: List[str] = []
         if not src.is_dir() or not dst.is_dir():
             return changed
-        owned_dirs = set()
         for target in sorted(dst.rglob("*")):
             if not target.is_file():
                 continue
             rel = target.relative_to(dst)
-            owned_dirs.add(rel.parent)
             item = src / rel
             if not item.is_file():
                 continue
@@ -1085,7 +1084,7 @@ class EvalRunner:
             return changed
         for item in sorted(src.rglob("*")):
             rel = item.relative_to(src)
-            if not item.is_file() or rel.parent not in owned_dirs or (dst / rel).exists():
+            if not item.is_file() or (dst / rel).exists():
                 continue
             if any(part in _SHARED_SCAN_SKIP for part in rel.parts) or item.suffix in {".pyc", ".pyo"}:
                 continue
@@ -1095,6 +1094,7 @@ class EvalRunner:
                 continue
             if _TEST_FILE_NAME_RE.search(item.name) or _DEFINES_TESTS_RE.search(text):
                 continue  # a test of the candidate: its own checks run it
+            (dst / rel).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(item, dst / rel)
             changed.append(rel.as_posix())
         return changed

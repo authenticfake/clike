@@ -160,14 +160,43 @@ class EvalRegressionTests(_RegressionProject):
             "import sys, os\nsys.path.insert(0, os.path.dirname(__file__))\n"
             "from expected import PRICE\nfrom pricing import price\nassert price() == PRICE\n"
         )
+        (kit / "test" / "helpers").mkdir()
+        (kit / "test" / "helpers" / "fixtures.py").write_text("PRICE = 12\n")
 
         body = self._post("/v1/eval/run", "REQ-002", regression=True).json()
         self.assertEqual(body["status"], "PASS_WITH_WARNINGS", body)
         audit = next(c for c in body["cases"] if c["name"] == "regression::REQ-001::reconciled-tests")
         self.assertIn("test/expected.py", audit["stdout"])
         self.assertNotIn("test_extra.py", audit["stdout"])
+        # a helper in a directory the promoted REQ does not have comes too: promotion delivers it
+        self.assertIn("test/helpers/fixtures.py", audit["stdout"])
         work = self.proj / "runs" / "eval" / "REQ-002" / "regression" / "REQ-001" / "work" / "REQ-001" / "test"
         self.assertFalse((work / "test_extra.py").exists())
+
+    def test_a_reconciled_test_in_a_subdirectory_gets_the_helper_at_the_test_root(self):
+        # REQ-001's test lives in test/v2; the candidate reconciles it and puts the helper it imports
+        # at its test root (on the test path): the helper comes too, the candidate's own test does not.
+        promoted = self.proj / "runs" / "kit" / "REQ-001"
+        (promoted / "test" / "test_pricing.py").unlink()
+        (promoted / "test" / "v2").mkdir()
+        (promoted / "test" / "v2" / "test_pricing.py").write_text("from pricing import price\nassert price() == 10\n")
+        ltc = {"req_id": "REQ-001", "run_from": "runs/kit/REQ-001",
+               "checks": [{"id": "unit", "command": "PYTHONPATH=src:test python3 test/v2/test_pricing.py", "blocking": True}]}
+        (promoted / "ci" / "LTC.json").write_text(json.dumps(ltc))
+        kit = self.proj / "runs" / "kit" / "REQ-002"
+        (kit / "src" / "pricing.py").write_text("def price():\n    return 12\n")
+        (kit / "test" / "test_checkout.py").write_text("from checkout import total\nassert total(2) == 24\n")
+        (kit / "test" / "req001_support.py").write_text("PRICE = 12\n")
+        (kit / "test" / "v2").mkdir()
+        (kit / "test" / "v2" / "test_pricing.py").write_text(
+            "from req001_support import PRICE\nfrom pricing import price\nassert price() == PRICE\n"
+        )
+
+        body = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        self.assertEqual(body["status"], "PASS_WITH_WARNINGS", body)
+        audit = next(c for c in body["cases"] if c["name"] == "regression::REQ-001::reconciled-tests")
+        self.assertIn("test/req001_support.py", audit["stdout"])
+        self.assertNotIn("test_checkout.py", audit["stdout"])
 
     def test_regression_does_not_overwrite_the_promoted_req_eval(self):
         self._post("/v1/eval/run", "REQ-002", regression=True)
