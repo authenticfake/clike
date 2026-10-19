@@ -427,6 +427,24 @@ class GateIntegrityTests(unittest.TestCase):
         forged = {**body, "changes": {"test/test_app.py": "import os\n" + TEST_PY}, "previous": {"test/test_app.py": "import os\nimport sys\n" + TEST_PY}}
         self.assertIn("test/test_app.py", self.client.post("/v1/acceptance/amend", json=forged, headers=AUTH).json()["rejected"])
 
+    def test_a_test_added_after_the_lock_is_not_locked(self):
+        # A repair added a test file after the lock (e.g. a reconciled test of a promoted REQ); a
+        # later repair changes it: not rejected, so the extension does not restore it.
+        from services import gate_integrity
+
+        self._eval()  # takes the lock
+        added = self.kit / "test" / "test_reconciled.py"
+        added.write_text("from app import VALUE\nassert VALUE\n")
+        result = gate_integrity.amend_acceptance_surface(
+            self.proj, REQ, {"test/test_reconciled.py": "import app\nassert app.VALUE\n"},
+            previous={"test/test_reconciled.py": added.read_text()}, reason="r", evidence="unit failed",
+        )
+        self.assertEqual((result["accepted"], result["rejected"]), ([], {}))
+        self.assertEqual(result["unlocked"], ["test/test_reconciled.py"])
+        # a locked test is still governed
+        self.assertIn("test/test_app.py", gate_integrity.amend_acceptance_surface(
+            self.proj, REQ, {"test/test_app.py": "pass\n"}, reason="r", evidence="unit failed")["rejected"])
+
     def test_amend_endpoint_is_confined(self):
         body = {"project_root": "/etc", "req_id": REQ, "changes": {"ci/LTC.json": "{}"}}
         self.assertIn(self.client.post("/v1/acceptance/amend", json=body, headers=AUTH).status_code, (400, 403))

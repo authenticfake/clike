@@ -2196,6 +2196,9 @@ def _apply_repair_governance(payload: Dict[str, Any], out: Dict[str, Any], req_i
         for rel in result.get("accepted") or []:
             kept.append({"path": prefix + rel, "content": by_rel[rel]})
             warnings.append(f"repair_amendment_accepted:{rel}")
+        for rel in result.get("unlocked") or []:
+            # a test file the lock does not hold: kept, as a local agent's write is
+            kept.append({"path": prefix + rel, "content": by_rel[rel]})
         for rel in result.get("test_fixes") or []:
             warnings.append(f"repair_test_fixed_review_required:{rel}")
         for rel, issues in (result.get("rejected") or {}).items():
