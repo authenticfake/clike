@@ -286,3 +286,19 @@ test('a CLike agent package file rewritten by an eval does not block merge-on-ga
   assert.equal(git(dir, 'show', `main:${pkg}`), '{"v":2}');
   assert.match(git(dir, 'status', '--porcelain'), /\?\? notes\.txt/);
 });
+
+test('a tracked KIT file of the REQ changed after its phase does not block merge-on-gate', async () => {
+  const dir = makeRepo();
+  const howto = 'runs/kit/REQ-001/ci/HOWTO.md';
+  await sync(dir, 'kit', 'REQ-001', [write(dir, 'runs/kit/REQ-001/src/a.py', 'a\n'), write(dir, howto, 'v1\n')]);
+  write(dir, howto, 'v2\n'); // a pre-pass updated it; not in the gate's file list
+  write(dir, 'runs/kit/REQ-001/reports/scratch.txt', 'agent scratch\n'); // untracked: left alone
+  write(dir, 'notes.txt', 'mine\n');
+  await sync(dir, 'gate', 'REQ-001', [write(dir, 'runs/kit/REQ-001/gate.json', '{}\n')], settings({ gitMergeOnGate: true }));
+  assert.equal(git(dir, 'rev-parse', '--abbrev-ref', 'HEAD'), 'main');
+  assert.ok(isAncestor(dir, 'feature/req-001', 'main'), 'merged into main');
+  assert.equal(git(dir, 'show', `main:${howto}`), 'v2');
+  const status = git(dir, 'status', '--porcelain');
+  assert.match(status, /\?\? notes\.txt/);
+  assert.match(status, /\?\? runs\/kit\/REQ-001\/reports\//);
+});

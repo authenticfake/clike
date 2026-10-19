@@ -386,13 +386,16 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
   }
 
   const dirtyBefore = porcelainPaths(await gitRunVerbose(['status', '--porcelain'], gitCtx, 'diag', out).catch(() => ''));
-  // CLike's agent package of the REQ (runs/kit/<REQ>/docs/AGENT_*), rewritten at every eval and
-  // repair: committed with the phase, otherwise a modified one blocks the switch to the default
-  // branch and merge-on-gate fails.
+  // Tracked files of the REQ's own KIT (runs/kit/<REQ>/) changed outside the phase's file list —
+  // CLike's agent package rewritten at every eval, a ci/HOWTO.md a pre-pass or repair updated:
+  // committed with the phase, otherwise a modified one blocks the switch to the default branch and
+  // merge-on-gate fails. Untracked files there (agent scratch, reports) are left alone.
   if (reqId && (phase === 'kit' || phase === 'eval' || phase === 'gate')) {
-    const prefix = `runs/kit/${String(reqId).toUpperCase()}/docs/AGENT_`;
-    for (const p of dirtyBefore) {
-      if (p.startsWith(prefix) && !files.includes(p) && fs.existsSync(path.join(workTree, p))) files.push(p);
+    const kitDir = `runs/kit/${String(reqId).toUpperCase()}/`;
+    const tracked = (await gitRunVerbose(['diff', '--name-only', 'HEAD', '--', kitDir], gitCtx, 'diag', out).catch(() => ''))
+      .split('\n').map(l => l.trim()).filter(Boolean);
+    for (const p of tracked) {
+      if (p.startsWith(kitDir) && !files.includes(p)) files.push(p);
     }
   }
   const unrelated = dirtyBefore.filter(p => !files.includes(p));
