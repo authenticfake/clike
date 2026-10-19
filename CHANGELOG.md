@@ -31,6 +31,10 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   REQ's test in its own test root (as the *Shared files changed* diagnosis asks), the regression of
   that REQ now runs the candidate's version, which is what promotion delivers. It is reported as
   the warning `regression::<REQ>::reconciled-tests`. Before, the repair could never converge.
+- **A reconciled test could not import its new neighbours**: the candidate's new support files next
+  to the promoted REQ's tests (`__init__.py`, `conftest`, helpers; never tests, by name or content)
+  now come with the reconciled test. Before, a relative import (`from .conftest import …`) failed in
+  the regression only.
 
 ## [1.5.1] — 2026-10-18 — CLike from Claude Code and Codex: MCP hardened, eval repairs that converge
 
