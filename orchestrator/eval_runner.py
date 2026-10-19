@@ -179,6 +179,63 @@ _NONDETERMINISTIC_NOTE = "[CLike EvalRunner] Nondeterministic"
 _SHARED_FILES_NOTE = "[CLike EvalRunner] Shared files changed"
 # A test file by name in Python, JS/TS, Java/Kotlin, Go, C# (test_x.py, x_test.go, x.test.ts, x.spec.js, XTest.java, XTests.cs).
 _TEST_FILE_NAME_RE = re.compile(r"^test_|_test\.\w+$|\.(test|spec)\.\w+$|Tests?\.\w+$")
+# new support files a reconciled test gets when they sit beside it (package marker, fixtures)
+_BESIDE_SUPPORT_NAMES = {"__init__.py", "conftest.py"}
+_PY_IMPORT_RE = re.compile(r"^\s*(?:from\s+(\.*)([\w.]*)\s+import\s+([\w., ()]+)|import\s+([\w., ]+))", re.M)
+
+
+def _imported_support(
+    rel: str, path: Optional[Path], support: Dict[str, Path], source_root: Optional[Path] = None
+) -> List[str]:
+    """The candidate support files (relative paths in ``support``) that the Python file ``rel``
+    imports: an absolute module that is not in ``source_root`` matches a support file whose path
+    ends with it, anywhere in the test tree (the test runner puts several test directories on the
+    path); a relative one resolves from the file's directory."""
+    if path is None or not rel.endswith(".py"):
+        return []
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return []
+    found: List[str] = []
+
+    def by_suffix(parts: List[str]) -> None:
+        if source_root is not None and (
+            (source_root / Path(*parts)).with_suffix(".py").is_file()
+            or (source_root / Path(*parts) / "__init__.py").is_file()
+        ):
+            return  # the module is in the sources: a same-named file of the test tree is not it
+        tails = ("/".join(parts) + ".py", "/".join(parts) + "/__init__.py")
+        for candidate in support:
+            if any(candidate == t or candidate.endswith("/" + t) for t in tails):
+                found.append(candidate)
+
+    here = Path(rel).parent
+    for dots, module, names, plain in _PY_IMPORT_RE.findall(text):
+        if plain:
+            for name in plain.split(","):
+                by_suffix(name.strip().split(" ")[0].split("."))
+            continue
+        parts = [p for p in module.split(".") if p]
+        imported = [n.strip().split(" ")[0] for n in names.strip("() ").split(",") if n.strip()]
+        if dots:
+            base = here
+            for _ in range(len(dots) - 1):
+                base = base.parent
+            prefix = [] if str(base) == "." else list(base.parts)
+            for target in ([parts] if parts else []) + [parts + [n] for n in imported]:
+                tail = "/".join(prefix + target)
+                for t in (tail + ".py", tail + "/__init__.py"):
+                    if t in support:
+                        found.append(t)
+            continue
+        # the full module only: a parent package marker in the test tree would shadow the source one
+        by_suffix(parts)
+        for n in imported:
+            by_suffix(parts + [n])
+    return found
+
+
 _SHARED_SCAN_SKIP = {
     "node_modules", "__pycache__", ".venv", ".next", "dist", ".tmp", ".cache", "reports", "target", ".gradle", "obj",
 }
@@ -1058,11 +1115,12 @@ class EvalRunner:
 
     def _overlay_existing_files(self, src: Path, dst: Path) -> List[str]:
         """Copy over ``dst`` the files of ``src`` that ``dst`` already has with different content (the
-        candidate's version of a regressed REQ's test) and, once one is replaced, every new support
-        file of the candidate's tree (a package marker, a conftest, a helper in any directory: any
-        file that defines no test), which a reconciled test may import; after promotion they all sit
-        in the same tree. The candidate's own tests stay out. Returns the replaced or added relative
-        paths."""
+        candidate's version of a regressed REQ's test) and, once one is replaced, the candidate's new
+        support files that version needs: the modules it imports, directly or through another copied
+        module, from anywhere in the candidate's test tree, and a package marker or a conftest beside
+        a replaced file. Other new files stay out: a conftest elsewhere is loaded by the test runner
+        for the regressed REQ's own tests, and the candidate's tests run in its own checks. Returns
+        the replaced or added relative paths."""
         changed: List[str] = []
         if not src.is_dir() or not dst.is_dir():
             return changed
@@ -1082,6 +1140,8 @@ class EvalRunner:
             changed.append(rel.as_posix())
         if not changed:
             return changed
+
+        support: Dict[str, Path] = {}  # new support files of the candidate, by relative path
         for item in sorted(src.rglob("*")):
             rel = item.relative_to(src)
             if not item.is_file() or (dst / rel).exists():
@@ -1094,9 +1154,27 @@ class EvalRunner:
                 continue
             if _TEST_FILE_NAME_RE.search(item.name) or _DEFINES_TESTS_RE.search(text):
                 continue  # a test of the candidate: its own checks run it
+            support[rel.as_posix()] = item
+
+        replaced_dirs = {Path(rel).parent for rel in changed}
+        wanted = [
+            rel for rel in support
+            if Path(rel).parent in replaced_dirs and Path(rel).name in _BESIDE_SUPPORT_NAMES
+        ]
+        pending = [*changed, *wanted]
+        seen = set(pending)
+        while pending:
+            rel = pending.pop()
+            path = dst / rel if (dst / rel).is_file() else support.get(rel)
+            for needed in _imported_support(rel, path, support, dst.parent / "src"):
+                if needed not in seen:
+                    seen.add(needed)
+                    wanted.append(needed)
+                    pending.append(needed)
+        for rel in sorted(set(wanted)):
             (dst / rel).parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(item, dst / rel)
-            changed.append(rel.as_posix())
+            shutil.copy2(support[rel], dst / rel)
+            changed.append(rel)
         return changed
 
     def _load_plan_dependencies(self, req_id: Optional[str]) -> List[str]:
