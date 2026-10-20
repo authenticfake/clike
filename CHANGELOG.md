@@ -27,6 +27,10 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **A promoted dependency without a promotion record brought old files back**: a REQ done before
+  gate promotion records existed (B2B REQ-003) had its KIT overlaid over the canonical tree, so an
+  older `ports.py` replaced the one later REQs had changed, and REQ-019 failed on names that were
+  already promoted. Such a KIT file now wins only when its canonical copy is not newer in git.
 - **Local agent timeouts**: `clike.localAgent.codex.timeoutMinutes` and
   `clike.claudeCode.timeoutMinutes` were ignored (the common `clike.localAgent.timeoutMinutes`
   always won); now the executor's own timeout applies when set. A run that times out is no

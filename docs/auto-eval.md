@@ -287,6 +287,14 @@ file removed while it is copied is skipped. If CLike still cannot compose it, th
 retried once, then `env::prepare-workspace` is environment-blocked: no check ran, `--fix` stops
 instead of sending it to a repair.
 
+A promoted dependency is already in the canonical tree, merged with what later REQs changed, so its
+KIT copy must not bring old files back. With a gate auto-merge record
+(`runs/kit/<REQ>/promotion/*/report.json`) its KIT is not overlaid at all. A REQ that is done
+without that record (promoted before the records existed, by an overwrite, or kept beside the tree
+by a folder/suffix strategy) is overlaid file by file: a KIT file wins unless its canonical copy
+differs and was committed later (git history of the project); without history the KIT wins, as
+before. This also applies to a promoted REQ's own run in the regression.
+
 Repository-root deliverables of a KIT (`runs/kit/<REQ>/root/<path>`: `scripts/`, `deploy/`, root
 manifests) are at the eval workspace root, after the canonical ones and those of dependency KITs
 not promoted yet, so a check runs `./scripts/…` as it will after promotion; in the regression the

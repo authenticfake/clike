@@ -307,10 +307,39 @@ class PromotedKitCompositionTests(_RegressionProject):
         self.assertIn("regression::REQ-004::unit", [c["name"] for c in body["cases"]])
 
     def test_without_a_promotion_record_the_kit_is_still_composed(self):
-        # done but never auto-merged (e.g. an older strategy): the KIT stays the source of truth,
-        # so REQ-001's pricing.py (no discount) wins over the canonical one, as before.
+        # done but never auto-merged and no history to tell which copy is newer: the KIT stays the
+        # source of truth, so REQ-001's pricing.py (no discount) wins over the canonical one.
         body = self._post("/v1/eval/run", "REQ-002").json()
         self.assertEqual(body["status"], "FAIL")
+
+    def _git(self, *args, date=None):
+        import subprocess
+
+        env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
+               "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
+        if date:
+            env.update(GIT_AUTHOR_DATE=date, GIT_COMMITTER_DATE=date)
+        subprocess.run(["git", *args], cwd=self.proj, env=env, check=True, capture_output=True)
+
+    def test_without_a_promotion_record_a_canonical_file_changed_later_wins(self):
+        # done before promotion records existed: REQ-001's KIT pricing.py was committed first, a later
+        # REQ changed the canonical one (discount). The stale KIT copy must not replace it.
+        self._git("init", "-q")
+        self._git("add", "runs/kit/REQ-001")
+        self._git("commit", "-q", "-m", "REQ-001", date="2026-10-01T10:00:00")
+        self._git("add", "src")
+        self._git("commit", "-q", "-m", "later REQ", date="2026-10-05T10:00:00")
+        body = self._post("/v1/eval/run", "REQ-002").json()
+        self.assertEqual(body["status"], "PASS", [(c["name"], c.get("stderr", "")[-300:]) for c in body["cases"] if not c["passed"]])
+
+    def test_without_a_promotion_record_a_kit_file_committed_later_still_wins(self):
+        # a folder/suffix strategy left the KIT as the source of truth: its file is the newer one
+        self._git("init", "-q")
+        self._git("add", "src")
+        self._git("commit", "-q", "-m", "canonical", date="2026-10-01T10:00:00")
+        self._git("add", "runs/kit/REQ-001")
+        self._git("commit", "-q", "-m", "REQ-001", date="2026-10-05T10:00:00")
+        self.assertEqual(self._post("/v1/eval/run", "REQ-002").json()["status"], "FAIL")
 
 
 class DeclaredChangeRegressionTests(_RegressionProject):
