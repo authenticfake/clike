@@ -1099,7 +1099,7 @@ class EvalRunner:
         history: Optional[Path] = None,
         take_canonical: bool = False,
         kit_only: frozenset = frozenset(),
-    ) -> None:
+    ) -> List[str]:
         """
         Copy a tree into an overlay destination.
 
@@ -1109,10 +1109,11 @@ class EvalRunner:
         copy is newer is kept (see ``_kit_layer_mode``); ``history`` is the project tree ``src`` was
         copied from, for the commit times. ``take_canonical`` writes that newer canonical copy (when
         ``dst`` was not composed from the canonical tree); ``kit_only`` relative paths always keep
-        the ``src`` copy.
+        the ``src`` copy. Returns the relative paths whose canonical copy was taken.
         """
+        taken: List[str] = []
         if not src.exists():
-            return
+            return taken
 
         # installed dependencies, build output and scratch are never composed: a candidate's
         # node_modules overlaid into a regression workspace shadowed the other REQ's own install
@@ -1124,11 +1125,11 @@ class EvalRunner:
 
         if src.is_file():
             if canonical is not None and self._canonical_is_newer(src, canonical, history):
-                return
+                return taken
             if src.name not in ignored_names and src.suffix not in {".pyc", ".pyo"} and not _PROMOTION_SCRATCH_RE.search(src.name):
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src, dst)
-            return
+            return taken
 
         for item in src.rglob("*"):
             rel = item.relative_to(src)
@@ -1147,9 +1148,11 @@ class EvalRunner:
                 if take_canonical:
                     target.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(canonical / rel, target)
+                    taken.append(rel.as_posix())
                 continue
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(item, target)
+        return taken
 
     def _overlay_existing_files(self, src: Path, dst: Path, canonical: Optional[Path] = None) -> List[str]:
         """Copy over ``dst`` the files of ``src`` that ``dst`` already has with different content (the
@@ -1182,11 +1185,20 @@ class EvalRunner:
             changed.append(rel.as_posix())
         if not changed:
             return changed
+        return changed + self._bring_imported_support(src, dst, changed)
 
-        support: Dict[str, Path] = {}  # new support files of the candidate, by relative path
+    def _bring_imported_support(
+        self, src: Path, dst: Path, changed: List[str], exclude: frozenset = frozenset()
+    ) -> List[str]:
+        """Copy into ``dst`` the support files of ``src`` (not in ``dst``, defining no test) that the
+        ``changed`` files need: the modules they import, directly or through another copied module,
+        and a package marker or a conftest beside a changed file; ``exclude`` relative paths never
+        come. Returns the added paths."""
+        added: List[str] = []
+        support: Dict[str, Path] = {}  # new support files of src, by relative path
         for item in sorted(src.rglob("*")):
             rel = item.relative_to(src)
-            if not item.is_file() or (dst / rel).exists():
+            if not item.is_file() or (dst / rel).exists() or rel.as_posix() in exclude:
                 continue
             if any(part in _SHARED_SCAN_SKIP for part in rel.parts) or item.suffix in {".pyc", ".pyo"}:
                 continue
@@ -1216,8 +1228,8 @@ class EvalRunner:
         for rel in sorted(set(wanted)):
             (dst / rel).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(support[rel], dst / rel)
-            changed.append(rel)
-        return changed
+            added.append(rel)
+        return added
 
     def _load_plan_dependencies(self, req_id: Optional[str]) -> List[str]:
         if not req_id:
@@ -2033,13 +2045,18 @@ class EvalRunner:
                     # In the regression of a promoted REQ its tests are the promoted version: a later
                     # REQ that reconciled one of them delivered it to the canonical tree.
                     promoted_tests = self.regression and self._kit_layer_mode(kit_root.name) != "full"
-                    self._copy_tree_overlay(
+                    taken = self._copy_tree_overlay(
                         kit_root / logical_root,
                         composed_logical_root,
                         canonical=self.project_root / logical_root if promoted_tests else None,
                         take_canonical=True,
                         kit_only=_SHARED_ROOT_TEST_FILES,
                     )
+                    if taken:
+                        # the promoted version may import helpers promotion put elsewhere in the tree
+                        self._bring_imported_support(
+                            self.project_root / logical_root, composed_logical_root, taken, exclude=_SHARED_ROOT_TEST_FILES
+                        )
                     for extra_test in self.extra_test_roots:
                         self.reconciled_tests += [
                             f"{logical_root}/{rel}"
@@ -2789,7 +2806,16 @@ class EvalRunner:
             return (work_kit_root / str(svc.get("cwd") or "")).resolve(), dict(env), []
         other = validate_req_id(other)
         profile = self.project_root / "runs" / "kit" / other / "ci" / "LTC.json"
-        sub = EvalRunner(self.project_root, eval_key=f"{self._safe_req_id(req_id)}/services/{other}", cancel_event=self.cancel_event)
+        # a promoted REQ's service runs its promoted code, with the candidate's source over it (the
+        # state after promotion), as in a regression
+        promoted = self._kit_layer_mode(other) != "full"
+        sub = EvalRunner(
+            self.project_root,
+            eval_key=f"{self._safe_req_id(req_id)}/services/{other}",
+            cancel_event=self.cancel_event,
+            regression=promoted,
+            extra_src_roots=list(self.extra_src_roots) if promoted else None,
+        )
         _work, _reports, _logs, path_map, kit_root, _deps = sub._prepare_eval_workspace(req_id=other, profile_path=profile)
         if kit_root is None:
             raise OSError(f"no KIT workspace for {other}")

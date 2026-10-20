@@ -27,6 +27,11 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **The promoted version of a test missed its helpers, and services ran stale code**: a promoted
+  reconciled test now gets the support files it imports from the canonical test tree (B2B:
+  `req017_support.py`, `identity/__init__.py`); a service of another promoted REQ runs its
+  promoted code with the candidate's source (B2B REQ-005's REQ-004 service imported an older
+  `ports.py`).
 - **Cancel did not stop an eval**: the chat's Cancel aborted only chat requests, so `/eval`,
   `/gate` and their `--fix` loops went on (also with VS Code closed, the eval kept running in the
   sandbox). Cancel (and MCP `cancel_run`) now closes the eval/gate request, which stops the eval
