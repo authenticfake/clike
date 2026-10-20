@@ -271,8 +271,13 @@ contributes, never that a shared file contains only that.
 In the regression a promoted REQ runs the promoted version of its tests: each test file of its KIT
 is replaced by its copy in the canonical test tree when that copy differs and was committed later
 (a later REQ reconciled it and promotion delivered it), so a reconciliation is done once, not by
-every following REQ. The test root's `conftest.py` is shared by every REQ and merged at promotion,
-so the REQ keeps its own.
+every following REQ. The promoted version gets the support files it imports from the canonical
+test tree (a helper at the test root, a package marker beside it), with the same rule as a
+reconciled test. The test root's `conftest.py` is shared by every REQ and merged at promotion, so
+the REQ keeps its own and the canonical one is not brought.
+
+A service of another promoted REQ (`services[].req` in the LTC) runs that REQ's promoted code with
+the candidate's source over it, as in its regression, not the original source of its KIT.
 
 When the candidate changes a promoted REQ's behaviour on purpose, it reconciles that REQ's test in
 its own test root, at the same path (`runs/kit/<candidate>/test/...`). The regression runs that

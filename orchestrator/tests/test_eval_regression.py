@@ -372,6 +372,42 @@ class PromotedKitCompositionTests(_RegressionProject):
         self.assertEqual((work / "conftest.py").read_text(), "REQ001 = 1\n")
         self.assertEqual((work / "test_pricing.py").read_text(), "from pricing import price\nassert price() == 12\n")
 
+    def test_the_promoted_version_of_a_test_gets_the_helpers_it_imports(self):
+        # the reconciled test promotion delivered imports a helper that sits at the canonical test root
+        self._promoted("REQ-001", "REQ-004")
+        self._git("init", "-q")
+        self._git("add", "runs/kit")
+        self._git("commit", "-q", "-m", "KITs", date="2026-10-01T10:00:00")
+        (self.proj / "src" / "pricing.py").write_text("def price():\n    return 12\n\ndef discount():\n    return 1\n")
+        (self.proj / "test").mkdir(exist_ok=True)
+        (self.proj / "test" / "req001_support.py").write_text("PRICE = 12\n")
+        (self.proj / "test" / "test_pricing.py").write_text(
+            "import os, sys\nsys.path.insert(0, os.path.dirname(__file__))\n"
+            "from req001_support import PRICE\nfrom pricing import price\nassert price() == PRICE\n"
+        )
+        (self.proj / "test" / "conftest.py").write_text("import missing_module\n")
+        self._git("add", "src", "test")
+        self._git("commit", "-q", "-m", "later REQ promoted", date="2026-10-05T10:00:00")
+        kit = self.proj / "runs" / "kit" / "REQ-002"
+        (kit / "test" / "test_checkout.py").write_text("from checkout import total\nassert total(2) == 23\n")
+
+        body = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        self.assertIn("regression::REQ-001::unit", [c["name"] for c in body["cases"] if c["passed"]], body)
+        work = self.proj / "runs" / "eval" / "REQ-002" / "regression" / "REQ-001" / "work" / "REQ-001" / "test"
+        self.assertTrue((work / "req001_support.py").is_file())
+        self.assertFalse((work / "conftest.py").exists())  # the shared root conftest is not brought
+
+    def test_a_promoted_req_service_runs_its_promoted_code(self):
+        # REQ-002 starts REQ-001 as a service: REQ-001 is promoted and its KIT pricing.py is stale
+        from eval_runner import EvalRunner
+
+        self._promoted("REQ-001", "REQ-004")
+        runner = EvalRunner(self.proj)
+        _workdir, env, _cases = runner._service_runtime(
+            {"name": "pricing-api", "req": "REQ-001"}, req_id="REQ-002", env={}, work_kit_root=None
+        )
+        self.assertIn("discount", (Path(env["SERVICE_SRC_DIR"]) / "pricing.py").read_text())
+
     def test_a_candidate_file_identical_to_the_promoted_one_reconciles_nothing(self):
         # The candidate carries the promoted test/conftest.py unchanged; REQ-001's own conftest differs.
         # Overlaying it would replace REQ-001's fixtures with a file promotion does not change.
