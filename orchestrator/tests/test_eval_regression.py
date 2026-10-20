@@ -342,6 +342,49 @@ class PromotedKitCompositionTests(_RegressionProject):
         self.assertEqual(self._post("/v1/eval/run", "REQ-002").json()["status"], "FAIL")
 
 
+    def test_the_regression_runs_the_promoted_version_of_a_reconciled_test(self):
+        # A later REQ changed the price on purpose, reconciled REQ-001's test and promoted both. The
+        # next candidate does not carry that test: REQ-001's regression runs the promoted version,
+        # not the original in its KIT (which pins the old price).
+        self._promoted("REQ-001", "REQ-004")
+        self._git("init", "-q")
+        self._git("add", "runs/kit")
+        self._git("commit", "-q", "-m", "KITs", date="2026-10-01T10:00:00")
+        (self.proj / "src" / "pricing.py").write_text("def price():\n    return 12\n\ndef discount():\n    return 1\n")
+        (self.proj / "test").mkdir(exist_ok=True)
+        (self.proj / "test" / "test_pricing.py").write_text("from pricing import price\nassert price() == 12\n")
+        self._git("add", "src", "test")
+        self._git("commit", "-q", "-m", "later REQ promoted", date="2026-10-05T10:00:00")
+        kit = self.proj / "runs" / "kit" / "REQ-002"
+        (kit / "test" / "test_checkout.py").write_text("from checkout import total\nassert total(2) == 23\n")
+
+        # the shared root conftest is merged at promotion: REQ-001 keeps its own
+        (self.proj / "runs" / "kit" / "REQ-001" / "test" / "conftest.py").write_text("REQ001 = 1\n")
+        self._git("add", "runs/kit/REQ-001/test/conftest.py")
+        self._git("commit", "-q", "-m", "REQ-001 conftest", date="2026-10-02T10:00:00")
+        (self.proj / "test" / "conftest.py").write_text("SHARED = 1\n")
+        self._git("add", "test/conftest.py")
+        self._git("commit", "-q", "-m", "shared conftest", date="2026-10-06T10:00:00")
+
+        body = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        self.assertIn("regression::REQ-001::unit", [c["name"] for c in body["cases"] if c["passed"]], body)
+        work = self.proj / "runs" / "eval" / "REQ-002" / "regression" / "REQ-001" / "work" / "REQ-001" / "test"
+        self.assertEqual((work / "conftest.py").read_text(), "REQ001 = 1\n")
+        self.assertEqual((work / "test_pricing.py").read_text(), "from pricing import price\nassert price() == 12\n")
+
+    def test_a_candidate_file_identical_to_the_promoted_one_reconciles_nothing(self):
+        # The candidate carries the promoted test/conftest.py unchanged; REQ-001's own conftest differs.
+        # Overlaying it would replace REQ-001's fixtures with a file promotion does not change.
+        self._promoted("REQ-001", "REQ-004")
+        (self.proj / "test").mkdir(exist_ok=True)
+        (self.proj / "test" / "conftest.py").write_text("SHARED = 1\n")
+        (self.proj / "runs" / "kit" / "REQ-001" / "test" / "conftest.py").write_text("REQ001_FIXTURE = 1\n")
+        (self.proj / "runs" / "kit" / "REQ-002" / "test" / "conftest.py").write_text("SHARED = 1\n")
+
+        body = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        self.assertNotIn("regression::REQ-001::reconciled-tests", [c["name"] for c in body["cases"]], body)
+
+
 class DeclaredChangeRegressionTests(_RegressionProject):
     """/idea --extend: a MODIFIED REQ supersedes checks of the REQ it amends; a REMOVED REQ retires one."""
 
