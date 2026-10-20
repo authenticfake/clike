@@ -148,8 +148,8 @@ test('Cancel stops a Harper phase: the eval/gate request, the --fix cycles and t
   const extension = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
   const api = fs.readFileSync(path.join(__dirname, '..', 'api.js'), 'utf8');
   // the chat Cancel and MCP cancel_run share one stop
-  assert.match(extension, /if \(msg\.type === 'cancel'\) \{\n\s+const agents = cancelHarperWork\(\);/);
-  assert.match(extension, /cancelHarperWork\(\);\n\s+run\.cancel_requested_at/);
+  assert.match(extension, /if \(msg\.type === 'cancel'\) \{\r?\n\s+const agents = cancelHarperWork\(\);/);
+  assert.match(extension, /cancelHarperWork\(\);\r?\n\s+run\.cancel_requested_at/);
   assert.match(extension, /if \(harperAbortController\) harperAbortController\.abort\(\);/);
   assert.match(extension, /return terminateActiveAgents\(\);/);
   // eval and gate requests carry the signal (closing them stops the eval in the sandbox)
@@ -167,5 +167,5 @@ test('Cancel stops a Harper phase: the eval/gate request, the --fix cycles and t
 
 test('terminateActiveAgents stops the local agents CLike started', () => {
   const utility = fs.readFileSync(path.join(__dirname, '..', 'utility.js'), 'utf8');
-  assert.match(utility, /function terminateActiveAgents\(\) \{\n\s+const running = \[\.\.\.activeAgentProcesses\];\n\s+for \(const child of running\) terminateProcessTree\(child\);/);
+  assert.match(utility, /function terminateActiveAgents\(\) \{\r?\n\s+const running = \[\.\.\.activeAgentProcesses\];\r?\n\s+for \(const child of running\) terminateProcessTree\(child\);/);
 });
