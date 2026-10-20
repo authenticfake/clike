@@ -25,6 +25,7 @@ only when its own checks pass **and** it does not break what is already promoted
 | Repair with guidance | `/eval REQ-002 --fix "price() must stay in pricing.py; add the discount in checkout"` |
 | Continue after the loop stopped | run `/eval REQ-002 --fix ["hint"]` again: it restarts from the current files, with a new cycle budget |
 | Repair a failing gate | `/gate REQ-002 --fix ["hint"]` (see [Auto-gate](#auto-gate-gate---fix)) |
+| Stop an eval, a gate or a `--fix` loop | **Cancel** in the chat (or `cancel_run` over MCP): the eval running in the sandbox, the repair agent and the next cycles stop; a cancelled agent's files are not sent to the orchestrator |
 | Run it automatically after every `/kit` | `clike.autoEval.afterKit: true` (default `false`) |
 | Number of repair cycles | `clike.autoEval.maxCycles` (default `2`, max `5`) |
 | Extra cycles while improving | `clike.autoEval.extraCyclesOnProgress` (default `3`): after `maxCycles`, the loop goes on as long as each cycle leaves fewer failing checks |

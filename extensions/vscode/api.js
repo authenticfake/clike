@@ -29,7 +29,7 @@ function asFsPath(workspaceRoot) {
  * Runs /v1/eval/run
  * Expects 'profile' to be an existing path (relative or absolute) to the LTC.json file
  */
-async function postEvalRun(profile, workspaceRoot,req_id, mode, modeResult) {
+async function postEvalRun(profile, workspaceRoot,req_id, mode, modeResult, signal = null) {
   const rootPath = asFsPath(workspaceRoot);
   // /eval RRQ-009 manual pass -> eval manual pass
   const projectName = getProjectNameFromWorkspace();
@@ -48,7 +48,8 @@ async function postEvalRun(profile, workspaceRoot,req_id, mode, modeResult) {
   const body = (mode === 'manual')
     ? { mode: 'manual', verdict: modeResult, ltc:ltcDoc }
     : { ltc: ltcDoc, regression: evalRegression() };
-  return requestJson('POST', url, { body, timeoutMs: evalTimeoutMs() });
+  // aborting closes the request: the orchestrator then stops the eval in the sandbox
+  return requestJson('POST', url, { body, timeoutMs: evalTimeoutMs(), signal: signal || undefined });
 }
 
 /**
@@ -98,7 +99,7 @@ async function postGateCheck(profile, workspaceRoot, req_id, options = {}) {
     : { ltc: ltcDoc, regression: evalRegression(), ...(strict ? { strict: true } : {}) };
 
   const url = orchestratorUrl(`/v1/gate/check?${qs.toString()}`);
-  return requestJson('POST', url, { body, timeoutMs: evalTimeoutMs() });
+  return requestJson('POST', url, { body, timeoutMs: evalTimeoutMs(), signal: opts.signal || undefined });
 }
 
 

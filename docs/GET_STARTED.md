@@ -23,7 +23,7 @@ With execution = agent, the chat **is** a conversation with Claude Code or Codex
 - each mode keeps one agent session: the next message resumes it, so the agent remembers the
   conversation (`/agent-session` shows the sessions, `/agent-session new` starts a fresh one);
 - the agent's answer and the tools it uses (files read or edited, commands) appear live;
-- **Cancel** stops the agent;
+- **Cancel** stops the agent, and a running `/eval`, `/gate` or `--fix` loop with it;
 - Free is read-only (questions only). Coding and **Harper free text** let the agent also create
   files, only under `generated/<id>/` (e.g. in Harper: "create a script that computes N!"); the
   Harper artifacts (SPEC, PLAN, KIT, ...) change only through the phase commands;

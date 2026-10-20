@@ -2383,6 +2383,13 @@ process.once('exit', () => {
   for (const child of activeAgentProcesses) terminateProcessTree(child, { graceMs: 0 });
 });
 
+/** Stop every local agent CLike started (the chat's Cancel); returns how many were running. */
+function terminateActiveAgents() {
+  const running = [...activeAgentProcesses];
+  for (const child of running) terminateProcessTree(child);
+  return running.length;
+}
+
 async function runLocalAgentSync({
   workspaceRootUri,
   prompt,
@@ -3003,6 +3010,7 @@ module.exports = {
   readPlanJson,
   runKitCommand,
   runLocalAgentSync,
+  terminateActiveAgents,
   runEvalGateCommand,
   saveKitCommand,
   saveGateCommand,

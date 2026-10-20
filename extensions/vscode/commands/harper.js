@@ -29,12 +29,12 @@ function buildEvalMessage(res) {
   return `EVAL FAIL — passed=${passed}, failed=${failed}, blocked=${blocked}, warnings=${warnings}`;
 }
 
-async function handleEval(argument, workspaceRoot, req_id, mode = 'auto', result = 'pass') {
+async function handleEval(argument, workspaceRoot, req_id, mode = 'auto', result = 'pass', signal = null) {
   let profile = null;
 
   try {
     profile = await resolveProfilePath(argument, workspaceRoot);
-    const res = await postEvalRun(profile, workspaceRoot, req_id, mode, result);
+    const res = await postEvalRun(profile, workspaceRoot, req_id, mode, result, signal);
     const msg = buildEvalMessage(res);
     const casesCount = Array.isArray(res?.cases) ? res.cases.length : 0;
     const status = String(res?.status || '').toUpperCase();
@@ -63,7 +63,8 @@ async function handleEval(argument, workspaceRoot, req_id, mode = 'auto', result
         summary: `Eval ${profile || argument}: EVAL ERROR\nReport: ${String(err)}`,
       };
 
-    vscode.window.showErrorMessage(`EVAL error: ${String(err)}`);
+    if (signal && signal.aborted) res.cancelled = true;
+    else vscode.window.showErrorMessage(`EVAL error: ${String(err)}`);
     return res;
   }
 }
@@ -102,7 +103,8 @@ async function handleGate(argument, workspaceRoot, req_id, opts = { promote: fal
       summary: `Gate ${profile || argument}: GATE ERROR ${String(err)}`,
     };
 
-    vscode.window.showErrorMessage(
+    if (opts && opts.signal && opts.signal.aborted) res.cancelled = true;
+    else vscode.window.showErrorMessage(
       `GATE error: ${String(err)} | req_id=${req_id} workspace=${workspaceRoot} argument=${argument}`,
     );
 
