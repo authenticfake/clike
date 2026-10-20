@@ -42,9 +42,18 @@ class FlakyRegressionTests(_RegressionProject):
         self.assertEqual(gate["gate"], "PASS", gate["reason_code"])
 
     def test_a_test_that_fails_twice_is_a_regression(self):
-        self._flaky_req001(fail_times=5)
+        # fails with the candidate and on the retry, passes on the promoted tree alone: a regression
+        self._flaky_req001(fail_times=2)
         gate = self._post("/v1/gate/check", "REQ-002", regression=True).json()
         self.assertEqual(gate["reason_code"], "GATE_BLOCKED_REGRESSION")
+
+    def test_a_test_failing_without_the_candidate_too_is_a_warning(self):
+        self._flaky_req001(fail_times=5)
+        gate = self._post("/v1/gate/check", "REQ-002", regression=True).json()
+        case = next(c for c in gate["cases"] if c["name"] == "regression::REQ-001::unit")
+        self.assertFalse(case["blocking"])
+        self.assertIn("Already failing without this candidate", case["stderr"])
+        self.assertEqual(gate["gate"], "PASS", gate["reason_code"])
 
 
 class SharedFileDiagnosisTests(_RegressionProject):

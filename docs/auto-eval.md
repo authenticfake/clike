@@ -256,6 +256,13 @@ it is nondeterministic (timing, order, asynchronous UI): it is reported as a non
 (`[CLike EvalRunner] Nondeterministic: … make the test of REQ-0xx deterministic`), does not block
 the gate and is not sent to the candidate's repair. Failing twice, it is a regression.
 
+A blocking failure of a promoted REQ that remains (a test, a service it starts, a value it
+provisions) is then run on the promoted tree **without the candidate**. If it fails there too, the
+candidate did not cause it (a check environment that later REQs outgrew, an earlier REQ): it is a
+non-blocking warning (`[CLike EvalRunner] Already failing without this candidate: … REQ-0xx's check
+or its environment needs a fix`), not sent to the candidate's repair. Only what the candidate
+breaks blocks its gate.
+
 When a check of a promoted REQ fails and the candidate KIT replaces files that REQ also delivered
 (its `src/` or `test/` files, compared with the canonical copy), CLike names them on the failing
 check, with a short diff: `[CLike EvalRunner] Shared files changed: …`. It works on files, so in

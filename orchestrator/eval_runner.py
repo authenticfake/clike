@@ -176,6 +176,8 @@ def _run_process_group(
 _SANDBOX_EXHAUSTED_NOTE = "[CLike EvalRunner] Sandbox resources exhausted"
 _MISSING_TOOLS_NOTE = "[CLike EvalRunner] Missing in the eval sandbox"
 _NONDETERMINISTIC_NOTE = "[CLike EvalRunner] Nondeterministic"
+# a failure of a promoted REQ that does not depend on the candidate (it fails on the promoted tree alone)
+_PREEXISTING_NOTE = "[CLike EvalRunner] Already failing without this candidate"
 _SHARED_FILES_NOTE = "[CLike EvalRunner] Shared files changed"
 # A test file by name in Python, JS/TS, Java/Kotlin, Go, C# (test_x.py, x_test.go, x.test.ts, x.spec.js, XTest.java, XTests.cs).
 _TEST_FILE_NAME_RE = re.compile(r"^test_|_test\.\w+$|\.(test|spec)\.\w+$|Tests?\.\w+$")
@@ -3529,6 +3531,42 @@ class EvalRunner:
                 case.excerpt = f"{note}\n\n{case.excerpt or ''}"
                 log.info("regression %s::%s nondeterministic (passed on retry)", other, case.name)
 
+    def _mark_preexisting_regression_failures(
+        self, req_id: Optional[str], profile: Path, ltc: Dict[str, Any], other: str, report: EvalReport
+    ) -> None:
+        """Re-run the blocking failures of a promoted REQ's regression on the promoted tree alone
+        (without the candidate). One that fails there too was already broken before this candidate (a
+        stale check environment, an earlier REQ): a warning naming the REQ, not a regression of the
+        candidate, so it neither blocks the gate nor goes to the candidate's repair."""
+        failing = [c for c in report.cases if not c.passed and c.blocking and not c.blocked]
+        if not failing or (self.cancel_event is not None and self.cancel_event.is_set()):
+            return
+        check_ids = {str(c.get("id") or "") for c in ltc.get("checks") or []}
+        retry = sorted({c.name for c in failing if c.name in check_ids})
+        try:
+            baseline_runner = EvalRunner(
+                self.project_root,
+                eval_key=f"{self._safe_req_id(req_id)}/regression-baseline/{self._safe_req_id(other)}",
+                cancel_event=self.cancel_event,
+                regression=True,
+            )
+            baseline = baseline_runner.run_profile(profile=str(profile), ltc=ltc, req_id=other, checks=retry or None)
+        except Exception as exc:  # the first verdict stands
+            log.warning("regression baseline of %s failed to run: %s", other, exc)
+            return
+        failing_without = {c.name for c in baseline.cases if not c.passed and not c.blocked}
+        for case in failing:
+            if case.name not in failing_without:
+                continue
+            note = (
+                f"{_PREEXISTING_NOTE}: {case.name} of {other} fails on the promoted tree without this candidate too. "
+                f"Not a regression of this candidate: {other}'s check or its environment needs a fix."
+            )
+            case.blocking = False
+            case.stderr = f"{case.stderr or ''}\n{note}"[-4000:]
+            case.excerpt = f"{note}\n\n{case.excerpt or ''}"
+            log.info("regression %s::%s already failing without the candidate", other, case.name)
+
     def _note_shared_file_changes(self, other: str, candidate_root: Path, report: EvalReport) -> None:
         """Name, on each failing blocking check of a promoted REQ, the files of that REQ the candidate
         replaced and how: the repair then sees the cause ("No tests found" after a rewritten test
@@ -3606,6 +3644,7 @@ class EvalRunner:
                 ))
                 log.info("regression %s: candidate reconciles %d test file(s)", other, len(files))
             self._retry_failed_regression_tests(runner, profile, ltc, other, report)
+            self._mark_preexisting_regression_failures(req_id, profile, ltc, other, report)
             self._note_shared_file_changes(other, candidate_src.parent, report)
             for case in report.cases:
                 if not _is_regression_test_case(case):
