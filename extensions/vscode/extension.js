@@ -56,6 +56,7 @@ const {
   
   getProjectNameFromWorkspace,
   runLocalAgentSync,
+  terminateActiveAgents,
   collectReqCandidateFiles,
   collectReqCandidateFileArtifacts,
   collectFinalizeCandidateFiles,
@@ -185,6 +186,27 @@ let extensionMcpState = {
 let __clike_lastTargetUriCache = null;  
 // --- In-flight request state (for Cancel) ---
 let inflightController = null;
+// Harper phases (/eval, /gate, a KIT repair, their --fix cycles) share one cancel signal: a phase
+// the user starts takes a fresh one, the cycles it chains reuse it, Cancel aborts it.
+let harperAbortController = null;
+function harperSignal(fresh) {
+  if (fresh || !harperAbortController) harperAbortController = new AbortController();
+  return harperAbortController.signal;
+}
+function harperCancelled() {
+  return !!(harperAbortController && harperAbortController.signal.aborted);
+}
+/** The chat's Cancel (and MCP cancel_run): stop the request, the eval it runs and every local agent. */
+function cancelHarperWork() {
+  if (inflightController) inflightController.abort();
+  inflightController = null;
+  if (harperAbortController) harperAbortController.abort();
+  if (activeChatAgentChild) {
+    terminateProcessTree(activeChatAgentChild);
+    activeChatAgentChild = null;
+  }
+  return terminateActiveAgents();
+}
 // the agent CLI answering the current chat message (Cancel terminates it)
 let activeChatAgentChild = null;
 // Chat state: per mode -> array of bubbles. Each bubble: { role: 'user'|'assistant', text, model, ts }
@@ -1043,6 +1065,8 @@ async function executeLocalAgentPackage({
       evalCheckBridge.stop();
     }
   }
+  // Cancel stopped the agent: nothing it left half-written goes to the orchestrator
+  if (harperCancelled()) throw new Error(`${executorLabel} run cancelled by user.`);
   // Usage/cost/model of the run; downstream code keeps reading plain text.
   const agentRun = parseLocalAgentRun(selectedExecutor, agentResult.stdout, {
     durationMs: Date.now() - agentStartedAt,
@@ -2132,12 +2156,7 @@ function cancelMcpRun(runId) {
   const run = mcpRuns.get(String(runId || '').trim());
   if (!run) throw new Error('Unknown run_id.');
   if (run.status !== 'running') return { ...run, cancelled: false, message: 'the run is not running' };
-  if (inflightController) inflightController.abort();
-  inflightController = null;
-  if (activeChatAgentChild) {
-    terminateProcessTree(activeChatAgentChild);
-    activeChatAgentChild = null;
-  }
+  cancelHarperWork();
   run.cancel_requested_at = new Date().toISOString();
   return { ...run, cancelled: true, message: 'cancel requested: the run stops at the next step (harper_run_status shows its end)' };
 }
@@ -3813,6 +3832,11 @@ async function cmdOpenChat(context) {
       }
       // Run Harper phase from webview (slash: /spec | /plan | /kit | /build)
       if (msg.type === 'harperRun') {
+        // an auto-eval repair continues the /eval --fix the user started (and its Cancel)
+        if (harperSignal(!msg.autoEvalRepair).aborted) {
+          panel.webview.postMessage({ type: 'busy', on: false });
+          return;
+        }
         const runId = (Math.random().toString(16).slice(2) + Date.now().toString(16));
         //log(`[harperRun] inside ${JSON.stringify(msg)}`);
         const phase = msg.cmd;
@@ -4880,6 +4904,12 @@ async function cmdOpenChat(context) {
       if (msg.type === 'harperEDD' ) {
         let targets, targetReqId
         const phase = msg.cmd;
+        // a --fix cycle continues the phase the user started (and its Cancel)
+        const harperAbort = harperSignal(!(msg.fix && Number(msg.fix.cycle || 0) > 0));
+        if (harperAbort.aborted) {
+          panel.webview.postMessage({ type: 'busy', on: false });
+          return;
+        }
         const gateMethodologyError = 'Gate is CLike-owned. Methodology flags are not accepted for /gate in MVP.';
         if (
           phase === 'gate' &&
@@ -5164,9 +5194,14 @@ async function cmdOpenChat(context) {
             }
             log("[harperEDD] Calling canonical eval for req:" + targets + " in: " + ws_root);
             if (!isManual) await ensureToolsForEval(targets);
-            report = await handleEval(path_ltc_json, ws_root, targets, mode, modeContent);
-            if (!isManual && await installReportedTools(targets, report)) {
-              report = await handleEval(path_ltc_json, ws_root, targets, mode, modeContent);
+            report = await handleEval(path_ltc_json, ws_root, targets, mode, modeContent, harperAbort);
+            if (!harperAbort.aborted && !isManual && await installReportedTools(targets, report)) {
+              report = await handleEval(path_ltc_json, ws_root, targets, mode, modeContent, harperAbort);
+            }
+            if (harperAbort.aborted) {
+              panel.webview.postMessage({ type: 'echo', message: `⏹ /eval ${targets} cancelled: the eval was stopped.` });
+              panel.webview.postMessage({ type: 'busy', on: false, force: true });
+              return;
             }
             const evalMethodologyContext = buildEffectiveEvalMethodologyContext(
               msg.methodology_context || {
@@ -5211,10 +5246,15 @@ async function cmdOpenChat(context) {
               report = await postGateOverride(ws_root, targets, reason.trim(), author || require('os').userInfo().username);
             } else {
               await ensureToolsForEval(targets);
-              const gateOpts = { promote: false, reqId: targets, mode: mode, result: modeContent };
+              const gateOpts = { promote: false, reqId: targets, mode: mode, result: modeContent, signal: harperAbort };
               report = await handleGate(path_ltc_json, ws_root, targets, gateOpts);
-              if (await installReportedTools(targets, report)) {
+              if (!harperAbort.aborted && await installReportedTools(targets, report)) {
                 report = await handleGate(path_ltc_json, ws_root, targets, gateOpts);
+              }
+              if (harperAbort.aborted) {
+                panel.webview.postMessage({ type: 'echo', message: `⏹ /gate ${targets} cancelled: the gate was stopped.` });
+                panel.webview.postMessage({ type: 'busy', on: false, force: true });
+                return;
               }
             }
 
@@ -6051,12 +6091,8 @@ async function cmdOpenChat(context) {
       }
       // 7) CANCEL
       if (msg.type === 'cancel') {
-        if (inflightController) inflightController.abort();
-        inflightController = null;
-        if (activeChatAgentChild) {
-          terminateProcessTree(activeChatAgentChild);
-          activeChatAgentChild = null;
-        }
+        const agents = cancelHarperWork();
+        if (agents) log(`[cancel] stopped ${agents} local agent run(s)`);
         panel.webview.postMessage({ type: 'busy', on: false });
       }
       // --- PICK WORKSPACE FILES ----------------------------------------------------
@@ -6479,6 +6515,11 @@ async function cmdOpenChat(context) {
     kitMsg.__acceptance = { before: acceptanceBefore, failures: step.failures, cycle };
     await handleWebviewMessage(kitMsg);
     if (!kitMsg.__acceptanceGoverned) await governAcceptanceChanges(reqId, acceptanceBefore, step.failures, cycle);
+    if (harperCancelled()) {
+      say(`⏹ AUTO-EVAL ${reqId} cancelled at repair cycle ${cycle}.`);
+      finish('cancelled');
+      return;
+    }
     const evalMsg = {
       type: 'harperEDD',
       cmd: 'eval',
@@ -6561,6 +6602,10 @@ async function cmdOpenChat(context) {
     kitMsg.__acceptance = { before: acceptanceBefore, failures: step.failures, cycle };
     await handleWebviewMessage(kitMsg);
     if (!kitMsg.__acceptanceGoverned) await governAcceptanceChanges(reqId, acceptanceBefore, step.failures, cycle);
+    if (harperCancelled()) {
+      panel.webview.postMessage({ type: 'echo', message: `⏹ AUTO-GATE ${reqId} cancelled at repair cycle ${cycle}.` });
+      return;
+    }
     const gateMsg = {
       type: 'harperEDD',
       cmd: 'gate',

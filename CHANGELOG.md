@@ -27,6 +27,11 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **Cancel did not stop an eval**: the chat's Cancel aborted only chat requests, so `/eval`,
+  `/gate` and their `--fix` loops went on (also with VS Code closed, the eval kept running in the
+  sandbox). Cancel (and MCP `cancel_run`) now closes the eval/gate request, which stops the eval
+  in the sandbox, stops every local agent CLike started, and ends the repair loop; a cancelled
+  agent's files are not sent to the orchestrator.
 - **Reconciliations did not last**: the regression of a promoted REQ ran the original tests of its
   KIT, not the version a later REQ had reconciled and promoted, so every following REQ had to
   reconcile the same tests again (B2B: the migration head pinned by REQ-015/017/018 failed at

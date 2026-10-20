@@ -143,3 +143,29 @@ test('webview and extension keep explicit Harper slash routing guards', () => {
   );
   assert.match(extension, /Blocked Harper slash command from generic chat route/);
 });
+
+test('Cancel stops a Harper phase: the eval/gate request, the --fix cycles and the local agents', () => {
+  const extension = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const api = fs.readFileSync(path.join(__dirname, '..', 'api.js'), 'utf8');
+  // the chat Cancel and MCP cancel_run share one stop
+  assert.match(extension, /if \(msg\.type === 'cancel'\) \{\n\s+const agents = cancelHarperWork\(\);/);
+  assert.match(extension, /cancelHarperWork\(\);\n\s+run\.cancel_requested_at/);
+  assert.match(extension, /if \(harperAbortController\) harperAbortController\.abort\(\);/);
+  assert.match(extension, /return terminateActiveAgents\(\);/);
+  // eval and gate requests carry the signal (closing them stops the eval in the sandbox)
+  assert.match(extension, /handleEval\(path_ltc_json, ws_root, targets, mode, modeContent, harperAbort\)/);
+  assert.match(extension, /result: modeContent, signal: harperAbort \}/);
+  assert.match(api, /async function postEvalRun\(profile, workspaceRoot,req_id, mode, modeResult, signal = null\)/);
+  assert.match(api, /signal: opts\.signal \|\| undefined/);
+  // a --fix cycle and a repair reuse the user's signal; the loops stop once it is aborted
+  assert.match(extension, /harperSignal\(!\(msg\.fix && Number\(msg\.fix\.cycle \|\| 0\) > 0\)\)/);
+  assert.match(extension, /harperSignal\(!msg\.autoEvalRepair\)/);
+  assert.equal((extension.match(/if \(harperCancelled\(\)\) \{/g) || []).length, 2);
+  // a cancelled agent's half-written files never reach the orchestrator
+  assert.match(extension, /if \(harperCancelled\(\)\) throw new Error\(`\$\{executorLabel\} run cancelled by user\.`\);/);
+});
+
+test('terminateActiveAgents stops the local agents CLike started', () => {
+  const utility = fs.readFileSync(path.join(__dirname, '..', 'utility.js'), 'utf8');
+  assert.match(utility, /function terminateActiveAgents\(\) \{\n\s+const running = \[\.\.\.activeAgentProcesses\];\n\s+for \(const child of running\) terminateProcessTree\(child\);/);
+});
