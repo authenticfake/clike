@@ -267,6 +267,12 @@ configs, infrastructure and build manifests are shared files (test selectors nev
 test files exist: after promotion they all do), and checks assert what their REQ
 contributes, never that a shared file contains only that.
 
+In the regression a promoted REQ runs the promoted version of its tests: each test file of its KIT
+is replaced by its copy in the canonical test tree when that copy differs and was committed later
+(a later REQ reconciled it and promotion delivered it), so a reconciliation is done once, not by
+every following REQ. The test root's `conftest.py` is shared by every REQ and merged at promotion,
+so the REQ keeps its own.
+
 When the candidate changes a promoted REQ's behaviour on purpose, it reconciles that REQ's test in
 its own test root, at the same path (`runs/kit/<candidate>/test/...`). The regression runs that
 version, since promotion delivers it: the candidate's copy replaces the test files the promoted
@@ -276,7 +282,8 @@ test tree (a helper at the test root for a test in `test/v2/`), and a package ma
 (`__init__.py`) or a `conftest` in the same directory as a reconciled test. Nothing else comes: a
 `conftest` in another directory would be loaded by the test runner into that REQ's own tests, a
 module that exists in the sources is never taken from the test tree, and the candidate's tests run
-in its own checks. The candidate's own tests are not added to
+in its own checks. A candidate file identical to the promoted one reconciles nothing (promotion
+does not change it) and is not overlaid. The candidate's own tests are not added to
 that REQ's checks. The change is never silent:
 the report carries the warning `regression::<REQ>::reconciled-tests` with the replaced files, for
 review before the gate. It is not sent to a repair.

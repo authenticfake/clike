@@ -27,6 +27,15 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **Reconciliations did not last**: the regression of a promoted REQ ran the original tests of its
+  KIT, not the version a later REQ had reconciled and promoted, so every following REQ had to
+  reconcile the same tests again (B2B: the migration head pinned by REQ-015/017/018 failed at
+  each new migration). The promoted version now runs when it is newer in git; the shared root
+  `conftest.py` stays the REQ's own.
+- **A candidate carrying a promoted file replaced every REQ's copy**: B2B REQ-020 shipped the
+  canonical `test/conftest.py` unchanged and the regression put it in place of the root
+  `conftest.py` of eight promoted REQs (missing fixtures). A file identical to its promoted copy
+  is no longer a reconciliation.
 - **A promoted dependency without a promotion record brought old files back**: a REQ done before
   gate promotion records existed (B2B REQ-003) had its KIT overlaid over the canonical tree, so an
   older `ports.py` replaced the one later REQs had changed, and REQ-019 failed on names that were

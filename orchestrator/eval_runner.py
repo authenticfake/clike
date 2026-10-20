@@ -179,6 +179,9 @@ _NONDETERMINISTIC_NOTE = "[CLike EvalRunner] Nondeterministic"
 _SHARED_FILES_NOTE = "[CLike EvalRunner] Shared files changed"
 # A test file by name in Python, JS/TS, Java/Kotlin, Go, C# (test_x.py, x_test.go, x.test.ts, x.spec.js, XTest.java, XTests.cs).
 _TEST_FILE_NAME_RE = re.compile(r"^test_|_test\.\w+$|\.(test|spec)\.\w+$|Tests?\.\w+$")
+# The test root's conftest is shared by every REQ and merged at promotion (a REQ's fixtures may move
+# to a subdirectory): its canonical copy is not a promoted version of one REQ's conftest.
+_SHARED_ROOT_TEST_FILES = frozenset({"conftest.py"})
 # new support files a reconciled test gets when they sit beside it (package marker, fixtures)
 _BESIDE_SUPPORT_NAMES = {"__init__.py", "conftest.py"}
 _PY_IMPORT_RE = re.compile(r"^\s*(?:from\s+(\.*)([\w.]*)\s+import\s+([\w., ()]+)|import\s+([\w., ]+))", re.M)
@@ -1089,7 +1092,13 @@ class EvalRunner:
                     shutil.copy2(layer / name, work_kit_root / name)
 
     def _copy_tree_overlay(
-        self, src: Path, dst: Path, canonical: Optional[Path] = None, history: Optional[Path] = None
+        self,
+        src: Path,
+        dst: Path,
+        canonical: Optional[Path] = None,
+        history: Optional[Path] = None,
+        take_canonical: bool = False,
+        kit_only: frozenset = frozenset(),
     ) -> None:
         """
         Copy a tree into an overlay destination.
@@ -1098,7 +1107,9 @@ class EvalRunner:
         promoted roots first, dependency KIT roots next, current KIT last.
         With ``canonical`` (the canonical root ``dst`` was composed from), a file whose canonical
         copy is newer is kept (see ``_kit_layer_mode``); ``history`` is the project tree ``src`` was
-        copied from, for the commit times.
+        copied from, for the commit times. ``take_canonical`` writes that newer canonical copy (when
+        ``dst`` was not composed from the canonical tree); ``kit_only`` relative paths always keep
+        the ``src`` copy.
         """
         if not src.exists():
             return
@@ -1130,21 +1141,25 @@ class EvalRunner:
             if item.is_dir():
                 target.mkdir(parents=True, exist_ok=True)
                 continue
-            if canonical is not None and self._canonical_is_newer(
+            if canonical is not None and rel.as_posix() not in kit_only and self._canonical_is_newer(
                 item, canonical / rel, history / rel if history is not None else None
             ):
+                if take_canonical:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(canonical / rel, target)
                 continue
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(item, target)
 
-    def _overlay_existing_files(self, src: Path, dst: Path) -> List[str]:
+    def _overlay_existing_files(self, src: Path, dst: Path, canonical: Optional[Path] = None) -> List[str]:
         """Copy over ``dst`` the files of ``src`` that ``dst`` already has with different content (the
         candidate's version of a regressed REQ's test) and, once one is replaced, the candidate's new
         support files that version needs: the modules it imports, directly or through another copied
         module, from anywhere in the candidate's test tree, and a package marker or a conftest beside
         a replaced file. Other new files stay out: a conftest elsewhere is loaded by the test runner
-        for the regressed REQ's own tests, and the candidate's tests run in its own checks. Returns
-        the replaced or added relative paths."""
+        for the regressed REQ's own tests, and the candidate's tests run in its own checks. A
+        candidate file identical to its ``canonical`` copy reconciles nothing (promotion does not
+        change it). Returns the replaced or added relative paths."""
         changed: List[str] = []
         if not src.is_dir() or not dst.is_dir():
             return changed
@@ -1156,8 +1171,11 @@ class EvalRunner:
             if not item.is_file():
                 continue
             try:
-                if item.read_bytes() == target.read_bytes():
+                content = item.read_bytes()
+                if content == target.read_bytes():
                     continue
+                if canonical is not None and (canonical / rel).is_file() and (canonical / rel).read_bytes() == content:
+                    continue  # the candidate carries the promoted file unchanged
             except OSError:
                 continue
             shutil.copy2(item, target)
@@ -1358,8 +1376,13 @@ class EvalRunner:
             self._overlay_kit_layer(kit_root.name, kit_root / "src", overlay / "src", self.project_root / "src")
         else:
             self._copy_tree_overlay(kit_root / "src", overlay / "src")
-        self._copy_tree_overlay(kit_root / "test", overlay / "test")
-        self._copy_tree_overlay(kit_root / "tests", overlay / "tests")
+        promoted_tests = self.regression and self._kit_layer_mode(kit_root.name) != "full"
+        for logical in ("test", "tests"):
+            # the promoted version of a reconciled test is the canonical one already copied above
+            canonical = self.project_root / logical if promoted_tests else None
+            self._copy_tree_overlay(
+                kit_root / logical, overlay / logical, canonical=canonical, kit_only=_SHARED_ROOT_TEST_FILES
+            )
 
         # Eval workspace contract hardening.
         #
@@ -2007,14 +2030,24 @@ class EvalRunner:
                     # Generated REQ-local CI scripts commonly scan work/<REQ>/test
                     # for tests, secrets, and typecheck inputs. Mixing dependency
                     # tests here causes false failures in downstream REQs.
+                    # In the regression of a promoted REQ its tests are the promoted version: a later
+                    # REQ that reconciled one of them delivered it to the canonical tree.
+                    promoted_tests = self.regression and self._kit_layer_mode(kit_root.name) != "full"
                     self._copy_tree_overlay(
                         kit_root / logical_root,
                         composed_logical_root,
+                        canonical=self.project_root / logical_root if promoted_tests else None,
+                        take_canonical=True,
+                        kit_only=_SHARED_ROOT_TEST_FILES,
                     )
                     for extra_test in self.extra_test_roots:
                         self.reconciled_tests += [
                             f"{logical_root}/{rel}"
-                            for rel in self._overlay_existing_files(Path(extra_test) / logical_root, composed_logical_root)
+                            for rel in self._overlay_existing_files(
+                                Path(extra_test) / logical_root,
+                                composed_logical_root,
+                                canonical=self.project_root / logical_root,
+                            )
                         ]
 
                 if composed_logical_root.exists():
