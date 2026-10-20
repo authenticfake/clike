@@ -1059,28 +1059,46 @@ class EvalRunner:
         they will be after promotion: the canonical ones, the root/ of the dependency KITs not
         promoted yet, then the candidate's root/ (and, in a regression, the candidate being checked)."""
         policy = root_policy(self.project_root)
-        layers: List[Path] = [self.project_root]
+        # (layer, newer_check): a done REQ without a promotion record keeps newer canonical files
+        # history: the project KIT root/ a dependency copy comes from, for the commit times
+        layers: List[tuple] = [(self.project_root, False, None)]
         for dep_raw in dependency_roots:
             dep = Path(dep_raw)
-            if not self._promoted_into_canonical(dep.name):
-                layers.append(dep / KIT_ROOT_DIR)
-        if not (self.regression and self._promoted_into_canonical(kit_root.name)):
-            layers.append(kit_root / KIT_ROOT_DIR)
-        layers += [Path(p) for p in self.extra_root_roots]
-        for layer in layers:
+            mode = self._kit_layer_mode(dep.name)
+            if mode != "skip":
+                history = self.project_root / "runs" / "kit" / dep.name / KIT_ROOT_DIR
+                layers.append((dep / KIT_ROOT_DIR, mode == "newer", history))
+        own_mode = self._kit_layer_mode(kit_root.name) if self.regression else "full"
+        if own_mode != "skip":
+            layers.append((kit_root / KIT_ROOT_DIR, own_mode == "newer", None))
+        layers += [(Path(p), False, None) for p in self.extra_root_roots]
+        for layer, newer_check, history in layers:
             for name in policy["folders"]:
                 if (layer / name).is_dir():
-                    self._copy_tree_overlay(layer / name, work_kit_root / name)
+                    canonical = self.project_root / name if newer_check else None
+                    self._copy_tree_overlay(
+                        layer / name, work_kit_root / name, canonical=canonical,
+                        history=history / name if history is not None else None,
+                    )
             for name in policy["files"]:
-                if (layer / name).is_file():
+                if (layer / name).is_file() and not (
+                    newer_check and self._canonical_is_newer(
+                        layer / name, self.project_root / name, history / name if history is not None else None
+                    )
+                ):
                     shutil.copy2(layer / name, work_kit_root / name)
 
-    def _copy_tree_overlay(self, src: Path, dst: Path) -> None:
+    def _copy_tree_overlay(
+        self, src: Path, dst: Path, canonical: Optional[Path] = None, history: Optional[Path] = None
+    ) -> None:
         """
         Copy a tree into an overlay destination.
 
         Later copies win. This keeps the implementation intentionally simple:
         promoted roots first, dependency KIT roots next, current KIT last.
+        With ``canonical`` (the canonical root ``dst`` was composed from), a file whose canonical
+        copy is newer is kept (see ``_kit_layer_mode``); ``history`` is the project tree ``src`` was
+        copied from, for the commit times.
         """
         if not src.exists():
             return
@@ -1094,6 +1112,8 @@ class EvalRunner:
         }
 
         if src.is_file():
+            if canonical is not None and self._canonical_is_newer(src, canonical, history):
+                return
             if src.name not in ignored_names and src.suffix not in {".pyc", ".pyo"} and not _PROMOTION_SCRATCH_RE.search(src.name):
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src, dst)
@@ -1109,6 +1129,10 @@ class EvalRunner:
             target = dst / rel
             if item.is_dir():
                 target.mkdir(parents=True, exist_ok=True)
+                continue
+            if canonical is not None and self._canonical_is_newer(
+                item, canonical / rel, history / rel if history is not None else None
+            ):
                 continue
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(item, target)
@@ -1232,6 +1256,59 @@ class EvalRunner:
         cache[req_id] = promoted
         return promoted
 
+    def _kit_layer_mode(self, req_id: str) -> str:
+        """How a REQ's KIT copy goes over the canonical tree: ``skip`` once an auto-merge promotion of
+        it is recorded; ``newer`` for a done REQ without that record (promoted before records, by an
+        overwrite, or kept beside the tree by a folder/suffix strategy): each KIT file wins unless
+        its canonical copy was committed later (a later REQ changed it); ``full`` for a REQ not
+        promoted yet."""
+        if self._promoted_into_canonical(req_id):
+            return "skip"
+        try:
+            plan = json.loads((self.project_root / "docs" / "harper" / "plan.json").read_text(encoding="utf-8"))
+            reqs = plan.get("reqs") or plan.get("req") or []
+            entry = next((r for r in reqs if isinstance(r, dict) and str(r.get("id") or "") == str(req_id)), None)
+            status = str(entry.get("status") or "").strip().lower() if isinstance(entry, dict) else ""
+        except (OSError, ValueError, AttributeError):
+            status = ""
+        return "newer" if status in PROMOTED_REQ_STATUSES else "full"
+
+    def _overlay_kit_layer(
+        self, req_id: str, src: Path, dst: Path, canonical: Path, history: Optional[Path] = None
+    ) -> None:
+        mode = self._kit_layer_mode(req_id)
+        if mode != "skip":
+            self._copy_tree_overlay(src, dst, canonical=canonical if mode == "newer" else None, history=history)
+
+    def _commit_time(self, path: Path) -> Optional[int]:
+        """Unix time of the last commit touching ``path`` in the project repository, or None."""
+        cache = getattr(self, "_commit_time_cache", None)
+        if cache is None:
+            cache = self._commit_time_cache = {}
+        key = str(path)
+        if key not in cache:
+            try:
+                rel = path.resolve().relative_to(self.project_root.resolve())
+                out = subprocess.run(
+                    ["git", "log", "-1", "--format=%ct", "--", rel.as_posix()],
+                    cwd=self.project_root, capture_output=True, text=True, timeout=20,
+                )
+                cache[key] = int(out.stdout.strip()) if out.returncode == 0 and out.stdout.strip() else None
+            except (OSError, ValueError, subprocess.SubprocessError):
+                cache[key] = None
+        return cache[key]
+
+    def _canonical_is_newer(self, kit_file: Path, canonical_file: Path, history_file: Optional[Path] = None) -> bool:
+        """True when ``canonical_file`` differs from the KIT copy and was committed after it
+        (``history_file``: the KIT file in the project, when ``kit_file`` is a copy of it)."""
+        try:
+            if not canonical_file.is_file() or canonical_file.read_bytes() == kit_file.read_bytes():
+                return False
+        except OSError:
+            return False
+        canonical_time, kit_time = self._commit_time(canonical_file), self._commit_time(history_file or kit_file)
+        return canonical_time is not None and kit_time is not None and canonical_time > kit_time
+
     def _prepare_eval_overlay_workspace(
         self,
         *,
@@ -1273,14 +1350,13 @@ class EvalRunner:
                 continue
 
             dependency_roots.append(str(dep_root))
-            if self._promoted_into_canonical(dep_id):
-                continue  # already in the canonical roots copied above
-            self._copy_tree_overlay(dep_root / "src", overlay / "src")
-            self._copy_tree_overlay(dep_root / "test", overlay / "test")
-            self._copy_tree_overlay(dep_root / "tests", overlay / "tests")
+            for logical in ("src", "test", "tests"):
+                self._overlay_kit_layer(dep_id, dep_root / logical, overlay / logical, self.project_root / logical)
 
         # Current KIT wins last (its source too, unless this is a regression of a promoted REQ).
-        if not (self.regression and self._promoted_into_canonical(kit_root.name)):
+        if self.regression:
+            self._overlay_kit_layer(kit_root.name, kit_root / "src", overlay / "src", self.project_root / "src")
+        else:
             self._copy_tree_overlay(kit_root / "src", overlay / "src")
         self._copy_tree_overlay(kit_root / "test", overlay / "test")
         self._copy_tree_overlay(kit_root / "tests", overlay / "tests")
@@ -1900,14 +1976,22 @@ class EvalRunner:
 
                     for dep_work_raw in dependency_roots:
                         dep_work = Path(dep_work_raw)
-                        if self._promoted_into_canonical(dep_work.name):
-                            continue  # already in the promoted src copied above
-                        self._copy_tree_overlay(
+                        # a promoted dependency is in the promoted src copied above: its KIT copy
+                        # never replaces a file there (later REQs may have changed it)
+                        # dep_work is a copy: commit times come from the project's own KIT
+                        self._overlay_kit_layer(
+                            dep_work.name,
                             dep_work / logical_root,
                             composed_logical_root,
+                            self.project_root / logical_root,
+                            history=self.project_root / "runs" / "kit" / dep_work.name / logical_root,
                         )
 
-                    if not (self.regression and self._promoted_into_canonical(kit_root.name)):
+                    if self.regression:
+                        self._overlay_kit_layer(
+                            kit_root.name, kit_root / logical_root, composed_logical_root, self.project_root / logical_root
+                        )
+                    else:
                         self._copy_tree_overlay(
                             kit_root / logical_root,
                             composed_logical_root,
