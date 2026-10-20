@@ -130,6 +130,20 @@ class EvalRegressionTests(_RegressionProject):
         self.assertEqual(gate["reason_code"], "GATE_BLOCKED_REGRESSION")
         self.assertEqual(gate["regression_failures"], ["regression::REQ-001::unit"])
 
+    def test_a_promoted_check_already_failing_without_the_candidate_does_not_block(self):
+        # REQ-001's check fails on the promoted tree alone (its environment needs a variable nobody
+        # sets any more): REQ-002 did not cause it, so it is a warning naming REQ-001.
+        ltc = {"req_id": "REQ-001", "run_from": "runs/kit/REQ-001",
+               "checks": [{"id": "unit", "command": 'test -n "$REQ001_STALE_SETTING"', "blocking": True}]}
+        (self.proj / "runs" / "kit" / "REQ-001" / "ci" / "LTC.json").write_text(json.dumps(ltc))
+
+        body = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        self.assertEqual(body["status"], "PASS_WITH_WARNINGS", body)
+        case = next(c for c in body["cases"] if c["name"] == "regression::REQ-001::unit")
+        self.assertFalse(case["passed"])
+        self.assertFalse(case["blocking"])
+        self.assertIn("Already failing without this candidate", case["stderr"])
+
     def test_a_test_reconciled_in_the_candidate_is_the_one_the_regression_runs(self):
         # REQ-002 changes price() on purpose and reconciles REQ-001's test in its own test root: the
         # regression runs that version (what promotion delivers) and names it as a warning.
