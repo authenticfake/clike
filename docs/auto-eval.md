@@ -274,6 +274,16 @@ the candidate, the failure stays blocking and says why (`[CLike EvalRunner] Serv
 candidate`): a configuration the candidate makes mandatory must stay optional with a safe default,
 or be declared with `/idea --extend`.
 
+That run without the candidate depends only on the promoted tree, so it is **done once per
+promoted state**: its results are kept in the eval base dir (`<eval base>/.regression-baseline/
+<REQ>.json`) with a digest of the canonical tree, the promoted REQs' KITs, every LTC, `plan.json`,
+CLike's version and the eval environment, for at most 24 h. The next repair cycle, the gate and the
+next REQ's evals on the same tree reuse it: a check known to fail there is neither retried nor run
+again, one known to pass there is not run again either. Any change of the promoted tree computes it
+again. The candidate's own KIT is not part of the digest. The results are kept only when the eval
+base dir is outside the project (the eval sandbox volume): a project directory is writable by local
+agents, which must not be able to turn a regression into a warning; there every eval runs it again.
+
 When a check of a promoted REQ fails and the candidate KIT replaces files that REQ also delivered
 (its `src/` or `test/` files, compared with the canonical copy), CLike names them on the failing
 check, with a short diff: `[CLike EvalRunner] Shared files changed: …`. It works on files, so in

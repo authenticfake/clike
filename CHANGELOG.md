@@ -11,6 +11,11 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   regression already runs on their promoted tests (`regression-checks::not-run` lists the skipped
   ones). The KIT prompt asks not to copy other REQs' tests into a KIT. On the B2B project this
   removes about 4 of the 25 minutes of an eval.
+- **The run without the candidate is done once per promoted state**: whether a failing check of a
+  promoted REQ also fails without the candidate depends on the promoted tree only, so its result is
+  kept (eval sandbox volume, digest of the promoted state, 24 h) and reused by the next repair
+  cycles, the gate and the next REQs; a check known to fail there is not retried. On the B2B project
+  six pre-existing failures were retried and re-run without the candidate at every eval.
 
 ### Added
 
