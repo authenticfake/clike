@@ -433,6 +433,50 @@ def _is_regression_test_case(case: "EvalCase") -> bool:
     return not (_COVERAGE_THRESHOLD_RE.search(output) and not _TEST_FAILURES_RE.search(output))
 
 
+# Process variables that change with the container or the shell, not with what a check sees.
+_VOLATILE_ENV_NAMES = frozenset({"HOSTNAME", "PWD", "OLDPWD", "SHLVL", "_", "TERM", "COLUMNS", "LINES"})
+
+
+class _BaselineCache:
+    """Results (check name -> failed) of a promoted REQ's checks on the promoted tree alone, valid
+    while the promoted state digest is the same and for at most a day (tools, network, time)."""
+
+    MAX_AGE_S = 24 * 3600
+
+    def __init__(self, path: Optional[Path], digest: str = "") -> None:
+        self.path, self.digest = path, digest
+        self.results: Dict[str, bool] = {}
+        self.at = time.time()
+        if path is None:
+            return
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+        if data.get("digest") == digest and time.time() - float(data.get("at") or 0) <= self.MAX_AGE_S:
+            self.results = {str(k): bool(v) for k, v in (data.get("results") or {}).items()}
+            self.at = float(data.get("at") or self.at)  # the age counts from the first result
+
+    def result(self, check: str) -> Optional[bool]:
+        """True: it fails without the candidate; False: it passes; None: not known yet."""
+        return self.results.get(check)
+
+    def failing(self) -> frozenset:
+        return frozenset(name for name, failed in self.results.items() if failed)
+
+    def store(self, results: Dict[str, bool]) -> None:
+        self.results.update(results)
+        if self.path is None:
+            return
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.path.with_suffix(".tmp")
+            tmp.write_text(json.dumps({"digest": self.digest, "at": self.at, "results": self.results}), encoding="utf-8")
+            tmp.replace(self.path)
+        except OSError as exc:
+            log.warning("regression baseline cache not written: %s", exc)
+
+
 class EvalRunner:
     def __init__(
         self,
@@ -3526,7 +3570,8 @@ class EvalRunner:
         ]
 
     def _retry_failed_regression_tests(
-        self, runner: "EvalRunner", profile: Path, ltc: Dict[str, Any], other: str, report: EvalReport
+        self, runner: "EvalRunner", profile: Path, ltc: Dict[str, Any], other: str, report: EvalReport,
+        known_failing: frozenset = frozenset(),
     ) -> None:
         """Re-run once the blocking tests of a promoted REQ that failed in its regression. One that
         passes the second time is nondeterministic (timing, order, async UI): a warning naming the
@@ -3536,6 +3581,8 @@ class EvalRunner:
             c.name for c in report.cases
             if not c.passed and c.blocking and not c.blocked and _is_regression_test_case(c)
             and not c.name.startswith(("env::", "structure::", "ltc::"))
+            # it fails on the promoted tree alone too (baseline of this tree): a re-run cannot clear it
+            and c.name not in known_failing
         ]
         if not failed or (self.cancel_event is not None and self.cancel_event.is_set()):
             return
@@ -3557,29 +3604,42 @@ class EvalRunner:
                 log.info("regression %s::%s nondeterministic (passed on retry)", other, case.name)
 
     def _mark_preexisting_regression_failures(
-        self, req_id: Optional[str], profile: Path, ltc: Dict[str, Any], other: str, report: EvalReport
+        self, req_id: Optional[str], profile: Path, ltc: Dict[str, Any], other: str, report: EvalReport,
+        baseline: Optional["_BaselineCache"] = None,
     ) -> None:
         """Re-run the blocking failures of a promoted REQ's regression on the promoted tree alone
         (without the candidate). One that fails there too was already broken before this candidate (a
         stale check environment, an earlier REQ): a warning naming the REQ, not a regression of the
-        candidate, so it neither blocks the gate nor goes to the candidate's repair."""
+        candidate, so it neither blocks the gate nor goes to the candidate's repair.
+
+        The result depends on the promoted tree only, not on the candidate: ``baseline`` keeps it per
+        promoted state, so the next eval or repair cycle of any candidate on the same tree reuses it
+        instead of running those checks again."""
         failing = [c for c in report.cases if not c.passed and c.blocking and not c.blocked]
         if not failing or (self.cancel_event is not None and self.cancel_event.is_set()):
             return
+        baseline = baseline or _BaselineCache(None)
         check_ids = {str(c.get("id") or "") for c in ltc.get("checks") or []}
-        retry = sorted({c.name for c in failing if c.name in check_ids})
-        try:
-            baseline_runner = EvalRunner(
-                self.project_root,
-                eval_key=f"{self._safe_req_id(req_id)}/regression-baseline/{self._safe_req_id(other)}",
-                cancel_event=self.cancel_event,
-                regression=True,
-            )
-            baseline = baseline_runner.run_profile(profile=str(profile), ltc=ltc, req_id=other, checks=retry or None)
-        except Exception as exc:  # the first verdict stands
-            log.warning("regression baseline of %s failed to run: %s", other, exc)
-            return
-        failing_without = {c.name for c in baseline.cases if not c.passed and not c.blocked}
+        unknown = [c.name for c in failing if baseline.result(c.name) is None]
+        retry = sorted({name for name in unknown if name in check_ids})
+        if unknown:
+            try:
+                baseline_runner = EvalRunner(
+                    self.project_root,
+                    eval_key=f"{self._safe_req_id(req_id)}/regression-baseline/{self._safe_req_id(other)}",
+                    cancel_event=self.cancel_event,
+                    regression=True,
+                )
+                rerun = baseline_runner.run_profile(profile=str(profile), ltc=ltc, req_id=other, checks=retry or None)
+            except Exception as exc:  # the first verdict stands
+                log.warning("regression baseline of %s failed to run: %s", other, exc)
+                return
+            if self.cancel_event is not None and self.cancel_event.is_set():
+                return  # a cancelled run is no baseline
+            baseline.store({c.name: (not c.passed and not c.blocked) for c in rerun.cases if not c.blocked})
+        else:
+            log.info("regression %s: baseline of the promoted tree reused for %d check(s)", other, len(failing))
+        failing_without = {c.name for c in failing if baseline.result(c.name)}
         for case in failing:
             if case.name not in failing_without:
                 if case.name.startswith("env::service::"):
@@ -3622,6 +3682,77 @@ class EvalRunner:
             case.stderr = f"{case.stderr or ''}\n{note}"[-8000:]
             case.excerpt = f"{note}\n\n{case.excerpt or ''}"
         log.info("regression %s: candidate replaced %d shared file(s)", other, len(changes))
+
+    def _promoted_state_digest(self, req_id: Optional[str]) -> Optional[str]:
+        """Digest of what a promoted REQ's baseline (its checks on the promoted tree, without the
+        candidate) depends on: the canonical tree, the KITs of the promoted REQs, every LTC,
+        plan.json, CLike's version and the eval environment. Not the candidate's KIT: its repair
+        cycles and the gate keep the same baseline. Computed once per regression run."""
+        cached = getattr(self, "_promoted_digest", None)
+        if cached is not None:
+            return cached or None
+        try:
+            from services import eval_verdicts
+
+            root = self.project_root.resolve()
+            h = hashlib.sha256()
+            h.update(f"clike={eval_verdicts._clike_version()}\0".encode())
+            env = scrubbed_process_env()  # docker/eval.env values, tool paths
+            for key in sorted(k for k in env if k not in _VOLATILE_ENV_NAMES):
+                h.update(f"{key}={env[key]}\0".encode())
+
+            def add_tree(path: Path) -> None:
+                if path.is_file():
+                    h.update(f"{path.relative_to(root).as_posix()}\0".encode())
+                    h.update(path.read_bytes())
+                    return
+                if not path.is_dir():
+                    return
+                for dirpath, dirnames, filenames in os.walk(path):
+                    dirnames[:] = sorted(d for d in dirnames if d not in eval_verdicts._SKIP_DIRS and not d.endswith(".egg-info"))
+                    for name in sorted(filenames):
+                        if name.endswith((".pyc", ".log")) or name == ".DS_Store":
+                            continue
+                        file = Path(dirpath) / name
+                        try:
+                            h.update(f"{file.relative_to(root).as_posix()}\0".encode())
+                            h.update(file.read_bytes())
+                        except OSError:
+                            continue
+
+            policy = root_policy(root)
+            for name in ("src", "test", "tests", *policy["folders"], *policy["files"]):
+                add_tree(root / name)
+            for other in self.regression_req_ids(req_id):
+                kit = root / "runs" / "kit" / self._safe_req_id(other)
+                for name in ("src", "test", "tests", "ci", KIT_ROOT_DIR):
+                    add_tree(kit / name)
+            add_tree(root / "docs" / "harper" / "plan.json")
+            for ltc in sorted((root / "runs" / "kit").glob("*/ci/LTC.json")):
+                add_tree(ltc)
+            digest = h.hexdigest()
+        except Exception as exc:  # no cache: every baseline runs, as before
+            log.warning("promoted state digest failed: %s", exc)
+            digest = ""
+        self._promoted_digest = digest
+        return digest or None
+
+    def _baseline_cache(self, req_id: Optional[str], other: str) -> "_BaselineCache":
+        """Baseline results of ``other`` on the current promoted tree, kept in the eval base dir
+        only when it is outside the project (the sandbox volume): the project is writable by local
+        agents, and a planted "already failing" result would turn a regression into a warning."""
+        try:
+            base = self._eval_base_dir()
+            root = self.project_root.resolve()
+            if base == root or root in base.parents:
+                return _BaselineCache(None)
+            digest = self._promoted_state_digest(req_id)
+            if not digest:
+                return _BaselineCache(None)
+            return _BaselineCache(base / ".regression-baseline" / f"{self._safe_req_id(other)}.json", digest)
+        except Exception as exc:
+            log.warning("regression baseline cache unavailable for %s: %s", other, exc)
+            return _BaselineCache(None)
 
     def run_regression(self, req_id: Optional[str], candidate_src: Path) -> List[EvalCase]:
         """L2 auto-eval: re-run each regression REQ's own acceptance checks against its composed
@@ -3678,8 +3809,9 @@ class EvalRunner:
                     stderr="",
                 ))
                 log.info("regression %s: candidate reconciles %d test file(s)", other, len(files))
-            self._retry_failed_regression_tests(runner, profile, ltc, other, report)
-            self._mark_preexisting_regression_failures(req_id, profile, ltc, other, report)
+            baseline = self._baseline_cache(req_id, other)
+            self._retry_failed_regression_tests(runner, profile, ltc, other, report, known_failing=baseline.failing())
+            self._mark_preexisting_regression_failures(req_id, profile, ltc, other, report, baseline=baseline)
             self._note_shared_file_changes(other, candidate_src.parent, report)
             for case in report.cases:
                 if not _is_regression_test_case(case):

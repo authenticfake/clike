@@ -56,6 +56,57 @@ class FlakyRegressionTests(_RegressionProject):
         self.assertEqual(gate["gate"], "PASS", gate["reason_code"])
 
 
+class BaselineCacheTests(_RegressionProject):
+    _flaky_req001 = FlakyRegressionTests._flaky_req001
+
+    """The baseline (a promoted REQ's checks on the promoted tree alone) is computed once per promoted
+    state, in the eval base dir outside the project, and reused by the next evals of any candidate."""
+
+    def setUp(self):
+        super().setUp()
+        self.base = self.proj.parent / f"{self.proj.name}.evalbase"
+        self.base.mkdir()
+        self._root = patch.dict("os.environ", {"CLIKE_EVAL_ROOT": str(self.base)})
+        self._root.start()
+        self.addCleanup(self._root.stop)
+
+    def _runs(self):
+        return int((self.proj.parent / f"{self.proj.name}.count").read_text())
+
+    def _eval(self):
+        body = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        case = next(c for c in body["cases"] if c["name"] == "regression::REQ-001::unit")
+        self.assertFalse(case["blocking"])
+        self.assertIn("Already failing without this candidate", case["stderr"])
+
+    def test_a_failure_already_known_on_the_promoted_tree_is_not_run_again(self):
+        self._flaky_req001(fail_times=99)
+        self._eval()
+        self.assertEqual(self._runs(), 3)  # with the candidate, its retry, without the candidate
+        self.assertTrue((self.base / ".regression-baseline" / "REQ-001.json").is_file())
+        # a repair of the candidate: the promoted tree is the same, only the candidate's run is left
+        (self.proj / "runs" / "kit" / "REQ-002" / "src" / "checkout.py").write_text(
+            "from pricing import price\n\ndef total(n):\n    return price() * n\n")
+        self._eval()
+        self.assertEqual(self._runs(), 4)
+
+    def test_a_changed_promoted_tree_computes_the_baseline_again(self):
+        self._flaky_req001(fail_times=99)
+        self._eval()
+        (self.proj / "runs" / "kit" / "REQ-001" / "test" / "note.txt").write_text("changed\n")
+        self._eval()
+        self.assertEqual(self._runs(), 6)
+
+    def test_no_baseline_is_kept_inside_the_project(self):
+        self._root.stop()
+        self._flaky_req001(fail_times=99)
+        self._eval()
+        self._eval()
+        self.assertEqual(self._runs(), 6)
+        self.assertEqual(list(self.proj.rglob(".regression-baseline")), [])
+        self._root.start()
+
+
 class SharedFileDiagnosisTests(_RegressionProject):
     def test_a_regression_names_the_shared_files_the_candidate_replaced(self):
         # REQ-002 rewrites REQ-001's pricing.py: REQ-001's failing check names the file and the diff.
