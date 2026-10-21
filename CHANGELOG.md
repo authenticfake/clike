@@ -16,6 +16,9 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   kept (eval sandbox volume, digest of the promoted state, 24 h) and reused by the next repair
   cycles, the gate and the next REQs; a check known to fail there is not retried. On the B2B project
   six pre-existing failures were retried and re-run without the candidate at every eval.
+- **Promoted REQs are regressed side by side**: `CLIKE_EVAL_REGRESSION_WORKERS` (docker/.env,
+  default 2, `1` restores one after the other) of them at a time; shared installs (venvs, npm
+  store) and service ports are guarded, and the report keeps the plan order.
 
 ### Added
 

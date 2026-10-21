@@ -12,6 +12,7 @@ import sys
 import tempfile
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -431,6 +432,28 @@ def _is_regression_test_case(case: "EvalCase") -> bool:
         return True
     output = f"{case.stdout}\n{case.stderr}"
     return not (_COVERAGE_THRESHOLD_RE.search(output) and not _TEST_FAILURES_RE.search(output))
+
+
+def regression_workers() -> int:
+    """Promoted REQs regressed at the same time (``CLIKE_EVAL_REGRESSION_WORKERS``, default 2,
+    1 = one after the other). Each one runs its own installs, tests and services: more workers need
+    more sandbox memory (``CLIKE_EVAL_SANDBOX_MEM_LIMIT``)."""
+    try:
+        value = int(os.getenv("CLIKE_EVAL_REGRESSION_WORKERS", "").strip() or 2)
+    except ValueError:
+        value = 2
+    return max(1, min(value, 8))
+
+
+# Installs shared by parallel regressions (a REQ's venv is also used by the services other REQs
+# start from it; one npm install store per manifest): created by one thread at a time.
+_KEYED_LOCKS: Dict[str, threading.Lock] = {}
+_KEYED_LOCKS_GUARD = threading.Lock()
+
+
+def _keyed_lock(key: str) -> threading.Lock:
+    with _KEYED_LOCKS_GUARD:
+        return _KEYED_LOCKS.setdefault(key, threading.Lock())
 
 
 # Process variables that change with the container or the shell, not with what a check sees.
@@ -1582,6 +1605,17 @@ class EvalRunner:
     ) -> tuple[Dict[str, str], List[EvalCase]]:
         if not requirements_file:
             return env, []
+        with _keyed_lock(f"venv:{self._venv_dir(req_id)}"):
+            return self._ensure_eval_venv_locked(req_id=req_id, requirements_file=requirements_file, env=env, cwd=cwd)
+
+    def _ensure_eval_venv_locked(
+        self,
+        *,
+        req_id: Optional[str],
+        requirements_file: str,
+        env: Dict[str, str],
+        cwd: Path,
+    ) -> tuple[Dict[str, str], List[EvalCase]]:
 
         req_path = self._resolve_req_file(requirements_file)
         if not req_path.exists():
@@ -2580,13 +2614,14 @@ class EvalRunner:
             except Exception as exc:
                 install_case.stderr = (install_case.stderr + f"\nmarker write warning: {exc}")[-4000:]
             # keep this install for the next work copies with the same manifest and lockfile
-            if node_modules.is_dir() and not (store / "node_modules" / ".clike-complete").is_file():
-                shutil.rmtree(store, ignore_errors=True)
-                if self._link_tree(node_modules, store / "node_modules"):
-                    try:
-                        (store / "node_modules" / ".clike-complete").write_text("ok\n", encoding="utf-8")
-                    except OSError:
-                        pass
+            with _keyed_lock(f"npm-store:{store}"):  # parallel regressions with the same manifest
+                if node_modules.is_dir() and not (store / "node_modules" / ".clike-complete").is_file():
+                    shutil.rmtree(store, ignore_errors=True)
+                    if self._link_tree(node_modules, store / "node_modules"):
+                        try:
+                            (store / "node_modules" / ".clike-complete").write_text("ok\n", encoding="utf-8")
+                        except OSError:
+                            pass
         else:
             install_case.blocked = False
             install_case.blocking = True
@@ -3758,66 +3793,87 @@ class EvalRunner:
         """L2 auto-eval: re-run each regression REQ's own acceptance checks against its composed
         source with the candidate's composed source overlaid last (the state after promotion).
         Cases are named ``regression::<REQ>::<case>`` and keep their blocking flag."""
-        cases: List[EvalCase] = []
         superseded = self.superseded_checks(req_id)
-        for other in self.regression_req_ids(req_id):
-            profile = self.project_root / "runs" / "kit" / self._safe_req_id(other) / "ci" / "LTC.json"
+        others = self.regression_req_ids(req_id)
+        workers = min(regression_workers(), len(others))
+        self._promoted_state_digest(req_id)  # once, before the workers share it
+        if workers <= 1:
+            return [case for other in others for case in self._regress_one(req_id, other, candidate_src, superseded)]
+        # Each promoted REQ has its own work dir, venv, test databases and service ports: they run
+        # side by side, and their cases are reported in plan order as before.
+        log.info("regression of %s: %d promoted REQ(s), %d at a time", req_id, len(others), workers)
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="clike-regression") as pool:
+            futures = [pool.submit(self._regress_one, req_id, other, candidate_src, superseded) for other in others]
             try:
-                ltc = json.loads(profile.read_text(encoding="utf-8"))
-            except Exception as exc:
-                cases.append(
-                    EvalCase(
-                        name=f"regression::{other}::ltc",
-                        passed=False,
-                        code=2,
-                        stdout="",
-                        stderr=f"unreadable LTC profile {profile}: {exc}",
-                        blocking=False,
-                    )
+                return [case for future in futures for case in future.result()]
+            except BaseException:
+                for future in futures:
+                    future.cancel()
+                raise
+
+    def _regress_one(
+        self, req_id: Optional[str], other: str, candidate_src: Path, superseded: Dict[str, Dict[str, str]]
+    ) -> List[EvalCase]:
+        """The regression of one promoted REQ: its checks with the candidate overlaid, the retry of
+        a failing test, the baseline without the candidate, the shared-file diagnosis."""
+        cases: List[EvalCase] = []
+        profile = self.project_root / "runs" / "kit" / self._safe_req_id(other) / "ci" / "LTC.json"
+        try:
+            ltc = json.loads(profile.read_text(encoding="utf-8"))
+        except Exception as exc:
+            cases.append(
+                EvalCase(
+                    name=f"regression::{other}::ltc",
+                    passed=False,
+                    code=2,
+                    stdout="",
+                    stderr=f"unreadable LTC profile {profile}: {exc}",
+                    blocking=False,
                 )
-                continue
-            dropped = superseded.get(other) or {}
-            if dropped:
-                # declared, approved change: these checks of the amended REQ no longer hold
-                ltc = {**ltc, "checks": [c for c in ltc.get("checks") or [] if str(c.get("id") or "") not in dropped]}
-                for check, by in sorted(dropped.items()):
-                    note = f"superseded by {by} — not run (declared change of /idea --extend)"
-                    cases.append(EvalCase(name=f"regression::{other}::{check}::superseded", passed=True, code=0,
-                                          stdout=note, stderr="", blocking=False))
-                    log.info("regression %s: check %s superseded by %s", other, check, by)
-                if not ltc["checks"]:
-                    continue  # every check of the amended REQ is replaced: nothing left to regress
-            runner = EvalRunner(
-                self.project_root,
-                eval_key=f"{self._safe_req_id(req_id)}/regression/{self._safe_req_id(other)}",
-                extra_src_roots=[candidate_src],
-                extra_root_roots=[candidate_src.parent / KIT_ROOT_DIR],
-                extra_test_roots=[candidate_src.parent],
-                cancel_event=self.cancel_event,
-                regression=True,
             )
-            report = runner.run_profile(profile=str(profile), ltc=ltc, req_id=other)
-            if runner.reconciled_tests:
-                # visible, never silent: the candidate changes tests another REQ delivered
-                files = sorted(set(runner.reconciled_tests))
-                cases.append(EvalCase(
-                    # a warning (non-blocking failure): shown in the report, never repaired
-                    name=f"regression::{other}::reconciled-tests", passed=False, code=1, blocking=False,
-                    stdout=(f"{other}'s checks ran with the candidate's version of {len(files)} file(s) in its test directories "
-                            "(the state after promotion); review the change before the gate:\n"
-                            + "\n".join(f"- {f}" for f in files)),
-                    stderr="",
-                ))
-                log.info("regression %s: candidate reconciles %d test file(s)", other, len(files))
-            baseline = self._baseline_cache(req_id, other)
-            self._retry_failed_regression_tests(runner, profile, ltc, other, report, known_failing=baseline.failing())
-            self._mark_preexisting_regression_failures(req_id, profile, ltc, other, report, baseline=baseline)
-            self._note_shared_file_changes(other, candidate_src.parent, report)
-            for case in report.cases:
-                if not _is_regression_test_case(case):
-                    # Lint, types, coverage of the other REQ now measure the candidate's code too
-                    # (the candidate's own checks cover it): reported, not blocking.
-                    case.blocking = False
-                case.name = f"regression::{other}::{case.name}"
-                cases.append(case)
+            return cases
+        dropped = superseded.get(other) or {}
+        if dropped:
+            # declared, approved change: these checks of the amended REQ no longer hold
+            ltc = {**ltc, "checks": [c for c in ltc.get("checks") or [] if str(c.get("id") or "") not in dropped]}
+            for check, by in sorted(dropped.items()):
+                note = f"superseded by {by} — not run (declared change of /idea --extend)"
+                cases.append(EvalCase(name=f"regression::{other}::{check}::superseded", passed=True, code=0,
+                                      stdout=note, stderr="", blocking=False))
+                log.info("regression %s: check %s superseded by %s", other, check, by)
+            if not ltc["checks"]:
+                return cases  # every check of the amended REQ is replaced: nothing left to regress
+        runner = EvalRunner(
+            self.project_root,
+            eval_key=f"{self._safe_req_id(req_id)}/regression/{self._safe_req_id(other)}",
+            extra_src_roots=[candidate_src],
+            extra_root_roots=[candidate_src.parent / KIT_ROOT_DIR],
+            extra_test_roots=[candidate_src.parent],
+            cancel_event=self.cancel_event,
+            regression=True,
+        )
+        report = runner.run_profile(profile=str(profile), ltc=ltc, req_id=other)
+        if runner.reconciled_tests:
+            # visible, never silent: the candidate changes tests another REQ delivered
+            files = sorted(set(runner.reconciled_tests))
+            cases.append(EvalCase(
+                # a warning (non-blocking failure): shown in the report, never repaired
+                name=f"regression::{other}::reconciled-tests", passed=False, code=1, blocking=False,
+                stdout=(f"{other}'s checks ran with the candidate's version of {len(files)} file(s) in its test directories "
+                        "(the state after promotion); review the change before the gate:\n"
+                        + "\n".join(f"- {f}" for f in files)),
+                stderr="",
+            ))
+            log.info("regression %s: candidate reconciles %d test file(s)", other, len(files))
+        baseline = self._baseline_cache(req_id, other)
+        self._retry_failed_regression_tests(runner, profile, ltc, other, report, known_failing=baseline.failing())
+        self._mark_preexisting_regression_failures(req_id, profile, ltc, other, report, baseline=baseline)
+        self._note_shared_file_changes(other, candidate_src.parent, report)
+        for case in report.cases:
+            if not _is_regression_test_case(case):
+                # Lint, types, coverage of the other REQ now measure the candidate's code too
+                # (the candidate's own checks cover it): reported, not blocking.
+                case.blocking = False
+            case.name = f"regression::{other}::{case.name}"
+            cases.append(case)
         return cases

@@ -38,6 +38,10 @@ runs the image just built. The orchestrator and the eval sandbox share one image
 (`localhost/clike-orchestrator`), built once. Do not use `--no-cache`: the cache keys on file
 contents, so it only slows the build and fills the VM disk (`podman system df`).
 
+The regression of promoted REQs runs `CLIKE_EVAL_REGRESSION_WORKERS` of them at a time (docker/.env,
+default `2`, `1` = one after the other, at most 8): each has its own work dir, venv, test databases and
+service ports, and the report keeps the plan order. More workers need more sandbox memory.
+
 The eval sandbox runs generated tests and is capped by `CLIKE_EVAL_SANDBOX_MEM_LIMIT` (docker/.env,
 default `4g`). Keep it below the memory of the container VM (`podman machine inspect`; the
 default machine has 2 GB → `1g`), otherwise a runaway test can exhaust the VM and the kernel kills
