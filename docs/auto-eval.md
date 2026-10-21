@@ -261,7 +261,10 @@ provisions) is then run on the promoted tree **without the candidate**. If it fa
 candidate did not cause it (a check environment that later REQs outgrew, an earlier REQ): it is a
 non-blocking warning (`[CLike EvalRunner] Already failing without this candidate: … REQ-0xx's check
 or its environment needs a fix`), not sent to the candidate's repair. Only what the candidate
-breaks blocks its gate.
+breaks blocks its gate. When a service of a promoted REQ starts on the promoted tree but not with
+the candidate, the failure stays blocking and says why (`[CLike EvalRunner] Service broken by the
+candidate`): a configuration the candidate makes mandatory must stay optional with a safe default,
+or be declared with `/idea --extend`.
 
 When a check of a promoted REQ fails and the candidate KIT replaces files that REQ also delivered
 (its `src/` or `test/` files, compared with the canonical copy), CLike names them on the failing

@@ -27,6 +27,9 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **A service broken by the candidate is explained**: when a promoted REQ's service starts without
+  the candidate but not with it, the repair is told the candidate made a configuration mandatory
+  (keep it optional with a safe default, or declare the change), instead of only "service failed".
 - **A promoted REQ already broken blocked every new REQ**: a regression failure that the candidate
   did not cause (B2B: REQ-002's service lacks `LEADINTEL_EXECUTION_CONFIG`, required since
   REQ-003) blocked REQ-020 and went to its repair. A remaining failure is now re-run on the
