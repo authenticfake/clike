@@ -264,6 +264,51 @@ function mapKitSrcToWorkspaceTarget(absPath, reqId) {
 }
 
 
+// A phase of a REQ run while another branch is checked out (e.g. /kit REQ-021 after the gate of
+// REQ-020 left the developer on main) writes runs/kit/<REQ>/ files that the REQ branch tracks:
+// untracked here, they block the switch and the phase stayed uncommitted. They are the phase's
+// newer output, so they are carried onto the branch: copied aside (under the git dir), switched,
+// written back over the branch's versions (still in its history) and committed by the phase.
+// Only when every blocking path is untracked and inside runs/kit/<REQ>/; on any failure the files
+// are put back where they were.
+async function switchCarryingKitFiles(targetBranch, reqId, switchError, gitCtx, out) {
+  const log = mkLog(out);
+  const text = String(switchError?.message || switchError || '');
+  if (!reqId || !/untracked working tree files would be overwritten/.test(text) || /local changes to the following files/.test(text)) return false;
+  const kitDir = `runs/kit/${String(reqId).toUpperCase()}/`;
+  const paths = [...new Set(text.split(/\r?\n/).filter((l) => /^\t\S/.test(l)).map((l) => l.trim()))];
+  if (!paths.length || paths.some((p) => !p.startsWith(kitDir) || p.includes('..'))) return false;
+  const workTree = path.resolve(gitCtx.workTree || gitCtx.cwd);
+  const gitDir = (await gitRunVerbose(['rev-parse', '--absolute-git-dir'], gitCtx, 'diag', out).catch(() => '')).trim();
+  if (!gitDir) return false;
+  const carry = path.join(gitDir, 'clike-carry', `${Date.now()}`);
+  const copyAll = (fromRoot, toRoot) => {
+    for (const rel of paths) {
+      const dst = path.join(toRoot, rel);
+      fs.mkdirSync(path.dirname(dst), { recursive: true });
+      fs.copyFileSync(path.join(fromRoot, rel), dst);
+    }
+  };
+  try {
+    copyAll(workTree, carry);
+  } catch (e) {
+    log(`[harperGit] cannot copy the ${reqId} files aside: ${e.message}`);
+    return false;
+  }
+  for (const rel of paths) fs.rmSync(path.join(workTree, rel), { force: true });
+  try {
+    await gitRunVerbose(['switch', targetBranch], gitCtx, 'git', out);
+  } catch (e) {
+    copyAll(carry, workTree);
+    log(`[harperGit] switch to ${targetBranch} failed again: the ${reqId} files are back in place (${e.message})`);
+    return false;
+  }
+  copyAll(carry, workTree);
+  fs.rmSync(carry, { recursive: true, force: true });
+  log(`[harperGit] carried ${paths.length} ${reqId} file(s) of this phase onto ${targetBranch}`);
+  return true;
+}
+
 // Harper phase → git (WP5). Non-destructive by design:
 //  - never `checkout -B` (it resets an existing branch to HEAD and can drop commits);
 //  - the default branch is never moved except by an explicit merge-on-gate;
@@ -312,7 +357,11 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
   if (current !== targetBranch) {
     try {
       if (await branchExists(targetBranch)) {
-        await gitRunVerbose(['switch', targetBranch], gitCtx, 'git', out);
+        try {
+          await gitRunVerbose(['switch', targetBranch], gitCtx, 'git', out);
+        } catch (e) {
+          if (!(await switchCarryingKitFiles(targetBranch, reqId, e, gitCtx, out))) throw e;
+        }
       } else {
         // A new REQ branch starts from the default branch only when the current work is already
         // in it. Otherwise (earlier REQs promoted on their branches, merge-on-gate off) it is
