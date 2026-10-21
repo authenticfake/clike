@@ -182,3 +182,8 @@ How to propose a change is described in [CONTRIBUTING.md](../CONTRIBUTING.md).
 Extension and services share one version (`package.json`, both `pyproject.toml`).
 Milestones are tagged (`v0.9.0` = M1, `v0.9.5` = M2, `v1.0.0` = M3, then `v1.1.0`, `v1.2.0`, `v1.2.1`, `v1.2.2`, `v1.2.3`, `v1.2.4`, `v1.3.0`, `v1.4.0` … `v1.4.4`, `v1.5.0`, `v1.5.1`); semantic versioning from `1.0.0`. Changes are recorded in
 [CHANGELOG.md](../CHANGELOG.md).
+
+Every version that changes (a new `package.json` / `pyproject.toml` version, minor or patch) is
+released: the tag `vX.Y.Z` on `main` and a GitHub Release of that tag, titled
+`vX.Y.Z — <CHANGELOG subtitle>`, with the version's CHANGELOG section as its notes; the newest
+version is marked *Latest*.
