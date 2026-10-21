@@ -35,11 +35,13 @@ before this contract (free-form ``environment: {NAME: "Required ..."}``) are und
 """
 from __future__ import annotations
 
+import collections
 import hashlib
 import re
 import secrets
 import socket
 import subprocess
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -244,10 +246,24 @@ def generate(spec: VariableSpec, values: Dict[str, str]) -> Optional[str]:
     return None
 
 
+# Ports handed out to services in this process: parallel regressions start services at the same
+# time, and a port is free again between this check and the service's own bind.
+_HANDED_OUT: "collections.OrderedDict[int, None]" = collections.OrderedDict()
+_PORTS_GUARD = threading.Lock()
+
+
 def free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
+    with _PORTS_GUARD:
+        for _ in range(50):
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.bind(("127.0.0.1", 0))
+                port = sock.getsockname()[1]
+            if port not in _HANDED_OUT:
+                break
+        _HANDED_OUT[port] = None
+        while len(_HANDED_OUT) > 512:
+            _HANDED_OUT.popitem(last=False)
+        return port
 
 
 @dataclass

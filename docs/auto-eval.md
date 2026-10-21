@@ -245,6 +245,13 @@ such checks.
   (hard links, no extra disk) instead of running npm again. Python venvs were already kept per REQ.
 - **Every check has its duration** (`duration_s` in the report cases), and the log has the
   regression time: where an eval spends its time is measurable.
+- **Promoted REQs are regressed side by side**: `CLIKE_EVAL_REGRESSION_WORKERS` (docker/.env,
+  default 2, `1` = one after the other, at most 8) of them at a time, each in its own work dir with
+  its own venv, test databases and service ports; installs they share (a REQ's venv that another
+  REQ's service also uses, the npm install store) are created by one at a time, and the report
+  lists the cases in plan order as before. Language-independent: it runs the LTC checks, whatever
+  they are. More workers need more sandbox memory (`CLIKE_EVAL_SANDBOX_MEM_LIMIT`): with a large
+  frontend count about 1.5 GB per worker; if the sandbox runs out of memory, lower it.
 
 Dependencies that are not promoted yet are not regression targets: their source is already part
 of the candidate's eval (promoted `src/` + dependency KITs + current KIT), and a REQ that never

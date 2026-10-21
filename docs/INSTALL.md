@@ -35,6 +35,7 @@ cp docker/.env.example docker/.env   # where your projects live, sandbox memory 
 | `.env` | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | the providers you use in cloud execution |
 | `docker/.env` | `CLIKE_PROJECTS_DIR` | the host folder that contains your projects (mounted read-only) |
 | `docker/.env` | `CLIKE_EVAL_SANDBOX_MEM_LIMIT` | below the VM memory: `3g` with a 6 GB VM, `1g` with 2 GB |
+| `docker/.env` | `CLIKE_EVAL_REGRESSION_WORKERS` | promoted REQs regressed at the same time: `2` (default), `1` with a small VM or sandbox |
 
 Your projects must live under `CLIKE_PROJECTS_DIR`: the eval sandbox reads them from there.
 

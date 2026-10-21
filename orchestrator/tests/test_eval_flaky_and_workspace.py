@@ -107,6 +107,63 @@ class BaselineCacheTests(_RegressionProject):
         self._root.start()
 
 
+class ParallelRegressionTests(_RegressionProject):
+    """Promoted REQs are regressed CLIKE_EVAL_REGRESSION_WORKERS at a time, reported in plan order."""
+
+    def _timed_kits(self):
+        plan = {"reqs": [
+            {"id": "REQ-001", "status": "done", "dependsOn": []},
+            {"id": "REQ-002", "status": "open", "dependsOn": ["REQ-001"]},
+            {"id": "REQ-003", "status": "done", "dependsOn": []},
+        ]}
+        (self.proj / "docs" / "harper" / "plan.json").write_text(json.dumps(plan))
+        stamps = self.proj.parent / f"{self.proj.name}.stamps"
+        stamps.mkdir()
+        for req in ("REQ-001", "REQ-003"):
+            kit = self.proj / "runs" / "kit" / req
+            (kit / "test" / "slow.py").write_text(
+                "import pathlib, sys, time\n"
+                f"d = pathlib.Path({str(stamps)!r}); (d / '{req}.start').write_text(str(time.time()))\n"
+                "time.sleep(1.5)\n"
+                f"(d / '{req}.end').write_text(str(time.time()))\n")
+            ltc = {"req_id": req, "run_from": f"runs/kit/{req}",
+                   "checks": [{"id": "unit", "command": "python3 test/slow.py", "blocking": True}]}
+            (kit / "ci" / "LTC.json").write_text(json.dumps(ltc))
+        return stamps
+
+    def _overlap(self, stamps):
+        t = {p.name: float(p.read_text()) for p in stamps.iterdir()}
+        return t["REQ-001.start"] < t["REQ-003.end"] and t["REQ-003.start"] < t["REQ-001.end"]
+
+    def _regression_names(self, body):
+        return [c["name"] for c in body["cases"] if c["name"].startswith("regression::") and c["name"].endswith("::unit")]
+
+    def test_two_workers_run_promoted_reqs_side_by_side_in_plan_order(self):
+        stamps = self._timed_kits()
+        with patch.dict("os.environ", {"CLIKE_EVAL_REGRESSION_WORKERS": "2"}):
+            body = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        self.assertEqual(self._regression_names(body), ["regression::REQ-001::unit", "regression::REQ-003::unit"])
+        self.assertTrue(self._overlap(stamps))
+
+    def test_one_worker_runs_them_one_after_the_other(self):
+        stamps = self._timed_kits()
+        with patch.dict("os.environ", {"CLIKE_EVAL_REGRESSION_WORKERS": "1"}):
+            body = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        self.assertEqual(self._regression_names(body), ["regression::REQ-001::unit", "regression::REQ-003::unit"])
+        self.assertFalse(self._overlap(stamps))
+
+    def test_the_workers_setting_is_bounded(self):
+        for raw, expected in (("", 2), ("0", 1), ("x", 2), ("3", 3), ("99", 8)):
+            with patch.dict("os.environ", {"CLIKE_EVAL_REGRESSION_WORKERS": raw}):
+                self.assertEqual(eval_runner.regression_workers(), expected, raw)
+
+    def test_service_ports_are_never_handed_out_twice(self):
+        import eval_environment
+
+        ports = [eval_environment.free_port() for _ in range(200)]
+        self.assertEqual(len(set(ports)), len(ports))
+
+
 class SharedFileDiagnosisTests(_RegressionProject):
     def test_a_regression_names_the_shared_files_the_candidate_replaced(self):
         # REQ-002 rewrites REQ-001's pricing.py: REQ-001's failing check names the file and the diff.
