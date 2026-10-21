@@ -49,10 +49,12 @@ Other settings: `gitDeleteBranchOnMerge`, `gitReturnToFeatureAfterMerge`, `remot
   changes, untracked files and anything the user already staged are left alone.
   No `git add -A`. Paths outside the work tree are ignored.
 - If switching branch would overwrite local changes, the sync stops and leaves the
-  phase files uncommitted in the working tree. One case is resolved instead: a phase of a REQ run
-  while another branch is checked out (e.g. `/kit REQ-021` after the gate of REQ-020 left you on
-  `main`) writes `runs/kit/<REQ>/` files that the REQ branch tracks; untracked here, they block the
-  switch. When every blocking file is untracked and inside `runs/kit/<REQ>/`, CLike copies them
+  phase files uncommitted in the working tree. One case is resolved instead: a phase run while
+  another branch is checked out writes files its target branch tracks — `/kit REQ-021` after the
+  gate of REQ-020 left you on `main` (`runs/kit/REQ-021/` is on `feature/req-021`), or `/finalize`
+  / `/spec` run from a REQ branch older than their last run (the handoff documents are on `main`);
+  untracked here, they block the switch. When every blocking file is untracked and is a file of
+  the phase or inside `runs/kit/<REQ>/`, CLike copies them
   under `.git/clike-carry/`, switches, writes them back over the branch's versions (still in its
   history) and commits the phase there (`carried N file(s) … onto feature/req-<n>` in the log). Any
   other blocking file — or a failure — leaves everything where it was.

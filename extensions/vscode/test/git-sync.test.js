@@ -328,3 +328,18 @@ test('untracked files outside the REQ KIT that block the switch are never carrie
   assert.equal(fs.readFileSync(path.join(dir, 'src/app.py'), 'utf8'), 'user\n');
   assert.equal(fs.readFileSync(path.join(dir, 'runs/kit/REQ-001/ci/LTC.json'), 'utf8'), 'v2\n');
 });
+
+test('a document phase run from a REQ branch carries its handoff files onto main, which tracks them', async () => {
+  const dir = makeRepo();
+  await sync(dir, 'kit', 'REQ-001', [write(dir, 'runs/kit/REQ-001/src/a.py', 'a\n')]);
+  git(dir, 'switch', '-q', 'main');
+  await sync(dir, 'finalize', null, [write(dir, 'docs/harper/FINALIZE_REPORT.md', 'v1\n')]);
+  git(dir, 'switch', '-q', 'feature/req-001'); // the REQ branch predates the first finalize
+  write(dir, 'user.txt', 'user\n');
+  await sync(dir, 'finalize', null, [write(dir, 'docs/harper/FINALIZE_REPORT.md', 'v2\n')]);
+  assert.equal(git(dir, 'show', 'main:docs/harper/FINALIZE_REPORT.md'), 'v2');
+  assert.equal(git(dir, 'rev-parse', '--abbrev-ref', 'HEAD'), 'feature/req-001', 'back on the REQ branch');
+  // checked out by the merge back: CRLF on Windows (core.autocrlf)
+  assert.equal(fs.readFileSync(path.join(dir, 'docs/harper/FINALIZE_REPORT.md'), 'utf8').replace(/\r\n/g, '\n'), 'v2\n');
+  assert.equal(fs.readFileSync(path.join(dir, 'user.txt'), 'utf8'), 'user\n');
+});

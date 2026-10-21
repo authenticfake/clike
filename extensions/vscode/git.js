@@ -264,21 +264,27 @@ function mapKitSrcToWorkspaceTarget(absPath, reqId) {
 }
 
 
-// A phase of a REQ run while another branch is checked out (e.g. /kit REQ-021 after the gate of
-// REQ-020 left the developer on main) writes runs/kit/<REQ>/ files that the REQ branch tracks:
-// untracked here, they block the switch and the phase stayed uncommitted. They are the phase's
-// newer output, so they are carried onto the branch: copied aside (under the git dir), switched,
-// written back over the branch's versions (still in its history) and committed by the phase.
-// Only when every blocking path is untracked and inside runs/kit/<REQ>/; on any failure the files
-// are put back where they were.
-async function switchCarryingKitFiles(targetBranch, reqId, switchError, gitCtx, out) {
+// A phase run while another branch is checked out writes files that its target branch tracks:
+// /kit REQ-021 after the gate of REQ-020 left the developer on main (runs/kit/REQ-021/ is on
+// feature/req-021), a /finalize or /spec run from a REQ branch (its handoff documents are on main
+// from an earlier run). Untracked here, they block the switch and the phase stayed uncommitted.
+// They are the phase's newer output, so they are carried onto the branch: copied aside (under the
+// git dir), switched, written back over the branch's versions (still in its history) and
+// committed by the phase. Only when every blocking path is untracked and is a file of this phase
+// or inside the REQ's runs/kit/<REQ>/; on any failure the files are put back where they were.
+async function switchCarryingPhaseFiles(targetBranch, reqId, changedFiles, switchError, gitCtx, out) {
   const log = mkLog(out);
   const text = String(switchError?.message || switchError || '');
-  if (!reqId || !/untracked working tree files would be overwritten/.test(text) || /local changes to the following files/.test(text)) return false;
-  const kitDir = `runs/kit/${String(reqId).toUpperCase()}/`;
-  const paths = [...new Set(text.split(/\r?\n/).filter((l) => /^\t\S/.test(l)).map((l) => l.trim()))];
-  if (!paths.length || paths.some((p) => !p.startsWith(kitDir) || p.includes('..'))) return false;
+  if (!/untracked working tree files would be overwritten/.test(text) || /local changes to the following files/.test(text)) return false;
   const workTree = path.resolve(gitCtx.workTree || gitCtx.cwd);
+  const kitDir = reqId ? `runs/kit/${String(reqId).toUpperCase()}/` : null;
+  const phaseFiles = new Set((Array.isArray(changedFiles) ? changedFiles : [])
+    .map((f) => { try { return toFsPath(f); } catch { return String(f || ''); } })
+    .filter(Boolean)
+    .map((p) => path.relative(workTree, path.resolve(workTree, p)).split(path.sep).join('/')));
+  const paths = [...new Set(text.split(/\r?\n/).filter((l) => /^\t\S/.test(l)).map((l) => l.trim()))];
+  const carryable = (p) => !p.includes('..') && (phaseFiles.has(p) || (kitDir && p.startsWith(kitDir)));
+  if (!paths.length || !paths.every(carryable)) return false;
   const gitDir = (await gitRunVerbose(['rev-parse', '--absolute-git-dir'], gitCtx, 'diag', out).catch(() => '')).trim();
   if (!gitDir) return false;
   const carry = path.join(gitDir, 'clike-carry', `${Date.now()}`);
@@ -292,7 +298,7 @@ async function switchCarryingKitFiles(targetBranch, reqId, switchError, gitCtx, 
   try {
     copyAll(workTree, carry);
   } catch (e) {
-    log(`[harperGit] cannot copy the ${reqId} files aside: ${e.message}`);
+    log(`[harperGit] cannot copy the phase files aside: ${e.message}`);
     return false;
   }
   for (const rel of paths) fs.rmSync(path.join(workTree, rel), { force: true });
@@ -300,12 +306,12 @@ async function switchCarryingKitFiles(targetBranch, reqId, switchError, gitCtx, 
     await gitRunVerbose(['switch', targetBranch], gitCtx, 'git', out);
   } catch (e) {
     copyAll(carry, workTree);
-    log(`[harperGit] switch to ${targetBranch} failed again: the ${reqId} files are back in place (${e.message})`);
+    log(`[harperGit] switch to ${targetBranch} failed again: the phase files are back in place (${e.message})`);
     return false;
   }
   copyAll(carry, workTree);
   fs.rmSync(carry, { recursive: true, force: true });
-  log(`[harperGit] carried ${paths.length} ${reqId} file(s) of this phase onto ${targetBranch}`);
+  log(`[harperGit] carried ${paths.length} file(s) of this phase onto ${targetBranch}`);
   return true;
 }
 
@@ -360,7 +366,7 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
         try {
           await gitRunVerbose(['switch', targetBranch], gitCtx, 'git', out);
         } catch (e) {
-          if (!(await switchCarryingKitFiles(targetBranch, reqId, e, gitCtx, out))) throw e;
+          if (!(await switchCarryingPhaseFiles(targetBranch, reqId, changedFiles, e, gitCtx, out))) throw e;
         }
       } else {
         // A new REQ branch starts from the default branch only when the current work is already
