@@ -179,6 +179,7 @@ _NONDETERMINISTIC_NOTE = "[CLike EvalRunner] Nondeterministic"
 # a failure of a promoted REQ that does not depend on the candidate (it fails on the promoted tree alone)
 _PREEXISTING_NOTE = "[CLike EvalRunner] Already failing without this candidate"
 _SHARED_FILES_NOTE = "[CLike EvalRunner] Shared files changed"
+_SERVICE_BROKEN_NOTE = "[CLike EvalRunner] Service broken by the candidate"
 # A test file by name in Python, JS/TS, Java/Kotlin, Go, C# (test_x.py, x_test.go, x.test.ts, x.spec.js, XTest.java, XTests.cs).
 _TEST_FILE_NAME_RE = re.compile(r"^test_|_test\.\w+$|\.(test|spec)\.\w+$|Tests?\.\w+$")
 # The test root's conftest is shared by every REQ and merged at promotion (a REQ's fixtures may move
@@ -3557,6 +3558,16 @@ class EvalRunner:
         failing_without = {c.name for c in baseline.cases if not c.passed and not c.blocked}
         for case in failing:
             if case.name not in failing_without:
+                if case.name.startswith("env::service::"):
+                    # it starts on the promoted tree: the candidate broke the service's environment
+                    note = (
+                        f"{_SERVICE_BROKEN_NOTE}: {case.name} of {other} starts on the promoted tree but not with this "
+                        f"candidate. A configuration or dependency the candidate makes mandatory is missing from "
+                        f"{other}'s service environment: keep it optional with a safe default (existing deployments "
+                        "and services do not set it), or declare the change with /idea --extend."
+                    )
+                    case.excerpt = f"{note}\n\n{case.excerpt or ''}"
+                    case.stderr = f"{case.stderr or ''}\n{note}"[-4000:]
                 continue
             note = (
                 f"{_PREEXISTING_NOTE}: {case.name} of {other} fails on the promoted tree without this candidate too. "

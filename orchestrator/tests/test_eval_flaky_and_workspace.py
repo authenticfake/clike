@@ -123,3 +123,26 @@ class WorkspaceCopyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ServiceBrokenByCandidateTests(unittest.TestCase):
+    def test_a_service_that_starts_without_the_candidate_names_the_mandatory_configuration(self):
+        from unittest.mock import patch
+
+        from eval_runner import EvalCase, EvalReport, EvalRunner
+
+        def case(name, passed):
+            return EvalCase(name=name, passed=passed, code=0 if passed else 1, stdout="", stderr="boom")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            runner = EvalRunner(Path(tmp))
+            report = EvalReport(profile="LTC.json", req_id="REQ-002", mode="auto", passed=0, failed=1,
+                                cases=[case("env::service::req001-api", False)])
+            baseline = EvalReport(profile="LTC.json", req_id="REQ-002", mode="auto", passed=1, failed=0,
+                                  cases=[case("env::service::req001-api", True)])
+            with patch.object(EvalRunner, "run_profile", return_value=baseline):
+                runner._mark_preexisting_regression_failures("REQ-020", Path(tmp) / "LTC.json", {"checks": []}, "REQ-002", report)
+        service = report.cases[0]
+        self.assertTrue(service.blocking)  # the candidate broke it: still a regression
+        self.assertTrue(service.excerpt.startswith(eval_runner._SERVICE_BROKEN_NOTE))
+        self.assertIn("keep it optional with a safe default", service.excerpt)
