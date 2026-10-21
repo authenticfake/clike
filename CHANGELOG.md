@@ -27,6 +27,11 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **A REQ phase run from another branch is committed on the REQ branch**: `/kit REQ-021` run on
+  `main` (after the gate of REQ-020 merged and left you there) wrote `runs/kit/REQ-021/` files that
+  `feature/req-021` tracks, the switch was refused and the KIT stayed uncommitted. Those files are
+  now carried onto the REQ branch and committed there; any other blocking file still stops the sync
+  and loses nothing.
 - **A deliberate edit of a REQ's locked tests / LTC no longer needs a new `/kit`**: `/eval <REQ>
   --accept "reason"` (`POST /v1/acceptance/accept`) accepts edits that weaken nothing into the
   lock, with author and reason in the audit log. The stop message of `/eval --fix` / `/gate --fix`

@@ -302,3 +302,29 @@ test('a tracked KIT file of the REQ changed after its phase does not block merge
   assert.match(status, /\?\? notes\.txt/);
   assert.match(status, /\?\? runs\/kit\/REQ-001\/reports\//);
 });
+
+test('a phase run on main carries its REQ KIT files onto the REQ branch, which tracks them', async () => {
+  const dir = makeRepo();
+  await sync(dir, 'kit', 'REQ-001', [write(dir, 'runs/kit/REQ-001/ci/LTC.json', 'v1\n'), write(dir, 'runs/kit/REQ-001/src/old.py', 'old\n')]);
+  git(dir, 'switch', '-q', 'main'); // e.g. the gate of another REQ merged and left the developer on main
+  write(dir, 'notes.txt', 'user\n');
+  // a new /kit REQ-001 on main: untracked here, tracked on feature/req-001
+  const files = [write(dir, 'runs/kit/REQ-001/ci/LTC.json', 'v2\n'), write(dir, 'runs/kit/REQ-001/src/new.py', 'new\n')];
+  await sync(dir, 'kit', 'REQ-001', files);
+  assert.equal(git(dir, 'rev-parse', '--abbrev-ref', 'HEAD'), 'feature/req-001');
+  assert.equal(git(dir, 'show', 'feature/req-001:runs/kit/REQ-001/ci/LTC.json'), 'v2');
+  assert.equal(git(dir, 'show', 'feature/req-001:runs/kit/REQ-001/src/new.py'), 'new');
+  assert.equal(git(dir, 'status', '--porcelain'), '?? notes.txt', 'nothing else touched');
+  assert.equal(fs.readdirSync(path.join(dir, '.git')).includes('clike-carry') ? fs.readdirSync(path.join(dir, '.git', 'clike-carry')).length : 0, 0);
+});
+
+test('untracked files outside the REQ KIT that block the switch are never carried', async () => {
+  const dir = makeRepo();
+  await sync(dir, 'kit', 'REQ-001', [write(dir, 'runs/kit/REQ-001/ci/LTC.json', 'v1\n'), write(dir, 'src/app.py', 'kit\n')]);
+  git(dir, 'switch', '-q', 'main');
+  write(dir, 'src/app.py', 'user\n');
+  await sync(dir, 'kit', 'REQ-001', [write(dir, 'runs/kit/REQ-001/ci/LTC.json', 'v2\n')]);
+  assert.equal(git(dir, 'rev-parse', '--abbrev-ref', 'HEAD'), 'main');
+  assert.equal(fs.readFileSync(path.join(dir, 'src/app.py'), 'utf8'), 'user\n');
+  assert.equal(fs.readFileSync(path.join(dir, 'runs/kit/REQ-001/ci/LTC.json'), 'utf8'), 'v2\n');
+});
