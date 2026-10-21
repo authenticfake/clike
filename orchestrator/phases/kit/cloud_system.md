@@ -511,6 +511,7 @@ Reuse before create:
 * inspect dependency KIT roots and promoted `src/`, `test/`, and `tests/` roots before generating new shared concepts
 * reuse or extend existing contracts, enums, adapters, helpers, stores, file handlers, and launchers before creating new ones
 * do not duplicate contracts or status values already present in dependency KITs or promoted roots
+* never copy tests or test helpers of other REQs into this KIT, and add no LTC check that re-runs them (a "regression" check over earlier REQs): CLike's regression already re-runs the acceptance checks of every promoted REQ on its promoted tests with this candidate overlaid; what this REQ must keep working from earlier REQs is asserted by this REQ's own tests
 
 Generated CI scripts must consume the official CLike eval workspace when present.
 

@@ -4,6 +4,14 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+### Performance
+
+- **The regression no longer repeats a promoted REQ's own regression checks**: a check named
+  `regression` / `…-regression` of a promoted REQ re-runs tests of earlier REQs, which CLike's
+  regression already runs on their promoted tests (`regression-checks::not-run` lists the skipped
+  ones). The KIT prompt asks not to copy other REQs' tests into a KIT. On the B2B project this
+  removes about 4 of the 25 minutes of an eval.
+
 ### Added
 
 - **`harper_init` MCP tool**: `/init` of the folder open in VS Code, in place (existing files kept),
