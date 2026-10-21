@@ -364,6 +364,16 @@ def _is_static_regression_check(name: str) -> bool:
     return bool(tokens & _STATIC_CHECK_TOKENS) and not tokens & _TEST_CHECK_TOKENS
 
 
+# A promoted REQ's own "regression" check (regression, test:backend-regression, …) re-runs tests of
+# earlier REQs, often copies of them in its KIT: in its regression those REQs are regressed
+# themselves, on their promoted tests, so it only repeats them (REQ-018's took 120 s of 25 min).
+_KIT_REGRESSION_TOKENS = frozenset({"regression", "regressions"})
+
+
+def _is_kit_regression_check(name: str) -> bool:
+    return bool({t for t in re.split(r"[^a-z0-9]+", str(name or "").lower()) if t} & _KIT_REGRESSION_TOKENS)
+
+
 _TEST_FAILURES_RE = re.compile(r"\b\d+ (?:failed|errors?)\b|^FAILED ", re.MULTILINE)
 # CLike's own promotion leftovers next to canonical files (<name>.conflict-REQ-…, .incoming-REQ-…,
 # .bak-<n>): never source, so never composed into an eval workspace (a format check walked into
@@ -3260,6 +3270,20 @@ class EvalRunner:
                     name="static-checks::not-run", passed=True, code=0,
                     stdout=f"regression runs only what guards behaviour; not run: {', '.join(static)} "
                     "(static/quality checks of a promoted REQ: passed at its gate, never blocking here)",
+                    stderr="", cmd=None, cwd=str(default_cwd), blocking=False,
+                ))
+            names = [str(c.get("name") or "case") for c in norm_cases]
+            repeated = [n for n in names if _is_kit_regression_check(n)]
+            # never all of them: a REQ whose only test check is named "regression" keeps it
+            if repeated and len(repeated) < len(names) and any(
+                not _is_kit_regression_check(n) and {t for t in re.split(r"[^a-z0-9]+", n.lower()) if t} & _TEST_CHECK_TOKENS
+                for n in names
+            ):
+                norm_cases = [c for c in norm_cases if str(c.get("name") or "case") not in repeated]
+                out_cases.append(EvalCase(
+                    name="regression-checks::not-run", passed=True, code=0,
+                    stdout=f"not run: {', '.join(repeated)} (this promoted REQ's own regression checks re-run tests of "
+                    "earlier REQs, which CLike's regression runs itself on their promoted tests)",
                     stderr="", cmd=None, cwd=str(default_cwd), blocking=False,
                 ))
 

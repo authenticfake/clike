@@ -223,6 +223,13 @@ candidate's own checks already cover: they are **not run** in the regression (on
 `static-checks::not-run` case lists them). A test check whose only failure is the coverage threshold
 is a warning.
 
+A promoted REQ's **own regression checks** (a check named `regression`, `test:backend-regression`,
+… — they re-run tests of earlier REQs, often copies of them in its KIT) are not run in its
+regression either: those earlier REQs are regressed themselves, on their promoted tests
+(`regression-checks::not-run` lists them). A REQ whose only test check is called `regression` keeps
+it. The KIT prompt (cloud and local agents) asks not to copy other REQs' tests into a KIT nor to add
+such checks.
+
 ## Speed: what is not done twice
 
 - **The gate reuses the eval verdict when nothing changed.** Every full `/eval` records its

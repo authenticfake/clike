@@ -37,6 +37,27 @@ def test_a_regression_run_skips_static_checks_and_times_the_rest(tmp_path: Path)
     assert {"lint", "typecheck", "test:unit"} <= {c.name for c in own.cases}
 
 
+def test_a_regression_run_skips_the_promoted_reqs_own_regression_checks(tmp_path: Path):
+    kit = tmp_path / "runs" / "kit" / "REQ-001"
+    (kit / "ci").mkdir(parents=True)
+    (kit / "src").mkdir()
+    ltc = _ltc("test:unit", "regression", "test:backend-regression")
+    nested = EvalRunner(tmp_path, eval_key="REQ-002/regression/REQ-001", regression=True)
+    report = nested.run_profile(profile=str(kit / "ci" / "LTC.json"), ltc=ltc, req_id="REQ-001")
+    names = [c.name for c in report.cases]
+    assert "test:unit" in names and "regression" not in names and "test:backend-regression" not in names
+    note = next(c for c in report.cases if c.name == "regression-checks::not-run")
+    assert note.passed and not note.blocking and "regression, test:backend-regression" in note.stdout
+
+    # a REQ whose only test check is called "regression" keeps it
+    only = EvalRunner(tmp_path, eval_key="REQ-002/regression/REQ-001", regression=True).run_profile(
+        profile=str(kit / "ci" / "LTC.json"), ltc=_ltc("build", "regression"), req_id="REQ-001")
+    assert "regression" in {c.name for c in only.cases}
+    # the REQ's own eval keeps every check
+    own = EvalRunner(tmp_path).run_profile(profile=str(kit / "ci" / "LTC.json"), ltc=ltc, req_id="REQ-001")
+    assert {"test:unit", "regression", "test:backend-regression"} <= {c.name for c in own.cases}
+
+
 def test_link_tree_shares_files_but_not_new_ones(tmp_path: Path):
     store = tmp_path / "store" / "node_modules"
     (store / "pkg").mkdir(parents=True)
