@@ -265,7 +265,7 @@ def _integrity_blocked_payload(req_id: str, integrity: Dict[str, Any], profile_p
         "passed": False,
         "code": 3,
         "stdout": "",
-        "stderr": f"Acceptance surface changed since it was locked: {summary}",
+        "stderr": f"Acceptance surface of {req_id} changed since it was locked: {summary}",
         "cmd": "",
         "cwd": "",
         "expect": 0,
@@ -279,6 +279,8 @@ def _integrity_blocked_payload(req_id: str, integrity: Dict[str, Any], profile_p
         "status": "FAIL",
         "reason_code": "ACCEPTANCE_TAMPERED",
         "integrity": integrity,
+        # the candidate's or a promoted REQ's (its regression): the REQ whose tests / ci changed
+        "integrity_req_id": req_id,
         "passed": False,
         "promotable": False,
         "execution_ok": True,
@@ -906,6 +908,34 @@ def acceptance_amend(payload: AcceptanceAmendRequest):
         previous=payload.previous,
         deleted=payload.deleted,
     )
+
+
+class AcceptanceAcceptRequest(BaseModel):
+    project_root: Optional[str] = None
+    project_name: Optional[str] = None
+    req_id: str
+    reason: str
+    author: Optional[str] = None
+
+
+@router.post("/v1/acceptance/accept")
+def acceptance_accept(payload: AcceptanceAcceptRequest):
+    """The developer accepts a deliberate, non-weakening edit of a REQ's locked tests / ci
+    (``/eval REQ --accept``): reason required, audited; weakening edits still need a new /kit."""
+    reason = (payload.reason or "").strip()
+    if len(reason) < _MIN_OVERRIDE_REASON:
+        raise HTTPException(status_code=422, detail=f"reason must be at least {_MIN_OVERRIDE_REASON} characters")
+    try:
+        req = validate_req_id(payload.req_id)
+    except UnsafePathError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    prj = _confined_project_root(payload.project_root, payload.project_name)
+    author = (payload.author or "").strip()[:200] or "unknown"
+    from services.gate_integrity import accept_developer_changes
+
+    result = accept_developer_changes(prj, req, reason=reason[:2000], author=author)
+    log.warning("acceptance accepted by developer req=%s author=%s files=%s rejected=%s", req, author, result["accepted"], list(result["rejected"]))
+    return result
 
 
 class GateOverrideRequest(BaseModel):

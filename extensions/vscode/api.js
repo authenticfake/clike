@@ -150,6 +150,23 @@ async function postGateOverride(workspaceRoot, reqId, reason, author) {
   });
 }
 
+/**
+ * The developer accepts a deliberate, non-weakening edit of a REQ's locked tests / ci
+ * (`/eval REQ --accept "reason"`): reason required, audited by the orchestrator.
+ */
+async function postAcceptanceAccept(workspaceRoot, reqId, reason, author) {
+  return requestJson('POST', orchestratorUrl('/v1/acceptance/accept'), {
+    body: {
+      project_root: asFsPath(workspaceRoot),
+      project_name: getProjectNameFromWorkspace() || null,
+      req_id: reqId,
+      reason,
+      author,
+    },
+    timeoutMs: 60 * 1000,
+  });
+}
+
 /** Native tools the REQ (or, without reqId, the solution profile) needs that the eval sandbox lacks. */
 async function postEvalToolsCheck(workspaceRoot, reqId, profile) {
   return requestJson('POST', orchestratorUrl('/v1/eval/tools/check'), {
@@ -187,6 +204,7 @@ module.exports = {
   postEvalToolsUpdate,
   postEvalToolsCheck,
   postEvalToolsInstall,
+  postAcceptanceAccept,
   postAcceptanceAmend,
   postAcceptanceLock,
   postGateOverride,

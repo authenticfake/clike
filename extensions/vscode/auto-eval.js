@@ -179,7 +179,7 @@ function nextAutoEvalStep(state, report) {
   // A repairable missing environment falls through: the repair declares in ci/LTC.json how CLike
   // provisions the variables (generated values, test databases, services of other REQs).
   if (report?.integrity && report.integrity.ok === false) {
-    return { action: 'stop', reason: 'the acceptance surface (test/ or ci/) changed after the lock; re-run /kit to re-baseline' };
+    return { action: 'stop', reason: acceptanceChangedReason(report) };
   }
   const failures = collectRepairFailures(report);
   if (!failures.length) return { action: 'stop', reason: 'eval failed without failing checks to repair (see the eval report)' };
@@ -361,6 +361,22 @@ function writeRepairNotes(workspaceRoot, phase, reqId, markdown) {
 }
 
 /**
+ * Stop reason for a changed acceptance surface: which REQ (the candidate or a promoted REQ its
+ * regression runs), which files, and the two ways out.
+ */
+function acceptanceChangedReason(report) {
+  const req = String(report?.integrity_req_id || report?.req_id || '').trim() || 'the REQ';
+  const anomalies = Array.isArray(report?.integrity?.anomalies) ? report.integrity.anomalies : [];
+  const files = anomalies.slice(0, 5).map((a) => `${a.path} ${a.kind}${a.details?.length ? ` (${[].concat(a.details).join('; ')})` : ''}`);
+  const weakening = anomalies.some((a) => a.kind !== 'modified');
+  return `the acceptance surface (test/ or ci/) of ${req} changed after the lock` +
+    (files.length ? `: ${files.join(', ')}` : '') +
+    (weakening
+      ? `; restore it or re-run /kit ${req} to re-baseline`
+      : `; if you changed it on purpose run /eval ${req} --accept "<why>" (audited), otherwise restore it`);
+}
+
+/**
  * Decide the next step after a gate of `/gate REQ --fix`: the same repair loop as /eval --fix
  * (same locked tests, same cycle bounds, same stop rules), driven by the gate verdict. A gate
  * PASS ends the loop even when the promotion left conflicts: those are merges of the canonical
@@ -378,7 +394,7 @@ function nextAutoGateStep(state, report) {
   if (workspace) return { action: 'stop', reason: workspace };
   if (reasonCode === 'GATE_MANUAL_OVERRIDE') return { action: 'stop', reason: 'manual gate override: nothing to repair' };
   if (reasonCode === 'GATE_BLOCKED_ACCEPTANCE_TAMPERED') {
-    return { action: 'stop', reason: 'the acceptance surface (test/ or ci/) changed after the lock; restore it or re-run /kit to re-baseline' };
+    return { action: 'stop', reason: acceptanceChangedReason(report) };
   }
   // Missing required outputs are not checks: hand them to the repair as failures of their own.
   const blockers = (Array.isArray(report?.structural_blockers) ? report.structural_blockers : []).map((b) => ({

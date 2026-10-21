@@ -15,7 +15,7 @@ const {
 } = require('./service-auth');
 const { validateLocalMcpRequest } = require('./mcp-request-guard');
 const extensionMcp = require('./extension-mcp');
-const { getEvalTools, postEvalToolsUpdate, postAcceptanceAmend, postAcceptanceLock, postEvalChecks, postEvalToolsCheck, postEvalToolsInstall, postGateOverride } = require('./api');
+const { getEvalTools, postEvalToolsUpdate, postAcceptanceAccept, postAcceptanceAmend, postAcceptanceLock, postEvalChecks, postEvalToolsCheck, postEvalToolsInstall, postGateOverride } = require('./api');
 const evalToolsLib = require('./eval-tools');
 const { approveForProject, ensureEvalTools, questionText } = evalToolsLib;
 const { agentArgsForEvalCheck, agentTimeoutMinutes, startEvalCheckBridge } = require('./eval-check-bridge');
@@ -193,6 +193,42 @@ function harperSignal(fresh) {
   if (fresh || !harperAbortController) harperAbortController = new AbortController();
   return harperAbortController.signal;
 }
+/** `/eval REQ --accept "reason"`: the orchestrator accepts and audits a non-weakening edit of the locked surface. */
+async function acceptAcceptanceEdit(wsRoot, reqId, givenReason) {
+  const echo = (message) => clikeChatPanel?.webview.postMessage({ type: 'echo', message });
+  try {
+    let reason = givenReason.trim();
+    if (reason.length < 10) {
+      reason = (await vscode.window.showInputBox({
+        title: `Accept the edited tests / ci of ${reqId}`,
+        prompt: 'Why did the tests or the eval profile change? (recorded in the audit log)',
+        value: reason,
+        ignoreFocusOut: true,
+        validateInput: (v) => (v && v.trim().length >= 10 ? null : 'At least 10 characters'),
+      }) || '').trim();
+    }
+    if (!reason) {
+      echo(`Acceptance of ${reqId} cancelled.`);
+      return;
+    }
+    let author = '';
+    try {
+      author = require('child_process')
+        .execFileSync('git', ['config', 'user.name'], { cwd: wsRoot.fsPath, stdio: ['ignore', 'pipe', 'ignore'] })
+        .toString().trim();
+    } catch {}
+    const res = await postAcceptanceAccept(wsRoot, reqId, reason, author || require('os').userInfo().username);
+    const rejected = Object.entries(res?.rejected || {}).map(([file, why]) => `${file} (${[].concat(why).join('; ')})`);
+    if (res?.accepted?.length) echo(`✔ ${reqId}: accepted ${res.accepted.join(', ')} (audit ${res.audit_id}). Run the eval again.`);
+    else if (!rejected.length) echo(`${reqId}: the tests and ci/ match the lock, nothing to accept.`);
+    if (rejected.length) echo(`✖ ${reqId}: not accepted, they remove or weaken checks — restore them or re-run /kit ${reqId}: ${rejected.join(', ')}`);
+  } catch (e) {
+    echo(`✖ ${reqId}: acceptance failed (${String(e?.message || e).split('\n')[0]})`);
+  } finally {
+    clikeChatPanel?.webview.postMessage({ type: 'busy', on: false, force: true });
+  }
+}
+
 function harperCancelled() {
   return !!(harperAbortController && harperAbortController.signal.aborted);
 }
@@ -4959,6 +4995,11 @@ async function cmdOpenChat(context) {
         if (!targets && !targetReqId){
           vscode.window.showErrorMessage('REQ-ID not found. Run /eval REQ-ID ... /gate REQ-ID');
           panel.webview.postMessage({ type: 'busy', on: false });
+          return;
+        }
+        if (phase === 'eval' && msg.accept) {
+          // /eval REQ --accept: the developer accepts a deliberate edit of the locked tests / ci
+          await acceptAcceptanceEdit(ws_root, targets, String(msg.accept.reason || ''));
           return;
         }
         await appendSessionJSONL(activeMode, {

@@ -227,6 +227,15 @@ function parseSlash(input) {
         return !mode;
       });
     }
+    // /eval REQ --accept ["reason"]: the developer accepts a deliberate edit of the locked tests / ci
+    let accept;
+    if (cmd === '/eval') {
+      const at = rest.findIndex((t) => String(t).toLowerCase() === '--accept');
+      if (at >= 0) {
+        accept = rest.slice(at + 1).map((t) => String(t).replace(/^(["'])(.*)\1$/, '$2')).join(' ').trim();
+        rest = rest.slice(0, at);
+      }
+    }
     const fixArgs = parseFixArgs(rest);
     const tokens = fixArgs.rest;
     const testMode = tokens.slice(1) ? tokens.slice(1)[0] : 'auto';
@@ -242,7 +251,7 @@ function parseSlash(input) {
     }
 
     const fix = fixArgs.fix ? { fix: true, hint: fixArgs.hint } : {};
-    return finish({ targets, testMode, modeContent, ...fix, ...(promote ? { promote } : {}) });
+    return finish({ targets, testMode, modeContent, ...fix, ...(promote ? { promote } : {}), ...(accept !== undefined ? { accept } : {}) });
   }
 
   if (cmd === '/extend' || cmd === '/add-req') {
