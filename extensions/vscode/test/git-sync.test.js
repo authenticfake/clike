@@ -339,6 +339,7 @@ test('a document phase run from a REQ branch carries its handoff files onto main
   await sync(dir, 'finalize', null, [write(dir, 'docs/harper/FINALIZE_REPORT.md', 'v2\n')]);
   assert.equal(git(dir, 'show', 'main:docs/harper/FINALIZE_REPORT.md'), 'v2');
   assert.equal(git(dir, 'rev-parse', '--abbrev-ref', 'HEAD'), 'feature/req-001', 'back on the REQ branch');
-  assert.equal(fs.readFileSync(path.join(dir, 'docs/harper/FINALIZE_REPORT.md'), 'utf8'), 'v2\n');
+  // checked out by the merge back: CRLF on Windows (core.autocrlf)
+  assert.equal(fs.readFileSync(path.join(dir, 'docs/harper/FINALIZE_REPORT.md'), 'utf8').replace(/\r\n/g, '\n'), 'v2\n');
   assert.equal(fs.readFileSync(path.join(dir, 'user.txt'), 'utf8'), 'user\n');
 });
