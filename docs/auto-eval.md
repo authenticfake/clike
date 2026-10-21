@@ -120,7 +120,8 @@ then runs the same loop as `/eval --fix`, driven by the gate verdict:
 - Missing required outputs (`GATE_BLOCKED_REQUIRED_OUTPUTS_MISSING`) reach the repair as failures
   `required-output::<role>`.
 - It stops without repairing on a tampered acceptance surface (`GATE_BLOCKED_ACCEPTANCE_TAMPERED`:
-  restore the files or re-run `/kit`) and on a manual override.
+  restore the files, accept a deliberate non-weakening edit with `/eval <REQ> --accept "reason"`,
+  or re-run `/kit`) and on a manual override.
 - A gate **PASS whose promotion left conflicts** ends the loop: the conflict is a merge with the
   canonical tree (`<file>.conflict-<REQ>-<ts>`), not a defect of the candidate, and a KIT repair
   cannot resolve it. Resolve it, commit, and run `/gate REQ` again.
@@ -151,7 +152,7 @@ full eval. To keep it short and stable:
 | Cycles exhausted | `still failing after N repair cycle(s)` and the failing checks | read the eval report, re-run with a hint, or fix manually |
 | No progress | `no progress: the same checks still fail` (same checks **and** same errors; different errors in the same check are progress) | a hint usually helps; or the failure is environmental |
 | Repair request failed | `the KIT repair request failed` | see the error in the chat (provider, validation) |
-| Acceptance surface changed | `the acceptance surface (test/ or ci/) changed after the lock` | tests/LTC were edited outside the governed path: re-run `/kit` to re-baseline |
+| Acceptance surface changed | `the acceptance surface (test/ or ci/) of REQ-002 changed after the lock: ci/LTC.json modified` | tests/LTC of that REQ (the candidate, or a promoted REQ its regression runs) were edited outside the governed path: edited on purpose and nothing weakened → `/eval REQ-002 --accept "<why>"` (audited); otherwise restore them or re-run `/kit` |
 | Nothing to repair | `eval failed without failing checks` | see the eval report (e.g. integrity or setup errors) |
 
 The same outcomes apply to `/gate --fix` (`AUTO-GATE`, `gate failed without failing checks`).

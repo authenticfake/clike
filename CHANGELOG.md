@@ -27,6 +27,11 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **A deliberate edit of a REQ's locked tests / LTC no longer needs a new `/kit`**: `/eval <REQ>
+  --accept "reason"` (`POST /v1/acceptance/accept`) accepts edits that weaken nothing into the
+  lock, with author and reason in the audit log. The stop message of `/eval --fix` / `/gate --fix`
+  now names the REQ whose surface changed — often a promoted REQ run by the regression, not the
+  candidate — and its files, instead of always suggesting `/kit` of the candidate.
 - **A service broken by the candidate is explained**: when a promoted REQ's service starts without
   the candidate but not with it, the repair is told the candidate made a configuration mandatory
   (keep it optional with a safe default, or declare the change), instead of only "service failed".

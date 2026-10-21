@@ -311,3 +311,18 @@ test('a manual /kit --repair carries the latest failures and the candidate files
   assert.equal(req.hint, 'look at a.py');
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+test('a changed acceptance surface names the REQ, the files and the way out', () => {
+  const base = { cycle: 0, maxCycles: 2, hint: '' };
+  const edited = {
+    status: 'FAIL', req_id: 'REQ-002', integrity_req_id: 'REQ-002', cases: [],
+    integrity: { ok: false, anomalies: [{ path: 'ci/LTC.json', kind: 'modified' }] },
+  };
+  const reason = nextAutoEvalStep(base, edited).reason;
+  assert.match(reason, /of REQ-002 changed after the lock: ci\/LTC\.json modified/);
+  assert.match(reason, /\/eval REQ-002 --accept/);
+  const weakened = { ...edited, integrity: { ok: false, anomalies: [{ path: 'ci/LTC.json', kind: 'weakened', details: ['check removed: lint'] }] } };
+  assert.match(nextAutoEvalStep(base, weakened).reason, /check removed: lint.*re-run \/kit REQ-002/);
+  const gate = { ...edited, gate: 'FAIL', reason_code: 'GATE_BLOCKED_ACCEPTANCE_TAMPERED' };
+  assert.match(nextAutoGateStep(base, gate).reason, /--accept/);
+});

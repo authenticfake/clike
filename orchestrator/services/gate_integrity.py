@@ -645,3 +645,67 @@ def amend_acceptance_surface(
         "audit_id": entry.get("audit_id"),
         "test_fixes": sorted(rel for rel, kind in kinds.items() if kind == "test_fix"),
     }
+
+
+def accept_developer_changes(project_root: Path, req_id: str, *, reason: str, author: str) -> Dict[str, Any]:
+    """The developer accepts a deliberate edit of the locked acceptance surface (``/eval REQ --accept``).
+
+    E.g. a promoted REQ's ``ci/LTC.json`` completed by hand: its next regression would otherwise be
+    blocked as tampering until a new ``/kit``. Only edits that weaken nothing are accepted (no file
+    removed, no LTC check removed, made non-blocking or with a changed command, no skip marker
+    added); the others still need a new ``/kit``. Files added after the lock are locked too.
+    Every acceptance is recorded in the lock and appended to the audit log, with author and reason.
+    """
+    req = validate_req_id(req_id)
+    lock = ensure_lock(project_root, req)
+    integrity = compare_with_lock(project_root, req, lock)
+    root = kit_root(project_root, req)
+    files: Dict[str, str] = dict(lock.get("files") or {})
+    texts: Dict[str, str] = dict(lock.get("texts") or {})
+    accepted: List[str] = []
+    rejected: Dict[str, List[str]] = {}
+    for anomaly in integrity["anomalies"]:
+        rel = anomaly["path"]
+        if anomaly["kind"] != "modified":
+            rejected[rel] = list(anomaly.get("details") or [f"file {anomaly['kind']}"])
+            continue
+        accepted.append(rel)
+    accepted += integrity["added"]
+    current = surface_manifest(project_root, req)
+    for rel in accepted:
+        if rel in current:
+            files[rel] = current[rel]
+        if rel in texts or rel.endswith("LTC.json"):
+            texts[rel] = (root / rel).read_text(encoding="utf-8", errors="replace")
+    entry: Dict[str, Any] = {}
+    if accepted:
+        entry = {
+            "audit_id": uuid.uuid4().hex,
+            "at": time.time(),
+            "type": "acceptance_amendment",
+            "project_root": str(Path(project_root).resolve()),
+            "req_id": req,
+            "files": sorted(accepted),
+            "reason": reason,
+            "author": author,
+            "kinds": {rel: "developer" for rel in accepted},
+            "review_required": False,
+        }
+        lock.update({
+            "files": files,
+            "texts": texts,
+            "digest": hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest(),
+            "amendments": [*(lock.get("amendments") or []), entry],
+        })
+        _write_json(_req_state_path(project_root, req, "lock"), lock)
+        audit = state_dir() / "audit" / "acceptance_amendments.jsonl"
+        audit.parent.mkdir(parents=True, exist_ok=True)
+        with audit.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry, sort_keys=True) + "\n")
+    return {
+        "req_id": req,
+        "accepted": sorted(accepted),
+        "rejected": rejected,
+        "audit_id": entry.get("audit_id"),
+        "ok": not rejected,
+    }

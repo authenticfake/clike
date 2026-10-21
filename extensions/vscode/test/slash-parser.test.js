@@ -269,3 +269,12 @@ test('utility includes BMAD vendor skill blobs only for BMAD methodology request
   assert.match(source, /`\$\{BMAD_VENDOR_SKILL_ROOT\}\/\$\{name\}\/SKILL\.md`/);
   assert.match(source, /Object\.assign\(core_blobs, await collectBmadVendorSkillCoreBlobs\(projectRootUri, payload\)\)/);
 });
+
+test('/eval REQ --accept "reason": the developer accepts an edited acceptance surface', () => {
+  const parsed = parseSlash('/eval REQ-002 --accept "completed the LTC service env"');
+  assert.deepEqual(parsed.args.targets, ['REQ-002']);
+  assert.equal(parsed.args.accept, 'completed the LTC service env');
+  assert.equal(parsed.args.fix, undefined);
+  assert.equal(parseSlash('/eval REQ-002 --accept').args.accept, '');
+  assert.equal(parseSlash('/eval REQ-002').args.accept, undefined);
+});

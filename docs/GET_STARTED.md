@@ -90,6 +90,7 @@ are small IDEAs to start with.
 
 | Setting / command | Effect |
 |---|---|
+| `/eval REQ --accept "reason"` | accept, audited, a deliberate edit of the REQ's locked tests or `ci/LTC.json` (nothing weakened) without a new `/kit` |
 | `/eval REQ --fix ["hint"]` | auto-eval: up to `clike.autoEval.maxCycles` (2) governed repairs, plus `clike.autoEval.extraCyclesOnProgress` (3) while the failures decrease; rerun to continue, the hint guides the fix |
 | `clike.autoEval.afterKit` | auto-eval after every `/kit` |
 | `/tools`, `clike.evalTools.install` (`ask`) | native tools of the eval sandbox (kcat, mysqldump, aws, kubectl, jdk@17…): installed when an eval needs them, after asking; `/tools add <tool>[@version]` installs and approves for the project (`.clike/eval-tools.yaml`); `/tools update` or `./rebuild.sh --update-tools` updates them (versions are otherwise locked) |

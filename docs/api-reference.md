@@ -216,8 +216,11 @@ Confinement rules (also for `/v1/gate/check`):
   locked server-side the first time it is evaluated after a KIT generation. If files were removed
   or modified, LTC checks removed/made non-blocking/changed, or skip markers added, eval and gate
   do not run (`reason_code` `ACCEPTANCE_TAMPERED` / `GATE_BLOCKED_ACCEPTANCE_TAMPERED`). Responses
-  include an `integrity` object (`ok`, `anomalies`, `added`, `lock_digest`). A new `/kit`
-  re-baselines the lock.
+  include an `integrity` object (`ok`, `anomalies`, `added`, `lock_digest`) and `integrity_req_id`
+  (the REQ whose surface changed: the candidate or a promoted REQ of its regression). A new `/kit`
+  re-baselines the lock. `POST /v1/acceptance/accept` `{project_root, req_id, reason, author}`
+  (reason ≥ 10 characters, else `422`) accepts the developer's edits that weaken nothing into the
+  lock, audited in `acceptance_amendments.jsonl` → `{accepted, rejected: {file: [why]}, audit_id, ok}`.
 - `/v1/gate/check` rejects `mode=manual` (`400`): use `/v1/gate/override`.
 
 #### `POST /v1/gate/override`

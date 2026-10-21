@@ -250,6 +250,38 @@ class GateIntegrityTests(unittest.TestCase):
         self.assertEqual(entry["artifacts"]["files"], 2)
         self.assertEqual(len(entry["artifacts"]["sha256"]), 64)
 
+    def _accept(self, reason="completed the service env by hand (commit abc)"):
+        return self.client.post(
+            "/v1/acceptance/accept",
+            json={"project_root": str(self.proj), "req_id": REQ, "reason": reason, "author": "dev"},
+            headers=AUTH,
+        )
+
+    def test_developer_accepts_a_non_weakening_edit_without_a_new_kit(self):
+        self._eval()
+        ltc = dict(LTC, services=[{"name": "api", "env": {"X": "${X}"}}])
+        (self.kit / "ci" / "LTC.json").write_text(json.dumps(ltc))
+        (self.kit / "test" / "conftest.py").write_text("X = 1\n")
+        self.assertEqual(self._gate().json()["reason_code"], "GATE_BLOCKED_ACCEPTANCE_TAMPERED")
+        self.assertEqual(self._accept(reason="short").status_code, 422)
+        body = self._accept().json()
+        self.assertTrue(body["ok"], body)
+        self.assertEqual(body["accepted"], ["ci/LTC.json", "test/conftest.py"])
+        g = self._gate()
+        self.assertEqual(g.json()["gate"], "PASS", g.text)
+        audit = (self.state / "audit" / "acceptance_amendments.jsonl").read_text().strip().splitlines()
+        entry = json.loads(audit[-1])
+        self.assertEqual((entry["author"], entry["audit_id"]), ("dev", body["audit_id"]))
+
+    def test_developer_cannot_accept_a_weakening_edit(self):
+        self._eval()
+        ltc = dict(LTC, checks=[LTC["checks"][0]])
+        (self.kit / "ci" / "LTC.json").write_text(json.dumps(ltc))
+        body = self._accept().json()
+        self.assertFalse(body["ok"])
+        self.assertEqual(body["rejected"], {"ci/LTC.json": ["check removed: lint"]})
+        self.assertEqual(self._gate().json()["reason_code"], "GATE_BLOCKED_ACCEPTANCE_TAMPERED")
+
     def test_override_is_confined(self):
         r = self.client.post(
             "/v1/gate/override",

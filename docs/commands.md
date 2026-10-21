@@ -37,6 +37,7 @@ The current webview parser supports the following slash commands.
 - `/eval <REQ-ID>`
 - `/eval <REQ-ID> --fix ["hint"]` — auto-eval: repair from the real failures and re-evaluate (see `auto-eval.md`)
 - `/gate <REQ-ID>`
+- `/eval <REQ-ID> --accept "reason"` — accept a deliberate edit of the REQ's locked tests / `ci/` (audited)
 - `/gate <REQ-ID> --fix ["hint"]` — auto-gate: on a failing gate, the same repair as `/eval --fix`, then a full gate again (see `auto-eval.md`)
 - `/gate <REQ-ID> manual pass` — developer override **without executing checks**: asks for a reason
   (≥ 10 characters), is recorded by the orchestrator in an audit log with a digest of the REQ
@@ -196,6 +197,17 @@ candidate files, then eval again, up to `clike.autoEval.maxCycles` (default 2). 
 locked; LTC command fixes are audited. Re-run to continue. The hint is optional: CLike flags
 failures that passed in earlier runs as nondeterministic, and writes what each repair received
 in `runs/eval/<REQ>/repair_<REQ>_<ts>.md`. See `auto-eval.md`.
+
+### `/eval <REQ-ID> --accept "reason"`
+The tests and `ci/` of a REQ are locked at its first eval; an edit made afterwards blocks the
+eval and the gate of that REQ and of every later REQ whose regression runs it (*the acceptance
+surface of REQ-002 changed after the lock*). When you changed them on purpose — e.g. you
+completed a promoted REQ's `ci/LTC.json` by hand — this accepts the edit without a new `/kit`:
+the orchestrator records the files, your `git config user.name` and the reason (at least 10
+characters; asked when missing) in the lock and in the audit log. Only edits that weaken nothing
+are accepted: a removed file, an LTC check removed, made non-blocking or with another command,
+or an added skip marker still needs the files restored or `/kit <REQ-ID>`. It runs no eval:
+run `/eval` again afterwards.
 
 ### `/gate <REQ-ID>`
 Runs gate checks for the target REQ using eval output and gate policy. Warnings (failed
