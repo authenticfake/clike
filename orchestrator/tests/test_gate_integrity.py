@@ -431,6 +431,64 @@ class GateIntegrityTests(unittest.TestCase):
             self.proj, REQ, {"test/test_db.py": fixed}, reason="r", evidence="src/app.py:2: error: something  [arg-type]")
         self.assertIn("does not show an error", result["rejected"]["test/test_db.py"][0])
 
+    def test_api_misuse_on_an_assertion_line_is_corrected_with_its_expected_values(self):
+        from services import gate_integrity
+
+        js = (
+            "import { expect, it } from 'vitest';\n"
+            "it('labels', () => {\n"
+            "  expect(screen.getByRole('button', { name: 'Avvia ricerca', exact: true })).toBeDisabled();\n"
+            "  expect(label()).toMatch('Senza limite.*scelta esplicita');\n"
+            "  expect(screen.getByRole('button', { name: 'Annulla', exact: true })).toBeEnabled();\n"
+            "});\n"
+        )
+        py = (
+            "def test_page(page):\n"
+            "    assert page.get_by_role('button', name='Avvia', exact=True, level=1).is_disabled()\n"
+            "    assert page.title(timeout=5) == 'Home'\n"
+        )
+        (self.kit / "test" / "a.test.tsx").write_text(js)
+        (self.kit / "test" / "test_page.py").write_text(py)
+        self._eval()
+        ts_error = (
+            "test/a.test.tsx(3,64): error TS2769: No overload matches this call.\n"
+            "    Object literal may only specify known properties, and 'exact' does not exist in type 'ByRoleOptions'.\n"
+        )
+        literal = (
+            "FAIL  test/a.test.tsx > labels\n"
+            "AssertionError: expected 'Senza limite (EUR) · scelta esplicita' to match 'Senza limite.*scelta esplicita'\n"
+            " ❯ test/a.test.tsx:4:20\n"
+        )
+        option_fixed = js.replace("'Avvia ricerca', exact: true }", "'Avvia ricerca' }")
+        regex_fixed = js.replace("toMatch('Senza limite.*scelta esplicita')", "toMatch(/Senza limite.*scelta esplicita/)")
+        mypy = 'test/test_page.py:2: error: Unexpected keyword argument "exact" for "get_by_role"  [call-arg]'
+        pytest_runtime = "E   TypeError: get_by_role() got an unexpected keyword argument 'exact'\n\ntest/test_page.py:2: TypeError"
+        py_fixed = py.replace(" exact=True,", "")
+        cases = {
+            "unknown TS option removed": ("test/a.test.tsx", option_fixed, ts_error, None),
+            "literal pattern passed as regex": ("test/a.test.tsx", regex_fixed, literal, None),
+            "both at once": ("test/a.test.tsx", option_fixed.replace("toMatch('Senza limite.*scelta esplicita')", "toMatch(/Senza limite.*scelta esplicita/)"), ts_error + literal, None),
+            "option removed on a line not reported": ("test/a.test.tsx", option_fixed.replace("'Annulla', exact: true }", "'Annulla' }"), ts_error, "assertion identical"),
+            "expected value changed": ("test/a.test.tsx", option_fixed.replace("'Avvia ricerca' }", "'Avvia' }"), ts_error, "assertion identical"),
+            "regex weakened": ("test/a.test.tsx", js.replace("toMatch('Senza limite.*scelta esplicita')", "toMatch(/Senza limite/)"), literal, "assertion identical"),
+            "regex without proof": ("test/a.test.tsx", regex_fixed, "FAIL test/a.test.tsx > labels\nexpected 'x' to be 'y'", "does not show an error"),
+            "mypy unknown keyword": ("test/test_page.py", py_fixed, mypy, None),
+            "pytest unknown keyword": ("test/test_page.py", py_fixed, pytest_runtime, None),
+            "other keyword dropped": ("test/test_page.py", py_fixed.replace(", level=1", ""), mypy, "assertion identical"),
+        }
+        lock = gate_integrity.ensure_lock(self.proj, REQ)["files"]
+        for label, (rel, content, evidence, issue) in cases.items():
+            with self.subTest(label):
+                result = gate_integrity._test_change_issue(self.kit / rel, lock[rel], content, evidence)
+                if issue is None:
+                    self.assertIsNone(result)
+                else:
+                    self.assertIn(issue, result or "")
+
+        result = gate_integrity.amend_acceptance_surface(
+            self.proj, REQ, {"test/a.test.tsx": regex_fixed}, reason="r", evidence=literal)
+        self.assertEqual((result["accepted"], result["test_fixes"]), (["test/a.test.tsx"], ["test/a.test.tsx"]))
+
     def test_local_agent_repair_is_governed_through_the_amend_endpoint(self):
         # The agent already wrote its changes: the extension sends them with the previous content.
         self._eval()

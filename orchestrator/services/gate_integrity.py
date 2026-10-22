@@ -391,10 +391,126 @@ def _harness_error_in(evidence: str, path: Path) -> bool:
     )
 
 
-def _test_contract(source: str):
+# Test-API misuse on an assertion line itself, which a harness fix may correct (any language the
+# lock reads): the eval reports, on a line of the test file, a call option / keyword argument the
+# API does not have. TypeScript "Object literal may only specify known properties, and 'exact' does
+# not exist in type 'ByRoleOptions'", mypy 'Unexpected keyword argument "exact"', pyright 'No
+# parameter named "exact"', Python "got an unexpected keyword argument 'exact'".
+_UNKNOWN_OPTION_RE = re.compile(
+    r"'(\w+)' does not exist in type|Unexpected keyword argument \"(\w+)\"|No parameter named \"(\w+)\""
+    r"|got an unexpected keyword argument '(\w+)'"
+)
+_ERROR_AT_RE = re.compile(r"([\w.\-]+)(?:\((\d+),\d+\): error\b|:(\d+)(?::\d+)?:? (?:- )?error\b|:(\d+): TypeError\b)")
+
+
+def _unknown_options(evidence: str, path: Path) -> Dict[int, set]:
+    """Line of this test file -> option names the eval reports as unknown there. An error line
+    starts a block that runs to the next error line (TypeScript prints the detail indented below
+    it; pytest prints the TypeError message above its "file:line: TypeError" line)."""
+    found: Dict[int, set] = {}
+    lines = (evidence or "").splitlines()
+    for index, line in enumerate(lines):
+        at = _ERROR_AT_RE.search(line)
+        if not at or at.group(1) != path.name:
+            continue
+        number = int(next(g for g in at.groups()[1:] if g))
+        block = [line]
+        if at.group(4):
+            block += lines[max(0, index - 6):index]  # pytest: "E   TypeError: … 'exact'" just above
+        for follow in lines[index + 1:index + 12]:
+            if _ERROR_AT_RE.search(follow):
+                break
+            block.append(follow)
+        for match in _UNKNOWN_OPTION_RE.finditer("\n".join(block)):
+            found.setdefault(number, set()).add(next(g for g in match.groups() if g))
+    return found
+
+
+# A string passed to a matcher that takes a pattern is matched literally (Jest/Vitest toMatch,
+# toThrow, Playwright toHaveText …): the eval shows the expected "pattern" next to a received value
+# that the pattern matches as a regular expression, so the test meant a regex.
+_PATTERN_MATCHERS = r"toMatch|toThrow|toThrowError|toHaveText|toContainText|toHaveURL|toHaveTitle"
+_LITERAL_PATTERN_RES = (
+    re.compile(r"expected (?P<q1>['\"])(?P<received>.*?)(?P=q1) to match (?P<q2>['\"])(?P<pattern>.*?)(?P=q2)"),
+    re.compile(r"Expected (?:substring|string|pattern): +\"(?P<pattern>.*)\"\s*\n\s*Received(?: string)?: +\"(?P<received>.*)\""),
+    re.compile(r"Expected: +\"(?P<pattern>.*)\"\s*\n\s*Received: +\"(?P<received>.*)\""),
+)
+_REGEX_META_RE = re.compile(r"\.\*|\.\+|\\[dwsb]|[\^$|]|\[[^\]]+\]|\(\?")
+
+
+def _literal_patterns(evidence: str, path: Path) -> set:
+    """Patterns the eval shows were passed as plain strings to a pattern matcher of this file."""
+    if path.name not in (evidence or ""):
+        return set()
+    patterns = set()
+    for regex in _LITERAL_PATTERN_RES:
+        for match in regex.finditer(evidence):
+            pattern, received = match.group("pattern"), match.group("received")
+            if pattern in received or not _REGEX_META_RE.search(pattern):
+                continue
+            try:
+                if re.search(pattern, received):
+                    patterns.add(pattern)
+            except re.error:
+                continue
+    return patterns
+
+
+def _drop_option(line: str, option: str) -> str:
+    """The line without the object-literal property ``option`` (``{ name: 'x', exact: true }``)."""
+    value = r"(?:'[^']*'|\"[^\"]*\"|`[^`]*`|[\w.]+)"
+    line = re.sub(rf"([{{,])\s*{re.escape(option)}\s*:\s*{value}\s*(?=[,}}])", r"\1", line)
+    line = re.sub(r"\{\s*,", "{", re.sub(r",\s*,", ",", line))
+    line = re.sub(r",\s*\}", " }", line)
+    return re.sub(r",\s*\{\s*\}\s*\)", ")", line)
+
+
+def _js_corrected(before: str, evidence: str, path: Path) -> Optional[str]:
+    """The locked JS/TS test with the API corrections the eval proves (unknown options removed from
+    the reported lines, literal patterns passed as regex literals), or None when there are none."""
+    options = _unknown_options(evidence, path)
+    patterns = _literal_patterns(evidence, path)
+    if not options and not patterns:
+        return None
+    literal = re.compile(rf"\.({_PATTERN_MATCHERS})\(\s*(['\"])((?:\\.|(?!\2).)*)\2\s*\)")
+
+    def as_regex(match):
+        text = re.sub(r"\\(.)", r"\1", match.group(3))
+        if text not in patterns:
+            return match.group(0)
+        return f".{match.group(1)}(/{text.replace('/', chr(92) + '/')}/)"
+
+    lines = before.splitlines()
+    for number, names in options.items():
+        if 0 < number <= len(lines):
+            for name in names:
+                lines[number - 1] = _drop_option(lines[number - 1], name)
+    return "\n".join(literal.sub(as_regex, line) if patterns else line for line in lines)
+
+
+class _DropKeywords(ast.NodeTransformer):
+    """Removes, from the calls spanning a reported line, the keyword arguments reported unknown."""
+
+    def __init__(self, options: Dict[int, set]):
+        self.options = options
+
+    def visit_Call(self, node):
+        self.generic_visit(node)
+        names = set()
+        for number, unknown in self.options.items():
+            if node.lineno <= number <= (node.end_lineno or node.lineno):
+                names |= unknown
+        node.keywords = [k for k in node.keywords if k.arg not in names]
+        return node
+
+
+def _test_contract(source: str, drop_keywords: Optional[Dict[int, set]] = None):
     """What a test asserts: test functions, and per function every assert statement and every
-    pytest.raises/warns/approx/fail call. A harness fix must leave this identical."""
+    pytest.raises/warns/approx/fail call. A harness fix must leave this identical, except for the
+    keyword arguments the eval reports as unknown on a line (``drop_keywords``: line -> names)."""
     tree = ast.parse(source)
+    if drop_keywords:
+        tree = _DropKeywords(drop_keywords).visit(tree)
     contract = {}
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test"):
@@ -448,9 +564,13 @@ def _js_test_contract(source: str):
 
 
 def _js_test_change_issue(path: Path, before: str, content: str, evidence: str) -> Optional[str]:
-    if not _js_harness_error_in(evidence, path):
+    corrected = _js_corrected(before, evidence, path)
+    if not _js_harness_error_in(evidence, path) and corrected is None:
         return _LOCKED_TEST_ISSUE + " (the eval does not show an error in the test itself)"
-    if _js_test_contract(content) != _js_test_contract(before):
+    expected = _js_test_contract(before)
+    if _js_test_contract(content) != expected and (
+        corrected is None or _js_test_contract(content) != _js_test_contract(corrected)
+    ):
         return _LOCKED_TEST_ISSUE + " (a test fix must keep every test title and assertion identical)"
     if len(_JS_SKIP_RE.findall(content)) > len(_JS_SKIP_RE.findall(before)):
         return _LOCKED_TEST_ISSUE + " (a test fix cannot add skip/only/todo)"
@@ -483,7 +603,9 @@ def _test_change_issue(
         return None
     if not _harness_error_in(evidence, path):
         return _LOCKED_TEST_ISSUE + " (the eval does not show an error in the test itself)"
-    if _test_contract(content) != _test_contract(before):
+    if _test_contract(content) != _test_contract(before) and _test_contract(content) != _test_contract(
+        before, _unknown_options(evidence, path)
+    ):
         return _LOCKED_TEST_ISSUE + " (a test fix must keep every test and assertion identical)"
     if len(_SKIP_RE.findall(content)) > len(_SKIP_RE.findall(before)):
         return _LOCKED_TEST_ISSUE + " (a test fix cannot add skip/xfail)"
