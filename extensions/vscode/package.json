@@ -259,13 +259,18 @@
           "type": "number",
           "default": 30,
           "minimum": 1,
-          "description": "/autopilot: minutes to wait before retrying a step that failed on a provider quota or rate limit (429)."
+          "description": "/autopilot: minutes to wait before retrying a step that failed on a provider quota or rate limit (429) or on CLike services not answering."
         },
         "clike.autopilot.quotaRetries": {
           "type": "number",
           "default": 8,
           "minimum": 0,
-          "description": "/autopilot: retries of a step stopped by a provider quota or rate limit before the REQ is parked."
+          "description": "/autopilot: retries of a step stopped by a provider quota or rate limit, or by CLike services not answering, before the REQ is parked."
+        },
+        "clike.autopilot.resumeOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "description": "/autopilot: when VS Code opens on a project whose autopilot run never ended (window closed, crash), resume it with the same options."
         },
         "clike.agentChat.approvals": {
           "type": "string",

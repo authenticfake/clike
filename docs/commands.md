@@ -232,18 +232,29 @@ files the candidate replaced names those files, with a short diff, for the repai
 ### `/autopilot`
 `/autopilot [N] [--executor cloud|codex|claude] [--methodology bmad]`, `/autopilot stop`, `/autopilot status`.
 
+![/autopilot](images/autopilot.svg)
+
 The REQs of the plan one after the other, unattended, in dependency order: `/kit`, `/eval --fix`,
 `/gate` for each, through the same chat handlers — same executor (cloud model, Codex or Claude
 Code, as configured), same locks, gate, promotion and audit as when you type them. No model decides
-the loop: a fixed rule picks the next REQ (`harper_next_action`: an in-progress REQ first — resumed
-from the eval when its KIT is there — then the first open REQ whose dependencies are done).
+the loop: a fixed rule picks the next REQ (`harper_next_action`: an in-progress REQ first, then the
+first open REQ whose dependencies are done).
 
 - A REQ that needs you is **parked** with its reason (eval `--fix` stopped, gate not passing,
   promotion not done, an acceptance edit to `--accept`, a value only you have, a native tool to
   approve: nobody answers the prompts, so they count as *no*). The REQs that do not depend on it go
   on; the loop ends when none can.
-- A provider quota or rate limit (429, usage limit) is not a failure: the step waits
-  `clike.autopilot.quotaWaitMinutes` (30) and retries, at most `clike.autopilot.quotaRetries` (8).
+- **It knows where it is.** An in-progress REQ resumes from what the repository holds: no KIT →
+  `/kit`; its last eval passed on exactly the current files (same inputs fingerprint) → straight to
+  `/gate`; otherwise `/eval --fix`. A REQ parked by an earlier run stays parked while its files are
+  unchanged and is retried as soon as you change them (you fixed it).
+- **It restarts by itself.** Its state is in `runs/autopilot/state.json` (not committed). A run that
+  never ended (VS Code closed, crash, reboot) resumes when VS Code opens on the project again, with
+  the same options (`clike.autopilot.resumeOnStartup`, on). `/autopilot` without options after an
+  interruption does the same; `stop` and Cancel end it for good.
+- A provider quota or rate limit (429, usage limit), or CLike's services not answering (restarting,
+  sandbox out of resources), is not a failure: the step waits `clike.autopilot.quotaWaitMinutes`
+  (30) and retries, at most `clike.autopilot.quotaRetries` (8) times, then parks the REQ.
 - `N` stops after N promoted REQs; `stop` after the current step; Cancel stops it now.
 - `--executor cloud|codex|claude`: who writes the KITs and the repairs in this run (the chat's
   execution preference and local agent, set for the run and restored at the end); without it, as
@@ -257,8 +268,8 @@ From Claude Code, Codex or a terminal: the MCP tool `harper_autopilot` and `scri
 ([howto-mcp-project.md](howto-mcp-project.md#autopilot-every-req-unattended)).
 
 Report (rewritten at every step, not committed): `runs/autopilot/report.md` — promoted REQs with
-repair cycles and duration, parked REQs with the step, the reason and the last messages, quota
-waits, what to do next. Do not run other Harper phases while it runs.
+repair cycles and duration, parked REQs with the step, the reason and the last messages, REQs
+retried because they changed, waits, what to do next. Do not run other Harper phases while it runs.
 
 ### `/tools [search <text> | add <tool[@version]>… | remove <tool>…]`
 Native tools of the eval sandbox. CLike installs what an eval needs on its own: before an eval or

@@ -1,7 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { nextAutopilotReq, isQuotaFailure, stepOutcome, executorState, methodologyFields, autopilotReportMarkdown } = require('../autopilot');
+const {
+  nextAutopilotReq, resumeStep, isQuotaFailure, transientFailure, keptParked, stepOutcome, executorState, methodologyFields,
+  autopilotReportMarkdown,
+} = require('../autopilot');
 const { parseSlash } = require('../slash-parser');
 
 const plan = [
@@ -11,9 +14,26 @@ const plan = [
   { id: 'REQ-004', status: 'open', dependsOn: ['REQ-001'] },
 ];
 
-test('the in-progress REQ resumes from the eval when its KIT exists, from the KIT otherwise', () => {
-  assert.deepEqual(nextAutopilotReq(plan, new Set(), (id) => id === 'REQ-002'), { action: 'run', req_id: 'REQ-002', step: 'eval' });
-  assert.deepEqual(nextAutopilotReq(plan, new Set(), () => false), { action: 'run', req_id: 'REQ-002', step: 'kit' });
+test('the in-progress REQ resumes where the repository says it is', () => {
+  assert.deepEqual(nextAutopilotReq(plan, new Set(), () => 'gate'), { action: 'run', req_id: 'REQ-002', step: 'gate' });
+  assert.deepEqual(nextAutopilotReq(plan, new Set()), { action: 'run', req_id: 'REQ-002', step: 'kit' });
+  // an open REQ always starts from its KIT
+  assert.deepEqual(nextAutopilotReq(plan, new Set(['REQ-002']), () => 'gate'), { action: 'run', req_id: 'REQ-004', step: 'kit' });
+
+  assert.equal(resumeStep({ hasKit: false, lastEval: { status: 'PASS', inputs: 'a' }, fingerprint: 'a' }), 'kit');
+  assert.equal(resumeStep({ hasKit: true, lastEval: null, fingerprint: 'a' }), 'eval');
+  assert.equal(resumeStep({ hasKit: true, lastEval: { status: 'PASS_WITH_WARNINGS', inputs: 'a' }, fingerprint: 'a' }), 'gate');
+  assert.equal(resumeStep({ hasKit: true, lastEval: { status: 'PASS', inputs: 'a' }, fingerprint: 'b' }), 'eval', 'files changed since the eval');
+  assert.equal(resumeStep({ hasKit: true, lastEval: { status: 'FAIL', inputs: 'a' }, fingerprint: 'a' }), 'eval');
+});
+
+test('a REQ parked by an earlier run stays parked until its files change', () => {
+  const previous = { 'REQ-002': { step: 'eval', fingerprint: 'f1' }, 'REQ-004': { step: 'gate', fingerprint: 'f2' }, 'REQ-005': { step: 'kit' } };
+  const now = { 'REQ-002': 'f1', 'REQ-004': 'changed', 'REQ-005': 'x' };
+  const { kept, released } = keptParked(previous, (id) => now[id]);
+  assert.deepEqual(Object.keys(kept), ['REQ-002']);
+  assert.deepEqual(released, ['REQ-004', 'REQ-005']);
+  assert.deepEqual(keptParked(undefined, () => ''), { kept: {}, released: [] });
 });
 
 test('a parked REQ is skipped and its dependants wait; the independent ones go on', () => {
@@ -44,6 +64,11 @@ test('provider quota and rate limits are recognised, other failures are not', ()
   }
   for (const text of ['✖ AUTO-EVAL REQ-024 stopped: 2 failing check(s)', 'typecheck failed']) {
     assert.equal(isQuotaFailure(text), false, text);
+    assert.equal(transientFailure(text), null, text);
+  }
+  assert.equal(transientFailure('HTTP 429'), 'quota');
+  for (const text of ['fetch failed', 'connect ECONNREFUSED 127.0.0.1:8080', 'HTTP 503 Service Unavailable', 'EVAL_SANDBOX_EXHAUSTED']) {
+    assert.equal(transientFailure(text), 'service', text);
   }
 });
 

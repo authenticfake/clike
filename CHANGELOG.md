@@ -28,7 +28,11 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   it: a REQ that needs the developer is parked with its reason and the independent REQs go on; a
   provider quota or rate limit waits and retries (`clike.autopilot.quotaWaitMinutes`,
   `clike.autopilot.quotaRetries`); an in-progress REQ with its KIT resumes from the eval.
-  `--executor cloud|codex|claude` and `--methodology bmad` choose them for the run (chat, MCP, scripts). Report in
+  `--executor cloud|codex|claude` and `--methodology bmad` choose them for the run (chat, MCP, scripts).
+  It knows where it is: a REQ resumes at `/kit` (no KIT), `/gate` (last eval passed on the current
+  files) or `/eval --fix`; a parked REQ stays parked until its files change. Its state
+  (`runs/autopilot/state.json`) makes an interrupted run resume by itself when VS Code opens again
+  (`clike.autopilot.resumeOnStartup`); CLike services not answering wait and retry like a quota. Report in
   `runs/autopilot/report.md`. It stops before `/finalize`.
 - **`harper_autopilot` MCP tool and `scripts/clike-autopilot.sh` / `.ps1`**: `/autopilot` from Claude
   Code, Codex or a terminal — `start` returns at once, `status` / `stop` steer it; the scripts start
