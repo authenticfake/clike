@@ -3,6 +3,7 @@ import hashlib
 import json
 import logging
 import os
+import posixpath
 import re
 import shlex
 import shutil
@@ -14,7 +15,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Dict, List, Optional
 
 import eval_environment
@@ -191,13 +192,43 @@ _BESIDE_SUPPORT_NAMES = {"__init__.py", "conftest.py"}
 _PY_IMPORT_RE = re.compile(r"^\s*(?:from\s+(\.*)([\w.]*)\s+import\s+([\w., ()]+)|import\s+([\w., ]+))", re.M)
 
 
+_JS_SUFFIXES = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")
+_JS_RELATIVE_IMPORT_RE = re.compile(
+    r"""(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|^\s*import\s+)(['"])(\.{1,2}/[^'"]+)\1""", re.M
+)
+
+
+def _js_imported_support(rel: str, path: Path, support: Dict[str, Path]) -> List[str]:
+    """The candidate support files a JS/TS file imports by a relative specifier: the exact file, the
+    file with a JS/TS extension (also replacing a .js one, as TypeScript allows) or the directory's
+    index."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return []
+    found: List[str] = []
+    here = PurePosixPath(rel).parent
+    for _, spec in _JS_RELATIVE_IMPORT_RE.findall(text):
+        target = posixpath.normpath(str(here / spec))
+        stem = target[: -len(PurePosixPath(target).suffix)] if PurePosixPath(target).suffix in _JS_SUFFIXES else target
+        options = [target] + [stem + ext for ext in _JS_SUFFIXES] + [f"{target}/index{ext}" for ext in _JS_SUFFIXES]
+        for option in options:
+            if option in support:
+                found.append(option)
+                break
+    return found
+
+
 def _imported_support(
     rel: str, path: Optional[Path], support: Dict[str, Path], source_root: Optional[Path] = None
 ) -> List[str]:
     """The candidate support files (relative paths in ``support``) that the Python file ``rel``
     imports: an absolute module that is not in ``source_root`` matches a support file whose path
     ends with it, anywhere in the test tree (the test runner puts several test directories on the
-    path); a relative one resolves from the file's directory."""
+    path); a relative one resolves from the file's directory. JS/TS files: their relative imports
+    (``import … from './x'``, ``export … from``, ``require('./x')``, ``import('./x')``)."""
+    if path is not None and Path(rel).suffix in _JS_SUFFIXES:
+        return _js_imported_support(rel, path, support)
     if path is None or not rel.endswith(".py"):
         return []
     try:

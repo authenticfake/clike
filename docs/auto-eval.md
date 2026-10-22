@@ -335,7 +335,8 @@ its own test root, at the same path (`runs/kit/<candidate>/test/...`). The regre
 version, since promotion delivers it: the candidate's copy replaces the test files the promoted
 REQ already has, and the candidate's new support files that version needs come with it: the
 modules it imports, directly or through another copied helper, from anywhere in the candidate's
-test tree (a helper at the test root for a test in `test/v2/`), and a package marker
+test tree (a helper at the test root for a test in `test/v2/`; for JS/TS its relative imports,
+`from './v2/x.fixtures'`, `require('../y')`, `import('./z')`, with or without extension), and a package marker
 (`__init__.py`) or a `conftest` in the same directory as a reconciled test. Nothing else comes: a
 `conftest` in another directory would be loaded by the test runner into that REQ's own tests, a
 module that exists in the sources is never taken from the test tree, and the candidate's tests run
