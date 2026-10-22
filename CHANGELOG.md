@@ -58,6 +58,12 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **A reconciled JS/TS test gets the modules it imports in the regression**: a candidate that changes
+  a shared test helper of promoted REQs (B2B REQ-024: `test/fixtures.ts`, used by REQ-002/005/008/012)
+  and makes it import a new file (`./v2/req-024.fixtures`) had that file left out of their regression
+  — only Python imports were followed — so their suites failed to load (`Cannot find module`) and
+  the repair chased a regression that promotion would not cause. Relative JS/TS imports
+  (`from`, `export … from`, `require`, `import()`) are followed now.
 - **A repair can correct a test API misuse on an assertion line**: when the eval proves it — an
   option or keyword argument reported unknown on that line (TypeScript, mypy, pyright, Python), or
   a regex-shaped string a pattern matcher compared literally — the locked test may drop that option

@@ -519,3 +519,32 @@ class RootFilesEvalTests(_RegressionProject):
 
     def _case_names_from(self, body):
         return [c["name"] for c in body["cases"]]
+
+
+class ReconciledJsImportsTests(unittest.TestCase):
+    def test_a_reconciled_js_test_gets_the_candidate_modules_it_imports(self):
+        # B2B REQ-024: the candidate's test/fixtures.ts (shared with REQ-002/005/008/012) imports
+        # './v2/req-024.fixtures'; without it every promoted REQ importing fixtures.ts failed to load.
+        import eval_runner
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            files = {
+                "fixtures.ts": "import type { X } from '@/lib/contracts';\nimport { routing } from './v2/req-024.fixtures';\n"
+                               "export * from \"./shared/index.js\";\nconst late = await import('./lazy');\n"
+                               "const legacy = require('../outside');\n",
+                "v2/req-024.fixtures.ts": "export const routing = 1;\n",
+                "shared/index.ts": "export const s = 1;\n",
+                "lazy.tsx": "export default 1;\n",
+                "v2/req-024.spec.ts": "test('x', () => {});\n",
+            }
+            for rel, text in files.items():
+                (root / rel).parent.mkdir(parents=True, exist_ok=True)
+                (root / rel).write_text(text)
+            support = {rel: root / rel for rel in files if not rel.endswith(".spec.ts") and rel != "fixtures.ts"}
+            found = eval_runner._imported_support("fixtures.ts", root / "fixtures.ts", support)
+            self.assertEqual(sorted(found), ["lazy.tsx", "shared/index.ts", "v2/req-024.fixtures.ts"])
+            # a nested file resolves from its own directory
+            (root / "v2" / "helper.ts").write_text("import { routing } from './req-024.fixtures';\n")
+            self.assertEqual(eval_runner._imported_support("v2/helper.ts", root / "v2" / "helper.ts", support),
+                             ["v2/req-024.fixtures.ts"])
