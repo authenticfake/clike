@@ -193,6 +193,19 @@ let harperAbortController = null;
 // /autopilot in progress: { stop, current, ... } (one at a time); the last one ended, for its status
 let autopilotRun = null;
 let lastAutopilotRun = null;
+/** On startup: an /autopilot that never ended (window closed, crash) resumes (clike.autopilot.resumeOnStartup). */
+async function resumeInterruptedAutopilot() {
+  const root = getWorkspaceRoot();
+  if (!root || autopilotRun) return;
+  if (!vscode.workspace.getConfiguration('clike').get('autopilot.resumeOnStartup', true)) return;
+  let saved;
+  try { saved = JSON.parse(fsSync.readFileSync(path.join(root.fsPath, ...autopilot.STATE_REL.split('/')), 'utf8')); } catch { return; }
+  if (!saved || !saved.running) return;
+  out.appendLine(`[autopilot] interrupted run found (at ${saved.current || '?'}): resuming`);
+  await ensureClikeChatPanelForAgent();
+  if (typeof clikeRunChatMessage === 'function') await clikeRunChatMessage({ type: 'autopilot', action: 'start', resume: true });
+}
+
 /** What /autopilot status and the MCP tool harper_autopilot answer. */
 function autopilotSnapshot() {
   const run = autopilotRun || lastAutopilotRun;
@@ -3605,6 +3618,10 @@ function activate(context) {
   serviceAuthReady
     .then(() => startExtensionOperationalMcpServer(context))
     .catch((err) => out.appendLine(`[CLike][mcp-extension] start failed: ${err?.message || err}`));
+  // an /autopilot interrupted by a closed window or a crash goes on by itself
+  serviceAuthReady.then(() => setTimeout(() => {
+    resumeInterruptedAutopilot().catch((err) => out.appendLine(`[autopilot] resume: ${err?.message || err}`));
+  }, 20000));
 
   vscode.window.setStatusBarMessage('Clike: orchestrator+gateway integration ready', 2000);
 }
@@ -6578,36 +6595,70 @@ async function cmdOpenChat(context) {
       return refuse('✖ AUTOPILOT not started: clike.gate.autoPromote is "ask" and nobody answers the promotion choice. Set it to "merge" (or "off" to promote yourself).');
     }
     const settings = vscode.workspace.getConfiguration('clike');
-    const quotaWaitMin = Math.max(1, Number(settings.get('autopilot.quotaWaitMinutes', 30)));
-    const quotaRetries = Math.max(0, Number(settings.get('autopilot.quotaRetries', 8)));
-    const maxReqs = Math.max(0, Number(msg.max || 0));
+    const waitMin = Math.max(1, Number(settings.get('autopilot.quotaWaitMinutes', 30)));
+    const waitRetries = Math.max(0, Number(settings.get('autopilot.quotaRetries', 8)));
+    const statePath = path.join(ws.fsPath, ...autopilot.STATE_REL.split('/'));
+    const reportRel = autopilot.REPORT_REL;
+    let saved = null;
+    try { saved = JSON.parse(fsSync.readFileSync(statePath, 'utf8')); } catch { /* first run */ }
+    // An interrupted run (VS Code closed, crash: never ended) resumes with its own options.
+    const interrupted = !!(saved && saved.running);
+    const opts = interrupted && (msg.resume || (!msg.executor && !msg.methodology && !msg.max)) ? (saved.options || {}) : msg;
+    const maxReqs = Math.max(0, Number(opts.max || 0));
     let override;
     try {
-      override = autopilot.executorState(msg.executor);
-      autopilot.methodologyFields(msg.methodology, 'kit');
+      override = autopilot.executorState(opts.executor);
+      autopilot.methodologyFields(opts.methodology, 'kit');
     } catch (err) {
       return refuse(`✖ AUTOPILOT not started: ${err.message}.`);
     }
-    const methodology = String(msg.methodology || '').trim().toLowerCase();
-    const run = autopilotRun = { stop: null, current: '', startedAt: Date.now(), reqs: [], waits: [], parked: new Set(),
-      executor: String(msg.executor || '').trim().toLowerCase() || '', methodology };
-    // --executor: the chat execution state for this run (kit, repairs and eval pre-passes read it), restored at the end
-    const previousUiState = context.workspaceState.get('clike.uiState');
+    const methodology = String(opts.methodology || '').trim().toLowerCase();
+    const fingerprintOf = (reqId) => { try { return inputsFingerprint(ws.fsPath, reqId); } catch { return ''; } };
+    // REQs parked by an earlier run stay parked until their inputs change (the developer fixed them)
+    const { kept, released } = autopilot.keptParked(saved && saved.parked, fingerprintOf);
+    const run = autopilotRun = { stop: null, current: '', startedAt: Date.now(), reqs: [], waits: [],
+      parked: new Set(Object.keys(kept)), parkedInfo: { ...kept }, released, resumed: interrupted,
+      executor: String(opts.executor || '').trim().toLowerCase() || '', methodology,
+      options: { max: maxReqs, executor: String(opts.executor || ''), methodology } };
+    // --executor: the chat execution state for this run (kit, repairs and eval pre-passes read it),
+    // restored at the end; what it replaced is kept in the state file, so a resumed run restores it too
     const showUiState = (st) => { try { panel.webview.postMessage({ type: 'initState', state: st }); } catch { /* the chat only shows it */ } };
+    const currentUi = context.workspaceState.get('clike.uiState');
+    const replaced = interrupted && saved.replaced ? saved.replaced
+      : override ? Object.fromEntries(Object.keys(override).map((k) => [k, currentUi && k in currentUi ? currentUi[k] : null])) : null;
+    run.replaced = override ? replaced : null;
     if (override) {
-      const next = { ...(previousUiState || { mode: 'harper', model: 'auto', historyScope: 'singleModel' }), ...override };
+      const next = { ...(currentUi || { mode: 'harper', model: 'auto', historyScope: 'singleModel' }), ...override };
       await context.workspaceState.update('clike.uiState', next);
       showUiState(next);
     }
-    const reportRel = 'runs/autopilot/report.md';
     const writeReport = () => {
       try {
-        const file = path.join(ws.fsPath, ...reportRel.split('/'));
-        fsSync.mkdirSync(path.dirname(file), { recursive: true });
-        fsSync.writeFileSync(file, autopilot.autopilotReportMarkdown(run));
+        fsSync.mkdirSync(path.dirname(statePath), { recursive: true });
+        fsSync.writeFileSync(path.join(ws.fsPath, ...reportRel.split('/')), autopilot.autopilotReportMarkdown(run));
+        fsSync.writeFileSync(statePath, JSON.stringify({
+          version: 1, running: !run.endedAt, started_at: new Date(run.startedAt).toISOString(), current: run.current,
+          options: run.options, replaced: run.replaced, parked: run.parkedInfo, outcome: run.outcome || null,
+          reqs: run.reqs.map(({ req_id, result, step, reason, cycles, ms, review_required }) => ({ req_id, result, step, reason, cycles, ms, review_required })),
+        }, null, 2));
       } catch (err) { log(`[autopilot] report not written: ${err?.message || err}`); }
     };
-    const kitExists = (reqId) => fsSync.existsSync(path.join(ws.fsPath, 'runs', 'kit', reqId, 'ci', 'LTC.json'));
+    // where an in-progress REQ resumes: no KIT → kit, last eval passed on these inputs → gate, else eval
+    const stepOf = (reqId) => {
+      const evals = readEarlierReports(ws.fsPath, reqId).filter((r) => r.phase === 'eval');
+      let lastEval = null;
+      if (evals.length) {
+        const last = evals[evals.length - 1];
+        try {
+          const rep = JSON.parse(fsSync.readFileSync(path.join(ws.fsPath, 'runs', 'eval', reqId, `report_${reqId}_${last.ts}.json`), 'utf8'));
+          lastEval = { status: rep.status, inputs: rep.inputs_fingerprint };
+        } catch { lastEval = { status: '', inputs: last.inputs }; }
+      }
+      return autopilot.resumeStep({
+        hasKit: fsSync.existsSync(path.join(ws.fsPath, 'runs', 'kit', reqId, 'ci', 'LTC.json')),
+        lastEval, fingerprint: fingerprintOf(reqId),
+      });
+    };
     const sleep = async (ms) => {
       const end = Date.now() + ms;
       while (Date.now() < end && !run.stop) await new Promise((resolve) => setTimeout(resolve, Math.min(5000, end - Date.now())));
@@ -6637,22 +6688,27 @@ async function cmdOpenChat(context) {
       const cancelled = harperCancelled();
       return { outcome: autopilot.stepOutcome(step, stepMsg), transcript, cancelled };
     };
-    say(`▶ AUTOPILOT started${maxReqs ? ` (at most ${maxReqs} REQ)` : ''}: /kit → /eval --fix → /gate for each REQ, executor ${run.executor || 'as configured'}${methodology ? `, methodology ${methodology}` : ''}. A REQ that needs you is parked and the others go on. /autopilot stop · /autopilot status · report: ${reportRel}`);
+    say(`▶ AUTOPILOT ${interrupted ? 'resumed (the last run was interrupted)' : 'started'}${maxReqs ? ` (at most ${maxReqs} REQ)` : ''}: /kit → /eval --fix → /gate for each REQ, executor ${run.executor || 'as configured'}${methodology ? `, methodology ${methodology}` : ''}. ` +
+      `A REQ that needs you is parked and the others go on.` +
+      (run.parked.size ? ` Still parked (unchanged since): ${[...run.parked].join(', ')}.` : '') +
+      (released.length ? ` Retried (changed since parked): ${released.join(', ')}.` : '') +
+      ` /autopilot stop · /autopilot status · report: ${reportRel}`);
     try {
       while (!run.stop) {
         if (maxReqs && run.reqs.filter((r) => r.result === 'promoted').length >= maxReqs) { run.outcome = `${maxReqs} REQ promoted, as requested`; break; }
         const plan = await readPlanJson(ws);
-        const next = autopilot.nextAutopilotReq(plan?.reqs, run.parked, kitExists);
+        const next = autopilot.nextAutopilotReq(plan?.reqs, run.parked, stepOf);
         if (next.action === 'finalize_only') { run.outcome = 'every REQ is done'; run.next = '/finalize'; break; }
         if (next.action === 'blocked') {
           run.outcome = 'no REQ can go on';
-          run.next = `Parked REQs need you: ${[...run.parked].join(', ') || 'none'}; then /autopilot again. Waiting: ` +
+          run.next = `Parked REQs need you: ${[...run.parked].join(', ') || 'none'} (fix them, then /autopilot: a changed REQ is retried). Waiting: ` +
             next.waiting.filter((w) => !w.parked).map((w) => `${w.req_id} (on ${w.waiting_for.join(', ') || '—'})`).join(', ');
           break;
         }
         const reqId = next.req_id;
         const entry = { req_id: reqId, startedAt: Date.now(), result: 'running', cycles: 0 };
         run.reqs.push(entry);
+        if (next.step !== 'kit') say(`ℹ AUTOPILOT ${reqId} resumes at ${next.step}${next.step === 'gate' ? ' (its last eval passed on the current files)' : ' (its KIT is there)'}.`);
         for (const step of autopilot.STEPS.slice(autopilot.STEPS.indexOf(next.step))) {
           run.current = `${step} ${reqId}`;
           entry.step = step;
@@ -6662,27 +6718,31 @@ async function cmdOpenChat(context) {
           while (true) {
             res = await runStep(reqId, step);
             const text = res.transcript.slice(-12).join('\n');
-            if (res.outcome.ok || res.cancelled || !autopilot.isQuotaFailure(text) || attempt >= quotaRetries || run.stop) break;
+            const transient = res.outcome.ok || res.cancelled ? null : autopilot.transientFailure(text);
+            if (!transient || attempt >= waitRetries || run.stop) break;
             attempt += 1;
-            run.waits.push({ req_id: reqId, step, minutes: quotaWaitMin, reason: (text.match(/[^\n]*(?:429|rate|quota|limit)[^\n]*/i) || [''])[0].slice(0, 160) });
-            say(`⏳ AUTOPILOT ${reqId} ${step}: provider quota/rate limit — retry ${attempt}/${quotaRetries} in ${quotaWaitMin} min.`);
+            const why = transient === 'quota' ? 'provider quota/rate limit' : 'CLike services not answering';
+            run.waits.push({ req_id: reqId, step, minutes: waitMin, reason: `${why}: ${(text.split('\n').filter(Boolean).pop() || '').slice(0, 140)}` });
+            say(`⏳ AUTOPILOT ${reqId} ${step}: ${why} — retry ${attempt}/${waitRetries} in ${waitMin} min.`);
             writeReport();
-            await sleep(quotaWaitMin * 60000);
+            await sleep(waitMin * 60000);
           }
           if (res.cancelled) { run.stop = 'cancel'; }
           if (step === 'eval' && res.outcome.cycles !== undefined) entry.cycles = res.outcome.cycles;
-          if (run.stop === 'cancel') { entry.result = 'parked'; entry.reason = 'cancelled'; entry.messages = res.transcript.slice(-3); break; }
+          if (run.stop === 'cancel') { entry.result = 'cancelled'; entry.reason = 'cancelled'; entry.messages = res.transcript.slice(-3); break; }
           if (!res.outcome.ok) {
             entry.result = 'parked';
             entry.reason = res.outcome.reason;
             entry.messages = res.transcript.filter((t) => /✖|stopped|blocked|failed|cannot|missing|required/i.test(t)).slice(-3);
             run.parked.add(reqId);
+            run.parkedInfo[reqId] = { step, reason: entry.reason, fingerprint: fingerprintOf(reqId), at: new Date().toISOString() };
             say(`⏸ AUTOPILOT ${reqId} parked at ${step}: ${res.outcome.reason}. Going on with the REQs that do not depend on it.`);
             break;
           }
           if (step === 'gate') {
             entry.result = 'promoted';
             entry.review_required = !!res.outcome.review_required;
+            delete run.parkedInfo[reqId];
             say(`✔ AUTOPILOT ${reqId} promoted${entry.review_required ? ' (REVIEW: the repair fixed locked tests, check them)' : ''}.`);
           }
           if (run.stop) break;
@@ -6697,13 +6757,13 @@ async function cmdOpenChat(context) {
     } finally {
       run.endedAt = Date.now();
       writeReport();
-      if (override) {
-        // the current state minus what this run set: a change made in the chat meanwhile stays
+      if (override && replaced) {
+        // only the keys this run set go back; a change made in the chat meanwhile to others stays
         const current = context.workspaceState.get('clike.uiState') || {};
         const restored = { ...current };
-        for (const key of Object.keys(override)) {
-          if (previousUiState && key in previousUiState) restored[key] = previousUiState[key];
-          else delete restored[key];
+        for (const [key, value] of Object.entries(replaced)) {
+          if (value === null || value === undefined) delete restored[key];
+          else restored[key] = value;
         }
         await context.workspaceState.update('clike.uiState', restored);
         showUiState(restored);

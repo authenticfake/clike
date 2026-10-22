@@ -52,7 +52,8 @@ are small IDEAs to start with.
    /gate REQ-001           # promotion decision; on PASS auto-merge into src/ and test/ + report
    ```
    Or `/autopilot`: the same three steps for every REQ, unattended (a REQ that needs you is
-   parked and the others go on; report in `runs/autopilot/report.md`).
+   parked and the others go on; after an interruption it resumes where it was; report in
+   `runs/autopilot/report.md`).
 6. `/finalize` when the REQs are done: it does not run the REQs' tests again (the gates did). It
    brings the solution to running and configured: CLike installs, builds, configures and starts it
    in the sandbox, checks that it answers and repairs it until it passes. Read

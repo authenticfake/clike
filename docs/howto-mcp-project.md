@@ -90,10 +90,14 @@ A single instruction is enough for Claude Code:
 
 ### Autopilot: every REQ, unattended
 
+![/autopilot](images/autopilot.svg)
+
 `harper_autopilot` is the chat's `/autopilot`
 ([commands.md](commands.md#autopilot)): kit → eval with fix → gate for every REQ,
 with the executor configured in VS Code. A REQ that needs you is parked with its reason, the
-independent REQs go on; a quota or rate limit waits and retries. It stops before finalize.
+independent REQs go on; a quota or rate limit, or CLike's services down, waits and retries. It
+resumes where the repository says each REQ is, and by itself after VS Code restarts. It stops
+before finalize.
 
 The KIT executor (cloud model, Codex, Claude Code) is the one set in VS Code, or `executor` for this
 run (restored at the end); `methodology: "bmad"` runs the KIT as the BMAD developer and the eval with

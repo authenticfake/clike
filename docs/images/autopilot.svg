@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="250" viewBox="0 0 760 250" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#334155"/>
+    </marker>
+    <marker id="ap" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#7c3aed"/>
+    </marker>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f8fafc"/>
+      <stop offset="1" stop-color="#eef2ff"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="760" height="250" rx="14" fill="url(#bg)"/>
+
+  <!-- title -->
+  <text x="28" y="40" font-size="22" font-weight="700" fill="#0f172a">/autopilot</text>
+  <text x="140" y="40" font-size="15" fill="#334155">rules drive · models write · the gate decides · you are called only when needed</text>
+
+  <!-- the REQ queue -->
+  <g font-size="11" font-weight="700" fill="#5b21b6">
+    <rect x="28" y="84" width="58" height="26" rx="6" fill="#ede9fe" stroke="#7c3aed"/>
+    <text x="57" y="101" text-anchor="middle">REQ-025</text>
+    <rect x="34" y="114" width="58" height="26" rx="6" fill="#ede9fe" stroke="#7c3aed" opacity="0.7"/>
+    <text x="63" y="131" text-anchor="middle" opacity="0.7">REQ-026</text>
+    <rect x="40" y="144" width="58" height="26" rx="6" fill="#ede9fe" stroke="#7c3aed" opacity="0.45"/>
+    <text x="69" y="161" text-anchor="middle" opacity="0.45">…</text>
+  </g>
+  <text x="28" y="190" font-size="11" fill="#64748b">plan.json, in</text>
+  <text x="28" y="204" font-size="11" fill="#64748b">dependency order</text>
+
+  <!-- the loop: kit, eval with fix, gate -->
+  <path d="M 104 108 L 142 108" stroke="#334155" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
+  <g>
+    <rect x="146" y="84" width="122" height="48" rx="10" fill="#ffffff" stroke="#cbd5e1"/>
+    <text x="207" y="105" font-size="14" font-weight="700" fill="#0f172a" text-anchor="middle">/kit</text>
+    <text x="207" y="122" font-size="10.5" fill="#64748b" text-anchor="middle">cloud · Codex · Claude</text>
+
+    <path d="M 268 108 L 290 108" stroke="#334155" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
+    <rect x="294" y="84" width="118" height="48" rx="10" fill="#ffffff" stroke="#cbd5e1"/>
+    <text x="353" y="105" font-size="14" font-weight="700" fill="#0f172a" text-anchor="middle">/eval --fix</text>
+    <text x="353" y="122" font-size="11" fill="#64748b" text-anchor="middle">tests locked</text>
+    <!-- repair loop -->
+    <path d="M 330 84 C 330 62, 376 62, 376 82" stroke="#7c3aed" stroke-width="1.5" fill="none" marker-end="url(#ap)"/>
+    <text x="353" y="60" font-size="10" fill="#7c3aed" text-anchor="middle">repair</text>
+
+    <path d="M 412 108 L 448 108" stroke="#334155" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
+    <rect x="452" y="84" width="96" height="48" rx="10" fill="#0f172a"/>
+    <text x="500" y="105" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">/gate</text>
+    <text x="500" y="122" font-size="11" fill="#cbd5e1" text-anchor="middle">no override</text>
+  </g>
+
+  <!-- promoted -->
+  <path d="M 548 108 L 600 108" stroke="#334155" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
+  <rect x="604" y="84" width="128" height="48" rx="10" fill="#ecfdf5" stroke="#10b981"/>
+  <text x="668" y="105" font-size="14" font-weight="700" fill="#065f46" text-anchor="middle">✔ promoted</text>
+  <text x="668" y="122" font-size="11" fill="#047857" text-anchor="middle">next REQ, by itself</text>
+
+  <!-- parked bay -->
+  <path d="M 353 132 L 353 166" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="4 3" fill="none" marker-end="url(#a)"/>
+  <path d="M 500 132 C 500 152, 420 150, 412 168" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="4 3" fill="none" marker-end="url(#a)"/>
+  <rect x="262" y="170" width="200" height="50" rx="10" fill="#fffbeb" stroke="#f59e0b"/>
+  <rect x="274" y="181" width="28" height="28" rx="6" fill="#f59e0b"/>
+  <text x="288" y="201" font-size="17" font-weight="700" fill="#ffffff" text-anchor="middle">P</text>
+  <text x="312" y="192" font-size="12" font-weight="700" fill="#92400e">parked, with the reason</text>
+  <text x="312" y="208" font-size="11" fill="#b45309">the others go on</text>
+
+  <!-- resilience notes -->
+  <g font-size="11" fill="#475569">
+    <text x="500" y="176">⏳ quota or services down: waits, retries</text>
+    <text x="500" y="194">↻ restarted: resumes where the repo says</text>
+    <text x="500" y="212">■ stops before /finalize: that one is yours</text>
+  </g>
+
+  <text x="28" y="238" font-size="11" fill="#64748b">Nothing reaches main that the gate did not pass. Report: runs/autopilot/report.md</text>
+  <text x="732" y="238" font-size="11" font-style="italic" fill="#5b21b6" text-anchor="end">Works the night shift. Never signs off its own work.</text>
+</svg>

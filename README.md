@@ -202,6 +202,12 @@ Open a project under `CLIKE_PROJECTS_DIR`, run **CLike: Chat (Q&A / Harper / Cod
 next release:  /idea --extend → ( /kit → /eval --fix → /gate )* for the new REQs → /finalize
 ```
 
+`/autopilot` runs the `( /kit → /eval --fix → /gate )*` part unattended — from the chat, MCP or
+`scripts/clike-autopilot.sh` — parks a REQ that needs you and resumes where it was after an
+interruption ([commands](docs/commands.md#autopilot)).
+
+![/autopilot](docs/images/autopilot.svg)
+
 With execution = agent the chat is a continuing conversation with Claude Code or Codex
 (`/agent-model`, `/agent-session`), and Claude Code / Codex can drive CLike through MCP.
 Walkthrough, options and troubleshooting: **[docs/GET_STARTED.md](docs/GET_STARTED.md)**.
