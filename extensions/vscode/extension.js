@@ -15,6 +15,7 @@ const {
 } = require('./service-auth');
 const { validateLocalMcpRequest } = require('./mcp-request-guard');
 const extensionMcp = require('./extension-mcp');
+const autopilot = require('./autopilot');
 const { getEvalTools, postEvalToolsUpdate, postAcceptanceAccept, postAcceptanceAmend, postAcceptanceLock, postEvalChecks, postEvalToolsCheck, postEvalToolsInstall, postGateOverride } = require('./api');
 const evalToolsLib = require('./eval-tools');
 const { approveForProject, ensureEvalTools, questionText } = evalToolsLib;
@@ -189,6 +190,8 @@ let inflightController = null;
 // Harper phases (/eval, /gate, a KIT repair, their --fix cycles) share one cancel signal: a phase
 // the user starts takes a fresh one, the cycles it chains reuse it, Cancel aborts it.
 let harperAbortController = null;
+// /autopilot in progress: { stop, current, ... } (one at a time)
+let autopilotRun = null;
 function harperSignal(fresh) {
   if (fresh || !harperAbortController) harperAbortController = new AbortController();
   return harperAbortController.signal;
@@ -234,6 +237,7 @@ function harperCancelled() {
 }
 /** The chat's Cancel (and MCP cancel_run): stop the request, the eval it runs and every local agent. */
 function cancelHarperWork() {
+  if (autopilotRun) autopilotRun.stop = 'cancel';
   if (inflightController) inflightController.abort();
   inflightController = null;
   if (harperAbortController) harperAbortController.abort();
@@ -2197,9 +2201,9 @@ function cancelMcpRun(runId) {
   return { ...run, cancelled: true, message: 'cancel requested: the run stops at the next step (harper_run_status shows its end)' };
 }
 
-/** Modal confirmation, or for an MCP run the caller's confirm flag (nobody is there to click). */
+/** Modal confirmation, or for an MCP / autopilot run the caller's confirm flag (nobody is there to click). */
 async function confirmOrMcp(msg, text, go) {
-  if (msg && msg.__fromMcp) return msg.confirm === true;
+  if (msg && (msg.__fromMcp || msg.__unattended)) return msg.confirm === true;
   const choice = await vscode.window.showWarningMessage(text, { modal: true }, go);
   return choice === go;
 }
@@ -4916,7 +4920,7 @@ async function cmdOpenChat(context) {
             clikeHarperBlockingRun = false;
             await continueFinalizeVerify(msg);
           }
-          if (phase === 'kit' && !msg.autoEvalRepair && !msg.acceptanceStage && targetReqId && cfg().autoEvalAfterKit) {
+          if (phase === 'kit' && !msg.autoEvalRepair && !msg.acceptanceStage && !msg.__autopilot && targetReqId && cfg().autoEvalAfterKit) {
             panel.webview.postMessage({ type: 'echo', message: `↻ AUTO-EVAL ${targetReqId} (clike.autoEval.afterKit)` });
             clikeHarperBlockingRun = false;
             await handleWebviewMessage({
@@ -5516,6 +5520,10 @@ async function cmdOpenChat(context) {
           model: 'system'
         });
         
+      }
+      if (msg.type === 'autopilot') {
+        await handleAutopilotCommand(msg);
+        return;
       }
       if (msg.type === 'evalTools') {
         // /tools: the native tools of the eval sandbox (catalog, installed, approved for the project)
@@ -6287,6 +6295,7 @@ async function cmdOpenChat(context) {
       check: () => postEvalToolsCheck(ws, reqId, profile),
       install: (names) => postEvalToolsInstall(ws, names),
       ask: async (items) => {
+        if (autopilotRun) return 'no'; // unattended: the missing tool parks the REQ with its reason
         const pick = await vscode.window.showInformationMessage(
           questionText(reqId, items), 'Install', 'Always for this project', 'No'
         );
@@ -6484,6 +6493,134 @@ async function cmdOpenChat(context) {
     const terminal = vscode.window.createTerminal({ name: 'CLike solution', cwd: ws.fsPath });
     terminal.show();
     terminal.sendText(steps.join(win ? '; ' : ' && '));
+  }
+
+  // /autopilot [N] | stop | status: the REQs of the plan unattended (autopilot.js decides, the
+  // chat handlers run every step exactly as when the developer types them).
+  async function handleAutopilotCommand(msg) {
+    const say = (text) => panel.webview.postMessage({ type: 'echo', message: text });
+    const action = String(msg.action || 'start');
+    if (action === 'stop') {
+      if (!autopilotRun) return say('Autopilot is not running.');
+      autopilotRun.stop = 'graceful';
+      return say(`⏸ AUTOPILOT: stops after the current step (${autopilotRun.current || 'between steps'}). Cancel stops it now.`);
+    }
+    if (action === 'status') {
+      if (!autopilotRun) return say('Autopilot is not running.');
+      return say(`AUTOPILOT running: ${autopilotRun.current || 'between steps'}; promoted ${autopilotRun.reqs.filter((r) => r.result === 'promoted').map((r) => r.req_id).join(', ') || 'none'}; parked ${autopilotRun.reqs.filter((r) => r.result === 'parked').map((r) => r.req_id).join(', ') || 'none'}.`);
+    }
+    if (autopilotRun) return say('Autopilot is already running (/autopilot status, /autopilot stop).');
+    if (clikeHarperBlockingRun) return say('A Harper phase is running: start /autopilot when it ends.');
+    const ws = getWorkspaceRoot();
+    if (!ws) return say('No workspace open.');
+    if (String(vscode.workspace.getConfiguration('clike').get('gate.autoPromote', 'merge')) === 'ask') {
+      return say('✖ AUTOPILOT not started: clike.gate.autoPromote is "ask" and nobody answers the promotion choice. Set it to "merge" (or "off" to promote yourself).');
+    }
+    const settings = vscode.workspace.getConfiguration('clike');
+    const quotaWaitMin = Math.max(1, Number(settings.get('autopilot.quotaWaitMinutes', 30)));
+    const quotaRetries = Math.max(0, Number(settings.get('autopilot.quotaRetries', 8)));
+    const maxReqs = Math.max(0, Number(msg.max || 0));
+    const run = autopilotRun = { stop: null, current: '', startedAt: Date.now(), reqs: [], waits: [], parked: new Set() };
+    const reportRel = 'runs/autopilot/report.md';
+    const writeReport = () => {
+      try {
+        const file = path.join(ws.fsPath, ...reportRel.split('/'));
+        fsSync.mkdirSync(path.dirname(file), { recursive: true });
+        fsSync.writeFileSync(file, autopilot.autopilotReportMarkdown(run));
+      } catch (err) { log(`[autopilot] report not written: ${err?.message || err}`); }
+    };
+    const kitExists = (reqId) => fsSync.existsSync(path.join(ws.fsPath, 'runs', 'kit', reqId, 'ci', 'LTC.json'));
+    const sleep = async (ms) => {
+      const end = Date.now() + ms;
+      while (Date.now() < end && !run.stop) await new Promise((resolve) => setTimeout(resolve, Math.min(5000, end - Date.now())));
+    };
+    // one step through the chat handler; what the chat says is kept for the reason of a failure
+    const runStep = async (reqId, step) => {
+      const transcript = [];
+      const webview = panel.webview;
+      const originalPost = webview.postMessage;
+      webview.postMessage = (m) => {
+        if (m && (m.type === 'error' || m.type === 'echo') && m.message) transcript.push(String(m.message).split('\n')[0].slice(0, 300));
+        return originalPost.call(webview, m);
+      };
+      const stepMsg = step === 'kit'
+        ? { type: 'harperRun', cmd: 'kit', targets: [reqId], targetReqId: reqId, attachments: [], __autopilot: true, __unattended: true }
+        : { type: 'harperEDD', cmd: step, targets: [reqId], targetReqId: reqId, attachments: [], argument: reqId,
+          path: `runs/kit/${reqId}/ci/LTC.json`, __autopilot: true, __unattended: true, ...(step === 'eval' ? { fix: { hint: '' } } : {}) };
+      try {
+        await handleWebviewMessage(stepMsg);
+      } catch (err) {
+        transcript.push(String(err?.message || err));
+      } finally {
+        webview.postMessage = originalPost;
+      }
+      const cancelled = harperCancelled();
+      return { outcome: autopilot.stepOutcome(step, stepMsg), transcript, cancelled };
+    };
+    say(`▶ AUTOPILOT started${maxReqs ? ` (at most ${maxReqs} REQ)` : ''}: /kit → /eval --fix → /gate for each REQ, with the configured executor. A REQ that needs you is parked and the others go on. /autopilot stop · /autopilot status · report: ${reportRel}`);
+    try {
+      while (!run.stop) {
+        if (maxReqs && run.reqs.filter((r) => r.result === 'promoted').length >= maxReqs) { run.outcome = `${maxReqs} REQ promoted, as requested`; break; }
+        const plan = await readPlanJson(ws);
+        const next = autopilot.nextAutopilotReq(plan?.reqs, run.parked, kitExists);
+        if (next.action === 'finalize_only') { run.outcome = 'every REQ is done'; run.next = '/finalize'; break; }
+        if (next.action === 'blocked') {
+          run.outcome = 'no REQ can go on';
+          run.next = `Parked REQs need you: ${[...run.parked].join(', ') || 'none'}; then /autopilot again. Waiting: ` +
+            next.waiting.filter((w) => !w.parked).map((w) => `${w.req_id} (on ${w.waiting_for.join(', ') || '—'})`).join(', ');
+          break;
+        }
+        const reqId = next.req_id;
+        const entry = { req_id: reqId, startedAt: Date.now(), result: 'running', cycles: 0 };
+        run.reqs.push(entry);
+        for (const step of autopilot.STEPS.slice(autopilot.STEPS.indexOf(next.step))) {
+          run.current = `${step} ${reqId}`;
+          entry.step = step;
+          writeReport();
+          let attempt = 0;
+          let res;
+          while (true) {
+            res = await runStep(reqId, step);
+            const text = res.transcript.slice(-12).join('\n');
+            if (res.outcome.ok || res.cancelled || !autopilot.isQuotaFailure(text) || attempt >= quotaRetries || run.stop) break;
+            attempt += 1;
+            run.waits.push({ req_id: reqId, step, minutes: quotaWaitMin, reason: (text.match(/[^\n]*(?:429|rate|quota|limit)[^\n]*/i) || [''])[0].slice(0, 160) });
+            say(`⏳ AUTOPILOT ${reqId} ${step}: provider quota/rate limit — retry ${attempt}/${quotaRetries} in ${quotaWaitMin} min.`);
+            writeReport();
+            await sleep(quotaWaitMin * 60000);
+          }
+          if (res.cancelled) { run.stop = 'cancel'; }
+          if (step === 'eval' && res.outcome.cycles !== undefined) entry.cycles = res.outcome.cycles;
+          if (run.stop === 'cancel') { entry.result = 'parked'; entry.reason = 'cancelled'; entry.messages = res.transcript.slice(-3); break; }
+          if (!res.outcome.ok) {
+            entry.result = 'parked';
+            entry.reason = res.outcome.reason;
+            entry.messages = res.transcript.filter((t) => /✖|stopped|blocked|failed|cannot|missing|required/i.test(t)).slice(-3);
+            run.parked.add(reqId);
+            say(`⏸ AUTOPILOT ${reqId} parked at ${step}: ${res.outcome.reason}. Going on with the REQs that do not depend on it.`);
+            break;
+          }
+          if (step === 'gate') {
+            entry.result = 'promoted';
+            entry.review_required = !!res.outcome.review_required;
+            say(`✔ AUTOPILOT ${reqId} promoted${entry.review_required ? ' (REVIEW: the repair fixed locked tests, check them)' : ''}.`);
+          }
+          if (run.stop) break;
+        }
+        entry.ms = Date.now() - entry.startedAt;
+        writeReport();
+      }
+      if (run.stop === 'graceful') run.outcome = 'stopped by /autopilot stop';
+      if (run.stop === 'cancel') run.outcome = 'cancelled';
+    } catch (err) {
+      run.outcome = `stopped on an error: ${err?.message || err}`;
+    } finally {
+      run.endedAt = Date.now();
+      writeReport();
+      autopilotRun = null;
+    }
+    const promoted = run.reqs.filter((r) => r.result === 'promoted').map((r) => r.req_id);
+    say(`■ AUTOPILOT ended — ${run.outcome}. Promoted: ${promoted.join(', ') || 'none'}; parked: ${[...run.parked].join(', ') || 'none'}.${run.next ? ` Next: ${run.next}` : ''} Report: ${reportRel}`);
   }
 
   async function continueAutoEval(msg, report, reqId) {

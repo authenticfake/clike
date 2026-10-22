@@ -22,6 +22,13 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Added
 
+- **`/autopilot [N] | stop | status`**: the REQs of the plan unattended, in dependency order —
+  `/kit`, `/eval --fix`, `/gate` each, through the chat handlers, so with the configured executor
+  (cloud, Codex, Claude Code) and the same locks, gate and audit. A fixed rule, not a model, drives
+  it: a REQ that needs the developer is parked with its reason and the independent REQs go on; a
+  provider quota or rate limit waits and retries (`clike.autopilot.quotaWaitMinutes`,
+  `clike.autopilot.quotaRetries`); an in-progress REQ with its KIT resumes from the eval. Report in
+  `runs/autopilot/report.md`. It stops before `/finalize`.
 - **`harper_init` MCP tool**: `/init` of the folder open in VS Code, in place (existing files kept),
   so an agent can run a project from `/init` to `/finalize` through MCP.
 - **`docs/howto-mcp-bmad-claude.md`**: the sequence `/init` → IDEA (analyst) → SPEC (pm, ux) → PLAN

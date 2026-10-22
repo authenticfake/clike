@@ -47,6 +47,7 @@ The current webview parser supports the following slash commands.
   sandbox (kcat, mysqldump, aws, kubectl, terraform, jdk@17…). CLike installs what an eval needs on
   its own after asking; `/tools` shows the catalog and what is installed, `add` installs and
   approves for the project (`.clike/eval-tools.yaml`). See `auto-eval.md`.
+- `/autopilot [N] | stop | status` — the REQs of the plan unattended: `/kit` → `/eval --fix` → `/gate` each, a REQ that needs you parked with its reason (see below)
 - `/finalize`
 - `/extend` — appends REQs to the existing plan, plan only (see `CLike_Harper_Extend_Feature.md`); for a new release use `/idea --extend`
 
@@ -227,6 +228,27 @@ the sandbox ran out of resources (`EVAL_SANDBOX_EXHAUSTED`), a native tool is st
 (`missing_tools`), or CLike could not prepare the eval workspace. A promoted REQ's test that fails
 and then passes on a re-run is a nondeterministic warning, not a regression. A regression caused by
 files the candidate replaced names those files, with a short diff, for the repair.
+
+### `/autopilot [N] | stop | status`
+The REQs of the plan one after the other, unattended, in dependency order: `/kit`, `/eval --fix`,
+`/gate` for each, through the same chat handlers — same executor (cloud model, Codex or Claude
+Code, as configured), same locks, gate, promotion and audit as when you type them. No model decides
+the loop: a fixed rule picks the next REQ (`harper_next_action`: an in-progress REQ first — resumed
+from the eval when its KIT is there — then the first open REQ whose dependencies are done).
+
+- A REQ that needs you is **parked** with its reason (eval `--fix` stopped, gate not passing,
+  promotion not done, an acceptance edit to `--accept`, a value only you have, a native tool to
+  approve: nobody answers the prompts, so they count as *no*). The REQs that do not depend on it go
+  on; the loop ends when none can.
+- A provider quota or rate limit (429, usage limit) is not a failure: the step waits
+  `clike.autopilot.quotaWaitMinutes` (30) and retries, at most `clike.autopilot.quotaRetries` (8).
+- `N` stops after N promoted REQs; `stop` after the current step; Cancel stops it now.
+- A gate that promoted test fixes made by a repair is listed for your review (gate *REVIEW*).
+- It stops before `/finalize`, which stays yours. Needs `clike.gate.autoPromote` `merge` (or `off`).
+
+Report (rewritten at every step, not committed): `runs/autopilot/report.md` — promoted REQs with
+repair cycles and duration, parked REQs with the step, the reason and the last messages, quota
+waits, what to do next. Do not run other Harper phases while it runs.
 
 ### `/tools [search <text> | add <tool[@version]>… | remove <tool>…]`
 Native tools of the eval sandbox. CLike installs what an eval needs on its own: before an eval or

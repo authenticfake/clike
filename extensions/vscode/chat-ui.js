@@ -528,6 +528,7 @@ var HELP_COMMANDS = [
   {cmd:'/kit [REQ-ID] [--integrity|--hardener|--promotion-eval|--phases=...]', desc:'Runs base KIT by default, or explicit follow-up KIT phases on an existing/generated candidate. Candidate in runs/kit/<REQ>/ (src/, test/, ci/, docs/, root/ for repository-root files like scripts/ or deploy/); --repair uses the latest eval failures'},
   {cmd:'/kit <REQ-ID> (clike.kit.acceptanceFirst)', desc:'Acceptance-first: tests and eval profile from SPEC/PLAN written and locked first, then the code against them'},
   {cmd:'/kit REQ-001 --repair --methodology bmad --agent developer', desc:'Runs a governed BMAD developer repair pass inside KIT candidate roots'},
+  {cmd:'/autopilot [N] | stop | status', desc:'Runs the REQs of the plan unattended, in dependency order: /kit → /eval --fix → /gate for each, with the configured executor (cloud model, Codex or Claude Code) and the same locks, gate and audit as by hand. A REQ in progress with its KIT resumes from the eval. A REQ that needs you (eval or gate not passing, --accept, a missing tool or value) is parked with its reason and the REQs that do not depend on it go on; a provider quota/rate limit waits and retries (clike.autopilot.quotaWaitMinutes, quotaRetries). N = stop after N promoted REQs; stop = after the current step (Cancel = now). Ends at /finalize, which stays yours. Report: runs/autopilot/report.md (REQs promoted, parked and why, repair cycles, test fixes to review). Needs clike.gate.autoPromote merge or off'},
   {cmd:'/tools [search <text> | add <tool[@version]>… | update [tool…] | remove <tool>…]', desc:'Native tools of the eval sandbox (kcat, mysqldump, aws, az, kubectl, terraform, jdk@17…). CLike installs what an eval needs on its own (it asks first, clike.evalTools.install); /tools lists the catalog and what is installed with versions (and reminds you after 30 days), add installs and approves for this project (.clike/eval-tools.yaml), update rebuilds them at the latest versions and shows what changed (the previous version stays if one fails), remove withdraws the approval. Versions are locked: a new tools volume is rebuilt identical; ./rebuild.sh --update-tools updates them with the stack'},
   {cmd:'/eval <REQ-ID>', desc:'Runs the REQ acceptance checks (LTC) in the eval sandbox; with clike.eval.regression also the checks of the promoted REQs. A promoted REQ test that fails once and passes on a re-run is a nondeterministic warning, not a regression; a regression caused by files the candidate replaced names them, with a short diff, for the repair'},
   {cmd:'/eval <REQ-ID> --fix ["hint"]', desc:'Auto-eval: eval, then on failure a KIT repair from the real failures, then eval again (max clike.autoEval.maxCycles, default 2, plus up to clike.autoEval.extraCyclesOnProgress while the failures decrease). Tests stay locked. Re-run it to continue; the optional hint guides the fix. It stops instead of repairing when the failure is not the code: sandbox out of resources (restart it), a native tool missing (/tools), a workspace CLike could not prepare'},
@@ -1010,7 +1011,7 @@ function helpStartsWith(c, prefixes) {
 var HELP_GROUPS = [
   { title: 'Start & project', test: function (c) { return helpStartsWith(c, ['/help', 'Docs', '/init', '/status', '/where', '/switch']); } },
   { title: 'Agents', test: function (c) { return helpStartsWith(c, ['/agent-', 'Agent chat', 'Settings (agent']); } },
-  { title: 'Eval & gate', test: function (c) { return helpStartsWith(c, ['/eval', '/gate', '/tools', 'Settings (auto-eval', 'Settings (eval tools']); } },
+  { title: 'Eval & gate', test: function (c) { return helpStartsWith(c, ['/eval', '/gate', '/autopilot', '/tools', 'Settings (auto-eval', 'Settings (eval tools']); } },
   { title: 'Harper phases', test: function (c) { return helpStartsWith(c, ['/idea', '/spec', '/plan', '/extend', '/add-req', '/kit', '/finalize']); } },
   { title: 'RAG', test: function (c) { return helpStartsWith(c, ['/rag']); } },
   { title: 'Other', test: function () { return true; } },
@@ -1093,6 +1094,7 @@ function handleSlash(slash) {
     '/eval',
     '/gate',
     '/tools',
+    '/autopilot',
     '/finalize',
     '/extend',
     '/add-req',
@@ -1267,6 +1269,12 @@ function handleSlash(slash) {
   } catch (eRagSlash) { console.warn('rag slash err', eRagSlash); }
   if (slash.cmd === '/where') {
     vscode.postMessage({ type: 'where' });
+    return;
+  }
+  if (slash.cmd === '/autopilot') {
+    try { bubble('user', '/autopilot ' + (slash.args.action === 'start' ? (slash.args.max || '') : slash.args.action), 'system'); } catch {}
+    vscode.postMessage({ type: 'autopilot', action: slash.args.action, max: slash.args.max || 0 });
+    try { prompt.value = ''; } catch {}
     return;
   }
   if (slash.cmd === '/tools') {
