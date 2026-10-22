@@ -175,7 +175,16 @@ The repair prompt (cloud) and the orchestrator enforce the same rules:
     fixture — e.g. a wrong API call), or a type checker error reported on it (mypy
     `test_a.py:286: error: … [arg-type]`, pyright, TypeScript `error TS…`), the test is fixed, not the code. Every test function, every
     `assert` and every `pytest.raises/warns/approx` must stay identical and no skip/xfail may be
-    added. The fix is reported as `repair_test_fixed_review_required:<file>` and the gate shows
+    added (JS/TS tests: every test title and `expect` line). When the error is on an assertion
+    line itself, only the API misuse the eval proves may change there, expected values kept:
+    an option or keyword argument the type checker or the runtime reports as unknown on that line
+    is removed (TypeScript `'exact' does not exist in type 'ByRoleOptions'`, mypy `Unexpected
+    keyword argument "exact"`, pyright `No parameter named`, Python `got an unexpected keyword
+    argument`), and a regex-shaped string that a pattern matcher (`toMatch`, `toThrow`,
+    `toHaveText`, …) compared literally — the failure shows the received value matching it as a
+    regex — becomes the same regex literal. The orchestrator applies exactly these corrections to
+    the locked test and requires the repaired one to be identical; anything else is rejected.
+    The fix is reported as `repair_test_fixed_review_required:<file>` and the gate shows
     `review_required: true` (VS Code: *REVIEW* in the gate message) so the developer checks it.
 - **`ci/LTC.json`**: only the *command* of a check that cannot run may be fixed (wrong path,
   module or flag). Removing a check, making it non-blocking or weakening it is rejected, with one

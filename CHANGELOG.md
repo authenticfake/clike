@@ -43,6 +43,13 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **A repair can correct a test API misuse on an assertion line**: when the eval proves it — an
+  option or keyword argument reported unknown on that line (TypeScript, mypy, pyright, Python), or
+  a regex-shaped string a pattern matcher compared literally — the locked test may drop that option
+  or pass the pattern as a regex literal, its expected values unchanged; the orchestrator checks
+  that these are the only changes and the gate asks the developer to review them. Before, the
+  repair stopped because the fix touched an assertion line (REQ-024: `getByRole(…, { exact: true })`
+  and `toMatch('Senza limite.*scelta esplicita')`).
 - **A REQ phase run from another branch is committed on the REQ branch**: `/kit REQ-021` run on
   `main` (after the gate of REQ-020 merged and left you there) wrote `runs/kit/REQ-021/` files that
   `feature/req-021` tracks, the switch was refused and the KIT stayed uncommitted. Those files are
