@@ -212,10 +212,21 @@ function parseSlash(input) {
 
   if (cmd === '/autopilot') {
     // /autopilot [N] | stop | status: the REQs of the plan unattended (kit → eval --fix → gate)
+    // start options: --executor cloud|codex|claude, --methodology bmad (this run only)
     const first = String(rest[0] || '').toLowerCase();
     if (first === 'stop' || first === 'status') return finish({ action: first });
-    const max = /^\d+$/.test(first) ? Number(first) : 0;
-    return finish({ action: 'start', max });
+    const opts = { action: 'start', max: 0, executor: '', methodology: '' };
+    for (let i = 0; i < rest.length; i += 1) {
+      const token = String(rest[i]).toLowerCase();
+      const [flag, inline] = token.split('=');
+      if (flag === '--executor' || flag === '--methodology') {
+        opts[flag.slice(2)] = inline !== undefined ? inline : String(rest[i + 1] || '').toLowerCase();
+        if (inline === undefined) i += 1;
+      } else if (/^\d+$/.test(token)) {
+        opts.max = Number(token);
+      }
+    }
+    return finish(opts);
   }
 
   if (cmd === '/tools') {

@@ -71,6 +71,7 @@ material in `docs/harper/ux/`, background in `docs/reference/`).
 | EVAL with repair | `eval_run {req_id: "REQ-001", fix: true, hint?: "..."}` |
 | GATE | `gate_check {req_id: "REQ-001"}` — reuses the eval verdict when nothing changed since it passed; on PASS the REQ is promoted |
 | Repeat | `harper_next_action` until it answers `finalize_only` |
+| All REQs unattended | `harper_autopilot {action: "start", max_reqs?: N, executor?: "cloud"\|"codex"\|"claude", methodology?: "bmad"}` (returns at once), then `{action: "status"}` every few minutes; `{action: "stop"}` after the current step (see below) |
 | FINALIZE | `harper_run_phase {phase: "finalize"}` (`confirm: true` to run it with REQs not promoted) |
 | Read state | clike: `harper_plan_read`, `harper_req_list`, `harper_status_read`, `eval_read_summary {project_root, req_id}`, `gate_read_decision {project_root, req_id}` |
 
@@ -87,6 +88,34 @@ A single instruction is enough for Claude Code:
 > `harper_run_status` for long runs; stop and report if a gate fails twice. When
 > `harper_next_action` says `finalize_only`, run finalize.
 
+### Autopilot: every REQ, unattended
+
+`harper_autopilot` is the chat's `/autopilot`
+([commands.md](commands.md#autopilot)): kit → eval with fix → gate for every REQ,
+with the executor configured in VS Code. A REQ that needs you is parked with its reason, the
+independent REQs go on; a quota or rate limit waits and retries. It stops before finalize.
+
+The KIT executor (cloud model, Codex, Claude Code) is the one set in VS Code, or `executor` for this
+run (restored at the end); `methodology: "bmad"` runs the KIT as the BMAD developer and the eval with
+the QA advisory. The agent that calls MCP only starts and reads the run: it can be Claude Code while
+Codex writes the KITs, or the other way round. Waiting needs no agent: `scripts/clike-autopilot.sh` (macOS,
+Linux) and `scripts/clike-autopilot.ps1` (Windows) poll the server with curl and spend no tokens.
+
+```bash
+export CLIKE_EXT_MCP_TOKEN="<CLike: Copy Extension MCP Token>"
+scripts/clike-autopilot.sh start            # or: start 3 (stop after 3 promoted REQs)
+scripts/clike-autopilot.sh start --executor codex --methodology bmad   # executor and methodology of this run
+scripts/clike-autopilot.sh --via claude start   # Claude Code calls harper_autopilot (claude -p)
+scripts/clike-autopilot.sh --via codex start    # Codex calls it (codex exec)
+scripts/clike-autopilot.sh wait             # a status line when something changes, every 5 min (CLIKE_AUTOPILOT_POLL_SECONDS)
+scripts/clike-autopilot.sh status           # or stop
+```
+
+`--via claude` allows only `mcp__clike-ext__harper_autopilot`; `--via codex` needs the clike-ext
+server with `default_tools_approval_mode = "approve"` (section 2). Run the scripts from the CLike
+folder (any working directory works: they talk to the server, not to the files). The full report
+is `runs/autopilot/report.md` in the project.
+
 ## 4. The next release
 
 Put the requirements of release N in `docs/inputs/vN/` (background in `docs/reference/vN/`), then:
@@ -101,7 +130,7 @@ then the same KIT → EVAL → GATE loop on the new REQs and FINALIZE. `methodol
 
 ## 5. What MCP does not do
 
-No `/init` into a new folder (`harper_init` initializes the open one), no `/tools` installs, no gate overrides, no git commands, no file writes outside the
+Autopilot never runs `/finalize` and never answers a confirmation, a tool install or `--accept`: parked REQs wait for you. No `/init` into a new folder (`harper_init` initializes the open one), no `/tools` installs, no gate overrides, no git commands, no file writes outside the
 phases: those stay with the developer in VS Code. The orchestrator server only reads (its
 `rag_reindex_*` tools rebuild the RAG index).
 

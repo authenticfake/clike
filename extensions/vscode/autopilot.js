@@ -73,6 +73,29 @@ function stepOutcome(step, msg) {
   return { ok: true, review_required: !!report.review_required };
 }
 
+/**
+ * The chat execution state for an executor chosen for the run (cloud | codex | claude), or null to
+ * keep the configured one. Kit, repairs and eval pre-passes read it, as when set in the chat.
+ */
+function executorState(executor) {
+  const raw = String(executor || '').trim().toLowerCase();
+  if (!raw) return null;
+  if (raw === 'cloud') return { executionPreference: 'cloud_only' };
+  if (raw === 'codex') return { executionPreference: 'local_agent_only', localAgentExecutor: 'gpt_codex' };
+  if (raw === 'claude') return { executionPreference: 'local_agent_only', localAgentExecutor: 'claude_code' };
+  throw new Error(`executor must be cloud, codex or claude (got ${executor})`);
+}
+
+/** Methodology fields of a step's message: BMAD developer for the KIT, QA (advisory) for the eval; the gate is CLike's. */
+function methodologyFields(methodology, step) {
+  const raw = String(methodology || '').trim().toLowerCase();
+  if (!raw) return {};
+  if (raw !== 'bmad') throw new Error(`methodology must be bmad (got ${methodology})`);
+  if (step === 'kit') return { methodology: 'bmad', agent: 'developer' };
+  if (step === 'eval') return { methodology: 'bmad', agent: 'qa' };
+  return {};
+}
+
 function duration(ms) {
   const min = Math.round(Math.max(0, ms) / 60000);
   return min >= 60 ? `${Math.floor(min / 60)} h ${min % 60} min` : `${min} min`;
@@ -83,7 +106,7 @@ function autopilotReportMarkdown(run) {
   const lines = [
     '# Autopilot report', '',
     `Started ${new Date(run.startedAt).toISOString()}, ${run.endedAt ? `ended ${new Date(run.endedAt).toISOString()}` : 'running'}` +
-      ` (${duration((run.endedAt || Date.now()) - run.startedAt)}). Executor: ${run.executor || 'as configured'}.`,
+      ` (${duration((run.endedAt || Date.now()) - run.startedAt)}). Executor: ${run.executor || 'as configured'}; methodology: ${run.methodology || 'none'}.`,
     '', `Outcome: ${run.outcome || 'running'}`, '',
     '## Promoted', '',
   ];
@@ -105,4 +128,4 @@ function autopilotReportMarkdown(run) {
   return lines.join('\n');
 }
 
-module.exports = { STEPS, nextAutopilotReq, isQuotaFailure, stepOutcome, autopilotReportMarkdown };
+module.exports = { STEPS, nextAutopilotReq, isQuotaFailure, stepOutcome, executorState, methodologyFields, autopilotReportMarkdown };
