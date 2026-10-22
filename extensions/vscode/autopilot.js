@@ -1,0 +1,108 @@
+'use strict';
+// /autopilot: the REQs of the plan one after the other, unattended — /kit, /eval --fix, /gate, the
+// same governed chat flow a developer runs (same executor: cloud model, Codex or Claude Code; same
+// lock, gate and audit). No model decides the loop: these rules do. A REQ that needs the developer
+// is parked with its reason and the loop goes on with the REQs that do not depend on it.
+
+const STEPS = ['kit', 'eval', 'gate'];
+
+const status = (r) => String(r?.status || 'open').trim().toLowerCase();
+const upper = (v) => String(v || '').trim().toUpperCase();
+
+/**
+ * The next REQ to run and its first step, skipping the parked ones: an in-progress REQ first (its
+ * KIT already written → from the eval), else the first open REQ whose dependencies are done.
+ * kitExists(reqId) tells whether runs/kit/<REQ>/ci/LTC.json is there.
+ */
+function nextAutopilotReq(reqs, parked = new Set(), kitExists = () => false) {
+  const list = (Array.isArray(reqs) ? reqs : []).filter((r) => r && r.id);
+  const byId = new Map(list.map((r) => [upper(r.id), r]));
+  const deps = (r) => (Array.isArray(r.dependsOn) ? r.dependsOn : []).map(upper).filter(Boolean);
+  const isParked = (id) => parked.has(upper(id));
+  const ready = (r) => deps(r).every((d) => status(byId.get(d) || {}) === 'done');
+  const candidates = [
+    ...list.filter((r) => status(r) === 'in_progress'),
+    ...list.filter((r) => status(r) === 'open'),
+  ].filter((r) => !isParked(r.id));
+  const pick = candidates.find(ready);
+  if (pick) {
+    const reqId = upper(pick.id);
+    const step = status(pick) === 'in_progress' && kitExists(reqId) ? 'eval' : 'kit';
+    return { action: 'run', req_id: reqId, step };
+  }
+  const pending = list.filter((r) => status(r) !== 'done' && status(r) !== 'deferred');
+  if (!pending.length) return { action: 'finalize_only' };
+  return {
+    action: 'blocked',
+    waiting: pending.map((r) => ({
+      req_id: upper(r.id),
+      parked: isParked(r.id),
+      waiting_for: deps(r).filter((d) => status(byId.get(d) || {}) !== 'done'),
+    })),
+  };
+}
+
+// A provider out of quota or rate limited: wait and retry the same step, do not park the REQ.
+const QUOTA_RE = /\b429\b|rate[ _-]?limit|too many requests|quota|usage limit|insufficient_quota|limit reached|try again (?:later|in)/i;
+
+function isQuotaFailure(text) {
+  return QUOTA_RE.test(String(text || ''));
+}
+
+/** Did the step succeed? msg is the chat message after the handler ran (its __result/__report). */
+function stepOutcome(step, msg) {
+  const report = msg?.__report || {};
+  if (step === 'kit') {
+    return msg?.__result === 'ok' ? { ok: true } : { ok: false, reason: 'the KIT did not complete' };
+  }
+  if (step === 'eval') {
+    const auto = report.auto_eval;
+    if (auto && auto.outcome === 'pass') return { ok: true, cycles: auto.cycles };
+    if (auto) return { ok: false, reason: `eval --fix ${auto.outcome}: ${auto.reason}`, cycles: auto.cycles };
+    return { ok: false, reason: report.status ? `eval ${report.status}` : 'the eval did not run' };
+  }
+  // as the promotion decides it: verdict pass and status PASS / PASS_WITH_WARNINGS
+  const verdict = String(report.gate || '').toUpperCase();
+  const gateStatus = String(report.status || '').toUpperCase();
+  if (verdict !== 'PASS' || !['PASS', 'PASS_WITH_WARNINGS'].includes(gateStatus)) {
+    return { ok: false, reason: verdict || gateStatus ? `gate ${verdict || '?'} (${gateStatus || '?'})` : 'the gate did not run' };
+  }
+  if (report.promotion && report.promotion.promoted === false) {
+    return { ok: false, reason: `gate PASS, promotion not done: ${report.promotion.summary || 'see the promotion report'}` };
+  }
+  return { ok: true, review_required: !!report.review_required };
+}
+
+function duration(ms) {
+  const min = Math.round(Math.max(0, ms) / 60000);
+  return min >= 60 ? `${Math.floor(min / 60)} h ${min % 60} min` : `${min} min`;
+}
+
+/** The report the developer reads afterwards (runs/autopilot/report.md, not committed). */
+function autopilotReportMarkdown(run) {
+  const lines = [
+    '# Autopilot report', '',
+    `Started ${new Date(run.startedAt).toISOString()}, ${run.endedAt ? `ended ${new Date(run.endedAt).toISOString()}` : 'running'}` +
+      ` (${duration((run.endedAt || Date.now()) - run.startedAt)}). Executor: ${run.executor || 'as configured'}.`,
+    '', `Outcome: ${run.outcome || 'running'}`, '',
+    '## Promoted', '',
+  ];
+  const promoted = run.reqs.filter((r) => r.result === 'promoted');
+  lines.push(...(promoted.length
+    ? ['| REQ | Repair cycles | Duration | Review |', '|---|---|---|---|',
+      ...promoted.map((r) => `| ${r.req_id} | ${r.cycles ?? 0} | ${duration(r.ms)} | ${r.review_required ? 'review the test fixes (gate REVIEW)' : '—'} |`)]
+    : ['None.']));
+  lines.push('', '## Parked (need you)', '');
+  const parked = run.reqs.filter((r) => r.result === 'parked');
+  lines.push(...(parked.length
+    ? ['| REQ | Step | Why | Last messages |', '|---|---|---|---|',
+      ...parked.map((r) => `| ${r.req_id} | ${r.step} | ${String(r.reason || '').replace(/\|/g, '\\|')} | ${(r.messages || []).slice(-2).join(' / ').replace(/\|/g, '\\|').slice(0, 400)} |`)]
+    : ['None.']));
+  if (run.waits && run.waits.length) {
+    lines.push('', '## Quota waits', '', ...run.waits.map((w) => `- ${w.req_id} ${w.step}: waited ${w.minutes} min (${w.reason})`));
+  }
+  lines.push('', '## Next', '', run.next || '—', '');
+  return lines.join('\n');
+}
+
+module.exports = { STEPS, nextAutopilotReq, isQuotaFailure, stepOutcome, autopilotReportMarkdown };

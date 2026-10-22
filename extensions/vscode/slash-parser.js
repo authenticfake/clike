@@ -210,6 +210,14 @@ function parseSlash(input) {
     return finish({ name, path, force });
   }
 
+  if (cmd === '/autopilot') {
+    // /autopilot [N] | stop | status: the REQs of the plan unattended (kit → eval --fix → gate)
+    const first = String(rest[0] || '').toLowerCase();
+    if (first === 'stop' || first === 'status') return finish({ action: first });
+    const max = /^\d+$/.test(first) ? Number(first) : 0;
+    return finish({ action: 'start', max });
+  }
+
   if (cmd === '/tools') {
     // /tools [list|search <q>|add <name[@version]>…|remove <name>…]: native tools of the eval sandbox
     const action = String(rest[0] || 'list').toLowerCase();

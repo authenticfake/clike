@@ -255,6 +255,18 @@
           "default": false,
           "description": "After a successful /kit, run the auto-eval (/eval REQ --fix) automatically."
         },
+        "clike.autopilot.quotaWaitMinutes": {
+          "type": "number",
+          "default": 30,
+          "minimum": 1,
+          "description": "/autopilot: minutes to wait before retrying a step that failed on a provider quota or rate limit (429)."
+        },
+        "clike.autopilot.quotaRetries": {
+          "type": "number",
+          "default": 8,
+          "minimum": 0,
+          "description": "/autopilot: retries of a step stopped by a provider quota or rate limit before the REQ is parked."
+        },
         "clike.agentChat.approvals": {
           "type": "string",
           "enum": [

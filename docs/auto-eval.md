@@ -131,6 +131,13 @@ then runs the same loop as `/eval --fix`, driven by the gate verdict:
 Even when the gate passes after a repair of an intermittent failure, look at what the repair
 changed (`src/` of the KIT): a passing run of a nondeterministic test may still be luck.
 
+## Unattended: `/autopilot`
+
+`/autopilot` chains, for every REQ of the plan, `/kit`, `/eval --fix` and `/gate` through the same
+handlers (any executor), so the loop above runs for each REQ without anyone typing. A REQ whose
+loop stops is parked with the reason and the REQs that do not depend on it go on; a provider quota
+or rate limit waits and retries. See [commands.md](commands.md#autopilot-n--stop--status).
+
 ## Time of a cycle
 
 A cycle is: the repair (the agent verifies its fix with eval checks, ~1 minute each), then the
