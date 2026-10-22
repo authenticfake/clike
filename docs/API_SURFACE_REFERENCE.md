@@ -241,6 +241,7 @@ Supported JSON-RPC methods:
 | `gate_check` | Run `/gate` for a REQ. |
 | `harper_kit_next` | Dispatch `/kit <next-REQ>`. |
 | `harper_continue_loop` | Dispatch next `kit`, `eval`, or `gate`, or `/finalize` when all REQs are done. |
+| `harper_autopilot` | `/autopilot`: `{action: start, max_reqs?, executor?: cloud|codex|claude, methodology?: bmad}` delivers every REQ unattended (kit → eval with fix → gate; returns at once), `status` (running, current step, promoted, parked with reasons, next), `stop` (after the current step). |
 | `rag_reindex` | Reindex workspace files through extension collector. |
 | `rag_docs_status` | Check docs RAG status. |
 | `rag_docs_reindex_if_empty` | Reindex docs when missing. |

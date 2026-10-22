@@ -190,8 +190,30 @@ let inflightController = null;
 // Harper phases (/eval, /gate, a KIT repair, their --fix cycles) share one cancel signal: a phase
 // the user starts takes a fresh one, the cycles it chains reuse it, Cancel aborts it.
 let harperAbortController = null;
-// /autopilot in progress: { stop, current, ... } (one at a time)
+// /autopilot in progress: { stop, current, ... } (one at a time); the last one ended, for its status
 let autopilotRun = null;
+let lastAutopilotRun = null;
+/** What /autopilot status and the MCP tool harper_autopilot answer. */
+function autopilotSnapshot() {
+  const run = autopilotRun || lastAutopilotRun;
+  if (!run) return { running: false, message: 'Autopilot has not run in this VS Code window.' };
+  const ids = (result) => run.reqs.filter((r) => r.result === result).map((r) => r.req_id);
+  return {
+    running: run === autopilotRun,
+    current: run === autopilotRun ? run.current || 'between steps' : null,
+    executor: run.executor || 'as configured',
+    methodology: run.methodology || null,
+    started_at: new Date(run.startedAt).toISOString(),
+    ended_at: run.endedAt ? new Date(run.endedAt).toISOString() : null,
+    outcome: run.outcome || null,
+    promoted: ids('promoted'),
+    review_required: run.reqs.filter((r) => r.review_required).map((r) => r.req_id),
+    parked: run.reqs.filter((r) => r.result === 'parked').map((r) => ({ req_id: r.req_id, step: r.step, reason: r.reason })),
+    quota_waits: run.waits.length,
+    next: run.next || null,
+    report: 'runs/autopilot/report.md',
+  };
+}
 function harperSignal(fresh) {
   if (fresh || !harperAbortController) harperAbortController = new AbortController();
   return harperAbortController.signal;
@@ -2108,6 +2130,7 @@ async function runHarperPhaseForMcp({ phase, reqId = '', fix = null, waitSeconds
   await ensureClikeChatPanelForAgent();
   if (typeof clikeRunChatMessage !== 'function') throw new Error('CLike chat is not ready.');
   // one phase at a time: set here, before the chat handler takes its own lock
+  if (autopilotRun) throw new Error('CLike autopilot is running: read it with harper_autopilot {action: "status"}, stop it with {action: "stop"}.');
   if (clikeHarperBlockingRun || mcpRunInFlight) {
     throw new Error(`CLike is running another Harper phase${mcpRunInFlight ? ` (${mcpRunInFlight})` : ''}; retry when it ends (see harper_run_status).`);
   }
@@ -2351,6 +2374,26 @@ async function runExtensionMcpTool(name, args = {}) {
     return cancelMcpRun(args.run_id);
   }
 
+  if (tool === 'harper_autopilot') {
+    // runs for hours: start returns at once; status / stop read and steer the run
+    const action = String(args.action || 'status').trim().toLowerCase();
+    if (!['start', 'stop', 'status'].includes(action)) throw new Error('action must be one of: start, stop, status.');
+    if (action === 'status') return { ok: true, ...autopilotSnapshot() };
+    if (action === 'stop') {
+      if (!autopilotRun) return { ok: false, ...autopilotSnapshot(), message: 'Autopilot is not running.' };
+      autopilotRun.stop = 'graceful';
+      return { ok: true, ...autopilotSnapshot(), message: 'Autopilot stops after the current step.' };
+    }
+    await ensureClikeChatPanelForAgent();
+    if (typeof clikeRunChatMessage !== 'function') throw new Error('CLike chat is not ready.');
+    const msg = { type: 'autopilot', action: 'start', max: Math.max(0, Number(args.max_reqs || 0)),
+      executor: String(args.executor || ''), methodology: String(args.methodology || '') };
+    Promise.resolve(clikeRunChatMessage(msg)).catch((err) => out.appendLine(`[autopilot] ${err?.message || err}`));
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    if (msg.__refused) return { ok: false, running: !!autopilotRun, error: msg.__refused };
+    return { ok: true, ...autopilotSnapshot(), message: 'Autopilot started: poll harper_autopilot {action: "status"} (every few minutes is enough), stop it with {action: "stop"}.' };
+  }
+
   if (tool === 'harper_kit_next') {
     const next = await getHarperNextAction();
     if (next.action === 'finalize_only') {
@@ -2497,6 +2540,20 @@ function extensionMcpToolsList() {
       },
     },
     {
+      name: 'harper_autopilot',
+      description: 'The /autopilot of the chat: every REQ of the plan unattended, in dependency order (kit, eval with fix, gate), with the executor configured in VS Code and the same locks, gate and audit. A REQ that needs the developer is parked with its reason and the independent REQs go on; quota/rate limits wait and retry. start returns at once (it runs for hours); status: running, current step, promoted, parked with reasons, next; stop: after the current step. Report: runs/autopilot/report.md. It stops before finalize.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['start', 'status', 'stop'] },
+          max_reqs: { type: 'number', description: 'with start: stop after this many promoted REQs (0 = all)' },
+          executor: { type: 'string', enum: ['cloud', 'codex', 'claude'], description: 'with start: the KIT/repair executor for this run (default: as configured in VS Code; restored at the end)' },
+          methodology: { type: 'string', enum: ['bmad'], description: 'with start: BMAD developer for the KIT, QA advisory for the eval' },
+        },
+        required: ['action'],
+      },
+    },
+    {
       name: 'harper_kit_next',
       description: 'Find the next eligible REQ and dispatch /kit <REQ-ID>. If all REQs are done, returns finalize_only.',
       inputSchema: {
@@ -2551,7 +2608,8 @@ async function handleExtensionMcpRpc(body) {
   return extensionMcp.handleRpc(body, {
     serverInfo: { name: 'CLike Extension Operational MCP', version: String(require('./package.json').version || 'v1') },
     instructions: 'Operational CLike MCP surface: runs Harper phases, eval and gate through the same governed flow as the chat. ' +
-      'Long runs return status=running and a run_id for harper_run_status; cancel_run stops them.',
+      'Long runs return status=running and a run_id for harper_run_status; cancel_run stops them. ' +
+      'To deliver every REQ unattended use harper_autopilot {action: "start"} and poll {action: "status"} every few minutes.',
     tools: extensionMcpToolsList,
     callTool: async (name, args) => {
       try {
@@ -6506,21 +6564,41 @@ async function cmdOpenChat(context) {
       return say(`⏸ AUTOPILOT: stops after the current step (${autopilotRun.current || 'between steps'}). Cancel stops it now.`);
     }
     if (action === 'status') {
-      if (!autopilotRun) return say('Autopilot is not running.');
-      return say(`AUTOPILOT running: ${autopilotRun.current || 'between steps'}; promoted ${autopilotRun.reqs.filter((r) => r.result === 'promoted').map((r) => r.req_id).join(', ') || 'none'}; parked ${autopilotRun.reqs.filter((r) => r.result === 'parked').map((r) => r.req_id).join(', ') || 'none'}.`);
+      const snap = autopilotSnapshot();
+      if (!snap.started_at) return say(snap.message);
+      return say(`AUTOPILOT ${snap.running ? `running: ${snap.current}` : `ended: ${snap.outcome}`}; promoted ${snap.promoted.join(', ') || 'none'}; ` +
+        `parked ${snap.parked.map((p) => `${p.req_id} (${p.step}: ${p.reason})`).join(', ') || 'none'}. Report: ${snap.report}`);
     }
-    if (autopilotRun) return say('Autopilot is already running (/autopilot status, /autopilot stop).');
-    if (clikeHarperBlockingRun) return say('A Harper phase is running: start /autopilot when it ends.');
+    const refuse = (text) => { msg.__refused = text; say(text); };
+    if (autopilotRun) return refuse('Autopilot is already running (/autopilot status, /autopilot stop).');
+    if (clikeHarperBlockingRun || mcpRunInFlight) return refuse('A Harper phase is running: start /autopilot when it ends.');
     const ws = getWorkspaceRoot();
-    if (!ws) return say('No workspace open.');
+    if (!ws) return refuse('No workspace open.');
     if (String(vscode.workspace.getConfiguration('clike').get('gate.autoPromote', 'merge')) === 'ask') {
-      return say('✖ AUTOPILOT not started: clike.gate.autoPromote is "ask" and nobody answers the promotion choice. Set it to "merge" (or "off" to promote yourself).');
+      return refuse('✖ AUTOPILOT not started: clike.gate.autoPromote is "ask" and nobody answers the promotion choice. Set it to "merge" (or "off" to promote yourself).');
     }
     const settings = vscode.workspace.getConfiguration('clike');
     const quotaWaitMin = Math.max(1, Number(settings.get('autopilot.quotaWaitMinutes', 30)));
     const quotaRetries = Math.max(0, Number(settings.get('autopilot.quotaRetries', 8)));
     const maxReqs = Math.max(0, Number(msg.max || 0));
-    const run = autopilotRun = { stop: null, current: '', startedAt: Date.now(), reqs: [], waits: [], parked: new Set() };
+    let override;
+    try {
+      override = autopilot.executorState(msg.executor);
+      autopilot.methodologyFields(msg.methodology, 'kit');
+    } catch (err) {
+      return refuse(`✖ AUTOPILOT not started: ${err.message}.`);
+    }
+    const methodology = String(msg.methodology || '').trim().toLowerCase();
+    const run = autopilotRun = { stop: null, current: '', startedAt: Date.now(), reqs: [], waits: [], parked: new Set(),
+      executor: String(msg.executor || '').trim().toLowerCase() || '', methodology };
+    // --executor: the chat execution state for this run (kit, repairs and eval pre-passes read it), restored at the end
+    const previousUiState = context.workspaceState.get('clike.uiState');
+    const showUiState = (st) => { try { panel.webview.postMessage({ type: 'initState', state: st }); } catch { /* the chat only shows it */ } };
+    if (override) {
+      const next = { ...(previousUiState || { mode: 'harper', model: 'auto', historyScope: 'singleModel' }), ...override };
+      await context.workspaceState.update('clike.uiState', next);
+      showUiState(next);
+    }
     const reportRel = 'runs/autopilot/report.md';
     const writeReport = () => {
       try {
@@ -6544,9 +6622,11 @@ async function cmdOpenChat(context) {
         return originalPost.call(webview, m);
       };
       const stepMsg = step === 'kit'
-        ? { type: 'harperRun', cmd: 'kit', targets: [reqId], targetReqId: reqId, attachments: [], __autopilot: true, __unattended: true }
+        ? { type: 'harperRun', cmd: 'kit', targets: [reqId], targetReqId: reqId, attachments: [], __autopilot: true, __unattended: true,
+          ...autopilot.methodologyFields(methodology, 'kit') }
         : { type: 'harperEDD', cmd: step, targets: [reqId], targetReqId: reqId, attachments: [], argument: reqId,
-          path: `runs/kit/${reqId}/ci/LTC.json`, __autopilot: true, __unattended: true, ...(step === 'eval' ? { fix: { hint: '' } } : {}) };
+          path: `runs/kit/${reqId}/ci/LTC.json`, __autopilot: true, __unattended: true, ...(step === 'eval' ? { fix: { hint: '' } } : {}),
+          ...autopilot.methodologyFields(methodology, step) };
       try {
         await handleWebviewMessage(stepMsg);
       } catch (err) {
@@ -6557,7 +6637,7 @@ async function cmdOpenChat(context) {
       const cancelled = harperCancelled();
       return { outcome: autopilot.stepOutcome(step, stepMsg), transcript, cancelled };
     };
-    say(`▶ AUTOPILOT started${maxReqs ? ` (at most ${maxReqs} REQ)` : ''}: /kit → /eval --fix → /gate for each REQ, with the configured executor. A REQ that needs you is parked and the others go on. /autopilot stop · /autopilot status · report: ${reportRel}`);
+    say(`▶ AUTOPILOT started${maxReqs ? ` (at most ${maxReqs} REQ)` : ''}: /kit → /eval --fix → /gate for each REQ, executor ${run.executor || 'as configured'}${methodology ? `, methodology ${methodology}` : ''}. A REQ that needs you is parked and the others go on. /autopilot stop · /autopilot status · report: ${reportRel}`);
     try {
       while (!run.stop) {
         if (maxReqs && run.reqs.filter((r) => r.result === 'promoted').length >= maxReqs) { run.outcome = `${maxReqs} REQ promoted, as requested`; break; }
@@ -6617,6 +6697,18 @@ async function cmdOpenChat(context) {
     } finally {
       run.endedAt = Date.now();
       writeReport();
+      if (override) {
+        // the current state minus what this run set: a change made in the chat meanwhile stays
+        const current = context.workspaceState.get('clike.uiState') || {};
+        const restored = { ...current };
+        for (const key of Object.keys(override)) {
+          if (previousUiState && key in previousUiState) restored[key] = previousUiState[key];
+          else delete restored[key];
+        }
+        await context.workspaceState.update('clike.uiState', restored);
+        showUiState(restored);
+      }
+      lastAutopilotRun = run;
       autopilotRun = null;
     }
     const promoted = run.reqs.filter((r) => r.result === 'promoted').map((r) => r.req_id);

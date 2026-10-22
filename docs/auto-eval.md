@@ -136,7 +136,7 @@ changed (`src/` of the KIT): a passing run of a nondeterministic test may still 
 `/autopilot` chains, for every REQ of the plan, `/kit`, `/eval --fix` and `/gate` through the same
 handlers (any executor), so the loop above runs for each REQ without anyone typing. A REQ whose
 loop stops is parked with the reason and the REQs that do not depend on it go on; a provider quota
-or rate limit waits and retries. See [commands.md](commands.md#autopilot-n--stop--status).
+or rate limit waits and retries. See [commands.md](commands.md#autopilot).
 
 ## Time of a cycle
 

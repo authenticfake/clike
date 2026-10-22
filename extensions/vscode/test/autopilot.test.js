@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { nextAutopilotReq, isQuotaFailure, stepOutcome, autopilotReportMarkdown } = require('../autopilot');
+const { nextAutopilotReq, isQuotaFailure, stepOutcome, executorState, methodologyFields, autopilotReportMarkdown } = require('../autopilot');
 const { parseSlash } = require('../slash-parser');
 
 const plan = [
@@ -62,9 +62,25 @@ test('the report lists promoted and parked REQs with the reason and what to revi
   assert.match(md, /REQ-002 kit: waited 30 min/);
 });
 
-test('/autopilot parses N, stop and status', () => {
-  assert.deepEqual(parseSlash('/autopilot').args, { action: 'start', max: 0 });
-  assert.deepEqual(parseSlash('/autopilot 3').args, { action: 'start', max: 3 });
+test('executor and methodology of a run map to the chat state and to the step messages', () => {
+  assert.equal(executorState(''), null);
+  assert.deepEqual(executorState('cloud'), { executionPreference: 'cloud_only' });
+  assert.deepEqual(executorState('Codex'), { executionPreference: 'local_agent_only', localAgentExecutor: 'gpt_codex' });
+  assert.deepEqual(executorState('claude'), { executionPreference: 'local_agent_only', localAgentExecutor: 'claude_code' });
+  assert.throws(() => executorState('gemini'), /cloud, codex or claude/);
+  assert.deepEqual(methodologyFields('bmad', 'kit'), { methodology: 'bmad', agent: 'developer' });
+  assert.deepEqual(methodologyFields('bmad', 'eval'), { methodology: 'bmad', agent: 'qa' });
+  assert.deepEqual(methodologyFields('bmad', 'gate'), {});
+  assert.deepEqual(methodologyFields('', 'kit'), {});
+  assert.throws(() => methodologyFields('scrum', 'kit'), /bmad/);
+});
+
+test('/autopilot parses N, executor, methodology, stop and status', () => {
+  assert.deepEqual(parseSlash('/autopilot').args, { action: 'start', max: 0, executor: '', methodology: '' });
+  assert.deepEqual(parseSlash('/autopilot 3').args, { action: 'start', max: 3, executor: '', methodology: '' });
+  const bmad = parseSlash('/autopilot 2 --executor claude --methodology bmad').args;
+  assert.deepEqual([bmad.action, bmad.max, bmad.executor, bmad.methodology], ['start', 2, 'claude', 'bmad']);
+  assert.deepEqual(parseSlash('/autopilot --executor=codex').args, { action: 'start', max: 0, executor: 'codex', methodology: '' });
   assert.deepEqual(parseSlash('/autopilot stop').args, { action: 'stop' });
   assert.deepEqual(parseSlash('/autopilot status').args, { action: 'status' });
 });

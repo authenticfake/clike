@@ -134,7 +134,7 @@ The VS Code extension can expose a second, **operational** MCP-compatible server
 operate CLike through the same slash commands available in chat (see
 [agent-operating-model.md](agent-operating-model.md), Model 2). Typical tools:
 `clike_extension_status`, `harper_init`, `harper_next_action`, `harper_run_phase`, `harper_run_status`,
-`cancel_run`, `eval_run`, `gate_check`, `harper_kit_next`, `harper_continue_loop`, `rag_reindex`,
+`cancel_run`, `eval_run`, `gate_check`, `harper_kit_next`, `harper_continue_loop`, `harper_autopilot`, `rag_reindex`,
 `rag_docs_status`, `rag_docs_reindex_if_empty`.
 It runs normal commands (`/kit REQ-001`, `/eval REQ-001 --fix`, `/gate REQ-001`, `/finalize`, …)
 through the chat's governed handlers and does not duplicate Harper logic:
@@ -147,6 +147,9 @@ through the chat's governed handlers and does not duplicate Harper logic:
 - Every run gets a `run_id`; a run longer than `wait_seconds` (default 50, max 600 — keep it under
   your client's tool timeout, e.g. Codex `tool_timeout_sec`) returns `status: running`, then
   `harper_run_status` tells its end and `cancel_run` stops it. Only one phase runs at a time.
+- `harper_autopilot {action: start|status|stop, max_reqs?, executor?, methodology?}` is the chat's `/autopilot`: every REQ
+  unattended (see [commands.md](commands.md#autopilot)). `start` returns at once;
+  poll `status` every few minutes. While it runs, the other phase tools refuse to start.
 - Nobody answers the chat's confirmations during an MCP run: `/finalize` with REQs not promoted,
   or `/idea --extend` on an undelivered baseline, stop with the reason unless `confirm: true`. A run
   that stops before doing anything says why (`reason`, last chat `messages`).
