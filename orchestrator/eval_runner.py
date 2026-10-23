@@ -332,6 +332,16 @@ _TEST_FILE_NAME_RE = re.compile(
 )
 
 
+# Files whose presence in a test directory changes how its tests are collected or import: package
+# markers, pytest / Jest / Vitest / Playwright / Mocha / Babel / TypeScript configs, Go / Maven /
+# Gradle / .NET project files.
+_TEST_LAYOUT_FILE = re.compile(
+    r"^(__init__\.py|conftest\.py|pytest\.ini|tox\.ini|setup\.cfg|pyproject\.toml|package\.json|tsconfig(\..+)?\.json|"
+    r"(jest|vitest|playwright|babel|vite)\.config\.[cm]?[jt]s|\.mocharc(\.[a-z]+)?|\.babelrc|go\.mod|pom\.xml|"
+    r"build\.gradle(\.kts)?|.+\.csproj|Directory\.Build\.props)$"
+)
+
+
 def _is_test_file_name(name: str) -> bool:
     """A file named as a test in the usual conventions (test_x.py, x_test.go, x.test.ts, x.spec.js,
     XTest.java, XTests.cs, x_spec.rb): it holds tests, it does not configure how others run."""
@@ -1352,6 +1362,51 @@ class EvalRunner:
                 cases.append(EvalCase(name=f"structure::shared-test-support::{top}/{rel}", passed=False, code=1, stdout="",
                                       stderr=message, blocking=True, excerpt=message,
                                       fingerprint=f"shared-test-support-{top}/{rel}"))
+        return cases
+
+    def _test_layout_cases(self, req_id: str) -> List[EvalCase]:
+        """A KIT must not add a file that changes how the promoted REQs' tests are collected or
+        import their helpers (_TEST_LAYOUT_FILE: a package marker, a conftest, a runner or build
+        config) in a test directory of the promoted tree or one of its parents. After promotion it
+        sits next to their tests: B2B REQ-025 added __init__.py files under test/ and REQ-003's
+        tests no longer imported their helpers by name. The regression shows it only once the
+        REQ's own checks pass; this check needs no run, so the first eval names the files."""
+        cases: List[EvalCase] = []
+        kit = self.project_root / "runs" / "kit" / self._safe_req_id(req_id)
+        for top in ("test", "tests"):
+            canonical_root, kit_root = self.project_root / top, kit / top
+            if not (canonical_root.is_dir() and kit_root.is_dir()):
+                continue
+            shared_dirs = {Path(".")}
+            for item in canonical_root.rglob("*"):
+                rel_parts = item.relative_to(canonical_root).parts
+                if any(part in _SHARED_SCAN_SKIP or part == "node_modules" for part in rel_parts):
+                    continue
+                if item.is_file():
+                    parent = item.parent.relative_to(canonical_root)
+                    shared_dirs.update([parent, *parent.parents])
+            added = []
+            for rel_dir in sorted(shared_dirs):
+                folder = kit_root / rel_dir
+                if not folder.is_dir():
+                    continue
+                for path in sorted(folder.iterdir()):
+                    rel = (rel_dir / path.name).as_posix()
+                    if path.is_file() and _TEST_LAYOUT_FILE.match(path.name) and not (canonical_root / rel).exists():
+                        added.append(f"{top}/{rel}")
+            if not added:
+                continue
+            listed = ", ".join(f"runs/kit/{req_id}/{rel}" for rel in added[:12]) + (" …" if len(added) > 12 else "")
+            message = (
+                f"This KIT adds {len(added)} file(s) that change how the tests of the promoted REQs are collected or "
+                f"import their helpers, in test directories they share: {listed}. After promotion they sit next to "
+                f"those tests (a package marker turns their directory into a package: imports by name of a sibling "
+                f"helper stop working; a conftest or runner config changes their fixtures and options). Remove them; "
+                f"make this REQ's tests import their helpers the way the promoted tests do (the check's import path), "
+                f"and put this REQ's own fixtures or config in a directory of its own."
+            )
+            cases.append(EvalCase(name=f"structure::test-layout::{top}", passed=False, code=1, stdout="",
+                                  stderr=message, blocking=True, excerpt=message, fingerprint=f"test-layout-{top}"))
         return cases
 
     def _shared_conftest_cases(self, req_id: str) -> List[EvalCase]:
@@ -3802,6 +3857,7 @@ class EvalRunner:
         if not self.regression and eff_req:
             out_cases.extend(self._shared_conftest_cases(eff_req))
             out_cases.extend(self._shared_test_support_cases(eff_req))
+            out_cases.extend(self._test_layout_cases(eff_req))
         own_failed = any(not c.passed and c.blocking for c in out_cases)
         if regression and work_kit_root and not cancelled and own_failed:
             log.info("regression deferred req=%s: the REQ's own blocking checks fail", eff_req)
