@@ -52,7 +52,10 @@ shows its path.
   promoted REQ) is included.
 - A test that ran and failed is **never classified as environment-blocked** (`element(s) not
   found`, a module of the candidate not found): only missing tools, registries, native binaries and
-  sandbox limits are.
+  sandbox limits are. A missing module that is a file of the project (`No module named
+  'req019_support'`, `Cannot find module 'x'` where `x` is a project source file, outside
+  `node_modules` / venvs) is a wrong import or path, any language: it goes to the repair as a
+  failure. A missing dependency stays environment-blocked.
 - **An eval sandbox out of resources stops the loop.** When the OS refuses a process, a thread,
   memory or disk (`spawn node EAGAIN`, `pthread_create: Resource temporarily unavailable`, `ENOMEM`,
   `ENOSPC`, `EMFILE`) the check is environment-blocked and the report says

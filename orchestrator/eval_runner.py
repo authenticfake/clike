@@ -578,6 +578,42 @@ class _BaselineCache:
             log.warning("regression baseline cache not written: %s", exc)
 
 
+# `No module named 'x.y'` (Python), `Cannot find module 'x'` (Node): the module a check could not load.
+_MISSING_MODULE_RE = re.compile(r"(no module named|cannot find module) ['\"]([\w./@-]+)['\"]", re.IGNORECASE)
+_DEPENDENCY_DIRS = {"node_modules", ".venv", "venv", ".venvs", "site-packages", ".git", "__pycache__", ".tox", "dist", "build"}
+_MODULE_SUFFIXES = (".py", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx")
+
+
+def _project_modules(roots: List[Optional[Path]], names: List[str]) -> List[str]:
+    """The names that are a module file (or a package directory of source files) of the project,
+    outside dependency directories: `a.b` / `a/b` → `…/a/b.<ext>` or `…/a/b/`."""
+    wanted = {}
+    for name in names:
+        rel = name.strip("./").replace(".", "/") if "/" not in name else name.strip("./")
+        if rel:
+            wanted[tuple(rel.split("/"))] = name
+    found: List[str] = []
+    seen_roots = set()
+    for root in roots:
+        if not root or not Path(root).is_dir() or Path(root).resolve() in seen_roots:
+            continue
+        seen_roots.add(Path(root).resolve())
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [d for d in dirnames if d not in _DEPENDENCY_DIRS and not d.endswith(".egg-info")]
+            parts = Path(dirpath).relative_to(root).parts
+            stems = {f.rsplit(".", 1)[0] for f in filenames if f.endswith(_MODULE_SUFFIXES)}
+            for key, name in list(wanted.items()):
+                *head, last = key
+                if (not head or tuple(parts[-len(head):]) == tuple(head)) and len(parts) >= len(head):
+                    sub = Path(dirpath, last)
+                    if last in stems or (sub.is_dir() and any(f.suffix in _MODULE_SUFFIXES for f in sub.iterdir() if f.is_file())):
+                        found.append(name)
+                        wanted.pop(key)
+            if not wanted:
+                return found
+    return found
+
+
 class EvalRunner:
     def __init__(
         self,
@@ -663,6 +699,7 @@ class EvalRunner:
                     stdout=stdout,
                     stderr=stderr,
                     environment_requirements=environment_requirements or [],
+                    cwd=cwd,
                 )
 
             if blocked and not ok and not noted:
@@ -960,6 +997,7 @@ class EvalRunner:
         stdout: str,
         stderr: str,
         environment_requirements: List[str],
+        cwd: Optional[Path] = None,
     ) -> bool:
         text = f"{stdout}\n{stderr}".lower()
 
@@ -973,6 +1011,12 @@ class EvalRunner:
             r" ['\"](\.{1,2}/|@/|~/|/(?![^'\"]*node_modules)[^'\"]*/(work|test|tests|src)/)",
             text,
         ):
+            return False
+
+        # A missing module that is a file of the project (a test helper, a package of the candidate)
+        # is a wrong import or path, not a missing dependency: the repair fixes it.
+        missing = _MISSING_MODULE_RE.findall(f"{stdout}\n{stderr}")
+        if missing and _project_modules([cwd, self.project_root], [name for _, name in missing]):
             return False
 
         # A generated CI script that calls mkdtemp under a local eval workspace
