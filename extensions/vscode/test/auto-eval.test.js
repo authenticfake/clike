@@ -5,7 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { annotateIntermittentFailures, collectRepairFailures, inputsFingerprint, collectRepairFiles, nextAutoEvalStep, nextAutoGateStep, readEarlierReports, repairNotesMarkdown, writeRepairNotes } = require('../auto-eval');
+const { annotateIntermittentFailures, collectRepairFailures, fixCycleMethodology, inputsFingerprint, collectRepairFiles, nextAutoEvalStep, nextAutoGateStep, readEarlierReports, repairNotesMarkdown, writeRepairNotes } = require('../auto-eval');
 const { parseSlash } = require('../slash-parser');
 
 const failing = (names) => ({
@@ -325,4 +325,16 @@ test('a changed acceptance surface names the REQ, the files and the way out', ()
   assert.match(nextAutoEvalStep(base, weakened).reason, /check removed: lint.*re-run \/kit REQ-002/);
   const gate = { ...edited, gate: 'FAIL', reason_code: 'GATE_BLOCKED_ACCEPTANCE_TAMPERED' };
   assert.match(nextAutoGateStep(base, gate).reason, /--accept/);
+});
+
+test('eval --fix keeps its methodology for every repair and re-eval', () => {
+  const flags = parseSlash('/eval REQ-025 --fix --methodology bmad --agent qa').args;
+  const loop = fixCycleMethodology(flags);
+  assert.deepEqual(loop.kit, { methodology: 'bmad', agent: 'developer', methodology_context: { methodology: 'bmad', agent: 'developer' } });
+  assert.deepEqual(loop.eval, { methodology: 'bmad', agent: 'qa', methodology_context: { methodology: 'bmad', agent: 'qa' } });
+  // a later cycle receives the re-eval fields and passes them on unchanged
+  assert.deepEqual(fixCycleMethodology(loop.eval), loop);
+  // autopilot sends methodology and agent without a context
+  assert.deepEqual(fixCycleMethodology({ methodology: 'bmad', agent: 'qa' }), loop);
+  assert.deepEqual(fixCycleMethodology(parseSlash('/eval REQ-025 --fix').args), { kit: {}, eval: {} });
 });

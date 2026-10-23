@@ -58,6 +58,12 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **`/eval REQ --fix --methodology bmad` keeps BMAD in its repair cycles**: the repair KIT ran as
+  plain CLike and the re-eval lost the QA advisory; now each repair is a BMAD developer KIT and each
+  re-eval keeps the chosen role (also under `/autopilot --methodology bmad`). The `▶ KIT` / `▶ EVAL`
+  lines show `methodology=bmad/<role>`, and the chat echoes `/eval` and `/gate` as typed instead of
+  dropping `--methodology` / `--agent`.
+
 - **Promotion resolves a spot the REQ only rewrote, and `conflicts.md` reads line by line**: when
   the gate ran the candidate with the regression of the promoted REQs, a spot where it rewrote
   `src/` lines without losing any (each has its new form, none of its words is gone from the

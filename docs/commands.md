@@ -486,8 +486,13 @@ Common command forms:
 /kit REQ-001 --repair --methodology bmad --agent developer
 /eval REQ-001 --methodology bmad --agent qa
 /eval REQ-001 --methodology bmad --agent developer
+/eval REQ-001 --fix --methodology bmad --agent qa
 /finalize --methodology bmad --agent tech-writer
 ```
+
+With `/eval REQ --fix --methodology bmad`, the methodology holds for the whole loop: each repair is a
+BMAD developer KIT, each re-eval keeps the chosen advisory role. The `▶ KIT` / `▶ EVAL` lines show it
+(`methodology=bmad/developer`, `methodology=bmad/qa`). The chat echoes the command as typed.
 
 SPEC has an explicit PM/UX ownership split:
 

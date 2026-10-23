@@ -1441,9 +1441,16 @@ function handleSlash(slash) {
         ? slash.args.targets.join(' ')
         : (slash.args?.targets || '');
 
+      // the command as typed (every flag, e.g. --methodology bmad --agent qa); rebuilt when not typed
+      var typed = '';
+      try {
+        typed = (typeof prompt !== 'undefined' && prompt && typeof prompt.value === 'string') ? String(prompt.value || '').trim() : '';
+      } catch {}
+      if (typed.toLowerCase().split(/\s+/)[0] !== slashCmd) typed = '';
       bubble(
         'user',
-        slash.cmd + (targetText ? (' ' + targetText) : '') + (slash.args?.fix ? ' --fix' + (slash.args.hint ? ' "' + slash.args.hint + '"' : '') : '') + (slash.args?.accept !== undefined ? ' --accept' + (slash.args.accept ? ' "' + slash.args.accept + '"' : '') : ''),
+        typed || (slash.cmd + (targetText ? (' ' + targetText) : '') + (slash.args?.fix ? ' --fix' + (slash.args.hint ? ' "' + slash.args.hint + '"' : '') : '') + (slash.args?.accept !== undefined ? ' --accept' + (slash.args.accept ? ' "' + slash.args.accept + '"' : '') : '') +
+          (slash.args?.methodology ? ' --methodology ' + slash.args.methodology : '') + (slash.args?.agent ? ' --agent ' + slash.args.agent : '')),
         (model && model.value) ? model.value : 'auto',
         atts
       );
