@@ -373,6 +373,18 @@ Removing that root conftest is the one deletion the acceptance governance accept
 file that defines no test and that the eval named is taken out of the lock (audited); a deleted test
 file is always restored.
 
+The same holds for every other **shared test-support file**, in any language CLike reads: a KIT that
+replaces a helper or fixture module of the promoted tree (not a test: `test/fixtures.ts`, a
+`*_support.py`, a `TestBase.java`, a Go helper) must keep the public names the promoted REQs' tests
+use — functions, classes and module names in Python; `export`s in JS/TS; public members in Java/C#;
+declarations in Kotlin; exported names in Go. A dropped one fails the eval
+(`structure::shared-test-support::<root>/<file>`, blocking) with the names and the tests that use
+them, before the regression would fail late (a suite that does not load, an e2e that times out). A
+name counts as used when a test names it and refers to the module (or sits in the same directory, as
+Go and Java packages do), in the version after promotion: a test the candidate reconciled is read in
+its version. A changed behaviour behind the same names is the regression's to find; a file in a
+language CLike does not read is left to the regression as before.
+
 ## Required outputs in the eval
 
 Required outputs missing from the candidate (FILE_REQUIREMENTS, e.g. a runnable launcher) block

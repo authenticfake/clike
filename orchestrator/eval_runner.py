@@ -193,6 +193,53 @@ _PY_IMPORT_RE = re.compile(r"^\s*(?:from\s+(\.*)([\w.]*)\s+import\s+([\w., ()]+)
 
 
 _JS_SUFFIXES = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")
+
+# Public names of a test-support file, per language family (the shared-support check compares them).
+_JS_EXPORT_RE = re.compile(
+    r"\bexport\s+(?:default\s+)?(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?"
+    r"(?:function\*?|class|const|let|var|type|interface|enum)\s+([A-Za-z_$][\w$]*)"
+)
+_JS_EXPORT_LIST_RE = re.compile(r"\bexport\s+(?:type\s+)?\{([^}]*)\}")
+_JVM_PUBLIC_RE = re.compile(r"\bpublic\s+(?:[\w<>\[\],.?]+\s+)*?([A-Za-z_]\w*)\s*[({<]")
+_KOTLIN_DECL_RE = re.compile(r"^(?!\s*(?:private|internal|protected)\b)\s*(?:[\w]+\s+)*?(?:fun|class|object|val|var)\s+(?:<[^>]*>\s*)?([A-Za-z_]\w*)", re.M)
+_GO_EXPORTED_RE = re.compile(r"^(?:func\s+(?:\([^)]*\)\s*)?|type\s+|var\s+|const\s+)([A-Z]\w*)", re.M)
+
+
+def _public_names(path: Path, text: str) -> Optional[set]:
+    """The names other tests can use from a support file, or None for a language CLike does not
+    read (the regression still covers it)."""
+    suffix = path.suffix
+    if suffix == ".py":
+        import ast
+
+        try:
+            tree = ast.parse(text)
+        except (SyntaxError, ValueError):
+            return None
+        names = set()
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                names.add(node.name)
+            elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+                for target in node.targets if isinstance(node, ast.Assign) else [node.target]:
+                    if isinstance(target, ast.Name):
+                        names.add(target.id)
+        return {n for n in names if not n.startswith("_")}
+    if suffix in _JS_SUFFIXES:
+        names = set(_JS_EXPORT_RE.findall(text))
+        for group in _JS_EXPORT_LIST_RE.findall(text):
+            for item in group.split(","):
+                item = item.strip()
+                if item:
+                    names.add(item.split(" as ")[-1].strip())
+        return names
+    if suffix in {".java", ".cs"}:
+        return set(_JVM_PUBLIC_RE.findall(text))
+    if suffix in {".kt", ".kts"}:
+        return set(_KOTLIN_DECL_RE.findall(text))
+    if suffix == ".go":
+        return set(_GO_EXPORTED_RE.findall(text))
+    return None
 _JS_RELATIVE_IMPORT_RE = re.compile(
     r"""(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|^\s*import\s+)(['"])(\.{1,2}/[^'"]+)\1""", re.M
 )
@@ -1126,6 +1173,78 @@ class EvalRunner:
     def _resolve_req_file(self, req_file: str) -> Path:
         raw = Path(req_file)
         return raw if raw.is_absolute() else (self.project_root / raw).resolve()
+
+    def _shared_test_support_cases(self, req_id: str) -> List[EvalCase]:
+        """A KIT replacing a test-support file of the promoted tree (a helper or fixture module, not
+        a test: test/fixtures.ts, a *_support.py, a TestBase.java, a Go helper) must keep the
+        public names the promoted REQs' tests use, in any language CLike reads (_public_names). A
+        dropped one breaks their regression late (a suite that does not load, an e2e that times
+        out); caught here, the repair knows the file and the names. A name counts as used when a
+        test of the promoted tree — in the version after promotion, the candidate's reconciled one
+        when it has it — names it and refers to the module (its stem) or sits in the same directory
+        (Go, Java packages). The root conftest.py has its own check."""
+        cases: List[EvalCase] = []
+        kit = self.project_root / "runs" / "kit" / self._safe_req_id(req_id)
+        for top in ("test", "tests"):
+            canonical_root, kit_root = self.project_root / top, kit / top
+            if not (canonical_root.is_dir() and kit_root.is_dir()):
+                continue
+            canonical_texts: Dict[str, str] = {}
+            for item in canonical_root.rglob("*"):
+                rel_parts = item.relative_to(canonical_root).parts
+                if not item.is_file() or any(part in _SHARED_SCAN_SKIP or part == "node_modules" for part in rel_parts):
+                    continue
+                if item.stat().st_size > 512 * 1024:
+                    continue
+                try:
+                    canonical_texts[item.relative_to(canonical_root).as_posix()] = item.read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError):
+                    continue
+            for rel, before_text in sorted(canonical_texts.items()):
+                candidate = kit_root / rel
+                if rel in _SHARED_ROOT_TEST_FILES or not candidate.is_file():
+                    continue
+                if _TEST_FILE_NAME_RE.search(Path(rel).name) or _DEFINES_TESTS_RE.search(before_text):
+                    continue  # a test, not a support file
+                try:
+                    after_text = candidate.read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError):
+                    continue
+                if after_text == before_text:
+                    continue
+                before, after = _public_names(candidate, before_text), _public_names(candidate, after_text)
+                if before is None or after is None or not (before - after):
+                    continue
+                stem, here = Path(rel).stem, Path(rel).parent
+                users: Dict[str, List[str]] = {}
+                for other_rel, other_text in canonical_texts.items():
+                    if other_rel == rel:
+                        continue
+                    reconciled = kit_root / other_rel
+                    if reconciled.is_file():
+                        try:
+                            other_text = reconciled.read_text(encoding="utf-8")
+                        except (OSError, UnicodeDecodeError):
+                            pass
+                    if stem not in other_text and Path(other_rel).parent != here:
+                        continue
+                    for name in sorted(before - after):
+                        if re.search(rf"(?<![\w$]){re.escape(name)}(?![\w$])", other_text):
+                            users.setdefault(name, []).append(f"{top}/{other_rel}")
+                if not users:
+                    continue
+                listed = "; ".join(
+                    f"{name} (used by {', '.join(files[:3])}{' …' if len(files) > 3 else ''})" for name, files in sorted(users.items())
+                )
+                message = (
+                    f"runs/kit/{req_id}/{top}/{rel} replaces the shared {top}/{rel} of the promoted REQs and drops "
+                    f"{len(users)} name(s) their tests use: {listed}. Keep them (add this REQ's part next to them), "
+                    f"or reconcile the tests that use them in runs/kit/{req_id}/{top}/ if this REQ changes them on purpose."
+                )
+                cases.append(EvalCase(name=f"structure::shared-test-support::{top}/{rel}", passed=False, code=1, stdout="",
+                                      stderr=message, blocking=True, excerpt=message,
+                                      fingerprint=f"shared-test-support-{top}/{rel}"))
+        return cases
 
     def _shared_conftest_cases(self, req_id: str) -> List[EvalCase]:
         """A KIT's root conftest.py replaces the canonical one shared by every promoted REQ at
@@ -3574,6 +3693,7 @@ class EvalRunner:
         # environment, services and suites) would only delay the repair loop.
         if not self.regression and eff_req:
             out_cases.extend(self._shared_conftest_cases(eff_req))
+            out_cases.extend(self._shared_test_support_cases(eff_req))
         own_failed = any(not c.passed and c.blocking for c in out_cases)
         if regression and work_kit_root and not cancelled and own_failed:
             log.info("regression deferred req=%s: the REQ's own blocking checks fail", eff_req)

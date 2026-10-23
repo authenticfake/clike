@@ -58,6 +58,12 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **A shared test-support file keeps the names the promoted tests use, in any language**: a KIT that
+  replaces a helper or fixture module of the promoted tree (B2B: `test/fixtures.ts`, shared by
+  REQ-002/005/008/012) and drops a name their tests use now fails the eval at once
+  (`structure::shared-test-support::…`, blocking) with the names and the tests that use them —
+  Python, JS/TS, Java/C#, Kotlin, Go — instead of a regression failing late. Python's root
+  `conftest.py` keeps its own check.
 - **A reconciled JS/TS test gets the modules it imports in the regression**: a candidate that changes
   a shared test helper of promoted REQs (B2B REQ-024: `test/fixtures.ts`, used by REQ-002/005/008/012)
   and makes it import a new file (`./v2/req-024.fixtures`) had that file left out of their regression
