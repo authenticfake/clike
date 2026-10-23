@@ -334,12 +334,16 @@ def _shared_file_changes(project_root: Path, candidate_root: Path, other_kit: Pa
     import difflib
 
     changes: List[str] = []
+    test_dirs: set = set()  # the promoted REQ's test directories and their parents, KIT-relative
     for top in ("src", "test", "tests", KIT_ROOT_DIR):
         base = other_kit / top
         if not base.is_dir():
             continue
         for dirpath, dirnames, filenames in os.walk(base):
             dirnames[:] = sorted(d for d in dirnames if d not in _SHARED_SCAN_SKIP)
+            if top in ("test", "tests") and filenames:
+                rel_dir = Path(dirpath).relative_to(other_kit)
+                test_dirs.update([rel_dir, *[p for p in rel_dir.parents if p != Path(".")]])
             for filename in sorted(filenames):
                 rel = (Path(dirpath) / filename).relative_to(other_kit)
                 candidate = candidate_root / rel
@@ -365,6 +369,19 @@ def _shared_file_changes(project_root: Path, candidate_root: Path, other_kit: Pa
                 changes.append(f"- {canon.as_posix()}\n" + "\n".join(f"    {line}" for line in shown))
                 if len(changes) >= limit:
                     return changes
+    # Files the candidate adds where the promoted REQ's tests live (a package marker, a conftest, a
+    # runner config): after promotion they change how those tests are collected and import helpers.
+    for rel_dir in sorted(test_dirs):
+        folder = candidate_root / rel_dir
+        if not folder.is_dir():
+            continue
+        for path in sorted(folder.iterdir()):
+            rel = rel_dir / path.name
+            if not path.is_file() or (other_kit / rel).exists() or (project_root / rel).exists():
+                continue
+            changes.append(f"- {rel.as_posix()} (added by this candidate in a test directory of the promoted REQ)")
+            if len(changes) >= limit:
+                return changes
     return changes
 
 
@@ -377,7 +394,11 @@ def _shared_files_note(other: str, changes: List[str]) -> str:
         "tests are in the same tree); infrastructure, build and route files keep their entries. When "
         f"a check of {other} pins the file's content (an exact set of services or files), add this REQ's part "
         "in a separate file instead (a compose override, an extra test config or project). If this REQ changes "
-        f"{other}'s behaviour on purpose, reconcile {other}'s test in the candidate test root.\n"
+        f"{other}'s behaviour on purpose, reconcile {other}'s test in the candidate test root. A file this "
+        f"candidate adds in a test directory of {other} (a package marker such as __init__.py, a conftest, a "
+        f"runner config) changes how {other}'s tests are collected and import their helpers after promotion: "
+        "remove it and make this REQ's tests import their helpers the way the promoted tests already do (the "
+        "check's import path, its own directories).\n"
         + "\n".join(changes)
     )
 
@@ -543,10 +564,14 @@ class _BaselineCache:
     while the promoted state digest is the same and for at most a day (tools, network, time)."""
 
     MAX_AGE_S = 24 * 3600
+    # How long a failure on an earlier promoted state is remembered (``failed_before``).
+    HISTORY_AGE_S = 7 * 24 * 3600
 
     def __init__(self, path: Optional[Path], digest: str = "") -> None:
         self.path, self.digest = path, digest
         self.results: Dict[str, bool] = {}
+        # check name -> when it last failed without any candidate, on any recent promoted state
+        self.history: Dict[str, float] = {}
         self.at = time.time()
         if path is None:
             return
@@ -554,9 +579,17 @@ class _BaselineCache:
             data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return
-        if data.get("digest") == digest and time.time() - float(data.get("at") or 0) <= self.MAX_AGE_S:
+        at = float(data.get("at") or 0)
+        history = {str(k): float(v) for k, v in (data.get("history") or {}).items()}
+        history.update({str(k): at for k, v in (data.get("results") or {}).items() if v})
+        self.history = {k: v for k, v in history.items() if time.time() - v <= self.HISTORY_AGE_S}
+        if data.get("digest") == digest and time.time() - at <= self.MAX_AGE_S:
             self.results = {str(k): bool(v) for k, v in (data.get("results") or {}).items()}
-            self.at = float(data.get("at") or self.at)  # the age counts from the first result
+            self.at = at or self.at  # the age counts from the first result
+
+    def failed_before(self, check: str) -> Optional[float]:
+        """When ``check`` last failed without a candidate on an earlier promoted state (recent)."""
+        return self.history.get(check)
 
     def result(self, check: str) -> Optional[bool]:
         """True: it fails without the candidate; False: it passes; None: not known yet."""
@@ -572,7 +605,11 @@ class _BaselineCache:
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_suffix(".tmp")
-            tmp.write_text(json.dumps({"digest": self.digest, "at": self.at, "results": self.results}), encoding="utf-8")
+            history = {**self.history, **{k: self.at for k, v in self.results.items() if v}}
+            tmp.write_text(
+                json.dumps({"digest": self.digest, "at": self.at, "results": self.results, "history": history}),
+                encoding="utf-8",
+            )
             tmp.replace(self.path)
         except OSError as exc:
             log.warning("regression baseline cache not written: %s", exc)
@@ -3871,6 +3908,22 @@ class EvalRunner:
             log.info("regression %s: baseline of the promoted tree reused for %d check(s)", other, len(failing))
         failing_without = {c.name for c in failing if baseline.result(c.name)}
         for case in failing:
+            failed_at = baseline.failed_before(case.name)
+            if case.name not in failing_without and failed_at and not case.name.startswith("env::"):
+                # it passes on the promoted tree now, but it failed there without any candidate on a
+                # recent promoted state: the check is unstable, its result proves nothing about this
+                # candidate (the gate shows it as a warning to review; the REQ's test needs a fix)
+                when = time.strftime("%Y-%m-%d", time.localtime(failed_at))
+                note = (
+                    f"{_NONDETERMINISTIC_NOTE}: {case.name} of {other} failed without any candidate on the "
+                    f"promoted tree ({when}) and passes there now: an unstable check, not a regression of this "
+                    f"candidate. Make the test of {other} deterministic."
+                )
+                case.blocking = False
+                case.stderr = f"{case.stderr or ''}\n{note}"[-4000:]
+                case.excerpt = f"{note}\n\n{case.excerpt or ''}"
+                log.info("regression %s::%s unstable (failed without the candidate before)", other, case.name)
+                continue
             if case.name not in failing_without:
                 if case.name.startswith("env::service::"):
                     # it starts on the promoted tree: the candidate broke the service's environment

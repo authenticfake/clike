@@ -58,6 +58,21 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **`/eval --fix` no longer stops when the regression first shows up**: the regression of the
+  promoted REQs runs only once the REQ's own checks pass, so on B2B REQ-025 its 4 failures appeared
+  at the last cycle and the loop stopped (4 failures, "up" from 2). Fewer failing checks of the REQ
+  itself now count as progress: extra cycles (`clike.autoEval.extraCyclesOnProgress`) repair them.
+- **An unstable check of a promoted REQ no longer blocks**: one that failed on the promoted tree
+  without any candidate on a recent promoted state (7 days) and passes there now, while it fails
+  with the candidate, is a nondeterministic warning (B2B REQ-014's browser integration).
+- **Files the candidate adds in a promoted REQ's test directories are named** on its failing
+  regression check (`Shared files changed`): on B2B REQ-025 a repair added `__init__.py` files and
+  REQ-003's tests no longer imported their helpers. Two repair rules (cloud and agents): fix a test
+  helper's import path the way the promoted tests do, never add package markers / conftest / runner
+  config to test directories this REQ does not own; a promoted test that pins the latest state (the
+  head migration, a full list) and this REQ extends on purpose is reconciled in the candidate test
+  root, keeping every existing entry.
+
 - **A missing module that is a file of the project is a code defect, not the environment**: `No
   module named 'x'` / `Cannot find module 'x'` was classified environment-blocked even when `x` is a
   test helper or package of the project (B2B REQ-025: `req019_support`, imported by a bare name the

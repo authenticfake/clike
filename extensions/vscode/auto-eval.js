@@ -160,6 +160,11 @@ function sandboxExhausted(report) {
  * state: { cycle, maxCycles, hint, lastSignature }
  * → { action: 'pass' | 'stop' | 'repair', reason, failures?, signature? }
  */
+/** Failing checks of the REQ itself (not the regression of promoted REQs, `regression::<REQ>::…`). */
+function ownFailureCount(failures) {
+  return (failures || []).filter((f) => !String(f?.name || '').startsWith('regression::')).length;
+}
+
 function nextAutoEvalStep(state, report) {
   if (evalPassed(report)) return { action: 'pass', reason: `eval PASS after ${state.cycle} repair cycle(s)` };
   if (sandboxExhausted(report)) return { action: 'stop', reason: SANDBOX_EXHAUSTED_STOP };
@@ -185,16 +190,23 @@ function nextAutoEvalStep(state, report) {
   if (!failures.length) return { action: 'stop', reason: 'eval failed without failing checks to repair (see the eval report)' };
   const signature = failureSignature(failures);
   if (state.cycle >= state.maxCycles) {
-    // Still improving (fewer failing checks than before the last repair): extra cycles, bounded.
+    // Still improving: extra cycles, bounded. Fewer failing checks than before the last repair, or
+    // fewer failing checks of the REQ itself: the regression of the promoted REQs runs only once the
+    // REQ's own checks pass, so its failures are new information, not a step back.
     const extra = Math.max(0, Number(state.extraCycles ?? 3));
-    const improving = Number.isFinite(state.lastFailureCount) && failures.length < state.lastFailureCount;
+    const own = ownFailureCount(failures);
+    const improving = (Number.isFinite(state.lastFailureCount) && failures.length < state.lastFailureCount) ||
+      (Number.isFinite(state.lastOwnFailureCount) && own < state.lastOwnFailureCount);
     if (!improving || state.cycle >= state.maxCycles + extra) {
       return { action: 'stop', reason: `still failing after ${state.cycle} repair cycle(s)`, failures, signature };
     }
     if (state.lastKitOk !== false) {
       return {
         action: 'repair',
-        reason: `${failures.length} failing check(s), down from ${state.lastFailureCount}: extra cycle ${state.cycle + 1 - state.maxCycles}/${extra}`,
+        reason: (failures.length < state.lastFailureCount
+          ? `${failures.length} failing check(s), down from ${state.lastFailureCount}`
+          : `the REQ's own checks improved (${own} failing, down from ${state.lastOwnFailureCount}); ${failures.length - own} regression failure(s) of promoted REQs to repair`) +
+          `: extra cycle ${state.cycle + 1 - state.maxCycles}/${extra}`,
         failures,
         signature,
       };
@@ -443,6 +455,7 @@ function fixCycleMethodology(msg) {
 
 module.exports = {
   fixCycleMethodology,
+  ownFailureCount,
   manualRepairRequest,
   acceptanceChanges,
   annotateIntermittentFailures,
