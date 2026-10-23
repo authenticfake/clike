@@ -427,7 +427,22 @@ function manualRepairRequest(workspaceRoot, reqId, hint = '') {
   return { cycle: 1, max_cycles: 1, failures, files: collectRepairFiles(workspaceRoot, reqId), hint: String(hint || ''), source: `${latest.phase} report ${latest.ts}` };
 }
 
+/**
+ * The methodology of `/eval REQ --fix --methodology …` holds for its whole loop: each repair is a
+ * KIT of that methodology (BMAD: the developer role), each re-eval keeps the role the developer chose
+ * (BMAD: QA or developer advisory). Without a methodology the loop is plain CLike.
+ */
+function fixCycleMethodology(msg) {
+  const methodology = String(msg?.methodology || '').trim().toLowerCase();
+  if (!methodology) return { kit: {}, eval: {} };
+  const kitAgent = methodology === 'bmad' ? 'developer' : null;
+  const evalAgent = String(msg.agent || msg.methodology_context?.agent || '').trim().toLowerCase() || null;
+  const fields = (agent) => ({ methodology, ...(agent ? { agent } : {}), methodology_context: { methodology, agent } });
+  return { kit: fields(kitAgent), eval: fields(evalAgent) };
+}
+
 module.exports = {
+  fixCycleMethodology,
   manualRepairRequest,
   acceptanceChanges,
   annotateIntermittentFailures,

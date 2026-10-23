@@ -88,6 +88,7 @@ const {
 const {
   acceptanceChanges,
   collectRepairFiles,
+  fixCycleMethodology,
   manualRepairRequest,
   nextAutoEvalStep,
   nextAutoGateStep,
@@ -4489,14 +4490,14 @@ async function cmdOpenChat(context) {
           // Persist the user's input in the MODE session (the model badge is shown at render time)
           await appendSessionJSONL(activeMode, {
             role: 'user',
-            content: `▶ ${cmd.toUpperCase()} ${msg_bubble} | mode=${state.mode} model=${state.model} exec=${executionPreference} profile=${profileHint || '—'} core=${JSON.stringify(core)}`,
+            content: `▶ ${cmd.toUpperCase()} ${msg_bubble} | mode=${state.mode} model=${state.model} exec=${executionPreference} profile=${profileHint || '—'}${methodologyTag(msg)} core=${JSON.stringify(core)}`,
             model:  state.model || 'auto',
             attachments: Array.isArray(msg.attachments) ? msg.attachments : []
           });
           // Echo pre-run
           panel.webview.postMessage({
             type: 'echo',
-            message: `▶ ${cmd.toUpperCase()} ${msg_bubble} | mode=${state.mode} model=${state.model} exec=${executionPreference} profile=${profileHint || '—'} core=${JSON.stringify(core)} attachments=${attachments.length}`
+            message: `▶ ${cmd.toUpperCase()} ${msg_bubble} | mode=${state.mode} model=${state.model} exec=${executionPreference} profile=${profileHint || '—'}${methodologyTag(msg)} core=${JSON.stringify(core)} attachments=${attachments.length}`
           });
           
           const settings = cfg();
@@ -5083,14 +5084,14 @@ async function cmdOpenChat(context) {
         }
         await appendSessionJSONL(activeMode, {
           role: 'user',
-          content: `▶ ${phase.toUpperCase()} ${targets} ${mode} ${modeContent} | mode=${state.mode} model=${state.model} exec=${executionPreference}`,
+          content: `▶ ${phase.toUpperCase()} ${targets} ${mode} ${modeContent} | mode=${state.mode} model=${state.model} exec=${executionPreference}${methodologyTag(msg)}`,
           model:  state.model || 'auto',
           attachments: Array.isArray(msg.attachments) ? msg.attachments : []
         });
         // Echo pre-run
         panel.webview.postMessage({
           type: 'echo',
-          message: `▶ ${phase.toUpperCase()} ${targets} ${mode} ${modeContent} | mode=${state.mode} model=${state.model} exec=${executionPreference}`
+          message: `▶ ${phase.toUpperCase()} ${targets} ${mode} ${modeContent} | mode=${state.mode} model=${state.model} exec=${executionPreference}${methodologyTag(msg)}`
         });
         const path_ltc_json = msg.path
         log(`[harperEDD] path_ltc_json: ${path_ltc_json}`)
@@ -6775,6 +6776,11 @@ async function cmdOpenChat(context) {
     say(`■ AUTOPILOT ended — ${run.outcome}. Promoted: ${promoted.join(', ') || 'none'}; parked: ${[...run.parked].join(', ') || 'none'}.${run.next ? ` Next: ${run.next}` : ''} Report: ${reportRel}`);
   }
 
+  // ` methodology=bmad/qa` in the ▶ header of a phase run with a methodology (repair cycles included)
+  function methodologyTag(msg) {
+    return msg?.methodology ? ` methodology=${msg.methodology}${msg.agent ? '/' + msg.agent : ''}` : '';
+  }
+
   async function continueAutoEval(msg, report, reqId) {
     const settings = cfg();
     const state = {
@@ -6822,12 +6828,14 @@ async function cmdOpenChat(context) {
     } catch (err) {
       log(`[autoEval] repair notes not written: ${err?.message || err}`);
     }
+    const loopMethodology = fixCycleMethodology(msg);
     const kitMsg = {
       type: 'harperRun',
       cmd: 'kit',
       targets: [reqId],
       targetReqId: reqId,
       attachments: [],
+      ...loopMethodology.kit,
       autoEvalRepair: {
         cycle,
         max_cycles: state.maxCycles,
@@ -6856,6 +6864,7 @@ async function cmdOpenChat(context) {
       targets: [reqId],
       targetReqId: reqId,
       attachments: [],
+      ...loopMethodology.eval,
       fix: { ...state, cycle, lastSignature: step.signature, lastKitOk: kitMsg.__result === 'ok', lastFailures: step.failures, lastFailureCount: (step.failures || []).length },
     };
     await handleWebviewMessage(evalMsg);
