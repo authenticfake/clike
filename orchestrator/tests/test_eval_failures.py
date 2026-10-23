@@ -81,6 +81,26 @@ def test_a_missing_candidate_module_is_a_code_defect():
     assert not _blocked("Error: Cannot find module '@/lib/api'")
 
 
+def test_a_missing_module_that_is_a_project_file_is_a_code_defect(tmp_path: Path):
+    (tmp_path / "test" / "routing").mkdir(parents=True)
+    (tmp_path / "test" / "routing" / "req019_support.py").write_text("x = 1\n")
+    (tmp_path / "src" / "app" / "core").mkdir(parents=True)
+    (tmp_path / "src" / "app" / "core" / "__init__.py").write_text("")
+    (tmp_path / "node_modules" / "left-pad").mkdir(parents=True)
+    (tmp_path / "node_modules" / "left-pad" / "index.js").write_text("")
+    runner = EvalRunner(tmp_path)
+
+    def blocked(text: str) -> bool:
+        return runner._is_environment_blocked(code=2, stdout=text, stderr="", environment_requirements=[], cwd=tmp_path / "src")
+
+    # a test helper of the project, a package of the candidate: a wrong import, the repair fixes it
+    assert not blocked("E   ModuleNotFoundError: No module named 'req019_support'\n2 errors during collection")
+    assert not blocked("ModuleNotFoundError: No module named 'app.core'")
+    # a dependency (even one vendored under node_modules) stays an environment problem
+    assert blocked("ModuleNotFoundError: No module named 'requests'")
+    assert blocked("Error: Cannot find module 'left-pad'")
+
+
 def test_real_environment_problems_stay_blocked():
     assert _blocked("sh: 1: playwright: command not found", code=127)
     assert _blocked("Error: Cannot find module 'better-sqlite3'")

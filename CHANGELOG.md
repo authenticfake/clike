@@ -58,6 +58,12 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **A missing module that is a file of the project is a code defect, not the environment**: `No
+  module named 'x'` / `Cannot find module 'x'` was classified environment-blocked even when `x` is a
+  test helper or package of the project (B2B REQ-025: `req019_support`, imported by a bare name the
+  check's path did not include). It is now an ordinary failure for the repair; a missing dependency
+  (not a project file, or only under `node_modules` / a venv) stays environment-blocked.
+
 - **`/eval REQ --fix --methodology bmad` keeps BMAD in its repair cycles**: the repair KIT ran as
   plain CLike and the re-eval lost the QA advisory; now each repair is a BMAD developer KIT and each
   re-eval keeps the chosen role (also under `/autopilot --methodology bmad`). The `▶ KIT` / `▶ EVAL`
