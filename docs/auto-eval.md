@@ -294,7 +294,10 @@ A blocking failure of a promoted REQ that remains (a test, a service it starts, 
 provisions) is then run on the promoted tree **without the candidate**. If it fails there too, the
 candidate did not cause it (a check environment that later REQs outgrew, an earlier REQ): it is a
 non-blocking warning (`[CLike EvalRunner] Already failing without this candidate: … REQ-0xx's check
-or its environment needs a fix`), not sent to the candidate's repair. Only what the candidate
+or its environment needs a fix`), not sent to the candidate's repair. Unless the candidate adds errors of its
+own: the error lines of the run without the candidate are kept, and a failure that shows lines
+not seen there (an import error where the promoted tree only missed the coverage threshold) stays
+blocking (`[CLike EvalRunner] New errors from this candidate: …`). Only what the candidate
 breaks blocks its gate. When a service of a promoted REQ starts on the promoted tree but not with
 the candidate, the failure stays blocking and says why (`[CLike EvalRunner] Service broken by the
 candidate`): a configuration the candidate makes mandatory must stay optional with a safe default,
@@ -317,7 +320,7 @@ When a check of a promoted REQ fails and the candidate KIT replaces files that R
 (its `src/` or `test/` files, compared with the canonical copy), CLike names them on the failing
 check, with a short diff: `[CLike EvalRunner] Shared files changed: …`. It works on files, so in
 any language: a file the candidate **adds** in a test directory of that REQ or one of its parents
-(a package marker such as `__init__.py`, a conftest, a runner config: it changes how those tests are
+(not a test of its own: a package marker such as `__init__.py`, a conftest, a runner config: it changes how those tests are
 collected and import their helpers), a test runner config whose selectors no longer match the earlier tests ("No tests
 found"), a compose file or manifest an earlier check pins, a component whose behaviour changed.
 The repair is told to keep what the promoted REQ put there and add its own part, or to put it in a

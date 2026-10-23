@@ -214,6 +214,7 @@ class SharedFileDiagnosisTests(_RegressionProject):
             (root / "cand" / "test" / "execution").mkdir(parents=True)
             (root / "cand" / "test" / "__init__.py").write_text("")
             (root / "cand" / "test" / "execution" / "__init__.py").write_text("")
+            (root / "cand" / "test" / "execution" / "test_new_req.py").write_text("")  # its own test: fine
             (root / "cand" / "test" / "mine").mkdir()
             (root / "cand" / "test" / "mine" / "helper.py").write_text("")  # its own directory: fine
             changes = eval_runner._shared_file_changes(root, root / "cand", other)
@@ -221,6 +222,30 @@ class SharedFileDiagnosisTests(_RegressionProject):
                 [c.split(" ")[1] for c in changes], ["test/__init__.py", "test/execution/__init__.py"]
             )
             self.assertIn("package marker such as __init__.py", eval_runner._shared_files_note("REQ-003", changes))
+
+
+class BaselineErrorsTests(unittest.TestCase):
+    def test_a_check_failing_on_the_promoted_tree_with_other_errors_is_still_a_regression(self):
+        # B2B REQ-003: below the coverage threshold on the promoted tree, an import error with the candidate
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "REQ-003.json"
+            baseline = eval_runner._BaselineCache(path, "d1")
+            coverage = "FAIL Required test coverage of 80% not reached. Total coverage: 27.40%"
+            baseline.store({"test:integration": True}, {"test:integration": eval_runner.eval_failures.error_keys(coverage)})
+            again = eval_runner._BaselineCache(path, "d1")
+            self.assertEqual(again.new_errors("test:integration", coverage.replace("27.40", "31.02")), [])
+            new = again.new_errors(
+                "test:integration", coverage + "\nE   ModuleNotFoundError: No module named 'test_req_behavior'"
+            )
+            self.assertEqual(len(new), 1)
+            self.assertIn("modulenotfounderror", new[0])
+            self.assertEqual(again.new_errors("unknown", "Error: x"), [])  # no baseline errors kept: as before
+
+    def test_test_file_names(self):
+        for name in ("test_a.py", "a_test.go", "a.test.ts", "a.spec.js", "OrderTest.java", "OrderTests.cs", "a_spec.rb"):
+            self.assertTrue(eval_runner._is_test_file_name(name), name)
+        for name in ("__init__.py", "conftest.py", "jest.config.js", "vitest.config.ts", "pytest.ini", "helpers.py"):
+            self.assertFalse(eval_runner._is_test_file_name(name), name)
 
 class WorkspaceCopyTests(unittest.TestCase):
     def test_scratch_of_the_kit_is_not_copied_and_vanished_files_are_skipped(self):

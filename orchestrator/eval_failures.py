@@ -118,15 +118,21 @@ def excerpt(stdout: str, stderr: str = "", limit: int = EXCERPT_LIMIT) -> str:
     return out[:limit]
 
 
-def fingerprint(text: str) -> str:
-    """Stable id of the errors in an excerpt: numbers, hex ids, temp paths and ports ignored."""
-    keys = []
+def error_keys(text: str) -> list:
+    """The error lines of an excerpt, normalized (numbers, hex ids, temp paths and ports ignored)."""
+    keys = set()
     for line in (text or "").split("\n"):
         if not _KEY.search(line):
             continue
         norm = re.sub(r"/[\w./@+-]*?/(work|tmp|var|private)/[\w./@+-]*", "<path>", line)
         norm = re.sub(r"0x[0-9a-f]+|[0-9a-f]{8,}|\d+", "#", norm.strip().lower())
-        keys.append(norm)
+        keys.add(norm)
+    return sorted(keys)
+
+
+def fingerprint(text: str) -> str:
+    """Stable id of the errors in an excerpt: numbers, hex ids, temp paths and ports ignored."""
+    keys = error_keys(text)
     if not keys:
         return ""
-    return hashlib.sha1("\n".join(sorted(set(keys))).encode("utf-8")).hexdigest()[:12]
+    return hashlib.sha1("\n".join(keys).encode("utf-8")).hexdigest()[:12]

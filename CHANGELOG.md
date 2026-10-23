@@ -58,6 +58,13 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **"Already failing without this candidate" no longer hides new errors**: a promoted check that
+  fails on the promoted tree too is a warning only when the candidate adds no error lines of its
+  own (B2B REQ-025: REQ-003 missed the coverage threshold there, the candidate broke its imports).
+  The baseline keeps the error lines; one kept before them is computed again.
+- The files the candidate adds in a promoted REQ's test directories no longer include the
+  candidate's own tests.
+
 - **`/eval --fix` no longer stops when the regression first shows up**: the regression of the
   promoted REQs runs only once the REQ's own checks pass, so on B2B REQ-025 its 4 failures appeared
   at the last cycle and the loop stopped (4 failures, "up" from 2). Fewer failing checks of the REQ

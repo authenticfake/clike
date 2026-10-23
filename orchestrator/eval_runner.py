@@ -180,6 +180,7 @@ _MISSING_TOOLS_NOTE = "[CLike EvalRunner] Missing in the eval sandbox"
 _NONDETERMINISTIC_NOTE = "[CLike EvalRunner] Nondeterministic"
 # a failure of a promoted REQ that does not depend on the candidate (it fails on the promoted tree alone)
 _PREEXISTING_NOTE = "[CLike EvalRunner] Already failing without this candidate"
+_NEW_ERRORS_NOTE = "[CLike EvalRunner] New errors from this candidate"
 _SHARED_FILES_NOTE = "[CLike EvalRunner] Shared files changed"
 _SERVICE_BROKEN_NOTE = "[CLike EvalRunner] Service broken by the candidate"
 # A test file by name in Python, JS/TS, Java/Kotlin, Go, C# (test_x.py, x_test.go, x.test.ts, x.spec.js, XTest.java, XTests.cs).
@@ -326,6 +327,17 @@ _SHARED_SCAN_SKIP = {
 }
 
 
+_TEST_FILE_NAME_RE = re.compile(
+    r"^(test_.+|.+_test|.+\.(test|spec)|.+Tests?|.+_spec)\.[A-Za-z0-9]+$"
+)
+
+
+def _is_test_file_name(name: str) -> bool:
+    """A file named as a test in the usual conventions (test_x.py, x_test.go, x.test.ts, x.spec.js,
+    XTest.java, XTests.cs, x_spec.rb): it holds tests, it does not configure how others run."""
+    return bool(_TEST_FILE_NAME_RE.match(name))
+
+
 def _shared_file_changes(project_root: Path, candidate_root: Path, other_kit: Path, limit: int = 8) -> List[str]:
     """Files the promoted REQ delivered (its KIT src/ and test/) that the candidate KIT replaces with
     different content, each with a short diff against the canonical copy (the state the promoted REQ
@@ -379,6 +391,8 @@ def _shared_file_changes(project_root: Path, candidate_root: Path, other_kit: Pa
             rel = rel_dir / path.name
             if not path.is_file() or (other_kit / rel).exists() or (project_root / rel).exists():
                 continue
+            if _is_test_file_name(path.name):
+                continue  # a test of this REQ next to the promoted ones: collected on its own
             changes.append(f"- {rel.as_posix()} (added by this candidate in a test directory of the promoted REQ)")
             if len(changes) >= limit:
                 return changes
@@ -572,6 +586,8 @@ class _BaselineCache:
         self.results: Dict[str, bool] = {}
         # check name -> when it last failed without any candidate, on any recent promoted state
         self.history: Dict[str, float] = {}
+        # check name -> its normalized error lines on the promoted tree (eval_failures.error_keys)
+        self.errors: Dict[str, List[str]] = {}
         self.at = time.time()
         if path is None:
             return
@@ -585,6 +601,7 @@ class _BaselineCache:
         self.history = {k: v for k, v in history.items() if time.time() - v <= self.HISTORY_AGE_S}
         if data.get("digest") == digest and time.time() - at <= self.MAX_AGE_S:
             self.results = {str(k): bool(v) for k, v in (data.get("results") or {}).items()}
+            self.errors = {str(k): list(v) for k, v in (data.get("errors") or {}).items()}
             self.at = at or self.at  # the age counts from the first result
 
     def failed_before(self, check: str) -> Optional[float]:
@@ -598,8 +615,17 @@ class _BaselineCache:
     def failing(self) -> frozenset:
         return frozenset(name for name, failed in self.results.items() if failed)
 
-    def store(self, results: Dict[str, bool]) -> None:
+    def new_errors(self, check: str, excerpt: Optional[str]) -> List[str]:
+        """Error lines of ``excerpt`` that ``check`` did not show on the promoted tree: the candidate
+        broke it in a new way. Empty when they are the same, or when the baseline kept none."""
+        known = self.errors.get(check)
+        if not known:
+            return []
+        return [key for key in eval_failures.error_keys(excerpt or "") if key not in set(known)]
+
+    def store(self, results: Dict[str, bool], errors: Optional[Dict[str, List[str]]] = None) -> None:
         self.results.update(results)
+        self.errors.update(errors or {})
         if self.path is None:
             return
         try:
@@ -607,7 +633,8 @@ class _BaselineCache:
             tmp = self.path.with_suffix(".tmp")
             history = {**self.history, **{k: self.at for k, v in self.results.items() if v}}
             tmp.write_text(
-                json.dumps({"digest": self.digest, "at": self.at, "results": self.results, "history": history}),
+                json.dumps({"digest": self.digest, "at": self.at, "results": self.results, "history": history,
+                            "errors": self.errors}),
                 encoding="utf-8",
             )
             tmp.replace(self.path)
@@ -3887,7 +3914,9 @@ class EvalRunner:
             return
         baseline = baseline or _BaselineCache(None)
         check_ids = {str(c.get("id") or "") for c in ltc.get("checks") or []}
-        unknown = [c.name for c in failing if baseline.result(c.name) is None]
+        # unknown, or known to fail without the error lines to compare (a baseline kept before them)
+        unknown = [c.name for c in failing if baseline.result(c.name) is None
+                   or (baseline.result(c.name) and c.name not in baseline.errors)]
         retry = sorted({name for name in unknown if name in check_ids})
         if unknown:
             try:
@@ -3903,11 +3932,28 @@ class EvalRunner:
                 return
             if self.cancel_event is not None and self.cancel_event.is_set():
                 return  # a cancelled run is no baseline
-            baseline.store({c.name: (not c.passed and not c.blocked) for c in rerun.cases if not c.blocked})
+            baseline.store(
+                {c.name: (not c.passed and not c.blocked) for c in rerun.cases if not c.blocked},
+                {c.name: eval_failures.error_keys(c.excerpt or "") for c in rerun.cases if not c.passed and not c.blocked},
+            )
         else:
             log.info("regression %s: baseline of the promoted tree reused for %d check(s)", other, len(failing))
         failing_without = {c.name for c in failing if baseline.result(c.name)}
         for case in failing:
+            new = baseline.new_errors(case.name, case.excerpt) if case.name in failing_without else []
+            if new:
+                # it fails on the promoted tree too, but the candidate adds errors of its own (B2B
+                # REQ-003: coverage below the threshold there, an import error with the candidate)
+                shown = "\n".join(f"  {key}" for key in new[:6])
+                note = (
+                    f"{_NEW_ERRORS_NOTE}: {case.name} of {other} fails on the promoted tree without this candidate "
+                    f"too, but with the candidate it shows errors it does not show there:\n{shown}\n"
+                    "These are a regression of this candidate."
+                )
+                case.stderr = f"{case.stderr or ''}\n{note}"[-4000:]
+                case.excerpt = f"{note}\n\n{case.excerpt or ''}"
+                log.info("regression %s::%s fails without the candidate, with new errors", other, case.name)
+                continue
             failed_at = baseline.failed_before(case.name)
             if case.name not in failing_without and failed_at and not case.name.startswith("env::"):
                 # it passes on the promoted tree now, but it failed there without any candidate on a
