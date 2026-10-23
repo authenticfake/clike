@@ -58,6 +58,13 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **Promotion resolves a spot the REQ only rewrote, and `conflicts.md` reads line by line**: when
+  the gate ran the candidate with the regression of the promoted REQs, a spot where it rewrote
+  `src/` lines without losing any (each has its new form, none of its words is gone from the
+  candidate file) is kept from the candidate and listed in the report for review — B2B REQ-024's
+  two conflicts (`LaunchForm.tsx`, `server-api.ts`) resolve this way. A line whose words are gone
+  stays a conflict. `conflicts.md` now says, per spot, what the REQ rewrote, what it would drop
+  (with the missing words) and what it adds, what to do, and the exact commands.
 - **A shared test-support file keeps the names the promoted tests use, in any language**: a KIT that
   replaces a helper or fixture module of the promoted tree (B2B: `test/fixtures.ts`, shared by
   REQ-002/005/008/012) and drops a name their tests use now fails the eval at once

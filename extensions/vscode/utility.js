@@ -1243,7 +1243,10 @@ async function saveGateCommand(projectRootUri, plan, targetReqId, report, out, o
   let autoMerge = null;
   if (isPass && promoteMode === 'merge') {
     try {
-      autoMerge = autoMergePromotion({ workspaceRoot: projectRootUri.fsPath, reqId: targetReqId });
+      // the gate ran this candidate with the regression of the promoted REQs (not an override): a
+      // spot where it only rewrote src/ lines can be kept without a human (promote-merge.js)
+      const tested = !isOverride && (Array.isArray(report?.cases) ? report.cases : []).some((c) => String(c?.name || '').startsWith('regression::'));
+      autoMerge = autoMergePromotion({ workspaceRoot: projectRootUri.fsPath, reqId: targetReqId, tested });
       log(`[saveGateCommand] auto-merge: ${autoMerge.summary}`);
     } catch (err) {
       autoMerge = { promoted: false, error: String(err?.message || err), written: [], reportFiles: [], summary: `${targetReqId} NOT promoted: auto-merge failed (${err?.message || err}).` };
@@ -1301,7 +1304,8 @@ async function saveGateCommand(projectRootUri, plan, targetReqId, report, out, o
     if (choice === 'Promote') {
       const strategy = await pickPromotionStrategy();
       if (strategy === 'auto-merge') {
-        const picked = autoMergePromotion({ workspaceRoot: projectRootUri.fsPath, reqId: targetReqId });
+        const tested = !isOverride && (Array.isArray(report?.cases) ? report.cases : []).some((c) => String(c?.name || '').startsWith('regression::'));
+        const picked = autoMergePromotion({ workspaceRoot: projectRootUri.fsPath, reqId: targetReqId, tested });
         filesToCommit.push(...picked.written, ...picked.reportFiles);
         if (!picked.promoted) {
           setReqStatus(effectivePlan, targetReqId, 'in_progress');

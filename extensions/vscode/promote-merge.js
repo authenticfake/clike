@@ -151,15 +151,15 @@ function baseContent(workspaceRoot, rev, rel, dependencies = [], kitRel = rel) {
 }
 
 /** git merge-file: {text, conflicts} (conflicts = number of conflict hunks). */
-function mergeThreeWay(ours, base, theirs, reqId) {
+function mergeThreeWay(ours, base, theirs, reqId, tested = false) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'clike-merge-'));
   try {
     const [o, b, t] = ['ours', 'base', 'theirs'].map((n) => path.join(dir, n));
     fs.writeFileSync(o, ours); fs.writeFileSync(b, base); fs.writeFileSync(t, theirs);
     const r = spawnSync('git', ['merge-file', '-p', '--diff3', '-L', 'canonical', '-L', 'base', '-L', reqId, o, b, t], { encoding: 'buffer' });
     if (r.status == null || r.status < 0) throw new Error(`git merge-file failed: ${String(r.stderr || r.error || '')}`);
-    if (r.status === 0) return { text: r.stdout, conflicts: 0, unions: 0, contained: 0, already: 0 };
-    return resolveHunks(r.stdout, r.status, reqId);
+    if (r.status === 0) return { text: r.stdout, conflicts: 0, unions: 0, contained: 0, already: 0, rewritten: 0, rewrites: [] };
+    return resolveHunks(r.stdout, r.status, reqId, tested, theirs.toString('utf8'));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -202,6 +202,57 @@ function containsInOrder(big, small) {
 // would duplicate.
 const significant = (line) => line.trim().length >= 12 && /[A-Za-z0-9]/.test(line);
 
+/** Share of the tokens of `line` (as a multiset) that `other` has too. */
+function tokenOverlap(line, other) {
+  const want = tokens([line]);
+  if (!want.length) return 1;
+  const have = new Map();
+  for (const t of tokens([other])) have.set(t, (have.get(t) || 0) + 1);
+  let hit = 0;
+  for (const t of want) {
+    const n = have.get(t) || 0;
+    if (n) { hit += 1; have.set(t, n - 1); }
+  }
+  return hit / want.length;
+}
+
+const REWRITE_OVERLAP = 0.6;
+
+const words = (line) => String(line).match(/[A-Za-z0-9_]+/g) || [];
+
+/**
+ * The lines of one spot, read as a developer would: src/ lines the candidate rewrote (paired with
+ * their new form: most of their words are still there, and none of their words is gone from the
+ * candidate file — a renamed expression is defined elsewhere in it), src/ lines the candidate drops
+ * or loses part of (`missing`: their words the candidate file no longer has), and its new lines.
+ * `theirsText`: the whole candidate file (default: the spot).
+ */
+function classifyHunk(ours, theirs, theirsText = theirs.join('\n')) {
+  const present = new Set(words(theirsText));
+  const diff = hunkDiff(ours, theirs);
+  const removed = diff.filter((l) => l.startsWith('-')).map((l) => l.slice(1));
+  const added = diff.filter((l) => l.startsWith('+')).map((l) => l.slice(1));
+  const used = new Set();
+  const rewritten = [];
+  const dropped = [];
+  for (const line of removed) {
+    if (!significant(line)) continue;
+    let best = -1; let score = 0;
+    added.forEach((cand, k) => {
+      const v = tokenOverlap(line, cand);
+      if (v > score) { score = v; best = k; }
+    });
+    const missing = [...new Set(words(line).filter((w) => !present.has(w)))];
+    if (best >= 0 && score >= REWRITE_OVERLAP && !missing.length) { rewritten.push({ from: line, to: added[best] }); used.add(best); }
+    else {
+      if (best >= 0 && score >= REWRITE_OVERLAP) used.add(best);
+      dropped.push({ line, missing });
+    }
+  }
+  const fresh = added.filter((l, k) => !used.has(k) && l.trim());
+  return { rewritten, dropped, added: fresh };
+}
+
 /**
  * How one conflict hunk resolves without a human, or null:
  * - both sides only ADDED lines at the same place (empty base, e.g. new entries at the end of
@@ -215,30 +266,46 @@ const significant = (line) => line.trim().length >= 12 && /[A-Za-z0-9]/.test(lin
  *   eval workspace). The opposite (canonical contains the candidate) stays a conflict: keeping
  *   src/ would promote code the gate did not test.
  */
-function resolveHunk(hunk) {
+function resolveHunk(hunk, { tested = false, theirsText } = {}) {
   if (hunk.base && hunk.base.every((l) => l.trim() === '')) {
     const oursTokens = tokens(hunk.ours);
     const theirsTokens = tokens(hunk.theirs);
     if (!theirsTokens.length || containsInOrder(oursTokens, theirsTokens)) return { lines: hunk.ours, how: 'already' };
     if (!oursTokens.length || containsInOrder(theirsTokens, oursTokens)) return { lines: hunk.theirs, how: 'contains' };
     const ourLines = new Set(hunk.ours.filter(significant).map((l) => l.trim()));
-    if (hunk.theirs.some((l) => significant(l) && ourLines.has(l.trim()))) return null;
-    return { lines: [...hunk.ours, ...hunk.theirs], how: 'union' };
+    if (!hunk.theirs.some((l) => significant(l) && ourLines.has(l.trim()))) return { lines: [...hunk.ours, ...hunk.theirs], how: 'union' };
+    return rewrittenByCandidate(hunk, tested, theirsText);
   }
   const ours = tokens(hunk.ours);
   if (ours.length && containsInOrder(tokens(hunk.theirs), ours)) return { lines: hunk.theirs, how: 'contains' };
-  return null;
+  return rewrittenByCandidate(hunk, tested, theirsText);
+}
+
+/**
+ * The candidate rewrote src/ lines without dropping any (each src/ line left out has its new form
+ * there) and the gate ran this very candidate with the regression of the promoted REQs (`tested`):
+ * keep the candidate; the rewritten pairs go to the report for review. Otherwise null.
+ */
+function rewrittenByCandidate(hunk, tested, theirsText) {
+  if (!tested || !hunk.theirs.length) return null;
+  const c = classifyHunk(hunk.ours, hunk.theirs, theirsText);
+  return !c.dropped.length && c.rewritten.length ? { lines: hunk.theirs, how: 'rewritten', rewrites: c.rewritten } : null;
 }
 
 /** Resolve what resolveHunk can; the rest stays as conflict markers (fewer to resolve by hand). */
-function resolveHunks(buf, conflicts, reqId) {
+function resolveHunks(buf, conflicts, reqId, tested = false, theirsText) {
   const out = [];
-  const counts = { union: 0, contains: 0, already: 0 };
+  const counts = { union: 0, contains: 0, already: 0, rewritten: 0 };
+  const rewrites = [];
   let left = 0;
   for (const part of parseConflictHunks(buf.toString('utf8'), reqId)) {
     if (typeof part === 'string') { out.push(part); continue; }
-    const r = resolveHunk(part);
-    if (r) { out.push(...r.lines); counts[r.how] += 1; continue; }
+    const r = resolveHunk(part, { tested, theirsText });
+    if (r) {
+      out.push(...r.lines); counts[r.how] += 1;
+      if (r.rewrites) rewrites.push({ line: part.line, pairs: r.rewrites });
+      continue;
+    }
     left += 1;
     out.push('<<<<<<< canonical', ...part.ours);
     if (part.base) out.push('||||||| base', ...part.base);
@@ -246,6 +313,7 @@ function resolveHunks(buf, conflicts, reqId) {
   }
   return {
     text: Buffer.from(out.join('\n'), 'utf8'), conflicts: left, unions: counts.union, contained: counts.contains, already: counts.already,
+    rewritten: counts.rewritten, rewrites,
   };
 }
 
@@ -292,39 +360,89 @@ function hunkDiff(ours, theirs) {
 }
 
 /**
- * conflicts.md: every spot still in conflict, readable without conflict markers: what src/ has
- * now, what the REQ wants, the diff between the two, the base, and what to do.
+ * conflicts.md: every spot still in conflict, read for the developer: what src/ has now, what the
+ * REQ wants, the diff, and line by line what the REQ rewrote, what it would drop and what it adds;
+ * then what to do, with the commands.
  */
+/** The merge with every remaining conflict spot taken from the candidate (the rest as merged). */
+function takeCandidateSpots(markers, reqId) {
+  return parseConflictHunks(markers.toString('utf8'), reqId).flatMap((p) => (typeof p === 'string' ? [p] : p.theirs)).join('\n');
+}
+
 function renderConflicts({ reqId, ts, conflicts }) {
   const lines = [
     `# ${reqId} — conflicts to resolve (${ts})`,
     '',
-    `For each spot: **src/ now** (what earlier REQs promoted), **${reqId} wants** (the candidate the`,
-    `gate tested), the diff between them (\`-\` only in src/, \`+\` only in ${reqId}) and the base`,
-    'the KIT started from. Write the right content into the canonical file, delete its',
-    `\`.conflict-…\` file and run \`/gate ${reqId}\` again.`,
+    `Nothing of these files was written: src/ is as before. ${reqId} was tested by the gate with **its own version** of`,
+    'each file (in the eval the KIT file replaces src/, and the regression of the promoted REQs ran with it).',
+    '',
+    'For each spot below:',
+    '',
+    `1. **Rewritten by ${reqId}** — a src/ line ${reqId} changed into a new form: its meaning is kept, check the new form.`,
+    `2. **Only in src/** — lines ${reqId} would drop: an earlier REQ put them there. Keep them, unless ${reqId} removes them on purpose.`,
+    `3. **Only in ${reqId}** — its additions.`,
+    '',
+    `When a file has nothing under *Only in src/*, ${reqId}'s version keeps everything: take it (the command is given).`,
+    `Otherwise start from ${reqId}'s version and put back the *Only in src/* lines, adapted. Then delete the`,
+    `\`.conflict-…\` file and run \`/gate ${reqId}\` again (it promotes every other file too).`,
     '',
   ];
+  const commands = [];
   for (const r of conflicts) {
     const lang = FENCE_LANG[path.extname(r.path).slice(1).toLowerCase()] || '';
     const hunks = r.markers ? parseConflictHunks(r.markers.toString('utf8'), reqId).filter((p) => typeof p !== 'string') : [];
+    const kitPath = `runs/kit/${reqId}/${r.kit_path || r.path}`;
     lines.push(`## \`${r.path}\``, '', `${r.reason}${r.conflictFile ? ` — markers in \`${r.conflictFile}\`` : ''}`, '');
     if (!hunks.length) {
       lines.push('No text to compare (binary, or removed from src/ after the KIT): decide by hand which file to keep.', '');
       continue;
     }
+    let dropsAny = false;
     hunks.forEach((h, n) => {
+      const c = classifyHunk(h.ours, h.theirs, r.theirs ? r.theirs.toString('utf8') : undefined);
+      if (c.dropped.length) dropsAny = true;
       lines.push(`### Spot ${n + 1} of ${hunks.length} — line ${h.line} of src/`, '');
+      if (c.rewritten.length) {
+        lines.push(`**1. Rewritten by ${reqId}** (${c.rewritten.length})`, '', '```diff',
+          ...c.rewritten.flatMap((p) => [`- ${p.from.trim()}`, `+ ${p.to.trim()}`]), '```', '');
+      }
+      lines.push(`**2. Only in src/** (${c.dropped.length})`, '');
+      lines.push(...(c.dropped.length ? fenced(c.dropped.map((d) => d.line.trim()), lang) : ['None: nothing of src/ is lost here.']), '');
+      const lost = [...new Set(c.dropped.flatMap((d) => d.missing))];
+      if (lost.length) lines.push(`${reqId}'s file no longer has: ${lost.map((w) => `\`${w}\``).join(', ')}.`, '');
+      lines.push(`**3. Only in ${reqId}** (${c.added.length})`, '');
+      lines.push(...(c.added.length ? fenced(c.added.map((l) => l.trim()), lang) : ['None.']), '');
+      lines.push('<details><summary>Both versions in full, the diff and the base</summary>', '');
       lines.push('**src/ now**', '', ...fenced(h.ours, lang), '');
       lines.push(`**${reqId} wants**`, '', ...fenced(h.theirs, lang), '');
-      lines.push(`**src/ → ${reqId}**`, '', ...fenced(hunkDiff(h.ours, h.theirs), 'diff'), '');
-      if (h.base) lines.push('<details><summary>base (what the KIT started from)</summary>', '', ...fenced(h.base, lang), '', '</details>', '');
+      lines.push(`**src/ → ${reqId}** (\`-\` only in src/, \`+\` only in ${reqId})`, '', ...fenced(hunkDiff(h.ours, h.theirs), 'diff'), '');
+      if (h.base) lines.push('**base** (what the KIT started from)', '', ...fenced(h.base, lang), '');
+      lines.push('</details>', '');
       const theirsInOurs = h.theirs.length && containsInOrder(tokens(h.ours), tokens(h.theirs));
       lines.push(theirsInOurs
         ? `**What to do:** src/ already holds everything ${reqId} adds here, plus more: keeping src/ is likely right, but ${reqId} was tested with its own version, so run \`/gate ${reqId}\` and check its tests.`
-        : `**What to do:** each side has something the other lacks: write one version with both (from the diff: keep the \`-\` lines src/ needs and add the \`+\` lines ${reqId} needs).`, '');
+        : c.dropped.length
+          ? `**What to do:** keep the ${c.dropped.length} line(s) under *Only in src/* and add what ${reqId} needs (rewritten lines and its additions).`
+          : `**What to do:** nothing of src/ is lost here: ${reqId}'s version is right for this spot.`, '');
     });
+    const sameAsCandidate = r.theirs && takeCandidateSpots(r.markers, reqId).replace(/\n+$/, '') === r.theirs.toString('utf8').replace(/\n+$/, '');
+    if (!dropsAny && sameAsCandidate) {
+      lines.push(`**This file:** ${reqId}'s version keeps every line of src/ (rewritten or unchanged): take it whole.`, '',
+        '```bash', `cp ${kitPath} ${r.path}`, ...(r.conflictFile ? [`rm ${r.conflictFile}`] : []), '```', '');
+      commands.push(`cp ${kitPath} ${r.path}`);
+    } else if (!dropsAny) {
+      lines.push(`**This file:** take ${reqId}'s side of every spot, but not the whole ${kitPath}: elsewhere src/ has changes`,
+        `${reqId} lacks (merged cleanly). In \`${r.conflictFile}\` keep, in each marker block, only the lines between`,
+        `\`=======\` and \`>>>>>>> ${reqId}\`, delete the markers, and save it as \`${r.path}\`.`, '');
+      commands.push(`# ${r.path}: in ${r.conflictFile} keep the ${reqId} side of each block, remove the markers, save as ${r.path}`);
+    } else {
+      lines.push(`**This file:** write it by hand: start from \`${kitPath}\` and put back the *Only in src/* lines above.`, '');
+      commands.push(`# ${r.path}: edit by hand (start from ${kitPath})`);
+    }
+    if (r.conflictFile) commands.push(`rm ${r.conflictFile}`);
   }
+  lines.push('## Commands', '', 'From the project root, on the REQ branch:', '', '```bash', ...commands, '```', '',
+    `Then \`/gate ${reqId}\` in the CLike chat.`, '');
   return lines.join('\n');
 }
 
@@ -398,15 +516,15 @@ function twoWayMarkers(ours, theirs, reqId) {
 }
 
 /** Decide the outcome of one file (pure: no writes). Every conflict carries a marker file. */
-function decide({ ours, base, theirs, reqId }) {
-  const d = decideRaw({ ours, base, theirs, reqId });
+function decide({ ours, base, theirs, reqId, tested = false }) {
+  const d = decideRaw({ ours, base, theirs, reqId, tested });
   if (d.outcome === 'conflict' && !d.markers && ours && theirs && !isBinary(ours) && !isBinary(theirs)) {
     d.markers = twoWayMarkers(ours, theirs, reqId);
   }
   return d;
 }
 
-function decideRaw({ ours, base, theirs, reqId }) {
+function decideRaw({ ours, base, theirs, reqId, tested = false }) {
   if (ours == null) return base == null ? { outcome: 'added', content: theirs } : { outcome: 'conflict', reason: 'removed from the canonical root after the KIT' };
   if (ours.equals(theirs)) return { outcome: 'unchanged' };
   if (base != null && ours.equals(base)) return { outcome: 'updated', content: theirs };
@@ -415,12 +533,16 @@ function decideRaw({ ours, base, theirs, reqId }) {
     return { outcome: 'conflict', reason: base == null ? 'exists in the canonical root with different content and no merge base' : 'binary file changed on both sides' };
   }
   if (base == null) {
-    const r = resolveHunk({ ours: ours.toString('utf8').split('\n'), base: null, theirs: theirs.toString('utf8').split('\n') });
+    const r = resolveHunk({ ours: ours.toString('utf8').split('\n'), base: null, theirs: theirs.toString('utf8').split('\n') }, { tested, theirsText: theirs.toString('utf8') });
+    if (r && r.how === 'rewritten') {
+      return { outcome: 'merged', content: theirs, rewrites: [{ line: 1, pairs: r.rewrites }],
+        reason: `no merge base; ${reqId} rewrote ${r.rewrites.length} line(s) of src/ without dropping any and the gate tested it with the regression: ${reqId} kept — review the rewritten lines` };
+    }
     return r
       ? { outcome: 'merged', content: theirs, reason: `no merge base, but ${reqId} contains the whole canonical file plus its own additions: ${reqId} kept` }
       : { outcome: 'conflict', reason: 'exists in the canonical root with different content and no merge base' };
   }
-  const merged = mergeThreeWay(ours, base, theirs, reqId);
+  const merged = mergeThreeWay(ours, base, theirs, reqId, tested);
   const repeated = merged.conflicts === 0 ? repeatedLines(ours, base, theirs, merged.text) : [];
   if (repeated.length) {
     return {
@@ -433,9 +555,11 @@ function decideRaw({ ours, base, theirs, reqId }) {
     merged.unions ? `${merged.unions} place(s) where both sides only added lines: both kept` : '',
     merged.contained ? `${merged.contained} place(s) where ${reqId} contains src/ plus its own additions: ${reqId} kept` : '',
     merged.already ? `${merged.already} place(s) where src/ already has what ${reqId} adds: src/ kept` : '',
+    merged.rewritten ? `${merged.rewritten} place(s) where ${reqId} rewrote src/ lines without dropping any, tested by the gate with the regression: ${reqId} kept — review the rewritten lines` : '',
   ].filter(Boolean).join('; ');
-  if (merged.conflicts === 0) return auto ? { outcome: 'merged', content: merged.text, reason: auto } : { outcome: 'merged', content: merged.text };
-  return { outcome: 'conflict', reason: [`${merged.conflicts} overlapping change(s)`, auto].filter(Boolean).join('; '), markers: merged.text };
+  const rewrites = merged.rewrites && merged.rewrites.length ? { rewrites: merged.rewrites } : {};
+  if (merged.conflicts === 0) return auto ? { outcome: 'merged', content: merged.text, reason: auto, ...rewrites } : { outcome: 'merged', content: merged.text };
+  return { outcome: 'conflict', reason: [`${merged.conflicts} overlapping change(s)`, auto].filter(Boolean).join('; '), markers: merged.text, ...rewrites };
 }
 
 function renderReport({ reqId, ts, baseRev, baseHow, results, promoted }) {
@@ -469,6 +593,19 @@ function renderReport({ reqId, ts, baseRev, baseHow, results, promoted }) {
       ...conflicts.map((r) => `- \`${r.path}\`: ${r.reason}${r.conflictFile ? ` → \`${r.conflictFile}\`` : ''}`),
       '',
     );
+  }
+  const reviewed = results.filter((r) => r.rewrites && r.rewrites.length);
+  if (reviewed.length) {
+    lines.push('## Rewritten lines kept from ' + reqId + ' (review)', '',
+      `${reqId} rewrote these lines of src/ (each src/ line has its new form, none dropped) and the gate ran this version with`,
+      'the regression of the promoted REQs, so it was promoted. Check that each rewrite keeps what the earlier REQ meant.', '');
+    for (const r of reviewed) {
+      lines.push(`### \`${r.path}\``, '');
+      for (const spot of r.rewrites) {
+        for (const pair of spot.pairs) lines.push('```diff', `- ${pair.from.trim()}`, `+ ${pair.to.trim()}`, '```');
+      }
+      lines.push('');
+    }
   }
   lines.push('Outcomes: `added` new file · `updated` canonical unchanged since the KIT, candidate written · `merged` both changed, merged cleanly · `kept_canonical` only the canonical side changed · `unchanged` identical · `conflict` overlapping changes, not written · `rejected` a root/ file outside the repository-root policy, not written.', '');
   return lines.join('\n');
@@ -506,7 +643,7 @@ function resolvedConflicts(workspaceRoot, kitRoot, theirsDigest) {
   return resolved;
 }
 
-function autoMergePromotion({ workspaceRoot, reqId, now = new Date() }) {
+function autoMergePromotion({ workspaceRoot, reqId, now = new Date(), tested = false }) {
   const ts = now.toISOString().replace(/[:.]/g, '-');
   const kitRoot = path.join(workspaceRoot, 'runs', 'kit', reqId);
   const baseInfo = kitBaseRevision(workspaceRoot, reqId);
@@ -530,7 +667,7 @@ function autoMergePromotion({ workspaceRoot, reqId, now = new Date() }) {
     const theirs = fs.readFileSync(path.join(kitRoot, kitRel));
     const ours = fs.existsSync(dest) ? fs.readFileSync(dest) : null;
     const baseFile = baseContent(workspaceRoot, baseRev, rel, dependencies, kitRel);
-    let d = decide({ ours, base: baseFile ? baseFile.content : null, theirs, reqId });
+    let d = decide({ ours, base: baseFile ? baseFile.content : null, theirs, reqId, tested });
     if (d.outcome === 'merged' && d.content && !d.content.equals(theirs)) {
       const invalid = invalidSource(rel, d.content);
       if (invalid) {
@@ -544,6 +681,7 @@ function autoMergePromotion({ workspaceRoot, reqId, now = new Date() }) {
     if (kitRel !== rel) entry.kit_path = kitRel;
     if (baseFile && baseFile.from !== 'git' && d.outcome !== 'added' && d.outcome !== 'unchanged') entry.base = baseFile.from;
     if (d.reason) entry.reason = d.reason;
+    if (d.rewrites && d.outcome !== 'conflict') entry.rewrites = d.rewrites;
     if (d.content) {
       const diff = isBinary(d.content) ? `Binary file ${rel} ${ours ? 'changed' : 'added'}\n` : unifiedDiff(rel, ours, d.content);
       entry.stats = lineStats(diff);
@@ -555,7 +693,7 @@ function autoMergePromotion({ workspaceRoot, reqId, now = new Date() }) {
       entry.conflictFile = `${rel}.conflict-${reqId}-${ts}`;
       writes.push({ dest: path.join(workspaceRoot, entry.conflictFile), content: d.markers, conflict: true });
     }
-    if (d.outcome === 'conflict') conflictDetails.push({ ...entry, markers: d.markers });
+    if (d.outcome === 'conflict') conflictDetails.push({ ...entry, markers: d.markers, theirs });
     results.push(entry);
   }
   const promoted = !results.some((r) => r.outcome === 'conflict');
@@ -587,4 +725,4 @@ function autoMergePromotion({ workspaceRoot, reqId, now = new Date() }) {
   return { ts, promoted, results, written, reportFiles, reportPath, summary };
 }
 
-module.exports = { autoMergePromotion, promotableEntries, baseContent, decide, invalidSource, renderConflicts, resolveHunk, planDependencies, promotableFiles, kitBaseRevision, mergeThreeWay, unifiedDiff };
+module.exports = { autoMergePromotion, promotableEntries, baseContent, classifyHunk, decide, invalidSource, renderConflicts, resolveHunk, planDependencies, promotableFiles, kitBaseRevision, mergeThreeWay, unifiedDiff };
