@@ -95,6 +95,10 @@ def test_a_recorded_verdict_is_reusable_only_while_its_inputs_stay_the_same(tmp_
         assert eval_verdicts.reusable(proj, "REQ-002", True) is None, rel
     eval_verdicts.record(proj, "REQ-002", True, {"status": "FAIL", "cases": []})
     assert eval_verdicts.reusable(proj, "REQ-002", True) is None            # only a passing verdict
+    # B2B REQ-025: a gate reused a verdict of the eval engine before a fix (same version number)
+    eval_verdicts.record(proj, "REQ-002", True, {"status": "PASS", "cases": []})
+    monkeypatch.setattr(eval_verdicts, "_ENGINE_DIGEST", "another-code")
+    assert eval_verdicts.reusable(proj, "REQ-002", True) is None
 
 
 def test_a_root_conftest_must_keep_the_shared_fixtures(tmp_path: Path):
@@ -217,3 +221,41 @@ def test_the_shared_support_case_is_in_the_eval_report(tmp_path: Path):
     report = runner.run_profile(profile=str(kit / "ci" / "LTC.json"), ltc=_ltc("test:unit"), req_id="REQ-024")
     case = next(c for c in report.cases if c.name == "structure::shared-test-support::test/fixtures.ts")
     assert case.blocking and not case.passed and report.status == "FAIL"
+
+
+def test_a_kit_adding_a_test_layout_file_next_to_promoted_tests_is_blocked(tmp_path: Path):
+    # B2B REQ-025: __init__.py under test/ broke REQ-003's imports by name; same rule in any language
+    def write(rel, text=""):
+        path = tmp_path / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+
+    write("test/execution/test_race.py", "from test_behavior import x\n")
+    write("test/web/orders.spec.ts", "test('a', () => {})\n")
+    write("test/java/OrderTest.java", "class OrderTest {}\n")
+    write("test/go/order_test.go", "package order\n")
+    kit = "runs/kit/REQ-025/test/"
+    write(kit + "__init__.py")                       # Python package marker at the shared root
+    write(kit + "execution/__init__.py")
+    write(kit + "execution/test_new.py")             # its own test: fine
+    write(kit + "execution/req025_support.py")       # its own helper module: fine
+    write(kit + "web/vitest.config.ts")              # JS/TS runner config
+    write(kit + "java/pom.xml")                      # Maven
+    write(kit + "go/go.mod")                         # Go module
+    write(kit + "research/conftest.py")              # a directory of its own: fine
+    write(kit + "research/__init__.py")
+    runner = EvalRunner(tmp_path)
+    [case] = runner._test_layout_cases("REQ-025")
+    assert case.name == "structure::test-layout::test" and case.blocking and not case.passed
+    for rel in ("test/__init__.py", "test/execution/__init__.py", "test/web/vitest.config.ts",
+                "test/java/pom.xml", "test/go/go.mod"):
+        assert f"runs/kit/REQ-025/{rel}" in case.stderr, rel
+    for rel in ("test_new.py", "req025_support.py", "research/"):
+        assert rel not in case.stderr, rel
+    # a file the promoted tree already has is not an addition
+    write("test/__init__.py")
+    write("test/execution/__init__.py")
+    write("test/web/vitest.config.ts")
+    write("test/java/pom.xml")
+    write("test/go/go.mod")
+    assert runner._test_layout_cases("REQ-025") == []

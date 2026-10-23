@@ -396,6 +396,14 @@ Go and Java packages do), in the version after promotion: a test the candidate r
 its version. A changed behaviour behind the same names is the regression's to find; a file in a
 language CLike does not read is left to the regression as before.
 
+A KIT also must not **add a test-layout file** in a test directory of the promoted tree (or one of
+its parents): a file that changes how the tests already there are collected or import their helpers
+— a package marker (`__init__.py`), a `conftest.py`, a pytest / Jest / Vitest / Playwright / Mocha /
+Babel / TypeScript config, a `go.mod`, `pom.xml`, `build.gradle`, `.csproj`. The eval fails
+(`structure::test-layout::<root>`, blocking, no run needed) with the files, at the first eval: the
+regression would show it only once the REQ's own checks pass. The REQ's own tests, helpers and
+directories are not concerned.
+
 ## Required outputs in the eval
 
 Required outputs missing from the candidate (FILE_REQUIREMENTS, e.g. a runnable launcher) block
