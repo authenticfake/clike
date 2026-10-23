@@ -159,15 +159,15 @@ test('auto-merge: a new file under a [dynamic] route directory is added, not a f
 });
 
 /** One file at the KIT start (base), the candidate, then the canonical edit made after the KIT. */
-function threeWay(base, candidate, canonical) {
+function threeWay(base, candidate, canonical, rel = 'src/api.ts', reqId = rel === 'src/api.ts' ? 'REQ-008' : 'REQ-024') {
   const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'clike-promote-contains-'));
   sh(ws, 'init', '-q', '-b', 'main');
   sh(ws, 'config', 'user.email', 't@example.com'); sh(ws, 'config', 'user.name', 't');
-  write(ws, 'src/api.ts', base);
+  write(ws, rel, base);
   sh(ws, 'add', '-A'); sh(ws, 'commit', '-qm', 'base');
-  write(ws, 'runs/kit/REQ-008/src/api.ts', candidate);
-  sh(ws, 'add', '-A'); sh(ws, 'commit', '-qm', 'feat(req-008): kit');
-  write(ws, 'src/api.ts', canonical);
+  write(ws, `runs/kit/${reqId}/${rel}`, candidate);
+  sh(ws, 'add', '-A'); sh(ws, 'commit', '-qm', `feat(${reqId.toLowerCase()}): kit`);
+  write(ws, rel, canonical);
   return ws;
 }
 
@@ -202,7 +202,13 @@ test('auto-merge: the resolvable spots are merged, only the real ones stay, expl
   assert.match(md, /\*\*src\/ now\*\*\n\n```ts\nconst keys = \['q', 'owner'\];\n```/);
   assert.match(md, /\*\*REQ-008 wants\*\*\n\n```ts\nconst keys = \['q', 'fit_min'\];\n```/);
   assert.match(md, /```diff\n-const keys = \['q', 'owner'\];\n\+const keys = \['q', 'fit_min'\];\n```/);
-  assert.match(md, /each side has something the other lacks/);
+  // 'owner' (added to src/ by an earlier REQ) is not in REQ-008's file: a loss, not a rewrite
+  assert.match(md, /\*\*2\. Only in src\/\*\* \(1\)\n\n```ts\nconst keys = \['q', 'owner'\];\n```\n\nREQ-008's file no longer has: `owner`\./);
+  assert.match(md, /keep the 1 line\(s\) under \*Only in src\/\*/);
+  assert.match(md, /write it by hand: start from `runs\/kit\/REQ-008\/src\/api\.ts`/);
+  // even a gate with the regression cannot make a loss automatic
+  const tested = autoMergePromotion({ workspaceRoot: threeWay(API('runs', "'q'"), API('runs|companies/id(/evidence)?', "'q', 'fit_min'"), API('runs|companies/id', "'q', 'owner'")), reqId: 'REQ-008', tested: true });
+  assert.equal(tested.results[0].outcome, 'conflict');
   assert.match(fs.readFileSync(r.reportPath, 'utf8'), /`conflicts\.md`/);
 });
 
@@ -354,4 +360,33 @@ test('the root policy is the same in the extension and in the orchestrator', () 
   const list = (name) => JSON.parse(py.match(new RegExp(`${name} = (\\[[\\s\\S]*?\\])`))[1].replace(/,\s*\]/, ']'));
   assert.deepEqual(list('DEFAULT_ROOT_FOLDERS'), policy.DEFAULT_ROOT_FOLDERS);
   assert.deepEqual(list('DEFAULT_ROOT_FILES'), policy.DEFAULT_ROOT_FILES);
+});
+
+
+test('auto-merge: lines the candidate rewrote without losing anything are kept when the gate tested it', () => {
+  // B2B REQ-024: src/ checks `providers.value`, the candidate renames it (defined from it) and adds a
+  // route check; `permitted` becomes `integrationPermitted = permitted || …`.
+  const base = "const a = 1;\n";
+  const ours = "const a = 1;\nif (!providers.value || ids.some(id => !providers.value?.items.has(id))) {\n"
+    + "  throw new Error('Una fonte richiesta non è approvata o disponibile.');\n}\n";
+  const theirs = "const a = 1;\nconst legacyProviders = providers.value && !Array.isArray(providers.value) ? providers.value : null;\n"
+    + "if (!routing && (!legacyProviders || ids.some(id => !legacyProviders.items.has(id)))) {\n"
+    + "  throw new Error('Una fonte richiesta non è approvata o disponibile.');\n}\nif (routing) preview();\n";
+  const ws = threeWay(base, theirs, ours, 'src/form.ts');
+  const plain = autoMergePromotion({ workspaceRoot: ws, reqId: 'REQ-024' });
+  assert.equal(plain.results[0].outcome, 'conflict', 'not tested: the developer decides');
+  const md = fs.readFileSync(path.join(path.dirname(plain.reportPath), 'conflicts.md'), 'utf8');
+  assert.match(md, /\*\*1\. Rewritten by REQ-024\*\* \(1\)/);
+  assert.match(md, /\*\*2\. Only in src\/\*\* \(0\)\n\nNone: nothing of src\/ is lost here\./);
+  assert.match(md, /```bash\ncp runs\/kit\/REQ-024\/src\/form\.ts src\/form\.ts\nrm src\/form\.ts\.conflict-REQ-024-/);
+
+  fs.rmSync(path.join(ws, plain.results[0].conflictFile));
+  const ws2 = threeWay(base, theirs, ours, 'src/form.ts');
+  const tested = autoMergePromotion({ workspaceRoot: ws2, reqId: 'REQ-024', tested: true });
+  assert.equal(tested.results[0].outcome, 'merged');
+  assert.equal(read(ws2, 'src/form.ts'), theirs);
+  assert.match(tested.results[0].reason, /rewrote src\/ lines without dropping any, tested by the gate/);
+  const report = fs.readFileSync(tested.reportPath, 'utf8');
+  assert.match(report, /## Rewritten lines kept from REQ-024 \(review\)/);
+  assert.match(report, /- if \(!providers\.value/);
 });

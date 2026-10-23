@@ -129,7 +129,15 @@ override) the REQ is promoted **without prompts** (`clike.gate.autoPromote`, def
   from the code an earlier REQ had already promoted; compared word by word, whitespace ignored):
   the candidate is kept, nothing of `src/` is lost and it is what the gate tested. The opposite
   (canonical holds the whole candidate) stays a conflict: `src/` was not tested with this REQ.
-  Without a merge base the same rule applies to the whole file. **Promotion is idempotent:** a
+  A third kind resolves only when **the gate ran this candidate with the regression of the
+  promoted REQs** (not an override): a spot where the candidate **rewrote** `src/` lines without
+  dropping any — each `src/` line it does not repeat has its new form there (most of its words),
+  and none of its words (identifiers, strings, numbers) is gone from the candidate file, as when an
+  expression is renamed and defined from the old one (`legacyProviders = providers.value …`). The
+  candidate is kept and the report lists each rewritten pair under *Rewritten lines kept from
+  <REQ> (review)*. A `src/` line whose words the candidate no longer has (`['q', 'owner']` →
+  `['q', 'fit_min']` loses `owner`) is a loss and stays a conflict, tested or not.
+  Without a merge base the same rules apply to the whole file. **Promotion is idempotent:** a
   merge that would repeat significant lines both sides added (the same block received earlier
   from another REQ, placed elsewhere) is a conflict, never written. **Merged files are checked**
   before they are written — Python compiles, JSON parses, JS/MJS pass `node --check` — and a
@@ -143,10 +151,15 @@ override) the REQ is promoted **without prompts** (`clike.gate.autoPromote`, def
   `.conflict-…` file is deleted (as `conflicts.md` asks), the next gate keeps `src/` for that file
   (`kept_canonical`, "resolved in src/") instead of raising the same conflict again — as long as
   the KIT file is still the one that conflicted (its sha256 is recorded in `report.json`);
-- **`conflicts.md`** next to the report explains every spot still in conflict without markers:
-  what `src/` has now, what the REQ wants, the diff between the two, the base, and what to do.
-  To resolve: write the right content into the canonical file, delete its `.conflict-…` file,
-  `/gate` again. The `.conflict-…`, `.incoming-…` and `.bak-…` files are never copied into an
+- **`conflicts.md`** next to the report explains every spot still in conflict, read line by line:
+  **1. Rewritten by the REQ** (the `src/` line and its new form), **2. Only in `src/`** (lines
+  the REQ would drop, with the words its file no longer has: keep them unless the REQ removes them
+  on purpose), **3. Only in the REQ** (its additions); both versions in full, the diff and the
+  base are folded below. Then what to do for the spot and for the file: when nothing of `src/` is
+  lost and the REQ's file equals the merge with its side of each spot, the exact `cp` and `rm`
+  commands; when `src/` has other changes the REQ lacks, keep the REQ side of each marker block in
+  the `.conflict-…` file; otherwise write it by hand from the REQ's file plus the *Only in `src/`*
+  lines. A **Commands** section at the end lists them all. Then `/gate` again. The `.conflict-…`, `.incoming-…` and `.bak-…` files are never copied into an
   eval workspace, so one left behind does not fail a check;
 - without git history of the KIT there is no base: only new or identical files are promoted,
   the others are conflicts (nothing is overwritten silently);
