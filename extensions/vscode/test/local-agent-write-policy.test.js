@@ -2,6 +2,7 @@ const assert = require('assert');
 const test = require('node:test');
 
 const {
+  describeInterruptedLocalAgentRun,
   buildCodexArgsForLocalAgent,
   extractCodexSandboxModeFromArgs,
   isForbiddenCandidatePath,
@@ -106,6 +107,7 @@ test('local-agent kit artifacts with src test and ci outputs are accepted', () =
     { path: 'runs/kit/REQ-002/src/coffeebuddy/runtime/__init__.py', content: '' },
     { path: 'runs/kit/REQ-002/test/coffeebuddy/runtime/test_req.py', content: '' },
     { path: 'runs/kit/REQ-002/ci/HOWTO.md', content: '' },
+    { path: 'runs/kit/REQ-002/ci/LTC.json', content: '{}' },
     { path: 'runs/kit/REQ-002/docs/RUNBOOK.md', content: '' },
   ];
 
@@ -574,4 +576,42 @@ test('finalize writes the canonical solution inside its package write roots, nev
     () => validateLocalAgentRequiredOutputs({ phase: 'kit', reqId: 'REQ-001', artifacts: [{ path: 'src/a.py', content: 'x' }] }),
     (error) => error.code === 'LOCAL_AGENT_FORBIDDEN_OUTPUT_PATH'
   );
+});
+
+
+test('a KIT without its eval profile is incomplete (B2B REQ-026: ci/ held only check.py and FILE_REQUIREMENTS.json)', () => {
+  const artifacts = [
+    { path: 'runs/kit/REQ-026/src/leadintel/history/service.py', content: '' },
+    { path: 'runs/kit/REQ-026/test/v2/test_req_026_contracts.py', content: '' },
+    { path: 'runs/kit/REQ-026/ci/check.py', content: '' },
+    { path: 'runs/kit/REQ-026/ci/FILE_REQUIREMENTS.json', content: '{}' },
+  ];
+  assert.throws(
+    () => validateLocalAgentRequiredOutputs({ phase: 'kit', reqId: 'REQ-026', artifacts }),
+    (error) => error.code === 'LOCAL_AGENT_REQUIRED_OUTPUTS_MISSING' &&
+      error.details.missing_required_roots.includes('runs/kit/REQ-026/ci/LTC.json')
+  );
+});
+
+test('an agent that exits with an error after writing files is interrupted, Codex and Claude Code alike', () => {
+  // Codex: exit 1 and turn.failed (B2B REQ-026: the model at capacity mid-run)
+  const codex = describeInterruptedLocalAgentRun({
+    exitCode: 1,
+    stdout: '{"type":"turn.failed","error":{"message":"Selected model is at capacity. Please try a different model."}}',
+    executorLabel: 'GPT Codex',
+  });
+  assert.equal(codex.code, 'LOCAL_AGENT_INTERRUPTED');
+  assert.match(codex.message, /at capacity/);
+  assert.match(codex.message, /not used or committed/);
+  // Claude Code: its result envelope says is_error, even with exit code 0
+  const claude = describeInterruptedLocalAgentRun({
+    exitCode: 0,
+    stdout: '{"type":"result","is_error":true,"result":"API Error: 529 Overloaded"}',
+    executorLabel: 'Claude Code',
+    isError: true,
+  });
+  assert.equal(claude.code, 'LOCAL_AGENT_INTERRUPTED');
+  assert.match(claude.message, /529 Overloaded/);
+  // a run that finished
+  assert.equal(describeInterruptedLocalAgentRun({ exitCode: 0, stdout: '{"type":"turn.completed"}' }), null);
 });

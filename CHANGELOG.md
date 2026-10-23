@@ -58,6 +58,13 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **An interrupted agent run is no longer a finished KIT**: on B2B REQ-026 Codex stopped mid-run
+  (`Selected model is at capacity`, exit 1) and CLike committed its partial files as the KIT and
+  ran the eval. An agent that exits with an error after writing files (Codex: exit code /
+  `turn.failed`; Claude Code: `is_error` in its result) is now `LOCAL_AGENT_INTERRUPTED`: files kept,
+  nothing committed or evaluated. `/autopilot` waits and retries on a model at capacity. A KIT
+  without `ci/LTC.json` is incomplete for every executor (cloud, Codex, Claude Code), not committed.
+
 - **A gate no longer reuses a verdict of an older eval engine**: the reusable eval verdict and the
   regression baseline were keyed on CLike's version number, unchanged between fixes; B2B REQ-025's
   gate reused an eval made before the fix that would have blocked it. The key now includes a digest
