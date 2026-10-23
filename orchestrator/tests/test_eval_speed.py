@@ -145,3 +145,75 @@ def test_a_support_file_the_eval_asked_to_drop_can_be_removed_tests_cannot(tmp_p
     other = gi.amend_acceptance_surface(tmp_path, "REQ-015", {}, reason="r", evidence="unit failed",
                                         previous={"test/conftest.py": conftest}, deleted=["test/conftest.py"])
     assert other["accepted"] == [] or "test/conftest.py" in other["rejected"]
+
+
+def _support_project(tmp_path: Path, files: dict, kit_files: dict) -> EvalRunner:
+    for rel, text in files.items():
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text(text)
+    kit = tmp_path / "runs" / "kit" / "REQ-024"
+    for rel, text in kit_files.items():
+        (kit / rel).parent.mkdir(parents=True, exist_ok=True)
+        (kit / rel).write_text(text)
+    return EvalRunner(tmp_path)
+
+
+def test_a_shared_test_support_file_must_keep_the_names_promoted_tests_use(tmp_path: Path):
+    shared = "export const clientId = 'c1';\nexport function page() { return 1; }\nexport { base as fixtureBase };\n"
+    files = {
+        "test/fixtures.ts": shared,
+        "test/workspace.spec.ts": "import { clientId, page } from './fixtures';\ntest('w', () => page(clientId));\n",
+        "test/other.spec.ts": "test('o', () => { const page = 2; });\n",  # names a word, never the module
+    }
+    dropped = "export function page() { return 2; }\nexport { base as fixtureBase };\n"
+    runner = _support_project(tmp_path, files, {"test/fixtures.ts": dropped})
+    [case] = runner._shared_test_support_cases("REQ-024")
+    assert case.name == "structure::shared-test-support::test/fixtures.ts" and case.blocking and not case.passed
+    assert "clientId (used by test/workspace.spec.ts)" in case.stderr and "page" not in case.stderr.split("drops")[1].split(":")[0]
+    # kept, and its own part added: nothing to say
+    (tmp_path / "runs/kit/REQ-024/test/fixtures.ts").write_text(shared + "export const routing = 1;\n")
+    assert runner._shared_test_support_cases("REQ-024") == []
+    # dropped on purpose and the user reconciled by the candidate: the state after promotion is fine
+    (tmp_path / "runs/kit/REQ-024/test/fixtures.ts").write_text(dropped)
+    (tmp_path / "runs/kit/REQ-024/test/workspace.spec.ts").write_text("import { page } from './fixtures';\ntest('w', () => page());\n")
+    assert runner._shared_test_support_cases("REQ-024") == []
+
+
+def test_the_shared_support_check_reads_python_go_and_java(tmp_path: Path):
+    files = {
+        "test/req017_support.py": "PRICE = 12\n\ndef make_client():\n    return 1\n\ndef _private():\n    pass\n",
+        "test/test_exports.py": "from req017_support import PRICE, make_client\n\ndef test_x():\n    assert make_client() and PRICE\n",
+        "tests/helpers.go": "package api\n\nfunc NewServer() int { return 1 }\nfunc helper() {}\n",
+        "tests/api_test.go": "package api\n\nfunc TestApi(t *testing.T) { NewServer() }\n",
+        "test/ApiTestBase.java": "public abstract class ApiTestBase {\n  public Client client() { return null; }\n}\n",
+        "test/OrdersTest.java": "class OrdersTest extends ApiTestBase {\n  @Test void x() { client(); }\n}\n",
+        "test/conftest.py": "def workspace():\n    pass\n",  # the root conftest has its own check
+    }
+    kit = {
+        "test/req017_support.py": "def make_client():\n    return 1\n",
+        "tests/helpers.go": "package api\n\nfunc helper() {}\n",
+        "test/ApiTestBase.java": "public abstract class ApiTestBase {\n}\n",
+        "test/conftest.py": "def other():\n    pass\n",
+    }
+    runner = _support_project(tmp_path, files, kit)
+    found = {c.name: c.stderr for c in runner._shared_test_support_cases("REQ-024")}
+    assert set(found) == {
+        "structure::shared-test-support::test/req017_support.py",
+        "structure::shared-test-support::tests/helpers.go",
+        "structure::shared-test-support::test/ApiTestBase.java",
+    }
+    assert "PRICE (used by test/test_exports.py)" in found["structure::shared-test-support::test/req017_support.py"]
+    assert "NewServer (used by tests/api_test.go)" in found["structure::shared-test-support::tests/helpers.go"]
+    assert "client (used by test/OrdersTest.java)" in found["structure::shared-test-support::test/ApiTestBase.java"]
+
+
+def test_the_shared_support_case_is_in_the_eval_report(tmp_path: Path):
+    files = {
+        "test/fixtures.ts": "export const clientId = 'c1';\n",
+        "test/workspace.spec.ts": "import { clientId } from './fixtures';\n",
+    }
+    runner = _support_project(tmp_path, files, {"test/fixtures.ts": "export const other = 1;\n", "ci/.keep": ""})
+    kit = tmp_path / "runs" / "kit" / "REQ-024"
+    report = runner.run_profile(profile=str(kit / "ci" / "LTC.json"), ltc=_ltc("test:unit"), req_id="REQ-024")
+    case = next(c for c in report.cases if c.name == "structure::shared-test-support::test/fixtures.ts")
+    assert case.blocking and not case.passed and report.status == "FAIL"
