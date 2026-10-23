@@ -58,6 +58,11 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **A gate no longer reuses a verdict of an older eval engine**: the reusable eval verdict and the
+  regression baseline were keyed on CLike's version number, unchanged between fixes; B2B REQ-025's
+  gate reused an eval made before the fix that would have blocked it. The key now includes a digest
+  of the eval engine code.
+
 - **A test-layout file added next to the promoted tests fails the first eval**
   (`structure::test-layout::<root>`): a package marker, conftest, runner or build config (Python,
   JS/TS, Go, Java, .NET) a KIT adds in a test directory of the promoted tree changes how those tests

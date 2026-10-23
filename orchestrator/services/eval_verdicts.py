@@ -3,7 +3,7 @@
 /v1/eval/run records each full verdict with a digest of everything it depends on, computed here,
 server-side, from the project tree (never from a client report); /v1/gate/check reuses a passing
 verdict whose digest still matches instead of running the whole profile again. Same inputs, same
-CLike version, same regression set: the same checks would give the same result. Anything changed
+CLike version and eval engine code, same regression set: the same checks would give the same result. Anything changed
 (a file of the REQ or of the canonical tree, an LTC, a REQ status in plan.json) runs it again.
 Records live in CLIKE_STATE_DIR, which agents cannot write.
 """
@@ -26,13 +26,34 @@ _SKIP_DIRS = frozenset({
 })
 
 
+# The code that decides an eval or gate verdict: a change to any of them (a fix between two releases,
+# same version number) must not reuse a verdict or a baseline computed by the code before it.
+_EVAL_ENGINE_FILES = (
+    "eval_runner.py", "eval_failures.py", "eval_environment.py", "eval_tools.py", "eval_tools_catalog.yaml",
+    "sandbox_resources.py", "services/gate_integrity.py", "services/eval_verdicts.py", "services/root_files.py",
+)
+_ENGINE_DIGEST: Optional[str] = None
+
+
 def _clike_version() -> str:
+    """CLike's version and a digest of its eval engine code (computed once per process)."""
+    global _ENGINE_DIGEST
+    base = Path(__file__).resolve().parents[1]
     try:
         import tomllib
 
-        return tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml").read_text())["project"]["version"]
+        version = tomllib.loads((base / "pyproject.toml").read_text())["project"]["version"]
     except Exception:
-        return "unknown"
+        version = "unknown"
+    if _ENGINE_DIGEST is None:
+        h = hashlib.sha256()
+        for rel in _EVAL_ENGINE_FILES:
+            try:
+                h.update(rel.encode() + b"\0" + (base / rel).read_bytes() + b"\0")
+            except OSError:
+                h.update(rel.encode() + b"\0missing\0")
+        _ENGINE_DIGEST = h.hexdigest()[:12]
+    return f"{version}+{_ENGINE_DIGEST}"
 
 
 def inputs_digest(project_root: Path, req_id: str, regression: bool) -> str:

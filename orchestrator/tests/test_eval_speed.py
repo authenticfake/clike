@@ -95,6 +95,10 @@ def test_a_recorded_verdict_is_reusable_only_while_its_inputs_stay_the_same(tmp_
         assert eval_verdicts.reusable(proj, "REQ-002", True) is None, rel
     eval_verdicts.record(proj, "REQ-002", True, {"status": "FAIL", "cases": []})
     assert eval_verdicts.reusable(proj, "REQ-002", True) is None            # only a passing verdict
+    # B2B REQ-025: a gate reused a verdict of the eval engine before a fix (same version number)
+    eval_verdicts.record(proj, "REQ-002", True, {"status": "PASS", "cases": []})
+    monkeypatch.setattr(eval_verdicts, "_ENGINE_DIGEST", "another-code")
+    assert eval_verdicts.reusable(proj, "REQ-002", True) is None
 
 
 def test_a_root_conftest_must_keep_the_shared_fixtures(tmp_path: Path):
