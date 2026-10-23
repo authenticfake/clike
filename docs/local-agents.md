@@ -109,7 +109,16 @@ The configured model is checked before the agent starts: `clike.localAgent.codex
 against the models of the Codex login (`~/.codex/models_cache.json`),
 `clike.claudeCode.model` against the Claude aliases and `claude-*` ids. An invalid id
 blocks the run with `LOCAL_AGENT_MODEL_INVALID` and the closest valid id. A failed run
-reports `LOCAL_AGENT_EXITED_WITH_ERROR` with the agent's own error message.
+reports `LOCAL_AGENT_EXITED_WITH_ERROR` with the agent's own error message. An agent that exits with an error **after**
+writing files (the model at capacity, a rate limit, a crash mid-run) is `LOCAL_AGENT_INTERRUPTED`:
+its files stay on disk but the phase has no result, nothing is committed or evaluated; run the
+phase again to complete it. Claude Code's failed run is read from its result (`is_error`), Codex's
+from its exit code and `turn.failed`. Under `/autopilot` a model at capacity waits and retries like
+a rate limit.
+
+Whoever writes it (cloud model, Codex, Claude Code), a KIT without `runs/kit/<REQ>/ci/LTC.json`
+is incomplete (`KIT_INCOMPLETE`, or `LOCAL_AGENT_REQUIRED_OUTPUTS_MISSING` for an agent): `ci/`
+also holds files CLike writes itself, so the directory alone does not prove the eval profile is there.
 
 ## Codex write mode
 

@@ -55,7 +55,7 @@ function nextAutopilotReq(reqs, parked = new Set(), stepOf = () => 'kit') {
 }
 
 // A provider out of quota or rate limited: wait and retry the same step, do not park the REQ.
-const QUOTA_RE = /\b429\b|rate[ _-]?limit|too many requests|quota|usage limit|insufficient_quota|limit reached|try again (?:later|in)/i;
+const QUOTA_RE = /\b429\b|rate[ _-]?limit|too many requests|quota|usage limit|insufficient_quota|limit reached|try again (?:later|in)|at capacity|overloaded/i;
 
 function isQuotaFailure(text) {
   return QUOTA_RE.test(String(text || ''));

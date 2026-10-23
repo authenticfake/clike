@@ -116,6 +116,7 @@ const {
   evaluateExtendInputPreflight,
   classifyBlockedLocalAgentOutput,
   describeFailedLocalAgentRun,
+  describeInterruptedLocalAgentRun,
   documentPhaseCompanionTargets,
   isFreshLocalAgentArtifact,
 } = require('./local-agent-write-policy');
@@ -1217,6 +1218,22 @@ async function executeLocalAgentPackage({
     throw new Error(
       `${executorLabel} completed without returning readable candidate artifacts under ${expectedRoot}`
     );
+  }
+
+  // Files written, but the agent exited with an error (the model at capacity, a rate limit, a
+  // crash): an incomplete result is never the phase's output, nor committed.
+  const interrupted = timedOut ? null : describeInterruptedLocalAgentRun({
+    exitCode: agentResult.exitCode,
+    stderr: agentResult.stderr || '',
+    stdout: rawAgentStdout,
+    executorLabel,
+    isError: agentRun.isError === true,
+  });
+  if (interrupted) {
+    log(`[harperRun][agent] local-agent interrupted phase=${phaseForAgent} ${interrupted.message}`);
+    const interruptedError = new Error(`${interrupted.code}: ${interrupted.message}`);
+    interruptedError.code = interrupted.code;
+    throw interruptedError;
   }
 
   const completeArtifacts = pruneLocalAgentCompleteArtifacts(
@@ -4902,6 +4919,13 @@ async function cmdOpenChat(context) {
             }
             panel.webview.postMessage({ type: 'files', data: _out.files });
             log(`[harperRun] written ${written.length} files`);
+            // A KIT without its eval profile is incomplete, whoever wrote it (cloud model, Codex,
+            // Claude Code): not committed, not evaluated. B2B REQ-026 had only check.py in ci/.
+            if (phase === 'kit' && targetReqId &&
+                !fsSync.existsSync(path.join(toFsPath(wsroot), 'runs', 'kit', String(targetReqId).toUpperCase(), 'ci', 'LTC.json'))) {
+              throw new Error(`KIT_INCOMPLETE: runs/kit/${String(targetReqId).toUpperCase()}/ci/LTC.json is missing: the KIT is not complete ` +
+                `(not committed, not evaluated). Run /kit ${targetReqId} again to complete it.`);
+            }
             // Locked tests a local agent changed are governed (and the rejected ones restored)
             // before the commit: otherwise the commit holds a change CLike then reverts.
             const acceptance = phase === 'kit' && (msg.__acceptance ||

@@ -395,6 +395,10 @@ function validateLocalAgentRequiredOutputs({
     ? [`runs/kit/${req}/test/`, `runs/kit/${req}/ci/`]
     : [`runs/kit/${req}/src/`, `runs/kit/${req}/test/`, `runs/kit/${req}/ci/`];
   const missingRoots = requiredRoots.filter((root) => !hasArtifactUnder(artifactList, root));
+  // The eval profile itself: ci/ also holds files CLike writes (FILE_REQUIREMENTS.json), so the
+  // directory alone does not prove the KIT is complete.
+  const ltc = `runs/kit/${req}/ci/LTC.json`;
+  if (!missingRoots.length && !artifactList.map(getArtifactPath).includes(ltc)) missingRoots.push(ltc);
 
   if (missingRoots.length) {
     throw makePolicyError(
@@ -536,6 +540,24 @@ function localAgentErrorFromJsonOutput(stdout) {
   return found.replace(/,\s*(url|cf-ray|request id):.*$/i, '').trim();
 }
 
+/**
+ * An agent that exited with an error after writing some files (the model at capacity, a rate limit,
+ * a crash mid-run): its work is incomplete and is never taken as the phase's result. The files stay
+ * on disk, uncommitted; re-running the phase completes them. Null when the run did not fail.
+ */
+function describeInterruptedLocalAgentRun({ exitCode, stderr = '', stdout = '', executorLabel = 'Local agent', isError = false } = {}) {
+  // Claude Code reports a failed run in its result envelope (is_error), whatever its exit code
+  const code = isError && (exitCode === 0 || exitCode === '0' || exitCode == null) ? 1 : exitCode;
+  const failed = describeFailedLocalAgentRun({ exitCode: code, stderr, stdout, executorLabel });
+  if (!failed) return null;
+  const cause = failed.message.split(/without writing any output:?\s*/)[1] || '';
+  return {
+    code: 'LOCAL_AGENT_INTERRUPTED',
+    message: `${executorLabel} stopped with exit code ${exitCode} before finishing` + (cause ? `: ${cause.replace(/\.$/, '')}` : '') +
+      '. The files it wrote so far are kept on disk but not used or committed: run the phase again to complete them.',
+  };
+}
+
 function describeFailedLocalAgentRun({ exitCode, stderr = '', stdout = '', executorLabel = 'Local agent' } = {}) {
   if (exitCode === 0 || exitCode === '0' || exitCode === null || exitCode === undefined) return null;
   const tail = [
@@ -590,6 +612,7 @@ function classifyBlockedLocalAgentOutput({ stdout = '', stderr = '' } = {}) {
 
 module.exports = {
   describeFailedLocalAgentRun,
+  describeInterruptedLocalAgentRun,
   isFreshLocalAgentArtifact,
   buildCodexArgsForLocalAgent,
   classifyBlockedLocalAgentOutput,
