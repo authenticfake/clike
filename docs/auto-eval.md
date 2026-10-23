@@ -28,7 +28,7 @@ only when its own checks pass **and** it does not break what is already promoted
 | Stop an eval, a gate or a `--fix` loop | **Cancel** in the chat (or `cancel_run` over MCP): the eval running in the sandbox, the repair agent and the next cycles stop; a cancelled agent's files are not sent to the orchestrator |
 | Run it automatically after every `/kit` | `clike.autoEval.afterKit: true` (default `false`) |
 | Number of repair cycles | `clike.autoEval.maxCycles` (default `2`, max `5`) |
-| Extra cycles while improving | `clike.autoEval.extraCyclesOnProgress` (default `3`): after `maxCycles`, the loop goes on as long as each cycle leaves fewer failing checks |
+| Extra cycles while improving | `clike.autoEval.extraCyclesOnProgress` (default `3`): after `maxCycles`, the loop goes on as long as each cycle leaves fewer failing checks, or fewer failing checks of the REQ itself (the regression of the promoted REQs runs only once those pass: its failures are new, not a step back) |
 | Agent re-runs failed checks in the sandbox | `clike.autoEval.agentEvalChecks` (default `8` runs per repair, `0` = off) |
 | Re-check the promoted REQs | `clike.eval.regression` (default `true`) |
 | Make warnings block the gate | `clike.gate.strictWarnings` (default `false`) |
@@ -306,14 +306,19 @@ promoted state**: its results are kept in the eval base dir (`<eval base>/.regre
 CLike's version and the eval environment, for at most 24 h. The next repair cycle, the gate and the
 next REQ's evals on the same tree reuse it: a check known to fail there is neither retried nor run
 again, one known to pass there is not run again either. Any change of the promoted tree computes it
-again. The candidate's own KIT is not part of the digest. The results are kept only when the eval
+again. The candidate's own KIT is not part of the digest. A check that failed there on a recent promoted state
+(7 days) and passes there now, while it fails with the candidate and on its re-run, is **unstable**:
+a non-blocking warning (`[CLike EvalRunner] Nondeterministic: … an unstable check`), since its
+result proves nothing about the candidate. The results are kept only when the eval
 base dir is outside the project (the eval sandbox volume): a project directory is writable by local
 agents, which must not be able to turn a regression into a warning; there every eval runs it again.
 
 When a check of a promoted REQ fails and the candidate KIT replaces files that REQ also delivered
 (its `src/` or `test/` files, compared with the canonical copy), CLike names them on the failing
 check, with a short diff: `[CLike EvalRunner] Shared files changed: …`. It works on files, so in
-any language: a test runner config whose selectors no longer match the earlier tests ("No tests
+any language: a file the candidate **adds** in a test directory of that REQ or one of its parents
+(a package marker such as `__init__.py`, a conftest, a runner config: it changes how those tests are
+collected and import their helpers), a test runner config whose selectors no longer match the earlier tests ("No tests
 found"), a compose file or manifest an earlier check pins, a component whose behaviour changed.
 The repair is told to keep what the promoted REQ put there and add its own part, or to put it in a
 separate file (a compose override, an extra test config or project) when an earlier check pins the

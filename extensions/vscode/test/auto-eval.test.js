@@ -338,3 +338,18 @@ test('eval --fix keeps its methodology for every repair and re-eval', () => {
   assert.deepEqual(fixCycleMethodology({ methodology: 'bmad', agent: 'qa' }), loop);
   assert.deepEqual(fixCycleMethodology(parseSlash('/eval REQ-025 --fix').args), { kit: {}, eval: {} });
 });
+
+test('the regression appearing once the REQ own checks pass earns an extra cycle (B2B REQ-025)', () => {
+  const report = {
+    status: 'FAIL',
+    cases: ['regression::REQ-003::test:integration', 'regression::REQ-017::unit', 'regression::REQ-020::unit', 'regression::REQ-014::test:integration']
+      .map((name) => ({ name, passed: false, blocking: true, stdout: 'AssertionError' })),
+  };
+  // cycle 2 of 2: before it, 2 own checks failed (types, tests); now they pass and 4 regressions fail
+  const state = { cycle: 2, maxCycles: 2, extraCycles: 3, lastFailureCount: 2, lastOwnFailureCount: 2, lastSignature: 'x', lastKitOk: true };
+  const step = nextAutoEvalStep(state, report);
+  assert.equal(step.action, 'repair');
+  assert.match(step.reason, /own checks improved .*4 regression failure/);
+  // no progress at all: it stops as before
+  assert.equal(nextAutoEvalStep({ ...state, lastOwnFailureCount: 0, lastFailureCount: 4 }, report).action, 'stop');
+});

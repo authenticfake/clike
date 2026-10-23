@@ -97,6 +97,18 @@ class BaselineCacheTests(_RegressionProject):
         self._eval()
         self.assertEqual(self._runs(), 6)
 
+    def test_a_check_that_failed_without_any_candidate_before_is_unstable(self):
+        # B2B REQ-014: failed on the promoted tree alone at an earlier promoted state, then a new
+        # promoted state where it passes alone once but fails with the candidate and its retry
+        self._flaky_req001(fail_times=99)
+        self._eval()
+        (self.proj / "runs" / "kit" / "REQ-001" / "test" / "note.txt").write_text("changed\n")
+        (self.proj.parent / f"{self.proj.name}.count").write_text("97")  # runs 98, 99 fail; 100 passes
+        body = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        case = next(c for c in body["cases"] if c["name"] == "regression::REQ-001::unit")
+        self.assertFalse(case["blocking"])
+        self.assertIn("an unstable check", case["stderr"])
+
     def test_no_baseline_is_kept_inside_the_project(self):
         self._root.stop()
         self._flaky_req001(fail_times=99)
@@ -191,6 +203,24 @@ class SharedFileDiagnosisTests(_RegressionProject):
             (root / "cand" / "src" / "a.py").write_text("A = 1\n")  # same content: not a change
             self.assertEqual(eval_runner._shared_file_changes(root, root / "cand", root / "runs" / "kit" / "REQ-001"), [])
 
+
+    def test_a_file_the_candidate_adds_in_a_promoted_test_directory_is_named(self):
+        # B2B REQ-025: __init__.py added next to REQ-003's tests made them a package, their bare imports broke
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            other = root / "runs" / "kit" / "REQ-003"
+            (other / "test" / "execution").mkdir(parents=True)
+            (other / "test" / "execution" / "test_race.py").write_text("from test_behavior import x\n")
+            (root / "cand" / "test" / "execution").mkdir(parents=True)
+            (root / "cand" / "test" / "__init__.py").write_text("")
+            (root / "cand" / "test" / "execution" / "__init__.py").write_text("")
+            (root / "cand" / "test" / "mine").mkdir()
+            (root / "cand" / "test" / "mine" / "helper.py").write_text("")  # its own directory: fine
+            changes = eval_runner._shared_file_changes(root, root / "cand", other)
+            self.assertEqual(
+                [c.split(" ")[1] for c in changes], ["test/__init__.py", "test/execution/__init__.py"]
+            )
+            self.assertIn("package marker such as __init__.py", eval_runner._shared_files_note("REQ-003", changes))
 
 class WorkspaceCopyTests(unittest.TestCase):
     def test_scratch_of_the_kit_is_not_copied_and_vanished_files_are_skipped(self):

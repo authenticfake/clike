@@ -89,6 +89,7 @@ const {
   acceptanceChanges,
   collectRepairFiles,
   fixCycleMethodology,
+  ownFailureCount,
   manualRepairRequest,
   nextAutoEvalStep,
   nextAutoGateStep,
@@ -6445,6 +6446,7 @@ async function cmdOpenChat(context) {
       maxCycles: Math.max(1, Number(settings.finalizeVerifyMaxCycles || 3)),
       extraCycles: Math.max(0, Number(settings.autoEvalExtraCyclesOnProgress ?? 3)),
       lastFailureCount: prev.lastFailureCount,
+      lastOwnFailureCount: prev.lastOwnFailureCount,
       hint: String(prev.hint || ''),
       lastSignature: prev.lastSignature || '',
       lastKitOk: msg.__result === 'ok',
@@ -6512,7 +6514,7 @@ async function cmdOpenChat(context) {
         files: finalizeVerify.collectSolutionFiles(ws.fsPath),
         hint: state.hint,
       },
-      finalizeVerifyState: { ...state, cycle, lastSignature: step.signature, lastFailureCount: (step.failures || []).length },
+      finalizeVerifyState: { ...state, cycle, lastSignature: step.signature, lastFailureCount: (step.failures || []).length, lastOwnFailureCount: ownFailureCount(step.failures) },
       finalizePendingConfirmed: true,
     });
   }
@@ -6788,6 +6790,7 @@ async function cmdOpenChat(context) {
       maxCycles: Math.max(1, Number(msg.fix.maxCycles || settings.autoEvalMaxCycles || 2)),
       extraCycles: Math.max(0, Number(msg.fix.extraCycles ?? settings.autoEvalExtraCyclesOnProgress ?? 3)),
       lastFailureCount: msg.fix.lastFailureCount,
+      lastOwnFailureCount: msg.fix.lastOwnFailureCount,
       hint: String(msg.fix.hint || ''),
       lastSignature: msg.fix.lastSignature || '',
       lastKitOk: msg.fix.lastKitOk,
@@ -6865,7 +6868,7 @@ async function cmdOpenChat(context) {
       targetReqId: reqId,
       attachments: [],
       ...loopMethodology.eval,
-      fix: { ...state, cycle, lastSignature: step.signature, lastKitOk: kitMsg.__result === 'ok', lastFailures: step.failures, lastFailureCount: (step.failures || []).length },
+      fix: { ...state, cycle, lastSignature: step.signature, lastKitOk: kitMsg.__result === 'ok', lastFailures: step.failures, lastFailureCount: (step.failures || []).length, lastOwnFailureCount: ownFailureCount(step.failures) },
     };
     await handleWebviewMessage(evalMsg);
     if (evalMsg.__report) msg.__report = evalMsg.__report;
@@ -6881,6 +6884,7 @@ async function cmdOpenChat(context) {
       maxCycles: Math.max(1, Number(msg.fix.maxCycles || settings.autoEvalMaxCycles || 2)),
       extraCycles: Math.max(0, Number(msg.fix.extraCycles ?? settings.autoEvalExtraCyclesOnProgress ?? 3)),
       lastFailureCount: msg.fix.lastFailureCount,
+      lastOwnFailureCount: msg.fix.lastOwnFailureCount,
       hint: String(msg.fix.hint || ''),
       lastSignature: msg.fix.lastSignature || '',
       lastKitOk: msg.fix.lastKitOk,
@@ -6952,7 +6956,7 @@ async function cmdOpenChat(context) {
       targetReqId: reqId,
       attachments: [],
       ...(msg.promote ? { promote: msg.promote } : {}),
-      fix: { ...state, cycle, lastSignature: step.signature, lastKitOk: kitMsg.__result === 'ok', lastFailures: step.failures, lastFailureCount: (step.failures || []).length },
+      fix: { ...state, cycle, lastSignature: step.signature, lastKitOk: kitMsg.__result === 'ok', lastFailures: step.failures, lastFailureCount: (step.failures || []).length, lastOwnFailureCount: ownFailureCount(step.failures) },
     };
     await handleWebviewMessage(gateMsg);
     if (gateMsg.__report) msg.__report = gateMsg.__report;

@@ -33,6 +33,8 @@ def repair_rules(req_id: str) -> List[str]:
         "A check that stopped because a native program is missing in the sandbox (`[CLike EvalRunner] Missing in the eval sandbox: …`, `command not found`) is not fixed in code: declare the program in ci/LTC.json `environment.tools` (e.g. [\"kcat\", \"jdk@17\"]); CLike installs it from its tools catalog.",
         f"A failure caused by the sandbox itself (network down, missing system tool) is not fixed by changing code: explain it in runs/kit/{req_id}/docs/KIT_{req_id}.md. A test that ran and failed (an assertion, an element not found, a module of the candidate not found, a timeout in the code) is never a sandbox failure: fix it.",
         f"Keep runs/kit/{req_id}/ci/HOWTO.md (`## Run with CLike /eval`) in line with what you declared.",
+        "A test helper that cannot be imported (`No module named 'x'`, `Cannot find module 'x'`, x a file of the project): fix the import path of the check (its PYTHONPATH/MYPYPATH, tsconfig paths, classpath) or of this REQ's own test, the way the promoted tests already import theirs. Never add package markers (`__init__.py`), conftest or runner config files to test directories this REQ does not own: after promotion they change how the tests of the promoted REQs are collected and import their helpers.",
+        "A regression of a promoted REQ that this REQ causes on purpose (a test of that REQ pins the latest state: the head migration, the full list of routes, services or files, and this REQ adds one): reconcile that test in this REQ's candidate test root at the same relative path, adding this REQ's entry and keeping every existing one; CLike marks it for the developer's review.",
         "Fix the root cause in the source; do not special-case the tests.",
     ]
 
