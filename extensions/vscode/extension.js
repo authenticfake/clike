@@ -3911,7 +3911,7 @@ function createCockpitFeed(panel, context, runs = null) {
     const ws = getWorkspaceRoot();
     let project = null;
     if (ws) {
-      try { project = buildCockpitState(ws.fsPath); } catch (err) { log(`[cockpit] state: ${err?.message || err}`); }
+      try { project = buildCockpitState(ws.fsPath, { methodology: prefs().methodology }); } catch (err) { log(`[cockpit] state: ${err?.message || err}`); }
     }
     await refreshCatalog();
     panel.webview.postMessage({

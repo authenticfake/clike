@@ -621,6 +621,10 @@ function getWebviewHtml(orchestratorUrl, themeName = 'cockpit') {
   .ck-btns { display:flex; gap:6px; margin-top:7px; flex-wrap:wrap; }
   .ck-btn { border:1px solid #4b5563; background:#2d2d30; color:#e5e7eb; border-radius:6px; padding:3px 11px; font-size:12px; }
   .ck-btn.primary { background:#7c3aed; border-color:#7c3aed; color:#fff; }
+  .ck-alt { display:flex; align-items:center; gap:8px; margin-top:4px; min-width:0; }
+  .ck-alt code { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:var(--vscode-editor-font-family, ui-monospace, Menlo, monospace); font-size:12px; color:#ddd6fe; background:none; padding:0; }
+  .ck-alt .ck-btn { padding:1px 9px; }
+  #ckDrawerClose { display:none; }
   .ck-kv { color:var(--fg-dim); font-size:12px; line-height:1.6; overflow-wrap:anywhere; }
   .ck-kv b { color:var(--fg); font-weight:600; }
   .ck-ok { color:#86efac; } .ck-ko { color:#fca5a5; } .ck-warn { color:#fcd34d; }
@@ -636,8 +640,10 @@ function getWebviewHtml(orchestratorUrl, themeName = 'cockpit') {
   /* narrow (the chat beside the editor): one column, the cockpit is a drawer, a status strip stays */
   @media (max-width: 720px) {
     body[data-theme="cockpit"] #ckShell { grid-template-columns:minmax(0, 1fr); padding:6px; }
-    body[data-theme="cockpit"] #ckSide { display:none; position:fixed; top:0; right:0; bottom:0; width:min(92vw, 360px); z-index:80;
-      border-radius:0; box-shadow:-8px 0 24px rgba(0,0,0,.5); }
+    body[data-theme="cockpit"] #ckSide { display:none; position:fixed; top:0; right:0; bottom:0; width:min(84vw, 340px); z-index:80;
+      border-radius:0; box-shadow:-8px 0 24px rgba(0,0,0,.5); padding-top:0; }
+    body[data-theme="cockpit"] #ckDrawerClose { display:flex; position:sticky; top:0; z-index:2; justify-content:space-between; align-items:center;
+      background:var(--card); padding:8px 0 6px; border-bottom:1px solid #333338; font-weight:700; }
     body[data-theme="cockpit"].ck-drawer #ckSide { display:block; }
     body[data-theme="cockpit"].ck-drawer #ckScrim { display:block; position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:70; }
     body[data-theme="cockpit"] #ckDrawerBtn { display:inline-block; }
@@ -2847,6 +2853,7 @@ function ckSetMode(value) {
 }
 function ckRunCommand(cmd) {
   if (isBusy() || !cmd) return;
+  ckToggleDrawer(false);
   if (currentMode() !== 'harper') ckSetMode('harper');
   var hole = cmd.indexOf(' <');
   if (hole > 0) {
@@ -2882,6 +2889,21 @@ function ckBuild() {
   drawerBtn.addEventListener('click', function () { ckToggleDrawer(); });
   head.appendChild(drawerBtn);
   el('ckScrim').addEventListener('click', function () { ckToggleDrawer(false); });
+
+  // narrow panels: the drawer always shows how to close it (and Esc, the area on its left)
+  var closeBar = ckEl('div'); closeBar.id = 'ckDrawerClose';
+  closeBar.appendChild(ckEl('span', '', 'Cockpit'));
+  var closeBtn = ckEl('button', 'ck-btn', '✕ Close');
+  closeBtn.addEventListener('click', function () { ckToggleDrawer(false); });
+  closeBar.appendChild(closeBtn);
+  side.appendChild(closeBar);
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape' && document.body.classList.contains('ck-drawer')) { ckToggleDrawer(false); ev.stopPropagation(); }
+  }, true);
+  // back to a wide panel: no drawer
+  try {
+    window.matchMedia('(max-width: 720px)').addEventListener('change', function (mq) { if (!mq.matches) ckToggleDrawer(false); });
+  } catch (e) {}
 
   // mode + settings: the existing controls are moved here
   var secCfg = ckSection('ckSecCfg', 'Mode & settings', true);
@@ -2954,20 +2976,20 @@ function ckBuild() {
   var roles = ckEl('div', 'ck-roles');
   roles.id = 'ckRoles';
   secMeth.appendChild(roles);
-  side.appendChild(secMeth);
 
   // project (Harper)
   var secProj = ckSection('ckSecProj', 'Project', true);
   secProj.classList.add('ck-harper');
   var proj = ckEl('div'); proj.id = 'ckProject';
   secProj.appendChild(proj);
-  side.appendChild(secProj);
 
   var secNext = ckSection('ckSecNext', 'Next action', true);
   secNext.classList.add('ck-harper');
   var next = ckEl('div'); next.id = 'ckNext';
   secNext.appendChild(next);
+  // the next action first: in Harper it is what the developer acts on most
   side.appendChild(secNext);
+  side.appendChild(secProj);
 
   var secReq = ckSection('ckSecReq', 'REQ', true);
   secReq.classList.add('ck-harper');
@@ -2982,6 +3004,7 @@ function ckBuild() {
   var reqs = ckEl('div', 'ck-reqs'); reqs.id = 'ckReqs';
   secReq.appendChild(reqs);
   side.appendChild(secReq);
+  side.appendChild(secMeth);
 
   // free / coding: the Harper project in one line
   var secSum = ckSection('ckSecSum', 'Harper project', true);
@@ -3216,6 +3239,20 @@ function ckRenderNext() {
     btns.appendChild(auto);
   }
   wrap.appendChild(btns);
+  // BMAD: the roles of a phase that have not run yet are a choice too (SPEC by ux, PLAN by pm…)
+  var alts = (p.alternatives || []);
+  if (alts.length) {
+    wrap.appendChild(ckEl('div', 'ck-kv', 'Or, before going on:'));
+    alts.forEach(function (alt) {
+      var row = ckEl('div', 'ck-alt');
+      row.appendChild(ckEl('code', '', alt.command));
+      var b = ckEl('button', 'ck-btn ck-ctl', 'Run');
+      b.title = alt.message;
+      b.addEventListener('click', function () { ckRunCommand(alt.command); });
+      row.appendChild(b);
+      wrap.appendChild(row);
+    });
+  }
   box.appendChild(wrap);
 }
 
@@ -3302,7 +3339,7 @@ function ckRenderStrip() {
   p.phases.forEach(function (ph) { pills.appendChild(ckPill(ph, ph.id === 'finalize' ? 'FIN' : ph.label)); });
   strip.appendChild(pills);
   if (p.next && p.next.command) {
-    strip.appendChild(ckEl('code', 'ck-dim', p.next.command));
+    strip.appendChild(ckEl('code', 'ck-dim', p.next.command + ((p.alternatives || []).length ? '  (+' + p.alternatives.length + ' ☰)' : '')));
     var run = ckEl('button', 'ck-btn primary ck-ctl', 'Run');
     run.addEventListener('click', function () { ckRunCommand(p.next.command); });
     strip.appendChild(run);

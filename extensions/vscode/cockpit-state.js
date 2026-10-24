@@ -12,6 +12,25 @@ const { inputsFingerprint } = require('./auto-eval');
 const PHASES = ['idea', 'spec', 'plan', 'kit', 'finalize'];
 // what /init writes: a Harper document equal to its template (placeholders aside) is not done yet
 const INIT_TEMPLATES = path.join(__dirname, 'templates', 'harper-init', 'docs', 'harper');
+// BMAD phases with more than one role, and what each role writes (the mandatory companion outputs
+// of the methodology's artifact_policy): a role ran when one of its outputs is there.
+const BMAD_ROLE_OUTPUTS = {
+  spec: {
+    pm: ['docs/harper/bmad/spec/PRD.md', 'docs/harper/bmad/spec/EPICS.md', 'docs/harper/bmad/spec/ACCEPTANCE_MODEL.md', 'docs/harper/bmad/spec/SCOPE_DECISIONS.md'],
+    ux: ['docs/harper/ux/DESIGN.md', 'docs/harper/ux/EXPERIENCE.md', 'docs/harper/ux/USER_JOURNEYS.md', 'docs/harper/ux/INTERACTION_STATES.md', 'docs/harper/ux/SPEC_UX_APPENDIX.md'],
+  },
+  plan: {
+    architect: ['docs/harper/bmad/architecture/ARCHITECTURE.md', 'docs/harper/bmad/architecture/DECISIONS.md', 'docs/harper/bmad/architecture/INTEGRATION_BOUNDARIES.md', 'docs/harper/bmad/architecture/RISKS.md'],
+    pm: ['docs/harper/bmad/plan/STORIES.md', 'docs/harper/bmad/plan/STORY_MAP.md', 'docs/harper/bmad/plan/IMPLEMENTATION_READINESS.md'],
+  },
+};
+
+/** The BMAD roles of a phase that have not run yet. */
+function missingRoles(root, phase) {
+  return Object.entries(BMAD_ROLE_OUTPUTS[phase] || {})
+    .filter(([, outputs]) => !outputs.some((rel) => exists(root, rel)))
+    .map(([role]) => role);
+}
 const PASSING = new Set(['PASS', 'PASS_WITH_WARNINGS']);
 // what the cockpit run card shows for each Harper command
 const RUN_LABELS = {
@@ -189,6 +208,21 @@ function buildCockpitState(root, opts = {}) {
     next = { command: '/plan', message: 'SPEC is ready: generate the PLAN (the REQs).' };
   }
 
+  // With BMAD, a phase whose roles have not all run stays open next to the next step (SPEC by pm
+  // and ux, PLAN by architect and pm) until the KIT starts: the developer chooses.
+  const alternatives = [];
+  const kitStarted = counts.done > 0 || counts.in_progress > 0;
+  if (opts.methodology === 'bmad' && next && !kitStarted) {
+    const doneOf = Object.fromEntries(phases.map((ph) => [ph.id, ph.state === 'done']));
+    for (const phase of ['spec', 'plan']) {
+      if (!doneOf[phase]) continue;
+      for (const role of missingRoles(root, phase)) {
+        const command = `/${phase} --methodology bmad --agent ${role}`;
+        if (command !== next.command) alternatives.push({ command, message: `${phase.toUpperCase()} by the ${role} role has not run yet` });
+      }
+    }
+  }
+
   return {
     harper: exists(root, 'docs/harper'),
     project: String(plan?.project || path.basename(root)),
@@ -199,6 +233,7 @@ function buildCockpitState(root, opts = {}) {
     phases,
     reqs: rows,
     next,
+    alternatives,
     last_run: lastRun,
   };
 }

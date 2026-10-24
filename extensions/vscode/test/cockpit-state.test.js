@@ -48,6 +48,31 @@ test('right after /init the documents are its templates: the next action is /ide
   assert.equal(buildCockpitState(root).next.command, '/plan');
 });
 
+test('BMAD: a phase whose roles have not all run stays a choice next to the next step', () => {
+  const root = project({ 'docs/harper/IDEA.md': '# IDEA real', 'docs/harper/SPEC.md': '# SPEC real', 'runs/idea/docs/x.md': '', 'runs/spec/docs/x.md': '',
+    'docs/harper/bmad/spec/PRD.md': '# PRD' });
+  const bmad = { methodology: 'bmad' };
+  let state = buildCockpitState(root, bmad);
+  assert.equal(state.next.command, '/plan');
+  assert.deepEqual(state.alternatives.map((a) => a.command), ['/spec --methodology bmad --agent ux'], 'SPEC by pm ran, by ux not yet');
+  assert.deepEqual(buildCockpitState(root).alternatives, [], 'native Harper: no roles');
+  // ux ran too: /plan for certain
+  fs.mkdirSync(path.join(root, 'docs', 'harper', 'ux'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'docs', 'harper', 'ux', 'USER_JOURNEYS.md'), '# journeys');
+  assert.deepEqual(buildCockpitState(root, bmad).alternatives, []);
+  // PLAN by architect: /kit next, PLAN by pm still possible until the KIT starts
+  fs.writeFileSync(path.join(root, 'docs', 'harper', 'plan.json'), JSON.stringify({ reqs: [{ id: 'REQ-001', status: 'open' }] }));
+  fs.mkdirSync(path.join(root, 'runs', 'plan'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'runs', 'plan', 'x.md'), '');
+  fs.mkdirSync(path.join(root, 'docs', 'harper', 'bmad', 'architecture'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'docs', 'harper', 'bmad', 'architecture', 'ARCHITECTURE.md'), '# arch');
+  state = buildCockpitState(root, bmad);
+  assert.equal(state.next.command, '/kit REQ-001');
+  assert.deepEqual(state.alternatives.map((a) => a.command), ['/plan --methodology bmad --agent pm']);
+  fs.writeFileSync(path.join(root, 'docs', 'harper', 'plan.json'), JSON.stringify({ reqs: [{ id: 'REQ-001', status: 'in_progress' }] }));
+  assert.deepEqual(buildCockpitState(root, bmad).alternatives, [], 'the KIT started: no going back');
+});
+
 test('a new project: no IDEA yet, the next action is /idea', () => {
   const state = buildCockpitState(project({ 'docs/harper/.keep': '' }));
   assert.equal(state.harper, true);
