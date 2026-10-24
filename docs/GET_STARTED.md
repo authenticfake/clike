@@ -32,6 +32,10 @@ this REQ**); **⏹ Stop now** (or Esc) first says what stopping now loses — a 
 report, files an agent already wrote stay uncommitted — then stops. After a stop the card lists what
 was done and offers the command to resume.
 
+**Conversations** (every layout): **＋ New chat** starts a new conversation in the mode and keeps the
+previous one; in the cockpit, **History** lists them and reopens one with a click. What CLike says
+while a command runs is grouped in one card with the time of each message.
+
 **Autocompletion** (every layout): type `/` — commands, then the REQs that fit the command, flags
 and values; the command's signature stays visible and an invalid command shows the parser's error
 with its fix before you send. Tab or ↵ inserts, Esc closes, ↑ in an empty prompt recalls the last

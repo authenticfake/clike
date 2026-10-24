@@ -169,6 +169,7 @@ const{ toFsPath,  clikeGitSync } = require('./git'); // NEW: clikeGitSync
 const { CHAT_THEMES, getChatTheme, getWebviewHtml } = require('./chat-ui');
 const { buildCockpitState, reportCounts } = require('./cockpit-state');
 const { createRunTracker } = require('./run-tracker');
+const chatHistory = require('./chat-history');
 const {
   attachBmadQaAdvisory,
   buildEffectiveEvalMethodologyContext,
@@ -3916,7 +3917,7 @@ function createCockpitFeed(panel, context, runs = null) {
     await refreshCatalog();
     panel.webview.postMessage({
       type: 'cockpitState',
-      state: { project, agent: agentInfo(), prefs: prefs(), tools: catalog.tools, theme: getChatTheme(), running: inflight > 0 },
+      state: { project, agent: agentInfo(), prefs: prefs(), tools: catalog.tools, theme: getChatTheme(), running: inflight > 0, history: history() },
     });
     if (pendingTheme && inflight === 0) reloadTheme();
   }
@@ -3924,6 +3925,23 @@ function createCockpitFeed(panel, context, runs = null) {
   function refresh(delay = 300) {
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => post().catch((err) => log(`[cockpit] post: ${err?.message || err}`)), delay);
+  }
+
+  // the conversations of the current mode (chat-history.js): the current one and the archived ones
+  function currentMode() {
+    return (context.workspaceState.get('clike.uiState') || {}).mode || 'free';
+  }
+  function history() {
+    if (!getWorkspaceRoot()) return null;
+    try { return { mode: currentMode(), ...chatHistory.listConversations(sessionsDirUri().fsPath, currentMode()) }; } catch { return null; }
+  }
+  async function rehydrate() {
+    const ui = context.workspaceState.get('clike.uiState') || {};
+    const mode = ui.mode || 'free';
+    const msgs = effectiveHistoryScope(context) === 'allModels'
+      ? await loadSession(mode, 200).catch(() => [])
+      : await loadSessionFilteredV2(mode, ui.model || 'auto', 200).catch(() => []);
+    panel.webview.postMessage({ type: 'hydrateSession', messages: msgs });
   }
 
   // a new layout: the webview is rebuilt (cronology and state come back with webview_ready)
@@ -3963,6 +3981,29 @@ function createCockpitFeed(panel, context, runs = null) {
       return undefined;
     }
     if (msg.type === 'showChanges') return vscode.commands.executeCommand('workbench.view.scm');
+    // history of conversations: never while a command runs (the webview disables it too)
+    if (['historyNew', 'historyOpen', 'historyDelete'].includes(msg.type)) {
+      if (inflight > 0 || clikeHarperBlockingRun || autopilotRun) return undefined;
+      const dir = sessionsDirUri().fsPath;
+      const mode = currentMode();
+      try {
+        if (msg.type === 'historyNew') {
+          chatHistory.archiveCurrent(dir, mode);
+          // the agent too starts a new conversation in this mode (as /agent-session new)
+          const sessions = context.workspaceState.get('clike.agentSessions') || {};
+          await context.workspaceState.update('clike.agentSessions',
+            Object.fromEntries(Object.entries(sessions).filter(([key]) => !key.startsWith(`${mode}:`))));
+        } else if (msg.type === 'historyOpen') {
+          chatHistory.openConversation(dir, mode, String(msg.id || ''));
+        } else {
+          chatHistory.deleteConversation(dir, mode, String(msg.id || ''));
+        }
+      } catch (err) {
+        vscode.window.showWarningMessage(`CLike history: ${err?.message || err}`);
+      }
+      if (msg.type !== 'historyDelete') await rehydrate();
+      return refresh(0);
+    }
     if (msg.type === 'copyText') return vscode.env.clipboard.writeText(String(msg.text || ''));
     if (msg.type === 'cockpitPrefs') {
       const next = { methodology: msg.methodology === 'bmad' ? 'bmad' : '', roles: msg.roles && typeof msg.roles === 'object' ? msg.roles : {} };
@@ -3998,7 +4039,8 @@ function createCockpitFeed(panel, context, runs = null) {
   panel.onDidDispose(() => { if (timer) clearTimeout(timer); disposables.forEach((d) => d.dispose()); });
 
   return {
-    handles: (type) => ['cockpitRefresh', 'cockpitPrefs', 'setTheme', 'copyText', 'cancelAfterStep', 'cancelAfterReq', 'cancelUndoStop', 'showChanges'].includes(type),
+    handles: (type) => ['cockpitRefresh', 'cockpitPrefs', 'setTheme', 'copyText', 'cancelAfterStep', 'cancelAfterReq', 'cancelUndoStop', 'showChanges',
+      'historyNew', 'historyOpen', 'historyDelete'].includes(type),
     handle,
     refresh,
     track(type, promise) {

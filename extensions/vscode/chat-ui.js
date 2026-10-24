@@ -499,6 +499,32 @@ function getWebviewHtml(orchestratorUrl, themeName = 'cockpit') {
   .ac-foot { display:flex; gap:12px; padding:3px 10px; font-size:11px; color:var(--fg-dim); border-top:1px solid var(--border); }
   @media (max-width: 520px) { .ac-it { grid-template-columns:minmax(0, 1fr) auto; } .ac-it .ac-d, .ac-it .ac-g { display:none; } .ac-foot { display:none; } }
 
+  /* ---------- every layout: log cards and model answers ---------- */
+  .bubble.log-card { width:min(100%, 760px); max-width:100%; padding:6px 10px 8px; border-left:3px solid #7c3aed; white-space:normal; }
+  .log-head { display:flex; align-items:center; gap:8px; font-size:11.5px; color:var(--fg-dim); margin-bottom:4px; }
+  .log-title { font-weight:600; color:var(--fg); }
+  .log-stats { flex:1; }
+  .log-more, .log-copy { border:none; background:transparent; color:var(--fg-dim); cursor:pointer; padding:0 4px; font-size:11.5px; }
+  .log-more { text-decoration:underline; }
+  .log-row { display:grid; grid-template-columns:auto minmax(0, 1fr) auto; gap:8px; align-items:baseline; padding:2px 0;
+    border-top:1px solid rgba(127,127,127,.12); font-size:12.5px; }
+  .log-row:first-child { border-top:none; }
+  .log-time { font-family:var(--vscode-editor-font-family, ui-monospace, Menlo, monospace); font-size:11px; color:var(--fg-dim); white-space:nowrap; }
+  .log-text { white-space:pre-wrap; overflow-wrap:anywhere; }
+  .log-row.ok .log-text { color:#86efac; } .log-row.ko .log-text { color:#fca5a5; } .log-row.warn .log-text { color:#fcd34d; }
+  .log-row.run .log-text { color:#c4b5fd; } .log-row.stop .log-text { color:#cbd5e1; }
+  body[data-theme="paper"] .log-row.ok .log-text { color:#15803d; } body[data-theme="paper"] .log-row.ko .log-text { color:#b91c1c; }
+  body[data-theme="paper"] .log-row.warn .log-text { color:#a16207; } body[data-theme="paper"] .log-row.run .log-text { color:#6d28d9; }
+  body[data-theme="paper"] .log-row.stop .log-text { color:#475569; }
+  .log-del { border:none; background:transparent; color:var(--fg-dim); cursor:pointer; opacity:0; padding:0 4px; }
+  .log-row:hover .log-del { opacity:.8; }
+  body.clike-busy .log-del { pointer-events:none; }
+  .md-code { background:rgba(0,0,0,.28); border:1px solid rgba(127,127,127,.25); border-radius:6px; padding:6px 8px; margin:6px 0;
+    white-space:pre; overflow:auto; font-family:var(--vscode-editor-font-family, ui-monospace, Menlo, monospace); font-size:12px; }
+  .md-inline { background:rgba(127,127,127,.18); border-radius:4px; padding:0 4px; font-family:var(--vscode-editor-font-family, ui-monospace, Menlo, monospace); font-size:12px; }
+  .md-h { display:inline-block; font-weight:700; margin-top:4px; }
+  body[data-theme="paper"] .md-code { background:#f8fafc; }
+
   /* ---------- every layout: the card of the command in flight ---------- */
   #runCard { display:none; margin:0 0 8px; border:1px solid #7c3aed; border-radius:10px; padding:8px 10px;
     background:linear-gradient(180deg, rgba(124,58,237,.14), rgba(124,58,237,.04)); color:var(--fg); font-size:12.5px; }
@@ -592,6 +618,7 @@ function getWebviewHtml(orchestratorUrl, themeName = 'cockpit') {
   .ck-form > label { color:var(--fg-dim); font-size:12px; }
   .ck-form select, .ck-form input { width:100%; min-width:0; box-sizing:border-box; background:#1e1e1e; border-color:#3f3f46; }
   .ck-pair { display:flex; gap:6px; min-width:0; align-items:center; }
+  .ck-pair.wrap { flex-wrap:wrap; }
   .ck-pair > * { min-width:0; flex:1 1 auto; }
   .ck-pair > button { flex:0 0 auto; }
   .ck-roles { display:grid; grid-template-columns:64px minmax(0, 1fr); gap:4px 8px; font-size:12px; margin-top:8px; align-items:center; }
@@ -625,6 +652,14 @@ function getWebviewHtml(orchestratorUrl, themeName = 'cockpit') {
   .ck-alt code { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:var(--vscode-editor-font-family, ui-monospace, Menlo, monospace); font-size:12px; color:#ddd6fe; background:none; padding:0; }
   .ck-alt .ck-btn { padding:1px 9px; }
   #ckDrawerClose { display:none; }
+  .ck-hist-top { display:flex; align-items:center; gap:8px; margin-bottom:6px; min-width:0; }
+  .ck-hist { display:flex; align-items:center; gap:6px; padding:3px 6px; border-radius:4px; cursor:pointer; font-size:12.5px; min-width:0; }
+  .ck-hist:hover { background:#2d2d30; }
+  .ck-hist .t { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ck-hist .n { color:var(--fg-dim); font-size:11.5px; white-space:nowrap; }
+  .ck-hist .ck-btn { padding:0 6px; font-size:11px; }
+  .ck-x { border:none; background:transparent; color:var(--fg-dim); cursor:pointer; padding:0 4px; opacity:0; }
+  .ck-hist:hover .ck-x { opacity:.8; }
   .ck-kv { color:var(--fg-dim); font-size:12px; line-height:1.6; overflow-wrap:anywhere; }
   .ck-kv b { color:var(--fg); font-weight:600; }
   .ck-ok { color:#86efac; } .ck-ko { color:#fca5a5; } .ck-warn { color:#fcd34d; }
@@ -691,6 +726,7 @@ function getWebviewHtml(orchestratorUrl, themeName = 'cockpit') {
     </select>
 
 
+    <button id="newChat" title="Starts a new conversation in this mode; the current one goes to the history (cockpit: History)">＋ New chat</button>
     <button id="clear">Clear Session</button>
 
     <label class="ctl">
@@ -1794,8 +1830,119 @@ function agentLiveEvent(ev) {
   chat.scrollTop = chat.scrollHeight;
 }
 
-function bubble(role, content, modelName, attachments, ts, opts) {
+// ---- answers as cards: what CLike says while a command runs is one log card (a line per message,
+// with its time); a model's answer gets light markdown (escaped first, then code, bold, titles) ----
+var LOG_GAP_MS = 30 * 60000;
+function logKind(text) {
+  var c = String(text || '').trim().charAt(0);
+  if (c === '✔') return 'ok';
+  if (c === '✖' || /^Error:/.test(text)) return 'ko';
+  if (c === '⚠') return 'warn';
+  if (c === '▶' || c === '↻') return 'run';
+  if (c === '⏹' || c === '⏸' || c === '⏱' || c === '⏳') return 'stop';
+  return 'info';
+}
+function logTime(ms) {
+  var d = new Date(ms);
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') + ':' + String(d.getSeconds()).padStart(2, '0');
+}
+function logCard(tsMs) {
+  var wrap = document.createElement('div');
+  wrap.className = 'msg ai';
+  var b = document.createElement('div');
+  b.className = 'bubble log-card';
+  var head = document.createElement('div');
+  head.className = 'log-head';
+  var title = document.createElement('span');
+  title.className = 'log-title';
+  var stats = document.createElement('span');
+  stats.className = 'log-stats';
+  var more = document.createElement('button');
+  more.className = 'log-more';
+  more.style.display = 'none';
+  var copyAll = document.createElement('button');
+  copyAll.className = 'log-copy';
+  copyAll.textContent = '⧉';
+  copyAll.title = 'Copy the whole log';
+  head.appendChild(title); head.appendChild(stats); head.appendChild(more); head.appendChild(copyAll);
+  var rows = document.createElement('div');
+  rows.className = 'log-rows';
+  b.appendChild(head); b.appendChild(rows);
+  wrap.appendChild(b);
+  chat.appendChild(wrap);
+  var log = { wrap: wrap, rows: rows, title: title, stats: stats, more: more, firstTs: tsMs, lastTs: tsMs, lines: [], expanded: false };
+  wrap._log = log;
+  copyAll.addEventListener('click', function (ev) {
+    ev.stopPropagation();
+    vscode.postMessage({ type: 'copyText', text: log.lines.map(function (l) { return logTime(l.ts) + '  ' + l.text; }).join('\\n') });
+    copyAll.textContent = '✓';
+    setTimeout(function () { copyAll.textContent = '⧉'; }, 1200);
+  });
+  more.addEventListener('click', function () { log.expanded = !log.expanded; logRefresh(log); });
+  return log;
+}
+function logRefresh(log) {
+  var d = new Date(log.firstTs);
+  log.title.textContent = 'CLike · ' + d.toLocaleDateString() + ' ' + logTime(log.firstTs);
+  var span = Math.max(0, Math.round((log.lastTs - log.firstTs) / 1000));
+  log.stats.textContent = log.lines.length + ' message' + (log.lines.length === 1 ? '' : 's') +
+    (span >= 60 ? ' · ' + Math.floor(span / 60) + ' min ' + (span % 60) + ' s' : span ? ' · ' + span + ' s' : '');
+  var hidden = log.expanded ? 0 : Math.max(0, log.lines.length - 8);
+  Array.prototype.forEach.call(log.rows.children, function (row, i) { row.style.display = i < hidden ? 'none' : ''; });
+  log.more.style.display = log.lines.length > 8 ? '' : 'none';
+  log.more.textContent = log.expanded ? 'show the last 8' : 'show ' + hidden + ' earlier';
+}
+function logLine(role, content, ts) {
+  var tsMs = ts ? new Date(ts).getTime() : Date.now();
+  var last = chat.lastElementChild;
+  var log = last && last._log && Math.abs(tsMs - last._log.lastTs) < LOG_GAP_MS ? last._log : logCard(tsMs);
+  var text = String(content || '');
+  var row = document.createElement('div');
+  row.className = 'log-row ' + logKind(text);
+  var t = document.createElement('span');
+  t.className = 'log-time';
+  t.textContent = logTime(tsMs);
+  t.title = new Date(tsMs).toLocaleString();
+  var body = document.createElement('span');
+  body.className = 'log-text';
+  body.textContent = text;
+  var del = document.createElement('button');
+  del.className = 'log-del';
+  del.textContent = '×';
+  del.title = 'Remove from history';
+  del.addEventListener('click', function (ev) {
+    ev.stopPropagation();
+    vscode.postMessage({ type: 'deleteBubble', mode: currentMode(), role: role, model: 'system', content: text });
+  });
+  row.appendChild(t); row.appendChild(body); row.appendChild(del);
+  log.rows.appendChild(row);
+  log.lines.push({ ts: tsMs, text: text });
+  log.lastTs = Math.max(log.lastTs, tsMs);
+  logRefresh(log);
+  chat.scrollTop = chat.scrollHeight;
+}
+var BT3 = String.fromCharCode(96, 96, 96);
+var BT = String.fromCharCode(96);
+var MD_INLINE_CODE = new RegExp(BT + '([^' + BT + '\\n]+)' + BT, 'g');
+function renderMd(text) {
+  var parts = escapeHtml(String(text || '')).split(BT3);
+  return parts.map(function (part, i) {
+    if (i % 2) {
+      var nl = part.indexOf('\\n');
+      return '<pre class="md-code">' + (nl >= 0 ? part.slice(nl + 1) : part).replace(/\\n$/, '') + '</pre>';
+    }
+    return (i ? part.replace(/^\\n/, '') : part)
+      .replace(MD_INLINE_CODE, '<code class="md-inline">$1</code>')
+      .replace(/\\*\\*([^*\\n]+)\\*\\*/g, '<b>$1</b>')
+      .replace(/^#{1,4} (.+)$/gm, '<span class="md-h">$1</span>');
+  }).join('');
+}
 
+function bubble(role, content, modelName, attachments, ts, opts) {
+  if (role !== 'user' && String(modelName || '') === 'system' && !(opts && opts.images && opts.images.length)) {
+    logLine(role === 'system' ? 'system' : 'assistant', content, ts);
+    return;
+  }
   attachments = attachments || [];
   const wrap = document.createElement('div');
   wrap.className = 'msg ' + (role === 'user' ? 'user' : 'ai');
@@ -1808,7 +1955,7 @@ function bubble(role, content, modelName, attachments, ts, opts) {
     ? '<span class="badge">' + escapeHtml(modelName) + '</span>' 
   : '';
    const meta = '<div class="meta">⏱ ' + escapeHtml(timeStr) + '</div>';
-  b.innerHTML = meta + badge + escapeHtml(String(content || ''));
+  b.innerHTML = meta + badge + (role === 'assistant' ? renderMd(content) : escapeHtml(String(content || '')));
   
   // se utente ha allegati → riga meta con 📎
   if (role === 'user' && attachments.length) {
@@ -1893,6 +2040,7 @@ function setBusy(on) {
     btnAttachWs,
     btnAttachExt,
     document.getElementById('layout'),
+    document.getElementById('newChat'),
   ].forEach((node) => setNodeDisabled(node, disabled));
   document.querySelectorAll('.ck-ctl').forEach((node) => { node.disabled = disabled; });
   if (disabled) { try { acClose(); } catch {} }
@@ -2810,6 +2958,12 @@ prompt.addEventListener('keydown', function (ev) {
   }
 }, true);
 
+// --- New chat (every layout): the current conversation goes to the history ---
+(function () {
+  var nb = el('newChat');
+  if (nb) nb.addEventListener('click', function () { if (!isBusy()) post('historyNew'); });
+})();
+
 // --- Layout selector (every layout) ---
 var layoutSel = el('layout');
 if (layoutSel) {
@@ -2951,7 +3105,7 @@ function ckBuild() {
   var helpBtnNode = el('helpBtn');
   helpBtnNode.appendChild(document.createTextNode(' Help'));
   var clearNode = btnClear;
-  ckRow(form, 'Session', [clearNode, helpBtnNode]);
+  ckRow(form, 'Session', [el('newChat'), clearNode, helpBtnNode]).classList.add('wrap');
   secCfg.appendChild(form);
   // the native mode select stays in the DOM (handlers, state), hidden
   mode.style.display = 'none';
@@ -3017,6 +3171,12 @@ function ckBuild() {
   var agentBox = ckEl('div'); agentBox.id = 'ckAgentBox';
   secAgent.appendChild(agentBox);
   side.appendChild(secAgent);
+
+  // the conversations of this mode: the current one and the archived ones (New chat archives)
+  var secHist = ckSection('ckSecHist', 'History', true);
+  var hist = ckEl('div'); hist.id = 'ckHistory';
+  secHist.appendChild(hist);
+  side.appendChild(secHist);
 
   // output tabs in a drawer under the composer: open by itself when there is something to read
   var out = ckEl('details'); out.id = 'ckOutput';
@@ -3302,6 +3462,44 @@ function ckRenderAgent() {
   }
 }
 
+var ckHistDelete = null;
+function ckRenderHistory() {
+  var box = el('ckHistory');
+  if (!box) return;
+  box.innerHTML = '';
+  var h = ck.state && ck.state.history;
+  if (!h) { box.appendChild(ckEl('div', 'ck-empty', 'Open a folder to keep the conversations.')); return; }
+  var top = ckEl('div', 'ck-hist-top');
+  var nb = ckEl('button', 'ck-btn primary ck-ctl', '＋ New chat');
+  nb.title = 'The current conversation goes to the history; with the agent, a new agent session starts too';
+  nb.addEventListener('click', function () { if (!isBusy()) post('historyNew'); });
+  top.appendChild(nb);
+  top.appendChild(ckEl('span', 'ck-dim', (h.mode || '').toUpperCase() + (h.current ? ' · now: ' + h.current.count + ' messages' : ' · new conversation')));
+  box.appendChild(top);
+  if (!h.archived.length) { box.appendChild(ckEl('div', 'ck-empty', 'No earlier conversation in this mode.')); return; }
+  h.archived.forEach(function (c) {
+    var row = ckEl('div', 'ck-hist');
+    row.title = c.title + ' — ' + new Date(c.first_ts).toLocaleString() + ' → ' + new Date(c.last_ts).toLocaleString() + ' · click: reopen it (the current one is kept in the history)';
+    var t = ckEl('span', 't', c.title);
+    var n = ckEl('span', 'n', ckAgo(c.last_ts) + ' · ' + c.count);
+    row.appendChild(t); row.appendChild(n);
+    if (ckHistDelete === c.id) {
+      var yes = ckEl('button', 'ck-btn ck-ctl', 'delete');
+      yes.addEventListener('click', function (ev) { ev.stopPropagation(); ckHistDelete = null; post('historyDelete', { id: c.id }); });
+      var no = ckEl('button', 'ck-btn', 'keep');
+      no.addEventListener('click', function (ev) { ev.stopPropagation(); ckHistDelete = null; ckRenderHistory(); });
+      row.appendChild(yes); row.appendChild(no);
+    } else {
+      var x = ckEl('button', 'ck-x ck-ctl', '×');
+      x.title = 'Delete this conversation';
+      x.addEventListener('click', function (ev) { ev.stopPropagation(); ckHistDelete = c.id; ckRenderHistory(); });
+      row.appendChild(x);
+    }
+    row.addEventListener('click', function () { if (!isBusy()) { ckToggleDrawer(false); post('historyOpen', { id: c.id }); } });
+    box.appendChild(row);
+  });
+}
+
 function ckRenderSummary() {
   var box = el('ckSummary');
   if (!box) return;
@@ -3354,7 +3552,7 @@ function ckRenderAll() {
   document.querySelectorAll('#ckSide .ck-harper').forEach(function (n) { n.style.display = harper ? '' : 'none'; });
   document.querySelectorAll('#ckSide .ck-nonharper').forEach(function (n) { n.style.display = harper ? 'none' : ''; });
   ckRenderHead(); ckRenderConfig(); ckRenderMethodology(); ckRenderProject(); ckRenderReqs(); ckRenderNext();
-  ckRenderAgent(); ckRenderSummary(); ckRenderStrip();
+  ckRenderAgent(); ckRenderSummary(); ckRenderHistory(); ckRenderStrip();
   ckApplyBusy();
 }
 // the cockpit's own controls follow the busy state (they are rebuilt on every state)

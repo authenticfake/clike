@@ -8,6 +8,7 @@ const path = require('path');
 const { nextActionFromPlan } = require('./extension-mcp');
 const { resumeStep } = require('./autopilot');
 const { inputsFingerprint } = require('./auto-eval');
+const { detectRelease } = require('./release-extend');
 
 const PHASES = ['idea', 'spec', 'plan', 'kit', 'finalize'];
 // what /init writes: a Harper document equal to its template (placeholders aside) is not done yet
@@ -24,6 +25,17 @@ const BMAD_ROLE_OUTPUTS = {
     pm: ['docs/harper/bmad/plan/STORIES.md', 'docs/harper/bmad/plan/STORY_MAP.md', 'docs/harper/bmad/plan/IMPLEMENTATION_READINESS.md'],
   },
 };
+
+/** The next release /idea --extend would build, when its inputs are there; null otherwise. */
+function nextRelease(root) {
+  let rel;
+  try { rel = detectRelease(root); } catch { return null; }
+  const target = Number(String(rel.release).slice(1));
+  if (!rel.inputs.length || !rel.folders.includes(rel.release)) return null;
+  const planned = Math.max(0, ...rel.folders.map((f) => Number(f.slice(1))).filter((n) => n < target));
+  return { release: rel.release, message: `Release ${rel.release}: ${rel.inputs.length} input file(s) in docs/inputs/${rel.release}/` +
+    ` — extend the delivered project${planned ? ` (baseline v${planned})` : ''}.` };
+}
 
 /** The BMAD roles of a phase that have not run yet. */
 function missingRoles(root, phase) {
@@ -186,6 +198,7 @@ function buildCockpitState(root, opts = {}) {
 
   const phases = phaseStates(root, reqs, opts.templatesDir || INIT_TEMPLATES);
   let next = null;
+  let extendAlternative = null;
   if (reqs.length) {
     const action = nextActionFromPlan(reqs);
     if (action.action === 'run_req') {
@@ -194,7 +207,18 @@ function buildCockpitState(root, opts = {}) {
       const command = step === 'eval' ? `/eval ${action.req_id} --fix` : `/${step} ${action.req_id}`;
       next = { command, message: action.message };
     } else if (action.action === 'finalize_only') {
-      next = { command: exists(root, 'docs/harper/FINALIZE_REPORT.md') ? '' : '/finalize', message: action.message };
+      // every REQ is done: /finalize, then the next release when its inputs are there (the same
+      // detection /idea --extend runs: a docs/inputs/vN above the plan's release, with files)
+      const finalized = exists(root, 'docs/harper/FINALIZE_REPORT.md');
+      const rel = nextRelease(root);
+      if (!finalized) next = { command: '/finalize', message: action.message };
+      else if (rel) next = { command: '/idea --extend', message: rel.message };
+      else {
+        const target = detectRelease(root).release;
+        next = { command: '', message: `Delivered. For the next release put its requirements in docs/inputs/${target}/ ` +
+          `(background in docs/reference/${target}/): /idea --extend becomes the next action.` };
+      }
+      if (!finalized && rel) extendAlternative = { command: '/idea --extend', message: rel.message };
     } else {
       next = { command: '', message: action.message };
     }
@@ -210,7 +234,7 @@ function buildCockpitState(root, opts = {}) {
 
   // With BMAD, a phase whose roles have not all run stays open next to the next step (SPEC by pm
   // and ux, PLAN by architect and pm) until the KIT starts: the developer chooses.
-  const alternatives = [];
+  const alternatives = extendAlternative ? [extendAlternative] : [];
   const kitStarted = counts.done > 0 || counts.in_progress > 0;
   if (opts.methodology === 'bmad' && next && !kitStarted) {
     const doneOf = Object.fromEntries(phases.map((ph) => [ph.id, ph.state === 'done']));

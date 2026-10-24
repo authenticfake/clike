@@ -128,6 +128,34 @@ test('all REQs done: FINALIZE is the active phase, then everything is done', () 
   assert.ok(state.phases.every((p) => p.state === 'done'));
 });
 
+test('/idea --extend becomes the next action when the next release has its inputs', () => {
+  const done = { reqs: plan.reqs.map((r) => ({ ...r, status: 'done' })) };
+  const root = project({ 'docs/harper/IDEA.md': '#', 'docs/harper/SPEC.md': '#', 'docs/harper/plan.json': done, 'docs/inputs/v1/req.docx': 'x' });
+  // delivered, not finalized, no new release: /finalize only
+  let state = buildCockpitState(root);
+  assert.equal(state.next.command, '/finalize');
+  assert.deepEqual(state.alternatives, []);
+  // the v2 requirements arrive: extend is a choice next to /finalize
+  fs.mkdirSync(path.join(root, 'docs', 'inputs', 'v2'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'docs', 'inputs', 'v2', 'new.docx'), 'x');
+  state = buildCockpitState(root);
+  assert.equal(state.next.command, '/finalize');
+  assert.deepEqual(state.alternatives.map((a) => a.command), ['/idea --extend']);
+  assert.match(state.alternatives[0].message, /Release v2: 1 input file/);
+  // finalized: the extend is the next action
+  fs.writeFileSync(path.join(root, 'docs', 'harper', 'FINALIZE_REPORT.md'), '#');
+  assert.equal(buildCockpitState(root).next.command, '/idea --extend');
+  // an empty v2 folder is not an input
+  fs.unlinkSync(path.join(root, 'docs', 'inputs', 'v2', 'new.docx'));
+  state = buildCockpitState(root);
+  assert.equal(state.next.command, '');
+  assert.match(state.next.message, /docs\/inputs\/v2\//);
+  // REQs of v2 in the plan (the extend ran): no extend proposed until a v3 arrives
+  fs.writeFileSync(path.join(root, 'docs', 'inputs', 'v2', 'new.docx'), 'x');
+  fs.writeFileSync(path.join(root, 'docs', 'harper', 'plan.json'), JSON.stringify({ reqs: [...done.reqs, { id: 'REQ-005', status: 'open', release: 'v2' }] }));
+  assert.equal(buildCockpitState(root).next.command, '/kit REQ-005');
+});
+
 test('report counts: fields first, the summary line otherwise', () => {
   assert.deepEqual(reportCounts({ passed_count: 3, failed: ['a'], warning_count: 1, blocked_count: 0 }), { passed: 3, failed: 1, warnings: 1, blocked: 0 });
   assert.deepEqual(reportCounts({ passed: false, summary: 'passed=286, failed=2, blocked=0, warnings=13' }), { passed: 286, failed: 2, warnings: 13, blocked: 0 });

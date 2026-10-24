@@ -66,6 +66,19 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   `--output-format stream-json --verbose` (its final `result` event is kept as the run's output, the
   same envelope as before, so tool outputs never reach the blocked/failed/interrupted checks), Codex
   with its JSONL events; both feed the run card.
+- **History of conversations per mode**: **＋ New chat** (every layout) keeps the current
+  conversation in `.clike/sessions/archive/<mode>/` instead of deleting it and, with an agent, starts
+  a new agent session in that mode too; the cockpit's **History** lists the earlier conversations of
+  the mode (title, when, how many messages): a click reopens one (the current one goes to the
+  history), × deletes one after asking. Clear Session is unchanged.
+- **Chat answers as cards (every layout)**: what CLike says while a command runs is one log card — a
+  line per message with its time, coloured by outcome (✔ ✖ ⚠ ▶ ⏹), the span of the run, older lines
+  folded, copy of the whole log, a line removable from the history; a model's answer shows code
+  blocks, inline code, bold and titles (the text is escaped first: nothing it contains runs).
+- **The cockpit proposes `/idea --extend`** when every REQ is done and the next release has its
+  inputs (a `docs/inputs/vN/` above the plan's release, with files — the detection the command runs):
+  next to `/finalize`, then as the next action; without inputs it says where to put them. With BMAD,
+  each next action that admits more than one role offers the roles not run yet as choices.
 - **Slash-command autocompletion in every layout**: commands with their syntax, REQs ranked for the
   command (`/kit` the ready ones, `/eval` those with a KIT, `/gate` those whose eval passed on the
   current files) with a warning when one cannot run yet, flags not yet used and their values
