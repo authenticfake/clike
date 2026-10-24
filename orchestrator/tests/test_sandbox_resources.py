@@ -64,6 +64,22 @@ class ContainerRuntimeTests(unittest.TestCase):
             self.assertFalse(warning.blocked)
 
 
+    def test_a_check_failing_while_the_kernel_kills_for_memory_is_the_sandbox_not_the_code(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cmd = f"{sys.executable} -c \"import sys; print('Error: Timed out waiting 60000ms from config.webServer'); sys.exit(1)\""
+            readings = iter([{"max": 0, "oom_kill": 0}, {"max": 5, "oom_kill": 1}])
+            with patch.object(sandbox_resources, "memory_events", lambda *a, **k: next(readings)):
+                case = EvalRunner(root)._run(name="test:e2e", cmd=cmd, cwd=root, timeout=30)
+            self.assertTrue(case.blocked)
+            self.assertIn("Sandbox resources exhausted", case.stderr)
+            self.assertIn("CLIKE_EVAL_SANDBOX_MEM_LIMIT", case.stderr)
+            # the same failure without memory pressure is the code's
+            readings = iter([{"max": 0, "oom_kill": 0}, {"max": 3, "oom_kill": 0}])
+            with patch.object(sandbox_resources, "memory_events", lambda *a, **k: next(readings)):
+                plain = EvalRunner(root)._run(name="test:e2e", cmd=cmd, cwd=root, timeout=30)
+            self.assertNotIn("Sandbox resources exhausted", plain.stderr or "")
+
 class PreflightTests(unittest.TestCase):
     def _fake(self, root, current, limit, zombies):
         cg = root / "cg"
@@ -148,3 +164,21 @@ class SandboxExhaustedGateTests(_RegressionProject):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_memory_exhaustion_is_read_from_the_cgroup_counters(tmp_path):
+    # B2B REQ-026: 9 million hits of a 3 GB limit and two OOM kills; every failure was a time-out
+    events = tmp_path / "memory.events"
+    events.write_text("low 0\nhigh 0\nmax 100\noom 0\noom_kill 0\noom_group_kill 0\n")
+    before = sandbox_resources.memory_events(tmp_path)
+    assert before["max"] == 100 and before["oom_kill"] == 0
+    events.write_text("low 0\nhigh 0\nmax 100\noom 1\noom_kill 2\noom_group_kill 0\n")
+    killed = sandbox_resources.memory_exhaustion(before, sandbox_resources.memory_events(tmp_path))
+    assert killed and "2 process(es) killed" in killed
+    events.write_text("low 0\nhigh 0\nmax 90000\noom 0\noom_kill 0\noom_group_kill 0\n")
+    pressed = sandbox_resources.memory_exhaustion(before, sandbox_resources.memory_events(tmp_path))
+    assert pressed and "memory limit" in pressed
+    events.write_text("low 0\nhigh 0\nmax 150\noom 0\noom_kill 0\noom_group_kill 0\n")
+    assert sandbox_resources.memory_exhaustion(before, sandbox_resources.memory_events(tmp_path)) is None
+    assert sandbox_resources.memory_exhaustion({}, {"oom_kill": 3}) is None  # no cgroup v2: no opinion
+    assert sandbox_resources.memory_events(tmp_path / "missing") == {}

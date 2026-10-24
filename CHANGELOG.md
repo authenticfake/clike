@@ -75,6 +75,13 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **An eval sandbox out of memory is recognised, not repaired**: under memory pressure the kernel
+  slows the checks to time-outs and kills processes without any `ENOMEM` in their output; on B2B
+  REQ-026 the 3 GB sandbox hit its limit 9 million times, two processes were OOM-killed, and the
+  repair chased the resulting time-outs for several cycles. A check that fails while the cgroup
+  counters show OOM kills or the limit held is now `EVAL_SANDBOX_EXHAUSTED`: `--fix` stops and the
+  report says how to give the sandbox more memory.
+
 - **The KIT acts as a senior engineer of the REQ's lane, for every stack and every executor**: the
   cloud prompt named only Python / TypeScript / SQL / Infra, and Codex / Claude Code got no role at
   all. One sentence (shared text, checked by a test) now covers any lane — Go, Ruby, Java/Kotlin,

@@ -135,6 +135,7 @@ the repairs. Overrides, promotion and git are not exposed. Codex: approve the CL
 
 | Symptom | Fix |
 |---|---|
+| Eval checks time out and the report says `Sandbox resources exhausted (… memory …)` | the eval sandbox is out of memory: raise `CLIKE_EVAL_SANDBOX_MEM_LIMIT` (docker/.env) and the container VM memory (`podman machine set --memory 16384`), or `CLIKE_EVAL_REGRESSION_WORKERS=1`; restart the services |
 | Eval returns 503 or the orchestrator restarts | container VM memory too low: raise it ([INSTALL §1](INSTALL.md#1-requirements)), lower `CLIKE_EVAL_SANDBOX_MEM_LIMIT` |
 | "No local agent is available" | install/log in `claude` or `codex`, or switch execution to cloud |
 | An answer from the agent seems to forget the conversation | `/agent-session` — a failed resume starts a new session |

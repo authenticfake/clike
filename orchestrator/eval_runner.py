@@ -785,6 +785,7 @@ class EvalRunner:
             env = scrubbed_process_env()
         env = _with_pytest_hang_dump(env, timeout)
         try:
+            memory_before = sandbox_resources.memory_events()
             proc = _run_process_group(cmd, cwd=cwd, env=env, timeout=timeout, cancel=self.cancel_event)
             stderr = eval_failures.strip_ansi(proc.stderr or "")
             stdout = eval_failures.strip_ansi(proc.stdout or "")
@@ -792,7 +793,17 @@ class EvalRunner:
             blocked = False
             noted = False  # a specific note already explains the failure
             exhausted = None if ok else sandbox_resources.exhaustion(f"{stdout}\n{stderr}")
-            if exhausted:
+            memory = None if ok or exhausted else sandbox_resources.memory_exhaustion(
+                memory_before, sandbox_resources.memory_events()
+            )
+            if memory:
+                blocked = noted = True
+                exhausted = memory
+                stderr = (
+                    stderr
+                    + f"\n{_SANDBOX_EXHAUSTED_NOTE} ({memory}). Not a defect of the code. " + sandbox_resources.MEMORY_HINT
+                )[-4000:]
+            elif exhausted:
                 blocked = noted = True
                 stderr = (
                     stderr
