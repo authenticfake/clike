@@ -69,6 +69,7 @@ If sources differ, prefer the highest-authority source above.
 Do not widen scope beyond the target REQ.
 Do not invent facts.
 If something is unknown, keep the implementation minimal, valid, and explicitly document the assumption.
+A detail SPEC and PLAN leave open is not a reason to stop: choose the simplest reasonable option consistent with them, record it in the KIT docs, and deliver the implementation and the tests its contract requires. A KIT without its source and test files is never the answer to an open question.
 
 ## 3) Targeting and scope control
 
