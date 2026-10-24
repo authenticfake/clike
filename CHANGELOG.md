@@ -64,6 +64,13 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **The KIT acts as a senior engineer of the REQ's lane, for every stack and every executor**: the
+  cloud prompt named only Python / TypeScript / SQL / Infra, and Codex / Claude Code got no role at
+  all. One sentence (shared text, checked by a test) now covers any lane — Go, Ruby, Java/Kotlin,
+  .NET, PHP, Rust, mobile (Swift/iOS, Kotlin/Android, Flutter, React Native), PLC (IEC 61131-3),
+  low-code (Mendix) — and says that checks whose toolchain is not in the eval sandbox (Xcode, Flutter,
+  PLC IDEs, Mendix Studio Pro) are listed in `ci/HOWTO.md` as run on the developer's machine.
+
 - **A local agent can verify a regression repair before it finishes**: `eval-check` accepted only
   the REQ's own checks, so on B2B REQ-025/026 the agent "verified" its repair without seeing the
   promoted REQ it was fixing. `node .clike/bin/eval-check.mjs regression::REQ-014` now re-runs that
