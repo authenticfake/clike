@@ -64,6 +64,11 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **A reformatted shared file is no longer named as the cause of a regression**: on B2B REQ-026 the
+  only difference in `worker.py` was a wrapped line, yet `Shared files changed` named it on REQ-014's
+  failure and the repair spent two cycles there while the cause was elsewhere. Changes that are only
+  whitespace are not listed.
+
 - **Saved eval and gate reports keep each failed check's error excerpt**: `runs/eval|gate/<REQ>/report_*.json`
   kept only the last 4000 characters of a check's output; on B2B REQ-026 that tail was a pytest
   assertion diff (`++++…`), so a later `/kit --repair`, the intermittent-failure diagnosis and the
