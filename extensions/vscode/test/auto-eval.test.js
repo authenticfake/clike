@@ -361,3 +361,11 @@ test('after a repair of regression failures the re-eval targets the REQs that fa
   // only the REQ's own checks failed: the regression has not run yet, a full eval
   assert.deepEqual(targetedRegressionReqs([{ name: 'tests' }, { name: 'types' }]), []);
 });
+
+test('a saved eval report keeps the error excerpt of each failed check (stdout keeps only its tail)', () => {
+  // B2B REQ-026: the last 4000 chars of a pytest run were an assertion diff ("++++…"); a later
+  // /kit --repair or the intermittent diagnosis read the saved report and saw no error
+  const utility = fs.readFileSync(path.join(__dirname, '..', 'utility.js'), 'utf8');
+  assert.match(utility, /excerpt: c\.excerpt \|\| undefined,/);
+  assert.match(utility, /fingerprint: c\.fingerprint \|\| undefined,/);
+});

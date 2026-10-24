@@ -64,6 +64,11 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **Saved eval and gate reports keep each failed check's error excerpt**: `runs/eval|gate/<REQ>/report_*.json`
+  kept only the last 4000 characters of a check's output; on B2B REQ-026 that tail was a pytest
+  assertion diff (`++++…`), so a later `/kit --repair`, the intermittent-failure diagnosis and the
+  autopilot read no error at all. The `excerpt` and `fingerprint` are now saved too.
+
 - **KIT rule: tests assert what the REQ adds to an append-only list, never that it is the last**:
   a migration chain (this REQ's revision is in the chain after its predecessor, not the head), a
   version list, an API or event catalog, a navigation (its entries, not their count). B2B
