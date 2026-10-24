@@ -294,8 +294,8 @@ function createSlashCompleter(bmadRoles) {
     }
     result.items = items.slice(0, 10);
 
-    // 3. what sending it now would say
-    if (!result.error && typeof parse === 'function') {
+    // 3. what sending it now would say (not while a suggested value is still being typed)
+    if (!result.error && typeof parse === 'function' && !(current && result.items.length)) {
       let parsed = null;
       try { parsed = parse(src); } catch (e) { parsed = { error: String(e && e.message || e) }; }
       if (parsed && parsed.error) {
@@ -310,6 +310,7 @@ function createSlashCompleter(bmadRoles) {
         }
       }
     }
+    result.fix = String(result.fix || '').trim();
     const reqTok = tokens.slice(1).find((x) => /^req-\d+$/i.test(x));
     if (!result.error && reqTok && Array.isArray(ctx.reqs) && ctx.reqs.length
       && !ctx.reqs.some((r) => lower(r.id) === lower(reqTok))) {
@@ -332,7 +333,29 @@ function createSlashCompleter(bmadRoles) {
     return { text: head + tail.replace(/^\s+/, ''), caret: head.length };
   }
 
-  return { complete, accept, specs: SPECS };
+  /**
+   * The command with the methodology preference of the cockpit (BMAD, the role chosen per phase)
+   * when the developer typed none: only where the parser accepts it (never /gate, /eval --accept,
+   * /autopilot stop|status), so the bubble shows the command that actually runs.
+   */
+  function withMethodology(text, prefs) {
+    const src = String(text || '').trim();
+    if (!prefs || prefs.methodology !== 'bmad' || !/^\//.test(src)) return src;
+    if (/(^|\s)--(methodology|agent)(\s|=|$)/i.test(src)) return src;
+    const tokens = src.split(/\s+/);
+    const cmd = lower(tokens[0]);
+    if (cmd === '/autopilot') return ['stop', 'status'].includes(lower(tokens[1])) ? src : `${src} --methodology bmad`;
+    const spec = specOf(cmd);
+    if (!spec || !spec.phase || spec.phase === 'gate' || cmd === '/add-req') return src;
+    if (cmd === '/eval' && /\s--accept(\s|$)/i.test(src)) return src;
+    const phase = phaseOf(cmd, tokens);
+    const rules = ROLES[phase] || {};
+    const role = (prefs.roles || {})[phase];
+    const agent = role && role !== rules.defaultAgent && (rules.allowedAgents || []).includes(role) ? ` --agent ${role}` : '';
+    return `${src} --methodology bmad${agent}`;
+  }
+
+  return { complete, accept, withMethodology, specs: SPECS };
 }
 
 const completer = createSlashCompleter(BMAD_PHASE_ROLES);
@@ -347,5 +370,6 @@ module.exports = {
   createSlashCompleter,
   completeSlash: completer.complete,
   acceptCompletion: completer.accept,
+  withMethodology: completer.withMethodology,
   buildBrowserSlashCompleteSource,
 };

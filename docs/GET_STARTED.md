@@ -16,6 +16,17 @@ Open **CLike: Chat (Q&A / Harper / Coding)**.
 **Execution** (selector in the chat): *cloud* (the model chosen in the model selector, through the
 gateway) or *agent* (Claude Code / Codex on your machine). `/agent-model` shows what is in use.
 
+**Layout** (`clike.chat.theme`, or the Layout selector in the chat): the default **cockpit** keeps
+the chat on the left and, on the right, the mode, execution, models, agent, methodology (Harper or
+BMAD with the role per phase) and the project — release progress, phases, REQs, the next action
+with **Run** and **▶ Autopilot**, the last eval. Beside the editor it becomes one column with the
+cockpit in a drawer (☰). `classic`, `pro`, `studio` and `paper` have the same features.
+
+**Autocompletion** (every layout): type `/` — commands, then the REQs that fit the command, flags
+and values; the command's signature stays visible and an invalid command shows the parser's error
+with its fix before you send. Tab or ↵ inserts, Esc closes, ↑ in an empty prompt recalls the last
+commands.
+
 ### Talking to the agent directly
 
 With execution = agent, the chat **is** a conversation with Claude Code or Codex:

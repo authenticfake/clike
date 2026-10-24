@@ -28,6 +28,33 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Added
 
+- **Cockpit layout of the chat (`clike.chat.theme: cockpit`, the new default)**: the chat on the
+  left; on the right the mode (Free · Coding · Harper), execution, cloud model, the local agent and
+  its model, history scope, layout, and in Harper the methodology (Harper native or BMAD, with the
+  role per phase where BMAD allows more than one), the project (release, REQs done / in progress /
+  open, phases IDEA → FINALIZE), the next action with **Run** (the autopilot's rules) and
+  **▶ Autopilot**, the REQs with what each waits for (a click puts its next command in the prompt),
+  the last eval or gate and who writes. Free and Coding show the Harper project in one line. The
+  output tabs (Text · Diffs · Files) become a drawer that opens by itself when there is something to
+  read. It adapts to the panel: two columns, a compact side panel, then (beside the editor) one
+  column with the cockpit as a drawer and a strip with the phases and the next action; icons only
+  for the secondary buttons in very narrow panels. The other layouts (classic, pro, studio, paper)
+  keep every feature and switch from the settings or the new **Layout** selector in the chat. With
+  BMAD on, a Harper command typed without methodology runs with it (never `/gate`, `/eval --accept`),
+  and the bubble shows the command that ran.
+- **Slash-command autocompletion in every layout**: commands with their syntax, REQs ranked for the
+  command (`/kit` the ready ones, `/eval` those with a KIT, `/gate` those whose eval passed on the
+  current files) with a warning when one cannot run yet, flags not yet used and their values
+  (BMAD roles allowed for the phase, `--executor`, `--release`, `--phases=`, `/tools add` from the
+  catalog, `/agent-model` models), the signature with the part being typed, and the error the
+  parser would give before sending, with its fix (Tab). ↑ in an empty prompt recalls the commands
+  already used. ↵ sends as before unless a suggestion is being chosen.
+
+### Fixed
+
+- **The bubble of `/eval` / `/gate` shows the command as typed** also when it contains an `s` in a
+  flag (`--ask`): the webview split the text on the letter `s` instead of on spaces.
+
 - **Copy icon on every chat bubble**, next to the bin: copies the message text to the clipboard
   (through the extension, so it works in every webview), usable during a run too.
 

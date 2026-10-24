@@ -165,7 +165,8 @@ function isDocumentLocalAgentPhase(phase) {
 
 
 const{ toFsPath,  clikeGitSync } = require('./git'); // NEW: clikeGitSync
-const { getChatTheme, getWebviewHtml } = require('./chat-ui');
+const { CHAT_THEMES, getChatTheme, getWebviewHtml } = require('./chat-ui');
+const { buildCockpitState } = require('./cockpit-state');
 const {
   attachBmadQaAdvisory,
   buildEffectiveEvalMethodologyContext,
@@ -3671,6 +3672,136 @@ function isTextFile(filePath) {
 }
 
 
+const COCKPIT_PREFS_KEY = 'clike.cockpit.prefs';
+// messages that run a command: while one is in flight the layout is not reloaded
+const LONG_CHAT_MESSAGES = new Set(['harperRun', 'harperEDD', 'harperInit', 'sendChat', 'sendGenerate', 'apply', 'autopilot', 'evalTools', 'ragIndex', 'ragSearch']);
+
+/**
+ * The feed of the chat's cockpit: the project state (cockpit-state.js), the agent and its models,
+ * the cockpit preferences (methodology), the eval tools catalog for the autocompletion. Posted as
+ * `cockpitState` to every layout (the autocompletion uses it everywhere); refreshed when plan.json,
+ * the Harper documents or the eval/gate reports change, and after each chat message.
+ */
+function createCockpitFeed(panel, context) {
+  let timer = null;
+  let inflight = 0;
+  let pendingTheme = false;
+  let catalog = { at: 0, tools: [], anthropic: [], openai: [] };
+  const disposables = [];
+
+  const prefs = () => {
+    const p = context.workspaceState.get(COCKPIT_PREFS_KEY) || {};
+    return { methodology: p.methodology === 'bmad' ? 'bmad' : '', roles: p.roles && typeof p.roles === 'object' ? p.roles : {} };
+  };
+
+  // model ids and eval tools: fetched at most every 5 minutes, never blocking the state
+  async function refreshCatalog() {
+    if (Date.now() - catalog.at < 5 * 60 * 1000) return;
+    catalog.at = Date.now();
+    try {
+      const res = await fetchJson(`${serviceBaseUrls().orchestrator}/v1/models`);
+      const models = (Array.isArray(res?.models) ? res.models : []).filter((m) => m && m.enabled !== false && !/embed/i.test(String(m.name || m.id || '')));
+      const names = (provider) => [...new Set(models.filter((m) => String(m.provider || '').toLowerCase() === provider)
+        .map((m) => String(m.remote_name || m.name || '').trim()).filter(Boolean))];
+      catalog.anthropic = names('anthropic');
+      catalog.openai = names('openai');
+    } catch (err) { log(`[cockpit] model catalog unavailable: ${err?.message || err}`); }
+    try {
+      const ws = getWorkspaceRoot();
+      if (ws) catalog.tools = Object.keys((await getEvalTools(ws))?.catalog || {}).sort();
+    } catch (err) { log(`[cockpit] eval tools catalog unavailable: ${err?.message || err}`); }
+  }
+
+  function agentInfo() {
+    const c = vscode.workspace.getConfiguration('clike');
+    const state = context.workspaceState.get('clike.uiState') || {};
+    return {
+      executor: normalizeLocalAgentExecutor(state.localAgentExecutor || getDefaultLocalAgentExecutor()),
+      execution: state.executionPreference || getDefaultExecutionPreference(),
+      claude_model: c.get('claudeCode.model', 'opus') || '',
+      codex_model: c.get('localAgent.codex.model', 'gpt-5.5') || '',
+      models: {
+        claude: [...new Set(['opus', 'sonnet', 'haiku', ...catalog.anthropic])],
+        codex: [...new Set([...(readCodexModelSlugs() || []), ...catalog.openai])],
+      },
+    };
+  }
+
+  async function post() {
+    timer = null;
+    const ws = getWorkspaceRoot();
+    let project = null;
+    if (ws) {
+      try { project = buildCockpitState(ws.fsPath); } catch (err) { log(`[cockpit] state: ${err?.message || err}`); }
+    }
+    await refreshCatalog();
+    panel.webview.postMessage({
+      type: 'cockpitState',
+      state: { project, agent: agentInfo(), prefs: prefs(), tools: catalog.tools, theme: getChatTheme(), running: inflight > 0 },
+    });
+    if (pendingTheme && inflight === 0) reloadTheme();
+  }
+
+  function refresh(delay = 300) {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => post().catch((err) => log(`[cockpit] post: ${err?.message || err}`)), delay);
+  }
+
+  // a new layout: the webview is rebuilt (cronology and state come back with webview_ready)
+  function reloadTheme() {
+    if (inflight > 0 || clikeHarperBlockingRun || autopilotRun) { pendingTheme = true; return; }
+    pendingTheme = false;
+    panel.webview.html = getWebviewHtml(serviceBaseUrls().orchestrator, getChatTheme());
+  }
+
+  async function handle(msg) {
+    if (msg.type === 'cockpitRefresh') return refresh(0);
+    if (msg.type === 'copyText') return vscode.env.clipboard.writeText(String(msg.text || ''));
+    if (msg.type === 'cockpitPrefs') {
+      const next = { methodology: msg.methodology === 'bmad' ? 'bmad' : '', roles: msg.roles && typeof msg.roles === 'object' ? msg.roles : {} };
+      await context.workspaceState.update(COCKPIT_PREFS_KEY, next);
+      return refresh(0);
+    }
+    if (msg.type === 'setTheme') {
+      const theme = String(msg.theme || '');
+      if (!CHAT_THEMES.includes(theme)) return undefined;
+      const c = vscode.workspace.getConfiguration('clike');
+      const where = c.inspect('chat.theme');
+      // the scope the developer already uses for it; User settings otherwise
+      const target = where?.workspaceFolderValue !== undefined ? vscode.ConfigurationTarget.WorkspaceFolder
+        : where?.workspaceValue !== undefined ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global;
+      await c.update('chat.theme', theme, target);
+      return undefined; // the configuration listener reloads the layout
+    }
+    return undefined;
+  }
+
+  const watch = (glob) => {
+    const ws = getWorkspaceRoot();
+    if (!ws) return;
+    const w = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(ws, glob));
+    w.onDidCreate(() => refresh()); w.onDidChange(() => refresh()); w.onDidDelete(() => refresh());
+    disposables.push(w);
+  };
+  ['docs/harper/*.{md,json}', 'docs/inputs/*', 'runs/{eval,gate}/*/report_*.json', 'runs/kit/*/ci/LTC.json'].forEach(watch);
+  disposables.push(vscode.workspace.onDidChangeConfiguration((e) => {
+    if (e.affectsConfiguration('clike.chat.theme')) reloadTheme();
+    else if (e.affectsConfiguration('clike')) refresh();
+  }));
+  panel.onDidDispose(() => { if (timer) clearTimeout(timer); disposables.forEach((d) => d.dispose()); });
+
+  return {
+    handles: (type) => ['cockpitRefresh', 'cockpitPrefs', 'setTheme', 'copyText'].includes(type),
+    handle,
+    refresh,
+    track(type, promise) {
+      if (!LONG_CHAT_MESSAGES.has(type)) return promise;
+      inflight += 1;
+      return Promise.resolve(promise).finally(() => { inflight -= 1; });
+    },
+  };
+}
+
 async function cmdOpenChat(context) {
   out.appendLine(`cmdOpenChat ${context}`);
   const panel = vscode.window.createWebviewPanel(
@@ -5954,12 +6085,7 @@ async function cmdOpenChat(context) {
         }        
        
       }
-      // 3.a) CLEAR user/assistent bubble
-      if (msg.type === 'copyText') {
-        // the copy icon of a chat bubble
-        await vscode.env.clipboard.writeText(String(msg.text || ''));
-        return;
-      }
+      // 3.a) CLEAR user/assistent bubble (the copy icon is handled by the cockpit feed: no busy state)
       if (msg.type === 'deleteBubble') {
         const ui = context.workspaceState.get('clike.uiState') || {
           mode: 'free',
@@ -6446,7 +6572,16 @@ async function cmdOpenChat(context) {
     }
     panel.webview.postMessage({ type: 'busy', on: false });
   };
-  panel.webview.onDidReceiveMessage(handleWebviewMessage);
+  // Cockpit (side panel of the cockpit layout, autocompletion in every layout): its messages never
+  // touch the busy state, a run in progress stays as it is.
+  const cockpit = createCockpitFeed(panel, context);
+  panel.webview.onDidReceiveMessage((msg) => {
+    if (msg && cockpit.handles(msg.type)) return cockpit.handle(msg);
+    const done = cockpit.track(msg && msg.type, handleWebviewMessage(msg));
+    // what the project looks like after the message: a phase, a gate, a setting changed
+    Promise.resolve(done).finally(() => cockpit.refresh(msg && msg.type === 'webview_ready' ? 0 : 300));
+    return done;
+  });
   clikeRunChatMessage = handleWebviewMessage;
 
   // Native tools of the eval sandbox (eval-tools.js): what the REQ declares or runs and the

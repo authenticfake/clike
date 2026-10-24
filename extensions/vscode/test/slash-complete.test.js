@@ -81,11 +81,13 @@ test('errors are the parser\'s, with a fix when there is an obvious one', () => 
   const role = complete('/kit REQ-002 --methodology bmad --agent qa');
   assert.match(role.error, /not allowed for phase 'kit'/);
   assert.equal(role.fix, '/kit REQ-002 --methodology bmad --agent developer');
-  assert.equal(complete('/spec --agent ux').fix, '/spec --methodology bmad --agent ux');
+  assert.equal(complete('/spec --agent ux ').fix, '/spec --methodology bmad --agent ux');
   assert.match(complete('/eval REQ-099 ').error, /REQ-099 is not in the plan/);
   assert.equal(complete('/eval REQ-09').error, '', 'no error while the id is being typed');
   assert.match(complete('/evil x').error, /Unknown command/);
   assert.equal(complete('/eval REQ-002 --fix').error, '');
+  assert.equal(complete('/eval REQ-002 --methodology bmad --agent q').error, '', 'no error while a suggested value is typed');
+  assert.match(complete('/eval REQ-002 --methodology bmad --agent q ').error, /Unsupported BMAD agent/);
   assert.deepEqual(completeSlash('plain text', 10, ctx, parseSlash).items, []);
 });
 
@@ -109,4 +111,24 @@ test('the browser source is the same completer', () => {
   vm.runInNewContext(buildBrowserSlashCompleteSource() + '\nthis.C = CLIKE_SLASH_COMPLETE;', sandbox);
   const res = sandbox.C.complete('/spec --methodology bmad --agent ', 33, ctx, parseSlash);
   assert.equal(JSON.stringify(res.items.map((i) => i.insert)), '["pm","ux"]');
+});
+
+test('the methodology preference is added only where the parser accepts it', () => {
+  const { withMethodology } = require('../slash-complete');
+  const bmad = { methodology: 'bmad', roles: { spec: 'ux', plan: 'architect', eval: 'developer', kit: 'qa' } };
+  assert.equal(withMethodology('/spec', bmad), '/spec --methodology bmad --agent ux');
+  assert.equal(withMethodology('/plan', bmad), '/plan --methodology bmad', 'the default role is not repeated');
+  assert.equal(withMethodology('/kit REQ-002', bmad), '/kit REQ-002 --methodology bmad', 'a role not allowed for the phase is ignored');
+  assert.equal(withMethodology('/eval REQ-002 --fix "keep the API"', bmad), '/eval REQ-002 --fix "keep the API" --methodology bmad --agent developer');
+  assert.equal(withMethodology('/gate REQ-002', bmad), '/gate REQ-002');
+  assert.equal(withMethodology('/eval REQ-002 --accept "edited by hand"', bmad), '/eval REQ-002 --accept "edited by hand"');
+  assert.equal(withMethodology('/autopilot 3', bmad), '/autopilot 3 --methodology bmad');
+  assert.equal(withMethodology('/autopilot stop', bmad), '/autopilot stop');
+  assert.equal(withMethodology('/spec --methodology bmad --agent pm', bmad), '/spec --methodology bmad --agent pm', 'typed flags win');
+  assert.equal(withMethodology('/idea --extend', { methodology: 'bmad', roles: { extend: 'architect' } }), '/idea --extend --methodology bmad --agent architect');
+  assert.equal(withMethodology('/agent-model list', bmad), '/agent-model list');
+  assert.equal(withMethodology('/spec', { methodology: '' }), '/spec');
+  for (const cmd of ['/spec', '/plan', '/kit REQ-002', '/eval REQ-002 --fix', '/idea --extend', '/finalize', '/extend "x"']) {
+    assert.equal(parseSlash(withMethodology(cmd, bmad)).error, undefined, cmd);
+  }
 });

@@ -1,5 +1,8 @@
 const vscode = require('vscode');
 const { buildBrowserSlashParserSource } = require('./slash-parser');
+const { buildBrowserSlashCompleteSource } = require('./slash-complete');
+
+const CHAT_THEMES = ['classic', 'pro', 'studio', 'paper', 'cockpit'];
 
 /**
  * Custom logging function that writes to both channels.
@@ -9,18 +12,21 @@ const { buildBrowserSlashParserSource } = require('./slash-parser');
 
 function getChatTheme() {
   try {
-    // Settings → "clike.chat.theme": "classic" | "panel" | "paper"
-    return vscode.workspace
+    // Settings → "clike.chat.theme": "cockpit" (default) | "classic" | "pro" | "studio" | "paper"
+    const theme = vscode.workspace
       .getConfiguration('clike')
-      .get('chat.theme', 'pro');
+      .get('chat.theme', 'cockpit');
+    return CHAT_THEMES.includes(theme) ? theme : 'cockpit';
   } catch {
-    return 'classic';
+    return 'cockpit';
   }
 }
 
-function getWebviewHtml(orchestratorUrl, themeName = 'classic') {
+function getWebviewHtml(orchestratorUrl, themeName = 'cockpit') {
   const nonce = require('crypto').randomBytes(16).toString('hex');
-  const safeTheme = themeName || 'classic';
+  const safeTheme = CHAT_THEMES.includes(themeName) ? themeName : 'cockpit';
+  const layoutOptions = CHAT_THEMES
+    .map((t) => `<option value="${t}"${t === safeTheme ? ' selected' : ''}>${t}</option>`).join('');
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -461,10 +467,162 @@ function getWebviewHtml(orchestratorUrl, themeName = 'classic') {
     color:var(--vscode-textPreformat-foreground, var(--vscode-textLink-foreground, #4fc1ff)); }
   #clikeHelpList .help-desc { line-height:1.4; color:var(--vscode-editorWidget-foreground, #e6e6e6); }
   #clikeHelpList .help-empty { padding:12px 0; color:var(--vscode-descriptionForeground, #9da5b4); }
+
+  /* ---------- every layout: the toolbar wraps instead of overflowing a narrow panel ---------- */
+  .toolbar { flex-wrap:wrap; row-gap:6px; }
+  #bmadBadge { border-color:#7c3aed; color:#c4b5fd; }
+
+  /* ---------- every layout: slash-command autocompletion above the prompt ---------- */
+  #promptRow { position:relative; }
+  #acBox { position:absolute; left:0; right:0; bottom:100%; margin-bottom:4px; z-index:60; display:none;
+    font-size:12.5px; }
+  #acBox.open { display:block; }
+  #acSig { font-family:var(--vscode-editor-font-family, ui-monospace, Menlo, monospace); font-size:12px; color:var(--fg-dim);
+    background:var(--card); border:1px solid var(--border); border-radius:6px; padding:4px 8px; margin-bottom:4px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #acSig b { color:#fff; background:#7c3aed; border-radius:3px; padding:0 3px; font-weight:600; }
+  #acErr { border:1px solid #b91c1c; background:rgba(127,29,29,.35); color:#fecaca; border-radius:6px; padding:4px 8px;
+    margin-bottom:4px; display:none; }
+  #acErr .ac-fix { color:#86efac; cursor:pointer; margin-left:6px; text-decoration:underline; }
+  #acMenu { background:var(--vscode-editorSuggestWidget-background, var(--card)); border:1px solid var(--vscode-editorSuggestWidget-border, var(--border));
+    border-radius:8px; overflow:auto; max-height:min(42vh, 300px); box-shadow:0 8px 24px rgba(0,0,0,.4); }
+  #acMenu:empty { display:none; }
+  .ac-it { display:grid; grid-template-columns:minmax(120px, max-content) minmax(0, 1fr) auto; gap:10px; padding:4px 10px;
+    align-items:baseline; cursor:pointer; }
+  .ac-it .ac-k { font-family:var(--vscode-editor-font-family, ui-monospace, Menlo, monospace); white-space:nowrap; color:var(--fg); }
+  .ac-it .ac-k em { font-style:normal; font-weight:700; color:#c4b5fd; }
+  .ac-it .ac-d { color:var(--fg-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ac-it .ac-w { color:#fcd34d; font-size:11px; white-space:nowrap; }
+  .ac-it .ac-g { color:var(--fg-dim); opacity:.7; font-size:11px; white-space:nowrap; }
+  .ac-it.on { background:var(--vscode-editorSuggestWidget-selectedBackground, #312e81); }
+  .ac-it.next .ac-k { color:#c4b5fd; }
+  .ac-foot { display:flex; gap:12px; padding:3px 10px; font-size:11px; color:var(--fg-dim); border-top:1px solid var(--border); }
+  @media (max-width: 520px) { .ac-it { grid-template-columns:minmax(0, 1fr) auto; } .ac-it .ac-d, .ac-it .ac-g { display:none; } .ac-foot { display:none; } }
+
+  /* ---------- cockpit layout ---------- */
+  body[data-theme="cockpit"] {
+    --bg:#1e1e1e; --fg:#e5e7eb; --fg-dim:#9ca3af; --card:#252526; --card2:#2d2d30; --border:#3f3f46;
+    --accent:#7c3aed; --ok:#16a34a; --ok-l:#86efac; --ko-l:#fca5a5; --info-l:#93c5fd;
+    --bubble-user:#0e639c; --bubble-ai:#2d2d30; --bubble-max-width:82%;
+    padding:0; height:100vh; overflow:hidden; font-size:13px;
+  }
+  #ckSide, #ckHead, #ckStrip, #ckDrawerBtn, #ckScrim { display:none; }
+  body[data-theme="cockpit"] #ckShell { display:grid; grid-template-columns:minmax(0, 1fr) 360px; gap:10px; height:100vh; padding:10px; box-sizing:border-box; }
+  body[data-theme="cockpit"] #ckMain { display:flex; flex-direction:column; min-width:0; min-height:0; background:var(--card); border-radius:8px; padding:8px 10px 10px; box-sizing:border-box; }
+  body[data-theme="cockpit"] #ckSide { display:block; min-height:0; overflow:auto; background:var(--card); border-radius:8px; padding:4px 12px 10px; box-sizing:border-box; }
+  body[data-theme="cockpit"] .toolbar.ck-moved { display:none; }
+  body[data-theme="cockpit"] #ckHead { display:flex; align-items:center; gap:8px; padding:6px 8px; margin-bottom:8px; background:var(--card2); border-radius:6px; min-width:0; }
+  body[data-theme="cockpit"] .chat { flex:1 1 auto; height:auto; min-height:120px; background:transparent; border:none; padding:4px 2px; }
+  body[data-theme="cockpit"] .msg.user { justify-content:flex-end; }
+  body[data-theme="cockpit"] .bubble { border-radius:10px; border:1px solid #3f3f46; }
+  body[data-theme="cockpit"] .user .bubble { border-color:#0e639c; }
+  body[data-theme="cockpit"] textarea#prompt { min-height:54px; max-height:30vh; resize:vertical; background:#3c3c3c; border-color:#3c3c3c; border-radius:8px; }
+  body[data-theme="cockpit"] #sendChat { background:#0e639c; border-color:#0e639c; color:#fff; }
+  body[data-theme="cockpit"] #cancel:not(:disabled) { background:#3b1219; border-color:#b91c1c; color:#fecaca; }
+  body[data-theme="cockpit"] #ckActions { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin:0; }
+  body[data-theme="cockpit"] #attach-toolbar { flex-wrap:wrap; }
+  body[data-theme="cockpit"] #ckOutput { margin-top:8px; border-radius:6px; background:var(--card2); }
+  body[data-theme="cockpit"] #ckOutput > summary { cursor:pointer; padding:5px 10px; color:var(--fg-dim); font-size:12px; user-select:none; }
+  body[data-theme="cockpit"] #ckOutput[open] > summary { color:var(--fg); }
+  body[data-theme="cockpit"] #ckOutput .tabs { margin:0 8px; }
+  body[data-theme="cockpit"] #ckOutput .panel { margin:0 8px 8px; max-height:32vh; overflow:auto; min-height:60px; }
+  body[data-theme="cockpit"] #panel-text { height:auto !important; }
+  .ck-mode { font-weight:700; letter-spacing:.04em; white-space:nowrap; }
+  .ck-mode.harper { color:#c4b5fd; } .ck-mode.coding { color:#93c5fd; } .ck-mode.free { color:#86efac; }
+  .ck-chips { display:flex; gap:6px; margin-left:auto; min-width:0; overflow:hidden; flex-wrap:nowrap; align-items:center; }
+  .ck-chip { background:#3f3f46; border-radius:10px; padding:1px 9px; font-size:11.5px; color:#e5e7eb; white-space:nowrap; cursor:pointer; border:none; }
+  .ck-chip.purple { background:#4c1d95; color:#ede9fe; }
+  .ck-dim { color:var(--fg-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+  body[data-theme="cockpit"] #status { margin-left:0; font-size:11.5px; }
+  .ck-sec { padding:8px 0; border-bottom:1px solid #333338; }
+  .ck-sec:last-child { border-bottom:none; }
+  .ck-sec > summary, .ck-h { list-style:none; display:flex; align-items:center; gap:6px; font-weight:700; color:#fff; font-size:12.5px; margin-bottom:6px; cursor:pointer; user-select:none; }
+  .ck-sec > summary::-webkit-details-marker { display:none; }
+  .ck-sec > summary::before { content:"▸"; color:#6b7280; font-size:10px; }
+  .ck-sec[open] > summary::before { content:"▾"; }
+  .ck-aside { margin-left:auto; font-weight:400; color:var(--fg-dim); font-size:11.5px; }
+  .ck-seg { display:grid; grid-template-columns:repeat(3, 1fr); background:#1e1e1e; border-radius:8px; padding:3px; gap:3px; }
+  .ck-seg.two { grid-template-columns:1fr 1fr; }
+  .ck-seg button { border:none; background:transparent; color:var(--fg-dim); font-weight:600; padding:5px 0; border-radius:6px; }
+  .ck-seg button.on.free { background:#16a34a; color:#fff; } .ck-seg button.on.coding { background:#0e639c; color:#fff; }
+  .ck-seg button.on.harper, .ck-seg button.on.bmad, .ck-seg button.on.native { background:#7c3aed; color:#fff; }
+  .ck-form { display:grid; grid-template-columns:96px minmax(0, 1fr); gap:6px 8px; align-items:center; margin-top:8px; }
+  .ck-form > label { color:var(--fg-dim); font-size:12px; }
+  .ck-form select, .ck-form input { width:100%; min-width:0; box-sizing:border-box; background:#1e1e1e; border-color:#3f3f46; }
+  .ck-pair { display:flex; gap:6px; min-width:0; align-items:center; }
+  .ck-pair > * { min-width:0; flex:1 1 auto; }
+  .ck-pair > button { flex:0 0 auto; }
+  .ck-roles { display:grid; grid-template-columns:64px minmax(0, 1fr); gap:4px 8px; font-size:12px; margin-top:8px; align-items:center; }
+  .ck-roles .ph { color:var(--fg-dim); font-weight:600; font-size:11px; }
+  .ck-rc { display:flex; gap:4px; flex-wrap:wrap; }
+  .ck-rc button, .ck-rc span { border:1px solid #4b5563; border-radius:10px; padding:1px 8px; color:var(--fg-dim); font-size:11.5px; background:transparent; }
+  .ck-rc .on { border-color:#7c3aed; background:#4c1d95; color:#fff; }
+  .ck-rc span { border-style:dashed; }
+  .ck-bar { height:9px; background:#3f3f46; border-radius:5px; overflow:hidden; position:relative; }
+  .ck-bar > i { position:absolute; top:0; bottom:0; left:0; border-radius:5px; }
+  .ck-bar .g { background:#22c55e; } .ck-bar .p { background:repeating-linear-gradient(45deg, #7c3aed 0 10px, #8b5cf6 10px 20px); }
+  .ck-pills { display:flex; gap:5px; flex-wrap:wrap; margin-top:8px; }
+  .ck-pill { border-radius:12px; padding:3px 10px; font-weight:700; font-size:11px; }
+  .ck-pill.done { background:#16a34a; color:#fff; } .ck-pill.active { background:#7c3aed; color:#fff; box-shadow:0 0 0 3px rgba(124,58,237,.3); } .ck-pill.todo { background:#3f3f46; color:#9ca3af; }
+  .ck-filter { display:flex; gap:4px; }
+  .ck-filter button { border:none; background:transparent; color:var(--fg-dim); padding:0 4px; font-size:11.5px; }
+  .ck-filter button.on { color:#fff; text-decoration:underline; }
+  .ck-reqs { max-height:min(32vh, 260px); overflow:auto; font-size:12.5px; }
+  .ck-req { display:flex; gap:6px; padding:3px 6px; border-radius:4px; cursor:pointer; min-width:0; }
+  .ck-req:hover { background:#2d2d30; }
+  .ck-req .t { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ck-req .n { white-space:nowrap; font-size:11.5px; }
+  .ck-req.done { color:#86efac; } .ck-req.in_progress { background:#312e81; color:#c4b5fd; } .ck-req.ready { color:#d1d5db; }
+  .ck-req.ready .n { color:#9ca3af; } .ck-req.wait, .ck-req.deferred { color:#6b7280; }
+  .ck-next { border:1px solid #7c3aed; background:#1f2937; border-radius:8px; padding:8px 10px; }
+  .ck-next code { font-family:var(--vscode-editor-font-family, ui-monospace, Menlo, monospace); color:#e5e7eb; background:none; padding:0; }
+  .ck-btns { display:flex; gap:6px; margin-top:7px; flex-wrap:wrap; }
+  .ck-btn { border:1px solid #4b5563; background:#2d2d30; color:#e5e7eb; border-radius:6px; padding:3px 11px; font-size:12px; }
+  .ck-btn.primary { background:#7c3aed; border-color:#7c3aed; color:#fff; }
+  .ck-kv { color:var(--fg-dim); font-size:12px; line-height:1.6; overflow-wrap:anywhere; }
+  .ck-kv b { color:var(--fg); font-weight:600; }
+  .ck-ok { color:#86efac; } .ck-ko { color:#fca5a5; } .ck-warn { color:#fcd34d; }
+  .ck-empty { color:var(--fg-dim); font-size:12px; }
+
+  /* medium: a compact side panel */
+  @media (max-width: 1000px) {
+    body[data-theme="cockpit"] #ckShell { grid-template-columns:minmax(0, 1fr) 300px; gap:8px; padding:8px; }
+    body[data-theme="cockpit"] .ck-form { grid-template-columns:minmax(0, 1fr); gap:2px 0; }
+    body[data-theme="cockpit"] .ck-form > label { margin-top:4px; }
+    body[data-theme="cockpit"] .ck-chips .ck-chip.opt { display:none; }
+  }
+  /* narrow (the chat beside the editor): one column, the cockpit is a drawer, a status strip stays */
+  @media (max-width: 720px) {
+    body[data-theme="cockpit"] #ckShell { grid-template-columns:minmax(0, 1fr); padding:6px; }
+    body[data-theme="cockpit"] #ckSide { display:none; position:fixed; top:0; right:0; bottom:0; width:min(92vw, 360px); z-index:80;
+      border-radius:0; box-shadow:-8px 0 24px rgba(0,0,0,.5); }
+    body[data-theme="cockpit"].ck-drawer #ckSide { display:block; }
+    body[data-theme="cockpit"].ck-drawer #ckScrim { display:block; position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:70; }
+    body[data-theme="cockpit"] #ckDrawerBtn { display:inline-block; }
+    body[data-theme="cockpit"] #ckStrip { display:flex; }
+    body[data-theme="cockpit"] .ck-chips .ck-chip { display:none; }
+    body[data-theme="cockpit"] #ckMain { padding:6px; }
+  }
+  #ckStrip { align-items:center; gap:6px; flex-wrap:wrap; margin:-2px 0 6px; font-size:12px; }
+  #ckStrip .ck-pill { padding:1px 7px; font-size:10.5px; }
+  #ckStrip .ck-btn { padding:1px 8px; }
+  /* very narrow: icons for the secondary actions */
+  @media (max-width: 420px) {
+    body[data-theme="cockpit"] .ck-lbl { display:none; }
+    body[data-theme="cockpit"] #ckStrip .ck-pills { display:none; }
+  }
+  /* short panels: the transcript keeps the space */
+  @media (max-height: 520px) {
+    body[data-theme="cockpit"] textarea#prompt { min-height:34px; }
+    body[data-theme="cockpit"] #ckOutput .panel { max-height:22vh; }
+  }
 </style>
 
 </head>
 <body data-theme="${safeTheme}">
+<div id="ckShell"><div id="ckMain">
+  <div id="ckHead"></div>
+  <div id="ckStrip"></div>
 
   <div class="row toolbar">
     <label>Mode</label>
@@ -494,13 +652,19 @@ function getWebviewHtml(orchestratorUrl, themeName = 'classic') {
         <option value="allModels">All</option>
       </select>
     </label>
+    <label class="ctl">
+      Layout
+      <select id="layout" title="Chat layout (clike.chat.theme)">${layoutOptions}</select>
+    </label>
+    <span id="bmadBadge" class="badge" style="display:none" title="Harper commands run with the BMAD methodology (set in the cockpit layout)">BMAD</span>
     <span id="status">Ready</span>
     <span id="sp" class="spinner">⏳</span>
   </div>
 
   <div id="chat" class="chat" aria-label="Chat transcript"></div>
 
-  <div class="row">
+  <div class="row" id="promptRow">
+    <div id="acBox" aria-live="polite"><div id="acSig"></div><div id="acErr"></div><div id="acMenu" role="listbox"></div></div>
     <textarea id="prompt" placeholder="Type your prompt..."></textarea>
   </div>
   <!-- Toolbar allegati -->
@@ -512,7 +676,7 @@ function getWebviewHtml(orchestratorUrl, themeName = 'classic') {
     </div>
     <div id="attach-chips" style="margin-left:8px; display:flex; flex-wrap:wrap; gap:6px;"></div>
   </div>
-  <div class="row">
+  <div class="row" id="ckActions">
     <button id="sendChat">Send</button>
     <button id="apply" disabled>Apply</button>
     <button id="cancel" disabled>Cancel</button>
@@ -529,6 +693,7 @@ function getWebviewHtml(orchestratorUrl, themeName = 'classic') {
   </div>
   <div class="panel" id="panel-diffs" style="display:none;"><pre id="diffs"></pre></div>
   <div class="panel" id="panel-files" style="display:none;"><pre id="files"></pre></div>
+</div><aside id="ckSide" aria-label="Cockpit"></aside><div id="ckScrim"></div></div>
 
 <script nonce="${nonce}">
 const vscode = acquireVsCodeApi();
@@ -1023,6 +1188,7 @@ function updateBotBadge() {
 
 // --- Slash commands: parsed by the shared slash-parser.js (injected below) ---
 ${buildBrowserSlashParserSource()}
+${buildBrowserSlashCompleteSource()}
 
 function getHelpItems() {
   var fallback = HELP_COMMANDS;
@@ -1476,7 +1642,7 @@ function handleSlash(slash) {
       try {
         typed = (typeof prompt !== 'undefined' && prompt && typeof prompt.value === 'string') ? String(prompt.value || '').trim() : '';
       } catch {}
-      if (typed.toLowerCase().split(/\s+/)[0] !== slashCmd) typed = '';
+      if (typed.toLowerCase().split(/\\s+/)[0] !== slashCmd) typed = '';
       bubble(
         'user',
         typed || (slash.cmd + (targetText ? (' ' + targetText) : '') + (slash.args?.fix ? ' --fix' + (slash.args.hint ? ' "' + slash.args.hint + '"' : '') : '') + (slash.args?.accept !== undefined ? ' --accept' + (slash.args.accept ? ' "' + slash.args.accept + '"' : '') : '') +
@@ -1677,7 +1843,10 @@ function setBusy(on) {
     btnAttach,
     btnAttachWs,
     btnAttachExt,
+    document.getElementById('layout'),
   ].forEach((node) => setNodeDisabled(node, disabled));
+  document.querySelectorAll('.ck-ctl').forEach((node) => { node.disabled = disabled; });
+  if (disabled) { try { acClose(); } catch {} }
 
   if (btnAttachMenu && disabled) {
     btnAttachMenu.style.display = 'none';
@@ -1862,8 +2031,13 @@ function dispatchHarperSlashText(text) {
 //   - plain text      -> coding mode = code generation (/v1/generate),
 //                        free/harper mode = chat Q&A (/v1/chat).
 function onSend() {
-  const text = prompt.value;
-  if (!text.trim()) return;
+  // Harper commands get the cockpit's methodology when none was typed (the bubble shows it)
+  const typed = prompt.value;
+  if (!typed.trim()) return;
+  const text = typed.trim().charAt(0) === '/' ? withCockpitMethodology(typed) : typed;
+  if (text !== typed) prompt.value = text;
+  rememberCommand(text);
+  try { acClose(); } catch {}
 
   if (dispatchHarperSlashText(text)) {
     return;
@@ -2410,8 +2584,683 @@ window.addEventListener('message', (event) => {
 
 });
 
+// ===================== Cockpit layout and autocompletion =====================
+// The cockpit moves the existing controls (same ids, same handlers) into its side panel; every
+// layout gets the autocompletion and the Layout selector. The state comes from the extension
+// ('cockpitState': project, agent, preferences, tools).
+var COCKPIT = document.body.getAttribute('data-theme') === 'cockpit';
+var ck = { state: null, reqFilter: 'all' };
+var BMAD_ROLE_CHOICES = [
+  ['IDEA', 'idea', ['analyst']], ['SPEC', 'spec', ['pm', 'ux']], ['PLAN', 'plan', ['architect', 'pm']],
+  ['EXTEND', 'extend', ['pm', 'analyst', 'architect', 'ux']], ['KIT', 'kit', ['developer']],
+  ['EVAL', 'eval', ['qa', 'developer']], ['GATE', 'gate', []], ['FINALIZE', 'finalize', ['tech-writer']]
+];
+
+function ckEl(tag, cls, text) {
+  var n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined && text !== null) n.textContent = String(text);
+  return n;
+}
+function ckPrefs() { return (ck.state && ck.state.prefs) || { methodology: '', roles: {} }; }
+function ckProject() { return (ck.state && ck.state.project) || null; }
+
+/** The command with the cockpit methodology (BMAD and the role per phase) in Harper mode. */
+function withCockpitMethodology(text) {
+  var t = String(text || '').trim();
+  if (currentMode() !== 'harper') return t;
+  try { return CLIKE_SLASH_COMPLETE.withMethodology(t, ckPrefs()); } catch (e) { return t; }
+}
+
+// --- command history (per webview state: kept across reloads of the panel) ---
+var cmdHistory = ((vscode.getState && vscode.getState()) || {}).cmdHistory || [];
+var histIdx = -1;
+function rememberCommand(text) {
+  var t = String(text || '').trim();
+  if (!t || t.charAt(0) !== '/') return;
+  cmdHistory = cmdHistory.filter(function (x) { return x !== t; });
+  cmdHistory.unshift(t);
+  cmdHistory = cmdHistory.slice(0, 50);
+  histIdx = -1;
+  try { vscode.setState(Object.assign({}, vscode.getState() || {}, { cmdHistory: cmdHistory })); } catch (e) {}
+}
+
+// --- autocompletion ---
+var ac = { items: [], idx: 0, replaceFrom: 0, fix: '', suppressed: false, navigated: false };
+var acBox = el('acBox'), acSig = el('acSig'), acErr = el('acErr'), acMenu = el('acMenu');
+
+function acContext() {
+  var p = ckProject() || {};
+  var agent = (ck.state && ck.state.agent) || {};
+  return { mode: currentMode(), reqs: p.reqs || [], next: p.next || null, releases: p.releases || [],
+    tools: (ck.state && ck.state.tools) || [], models: agent.models || {} };
+}
+function acClose() {
+  ac.items = []; ac.fix = '';
+  acBox.classList.remove('open');
+  acMenu.innerHTML = ''; acSig.innerHTML = ''; acErr.style.display = 'none';
+}
+function acRender() {
+  if (isBusy() || ac.suppressed) { acClose(); return; }
+  var text = prompt.value;
+  if (!/^\\s*\\//.test(text)) { acClose(); return; }
+  var res;
+  try { res = CLIKE_SLASH_COMPLETE.complete(text, prompt.selectionStart, acContext(), parseSlash); } catch (e) { acClose(); return; }
+  ac.items = res.items || [];
+  ac.replaceFrom = res.replaceFrom;
+  ac.fix = res.fix || '';
+  if (ac.idx >= ac.items.length) ac.idx = 0;
+  // signature
+  acSig.innerHTML = '';
+  if (res.signature) {
+    acSig.appendChild(document.createTextNode(res.signature.command + ' '));
+    res.signature.parts.forEach(function (p) {
+      var node = p.active ? ckEl('b', '', p.text) : document.createTextNode(p.text);
+      acSig.appendChild(node);
+      acSig.appendChild(document.createTextNode(' '));
+    });
+  }
+  acSig.style.display = res.signature && res.signature.parts.length ? 'block' : 'none';
+  // error, with its fix
+  acErr.innerHTML = '';
+  if (res.error) {
+    acErr.appendChild(document.createTextNode('✖ ' + res.error));
+    if (ac.fix) {
+      var f = ckEl('span', 'ac-fix', '→ ' + ac.fix + '  (Tab)');
+      f.addEventListener('mousedown', function (ev) { ev.preventDefault(); acApplyFix(); });
+      acErr.appendChild(f);
+    }
+    acErr.style.display = 'block';
+  } else {
+    acErr.style.display = 'none';
+  }
+  // suggestions
+  acMenu.innerHTML = '';
+  var typedTok = text.slice(res.replaceFrom, prompt.selectionStart).toLowerCase();
+  ac.items.forEach(function (it, i) {
+    var row = ckEl('div', 'ac-it' + (i === ac.idx ? ' on' : '') + (it.kind === 'next' ? ' next' : ''));
+    row.setAttribute('role', 'option');
+    var k = ckEl('span', 'ac-k');
+    var label = String(it.label || '');
+    if (typedTok && label.toLowerCase().indexOf(typedTok) === 0) {
+      k.appendChild(ckEl('em', '', label.slice(0, typedTok.length)));
+      k.appendChild(document.createTextNode(label.slice(typedTok.length)));
+    } else {
+      k.textContent = (it.kind === 'next' ? '★ ' : '') + label;
+    }
+    row.appendChild(k);
+    row.appendChild(ckEl('span', 'ac-d', it.sig ? it.sig + ' — ' + (it.detail || '') : (it.detail || '')));
+    row.appendChild(ckEl('span', it.warn ? 'ac-w' : 'ac-g', it.warn || it.group || ''));
+    row.addEventListener('mousedown', function (ev) { ev.preventDefault(); ac.idx = i; acAccept(); });
+    acMenu.appendChild(row);
+  });
+  if (ac.items.length) {
+    var foot = ckEl('div', 'ac-foot');
+    ['↑↓ choose', 'Tab / ↵ insert', 'Esc close', '⌘/ help'].forEach(function (x) { foot.appendChild(ckEl('span', '', x)); });
+    acMenu.appendChild(foot);
+  }
+  var any = ac.items.length || res.error || (res.signature && res.signature.parts.length);
+  acBox.classList.toggle('open', !!any);
+}
+function acAccept() {
+  var it = ac.items[ac.idx];
+  if (!it) return false;
+  var out = CLIKE_SLASH_COMPLETE.accept(prompt.value, prompt.selectionStart, ac.replaceFrom, it);
+  prompt.value = out.text;
+  prompt.setSelectionRange(out.caret, out.caret);
+  ac.idx = 0; ac.navigated = false;
+  acRender();
+  return true;
+}
+function acApplyFix() {
+  if (!ac.fix) return false;
+  prompt.value = ac.fix + ' ';
+  prompt.setSelectionRange(prompt.value.length, prompt.value.length);
+  acRender();
+  return true;
+}
+prompt.addEventListener('input', function () { ac.suppressed = false; ac.navigated = false; ac.idx = 0; histIdx = -1; acRender(); });
+prompt.addEventListener('click', acRender);
+prompt.addEventListener('keyup', function (ev) { if (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight' || ev.key === 'Home' || ev.key === 'End') acRender(); });
+prompt.addEventListener('blur', function () { setTimeout(acClose, 120); });
+prompt.addEventListener('focus', acRender);
+// capture: runs before the Enter-to-send handler of Harper mode
+prompt.addEventListener('keydown', function (ev) {
+  var open = acBox.classList.contains('open');
+  var hasItems = open && ac.items.length > 0;
+  if (ev.key === 'Escape' && open) { ac.suppressed = true; acClose(); ev.preventDefault(); ev.stopImmediatePropagation(); return; }
+  if (hasItems && (ev.key === 'ArrowDown' || ev.key === 'ArrowUp')) {
+    ac.idx = (ac.idx + (ev.key === 'ArrowDown' ? 1 : ac.items.length - 1)) % ac.items.length;
+    ac.navigated = true;
+    acRender();
+    ev.preventDefault(); ev.stopImmediatePropagation(); return;
+  }
+  if (ev.key === 'Tab' && !ev.shiftKey) {
+    if (hasItems ? acAccept() : acApplyFix()) { ev.preventDefault(); ev.stopImmediatePropagation(); }
+    return;
+  }
+  if ((ev.key === 'Enter' || ev.key === 'Return') && hasItems && !ev.shiftKey && !ev.altKey && !ev.isComposing) {
+    // ↵ inserts while a token is being typed or a suggestion was chosen; otherwise it sends as before
+    var it = ac.items[ac.idx];
+    var typedTok = prompt.value.slice(ac.replaceFrom, prompt.selectionStart);
+    if (it && (ac.navigated || (typedTok && String(it.insert) !== typedTok))) {
+      acAccept();
+      ev.preventDefault(); ev.stopImmediatePropagation();
+    }
+    return;
+  }
+  // ↑ / ↓ in an empty prompt (or while browsing): the commands already used
+  if ((ev.key === 'ArrowUp' || ev.key === 'ArrowDown') && !hasItems && cmdHistory.length) {
+    var browsing = histIdx >= 0 && prompt.value === cmdHistory[histIdx];
+    if (!prompt.value || browsing) {
+      histIdx = ev.key === 'ArrowUp' ? Math.min(histIdx + 1, cmdHistory.length - 1) : histIdx - 1;
+      prompt.value = histIdx >= 0 ? cmdHistory[histIdx] : '';
+      prompt.setSelectionRange(prompt.value.length, prompt.value.length);
+      ev.preventDefault(); ev.stopImmediatePropagation();
+    }
+  }
+}, true);
+
+// --- Layout selector (every layout) ---
+var layoutSel = el('layout');
+if (layoutSel) {
+  layoutSel.addEventListener('change', function () {
+    if (isBusy()) { layoutSel.value = document.body.getAttribute('data-theme'); return; }
+    post('setTheme', { theme: layoutSel.value });
+  });
+}
+
+// --- the cockpit itself ---
+function ckRow(form, label, nodes) {
+  var l = ckEl('label', '', label);
+  form.appendChild(l);
+  var box = ckEl('div', 'ck-pair');
+  nodes.forEach(function (n) { if (n) box.appendChild(n); });
+  form.appendChild(box);
+  return box;
+}
+function ckSection(id, title, open) {
+  var d = ckEl('details', 'ck-sec');
+  d.id = id;
+  var saved = ((vscode.getState && vscode.getState()) || {}).ckOpen || {};
+  d.open = saved[id] !== undefined ? !!saved[id] : open !== false;
+  var s = ckEl('summary', '', title);
+  d.appendChild(s);
+  d.addEventListener('toggle', function () {
+    try {
+      var st = vscode.getState() || {};
+      var o = Object.assign({}, st.ckOpen || {});
+      o[id] = d.open;
+      vscode.setState(Object.assign({}, st, { ckOpen: o }));
+    } catch (e) {}
+  });
+  return d;
+}
+function ckSetMode(value) {
+  if (isBusy() || mode.value === value) return;
+  mode.value = value;
+  mode.dispatchEvent(new Event('change'));
+  ckRenderAll();
+}
+function ckRunCommand(cmd) {
+  if (isBusy() || !cmd) return;
+  if (currentMode() !== 'harper') ckSetMode('harper');
+  prompt.value = cmd;
+  onSend();
+}
+function ckToggleDrawer(open) {
+  document.body.classList.toggle('ck-drawer', open === undefined ? !document.body.classList.contains('ck-drawer') : !!open);
+}
+
+function ckBuild() {
+  var side = el('ckSide');
+  var head = el('ckHead');
+  var toolbar = document.querySelector('.toolbar');
+  // header of the chat column: mode, summary chips, status, drawer button
+  head.appendChild(ckEl('span', 'ck-mode', ''));
+  head.appendChild(ckEl('span', 'ck-dim', ''));
+  var chips = ckEl('span', 'ck-chips');
+  head.appendChild(chips);
+  head.appendChild(el('sp'));
+  head.appendChild(el('status'));
+  var drawerBtn = ckEl('button', 'ck-chip purple', '☰');
+  drawerBtn.id = 'ckDrawerBtn';
+  drawerBtn.title = 'Cockpit: mode, settings, project';
+  drawerBtn.addEventListener('click', function () { ckToggleDrawer(); });
+  head.appendChild(drawerBtn);
+  el('ckScrim').addEventListener('click', function () { ckToggleDrawer(false); });
+
+  // mode + settings: the existing controls are moved here
+  var secCfg = ckSection('ckSecCfg', 'Mode & settings', true);
+  var seg = ckEl('div', 'ck-seg');
+  seg.id = 'ckModeSeg';
+  [['free', 'Free'], ['coding', 'Coding'], ['harper', 'Harper']].forEach(function (m) {
+    var b = ckEl('button', 'ck-ctl ' + m[0], m[1]);
+    b.dataset.mode = m[0];
+    b.addEventListener('click', function () { ckSetMode(m[0]); });
+    seg.appendChild(b);
+  });
+  secCfg.appendChild(seg);
+  var form = ckEl('div', 'ck-form');
+  ckRow(form, 'Execution', [execution]);
+  ckRow(form, 'Cloud model', [model, btnRefresh]);
+  var agentSel = ckEl('select', 'ck-ctl');
+  agentSel.id = 'ckAgent';
+  [['gpt_codex', 'Codex'], ['claude_code', 'Claude Code'], ['auto', 'auto']].forEach(function (o) {
+    var opt = ckEl('option', '', o[1]); opt.value = o[0]; agentSel.appendChild(opt);
+  });
+  agentSel.addEventListener('change', function () {
+    var v = { gpt_codex: 'codex', claude_code: 'claude', auto: 'auto' }[agentSel.value];
+    post('harperRun', { cmd: 'agent-default', value: v, attachments: [] });
+  });
+  ckRow(form, 'Agent', [agentSel]);
+  var agentModel = ckEl('input', 'ck-ctl');
+  agentModel.id = 'ckAgentModel';
+  agentModel.setAttribute('list', 'ckAgentModels');
+  agentModel.setAttribute('spellcheck', 'false');
+  var dl = ckEl('datalist'); dl.id = 'ckAgentModels';
+  agentModel.addEventListener('change', function () {
+    var who = agentModel.dataset.agent || 'codex';
+    var v = agentModel.value.trim();
+    if (v) post('harperRun', { cmd: 'agent-model', agentName: who, agentModel: v, attachments: [] });
+  });
+  var amRow = ckRow(form, 'Agent model', [agentModel, dl]);
+  amRow.id = 'ckAgentModelRow';
+  ckRow(form, 'History', [historyScope]);
+  ckRow(form, 'Layout', [layoutSel]);
+  var helpBtnNode = el('helpBtn');
+  helpBtnNode.appendChild(document.createTextNode(' Help'));
+  var clearNode = btnClear;
+  ckRow(form, 'Session', [clearNode, helpBtnNode]);
+  secCfg.appendChild(form);
+  // the native mode select stays in the DOM (handlers, state), hidden
+  mode.style.display = 'none';
+  secCfg.appendChild(mode);
+  side.appendChild(secCfg);
+
+  // methodology (Harper)
+  var secMeth = ckSection('ckSecMeth', 'Methodology', true);
+  secMeth.classList.add('ck-harper');
+  var mseg = ckEl('div', 'ck-seg two');
+  [['', 'Harper native', 'native'], ['bmad', 'BMAD', 'bmad']].forEach(function (m) {
+    var b = ckEl('button', 'ck-ctl ' + m[2], m[1]);
+    b.dataset.meth = m[0];
+    b.addEventListener('click', function () {
+      if (isBusy()) return;
+      var p = ckPrefs();
+      post('cockpitPrefs', { methodology: m[0], roles: p.roles || {} });
+    });
+    mseg.appendChild(b);
+  });
+  secMeth.appendChild(mseg);
+  var roles = ckEl('div', 'ck-roles');
+  roles.id = 'ckRoles';
+  secMeth.appendChild(roles);
+  side.appendChild(secMeth);
+
+  // project (Harper)
+  var secProj = ckSection('ckSecProj', 'Project', true);
+  secProj.classList.add('ck-harper');
+  var proj = ckEl('div'); proj.id = 'ckProject';
+  secProj.appendChild(proj);
+  side.appendChild(secProj);
+
+  var secNext = ckSection('ckSecNext', 'Next action', true);
+  secNext.classList.add('ck-harper');
+  var next = ckEl('div'); next.id = 'ckNext';
+  secNext.appendChild(next);
+  side.appendChild(secNext);
+
+  var secReq = ckSection('ckSecReq', 'REQ', true);
+  secReq.classList.add('ck-harper');
+  var filter = ckEl('span', 'ck-filter ck-aside');
+  [['all', 'all'], ['open', 'open'], ['active', 'in progress']].forEach(function (f) {
+    var b = ckEl('button', '', f[1]);
+    b.dataset.f = f[0];
+    b.addEventListener('click', function (ev) { ev.preventDefault(); ck.reqFilter = f[0]; ckRenderReqs(); });
+    filter.appendChild(b);
+  });
+  secReq.querySelector('summary').appendChild(filter);
+  var reqs = ckEl('div', 'ck-reqs'); reqs.id = 'ckReqs';
+  secReq.appendChild(reqs);
+  side.appendChild(secReq);
+
+  // free / coding: the Harper project in one line
+  var secSum = ckSection('ckSecSum', 'Harper project', true);
+  secSum.classList.add('ck-nonharper');
+  var sum = ckEl('div'); sum.id = 'ckSummary';
+  secSum.appendChild(sum);
+  side.appendChild(secSum);
+
+  var secAgent = ckSection('ckSecAgent', 'Last run & agent', true);
+  var agentBox = ckEl('div'); agentBox.id = 'ckAgentBox';
+  secAgent.appendChild(agentBox);
+  side.appendChild(secAgent);
+
+  // output tabs in a drawer under the composer: open by itself when there is something to read
+  var out = ckEl('details'); out.id = 'ckOutput';
+  out.appendChild(ckEl('summary', '', 'Output · Text · Diffs · Files'));
+  var main = el('ckMain');
+  var tabs = document.querySelector('.tabs');
+  main.insertBefore(out, tabs);
+  out.appendChild(tabs);
+  ['panel-text', 'panel-diffs', 'panel-files'].forEach(function (id) { out.appendChild(el(id)); });
+
+  // short labels for very narrow panels
+  [[btnAttach, '📎', ' Attach'], [btnApply, '✔', ' Apply'], [btnCancel, '⏹', ' Cancel']].forEach(function (b) {
+    if (!b[0]) return;
+    b[0].textContent = '';
+    b[0].appendChild(document.createTextNode(b[1]));
+    b[0].appendChild(ckEl('span', 'ck-lbl', b[2]));
+  });
+
+  if (toolbar) toolbar.classList.add('ck-moved');
+}
+
+function ckPill(p, label) { return ckEl('span', 'ck-pill ' + p.state, label || p.label); }
+
+function ckRenderHead() {
+  var head = el('ckHead');
+  if (!head.firstChild) return;
+  var m = currentMode();
+  var badge = head.children[0];
+  badge.className = 'ck-mode ' + m;
+  badge.textContent = { free: 'FREE', coding: 'CODING', harper: 'HARPER' }[m] || m.toUpperCase();
+  var p = ckProject();
+  var dim = head.children[1];
+  dim.textContent = m === 'harper' && p && p.harper
+    ? ((p.release ? p.release + ' · ' : '') + p.progress_pct + '% · ' + (p.counts ? p.counts.done + '/' + p.counts.total + ' REQ' : ''))
+    : (m === 'coding' ? 'writes only under generated/<id>/' : 'questions only, nothing is written');
+  var chips = head.querySelector('.ck-chips');
+  chips.innerHTML = '';
+  var a = (ck.state && ck.state.agent) || {};
+  var exec = currentExecution();
+  var who = exec === 'cloud_only' ? ('☁ ' + (model.value || 'auto'))
+    : ('🤖 ' + ({ gpt_codex: 'Codex', claude_code: 'Claude Code' }[a.executor] || 'agent') +
+       (a.executor === 'gpt_codex' && a.codex_model ? ' · ' + a.codex_model : a.executor === 'claude_code' && a.claude_model ? ' · ' + a.claude_model : ''));
+  var c1 = ckEl('button', 'ck-chip', who); c1.title = 'Execution and agent';
+  c1.addEventListener('click', function () { ckFocusSection('ckSecCfg'); });
+  chips.appendChild(c1);
+  if (m === 'harper' && ckPrefs().methodology === 'bmad') {
+    var c2 = ckEl('button', 'ck-chip purple opt', 'BMAD'); c2.title = 'Methodology';
+    c2.addEventListener('click', function () { ckFocusSection('ckSecMeth'); });
+    chips.appendChild(c2);
+  }
+}
+function ckFocusSection(id) {
+  if (window.matchMedia('(max-width: 720px)').matches) ckToggleDrawer(true);
+  var s = el(id);
+  if (s) { s.open = true; s.scrollIntoView({ block: 'nearest' }); }
+}
+
+function ckRenderConfig() {
+  var m = currentMode();
+  document.querySelectorAll('#ckModeSeg button').forEach(function (b) { b.classList.toggle('on', b.dataset.mode === m); });
+  var a = (ck.state && ck.state.agent) || {};
+  var agentSel = el('ckAgent');
+  if (agentSel && a.executor) agentSel.value = a.executor;
+  var am = el('ckAgentModel');
+  var dl = el('ckAgentModels');
+  if (am) {
+    var who = a.executor === 'claude_code' ? 'claude' : 'codex';
+    am.dataset.agent = who;
+    if (document.activeElement !== am) am.value = who === 'claude' ? (a.claude_model || '') : (a.codex_model || '');
+    am.title = 'Model of ' + (who === 'claude' ? 'Claude Code' : 'Codex') + ' (/agent-model)';
+    dl.innerHTML = '';
+    (((a.models || {})[who]) || []).forEach(function (x) { var o = ckEl('option'); o.value = x; dl.appendChild(o); });
+  }
+  var cloudOnly = currentExecution() === 'cloud_only';
+  var amRow = el('ckAgentModelRow');
+  if (amRow) amRow.style.opacity = cloudOnly ? '.5' : '';
+  model.title = cloudOnly || currentExecution() === 'prefer_local_agent' ? 'Cloud model' : 'Cloud model (not used: agent only)';
+}
+
+function ckRenderMethodology() {
+  var p = ckPrefs();
+  document.querySelectorAll('#ckSecMeth .ck-seg button').forEach(function (b) { b.classList.toggle('on', (b.dataset.meth || '') === (p.methodology || '')); });
+  var roles = el('ckRoles');
+  if (!roles) return;
+  roles.innerHTML = '';
+  roles.style.display = p.methodology === 'bmad' ? '' : 'none';
+  BMAD_ROLE_CHOICES.forEach(function (r) {
+    roles.appendChild(ckEl('span', 'ph', r[0]));
+    var box = ckEl('div', 'ck-rc');
+    if (!r[2].length) box.appendChild(ckEl('span', '', 'CLike only'));
+    var current = (p.roles || {})[r[1]] || r[2][0];
+    r[2].forEach(function (role) {
+      if (r[2].length === 1) { box.appendChild(ckEl('span', 'on', role)); return; }
+      var b = ckEl('button', 'ck-ctl' + (role === current ? ' on' : ''), role);
+      b.addEventListener('click', function () {
+        if (isBusy()) return;
+        var next = Object.assign({}, p.roles || {}); next[r[1]] = role;
+        post('cockpitPrefs', { methodology: 'bmad', roles: next });
+      });
+      box.appendChild(b);
+    });
+    roles.appendChild(box);
+  });
+}
+
+function ckRenderProject() {
+  var box = el('ckProject');
+  if (!box) return;
+  box.innerHTML = '';
+  var p = ckProject();
+  if (!p || !p.harper) {
+    box.appendChild(ckEl('div', 'ck-empty', 'No Harper project in this workspace: /init <name> creates one.'));
+    return;
+  }
+  var h = ckEl('div', 'ck-h', (p.release ? 'Release ' + p.release + ' · ' : '') + p.counts.total + ' REQ');
+  h.appendChild(ckEl('span', 'ck-aside', p.progress_pct + '%'));
+  box.appendChild(h);
+  var bar = ckEl('div', 'ck-bar');
+  var g = ckEl('i', 'g'); g.style.width = p.progress_pct + '%'; bar.appendChild(g);
+  if (p.counts.in_progress && p.counts.total) {
+    var pr = ckEl('i', 'p');
+    pr.style.left = p.progress_pct + '%';
+    pr.style.width = Math.max(2, Math.round(100 * p.counts.in_progress / p.counts.total)) + '%';
+    bar.appendChild(pr);
+  }
+  box.appendChild(bar);
+  box.appendChild(ckEl('div', 'ck-kv', p.counts.done + ' done · ' + p.counts.in_progress + ' in progress · ' + p.counts.open + ' open' + (p.counts.deferred ? ' · ' + p.counts.deferred + ' deferred' : '')));
+  var pills = ckEl('div', 'ck-pills');
+  p.phases.forEach(function (ph) {
+    pills.appendChild(ckPill(ph, ph.id === 'kit' && p.counts.total ? 'KIT ' + p.counts.done + '/' + p.counts.total : ph.label));
+  });
+  box.appendChild(pills);
+}
+
+function ckReqCommand(r) {
+  if (r.status === 'in_progress' && /^next: \\//.test(r.note)) {
+    var step = r.note.replace('next: /', '');
+    return step === 'eval' ? '/eval ' + r.id + ' --fix' : '/' + step + ' ' + r.id;
+  }
+  if (r.status === 'done') return '/eval ' + r.id;
+  return '/kit ' + r.id;
+}
+function ckRenderReqs() {
+  var box = el('ckReqs');
+  if (!box) return;
+  box.innerHTML = '';
+  document.querySelectorAll('#ckSecReq .ck-filter button').forEach(function (b) { b.classList.toggle('on', b.dataset.f === ck.reqFilter); });
+  var p = ckProject();
+  var list = (p && p.reqs) || [];
+  if (ck.reqFilter === 'open') list = list.filter(function (r) { return r.status === 'open' || r.status === 'in_progress'; });
+  if (ck.reqFilter === 'active') list = list.filter(function (r) { return r.status === 'in_progress'; });
+  if (!list.length) { box.appendChild(ckEl('div', 'ck-empty', p && p.counts && p.counts.total ? 'No REQ in this filter.' : 'No plan yet: /plan creates the REQs.')); return; }
+  list.forEach(function (r) {
+    var cls = r.status === 'open' ? (r.waiting && r.waiting.length ? 'wait' : 'ready') : r.status;
+    var row = ckEl('div', 'ck-req ' + cls);
+    row.title = r.id + ' ' + r.title + ' — click: ' + ckReqCommand(r);
+    row.appendChild(ckEl('span', '', r.status === 'done' ? '●' : r.status === 'in_progress' ? '◐' : '○'));
+    row.appendChild(ckEl('span', 't', r.id + ' ' + r.title));
+    row.appendChild(ckEl('span', 'n', r.note));
+    row.addEventListener('click', function () {
+      if (isBusy()) return;
+      if (currentMode() !== 'harper') ckSetMode('harper');
+      prompt.value = ckReqCommand(r) + ' ';
+      ckToggleDrawer(false);
+      prompt.focus();
+      prompt.setSelectionRange(prompt.value.length, prompt.value.length);
+      acRender();
+    });
+    box.appendChild(row);
+  });
+}
+
+function ckRenderNext() {
+  var box = el('ckNext');
+  if (!box) return;
+  box.innerHTML = '';
+  var p = ckProject();
+  var n = p && p.next;
+  var wrap = ckEl('div', 'ck-next');
+  if (!n) { wrap.appendChild(ckEl('div', 'ck-empty', 'Open a Harper project.')); box.appendChild(wrap); return; }
+  var line = ckEl('div', 'ck-kv');
+  if (n.command) {
+    var cmd = withCockpitMethodology(n.command);
+    line.appendChild(document.createTextNode('Next: '));
+    line.appendChild(ckEl('code', '', cmd));
+  } else {
+    line.textContent = n.message;
+  }
+  wrap.appendChild(line);
+  if (n.command) wrap.appendChild(ckEl('div', 'ck-kv', n.message));
+  var btns = ckEl('div', 'ck-btns');
+  if (n.command) {
+    var run = ckEl('button', 'ck-btn primary ck-ctl', 'Run');
+    run.title = 'Runs ' + withCockpitMethodology(n.command) + ' as if typed';
+    run.addEventListener('click', function () { ckRunCommand(n.command); });
+    btns.appendChild(run);
+  }
+  if (p.counts && p.counts.total && (p.counts.open || p.counts.in_progress)) {
+    var auto = ckEl('button', 'ck-btn ck-ctl', '▶ Autopilot');
+    auto.title = 'Every REQ unattended: /kit → /eval --fix → /gate (stops before /finalize)';
+    auto.addEventListener('click', function () { ckRunCommand('/autopilot'); });
+    btns.appendChild(auto);
+  }
+  wrap.appendChild(btns);
+  box.appendChild(wrap);
+}
+
+function ckAgo(ts) {
+  var s = Math.max(0, Math.round((Date.now() - Number(ts || 0)) / 1000));
+  if (s < 90) return s + ' s ago';
+  if (s < 5400) return Math.round(s / 60) + ' min ago';
+  if (s < 172800) return Math.round(s / 3600) + ' h ago';
+  return Math.round(s / 86400) + ' days ago';
+}
+function ckRenderAgent() {
+  var box = el('ckAgentBox');
+  if (!box) return;
+  box.innerHTML = '';
+  var p = ckProject();
+  var r = p && p.last_run;
+  if (r) {
+    var l = ckEl('div', 'ck-kv');
+    l.appendChild(ckEl('b', '', (r.phase === 'gate' ? 'Gate ' : 'Eval ') + r.req_id + ' '));
+    l.appendChild(ckEl('span', /^PASS/.test(r.status) ? 'ck-ok' : 'ck-ko', r.status));
+    l.appendChild(document.createTextNode(' · ' + ckAgo(r.ts)));
+    box.appendChild(l);
+    var c = ckEl('div', 'ck-kv');
+    c.appendChild(ckEl('span', 'ck-ok', r.passed + ' ✔'));
+    c.appendChild(document.createTextNode('  '));
+    c.appendChild(ckEl('span', 'ck-ko', r.failed + ' ✖'));
+    c.appendChild(document.createTextNode('  '));
+    c.appendChild(ckEl('span', 'ck-warn', r.warnings + ' ⚠'));
+    box.appendChild(c);
+  }
+  var a = (ck.state && ck.state.agent) || {};
+  var exec = currentExecution();
+  var who = exec === 'cloud_only' ? 'cloud · ' + (model.value || 'auto')
+    : ({ gpt_codex: 'Codex', claude_code: 'Claude Code', auto: 'auto' }[a.executor] || 'agent') +
+      ' · ' + (a.executor === 'claude_code' ? a.claude_model : a.codex_model || '') + (exec === 'prefer_local_agent' ? ' (cloud fallback: ' + (model.value || 'auto') + ')' : '');
+  var w = ckEl('div', 'ck-kv');
+  w.appendChild(document.createTextNode('Writes: '));
+  w.appendChild(ckEl('b', '', who));
+  box.appendChild(w);
+}
+
+function ckRenderSummary() {
+  var box = el('ckSummary');
+  if (!box) return;
+  box.innerHTML = '';
+  var p = ckProject();
+  if (!p || !p.harper) { box.appendChild(ckEl('div', 'ck-empty', 'No Harper project in this workspace.')); return; }
+  var bar = ckEl('div', 'ck-bar');
+  var g = ckEl('i', 'g'); g.style.width = p.progress_pct + '%'; bar.appendChild(g);
+  box.appendChild(bar);
+  var cur = (p.reqs || []).filter(function (r) { return r.status === 'in_progress'; })[0];
+  var l = ckEl('div', 'ck-kv', (p.release ? p.release + ' · ' : '') + p.progress_pct + '% · ' +
+    (cur ? cur.id + ' in progress (' + cur.note + ')' : (p.next && p.next.command ? 'next: ' + p.next.command : '')));
+  box.appendChild(l);
+  var go = ckEl('button', 'ck-btn ck-ctl', 'Go to Harper');
+  go.addEventListener('click', function () { ckSetMode('harper'); });
+  box.appendChild(go);
+}
+
+// narrow panels: one line with the phases and the next action, always visible
+function ckRenderStrip() {
+  var strip = el('ckStrip');
+  if (!strip) return;
+  strip.innerHTML = '';
+  var p = ckProject();
+  if (currentMode() !== 'harper' || !p || !p.harper) return;
+  var pills = ckEl('span', 'ck-pills');
+  pills.style.marginTop = '0';
+  p.phases.forEach(function (ph) { pills.appendChild(ckPill(ph, ph.id === 'finalize' ? 'FIN' : ph.label)); });
+  strip.appendChild(pills);
+  if (p.next && p.next.command) {
+    strip.appendChild(ckEl('code', 'ck-dim', p.next.command));
+    var run = ckEl('button', 'ck-btn primary ck-ctl', 'Run');
+    run.addEventListener('click', function () { ckRunCommand(p.next.command); });
+    strip.appendChild(run);
+  }
+}
+
+function ckRenderAll() {
+  var badge = el('bmadBadge');
+  if (badge) badge.style.display = ckPrefs().methodology === 'bmad' ? 'inline-block' : 'none';
+  if (!COCKPIT) return;
+  var harper = currentMode() === 'harper';
+  document.querySelectorAll('#ckSide .ck-harper').forEach(function (n) { n.style.display = harper ? '' : 'none'; });
+  document.querySelectorAll('#ckSide .ck-nonharper').forEach(function (n) { n.style.display = harper ? 'none' : ''; });
+  ckRenderHead(); ckRenderConfig(); ckRenderMethodology(); ckRenderProject(); ckRenderReqs(); ckRenderNext();
+  ckRenderAgent(); ckRenderSummary(); ckRenderStrip();
+  ckApplyBusy();
+}
+// the cockpit's own controls follow the busy state (they are rebuilt on every state)
+function ckApplyBusy() {
+  var b = isBusy();
+  document.querySelectorAll('.ck-ctl').forEach(function (n) { n.disabled = b; });
+}
+
+if (COCKPIT) {
+  try { ckBuild(); } catch (e) { console.warn('[cockpit] build failed', e); }
+}
+[mode, model, execution].forEach(function (n) { if (n) n.addEventListener('change', function () { ckRenderAll(); acRender(); }); });
+
+window.addEventListener('message', function (event) {
+  var msg = event.data || {};
+  if (msg.type === 'cockpitState') {
+    ck.state = msg.state || null;
+    if (layoutSel && msg.state && msg.state.theme && !isBusy()) layoutSel.value = document.body.getAttribute('data-theme');
+    ckRenderAll();
+    if (document.activeElement === prompt) acRender();
+    return;
+  }
+  if (msg.type === 'initState' || msg.type === 'models') { ckRenderAll(); return; }
+  if (msg.type === 'busy') { if (msg.on) acClose(); ckRenderAll(); return; }
+  if (!COCKPIT) return;
+  // the output drawer opens by itself when there is something to read in it
+  var out = el('ckOutput');
+  if (out && (msg.type === 'generateResult' || msg.type === 'applyResult' || msg.type === 'error' || msg.type === 'text' ||
+      (msg.type === 'files' && msg.activate))) out.open = true;
+});
+
 // init
 post('fetchModels');
+post('cockpitRefresh');
 </script>
 <div id="clikeHelpOverlay" role="dialog" aria-modal="true" aria-label="CLike Help">
   <div id="clikeHelpCard">
@@ -2427,4 +3276,4 @@ post('fetchModels');
 }
 
 
-module.exports = { getChatTheme, getWebviewHtml };
+module.exports = { CHAT_THEMES, getChatTheme, getWebviewHtml };
