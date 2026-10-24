@@ -878,6 +878,15 @@ class EvalRunner:
                     + f"\n{_SANDBOX_EXHAUSTED_NOTE} ({exhausted}): the OS refused a process, "
                     "thread, memory or disk space. Not a defect of the code. " + sandbox_resources.RESTART_HINT
                 )
+            elif not ok and sandbox_resources.unreachable_reserved_host(f"{stdout}\n{stderr}"):
+                # A test defect, not the environment: the repair fixes the test (assertions kept).
+                host = sandbox_resources.unreachable_reserved_host(f"{stdout}\n{stderr}")
+                noted = True
+                stderr = stderr + "\n[CLike EvalRunner] " + sandbox_resources.UNREACHABLE_HOST_NOTE.format(host=host)
+            elif not ok and sandbox_resources.needs_person(f"{stdout}\n{stderr}"):
+                # Like a missing container runtime: blocking, the repair makes it non-blocking.
+                blocked, noted = blocking, True
+                stderr = stderr + "\n[CLike EvalRunner] " + sandbox_resources.MANUAL_CHECK_NOTE
             elif not ok and sandbox_resources.container_runtime_missing(f"{stdout}\n{stderr}"):
                 # Blocking: no verdict without it, and the repair is told to make it non-blocking.
                 # Non-blocking: a warning, it runs on the developer's machine.

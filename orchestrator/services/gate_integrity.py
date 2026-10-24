@@ -246,11 +246,13 @@ def _evidence_of(evidence: str, check: str) -> str:
 
 def _needs_container_runtime(issue: str, evidence: str) -> bool:
     """A check made non-blocking because the eval showed it needs a container runtime, which the
-    sandbox never has: the only way such a check stops blocking an eval it cannot pass."""
+    sandbox never has, or a person (an observation, a sign-off): the only way such a check stops
+    blocking an eval it cannot pass."""
     prefix = "check made non-blocking: "
-    return issue.startswith(prefix) and sandbox_resources.container_runtime_missing(
-        _evidence_of(evidence, issue[len(prefix):])
-    )
+    if not issue.startswith(prefix):
+        return False
+    shown = _evidence_of(evidence, issue[len(prefix):])
+    return sandbox_resources.container_runtime_missing(shown) or sandbox_resources.needs_person(shown)
 
 
 def _ltc_weakening(before: str, after: str) -> List[str]:
@@ -387,6 +389,9 @@ def _harness_error_in(evidence: str, path: Path) -> bool:
         # pyright "x.py:286:5 - error: …"), like a TypeScript error on a JS/TS test
         or re.search(rf"{name}:\d+(?::\d+)?:? (?:- )?error: ", evidence)
         or re.search(rf"ERROR collecting [^\n]*{name}", evidence)
+        # the test contacts a reserved host that never resolves, its stack in this file
+        or (sandbox_resources.unreachable_reserved_host(evidence) is not None
+            and re.search(rf"{name}\", line \d+|{name}:\d+", evidence) is not None)
         or re.search(rf"fixture '[^']+' not found[\s\S]{{0,400}}{name}|{name}[\s\S]{{0,400}}fixture '[^']+' not found", evidence)
     )
 
@@ -551,6 +556,7 @@ def _js_harness_error_in(evidence: str, path: Path) -> bool:
         or re.search(rf"\b(?:{_JS_HARNESS_ERRORS})\b[^\n]*(?:\n[^\n]*){{0,8}}?{name}:\d+", evidence)
         or re.search(rf"(?:Cannot find module|Failed to resolve import|Failed to load url)[^\n]*{name}", evidence)
         or re.search(rf"{name}[^\n]*(?:Cannot find module|Failed to resolve import)", evidence)
+        or (sandbox_resources.unreachable_reserved_host(evidence) is not None and re.search(rf"{name}:\d+", evidence) is not None)
     )
 
 

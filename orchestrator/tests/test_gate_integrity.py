@@ -339,6 +339,40 @@ class GateIntegrityTests(unittest.TestCase):
         result = gate_integrity.amend_acceptance_surface(self.proj, REQ, {"ci/LTC.json": relaxed}, reason="r", evidence=no_docker)
         self.assertEqual((result["accepted"], result["rejected"]), (["ci/LTC.json"], {}))
 
+    def test_a_manual_check_waiting_for_a_person_can_stop_blocking(self):
+        from services import gate_integrity
+
+        self._eval()
+        relaxed = json.dumps({**LTC, "checks": [LTC["checks"][0], {**LTC["checks"][1], "blocking": False}]})
+        manual = "lint\nMissing mandatory desktop zoom/announcement observation; see ci/HOWTO.md.\n"
+        result = gate_integrity.amend_acceptance_surface(self.proj, REQ, {"ci/LTC.json": relaxed}, reason="r", evidence=manual)
+        self.assertEqual((result["accepted"], result["rejected"]), (["ci/LTC.json"], {}))
+
+    def test_a_test_that_reaches_a_reserved_host_may_be_fixed_with_its_assertions_kept(self):
+        from services import gate_integrity
+
+        # ShortLink: a browser test followed the redirect to a name that never resolves
+        test = (
+            "import unittest\n\n"
+            "class Follow(unittest.TestCase):\n"
+            "    def test_follow(self):\n"
+            "        url = open_page('http://example.test/x')\n"
+            "        assert url == 'http://example.test/x'\n"
+        )
+        (self.kit / "test" / "test_follow.py").write_text(test)
+        self._eval()
+        fixed = test.replace("open_page('http://example.test/x')", "intercepted_location('http://example.test/x')")
+        evidence = (
+            'test:browser\nFile "/w/test/test_follow.py", line 5, in test_follow\n'
+            "    url = open_page('http://example.test/x')\n"
+            "Error: net::ERR_NAME_NOT_RESOLVED\n"
+        )
+        result = gate_integrity.amend_acceptance_surface(self.proj, REQ, {"test/test_follow.py": fixed}, reason="r", evidence=evidence)
+        self.assertEqual((result["accepted"], result["test_fixes"]), (["test/test_follow.py"], ["test/test_follow.py"]), result)
+        weakened = fixed.replace("assert url == 'http://example.test/x'", "assert url")
+        result = gate_integrity.amend_acceptance_surface(self.proj, REQ, {"test/test_follow.py": weakened}, reason="r", evidence=evidence)
+        self.assertEqual(result["accepted"], [])
+
     def test_ltc_commands_are_governed_like_checks(self):
         from services import gate_integrity
 
