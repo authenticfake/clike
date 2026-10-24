@@ -11,6 +11,7 @@ This documentation reflects the current source tree in the inspected package and
 ## Documentation map
 
 - `INSTALL.md` — requirements, configuration, services, extension, local agents, MCP for Claude Code / Codex
+- `chat-ui.md` — the chat in VS Code: what it is and what it does (cockpit, run card, Stop, history, autocompletion), with its picture
 - `GET_STARTED.md` — first project, agent chat, auto-eval, acceptance-first, CLike from Claude Code / Codex, troubleshooting
 - `architecture.md` — system structure and runtime boundaries
 - `setup-and-runtime.md` — local services, ports, configs, and startup model

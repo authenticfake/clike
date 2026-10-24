@@ -54,6 +54,8 @@ Models and agents execute.  Eval and Gate decide.
 
 **[CLike at a glance →](docs/clike-at-a-glance.md)** — the picture of the whole, area by area.
 
+**[The chat (UI) →](docs/chat-ui.md)** — what you see in VS Code: the chat, the cockpit (project, next action, REQs, methodology, last run), the run card and Stop.
+
 ## Status
 
 | Version | Date | Milestone |
@@ -271,6 +273,7 @@ Open research questions the project works on:
 | Topic | Document |
 |---|---|
 | Overview and reading order | [CLike at a glance](docs/clike-at-a-glance.md), [docs/README.md](docs/README.md) |
+| The chat UI (cockpit, run card) | [docs/chat-ui.md](docs/chat-ui.md) |
 | Getting operational | [HOWTO](docs/HOWTO.md), [Harper run walkthrough](docs/Clike%20HARPER%20RUN.md), [project via MCP](docs/howto-mcp-project.md), [/init → /finalize with BMAD from Claude Code](docs/howto-mcp-bmad-claude.md) |
 | Concepts | [architecture](docs/architecture.md), [Harper workflow](docs/harper-workflow.md), [agent operating model](docs/agent-operating-model.md), [artifacts](docs/artifacts.md) |
 | Reference | [commands](docs/commands.md), [API](docs/api-reference.md), [MCP](docs/mcp.md), [capabilities](docs/CAPABILITIES.md) |

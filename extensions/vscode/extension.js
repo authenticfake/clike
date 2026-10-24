@@ -18,7 +18,7 @@ const extensionMcp = require('./extension-mcp');
 const autopilot = require('./autopilot');
 const { projectUseCaseCoverage, useCaseCoverageMessage } = require('./use-case-coverage');
 const planReadiness = require('./plan-readiness');
-const { getEvalTools, postEvalToolsUpdate, postAcceptanceAccept, postAcceptanceAmend, postAcceptanceLock, postEvalChecks, postEvalToolsCheck, postEvalToolsInstall, postGateOverride } = require('./api');
+const { getEvalProgress, getEvalTools, postEvalToolsUpdate, postAcceptanceAccept, postAcceptanceAmend, postAcceptanceLock, postEvalChecks, postEvalToolsCheck, postEvalToolsInstall, postGateOverride } = require('./api');
 const evalToolsLib = require('./eval-tools');
 const { approveForProject, ensureEvalTools, questionText } = evalToolsLib;
 const { agentArgsForEvalCheck, agentTimeoutMinutes, startEvalCheckBridge } = require('./eval-check-bridge');
@@ -41,6 +41,7 @@ const {
   timeoutSettingKey,
   buildLocalAgentModelArgs,
   parseLocalAgentRun,
+  normalizeAgentStdout,
   withMachineReadableOutput,
   withIsolatedMcp,
   buildLocalAgentDisplayLabel,
@@ -110,7 +111,7 @@ const releaseExtend = require('./release-extend');
 const { copyTemplateTree, mergeGitignore } = require('./init-merge');
 const { buildAgentChatArgs, createAgentStreamParser, newSession, sessionKey } = require('./agent-chat');
 const { createApprovalGate, createCodexAppServerTurn, startClaudeApprovalServer } = require('./agent-approvals');
-const { agentModelListMessage, readCodexModelSlugs, validateAgentModel } = require('./agent-model-validation');
+const { agentModelListMessage, CLAUDE_ALIASES, readCodexModelSlugs, validateAgentModel } = require('./agent-model-validation');
 
 const {
   buildCodexArgsForLocalAgent,
@@ -167,7 +168,9 @@ function isDocumentLocalAgentPhase(phase) {
 
 const{ toFsPath,  clikeGitSync } = require('./git'); // NEW: clikeGitSync
 const { CHAT_THEMES, getChatTheme, getWebviewHtml } = require('./chat-ui');
-const { buildCockpitState } = require('./cockpit-state');
+const { buildCockpitState, kitBlockers, reportCounts } = require('./cockpit-state');
+const { createRunTracker } = require('./run-tracker');
+const chatHistory = require('./chat-history');
 const {
   attachBmadQaAdvisory,
   buildEffectiveEvalMethodologyContext,
@@ -202,6 +205,19 @@ let harperAbortController = null;
 // /autopilot in progress: { stop, current, ... } (one at a time); the last one ended, for its status
 let autopilotRun = null;
 let lastAutopilotRun = null;
+// "Stop after this step" (the run card): the --fix loops and the after-KIT auto-eval end at the
+// next step boundary instead of going on; cleared when a new command starts.
+let harperStopAfterStep = false;
+// the run feed of the chat panel (run card, status bar): what the handlers and agents report to it
+let activeRunFeed = null;
+function runFeedLive(text) { try { if (activeRunFeed) activeRunFeed.live(text); } catch { /* the card is best effort */ } }
+function runFeedCost(telemetry) { try { if (activeRunFeed) activeRunFeed.cost(telemetry); } catch { /* idem */ } }
+/** The run card asked to stop after the current step: the loop says so and ends cleanly. */
+function stopAfterStepRequested(say, what) {
+  if (!harperStopAfterStep) return false;
+  say(`⏸ ${what}: stopped after the current step, as you asked.`);
+  return true;
+}
 /** On startup: an /autopilot that never ended (window closed, crash) resumes (clike.autopilot.resumeOnStartup). */
 async function resumeInterruptedAutopilot() {
   const root = getWorkspaceRoot();
@@ -1138,6 +1154,18 @@ async function executeLocalAgentPackage({
       // the time spent waiting for eval checks in the sandbox does not eat the agent's own budget
       timeoutMinutes: agentTimeoutMinutes(Number(invocation.timeout_seconds || 1800) / 60, evalCheck),
       out,
+      // what the agent does while it works (tools, files, commands): the run card's "now" line
+      onStdoutLine: (() => {
+        const parser = createAgentStreamParser(normalizeLocalAgentExecutor(selectedExecutor));
+        return (line) => {
+          for (const ev of parser.feed(line)) {
+            if (ev.kind === 'tool') runFeedLive(`🤖 ${executorLabel}: ${ev.label}`);
+            else if (ev.kind === 'delta' && String(ev.text || '').trim()) {
+              runFeedLive(`🤖 ${executorLabel}: ${String(ev.text).trim().split('\n').pop().slice(0, 160)}`);
+            }
+          }
+        };
+      })(),
     });
   } catch (err) {
     // A timeout is a time budget, not a verdict: what the agent wrote goes through the
@@ -1157,6 +1185,8 @@ async function executeLocalAgentPackage({
       evalCheckBridge.stop();
     }
   }
+  // a stream-json run: from here on its stdout is the result envelope, as before the stream
+  agentResult.stdout = normalizeAgentStdout(selectedExecutor, agentResult.stdout);
   // Cancel stopped the agent: nothing it left half-written goes to the orchestrator
   if (harperCancelled()) throw new Error(`${executorLabel} run cancelled by user.`);
   // Usage/cost/model of the run; downstream code keeps reading plain text.
@@ -2160,6 +2190,7 @@ function summarizeEvalReport(report) {
     gate: r.gate || null,
     reason_code: r.reason_code || null,
     passed: r.passed ?? null,
+    counts: reportCounts(r),
     failed_checks: (Array.isArray(r.cases) ? r.cases : []).filter(c => !c.passed).map(c => c.name),
     regression_failures: r.regression_failures || [],
     review_required: !!r.review_required,
@@ -3597,6 +3628,10 @@ function activate(context) {
   const serviceAuthReady = initServiceAuth(context).catch((err) =>
     out.appendLine(`[CLike][auth] cannot load service token: ${err?.message || err}`)
   );
+  // the status bar of a running command: back to the chat
+  context.subscriptions.push(vscode.commands.registerCommand('clike.revealChat', () => {
+    if (clikeChatPanel) clikeChatPanel.reveal(); else vscode.commands.executeCommand('clike.openChat');
+  }));
   reg('clike.setServiceToken', cmdSetServiceToken);
   reg('clike.clearServiceToken', cmdClearServiceToken);
   reg('clike.copyExtensionMcpToken', cmdCopyExtensionMcpToken);
@@ -3677,17 +3712,162 @@ const COCKPIT_PREFS_KEY = 'clike.cockpit.prefs';
 // messages that run a command: while one is in flight the layout is not reloaded
 const LONG_CHAT_MESSAGES = new Set(['harperRun', 'harperEDD', 'harperInit', 'sendChat', 'sendGenerate', 'apply', 'autopilot', 'evalTools', 'ragIndex', 'ragSearch']);
 
+const RUN_DURATIONS_KEY = 'clike.cockpit.durations';
+
+/**
+ * The run feed of the chat panel: the command in flight as the run card (every layout) and the
+ * status bar show it — its real steps and their outcomes (run-tracker.js), the cycle of a --fix
+ * loop, an estimate from earlier durations, the live progress of an eval in the sandbox (checks
+ * n/N, regression REQs), what the agent is doing, the cost of the run and of the session.
+ */
+function createRunFeed(panel, context, post) {
+  const settings = () => vscode.workspace.getConfiguration('clike');
+  const tracker = createRunTracker({
+    durations: context.workspaceState.get(RUN_DURATIONS_KEY) || {},
+    maxCycles: Number(settings().get('autoEval.maxCycles', 2)) || 2,
+    extraCycles: Number(settings().get('autoEval.extraCyclesOnProgress', 3)) || 0,
+  });
+  const session = { cost: 0, tokens: 0, runCost: 0, runTokens: 0 };
+  const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
+  status.command = 'clike.revealChat';
+  let tick = null;
+  let poll = null;
+  let lastLiveAt = 0;
+  let hideTimer = null;
+
+  const executorLabel = () => {
+    const st = context.workspaceState.get('clike.uiState') || {};
+    const exec = normalizeExecutionPreference(st.executionPreference || getDefaultExecutionPreference());
+    if (exec === 'cloud_only') return `cloud · ${st.model || 'auto'}`;
+    const ex = normalizeLocalAgentExecutor(st.localAgentExecutor || getDefaultLocalAgentExecutor());
+    return ex === 'claude_code' ? 'Claude Code' : ex === 'gpt_codex' ? 'Codex' : 'agent';
+  };
+  const mmss = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+
+  function snapshot() {
+    const snap = tracker.snapshot({
+      stopAfterStep: harperStopAfterStep || !!(autopilotRun && autopilotRun.stopByCard),
+      stopAfterReq: !!(autopilotRun && autopilotRun.stopAfterReq),
+      session: { cost: session.cost, tokens: session.tokens },
+      cost: { usd: session.runCost, tokens: session.runTokens },
+    });
+    if (snap && snap.kind === 'autopilot') {
+      const ap = autopilotSnapshot();
+      snap.autopilot = { current: ap.current, promoted: ap.promoted || [], parked: (ap.parked || []).map((p) => p.req_id), running: ap.running };
+    }
+    return snap;
+  }
+
+  function render() {
+    const snap = snapshot();
+    post({ type: 'runProgress', run: snap });
+    if (!snap) return;
+    if (!snap.ended) {
+      const cur = snap.current;
+      const ep = snap.evalProgress;
+      const where = ep && ep.phase === 'checks' ? ` ${ep.checks_done}/${ep.checks_total}`
+        : ep && ep.phase === 'regression' ? ` regression ${ep.regression_done}/${ep.regression_total}` : '';
+      const cycle = snap.fix && snap.fix.cycle ? ` · cycle ${snap.fix.cycle}/${snap.fix.maxCycles}` : '';
+      status.text = `$(sync~spin) ${cur ? `${cur.label}${cur.req ? ` ${cur.req}` : ''}${where}` : snap.title}${cycle} · ${mmss(Date.now() - snap.startedAt)} · ${snap.executor}`;
+      status.tooltip = `CLike — ${snap.title}${snap.live ? `\n${snap.live}` : ''}\nClick: open the chat`;
+      status.backgroundColor = undefined;
+      status.show();
+    }
+  }
+
+  function startTimers() {
+    if (!tick) tick = setInterval(render, 1000);
+    if (!poll) {
+      poll = setInterval(async () => {
+        const cur = tracker.current();
+        const ws = getWorkspaceRoot();
+        if (!cur || !ws || (cur.kind !== 'eval' && cur.kind !== 'gate') || !cur.req) return;
+        try {
+          if (tracker.evalProgress(await getEvalProgress(ws, cur.req))) render();
+        } catch { /* the sandbox answers again at the next poll */ }
+      }, 2000);
+    }
+  }
+
+  function finish() {
+    clearInterval(tick); tick = null;
+    clearInterval(poll); poll = null;
+    harperStopAfterStep = false;
+    context.workspaceState.update(RUN_DURATIONS_KEY, tracker.durations()).then(undefined, () => {});
+    const snap = snapshot();
+    post({ type: 'runProgress', run: snap });
+    if (snap && snap.ended) {
+      const icon = { ok: '$(pass)', failed: '$(error)', cancelled: '$(circle-slash)' }[snap.ended.outcome] || '$(check)';
+      status.text = `${icon} ${snap.title} · ${mmss(snap.ended.at - snap.startedAt)}`;
+      status.show();
+      clearTimeout(hideTimer);
+      hideTimer = setTimeout(() => status.hide(), 15000);
+    }
+  }
+
+  /** Around every chat handler call (nested ones included): the run's steps. */
+  async function around(msg, fn) {
+    const token = tracker.begin(msg, { executor: executorLabel() });
+    if (token.started) {
+      harperStopAfterStep = false;
+      session.runCost = 0;
+      session.runTokens = 0;
+      clearTimeout(hideTimer);
+      startTimers();
+    }
+    if (token.step) render();
+    try {
+      return await fn();
+    } finally {
+      const ended = tracker.end(token, msg, { cancelled: !!token.step && harperCancelled() });
+      if (ended) finish(); else if (token.step) render();
+    }
+  }
+
+  panel.onDidDispose(() => { clearInterval(tick); clearInterval(poll); clearTimeout(hideTimer); status.dispose(); });
+
+  return {
+    around,
+    render,
+    // the echoes of the handlers: the run card's "now" line
+    observe(message) {
+      if (!message || !tracker.active()) return;
+      if ((message.type === 'echo' || message.type === 'error') && message.message) {
+        const text = typeof message.message === 'string' ? message.message : String(message.message);
+        if (message.type === 'error' ? tracker.error(text) : tracker.live(text)) render();
+      }
+    },
+    // what a local agent does in a Harper phase (tool used, text written), at most 4 per second
+    live(text) {
+      if (Date.now() - lastLiveAt < 250) return;
+      lastLiveAt = Date.now();
+      if (tracker.live(text)) render();
+    },
+    cost(telemetry) {
+      const t = telemetry || {};
+      const usd = Number(t.pricing && t.pricing.total_cost);
+      const u = t.usage || {};
+      const tokens = ['input_tokens', 'output_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens']
+        .reduce((sum, k) => sum + (Number(u[k]) || 0), 0);
+      if (Number.isFinite(usd) && usd > 0) { session.cost += usd; session.runCost += usd; }
+      session.tokens += tokens;
+      session.runTokens += tokens;
+      render();
+    },
+  };
+}
+
 /**
  * The feed of the chat's cockpit: the project state (cockpit-state.js), the agent and its models,
  * the cockpit preferences (methodology), the eval tools catalog for the autocompletion. Posted as
  * `cockpitState` to every layout (the autocompletion uses it everywhere); refreshed when plan.json,
  * the Harper documents or the eval/gate reports change, and after each chat message.
  */
-function createCockpitFeed(panel, context) {
+function createCockpitFeed(panel, context, runs = null) {
   let timer = null;
   let inflight = 0;
   let pendingTheme = false;
-  let catalog = { at: 0, tools: [], anthropic: [], openai: [] };
+  let catalog = { at: 0, tools: [], anthropic: [] };
   const disposables = [];
 
   const prefs = () => {
@@ -3705,7 +3885,6 @@ function createCockpitFeed(panel, context) {
       const names = (provider) => [...new Set(models.filter((m) => String(m.provider || '').toLowerCase() === provider)
         .map((m) => String(m.remote_name || m.name || '').trim()).filter(Boolean))];
       catalog.anthropic = names('anthropic');
-      catalog.openai = names('openai');
     } catch (err) { log(`[cockpit] model catalog unavailable: ${err?.message || err}`); }
     try {
       const ws = getWorkspaceRoot();
@@ -3721,9 +3900,11 @@ function createCockpitFeed(panel, context) {
       execution: state.executionPreference || getDefaultExecutionPreference(),
       claude_model: c.get('claudeCode.model', 'opus') || '',
       codex_model: c.get('localAgent.codex.model', 'gpt-5.5') || '',
+      // the models each CLI accepts (as /agent-model list): Codex those of its login, never the cloud
+      // catalog's API ids (Codex refuses them); Claude the tier aliases and the catalog's ids
       models: {
-        claude: [...new Set(['opus', 'sonnet', 'haiku', ...catalog.anthropic])],
-        codex: [...new Set([...(readCodexModelSlugs() || []), ...catalog.openai])],
+        claude: [...new Set([...CLAUDE_ALIASES.filter((a) => a !== 'default'), ...catalog.anthropic.filter((n) => /^claude-/.test(n) && !/\d{8}$/.test(n))])],
+        codex: readCodexModelSlugs() || [],
       },
     };
   }
@@ -3733,12 +3914,12 @@ function createCockpitFeed(panel, context) {
     const ws = getWorkspaceRoot();
     let project = null;
     if (ws) {
-      try { project = buildCockpitState(ws.fsPath); } catch (err) { log(`[cockpit] state: ${err?.message || err}`); }
+      try { project = buildCockpitState(ws.fsPath, { methodology: prefs().methodology }); } catch (err) { log(`[cockpit] state: ${err?.message || err}`); }
     }
     await refreshCatalog();
     panel.webview.postMessage({
       type: 'cockpitState',
-      state: { project, agent: agentInfo(), prefs: prefs(), tools: catalog.tools, theme: getChatTheme(), running: inflight > 0 },
+      state: { project, agent: agentInfo(), prefs: prefs(), tools: catalog.tools, theme: getChatTheme(), running: inflight > 0, history: history() },
     });
     if (pendingTheme && inflight === 0) reloadTheme();
   }
@@ -3746,6 +3927,23 @@ function createCockpitFeed(panel, context) {
   function refresh(delay = 300) {
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => post().catch((err) => log(`[cockpit] post: ${err?.message || err}`)), delay);
+  }
+
+  // the conversations of the current mode (chat-history.js): the current one and the archived ones
+  function currentMode() {
+    return (context.workspaceState.get('clike.uiState') || {}).mode || 'free';
+  }
+  function history() {
+    if (!getWorkspaceRoot()) return null;
+    try { return { mode: currentMode(), ...chatHistory.listConversations(sessionsDirUri().fsPath, currentMode()) }; } catch { return null; }
+  }
+  async function rehydrate() {
+    const ui = context.workspaceState.get('clike.uiState') || {};
+    const mode = ui.mode || 'free';
+    const msgs = effectiveHistoryScope(context) === 'allModels'
+      ? await loadSession(mode, 200).catch(() => [])
+      : await loadSessionFilteredV2(mode, ui.model || 'auto', 200).catch(() => []);
+    panel.webview.postMessage({ type: 'hydrateSession', messages: msgs });
   }
 
   // a new layout: the webview is rebuilt (cronology and state come back with webview_ready)
@@ -3756,7 +3954,58 @@ function createCockpitFeed(panel, context) {
   }
 
   async function handle(msg) {
-    if (msg.type === 'cockpitRefresh') return refresh(0);
+    if (msg.type === 'cockpitRefresh') { if (runs) runs.render(); return refresh(0); }
+    // the run card: stop after the current step (or after the current REQ of the autopilot), or undo it
+    if (msg.type === 'cancelAfterStep') {
+      // the autopilot stops at its own step boundary (kit, eval --fix, gate): stopping the --fix
+      // loop inside would read as a failure and park the REQ
+      if (autopilotRun) {
+        if (!autopilotRun.stop) { autopilotRun.stop = 'graceful'; autopilotRun.stopByCard = true; }
+      } else {
+        harperStopAfterStep = true;
+      }
+      if (runs) runs.render();
+      return undefined;
+    }
+    if (msg.type === 'cancelAfterReq') {
+      if (autopilotRun) autopilotRun.stopAfterReq = true;
+      if (runs) runs.render();
+      return undefined;
+    }
+    if (msg.type === 'cancelUndoStop') {
+      harperStopAfterStep = false;
+      if (autopilotRun) {
+        if (autopilotRun.stopByCard && autopilotRun.stop === 'graceful') autopilotRun.stop = null;
+        autopilotRun.stopByCard = false;
+        autopilotRun.stopAfterReq = false;
+      }
+      if (runs) runs.render();
+      return undefined;
+    }
+    if (msg.type === 'showChanges') return vscode.commands.executeCommand('workbench.view.scm');
+    // history of conversations: never while a command runs (the webview disables it too)
+    if (['historyNew', 'historyOpen', 'historyDelete'].includes(msg.type)) {
+      if (inflight > 0 || clikeHarperBlockingRun || autopilotRun) return undefined;
+      const dir = sessionsDirUri().fsPath;
+      const mode = currentMode();
+      try {
+        if (msg.type === 'historyNew') {
+          chatHistory.archiveCurrent(dir, mode);
+          // the agent too starts a new conversation in this mode (as /agent-session new)
+          const sessions = context.workspaceState.get('clike.agentSessions') || {};
+          await context.workspaceState.update('clike.agentSessions',
+            Object.fromEntries(Object.entries(sessions).filter(([key]) => !key.startsWith(`${mode}:`))));
+        } else if (msg.type === 'historyOpen') {
+          chatHistory.openConversation(dir, mode, String(msg.id || ''));
+        } else {
+          chatHistory.deleteConversation(dir, mode, String(msg.id || ''));
+        }
+      } catch (err) {
+        vscode.window.showWarningMessage(`CLike history: ${err?.message || err}`);
+      }
+      if (msg.type !== 'historyDelete') await rehydrate();
+      return refresh(0);
+    }
     if (msg.type === 'copyText') return vscode.env.clipboard.writeText(String(msg.text || ''));
     if (msg.type === 'cockpitPrefs') {
       const next = { methodology: msg.methodology === 'bmad' ? 'bmad' : '', roles: msg.roles && typeof msg.roles === 'object' ? msg.roles : {} };
@@ -3792,7 +4041,8 @@ function createCockpitFeed(panel, context) {
   panel.onDidDispose(() => { if (timer) clearTimeout(timer); disposables.forEach((d) => d.dispose()); });
 
   return {
-    handles: (type) => ['cockpitRefresh', 'cockpitPrefs', 'setTheme', 'copyText'].includes(type),
+    handles: (type) => ['cockpitRefresh', 'cockpitPrefs', 'setTheme', 'copyText', 'cancelAfterStep', 'cancelAfterReq', 'cancelUndoStop', 'showChanges',
+      'historyNew', 'historyOpen', 'historyDelete'].includes(type),
     handle,
     refresh,
     track(type, promise) {
@@ -3815,7 +4065,10 @@ async function cmdOpenChat(context) {
   clikeChatPanel = panel;
 
   const originalPostMessage = panel.webview.postMessage.bind(panel.webview);
+  // the run card's "now" line: what the handlers say while a command runs
+  let runObserver = null;
   panel.webview.postMessage = (message, ...args) => {
+    try { if (runObserver) runObserver(message); } catch { /* best effort */ }
     try {
       if (
         message &&
@@ -3904,7 +4157,7 @@ async function cmdOpenChat(context) {
 
   // Listen to events from the webview
   // Named so the auto-eval loop can chain KIT repair and eval through the same handlers.
-  const handleWebviewMessage = async (msg) => {
+  const handleWebviewMessageCore = async (msg) => {
     panel.webview.postMessage({ type: 'busy', on: true });
 
     try {
@@ -4554,15 +4807,24 @@ async function cmdOpenChat(context) {
               panel.webview.postMessage({ type: 'busy', on: false });
               return;
             }
-            // a manual /kit on a REQ the plan marks not KIT-ready runs (the developer chose it), with a warning
-            const kitBlockers = msg.autoEvalRepair ? [] : planReadiness.blockersOf(plan, targetReqId);
-            if (kitBlockers.length) {
-              panel.webview.postMessage({ type: 'echo', message: `⚠ KIT READINESS ${targetReqId}: the plan waits for your answers (${kitBlockers.slice(0, 8).join('; ')}). The KIT decides them with the simplest reasonable option; to decide them yourself, answer in the Note section of SPEC.md and run /spec and /plan again.` });
-            }
-
             requestedKitPhases = Array.isArray(msg?.phases) && msg.phases.length
               ? msg.phases
               : null;
+
+            // the plan declares the REQ not ready for its KIT (decisions left open): asked first,
+            // an agent run would write no code (MCP: only with confirm; the autopilot parks it before)
+            const kitBlocked = (!requestedKitPhases && !msg.acceptanceStage && !msg.autoEvalRepair && !msg.repair)
+              ? kitBlockers((plan.reqs || []).find((r) => String(r?.id || '').toUpperCase() === String(targetReqId).toUpperCase()))
+              : null;
+            if (kitBlocked && !(await confirmOrMcp(msg,
+              `${targetReqId} is not ready for its KIT: the plan leaves open ${kitBlocked.blockers.join(', ') || 'decisions'}. ` +
+              'An agent asked for the KIT writes no code until they are decided: write them to /spec (text or attachment), then /plan.',
+              'Run the KIT anyway'))) {
+              msg.__result = 'cancelled';
+              panel.webview.postMessage({ type: 'echo', message: `⏸ /kit ${targetReqId} not started: decide ${kitBlocked.blockers.join(', ')} first (/spec <decisions>, then /plan).` });
+              panel.webview.postMessage({ type: 'busy', on: false, force: true });
+              return;
+            }
 
             // Acceptance-first KIT (clike.kit.acceptanceFirst): the acceptance tests and the eval
             // profile are generated and locked first; this /kit then writes the code against them.
@@ -5031,6 +5293,7 @@ async function cmdOpenChat(context) {
               pricing: t.pricing || {},
               files: _out?.files || [],
             });
+            runFeedCost({ usage: _out?.usage || t.usage || {}, pricing: t.pricing || _out?.pricing || {} });
           } catch (e) {
             log(`[telemetry] skipped: ${e?.message || e}`);
           }
@@ -5204,7 +5467,10 @@ async function cmdOpenChat(context) {
             clikeHarperBlockingRun = false;
             await continueFinalizeVerify(msg);
           }
-          if (!harperCancelled() && phase === 'kit' && !msg.autoEvalRepair && !msg.acceptanceStage && !msg.__autopilot && targetReqId && cfg().autoEvalAfterKit) {
+          const afterKitEval = phase === 'kit' && !msg.autoEvalRepair && !msg.acceptanceStage && !msg.__autopilot && targetReqId && cfg().autoEvalAfterKit;
+          if (afterKitEval && !harperCancelled() && harperStopAfterStep) {
+            panel.webview.postMessage({ type: 'echo', message: `⏸ /kit ${targetReqId}: stopped after the KIT, as you asked; the auto-eval does not start (/eval ${targetReqId} --fix).` });
+          } else if (afterKitEval && !harperCancelled()) {
             panel.webview.postMessage({ type: 'echo', message: `↻ AUTO-EVAL ${targetReqId} (clike.autoEval.afterKit)` });
             clikeHarperBlockingRun = false;
             await handleWebviewMessage({
@@ -5490,6 +5756,7 @@ async function cmdOpenChat(context) {
                       ...(evalAgentOut?.telemetry || {}),
                       files: evalAgentOut?.files || [],
                     });
+                    runFeedCost(evalAgentOut?.telemetry || {});
                   } catch (e) {
                     log(`[telemetry] eval pre-pass skipped: ${e?.message || e}`);
                   }
@@ -6577,9 +6844,17 @@ async function cmdOpenChat(context) {
     }
     panel.webview.postMessage({ type: 'busy', on: false });
   };
+  // Every handler call, the nested ones of the --fix loops and the autopilot included, goes
+  // through the run feed: the run card and the status bar follow the real steps.
+  const runs = createRunFeed(panel, context, (m) => originalPostMessage(m));
+  activeRunFeed = runs;
+  runObserver = runs.observe;
+  panel.onDidDispose(() => { if (activeRunFeed === runs) activeRunFeed = null; });
+  const handleWebviewMessage = (msg) => runs.around(msg, () => handleWebviewMessageCore(msg));
+
   // Cockpit (side panel of the cockpit layout, autocompletion in every layout): its messages never
   // touch the busy state, a run in progress stays as it is.
-  const cockpit = createCockpitFeed(panel, context);
+  const cockpit = createCockpitFeed(panel, context, runs);
   panel.webview.onDidReceiveMessage((msg) => {
     if (msg && cockpit.handles(msg.type)) return cockpit.handle(msg);
     const done = cockpit.track(msg && msg.type, handleWebviewMessage(msg));
@@ -6726,6 +7001,10 @@ async function cmdOpenChat(context) {
       const names = (step.failures || []).map(f => f.name).slice(0, 8).join(', ');
       say(`✖ SOLUTION EVAL stopped: ${step.reason}.` + (names ? ` Failing: ${names}.` : '') +
         ` Run /finalize again to continue (it repairs from the current state). Report: ${finalizeVerify.REPORT_PATH}. Evidence: ${finalizeVerify.EVIDENCE_PATH}`);
+      return;
+    }
+    if (stopAfterStepRequested(say, 'SOLUTION VERIFICATION')) {
+      say(`Run /finalize again to continue (it repairs from the current state). Evidence: ${finalizeVerify.EVIDENCE_PATH}`);
       return;
     }
     const cycle = state.cycle + 1;
@@ -6937,22 +7216,21 @@ async function cmdOpenChat(context) {
           break;
         }
         const reqId = next.req_id;
-        const entry = { req_id: reqId, startedAt: Date.now(), result: 'running', cycles: 0 };
-        run.reqs.push(entry);
-        // not KIT-ready (the plan waits for the owner's answers): parked before /kit, no agent run.
-        // Not remembered across runs: the next /autopilot reads the plan again.
-        const kitBlockers = next.step === 'kit' ? planReadiness.blockersOf(plan, reqId) : [];
-        if (kitBlockers.length) {
-          entry.result = 'parked';
-          entry.step = 'kit';
-          entry.reason = planReadiness.notReadyReason(kitBlockers);
-          entry.messages = [];
-          entry.ms = 0;
+        // the plan itself says the REQ cannot be built yet (decisions left open): no agent run for
+        // nothing; parked for this run only, so the next /autopilot checks it again
+        const blockedBy = next.step === 'kit'
+          ? kitBlockers((plan?.reqs || []).find((r) => String(r?.id || '').toUpperCase() === reqId)) : null;
+        if (blockedBy) {
+          const reason = `not ready for its KIT: the plan leaves open ${blockedBy.blockers.join(', ') || 'decisions'} — ` +
+            'write the decisions to /spec (text or attachment), then /plan';
+          run.reqs.push({ req_id: reqId, startedAt: Date.now(), result: 'parked', step: 'kit', reason, cycles: 0, ms: 0 });
           run.parked.add(reqId);
-          say(`⏸ AUTOPILOT ${reqId} parked before kit: ${entry.reason}. Going on with the REQs that do not depend on it.`);
+          say(`⏸ AUTOPILOT ${reqId} parked before its KIT: ${reason}.`);
           writeReport();
           continue;
         }
+        const entry = { req_id: reqId, startedAt: Date.now(), result: 'running', cycles: 0 };
+        run.reqs.push(entry);
         if (next.step !== 'kit') say(`ℹ AUTOPILOT ${reqId} resumes at ${next.step}${next.step === 'gate' ? ' (its last eval passed on the current files)' : ' (its KIT is there)'}.`);
         for (const step of autopilot.STEPS.slice(autopilot.STEPS.indexOf(next.step))) {
           run.current = `${step} ${reqId}`;
@@ -6994,8 +7272,13 @@ async function cmdOpenChat(context) {
         }
         entry.ms = Date.now() - entry.startedAt;
         writeReport();
+        if (run.stopAfterReq && !run.stop) {
+          run.stop = 'after-req';
+          say(`⏸ AUTOPILOT: stopped after ${reqId}, as you asked.`);
+        }
       }
-      if (run.stop === 'graceful') run.outcome = 'stopped by /autopilot stop';
+      if (run.stop === 'graceful') run.outcome = run.stopByCard ? 'stopped after the current step, as asked' : 'stopped by /autopilot stop';
+      if (run.stop === 'after-req') run.outcome = 'stopped after the current REQ, as asked';
       if (run.stop === 'cancel') run.outcome = 'cancelled';
     } catch (err) {
       run.outcome = `stopped on an error: ${err?.message || err}`;
@@ -7072,6 +7355,11 @@ async function cmdOpenChat(context) {
       finish('stopped');
       return;
     }
+    if (stopAfterStepRequested(say, `AUTO-EVAL ${reqId}`)) {
+      say(`Re-run /eval ${reqId} --fix to go on with the repair cycles.`);
+      finish('stopped');
+      return;
+    }
     const cycle = state.cycle + 1;
     say(`↻ AUTO-EVAL ${reqId}: repair cycle ${cycle}/${state.maxCycles} — ${step.reason}`);
     // Failures that passed in earlier runs of this REQ on the same code are flagged as nondeterministic.
@@ -7114,6 +7402,11 @@ async function cmdOpenChat(context) {
     if (harperCancelled()) {
       say(`⏹ AUTO-EVAL ${reqId} cancelled at repair cycle ${cycle}.`);
       finish('cancelled');
+      return;
+    }
+    if (stopAfterStepRequested(say, `AUTO-EVAL ${reqId} after repair cycle ${cycle}`)) {
+      say(`The repair is not evaluated yet: /eval ${reqId} --fix evaluates it and goes on.`);
+      finish('stopped');
       return;
     }
     const evalMsg = {
@@ -7168,6 +7461,10 @@ async function cmdOpenChat(context) {
       finish('stopped');
       return;
     }
+    if (stopAfterStepRequested(say, `AUTO-GATE ${reqId}`)) {
+      say(`Re-run /gate ${reqId} --fix to go on with the repair cycles.`);
+      return;
+    }
     const cycle = state.cycle + 1;
     say(`↻ AUTO-GATE ${reqId}: repair cycle ${cycle}/${state.maxCycles} — ${step.reason}`);
     // Failures that passed in earlier runs of this REQ on the same code are flagged as nondeterministic.
@@ -7205,6 +7502,10 @@ async function cmdOpenChat(context) {
     if (!kitMsg.__acceptanceGoverned) await governAcceptanceChanges(reqId, acceptanceBefore, step.failures, cycle);
     if (harperCancelled()) {
       panel.webview.postMessage({ type: 'echo', message: `⏹ AUTO-GATE ${reqId} cancelled at repair cycle ${cycle}.` });
+      return;
+    }
+    if (stopAfterStepRequested((text) => panel.webview.postMessage({ type: 'echo', message: text }), `AUTO-GATE ${reqId} after repair cycle ${cycle}`)) {
+      panel.webview.postMessage({ type: 'echo', message: `The repair is not gated yet: /gate ${reqId} --fix checks it and goes on.` });
       return;
     }
     const gateMsg = {

@@ -147,6 +147,16 @@ handlers (any executor), so the loop above runs for each REQ without anyone typi
 loop stops is parked with the reason and the REQs that do not depend on it go on; a provider quota
 or rate limit waits and retries. See [commands.md](commands.md#autopilot).
 
+## Following a run
+
+The chat's run card and the status bar follow the loop step by step: each eval, repair and gate with
+its outcome and duration, the cycle (`cycle 2 of 2 (+3 while failures drop)`), an estimate from the
+same step's previous duration. During an eval or a gate the sandbox reports its progress
+(`GET /v1/eval/progress?req_id=…`: setup, checks done of total and the check running, then the
+promoted REQs of the regression being re-run), polled every 2 s. **After this step** ends the loop at
+the next step boundary (the eval in flight finishes and keeps its report; no new repair starts);
+re-run `/eval REQ --fix` to go on. **Stop now** stops the check running in the sandbox, as Cancel.
+
 ## Time of a cycle
 
 A cycle is: the repair (the agent verifies its fix with eval checks, ~1 minute each), then the

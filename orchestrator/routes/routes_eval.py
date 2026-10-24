@@ -15,7 +15,7 @@ from pydantic import BaseModel
 
 import httpx
 
-from eval_runner import EvalCase, EvalReport, EvalRunner, report_from_dict, report_to_dict
+from eval_runner import EvalCase, EvalReport, EvalRunner, eval_progress, report_from_dict, report_to_dict
 from services import eval_verdicts
 import eval_tools
 from sandbox_resources import SANDBOX_EXHAUSTED_REASON
@@ -602,6 +602,28 @@ def _eval_payload(rep: EvalReport, req_id: Optional[str]) -> Dict[str, Any]:
         "json": rep.json_path or f"runs/eval/{req_id or rep.req_id or 'REQ-UNKNOWN'}",
         "cases": [_case_payload(c) for c in rep.cases],
     }
+
+
+@router.get("/v1/eval/progress")
+async def eval_progress_route(
+    req_id: str = Query(...),
+    project_root: Optional[str] = Query(default=None),
+    project_name: Optional[str] = Query(default=None),
+):
+    """Live progress of the REQ's eval or gate in flight (the chat's progress bar): phase, checks
+    done of total, the promoted REQs of the regression. ``{"state": "unknown"}`` when none is known."""
+    prj = _confined_project_root(project_root, project_name)
+    sandbox = os.getenv("CLIKE_EVAL_SANDBOX_URL", "").strip().rstrip("/")
+    if sandbox:
+        try:
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                response = await client.get(f"{sandbox}/progress", params={"project_root": str(prj), "req_id": req_id})
+            if response.status_code == 200:
+                return response.json()
+        except httpx.HTTPError:
+            pass
+        return {"state": "unknown"}
+    return eval_progress(prj, req_id) or {"state": "unknown"}
 
 
 @router.post("/v1/eval/run")

@@ -40,11 +40,15 @@ test('nonce is cryptographically random and applied to every script', () => {
   for (const tag of scripts) assert.ok(tag.includes(`nonce="${nonceA}"`), tag);
 });
 
-test('generated inline scripts are valid JavaScript', () => {
-  const html = getWebviewHtml('http://localhost:8080');
-  const bodies = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
-  assert.ok(bodies.length > 0);
-  for (const body of bodies) assert.doesNotThrow(() => new vm.Script(body));
+test('generated inline scripts are valid JavaScript, in every layout', () => {
+  // a single backslash in the template literal (\\n written as \n) breaks the whole webview
+  for (const theme of require('../chat-ui').CHAT_THEMES) {
+    const html = getWebviewHtml('http://localhost:8080', theme);
+    assert.ok(html.includes(`data-theme="${theme}"`), theme);
+    const bodies = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+    assert.ok(bodies.length > 0);
+    for (const body of bodies) assert.doesNotThrow(() => new vm.Script(body), theme);
+  }
 });
 
 test('file lists escape server-provided paths and do not use btoa', () => {

@@ -212,6 +212,11 @@ Confinement rules (also for `/v1/gate/check`):
   `POST /v1/eval/tools/update` `{tools: []}` (empty: all) → `{updated, changes: {tool: {pkg: [old, new]}}, failed}`;
   `POST /v1/eval/tools/restore` → rebuilds from the orchestrator's lock the tools the volume lacks.
 - Eval and gate responses carry `tools`: the versions of the installed eval tools.
+- `GET /v1/eval/progress?req_id=&project_root=&project_name=` (same confinement) → the live progress
+  of the REQ's eval or gate in flight: `{state: running | done | cancelled, phase: setup | checks |
+  regression | done, checks_total, checks_done, current, passed, failed, regression_total,
+  regression_done, regression_current: [REQ…], partial, started_at, updated_at, ended_at, elapsed_s}`,
+  or `{state: "unknown"}`. Proxied to the eval sandbox's `GET /progress` when one is configured.
 - **Acceptance integrity**: the REQ acceptance surface (`runs/kit/<REQ>/test/**` and `ci/**`) is
   locked server-side the first time it is evaluated after a KIT generation. If files were removed
   or modified, LTC checks removed/made non-blocking/changed, or skip markers added, eval and gate

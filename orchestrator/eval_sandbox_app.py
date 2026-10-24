@@ -24,7 +24,7 @@ from pydantic import BaseModel
 
 import eval_tools
 import sandbox_resources
-from eval_runner import _SECRET_ENV_NAME_RE, EvalRunner, report_to_dict
+from eval_runner import _SECRET_ENV_NAME_RE, EvalRunner, eval_progress, report_to_dict
 from services.gate_integrity import allowed_eval_roots
 from utils.safe_paths import UnsafePathError, is_within_any, resolve_within
 
@@ -75,6 +75,16 @@ def tools_check(req: ToolsCheckRequest):
         except UnsafePathError as exc:
             raise HTTPException(status_code=400, detail=f"invalid profile path: {exc}") from exc
     return eval_tools.check(prj, req.req_id, req.profile)
+
+
+@app.get("/progress")
+def progress(project_root: str, req_id: str):
+    """Live progress of the REQ's eval running in this sandbox: phase, checks n/N, regression REQs."""
+    roots = allowed_eval_roots()
+    prj = Path(project_root).resolve()
+    if not roots or not is_within_any(prj, roots):
+        raise HTTPException(status_code=403, detail="project_root is outside the allowed eval roots")
+    return eval_progress(prj, req_id) or {"state": "unknown"}
 
 
 @app.post("/run")

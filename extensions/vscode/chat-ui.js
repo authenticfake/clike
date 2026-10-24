@@ -499,6 +499,74 @@ function getWebviewHtml(orchestratorUrl, themeName = 'cockpit') {
   .ac-foot { display:flex; gap:12px; padding:3px 10px; font-size:11px; color:var(--fg-dim); border-top:1px solid var(--border); }
   @media (max-width: 520px) { .ac-it { grid-template-columns:minmax(0, 1fr) auto; } .ac-it .ac-d, .ac-it .ac-g { display:none; } .ac-foot { display:none; } }
 
+  /* ---------- every layout: log cards and model answers ---------- */
+  .bubble.log-card { width:min(100%, 760px); max-width:100%; padding:6px 10px 8px; border-left:3px solid #7c3aed; white-space:normal; }
+  .log-head { display:flex; align-items:center; gap:8px; font-size:11.5px; color:var(--fg-dim); margin-bottom:4px; }
+  .log-title { font-weight:600; color:var(--fg); }
+  .log-stats { flex:1; }
+  .log-more, .log-copy { border:none; background:transparent; color:var(--fg-dim); cursor:pointer; padding:0 4px; font-size:11.5px; }
+  .log-more { text-decoration:underline; }
+  .log-row { display:grid; grid-template-columns:auto minmax(0, 1fr) auto; gap:8px; align-items:baseline; padding:2px 0;
+    border-top:1px solid rgba(127,127,127,.12); font-size:12.5px; }
+  .log-row:first-child { border-top:none; }
+  .log-time { font-family:var(--vscode-editor-font-family, ui-monospace, Menlo, monospace); font-size:11px; color:var(--fg-dim); white-space:nowrap; }
+  .log-text { white-space:pre-wrap; overflow-wrap:anywhere; }
+  .log-row.ok .log-text { color:#86efac; } .log-row.ko .log-text { color:#fca5a5; } .log-row.warn .log-text { color:#fcd34d; }
+  .log-row.run .log-text { color:#c4b5fd; } .log-row.stop .log-text { color:#cbd5e1; }
+  body[data-theme="paper"] .log-row.ok .log-text { color:#15803d; } body[data-theme="paper"] .log-row.ko .log-text { color:#b91c1c; }
+  body[data-theme="paper"] .log-row.warn .log-text { color:#a16207; } body[data-theme="paper"] .log-row.run .log-text { color:#6d28d9; }
+  body[data-theme="paper"] .log-row.stop .log-text { color:#475569; }
+  .log-del { border:none; background:transparent; color:var(--fg-dim); cursor:pointer; opacity:0; padding:0 4px; }
+  .log-row:hover .log-del { opacity:.8; }
+  body.clike-busy .log-del { pointer-events:none; }
+  .md-code { background:rgba(0,0,0,.28); border:1px solid rgba(127,127,127,.25); border-radius:6px; padding:6px 8px; margin:6px 0;
+    white-space:pre; overflow:auto; font-family:var(--vscode-editor-font-family, ui-monospace, Menlo, monospace); font-size:12px; }
+  .md-inline { background:rgba(127,127,127,.18); border-radius:4px; padding:0 4px; font-family:var(--vscode-editor-font-family, ui-monospace, Menlo, monospace); font-size:12px; }
+  .md-h { display:inline-block; font-weight:700; margin-top:4px; }
+  body[data-theme="paper"] .md-code { background:#f8fafc; }
+
+  /* ---------- every layout: the card of the command in flight ---------- */
+  #runCard { display:none; margin:0 0 8px; border:1px solid #7c3aed; border-radius:10px; padding:8px 10px;
+    background:linear-gradient(180deg, rgba(124,58,237,.14), rgba(124,58,237,.04)); color:var(--fg); font-size:12.5px; }
+  #runCard.open { display:block; }
+  #runCard.ended.ok { border-color:#16a34a; background:rgba(22,163,74,.08); }
+  #runCard.ended.failed { border-color:#b91c1c; background:rgba(185,28,28,.08); }
+  #runCard.ended.cancelled { border-color:#6b7280; background:rgba(107,114,128,.10); }
+  .rc-top { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
+  .rc-title { font-weight:700; overflow-wrap:anywhere; }
+  .rc-sub { color:var(--fg-dim); }
+  .rc-time { margin-left:auto; color:#a78bfa; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .rc-steps { display:flex; gap:4px; align-items:center; flex-wrap:wrap; margin:7px 0; }
+  .rc-step { border-radius:11px; padding:2px 9px; font-size:11.5px; font-weight:600; white-space:nowrap; background:#3f3f46; color:#d1d5db; }
+  .rc-step.ok { background:#14532d; color:#bbf7d0; } .rc-step.failed { background:#7f1d1d; color:#fecaca; }
+  .rc-step.cancelled { background:transparent; border:1px dashed #6b7280; color:#9ca3af; }
+  .rc-step.done { background:#334155; color:#e2e8f0; }
+  .rc-step.running { background:#7c3aed; color:#fff; box-shadow:0 0 0 3px rgba(124,58,237,.35); animation: rcPulse 1.6s ease-in-out infinite; }
+  .rc-step.next { background:transparent; border:1px dashed #6b7280; color:#9ca3af; }
+  @keyframes rcPulse { 50% { box-shadow:0 0 0 5px rgba(124,58,237,.15); } }
+  .rc-arrow { color:#6b7280; font-size:11px; }
+  .rc-bar { height:7px; background:rgba(127,127,127,.25); border-radius:4px; overflow:hidden; position:relative; }
+  .rc-bar > i { position:absolute; top:0; bottom:0; left:0; border-radius:4px; background:#22c55e; transition:width .6s ease; }
+  .rc-bar > i.p { background:#7c3aed; }
+  .rc-bar.indet > i { width:30% !important; background:repeating-linear-gradient(45deg, #7c3aed 0 10px, #8b5cf6 10px 20px); animation: rcSlide 1.4s linear infinite; }
+  @keyframes rcSlide { from { left:-30%; } to { left:100%; } }
+  .rc-line { margin-top:5px; color:var(--fg-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .rc-line b { color:var(--fg); font-weight:600; }
+  .rc-actions { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; align-items:center; }
+  .rc-actions button { font-size:12px; padding:3px 10px; }
+  .rc-actions .danger { border-color:#b91c1c; color:#fecaca; background:rgba(127,29,29,.35); }
+  .rc-actions .primary { border-color:#7c3aed; background:#7c3aed; color:#fff; }
+  .rc-hint { color:var(--fg-dim); font-size:11px; }
+  .rc-confirm { margin-top:8px; border:1px solid #b91c1c; background:rgba(127,29,29,.22); border-radius:8px; padding:7px 9px; line-height:1.45; }
+  .rc-confirm b { color:#fecaca; }
+  .rc-armed { margin-top:8px; border:1px dashed #a78bfa; border-radius:8px; padding:5px 9px; color:#ddd6fe; }
+  .rc-sum { margin:6px 0 0 16px; padding:0; line-height:1.55; }
+  .rc-x { margin-left:6px; border:none; background:transparent; color:var(--fg-dim); cursor:pointer; font-size:14px; padding:0 4px; }
+  body[data-theme="paper"] .rc-step.running, body[data-theme="paper"] .rc-actions .primary { color:#fff; }
+  body[data-theme="paper"] .rc-confirm b { color:#991b1b; }
+  body[data-theme="paper"] .rc-armed { color:#5b21b6; }
+  @media (max-width: 420px) { .rc-hint { display:none; } .rc-step { padding:1px 6px; } }
+
   /* ---------- cockpit layout ---------- */
   body[data-theme="cockpit"] {
     --bg:#1e1e1e; --fg:#e5e7eb; --fg-dim:#9ca3af; --card:#252526; --card2:#2d2d30; --border:#3f3f46;
@@ -550,6 +618,7 @@ function getWebviewHtml(orchestratorUrl, themeName = 'cockpit') {
   .ck-form > label { color:var(--fg-dim); font-size:12px; }
   .ck-form select, .ck-form input { width:100%; min-width:0; box-sizing:border-box; background:#1e1e1e; border-color:#3f3f46; }
   .ck-pair { display:flex; gap:6px; min-width:0; align-items:center; }
+  .ck-pair.wrap { flex-wrap:wrap; }
   .ck-pair > * { min-width:0; flex:1 1 auto; }
   .ck-pair > button { flex:0 0 auto; }
   .ck-roles { display:grid; grid-template-columns:64px minmax(0, 1fr); gap:4px 8px; font-size:12px; margin-top:8px; align-items:center; }
@@ -579,6 +648,21 @@ function getWebviewHtml(orchestratorUrl, themeName = 'cockpit') {
   .ck-btns { display:flex; gap:6px; margin-top:7px; flex-wrap:wrap; }
   .ck-btn { border:1px solid #4b5563; background:#2d2d30; color:#e5e7eb; border-radius:6px; padding:3px 11px; font-size:12px; }
   .ck-btn.primary { background:#7c3aed; border-color:#7c3aed; color:#fff; }
+  .ck-alt { display:flex; align-items:center; gap:8px; margin-top:4px; min-width:0; }
+  .ck-alt code { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:var(--vscode-editor-font-family, ui-monospace, Menlo, monospace); font-size:12px; color:#ddd6fe; background:none; padding:0; }
+  .ck-alt .ck-btn { padding:1px 9px; }
+  #ckDrawerClose { display:none; }
+  .ck-blockers { margin:6px 0 2px 16px; padding:0; font-size:12px; color:#fcd34d; line-height:1.5; }
+  .ck-blockers b { color:#fde68a; }
+  .ck-blockers li { cursor:help; }
+  .ck-hist-top { display:flex; align-items:center; gap:8px; margin-bottom:6px; min-width:0; }
+  .ck-hist { display:flex; align-items:center; gap:6px; padding:3px 6px; border-radius:4px; cursor:pointer; font-size:12.5px; min-width:0; }
+  .ck-hist:hover { background:#2d2d30; }
+  .ck-hist .t { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ck-hist .n { color:var(--fg-dim); font-size:11.5px; white-space:nowrap; }
+  .ck-hist .ck-btn { padding:0 6px; font-size:11px; }
+  .ck-x { border:none; background:transparent; color:var(--fg-dim); cursor:pointer; padding:0 4px; opacity:0; }
+  .ck-hist:hover .ck-x { opacity:.8; }
   .ck-kv { color:var(--fg-dim); font-size:12px; line-height:1.6; overflow-wrap:anywhere; }
   .ck-kv b { color:var(--fg); font-weight:600; }
   .ck-ok { color:#86efac; } .ck-ko { color:#fca5a5; } .ck-warn { color:#fcd34d; }
@@ -594,8 +678,10 @@ function getWebviewHtml(orchestratorUrl, themeName = 'cockpit') {
   /* narrow (the chat beside the editor): one column, the cockpit is a drawer, a status strip stays */
   @media (max-width: 720px) {
     body[data-theme="cockpit"] #ckShell { grid-template-columns:minmax(0, 1fr); padding:6px; }
-    body[data-theme="cockpit"] #ckSide { display:none; position:fixed; top:0; right:0; bottom:0; width:min(92vw, 360px); z-index:80;
-      border-radius:0; box-shadow:-8px 0 24px rgba(0,0,0,.5); }
+    body[data-theme="cockpit"] #ckSide { display:none; position:fixed; top:0; right:0; bottom:0; width:min(84vw, 340px); z-index:80;
+      border-radius:0; box-shadow:-8px 0 24px rgba(0,0,0,.5); padding-top:0; }
+    body[data-theme="cockpit"] #ckDrawerClose { display:flex; position:sticky; top:0; z-index:2; justify-content:space-between; align-items:center;
+      background:var(--card); padding:8px 0 6px; border-bottom:1px solid #333338; font-weight:700; }
     body[data-theme="cockpit"].ck-drawer #ckSide { display:block; }
     body[data-theme="cockpit"].ck-drawer #ckScrim { display:block; position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:70; }
     body[data-theme="cockpit"] #ckDrawerBtn { display:inline-block; }
@@ -643,6 +729,7 @@ function getWebviewHtml(orchestratorUrl, themeName = 'cockpit') {
     </select>
 
 
+    <button id="newChat" title="Starts a new conversation in this mode; the current one goes to the history (cockpit: History)">＋ New chat</button>
     <button id="clear">Clear Session</button>
 
     <label class="ctl">
@@ -660,6 +747,7 @@ function getWebviewHtml(orchestratorUrl, themeName = 'cockpit') {
     <span id="status">Ready</span>
     <span id="sp" class="spinner">⏳</span>
   </div>
+  <div id="runCard" role="status" aria-live="polite"></div>
 
   <div id="chat" class="chat" aria-label="Chat transcript"></div>
 
@@ -1745,8 +1833,119 @@ function agentLiveEvent(ev) {
   chat.scrollTop = chat.scrollHeight;
 }
 
-function bubble(role, content, modelName, attachments, ts, opts) {
+// ---- answers as cards: what CLike says while a command runs is one log card (a line per message,
+// with its time); a model's answer gets light markdown (escaped first, then code, bold, titles) ----
+var LOG_GAP_MS = 30 * 60000;
+function logKind(text) {
+  var c = String(text || '').trim().charAt(0);
+  if (c === '✔') return 'ok';
+  if (c === '✖' || /^Error:/.test(text)) return 'ko';
+  if (c === '⚠') return 'warn';
+  if (c === '▶' || c === '↻') return 'run';
+  if (c === '⏹' || c === '⏸' || c === '⏱' || c === '⏳') return 'stop';
+  return 'info';
+}
+function logTime(ms) {
+  var d = new Date(ms);
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') + ':' + String(d.getSeconds()).padStart(2, '0');
+}
+function logCard(tsMs) {
+  var wrap = document.createElement('div');
+  wrap.className = 'msg ai';
+  var b = document.createElement('div');
+  b.className = 'bubble log-card';
+  var head = document.createElement('div');
+  head.className = 'log-head';
+  var title = document.createElement('span');
+  title.className = 'log-title';
+  var stats = document.createElement('span');
+  stats.className = 'log-stats';
+  var more = document.createElement('button');
+  more.className = 'log-more';
+  more.style.display = 'none';
+  var copyAll = document.createElement('button');
+  copyAll.className = 'log-copy';
+  copyAll.textContent = '⧉';
+  copyAll.title = 'Copy the whole log';
+  head.appendChild(title); head.appendChild(stats); head.appendChild(more); head.appendChild(copyAll);
+  var rows = document.createElement('div');
+  rows.className = 'log-rows';
+  b.appendChild(head); b.appendChild(rows);
+  wrap.appendChild(b);
+  chat.appendChild(wrap);
+  var log = { wrap: wrap, rows: rows, title: title, stats: stats, more: more, firstTs: tsMs, lastTs: tsMs, lines: [], expanded: false };
+  wrap._log = log;
+  copyAll.addEventListener('click', function (ev) {
+    ev.stopPropagation();
+    vscode.postMessage({ type: 'copyText', text: log.lines.map(function (l) { return logTime(l.ts) + '  ' + l.text; }).join('\\n') });
+    copyAll.textContent = '✓';
+    setTimeout(function () { copyAll.textContent = '⧉'; }, 1200);
+  });
+  more.addEventListener('click', function () { log.expanded = !log.expanded; logRefresh(log); });
+  return log;
+}
+function logRefresh(log) {
+  var d = new Date(log.firstTs);
+  log.title.textContent = 'CLike · ' + d.toLocaleDateString() + ' ' + logTime(log.firstTs);
+  var span = Math.max(0, Math.round((log.lastTs - log.firstTs) / 1000));
+  log.stats.textContent = log.lines.length + ' message' + (log.lines.length === 1 ? '' : 's') +
+    (span >= 60 ? ' · ' + Math.floor(span / 60) + ' min ' + (span % 60) + ' s' : span ? ' · ' + span + ' s' : '');
+  var hidden = log.expanded ? 0 : Math.max(0, log.lines.length - 8);
+  Array.prototype.forEach.call(log.rows.children, function (row, i) { row.style.display = i < hidden ? 'none' : ''; });
+  log.more.style.display = log.lines.length > 8 ? '' : 'none';
+  log.more.textContent = log.expanded ? 'show the last 8' : 'show ' + hidden + ' earlier';
+}
+function logLine(role, content, ts) {
+  var tsMs = ts ? new Date(ts).getTime() : Date.now();
+  var last = chat.lastElementChild;
+  var log = last && last._log && Math.abs(tsMs - last._log.lastTs) < LOG_GAP_MS ? last._log : logCard(tsMs);
+  var text = String(content || '');
+  var row = document.createElement('div');
+  row.className = 'log-row ' + logKind(text);
+  var t = document.createElement('span');
+  t.className = 'log-time';
+  t.textContent = logTime(tsMs);
+  t.title = new Date(tsMs).toLocaleString();
+  var body = document.createElement('span');
+  body.className = 'log-text';
+  body.textContent = text;
+  var del = document.createElement('button');
+  del.className = 'log-del';
+  del.textContent = '×';
+  del.title = 'Remove from history';
+  del.addEventListener('click', function (ev) {
+    ev.stopPropagation();
+    vscode.postMessage({ type: 'deleteBubble', mode: currentMode(), role: role, model: 'system', content: text });
+  });
+  row.appendChild(t); row.appendChild(body); row.appendChild(del);
+  log.rows.appendChild(row);
+  log.lines.push({ ts: tsMs, text: text });
+  log.lastTs = Math.max(log.lastTs, tsMs);
+  logRefresh(log);
+  chat.scrollTop = chat.scrollHeight;
+}
+var BT3 = String.fromCharCode(96, 96, 96);
+var BT = String.fromCharCode(96);
+var MD_INLINE_CODE = new RegExp(BT + '([^' + BT + '\\n]+)' + BT, 'g');
+function renderMd(text) {
+  var parts = escapeHtml(String(text || '')).split(BT3);
+  return parts.map(function (part, i) {
+    if (i % 2) {
+      var nl = part.indexOf('\\n');
+      return '<pre class="md-code">' + (nl >= 0 ? part.slice(nl + 1) : part).replace(/\\n$/, '') + '</pre>';
+    }
+    return (i ? part.replace(/^\\n/, '') : part)
+      .replace(MD_INLINE_CODE, '<code class="md-inline">$1</code>')
+      .replace(/\\*\\*([^*\\n]+)\\*\\*/g, '<b>$1</b>')
+      .replace(/^#{1,4} (.+)$/gm, '<span class="md-h">$1</span>');
+  }).join('');
+}
 
+function bubble(role, content, modelName, attachments, ts, opts) {
+  if (role !== 'user' && String(modelName || '') === 'system' && !(opts && opts.images && opts.images.length)) {
+    logLine(role === 'system' ? 'system' : 'assistant', content, ts);
+    return;
+  }
   attachments = attachments || [];
   const wrap = document.createElement('div');
   wrap.className = 'msg ' + (role === 'user' ? 'user' : 'ai');
@@ -1759,7 +1958,7 @@ function bubble(role, content, modelName, attachments, ts, opts) {
     ? '<span class="badge">' + escapeHtml(modelName) + '</span>' 
   : '';
    const meta = '<div class="meta">⏱ ' + escapeHtml(timeStr) + '</div>';
-  b.innerHTML = meta + badge + escapeHtml(String(content || ''));
+  b.innerHTML = meta + badge + (role === 'assistant' ? renderMd(content) : escapeHtml(String(content || '')));
   
   // se utente ha allegati → riga meta con 📎
   if (role === 'user' && attachments.length) {
@@ -1844,6 +2043,7 @@ function setBusy(on) {
     btnAttachWs,
     btnAttachExt,
     document.getElementById('layout'),
+    document.getElementById('newChat'),
   ].forEach((node) => setNodeDisabled(node, disabled));
   document.querySelectorAll('.ck-ctl').forEach((node) => { node.disabled = disabled; });
   if (disabled) { try { acClose(); } catch {} }
@@ -2761,6 +2961,12 @@ prompt.addEventListener('keydown', function (ev) {
   }
 }, true);
 
+// --- New chat (every layout): the current conversation goes to the history ---
+(function () {
+  var nb = el('newChat');
+  if (nb) nb.addEventListener('click', function () { if (!isBusy()) post('historyNew'); });
+})();
+
 // --- Layout selector (every layout) ---
 var layoutSel = el('layout');
 if (layoutSel) {
@@ -2804,7 +3010,18 @@ function ckSetMode(value) {
 }
 function ckRunCommand(cmd) {
   if (isBusy() || !cmd) return;
+  ckToggleDrawer(false);
   if (currentMode() !== 'harper') ckSetMode('harper');
+  var hole = cmd.indexOf(' <');
+  if (hole > 0) {
+    // a value only the developer has (e.g. /init <name>): written in the prompt, not sent
+    prompt.value = cmd.slice(0, hole) + ' ';
+    ckToggleDrawer(false);
+    prompt.focus();
+    prompt.setSelectionRange(prompt.value.length, prompt.value.length);
+    acRender();
+    return;
+  }
   prompt.value = cmd;
   onSend();
 }
@@ -2830,6 +3047,21 @@ function ckBuild() {
   head.appendChild(drawerBtn);
   el('ckScrim').addEventListener('click', function () { ckToggleDrawer(false); });
 
+  // narrow panels: the drawer always shows how to close it (and Esc, the area on its left)
+  var closeBar = ckEl('div'); closeBar.id = 'ckDrawerClose';
+  closeBar.appendChild(ckEl('span', '', 'Cockpit'));
+  var closeBtn = ckEl('button', 'ck-btn', '✕ Close');
+  closeBtn.addEventListener('click', function () { ckToggleDrawer(false); });
+  closeBar.appendChild(closeBtn);
+  side.appendChild(closeBar);
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape' && document.body.classList.contains('ck-drawer')) { ckToggleDrawer(false); ev.stopPropagation(); }
+  }, true);
+  // back to a wide panel: no drawer
+  try {
+    window.matchMedia('(max-width: 720px)').addEventListener('change', function (mq) { if (!mq.matches) ckToggleDrawer(false); });
+  } catch (e) {}
+
   // mode + settings: the existing controls are moved here
   var secCfg = ckSection('ckSecCfg', 'Mode & settings', true);
   var seg = ckEl('div', 'ck-seg');
@@ -2854,24 +3086,29 @@ function ckBuild() {
     post('harperRun', { cmd: 'agent-default', value: v, attachments: [] });
   });
   ckRow(form, 'Agent', [agentSel]);
-  var agentModel = ckEl('input', 'ck-ctl');
+  // the models the agent's CLI accepts (a select: every one visible, none it would refuse); a text
+  // field only when the list is unknown (no Codex run yet on this machine)
+  var agentModel = ckEl('select', 'ck-ctl');
   agentModel.id = 'ckAgentModel';
-  agentModel.setAttribute('list', 'ckAgentModels');
-  agentModel.setAttribute('spellcheck', 'false');
-  var dl = ckEl('datalist'); dl.id = 'ckAgentModels';
-  agentModel.addEventListener('change', function () {
+  var agentModelText = ckEl('input', 'ck-ctl');
+  agentModelText.id = 'ckAgentModelText';
+  agentModelText.setAttribute('spellcheck', 'false');
+  agentModelText.placeholder = 'model id';
+  var sendAgentModel = function (v) {
     var who = agentModel.dataset.agent || 'codex';
-    var v = agentModel.value.trim();
+    v = String(v || '').trim();
     if (v) post('harperRun', { cmd: 'agent-model', agentName: who, agentModel: v, attachments: [] });
-  });
-  var amRow = ckRow(form, 'Agent model', [agentModel, dl]);
+  };
+  agentModel.addEventListener('change', function () { sendAgentModel(agentModel.value); });
+  agentModelText.addEventListener('change', function () { sendAgentModel(agentModelText.value); });
+  var amRow = ckRow(form, 'Agent model', [agentModel, agentModelText]);
   amRow.id = 'ckAgentModelRow';
   ckRow(form, 'History', [historyScope]);
   ckRow(form, 'Layout', [layoutSel]);
   var helpBtnNode = el('helpBtn');
   helpBtnNode.appendChild(document.createTextNode(' Help'));
   var clearNode = btnClear;
-  ckRow(form, 'Session', [clearNode, helpBtnNode]);
+  ckRow(form, 'Session', [el('newChat'), clearNode, helpBtnNode]).classList.add('wrap');
   secCfg.appendChild(form);
   // the native mode select stays in the DOM (handlers, state), hidden
   mode.style.display = 'none';
@@ -2896,20 +3133,20 @@ function ckBuild() {
   var roles = ckEl('div', 'ck-roles');
   roles.id = 'ckRoles';
   secMeth.appendChild(roles);
-  side.appendChild(secMeth);
 
   // project (Harper)
   var secProj = ckSection('ckSecProj', 'Project', true);
   secProj.classList.add('ck-harper');
   var proj = ckEl('div'); proj.id = 'ckProject';
   secProj.appendChild(proj);
-  side.appendChild(secProj);
 
   var secNext = ckSection('ckSecNext', 'Next action', true);
   secNext.classList.add('ck-harper');
   var next = ckEl('div'); next.id = 'ckNext';
   secNext.appendChild(next);
+  // the next action first: in Harper it is what the developer acts on most
   side.appendChild(secNext);
+  side.appendChild(secProj);
 
   var secReq = ckSection('ckSecReq', 'REQ', true);
   secReq.classList.add('ck-harper');
@@ -2924,6 +3161,7 @@ function ckBuild() {
   var reqs = ckEl('div', 'ck-reqs'); reqs.id = 'ckReqs';
   secReq.appendChild(reqs);
   side.appendChild(secReq);
+  side.appendChild(secMeth);
 
   // free / coding: the Harper project in one line
   var secSum = ckSection('ckSecSum', 'Harper project', true);
@@ -2936,6 +3174,12 @@ function ckBuild() {
   var agentBox = ckEl('div'); agentBox.id = 'ckAgentBox';
   secAgent.appendChild(agentBox);
   side.appendChild(secAgent);
+
+  // the conversations of this mode: the current one and the archived ones (New chat archives)
+  var secHist = ckSection('ckSecHist', 'History', true);
+  var hist = ckEl('div'); hist.id = 'ckHistory';
+  secHist.appendChild(hist);
+  side.appendChild(secHist);
 
   // output tabs in a drawer under the composer: open by itself when there is something to read
   var out = ckEl('details'); out.id = 'ckOutput';
@@ -3000,14 +3244,31 @@ function ckRenderConfig() {
   var agentSel = el('ckAgent');
   if (agentSel && a.executor) agentSel.value = a.executor;
   var am = el('ckAgentModel');
-  var dl = el('ckAgentModels');
-  if (am) {
+  var amText = el('ckAgentModelText');
+  if (am && document.activeElement !== am && document.activeElement !== amText) {
     var who = a.executor === 'claude_code' ? 'claude' : 'codex';
+    var current = who === 'claude' ? (a.claude_model || '') : (a.codex_model || '');
+    var list = ((a.models || {})[who]) || [];
     am.dataset.agent = who;
-    if (document.activeElement !== am) am.value = who === 'claude' ? (a.claude_model || '') : (a.codex_model || '');
-    am.title = 'Model of ' + (who === 'claude' ? 'Claude Code' : 'Codex') + ' (/agent-model)';
-    dl.innerHTML = '';
-    (((a.models || {})[who]) || []).forEach(function (x) { var o = ckEl('option'); o.value = x; dl.appendChild(o); });
+    am.title = 'Model of ' + (who === 'claude' ? 'Claude Code' : 'Codex') + ' (/agent-model ' + who + ' <model>)';
+    am.innerHTML = '';
+    if (list.length) {
+      if (current && list.indexOf(current) < 0) {
+        var bad = ckEl('option', '', current + ' ⚠ not available');
+        bad.value = current;
+        am.appendChild(bad);
+      }
+      if (!current) { var def = ckEl('option', '', '(CLI default)'); def.value = ''; am.appendChild(def); }
+      list.forEach(function (x) { var o = ckEl('option', '', x); o.value = x; am.appendChild(o); });
+      am.value = current;
+      am.style.display = '';
+      amText.style.display = 'none';
+    } else {
+      am.style.display = 'none';
+      amText.style.display = '';
+      amText.value = current;
+      amText.title = who === 'codex' ? 'The models of the Codex login appear after a first Codex run (~/.codex/models_cache.json)' : '';
+    }
   }
   var cloudOnly = currentExecution() === 'cloud_only';
   var amRow = el('ckAgentModelRow');
@@ -3089,7 +3350,7 @@ function ckRenderReqs() {
   if (ck.reqFilter === 'active') list = list.filter(function (r) { return r.status === 'in_progress'; });
   if (!list.length) { box.appendChild(ckEl('div', 'ck-empty', p && p.counts && p.counts.total ? 'No REQ in this filter.' : 'No plan yet: /plan creates the REQs.')); return; }
   list.forEach(function (r) {
-    var cls = r.status === 'open' ? (r.waiting && r.waiting.length ? 'wait' : 'ready') : r.status;
+    var cls = r.blockers && r.blockers.length ? 'wait' : r.status === 'open' ? (r.waiting && r.waiting.length ? 'wait' : 'ready') : r.status;
     var row = ckEl('div', 'ck-req ' + cls);
     row.title = r.id + ' ' + r.title + ' — click: ' + ckReqCommand(r);
     row.appendChild(ckEl('span', '', r.status === 'done' ? '●' : r.status === 'in_progress' ? '◐' : '○'));
@@ -3118,7 +3379,7 @@ function ckRenderNext() {
   if (!n) { wrap.appendChild(ckEl('div', 'ck-empty', 'Open a Harper project.')); box.appendChild(wrap); return; }
   var line = ckEl('div', 'ck-kv');
   if (n.command) {
-    var cmd = withCockpitMethodology(n.command);
+    var cmd = n.command.indexOf(' <') > 0 ? n.command : withCockpitMethodology(n.command);
     line.appendChild(document.createTextNode('Next: '));
     line.appendChild(ckEl('code', '', cmd));
   } else {
@@ -3126,10 +3387,23 @@ function ckRenderNext() {
   }
   wrap.appendChild(line);
   if (n.command) wrap.appendChild(ckEl('div', 'ck-kv', n.message));
+  // the decisions the plan leaves open (what to decide in the tooltip)
+  if (Array.isArray(n.blockers) && n.blockers.length) {
+    var ul = ckEl('ul', 'ck-blockers');
+    n.blockers.forEach(function (b) {
+      var li = ckEl('li');
+      li.appendChild(ckEl('b', '', b.id));
+      li.appendChild(document.createTextNode(' ' + (b.subject || '')));
+      if (b.required) li.title = b.required;
+      ul.appendChild(li);
+    });
+    wrap.appendChild(ul);
+  }
   var btns = ckEl('div', 'ck-btns');
   if (n.command) {
-    var run = ckEl('button', 'ck-btn primary ck-ctl', 'Run');
-    run.title = 'Runs ' + withCockpitMethodology(n.command) + ' as if typed';
+    var needsValue = n.command.indexOf(' <') > 0;
+    var run = ckEl('button', 'ck-btn primary ck-ctl', needsValue ? 'Write it' : 'Run');
+    run.title = needsValue ? 'Puts ' + n.command + ' in the prompt: complete it and send' : 'Runs ' + withCockpitMethodology(n.command) + ' as if typed';
     run.addEventListener('click', function () { ckRunCommand(n.command); });
     btns.appendChild(run);
   }
@@ -3140,6 +3414,22 @@ function ckRenderNext() {
     btns.appendChild(auto);
   }
   wrap.appendChild(btns);
+  // BMAD: the roles of a phase that have not run yet are a choice too (SPEC by ux, PLAN by pm…)
+  var alts = (p.alternatives || []);
+  if (alts.length) {
+    wrap.appendChild(ckEl('div', 'ck-kv', 'Or:'));
+    alts.forEach(function (alt) {
+      var row = ckEl('div', 'ck-alt');
+      var code = ckEl('code', '', alt.command);
+      code.title = alt.message;
+      row.appendChild(code);
+      var b = ckEl('button', 'ck-btn ck-ctl', 'Run');
+      b.title = alt.message;
+      b.addEventListener('click', function () { ckRunCommand(alt.command); });
+      row.appendChild(b);
+      wrap.appendChild(row);
+    });
+  }
   box.appendChild(wrap);
 }
 
@@ -3179,6 +3469,52 @@ function ckRenderAgent() {
   w.appendChild(document.createTextNode('Writes: '));
   w.appendChild(ckEl('b', '', who));
   box.appendChild(w);
+  var ses = ck.session;
+  if (ses && (ses.cost || ses.tokens)) {
+    var c2 = ckEl('div', 'ck-kv');
+    c2.appendChild(document.createTextNode('This session: '));
+    c2.appendChild(ckEl('b', '', (ses.cost ? '$' + ses.cost.toFixed(2) + ' · ' : '') + rcTokens(ses.tokens) + ' tokens'));
+    c2.title = 'Cost of the agent and cloud runs since VS Code opened (API-equivalent for subscriptions); per run and phase: telemetry portal';
+    box.appendChild(c2);
+  }
+}
+
+var ckHistDelete = null;
+function ckRenderHistory() {
+  var box = el('ckHistory');
+  if (!box) return;
+  box.innerHTML = '';
+  var h = ck.state && ck.state.history;
+  if (!h) { box.appendChild(ckEl('div', 'ck-empty', 'Open a folder to keep the conversations.')); return; }
+  var top = ckEl('div', 'ck-hist-top');
+  var nb = ckEl('button', 'ck-btn primary ck-ctl', '＋ New chat');
+  nb.title = 'The current conversation goes to the history; with the agent, a new agent session starts too';
+  nb.addEventListener('click', function () { if (!isBusy()) post('historyNew'); });
+  top.appendChild(nb);
+  top.appendChild(ckEl('span', 'ck-dim', (h.mode || '').toUpperCase() + (h.current ? ' · now: ' + h.current.count + ' messages' : ' · new conversation')));
+  box.appendChild(top);
+  if (!h.archived.length) { box.appendChild(ckEl('div', 'ck-empty', 'No earlier conversation in this mode.')); return; }
+  h.archived.forEach(function (c) {
+    var row = ckEl('div', 'ck-hist');
+    row.title = c.title + ' — ' + new Date(c.first_ts).toLocaleString() + ' → ' + new Date(c.last_ts).toLocaleString() + ' · click: reopen it (the current one is kept in the history)';
+    var t = ckEl('span', 't', c.title);
+    var n = ckEl('span', 'n', ckAgo(c.last_ts) + ' · ' + c.count);
+    row.appendChild(t); row.appendChild(n);
+    if (ckHistDelete === c.id) {
+      var yes = ckEl('button', 'ck-btn ck-ctl', 'delete');
+      yes.addEventListener('click', function (ev) { ev.stopPropagation(); ckHistDelete = null; post('historyDelete', { id: c.id }); });
+      var no = ckEl('button', 'ck-btn', 'keep');
+      no.addEventListener('click', function (ev) { ev.stopPropagation(); ckHistDelete = null; ckRenderHistory(); });
+      row.appendChild(yes); row.appendChild(no);
+    } else {
+      var x = ckEl('button', 'ck-x ck-ctl', '×');
+      x.title = 'Delete this conversation';
+      x.addEventListener('click', function (ev) { ev.stopPropagation(); ckHistDelete = c.id; ckRenderHistory(); });
+      row.appendChild(x);
+    }
+    row.addEventListener('click', function () { if (!isBusy()) { ckToggleDrawer(false); post('historyOpen', { id: c.id }); } });
+    box.appendChild(row);
+  });
 }
 
 function ckRenderSummary() {
@@ -3186,7 +3522,14 @@ function ckRenderSummary() {
   if (!box) return;
   box.innerHTML = '';
   var p = ckProject();
-  if (!p || !p.harper) { box.appendChild(ckEl('div', 'ck-empty', 'No Harper project in this workspace.')); return; }
+  if (!p || !p.harper) {
+    box.appendChild(ckEl('div', 'ck-empty', 'No Harper project in this workspace.'));
+    var init = ckEl('button', 'ck-btn primary ck-ctl', '/init <name>');
+    init.title = 'Creates the Harper project here (Harper mode)';
+    init.addEventListener('click', function () { ckRunCommand('/init <name>'); });
+    box.appendChild(init);
+    return;
+  }
   var bar = ckEl('div', 'ck-bar');
   var g = ckEl('i', 'g'); g.style.width = p.progress_pct + '%'; bar.appendChild(g);
   box.appendChild(bar);
@@ -3211,7 +3554,7 @@ function ckRenderStrip() {
   p.phases.forEach(function (ph) { pills.appendChild(ckPill(ph, ph.id === 'finalize' ? 'FIN' : ph.label)); });
   strip.appendChild(pills);
   if (p.next && p.next.command) {
-    strip.appendChild(ckEl('code', 'ck-dim', p.next.command));
+    strip.appendChild(ckEl('code', 'ck-dim', p.next.command + ((p.alternatives || []).length ? '  (+' + p.alternatives.length + ' ☰)' : '')));
     var run = ckEl('button', 'ck-btn primary ck-ctl', 'Run');
     run.addEventListener('click', function () { ckRunCommand(p.next.command); });
     strip.appendChild(run);
@@ -3226,7 +3569,7 @@ function ckRenderAll() {
   document.querySelectorAll('#ckSide .ck-harper').forEach(function (n) { n.style.display = harper ? '' : 'none'; });
   document.querySelectorAll('#ckSide .ck-nonharper').forEach(function (n) { n.style.display = harper ? 'none' : ''; });
   ckRenderHead(); ckRenderConfig(); ckRenderMethodology(); ckRenderProject(); ckRenderReqs(); ckRenderNext();
-  ckRenderAgent(); ckRenderSummary(); ckRenderStrip();
+  ckRenderAgent(); ckRenderSummary(); ckRenderHistory(); ckRenderStrip();
   ckApplyBusy();
 }
 // the cockpit's own controls follow the busy state (they are rebuilt on every state)
@@ -3256,6 +3599,242 @@ window.addEventListener('message', function (event) {
   var out = el('ckOutput');
   if (out && (msg.type === 'generateResult' || msg.type === 'applyResult' || msg.type === 'error' || msg.type === 'text' ||
       (msg.type === 'files' && msg.activate))) out.open = true;
+});
+
+// ===================== Run card (every layout) and smart Cancel =====================
+// 'runProgress' from the extension: the command in flight with its real steps, the eval's live
+// progress, what is happening now, its cost. Stop now asks first and says what it loses; "after
+// this step" ends the --fix loop (or the autopilot) at the next step boundary.
+var rc = { run: null, confirmUntil: 0, dismissed: {}, hideTimer: null };
+var runCard = el('runCard');
+
+function rcClock(ms) {
+  var s = Math.max(0, Math.round((ms || 0) / 1000));
+  var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(sec).padStart(2, '0');
+}
+function rcTokens(n) { n = Number(n) || 0; return n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : Math.round(n / 1000) + 'k'; }
+function rcIsAgent(run) { return run && run.executor && run.executor.indexOf('cloud') !== 0; }
+function rcResumeCommand(run) {
+  var req = run.req || '';
+  if (run.kind === 'eval') return '/eval ' + req + ' --fix';
+  if (run.kind === 'gate') return '/gate ' + req + (run.fix ? ' --fix' : '');
+  if (run.kind === 'autopilot') return '/autopilot';
+  return run.title;
+}
+/** What "Stop now" loses, said before doing it. */
+function rcStopText(run) {
+  var cur = run.current || {};
+  var who = run.executor || 'the agent';
+  if (run.kind === 'autopilot' && !cur.kind) return 'The autopilot ends for good (it will not resume at startup).';
+  var lines = [];
+  if (cur.kind === 'eval' || cur.kind === 'gate') {
+    var ep = run.evalProgress;
+    lines.push('The sandbox stops the running check and skips the others: this ' + cur.label +
+      ' leaves no report' + (ep && ep.checks_total ? ' (' + ep.checks_done + '/' + ep.checks_total + ' checks done)' : '') + '. Code and tests do not change.');
+    var left = cur.eta_ms ? cur.eta_ms - (Date.now() - cur.startedAt) : null;
+    if (left !== null && left > 0 && left < 3 * 60000) lines.push('Tip: "after this step" lets it finish (~' + rcClock(left) + ') and keeps the report.');
+  } else if (rcIsAgent(run)) {
+    lines.push(who + ' is stopped with the processes it started. Files it already wrote stay where they are' +
+      (cur.req && cur.req !== 'SOLUTION' ? ' (runs/kit/' + cur.req + '/)' : '') + ', uncommitted; what it returns is not used and there is no cloud fallback.');
+  } else {
+    lines.push('The request to the model is closed: its answer is discarded, nothing is written or committed.');
+  }
+  if (run.fix && run.fix.cycle) lines.push('The earlier cycles and their reports stay.');
+  if (run.kind === 'autopilot') lines.push('The autopilot ends for good (it will not resume at startup).');
+  return lines.join(' ');
+}
+
+function rcButton(label, cls, onClick, title) {
+  var b = ckEl('button', cls || '', label);
+  if (title) b.title = title;
+  b.addEventListener('click', function (ev) { ev.preventDefault(); onClick(); });
+  return b;
+}
+
+function rcStopNow() {
+  rc.confirmUntil = 0;
+  try { btnCancel.disabled = false; btnCancel.click(); } catch (e) { post('cancel'); }
+}
+
+function rcRender() {
+  var run = rc.run;
+  if (!runCard) return;
+  if (!run || rc.dismissed[run.id]) { runCard.className = ''; runCard.innerHTML = ''; return; }
+  var ended = run.ended;
+  runCard.className = 'open' + (ended ? ' ended ' + ended.outcome : '');
+  runCard.innerHTML = '';
+  var now = Date.now();
+
+  // title, cycle, time
+  var top = ckEl('div', 'rc-top');
+  var icon = ended ? ({ ok: '✔', failed: '✖', cancelled: '⏹' }[ended.outcome] || '✓') : '▶';
+  top.appendChild(ckEl('span', 'rc-title', icon + ' ' + run.title));
+  if (run.fix && !ended) {
+    top.appendChild(ckEl('span', 'rc-sub', 'cycle ' + Math.max(1, run.fix.cycle) + ' of ' + run.fix.maxCycles +
+      (run.fix.extraCycles ? ' (+' + run.fix.extraCycles + ' while failures drop)' : '')));
+  }
+  var cur = run.current;
+  var timeTxt = '⏱ ' + rcClock((ended ? ended.at : now) - run.startedAt);
+  if (!ended && cur && cur.eta_ms) {
+    var left = cur.eta_ms - (now - cur.startedAt);
+    timeTxt += left > 0 ? ' · ~' + rcClock(left) + ' left in ' + cur.label : ' · longer than last time';
+  }
+  timeTxt += ' · ' + run.executor;
+  top.appendChild(ckEl('span', 'rc-time', timeTxt));
+  if (ended) {
+    var x = rcButton('×', 'rc-x', function () { rc.dismissed[run.id] = true; rcRender(); }, 'Close');
+    top.appendChild(x);
+  }
+  runCard.appendChild(top);
+
+  // steps
+  var steps = ckEl('div', 'rc-steps');
+  (run.steps || []).forEach(function (st, i) {
+    if (i) steps.appendChild(ckEl('span', 'rc-arrow', '→'));
+    var txt = st.label + (run.kind === 'autopilot' && st.req ? ' ' + st.req : '');
+    if (st.counts) txt += ' · ' + st.counts.passed + ' ✔' + (st.counts.failed ? ' ' + st.counts.failed + ' ✖' : '');
+    else if (st.state !== 'running' && st.endedAt) txt += ' · ' + rcClock(st.endedAt - st.startedAt);
+    steps.appendChild(ckEl('span', 'rc-step ' + st.state, txt + (st.state === 'running' ? ' ●' : '')));
+  });
+  if (!ended && run.stopAfterStep) {
+    steps.appendChild(ckEl('span', 'rc-arrow', '→'));
+    steps.appendChild(ckEl('span', 'rc-step next', '⏸ stop'));
+  } else if (!ended && (run.kind === 'eval' || run.kind === 'gate') && run.fix) {
+    steps.appendChild(ckEl('span', 'rc-arrow', '→'));
+    steps.appendChild(ckEl('span', 'rc-step next', run.kind === 'eval' ? 'then: /gate' : 'then: promote'));
+  }
+  runCard.appendChild(steps);
+
+  // bar: the eval's checks when the sandbox reports them, else the estimate, else indeterminate
+  if (!ended) {
+    var bar = ckEl('div', 'rc-bar');
+    var fill = ckEl('i');
+    var ep = run.evalProgress;
+    var line = '';
+    if (ep && ep.phase === 'checks' && ep.checks_total) {
+      fill.style.width = Math.round(100 * ep.checks_done / ep.checks_total) + '%';
+      line = 'checks ' + ep.checks_done + '/' + ep.checks_total + (ep.current ? ' · now: ' + ep.current : '') +
+        (ep.failed ? ' · ' + ep.failed + ' ✖ so far' : '');
+    } else if (ep && ep.phase === 'regression' && ep.regression_total) {
+      fill.style.width = Math.round(100 * ep.regression_done / ep.regression_total) + '%';
+      line = 'regression of the promoted REQs ' + ep.regression_done + '/' + ep.regression_total +
+        ((ep.regression_current || []).length ? ' · now: ' + ep.regression_current.join(', ') : '');
+    } else if (ep && ep.phase === 'setup') {
+      bar.classList.add('indet');
+      line = 'preparing the eval environment (dependencies, services)…';
+    } else if (cur && cur.eta_ms) {
+      fill.className = 'p';
+      fill.style.width = Math.min(95, Math.round(100 * (now - cur.startedAt) / cur.eta_ms)) + '%';
+    } else {
+      bar.classList.add('indet');
+    }
+    bar.appendChild(fill);
+    runCard.appendChild(bar);
+    if (line) runCard.appendChild(ckEl('div', 'rc-line', line));
+  }
+  if (run.live && !ended) {
+    var live = ckEl('div', 'rc-line');
+    live.appendChild(ckEl('b', '', 'Now: '));
+    live.appendChild(document.createTextNode(run.live));
+    live.title = run.live;
+    runCard.appendChild(live);
+  }
+  if (run.autopilot) {
+    var ap = run.autopilot;
+    runCard.appendChild(ckEl('div', 'rc-line', 'Promoted: ' + (ap.promoted.join(', ') || 'none') +
+      (ap.parked.length ? ' · parked: ' + ap.parked.join(', ') : '') + (ap.current ? ' · at: ' + ap.current : '')));
+  }
+  if (run.cost && (run.cost.usd || run.cost.tokens)) {
+    runCard.appendChild(ckEl('div', 'rc-line', 'Cost of this run: ' + (run.cost.usd ? '$' + run.cost.usd.toFixed(2) + ' (API-equivalent) · ' : '') +
+      rcTokens(run.cost.tokens) + ' tokens'));
+  }
+
+  if (!ended) {
+    // stop: after this step (or REQ), or now with a confirmation that says what is lost
+    if (rc.confirmUntil > now) {
+      var conf = ckEl('div', 'rc-confirm');
+      var secs = Math.ceil((rc.confirmUntil - now) / 1000);
+      conf.appendChild(ckEl('b', '', 'Stop now? '));
+      conf.appendChild(document.createTextNode(rcStopText(run)));
+      var a = ckEl('div', 'rc-actions');
+      a.appendChild(rcButton('⏹ Yes, stop now', 'danger', rcStopNow));
+      a.appendChild(rcButton('Keep going (' + secs + ')', '', function () { rc.confirmUntil = 0; rcRender(); }));
+      if (!run.stopAfterStep) a.appendChild(rcButton('⏸ After this step instead', 'primary', function () { rc.confirmUntil = 0; post('cancelAfterStep'); }));
+      conf.appendChild(a);
+      runCard.appendChild(conf);
+    } else if (run.stopAfterStep || run.stopAfterReq) {
+      var stepName = run.kind === 'autopilot' && run.autopilot && run.autopilot.current ? run.autopilot.current : (cur ? cur.label : 'this step');
+      var armed = ckEl('div', 'rc-armed', '⏸ Stops at the end of ' + (run.stopAfterReq ? 'the current REQ' : stepName) +
+        ': ' + (cur && (cur.kind === 'eval' || cur.kind === 'gate') ? 'the report is kept, ' : '') + 'nothing new starts. ');
+      armed.appendChild(rcButton('undo', '', function () { post('cancelUndoStop'); }));
+      armed.appendChild(document.createTextNode(' '));
+      armed.appendChild(rcButton('⏹ Stop now', 'danger', function () { rc.confirmUntil = Date.now() + 8000; rcRender(); }));
+      runCard.appendChild(armed);
+    } else {
+      var acts = ckEl('div', 'rc-actions');
+      acts.appendChild(rcButton('⏸ After this step', '', function () { post('cancelAfterStep'); },
+        'Lets the current step finish (its result is kept), then stops: no new repair, eval or REQ starts.'));
+      if (run.kind === 'autopilot') {
+        acts.appendChild(rcButton('⏸ After this REQ', '', function () { post('cancelAfterReq'); },
+          'The current REQ goes to its gate, then the autopilot stops.'));
+      }
+      acts.appendChild(rcButton('⏹ Stop now', 'danger', function () { rc.confirmUntil = Date.now() + 8000; rcRender(); },
+        'Asks first and says what is lost (Esc)'));
+      acts.appendChild(ckEl('span', 'rc-hint', 'Esc = stop now (asks first)'));
+      runCard.appendChild(acts);
+    }
+  } else {
+    // the summary: what was done, what was interrupted, how to go on
+    var ul = ckEl('ul', 'rc-sum');
+    var done = (run.steps || []).filter(function (st) { return st.state !== 'cancelled'; });
+    var cut = (run.steps || []).filter(function (st) { return st.state === 'cancelled'; });
+    if (done.length) ul.appendChild(ckEl('li', '', 'Done: ' + done.map(function (st) {
+      return st.label + (st.counts ? ' (' + st.counts.passed + ' ✔' + (st.counts.failed ? ', ' + st.counts.failed + ' ✖' : '') + ')' : ' ' + ({ ok: '✔', failed: '✖' }[st.state] || ''));
+    }).join(' → ')));
+    if (cut.length) ul.appendChild(ckEl('li', '', 'Stopped: ' + cut.map(function (st) { return st.label + ' after ' + rcClock(st.endedAt - st.startedAt); }).join(', ')));
+    var wrote = (run.steps || []).some(function (st) { return (st.kind === 'kit' || st.kind === 'repair') && st.state === 'cancelled'; });
+    if (wrote && rcIsAgent(run)) ul.appendChild(ckEl('li', '', 'Files the agent wrote before the stop stay uncommitted: check them in Source Control.'));
+    if (ul.children.length) runCard.appendChild(ul);
+    var acts2 = ckEl('div', 'rc-actions');
+    if (ended.outcome !== 'ok' && run.kind !== 'idea' && run.kind !== 'spec' && run.kind !== 'plan') {
+      var resume = rcResumeCommand(run);
+      acts2.appendChild(rcButton('↻ ' + resume, 'primary', function () {
+        if (isBusy()) return;
+        prompt.value = resume;
+        rc.dismissed[run.id] = true;
+        onSend();
+      }, 'Run it now'));
+    }
+    if (wrote) acts2.appendChild(rcButton('Show changes', '', function () { post('showChanges'); }));
+    if (acts2.children.length) runCard.appendChild(acts2);
+  }
+}
+
+// Esc while a command runs: Stop now, with its confirmation
+document.addEventListener('keydown', function (ev) {
+  if (ev.key !== 'Escape' || !rc.run || rc.run.ended || !isBusy()) return;
+  var overlay = document.getElementById('clikeHelpOverlay');
+  if (overlay && overlay.style.display === 'block') return;
+  if (rc.confirmUntil > Date.now()) { rc.confirmUntil = 0; } else { rc.confirmUntil = Date.now() + 8000; }
+  rcRender();
+});
+// the clock and the confirmation countdown
+setInterval(function () { if (rc.run && (!rc.run.ended || rc.confirmUntil)) rcRender(); }, 1000);
+
+window.addEventListener('message', function (event) {
+  var msg = event.data || {};
+  if (msg.type !== 'runProgress') return;
+  var prev = rc.run;
+  rc.run = msg.run || null;
+  if (rc.run && rc.run.session) { ck.session = rc.run.session; try { ckRenderAgent(); } catch (e) {} }
+  if (rc.run && prev && prev.id !== rc.run.id) rc.confirmUntil = 0;
+  clearTimeout(rc.hideTimer);
+  if (rc.run && rc.run.ended && rc.run.ended.outcome === 'ok') {
+    var id = rc.run.id;
+    rc.hideTimer = setTimeout(function () { rc.dismissed[id] = true; rcRender(); }, 20000);
+  }
+  rcRender();
 });
 
 // init

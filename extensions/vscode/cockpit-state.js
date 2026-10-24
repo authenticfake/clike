@@ -8,8 +8,53 @@ const path = require('path');
 const { nextActionFromPlan } = require('./extension-mcp');
 const { resumeStep } = require('./autopilot');
 const { inputsFingerprint } = require('./auto-eval');
+const { detectRelease } = require('./release-extend');
+const { reqBlockers } = require('./plan-readiness');
 
 const PHASES = ['idea', 'spec', 'plan', 'kit', 'finalize'];
+// what /init writes: a Harper document equal to its template (placeholders aside) is not done yet
+const INIT_TEMPLATES = path.join(__dirname, 'templates', 'harper-init', 'docs', 'harper');
+// BMAD phases with more than one role, and what each role writes (the mandatory companion outputs
+// of the methodology's artifact_policy): a role ran when one of its outputs is there.
+const BMAD_ROLE_OUTPUTS = {
+  spec: {
+    pm: ['docs/harper/bmad/spec/PRD.md', 'docs/harper/bmad/spec/EPICS.md', 'docs/harper/bmad/spec/ACCEPTANCE_MODEL.md', 'docs/harper/bmad/spec/SCOPE_DECISIONS.md'],
+    ux: ['docs/harper/ux/DESIGN.md', 'docs/harper/ux/EXPERIENCE.md', 'docs/harper/ux/USER_JOURNEYS.md', 'docs/harper/ux/INTERACTION_STATES.md', 'docs/harper/ux/SPEC_UX_APPENDIX.md'],
+  },
+  plan: {
+    architect: ['docs/harper/bmad/architecture/ARCHITECTURE.md', 'docs/harper/bmad/architecture/DECISIONS.md', 'docs/harper/bmad/architecture/INTEGRATION_BOUNDARIES.md', 'docs/harper/bmad/architecture/RISKS.md'],
+    pm: ['docs/harper/bmad/plan/STORIES.md', 'docs/harper/bmad/plan/STORY_MAP.md', 'docs/harper/bmad/plan/IMPLEMENTATION_READINESS.md'],
+  },
+};
+
+/**
+ * A REQ the plan itself declares not ready for its KIT (kit_ready false, or readiness.kit_ready
+ * false: questions only the owner can answer): its blockers, or null. An agent asked for the KIT writes no code for it.
+ */
+function kitBlockers(req) {
+  const list = reqBlockers(req);
+  if (!list.length) return null;
+  const r = req && req.readiness && typeof req.readiness === 'object' ? req.readiness : {};
+  return { blockers: list, state: String(r.state || ''), resolution: String(r.resolution || '') };
+}
+
+/** The next release /idea --extend would build, when its inputs are there; null otherwise. */
+function nextRelease(root) {
+  let rel;
+  try { rel = detectRelease(root); } catch { return null; }
+  const target = Number(String(rel.release).slice(1));
+  if (!rel.inputs.length || !rel.folders.includes(rel.release)) return null;
+  const planned = Math.max(0, ...rel.folders.map((f) => Number(f.slice(1))).filter((n) => n < target));
+  return { release: rel.release, message: `Release ${rel.release}: ${rel.inputs.length} input file(s) in docs/inputs/${rel.release}/` +
+    ` — extend the delivered project${planned ? ` (baseline v${planned})` : ''}.` };
+}
+
+/** The BMAD roles of a phase that have not run yet. */
+function missingRoles(root, phase) {
+  return Object.entries(BMAD_ROLE_OUTPUTS[phase] || {})
+    .filter(([, outputs]) => !outputs.some((rel) => exists(root, rel)))
+    .map(([role]) => role);
+}
 const PASSING = new Set(['PASS', 'PASS_WITH_WARNINGS']);
 // what the cockpit run card shows for each Harper command
 const RUN_LABELS = {
@@ -72,13 +117,42 @@ function currentRelease(root) {
   return releases(root).pop() || '';
 }
 
+/** Whether a phase command produced output: runs/<phase>/ holds files (it records every run). */
+function phaseRan(root, phase) {
+  const walk = (dir, depth) => {
+    let entries = [];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return false; }
+    return entries.some((e) => (e.isFile() && !e.name.startsWith('.'))
+      || (e.isDirectory() && depth < 3 && walk(path.join(dir, e.name), depth + 1)));
+  };
+  return walk(path.join(root, 'runs', phase), 0);
+}
+
+/** Whether `text` is still the /init template `template` (its ${…} placeholders match anything). */
+function isInitTemplate(text, template) {
+  const norm = (t) => String(t || '').replace(/\r\n/g, '\n').trim().replace(/[ \t]+$/gm, '');
+  const parts = norm(template).split(/\$\{[^}]*\}/);
+  const pattern = parts.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\s\\S]*?');
+  try { return new RegExp(`^${pattern}$`).test(norm(text)); } catch { return false; }
+}
+
+/** IDEA / SPEC done: its command ran, or the document is no longer what /init wrote. */
+function documentDone(root, phase, file, templatesDir) {
+  if (phaseRan(root, phase)) return true;
+  let text;
+  try { text = fs.readFileSync(path.join(root, 'docs', 'harper', file), 'utf8'); } catch { return false; }
+  let template = null;
+  try { template = fs.readFileSync(path.join(templatesDir, file), 'utf8'); } catch { /* no template known */ }
+  return template === null ? text.trim().length > 0 : !isInitTemplate(text, template);
+}
+
 /** Phase pills: done, active (the first one not done) or todo. */
-function phaseStates(root, reqs) {
+function phaseStates(root, reqs, templatesDir = INIT_TEMPLATES) {
   const total = reqs.length;
   const done = reqs.filter((r) => ['done', 'deferred'].includes(status(r))).length;
   const doneOf = {
-    idea: exists(root, 'docs/harper/IDEA.md'),
-    spec: exists(root, 'docs/harper/SPEC.md'),
+    idea: documentDone(root, 'idea', 'IDEA.md', templatesDir),
+    spec: documentDone(root, 'spec', 'SPEC.md', templatesDir),
     plan: total > 0,
     kit: total > 0 && done === total,
     // a FINALIZE_REPORT of an earlier release does not finalize the REQs added since
@@ -118,7 +192,13 @@ function buildCockpitState(root, opts = {}) {
     const waiting = (Array.isArray(r.dependsOn) ? r.dependsOn : []).map(upper)
       .filter((d) => d && status(byId.get(d) || {}) !== 'done');
     let note;
-    if (st === 'done') note = gateRep && PASSING.has(gateRep.status) ? 'gate PASS' : 'done';
+    // declared not ready for its KIT: until a KIT exists, the decisions come first; once it exists the
+    // REQ follows its sequence (eval, gate) and the open decisions are a warning
+    const hasKit = exists(root, `runs/kit/${id}/ci/LTC.json`);
+    const declared = (st === 'open' || st === 'in_progress') ? kitBlockers(r) : null;
+    const blocked = declared && !hasKit && !waiting.length ? declared : null;
+    if (blocked) note = `blocked: ${blocked.blockers[0] || 'decisions'}${blocked.blockers.length > 1 ? ` +${blocked.blockers.length - 1}` : ''}`;
+    else if (st === 'done') note = gateRep && PASSING.has(gateRep.status) ? 'gate PASS' : 'done';
     else if (st === 'deferred') note = 'deferred';
     else if (st === 'in_progress') {
       const step = resumeStep({
@@ -129,30 +209,85 @@ function buildCockpitState(root, opts = {}) {
       note = `next: /${step}`;
     } else note = waiting.length ? `waits ${waiting[0]}${waiting.length > 1 ? ` +${waiting.length - 1}` : ''}` : 'ready';
     return {
-      id, title: String(r.title || ''), status: st, note, waiting, has_kit: exists(root, `runs/kit/${id}/ci/LTC.json`),
+      id, title: String(r.title || ''), status: st, note, waiting, blockers: blocked ? blocked.blockers : [],
+      open_decisions: declared && hasKit ? declared.blockers : [], has_kit: hasKit,
       last_eval: evalRep ? { status: evalRep.status, failed: evalRep.failed } : null,
     };
   });
 
+  const phases = phaseStates(root, reqs, opts.templatesDir || INIT_TEMPLATES);
   let next = null;
+  let extendAlternative = null;
   if (reqs.length) {
     const action = nextActionFromPlan(reqs);
-    if (action.action === 'run_req') {
+    const blockedRow = action.action === 'run_req' ? rows.find((x) => x.id === action.req_id && x.blockers.length) : null;
+    if (blockedRow) {
+      // the plan says this REQ cannot be built yet: the decisions first, the KIT only if forced
+      const register = Array.isArray(plan.decision_register) ? plan.decision_register : [];
+      next = {
+        command: '/spec <your decisions>',
+        message: `${blockedRow.id} is not ready for its KIT: the plan leaves ${blockedRow.blockers.length} decision(s) open. ` +
+          'Write your decisions after /spec (or attach them), then /plan updates the REQs; an agent asked for the KIT now writes no code.',
+        blockers: blockedRow.blockers.map((id) => {
+          const d = register.find((x) => x && String(x.id) === id) || {};
+          return { id, subject: String(d.subject || ''), required: String(d.required || '') };
+        }),
+      };
+      extendAlternative = { command: `/kit ${blockedRow.id}`, message: 'Run the KIT anyway (the agent decides whether it can implement)' };
+    } else if (action.action === 'run_req') {
       const row = rows.find((x) => x.id === action.req_id);
       const step = row && row.status === 'in_progress' ? row.note.replace(/^next: \//, '') : 'kit';
       const command = step === 'eval' ? `/eval ${action.req_id} --fix` : `/${step} ${action.req_id}`;
-      next = { command, message: action.message };
+      const lastEval = row && row.last_eval;
+      next = { command, message: step === 'eval' && lastEval && !PASSING.has(lastEval.status)
+        ? `The last eval of ${action.req_id} failed (${lastEval.failed} check(s)): /eval --fix repairs from its failures and evaluates again.`
+        : action.message };
+      if (row && row.open_decisions.length) {
+        // the plan still declares the REQ not ready: the repair may refuse to implement
+        next.message += ` Note: the plan still leaves ${row.open_decisions.join(', ')} open — the agent may not implement until they are decided.`;
+        extendAlternative = { command: '/spec <your decisions>', message: `Decide ${row.open_decisions.join(', ')} (then /plan)` };
+      }
     } else if (action.action === 'finalize_only') {
-      next = { command: exists(root, 'docs/harper/FINALIZE_REPORT.md') ? '' : '/finalize', message: action.message };
+      // every REQ is done: /finalize, then the next release when its inputs are there (the same
+      // detection /idea --extend runs: a docs/inputs/vN above the plan's release, with files)
+      const finalized = exists(root, 'docs/harper/FINALIZE_REPORT.md');
+      const rel = nextRelease(root);
+      if (!finalized) next = { command: '/finalize', message: action.message };
+      else if (rel) next = { command: '/idea --extend', message: rel.message };
+      else {
+        const target = detectRelease(root).release;
+        next = { command: '', message: `Delivered. For the next release put its requirements in docs/inputs/${target}/ ` +
+          `(background in docs/reference/${target}/): /idea --extend becomes the next action.` };
+      }
+      if (!finalized && rel) extendAlternative = { command: '/idea --extend', message: rel.message };
     } else {
       next = { command: '', message: action.message };
     }
-  } else if (!exists(root, 'docs/harper/IDEA.md')) {
-    next = { command: '/idea', message: 'No IDEA yet: describe the product (attach your documents) and run /idea.' };
-  } else if (!exists(root, 'docs/harper/SPEC.md')) {
-    next = { command: '/spec', message: 'IDEA is ready: generate the SPEC.' };
+  } else if (!exists(root, 'docs/harper')) {
+    next = { command: '/init <name>', message: 'No Harper project in this workspace: /init <name> creates it (existing files are kept with --force).' };
+  } else if (!phases[0] || phases[0].state !== 'done') {
+    next = { command: '/idea', message: 'IDEA.md is still the /init template: describe the product (put your documents in docs/inputs/ or attach them) and run /idea.' };
+  } else if (phases[1].state !== 'done') {
+    next = { command: '/spec', message: 'IDEA is ready: generate the SPEC (with its Use Cases).' };
   } else {
-    next = { command: '/plan', message: 'SPEC is ready: generate the PLAN.' };
+    next = { command: '/plan', message: 'SPEC is ready: generate the PLAN (the REQs).' };
+  }
+
+  // With BMAD, a phase whose roles have not all run stays open next to the next step (SPEC by pm
+  // and ux, PLAN by architect and pm) until the KIT starts: the developer chooses.
+  const alternatives = extendAlternative ? [extendAlternative] : [];
+  // the phases go in order: SPEC roles are a choice until the PLAN is done, PLAN roles until a KIT ran
+  const kitStarted = counts.done > 0 || counts.in_progress > 0 || phaseRan(root, 'kit');
+  if (opts.methodology === 'bmad' && next) {
+    const doneOf = Object.fromEntries(phases.map((ph) => [ph.id, ph.state === 'done']));
+    const stillOpen = { spec: !doneOf.plan, plan: !kitStarted };
+    for (const phase of ['spec', 'plan']) {
+      if (!doneOf[phase] || !stillOpen[phase]) continue;
+      for (const role of missingRoles(root, phase)) {
+        const command = `/${phase} --methodology bmad --agent ${role}`;
+        if (command !== next.command) alternatives.push({ command, message: `${phase.toUpperCase()} by the ${role} role has not run yet` });
+      }
+    }
   }
 
   return {
@@ -162,11 +297,12 @@ function buildCockpitState(root, opts = {}) {
     releases: releases(root),
     counts,
     progress_pct: counts.total ? Math.round((counts.done / counts.total) * 100) : 0,
-    phases: phaseStates(root, reqs),
+    phases,
     reqs: rows,
     next,
+    alternatives,
     last_run: lastRun,
   };
 }
 
-module.exports = { buildCockpitState, reportCounts, phaseStates, currentRelease, releases, RUN_LABELS };
+module.exports = { kitBlockers, buildCockpitState, reportCounts, phaseStates, isInitTemplate, currentRelease, releases, RUN_LABELS };

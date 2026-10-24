@@ -642,5 +642,6 @@ test('Cancel reaches every Harper request and nothing is written after it (sourc
   // checked right after the phase call and in the agent catch, before any write or fallback
   assert.ok((ext.match(/if \(harperCancelled\(\)\) return discardCancelledRun\(\);/g) || []).length >= 4);
   // follow-ups (finalize verification, auto-eval after the KIT) do not start after a Cancel
-  assert.match(ext, /if \(!harperCancelled\(\) && phase === 'kit' && !msg\.autoEvalRepair/);
+  assert.match(ext, /const afterKitEval = phase === 'kit' && !msg\.autoEvalRepair/);
+  assert.match(ext, /\} else if \(afterKitEval && !harperCancelled\(\)\) \{/);
 });

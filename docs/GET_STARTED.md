@@ -20,7 +20,22 @@ gateway) or *agent* (Claude Code / Codex on your machine). `/agent-model` shows 
 the chat on the left and, on the right, the mode, execution, models, agent, methodology (Harper or
 BMAD with the role per phase) and the project — release progress, phases, REQs, the next action
 with **Run** and **▶ Autopilot**, the last eval. Beside the editor it becomes one column with the
-cockpit in a drawer (☰). `classic`, `pro`, `studio` and `paper` have the same features.
+cockpit in a drawer (☰). `classic`, `pro`, `studio` and `paper` have the same features. The whole
+UI, area by area, with its picture: [chat-ui.md](chat-ui.md).
+
+**Run card** (every layout): while a command runs, a card above the chat shows its real steps
+(KIT, EVAL 1, REPAIR 1, EVAL 2, GATE…) with their outcome, the cycle of a `--fix` loop, the time
+and an estimate from the last time, the eval's checks as they run in the sandbox (`13/31 · now:
+test:e2e`, then the regression of the promoted REQs), what the agent is doing, the cost. The VS
+Code status bar shows the same line. **⏸ After this step** lets the current step finish (its report
+is kept) and starts nothing new (for `/autopilot`: after the current kit / eval / gate, or **after
+this REQ**); **⏹ Stop now** (or Esc) first says what stopping now loses — a running eval leaves no
+report, files an agent already wrote stay uncommitted — then stops. After a stop the card lists what
+was done and offers the command to resume.
+
+**Conversations** (every layout): **＋ New chat** starts a new conversation in the mode and keeps the
+previous one; in the cockpit, **History** lists them and reopens one with a click. What CLike says
+while a command runs is grouped in one card with the time of each message.
 
 **Autocompletion** (every layout): type `/` — commands, then the REQs that fit the command, flags
 and values; the command's signature stays visible and an invalid command shows the parser's error

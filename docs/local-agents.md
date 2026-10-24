@@ -296,10 +296,15 @@ Every KIT prompt ends with an eval-readiness self-check (checks the LTC runs, fi
 tests, behaviour over internals, real library APIs, time-bounded tests, read-only project root).
 
 ### Telemetry of agent runs
-Claude Code runs with `--output-format json`, Codex with `--json`; CLike records usage, the
+Claude Code runs with `--output-format stream-json --verbose`, Codex with `--json`: both stream
+events, so the chat's run card shows what the agent is doing (the tool it uses, the file it edits,
+the command it runs) while it works. For Claude, CLike keeps only the final `result` event of the
+stream as the run's output — the same envelope `--output-format json` prints — so the checks of a
+blocked, failed or interrupted run never read the tools' outputs. CLike records usage, the
 API-equivalent cost (subscription runs are not billed per token), the model, the number of turns
 and the duration, in `.clike/telemetry/` and in the gateway telemetry portal
-(`execution: local_agent`). The eval pre-pass is recorded too.
+(`execution: local_agent`), and adds them to the cost of the run and of the session in the chat.
+The eval pre-pass is recorded too.
 
 ### EVAL
 Both local executors can participate in:

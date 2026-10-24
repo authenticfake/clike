@@ -57,6 +57,7 @@ Prefix `/v1/harper`.
 | Method | Path | Purpose |
 |---|---|---|
 | `POST` | `/v1/eval/run` | Run canonical eval and produce normalized eval evidence. |
+| `GET` | `/v1/eval/progress` | Live progress of the REQ's eval or gate in flight (phase, checks n/N, regression REQs). |
 | `POST` | `/v1/gate/check` | Apply gate policy and produce gate decisions. |
 | `POST` | `/v1/gate/override` | Audited developer override of a gate. |
 | `POST` | `/v1/acceptance/lock` | Lock the acceptance tests and eval profile (acceptance-first KIT). |

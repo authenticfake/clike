@@ -93,7 +93,7 @@ test('benign output is not misclassified as blocked', () => {
 test('agent runs are machine-readable and their usage, cost and model are recorded', () => {
   const { withMachineReadableOutput, parseLocalAgentRun } = require('../local-agent-executors');
   assert.deepEqual(withMachineReadableOutput('claude_code', ['-p', '--permission-mode', 'acceptEdits']),
-    ['-p', '--permission-mode', 'acceptEdits', '--output-format', 'json']);
+    ['-p', '--permission-mode', 'acceptEdits', '--output-format', 'stream-json', '--verbose']);
   assert.deepEqual(withMachineReadableOutput('gpt_codex', ['exec', '--sandbox', 'workspace-write']),
     ['exec', '--json', '--sandbox', 'workspace-write']);
   assert.deepEqual(withMachineReadableOutput('claude_code', ['-p', '--output-format', 'json']), ['-p', '--output-format', 'json']);
@@ -123,6 +123,29 @@ test('agent runs are machine-readable and their usage, cost and model are record
   // Errors reach the text, so blocked-run detection still sees them; plain text passes through.
   assert.match(parseLocalAgentRun('gpt_codex', '{"type":"error","message":"You have no credits remaining"}').text, /no credits/);
   assert.equal(parseLocalAgentRun('claude_code', 'plain output').text, 'plain output');
+});
+
+test('a Claude stream-json run is reduced to its result envelope: tool outputs never reach the checks', () => {
+  const { normalizeAgentStdout, parseLocalAgentRun } = require('../local-agent-executors');
+  const envelope = JSON.stringify({ type: 'result', result: 'KIT written', total_cost_usd: 0.42, usage: { input_tokens: 5 }, modelUsage: { 'claude-opus-5-5': {} } });
+  const stream = [
+    JSON.stringify({ type: 'system', subtype: 'init', model: 'claude-opus-5-5' }),
+    JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: 'pytest' } }] } }),
+    // a test log in a tool result must not look like a rate limit or a crash of the agent
+    JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', content: '429 rate limit exceeded in fixture' }] } }),
+    envelope,
+  ].join('\n');
+  assert.equal(normalizeAgentStdout('claude_code', stream), envelope);
+  const run = parseLocalAgentRun('claude_code', normalizeAgentStdout('claude_code', stream));
+  assert.equal(run.text, 'KIT written');
+  assert.equal(run.telemetry.pricing.total_cost, 0.42);
+  // a single envelope (--output-format json configured by hand) and plain errors are unchanged
+  assert.equal(normalizeAgentStdout('claude_code', envelope), envelope);
+  assert.equal(normalizeAgentStdout('claude_code', 'Error: not logged in'), 'Error: not logged in');
+  // killed before the result: the non-JSON lines only, like the old single-envelope run
+  assert.equal(normalizeAgentStdout('claude_code', [JSON.stringify({ type: 'system' }), 'Error: interrupted'].join('\n')), 'Error: interrupted');
+  const codexOut = '{"type":"thread.started"}\n{"type":"turn.completed"}';
+  assert.equal(normalizeAgentStdout('gpt_codex', codexOut), codexOut);
 });
 
 test('Harper agent runs pass the configured model (clike.claudeCode.model / codex.model)', () => {
