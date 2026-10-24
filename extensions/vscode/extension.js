@@ -167,7 +167,7 @@ function isDocumentLocalAgentPhase(phase) {
 
 const{ toFsPath,  clikeGitSync } = require('./git'); // NEW: clikeGitSync
 const { CHAT_THEMES, getChatTheme, getWebviewHtml } = require('./chat-ui');
-const { buildCockpitState, reportCounts } = require('./cockpit-state');
+const { buildCockpitState, kitBlockers, reportCounts } = require('./cockpit-state');
 const { createRunTracker } = require('./run-tracker');
 const chatHistory = require('./chat-history');
 const {
@@ -3832,7 +3832,8 @@ function createRunFeed(panel, context, post) {
     observe(message) {
       if (!message || !tracker.active()) return;
       if ((message.type === 'echo' || message.type === 'error') && message.message) {
-        if (tracker.live(typeof message.message === 'string' ? message.message : String(message.message))) render();
+        const text = typeof message.message === 'string' ? message.message : String(message.message);
+        if (message.type === 'error' ? tracker.error(text) : tracker.live(text)) render();
       }
     },
     // what a local agent does in a Harper phase (tool used, text written), at most 4 per second
@@ -4809,6 +4810,21 @@ async function cmdOpenChat(context) {
             requestedKitPhases = Array.isArray(msg?.phases) && msg.phases.length
               ? msg.phases
               : null;
+
+            // the plan declares the REQ not ready for its KIT (decisions left open): asked first,
+            // an agent run would write no code (MCP: only with confirm; the autopilot parks it before)
+            const kitBlocked = (!requestedKitPhases && !msg.acceptanceStage && !msg.autoEvalRepair && !msg.repair)
+              ? kitBlockers((plan.reqs || []).find((r) => String(r?.id || '').toUpperCase() === String(targetReqId).toUpperCase()))
+              : null;
+            if (kitBlocked && !(await confirmOrMcp(msg,
+              `${targetReqId} is not ready for its KIT: the plan leaves open ${kitBlocked.blockers.join(', ') || 'decisions'}. ` +
+              'An agent asked for the KIT writes no code until they are decided: write them to /spec (text or attachment), then /plan.',
+              'Run the KIT anyway'))) {
+              msg.__result = 'cancelled';
+              panel.webview.postMessage({ type: 'echo', message: `⏸ /kit ${targetReqId} not started: decide ${kitBlocked.blockers.join(', ')} first (/spec <decisions>, then /plan).` });
+              panel.webview.postMessage({ type: 'busy', on: false, force: true });
+              return;
+            }
 
             // Acceptance-first KIT (clike.kit.acceptanceFirst): the acceptance tests and the eval
             // profile are generated and locked first; this /kit then writes the code against them.
@@ -7191,6 +7207,19 @@ async function cmdOpenChat(context) {
           break;
         }
         const reqId = next.req_id;
+        // the plan itself says the REQ cannot be built yet (decisions left open): no agent run for
+        // nothing; parked for this run only, so the next /autopilot checks it again
+        const blockedBy = next.step === 'kit'
+          ? kitBlockers((plan?.reqs || []).find((r) => String(r?.id || '').toUpperCase() === reqId)) : null;
+        if (blockedBy) {
+          const reason = `not ready for its KIT: the plan leaves open ${blockedBy.blockers.join(', ') || 'decisions'} — ` +
+            'write the decisions to /spec (text or attachment), then /plan';
+          run.reqs.push({ req_id: reqId, startedAt: Date.now(), result: 'parked', step: 'kit', reason, cycles: 0, ms: 0 });
+          run.parked.add(reqId);
+          say(`⏸ AUTOPILOT ${reqId} parked before its KIT: ${reason}.`);
+          writeReport();
+          continue;
+        }
         const entry = { req_id: reqId, startedAt: Date.now(), result: 'running', cycles: 0 };
         run.reqs.push(entry);
         if (next.step !== 'kit') say(`ℹ AUTOPILOT ${reqId} resumes at ${next.step}${next.step === 'gate' ? ' (its last eval passed on the current files)' : ' (its KIT is there)'}.`);

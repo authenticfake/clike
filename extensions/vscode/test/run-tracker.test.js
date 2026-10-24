@@ -104,3 +104,13 @@ test('autopilot: one run, the steps of every REQ', () => {
   t.end(tok, ap);
   assert.ok(t.snapshot().ended);
 });
+
+test('a step that ends with an error message and no outcome failed', () => {
+  const t = createRunTracker({ now: clock() });
+  const msg = { type: 'harperRun', cmd: 'kit', targetReqId: 'REQ-1' };
+  const tok = t.begin(msg);
+  t.error('[harperRun][agent] LOCAL_AGENT_REQUIRED_OUTPUTS_MISSING: phase=kit req_id=REQ-1');
+  t.end(tok, msg);
+  assert.equal(t.snapshot().steps[0].state, 'failed');
+  assert.equal(t.snapshot().ended.outcome, 'failed');
+});

@@ -60,7 +60,7 @@ function outcomeOf(msg, step, { cancelled = false } = {}) {
     return result === 'failed' ? 'failed' : 'done';
   }
   if (result === 'ok') return 'ok';
-  if (result === 'failed' || msg.__refused) return 'failed';
+  if (result === 'failed' || msg.__refused || step.errored) return 'failed';
   return 'done';
 }
 
@@ -153,6 +153,13 @@ function createRunTracker({ now = Date.now, durations = {}, maxCycles = 2, extra
     return true;
   }
 
+  /** An error message while a step runs: without an explicit outcome the step failed. */
+  function error(text) {
+    const cur = run && !run.ended ? run.steps.filter((s) => s.state === 'running').pop() : null;
+    if (cur) cur.errored = true;
+    return live(text);
+  }
+
   function evalProgress(p) {
     if (!run || run.ended) return false;
     const cur = run.steps.find((s) => s.state === 'running');
@@ -184,7 +191,7 @@ function createRunTracker({ now = Date.now, durations = {}, maxCycles = 2, extra
   }
 
   return {
-    begin, end, live, evalProgress, snapshot, current,
+    begin, end, live, error, evalProgress, snapshot, current,
     active: () => !!(run && !run.ended),
     durations: () => ({ ...known }),
   };

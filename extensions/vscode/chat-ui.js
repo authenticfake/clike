@@ -652,6 +652,9 @@ function getWebviewHtml(orchestratorUrl, themeName = 'cockpit') {
   .ck-alt code { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:var(--vscode-editor-font-family, ui-monospace, Menlo, monospace); font-size:12px; color:#ddd6fe; background:none; padding:0; }
   .ck-alt .ck-btn { padding:1px 9px; }
   #ckDrawerClose { display:none; }
+  .ck-blockers { margin:6px 0 2px 16px; padding:0; font-size:12px; color:#fcd34d; line-height:1.5; }
+  .ck-blockers b { color:#fde68a; }
+  .ck-blockers li { cursor:help; }
   .ck-hist-top { display:flex; align-items:center; gap:8px; margin-bottom:6px; min-width:0; }
   .ck-hist { display:flex; align-items:center; gap:6px; padding:3px 6px; border-radius:4px; cursor:pointer; font-size:12.5px; min-width:0; }
   .ck-hist:hover { background:#2d2d30; }
@@ -3347,7 +3350,7 @@ function ckRenderReqs() {
   if (ck.reqFilter === 'active') list = list.filter(function (r) { return r.status === 'in_progress'; });
   if (!list.length) { box.appendChild(ckEl('div', 'ck-empty', p && p.counts && p.counts.total ? 'No REQ in this filter.' : 'No plan yet: /plan creates the REQs.')); return; }
   list.forEach(function (r) {
-    var cls = r.status === 'open' ? (r.waiting && r.waiting.length ? 'wait' : 'ready') : r.status;
+    var cls = r.blockers && r.blockers.length ? 'wait' : r.status === 'open' ? (r.waiting && r.waiting.length ? 'wait' : 'ready') : r.status;
     var row = ckEl('div', 'ck-req ' + cls);
     row.title = r.id + ' ' + r.title + ' — click: ' + ckReqCommand(r);
     row.appendChild(ckEl('span', '', r.status === 'done' ? '●' : r.status === 'in_progress' ? '◐' : '○'));
@@ -3376,7 +3379,7 @@ function ckRenderNext() {
   if (!n) { wrap.appendChild(ckEl('div', 'ck-empty', 'Open a Harper project.')); box.appendChild(wrap); return; }
   var line = ckEl('div', 'ck-kv');
   if (n.command) {
-    var cmd = withCockpitMethodology(n.command);
+    var cmd = n.command.indexOf(' <') > 0 ? n.command : withCockpitMethodology(n.command);
     line.appendChild(document.createTextNode('Next: '));
     line.appendChild(ckEl('code', '', cmd));
   } else {
@@ -3384,6 +3387,18 @@ function ckRenderNext() {
   }
   wrap.appendChild(line);
   if (n.command) wrap.appendChild(ckEl('div', 'ck-kv', n.message));
+  // the decisions the plan leaves open (what to decide in the tooltip)
+  if (Array.isArray(n.blockers) && n.blockers.length) {
+    var ul = ckEl('ul', 'ck-blockers');
+    n.blockers.forEach(function (b) {
+      var li = ckEl('li');
+      li.appendChild(ckEl('b', '', b.id));
+      li.appendChild(document.createTextNode(' ' + (b.subject || '')));
+      if (b.required) li.title = b.required;
+      ul.appendChild(li);
+    });
+    wrap.appendChild(ul);
+  }
   var btns = ckEl('div', 'ck-btns');
   if (n.command) {
     var needsValue = n.command.indexOf(' <') > 0;
@@ -3402,10 +3417,12 @@ function ckRenderNext() {
   // BMAD: the roles of a phase that have not run yet are a choice too (SPEC by ux, PLAN by pm…)
   var alts = (p.alternatives || []);
   if (alts.length) {
-    wrap.appendChild(ckEl('div', 'ck-kv', 'Or, before going on:'));
+    wrap.appendChild(ckEl('div', 'ck-kv', 'Or:'));
     alts.forEach(function (alt) {
       var row = ckEl('div', 'ck-alt');
-      row.appendChild(ckEl('code', '', alt.command));
+      var code = ckEl('code', '', alt.command);
+      code.title = alt.message;
+      row.appendChild(code);
       var b = ckEl('button', 'ck-btn ck-ctl', 'Run');
       b.title = alt.message;
       b.addEventListener('click', function () { ckRunCommand(alt.command); });

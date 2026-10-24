@@ -26,6 +26,17 @@ const BMAD_ROLE_OUTPUTS = {
   },
 };
 
+/**
+ * A REQ the plan itself declares not ready for its KIT (readiness.kit_ready false, e.g. decisions
+ * left open in SPEC): its blockers, or null. An agent asked for the KIT writes no code for it.
+ */
+function kitBlockers(req) {
+  const r = req && req.readiness;
+  if (!r || typeof r !== 'object' || r.kit_ready !== false) return null;
+  const list = (Array.isArray(r.blockers) ? r.blockers : []).map((b) => String(b && (b.id || b) || '').trim()).filter(Boolean);
+  return { blockers: list, state: String(r.state || ''), resolution: String(r.resolution || '') };
+}
+
 /** The next release /idea --extend would build, when its inputs are there; null otherwise. */
 function nextRelease(root) {
   let rel;
@@ -180,7 +191,9 @@ function buildCockpitState(root, opts = {}) {
     const waiting = (Array.isArray(r.dependsOn) ? r.dependsOn : []).map(upper)
       .filter((d) => d && status(byId.get(d) || {}) !== 'done');
     let note;
-    if (st === 'done') note = gateRep && PASSING.has(gateRep.status) ? 'gate PASS' : 'done';
+    const blocked = (st === 'open' || st === 'in_progress') ? kitBlockers(r) : null;
+    if (blocked) note = `blocked: ${blocked.blockers[0] || 'decisions'}${blocked.blockers.length > 1 ? ` +${blocked.blockers.length - 1}` : ''}`;
+    else if (st === 'done') note = gateRep && PASSING.has(gateRep.status) ? 'gate PASS' : 'done';
     else if (st === 'deferred') note = 'deferred';
     else if (st === 'in_progress') {
       const step = resumeStep({
@@ -191,7 +204,7 @@ function buildCockpitState(root, opts = {}) {
       note = `next: /${step}`;
     } else note = waiting.length ? `waits ${waiting[0]}${waiting.length > 1 ? ` +${waiting.length - 1}` : ''}` : 'ready';
     return {
-      id, title: String(r.title || ''), status: st, note, waiting, has_kit: exists(root, `runs/kit/${id}/ci/LTC.json`),
+      id, title: String(r.title || ''), status: st, note, waiting, blockers: blocked ? blocked.blockers : [], has_kit: exists(root, `runs/kit/${id}/ci/LTC.json`),
       last_eval: evalRep ? { status: evalRep.status, failed: evalRep.failed } : null,
     };
   });
@@ -201,7 +214,21 @@ function buildCockpitState(root, opts = {}) {
   let extendAlternative = null;
   if (reqs.length) {
     const action = nextActionFromPlan(reqs);
-    if (action.action === 'run_req') {
+    const blockedRow = action.action === 'run_req' ? rows.find((x) => x.id === action.req_id && x.blockers.length) : null;
+    if (blockedRow) {
+      // the plan says this REQ cannot be built yet: the decisions first, the KIT only if forced
+      const register = Array.isArray(plan.decision_register) ? plan.decision_register : [];
+      next = {
+        command: '/spec <your decisions>',
+        message: `${blockedRow.id} is not ready for its KIT: the plan leaves ${blockedRow.blockers.length} decision(s) open. ` +
+          'Write your decisions after /spec (or attach them), then /plan updates the REQs; an agent asked for the KIT now writes no code.',
+        blockers: blockedRow.blockers.map((id) => {
+          const d = register.find((x) => x && String(x.id) === id) || {};
+          return { id, subject: String(d.subject || ''), required: String(d.required || '') };
+        }),
+      };
+      extendAlternative = { command: `/kit ${blockedRow.id}`, message: 'Run the KIT anyway (the agent decides whether it can implement)' };
+    } else if (action.action === 'run_req') {
       const row = rows.find((x) => x.id === action.req_id);
       const step = row && row.status === 'in_progress' ? row.note.replace(/^next: \//, '') : 'kit';
       const command = step === 'eval' ? `/eval ${action.req_id} --fix` : `/${step} ${action.req_id}`;
@@ -262,4 +289,4 @@ function buildCockpitState(root, opts = {}) {
   };
 }
 
-module.exports = { buildCockpitState, reportCounts, phaseStates, isInitTemplate, currentRelease, releases, RUN_LABELS };
+module.exports = { kitBlockers, buildCockpitState, reportCounts, phaseStates, isInitTemplate, currentRelease, releases, RUN_LABELS };

@@ -166,3 +166,20 @@ test('not a Harper workspace', () => {
   assert.equal(state.harper, false);
   assert.equal(state.counts.total, 0);
 });
+
+test('a REQ the plan declares not ready for its KIT: decisions first, the KIT only if forced', () => {
+  const { kitBlockers } = require('../cockpit-state');
+  const blockedPlan = {
+    decision_register: [{ id: 'D-01', subject: 'URL policy', required: 'schemes, lengths' }],
+    reqs: [{ id: 'REQ-001', status: 'open', readiness: { kit_ready: false, blockers: ['D-01', 'P-01'] } }, { id: 'REQ-002', status: 'open', dependsOn: ['REQ-001'] }],
+  };
+  const root = project({ 'docs/harper/IDEA.md': '#', 'docs/harper/SPEC.md': '#', 'runs/idea/a': 'x', 'runs/spec/a': 'x', 'docs/harper/plan.json': blockedPlan });
+  const state = buildCockpitState(root);
+  assert.equal(state.next.command, '/spec <your decisions>');
+  assert.match(state.next.message, /REQ-001 is not ready for its KIT: the plan leaves 2 decision/);
+  assert.deepEqual(state.next.blockers, [{ id: 'D-01', subject: 'URL policy', required: 'schemes, lengths' }, { id: 'P-01', subject: '', required: '' }]);
+  assert.deepEqual(state.alternatives.map((a) => a.command), ['/kit REQ-001']);
+  assert.equal(state.reqs[0].note, 'blocked: D-01 +1');
+  assert.equal(kitBlockers({ readiness: { kit_ready: true } }), null);
+  assert.equal(kitBlockers({}), null);
+});
