@@ -120,6 +120,7 @@ const {
   classifyBlockedLocalAgentOutput,
   describeFailedLocalAgentRun,
   describeInterruptedLocalAgentRun,
+  shouldFallbackToCloud,
   documentPhaseCompanionTargets,
   isFreshLocalAgentArtifact,
 } = require('./local-agent-write-policy');
@@ -746,6 +747,7 @@ async function callHarper(cmd, payload, headers, opts = {}) {
       {
         headers,
         body: JSON.stringify(payload),
+        signal: opts.signal,
       },
       timeoutMs
     );
@@ -765,6 +767,13 @@ async function callHarper(cmd, payload, headers, opts = {}) {
     const json = await res.json();
     return json;
   } catch (err) {
+    if (opts.signal && opts.signal.aborted) {
+      // the chat's Cancel: recognisable, not a generic "fetch failed"
+      log(`[harper] ${cmd} cancelled by the user`);
+      const cancelled = new Error(`Harper ${cmd} cancelled`);
+      cancelled.name = 'AbortError';
+      throw cancelled;
+    }
     logCurrentTimeStandard("[harper] fetch failed");
 
     const errMsg =
@@ -1320,6 +1329,7 @@ async function executeLocalAgentPackage({
 
   const completeGateway = await callHarper('local-agent/complete', completeBody, headers, {
     timeoutMs: 1000 * 60 * harperTimeout,
+    signal: harperSignal(),
   });
 
   const completeOut = completeGateway.out;
@@ -3977,6 +3987,17 @@ async function cmdOpenChat(context) {
         const runId = (Math.random().toString(16).slice(2) + Date.now().toString(16));
         //log(`[harperRun] inside ${JSON.stringify(msg)}`);
         const phase = msg.cmd;
+        // Cancel while the phase ran: its response is dropped (no files written, no commit, no
+        // follow-up step); files a local agent wrote before it was stopped stay where they are
+        const discardCancelledRun = () => {
+          const target = Array.isArray(msg.targets) && msg.targets.length ? ` ${msg.targets.join(' ')}` : '';
+          panel.webview.postMessage({ type: 'echo', message:
+            `⏹ /${phase}${target} cancelled: the response was discarded, nothing was written or committed` +
+            (phase === 'kit' ? ` (files a local agent wrote before the stop stay in runs/kit/, uncommitted).` : '.') });
+          msg.__result = 'cancelled';
+          clikeHarperBlockingRun = false;
+          panel.webview.postMessage({ type: 'busy', on: false, force: true });
+        };
         try {
           if (phase === 'finalize' && !msg.finalizeRepair && !msg.finalizePendingConfirmed) {
             // /finalize integrates what the gates promoted (a REQ not done yet is not in it) and
@@ -4679,7 +4700,8 @@ async function cmdOpenChat(context) {
           const harperTimeout = cfg().harperTimeout;
           clikeHarperBlockingRun = true;
           panel.webview.postMessage({ type: 'busy', on: true });
-          let outGateway = await callHarper(cmd, body, _headers, { timeoutMs: 1000 * 60 * harperTimeout} );
+          let outGateway = await callHarper(cmd, body, _headers, { timeoutMs: 1000 * 60 * harperTimeout, signal: harperSignal() });
+          if (harperCancelled()) return discardCancelledRun();
           let _out = outGateway.out;
 
           // log(`[harperRun][agent][response] ${JSON.stringify({
@@ -4712,6 +4734,8 @@ async function cmdOpenChat(context) {
             } catch (err) {
               const failMsg = `[harperRun][agent] ${err?.message || String(err)}`;
               log(failMsg);
+              // the developer stopped the agent: no cloud fallback, nothing written
+              if (harperCancelled()) return discardCancelledRun();
 
               if (executionPreference === 'local_agent_only') {
                 clikeHarperBlockingRun = false;
@@ -4736,6 +4760,10 @@ async function cmdOpenChat(context) {
                 return;
               }
 
+              // one rule for every caller (tested in local-agent-write-policy.test.js)
+              if (!shouldFallbackToCloud({ executionPreference, cancelled: harperCancelled(), phase, rejectedByNormalizer })) {
+                return discardCancelledRun();
+              }
               panel.webview.postMessage({
                 type: 'echo',
                 message: `⚠ Local agent failed. Falling back to current CLike cloud path. Reason: ${errText}`
@@ -4756,9 +4784,11 @@ async function cmdOpenChat(context) {
                 ],
               };
 
-              outGateway  = await callHarper(cmd, fallbackBody, _headers, { timeoutMs: 1000 * 60 * harperTimeout });
+              outGateway  = await callHarper(cmd, fallbackBody, _headers, { timeoutMs: 1000 * 60 * harperTimeout, signal: harperSignal() });
+              if (harperCancelled()) return discardCancelledRun();
               _out = outGateway.out;
             }
+            if (harperCancelled()) return discardCancelledRun();
           }
 
           const harperFailed =
@@ -5032,11 +5062,13 @@ async function cmdOpenChat(context) {
             // a local agent may have touched the locked tests: govern and restore
             await governAcceptanceChanges(targetReqId, msg.__acceptanceBefore, [], 0);
           }
-          if (phase === 'finalize' && cfg().finalizeVerify) {
+          if (harperCancelled() && ((phase === 'finalize' && cfg().finalizeVerify) || (phase === 'kit' && cfg().autoEvalAfterKit))) {
+            panel.webview.postMessage({ type: 'echo', message: `⏹ /${phase} cancelled: the next step (${phase === 'finalize' ? 'solution verification' : 'auto-eval'}) does not start.` });
+          } else if (phase === 'finalize' && cfg().finalizeVerify) {
             clikeHarperBlockingRun = false;
             await continueFinalizeVerify(msg);
           }
-          if (phase === 'kit' && !msg.autoEvalRepair && !msg.acceptanceStage && !msg.__autopilot && targetReqId && cfg().autoEvalAfterKit) {
+          if (!harperCancelled() && phase === 'kit' && !msg.autoEvalRepair && !msg.acceptanceStage && !msg.__autopilot && targetReqId && cfg().autoEvalAfterKit) {
             panel.webview.postMessage({ type: 'echo', message: `↻ AUTO-EVAL ${targetReqId} (clike.autoEval.afterKit)` });
             clikeHarperBlockingRun = false;
             await handleWebviewMessage({
@@ -5044,6 +5076,10 @@ async function cmdOpenChat(context) {
             });
           }
         } catch (e) {
+          if (harperCancelled() || e?.name === 'AbortError') {
+            discardCancelledRun();
+            return;
+          }
           panel.webview.postMessage({ type: 'busy', on: false }) 
           panel.webview.postMessage({ type: 'error', message: formatHarperError(e) });
           if (phase === 'finalize' && msg.finalizeRepair) {
@@ -5275,6 +5311,7 @@ async function cmdOpenChat(context) {
               try {
                 const evalPrepassGateway = await callHarper('eval', evalBody, evalHeaders, {
                   timeoutMs: 1000 * 60 * cfg().harperTimeout,
+                  signal: harperAbort,
                 });
 
                 const evalPrepassOut = evalPrepassGateway.out;
@@ -5333,6 +5370,12 @@ async function cmdOpenChat(context) {
               } catch (err) {
                 const failMsg = `[harperEDD][agent] eval pre-pass failed: ${err?.message || String(err)}`;
                 log(failMsg);
+                if (harperAbort.aborted) {
+                  // Cancel: no canonical eval after the stopped pre-pass
+                  panel.webview.postMessage({ type: 'echo', message: `⏹ /eval ${targets} cancelled: the eval was stopped.` });
+                  panel.webview.postMessage({ type: 'busy', on: false, force: true });
+                  return;
+                }
 
                 if (executionPreference === 'local_agent_only') {
                   panel.webview.postMessage({ type: 'busy', on: false });

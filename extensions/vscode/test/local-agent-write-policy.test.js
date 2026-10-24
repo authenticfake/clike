@@ -615,3 +615,31 @@ test('an agent that exits with an error after writing files is interrupted, Code
   // a run that finished
   assert.equal(describeInterruptedLocalAgentRun({ exitCode: 0, stdout: '{"type":"turn.completed"}' }), null);
 });
+
+test('a cancelled agent run never falls back to the cloud', () => {
+  const { shouldFallbackToCloud } = require('../local-agent-write-policy');
+  assert.equal(shouldFallbackToCloud({ executionPreference: 'prefer_local_agent', cancelled: true, phase: 'kit' }), false);
+  assert.equal(shouldFallbackToCloud({ executionPreference: 'auto', cancelled: true, phase: 'kit' }), false);
+  assert.equal(shouldFallbackToCloud({ executionPreference: 'local_agent_only', phase: 'kit' }), false);
+  assert.equal(shouldFallbackToCloud({ executionPreference: 'prefer_local_agent', phase: 'finalize', rejectedByNormalizer: true }), false);
+  // a real agent failure still falls back
+  assert.equal(shouldFallbackToCloud({ executionPreference: 'prefer_local_agent', phase: 'kit' }), true);
+});
+
+test('Cancel reaches every Harper request and nothing is written after it (source contract)', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const util = fs.readFileSync(path.join(__dirname, '..', 'utility.js'), 'utf8');
+  assert.match(util, /async function httpPostJsonLong\(url, \{ headers, body, signal \}, timeoutMs\)/);
+  assert.match(util, /serviceRequest\('POST', url, \{ body, headers, signal,/);
+  assert.match(ext, /signal: opts\.signal,/);
+  assert.match(ext, /cancelled\.name = 'AbortError';/);
+  // the phase call, the cloud fallback and local-agent\/complete carry the signal
+  assert.equal((ext.match(/callHarper\(cmd, (body|fallbackBody), _headers, \{ timeoutMs: 1000 \* 60 \* harperTimeout, signal: harperSignal\(\) \}\)/g) || []).length, 2);
+  assert.match(ext, /callHarper\('local-agent\/complete', completeBody, headers, \{\n\s+timeoutMs: 1000 \* 60 \* harperTimeout,\n\s+signal: harperSignal\(\),/);
+  // checked right after the phase call and in the agent catch, before any write or fallback
+  assert.ok((ext.match(/if \(harperCancelled\(\)\) return discardCancelledRun\(\);/g) || []).length >= 4);
+  // follow-ups (finalize verification, auto-eval after the KIT) do not start after a Cancel
+  assert.match(ext, /if \(!harperCancelled\(\) && phase === 'kit' && !msg\.autoEvalRepair/);
+});

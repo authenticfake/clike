@@ -610,7 +610,20 @@ function classifyBlockedLocalAgentOutput({ stdout = '', stderr = '' } = {}) {
   return null;
 }
 
+/**
+ * Whether a failed local-agent run is retried by the cloud model. Never after the developer's
+ * Cancel (the opposite of what was asked), never with local_agent_only, never for a /finalize whose
+ * agent artifacts the orchestrator rejected (the cloud would overwrite stronger source artifacts).
+ */
+function shouldFallbackToCloud({ executionPreference, cancelled = false, phase, rejectedByNormalizer = false } = {}) {
+  if (cancelled) return false;
+  if (executionPreference === 'local_agent_only') return false;
+  if (phase === 'finalize' && rejectedByNormalizer) return false;
+  return true;
+}
+
 module.exports = {
+  shouldFallbackToCloud,
   describeFailedLocalAgentRun,
   describeInterruptedLocalAgentRun,
   isFreshLocalAgentArtifact,

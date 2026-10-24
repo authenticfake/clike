@@ -2082,8 +2082,9 @@ const sanitize = (x) => {
 // Long-running POST (Harper phases): resolves with a fetch-like response for any HTTP status,
 // rejects on network errors or after timeoutMs (<= 0 disables the deadline). WP7.16: transport,
 // token and timeout come from the shared client.
-async function httpPostJsonLong(url, { headers, body }, timeoutMs) {
-  const res = await serviceRequest('POST', url, { body, headers, timeoutMs: timeoutMs > 0 ? timeoutMs : 0 });
+async function httpPostJsonLong(url, { headers, body, signal }, timeoutMs) {
+  // aborting closes the request (the chat's Cancel): the orchestrator stops the phase
+  const res = await serviceRequest('POST', url, { body, headers, signal, timeoutMs: timeoutMs > 0 ? timeoutMs : 0 });
   return {
     ok: res.ok,
     status: res.status,

@@ -87,3 +87,20 @@ test('base URLs default and trim outside VS Code', () => {
   assert.equal(client.orchestratorUrl('/v1/x'), 'http://localhost:8080/v1/x');
   assert.equal(client.gatewayUrl('/health'), 'http://localhost:8000/health');
 });
+
+test('an aborted long POST (a Harper phase the developer cancels) closes the request on the server', async () => {
+  let closed = false;
+  const { s, base } = await server((req) => { req.on('close', () => { closed = true; }); /* never answers */ });
+  try {
+    const ac = new AbortController();
+    setTimeout(() => ac.abort(), 50);
+    await assert.rejects(
+      client.request('POST', `${base}/v1/harper/kit`, { body: { phase: 'kit' }, signal: ac.signal, timeoutMs: 0 }),
+      (e) => e.status === 0 && /aborted/.test(e.message),
+    );
+    for (let i = 0; i < 20 && !closed; i += 1) await new Promise((r) => setTimeout(r, 10));
+    assert.equal(closed, true);
+  } finally {
+    s.close();
+  }
+});
