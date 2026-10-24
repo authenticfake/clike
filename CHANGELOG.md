@@ -4,6 +4,16 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+### Fixed
+
+- **Checks that wait for a person, and tests that reach a name that never resolves, no longer stall
+  `/eval --fix`**: on a test project a blocking manual check ("missing … observation") and a browser
+  test following a redirect to `example.test` failed at every cycle, and no repair could change
+  them. The eval runner now names both causes; a repair may make a check that waits for a person
+  non-blocking (audited, like one needing a container runtime) and may fix a test that contacts a
+  reserved host (every assertion identical, review required at the gate). The KIT prompt (cloud and
+  local agents, same sentence) asks for neither in the first place.
+
 ## [1.6.0] — 2026-10-24 — Eval that converges on a real project, autopilot, chat cockpit, SPEC that decides
 
 ### Performance

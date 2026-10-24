@@ -70,6 +70,7 @@ Do not widen scope beyond the target REQ.
 Do not invent facts.
 If something is unknown, keep the implementation minimal, valid, and explicitly document the assumption.
 A detail SPEC and PLAN leave open is not a reason to stop: choose the simplest reasonable option consistent with them, record it in the KIT docs, and deliver the implementation and the tests its contract requires. A KIT without its source and test files is never the answer to an open question.
+No blocking check waits for a person: a manual observation or sign-off is `"blocking": false` in ci/LTC.json and described in ci/HOWTO.md. Tests never contact external or reserved hosts (example.test, example.com): they intercept the navigation or request (a route, a mock transport, a stub server on localhost) or assert the response itself (status, Location).
 
 ## 3) Targeting and scope control
 

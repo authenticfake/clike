@@ -34,3 +34,9 @@ def test_plan_marks_only_owner_questions_as_blockers_for_cloud_and_agent():
 def test_kit_never_stops_on_an_open_detail_for_cloud_and_agent():
     line = _one(phase_text("_shared")["render_compact_local_agent_prompt.kit_rules"], "not a reason to stop")
     assert line.removeprefix("- ") in _cloud("kit")
+
+
+def test_kit_checks_never_wait_for_a_person_nor_reach_reserved_hosts_for_cloud_and_agent():
+    line = _one(phase_text("_shared")["render_compact_local_agent_prompt.kit_rules"], "waits for a person")
+    assert line.removeprefix("- ") in _cloud("kit")
+    assert "reserved hosts" in line

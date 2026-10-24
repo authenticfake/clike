@@ -46,6 +46,58 @@ def container_runtime_missing(text: str) -> bool:
     return bool(_NO_CONTAINER_RUNTIME.search(text or ""))
 
 
+# A check that waits for a person: an observation, a sign-off, a manual verification the sandbox can
+# never give (ShortLink: "Missing mandatory desktop zoom/announcement observation", blocking).
+_NEEDS_PERSON = re.compile(
+    r"\b(?:manual|human|hands-on)\s+(?:observation|verification|check|review|sign-?off|inspection|test(?:ing)?|step)s?\b"
+    r"[^\n]{0,80}\b(?:missing|required|needed|pending|not (?:recorded|provided|done))\b"
+    r"|\b(?:missing|required|pending|not recorded)\b[^\n]{0,80}\b(?:observations?|sign-?offs?|manual (?:verification|check|review)s?)\b"
+    r"|\brequires? (?:a )?(?:person|human|manual (?:step|action|verification))\b",
+    re.IGNORECASE,
+)
+
+MANUAL_CHECK_NOTE = (
+    "This check waits for a person (an observation, a sign-off, a manual verification): the CLike eval "
+    "sandbox can never give it. Not a defect of the code: make it non-blocking (\"blocking\": false) in "
+    "ci/LTC.json and describe in ci/HOWTO.md how the developer performs and records it."
+)
+
+
+def needs_person(text: str) -> bool:
+    return bool(_NEEDS_PERSON.search(text or ""))
+
+
+# A test that contacts a reserved name that never resolves (RFC 2606 / 6761: .test, .example,
+# .invalid, example.com/org/net): the name lookup fails in the sandbox and everywhere else. The test
+# must not reach it (ShortLink: a browser test followed a redirect to http://example.test).
+_NAME_NOT_RESOLVED = re.compile(
+    r"ERR_NAME_NOT_RESOLVED|getaddrinfo (?:ENOTFOUND|EAI_AGAIN)|Name or service not known|"
+    r"nodename nor servname provided|Temporary failure in name resolution|NameResolutionError|"
+    r"Could not resolve host|No address associated with hostname|UnknownHostException|no such host",
+    re.IGNORECASE,
+)
+_RESERVED_HOST = re.compile(
+    r"\b((?:[a-z0-9-]+\.)*(?:[a-z0-9-]+\.(?:test|example|invalid)|example\.(?:com|org|net)))\b(?![.\w-])",
+    re.IGNORECASE,
+)
+
+UNREACHABLE_HOST_NOTE = (
+    "The test contacts {host}, a reserved name that never resolves: not a defect of the code and not "
+    "the sandbox's network. The test must not reach it: intercept the navigation or request (a route, "
+    "a mock transport, a stub server on localhost) or assert the response itself (redirect status and "
+    "Location header). Fix the test, every assertion kept identical."
+)
+
+
+def unreachable_reserved_host(text: str) -> Optional[str]:
+    """The reserved host a failing test tried to reach, when its name lookup failed; else None."""
+    body = text or ""
+    if not _NAME_NOT_RESOLVED.search(body):
+        return None
+    match = _RESERVED_HOST.search(body)
+    return match.group(1) if match else None
+
+
 # Fraction of pids.max at which a new eval is refused: a REQ eval with services, a build and a
 # browser starts hundreds of processes and threads.
 PIDS_PREFLIGHT_RATIO = 0.6

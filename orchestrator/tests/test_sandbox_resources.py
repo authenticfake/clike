@@ -182,3 +182,34 @@ def test_memory_exhaustion_is_read_from_the_cgroup_counters(tmp_path):
     assert sandbox_resources.memory_exhaustion(before, sandbox_resources.memory_events(tmp_path)) is None
     assert sandbox_resources.memory_exhaustion({}, {"oom_kill": 3}) is None  # no cgroup v2: no opinion
     assert sandbox_resources.memory_events(tmp_path / "missing") == {}
+
+
+def test_a_check_waiting_for_a_person_is_recognised():
+    # ShortLink: a blocking "manual" check the sandbox can never pass
+    assert sandbox_resources.needs_person("Missing mandatory desktop zoom/announcement observation; see ci/HOWTO.md.")
+    assert sandbox_resources.needs_person("Manual verification required before release")
+    assert sandbox_resources.needs_person("This step requires a human")
+    for text in ("AssertionError: expected 1 to equal 2", "observation window 5s", "manual mode enabled", ""):
+        assert not sandbox_resources.needs_person(text), text
+
+
+def test_a_test_reaching_a_reserved_host_is_recognised():
+    # ShortLink: a browser test followed a redirect to a name that never resolves
+    trace = (
+        'File "/w/test/test_browser_create.py", line 71, in test_follow\n'
+        '    self.page.wait_for_url("http://example.test/**")\n'
+        "playwright._impl._errors.Error: net::ERR_NAME_NOT_RESOLVED"
+    )
+    assert sandbox_resources.unreachable_reserved_host(trace) == "example.test"
+    assert sandbox_resources.unreachable_reserved_host("getaddrinfo ENOTFOUND docs.example.com") == "docs.example.com"
+    assert sandbox_resources.unreachable_reserved_host("getaddrinfo ENOTFOUND api.internal.corp") is None
+    assert sandbox_resources.unreachable_reserved_host("see http://example.test (no failure)") is None
+
+
+def test_the_runner_notes_both_and_blocks_only_the_manual_check(tmp_path):
+    manual = f"{sys.executable} -c \"print('Missing mandatory desktop zoom observation'); raise SystemExit(1)\""
+    case = EvalRunner(tmp_path)._run(name="accessibility:desktop", cmd=manual, cwd=tmp_path, timeout=30)
+    assert case.blocked and "waits for a person" in case.stderr
+    host = f"{sys.executable} -c \"import sys; sys.stderr.write('wait_for_url(http://example.test/) net::ERR_NAME_NOT_RESOLVED'); raise SystemExit(1)\""
+    case = EvalRunner(tmp_path)._run(name="test:browser", cmd=host, cwd=tmp_path, timeout=30)
+    assert not case.blocked and "reserved name that never resolves" in case.stderr

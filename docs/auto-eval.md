@@ -199,7 +199,8 @@ The repair prompt (cloud) and the orchestrator enforce the same rules:
   - *unused imports* (lint failures): a Python test may only drop imports;
   - *the test itself is wrong*: when the eval shows an error raised **in the test file** that is
     not a failed assertion (`TypeError`, `AttributeError`, `NameError`, `ImportError`, a missing
-    fixture — e.g. a wrong API call), or a type checker error reported on it (mypy
+    fixture — e.g. a wrong API call; or a test that contacts a reserved name that never resolves,
+    such as `example.test`, its stack in the test file), or a type checker error reported on it (mypy
     `test_a.py:286: error: … [arg-type]`, pyright, TypeScript `error TS…`), the test is fixed, not the code. Every test function, every
     `assert` and every `pytest.raises/warns/approx` must stay identical and no skip/xfail may be
     added (JS/TS tests: every test title and `expect` line). When the error is on an assertion
@@ -216,7 +217,9 @@ The repair prompt (cloud) and the orchestrator enforce the same rules:
 - **`ci/LTC.json`**: only the *command* of a check that cannot run may be fixed (wrong path,
   module or flag). Removing a check, making it non-blocking or weakening it is rejected, with one
   exception: a check the eval shows needs a **container runtime** (docker, podman, compose — the
-  sandbox has none) may become `"blocking": false`; it stays runnable on the developer's machine.
+  sandbox has none) or **waits for a person** (an observation, a sign-off, a manual verification:
+  the eval output says so) may become `"blocking": false`; it stays runnable on the developer's
+  machine, described in `ci/HOWTO.md`.
   The checks are read in every shape the runner accepts (`checks`, `cases`, `commands`). Accepted
   changes are recorded as audited amendments of the acceptance lock
   (`audit/acceptance_amendments.jsonl` in the CLike state directory) and reported as
