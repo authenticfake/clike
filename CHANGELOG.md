@@ -64,6 +64,11 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **A local agent can verify a regression repair before it finishes**: `eval-check` accepted only
+  the REQ's own checks, so on B2B REQ-025/026 the agent "verified" its repair without seeing the
+  promoted REQ it was fixing. `node .clike/bin/eval-check.mjs regression::REQ-014` now re-runs that
+  REQ's checks with the candidate overlaid (`/v1/eval/run` accepts `checks` with `regression_reqs`).
+
 - **A reformatted shared file is no longer named as the cause of a regression**: on B2B REQ-026 the
   only difference in `worker.py` was a wrapped line, yet `Shared files changed` named it on REQ-014's
   failure and the repair spent two cycles there while the cause was elsewhere. Changes that are only
