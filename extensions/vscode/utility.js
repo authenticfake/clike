@@ -1200,6 +1200,10 @@ async function persistReports(projectRootUri, phase, rep, out, fallbackReqId = '
       blocking: c.blocking !== false,
       stdout: c.stdout || undefined,
       stderr: c.stderr || undefined,
+      // the error blocks of the whole output (stdout/stderr above keep only their tail): what a
+      // later /kit --repair, the intermittent-failure diagnosis and the autopilot read
+      excerpt: c.excerpt || undefined,
+      fingerprint: c.fingerprint || undefined,
       duration_s: typeof c.duration_s === 'number' ? c.duration_s : undefined,
     }))
   };
