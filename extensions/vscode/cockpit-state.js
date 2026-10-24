@@ -9,6 +9,7 @@ const { nextActionFromPlan } = require('./extension-mcp');
 const { resumeStep } = require('./autopilot');
 const { inputsFingerprint } = require('./auto-eval');
 const { detectRelease } = require('./release-extend');
+const { reqBlockers } = require('./plan-readiness');
 
 const PHASES = ['idea', 'spec', 'plan', 'kit', 'finalize'];
 // what /init writes: a Harper document equal to its template (placeholders aside) is not done yet
@@ -27,13 +28,13 @@ const BMAD_ROLE_OUTPUTS = {
 };
 
 /**
- * A REQ the plan itself declares not ready for its KIT (readiness.kit_ready false, e.g. decisions
- * left open in SPEC): its blockers, or null. An agent asked for the KIT writes no code for it.
+ * A REQ the plan itself declares not ready for its KIT (kit_ready false, or readiness.kit_ready
+ * false: questions only the owner can answer): its blockers, or null. An agent asked for the KIT writes no code for it.
  */
 function kitBlockers(req) {
-  const r = req && req.readiness;
-  if (!r || typeof r !== 'object' || r.kit_ready !== false) return null;
-  const list = (Array.isArray(r.blockers) ? r.blockers : []).map((b) => String(b && (b.id || b) || '').trim()).filter(Boolean);
+  const list = reqBlockers(req);
+  if (!list.length) return null;
+  const r = req && req.readiness && typeof req.readiness === 'object' ? req.readiness : {};
   return { blockers: list, state: String(r.state || ''), resolution: String(r.resolution || '') };
 }
 

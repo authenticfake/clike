@@ -17,6 +17,7 @@ const { validateLocalMcpRequest } = require('./mcp-request-guard');
 const extensionMcp = require('./extension-mcp');
 const autopilot = require('./autopilot');
 const { projectUseCaseCoverage, useCaseCoverageMessage } = require('./use-case-coverage');
+const planReadiness = require('./plan-readiness');
 const { getEvalProgress, getEvalTools, postEvalToolsUpdate, postAcceptanceAccept, postAcceptanceAmend, postAcceptanceLock, postEvalChecks, postEvalToolsCheck, postEvalToolsInstall, postGateOverride } = require('./api');
 const evalToolsLib = require('./eval-tools');
 const { approveForProject, ensureEvalTools, questionText } = evalToolsLib;
@@ -4806,7 +4807,6 @@ async function cmdOpenChat(context) {
               panel.webview.postMessage({ type: 'busy', on: false });
               return;
             }
-
             requestedKitPhases = Array.isArray(msg?.phases) && msg.phases.length
               ? msg.phases
               : null;
@@ -5389,6 +5389,15 @@ async function cmdOpenChat(context) {
               }
             } catch (e) {
               log(`[useCases] coverage not computed: ${e?.message || e}`);
+            }
+            // REQs the plan marks not KIT-ready: the owner's open questions, before any /kit
+            try {
+              const readiness = planReadiness.planReadiness(await readPlanJson(wsroot));
+              const line = planReadiness.planReadinessMessage(readiness);
+              if (line) panel.webview.postMessage({ type: 'echo', message: line });
+              log(`[kitReadiness] ${JSON.stringify(readiness.notReady)}`);
+            } catch (e) {
+              log(`[kitReadiness] not computed: ${e?.message || e}`);
             }
           }
           // /extend and /idea --extend change lane guides too: the index follows them

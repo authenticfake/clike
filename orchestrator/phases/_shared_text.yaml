@@ -85,6 +85,7 @@ text:
   - '- Produce candidate files satisfying TARGET_CONTRACT.json and FILE_REQUIREMENTS.json.'
   - '- TECH_CONSTRAINTS.yaml is authoritative. Do not assume Python, Node, cloud provider, database, queue, UI framework, IaC tool, or deployment target unless evidenced by TECH_CONSTRAINTS, SPEC, PLAN, plan.json, repository manifests, or existing source.'
   - '- When repair_context.repair is true, focus on failed checks without broad unrelated rewrites.'
+  - '- A detail SPEC and PLAN leave open is not a reason to stop: choose the simplest reasonable option consistent with them, record it in the KIT docs, and deliver the implementation and the tests its contract requires. A KIT without its source and test files is never the answer to an open question.'
   render_compact_local_agent_prompt.lines:
   - ''
   - You are executing a CLike Harper local-agent package.

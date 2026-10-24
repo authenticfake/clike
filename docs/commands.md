@@ -164,12 +164,24 @@ SPEC includes **Use Cases**: every production journey end to end (`### UC-01 —
 each journey implies — sign-in and session expiry for an authenticated API, authorized download and
 retention for an export… — in scope or provided by someone named).
 
+SPEC **decides ordinary choices** the IDEA leaves open (formats, limits, validation, error
+responses, interface shapes, defaults, counting or timing rules): the simplest reasonable option,
+written in *Assumptions* as decided. Only what nobody but the owner can answer (an external value or
+credential, a legal or business commitment) stays open, as `OPEN-01 — <question> (owner: <role>)`:
+answer it in the *Note from Harper Orchestrator* section and run `/spec` again. A detail still open
+does not stop `/kit`: the KIT takes the simplest option consistent with SPEC and PLAN and records it.
+
 ### `/plan`
 Generates or updates `PLAN.md` and `plan.json`.
 Each REQ lists in `plan.json` the use-case steps it implements (`covers`). After `/plan` (and
 `/idea --extend`) CLike checks that **every step of every SPEC use case is covered by a REQ** and
 says which are not (`⚠ USE CASES: …`), for cloud and local agents alike; a SPEC without a Use Cases
 section is not checked.
+
+Each REQ also says whether it is **KIT-ready** (`kit_ready`, `blockers` in `plan.json`): ready unless
+it cannot be built without an owner's answer. After `/plan` CLike lists the REQs that wait and their
+questions (`⚠ KIT READINESS: …`); `/autopilot` parks them before `/kit` (no agent run) and a manual
+`/kit` runs with a warning. A plan without `kit_ready` is ready.
 
 ### `/kit`
 Runs the base KIT flow by default or explicit follow-up KIT phases. The candidate lives in
@@ -253,6 +265,9 @@ first open REQ whose dependencies are done).
   promotion not done, an acceptance edit to `--accept`, a value only you have, a native tool to
   approve: nobody answers the prompts, so they count as *no*). The REQs that do not depend on it go
   on; the loop ends when none can.
+- A REQ the plan marks **not KIT-ready** (`kit_ready: false`: it waits for an owner's answer) is
+  parked before `/kit`, with its questions, without running an agent; the next `/autopilot` reads the
+  plan again, so answering and re-running `/spec` and `/plan` releases it.
 - **It knows where it is.** An in-progress REQ resumes from what the repository holds: no KIT →
   `/kit`; its last eval passed on exactly the current files (same inputs fingerprint) → straight to
   `/gate`; otherwise `/eval --fix`. A REQ parked by an earlier run stays parked while its files are
