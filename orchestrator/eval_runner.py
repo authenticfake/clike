@@ -572,6 +572,30 @@ def _is_regression_test_case(case: "EvalCase") -> bool:
     return not (_COVERAGE_THRESHOLD_RE.search(output) and not _TEST_FAILURES_RE.search(output))
 
 
+# Live progress of the evals in flight (GET /progress of the sandbox, /v1/eval/progress of the
+# orchestrator): what the developer's chat shows while an eval runs. Only the top-level run of a
+# REQ writes it; the nested runners of the regression report through it, per promoted REQ.
+_PROGRESS: Dict[str, Dict[str, Any]] = {}
+_PROGRESS_LOCK = threading.Lock()
+_PROGRESS_TTL_S = 3600
+
+
+def progress_key(project_root: Path, req_id: Optional[str]) -> str:
+    return f"{Path(project_root).resolve()}::{str(req_id or '').strip().upper()}"
+
+
+def eval_progress(project_root: Path, req_id: Optional[str]) -> Optional[Dict[str, Any]]:
+    """The progress of the latest eval of the REQ in this process (a copy), or None."""
+    with _PROGRESS_LOCK:
+        entry = _PROGRESS.get(progress_key(project_root, req_id))
+        if not entry:
+            return None
+        out = dict(entry)
+        out["regression_current"] = list(entry.get("regression_current") or [])
+    out["elapsed_s"] = round((out.get("ended_at") or time.time()) - out.get("started_at", time.time()), 1)
+    return out
+
+
 def regression_workers() -> int:
     """Promoted REQs regressed at the same time (``CLIKE_EVAL_REGRESSION_WORKERS``, default 2,
     1 = one after the other). Each one runs its own installs, tests and services: more workers need
@@ -756,6 +780,50 @@ class EvalRunner:
         # A regression run re-checks a promoted REQ: its own KIT source is already in the canonical
         # tree (merged with what later REQs changed), so the stale KIT copy is not overlaid.
         self.regression = regression
+        # the key of the live progress: set by the top-level run of a REQ only
+        self._progress_key: Optional[str] = None
+
+    def _progress(self, **fields: Any) -> None:
+        key = self._progress_key
+        if not key:
+            return
+        with _PROGRESS_LOCK:
+            entry = _PROGRESS.get(key)
+            if entry is not None:
+                entry.update(fields)
+                entry["updated_at"] = time.time()
+
+    def _progress_start(self, req_id: Optional[str], partial: bool) -> None:
+        if self.eval_key or self.regression or not req_id:
+            return
+        self._progress_key = progress_key(self.project_root, req_id)
+        now = time.time()
+        with _PROGRESS_LOCK:
+            for key in [k for k, v in _PROGRESS.items() if now - v.get("updated_at", now) > _PROGRESS_TTL_S]:
+                _PROGRESS.pop(key, None)
+            _PROGRESS[self._progress_key] = {
+                "req_id": str(req_id).upper(), "state": "running", "phase": "setup", "partial": partial,
+                "checks_total": 0, "checks_done": 0, "current": None, "passed": 0, "failed": 0,
+                "regression_total": 0, "regression_done": 0, "regression_current": [],
+                "started_at": now, "updated_at": now, "ended_at": None,
+            }
+
+    def _progress_regression(self, other: str, started: bool) -> None:
+        key = self._progress_key
+        if not key:
+            return
+        with _PROGRESS_LOCK:
+            entry = _PROGRESS.get(key)
+            if entry is None:
+                return
+            current = entry.setdefault("regression_current", [])
+            if started:
+                current.append(other)
+            else:
+                if other in current:
+                    current.remove(other)
+                entry["regression_done"] = entry.get("regression_done", 0) + 1
+            entry["updated_at"] = time.time()
 
     def _merge_env(
         self,
@@ -3096,6 +3164,7 @@ class EvalRunner:
         self._services: List[eval_environment.RunningService] = []
         self._only_checks = {str(c) for c in (checks or []) if str(c).strip()} or None
         self._regression_only = {str(r).strip().upper() for r in (regression_reqs or []) if str(r).strip()} or None
+        self._progress_start(req_id or (ltc or {}).get("req_id"), partial=bool(self._only_checks or self._regression_only))
         try:
             exhausted = sandbox_resources.preflight()
             if not exhausted and not self.eval_key:  # the top-level run, not a nested regression or service
@@ -3117,6 +3186,8 @@ class EvalRunner:
                 report.tools = eval_tools.installed_versions() or None
             return report
         finally:
+            cancelled = self.cancel_event is not None and self.cancel_event.is_set()
+            self._progress(state="cancelled" if cancelled else "done", phase="done", current=None, ended_at=time.time())
             for svc in reversed(self._services):
                 eval_environment.stop_process(svc.proc)
             self._services = []
@@ -3764,11 +3835,16 @@ class EvalRunner:
                 if done.duration_s is None:
                     done.duration_s = round(now - stamp_at, 2)
 
-        for case in norm_cases:
+        loop_from = len(out_cases)
+        self._progress(phase="checks", checks_total=len(norm_cases), checks_done=0)
+        for case_index, case in enumerate(norm_cases):
             _stamp()
             stamp_from, stamp_at = len(out_cases), time.monotonic()
             if self.cancel_event is not None and self.cancel_event.is_set():
                 break
+            own = out_cases[loop_from:]
+            self._progress(checks_done=case_index, current=str(case.get("name") or "case"),
+                           passed=sum(1 for c in own if c.passed), failed=sum(1 for c in own if not c.passed and c.blocking))
             raw_cmd = case.get("run")
             cmd = self._rewrite_command_for_eval_workspace(raw_cmd, path_map)
             setup = self._rewrite_for_eval_workspace(case.get("setup"), path_map)
@@ -3935,6 +4011,9 @@ class EvalRunner:
             out_cases.extend(self._shared_test_support_cases(eff_req))
             out_cases.extend(self._test_layout_cases(eff_req))
         own_failed = any(not c.passed and c.blocking for c in out_cases)
+        own = out_cases[loop_from:]
+        self._progress(**({} if cancelled else {"checks_done": len(norm_cases)}), current=None,
+                       passed=sum(1 for c in own if c.passed), failed=sum(1 for c in own if not c.passed and c.blocking))
         if regression and work_kit_root and not cancelled and own_failed:
             log.info("regression deferred req=%s: the REQ's own blocking checks fail", eff_req)
         elif regression and work_kit_root and not cancelled:
@@ -4245,19 +4324,30 @@ class EvalRunner:
             others = [other for other in others if other.upper() in only]
         workers = min(regression_workers(), len(others))
         self._promoted_state_digest(req_id)  # once, before the workers share it
+        self._progress(phase="regression", regression_total=len(others), regression_done=0, regression_current=[], current=None)
         if workers <= 1:
-            return [case for other in others for case in self._regress_one(req_id, other, candidate_src, superseded)]
+            return [case for other in others for case in self._regress_tracked(req_id, other, candidate_src, superseded)]
         # Each promoted REQ has its own work dir, venv, test databases and service ports: they run
         # side by side, and their cases are reported in plan order as before.
         log.info("regression of %s: %d promoted REQ(s), %d at a time", req_id, len(others), workers)
         with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="clike-regression") as pool:
-            futures = [pool.submit(self._regress_one, req_id, other, candidate_src, superseded) for other in others]
+            futures = [pool.submit(self._regress_tracked, req_id, other, candidate_src, superseded) for other in others]
             try:
                 return [case for future in futures for case in future.result()]
             except BaseException:
                 for future in futures:
                     future.cancel()
                 raise
+
+    def _regress_tracked(
+        self, req_id: Optional[str], other: str, candidate_src: Path, superseded: Dict[str, Dict[str, str]]
+    ) -> List[EvalCase]:
+        """_regress_one, with the promoted REQ in the live progress while it runs."""
+        self._progress_regression(other, started=True)
+        try:
+            return self._regress_one(req_id, other, candidate_src, superseded)
+        finally:
+            self._progress_regression(other, started=False)
 
     def _regress_one(
         self, req_id: Optional[str], other: str, candidate_src: Path, superseded: Dict[str, Dict[str, str]]
