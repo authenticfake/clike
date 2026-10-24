@@ -59,7 +59,9 @@ shows its path.
   failure. A missing dependency stays environment-blocked.
 - **An eval sandbox out of resources stops the loop.** When the OS refuses a process, a thread,
   memory or disk (`spawn node EAGAIN`, `pthread_create: Resource temporarily unavailable`, `ENOMEM`,
-  `ENOSPC`, `EMFILE`) the check is environment-blocked and the report says
+  `ENOSPC`, `EMFILE`), **or the kernel killed processes for lack of memory or held the sandbox at its
+  memory limit while the check ran** (read from the cgroup counters: a check under memory pressure fails
+  with time-outs and no `ENOMEM` in its output), the check is environment-blocked and the report says
   `EVAL_SANDBOX_EXHAUSTED` (gate: `GATE_BLOCKED_SANDBOX_EXHAUSTED`): `--fix` stops instead of
   changing correct code, and a local agent's `eval-check` answers `BLOCKED`. An eval does not start
   when the sandbox already uses 60% of its process limit. The sandbox runs with an init (`init:

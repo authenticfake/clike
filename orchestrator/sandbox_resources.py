@@ -65,6 +65,44 @@ def exhaustion(text: str) -> Optional[str]:
     return text[start:end if end >= 0 else len(text)].strip()[:300]
 
 
+# Memory: the kernel slows the processes down at the limit and kills some (OOM) without any
+# "ENOMEM" in their output; checks then time out (B2B REQ-026: 9 million hits of a 3 GB limit, two
+# OOM kills, every failure a timeout the repair could not fix). Read from the cgroup counters.
+MEMORY_HINT = (
+    "Give the eval sandbox more memory: CLIKE_EVAL_SANDBOX_MEM_LIMIT in docker/.env (and the Podman or "
+    "Docker machine memory, e.g. `podman machine set --memory 16384`), or fewer regressions side by side "
+    "(CLIKE_EVAL_REGRESSION_WORKERS=1); then restart the services and run again."
+)
+MEMORY_LIMIT_HITS = int(os.getenv("CLIKE_EVAL_MEMORY_LIMIT_HITS", "1000") or 1000)
+
+
+def memory_events(cgroup_root: Path = Path("/sys/fs/cgroup")) -> Dict[str, int]:
+    """The cgroup v2 memory counters (oom_kill, max: times the limit was hit); {} when unknown."""
+    try:
+        lines = (cgroup_root / "memory.events").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return {}
+    events: Dict[str, int] = {}
+    for line in lines:
+        name, _, value = line.partition(" ")
+        if value.strip().isdigit():
+            events[name] = int(value)
+    return events
+
+
+def memory_exhaustion(before: Dict[str, int], after: Dict[str, int]) -> Optional[str]:
+    """Why memory, not the code, explains a check that failed between the two readings, or None."""
+    if not before or not after:
+        return None
+    killed = after.get("oom_kill", 0) - before.get("oom_kill", 0)
+    hits = after.get("max", 0) - before.get("max", 0)
+    if killed > 0:
+        return f"{killed} process(es) killed by the kernel for lack of memory during this check"
+    if hits >= MEMORY_LIMIT_HITS:
+        return f"the sandbox hit its memory limit {hits} times during this check (processes slowed to time-outs)"
+    return None
+
+
 def _read_int(path: Path) -> Optional[int]:
     try:
         raw = path.read_text(encoding="utf-8").strip()
