@@ -28,6 +28,9 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Added
 
+- **Copy icon on every chat bubble**, next to the bin: copies the message text to the clipboard
+  (through the extension, so it works in every webview), usable during a run too.
+
 - **Use cases in `/spec`, their coverage checked after `/plan`**: SPEC gets a `## Use Cases`
   section — every production journey end to end with numbered steps (`UC-01.1`…), error flows, the
   production data path and the prerequisites each journey implies (an authenticated API implies

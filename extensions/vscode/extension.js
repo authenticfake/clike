@@ -5912,6 +5912,11 @@ async function cmdOpenChat(context) {
        
       }
       // 3.a) CLEAR user/assistent bubble
+      if (msg.type === 'copyText') {
+        // the copy icon of a chat bubble
+        await vscode.env.clipboard.writeText(String(msg.text || ''));
+        return;
+      }
       if (msg.type === 'deleteBubble') {
         const ui = context.workspaceState.get('clike.uiState') || {
           mode: 'free',
