@@ -7355,6 +7355,19 @@ async function cmdOpenChat(context) {
       finish('stopped');
       return;
     }
+    // The plan says the REQ waits for the owner's answers: a repair without them writes no code
+    // either (ShortLink: KIT and repairs left a readiness handoff, the same checks failed). Stop and
+    // say what to answer; --fix "<your decisions>" gives them to the repair and goes on.
+    if (!state.hint.trim()) {
+      let waiting = [];
+      try { waiting = planReadiness.blockersOf(await readPlanJson(getWorkspaceRoot()), reqId); } catch { waiting = []; }
+      if (waiting.length) {
+        step.reason = planReadiness.notReadyReason(waiting);
+        say(`✖ AUTO-EVAL ${reqId} stopped before a repair: ${step.reason}. Or give the answers to the repair: /eval ${reqId} --fix "<your decisions>".`);
+        finish('stopped');
+        return;
+      }
+    }
     if (stopAfterStepRequested(say, `AUTO-EVAL ${reqId}`)) {
       say(`Re-run /eval ${reqId} --fix to go on with the repair cycles.`);
       finish('stopped');

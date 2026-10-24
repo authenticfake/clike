@@ -179,6 +179,7 @@ full eval. To keep it short and stable:
 | No progress | `no progress: the same checks still fail` (same checks **and** same errors; different errors in the same check are progress) | a hint usually helps; or the failure is environmental |
 | Repair request failed | `the KIT repair request failed` | see the error in the chat (provider, validation) |
 | Acceptance surface changed | `the acceptance surface (test/ or ci/) of REQ-002 changed after the lock: ci/LTC.json modified` | tests/LTC of that REQ (the candidate, or a promoted REQ its regression runs) were edited outside the governed path: edited on purpose and nothing weakened → `/eval REQ-002 --accept "<why>"` (audited); otherwise restore them or re-run `/kit` |
+| REQ not KIT-ready | `stopped before a repair: not KIT-ready, the plan waits for your answers: …` (the plan marks it `kit_ready: false`; no hint given) | answer in the SPEC Note section and run `/spec`, `/plan`, `/kit`; or `/eval REQ-002 --fix "<your decisions>"` to give the answers to the repair |
 | Nothing to repair | `eval failed without failing checks` | see the eval report (e.g. integrity or setup errors) |
 
 The same outcomes apply to `/gate --fix` (`AUTO-GATE`, `gate failed without failing checks`).
