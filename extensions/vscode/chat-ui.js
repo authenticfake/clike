@@ -343,6 +343,36 @@ function getWebviewHtml(orchestratorUrl, themeName = 'classic') {
     opacity:.9;
   }
 
+  /* Pulsante copia: accanto al cestino, sempre utilizzabile (anche durante un run) */
+  .bubble-copy {
+    position:absolute;
+    top:6px;
+    right:28px;
+    width:18px;
+    height:18px;
+    padding:0;
+    border:none;
+    border-radius:999px;
+    font-size:11px;
+    line-height:18px;
+    text-align:center;
+    background:rgba(0,0,0,.35);
+    color:var(--fg-dim);
+    cursor:pointer;
+    opacity:0;
+    transition:opacity .15s ease-out, background .15s ease-out, transform .1s ease-out;
+  }
+
+  .msg:hover .bubble-copy {
+    opacity:.9;
+  }
+
+  .bubble-copy:hover {
+    background:rgba(0,0,0,.55);
+    color:var(--fg);
+    transform:scale(1.05);
+  }
+
   .bubble-delete:hover {
     background:rgba(0,0,0,.55);
     color:var(--fg);
@@ -1588,6 +1618,18 @@ function bubble(role, content, modelName, attachments, ts, opts) {
       appendCitationsMeta(b, opts.citations);
     }
   } catch {}
+  // pulsante copia → il testo della bubble negli appunti (tramite l'estensione: vale in ogni webview)
+  const copy = document.createElement('button');
+  copy.className = 'bubble-copy';
+  copy.textContent = '⧉';
+  copy.title = 'Copy';
+  copy.addEventListener('click', function (ev) {
+    ev.stopPropagation();
+    vscode.postMessage({ type: 'copyText', text: String(content || '') });
+    copy.textContent = '✓';
+    setTimeout(function () { copy.textContent = '⧉'; }, 1200);
+  });
+  b.appendChild(copy);
   // pulsante cestino → chiede al backend di eliminare il messaggio anche dal file JSONL
   if (role === 'user' || role === 'assistant') {
     const del = document.createElement('button');
