@@ -352,6 +352,17 @@ def _is_test_file_name(name: str) -> bool:
     return bool(_TEST_FILE_NAME_RE.match(name))
 
 
+def _same_but_layout(old: bytes, new: bytes) -> bool:
+    """The same content once whitespace is ignored (a formatter wrapped a line, re-indented a
+    continuation): such a change is no cause of a failing check. B2B REQ-026: a line wrap in
+    worker.py was named on REQ-014's failure and sent the repair to the wrong file for two cycles."""
+    try:
+        a, b = old.decode("utf-8"), new.decode("utf-8")
+    except UnicodeDecodeError:
+        return False
+    return re.sub(r"\s+", "", a) == re.sub(r"\s+", "", b)
+
+
 def _shared_file_changes(project_root: Path, candidate_root: Path, other_kit: Path, limit: int = 8) -> List[str]:
     """Files the promoted REQ delivered (its KIT src/ and test/) that the candidate KIT replaces with
     different content, each with a short diff against the canonical copy (the state the promoted REQ
@@ -382,8 +393,8 @@ def _shared_file_changes(project_root: Path, candidate_root: Path, other_kit: Pa
                     old, new = baseline.read_bytes(), candidate.read_bytes()
                 except OSError:
                     continue
-                if old == new:
-                    continue
+                if old == new or _same_but_layout(old, new):
+                    continue  # identical, or only reformatted (line wraps, indentation): not a cause
                 try:
                     diff = list(difflib.unified_diff(
                         old.decode("utf-8").splitlines(), new.decode("utf-8").splitlines(),

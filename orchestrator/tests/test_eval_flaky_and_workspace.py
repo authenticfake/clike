@@ -235,6 +235,10 @@ class SharedFileDiagnosisTests(_RegressionProject):
             self.assertEqual(eval_runner._shared_file_changes(root, root / "cand", root / "runs" / "kit" / "REQ-001"), [])
             (root / "cand" / "src" / "a.py").write_text("A = 1\n")  # same content: not a change
             self.assertEqual(eval_runner._shared_file_changes(root, root / "cand", root / "runs" / "kit" / "REQ-001"), [])
+            # only reformatted (B2B REQ-026: a wrapped line in worker.py): not a change either
+            (root / "runs" / "kit" / "REQ-001" / "src" / "w.py").write_text("health(int(port), max(30, poll * 3),\n    host)\n")
+            (root / "cand" / "src" / "w.py").write_text("health(int(port),\n    max(30, poll * 3),\n    host)\n")
+            self.assertEqual(eval_runner._shared_file_changes(root, root / "cand", root / "runs" / "kit" / "REQ-001"), [])
 
 
     def test_a_file_the_candidate_adds_in_a_promoted_test_directory_is_named(self):
