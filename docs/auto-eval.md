@@ -29,6 +29,7 @@ only when its own checks pass **and** it does not break what is already promoted
 | Run it automatically after every `/kit` | `clike.autoEval.afterKit: true` (default `false`) |
 | Number of repair cycles | `clike.autoEval.maxCycles` (default `2`, max `5`) |
 | Extra cycles while improving | `clike.autoEval.extraCyclesOnProgress` (default `3`): after `maxCycles`, the loop goes on as long as each cycle leaves fewer failing checks, or fewer failing checks of the REQ itself (the regression of the promoted REQs runs only once those pass: its failures are new, not a step back) |
+| Targeted re-eval | after a repair of regression failures, the next eval runs every check of the REQ and the regression of the promoted REQs that failed only (`regression_reqs`, minutes instead of the whole set); when it passes, a full eval confirms it in the same cycle. A targeted eval is never the REQ's verdict (`partial`, not promotable, not reused by the gate) |
 | Agent re-runs failed checks in the sandbox | `clike.autoEval.agentEvalChecks` (default `8` runs per repair, `0` = off) |
 | Re-check the promoted REQs | `clike.eval.regression` (default `true`) |
 | Make warnings block the gate | `clike.gate.strictWarnings` (default `false`) |

@@ -149,7 +149,7 @@ test('BMAD advisory is absent when methodology is omitted', () => {
 
 test('extension eval path calls canonical handleEval before BMAD advisory attachment', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
-  const handleEvalIndex = source.indexOf('report = await handleEval(path_ltc_json, ws_root, targets, mode, modeContent, harperAbort);');
+  const handleEvalIndex = source.indexOf('report = await handleEval(path_ltc_json, ws_root, targets, mode, modeContent, harperAbort, evalOptions);');
   const contextIndex = source.indexOf('const evalMethodologyContext = buildEffectiveEvalMethodologyContext(');
   const advisoryIndex = source.indexOf('report = attachBmadQaAdvisory(report, targets, evalMethodologyContext);');
 

@@ -88,8 +88,10 @@ const {
 const {
   acceptanceChanges,
   collectRepairFiles,
+  evalPassed,
   fixCycleMethodology,
   ownFailureCount,
+  targetedRegressionReqs,
   manualRepairRequest,
   nextAutoEvalStep,
   nextAutoGateStep,
@@ -5340,9 +5342,10 @@ async function cmdOpenChat(context) {
             }
             log("[harperEDD] Calling canonical eval for req:" + targets + " in: " + ws_root);
             if (!isManual) await ensureToolsForEval(targets);
-            report = await handleEval(path_ltc_json, ws_root, targets, mode, modeContent, harperAbort);
+            const evalOptions = Array.isArray(msg.regressionReqs) && msg.regressionReqs.length ? { regressionReqs: msg.regressionReqs } : {};
+            report = await handleEval(path_ltc_json, ws_root, targets, mode, modeContent, harperAbort, evalOptions);
             if (!harperAbort.aborted && !isManual && await installReportedTools(targets, report)) {
-              report = await handleEval(path_ltc_json, ws_root, targets, mode, modeContent, harperAbort);
+              report = await handleEval(path_ltc_json, ws_root, targets, mode, modeContent, harperAbort, evalOptions);
             }
             if (harperAbort.aborted) {
               panel.webview.postMessage({ type: 'echo', message: `⏹ /eval ${targets} cancelled: the eval was stopped.` });
@@ -6819,8 +6822,21 @@ async function cmdOpenChat(context) {
       lastSignature: msg.fix.lastSignature || '',
       lastKitOk: msg.fix.lastKitOk,
     };
-    const step = nextAutoEvalStep(state, report);
     const say = (text) => panel.webview.postMessage({ type: 'echo', message: text });
+    // A targeted re-eval (this REQ's checks, the regression of the REQs that failed) that passes
+    // is confirmed by the full eval, in the same cycle: only a full eval is the REQ's verdict.
+    if (Array.isArray(msg.regressionReqs) && msg.regressionReqs.length && evalPassed(report)) {
+      say(`↻ AUTO-EVAL ${reqId}: the targeted re-eval passed (regression of ${msg.regressionReqs.join(', ')}); full eval to confirm`);
+      const fullMsg = {
+        type: 'harperEDD', cmd: 'eval', targets: [reqId], targetReqId: reqId, attachments: [],
+        ...fixCycleMethodology(msg).eval,
+        fix: msg.fix,
+      };
+      await handleWebviewMessage(fullMsg);
+      if (fullMsg.__report) msg.__report = fullMsg.__report;
+      return;
+    }
+    const step = nextAutoEvalStep(state, report);
     log(`[autoEval] ${reqId} cycle=${state.cycle}/${state.maxCycles} action=${step.action} reason=${step.reason}`);
     // The outcome travels back to the caller (MCP eval_run) with the report of the last eval.
     const finish = (outcome) => {
@@ -6892,6 +6908,9 @@ async function cmdOpenChat(context) {
       targetReqId: reqId,
       attachments: [],
       ...loopMethodology.eval,
+      // after a repair of regression failures: the regression of those REQs first (minutes, not
+      // the whole set); its pass is confirmed by a full eval above
+      ...(targetedRegressionReqs(step.failures).length ? { regressionReqs: targetedRegressionReqs(step.failures) } : {}),
       fix: { ...state, cycle, lastSignature: step.signature, lastKitOk: kitMsg.__result === 'ok', lastFailures: step.failures, lastFailureCount: (step.failures || []).length, lastOwnFailureCount: ownFailureCount(step.failures) },
     };
     await handleWebviewMessage(evalMsg);

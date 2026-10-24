@@ -6,6 +6,12 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Performance
 
+- **Targeted re-eval in `/eval --fix` cycles**: after a repair of regression failures, the next eval
+  runs every check of the REQ and the regression of the promoted REQs that failed only
+  (`regression_reqs` on `/v1/eval/run`); when it passes, a full eval confirms it in the same cycle.
+  On B2B every repair cycle re-ran ~20 min of regression over 25 REQs to re-check 1–7 failures. A
+  targeted eval is never a verdict (`partial`, not promotable, not reused by the gate).
+
 - **The regression no longer repeats a promoted REQ's own regression checks**: a check named
   `regression` / `…-regression` of a promoted REQ re-runs tests of earlier REQs, which CLike's
   regression already runs on their promoted tests (`regression-checks::not-run` lists the skipped

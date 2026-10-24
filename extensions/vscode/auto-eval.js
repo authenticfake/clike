@@ -160,6 +160,20 @@ function sandboxExhausted(report) {
  * state: { cycle, maxCycles, hint, lastSignature }
  * → { action: 'pass' | 'stop' | 'repair', reason, failures?, signature? }
  */
+/**
+ * The promoted REQs whose regression failed (`regression::<REQ>::…`): after a repair, a targeted
+ * re-eval runs every check of the REQ and the regression of these only; the full eval follows when
+ * it passes. Empty when no regression failed (the REQ's own checks are fast: a full eval).
+ */
+function targetedRegressionReqs(failures) {
+  const reqs = new Set();
+  for (const f of failures || []) {
+    const m = /^regression::(REQ-[A-Za-z0-9_-]+)::/i.exec(String(f?.name || ''));
+    if (m) reqs.add(m[1].toUpperCase());
+  }
+  return [...reqs].sort();
+}
+
 /** Failing checks of the REQ itself (not the regression of promoted REQs, `regression::<REQ>::…`). */
 function ownFailureCount(failures) {
   return (failures || []).filter((f) => !String(f?.name || '').startsWith('regression::')).length;
@@ -455,6 +469,7 @@ function fixCycleMethodology(msg) {
 
 module.exports = {
   fixCycleMethodology,
+  targetedRegressionReqs,
   ownFailureCount,
   manualRepairRequest,
   acceptanceChanges,

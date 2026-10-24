@@ -29,7 +29,7 @@ function asFsPath(workspaceRoot) {
  * Runs /v1/eval/run
  * Expects 'profile' to be an existing path (relative or absolute) to the LTC.json file
  */
-async function postEvalRun(profile, workspaceRoot,req_id, mode, modeResult, signal = null) {
+async function postEvalRun(profile, workspaceRoot,req_id, mode, modeResult, signal = null, options = {}) {
   const rootPath = asFsPath(workspaceRoot);
   // /eval RRQ-009 manual pass -> eval manual pass
   const projectName = getProjectNameFromWorkspace();
@@ -47,7 +47,9 @@ async function postEvalRun(profile, workspaceRoot,req_id, mode, modeResult, sign
   const ltcDoc = raw ? JSON.parse(raw) : null;
   const body = (mode === 'manual')
     ? { mode: 'manual', verdict: modeResult, ltc:ltcDoc }
-    : { ltc: ltcDoc, regression: evalRegression() };
+    : { ltc: ltcDoc, regression: evalRegression(),
+        // a targeted re-eval in a repair loop: the regression of these promoted REQs only (never a verdict)
+        ...(Array.isArray(options.regressionReqs) && options.regressionReqs.length ? { regression_reqs: options.regressionReqs } : {}) };
   // aborting closes the request: the orchestrator then stops the eval in the sandbox
   return requestJson('POST', url, { body, timeoutMs: evalTimeoutMs(), signal: signal || undefined });
 }

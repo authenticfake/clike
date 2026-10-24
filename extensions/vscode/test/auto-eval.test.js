@@ -5,7 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { annotateIntermittentFailures, collectRepairFailures, fixCycleMethodology, inputsFingerprint, collectRepairFiles, nextAutoEvalStep, nextAutoGateStep, readEarlierReports, repairNotesMarkdown, writeRepairNotes } = require('../auto-eval');
+const { annotateIntermittentFailures, collectRepairFailures, fixCycleMethodology, targetedRegressionReqs, inputsFingerprint, collectRepairFiles, nextAutoEvalStep, nextAutoGateStep, readEarlierReports, repairNotesMarkdown, writeRepairNotes } = require('../auto-eval');
 const { parseSlash } = require('../slash-parser');
 
 const failing = (names) => ({
@@ -352,4 +352,12 @@ test('the regression appearing once the REQ own checks pass earns an extra cycle
   assert.match(step.reason, /own checks improved .*4 regression failure/);
   // no progress at all: it stops as before
   assert.equal(nextAutoEvalStep({ ...state, lastOwnFailureCount: 0, lastFailureCount: 4 }, report).action, 'stop');
+});
+
+test('after a repair of regression failures the re-eval targets the REQs that failed', () => {
+  const failures = ['regression::REQ-017::unit', 'regression::REQ-014::test:integration', 'regression::req-017::tests', 'lint']
+    .map((name) => ({ name }));
+  assert.deepEqual(targetedRegressionReqs(failures), ['REQ-014', 'REQ-017']);
+  // only the REQ's own checks failed: the regression has not run yet, a full eval
+  assert.deepEqual(targetedRegressionReqs([{ name: 'tests' }, { name: 'types' }]), []);
 });

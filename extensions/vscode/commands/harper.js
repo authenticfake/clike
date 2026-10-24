@@ -29,12 +29,12 @@ function buildEvalMessage(res) {
   return `EVAL FAIL — passed=${passed}, failed=${failed}, blocked=${blocked}, warnings=${warnings}`;
 }
 
-async function handleEval(argument, workspaceRoot, req_id, mode = 'auto', result = 'pass', signal = null) {
+async function handleEval(argument, workspaceRoot, req_id, mode = 'auto', result = 'pass', signal = null, options = {}) {
   let profile = null;
 
   try {
     profile = await resolveProfilePath(argument, workspaceRoot);
-    const res = await postEvalRun(profile, workspaceRoot, req_id, mode, result, signal);
+    const res = await postEvalRun(profile, workspaceRoot, req_id, mode, result, signal, options);
     const msg = buildEvalMessage(res);
     const casesCount = Array.isArray(res?.cases) ? res.cases.length : 0;
     const status = String(res?.status || '').toUpperCase();
@@ -47,7 +47,10 @@ async function handleEval(argument, workspaceRoot, req_id, mode = 'auto', result
       vscode.window.showInformationMessage(`${msg} | profile=${res.profile}`);
     }
 
-    res.summary = `Eval ${profile}: ${msg}\nCases: ${casesCount}\nReport: ${res?.json || ''}`;
+    const scope = Array.isArray(res?.regression_scope) && res.regression_scope.length
+      ? `\nTargeted re-eval: this REQ's checks and the regression of ${res.regression_scope.join(', ')} only (the full eval follows)`
+      : '';
+    res.summary = `Eval ${profile}: ${msg}\nCases: ${casesCount}${scope}\nReport: ${res?.json || ''}`;
     return res;
     } catch (err) {
       const normalizedReqId = String(req_id || '').trim().toUpperCase() || 'REQ-UNKNOWN';
