@@ -99,6 +99,12 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **A status update of PLAN.md no longer deletes the REQ sections after the REQ table**: when a
+  REQ changed status (open → in_progress at its KIT, done at the gate) CLike rewrote the table up to
+  the first `### Acceptance` heading, deleting a `## REQ-001 — …` section in between with all its
+  scopes (ShortLink test project: 82 lines of REQ-001 gone). The table now ends at the next heading;
+  the snapshot no longer stops at a letter `Z` (`\Z` is not an end-of-text anchor in JavaScript).
+
 - **`/agent-model list` shows the Codex models your login accepts**: it listed the API ids of the
   cloud catalog (e.g. `gpt-5.4-mini-2026-03-17`, refused by Codex) and hid the ones Codex accepts
   (`gpt-6-astra`, `gpt-5.6-*`). Codex's list now comes from the login (`~/.codex/models_cache.json`);

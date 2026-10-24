@@ -1673,76 +1673,52 @@ function sectionRegex(titleVariants) {
   // Example: ['Plan Snapshot'] or ['REQ-IDs Table']
   const escaped = titleVariants.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
   const union = escaped.join('|');
-  // Capture the heading (## <title...>) and the content up to the next ## or end of file
+  // Capture the heading (## <title...>) and the content up to the next ## or the end of the file
   return new RegExp(
-    `^(##\\s*(?:${union})\\b[^\n]*\\n)([\\s\\S]*?)(?=^##\\s|\\Z)`,
+    `^(##\\s*(?:${union})\\b[^\n]*\\n)([\\s\\S]*?)(?=^##\\s|(?![\\s\\S]))`,
     'mi'
   );
 }
 
-async function updatePlanMdInPlace(projectRootUri, plan) {
-  const uri = vscode.Uri.joinPath(projectRootUri, 'docs', 'harper', 'PLAN.md');
-  let md = await readTextFile(uri);
-  if (!md) return;
-
+/**
+ * PLAN.md with its "Plan Snapshot" and "REQ-IDs Table" sections rewritten from plan.json (statuses,
+ * counts); everything else is kept as the plan wrote it. The table ends at the first heading after it
+ * (`## REQ-001 — …`, `### Acceptance — …`, `## Dependency Graph`…): a per-REQ section right after the
+ * table is never part of it (ShortLink: a status update deleted the whole REQ-001 section).
+ */
+function replacePlanStatusSections(md, plan) {
   const ss = snapshotCounts(plan);
   const newSnapshot = renderSnapshotMd(ss);
   const newTable = renderReqTableMd(plan);
-
-  // Find the sections with robust regexes (also accepts spelling variants)
   const rxSnapshot = sectionRegex(['Plan Snapshot']);
-  const rxTable = sectionRegex(['REQ-IDs Table', 'REQ IDs Table', 'REQ-IDs table']);
 
-  // Replace or add Snapshot
   if (rxSnapshot.test(md)) {
-    md = md.replace(rxSnapshot, (_, heading /*, body*/) => {
-      // Keep the original heading line (so case/whitespace do not change),
-      // replace only the content with the new one (without repeating the heading)
+    md = md.replace(rxSnapshot, (_, heading) => {
+      // keep the original heading line, replace only the content
       const contentLines = newSnapshot.split('\n');
       contentLines.shift(); // remove "## Plan Snapshot"
-      const content = contentLines.join('\n');
-      return `${heading}${content}\n`;
+      return `${heading}${contentLines.join('\n')}\n`;
     });
   } else {
-    // Not found → prepend it at the top
     md = `${newSnapshot}\n${md}`;
   }
-  log("test rxTable", rxTable.test(md));
-  // --- Table (same logic as your updatePlanMdInPlace) ---
-  const tableHeading = '## REQ-IDs Table';
-  const headingIdx = md.indexOf(tableHeading);
 
-  if (headingIdx !== -1) {
-    // md = [before the table] + [table and the rest]
-    const before = md.slice(0, headingIdx);
-    const after = md.slice(headingIdx);
+  const rxHeading = /^##\s*REQ[- ]IDs Table\b[^\n]*$/mi;
+  const found = rxHeading.exec(md);
+  if (!found) return `${md}\n\n${newTable}`;
+  const before = md.slice(0, found.index);
+  const after = md.slice(found.index + found[0].length);
+  // the table ends at the next heading of any level (## or ###), or at the end of the file
+  const next = /^#{2,3}\s/m.exec(after);
+  const tail = next ? after.slice(next.index) : '';
+  return `${before}${newTable}${tail ? `\n${tail}` : ''}`;
+}
 
-    // In the "after" block, find where the table ends
-    // and where the existing Acceptance sections start.
-    const idxAcceptance = after.indexOf('\n### Acceptance');
-    const idxNextSection = after.indexOf('\n## ', tableHeading.length);
-
-    // If there is a "### Acceptance — REQ-001" section, use it as the end of the table.
-    // Otherwise, as a fallback, use the next "## " or the end of the file.
-    let cut;
-    if (idxAcceptance !== -1) {
-      cut = idxAcceptance;
-    } else if (idxNextSection !== -1) {
-      cut = idxNextSection;
-    } else {
-      cut = after.length;
-    }
-
-    // Insert the new table (newTable already includes "## REQ-IDs Table")
-    // and keep everything that follows (Acceptance, Dependency Graph, etc.).
-    const afterTail = after.slice(cut);
-    md = `${before}${newTable}${afterTail}`;
-  } else {
-    // If the section does not exist yet, append it at the end
-    md = `${md}\n\n${newTable}`;
-  }
-  
-  await writeTextFile(uri, md);
+async function updatePlanMdInPlace(projectRootUri, plan) {
+  const uri = vscode.Uri.joinPath(projectRootUri, 'docs', 'harper', 'PLAN.md');
+  const md = await readTextFile(uri);
+  if (!md) return;
+  await writeTextFile(uri, replacePlanStatusSections(md, plan));
 }
 
 
@@ -3012,6 +2988,7 @@ async function collectFinalizeCandidateFiles(projectRootUri, opts = {}) {
 
 module.exports = {
   buildHarperBody,
+  replacePlanStatusSections,
   extractUserMessages,
   defaultCoreForPhase,
   collectClikeCapabilityCoreBlobs,
