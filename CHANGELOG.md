@@ -58,6 +58,14 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **KIT rule: tests assert what the REQ adds to an append-only list, never that it is the last**:
+  a migration chain (this REQ's revision is in the chain after its predecessor, not the head), a
+  version list, an API or event catalog, a navigation (its entries, not their count). B2B
+  REQ-017's head-migration test broke at every REQ with a migration (REQ-019, REQ-025, REQ-026).
+- **Three KIT rules reached the prompts as Python dicts**: an unquoted `word: ` made YAML read them
+  as mappings (`{'Checks and tests …': 'later REQs …'}`), for cloud and local agents. Quoted; a
+  test checks that no phase-text rule is parsed as a mapping.
+
 - **A check known to be unstable no longer blocks another candidate**: B2B REQ-014's integration
   and REQ-016's e2e fail intermittently across REQs; one that passed on a re-run in one eval blocked
   the next REQ when it failed twice. CLike now remembers (7 days) the checks that failed and then
