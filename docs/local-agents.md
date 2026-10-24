@@ -77,7 +77,7 @@ The extension checks:
 ### Model of the local agent
 - `clike.claudeCode.model` (default `opus`) and `clike.localAgent.codex.model` are passed as
   `--model` to every run, chat and Harper phases alike.
-- `/agent-model list` lists the models you can set (from the CLike model catalog).
+- `/agent-model list` lists the models you can set: Codex's from your Codex login, Claude Code's aliases and catalog ids; `(cloud too)` marks those the cloud selector has as well. Agent and cloud models are chosen separately.
 - From the chat, in any mode: `/agent-model` shows the execution preference, the default agent and the models in use;
   `/agent-model claude sonnet` (or `opus`, `haiku`, an exact id) and
   `/agent-model codex <model-id>` change them (workspace settings).

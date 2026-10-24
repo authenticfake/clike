@@ -28,6 +28,9 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Added
 
+- **Claude Fable 5.1 in the cloud catalog** (`claude-fable-5-1`, 1M context; pricing from
+  platform.claude.com: $10 in, $12.50 / $20 cache write 5m / 1h, $0.25 cache hit, $50 out per MTok).
+
 - **Cockpit layout of the chat (`clike.chat.theme: cockpit`, the new default)**: the chat on the
   left; on the right the mode (Free · Coding · Harper), execution, cloud model, the local agent and
   its model, history scope, layout, and in Harper the methodology (Harper native or BMAD, with the
@@ -51,6 +54,11 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   already used. ↵ sends as before unless a suggestion is being chosen.
 
 ### Fixed
+
+- **`/agent-model list` shows the Codex models your login accepts**: it listed the API ids of the
+  cloud catalog (e.g. `gpt-5.4-mini-2026-03-17`, refused by Codex) and hid the ones Codex accepts
+  (`gpt-6-astra`, `gpt-5.6-*`). Codex's list now comes from the login (`~/.codex/models_cache.json`);
+  `(cloud too)` marks the models the cloud selector has as well.
 
 - **The bubble of `/eval` / `/gate` shows the command as typed** also when it contains an `s` in a
   flag (`--ask`): the webview split the text on the letter `s` instead of on spaces.

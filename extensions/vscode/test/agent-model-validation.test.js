@@ -59,3 +59,19 @@ test('closestModel ignores separators first', () => {
   assert.strictEqual(closestModel('gpt-6-astra', CODEX), 'gpt-6-astra');
   assert.strictEqual(closestModel('gpt55', CODEX), 'gpt-5.5');
 });
+
+test('/agent-model list shows the Codex models of the login, marking those the cloud has too', () => {
+  const { agentModelListMessage } = require('../agent-model-validation');
+  const catalog = [
+    { provider: 'openai', name: 'gpt-6.1-sol', remote_name: 'gpt-6.1-sol' },
+    { provider: 'openai', name: 'gpt-5.4-mini', remote_name: 'gpt-5.4-mini-2026-03-17' },
+    { provider: 'anthropic', name: 'claude-haiku-4-5', remote_name: 'claude-haiku-4-5-20251001' },
+    { provider: 'anthropic', name: 'claude-fable-5-1', remote_name: 'claude-fable-5-1' },
+  ];
+  const message = agentModelListMessage({ codexModels: ['gpt-6.1-sol', 'gpt-6-astra'], catalog });
+  assert.match(message, /Codex \(your login\): gpt-6\.1-sol \(cloud too\), gpt-6-astra\n/);
+  assert.doesNotMatch(message, /gpt-5\.4-mini-2026-03-17/); // a cloud API id Codex refuses
+  assert.match(message, /Claude Code: opus, sonnet, haiku .*claude-haiku-4-5, claude-fable-5-1/);
+  assert.doesNotMatch(message, /20251001/);
+  assert.match(agentModelListMessage({ codexModels: null, catalog }), /login's model list is not available/);
+});

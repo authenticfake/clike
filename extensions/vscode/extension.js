@@ -109,7 +109,7 @@ const releaseExtend = require('./release-extend');
 const { copyTemplateTree, mergeGitignore } = require('./init-merge');
 const { buildAgentChatArgs, createAgentStreamParser, newSession, sessionKey } = require('./agent-chat');
 const { createApprovalGate, createCodexAppServerTurn, startClaudeApprovalServer } = require('./agent-approvals');
-const { readCodexModelSlugs, validateAgentModel } = require('./agent-model-validation');
+const { agentModelListMessage, readCodexModelSlugs, validateAgentModel } = require('./agent-model-validation');
 
 const {
   buildCodexArgsForLocalAgent,
@@ -4257,17 +4257,7 @@ async function cmdOpenChat(context) {
               } catch (err) {
                 log(`[agent-model] catalog unavailable: ${err?.message || err}`);
               }
-              const names = (provider) => [...new Set(catalog
-                .filter(m => String(m.provider || '').toLowerCase() === provider)
-                .map(m => String(m.remote_name || m.name || '').trim())
-                .filter(Boolean))];
-              const claude = ['opus', 'sonnet', 'haiku', ...names('anthropic')];
-              const codex = names('openai');
-              message =
-                `ℹ Agent models you can set with /agent-model —\n` +
-                `Claude Code: ${claude.join(', ')} (opus/sonnet/haiku = latest of that tier)\n` +
-                `Codex: ${codex.length ? codex.join(', ') : 'catalog unavailable'}\n` +
-                `Ids from the CLike model catalog; the CLI accepts the models your Claude / Codex login supports.`;
+              message = agentModelListMessage({ codexModels: readCodexModelSlugs(), catalog });
             } else if (!agent) {
               const executor = normalizeLocalAgentExecutor(state.localAgentExecutor || getDefaultLocalAgentExecutor());
               const executorLabel = executor === 'claude_code' ? 'Claude Code' : executor === 'gpt_codex' ? 'Codex' : 'auto';

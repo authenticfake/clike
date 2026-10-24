@@ -734,7 +734,7 @@ var HELP_COMMANDS = [
   {cmd:'/plan --methodology bmad --agent pm', desc:'Plans with BMAD product slicing and acceptance guidance'},
   {cmd:'/spec --methodology bmad --agent ux', desc:'Builds SPEC guidance with UX journeys, states, and accessibility focus'},
   {cmd:'/agent-session [new|new all]', desc:'Agent chat sessions: shows them; new starts a new conversation with the agent in the current mode (new all: every mode)'},
-  {cmd:'/agent-model list', desc:'Lists the models you can set for Claude Code and Codex (from the CLike model catalog)'},
+  {cmd:'/agent-model list', desc:'Lists the models you can set: Codex from your Codex login, Claude Code its aliases (opus, sonnet, haiku) and the Claude ids of the catalog; (cloud too) marks a model the cloud selector has as well. The cloud model is chosen in the chat model selector, separately'},
   {cmd:'/agent-model [claude|codex] [model]', desc:'Without arguments: shows the execution (cloud/agent), the default agent and the models in use. With arguments: sets the model of the local agent (claude: opus, sonnet, haiku or an exact id; codex: a model id). Applies to chat and Harper phases; saved in the workspace settings'},
   {cmd:'/agent-default codex|claude|auto', desc:'Sets the preferred local agent executor (works in Free, Coding and Harper; does not change mode)'},
   {cmd:'Agent chat (execution = agent)', desc:'Free: questions only, nothing is written. Coding and Harper free text: the agent can also create files, only under generated/<id>/ (Harper artifacts change only through /spec, /plan, /kit, ...)'},

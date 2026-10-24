@@ -32,7 +32,7 @@ The current webview parser supports the following slash commands.
 - `/spec`
 - `/plan`
 - `/kit`
-- `/agent-model list` — list the models you can set for Claude Code and Codex (CLike model catalog; aliases opus/sonnet/haiku)
+- `/agent-model list` — list the models you can set: Codex from your Codex login (`~/.codex/models_cache.json`), Claude Code the aliases opus/sonnet/haiku and the Claude ids of the catalog; `(cloud too)` marks a model the cloud selector has as well. The cloud model is chosen separately, in the chat model selector
 - `/agent-model [claude|codex] [model]` — without arguments: show the execution preference (cloud / agent), the default agent and the models in use; with arguments: set the local agent model (e.g. `/agent-model claude sonnet`); applies to chat and Harper phases, saved in the workspace settings
 - `/eval <REQ-ID>`
 - `/eval <REQ-ID> --fix ["hint"]` — auto-eval: repair from the real failures and re-evaluate (see `auto-eval.md`)
