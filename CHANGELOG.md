@@ -99,6 +99,8 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **A failed eval or gate is no longer shown with ✔** in the chat summary (`✔ … EVAL FAIL`): ✖ unless
+  the status is PASS or PASS_WITH_WARNINGS.
 - **`/eval --fix` stops before a repair when the plan says the REQ waits for your answers**
   (`kit_ready: false`): a repair without them writes no code either (ShortLink: the readiness handoff
   failed the same checks at every cycle). It says what to answer; `/eval REQ --fix "<your decisions>"`
