@@ -648,7 +648,8 @@ async def eval_run(
     integrity = None
     # A partial run (the agent re-running checks while it repairs) is never a verdict: the
     # acceptance changes it may contain are governed when the agent finishes, then the full eval.
-    if not is_manual and not args.checks:
+    targeted = bool(args.regression and args.regression_reqs)
+    if not is_manual and not args.checks and not targeted:
         req = _effective_req_id(args.req_id, ltc, profile_path)
         integrity = _acceptance_integrity(prj, req)
         if integrity and not integrity["ok"]:
@@ -665,7 +666,7 @@ async def eval_run(
         rep, executor = await _execute_profile(
             request,
             prj, profile_path, ltc, args.mode or "auto", args.verdict, args.req_id,
-            regression=bool(args.regression) and not args.checks, checks=args.checks,
+            regression=bool(args.regression) and (not args.checks or targeted), checks=args.checks,
             regression_reqs=args.regression_reqs if args.regression else None,
         )
     except HTTPException:
@@ -678,7 +679,6 @@ async def eval_run(
 
     if not is_manual:
         rep = _with_structural_cases(rep, _required_output_blockers(prj, args.req_id or rep.req_id))
-    targeted = bool(args.regression and args.regression_reqs)
     if not is_manual and not args.checks and not targeted:
         # the full verdict, reusable by the gate while its inputs stay the same
         try:
@@ -688,7 +688,9 @@ async def eval_run(
     payload = _eval_payload(rep, args.req_id)
     payload["integrity"] = integrity
     payload["executor"] = executor
-    payload["regression"] = bool(args.regression) and not args.checks
+    payload["regression"] = bool(args.regression) and (not args.checks or targeted)
+    if targeted:
+        payload["regression_scope"] = args.regression_reqs
     if args.checks:
         # A partial run (repair loop): never the REQ's verdict.
         payload["checks"] = args.checks

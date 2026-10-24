@@ -933,6 +933,14 @@ def _kit_repair_context(req_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
                 **({"eval_check": {
                     "command": "node .clike/bin/eval-check.mjs",
                     "max_runs": int(request.get("eval_check_max_runs") or 8),
+                    # a regression failure (regression::REQ-014::test:integration) is re-checked
+                    # with that REQ's regression: the fix is verified before the full eval
+                    "usage": (
+                        "node .clike/bin/eval-check.mjs <check> ... re-runs this REQ's checks by name; "
+                        "regression::<REQ-ID> (e.g. regression::REQ-014) re-runs that promoted REQ's "
+                        "checks with this candidate overlaid, as the regression does. Re-check each "
+                        "failed check, regression ones included, before finishing."
+                    ),
                 }} if request.get("eval_check") else {}),
             },
             "previous_eval_context_paths": [],

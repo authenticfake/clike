@@ -107,3 +107,13 @@ test('agent timeout: extended by the eval checks it may wait for', () => {
   assert.equal(agentTimeoutMinutes(30, { max_runs: 8 }), 78);
   assert.equal(agentTimeoutMinutes(1800 / 60, { max_runs: 0 }), 30);
 });
+
+test('eval-check shows a regressed REQ\'s failures, not its passing setup steps', () => {
+  const result = compactResult({ cases: [
+    { name: 'regression::REQ-014::env::npm-install', passed: true },
+    { name: 'regression::REQ-014::test:integration', passed: false, excerpt: 'Error: expect(locator).toContainText failed' },
+    { name: 'tests', passed: true },
+  ] });
+  assert.deepStrictEqual(result.checks.map((c) => c.name), ['regression::REQ-014::test:integration', 'tests']);
+  assert.equal(result.status, 'FAIL');
+});

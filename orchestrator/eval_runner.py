@@ -3091,7 +3091,9 @@ class EvalRunner:
                 exhausted = self._prepare_eval_disk(req_id or (ltc or {}).get("req_id"))
             if exhausted:
                 return self._sandbox_exhausted_report(profile, req_id or (ltc or {}).get("req_id"), exhausted)
-            report = self._run_profile(profile, ltc, mode, verdict, req_id, regression and not self._only_checks)
+            report = self._run_profile(
+                profile, ltc, mode, verdict, req_id, regression and (not self._only_checks or bool(self._regression_only))
+            )
             if any(_sandbox_exhausted_case(c) for c in report.cases):
                 report.reason_code = sandbox_resources.SANDBOX_EXHAUSTED_REASON
             missing = sorted({

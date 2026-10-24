@@ -17,7 +17,7 @@ const ERRORS_PER_CHECK = 6000;
 
 const HELPER_SOURCE = `#!/usr/bin/env node
 // CLike eval check — re-runs checks of this REQ's canonical eval in the CLike eval sandbox.
-// Usage: node .clike/bin/eval-check.mjs <check> [<check>...]   (exit 0: all passed)
+// Usage: node .clike/bin/eval-check.mjs <check> [<check>...]   (exit 0: all passed)\n// regression::<REQ-ID> re-runs that promoted REQ's checks with this candidate overlaid.
 // Served by the CLike extension only while it runs a repair; written and removed by CLike.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -71,7 +71,7 @@ process.exit(2);
 function compactResult(report) {
   const cases = Array.isArray(report?.cases) ? report.cases : [];
   const checks = cases
-    .filter((c) => c && (!String(c.name || '').startsWith('env::') || !c.passed))
+    .filter((c) => c && (!/^(regression::[^:]+::)?env::/.test(String(c.name || '')) || !c.passed))
     .map((c) => ({
       name: c.name,
       passed: !!c.passed,
