@@ -5966,12 +5966,14 @@ async function cmdOpenChat(context) {
           }
         }
         // Persist the user's input in the MODE session (the model badge is shown at render time)
+        // ✔ only for a passing verdict: a failed eval or gate is not shown as done
+        const summaryIcon = ['PASS', 'PASS_WITH_WARNINGS'].includes(String(report.status || '').toUpperCase()) ? '✔' : '✖';
         await appendSessionJSONL(activeMode, {
           role: 'system',
-          content:"✔ "+ String(report.summary || ''),
+          content: `${summaryIcon} ${String(report.summary || '')}`,
           model:  state.model || 'auto',
         });
-        panel.webview.postMessage({ type: 'echo', message: "✔ " + report.summary } );
+        panel.webview.postMessage({ type: 'echo', message: `${summaryIcon} ${report.summary}` } );
         clikeHarperBlockingRun = false;
         panel.webview.postMessage({ type: 'busy', on: false, force: true });
         if (phase === 'eval' && msg.fix && !isManual) {
