@@ -20,7 +20,8 @@ gateway) or *agent* (Claude Code / Codex on your machine). `/agent-model` shows 
 the chat on the left and, on the right, the mode, execution, models, agent, methodology (Harper or
 BMAD with the role per phase) and the project — release progress, phases, REQs, the next action
 with **Run** and **▶ Autopilot**, the last eval. Beside the editor it becomes one column with the
-cockpit in a drawer (☰). `classic`, `pro`, `studio` and `paper` have the same features.
+cockpit in a drawer (☰). `classic`, `pro`, `studio` and `paper` have the same features. The whole
+UI, area by area, with its picture: [chat-ui.md](chat-ui.md).
 
 **Run card** (every layout): while a command runs, a card above the chat shows its real steps
 (KIT, EVAL 1, REPAIR 1, EVAL 2, GATE…) with their outcome, the cycle of a `--fix` loop, the time
