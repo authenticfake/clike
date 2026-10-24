@@ -40,9 +40,6 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   shapes…), PLAN marked both REQs not ready and the KIT wrote no code; the autopilot reported only
   "required roots missing".
 
-- **Claude Fable 5.1 in the cloud catalog** (`claude-fable-5-1`, 1M context; pricing from
-  platform.claude.com: $10 in, $12.50 / $20 cache write 5m / 1h, $0.25 cache hit, $50 out per MTok).
-
 - **Cockpit layout of the chat (`clike.chat.theme: cockpit`, the new default)**: the chat on the
   left; on the right the mode (Free · Coding · Harper), execution, cloud model, the local agent and
   its model, history scope, layout, and in Harper the methodology (Harper native or BMAD, with the
