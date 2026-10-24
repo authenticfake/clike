@@ -602,6 +602,9 @@ class _BaselineCache:
         self.history: Dict[str, float] = {}
         # check name -> its normalized error lines on the promoted tree (eval_failures.error_keys)
         self.errors: Dict[str, List[str]] = {}
+        # check name -> {"at", "errors"}: it failed with a candidate, then passed on a re-run of the
+        # same code, in a recent eval (any promoted state): a known nondeterministic check
+        self.flaky: Dict[str, Dict[str, Any]] = {}
         self.at = time.time()
         if path is None:
             return
@@ -609,6 +612,11 @@ class _BaselineCache:
             data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return
+        self.flaky = {
+            str(k): {"at": float(v.get("at") or 0), "errors": list(v.get("errors") or [])}
+            for k, v in (data.get("flaky") or {}).items()
+            if isinstance(v, dict) and time.time() - float(v.get("at") or 0) <= self.HISTORY_AGE_S
+        }
         at = float(data.get("at") or 0)
         history = {str(k): float(v) for k, v in (data.get("history") or {}).items()}
         history.update({str(k): at for k, v in (data.get("results") or {}).items() if v})
@@ -637,6 +645,24 @@ class _BaselineCache:
             return []
         return [key for key in eval_failures.error_keys(excerpt or "") if key not in set(known)]
 
+    def record_flaky(self, check: str, excerpt: Optional[str]) -> None:
+        """``check`` failed, then passed on a re-run of the same code: remember it and its errors."""
+        known = self.flaky.get(check, {}).get("errors") or []
+        self.flaky[check] = {"at": time.time(), "errors": sorted(set(known) | set(eval_failures.error_keys(excerpt or "")))}
+        self.store({})
+
+    def known_flaky(self, check: str, excerpt: Optional[str]) -> Optional[float]:
+        """When ``check`` was last seen nondeterministic, if this failure shows only errors seen in
+        its nondeterministic failures (a timeout, a missing UI element); None otherwise: an error
+        it never showed is the candidate's."""
+        seen = self.flaky.get(check)
+        if not seen or not seen.get("errors"):
+            return None
+        known, keys = set(seen["errors"]), eval_failures.error_keys(excerpt or "")
+        if not keys or any(key not in known for key in keys):
+            return None  # no error to compare, or one it never showed: the candidate's
+        return float(seen["at"])
+
     def store(self, results: Dict[str, bool], errors: Optional[Dict[str, List[str]]] = None) -> None:
         self.results.update(results)
         self.errors.update(errors or {})
@@ -648,7 +674,7 @@ class _BaselineCache:
             history = {**self.history, **{k: self.at for k, v in self.results.items() if v}}
             tmp.write_text(
                 json.dumps({"digest": self.digest, "at": self.at, "results": self.results, "history": history,
-                            "errors": self.errors}),
+                            "errors": self.errors, "flaky": self.flaky}),
                 encoding="utf-8",
             )
             tmp.replace(self.path)
@@ -3943,7 +3969,7 @@ class EvalRunner:
 
     def _retry_failed_regression_tests(
         self, runner: "EvalRunner", profile: Path, ltc: Dict[str, Any], other: str, report: EvalReport,
-        known_failing: frozenset = frozenset(),
+        known_failing: frozenset = frozenset(), baseline: Optional["_BaselineCache"] = None,
     ) -> None:
         """Re-run once the blocking tests of a promoted REQ that failed in its regression. One that
         passes the second time is nondeterministic (timing, order, async UI): a warning naming the
@@ -3970,6 +3996,8 @@ class EvalRunner:
                     f"{_NONDETERMINISTIC_NOTE}: {case.name} of {other} failed, then passed on a re-run of the same code. "
                     f"Not a regression of this candidate: make the test of {other} deterministic."
                 )
+                if baseline is not None:
+                    baseline.record_flaky(case.name, case.excerpt)
                 case.blocking = False
                 case.stderr = f"{case.stderr or ''}\n{note}"[-4000:]
                 case.excerpt = f"{note}\n\n{case.excerpt or ''}"
@@ -4031,6 +4059,22 @@ class EvalRunner:
                 case.stderr = f"{case.stderr or ''}\n{note}"[-4000:]
                 case.excerpt = f"{note}\n\n{case.excerpt or ''}"
                 log.info("regression %s::%s fails without the candidate, with new errors", other, case.name)
+                continue
+            flaky_at = baseline.known_flaky(case.name, case.excerpt) if case.name not in failing_without else None
+            if flaky_at and not case.name.startswith("env::"):
+                # it failed and then passed on a re-run in a recent eval, it passes on the promoted tree
+                # alone, and it fails again with errors seen only in those nondeterministic runs
+                when = time.strftime("%Y-%m-%d", time.localtime(flaky_at))
+                note = (
+                    f"{_NONDETERMINISTIC_NOTE}: {case.name} of {other} failed, then passed on a re-run of the same "
+                    f"code in an earlier eval ({when}), passes on the promoted tree alone, and fails here only with "
+                    f"errors it showed then: a known unstable check, not a regression of this candidate. Make the "
+                    f"test of {other} deterministic."
+                )
+                case.blocking = False
+                case.stderr = f"{case.stderr or ''}\n{note}"[-4000:]
+                case.excerpt = f"{note}\n\n{case.excerpt or ''}"
+                log.info("regression %s::%s known unstable (nondeterministic before)", other, case.name)
                 continue
             failed_at = baseline.failed_before(case.name)
             if case.name not in failing_without and failed_at and not case.name.startswith("env::"):
@@ -4238,7 +4282,7 @@ class EvalRunner:
             ))
             log.info("regression %s: candidate reconciles %d test file(s)", other, len(files))
         baseline = self._baseline_cache(req_id, other)
-        self._retry_failed_regression_tests(runner, profile, ltc, other, report, known_failing=baseline.failing())
+        self._retry_failed_regression_tests(runner, profile, ltc, other, report, known_failing=baseline.failing(), baseline=baseline)
         self._mark_preexisting_regression_failures(req_id, profile, ltc, other, report, baseline=baseline)
         self._note_shared_file_changes(other, candidate_src.parent, report)
         for case in report.cases:

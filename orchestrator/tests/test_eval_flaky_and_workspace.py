@@ -109,6 +109,39 @@ class BaselineCacheTests(_RegressionProject):
         self.assertFalse(case["blocking"])
         self.assertIn("an unstable check", case["stderr"])
 
+    def test_a_check_nondeterministic_in_an_earlier_eval_does_not_block_with_its_known_errors(self):
+        # B2B REQ-014 / REQ-016: passed on a re-run in one eval, failed twice with the next candidate
+        counter = self.proj.parent / f"{self.proj.name}.count"
+        counter.write_text("0")
+        script = (
+            "import sys, pathlib\n"
+            f"p = pathlib.Path({str(counter)!r}); n = int(p.read_text()) + 1; p.write_text(str(n))\n"
+            "if n in (1, 3, 4):\n"
+            "    print('Error: Timeout 10000ms exceeded waiting for getByLabel'); sys.exit(1)\n"
+        )
+        kit = self.proj / "runs" / "kit" / "REQ-001"
+        (kit / "test" / "flaky.py").write_text(script)
+        ltc = {"req_id": "REQ-001", "run_from": "runs/kit/REQ-001",
+               "checks": [{"id": "unit", "command": "python3 test/flaky.py", "blocking": True}]}
+        (kit / "ci" / "LTC.json").write_text(json.dumps(ltc))
+        first = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        case = next(c for c in first["cases"] if c["name"] == "regression::REQ-001::unit")
+        self.assertIn("passed on a re-run of the same code", case["stderr"])  # run 1 fails, retry 2 passes
+        second = self._post("/v1/eval/run", "REQ-002", regression=True).json()  # 3, 4 fail; 5 alone passes
+        case = next(c for c in second["cases"] if c["name"] == "regression::REQ-001::unit")
+        self.assertFalse(case["blocking"])
+        self.assertIn("a known unstable check", case["stderr"])
+
+    def test_a_known_unstable_check_with_a_new_error_still_blocks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = eval_runner._BaselineCache(Path(tmp) / "REQ-014.json", "d1")
+            cache.record_flaky("test:integration", "Error: Timeout 120000ms exceeded")
+            again = eval_runner._BaselineCache(Path(tmp) / "REQ-014.json", "d2")  # another promoted state
+            self.assertIsNotNone(again.known_flaky("test:integration", "Error: Timeout 90000ms exceeded"))
+            self.assertIsNone(again.known_flaky("test:integration", "E   assert 409 == 404"))
+            self.assertIsNone(again.known_flaky("other", "Error: Timeout 1ms exceeded"))
+            self.assertIsNone(again.known_flaky("test:integration", "no recognizable error line"))
+
     def test_no_baseline_is_kept_inside_the_project(self):
         self._root.stop()
         self._flaky_req001(fail_times=99)

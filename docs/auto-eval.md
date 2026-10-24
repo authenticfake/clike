@@ -292,7 +292,12 @@ regression failures are part of what the repair receives.
 A blocking test of a promoted REQ that fails is **run once more** on the same code. If it passes,
 it is nondeterministic (timing, order, asynchronous UI): it is reported as a non-blocking warning
 (`[CLike EvalRunner] Nondeterministic: … make the test of REQ-0xx deterministic`), does not block
-the gate and is not sent to the candidate's repair. Failing twice, it is a regression.
+the gate and is not sent to the candidate's repair. Failing twice, it is a regression. Unless it is
+**known unstable**: CLike remembers (7 days, any promoted state, in the eval sandbox volume) each
+check that failed and then passed on a re-run, with its error lines; failing twice with a later
+candidate while it passes on the promoted tree alone, and showing only errors seen in those runs (a
+timeout, a missing UI element), it is a warning (`… a known unstable check`). A failure with an
+error it never showed, or with no error line to compare, is a regression.
 
 A blocking failure of a promoted REQ that remains (a test, a service it starts, a value it
 provisions) is then run on the promoted tree **without the candidate**. If it fails there too, the

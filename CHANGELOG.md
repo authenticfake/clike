@@ -58,6 +58,12 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **A check known to be unstable no longer blocks another candidate**: B2B REQ-014's integration
+  and REQ-016's e2e fail intermittently across REQs; one that passed on a re-run in one eval blocked
+  the next REQ when it failed twice. CLike now remembers (7 days) the checks that failed and then
+  passed on a re-run, with their error lines: failing again only with those errors, while passing
+  on the promoted tree alone, is a warning. A new error, or none to compare, still blocks.
+
 - **A KIT's own `regression` check no longer fails for tests it does not have**: on B2B REQ-025 and
   REQ-026 the KIT's `regression` check re-ran earlier REQs' tests (`file or directory not found`),
   and the repair, unable to drop a locked check, copied those tests into the KIT. When the eval
