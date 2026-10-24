@@ -35,8 +35,8 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   Assumptions) and keeps open only the owner's questions (`OPEN-nn`); every REQ of `plan.json` has
   `kit_ready` and `blockers` (owner questions only); the KIT never stops on an open detail. After
   `/plan` CLike lists the REQs that wait (`⚠ KIT READINESS`), `/autopilot` parks them before `/kit`
-  with their questions, a manual `/kit` warns. Same rules for the cloud model, Codex and Claude
-  Code. On a ShortLink test project SPEC left 8 decisions open (URL policy, code alphabet, API
+  with their questions, a manual `/kit` warns. Same rules for the cloud model and the local
+  agents. On a ShortLink test project SPEC left 8 decisions open (URL policy, code alphabet, API
   shapes…), PLAN marked both REQs not ready and the KIT wrote no code; the autopilot reported only
   "required roots missing".
 
@@ -71,10 +71,9 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   the step running (agent, cloud model or sandbox) and suggests waiting when the step is about to end;
   after a stop the card lists what was done and what was cut, with the command to resume and the
   changes to review.
-- **Local agents in Harper phases stream what they do**: Claude Code runs with
-  `--output-format stream-json --verbose` (its final `result` event is kept as the run's output, the
-  same envelope as before, so tool outputs never reach the blocked/failed/interrupted checks), Codex
-  with its JSONL events; both feed the run card.
+- **Local agents in Harper phases stream what they do**: their event streams feed the run card;
+  the final result is kept as the run's output, as before, so tool outputs never reach the
+  blocked/failed/interrupted checks.
 - **History of conversations per mode**: **＋ New chat** (every layout) keeps the current
   conversation in `.clike/sessions/archive/<mode>/` instead of deleting it and, with an agent, starts
   a new agent session in that mode too; the cockpit's **History** lists the earlier conversations of
@@ -110,9 +109,8 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   scopes (ShortLink test project: 82 lines of REQ-001 gone). The table now ends at the next heading;
   the snapshot no longer stops at a letter `Z` (`\Z` is not an end-of-text anchor in JavaScript).
 
-- **`/agent-model list` shows the Codex models your login accepts**: it listed the API ids of the
-  cloud catalog (e.g. `gpt-5.4-mini-2026-03-17`, refused by Codex) and hid the ones Codex accepts
-  (`gpt-6-astra`, `gpt-5.6-*`). Codex's list now comes from the login (`~/.codex/models_cache.json`);
+- **`/agent-model list` shows the models the local agent accepts**: it listed ids of the cloud
+  catalog the agent refuses and hid some it accepts. The list now comes from the agent's own login;
   `(cloud too)` marks the models the cloud selector has as well.
 
 - **The bubble of `/eval` / `/gate` shows the command as typed** also when it contains an `s` in a
@@ -131,7 +129,7 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 - **`/autopilot [N] | stop | status`**: the REQs of the plan unattended, in dependency order —
   `/kit`, `/eval --fix`, `/gate` each, through the chat handlers, so with the configured executor
-  (cloud, Codex, Claude Code) and the same locks, gate and audit. A fixed rule, not a model, drives
+  (cloud or local agent) and the same locks, gate and audit. A fixed rule, not a model, drives
   it: a REQ that needs the developer is parked with its reason and the independent REQs go on; a
   provider quota or rate limit waits and retries (`clike.autopilot.quotaWaitMinutes`,
   `clike.autopilot.quotaRetries`); an in-progress REQ with its KIT resumes from the eval.
@@ -141,13 +139,13 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   (`runs/autopilot/state.json`) makes an interrupted run resume by itself when VS Code opens again
   (`clike.autopilot.resumeOnStartup`); CLike services not answering wait and retry like a quota. Report in
   `runs/autopilot/report.md`. It stops before `/finalize`.
-- **`harper_autopilot` MCP tool and `scripts/clike-autopilot.sh` / `.ps1`**: `/autopilot` from Claude
-  Code, Codex or a terminal — `start` returns at once, `status` / `stop` steer it; the scripts start
-  it directly or through `claude -p` / `codex exec` and wait by polling the server (no tokens).
+- **`harper_autopilot` MCP tool and `scripts/clike-autopilot.sh` / `.ps1`**: `/autopilot` from a local
+  agent or a terminal — `start` returns at once, `status` / `stop` steer it; the scripts start it
+  directly or through a local agent and wait by polling the server (no tokens).
 - **`harper_init` MCP tool**: `/init` of the folder open in VS Code, in place (existing files kept),
   so an agent can run a project from `/init` to `/finalize` through MCP.
 - **`docs/howto-mcp-bmad-claude.md`**: the sequence `/init` → IDEA (analyst) → SPEC (pm, ux) → PLAN
-  (architect) → KIT (developer) / EVAL --fix / GATE → FINALIZE (tech-writer) driven by Claude Code,
+  (architect) → KIT (developer) / EVAL --fix / GATE → FINALIZE (tech-writer) driven by a local agent,
   with one ready instruction and a human check after PLAN.
 - **`docs/clike-at-a-glance.md`**: the overview picture with a description area by area; the
   README gets a *Highlights* section linking to it (the picture is no longer embedded there).
@@ -170,7 +168,7 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   "prefer agent", stopping the agent started the same phase in the cloud; the auto-eval after a KIT
   and the `/finalize` verification started after a Cancel. The phase requests now carry the cancel
   signal (`Harper <phase> cancelled`), the response is discarded, a stopped agent never falls back
-  to the cloud, and no follow-up step starts. Same for cloud, Codex and Claude Code.
+  to the cloud, and no follow-up step starts. Same for cloud and local agents.
 
 - **An eval sandbox out of memory is recognised, not repaired**: under memory pressure the kernel
   slows the checks to time-outs and kills processes without any `ENOMEM` in their output; on B2B
@@ -180,7 +178,7 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   report says how to give the sandbox more memory.
 
 - **The KIT acts as a senior engineer of the REQ's lane, for every stack and every executor**: the
-  cloud prompt named only Python / TypeScript / SQL / Infra, and Codex / Claude Code got no role at
+  cloud prompt named only Python / TypeScript / SQL / Infra, and the local agents got no role at
   all. One sentence (shared text, checked by a test) now covers any lane — Go, Ruby, Java/Kotlin,
   .NET, PHP, Rust, mobile (Swift/iOS, Kotlin/Android, Flutter, React Native), PLC (IEC 61131-3),
   low-code (Mendix) — and says that checks whose toolchain is not in the eval sandbox (Xcode, Flutter,
@@ -222,12 +220,11 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   (`regression-checks::not-run`), as for promoted REQs: CLike's regression runs those tests itself.
   The helpers of a promoted test that imports the test tree as a package (`test.x.y`) are found.
 
-- **An interrupted agent run is no longer a finished KIT**: on B2B REQ-026 Codex stopped mid-run
-  (`Selected model is at capacity`, exit 1) and CLike committed its partial files as the KIT and
-  ran the eval. An agent that exits with an error after writing files (Codex: exit code /
-  `turn.failed`; Claude Code: `is_error` in its result) is now `LOCAL_AGENT_INTERRUPTED`: files kept,
+- **An interrupted agent run is no longer a finished KIT**: on B2B REQ-026 the local agent stopped
+  mid-run (model at capacity) and CLike committed its partial files as the KIT and ran the eval. An
+  agent that exits with an error after writing files is now `LOCAL_AGENT_INTERRUPTED`: files kept,
   nothing committed or evaluated. `/autopilot` waits and retries on a model at capacity. A KIT
-  without `ci/LTC.json` is incomplete for every executor (cloud, Codex, Claude Code), not committed.
+  without `ci/LTC.json` is incomplete for every executor (cloud or local agent), not committed.
 
 - **A gate no longer reuses a verdict of an older eval engine**: the reusable eval verdict and the
   regression baseline were keyed on CLike's version number, unchanged between fixes; B2B REQ-025's
@@ -341,9 +338,8 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   gate promotion records existed (B2B REQ-003) had its KIT overlaid over the canonical tree, so an
   older `ports.py` replaced the one later REQs had changed, and REQ-019 failed on names that were
   already promoted. Such a KIT file now wins only when its canonical copy is not newer in git.
-- **Local agent timeouts**: `clike.localAgent.codex.timeoutMinutes` and
-  `clike.claudeCode.timeoutMinutes` were ignored (the common `clike.localAgent.timeoutMinutes`
-  always won); now the executor's own timeout applies when set. A run that times out is no
+- **Local agent timeouts**: the per-agent timeout settings were ignored (the common
+  `clike.localAgent.timeoutMinutes` always won); now the executor's own timeout applies when set. A run that times out is no
   longer thrown away: CLike checks the files the agent wrote and, if the required outputs are
   there, the phase continues (normalization, eval); otherwise the error names the setting to raise.
 - **Regression ran the old test after a reconciliation**: when a candidate reconciles a promoted
@@ -364,7 +360,7 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   without a digest in the acceptance lock, so a test added after the lock (a reconciled test of a
   promoted REQ) could not be fixed by a later repair, and the extension restored it. Such files
   are not locked acceptance: they are kept (returned as `unlocked`), for cloud repairs as for
-  Claude Code and Codex.
+  local agents.
 - **`clike.localAgent.allowEval: false` was ignored**: `/eval` ran the local-agent pre-pass whenever
   a local executor was selected. The setting now skips it and the eval goes straight to the sandbox.
 - **Merge-on-gate blocked by a KIT file of the REQ**: a tracked file of `runs/kit/<REQ>/` changed
