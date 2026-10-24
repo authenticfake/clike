@@ -99,6 +99,10 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **`/eval --fix` stops before a repair when the plan says the REQ waits for your answers**
+  (`kit_ready: false`): a repair without them writes no code either (ShortLink: the readiness handoff
+  failed the same checks at every cycle). It says what to answer; `/eval REQ --fix "<your decisions>"`
+  gives the answers to the repair and goes on.
 - **A status update of PLAN.md no longer deletes the REQ sections after the REQ table**: when a
   REQ changed status (open → in_progress at its KIT, done at the gate) CLike rewrote the table up to
   the first `### Acceptance` heading, deleting a `## REQ-001 — …` section in between with all its

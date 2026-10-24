@@ -45,6 +45,12 @@ on a network or shared between users.
   and locked by a separate call before the implementation exists.
 - **Local agents** run with the permissions of the developer's CLI session; CLike constrains them
   through the phase contract and post-run validation, not through an OS sandbox.
+- **`npm audit` in `extensions/vscode` reports 2 high findings** (`@azure/msal-node` 6.x,
+  GHSA-xcx6-jx8p-x3h5, and `@azure/identity`, which pins `msal-node ^6`). They come only from
+  `@vscode/vsce`, a development dependency that builds the `.vsix`: they are not in the installed
+  extension, and the affected code is used only by `vsce publish` with Azure credentials, which CLike
+  does not use. No fix exists upstream yet (`@azure/identity` 4.14.0 still requires `msal-node ^6`);
+  updated when `@vscode/vsce` or `@azure/identity` move to `msal-node` 7.1+.
 
 ## Reporting a vulnerability
 
