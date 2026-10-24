@@ -686,6 +686,7 @@ Use this exact structure:
       "data_contracts": ["canonical entities, schemas, fields, states, validation invariants, and persistence expectations"],
       "acceptance": ["bullet 1", "bullet 2", "bullet 3", "bullet 4", "bullet 5"],
       "dependsOn": ["REQ-00x", "..."],
+      "covers": ["UC-01.1", "UC-01.2", "UC-03"],
       "track": "App" | "Infra" | "Data" | "Integration" | "Industrial" | "AI-Native",
       "status": "open" | "in_progress" | "done" | "deferred",
       "lane": "python" | "typescript" | "node" | "java" | "dotnet" | "go" | "rust" | "sql" | "kafka" | "ci" | "data" | "data platform" | Cloud Data Platform | "confluent" | "infra" | "frontend" | "Mendix" | "backend" | "iac" | "industrial" | "plc-scada" | "ai-native", 
@@ -708,6 +709,7 @@ Use this exact structure:
 
 ### Hard rules
 - Every REQ **must** include: id, title, status, lane, dependsOn, acceptance, functional_scope, technical_scope, non_functional_requirements, security_requirements, compliance_requirements, operational_requirements, integration_contracts, data_contracts, test_strategy, risk_notes, main_module_boundary, test_profile, gate_policy_ref.
+- Every REQ **must** include `covers`: the SPEC use-case steps it implements (`UC-01.1`, or `UC-03` for a whole use case). Every step of every SPEC use case, and every in-scope prerequisite, is covered by at least one REQ; CLike checks it after /plan and lists what is uncovered. A REQ that covers no use case (pure infrastructure) says why in technical_scope.
 - Every REQ **should** include: domain, runtime_profile, packs, skills, design_profiles, gate_expectations, out_of_scope, future_compatibility_notes.
 - Include `runtime_profile` when known. Include `gate_expectations` when relevant.
 - The new capability fields are additive and backward-compatible. Do not remove existing required fields.
