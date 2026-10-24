@@ -58,6 +58,13 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **A KIT's own `regression` check no longer fails for tests it does not have**: on B2B REQ-025 and
+  REQ-026 the KIT's `regression` check re-ran earlier REQs' tests (`file or directory not found`),
+  and the repair, unable to drop a locked check, copied those tests into the KIT. When the eval
+  includes CLike's regression, the candidate's regression checks are not run
+  (`regression-checks::not-run`), as for promoted REQs: CLike's regression runs those tests itself.
+  The helpers of a promoted test that imports the test tree as a package (`test.x.y`) are found.
+
 - **An interrupted agent run is no longer a finished KIT**: on B2B REQ-026 Codex stopped mid-run
   (`Selected model is at capacity`, exit 1) and CLike committed its partial files as the KIT and
   ran the eval. An agent that exits with an error after writing files (Codex: exit code /
