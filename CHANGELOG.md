@@ -75,6 +75,13 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **Cancel stops every Harper phase, not only `/eval` and `/gate`**: a cloud `/kit` (or `/spec`,
+  `/plan`…) went on after Cancel and its response was written, committed and auto-evaluated; with
+  "prefer agent", stopping the agent started the same phase in the cloud; the auto-eval after a KIT
+  and the `/finalize` verification started after a Cancel. The phase requests now carry the cancel
+  signal (`Harper <phase> cancelled`), the response is discarded, a stopped agent never falls back
+  to the cloud, and no follow-up step starts. Same for cloud, Codex and Claude Code.
+
 - **An eval sandbox out of memory is recognised, not repaired**: under memory pressure the kernel
   slows the checks to time-outs and kills processes without any `ENOMEM` in their output; on B2B
   REQ-026 the 3 GB sandbox hit its limit 9 million times, two processes were OOM-killed, and the

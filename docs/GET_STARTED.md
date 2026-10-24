@@ -24,6 +24,10 @@ With execution = agent, the chat **is** a conversation with Claude Code or Codex
   conversation (`/agent-session` shows the sessions, `/agent-session new` starts a fresh one);
 - the agent's answer and the tools it uses (files read or edited, commands) appear live;
 - **Cancel** stops the agent, and a running `/eval`, `/gate` or `--fix` loop with it;
+  any Harper phase (`/kit`, `/spec`, `/plan`, `/finalize`…), cloud or local agent, too: its response
+  is discarded (nothing written, nothing committed), a stopped agent is not replaced by a cloud run,
+  and the next step (auto-eval after a KIT, the `/finalize` verification) does not start; files an
+  agent wrote before the stop stay in `runs/kit/<REQ>/`, uncommitted.
 - Free is read-only (questions only). Coding and **Harper free text** let the agent also create
   files, only under `generated/<id>/` (e.g. in Harper: "create a script that computes N!"); the
   Harper artifacts (SPEC, PLAN, KIT, ...) change only through the phase commands;

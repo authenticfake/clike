@@ -629,8 +629,9 @@ test('a cancelled agent run never falls back to the cloud', () => {
 test('Cancel reaches every Harper request and nothing is written after it (source contract)', () => {
   const fs = require('fs');
   const path = require('path');
-  const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
-  const util = fs.readFileSync(path.join(__dirname, '..', 'utility.js'), 'utf8');
+  // CRLF on a Windows checkout
+  const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8').replace(/\r\n/g, '\n');
+  const util = fs.readFileSync(path.join(__dirname, '..', 'utility.js'), 'utf8').replace(/\r\n/g, '\n');
   assert.match(util, /async function httpPostJsonLong\(url, \{ headers, body, signal \}, timeoutMs\)/);
   assert.match(util, /serviceRequest\('POST', url, \{ body, headers, signal,/);
   assert.match(ext, /signal: opts\.signal,/);
