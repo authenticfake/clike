@@ -191,7 +191,11 @@ function buildCockpitState(root, opts = {}) {
     const waiting = (Array.isArray(r.dependsOn) ? r.dependsOn : []).map(upper)
       .filter((d) => d && status(byId.get(d) || {}) !== 'done');
     let note;
-    const blocked = (st === 'open' || st === 'in_progress') ? kitBlockers(r) : null;
+    // declared not ready for its KIT: until a KIT exists, the decisions come first; once it exists the
+    // REQ follows its sequence (eval, gate) and the open decisions are a warning
+    const hasKit = exists(root, `runs/kit/${id}/ci/LTC.json`);
+    const declared = (st === 'open' || st === 'in_progress') ? kitBlockers(r) : null;
+    const blocked = declared && !hasKit && !waiting.length ? declared : null;
     if (blocked) note = `blocked: ${blocked.blockers[0] || 'decisions'}${blocked.blockers.length > 1 ? ` +${blocked.blockers.length - 1}` : ''}`;
     else if (st === 'done') note = gateRep && PASSING.has(gateRep.status) ? 'gate PASS' : 'done';
     else if (st === 'deferred') note = 'deferred';
@@ -204,7 +208,8 @@ function buildCockpitState(root, opts = {}) {
       note = `next: /${step}`;
     } else note = waiting.length ? `waits ${waiting[0]}${waiting.length > 1 ? ` +${waiting.length - 1}` : ''}` : 'ready';
     return {
-      id, title: String(r.title || ''), status: st, note, waiting, blockers: blocked ? blocked.blockers : [], has_kit: exists(root, `runs/kit/${id}/ci/LTC.json`),
+      id, title: String(r.title || ''), status: st, note, waiting, blockers: blocked ? blocked.blockers : [],
+      open_decisions: declared && hasKit ? declared.blockers : [], has_kit: hasKit,
       last_eval: evalRep ? { status: evalRep.status, failed: evalRep.failed } : null,
     };
   });
@@ -232,7 +237,15 @@ function buildCockpitState(root, opts = {}) {
       const row = rows.find((x) => x.id === action.req_id);
       const step = row && row.status === 'in_progress' ? row.note.replace(/^next: \//, '') : 'kit';
       const command = step === 'eval' ? `/eval ${action.req_id} --fix` : `/${step} ${action.req_id}`;
-      next = { command, message: action.message };
+      const lastEval = row && row.last_eval;
+      next = { command, message: step === 'eval' && lastEval && !PASSING.has(lastEval.status)
+        ? `The last eval of ${action.req_id} failed (${lastEval.failed} check(s)): /eval --fix repairs from its failures and evaluates again.`
+        : action.message };
+      if (row && row.open_decisions.length) {
+        // the plan still declares the REQ not ready: the repair may refuse to implement
+        next.message += ` Note: the plan still leaves ${row.open_decisions.join(', ')} open — the agent may not implement until they are decided.`;
+        extendAlternative = { command: '/spec <your decisions>', message: `Decide ${row.open_decisions.join(', ')} (then /plan)` };
+      }
     } else if (action.action === 'finalize_only') {
       // every REQ is done: /finalize, then the next release when its inputs are there (the same
       // detection /idea --extend runs: a docs/inputs/vN above the plan's release, with files)
@@ -262,11 +275,13 @@ function buildCockpitState(root, opts = {}) {
   // With BMAD, a phase whose roles have not all run stays open next to the next step (SPEC by pm
   // and ux, PLAN by architect and pm) until the KIT starts: the developer chooses.
   const alternatives = extendAlternative ? [extendAlternative] : [];
-  const kitStarted = counts.done > 0 || counts.in_progress > 0;
-  if (opts.methodology === 'bmad' && next && !kitStarted) {
+  // the phases go in order: SPEC roles are a choice until the PLAN is done, PLAN roles until a KIT ran
+  const kitStarted = counts.done > 0 || counts.in_progress > 0 || phaseRan(root, 'kit');
+  if (opts.methodology === 'bmad' && next) {
     const doneOf = Object.fromEntries(phases.map((ph) => [ph.id, ph.state === 'done']));
+    const stillOpen = { spec: !doneOf.plan, plan: !kitStarted };
     for (const phase of ['spec', 'plan']) {
-      if (!doneOf[phase]) continue;
+      if (!doneOf[phase] || !stillOpen[phase]) continue;
       for (const role of missingRoles(root, phase)) {
         const command = `/${phase} --methodology bmad --agent ${role}`;
         if (command !== next.command) alternatives.push({ command, message: `${phase.toUpperCase()} by the ${role} role has not run yet` });

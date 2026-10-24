@@ -71,6 +71,9 @@ test('BMAD: a phase whose roles have not all run stays a choice next to the next
   assert.deepEqual(state.alternatives.map((a) => a.command), ['/plan --methodology bmad --agent pm']);
   fs.writeFileSync(path.join(root, 'docs', 'harper', 'plan.json'), JSON.stringify({ reqs: [{ id: 'REQ-001', status: 'in_progress' }] }));
   assert.deepEqual(buildCockpitState(root, bmad).alternatives, [], 'the KIT started: no going back');
+  // SPEC roles are a choice only until the PLAN is done
+  fs.rmSync(path.join(root, 'docs', 'harper', 'ux'), { recursive: true });
+  assert.ok(!buildCockpitState(root, bmad).alternatives.some((a) => a.command.startsWith('/spec')), 'no /spec --agent ux after the PLAN');
 });
 
 test('a new project: no IDEA yet, the next action is /idea', () => {
@@ -180,6 +183,20 @@ test('a REQ the plan declares not ready for its KIT: decisions first, the KIT on
   assert.deepEqual(state.next.blockers, [{ id: 'D-01', subject: 'URL policy', required: 'schemes, lengths' }, { id: 'P-01', subject: '', required: '' }]);
   assert.deepEqual(state.alternatives.map((a) => a.command), ['/kit REQ-001']);
   assert.equal(state.reqs[0].note, 'blocked: D-01 +1');
+  assert.equal(state.reqs[1].note, 'waits REQ-001', 'its dependency first');
+  // the KIT ran anyway and its eval failed: the sequence goes on (eval --fix), the decisions are a warning
+  fs.mkdirSync(path.join(root, 'runs', 'kit', 'REQ-001', 'ci'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'runs', 'kit', 'REQ-001', 'ci', 'LTC.json'), '{}');
+  fs.mkdirSync(path.join(root, 'runs', 'eval', 'REQ-001'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'runs', 'eval', 'REQ-001', 'report_REQ-001_100.json'), JSON.stringify({ status: 'FAIL', passed_count: 1, failed: 3 }));
+  blockedPlan.reqs[0].status = 'in_progress';
+  fs.writeFileSync(path.join(root, 'docs', 'harper', 'plan.json'), JSON.stringify(blockedPlan));
+  const after = buildCockpitState(root, { methodology: 'bmad', fingerprint: () => 'x' });
+  assert.equal(after.next.command, '/eval REQ-001 --fix');
+  assert.match(after.next.message, /last eval of REQ-001 failed \(3 check/);
+  assert.match(after.next.message, /still leaves D-01, P-01 open/);
+  assert.deepEqual(after.alternatives.map((a) => a.command), ['/spec <your decisions>'], 'no SPEC/PLAN role once the KIT ran');
+  assert.equal(after.reqs[0].note, 'next: /eval');
   assert.equal(kitBlockers({ readiness: { kit_ready: true } }), null);
   assert.equal(kitBlockers({}), null);
 });
