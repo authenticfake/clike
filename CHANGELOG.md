@@ -28,6 +28,16 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Added
 
+- **SPEC decides, PLAN says what is KIT-ready, the autopilot stops before a KIT that cannot be
+  built**: SPEC decides the ordinary choices the IDEA leaves open (simplest reasonable option, in
+  Assumptions) and keeps open only the owner's questions (`OPEN-nn`); every REQ of `plan.json` has
+  `kit_ready` and `blockers` (owner questions only); the KIT never stops on an open detail. After
+  `/plan` CLike lists the REQs that wait (`⚠ KIT READINESS`), `/autopilot` parks them before `/kit`
+  with their questions, a manual `/kit` warns. Same rules for the cloud model, Codex and Claude
+  Code. On a ShortLink test project SPEC left 8 decisions open (URL policy, code alphabet, API
+  shapes…), PLAN marked both REQs not ready and the KIT wrote no code; the autopilot reported only
+  "required roots missing".
+
 - **Claude Fable 5.1 in the cloud catalog** (`claude-fable-5-1`, 1M context; pricing from
   platform.claude.com: $10 in, $12.50 / $20 cache write 5m / 1h, $0.25 cache hit, $50 out per MTok).
 

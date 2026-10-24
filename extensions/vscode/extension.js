@@ -17,6 +17,7 @@ const { validateLocalMcpRequest } = require('./mcp-request-guard');
 const extensionMcp = require('./extension-mcp');
 const autopilot = require('./autopilot');
 const { projectUseCaseCoverage, useCaseCoverageMessage } = require('./use-case-coverage');
+const planReadiness = require('./plan-readiness');
 const { getEvalTools, postEvalToolsUpdate, postAcceptanceAccept, postAcceptanceAmend, postAcceptanceLock, postEvalChecks, postEvalToolsCheck, postEvalToolsInstall, postGateOverride } = require('./api');
 const evalToolsLib = require('./eval-tools');
 const { approveForProject, ensureEvalTools, questionText } = evalToolsLib;
@@ -4553,6 +4554,11 @@ async function cmdOpenChat(context) {
               panel.webview.postMessage({ type: 'busy', on: false });
               return;
             }
+            // a manual /kit on a REQ the plan marks not KIT-ready runs (the developer chose it), with a warning
+            const kitBlockers = msg.autoEvalRepair ? [] : planReadiness.blockersOf(plan, targetReqId);
+            if (kitBlockers.length) {
+              panel.webview.postMessage({ type: 'echo', message: `⚠ KIT READINESS ${targetReqId}: the plan waits for your answers (${kitBlockers.slice(0, 8).join('; ')}). The KIT decides them with the simplest reasonable option; to decide them yourself, answer in the Note section of SPEC.md and run /spec and /plan again.` });
+            }
 
             requestedKitPhases = Array.isArray(msg?.phases) && msg.phases.length
               ? msg.phases
@@ -5120,6 +5126,15 @@ async function cmdOpenChat(context) {
               }
             } catch (e) {
               log(`[useCases] coverage not computed: ${e?.message || e}`);
+            }
+            // REQs the plan marks not KIT-ready: the owner's open questions, before any /kit
+            try {
+              const readiness = planReadiness.planReadiness(await readPlanJson(wsroot));
+              const line = planReadiness.planReadinessMessage(readiness);
+              if (line) panel.webview.postMessage({ type: 'echo', message: line });
+              log(`[kitReadiness] ${JSON.stringify(readiness.notReady)}`);
+            } catch (e) {
+              log(`[kitReadiness] not computed: ${e?.message || e}`);
             }
           }
           // /extend and /idea --extend change lane guides too: the index follows them
@@ -6924,6 +6939,20 @@ async function cmdOpenChat(context) {
         const reqId = next.req_id;
         const entry = { req_id: reqId, startedAt: Date.now(), result: 'running', cycles: 0 };
         run.reqs.push(entry);
+        // not KIT-ready (the plan waits for the owner's answers): parked before /kit, no agent run.
+        // Not remembered across runs: the next /autopilot reads the plan again.
+        const kitBlockers = next.step === 'kit' ? planReadiness.blockersOf(plan, reqId) : [];
+        if (kitBlockers.length) {
+          entry.result = 'parked';
+          entry.step = 'kit';
+          entry.reason = planReadiness.notReadyReason(kitBlockers);
+          entry.messages = [];
+          entry.ms = 0;
+          run.parked.add(reqId);
+          say(`⏸ AUTOPILOT ${reqId} parked before kit: ${entry.reason}. Going on with the REQs that do not depend on it.`);
+          writeReport();
+          continue;
+        }
         if (next.step !== 'kit') say(`ℹ AUTOPILOT ${reqId} resumes at ${next.step}${next.step === 'gate' ? ' (its last eval passed on the current files)' : ' (its KIT is there)'}.`);
         for (const step of autopilot.STEPS.slice(autopilot.STEPS.indexOf(next.step))) {
           run.current = `${step} ${reqId}`;

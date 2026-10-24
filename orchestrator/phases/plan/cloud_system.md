@@ -687,6 +687,8 @@ Use this exact structure:
       "acceptance": ["bullet 1", "bullet 2", "bullet 3", "bullet 4", "bullet 5"],
       "dependsOn": ["REQ-00x", "..."],
       "covers": ["UC-01.1", "UC-01.2", "UC-03"],
+      "kit_ready": true,
+      "blockers": [],
       "track": "App" | "Infra" | "Data" | "Integration" | "Industrial" | "AI-Native",
       "status": "open" | "in_progress" | "done" | "deferred",
       "lane": "python" | "typescript" | "node" | "java" | "dotnet" | "go" | "rust" | "sql" | "kafka" | "ci" | "data" | "data platform" | Cloud Data Platform | "confluent" | "infra" | "frontend" | "Mendix" | "backend" | "iac" | "industrial" | "plc-scada" | "ai-native", 
@@ -710,6 +712,7 @@ Use this exact structure:
 ### Hard rules
 - Every REQ **must** include: id, title, status, lane, dependsOn, acceptance, functional_scope, technical_scope, non_functional_requirements, security_requirements, compliance_requirements, operational_requirements, integration_contracts, data_contracts, test_strategy, risk_notes, main_module_boundary, test_profile, gate_policy_ref.
 - Every REQ **must** include `covers`: the SPEC use-case steps it implements (`UC-01.1`, or `UC-03` for a whole use case). Every step of every SPEC use case, and every in-scope prerequisite, is covered by at least one REQ; CLike checks it after /plan and lists what is uncovered. A REQ that covers no use case (pure infrastructure) says why in technical_scope.
+- KIT readiness: a SPEC assumption is decided, never a blocker. Every REQ has `kit_ready` and `blockers`: `kit_ready: true` and `blockers: []` unless the REQ cannot be built without an answer only the owner can give (an OPEN-nn question of the SPEC, an external value or credential); then `kit_ready: false` and `blockers` lists those questions, each one the owner can answer. /autopilot parks a REQ that is not KIT-ready before /kit and CLike shows its blockers after /plan.
 - Every REQ **should** include: domain, runtime_profile, packs, skills, design_profiles, gate_expectations, out_of_scope, future_compatibility_notes.
 - Include `runtime_profile` when known. Include `gate_expectations` when relevant.
 - The new capability fields are additive and backward-compatible. Do not remove existing required fields.
