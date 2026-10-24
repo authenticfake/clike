@@ -693,6 +693,7 @@ def _render_compact_local_agent_prompt(
             *_text("render_compact_local_agent_prompt.lines"),
             f"Target REQ: {req_id}",
             f"Task: {action}.",
+            *(_text("render_compact_local_agent_prompt.kit_role") if phase == "kit" else []),
             *([f"{stage_title or 'Stage rules'}:", *[f"- {rule}" for rule in stage_rules], ""] if stage_rules else []),
             _render_methodology_prompt_block(methodology_context),
             _render_selected_capability_prompt_block(selected_capabilities or {}),
