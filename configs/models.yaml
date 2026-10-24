@@ -406,6 +406,29 @@ models:
     enabled: true
     tags: [quality, reasoning]
 
+  - id: anthropic:claude-fable-5-1
+    name: claude-fable-5-1
+    provider: anthropic
+    base_url: https://api.anthropic.com/v1
+    remote_name: claude-fable-5-1
+    api_key_env: ANTHROPIC_API_KEY
+    modality: chat
+    capability: frontier
+    latency: medium
+    cost: high
+    # platform.claude.com pricing (2026-10): $10 in, $12.50 / $20 cache write 5m / 1h,
+    # $0.25 cache hit (0.025x input), $50 out per MTok; 1M context
+    pricing:
+      input_per_1k: 0.010
+      cached_input_per_1k: 0.00025
+      cache_write_per_1k: 0.0125
+      cache_write_1h_per_1k: 0.020
+      output_per_1k: 0.050
+    context_window: 1000000
+    privacy: low
+    enabled: true
+    tags: [quality, reasoning]
+
 profiles:
   plan.fast:
     model: openai:gpt-5.4-mini

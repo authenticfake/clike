@@ -102,7 +102,30 @@ function validateAgentModel({ executorId, model, codexModels = null } = {}) {
   return { ok: true };
 }
 
+/**
+ * The `/agent-model list` lines. Codex accepts the models of its login (models_cache.json), not the
+ * API ids of CLike's cloud catalog: listing the catalog proposed ids Codex refuses and hid the ones
+ * it accepts. Each id says whether the cloud catalog has it too (same model in both executions).
+ */
+function agentModelListMessage({ codexModels = null, catalog = [] } = {}) {
+  const names = (provider) => [...new Set((catalog || [])
+    .filter((m) => String(m.provider || '').toLowerCase() === provider)
+    .flatMap((m) => [String(m.name || '').trim(), String(m.remote_name || '').trim()])
+    .filter(Boolean))];
+  const cloudOpenai = new Set(names('openai'));
+  const cloudAnthropic = names('anthropic').filter((n) => !/\d{8}$/.test(n));
+  const mark = (id, cloud) => (cloud.has(id) ? `${id} (cloud too)` : id);
+  const codex = Array.isArray(codexModels) && codexModels.length
+    ? `Codex (your login): ${codexModels.map((id) => mark(id, cloudOpenai)).join(', ')}`
+    : `Codex: the login's model list is not available (~/.codex/models_cache.json appears after a Codex run); ` +
+      `set the id your Codex login supports`;
+  const claude = `Claude Code: opus, sonnet, haiku (latest of that tier), or an id: ${[...new Set(cloudAnthropic)].join(', ') || 'see your Claude login'}`;
+  return `ℹ Agent models you can set with /agent-model —\n${claude}\n${codex}\n` +
+    'Cloud models are chosen in the chat model selector, separately: changing one does not change the other.';
+}
+
 module.exports = {
+  agentModelListMessage,
   CLAUDE_ALIASES,
   closestModel,
   readCodexModelSlugs,

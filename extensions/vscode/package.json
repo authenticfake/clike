@@ -157,20 +157,22 @@
       "properties": {
         "clike.chat.theme": {
           "type": "string",
-          "default": "pro",
+          "default": "cockpit",
           "enum": [
+            "cockpit",
             "classic",
             "pro",
             "studio",
             "paper"
           ],
           "enumDescriptions": [
+            "Cockpit Harper: chat on the left; mode, execution, agent and its model, methodology and the project (release, phases, REQs, next action, last eval) on the right. Adapts to narrow panels (the cockpit becomes a drawer)",
             "Classic CLike dark (storico, ping-pong)",
             "Pro doc-style (colonna unica, neutro, allineato a VS Code)",
             "Studio dark console (più denso, focus contenuti)",
             "Paper light (notebook chiaro)"
           ],
-          "description": "Theme for the Chat CLike UI."
+          "description": "Layout of the CLike chat. Also switchable from the Layout selector in the chat. Every layout has the same features and the slash-command autocompletion."
         },
         "clike.harperTimeout": {
           "type": "number",
