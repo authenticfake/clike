@@ -44,6 +44,7 @@ When the active contract requires `docs/harper/SPEC.md`, the SPEC content must b
   - **Interfaces**
   - **Data Model (logical)**
   - **Key Workflows**
+  - **Use Cases**
   - **Security & Compliance**
   - **Deployment & Operations**
   - **Risks & Mitigations**
@@ -78,6 +79,28 @@ Represent each entity clearly with fields. Use one of these two formats:
 | id    | UUID | PK                |
 ```
 Pick one style and use it consistently.
+
+### Use Cases — mandatory structure
+Every journey the solution must support end to end, in production, is a use case. Number them
+`UC-01`, `UC-02`, … (one `### UC-01 — <name>` subsection each) and their steps `UC-01.1`, `UC-01.2`, …
+For each use case:
+- **Actor** and **trigger**; **preconditions**.
+- **Main flow**: numbered steps `UC-01.n`, each "actor action → system response", with the interface
+  (UI screen, API endpoint, batch/event) and the data read or written. Include the steps people forget:
+  sign-in and session expiry, permission denied, empty states, retries, notifications.
+- **Alternate and error flows** (also as `UC-01.n` steps).
+- **Data path in production**: origin → ingest → validation → storage → processing → exposure/export →
+  retention and deletion → audit.
+- **Postconditions** and the non-functional obligations of the journey.
+- **Prerequisites**: every capability the journey implies, each either *in scope* (naming the use case
+  that covers it) or *out of scope, provided by …*. Implied capabilities to check, in any domain:
+  authenticated API or UI ⇒ identity provider integration, sign-in, sign-out, session or token expiry
+  and refresh, user and role provisioning, authorization per resource, audit of access; export or
+  download ⇒ storage, authorized download, retention; asynchronous work ⇒ queue or scheduler, retry,
+  idempotency, progress and failure visibility; multi-tenant or per-client data ⇒ isolation on every
+  read and write; external providers ⇒ credentials, quotas, failure handling; personal data ⇒
+  consent or legal basis, minimization, retention, erasure.
+No prerequisite stays implicit: /plan turns every in-scope step into REQs and CLike checks it.
 
 ### Acceptance Criteria — mandatory
 - At least **5** bullets.

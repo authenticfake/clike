@@ -82,6 +82,7 @@ local_agent:
   - '- snapshot: { total, open, in_progress, done, deferred, progressPct } with snapshot.total == len(reqs).'
   - '- reqs[]: each REQ MUST include id, title, status, lane, dependsOn, acceptance (>=5 non-empty bullets), functional_scope, technical_scope, non_functional_requirements, security_requirements, compliance_requirements, operational_requirements, integration_contracts, data_contracts, test_strategy, risk_notes, main_module_boundary, test_profile, gate_policy_ref (docs/harper/lane-guides/<lane>.md).'
   - '- reqs[] SHOULD also include: track, domain, runtime_profile, packs, skills, design_profiles, gate_expectations, out_of_scope, future_compatibility_notes.'
+  - '- reqs[].covers: the SPEC use-case steps the REQ implements (e.g. ["UC-01.1", "UC-01.2"], or "UC-03" for a whole use case). Every step of every SPEC use case, and every in-scope prerequisite, is covered by at least one REQ: CLike checks it after /plan and lists the uncovered ones.'
   - '- Use an empty array or "not_applicable" when a field does not apply; never invent fake tools/services/packs/skills/profiles.'
   - ''
   - 'Lane guide required sections (per detected lane, substantive — never empty/decorative):'

@@ -16,6 +16,7 @@ const {
 const { validateLocalMcpRequest } = require('./mcp-request-guard');
 const extensionMcp = require('./extension-mcp');
 const autopilot = require('./autopilot');
+const { projectUseCaseCoverage, useCaseCoverageMessage } = require('./use-case-coverage');
 const { getEvalTools, postEvalToolsUpdate, postAcceptanceAccept, postAcceptanceAmend, postAcceptanceLock, postEvalChecks, postEvalToolsCheck, postEvalToolsInstall, postGateOverride } = require('./api');
 const evalToolsLib = require('./eval-tools');
 const { approveForProject, ensureEvalTools, questionText } = evalToolsLib;
@@ -4958,6 +4959,18 @@ async function cmdOpenChat(context) {
       
           }
           log(`[harperRun] written files done`);
+          // every step of every SPEC use case is covered by a REQ (cloud and local agents alike)
+          if (phase === 'plan' || phase === 'extend') {
+            try {
+              const coverage = projectUseCaseCoverage(toFsPath(wsroot));
+              if (coverage) {
+                panel.webview.postMessage({ type: 'echo', message: useCaseCoverageMessage(coverage) });
+                log(`[useCases] ${JSON.stringify({ ...coverage, uncovered: coverage.uncovered.slice(0, 50) })}`);
+              }
+            } catch (e) {
+              log(`[useCases] coverage not computed: ${e?.message || e}`);
+            }
+          }
           // /extend and /idea --extend change lane guides too: the index follows them
           if (phase === 'plan' || phase === 'extend') {
             try {
