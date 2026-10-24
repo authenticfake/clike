@@ -10,6 +10,8 @@ const { resumeStep } = require('./autopilot');
 const { inputsFingerprint } = require('./auto-eval');
 
 const PHASES = ['idea', 'spec', 'plan', 'kit', 'finalize'];
+// what /init writes: a Harper document equal to its template (placeholders aside) is not done yet
+const INIT_TEMPLATES = path.join(__dirname, 'templates', 'harper-init', 'docs', 'harper');
 const PASSING = new Set(['PASS', 'PASS_WITH_WARNINGS']);
 // what the cockpit run card shows for each Harper command
 const RUN_LABELS = {
@@ -72,13 +74,42 @@ function currentRelease(root) {
   return releases(root).pop() || '';
 }
 
+/** Whether a phase command produced output: runs/<phase>/ holds files (it records every run). */
+function phaseRan(root, phase) {
+  const walk = (dir, depth) => {
+    let entries = [];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return false; }
+    return entries.some((e) => (e.isFile() && !e.name.startsWith('.'))
+      || (e.isDirectory() && depth < 3 && walk(path.join(dir, e.name), depth + 1)));
+  };
+  return walk(path.join(root, 'runs', phase), 0);
+}
+
+/** Whether `text` is still the /init template `template` (its ${…} placeholders match anything). */
+function isInitTemplate(text, template) {
+  const norm = (t) => String(t || '').replace(/\r\n/g, '\n').trim().replace(/[ \t]+$/gm, '');
+  const parts = norm(template).split(/\$\{[^}]*\}/);
+  const pattern = parts.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\s\\S]*?');
+  try { return new RegExp(`^${pattern}$`).test(norm(text)); } catch { return false; }
+}
+
+/** IDEA / SPEC done: its command ran, or the document is no longer what /init wrote. */
+function documentDone(root, phase, file, templatesDir) {
+  if (phaseRan(root, phase)) return true;
+  let text;
+  try { text = fs.readFileSync(path.join(root, 'docs', 'harper', file), 'utf8'); } catch { return false; }
+  let template = null;
+  try { template = fs.readFileSync(path.join(templatesDir, file), 'utf8'); } catch { /* no template known */ }
+  return template === null ? text.trim().length > 0 : !isInitTemplate(text, template);
+}
+
 /** Phase pills: done, active (the first one not done) or todo. */
-function phaseStates(root, reqs) {
+function phaseStates(root, reqs, templatesDir = INIT_TEMPLATES) {
   const total = reqs.length;
   const done = reqs.filter((r) => ['done', 'deferred'].includes(status(r))).length;
   const doneOf = {
-    idea: exists(root, 'docs/harper/IDEA.md'),
-    spec: exists(root, 'docs/harper/SPEC.md'),
+    idea: documentDone(root, 'idea', 'IDEA.md', templatesDir),
+    spec: documentDone(root, 'spec', 'SPEC.md', templatesDir),
     plan: total > 0,
     kit: total > 0 && done === total,
     // a FINALIZE_REPORT of an earlier release does not finalize the REQs added since
@@ -134,6 +165,7 @@ function buildCockpitState(root, opts = {}) {
     };
   });
 
+  const phases = phaseStates(root, reqs, opts.templatesDir || INIT_TEMPLATES);
   let next = null;
   if (reqs.length) {
     const action = nextActionFromPlan(reqs);
@@ -147,12 +179,14 @@ function buildCockpitState(root, opts = {}) {
     } else {
       next = { command: '', message: action.message };
     }
-  } else if (!exists(root, 'docs/harper/IDEA.md')) {
-    next = { command: '/idea', message: 'No IDEA yet: describe the product (attach your documents) and run /idea.' };
-  } else if (!exists(root, 'docs/harper/SPEC.md')) {
-    next = { command: '/spec', message: 'IDEA is ready: generate the SPEC.' };
+  } else if (!exists(root, 'docs/harper')) {
+    next = { command: '/init <name>', message: 'No Harper project in this workspace: /init <name> creates it (existing files are kept with --force).' };
+  } else if (!phases[0] || phases[0].state !== 'done') {
+    next = { command: '/idea', message: 'IDEA.md is still the /init template: describe the product (put your documents in docs/inputs/ or attach them) and run /idea.' };
+  } else if (phases[1].state !== 'done') {
+    next = { command: '/spec', message: 'IDEA is ready: generate the SPEC (with its Use Cases).' };
   } else {
-    next = { command: '/plan', message: 'SPEC is ready: generate the PLAN.' };
+    next = { command: '/plan', message: 'SPEC is ready: generate the PLAN (the REQs).' };
   }
 
   return {
@@ -162,11 +196,11 @@ function buildCockpitState(root, opts = {}) {
     releases: releases(root),
     counts,
     progress_pct: counts.total ? Math.round((counts.done / counts.total) * 100) : 0,
-    phases: phaseStates(root, reqs),
+    phases,
     reqs: rows,
     next,
     last_run: lastRun,
   };
 }
 
-module.exports = { buildCockpitState, reportCounts, phaseStates, currentRelease, releases, RUN_LABELS };
+module.exports = { buildCockpitState, reportCounts, phaseStates, isInitTemplate, currentRelease, releases, RUN_LABELS };

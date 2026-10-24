@@ -2848,6 +2848,16 @@ function ckSetMode(value) {
 function ckRunCommand(cmd) {
   if (isBusy() || !cmd) return;
   if (currentMode() !== 'harper') ckSetMode('harper');
+  var hole = cmd.indexOf(' <');
+  if (hole > 0) {
+    // a value only the developer has (e.g. /init <name>): written in the prompt, not sent
+    prompt.value = cmd.slice(0, hole) + ' ';
+    ckToggleDrawer(false);
+    prompt.focus();
+    prompt.setSelectionRange(prompt.value.length, prompt.value.length);
+    acRender();
+    return;
+  }
   prompt.value = cmd;
   onSend();
 }
@@ -2897,17 +2907,22 @@ function ckBuild() {
     post('harperRun', { cmd: 'agent-default', value: v, attachments: [] });
   });
   ckRow(form, 'Agent', [agentSel]);
-  var agentModel = ckEl('input', 'ck-ctl');
+  // the models the agent's CLI accepts (a select: every one visible, none it would refuse); a text
+  // field only when the list is unknown (no Codex run yet on this machine)
+  var agentModel = ckEl('select', 'ck-ctl');
   agentModel.id = 'ckAgentModel';
-  agentModel.setAttribute('list', 'ckAgentModels');
-  agentModel.setAttribute('spellcheck', 'false');
-  var dl = ckEl('datalist'); dl.id = 'ckAgentModels';
-  agentModel.addEventListener('change', function () {
+  var agentModelText = ckEl('input', 'ck-ctl');
+  agentModelText.id = 'ckAgentModelText';
+  agentModelText.setAttribute('spellcheck', 'false');
+  agentModelText.placeholder = 'model id';
+  var sendAgentModel = function (v) {
     var who = agentModel.dataset.agent || 'codex';
-    var v = agentModel.value.trim();
+    v = String(v || '').trim();
     if (v) post('harperRun', { cmd: 'agent-model', agentName: who, agentModel: v, attachments: [] });
-  });
-  var amRow = ckRow(form, 'Agent model', [agentModel, dl]);
+  };
+  agentModel.addEventListener('change', function () { sendAgentModel(agentModel.value); });
+  agentModelText.addEventListener('change', function () { sendAgentModel(agentModelText.value); });
+  var amRow = ckRow(form, 'Agent model', [agentModel, agentModelText]);
   amRow.id = 'ckAgentModelRow';
   ckRow(form, 'History', [historyScope]);
   ckRow(form, 'Layout', [layoutSel]);
@@ -3043,14 +3058,31 @@ function ckRenderConfig() {
   var agentSel = el('ckAgent');
   if (agentSel && a.executor) agentSel.value = a.executor;
   var am = el('ckAgentModel');
-  var dl = el('ckAgentModels');
-  if (am) {
+  var amText = el('ckAgentModelText');
+  if (am && document.activeElement !== am && document.activeElement !== amText) {
     var who = a.executor === 'claude_code' ? 'claude' : 'codex';
+    var current = who === 'claude' ? (a.claude_model || '') : (a.codex_model || '');
+    var list = ((a.models || {})[who]) || [];
     am.dataset.agent = who;
-    if (document.activeElement !== am) am.value = who === 'claude' ? (a.claude_model || '') : (a.codex_model || '');
-    am.title = 'Model of ' + (who === 'claude' ? 'Claude Code' : 'Codex') + ' (/agent-model)';
-    dl.innerHTML = '';
-    (((a.models || {})[who]) || []).forEach(function (x) { var o = ckEl('option'); o.value = x; dl.appendChild(o); });
+    am.title = 'Model of ' + (who === 'claude' ? 'Claude Code' : 'Codex') + ' (/agent-model ' + who + ' <model>)';
+    am.innerHTML = '';
+    if (list.length) {
+      if (current && list.indexOf(current) < 0) {
+        var bad = ckEl('option', '', current + ' ⚠ not available');
+        bad.value = current;
+        am.appendChild(bad);
+      }
+      if (!current) { var def = ckEl('option', '', '(CLI default)'); def.value = ''; am.appendChild(def); }
+      list.forEach(function (x) { var o = ckEl('option', '', x); o.value = x; am.appendChild(o); });
+      am.value = current;
+      am.style.display = '';
+      amText.style.display = 'none';
+    } else {
+      am.style.display = 'none';
+      amText.style.display = '';
+      amText.value = current;
+      amText.title = who === 'codex' ? 'The models of the Codex login appear after a first Codex run (~/.codex/models_cache.json)' : '';
+    }
   }
   var cloudOnly = currentExecution() === 'cloud_only';
   var amRow = el('ckAgentModelRow');
@@ -3171,8 +3203,9 @@ function ckRenderNext() {
   if (n.command) wrap.appendChild(ckEl('div', 'ck-kv', n.message));
   var btns = ckEl('div', 'ck-btns');
   if (n.command) {
-    var run = ckEl('button', 'ck-btn primary ck-ctl', 'Run');
-    run.title = 'Runs ' + withCockpitMethodology(n.command) + ' as if typed';
+    var needsValue = n.command.indexOf(' <') > 0;
+    var run = ckEl('button', 'ck-btn primary ck-ctl', needsValue ? 'Write it' : 'Run');
+    run.title = needsValue ? 'Puts ' + n.command + ' in the prompt: complete it and send' : 'Runs ' + withCockpitMethodology(n.command) + ' as if typed';
     run.addEventListener('click', function () { ckRunCommand(n.command); });
     btns.appendChild(run);
   }
@@ -3237,7 +3270,14 @@ function ckRenderSummary() {
   if (!box) return;
   box.innerHTML = '';
   var p = ckProject();
-  if (!p || !p.harper) { box.appendChild(ckEl('div', 'ck-empty', 'No Harper project in this workspace.')); return; }
+  if (!p || !p.harper) {
+    box.appendChild(ckEl('div', 'ck-empty', 'No Harper project in this workspace.'));
+    var init = ckEl('button', 'ck-btn primary ck-ctl', '/init <name>');
+    init.title = 'Creates the Harper project here (Harper mode)';
+    init.addEventListener('click', function () { ckRunCommand('/init <name>'); });
+    box.appendChild(init);
+    return;
+  }
   var bar = ckEl('div', 'ck-bar');
   var g = ckEl('i', 'g'); g.style.width = p.progress_pct + '%'; bar.appendChild(g);
   box.appendChild(bar);

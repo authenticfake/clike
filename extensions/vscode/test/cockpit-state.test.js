@@ -26,6 +26,28 @@ const plan = {
   ],
 };
 
+test('no Harper project: the next action is /init <name>', () => {
+  const state = buildCockpitState(project({ 'README.md': '' }));
+  assert.equal(state.next.command, '/init <name>');
+});
+
+test('right after /init the documents are its templates: the next action is /idea, not /plan', () => {
+  const fsx = require('fs');
+  const tpl = (f) => fsx.readFileSync(path.join(__dirname, '..', 'templates', 'harper-init', 'docs', 'harper', f), 'utf8').split('${project.name}').join('Pingboard');
+  const root = project({ 'docs/harper/IDEA.md': tpl('IDEA.md'), 'docs/harper/SPEC.md': tpl('SPEC.md') });
+  let state = buildCockpitState(root);
+  assert.equal(state.next.command, '/idea');
+  assert.deepEqual(state.phases.map((p) => p.state), ['active', 'todo', 'todo', 'todo', 'todo']);
+  // /idea ran: its run is recorded in runs/idea, IDEA.md rewritten
+  fsx.mkdirSync(path.join(root, 'runs', 'idea', 'docs'), { recursive: true });
+  fsx.writeFileSync(path.join(root, 'runs', 'idea', 'docs', 'IDEA.md'), '# IDEA');
+  state = buildCockpitState(root);
+  assert.equal(state.next.command, '/spec');
+  // a SPEC edited by hand (no run recorded) counts as written
+  fsx.writeFileSync(path.join(root, 'docs', 'harper', 'SPEC.md'), tpl('SPEC.md') + '\n## Use Cases\nUC-01 sign in');
+  assert.equal(buildCockpitState(root).next.command, '/plan');
+});
+
 test('a new project: no IDEA yet, the next action is /idea', () => {
   const state = buildCockpitState(project({ 'docs/harper/.keep': '' }));
   assert.equal(state.harper, true);

@@ -237,7 +237,9 @@ function createSlashCompleter(bmadRoles) {
       const nextCmd = String(ctx.next && ctx.next.command || '');
       const items = [];
       if (harper && nextCmd && lower(nextCmd).startsWith(t) && t.length >= 1) {
-        items.push({ label: nextCmd, insert: nextCmd, detail: 'next action of the project', kind: 'next', whole: true });
+        // a placeholder (/init <name>) is for the developer to write: inserted up to it
+        const hole = nextCmd.indexOf(' <');
+        items.push({ label: nextCmd, insert: hole > 0 ? nextCmd.slice(0, hole) : nextCmd, detail: 'next action of the project', kind: 'next', whole: true });
       }
       const starts = commandNames.filter((c) => available(c) && lower(c).startsWith(t));
       const contains = commandNames.filter((c) => available(c) && !starts.includes(c) && t.length > 1 && lower(c).includes(t.slice(1)));

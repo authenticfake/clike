@@ -26,6 +26,13 @@ test('command names: prefix first, the next action of the project on top', () =>
   assert.ok(labels(complete('/')).length >= 10);
 });
 
+test('a next action with a placeholder is inserted up to it', () => {
+  const res = complete('/in', { ...ctx, next: { command: '/init <name>' } });
+  assert.equal(res.items[0].kind, 'next');
+  assert.deepEqual(acceptCompletion('/in', 3, res.replaceFrom, res.items[0]), { text: '/init ', caret: 6 });
+  assert.ok(labels(complete('/')).includes('/init'));
+});
+
 test('Harper commands are offered only in Harper mode; the others everywhere', () => {
   const free = { ...ctx, mode: 'free' };
   assert.deepEqual(labels(complete('/ev', free)), []);

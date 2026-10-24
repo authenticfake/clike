@@ -110,7 +110,7 @@ const releaseExtend = require('./release-extend');
 const { copyTemplateTree, mergeGitignore } = require('./init-merge');
 const { buildAgentChatArgs, createAgentStreamParser, newSession, sessionKey } = require('./agent-chat');
 const { createApprovalGate, createCodexAppServerTurn, startClaudeApprovalServer } = require('./agent-approvals');
-const { agentModelListMessage, readCodexModelSlugs, validateAgentModel } = require('./agent-model-validation');
+const { agentModelListMessage, CLAUDE_ALIASES, readCodexModelSlugs, validateAgentModel } = require('./agent-model-validation');
 
 const {
   buildCodexArgsForLocalAgent,
@@ -3864,7 +3864,7 @@ function createCockpitFeed(panel, context, runs = null) {
   let timer = null;
   let inflight = 0;
   let pendingTheme = false;
-  let catalog = { at: 0, tools: [], anthropic: [], openai: [] };
+  let catalog = { at: 0, tools: [], anthropic: [] };
   const disposables = [];
 
   const prefs = () => {
@@ -3882,7 +3882,6 @@ function createCockpitFeed(panel, context, runs = null) {
       const names = (provider) => [...new Set(models.filter((m) => String(m.provider || '').toLowerCase() === provider)
         .map((m) => String(m.remote_name || m.name || '').trim()).filter(Boolean))];
       catalog.anthropic = names('anthropic');
-      catalog.openai = names('openai');
     } catch (err) { log(`[cockpit] model catalog unavailable: ${err?.message || err}`); }
     try {
       const ws = getWorkspaceRoot();
@@ -3898,9 +3897,11 @@ function createCockpitFeed(panel, context, runs = null) {
       execution: state.executionPreference || getDefaultExecutionPreference(),
       claude_model: c.get('claudeCode.model', 'opus') || '',
       codex_model: c.get('localAgent.codex.model', 'gpt-5.5') || '',
+      // the models each CLI accepts (as /agent-model list): Codex those of its login, never the cloud
+      // catalog's API ids (Codex refuses them); Claude the tier aliases and the catalog's ids
       models: {
-        claude: [...new Set(['opus', 'sonnet', 'haiku', ...catalog.anthropic])],
-        codex: [...new Set([...(readCodexModelSlugs() || []), ...catalog.openai])],
+        claude: [...new Set([...CLAUDE_ALIASES.filter((a) => a !== 'default'), ...catalog.anthropic.filter((n) => /^claude-/.test(n) && !/\d{8}$/.test(n))])],
+        codex: readCodexModelSlugs() || [],
       },
     };
   }
