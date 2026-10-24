@@ -86,6 +86,19 @@ class _RegressionProject(unittest.TestCase):
         return [c["name"] for c in response.json()["cases"]]
 
 class EvalRegressionTests(_RegressionProject):
+    def test_an_agent_eval_check_can_re_run_a_promoted_reqs_regression(self):
+        # eval-check while repairing: some checks of the REQ and the regression of one promoted REQ
+        own = [c["name"] for c in self._post("/v1/eval/run", "REQ-002").json()["cases"] if not c["name"].startswith(("env::", "structure::"))]
+        body = self._post("/v1/eval/run", "REQ-002", regression=True, checks=own[:1], regression_reqs=["REQ-001"]).json()
+        names = [c["name"] for c in body["cases"]]
+        self.assertTrue(any(n.startswith("regression::REQ-001::") for n in names), names)
+        self.assertTrue(body["partial"])
+        self.assertFalse(body["promotable"])
+        self.assertEqual(body["regression_scope"], ["REQ-001"])
+        # a check subset alone still runs no regression
+        only = self._post("/v1/eval/run", "REQ-002", regression=True, checks=own[:1]).json()
+        self.assertFalse(any(c["name"].startswith("regression::") for c in only["cases"]))
+
     def test_a_targeted_re_eval_regresses_only_the_named_reqs_and_is_never_a_verdict(self):
         # a repair loop re-evaluates the REQs that failed before the repair; the full eval decides
         full = self._post("/v1/eval/run", "REQ-002", regression=True).json()

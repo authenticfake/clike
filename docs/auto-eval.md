@@ -75,6 +75,9 @@ shows its path.
   until they pass in one session. The extension serves the requests (it holds the token; the agent
   gets neither the token nor network access), up to `clike.autoEval.agentEvalChecks` runs. Such a
   partial run is never the REQ's verdict: the full eval follows.
+  `regression::<REQ-ID>` (e.g. `regression::REQ-014`) re-runs a promoted REQ's checks with the
+  candidate overlaid, as the regression does: a repair of a regression failure is verified before
+  the full eval.
 
 ## CLike diagnosis: intermittent failures
 

@@ -67,7 +67,19 @@ async function postEvalChecks(profile, workspaceRoot, reqId, checks) {
     `&req_id=${encodeURIComponent(reqId)}` +
     `&project_name=${encodeURIComponent(projectName)}`;
   const raw = await readTextFile(vscode.Uri.joinPath(workspaceRoot, profile));
-  const body = { ltc: raw ? JSON.parse(raw) : null, regression: false, checks: checks && checks.length ? checks : null };
+  // regression::<REQ>[::check]: that promoted REQ's regression with this candidate overlaid
+  const own = [];
+  const regressionReqs = [];
+  for (const name of checks || []) {
+    const m = /^regression::(REQ-[A-Za-z0-9_-]+)(?:::|$)/i.exec(String(name));
+    if (m) { if (!regressionReqs.includes(m[1].toUpperCase())) regressionReqs.push(m[1].toUpperCase()); } else own.push(name);
+  }
+  const body = {
+    ltc: raw ? JSON.parse(raw) : null,
+    regression: regressionReqs.length > 0,
+    checks: own.length ? own : null,
+    ...(regressionReqs.length ? { regression_reqs: regressionReqs } : {}),
+  };
   return requestJson('POST', url, { body, timeoutMs: evalTimeoutMs() });
 }
 
