@@ -292,6 +292,10 @@ def _imported_support(
         ):
             return  # the module is in the sources: a same-named file of the test tree is not it
         tails = ("/".join(parts) + ".py", "/".join(parts) + "/__init__.py")
+        if len(parts) > 1 and parts[0] in ("test", "tests"):
+            # `test.leadintel.x` imports the test tree itself as a package (support is relative to it)
+            inner = "/".join(parts[1:])
+            tails += (inner + ".py", inner + "/__init__.py")
         for candidate in support:
             if any(candidate == t or candidate.endswith("/" + t) for t in tails):
                 found.append(candidate)
@@ -3654,6 +3658,24 @@ class EvalRunner:
                     cmd=None, cwd=str(default_cwd), blocking=True,
                 ))
             norm_cases = [c for c in norm_cases if str(c.get("name") or "case") in only]
+        elif regression and not self.regression:
+            # The candidate's own "regression" checks re-run tests of earlier REQs (B2B REQ-025,
+            # REQ-026: "file not found", as those tests are not in the KIT, and the repair cannot drop
+            # a locked check, so it copied other REQs' tests into the KIT). CLike's regression below
+            # runs them itself on their promoted tests with this candidate overlaid: not run twice.
+            names = [str(c.get("name") or "case") for c in norm_cases]
+            repeated = [n for n in names if _is_kit_regression_check(n)]
+            if repeated and len(repeated) < len(names) and any(
+                not _is_kit_regression_check(n) and {t for t in re.split(r"[^a-z0-9]+", n.lower()) if t} & _TEST_CHECK_TOKENS
+                for n in names
+            ):
+                norm_cases = [c for c in norm_cases if str(c.get("name") or "case") not in repeated]
+                out_cases.append(EvalCase(
+                    name="regression-checks::not-run", passed=True, code=0,
+                    stdout=f"not run: {', '.join(repeated)} (this KIT's own regression checks re-run tests of earlier "
+                    "REQs; CLike's regression runs them on their promoted tests, with this candidate overlaid)",
+                    stderr="", cmd=None, cwd=str(default_cwd), blocking=False,
+                ))
         elif self.regression:
             static = [str(c.get("name") or "case") for c in norm_cases if _is_static_regression_check(str(c.get("name") or ""))]
             if static:

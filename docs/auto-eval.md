@@ -247,7 +247,11 @@ A promoted REQ's **own regression checks** (a check named `regression`, `test:ba
 regression either: those earlier REQs are regressed themselves, on their promoted tests
 (`regression-checks::not-run` lists them). A REQ whose only test check is called `regression` keeps
 it. The KIT prompt (cloud and local agents) asks not to copy other REQs' tests into a KIT nor to add
-such checks.
+such checks. The same holds for the **candidate's** own eval when it includes CLike's regression: its
+`regression` checks would re-run tests of earlier REQs that are not in its KIT ("file not found"),
+and a locked check cannot be dropped by the repair, which then copied other REQs' tests into the
+KIT; they are not run (`regression-checks::not-run`), CLike's regression runs those tests on their
+promoted version with the candidate overlaid. An eval without CLike's regression runs them as declared.
 
 ## Speed: what is not done twice
 

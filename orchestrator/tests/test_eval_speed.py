@@ -56,6 +56,14 @@ def test_a_regression_run_skips_the_promoted_reqs_own_regression_checks(tmp_path
     # the REQ's own eval keeps every check
     own = EvalRunner(tmp_path).run_profile(profile=str(kit / "ci" / "LTC.json"), ltc=ltc, req_id="REQ-001")
     assert {"test:unit", "regression", "test:backend-regression"} <= {c.name for c in own.cases}
+    # the REQ's own eval with CLike's regression (B2B REQ-025, REQ-026): its regression checks re-run
+    # tests of earlier REQs that are not in its KIT; CLike's regression runs them itself
+    with_regression = EvalRunner(tmp_path).run_profile(
+        profile=str(kit / "ci" / "LTC.json"), ltc=ltc, req_id="REQ-001", regression=True)
+    names = {c.name for c in with_regression.cases}
+    assert "test:unit" in names and "regression" not in names and "test:backend-regression" not in names
+    note = next(c for c in with_regression.cases if c.name == "regression-checks::not-run")
+    assert "this KIT's own regression checks" in note.stdout
 
 
 def test_link_tree_shares_files_but_not_new_ones(tmp_path: Path):
