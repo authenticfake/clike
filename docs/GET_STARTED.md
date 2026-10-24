@@ -22,6 +22,16 @@ BMAD with the role per phase) and the project — release progress, phases, REQs
 with **Run** and **▶ Autopilot**, the last eval. Beside the editor it becomes one column with the
 cockpit in a drawer (☰). `classic`, `pro`, `studio` and `paper` have the same features.
 
+**Run card** (every layout): while a command runs, a card above the chat shows its real steps
+(KIT, EVAL 1, REPAIR 1, EVAL 2, GATE…) with their outcome, the cycle of a `--fix` loop, the time
+and an estimate from the last time, the eval's checks as they run in the sandbox (`13/31 · now:
+test:e2e`, then the regression of the promoted REQs), what the agent is doing, the cost. The VS
+Code status bar shows the same line. **⏸ After this step** lets the current step finish (its report
+is kept) and starts nothing new (for `/autopilot`: after the current kit / eval / gate, or **after
+this REQ**); **⏹ Stop now** (or Esc) first says what stopping now loses — a running eval leaves no
+report, files an agent already wrote stay uncommitted — then stops. After a stop the card lists what
+was done and offers the command to resume.
+
 **Autocompletion** (every layout): type `/` — commands, then the REQs that fit the command, flags
 and values; the command's signature stays visible and an invalid command shows the parser's error
 with its fix before you send. Tab or ↵ inserts, Esc closes, ↑ in an empty prompt recalls the last

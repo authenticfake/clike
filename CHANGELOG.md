@@ -45,6 +45,27 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   keep every feature and switch from the settings or the new **Layout** selector in the chat. With
   BMAD on, a Harper command typed without methodology runs with it (never `/gate`, `/eval --accept`),
   and the bubble shows the command that ran.
+- **Run card and status bar for every command in flight (every layout)**: the real steps of the
+  command — KIT, EVAL 1, REPAIR 1, EVAL 2, GATE, the steps of each REQ in `/autopilot` — with their
+  outcome, counts and duration, the cycle of a `--fix` loop, the elapsed time and an estimate from
+  the same step's previous duration, what is happening now (the handlers' messages, the tool a local
+  agent is using), the cost of the run and of the session. The VS Code status bar shows the same
+  line and opens the chat.
+- **Live progress of an eval or gate**: the eval runner records its phase (setup, checks, regression),
+  the checks done of total and the one running, the promoted REQs being regressed (thread-safe with
+  the parallel regression workers); the sandbox serves it on `GET /progress`, the orchestrator on
+  `GET /v1/eval/progress?req_id=…` (same confinement as `/v1/eval/run`); the chat polls it every 2 s.
+- **Smart stop**: *After this step* lets the step in flight finish (an eval keeps its report) and
+  starts nothing new — `/eval --fix`, `/gate --fix`, the finalize verification and the auto-eval
+  after a KIT stop at the next step boundary and say how to go on; `/autopilot` stops after its
+  current kit / eval / gate, or *after this REQ*. *Stop now* (or Esc) first says what it loses for
+  the step running (agent, cloud model or sandbox) and suggests waiting when the step is about to end;
+  after a stop the card lists what was done and what was cut, with the command to resume and the
+  changes to review.
+- **Local agents in Harper phases stream what they do**: Claude Code runs with
+  `--output-format stream-json --verbose` (its final `result` event is kept as the run's output, the
+  same envelope as before, so tool outputs never reach the blocked/failed/interrupted checks), Codex
+  with its JSONL events; both feed the run card.
 - **Slash-command autocompletion in every layout**: commands with their syntax, REQs ranked for the
   command (`/kit` the ready ones, `/eval` those with a KIT, `/gate` those whose eval passed on the
   current files) with a warning when one cannot run yet, flags not yet used and their values

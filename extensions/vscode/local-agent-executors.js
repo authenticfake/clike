@@ -525,13 +525,14 @@ function parseClaudeResultEnvelope(stdout) {
   }
 }
 
-// Harper agent runs ask for machine-readable output so CLike can record usage and cost:
-// Claude prints one JSON result envelope, Codex prints JSONL events.
+// Harper agent runs ask for machine-readable output so CLike can record usage and cost and show
+// what the agent is doing while it runs: both print JSONL events (Claude's stream ends with the
+// same result envelope `--output-format json` prints; normalizeAgentStdout keeps only that).
 function withMachineReadableOutput(executorId, args) {
   const list = Array.isArray(args) ? [...args] : [];
   const normalized = normalizeLocalAgentExecutor(executorId);
   if (normalized === 'claude_code' && !list.includes('--output-format')) {
-    list.push('--output-format', 'json');
+    list.push('--output-format', 'stream-json', '--verbose');
   } else if (normalized === 'gpt_codex' && !list.includes('--json')) {
     const at = list.indexOf('exec');
     list.splice(at >= 0 ? at + 1 : list.length, 0, '--json');
@@ -548,6 +549,29 @@ function withIsolatedMcp(executorId, args) {
     list.push('--strict-mcp-config');
   }
   return list;
+}
+
+/**
+ * The stdout of a Claude run as `--output-format json` prints it: from a stream-json run, the
+ * final `result` event (the same envelope); the lines that are not JSON (a CLI error) when there
+ * is none. Everything downstream (blocked / failed / interrupted detection, usage, cost) reads
+ * the envelope, never the tool outputs of the stream. Other executors: unchanged.
+ */
+function normalizeAgentStdout(executorId, stdout) {
+  const raw = String(stdout || '');
+  if (normalizeLocalAgentExecutor(executorId) !== 'claude_code') return raw;
+  const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  if (lines.length <= 1) return raw;
+  const plain = [];
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = lines[i];
+    if (!line.startsWith('{')) { plain.unshift(line); continue; }
+    try {
+      const event = JSON.parse(line);
+      if (event && event.type === 'result') return line;
+    } catch { plain.unshift(line); }
+  }
+  return plain.join('\n');
 }
 
 function addTokens(total, key, value) {
@@ -681,6 +705,7 @@ module.exports = {
   buildLocalAgentModelArgs,
   parseClaudeResultEnvelope,
   parseLocalAgentRun,
+  normalizeAgentStdout,
   withMachineReadableOutput,
   withIsolatedMcp,
   buildLocalAgentDisplayLabel,

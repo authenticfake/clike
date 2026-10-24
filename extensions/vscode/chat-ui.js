@@ -499,6 +499,48 @@ function getWebviewHtml(orchestratorUrl, themeName = 'cockpit') {
   .ac-foot { display:flex; gap:12px; padding:3px 10px; font-size:11px; color:var(--fg-dim); border-top:1px solid var(--border); }
   @media (max-width: 520px) { .ac-it { grid-template-columns:minmax(0, 1fr) auto; } .ac-it .ac-d, .ac-it .ac-g { display:none; } .ac-foot { display:none; } }
 
+  /* ---------- every layout: the card of the command in flight ---------- */
+  #runCard { display:none; margin:0 0 8px; border:1px solid #7c3aed; border-radius:10px; padding:8px 10px;
+    background:linear-gradient(180deg, rgba(124,58,237,.14), rgba(124,58,237,.04)); color:var(--fg); font-size:12.5px; }
+  #runCard.open { display:block; }
+  #runCard.ended.ok { border-color:#16a34a; background:rgba(22,163,74,.08); }
+  #runCard.ended.failed { border-color:#b91c1c; background:rgba(185,28,28,.08); }
+  #runCard.ended.cancelled { border-color:#6b7280; background:rgba(107,114,128,.10); }
+  .rc-top { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
+  .rc-title { font-weight:700; overflow-wrap:anywhere; }
+  .rc-sub { color:var(--fg-dim); }
+  .rc-time { margin-left:auto; color:#a78bfa; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .rc-steps { display:flex; gap:4px; align-items:center; flex-wrap:wrap; margin:7px 0; }
+  .rc-step { border-radius:11px; padding:2px 9px; font-size:11.5px; font-weight:600; white-space:nowrap; background:#3f3f46; color:#d1d5db; }
+  .rc-step.ok { background:#14532d; color:#bbf7d0; } .rc-step.failed { background:#7f1d1d; color:#fecaca; }
+  .rc-step.cancelled { background:transparent; border:1px dashed #6b7280; color:#9ca3af; }
+  .rc-step.done { background:#334155; color:#e2e8f0; }
+  .rc-step.running { background:#7c3aed; color:#fff; box-shadow:0 0 0 3px rgba(124,58,237,.35); animation: rcPulse 1.6s ease-in-out infinite; }
+  .rc-step.next { background:transparent; border:1px dashed #6b7280; color:#9ca3af; }
+  @keyframes rcPulse { 50% { box-shadow:0 0 0 5px rgba(124,58,237,.15); } }
+  .rc-arrow { color:#6b7280; font-size:11px; }
+  .rc-bar { height:7px; background:rgba(127,127,127,.25); border-radius:4px; overflow:hidden; position:relative; }
+  .rc-bar > i { position:absolute; top:0; bottom:0; left:0; border-radius:4px; background:#22c55e; transition:width .6s ease; }
+  .rc-bar > i.p { background:#7c3aed; }
+  .rc-bar.indet > i { width:30% !important; background:repeating-linear-gradient(45deg, #7c3aed 0 10px, #8b5cf6 10px 20px); animation: rcSlide 1.4s linear infinite; }
+  @keyframes rcSlide { from { left:-30%; } to { left:100%; } }
+  .rc-line { margin-top:5px; color:var(--fg-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .rc-line b { color:var(--fg); font-weight:600; }
+  .rc-actions { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; align-items:center; }
+  .rc-actions button { font-size:12px; padding:3px 10px; }
+  .rc-actions .danger { border-color:#b91c1c; color:#fecaca; background:rgba(127,29,29,.35); }
+  .rc-actions .primary { border-color:#7c3aed; background:#7c3aed; color:#fff; }
+  .rc-hint { color:var(--fg-dim); font-size:11px; }
+  .rc-confirm { margin-top:8px; border:1px solid #b91c1c; background:rgba(127,29,29,.22); border-radius:8px; padding:7px 9px; line-height:1.45; }
+  .rc-confirm b { color:#fecaca; }
+  .rc-armed { margin-top:8px; border:1px dashed #a78bfa; border-radius:8px; padding:5px 9px; color:#ddd6fe; }
+  .rc-sum { margin:6px 0 0 16px; padding:0; line-height:1.55; }
+  .rc-x { margin-left:6px; border:none; background:transparent; color:var(--fg-dim); cursor:pointer; font-size:14px; padding:0 4px; }
+  body[data-theme="paper"] .rc-step.running, body[data-theme="paper"] .rc-actions .primary { color:#fff; }
+  body[data-theme="paper"] .rc-confirm b { color:#991b1b; }
+  body[data-theme="paper"] .rc-armed { color:#5b21b6; }
+  @media (max-width: 420px) { .rc-hint { display:none; } .rc-step { padding:1px 6px; } }
+
   /* ---------- cockpit layout ---------- */
   body[data-theme="cockpit"] {
     --bg:#1e1e1e; --fg:#e5e7eb; --fg-dim:#9ca3af; --card:#252526; --card2:#2d2d30; --border:#3f3f46;
@@ -660,6 +702,7 @@ function getWebviewHtml(orchestratorUrl, themeName = 'cockpit') {
     <span id="status">Ready</span>
     <span id="sp" class="spinner">⏳</span>
   </div>
+  <div id="runCard" role="status" aria-live="polite"></div>
 
   <div id="chat" class="chat" aria-label="Chat transcript"></div>
 
@@ -3179,6 +3222,14 @@ function ckRenderAgent() {
   w.appendChild(document.createTextNode('Writes: '));
   w.appendChild(ckEl('b', '', who));
   box.appendChild(w);
+  var ses = ck.session;
+  if (ses && (ses.cost || ses.tokens)) {
+    var c2 = ckEl('div', 'ck-kv');
+    c2.appendChild(document.createTextNode('This session: '));
+    c2.appendChild(ckEl('b', '', (ses.cost ? '$' + ses.cost.toFixed(2) + ' · ' : '') + rcTokens(ses.tokens) + ' tokens'));
+    c2.title = 'Cost of the agent and cloud runs since VS Code opened (API-equivalent for subscriptions); per run and phase: telemetry portal';
+    box.appendChild(c2);
+  }
 }
 
 function ckRenderSummary() {
@@ -3256,6 +3307,242 @@ window.addEventListener('message', function (event) {
   var out = el('ckOutput');
   if (out && (msg.type === 'generateResult' || msg.type === 'applyResult' || msg.type === 'error' || msg.type === 'text' ||
       (msg.type === 'files' && msg.activate))) out.open = true;
+});
+
+// ===================== Run card (every layout) and smart Cancel =====================
+// 'runProgress' from the extension: the command in flight with its real steps, the eval's live
+// progress, what is happening now, its cost. Stop now asks first and says what it loses; "after
+// this step" ends the --fix loop (or the autopilot) at the next step boundary.
+var rc = { run: null, confirmUntil: 0, dismissed: {}, hideTimer: null };
+var runCard = el('runCard');
+
+function rcClock(ms) {
+  var s = Math.max(0, Math.round((ms || 0) / 1000));
+  var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(sec).padStart(2, '0');
+}
+function rcTokens(n) { n = Number(n) || 0; return n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : Math.round(n / 1000) + 'k'; }
+function rcIsAgent(run) { return run && run.executor && run.executor.indexOf('cloud') !== 0; }
+function rcResumeCommand(run) {
+  var req = run.req || '';
+  if (run.kind === 'eval') return '/eval ' + req + ' --fix';
+  if (run.kind === 'gate') return '/gate ' + req + (run.fix ? ' --fix' : '');
+  if (run.kind === 'autopilot') return '/autopilot';
+  return run.title;
+}
+/** What "Stop now" loses, said before doing it. */
+function rcStopText(run) {
+  var cur = run.current || {};
+  var who = run.executor || 'the agent';
+  if (run.kind === 'autopilot' && !cur.kind) return 'The autopilot ends for good (it will not resume at startup).';
+  var lines = [];
+  if (cur.kind === 'eval' || cur.kind === 'gate') {
+    var ep = run.evalProgress;
+    lines.push('The sandbox stops the running check and skips the others: this ' + cur.label +
+      ' leaves no report' + (ep && ep.checks_total ? ' (' + ep.checks_done + '/' + ep.checks_total + ' checks done)' : '') + '. Code and tests do not change.');
+    var left = cur.eta_ms ? cur.eta_ms - (Date.now() - cur.startedAt) : null;
+    if (left !== null && left > 0 && left < 3 * 60000) lines.push('Tip: "after this step" lets it finish (~' + rcClock(left) + ') and keeps the report.');
+  } else if (rcIsAgent(run)) {
+    lines.push(who + ' is stopped with the processes it started. Files it already wrote stay where they are' +
+      (cur.req && cur.req !== 'SOLUTION' ? ' (runs/kit/' + cur.req + '/)' : '') + ', uncommitted; what it returns is not used and there is no cloud fallback.');
+  } else {
+    lines.push('The request to the model is closed: its answer is discarded, nothing is written or committed.');
+  }
+  if (run.fix && run.fix.cycle) lines.push('The earlier cycles and their reports stay.');
+  if (run.kind === 'autopilot') lines.push('The autopilot ends for good (it will not resume at startup).');
+  return lines.join(' ');
+}
+
+function rcButton(label, cls, onClick, title) {
+  var b = ckEl('button', cls || '', label);
+  if (title) b.title = title;
+  b.addEventListener('click', function (ev) { ev.preventDefault(); onClick(); });
+  return b;
+}
+
+function rcStopNow() {
+  rc.confirmUntil = 0;
+  try { btnCancel.disabled = false; btnCancel.click(); } catch (e) { post('cancel'); }
+}
+
+function rcRender() {
+  var run = rc.run;
+  if (!runCard) return;
+  if (!run || rc.dismissed[run.id]) { runCard.className = ''; runCard.innerHTML = ''; return; }
+  var ended = run.ended;
+  runCard.className = 'open' + (ended ? ' ended ' + ended.outcome : '');
+  runCard.innerHTML = '';
+  var now = Date.now();
+
+  // title, cycle, time
+  var top = ckEl('div', 'rc-top');
+  var icon = ended ? ({ ok: '✔', failed: '✖', cancelled: '⏹' }[ended.outcome] || '✓') : '▶';
+  top.appendChild(ckEl('span', 'rc-title', icon + ' ' + run.title));
+  if (run.fix && !ended) {
+    top.appendChild(ckEl('span', 'rc-sub', 'cycle ' + Math.max(1, run.fix.cycle) + ' of ' + run.fix.maxCycles +
+      (run.fix.extraCycles ? ' (+' + run.fix.extraCycles + ' while failures drop)' : '')));
+  }
+  var cur = run.current;
+  var timeTxt = '⏱ ' + rcClock((ended ? ended.at : now) - run.startedAt);
+  if (!ended && cur && cur.eta_ms) {
+    var left = cur.eta_ms - (now - cur.startedAt);
+    timeTxt += left > 0 ? ' · ~' + rcClock(left) + ' left in ' + cur.label : ' · longer than last time';
+  }
+  timeTxt += ' · ' + run.executor;
+  top.appendChild(ckEl('span', 'rc-time', timeTxt));
+  if (ended) {
+    var x = rcButton('×', 'rc-x', function () { rc.dismissed[run.id] = true; rcRender(); }, 'Close');
+    top.appendChild(x);
+  }
+  runCard.appendChild(top);
+
+  // steps
+  var steps = ckEl('div', 'rc-steps');
+  (run.steps || []).forEach(function (st, i) {
+    if (i) steps.appendChild(ckEl('span', 'rc-arrow', '→'));
+    var txt = st.label + (run.kind === 'autopilot' && st.req ? ' ' + st.req : '');
+    if (st.counts) txt += ' · ' + st.counts.passed + ' ✔' + (st.counts.failed ? ' ' + st.counts.failed + ' ✖' : '');
+    else if (st.state !== 'running' && st.endedAt) txt += ' · ' + rcClock(st.endedAt - st.startedAt);
+    steps.appendChild(ckEl('span', 'rc-step ' + st.state, txt + (st.state === 'running' ? ' ●' : '')));
+  });
+  if (!ended && run.stopAfterStep) {
+    steps.appendChild(ckEl('span', 'rc-arrow', '→'));
+    steps.appendChild(ckEl('span', 'rc-step next', '⏸ stop'));
+  } else if (!ended && (run.kind === 'eval' || run.kind === 'gate') && run.fix) {
+    steps.appendChild(ckEl('span', 'rc-arrow', '→'));
+    steps.appendChild(ckEl('span', 'rc-step next', run.kind === 'eval' ? 'then: /gate' : 'then: promote'));
+  }
+  runCard.appendChild(steps);
+
+  // bar: the eval's checks when the sandbox reports them, else the estimate, else indeterminate
+  if (!ended) {
+    var bar = ckEl('div', 'rc-bar');
+    var fill = ckEl('i');
+    var ep = run.evalProgress;
+    var line = '';
+    if (ep && ep.phase === 'checks' && ep.checks_total) {
+      fill.style.width = Math.round(100 * ep.checks_done / ep.checks_total) + '%';
+      line = 'checks ' + ep.checks_done + '/' + ep.checks_total + (ep.current ? ' · now: ' + ep.current : '') +
+        (ep.failed ? ' · ' + ep.failed + ' ✖ so far' : '');
+    } else if (ep && ep.phase === 'regression' && ep.regression_total) {
+      fill.style.width = Math.round(100 * ep.regression_done / ep.regression_total) + '%';
+      line = 'regression of the promoted REQs ' + ep.regression_done + '/' + ep.regression_total +
+        ((ep.regression_current || []).length ? ' · now: ' + ep.regression_current.join(', ') : '');
+    } else if (ep && ep.phase === 'setup') {
+      bar.classList.add('indet');
+      line = 'preparing the eval environment (dependencies, services)…';
+    } else if (cur && cur.eta_ms) {
+      fill.className = 'p';
+      fill.style.width = Math.min(95, Math.round(100 * (now - cur.startedAt) / cur.eta_ms)) + '%';
+    } else {
+      bar.classList.add('indet');
+    }
+    bar.appendChild(fill);
+    runCard.appendChild(bar);
+    if (line) runCard.appendChild(ckEl('div', 'rc-line', line));
+  }
+  if (run.live && !ended) {
+    var live = ckEl('div', 'rc-line');
+    live.appendChild(ckEl('b', '', 'Now: '));
+    live.appendChild(document.createTextNode(run.live));
+    live.title = run.live;
+    runCard.appendChild(live);
+  }
+  if (run.autopilot) {
+    var ap = run.autopilot;
+    runCard.appendChild(ckEl('div', 'rc-line', 'Promoted: ' + (ap.promoted.join(', ') || 'none') +
+      (ap.parked.length ? ' · parked: ' + ap.parked.join(', ') : '') + (ap.current ? ' · at: ' + ap.current : '')));
+  }
+  if (run.cost && (run.cost.usd || run.cost.tokens)) {
+    runCard.appendChild(ckEl('div', 'rc-line', 'Cost of this run: ' + (run.cost.usd ? '$' + run.cost.usd.toFixed(2) + ' (API-equivalent) · ' : '') +
+      rcTokens(run.cost.tokens) + ' tokens'));
+  }
+
+  if (!ended) {
+    // stop: after this step (or REQ), or now with a confirmation that says what is lost
+    if (rc.confirmUntil > now) {
+      var conf = ckEl('div', 'rc-confirm');
+      var secs = Math.ceil((rc.confirmUntil - now) / 1000);
+      conf.appendChild(ckEl('b', '', 'Stop now? '));
+      conf.appendChild(document.createTextNode(rcStopText(run)));
+      var a = ckEl('div', 'rc-actions');
+      a.appendChild(rcButton('⏹ Yes, stop now', 'danger', rcStopNow));
+      a.appendChild(rcButton('Keep going (' + secs + ')', '', function () { rc.confirmUntil = 0; rcRender(); }));
+      if (!run.stopAfterStep) a.appendChild(rcButton('⏸ After this step instead', 'primary', function () { rc.confirmUntil = 0; post('cancelAfterStep'); }));
+      conf.appendChild(a);
+      runCard.appendChild(conf);
+    } else if (run.stopAfterStep || run.stopAfterReq) {
+      var stepName = run.kind === 'autopilot' && run.autopilot && run.autopilot.current ? run.autopilot.current : (cur ? cur.label : 'this step');
+      var armed = ckEl('div', 'rc-armed', '⏸ Stops at the end of ' + (run.stopAfterReq ? 'the current REQ' : stepName) +
+        ': ' + (cur && (cur.kind === 'eval' || cur.kind === 'gate') ? 'the report is kept, ' : '') + 'nothing new starts. ');
+      armed.appendChild(rcButton('undo', '', function () { post('cancelUndoStop'); }));
+      armed.appendChild(document.createTextNode(' '));
+      armed.appendChild(rcButton('⏹ Stop now', 'danger', function () { rc.confirmUntil = Date.now() + 8000; rcRender(); }));
+      runCard.appendChild(armed);
+    } else {
+      var acts = ckEl('div', 'rc-actions');
+      acts.appendChild(rcButton('⏸ After this step', '', function () { post('cancelAfterStep'); },
+        'Lets the current step finish (its result is kept), then stops: no new repair, eval or REQ starts.'));
+      if (run.kind === 'autopilot') {
+        acts.appendChild(rcButton('⏸ After this REQ', '', function () { post('cancelAfterReq'); },
+          'The current REQ goes to its gate, then the autopilot stops.'));
+      }
+      acts.appendChild(rcButton('⏹ Stop now', 'danger', function () { rc.confirmUntil = Date.now() + 8000; rcRender(); },
+        'Asks first and says what is lost (Esc)'));
+      acts.appendChild(ckEl('span', 'rc-hint', 'Esc = stop now (asks first)'));
+      runCard.appendChild(acts);
+    }
+  } else {
+    // the summary: what was done, what was interrupted, how to go on
+    var ul = ckEl('ul', 'rc-sum');
+    var done = (run.steps || []).filter(function (st) { return st.state !== 'cancelled'; });
+    var cut = (run.steps || []).filter(function (st) { return st.state === 'cancelled'; });
+    if (done.length) ul.appendChild(ckEl('li', '', 'Done: ' + done.map(function (st) {
+      return st.label + (st.counts ? ' (' + st.counts.passed + ' ✔' + (st.counts.failed ? ', ' + st.counts.failed + ' ✖' : '') + ')' : ' ' + ({ ok: '✔', failed: '✖' }[st.state] || ''));
+    }).join(' → ')));
+    if (cut.length) ul.appendChild(ckEl('li', '', 'Stopped: ' + cut.map(function (st) { return st.label + ' after ' + rcClock(st.endedAt - st.startedAt); }).join(', ')));
+    var wrote = (run.steps || []).some(function (st) { return (st.kind === 'kit' || st.kind === 'repair') && st.state === 'cancelled'; });
+    if (wrote && rcIsAgent(run)) ul.appendChild(ckEl('li', '', 'Files the agent wrote before the stop stay uncommitted: check them in Source Control.'));
+    if (ul.children.length) runCard.appendChild(ul);
+    var acts2 = ckEl('div', 'rc-actions');
+    if (ended.outcome !== 'ok' && run.kind !== 'idea' && run.kind !== 'spec' && run.kind !== 'plan') {
+      var resume = rcResumeCommand(run);
+      acts2.appendChild(rcButton('↻ ' + resume, 'primary', function () {
+        if (isBusy()) return;
+        prompt.value = resume;
+        rc.dismissed[run.id] = true;
+        onSend();
+      }, 'Run it now'));
+    }
+    if (wrote) acts2.appendChild(rcButton('Show changes', '', function () { post('showChanges'); }));
+    if (acts2.children.length) runCard.appendChild(acts2);
+  }
+}
+
+// Esc while a command runs: Stop now, with its confirmation
+document.addEventListener('keydown', function (ev) {
+  if (ev.key !== 'Escape' || !rc.run || rc.run.ended || !isBusy()) return;
+  var overlay = document.getElementById('clikeHelpOverlay');
+  if (overlay && overlay.style.display === 'block') return;
+  if (rc.confirmUntil > Date.now()) { rc.confirmUntil = 0; } else { rc.confirmUntil = Date.now() + 8000; }
+  rcRender();
+});
+// the clock and the confirmation countdown
+setInterval(function () { if (rc.run && (!rc.run.ended || rc.confirmUntil)) rcRender(); }, 1000);
+
+window.addEventListener('message', function (event) {
+  var msg = event.data || {};
+  if (msg.type !== 'runProgress') return;
+  var prev = rc.run;
+  rc.run = msg.run || null;
+  if (rc.run && rc.run.session) { ck.session = rc.run.session; try { ckRenderAgent(); } catch (e) {} }
+  if (rc.run && prev && prev.id !== rc.run.id) rc.confirmUntil = 0;
+  clearTimeout(rc.hideTimer);
+  if (rc.run && rc.run.ended && rc.run.ended.outcome === 'ok') {
+    var id = rc.run.id;
+    rc.hideTimer = setTimeout(function () { rc.dismissed[id] = true; rcRender(); }, 20000);
+  }
+  rcRender();
 });
 
 // init

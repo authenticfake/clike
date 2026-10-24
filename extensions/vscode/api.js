@@ -84,6 +84,17 @@ async function postEvalChecks(profile, workspaceRoot, reqId, checks) {
 }
 
 /**
+ * Live progress of the REQ's eval or gate in flight (/v1/eval/progress): phase, checks done of
+ * total, the promoted REQs of the regression; { state: 'unknown' } when none is known.
+ */
+async function getEvalProgress(workspaceRoot, reqId) {
+  const projectName = getProjectNameFromWorkspace();
+  const qs = new URLSearchParams({ project_root: asFsPath(workspaceRoot), req_id: String(reqId || '') });
+  if (projectName) qs.set('project_name', projectName);
+  return requestJson('GET', orchestratorUrl(`/v1/eval/progress?${qs.toString()}`), { timeoutMs: 4000 });
+}
+
+/**
  * Runs /v1/gate/check
  */
 async function postGateCheck(profile, workspaceRoot, req_id, options = {}) {
@@ -214,6 +225,7 @@ async function getEvalTools(workspaceRoot) {
 }
 
 module.exports = {
+  getEvalProgress,
   getEvalTools,
   postEvalToolsUpdate,
   postEvalToolsCheck,
