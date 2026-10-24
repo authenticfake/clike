@@ -28,6 +28,14 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Added
 
+- **Use cases in `/spec`, their coverage checked after `/plan`**: SPEC gets a `## Use Cases`
+  section — every production journey end to end with numbered steps (`UC-01.1`…), error flows, the
+  production data path and the prerequisites each journey implies (an authenticated API implies
+  sign-in, session expiry, roles, authorization per resource, audit…), in scope or provided by
+  someone named. Each REQ lists the steps it implements (`covers`); after `/plan` and
+  `/idea --extend` CLike reports every step no REQ covers, the same for cloud and local agents. A
+  requirement taken for granted (an authenticated API with no sign-in) no longer goes unplanned.
+
 - **`/autopilot [N] | stop | status`**: the REQs of the plan unattended, in dependency order —
   `/kit`, `/eval --fix`, `/gate` each, through the chat handlers, so with the configured executor
   (cloud, Codex, Claude Code) and the same locks, gate and audit. A fixed rule, not a model, drives

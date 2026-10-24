@@ -159,8 +159,17 @@ from the *Technology Constraints* block of IDEA.md — except with `--methodolog
 (companion-only: UX documents in `docs/harper/ux/` only) and once the project has releases
 (`/idea --extend` owns TECH_CONSTRAINTS from then on, by addition).
 
+SPEC includes **Use Cases**: every production journey end to end (`### UC-01 — …`, numbered steps
+`UC-01.1`… with interface and data, error flows, the production data path, and the *Prerequisites*
+each journey implies — sign-in and session expiry for an authenticated API, authorized download and
+retention for an export… — in scope or provided by someone named).
+
 ### `/plan`
 Generates or updates `PLAN.md` and `plan.json`.
+Each REQ lists in `plan.json` the use-case steps it implements (`covers`). After `/plan` (and
+`/idea --extend`) CLike checks that **every step of every SPEC use case is covered by a REQ** and
+says which are not (`⚠ USE CASES: …`), for cloud and local agents alike; a SPEC without a Use Cases
+section is not checked.
 
 ### `/kit`
 Runs the base KIT flow by default or explicit follow-up KIT phases. The candidate lives in
