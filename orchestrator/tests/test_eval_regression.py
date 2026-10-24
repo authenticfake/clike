@@ -86,6 +86,20 @@ class _RegressionProject(unittest.TestCase):
         return [c["name"] for c in response.json()["cases"]]
 
 class EvalRegressionTests(_RegressionProject):
+    def test_a_targeted_re_eval_regresses_only_the_named_reqs_and_is_never_a_verdict(self):
+        # a repair loop re-evaluates the REQs that failed before the repair; the full eval decides
+        full = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        self.assertTrue(any(n.startswith("regression::REQ-001::") for n in [c["name"] for c in full["cases"]]))
+        self.assertNotIn("partial", full)
+        other = self._post("/v1/eval/run", "REQ-002", regression=True, regression_reqs=["REQ-999"]).json()
+        self.assertFalse(any(c["name"].startswith("regression::REQ-001::") for c in other["cases"]))
+        self.assertTrue(other["partial"])
+        self.assertFalse(other["promotable"])
+        self.assertEqual(other["regression_scope"], ["REQ-999"])
+        named = self._post("/v1/eval/run", "REQ-002", regression=True, regression_reqs=["req-001"]).json()
+        self.assertTrue(any(c["name"].startswith("regression::REQ-001::") for c in named["cases"]))
+        self.assertTrue(named["partial"])
+
     def test_regression_set_is_the_promoted_reqs(self):
         from eval_runner import EvalRunner
 

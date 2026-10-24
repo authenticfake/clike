@@ -3065,11 +3065,15 @@ class EvalRunner:
         req_id: Optional[str] = None,
         regression: bool = False,
         checks: Optional[List[str]] = None,
+        regression_reqs: Optional[List[str]] = None,
     ) -> EvalReport:
         """Run the LTC. ``checks``: only these checks (by name), after the same environment
-        setup, and no regression — a quick re-run of failed checks while repairing."""
+        setup, and no regression — a quick re-run of failed checks while repairing.
+        ``regression_reqs``: every check of the REQ, and the regression of these promoted REQs only
+        (a targeted re-eval in a repair loop: never the REQ's verdict)."""
         self._services: List[eval_environment.RunningService] = []
         self._only_checks = {str(c) for c in (checks or []) if str(c).strip()} or None
+        self._regression_only = {str(r).strip().upper() for r in (regression_reqs or []) if str(r).strip()} or None
         try:
             exhausted = sandbox_resources.preflight()
             if not exhausted and not self.eval_key:  # the top-level run, not a nested regression or service
@@ -4211,6 +4215,10 @@ class EvalRunner:
         Cases are named ``regression::<REQ>::<case>`` and keep their blocking flag."""
         superseded = self.superseded_checks(req_id)
         others = self.regression_req_ids(req_id)
+        only = getattr(self, "_regression_only", None)
+        if only:
+            # a targeted re-eval: the promoted REQs that failed before the last repair
+            others = [other for other in others if other.upper() in only]
         workers = min(regression_workers(), len(others))
         self._promoted_state_digest(req_id)  # once, before the workers share it
         if workers <= 1:

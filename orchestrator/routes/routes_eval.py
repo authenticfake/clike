@@ -38,6 +38,9 @@ class EvalRunRequest(BaseModel):
     regression: Optional[bool] = False
     # Only these checks (by name), no regression: a re-run of failed checks while repairing.
     checks: Optional[List[str]] = None
+    # Every check, and the regression of these promoted REQs only: a targeted re-eval in a repair
+    # loop (the REQs that failed before the repair). Never a verdict.
+    regression_reqs: Optional[List[str]] = None
 
     class Config:
         extra = "ignore"
@@ -180,6 +183,7 @@ async def _execute_profile(
     req_id: Optional[str],
     regression: bool = False,
     checks: Optional[List[str]] = None,
+    regression_reqs: Optional[List[str]] = None,
 ) -> Tuple[EvalReport, str]:
     """Run the profile in the eval sandbox when configured (containers), otherwise in-process (dev).
     A caller that disconnects stops the eval: the sandbox request is closed (the sandbox then kills
@@ -194,6 +198,7 @@ async def _execute_profile(
             "req_id": req_id,
             "regression": regression,
             "checks": checks or None,
+            "regression_reqs": regression_reqs or None,
         }
         async with httpx.AsyncClient(timeout=_SANDBOX_TIMEOUT_S) as client:
             task = asyncio.create_task(client.post(f"{sandbox}/run", json=body))
@@ -211,7 +216,7 @@ async def _execute_profile(
     task = asyncio.create_task(asyncio.to_thread(
         runner.run_profile,
         profile=str(profile_path), ltc=ltc, mode=mode, verdict=verdict, req_id=req_id, regression=regression,
-        checks=checks,
+        checks=checks, regression_reqs=regression_reqs,
     ))
     rep = await _until_done_or_disconnected(request, task, cancel.set)
     return rep, "local"
@@ -491,6 +496,7 @@ def _merge_eval_args(
         ltc=body.ltc if body.ltc else None,
         regression=bool(body.regression),
         checks=[str(c) for c in (body.checks or []) if str(c).strip()][:50] or None,
+        regression_reqs=[str(r) for r in (body.regression_reqs or []) if str(r).strip()][:100] or None,
     )
 
 
@@ -660,6 +666,7 @@ async def eval_run(
             request,
             prj, profile_path, ltc, args.mode or "auto", args.verdict, args.req_id,
             regression=bool(args.regression) and not args.checks, checks=args.checks,
+            regression_reqs=args.regression_reqs if args.regression else None,
         )
     except HTTPException:
         raise
@@ -671,7 +678,8 @@ async def eval_run(
 
     if not is_manual:
         rep = _with_structural_cases(rep, _required_output_blockers(prj, args.req_id or rep.req_id))
-    if not is_manual and not args.checks:
+    targeted = bool(args.regression and args.regression_reqs)
+    if not is_manual and not args.checks and not targeted:
         # the full verdict, reusable by the gate while its inputs stay the same
         try:
             eval_verdicts.record(prj, _effective_req_id(args.req_id, ltc, profile_path), bool(args.regression), report_to_dict(rep))
@@ -684,6 +692,11 @@ async def eval_run(
     if args.checks:
         # A partial run (repair loop): never the REQ's verdict.
         payload["checks"] = args.checks
+        payload["partial"] = True
+        payload["promotable"] = False
+    elif targeted:
+        # Every check, the regression of some promoted REQs only: the full eval decides.
+        payload["regression_scope"] = args.regression_reqs
         payload["partial"] = True
         payload["promotable"] = False
     return payload

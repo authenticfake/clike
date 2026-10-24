@@ -47,6 +47,7 @@ class SandboxRunRequest(BaseModel):
     req_id: Optional[str] = None
     regression: bool = False
     checks: Optional[List[str]] = None
+    regression_reqs: Optional[List[str]] = None
 
 
 @app.get("/health")
@@ -103,7 +104,7 @@ async def run(req: SandboxRunRequest, request: Request):
     task = asyncio.create_task(asyncio.to_thread(
         runner.run_profile,
         profile=str(profile_path), ltc=ltc, mode=req.mode or "auto", verdict=req.verdict, req_id=req.req_id,
-        regression=req.regression, checks=req.checks,
+        regression=req.regression, checks=req.checks, regression_reqs=req.regression_reqs,
     ))
     # An eval whose caller went away is stopped (its processes killed) instead of running on.
     while not task.done():

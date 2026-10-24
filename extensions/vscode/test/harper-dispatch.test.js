@@ -153,9 +153,9 @@ test('Cancel stops a Harper phase: the eval/gate request, the --fix cycles and t
   assert.match(extension, /if \(harperAbortController\) harperAbortController\.abort\(\);/);
   assert.match(extension, /return terminateActiveAgents\(\);/);
   // eval and gate requests carry the signal (closing them stops the eval in the sandbox)
-  assert.match(extension, /handleEval\(path_ltc_json, ws_root, targets, mode, modeContent, harperAbort\)/);
+  assert.match(extension, /handleEval\(path_ltc_json, ws_root, targets, mode, modeContent, harperAbort, evalOptions\)/);
   assert.match(extension, /result: modeContent, signal: harperAbort \}/);
-  assert.match(api, /async function postEvalRun\(profile, workspaceRoot,req_id, mode, modeResult, signal = null\)/);
+  assert.match(api, /async function postEvalRun\(profile, workspaceRoot,req_id, mode, modeResult, signal = null, options = \{\}\)/);
   assert.match(api, /signal: opts\.signal \|\| undefined/);
   // a --fix cycle and a repair reuse the user's signal; the loops stop once it is aborted
   assert.match(extension, /harperSignal\(!\(msg\.fix && Number\(msg\.fix\.cycle \|\| 0\) > 0\)\)/);
