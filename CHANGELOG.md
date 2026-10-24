@@ -4,6 +4,8 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.6.0] — 2026-10-24 — Eval that converges on a real project, autopilot, chat cockpit, SPEC that decides
+
 ### Performance
 
 - **Targeted re-eval in `/eval --fix` cycles**: after a repair of regression failures, the next eval
