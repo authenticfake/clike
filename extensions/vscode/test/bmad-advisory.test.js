@@ -210,3 +210,17 @@ test('an edited locked test is reported as such, with --accept as the next step 
   assert.deepEqual(advisory.contract_gaps, []);
   assert.equal(advisory.can_decide_pass_fail, false);
 });
+
+test('a check stopped on a missing program advises installing it, not repairing the code', () => {
+  // B2B REQ-033: the loop rightly stopped and asked to install shellcheck; the advice said /kit --repair
+  const advisory = buildBmadEvalAdvisory({
+    req_id: 'REQ-033', status: 'FAIL', passed: false, failed: 1, blocked_count: 1, missing_tools: ['shellcheck'],
+    cases: [{ name: 'shellcheck', passed: false, blocked: true, blocking: true,
+      stderr: 'shellcheck missing\n[CLike EvalRunner] Missing in the eval sandbox: shellcheck.' }],
+  }, 'REQ-033', { methodology: 'bmad', phase: 'eval', agent: 'qa' });
+  assert.equal(advisory.suggested_next_command, '/tools add shellcheck');
+  assert.deepEqual(advisory.diagnostic_classifications, ['environment_missing_tool']);
+  assert.equal(advisory.root_cause_hypothesis, 'The eval sandbox lacks shellcheck: the code is not at fault, nothing to repair.');
+  assert.deepEqual(advisory.checks_to_rerun, ['shellcheck']);
+  assert.deepEqual(advisory.contract_gaps, []);
+});
