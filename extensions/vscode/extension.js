@@ -19,6 +19,9 @@ const autopilot = require('./autopilot');
 const { projectUseCaseCoverage, useCaseCoverageMessage } = require('./use-case-coverage');
 const planReadiness = require('./plan-readiness');
 const { saveRejectedTestFix, rejectedTestFixMessage, applyLatestTestFix, revertAppliedTestFix } = require('./rejected-test-fix');
+const { createFreshnessCheck } = require('./extension-freshness');
+// the code this window loaded; a reinstall changes the files, not the running code
+const extensionFreshness = createFreshnessCheck(__filename);
 const { collectExistingSourceEvidence } = require('./existing-source-evidence');
 const { writeFinalizeOutcome } = require('./finalize-outcome');
 
@@ -4201,6 +4204,13 @@ async function cmdOpenChat(context) {
   // Named so the auto-eval loop can chain KIT repair and eval through the same handlers.
   const handleWebviewMessageCore = async (msg) => {
     panel.webview.postMessage({ type: 'busy', on: true });
+    const stale = extensionFreshness(msg && msg.type);
+    if (stale) {
+      panel.webview.postMessage({ type: 'echo', message: `⚠ ${stale}` });
+      vscode.window.showWarningMessage(stale, 'Reload Window').then((pick) => {
+        if (pick === 'Reload Window') vscode.commands.executeCommand('workbench.action.reloadWindow');
+      });
+    }
 
     try {
       const state = context.workspaceState.get('clike.uiState') || {
