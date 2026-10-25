@@ -87,6 +87,8 @@ class KitRepairTests(unittest.TestCase):
         self.assertIn("repair_amendment_accepted:ci/LTC.json", out["warnings"])
         self.assertTrue(any(w.startswith(f"repair_change_rejected:test/test_app.py") for w in out["warnings"]))
         self.assertEqual(out["repair"]["amendments"]["accepted"], ["ci/LTC.json"])
+        # the rejected test change goes back to the extension, which keeps it for the developer
+        self.assertEqual(out["repair"]["rejected_tests"], {"test/test_app.py": "def test_f():\n    pass\n"})
 
     def test_a_cloud_repair_keeps_a_test_the_lock_does_not_hold(self):
         # parity with local agents: a test file added after the lock is not locked acceptance

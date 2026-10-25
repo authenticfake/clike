@@ -53,6 +53,7 @@ while (Date.now() < deadline) {
     fs.rmSync(result, { force: true });
     fs.rmSync(pending, { force: true });
     if (r.error) console.log(\`\${r.status}: \${r.error}\`);
+    if (r.warning) console.log(\`WARNING: \${r.warning}\`);
     for (const c of r.checks || []) {
       console.log(\`\${c.passed ? 'PASS' : c.blocked ? 'BLOCKED' : 'FAIL'} \${c.name}\${c.passed ? '' : \` (exit \${c.code})\`}\`);
       if (!c.passed && c.errors) console.log(c.errors.replace(/^/gm, '    '));
@@ -94,6 +95,36 @@ function compactResult(report) {
   return { status: failed || !checks.length ? 'FAIL' : 'PASS', checks };
 }
 
+// Test files that existed when the repair started: changing one is governed after the run (the
+// acceptance lock), so a check that passes only with the change does not hold yet.
+function snapshotTests(dir) {
+  const out = new Map();
+  const walk = (d) => {
+    let entries = [];
+    try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const abs = path.join(d, e.name);
+      if (e.isDirectory()) { if (!['node_modules', '__pycache__', '.pytest_cache'].includes(e.name)) walk(abs); }
+      else if (e.isFile()) { try { out.set(abs, fs.readFileSync(abs, 'utf8')); } catch { /* vanished */ } }
+    }
+  };
+  if (dir) walk(dir);
+  return out;
+}
+
+function changedTests(before, root) {
+  return [...before.entries()]
+    .filter(([abs, text]) => { try { return fs.readFileSync(abs, 'utf8') !== text; } catch { return true; } })
+    .map(([abs]) => path.relative(root, abs).split(path.sep).join('/'));
+}
+
+// A test added by an earlier repair (e.g. a reconciled test of a promoted REQ for the regression) is
+// not locked and stays as written: the warning says when the pass may not hold, not that it fails.
+const LOCKED_TESTS_WARNING = 'this result uses your changes to tests that existed before this repair (%s). A test ' +
+  'the acceptance lock holds keeps such a change only when the eval shows an error raised in the test itself ' +
+  '(not a failed assertion); otherwise CLike restores it after your run and this pass does not hold. If you are ' +
+  'sure the test is wrong, keep the change and explain why in the KIT docs: CLike saves it for the developer to review.';
+
 function writeAtomic(file, text) {
   const tmp = `${file}.tmp`;
   fs.writeFileSync(tmp, text, 'utf8');
@@ -104,7 +135,8 @@ function writeAtomic(file, text) {
  * Serve eval-check requests of a local agent until stop().
  * runChecks(checks: string[]) → eval report (the orchestrator /v1/eval/run payload).
  */
-function startEvalCheckBridge({ workspaceRoot, runChecks, maxRuns = 8, pollMs = 1000, log = () => {} }) {
+function startEvalCheckBridge({ workspaceRoot, runChecks, maxRuns = 8, pollMs = 1000, log = () => {}, testRoot = '' }) {
+  const testsBefore = snapshotTests(testRoot ? path.join(workspaceRoot, testRoot) : '');
   const dir = path.join(workspaceRoot, CHANNEL_DIR);
   const helper = path.join(workspaceRoot, HELPER_PATH);
   fs.mkdirSync(dir, { recursive: true });
@@ -142,6 +174,8 @@ function startEvalCheckBridge({ workspaceRoot, runChecks, maxRuns = 8, pollMs = 
         log(`[evalCheck] run ${runs}/${maxRuns}: ${checks.join(' ') || 'all checks'}`);
         try {
           result = compactResult(await runChecks(checks));
+          const touched = changedTests(testsBefore, workspaceRoot);
+          if (touched.length) result.warning = LOCKED_TESTS_WARNING.replace('%s', touched.join(', '));
         } catch (e) {
           result = { status: 'ERROR', error: String(e?.message || e).slice(0, 2000) };
         }

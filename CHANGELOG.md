@@ -6,6 +6,17 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **A repair that finds a wrong locked test no longer loses its work, and the loop stops for you**:
+  on a test project the local agent found three defects in a locked browser test and fixed them
+  (every assertion identical); the lock rejected the change, as it must without proof, restored the
+  test and the loop went on repairing the code. Now the proposed change is saved as a patch
+  (`runs/eval/<REQ>/proposed_test_fix_<ts>.patch`, with the reasons) and `/eval --fix` / `/gate --fix`
+  stop: you review it, apply it and `/eval REQ --accept "<why>"` (audited), or give a hint for the
+  code. The lock is unchanged. Same for cloud repairs (the orchestrator returns the rejected test
+  contents) and local agents. During a repair the eval-check helper warns when its result uses
+  changes to tests that existed before the repair. The KIT prompt asks tests that hold or fail a
+  network call to use the framework's interception, scoped and removed, and to run every test once
+  against the code.
 - **Checks that wait for a person, and tests that reach a name that never resolves, no longer stall
   `/eval --fix`**: on a test project a blocking manual check ("missing … observation") and a browser
   test following a redirect to `example.test` failed at every cycle, and no repair could change
