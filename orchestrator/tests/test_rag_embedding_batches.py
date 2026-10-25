@@ -60,3 +60,39 @@ def test_unchanged_files_are_not_embedded_again(monkeypatch):
     assert deleted_paths == ["docs/new.md"]
     assert {p["payload"]["path"] for p in upserted} == {"docs/new.md"}
     assert out["unchanged_paths"] == 1 and out["indexed_paths"] == 1
+
+
+def test_sources_lists_every_indexed_path_with_its_chunks(monkeypatch):
+    # the Memory panel lists what the project and the CLike guide hold
+    pages = [
+        {"points": [{"payload": {"path": "docs/harper/SPEC.md"}}, {"payload": {"path": "docs/harper/SPEC.md"}}], "next_page_offset": "p2"},
+        {"points": [{"payload": {"path": "runs/kit/REQ-001/src/a.py"}}, {"payload": {}}], "next_page_offset": None},
+    ]
+    bodies = []
+
+    async def ensure(self):
+        return None
+
+    class Resp:
+        def __init__(self, result):
+            self._result = result
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"result": self._result}
+
+    async def request(client, method, url, json_body=None, attempts=1):
+        assert url.endswith("/points/scroll") and json_body["with_vector"] is False
+        bodies.append(dict(json_body))
+        return Resp(pages[len(bodies) - 1])
+
+    monkeypatch.setattr(RagStore, "ensure", ensure)
+    monkeypatch.setattr(rag_store, "_request_with_retry", request)
+    out = asyncio.run(RagStore("p").sources())
+    assert out == {
+        "sources": [{"path": "docs/harper/SPEC.md", "chunks": 2}, {"path": "runs/kit/REQ-001/src/a.py", "chunks": 1}],
+        "total_chunks": 3,
+    }
+    assert "offset" not in bodies[0] and bodies[1]["offset"] == "p2"

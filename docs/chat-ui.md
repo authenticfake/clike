@@ -39,6 +39,8 @@ promoted REQs `23/28`), what the agent is doing, the cost. **⏸ After this step
 step finish (its report is kept) and starts nothing new; **⏹ Stop now** (or Esc) first says what
 stopping loses (a running eval leaves no report, files an agent wrote stay uncommitted), then stops.
 
+**🧠 Memory** (every layout): opens the Memory panel — the project's RAG memory and the CLike guide, queried in any language — or brings it to the front; it works while a command runs. See [rag.md](rag.md#memory-panel).
+
 **Autocompletion**: type `/` — commands, then the REQs that fit, flags and values; an invalid
 command shows the parser's error with its fix before you send.
 

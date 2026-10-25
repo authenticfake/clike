@@ -85,3 +85,6 @@ benchmark/results/
 
 # Eval sandbox variables (local, may point to local databases)
 docker/eval.env
+
+# CLike guide copied into the extension at packaging time (scripts/bundle-guide.js)
+extensions/vscode/guide/

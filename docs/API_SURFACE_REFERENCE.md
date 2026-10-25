@@ -75,6 +75,7 @@ Prefix `/v1/harper`.
 | `POST` | `/v1/rag/fetch` | Fetch indexed docs by prefix/query constraints. |
 | `POST` | `/v1/rag/fetch_by_paths` | Fetch indexed docs by explicit paths. |
 | `POST` | `/v1/rag/purge` | Purge indexed RAG content. |
+| `POST` | `/v1/rag/sources` | List indexed paths with their chunk counts (Memory panel). |
 
 ### MCP
 

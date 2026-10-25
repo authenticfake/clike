@@ -52,6 +52,25 @@ Current orchestrator RAG endpoints:
 - `POST /v1/rag/index`
 - `POST /v1/rag/search`
 - `POST /v1/rag/purge`
+- `POST /v1/rag/sources` — every indexed path with its chunk count (the Memory panel lists)
+
+## Memory panel
+
+**CLike: Memory** (or **🧠 Memory** in the chat, every layout) opens a panel of its own next to the
+chat. It holds two memories:
+
+- **Project**: what CLike indexed for the workspace — Harper documents, the KITs of the REQs (after
+  `/kit` and `/eval`), eval and gate reports, files attached in the chat.
+- **CLike Guide**: CLike's own documentation, shipped inside the extension and indexed in its own
+  collection (`clike-guide`) when CLike starts, again only when a new version changes it.
+
+Ask in natural language, in any language (the search is semantic): each result is a file with its
+most relevant passage and a link to open it. On the left, **Contents** lists what each memory holds
+(by group, with a filter) and **Recent searches** repeats a search with a click.
+
+The chat and the Memory panel do not exchange anything: **💬 Chat** in the panel and **🧠 Memory** in
+the chat only open the other panel, or bring it to the front. Files reach the memory from the chat
+(📎 Attach); the panel lists them.
 
 ## Current extension commands
 

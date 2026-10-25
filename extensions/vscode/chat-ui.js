@@ -202,6 +202,8 @@ function getWebviewHtml(orchestratorUrl, themeName = 'cockpit') {
   body.clike-busy .bubble-delete {
     pointer-events:none;
   }
+  /* the Memory panel is separate from the chat: it opens while a command runs too */
+  body.clike-busy #memoryBtn { pointer-events:auto; }
 
   body.clike-busy .tab {
     opacity:.55;
@@ -731,6 +733,7 @@ function getWebviewHtml(orchestratorUrl, themeName = 'cockpit') {
 
     <button id="newChat" title="Starts a new conversation in this mode; the current one goes to the history (cockpit: History)">＋ New chat</button>
     <button id="clear">Clear Session</button>
+    <button id="memoryBtn" title="Open the CLike Memory panel (project RAG and CLike guide), or bring it to the front">🧠 Memory</button>
 
     <label class="ctl">
       Scope
@@ -2961,6 +2964,12 @@ prompt.addEventListener('keydown', function (ev) {
   }
 }, true);
 
+// --- Memory (every layout): opens the Memory panel, or brings it to the front ---
+(function () {
+  var mb = el('memoryBtn');
+  if (mb) mb.addEventListener('click', function () { post('openMemory'); });
+})();
+
 // --- New chat (every layout): the current conversation goes to the history ---
 (function () {
   var nb = el('newChat');
@@ -3044,6 +3053,8 @@ function ckBuild() {
   drawerBtn.id = 'ckDrawerBtn';
   drawerBtn.title = 'Cockpit: mode, settings, project';
   drawerBtn.addEventListener('click', function () { ckToggleDrawer(); });
+  var memBtn = el('memoryBtn');
+  if (memBtn) { memBtn.className = 'ck-chip'; head.appendChild(memBtn); }
   head.appendChild(drawerBtn);
   el('ckScrim').addEventListener('click', function () { ckToggleDrawer(false); });
 
