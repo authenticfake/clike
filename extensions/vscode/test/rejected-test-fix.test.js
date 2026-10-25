@@ -26,7 +26,8 @@ test('the rejected test change is saved as a patch that applies to the restored 
   assert.match(patch, /rejected by the acceptance lock/);
   assert.match(patch, /test\/test_ui.py: tests are locked/);
   execFileSync('git', ['init', '-q'], { cwd: root });
-  execFileSync('git', ['apply', saved.patch], { cwd: root });
+  execFileSync('git', ['config', 'core.autocrlf', 'false'], { cwd: root });
+  execFileSync('git', ['-c', 'core.autocrlf=false', 'apply', saved.patch], { cwd: root });
   assert.equal(fs.readFileSync(path.join(root, rel), 'utf8'), after);
   assert.match(rejectedTestFixMessage('REQ-002', saved), /--accept "<why>" \(audited\)/);
 });
