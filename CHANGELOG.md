@@ -15,7 +15,23 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   same state. Cloud model or local agent (read-only, no session), as the chat is set. Only the words
   that tell results apart are highlighted, matched as whole words.
 
+- **A passing `/finalize` delivers the release**: the finalize commit names the release and its
+  REQs, the annotated tag `vN` marks it, and the release notes are built from the documents (REQs
+  with their gate merge commits, what changed, how to start, missing information, verification,
+  limitations, full changelog). The release on the repository host is published only on
+  confirmation, with every field and the reports attached; **CLike: Publish release** publishes the
+  last passing `/finalize` later. `/idea --extend` takes `vN` as the baseline.
+
 ### Fixed
+
+- **After the last gate of a new release the cockpit proposes `/finalize` again**: the finalize
+  report of the earlier release made it show FINALIZE done and "Delivered" (the autopilot already
+  said `/finalize`). A finalize counts only when it is newer than the last gate promotion.
+- **An empty release folder made in advance is no target**: `docs/reference/v4/` created empty
+  for later made `/idea --extend` and the cockpit target v4 instead of the v3 with its inputs.
+- **`/finalize` no longer rejects a correct cloud deploy**: a script named after the secret
+  references it creates (`04_secrets.sh`) is code, not a secret store; the
+  `CLIKE_ALLOW_CLOUD_MUTATION` guard counts in the implementation the apply wrappers delegate to.
 
 - **A check that says a tool is missing no longer starts repairs of correct code**: a check that
   printed `shellcheck missing` and exited (instead of the shell's `command not found`) was taken for

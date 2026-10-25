@@ -155,6 +155,10 @@
       {
         "command": "clike.copyExtensionMcpToken",
         "title": "CLike: Copy Extension MCP Token"
+      },
+      {
+        "command": "clike.publishRelease",
+        "title": "CLike: Publish release (tag vN and GitHub Release of the last /finalize)"
       }
     ],
     "configuration": {

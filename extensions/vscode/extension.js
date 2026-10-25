@@ -26,6 +26,98 @@ const { ensureGuideIndexed } = require('./memory-guide');
 const extensionFreshness = createFreshnessCheck(__filename);
 const { collectExistingSourceEvidence } = require('./existing-source-evidence');
 const { writeFinalizeOutcome } = require('./finalize-outcome');
+const releasePublish = require('./release-publish');
+
+/** The GitHub CLI: on PATH, else where Homebrew puts it (VS Code started from the Dock has a short PATH). */
+function ghExecutable() {
+  const { execFileSync } = require('child_process');
+  for (const cand of ['gh', '/opt/homebrew/bin/gh', '/usr/local/bin/gh', 'C:\\Program Files\\GitHub CLI\\gh.exe']) {
+    try { execFileSync(cand, ['--version'], { stdio: 'ignore' }); return cand; } catch { /* next */ }
+  }
+  return '';
+}
+
+// A passing /finalize delivers the release: the annotated tag vN on its commit and the release
+// notes (runs/finalize/RELEASE_vN.md). The GitHub Release is published only when the developer
+// says so (it is public): the tag is pushed, then gh creates or updates the release.
+async function offerRelease(ws, settings, status, msg, say, { manual = false } = {}) {
+  const root = ws.fsPath;
+  let info;
+  try { info = releasePublish.releaseInfo(root, { status, remote: settings.gitRemote || 'origin' }); } catch (e) {
+    log(`[release] not prepared: ${e?.message || e}`);
+    return;
+  }
+  const notes = releasePublish.writeReleaseNotes(root, info);
+  if (!settings.gitAutoCommit && !manual) {
+    // the finalize is not committed: a tag on HEAD would mark the code before it
+    say(`ℹ RELEASE ${info.release}: release notes in ${notes}. clike.git.autoCommit is off: commit the finalize, ` +
+      `then tag it (git tag -a ${info.tag} -m "${releasePublish.releaseTitle(info)}").`);
+    return;
+  }
+  const tagged = releasePublish.tagRelease(root, info);
+  if (tagged.error) {
+    say(`ℹ RELEASE ${info.release}: ${tagged.error} Notes: ${notes}.`);
+    return;
+  }
+  say(`🏷 RELEASE ${info.release}: tag ${tagged.tag} ${tagged.created ? 'created' : 'already'} on the finalize commit — ` +
+    `${releasePublish.changeSummary(info.reqs)}. Release notes: ${notes}.`);
+  const remote = settings.gitRemote || 'origin';
+  const publishCmd = `git push ${remote} ${info.tag} && gh release create ${info.tag} --title "${releasePublish.releaseTitle(info)}" --notes-file ${notes} --latest --verify-tag ${info.assets.join(' ')}`;
+  if (!info.repo) {
+    say(`ℹ RELEASE ${info.release}: no GitHub remote — the release is the local tag ${info.tag}.`);
+    return;
+  }
+  if (msg && (msg.__fromMcp || msg.__unattended)) {
+    say(`ℹ RELEASE ${info.release}: not published (it needs your confirmation). To publish: ${publishCmd}`);
+    return;
+  }
+  const gh = ghExecutable();
+  if (!gh) {
+    say(`ℹ RELEASE ${info.release}: the GitHub CLI (gh) is not installed — install it and run gh auth login, then CLike: Publish release. Or: ${publishCmd}`);
+    return;
+  }
+  const run = (cmd, args) => new Promise((resolve, reject) => {
+    require('child_process').execFile(cmd === 'gh' ? gh : cmd, args, { cwd: root }, (err, stdout, stderr) => (err ? reject(new Error(String(stderr || err.message).trim())) : resolve(String(stdout || '').trim())));
+  });
+  const publish = 'Publish release';
+  const open = 'Open notes';
+  const choice = await vscode.window.showInformationMessage(
+    `Release ${info.release} of ${info.project} is tagged. Publish the GitHub Release on ${info.repo}? ` +
+    `The tag ${info.tag} is pushed and the release is public (${releasePublish.changeSummary(info.reqs)}${info.prerelease ? ', pre-release: passed with warnings' : ''}).`,
+    publish, open);
+  if (choice === open) {
+    openReadingMode(vscode.Uri.joinPath(ws, ...notes.split('/')));
+    say(`ℹ RELEASE ${info.release}: not published. To publish later: ${publishCmd}`);
+    return;
+  }
+  if (choice !== publish) {
+    say(`ℹ RELEASE ${info.release}: not published. To publish later: ${publishCmd}`);
+    return;
+  }
+  try {
+    await run('git', ['push', remote, info.tag]);
+    let exists = false;
+    try { await run('gh', ['release', 'view', info.tag, '--json', 'tagName']); exists = true; } catch { /* a new release */ }
+    for (const args of releasePublish.ghReleaseArgs(info, notes, { exists })) await run('gh', args);
+    let url = '';
+    try { url = await run('gh', ['release', 'view', info.tag, '--json', 'url', '--jq', '.url']); } catch { /* shown without the link */ }
+    say(`✔ RELEASE ${info.release} ${exists ? 'updated' : 'published'}${url ? `: ${url}` : ` on ${info.repo}`}.`);
+  } catch (e) {
+    say(`✖ RELEASE ${info.release} not published: ${String(e?.message || e).split('\n')[0]}. To publish: ${publishCmd}`);
+  }
+}
+
+
+/** The finalize commit message naming the release and its REQs; '' falls back to the default. */
+function finalizeCommitMessage(root, runId, status = '') {
+  try {
+    const info = releasePublish.releaseInfo(root);
+    return status ? releasePublish.evidenceCommitMessage(info, status, runId) : releasePublish.finalizeCommitMessage(info, runId);
+  } catch (e) {
+    log(`[finalize] release commit message: ${e?.message || e}`);
+    return '';
+  }
+}
 
 /** Records the outcome of /finalize for the cockpit (never fails the command). */
 function recordFinalizeOutcome(status, reason) {
@@ -3670,6 +3762,27 @@ async function cmdCopyExtensionMcpToken(context) {
   );
 }
 
+/**
+ * CLike: Publish release — the release of the last passing /finalize (tag vN, notes, GitHub Release
+ * on confirmation), for a finalize run before this existed or a publication declined at the time.
+ */
+async function cmdPublishRelease() {
+  const ws = getWorkspaceRoot();
+  const say = (text) => {
+    out.appendLine(text);
+    if (clikeChatPanel) clikeChatPanel.webview.postMessage({ type: 'echo', message: text });
+    else vscode.window.showInformationMessage(text);
+  };
+  if (!ws) { say('CLike: open the project folder first.'); return; }
+  const { finalizeDone, readFinalizeOutcome } = require('./finalize-outcome');
+  if (!finalizeDone(ws.fsPath)) {
+    const last = readFinalizeOutcome(ws.fsPath);
+    say(`ℹ RELEASE: no passing /finalize for the current REQs${last?.status === 'failed' ? ` (the last one failed: ${last.reason})` : ''} — run /finalize first.`);
+    return;
+  }
+  await offerRelease(ws, cfg(), '', null, say, { manual: true });
+}
+
 function activate(context) {
   const reg = (id, fn) => context.subscriptions.push(vscode.commands.registerCommand(id, () => fn(context)));
   //out.appendLine(`activate ${context}`);
@@ -3683,6 +3796,7 @@ function activate(context) {
   context.subscriptions.push(vscode.commands.registerCommand('clike.revealChat', () => {
     if (clikeChatPanel) clikeChatPanel.reveal(); else vscode.commands.executeCommand('clike.openChat');
   }));
+  reg('clike.publishRelease', cmdPublishRelease);
   reg('clike.setServiceToken', cmdSetServiceToken);
   reg('clike.clearServiceToken', cmdClearServiceToken);
   reg('clike.copyExtensionMcpToken', cmdCopyExtensionMcpToken);
@@ -5546,7 +5660,8 @@ async function cmdOpenChat(context) {
                 runId,
                 targetReqId,
                 _out.files.map(f => f.path),
-                { workspaceRoot: toFsPath(wsroot), finalizeOpenPr: (phase === 'finalize') },
+                { workspaceRoot: toFsPath(wsroot), finalizeOpenPr: (phase === 'finalize'),
+                  commitMessage: phase === 'finalize' ? finalizeCommitMessage(toFsPath(wsroot), runId) : '' },
                 settings,
                 out
               );
@@ -7183,13 +7298,17 @@ async function cmdOpenChat(context) {
     await writeEvidence();
     const step = nextAutoEvalStep(state, report);
     log(`[finalizeVerify] cycle=${state.cycle}/${state.maxCycles} action=${step.action} reason=${step.reason}`);
+    const verdict = String(report?.status || (report?.passed ? 'PASS' : 'FAIL')).toUpperCase();
     if (step.action === 'pass' || step.action === 'stop') {
-      await commitFinalizeEvidence(ws, settings);
+      await commitFinalizeEvidence(ws, settings, step.action === 'pass' ? verdict : 'FAIL');
     }
     if (step.action === 'pass') {
       recordFinalizeOutcome('ok', step.reason);
       say(`✔ SOLUTION EVAL PASS (${step.reason}): the integrated solution installs, builds, is configured, starts and answers. ` +
         `What /finalize did, how to start and see it, and what is still to provide: ${finalizeVerify.REPORT_PATH}. Evidence: ${finalizeVerify.EVIDENCE_PATH}`);
+      // the release: tag vN on the finalize commit, notes from the documents, publication on request
+      // not awaited: the publication question waits for the developer, the chat is free meanwhile
+      offerRelease(ws, settings, verdict, msg, say).catch(e => log(`[release] ${e?.message || e}`));
       // not awaited: the notification waits for the developer, the chat is free meanwhile
       offerLocalSolutionRun(ws).catch(e => log(`[finalizeVerify] local run offer: ${e?.message || e}`));
       return;
@@ -7227,13 +7346,14 @@ async function cmdOpenChat(context) {
 
   // The verification's own files (the profile, its smoke scripts, the evidence, the report the last
   // repair updated) are committed when the loop ends: the finalize commit ran before them.
-  async function commitFinalizeEvidence(ws, settings) {
+  async function commitFinalizeEvidence(ws, settings, status = '') {
     if (!settings.gitAutoCommit) return;
     const files = [finalizeVerify.SOLUTION_PROFILE, finalizeVerify.EVIDENCE_PATH, finalizeVerify.REPORT_PATH,
       ...listSolutionSmokeFiles(ws.fsPath)];
+    const runId = `verify-${Date.now().toString(16)}`;
     try {
-      await clikeGitSync('finalize', `verify-${Date.now().toString(16)}`, null, files,
-        { workspaceRoot: ws.fsPath, finalizeOpenPr: false }, settings, out);
+      await clikeGitSync('finalize', runId, null, files,
+        { workspaceRoot: ws.fsPath, finalizeOpenPr: false, commitMessage: finalizeCommitMessage(ws.fsPath, runId, status || 'evidence') }, settings, out);
     } catch (e) {
       log(`[finalizeVerify] evidence not committed: ${e?.message || e}`);
     }

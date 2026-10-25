@@ -398,13 +398,18 @@ function reconcileExtend({ root, before, files, isAgent, mode = 'plan', cascade 
   return { ok: true, errors: [], warnings, delta: delta.delta, restored: verdict.restored, docs, report };
 }
 
-/** Annotated tag on HEAD marking the delivered baseline (`harper/v1`), once; '' when not a git repo. */
+/**
+ * The tag marking the delivered baseline: the release tag `v1` a passing /finalize created
+ * (release-publish.js), else an annotated `harper/v1` on HEAD, once; '' when not a git repo.
+ */
 function tagBaseline(root, baseline) {
   const tag = `harper/${baseline}`;
   const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
   try {
     git('rev-parse', '--verify', 'HEAD');
-    try { git('rev-parse', '--verify', `refs/tags/${tag}`); return tag; } catch { /* not there yet */ }
+    for (const existing of [baseline, tag]) {
+      try { git('rev-parse', '--verify', `refs/tags/${existing}`); return existing; } catch { /* not there */ }
+    }
     try {
       git('tag', '-a', tag, '-m', `Harper baseline ${baseline}: delivered before the next release cascade`);
     } catch {
