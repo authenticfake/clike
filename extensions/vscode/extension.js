@@ -27,9 +27,18 @@ function recordFinalizeOutcome(status, reason) {
   try {
     const ws = getWorkspaceRoot();
     if (ws) writeFinalizeOutcome(toFsPath(ws), status, reason);
+    // a finalize that passed: its README opens in reading mode, as the gate's promotion report
+    if (ws && status === 'ok') openReadingMode(vscode.Uri.joinPath(ws, 'README.md'));
   } catch (e) {
     log(`[finalize] outcome not recorded: ${e?.message || e}`);
   }
+}
+
+/** Open a markdown file rendered (preview), or read-only text when the preview is not available. */
+function openReadingMode(uri) {
+  if (!fsSync.existsSync(uri.fsPath)) return;
+  vscode.commands.executeCommand('markdown.showPreview', uri).then(undefined, () =>
+    vscode.window.showTextDocument(uri, { preview: true }));
 }
 const { getEvalProgress, getEvalTools, postEvalToolsUpdate, postAcceptanceAccept, postAcceptanceAmend, postAcceptanceLock, postEvalChecks, postEvalToolsCheck, postEvalToolsInstall, postGateOverride } = require('./api');
 const evalToolsLib = require('./eval-tools');
