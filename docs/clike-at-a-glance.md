@@ -85,6 +85,8 @@ Everything runs locally with Podman or Docker:
   from a catalog on request (`/tools`); shares installs; no network to providers, no secrets.
 - **Orchestrator and gateway** — phase prompts and contracts, local-agent packages, providers and
   model routing, RAG on Qdrant; service token, localhost only, state the agents cannot write.
+- **Memory panel** — the project's RAG memory and CLike's own guide, queried in any language next
+  to the chat; the memory follows the KITs (files removed from a KIT leave it).
 - **MCP for agents** — `clike` (orchestrator) reads plan, REQs, status, reports, RAG; `clike-ext`
   (VS Code) runs the phases, `eval --fix`, gate, finalize. Claude Code and Codex can drive a whole
   project, and CLike still governs every step.

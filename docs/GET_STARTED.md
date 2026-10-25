@@ -33,6 +33,12 @@ this REQ**); **⏹ Stop now** (or Esc) first says what stopping now loses — a 
 report, files an agent already wrote stay uncommitted — then stops. After a stop the card lists what
 was done and offers the command to resume.
 
+**🧠 Memory** (every layout, or **CLike: Memory**): a panel of its own next to the chat. Ask in
+natural language, in any language, what the project holds (Harper documents, REQ KITs, reports,
+attachments) or how CLike works (its documentation is there from the start); each result shows the
+lines that answer and opens the file. The two panels only open each other. See
+[rag.md](rag.md#memory-panel).
+
 **Conversations** (every layout): **＋ New chat** starts a new conversation in the mode and keeps the
 previous one; in the cockpit, **History** lists them and reopens one with a click. What CLike says
 while a command runs is grouped in one card with the time of each message.

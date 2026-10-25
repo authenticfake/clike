@@ -21,7 +21,7 @@ This documentation reflects the current source tree in the inspected package and
 - `artifacts.md` — canonical docs, run artifacts, candidate artifacts, and promotion files
 - `local-agents.md` — current local execution path, GPT Codex / Claude Code integration, and restrictions
 - `context-sources.md` — `.clike/context.yaml`: project files (requirements, UI references, data, ...) read by the phases, release folders (`docs/inputs/vN/`, `docs/reference/vN/`), formats and rules
-- `rag.md` — indexing, search, fetch, attachment strategy, and repository grounding
+- `rag.md` — indexing, search, fetch, attachment strategy, repository grounding, and the Memory panel (project memory and CLike guide)
 - `git-and-promotion.md` — current Git behavior, stacked REQ branches, gate auto-merge promotion (3-way, conflicts, report), merge flow
 - `mcp.md` — MCP servers (orchestrator, extension), tools and authentication
 - `howto-mcp-project.md` — run a whole project from Claude Code or Codex through MCP (setup, the phase loop, next release, troubleshooting)
