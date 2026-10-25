@@ -65,6 +65,19 @@ chat. It holds two memories:
   (`clike-guide`). At every start CLike checks what the memory holds: a guide missing (e.g. an
   emptied store) or changed by a new version is indexed; a guide already there is left alone.
 
+**Ask** (the default tab, ⌘K) answers instead of listing files. CLike takes the best passages of the
+chosen memories (Project, CLike Guide, or both), numbers them, and the model writes a short answer
+only from them, in the language of the question: the sources cited as [n], the steps with the exact
+CLike command to copy when the question asks what to do, how sure it is and why, and up to three
+next questions. When the sources do not answer, it says so ("not in the memory"). The answer also
+gets the project as it is now — the next action, the last eval or gate with its blocking failures, a
+test patch waiting for review — and each project source carries the date its file changed: when an
+older note disagrees with the state, the state wins and the answer says the note is outdated. The
+**NOW** questions above the box come from the same state (a test patch to review, the last failed
+run, the next action). Ask uses the chat's execution choice: the cloud model, or the local agent in
+a short read-only run, with no session and no chat history.
+
+**Search** lists the matching files instead.
 Ask in natural language, in any language (the search is semantic): each result is a file with the
 lines that answer — the question's words highlighted — and a link to open it. The semantic ranking is
 refined by the question's exact words, weighted by how rare they are among the candidates (`--accept`
