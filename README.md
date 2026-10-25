@@ -5,7 +5,7 @@
 [![Made with Python](https://img.shields.io/badge/Made%20with-Python%203.12-3776AB?logo=python)](https://www.python.org/)
 [![VS Code Extension](https://img.shields.io/badge/VS%20Code-Extension-007ACC?logo=visualstudiocode)](extensions/vscode)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.6.0-informational)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.6.1-informational)](CHANGELOG.md)
 
 > **From intent to impact.** CLike turns an idea into reviewed, tested and promotable software
 > through a governed lifecycle in which cloud models and local coding agents execute, while
@@ -60,11 +60,11 @@ Models and agents execute.  Eval and Gate decide.
 
 | Version | Date | Milestone |
 |---|---|---|
-| 1.4.3 | 2026-10 | A sandbox that stays healthy and tools when an eval needs them: an init reaps orphaned processes, resource exhaustion stops `--fix` instead of repairing correct code, eval disk pruned automatically; native tools (database and messaging clients, cloud and IaC CLIs, JDK/Maven/Gradle, .NET, Go…) installed from a catalog after asking, with `/tools`, locked versions and deliberate updates (`./rebuild.sh --update-tools`); type-checker-wrong tests fixed, flaky regressions of promoted REQs reported as warnings. See [CHANGELOG](CHANGELOG.md). |
 | 1.4.4 | 2026-10 | `/finalize` brings the solution to running and configured: install, build, configuration and start verified in the sandbox (REQ tests not run again), `FINALIZE_REPORT.md` for the developer (configuration, missing information, every change and why), `setup_local` / `start_solution_local` with Docker, Podman or native and free host ports; a README marked as a CLike project (linked CLike/Harper/Finalize badges, *Made with CLike*); LTC `setup` step; regressions name the shared files a REQ replaced; idempotent promotion; merge-on-gate no longer blocked by agent files. See [CHANGELOG](CHANGELOG.md). |
 | 1.5.0 | 2026-10 | Evolve a delivered project release by release: `/idea --extend` merges the new release (`docs/inputs/vN/`, `docs/reference/vN/`, attachments) into IDEA, SPEC and TECH_CONSTRAINTS and adds REQs typed ADDED / MODIFIED / REMOVED, with regression honoring superseded checks; KITs deliver repository-root files (`runs/kit/<REQ>/root/`); faster eval and gate (the gate reuses an unchanged eval verdict, regression runs only behavioural checks, shared node_modules, per-check durations); cloud phases get the context a local agent reads (REQ slice of the plan, dependency code, locked tests, explicit budget). See [CHANGELOG](CHANGELOG.md). |
 | 1.5.1 | 2026-10 | CLike from Claude Code and Codex: MCP hardened (confined run ids, no OAuth confusion, streamable HTTP, `cancel_run`, confirmations, attachments and `/idea --extend` over MCP, next REQ by dependencies) with a [HOWTO](docs/howto-mcp-project.md); eval repairs that converge (shared conftest check, removable support files, durations in reports); [CLike at a glance](docs/clike-at-a-glance.md). See [CHANGELOG](CHANGELOG.md). |
-| **1.6.0** | 2026-10 | Hardened on a real 36-REQ project: an eval that converges (memory of unstable checks, new errors vs the promoted baseline, targeted re-eval, layout-only diffs ignored, sandbox memory pressure detected, agent re-runs of the regression); `/autopilot` unattended; the chat cockpit (project, next action, REQs, run card with live eval progress, history, Stop) — see [the chat UI](docs/chat-ui.md); SPEC with Use Cases that decides ordinary choices, PLAN with use-case coverage and KIT readiness; KIT roles for every lane. See [CHANGELOG](CHANGELOG.md). |
+| 1.6.0 | 2026-10 | Hardened on a real 36-REQ project: an eval that converges (memory of unstable checks, new errors vs the promoted baseline, targeted re-eval, layout-only diffs ignored, sandbox memory pressure detected, agent re-runs of the regression); `/autopilot` unattended; the chat cockpit (project, next action, REQs, run card with live eval progress, history, Stop) — see [the chat UI](docs/chat-ui.md); SPEC with Use Cases that decides ordinary choices, PLAN with use-case coverage and KIT readiness; KIT roles for every lane. See [CHANGELOG](CHANGELOG.md). |
+| **1.6.1** | 2026-10 | A memory you can ask: the **Memory** panel next to the chat answers, in any language, what the project holds and how CLike works (its guide is there from the start), with the lines that answer; repairs sure a locked test is wrong write the correction and `--accept` applies it; repair loops without progress stop even when failures print random values; `/finalize` reuses existing boundaries, a failed one stays the next action, a successful one opens the README; a window running an outdated CLike says so. See [CHANGELOG](CHANGELOG.md). |
 
 The last five versions; every version and change is in the [CHANGELOG](CHANGELOG.md).
 
@@ -178,7 +178,7 @@ VM with at least 4 GB, provider API keys for cloud models, optionally the Claude
 cp .env.example .env                      # provider keys + CLIKE_API_TOKEN=$(openssl rand -hex 32)
 cp docker/.env.example docker/.env        # CLIKE_PROJECTS_DIR = host folder containing your projects
 cd docker && podman-compose up -d --build # services on 127.0.0.1, wait until (healthy)
-code --install-extension ../extensions/vscode/clike-1.6.0.vsix
+code --install-extension ../extensions/vscode/clike-1.6.1.vsix
 ```
 
 In VS Code: **CLike: Set Service Token** (the `CLIKE_API_TOKEN` value). Full guide, local agents

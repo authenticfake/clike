@@ -4,14 +4,54 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.6.1] — 2026-10-25 — A memory you can ask, repairs that write the test fix, eval loops that stop
+
+### Added
+
+- **Memory panel**: **CLike: Memory**, or **🧠 Memory** in the chat (every layout, also while a
+  command runs), opens a panel of its own next to the chat. Ask in natural language, in any
+  language, what the project holds — Harper documents, REQ KITs, eval and gate reports, chat
+  attachments — or how CLike works: CLike's documentation ships inside the extension and is in the
+  memory from the start (checked at every start: indexed when missing or changed, left alone
+  otherwise). Each result is a file with the lines that answer, the question's words highlighted,
+  and opens it; the semantic ranking is refined by the question's exact words, weighted by their
+  rarity, so `--accept` finds its section first in any language. **Contents** lists what each memory
+  holds, **Recent searches** repeats one. The chat and the panel only open each other. New
+  `POST /v1/rag/sources`; `POST /v1/rag/purge` accepts exact `paths`.
+- **A successful `/finalize` opens the README in reading mode**, as the gate opens its promotion
+  report. The settings that change the UI are documented in the chat UI page and the extension
+  README.
+
 ### Fixed
 
+- **A repair sure that a locked test is wrong writes the correction**: when the SPEC and the PLAN
+  show that the code's behaviour is the required one, the repair writes the smallest change to this
+  REQ's test (every expected value kept) instead of describing it; CLike restores the locked test,
+  saves the change as a patch and stops. `/eval REQ --accept "<why>"` now applies the latest patch,
+  records the reason and runs the eval (the patch is undone if the governance still refuses it).
+- **A repair loop without progress stops even when a failure prints random values**: a session
+  token printed by a failing browser test changed the failure fingerprint at every cycle, so the
+  loop never saw that nothing improved. Random-looking tokens no longer count.
+- **`/finalize` accepts a database boundary that already exists**: unchanged sources of the
+  promoted code are sent as read-only evidence, and a database variable named after the project
+  counts; a finalize that reused them was rejected.
+- **A failed `/finalize` is no longer shown as done**: the cockpit keeps it as the next action with
+  its reason, and the project stays below 100% until a `/finalize` passes.
+- **The eval advice of an edited locked test points to `--accept`** with the files changed, instead
+  of a repair.
+- **A window running an outdated CLike says so**: a reinstalled extension changes the files, not the
+  open windows; before a run CLike warns once and offers **Reload Window**. A window opened the day
+  before had run a day of fixes without them.
+- **The project memory no longer fills with temporary copies**: KIT indexing skipped no hidden
+  folder, and a real project's memory held thousands of `ci/.tmp` copies (72% of its chunks). Hidden
+  folders are skipped, and after a REQ is indexed its files gone from the KIT, and hidden-folder files
+  of any KIT, leave the memory.
 - **A repair that finds a wrong locked test no longer loses its work, and the loop stops for you**:
   on a test project the local agent found three defects in a locked browser test and fixed them
   (every assertion identical); the lock rejected the change, as it must without proof, restored the
   test and the loop went on repairing the code. Now the proposed change is saved as a patch
   (`runs/eval/<REQ>/proposed_test_fix_<ts>.patch`, with the reasons) and `/eval --fix` / `/gate --fix`
-  stop: you review it, apply it and `/eval REQ --accept "<why>"` (audited), or give a hint for the
+  stop: you review it and `/eval REQ --accept "<why>"` applies it (audited), or give a hint for the
   code. The lock is unchanged. Same for cloud repairs (the orchestrator returns the rejected test
   contents) and local agents. During a repair the eval-check helper warns when its result uses
   changes to tests that existed before the repair. The KIT prompt asks tests that hold or fail a
