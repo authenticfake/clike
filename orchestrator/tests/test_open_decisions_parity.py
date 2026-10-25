@@ -40,3 +40,8 @@ def test_kit_checks_never_wait_for_a_person_nor_reach_reserved_hosts_for_cloud_a
     line = _one(phase_text("_shared")["render_compact_local_agent_prompt.kit_rules"], "waits for a person")
     assert line.removeprefix("- ") in _cloud("kit")
     assert "reserved hosts" in line
+
+
+def test_kit_tests_intercept_network_calls_scoped_for_cloud_and_agent():
+    line = _one(phase_text("_shared")["render_compact_local_agent_prompt.kit_rules"], "hold, delay or fail a network call")
+    assert line.removeprefix("- ") in _cloud("kit")

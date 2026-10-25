@@ -117,3 +117,28 @@ test('eval-check shows a regressed REQ\'s failures, not its passing setup steps'
   assert.deepStrictEqual(result.checks.map((c) => c.name), ['regression::REQ-014::test:integration', 'tests']);
   assert.equal(result.status, 'FAIL');
 });
+
+test('a check run with changed locked tests warns that the pass does not hold yet', async () => {
+  // test project REQ-002: the agent fixed the locked test, its eval-check passed, CLike restored it
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'clike-evalcheck-'));
+  const testDir = path.join(root, 'runs', 'kit', 'REQ-002', 'test');
+  fs.mkdirSync(testDir, { recursive: true });
+  fs.writeFileSync(path.join(testDir, 'test_ui.py'), 'def test_x():\n    assert True\n');
+  const bridge = startEvalCheckBridge({
+    workspaceRoot: root, pollMs: 50, testRoot: 'runs/kit/REQ-002/test',
+    runChecks: async () => ({ cases: [{ name: 'test:browser', passed: true }] }),
+  });
+  try {
+    const clean = await runHelper(root, ['test:browser']);
+    assert.equal(clean.code, 0);
+    assert.doesNotMatch(clean.stdout, /WARNING/);
+    fs.writeFileSync(path.join(testDir, 'test_ui.py'), 'def test_x():\n    assert 1\n');
+    fs.writeFileSync(path.join(testDir, 'test_new.py'), 'def test_n():\n    assert True\n');  // new: not locked
+    const changed = await runHelper(root, ['test:browser']);
+    assert.match(changed.stdout, /WARNING: this result uses your changes to tests that existed before this repair \(runs\/kit\/REQ-002\/test\/test_ui.py\)/);
+    assert.doesNotMatch(changed.stdout, /test_new\.py/);
+  } finally {
+    bridge.stop();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

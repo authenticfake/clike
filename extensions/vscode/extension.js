@@ -18,6 +18,7 @@ const extensionMcp = require('./extension-mcp');
 const autopilot = require('./autopilot');
 const { projectUseCaseCoverage, useCaseCoverageMessage } = require('./use-case-coverage');
 const planReadiness = require('./plan-readiness');
+const { saveRejectedTestFix, rejectedTestFixMessage } = require('./rejected-test-fix');
 const { getEvalProgress, getEvalTools, postEvalToolsUpdate, postAcceptanceAccept, postAcceptanceAmend, postAcceptanceLock, postEvalChecks, postEvalToolsCheck, postEvalToolsInstall, postGateOverride } = require('./api');
 const evalToolsLib = require('./eval-tools');
 const { approveForProject, ensureEvalTools, questionText } = evalToolsLib;
@@ -1123,6 +1124,8 @@ async function executeLocalAgentPackage({
       maxRuns: Number(evalCheck.max_runs || 8),
       runChecks: (checks) => postEvalChecks(evalCheck.profile, wsroot, reqForAgent, checks),
       log,
+      // a repair's changes to existing (locked) tests are governed after the run: the agent is told
+      ...(phaseForAgent === 'kit' && reqForAgent ? { testRoot: `runs/kit/${reqForAgent}/test` } : {}),
     });
     launcherArgs = agentArgsForEvalCheck(selectedExecutor, launcherArgs);
     panel.webview.postMessage({
@@ -5349,12 +5352,21 @@ async function cmdOpenChat(context) {
               throw new Error(`KIT_INCOMPLETE: runs/kit/${String(targetReqId).toUpperCase()}/ci/LTC.json is missing: the KIT is not complete ` +
                 `(not committed, not evaluated). Run /kit ${targetReqId} again to complete it.`);
             }
+            // A cloud repair's rejected changes to locked tests come back from the orchestrator:
+            // kept for the developer as for a local agent (rejected-test-fix.js)
+            const cloudRejected = _out?.repair?.rejected_tests;
+            if (phase === 'kit' && msg.__acceptance && cloudRejected && typeof cloudRejected === 'object') {
+              const issues = _out?.repair?.amendments?.rejected || {};
+              const saved = saveRejectedTestFix(toFsPath(wsroot), targetReqId, msg.__acceptance.cycle,
+                Object.entries(cloudRejected).map(([rel, after]) => ({ rel, before: msg.__acceptance.before[rel], after, issues: issues[rel] || [] })));
+              if (saved) msg.__rejectedTestFix = saved;
+            }
             // Locked tests a local agent changed are governed (and the rejected ones restored)
             // before the commit: otherwise the commit holds a change CLike then reverts.
             const acceptance = phase === 'kit' && (msg.__acceptance ||
               (msg.acceptanceFirst && msg.__acceptanceBefore ? { before: msg.__acceptanceBefore, failures: [], cycle: 0 } : null));
             if (acceptance && !msg.__acceptanceGoverned) {
-              await governAcceptanceChanges(targetReqId, acceptance.before, acceptance.failures, acceptance.cycle);
+              await governAcceptanceChanges(targetReqId, acceptance.before, acceptance.failures, acceptance.cycle, msg);
               msg.__acceptanceGoverned = true;
             }
             const settings = cfg();
@@ -6907,8 +6919,9 @@ async function cmdOpenChat(context) {
   // A local agent writes its repair directly: changed tests/LTC/ci files are submitted to the
   // orchestrator's governance, and what it rejects (and any deleted file) is restored. For a cloud
   // repair the orchestrator already filtered the files, so this finds nothing to do.
-  async function governAcceptanceChanges(reqId, before, failures, cycle) {
+  async function governAcceptanceChanges(reqId, before, failures, cycle, owner = null) {
     const wsPath = getWorkspaceRoot().fsPath;
+    let rejectedIssues = {};
     const { modified, deleted } = acceptanceChanges(before, snapshotAcceptanceSurface(wsPath, reqId));
     const say = (text) => panel.webview.postMessage({ type: 'echo', message: text });
     let rejected = [];
@@ -6922,6 +6935,7 @@ async function cmdOpenChat(context) {
           getWorkspaceRoot(), reqId, modified, previous, evidence, `auto-eval repair cycle ${cycle}`, deleted
         );
         const accepted = new Set(result?.accepted || []);
+        rejectedIssues = result?.rejected || {};
         rejected = [...Object.keys(result?.rejected || {}), ...deleted.filter((rel) => !accepted.has(rel) && !(rel in (result?.rejected || {})))];
         for (const rel of result?.accepted || []) say(`ℹ AUTO-EVAL ${reqId}: amendment accepted (audited): ${rel}${deleted.includes(rel) ? ' (removed)' : ''}`);
         for (const rel of result?.test_fixes || []) say(`⚠ AUTO-EVAL ${reqId}: test fixed — review required: ${rel}`);
@@ -6932,6 +6946,11 @@ async function cmdOpenChat(context) {
     }
     const restore = [...new Set(rejected)];
     if (restore.length) {
+      // what the repair proposed for a locked test is kept for the developer before the restore
+      const saved = saveRejectedTestFix(wsPath, reqId, cycle, restore.map((rel) => ({
+        rel, before: before[rel], after: modified[rel], issues: rejectedIssues[rel] || [],
+      })));
+      if (saved && owner) owner.__rejectedTestFix = saved;
       restoreAcceptanceFiles(wsPath, reqId, before, restore);
       say(`↺ AUTO-EVAL ${reqId}: restored locked acceptance files the repair may not change: ${restore.join(', ')}`);
     }
@@ -7413,7 +7432,14 @@ async function cmdOpenChat(context) {
     const acceptanceBefore = snapshotAcceptanceSurface(wsPath, reqId);
     kitMsg.__acceptance = { before: acceptanceBefore, failures: step.failures, cycle };
     await handleWebviewMessage(kitMsg);
-    if (!kitMsg.__acceptanceGoverned) await governAcceptanceChanges(reqId, acceptanceBefore, step.failures, cycle);
+    if (!kitMsg.__acceptanceGoverned) await governAcceptanceChanges(reqId, acceptanceBefore, step.failures, cycle, kitMsg);
+    if (kitMsg.__rejectedTestFix) {
+      // the repair says a locked test is wrong: the developer decides, no more cycles on the code
+      say(rejectedTestFixMessage(reqId, kitMsg.__rejectedTestFix));
+      step.reason = `the repair proposed a change to a locked test (${kitMsg.__rejectedTestFix.patch})`;
+      finish('stopped');
+      return;
+    }
     if (harperCancelled()) {
       say(`⏹ AUTO-EVAL ${reqId} cancelled at repair cycle ${cycle}.`);
       finish('cancelled');
@@ -7514,7 +7540,11 @@ async function cmdOpenChat(context) {
     const acceptanceBefore = snapshotAcceptanceSurface(getWorkspaceRoot().fsPath, reqId);
     kitMsg.__acceptance = { before: acceptanceBefore, failures: step.failures, cycle };
     await handleWebviewMessage(kitMsg);
-    if (!kitMsg.__acceptanceGoverned) await governAcceptanceChanges(reqId, acceptanceBefore, step.failures, cycle);
+    if (!kitMsg.__acceptanceGoverned) await governAcceptanceChanges(reqId, acceptanceBefore, step.failures, cycle, kitMsg);
+    if (kitMsg.__rejectedTestFix) {
+      panel.webview.postMessage({ type: 'echo', message: rejectedTestFixMessage(reqId, kitMsg.__rejectedTestFix).replace('AUTO-EVAL', 'AUTO-GATE') });
+      return;
+    }
     if (harperCancelled()) {
       panel.webview.postMessage({ type: 'echo', message: `⏹ AUTO-GATE ${reqId} cancelled at repair cycle ${cycle}.` });
       return;

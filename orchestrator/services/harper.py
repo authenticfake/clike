@@ -2207,6 +2207,10 @@ def _apply_repair_governance(payload: Dict[str, Any], out: Dict[str, Any], req_i
     out["warnings"] = warnings
     if repair:
         out["repair"] = {"cycle": repair.get("cycle"), "amendments": result}
+        # what a rejected change proposed for a locked test: the extension keeps it for the developer
+        rejected_tests = {rel: by_rel[rel] for rel in (result.get("rejected") or {}) if rel.startswith("test/") and rel in changes} if changes else {}
+        if rejected_tests:
+            out["repair"]["rejected_tests"] = rejected_tests
     else:
         out["acceptance_amendments"] = result
 
