@@ -22,6 +22,13 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   confirmation, with every field and the reports attached; **CLike: Publish release** publishes the
   last passing `/finalize` later. `/idea --extend` takes `vN` as the baseline.
 
+- **`/finalize` checks the local start on your machine**: after the verification passes in the
+  sandbox (which runs the solution natively), CLike runs `scripts/check_solution_local` on your
+  machine, the start you use (containers when a runtime is installed); a failure starts a repair
+  cycle with its output (`clike.finalize.localCheck`: ask, always, off). The finalize rules ask for
+  checks that do not depend on the address a server listens on, web services listening on every
+  interface in the profile, and generated local values that renew when they expire.
+
 ### Fixed
 
 - **After the last gate of a new release the cockpit proposes `/finalize` again**: the finalize

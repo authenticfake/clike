@@ -224,6 +224,28 @@
           "maximum": 5,
           "description": "Repair cycles of the /finalize verification (plus clike.autoEval.extraCyclesOnProgress while the failures decrease)."
         },
+        "clike.finalize.localCheck": {
+          "type": "string",
+          "enum": [
+            "ask",
+            "always",
+            "off"
+          ],
+          "default": "ask",
+          "enumDescriptions": [
+            "Ask after the sandbox verification passes (it builds and starts the solution on this machine, then stops it)",
+            "Always run it",
+            "Never run it"
+          ],
+          "description": "After the /finalize verification passes in the CLike sandbox, run scripts/check_solution_local on this machine: the default local start the developer uses (containers when a runtime is installed). A failure starts a repair cycle with its output."
+        },
+        "clike.finalize.localCheckTimeoutMinutes": {
+          "type": "number",
+          "default": 30,
+          "minimum": 5,
+          "maximum": 120,
+          "description": "Time limit of the /finalize local check (scripts/check_solution_local)."
+        },
         "clike.autoEval.agentEvalChecks": {
           "type": "number",
           "default": 8,

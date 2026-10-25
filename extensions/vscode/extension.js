@@ -27,6 +27,7 @@ const extensionFreshness = createFreshnessCheck(__filename);
 const { collectExistingSourceEvidence } = require('./existing-source-evidence');
 const { writeFinalizeOutcome } = require('./finalize-outcome');
 const releasePublish = require('./release-publish');
+const finalizeLocalCheck = require('./finalize-local-check');
 
 /** The GitHub CLI: on PATH, else where Homebrew puts it (VS Code started from the Dock has a short PATH). */
 function ghExecutable() {
@@ -2187,6 +2188,8 @@ function cfg() {
     evalToolsInstall: c.get('evalTools.install', 'ask'),
     finalizeVerify: c.get('finalize.verify', true),
     finalizeVerifyMaxCycles: c.get('finalize.verifyMaxCycles', 3),
+    finalizeLocalCheck: c.get('finalize.localCheck', 'ask'),
+    finalizeLocalCheckTimeoutMinutes: c.get('finalize.localCheckTimeoutMinutes', 30),
     autoEvalAfterKit: c.get('autoEval.afterKit', false),
     agentChatApprovals: c.get('agentChat.approvals', 'ask'),
     kitAcceptanceFirst: c.get('kit.acceptanceFirst', false),
@@ -7303,6 +7306,26 @@ async function cmdOpenChat(context) {
       await commitFinalizeEvidence(ws, settings, step.action === 'pass' ? verdict : 'FAIL');
     }
     if (step.action === 'pass') {
+      // the developer's default start (containers) is what the sandbox cannot run: checked here
+      const local = await localSolutionCheck(ws, settings, msg, say);
+      if (local && !local.ok) {
+        const failure = finalizeLocalCheck.localCheckFailure(local);
+        if (state.cycle < state.maxCycles && !harperCancelled() && !stopAfterStepRequested(say, 'LOCAL CHECK')) {
+          const cycle = state.cycle + 1;
+          say(`↻ SOLUTION REPAIR cycle ${cycle}/${state.maxCycles} — the local check failed on this machine (${local.rel}, exit ${local.code})`);
+          await handleWebviewMessage({
+            type: 'harperRun', cmd: 'finalize', targets: [], attachments: [],
+            finalizeRepair: { cycle, max_cycles: state.maxCycles, failures: [failure], files: finalizeVerify.collectSolutionFiles(ws.fsPath), hint: state.hint },
+            finalizeVerifyState: { ...state, cycle, lastSignature: `local:${local.code}`, lastFailureCount: 1, lastOwnFailureCount: 1 },
+            finalizePendingConfirmed: true,
+          });
+          return;
+        }
+        recordFinalizeOutcome('failed', `local check failed on this machine: ${local.rel} exit ${local.code}`);
+        say(`✖ /finalize: the sandbox verification passed but ${local.rel} failed on this machine (exit ${local.code}). ` +
+          `Run /finalize again to repair it. Output: ${finalizeLocalCheck.REPORT_PATH}`);
+        return;
+      }
       recordFinalizeOutcome('ok', step.reason);
       say(`✔ SOLUTION EVAL PASS (${step.reason}): the integrated solution installs, builds, is configured, starts and answers. ` +
         `What /finalize did, how to start and see it, and what is still to provide: ${finalizeVerify.REPORT_PATH}. Evidence: ${finalizeVerify.EVIDENCE_PATH}`);
@@ -7342,6 +7365,39 @@ async function cmdOpenChat(context) {
       finalizeVerifyState: { ...state, cycle, lastSignature: step.signature, lastFailureCount: (step.failures || []).length, lastOwnFailureCount: ownFailureCount(step.failures) },
       finalizePendingConfirmed: true,
     });
+  }
+
+  // scripts/check_solution_local on this machine after the sandbox verification passed (setting
+  // clike.finalize.localCheck): null when not run, else its result, saved in runs/finalize/LOCAL_CHECK.md.
+  async function localSolutionCheck(ws, settings, msg, say) {
+    const mode = String(settings.finalizeLocalCheck || 'ask');
+    const script = finalizeLocalCheck.localCheckScript(ws.fsPath);
+    if (mode === 'off' || !script) return null;
+    if (mode === 'ask') {
+      if (msg && (msg.__fromMcp || msg.__unattended)) {
+        say(`ℹ LOCAL CHECK not run (it needs your confirmation, clike.finalize.localCheck=ask): run ${script.rel} to check the local start.`);
+        return null;
+      }
+      const go = 'Run local check';
+      const choice = await vscode.window.showInformationMessage(
+        `The solution passed in the CLike sandbox. Check it on this machine too? ${script.rel} builds and starts it as you ` +
+        'start it (containers when installed), runs the smoke and stops it — a running local stack is stopped.', go, 'Skip');
+      if (choice !== go) {
+        say(`ℹ LOCAL CHECK skipped: the default local start is not verified on this machine (${script.rel}).`);
+        return null;
+      }
+    }
+    say(`▶ LOCAL CHECK ${script.rel} on this machine (build, start, smoke, stop — a few minutes; output in the CLike log)…`);
+    const result = await finalizeLocalCheck.runLocalCheck(ws.fsPath, script, {
+      timeoutMs: Math.max(5, Number(settings.finalizeLocalCheckTimeoutMinutes || 30)) * 60000,
+      onData: (text) => out.append(text),
+    });
+    let report = '';
+    try { report = finalizeLocalCheck.writeLocalCheckReport(ws.fsPath, result); } catch (e) { log(`[finalize] local check report: ${e?.message || e}`); }
+    say(result.ok
+      ? `✔ LOCAL CHECK PASS on this machine (${Math.round(result.ms / 1000)} s). ${report}`
+      : `✖ LOCAL CHECK FAIL on this machine (exit ${result.code}${result.timedOut ? ', timed out' : ''}). ${report}`);
+    return result;
   }
 
   // The verification's own files (the profile, its smoke scripts, the evidence, the report the last

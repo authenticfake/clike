@@ -97,6 +97,18 @@ def solution_verify_rules(deployment: str = "") -> List[str]:
         "exactly which is missing. When the solution also runs natively (as the profile runs it in the sandbox), the "
         "start and check scripts offer that native path when no container runtime is available, with the language "
         "versions it needs.",
+        "Listening address: the sandbox runs the services natively on loopback, the containers run them bound to "
+        "every interface (0.0.0.0) and reach them through published ports. Nothing may depend on the address a "
+        "server listens on: origin, CSRF and redirect checks compare the configured public origin with the request's "
+        "Host/Origin headers, never with the URL the server builds from its own bind address (a check that passes on "
+        "127.0.0.1 and refuses every request on 0.0.0.0 breaks the containers). In the profile, web services listen on "
+        "every interface, as in the containers, and are reached through 127.0.0.1.",
+        "Local values that expire (generated fixture sessions, tokens, demo identities): setup renews them when they "
+        "have expired, keeping their identifiers, so the solution still starts weeks later; start never stops on an "
+        "expired generated value without renewing it.",
+        "After the sandbox verification passes, CLike runs scripts/check_solution_local on the developer's machine — "
+        "the default start, with containers when a runtime is installed; when it fails, its output comes back to you "
+        "as a failed check `local::check_solution_local` to fix like the others.",
         deploy_rule,
         f"Write {REPORT_PATH}, the report of this /finalize for the developer, exhaustive and specific: (1) what the "
         "solution is and its components; (2) how to start it (the one command, what it starts, the URLs) and how to see "
@@ -209,7 +221,8 @@ def agent_finalize_lines(verify: Dict[str, Any], deployment: str = "", eval_chec
         )
     lines += [
         "- On this machine, run scripts/check_solution_local.sh (or .ps1 on Windows) when the tools it needs are installed, "
-        "and fix what fails: the solution must run on the developer's PC as HOWTO_RUN says.",
+        "and fix what fails: the solution must run on the developer's PC as HOWTO_RUN says. When your sandbox cannot "
+        "reach the container runtime, say so in the report: CLike runs the check on the developer's machine after you.",
     ]
     profiles = req_profiles_text(verify.get("req_profiles"))
     if profiles:
