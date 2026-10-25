@@ -65,13 +65,22 @@ chat. It holds two memories:
   (`clike-guide`). At every start CLike checks what the memory holds: a guide missing (e.g. an
   emptied store) or changed by a new version is indexed; a guide already there is left alone.
 
-Ask in natural language, in any language (the search is semantic): each result is a file with its
-most relevant passage and a link to open it. On the left, **Contents** lists what each memory holds
+Ask in natural language, in any language (the search is semantic): each result is a file with the
+lines that answer — the question's words highlighted — and a link to open it. The semantic ranking is
+refined by the question's exact words, weighted by how rare they are among the candidates (`--accept`
+counts, `how` does not); words no candidate contains, e.g. of another language, change nothing. On the left, **Contents** lists what each memory holds
 (by group, with a filter) and **Recent searches** repeats a search with a click.
 
 The chat and the Memory panel do not exchange anything: **💬 Chat** in the panel and **🧠 Memory** in
 the chat only open the other panel, or bring it to the front. Files reach the memory from the chat
 (📎 Attach); the panel lists them.
+
+### The project memory follows the KITs
+
+The KIT of a REQ is indexed after `/kit` and after `/eval`, without hidden folders (`ci/.tmp`
+copies of the workspace, caches). Right after, the memory drops that REQ's files the KIT no longer
+has, and files in hidden folders of any KIT indexed by earlier versions (unless the KIT reached the
+indexing cap, when the files past it are still in the KIT).
 
 ## Current extension commands
 

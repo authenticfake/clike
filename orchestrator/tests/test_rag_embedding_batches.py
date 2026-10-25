@@ -96,3 +96,27 @@ def test_sources_lists_every_indexed_path_with_its_chunks(monkeypatch):
         "total_chunks": 3,
     }
     assert "offset" not in bodies[0] and bodies[1]["offset"] == "p2"
+
+
+def test_purge_paths_deletes_exact_paths_in_batches(monkeypatch):
+    # files gone from a REQ's KIT (e.g. temporary copies) leave the memory
+    filters = []
+
+    async def ensure(self):
+        return None
+
+    class Resp:
+        def raise_for_status(self):
+            return None
+
+    async def request(client, method, url, json_body=None, attempts=1):
+        assert url.endswith("/points/delete?wait=true")
+        filters.append([c["match"]["value"] for c in json_body["filter"]["should"]])
+        return Resp()
+
+    monkeypatch.setattr(RagStore, "ensure", ensure)
+    monkeypatch.setattr(rag_store, "_request_with_retry", request)
+    paths = [f"runs/kit/REQ-012/ci/.tmp/m/{i}.py" for i in range(300)] + ["runs\\kit\\REQ-012\\ci\\.tmp\\m\\0.py"]
+    out = asyncio.run(RagStore("p").purge_paths(paths))
+    assert out == {"ok": True, "purged_paths": 300}
+    assert [len(f) for f in filters] == [256, 44]
