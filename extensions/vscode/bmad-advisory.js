@@ -243,6 +243,25 @@ function buildBmadEvalAdvisory(report, reqId, methodologyContext) {
     });
   }
 
+  const missingTools = (Array.isArray(report?.missing_tools) ? report.missing_tools : []).map(String).filter(Boolean);
+  if (!tampered.suggested_next_command && missingTools.length) {
+    // a check stopped on a program the sandbox lacks: nothing in the candidate to repair (B2B REQ-033:
+    // the advice said /kit --repair while the loop rightly stopped and asked to install shellcheck)
+    const blocked = failedChecks.filter((c) => c.blocked).map((c) => c.name).filter(Boolean);
+    Object.assign(tampered, {
+      root_cause_hypothesis: `The eval sandbox lacks ${missingTools.join(', ')}` +
+        `${blocked.some((b) => !missingTools.includes(b)) ? ` (needed by ${blocked.join(', ')})` : ''}: the code is not at fault, nothing to repair.`,
+      diagnostic_classifications: ['environment_missing_tool'],
+      missing_tests: [],
+      contract_gaps: [],
+      recommended_repair_strategy: [
+        `Install ${missingTools.length > 1 ? 'them' : 'it'} from the CLike tools catalog: /tools add ${missingTools.join(' ')}, then /eval ${target}.`,
+      ],
+      suggested_next_command: `/tools add ${missingTools.join(' ')}`,
+      checks_to_rerun: blocked,
+    });
+  }
+
   return {
     schema_version: 'clike.bmad_eval_advisory.v1',
     methodology: 'bmad',

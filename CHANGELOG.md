@@ -22,6 +22,7 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   a code failure, and three repair cycles ran on code that had no defect. A check whose wording says
   a catalog program is missing — and that program is indeed absent from the sandbox — is now a
   missing tool: CLike offers to install it and runs the check again, or stops and says how.
+  The BMAD eval advice says the same (`/tools add <program>`) instead of suggesting a KIT repair.
 
 ### Performance
 
