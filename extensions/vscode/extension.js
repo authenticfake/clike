@@ -1166,6 +1166,7 @@ async function executeLocalAgentPackage({
       maxRuns: Number(evalCheck.max_runs || 8),
       runChecks: (checks) => postEvalChecks(evalCheck.profile, wsroot, reqForAgent, checks),
       log,
+      targets: Array.isArray(evalCheck.targets) ? evalCheck.targets : [],
       // a repair's changes to existing (locked) tests are governed after the run: the agent is told
       ...(phaseForAgent === 'kit' && reqForAgent ? { testRoot: `runs/kit/${reqForAgent}/test` } : {}),
     });

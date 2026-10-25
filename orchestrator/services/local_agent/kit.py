@@ -216,12 +216,20 @@ def _kit_stage(req_id: str, payload: Dict[str, Any], repair_context: Dict[str, A
         hint = str(auto_eval.get("developer_hint") or "").strip()
         eval_check = auto_eval.get("eval_check") if isinstance(auto_eval.get("eval_check"), dict) else None
         if eval_check:
-            names = " ".join(str(item.get("name")) for item in checks if not str(item.get("name") or "").startswith("regression::"))
+            # a promoted REQ's regression re-runs as a whole (`regression::REQ-008`), the REQ's own checks by name
+            own = [str(item.get("name")) for item in checks if item.get("name") and not str(item.get("name")).startswith("regression::")]
+            promoted = list(dict.fromkeys(
+                "::".join(str(item.get("name")).split("::")[:2]) for item in checks if str(item.get("name") or "").startswith("regression::")
+            ))
+            names = " ".join(own + promoted)
             verify = (
                 f"Verify in the real CLike eval sandbox, not only locally: `{eval_check.get('command')} {names}` re-runs "
                 "those checks of the canonical eval (composed workspace, provisioned variables and services) and prints "
                 "their errors; it takes a few minutes. Run it after fixing, read the new errors and iterate until the checks "
-                f"pass (at most {eval_check.get('max_runs')} runs). The verdict is CLike's full eval after you finish."
+                f"pass (at most {eval_check.get('max_runs')} runs). The verdict is CLike's full eval after you finish. "
+                "Only these checks decide this repair: when they pass, finish. A failure the result marks non-blocking "
+                "(already failing without this candidate, unstable, a warning) is not yours to fix; re-running a whole "
+                "REQ's regression to chase it costs minutes and changes nothing in the verdict."
                 + EVAL_CHECK_TIMEOUT_NOTE
             )
         else:

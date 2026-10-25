@@ -157,7 +157,12 @@ def test_agent_repair_prompt_keeps_the_errors_and_offers_the_sandbox_re_run():
     text = "\n".join(rules)
     assert "AssertionError: expected 1 to be 2\n ❯ test/a.test.ts:7:3" in text  # lines kept, start kept
     assert "y" * 3000 in text
-    assert "`node .clike/bin/eval-check.mjs test:unit`" in text  # regression checks are not re-run by name
+    # a promoted REQ's regression re-runs as a whole; the checks given decide, non-blocking ones do not
+    assert "`node .clike/bin/eval-check.mjs test:unit regression::REQ-000`" in text
+    assert "Only these checks decide this repair: when they pass, finish." in text
+    assert "not yours to fix" in text
+    from services.local_agent.common import _kit_repair_context as ctx
+    assert ctx(REQ, payload)["auto_eval"]["eval_check"]["targets"] == ["test:unit", "regression::REQ-000::lint"]
     without = {"kit": {"repair": {**payload["kit"]["repair"], "eval_check": False}}}
     assert "eval-check" not in "\n".join(_kit_stage(REQ, without, _kit_repair_context(REQ, without))[2])
 

@@ -14,7 +14,7 @@ import tempfile
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, List, Optional
 
@@ -27,6 +27,10 @@ import sandbox_resources
 from utils.safe_paths import validate_req_id
 
 log = logging.getLogger("eval_runner")
+
+
+# a check result taken from the run on the same inputs instead of running the check again
+_REUSED_NOTE = "[CLike EvalRunner] Reused: same inputs as the targeted re-eval that just ran; not run again."
 
 
 @dataclass
@@ -3165,12 +3169,17 @@ class EvalRunner:
         regression: bool = False,
         checks: Optional[List[str]] = None,
         regression_reqs: Optional[List[str]] = None,
+        reuse_cases: Optional[List[Dict[str, Any]]] = None,
     ) -> EvalReport:
         """Run the LTC. ``checks``: only these checks (by name), after the same environment
         setup, and no regression — a quick re-run of failed checks while repairing.
         ``regression_reqs``: every check of the REQ, and the regression of these promoted REQs only
-        (a targeted re-eval in a repair loop: never the REQ's verdict)."""
+        (a targeted re-eval in a repair loop: never the REQ's verdict).
+        ``reuse_cases``: results of a run on the same inputs (the targeted re-eval that just passed):
+        the REQ's checks and the promoted REQs' regressions found there are taken, not run again."""
         self._services: List[eval_environment.RunningService] = []
+        self._reuse = {str(c.get("name")): c for c in (reuse_cases or []) if isinstance(c, dict) and c.get("name")}
+        self._reuse_reqs = {n.split("::")[1].upper() for n in self._reuse if n.startswith("regression::") and n.count("::") >= 2}
         self._only_checks = {str(c) for c in (checks or []) if str(c).strip()} or None
         self._regression_only = {str(r).strip().upper() for r in (regression_reqs or []) if str(r).strip()} or None
         self._progress_start(req_id or (ltc or {}).get("req_id"), partial=bool(self._only_checks or self._regression_only))
@@ -3863,6 +3872,10 @@ class EvalRunner:
             environment_requirements = list(case.get("environment_requirements") or [])
             timeout = case.get("timeout")
             case_name = case.get("name") or "case"
+            reused = self._reused_case(case_name)
+            if reused is not None:
+                out_cases.append(reused)
+                continue
 
 
 
@@ -4321,6 +4334,16 @@ class EvalRunner:
             log.warning("regression baseline cache unavailable for %s: %s", other, exc)
             return _BaselineCache(None)
 
+    def _reused_case(self, name: str) -> Optional[EvalCase]:
+        """A result taken from the run on the same inputs (reuse_cases), marked as such."""
+        data = getattr(self, "_reuse", {}).get(str(name))
+        if not data:
+            return None
+        known = {f.name for f in fields(EvalCase)}
+        case = EvalCase(**{k: v for k, v in data.items() if k in known})
+        case.stdout = f"{_REUSED_NOTE}\n{case.stdout or ''}"
+        return case
+
     def run_regression(self, req_id: Optional[str], candidate_src: Path) -> List[EvalCase]:
         """L2 auto-eval: re-run each regression REQ's own acceptance checks against its composed
         source with the candidate's composed source overlaid last (the state after promotion).
@@ -4331,20 +4354,34 @@ class EvalRunner:
         if only:
             # a targeted re-eval: the promoted REQs that failed before the last repair
             others = [other for other in others if other.upper() in only]
+        # the promoted REQs whose regression ran on the same inputs: their results are taken
+        reuse_reqs = getattr(self, "_reuse_reqs", set())
+        reused: Dict[str, List[EvalCase]] = {
+            other: [c for c in (self._reused_case(n) for n in self._reuse if n.upper().startswith(f"REGRESSION::{other.upper()}::")) if c]
+            for other in others if other.upper() in reuse_reqs
+        }
+        if reused:
+            log.info("regression of %s: %s taken from the run on the same inputs", req_id, ", ".join(reused))
+        others_all = others
+        others = [other for other in others if other not in reused]
+
+        def in_plan_order(ran: Dict[str, List[EvalCase]]) -> List[EvalCase]:
+            return [case for other in others_all for case in (reused.get(other) or ran.get(other) or [])]
+
         workers = min(regression_workers(), len(others))
         self._promoted_state_digest(req_id)  # once, before the workers share it
         self._progress(phase="regression", regression_total=len(others), regression_done=0, regression_current=[], current=None)
         if workers <= 1:
-            return [case for other in others for case in self._regress_tracked(req_id, other, candidate_src, superseded)]
+            return in_plan_order({other: self._regress_tracked(req_id, other, candidate_src, superseded) for other in others})
         # Each promoted REQ has its own work dir, venv, test databases and service ports: they run
         # side by side, and their cases are reported in plan order as before.
         log.info("regression of %s: %d promoted REQ(s), %d at a time", req_id, len(others), workers)
         with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="clike-regression") as pool:
-            futures = [pool.submit(self._regress_tracked, req_id, other, candidate_src, superseded) for other in others]
+            futures = {other: pool.submit(self._regress_tracked, req_id, other, candidate_src, superseded) for other in others}
             try:
-                return [case for future in futures for case in future.result()]
+                return in_plan_order({other: future.result() for other, future in futures.items()})
             except BaseException:
-                for future in futures:
+                for future in futures.values():
                     future.cancel()
                 raise
 

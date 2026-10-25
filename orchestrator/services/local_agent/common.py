@@ -934,6 +934,8 @@ def _kit_repair_context(req_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
                 **({"eval_check": {
                     "command": "node .clike/bin/eval-check.mjs",
                     "max_runs": int(request.get("eval_check_max_runs") or 8),
+                    # the checks this repair was given: the extension says when they all pass
+                    "targets": [str(f.get("name")) for f in repair_failures(request) if isinstance(f, dict) and f.get("name")],
                     # a regression failure (regression::REQ-014::test:integration) is re-checked
                     # with that REQ's regression: the fix is verified before the full eval
                     "usage": (

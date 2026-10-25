@@ -184,6 +184,7 @@ async def _execute_profile(
     regression: bool = False,
     checks: Optional[List[str]] = None,
     regression_reqs: Optional[List[str]] = None,
+    reuse_cases: Optional[List[Dict[str, Any]]] = None,
 ) -> Tuple[EvalReport, str]:
     """Run the profile in the eval sandbox when configured (containers), otherwise in-process (dev).
     A caller that disconnects stops the eval: the sandbox request is closed (the sandbox then kills
@@ -199,6 +200,7 @@ async def _execute_profile(
             "regression": regression,
             "checks": checks or None,
             "regression_reqs": regression_reqs or None,
+            **({"reuse_cases": reuse_cases} if reuse_cases else {}),
         }
         async with httpx.AsyncClient(timeout=_SANDBOX_TIMEOUT_S) as client:
             task = asyncio.create_task(client.post(f"{sandbox}/run", json=body))
@@ -216,7 +218,7 @@ async def _execute_profile(
     task = asyncio.create_task(asyncio.to_thread(
         runner.run_profile,
         profile=str(profile_path), ltc=ltc, mode=mode, verdict=verdict, req_id=req_id, regression=regression,
-        checks=checks, regression_reqs=regression_reqs,
+        checks=checks, regression_reqs=regression_reqs, reuse_cases=reuse_cases,
     ))
     rep = await _until_done_or_disconnected(request, task, cancel.set)
     return rep, "local"
@@ -684,12 +686,22 @@ async def eval_run(
                 log.warning("eval_run blocked: regression acceptance surface changed req=%s other=%s", req, other)
                 return _integrity_blocked_payload(other, other_integrity, profile_path)
 
+    # The full eval that confirms a targeted re-eval which just passed on the same inputs takes its
+    # results (the REQ's checks, the regression of those promoted REQs) and runs the rest.
+    reuse = None
+    if not is_manual and not args.checks and not targeted and args.regression:
+        try:
+            reuse = eval_verdicts.reusable_targeted(prj, _effective_req_id(args.req_id, ltc, profile_path))
+        except Exception as exc:  # an optimisation only
+            log.warning("targeted results not reusable: %s", exc)
+            reuse = None
     try:
         rep, executor = await _execute_profile(
             request,
             prj, profile_path, ltc, args.mode or "auto", args.verdict, args.req_id,
             regression=bool(args.regression) and (not args.checks or targeted), checks=args.checks,
             regression_reqs=args.regression_reqs if args.regression else None,
+            reuse_cases=(reuse or {}).get("cases"),
         )
     except HTTPException:
         raise
@@ -707,9 +719,16 @@ async def eval_run(
             eval_verdicts.record(prj, _effective_req_id(args.req_id, ltc, profile_path), bool(args.regression), report_to_dict(rep))
         except Exception as exc:  # an optimisation only
             log.warning("eval verdict not recorded: %s", exc)
+    if targeted and not is_manual and not args.checks:
+        try:
+            eval_verdicts.record_targeted(prj, _effective_req_id(args.req_id, ltc, profile_path), report_to_dict(rep))
+        except Exception as exc:  # an optimisation only
+            log.warning("targeted results not recorded: %s", exc)
     payload = _eval_payload(rep, args.req_id)
     payload["integrity"] = integrity
     payload["executor"] = executor
+    if reuse:
+        payload["reused_targeted_at"] = reuse["at"]
     payload["regression"] = bool(args.regression) and (not args.checks or targeted)
     if targeted:
         payload["regression_scope"] = args.regression_reqs

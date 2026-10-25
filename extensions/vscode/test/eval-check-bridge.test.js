@@ -142,3 +142,25 @@ test('a check run with changed locked tests warns that the pass does not hold ye
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('a non-blocking failure does not make the result FAIL, and the repair is told when its checks pass', () => {
+  // B2B REQ-032: the two unit checks given to the repair passed at its 2nd run; coverage checks the
+  // eval marks non-blocking kept the result FAIL and the agent went on for 25 minutes (14.5M tokens)
+  const report = { cases: [
+    { name: 'regression::REQ-008::test:unit', passed: true },
+    { name: 'regression::REQ-008::test:coverage', passed: false, blocking: false, excerpt: 'already failing without this candidate' },
+    { name: 'regression::REQ-014::test:unit', passed: true },
+  ] };
+  const targets = ['regression::REQ-008::test:unit', 'regression::REQ-014::test:unit'];
+  const out = compactResult(report, targets);
+  assert.equal(out.status, 'PASS');
+  assert.match(out.done, /the 2 check\(s\) this repair was given pass: finish now/);
+  assert.equal(out.checks[1].blocking, false);
+  assert.match(out.checks[1].note, /non-blocking/);
+  // a target still failing: no finish signal, and a blocking failure still fails
+  const failing = compactResult({ cases: [{ name: 'regression::REQ-008::test:unit', passed: false }] }, targets);
+  assert.equal(failing.status, 'FAIL');
+  assert.equal(failing.done, undefined);
+  // a run that did not include every target does not say finish
+  assert.equal(compactResult({ cases: [{ name: 'regression::REQ-008::test:unit', passed: true }] }, targets).done, undefined);
+});

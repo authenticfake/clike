@@ -99,6 +99,35 @@ class EvalRegressionTests(_RegressionProject):
         only = self._post("/v1/eval/run", "REQ-002", regression=True, checks=own[:1]).json()
         self.assertFalse(any(c["name"].startswith("regression::") for c in only["cases"]))
 
+    def test_the_full_eval_after_a_passing_targeted_one_reuses_what_ran_on_the_same_inputs(self):
+        # B2B REQ-032: the confirmation eval re-ran ~7 of its ~28 minutes exactly as the targeted
+        # re-eval had just run them (the REQ's checks, the regression of REQ-008 and REQ-014)
+        plan_path = self.proj / "docs" / "harper" / "plan.json"
+        plan = json.loads(plan_path.read_text())
+        plan["reqs"][2]["status"] = "done"  # REQ-003 promoted too: one REQ reused, one run
+        plan_path.write_text(json.dumps(plan))
+        reused = "Reused: same inputs as the targeted re-eval"
+        targeted = self._post("/v1/eval/run", "REQ-002", regression=True, regression_reqs=["REQ-001"]).json()
+        self.assertTrue(targeted["partial"])
+        self.assertIn(targeted["status"], ("PASS", "PASS_WITH_WARNINGS"))
+        full = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        self.assertIn(full["status"], ("PASS", "PASS_WITH_WARNINGS"))
+        self.assertNotIn("partial", full)
+        self.assertIn("reused_targeted_at", full)
+        by = {c["name"]: c for c in full["cases"]}
+        own = [n for n in by if not n.startswith(("regression::", "env::", "structure::", "ltc::"))]
+        self.assertTrue(own and all(reused in by[n]["stdout"] for n in own), own)
+        req1 = [n for n in by if n.startswith("regression::REQ-001::") and "::env::" not in n]
+        req3 = [n for n in by if n.startswith("regression::REQ-003::")]
+        self.assertTrue(req1 and all(reused in by[n]["stdout"] for n in req1), req1)
+        self.assertTrue(req3 and not any(reused in by[n]["stdout"] for n in req3), req3)
+        # the inputs change: nothing is reused
+        (self.proj / "runs" / "kit" / "REQ-002" / "src" / "checkout.py").write_text(
+            "from pricing import price\n\ndef total(n):\n    return n * price()  # changed\n")
+        again = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        self.assertNotIn("reused_targeted_at", again)
+        self.assertFalse(any(reused in c["stdout"] for c in again["cases"]))
+
     def test_a_targeted_re_eval_regresses_only_the_named_reqs_and_is_never_a_verdict(self):
         # a repair loop re-evaluates the REQs that failed before the repair; the full eval decides
         full = self._post("/v1/eval/run", "REQ-002", regression=True).json()
