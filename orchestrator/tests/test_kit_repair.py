@@ -15,6 +15,7 @@ if str(ORCHESTRATOR_ROOT) not in sys.path:
     sys.path.insert(0, str(ORCHESTRATOR_ROOT))
 
 from services import gate_integrity, harper  # noqa: E402
+from services.kit_repair import repair_rules  # noqa: E402
 
 REQ = "REQ-001"
 LTC = {"req_id": REQ, "checks": [{"id": "unit", "command": "pytest test/wrong_path.py", "blocking": True}]}
@@ -159,3 +160,12 @@ def test_agent_repair_prompt_keeps_the_errors_and_offers_the_sandbox_re_run():
     assert "`node .clike/bin/eval-check.mjs test:unit`" in text  # regression checks are not re-run by name
     without = {"kit": {"repair": {**payload["kit"]["repair"], "eval_check": False}}}
     assert "eval-check" not in "\n".join(_kit_stage(REQ, without, _kit_repair_context(REQ, without))[2])
+
+
+def test_a_repair_sure_a_locked_test_is_wrong_writes_the_correction_not_only_a_document():
+    # B2B REQ-032: the repair described an import fix in a doc for 5 cycles; written, CLike saves it
+    # as a patch and stops, and /eval --accept applies it.
+    rule = next(r for r in repair_rules("REQ-032") if "locked acceptance criteria" in r)
+    assert "do not only describe the correction in a document" in rule
+    assert "never in the tests of promoted REQs" in rule
+    assert "saves your change as a patch" in rule

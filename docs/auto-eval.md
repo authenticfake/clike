@@ -180,7 +180,7 @@ full eval. To keep it short and stable:
 | Repair request failed | `the KIT repair request failed` | see the error in the chat (provider, validation) |
 | Acceptance surface changed | `the acceptance surface (test/ or ci/) of REQ-002 changed after the lock: ci/LTC.json modified` | tests/LTC of that REQ (the candidate, or a promoted REQ its regression runs) were edited outside the governed path: edited on purpose and nothing weakened → `/eval REQ-002 --accept "<why>"` (audited); otherwise restore them or re-run `/kit` |
 | REQ not KIT-ready | `stopped before a repair: not KIT-ready, the plan waits for your answers: …` (the plan marks it `kit_ready: false`; no hint given) | answer in the SPEC Note section and run `/spec`, `/plan`, `/kit`; or `/eval REQ-002 --fix "<your decisions>"` to give the answers to the repair |
-| Repair changed a locked test without proof | `stopped: the repair says a locked test is wrong … Its change is saved: runs/eval/<REQ>/proposed_test_fix_<ts>.patch` (the lock restored the test; the eval showed no error raised in the test itself) | review the patch: if the test is wrong, `git apply` it and `/eval REQ-002 --accept "<why>"` (audited); if the code is wrong, `/eval REQ-002 --fix "<hint for the code>"` |
+| Repair changed a locked test without proof | `stopped: the repair says a locked test is wrong … Its change is saved: runs/eval/<REQ>/proposed_test_fix_<ts>.patch` (the lock restored the test; the eval showed no error raised in the test itself) | review the patch: if the test is wrong, `/eval REQ-002 --accept "<why>"` applies it and records your reason (audited); if the code is wrong, `/eval REQ-002 --fix "<hint for the code>"` |
 | Nothing to repair | `eval failed without failing checks` | see the eval report (e.g. integrity or setup errors) |
 
 The same outcomes apply to `/gate --fix` (`AUTO-GATE`, `gate failed without failing checks`).
@@ -215,6 +215,11 @@ The repair prompt (cloud) and the orchestrator enforce the same rules:
     the locked test and requires the repaired one to be identical; anything else is rejected.
     The fix is reported as `repair_test_fixed_review_required:<file>` and the gate shows
     `review_required: true` (VS Code: *REVIEW* in the gate message) so the developer checks it.
+  - *a failed assertion the repair is sure comes from the test* (a helper, fixture or setup that
+    contradicts the SPEC/PLAN, e.g. an HTTPS-only helper on a local HTTP origin): the repair writes
+    the smallest correction in the REQ's own test instead of only describing it. The lock restores
+    the test, CLike saves the change as `runs/eval/<REQ>/proposed_test_fix_<ts>.patch` and stops
+    the loop; `/eval <REQ> --accept "<why>"` applies it and records the reason.
 - **`ci/LTC.json`**: only the *command* of a check that cannot run may be fixed (wrong path,
   module or flag). Removing a check, making it non-blocking or weakening it is rejected, with one
   exception: a check the eval shows needs a **container runtime** (docker, podman, compose — the

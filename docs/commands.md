@@ -231,6 +231,11 @@ are accepted: a removed file, an LTC check removed, made non-blocking or with an
 or an added skip marker still needs the files restored or `/kit <REQ-ID>`. It runs no eval:
 run `/eval` again afterwards.
 
+When a repair proposed a change to a locked test (the loop stopped with
+`runs/eval/<REQ-ID>/proposed_test_fix_<ts>.patch`), `--accept` first applies the latest proposal
+that still applies, then records it as above: review the patch, then one command. A proposal the
+lock still refuses is undone.
+
 ### `/gate <REQ-ID>`
 Runs gate checks for the target REQ using eval output and gate policy. Warnings (failed
 non-blocking checks) do not block unless `clike.gate.strictWarnings`; regression failures
