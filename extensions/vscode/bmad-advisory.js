@@ -222,6 +222,26 @@ function buildBmadEvalAdvisory(report, reqId, methodologyContext) {
     ? failedChecks.map(item => item.cmd).filter(Boolean)
     : [];
   if (!checksToRerun.length) checksToRerun.push(`/eval ${target} --methodology bmad --agent ${agent}`);
+  const tampered = {};
+
+  if (String(report?.reason_code || '') === 'ACCEPTANCE_TAMPERED') {
+    // no check ran: the locked tests / ci of the REQ were edited after the lock (a deliberate edit
+    // is accepted by the developer, not repaired)
+    const changed = failedChecks.map((c) => c.diagnostic_excerpt).filter(Boolean).join(' ');
+    Object.assign(tampered, {
+      root_cause_hypothesis: `No check ran: the locked acceptance surface of ${target} changed after the lock` +
+        `${changed ? ` (${changed})` : ''}. If the edit is deliberate, accept it; otherwise restore the files.`,
+      diagnostic_classifications: ['acceptance_surface_changed'],
+      missing_tests: [],
+      contract_gaps: [],
+      recommended_repair_strategy: [
+        `Deliberate edit (e.g. a wrong test corrected by the developer): /eval ${target} --accept "<why>" (audited), then /eval ${target}.`,
+        `Not deliberate: restore the changed files (git checkout -- <file>) or re-run /kit ${target}.`,
+      ],
+      suggested_next_command: `/eval ${target} --accept "<why>"`,
+      checks_to_rerun: [],
+    });
+  }
 
   return {
     schema_version: 'clike.bmad_eval_advisory.v1',
@@ -256,6 +276,7 @@ function buildBmadEvalAdvisory(report, reqId, methodologyContext) {
     suggested_next_command: `/kit ${target} --repair --methodology bmad --agent developer`,
     checks_to_rerun: checksToRerun,
     failed_cases: failedCases,
+    ...tampered,
   };
 }
 

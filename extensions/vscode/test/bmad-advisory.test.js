@@ -5,6 +5,7 @@ const path = require('node:path');
 
 const {
   attachBmadQaAdvisory,
+  buildBmadEvalAdvisory,
   buildEffectiveEvalMethodologyContext,
 } = require('../bmad-advisory');
 const { parseSlash } = require('../slash-parser');
@@ -194,4 +195,18 @@ test('advisory classifies malformed LTC, missing files, environment blockers, co
   assert.ok(classes.includes('environment_blocker'));
   assert.ok(classes.includes('missing_tests'));
   assert.ok(classes.includes('security_failure'));
+});
+
+test('an edited locked test is reported as such, with --accept as the next step (not as a contract or environment gap)', () => {
+  // B2B REQ-032: the developer corrected the test by hand and ran /eval with BMAD qa
+  const advisory = buildBmadEvalAdvisory({
+    req_id: 'REQ-032', status: 'FAIL', reason_code: 'ACCEPTANCE_TAMPERED', passed: false, failed: 1,
+    cases: [{ name: 'acceptance::integrity', passed: false, blocking: true,
+      stderr: 'Acceptance surface of REQ-032 changed since it was locked: modified: test/v2/test_req_032_browser.py' }],
+  }, 'REQ-032', { methodology: 'bmad', phase: 'eval', agent: 'qa' });
+  assert.deepEqual(advisory.diagnostic_classifications, ['acceptance_surface_changed']);
+  assert.equal(advisory.suggested_next_command, '/eval REQ-032 --accept "<why>"');
+  assert.match(advisory.root_cause_hypothesis, /modified: test\/v2\/test_req_032_browser.py/);
+  assert.deepEqual(advisory.contract_gaps, []);
+  assert.equal(advisory.can_decide_pass_fail, false);
 });
