@@ -20,6 +20,17 @@ const { projectUseCaseCoverage, useCaseCoverageMessage } = require('./use-case-c
 const planReadiness = require('./plan-readiness');
 const { saveRejectedTestFix, rejectedTestFixMessage } = require('./rejected-test-fix');
 const { collectExistingSourceEvidence } = require('./existing-source-evidence');
+const { writeFinalizeOutcome } = require('./finalize-outcome');
+
+/** Records the outcome of /finalize for the cockpit (never fails the command). */
+function recordFinalizeOutcome(status, reason) {
+  try {
+    const ws = getWorkspaceRoot();
+    if (ws) writeFinalizeOutcome(toFsPath(ws), status, reason);
+  } catch (e) {
+    log(`[finalize] outcome not recorded: ${e?.message || e}`);
+  }
+}
 const { getEvalProgress, getEvalTools, postEvalToolsUpdate, postAcceptanceAccept, postAcceptanceAmend, postAcceptanceLock, postEvalChecks, postEvalToolsCheck, postEvalToolsInstall, postGateOverride } = require('./api');
 const evalToolsLib = require('./eval-tools');
 const { approveForProject, ensureEvalTools, questionText } = evalToolsLib;
@@ -5137,6 +5148,7 @@ async function cmdOpenChat(context) {
 
               if (executionPreference === 'local_agent_only') {
                 clikeHarperBlockingRun = false;
+                if (phase === 'finalize') recordFinalizeOutcome('failed', err?.message || String(err));
                 panel.webview.postMessage({ type: 'busy', on: false, force: true });
                 panel.webview.postMessage({ type: 'error', message: failMsg });
                 return;
@@ -5147,6 +5159,7 @@ async function cmdOpenChat(context) {
 
               if (phase === 'finalize' && rejectedByNormalizer) {
                 clikeHarperBlockingRun = false;
+                recordFinalizeOutcome('failed', errText);
                 panel.webview.postMessage({ type: 'busy', on: false, force: true });
                 panel.webview.postMessage({
                   type: 'error',
@@ -5209,6 +5222,7 @@ async function cmdOpenChat(context) {
             } catch {}
             panel.webview.postMessage({ type: 'error', message });
             msg.__result = 'failed';
+            if (cmd === 'finalize') recordFinalizeOutcome('failed', message);
             const commandLabel = String(cmd || '').toUpperCase();
             const failureCode = _out.error_code || 'harper_error';
             await appendSessionJSONL(activeMode, {
@@ -5484,6 +5498,8 @@ async function cmdOpenChat(context) {
           } else if (phase === 'finalize' && cfg().finalizeVerify) {
             clikeHarperBlockingRun = false;
             await continueFinalizeVerify(msg);
+          } else if (phase === 'finalize') {
+            recordFinalizeOutcome('ok', 'solution verification off (clike.finalize.verify)');
           }
           const afterKitEval = phase === 'kit' && !msg.autoEvalRepair && !msg.acceptanceStage && !msg.__autopilot && targetReqId && cfg().autoEvalAfterKit;
           if (afterKitEval && !harperCancelled() && harperStopAfterStep) {
@@ -5502,6 +5518,7 @@ async function cmdOpenChat(context) {
           }
           panel.webview.postMessage({ type: 'busy', on: false }) 
           panel.webview.postMessage({ type: 'error', message: formatHarperError(e) });
+          if (phase === 'finalize') recordFinalizeOutcome('failed', String(e?.message || e));
           if (phase === 'finalize' && msg.finalizeRepair) {
             panel.webview.postMessage({ type: 'echo', message:
               `✖ SOLUTION REPAIR cycle ${msg.finalizeRepair.cycle} could not run (${String(e?.message || e).split('\n')[0]}). ` +
@@ -6996,6 +7013,7 @@ async function cmdOpenChat(context) {
         }
       } catch (e) {
         say(`✖ SOLUTION EVAL could not run: ${e?.message || e}`);
+        recordFinalizeOutcome('failed', `the solution eval could not run: ${e?.message || e}`);
         return;
       }
     }
@@ -7018,6 +7036,7 @@ async function cmdOpenChat(context) {
       await commitFinalizeEvidence(ws, settings);
     }
     if (step.action === 'pass') {
+      recordFinalizeOutcome('ok', step.reason);
       say(`✔ SOLUTION EVAL PASS (${step.reason}): the integrated solution installs, builds, is configured, starts and answers. ` +
         `What /finalize did, how to start and see it, and what is still to provide: ${finalizeVerify.REPORT_PATH}. Evidence: ${finalizeVerify.EVIDENCE_PATH}`);
       // not awaited: the notification waits for the developer, the chat is free meanwhile
@@ -7026,11 +7045,13 @@ async function cmdOpenChat(context) {
     }
     if (step.action === 'stop') {
       const names = (step.failures || []).map(f => f.name).slice(0, 8).join(', ');
+      recordFinalizeOutcome('failed', `solution eval stopped: ${step.reason}`);
       say(`✖ SOLUTION EVAL stopped: ${step.reason}.` + (names ? ` Failing: ${names}.` : '') +
         ` Run /finalize again to continue (it repairs from the current state). Report: ${finalizeVerify.REPORT_PATH}. Evidence: ${finalizeVerify.EVIDENCE_PATH}`);
       return;
     }
     if (stopAfterStepRequested(say, 'SOLUTION VERIFICATION')) {
+      recordFinalizeOutcome('failed', 'the solution verification was stopped before it passed');
       say(`Run /finalize again to continue (it repairs from the current state). Evidence: ${finalizeVerify.EVIDENCE_PATH}`);
       return;
     }
