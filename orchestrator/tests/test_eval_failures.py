@@ -153,3 +153,22 @@ def test_regression_waits_until_the_req_own_checks_pass(tmp_path: Path, monkeypa
     passing = {"req_id": "REQ-001", "checks": [{"id": "unit", "command": "true", "blocking": True}]}
     EvalRunner(tmp_path).run_profile(profile=profile, ltc=passing, req_id="REQ-001", regression=True)
     assert called == ["REQ-001"]
+
+
+def test_random_values_in_a_failed_assertion_do_not_change_the_fingerprint():
+    # B2B REQ-032: the same failing cookie assertion printed a new session token on every run, so
+    # each repair cycle looked like progress and the no-progress stop never came.
+    def run(token, when):
+        return (
+            "FAILED test/v2/test_req_032_browser.py::test_recorded_browser - assert ('HttpOnly' in "
+            f"'leadintel-dev-session={token}; HttpOnly; Max-Age=600; Path=/; SameSite=lax, "
+            f"leadintel-dev-login=\"\"; expires=Sun, 25 Oct 2026 {when} GMT')\n"
+            "========================= 1 failed, 1 warning in 1.46s =========================\n"
+        )
+
+    first = run("NlHgjkKG3RMSIRbu6O3DQ2uVFJugCa-H-ROMfSK9phHILfhXeBP6HVYWui0rBGFG", "09:22:11")
+    second = run("JWU0DCqhk85W8_9HkHTBW67HtYpzfnRsVCs5QfY-JqwlnaGnJmM2TqzKs0Y5b-Xv", "09:10:32")
+    assert eval_failures.fingerprint(first) == eval_failures.fingerprint(second)
+    # Names are not tokens: a different failing test is a different error.
+    other = first.replace("test_recorded_browser", "test_recorded_browser_export")
+    assert eval_failures.fingerprint(other) != eval_failures.fingerprint(first)

@@ -118,20 +118,26 @@ def excerpt(stdout: str, stderr: str = "", limit: int = EXCERPT_LIMIT) -> str:
     return out[:limit]
 
 
+# Mixed-case letters and digits, 20+ chars (base64/base64url): a generated value, not a name.
+_RANDOM_TOKEN = re.compile(r"(?<![\w-])(?=[\w-]*[a-z])(?=[\w-]*[A-Z])(?=[\w-]*\d)[\w-]{20,}(?![\w-])")
+
+
 def error_keys(text: str) -> list:
-    """The error lines of an excerpt, normalized (numbers, hex ids, temp paths and ports ignored)."""
+    """The error lines of an excerpt, normalized (numbers, hex ids, random tokens, temp paths and ports ignored)."""
     keys = set()
     for line in (text or "").split("\n"):
         if not _KEY.search(line):
             continue
         norm = re.sub(r"/[\w./@+-]*?/(work|tmp|var|private)/[\w./@+-]*", "<path>", line)
+        # Random values printed by a failed assertion (session tokens, nonces): new on every run.
+        norm = _RANDOM_TOKEN.sub("<token>", norm)
         norm = re.sub(r"0x[0-9a-f]+|[0-9a-f]{8,}|\d+", "#", norm.strip().lower())
         keys.add(norm)
     return sorted(keys)
 
 
 def fingerprint(text: str) -> str:
-    """Stable id of the errors in an excerpt: numbers, hex ids, temp paths and ports ignored."""
+    """Stable id of the errors in an excerpt: numbers, hex ids, random tokens, temp paths and ports ignored."""
     keys = error_keys(text)
     if not keys:
         return ""

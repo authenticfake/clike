@@ -329,6 +329,11 @@ hardcoded. A local agent (Codex, Claude Code) re-runs the profile's checks in th
 while it works (`node .clike/bin/eval-check.mjs`) and runs `scripts/check_solution_local.sh` /
 `.ps1` on your machine. A repair cycle that cannot run says so and stops.
 
+When the plan or the code shows a database or an auth provider, the result must carry its
+configuration: a variable for it in `.env.example` (the project's own name counts, e.g.
+`APP_DB_PATH`) and the boundary in `src/`. A boundary already in the promoted code counts as it
+is: finalize does not need to rewrite it.
+
 What you get:
 
 - `README.md` — the project README, marked as a CLike project: CLike, Harper and Finalize badges
