@@ -155,16 +155,16 @@ The chat supports:
 
 These are used across Free / Coding / Harper flows.
 
-### Themes
+### Layouts
 
-The chat panel supports four themes:
+`clike.chat.theme` (also the **Layout** selector in the chat):
 
-- `classic`
-- `pro`
-- `studio`
-- `paper`
+- `cockpit` (default): chat on the left, the project on the right (mode and execution, agent and
+  model, methodology, release and phases, REQs, next action, last eval), a run card for the
+  command in flight
+- `classic`, `pro`, `studio`, `paper`: the same features in a single column
 
-Current default: **`pro`**
+What each area shows and the settings that change the UI: [docs/chat-ui.md](../../docs/chat-ui.md).
 
 ---
 
@@ -471,10 +471,13 @@ Current configuration keys exposed by the extension include:
 
 - `clike.chat.theme`
   - values:
+    - `cockpit` (default)
     - `classic`
     - `pro`
     - `studio`
     - `paper`
+- `clike.chat.maxInMemoryMessages`
+- `clike.agentChat.approvals`
 
 - `clike.chat.persistDir`
 - `clike.chat.never_send_source_to_cloud`
@@ -657,7 +660,7 @@ Today it acts as a **VS Code front-end for an AI-native software delivery workfl
 
 Compared with earlier simpler revisions, the extension now includes or exposes:
 
-- theme selection for the chat webview
+- the cockpit layout (project, phases, REQs, next action, run card) and the other layouts of the chat
 - stronger multi-model / multi-provider awareness
 - history scope handling in the chat UI
 - persistent bubble timeline with timestamps

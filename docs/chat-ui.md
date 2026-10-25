@@ -42,6 +42,22 @@ stopping loses (a running eval leaves no report, files an agent wrote stay uncom
 **Autocompletion**: type `/` — commands, then the REQs that fit, flags and values; an invalid
 command shows the parser's error with its fix before you send.
 
+## Settings that change the UI
+
+VS Code settings (`Ctrl/Cmd+,`, search `clike`), or `settings.json`:
+
+| Setting | Default | What it changes |
+|---|---|---|
+| `clike.chat.theme` | `cockpit` | the layout: `cockpit` (chat + project side panel), `classic`, `pro`, `studio`, `paper`. Also switchable from the **Layout** selector in the chat; every layout has the same features |
+| `clike.execution.defaultPreference` | `local_agent_only` | the execution shown and used at start (cloud or local agent); the **Mode & settings** area changes it for the session |
+| `clike.localAgent.preferredExecutor` | `gpt_codex` | the local agent selected at start |
+| `clike.chat.maxInMemoryMessages` | `50` | how many messages the chat keeps on screen (older ones stay in the history) |
+| `clike.chat.persistDir` | `.clike/sessions` | where the conversations of the **History** are saved |
+| `clike.agentChat.approvals` | `ask` | in Coding mode, whether the chat asks before each edit or command of the local agent |
+
+After a successful `/finalize` the project's `README.md` opens rendered (reading mode), as the
+gate opens its promotion report.
+
 ## How it relates to CLike
 
 - The cockpit **reads**; CLike **decides**. The next action follows the same rules as `/autopilot`
