@@ -4,6 +4,8 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.6.2] — 2026-10-25 — Releases from /finalize, the local start verified, a memory that answers
+
 ### Added
 
 - **Ask in the Memory panel**: the panel answers instead of listing files. The model writes a short

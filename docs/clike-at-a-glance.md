@@ -87,6 +87,9 @@ Everything runs locally with Podman or Docker:
   model routing, RAG on Qdrant; service token, localhost only, state the agents cannot write.
 - **Memory panel** — the project's RAG memory and CLike's own guide, queried in any language next
   to the chat; the memory follows the KITs (files removed from a KIT leave it).
+- **Release from `/finalize`** — a passing finalize checks the local start on the developer's
+  machine, names the release and its REQs in its commit, tags it `vN` and writes the release notes
+  from the documents; publishing the release is the developer's confirmation.
 - **MCP for agents** — `clike` (orchestrator) reads plan, REQs, status, reports, RAG; `clike-ext`
   (VS Code) runs the phases, `eval --fix`, gate, finalize. Claude Code and Codex can drive a whole
   project, and CLike still governs every step.
