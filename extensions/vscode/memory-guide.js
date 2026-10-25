@@ -66,7 +66,16 @@ async function ensureGuideIndexed({ extensionRoot, state, post, orchestratorUrl 
   if (!items.length) return { status: 'missing', files: 0 };
   const fp = fingerprint(items);
   const prev = state.get(GUIDE_STATE_KEY) || {};
-  if (prev.fingerprint === fp) return { status: 'current', files: items.length };
+  // what the memory really holds decides, not only what this machine remembers: an emptied store
+  // (a new volume) gets the guide back; when the store cannot say, nothing is sent
+  if (prev.fingerprint === fp) {
+    let held = null;
+    try {
+      const res = await post(`${orchestratorUrl}/v1/rag/sources`, { project_id: GUIDE_PROJECT_ID });
+      if (res && res.ok !== false) held = new Set((res.sources || []).map((s) => s.path));
+    } catch { /* store unreachable */ }
+    if (!held || items.every((i) => held.has(i.path))) return { status: 'current', files: items.length };
+  }
   const res = await post(`${orchestratorUrl}/v1/rag/index`, { project_id: GUIDE_PROJECT_ID, items });
   if (!res || res.ok === false) return { status: 'failed', files: items.length, error: String(res?.error || 'index failed') };
   // files removed from the guide leave the collection

@@ -61,8 +61,9 @@ chat. It holds two memories:
 
 - **Project**: what CLike indexed for the workspace — Harper documents, the KITs of the REQs (after
   `/kit` and `/eval`), eval and gate reports, files attached in the chat.
-- **CLike Guide**: CLike's own documentation, shipped inside the extension and indexed in its own
-  collection (`clike-guide`) when CLike starts, again only when a new version changes it.
+- **CLike Guide**: CLike's own documentation, shipped inside the extension in its own collection
+  (`clike-guide`). At every start CLike checks what the memory holds: a guide missing (e.g. an
+  emptied store) or changed by a new version is indexed; a guide already there is left alone.
 
 Ask in natural language, in any language (the search is semantic): each result is a file with its
 most relevant passage and a link to open it. On the left, **Contents** lists what each memory holds
