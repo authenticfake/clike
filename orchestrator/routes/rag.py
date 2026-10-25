@@ -59,6 +59,8 @@ class RagSearchRequest(RagBase):
 class RagPurgeRequest(BaseModel):
     project_id: str
     path_prefix: Optional[str] = None
+    # exact paths to delete (files gone from the workspace); used instead of path_prefix
+    paths: Optional[List[str]] = None
 
 # --- NEW: fetch models ---
 class RagFetchRequest(RagBase):
@@ -255,6 +257,8 @@ async def rag_sources(req: RagSourcesRequest):
 @router.post("/v1/rag/purge")
 async def rag_purge(req: RagPurgeRequest):
     store = RagStore(project_id=req.project_id)
+    if req.paths:
+        return await store.purge_paths(req.paths)
     out = await store.purge(req.path_prefix)
     if not out.get("ok"):
         raise HTTPException(500, detail=out.get("error","purge failed"))

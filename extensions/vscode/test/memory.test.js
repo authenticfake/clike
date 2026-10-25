@@ -7,7 +7,7 @@ const os = require('os');
 const path = require('path');
 
 const { GUIDE_PROJECT_ID, GUIDE_STATE_KEY, listGuideFiles, ensureGuideIndexed } = require('../memory-guide');
-const { groupProjectSources, bestPerFile, addRecent, memoryHtml } = require('../memory-panel');
+const { groupProjectSources, bestPerFile, queryTerms, focusSnippet, staleKitPaths, addRecent, memoryHtml } = require('../memory-panel');
 
 function write(root, rel, text) {
   fs.mkdirSync(path.join(root, path.dirname(rel)), { recursive: true });
@@ -120,4 +120,44 @@ test('the panel is in English and opens the chat with its own button only', () =
   assert.match(html, /💬 Chat/);
   assert.match(html, /Ask in any language/);
   assert.doesNotMatch(html, /type: 'attach'|insertIntoChat/);
+});
+
+test('the exact words of the question lift the chunk that has them, in any language', () => {
+  // real case: "--accept" ranked api-reference.md first, the section of commands.md second
+  const hits = [
+    { path: 'api-reference.md', score: 0.43, text: 'POST /v1/eval/tools/check returns the missing tools' },
+    { path: 'commands.md', score: 0.42, text: 'intro\n### `/eval <REQ-ID> --accept "reason"`\nThe tests are locked' },
+    { path: 'development.md', score: 0.40, text: 'setup commands run first' },
+  ];
+  for (const q of ['How does --accept work on /eval?', 'come funziona --accept su /eval?']) {
+    const out = bestPerFile(hits, q);
+    assert.equal(out[0].path, 'commands.md', q);
+    assert.match(out[0].text.split("\n")[1], /^### `\/eval <REQ-ID> --accept/);
+    assert.ok(out[0].terms.includes('--accept'));
+  }
+  // words no candidate has (another language) leave the semantic order as it is
+  assert.deepEqual(bestPerFile(hits, 'qualcosa di diverso').map((r) => r.path), ['api-reference.md', 'commands.md', 'development.md']);
+});
+
+test('question words: flags and paths kept whole, short words dropped', () => {
+  assert.deepEqual(queryTerms('How does --accept work on /eval? REQ-032.'), ['how', 'does', '--accept', 'work', '/eval', 'req-032']);
+});
+
+test('the snippet starts at the lines that answer, not at the cut start of the chunk', () => {
+  const text = 'andbox_exhausted.\nline a\nline b\nthe --accept flag applies the patch\nline c';
+  assert.match(focusSnippet(text, ['--accept']), /^line b\nthe --accept flag/);
+  assert.match(focusSnippet(text, []), /^line a/);
+});
+
+test('files no longer in a REQ\'s KIT leave the memory; other REQs and files are not touched', () => {
+  const sources = [
+    { path: 'runs/kit/REQ-012/src/a.py' },
+    { path: 'runs/kit/REQ-012/ci/.tmp/manual-1/src/a.py' },
+    { path: 'runs/kit/REQ-0120/src/b.py' },
+    { path: 'docs/harper/SPEC.md' },
+  ];
+  assert.deepEqual(staleKitPaths(sources, 'req-012', ['runs/kit/REQ-012/src/a.py']), ['runs/kit/REQ-012/ci/.tmp/manual-1/src/a.py']);
+  // the temporary copies of any REQ go at the next indexing of whichever REQ
+  assert.deepEqual(staleKitPaths(sources, 'REQ-032', []), ['runs/kit/REQ-012/ci/.tmp/manual-1/src/a.py']);
+  assert.deepEqual(staleKitPaths([{ path: 'runs/kit/REQ-012/src/a.py' }], '', []), []);
 });

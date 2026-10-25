@@ -10,7 +10,12 @@ const { GUIDE_PROJECT_ID, guideRoot } = require('./memory-guide');
 
 const RECENT_KEY = 'clike.memory.recent';
 const MAX_RECENT = 10;
-const TOP_K = 12;
+// candidates fetched from the store, then reranked; results shown (one per file)
+const CANDIDATES = 40;
+const MAX_RESULTS = 12;
+const SNIPPET_LINES = 6;
+// weight of the exact words of the question against the semantic score
+const LEXICAL_WEIGHT = 0.15;
 
 const PROJECT_GROUPS = [
   { key: 'harper', label: 'Harper documents', test: (p) => p.startsWith('docs/harper/') },
@@ -34,16 +39,77 @@ function groupProjectSources(sources) {
   return groups.filter((g) => g.files);
 }
 
-/** Search hits → one result per file (its best chunk), best first. */
-function bestPerFile(hits) {
+/** The words of a question worth matching exactly: lowercased, 3+ characters, flags and paths kept whole. */
+function queryTerms(query) {
+  const terms = String(query || '').toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}_./-]*|--?[\p{L}\p{N}][\p{L}\p{N}_-]*|\/[\p{L}\p{N}][\p{L}\p{N}_-]*/gu) || [];
+  return [...new Set(terms.map((t) => t.replace(/[.]+$/, '')).filter((t) => t.length >= 3))];
+}
+
+/**
+ * Semantic hits reranked with the question's exact words. A word counts by how rare it is among the
+ * candidates (common words weigh little, `--accept` a lot); a word no candidate contains (another
+ * language) is ignored, so a question in any language keeps its semantic ranking.
+ */
+function rerank(hits, query) {
+  const terms = queryTerms(query);
+  const docs = (hits || []).map((h) => String(h.text || '').toLowerCase());
+  const n = docs.length;
+  const weight = {};
+  for (const t of terms) {
+    const df = docs.filter((d) => d.includes(t)).length;
+    if (df) weight[t] = Math.log(1 + n / df);
+  }
+  const total = Object.values(weight).reduce((a, b) => a + b, 0);
+  return (hits || []).map((h, i) => {
+    const matched = total ? Object.keys(weight).filter((t) => docs[i].includes(t)).reduce((a, t) => a + weight[t], 0) / total : 0;
+    return { ...h, score: (Number(h.score) || 0) + LEXICAL_WEIGHT * matched };
+  });
+}
+
+/** The lines of a chunk that answer the question: the window around the line with most question words. */
+function focusSnippet(text, terms, lines = SNIPPET_LINES) {
+  const all = String(text || '').split(/\r?\n/);
+  let best = 0;
+  let bestHits = -1;
+  all.forEach((line, i) => {
+    const l = line.toLowerCase();
+    const hits = terms.reduce((a, t) => a + (l.includes(t) ? 1 : 0), 0);
+    if (hits > bestHits) { best = i; bestHits = hits; }
+  });
+  // a chunk starts anywhere: without a match, skip its first (cut) line
+  const start = bestHits > 0 ? Math.max(0, best - 1) : Math.min(1, all.length - 1);
+  return all.slice(start, start + lines).join('\n').trim();
+}
+
+/** Search hits → one result per file (its best chunk after reranking), best first, focused snippets. */
+function bestPerFile(hits, query = '') {
+  const terms = queryTerms(query);
   const best = new Map();
-  for (const h of hits || []) {
+  for (const h of rerank(hits, query)) {
     const p = String(h.path || '');
     if (!p) continue;
     const cur = best.get(p);
-    if (!cur || Number(h.score) > Number(cur.score)) best.set(p, { path: p, score: Number(h.score) || 0, text: String(h.text || '') });
+    if (!cur || h.score > cur.score) best.set(p, { path: p, score: h.score, text: String(h.text || '') });
   }
-  return [...best.values()].sort((a, b) => b.score - a.score);
+  return [...best.values()]
+    .sort((a, b) => b.score - a.score)
+    .slice(0, MAX_RESULTS)
+    .map((r) => ({ path: r.path, score: r.score, text: focusSnippet(r.text, terms), terms }));
+}
+
+// a file inside a hidden folder of any KIT (ci/.tmp copies, caches) never belongs to the memory
+const HIDDEN_KIT_PATH = /^runs\/kit\/[^/]+\/(?:[^/]+\/)*\.[^/]+\//;
+
+/**
+ * Memory paths to remove after a REQ's KIT is indexed: its files the KIT no longer has (kept: the
+ * paths just indexed), and files in hidden folders of any KIT, indexed by earlier versions.
+ */
+function staleKitPaths(sources, reqId, keptPaths) {
+  const req = String(reqId || '').toUpperCase();
+  const prefix = req ? `runs/kit/${req}/` : null;
+  const kept = new Set((keptPaths || []).map((p) => String(p).replace(/\\/g, '/')));
+  return (sources || []).map((s) => String(s.path || ''))
+    .filter((p) => !kept.has(p) && ((prefix && p.startsWith(prefix)) || HIDDEN_KIT_PATH.test(p)));
 }
 
 function addRecent(list, scope, query) {
@@ -95,8 +161,8 @@ function openMemoryPanel(deps) {
     if (!q) return;
     await deps.context.workspaceState.update(RECENT_KEY, addRecent(recent(), scope, q));
     try {
-      const res = await deps.post(`${deps.orchestratorUrl()}/v1/rag/search`, { project_id: collection(scope), query: q, top_k: TOP_K });
-      send({ type: 'results', scope, query: q, results: bestPerFile(res?.hits), recent: recent() });
+      const res = await deps.post(`${deps.orchestratorUrl()}/v1/rag/search`, { project_id: collection(scope), query: q, top_k: CANDIDATES });
+      send({ type: 'results', scope, query: q, results: bestPerFile(res?.hits, q), recent: recent() });
     } catch (e) {
       send({ type: 'results', scope, query: q, results: [], error: String(e?.message || e), recent: recent() });
     }
@@ -161,6 +227,7 @@ function memoryHtml() {
   .card { border: 1px solid var(--vscode-panel-border, #3f3f46); border-radius: 8px; padding: 7px 10px; margin-top: 8px; }
   .card .top { display: flex; gap: 8px; align-items: center; }
   .card .p { font-family: var(--vscode-editor-font-family, monospace); font-size: 12px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card .snip mark { background: rgba(124,58,237,.45); color: inherit; border-radius: 2px; }
   .card .snip { margin-top: 4px; opacity: .8; font-size: 12px; white-space: pre-wrap; max-height: 5.5em; overflow: hidden; }
   .link { color: var(--vscode-textLink-foreground); cursor: pointer; font-size: 11.5px; }
   .row { display: flex; gap: 8px; padding: 3px 4px; border-radius: 4px; cursor: pointer; font-size: 12.5px; }
@@ -191,6 +258,12 @@ function memoryHtml() {
   let scope = 'project';
   let state = null;
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  // the question's words in the snippet (already escaped text; terms escaped the same way)
+  function mark(html, terms) {
+    const words = (terms || []).filter((t) => !/^(amp|quot|#39)$/.test(t)).map((t) => esc(t).replace(/\\W/g, (c) => '\\\\' + c)).filter(Boolean);
+    if (!words.length) return html;
+    return html.replace(new RegExp('(' + words.join('|') + ')', 'gi'), '<mark>$1</mark>');
+  }
   function setScope(s) {
     scope = s;
     document.querySelectorAll('.scope button').forEach((b) => b.classList.toggle('on', b.dataset.scope === s));
@@ -250,7 +323,7 @@ function memoryHtml() {
     if (!m.results.length) v.appendChild(el('div', 'dim small', 'Nothing relevant found. Try other words, or the other memory.'));
     m.results.forEach((h) => {
       const card = el('div', 'card', '<div class="top"><span class="p">' + esc(h.path) + '</span><span class="dim small">' + h.score.toFixed(2) + '</span></div>' +
-        '<div class="snip">' + esc(h.text.slice(0, 400)) + '</div><span class="link">Open</span>');
+        '<div class="snip">' + mark(esc(h.text.slice(0, 600)), h.terms) + '</div><span class="link">Open</span>');
       card.querySelector('.link').addEventListener('click', () => vscode.postMessage({ type: 'open', scope: m.scope, path: h.path }));
       v.appendChild(card);
     });
@@ -277,4 +350,4 @@ function memoryHtml() {
 </body></html>`;
 }
 
-module.exports = { openMemoryPanel, groupProjectSources, bestPerFile, addRecent, memoryHtml };
+module.exports = { openMemoryPanel, groupProjectSources, bestPerFile, rerank, queryTerms, focusSnippet, staleKitPaths, addRecent, memoryHtml };

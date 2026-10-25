@@ -20,7 +20,7 @@ const { projectUseCaseCoverage, useCaseCoverageMessage } = require('./use-case-c
 const planReadiness = require('./plan-readiness');
 const { saveRejectedTestFix, rejectedTestFixMessage, applyLatestTestFix, revertAppliedTestFix } = require('./rejected-test-fix');
 const { createFreshnessCheck } = require('./extension-freshness');
-const { openMemoryPanel } = require('./memory-panel');
+const { openMemoryPanel, staleKitPaths } = require('./memory-panel');
 const { ensureGuideIndexed } = require('./memory-guide');
 // the code this window loaded; a reinstall changes the files, not the running code
 const extensionFreshness = createFreshnessCheck(__filename);
@@ -684,6 +684,9 @@ async function collectKitRagItems(workspaceRoot, reqId, opts = {}) {
       const relPath = relBase ? path.posix.join(relBase, name) : name;
 
       if (type === vscode.FileType.Directory) {
+        // hidden folders are tool state (ci/.tmp copies of the workspace, caches), not the KIT:
+        // B2B's memory held 5,000 temporary copies, 72% of its chunks
+        if (name.startsWith('.')) continue;
         if ([
           '__pycache__',
           '__MACOSX',
@@ -3745,6 +3748,24 @@ function activate(context) {
   vscode.window.setStatusBarMessage('Clike: orchestrator+gateway integration ready', 2000);
 }
 
+// After a REQ's KIT is indexed, its files no longer in the KIT leave the memory (removed files,
+// temporary copies indexed by earlier versions). Not when the collection hit its cap: the files past
+// it are still in the KIT.
+async function pruneKitMemory(projectId, reqId, items, maxFiles) {
+  if (!items || !items.length || items.length >= maxFiles) return;
+  try {
+    const { orchestratorUrl } = cfg();
+    const held = await postJson(`${orchestratorUrl}/v1/rag/sources`, { project_id: projectId });
+    if (!held || held.ok === false) return;
+    const stale = staleKitPaths(held.sources, reqId, items.map((i) => i.path));
+    if (!stale.length) return;
+    await postJson(`${orchestratorUrl}/v1/rag/purge`, { project_id: projectId, paths: stale });
+    out.appendLine(`[harperRAG] ${reqId}: ${stale.length} file(s) no longer in the KIT removed from the memory`);
+  } catch (e) {
+    out.appendLine(`[harperRAG] ${reqId}: memory cleanup skipped (${e?.message || e})`);
+  }
+}
+
 // The CLike guide in the Memory panel (memory-guide.js): its indexing state, shown by the panel.
 let guideMemory = { status: 'idle' };
 function refreshGuideMemory() {
@@ -5544,6 +5565,7 @@ async function cmdOpenChat(context) {
               const ragIndexResult = await preIndexRag(project_id, allItems, urlRag, out);
               if (ragIndexResult && ragIndexResult.ok) {
                 log(`[harperRAG] indexed ${allItems.length} KIT items for REQ(s): ${normalizedReq}`);
+                await pruneKitMemory(project_id, normalizedReq, allItems, 400);
               } else {
                 log(`[harperRAG] KIT RAG indexing skipped for REQ(s): ${normalizedReq} -> ${ragIndexResult?.error || 'unknown error'}`);
               }
@@ -6048,6 +6070,7 @@ async function cmdOpenChat(context) {
             if (evalRagItems.length) {
               await preIndexRag(evalProjectId, evalRagItems, urlRag, out);
               log(`[harperEDD][RAG] indexed ${evalRagItems.length} candidate items after /eval for ${targets}`);
+              await pruneKitMemory(evalProjectId, targets, evalRagItems, 700);
             }
           } catch (err) {
             log(`[harperEDD][RAG] eval indexing skipped: ${err?.message || err}`);

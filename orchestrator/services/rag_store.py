@@ -479,6 +479,17 @@ class RagStore:
         items = [{"path": p, "chunks": n} for p, n in sorted(counts.items())]
         return {"sources": items, "total_chunks": sum(counts.values())}
 
+    async def purge_paths(self, paths: List[str]) -> Dict[str, Any]:
+        """Delete every chunk of the given exact paths (files gone from the workspace)."""
+        await self.ensure()
+        wanted = sorted({_norm_path(p) for p in (paths or []) if p})
+        async with httpx.AsyncClient(timeout=30) as client:
+            for start in range(0, len(wanted), 256):
+                body = {"filter": {"should": [{"key": "path", "match": {"value": p}} for p in wanted[start:start + 256]]}}
+                r = await _request_with_retry(client, "POST", f"{self.q}/collections/{self.c}/points/delete?wait=true", json_body=body, attempts=2)
+                r.raise_for_status()
+        return {"ok": True, "purged_paths": len(wanted)}
+
     async def purge(self, path_prefix: Optional[str]=None) -> Dict[str,Any]:
         await self.ensure()
         # delete by filter

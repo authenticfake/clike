@@ -174,7 +174,7 @@ Indexes repository or provided files into RAG.
 Searches indexed RAG materials.
 
 #### `POST /v1/rag/purge`
-Purges RAG documents by project and path prefix.
+Purges RAG documents by project and path prefix, or, with `paths: [...]`, every chunk of those exact paths.
 
 #### `POST /v1/rag/sources`
 Lists every indexed path of a project with its chunk count (`{ project_id }` → `{ ok, sources: [{ path, chunks }], total_chunks }`); an unreachable store returns `ok: false`.
