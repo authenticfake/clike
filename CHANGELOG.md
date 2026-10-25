@@ -15,6 +15,14 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   same state. Cloud model or local agent (read-only, no session), as the chat is set. Only the words
   that tell results apart are highlighted, matched as whole words.
 
+### Fixed
+
+- **A check that says a tool is missing no longer starts repairs of correct code**: a check that
+  printed `shellcheck missing` and exited (instead of the shell's `command not found`) was taken for
+  a code failure, and three repair cycles ran on code that had no defect. A check whose wording says
+  a catalog program is missing — and that program is indeed absent from the sandbox — is now a
+  missing tool: CLike offers to install it and runs the check again, or stops and says how.
+
 ### Performance
 
 - **A repair stops when its checks pass**: an agent's eval-check result no longer reads `FAIL` for

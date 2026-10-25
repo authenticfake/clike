@@ -352,3 +352,24 @@ class CliTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_a_check_that_says_a_catalog_program_is_missing_is_a_missing_tool(monkeypatch):
+    # B2B REQ-033: ci/check.py printed "shellcheck missing; provision LTC native tool" and exited;
+    # the eval called it a code failure and the repair loop ran three cycles on correct code
+    import eval_tools
+
+    catalog = {"shellcheck": {"binaries": ["shellcheck"]}, "awscli": {"binaries": ["aws"]}, "jq": {"binaries": ["jq"]}}
+    monkeypatch.setattr(eval_tools, "available", lambda b: b == "jq")
+    said = {
+        "shellcheck missing; provision LTC native tool; remains blocking": ["shellcheck"],
+        "aws is not installed": ["aws"],
+        "this check requires aws": ["aws"],
+        "bash: shellcheck: command not found": ["shellcheck"],
+        # a program that is there, and prose that names no absent program, are not missing tools
+        "jq missing": [],
+        "the configuration file is missing": [],
+        "value missing in the shellcheckrc": [],
+    }
+    for text, expected in said.items():
+        assert eval_tools.missing_from_failure(text, catalog) == expected, text

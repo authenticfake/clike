@@ -476,8 +476,10 @@ CLike finds what an eval needs **before** running it:
 - *used*: a catalog program the KIT's code, tests or scripts run (`"pg_dump"`, `["kcat", …]`, a
   script line `aws s3 ls`);
 - *failed*: a check that stopped on a missing program (`kcat: command not found`, `spawn kcat
-  ENOENT`, `No such file or directory: 'kcat'`, `Cannot run program "mvn"`): it is
-  environment-blocked (`missing_tools` in the report), never sent to a repair.
+  ENOENT`, `No such file or directory: 'kcat'`, `Cannot run program "mvn"`), or whose own wording
+  says a catalog program is missing (`shellcheck missing`, `aws is not installed`, `requires aws`)
+  when that program is indeed absent from the sandbox: it is environment-blocked (`missing_tools`
+  in the report), never sent to a repair.
 
 What is missing is installed after the developer's confirmation (VS Code: *Install*, *Always for
 this project*, *No*; `clike.evalTools.install`: `ask` | `always` | `never`); tools listed in

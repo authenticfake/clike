@@ -179,10 +179,25 @@ _MISSING_PATTERNS = (
 _MISSING_RE = re.compile("|".join(_MISSING_PATTERNS), re.MULTILINE)
 
 
+# A check's own wording ("shellcheck missing", "aws is not installed", "requires terraform"): it
+# counts only for a catalog program that really is absent here, so prose cannot invent one.
+_SAID_MISSING = r"(?:missing|not installed|not available|unavailable|not found|is required|required)"
+_SAYS_REQUIRES = r"(?:missing|install|requires?|needs?)"
+
+
 def missing_from_failure(text: str, catalog: Dict[str, Dict[str, Any]]) -> List[str]:
-    """Catalog programs a check reports missing."""
+    """Catalog programs a check reports missing: the shell's own messages, or the check's wording
+    about a catalog program that is absent from the sandbox (B2B REQ-033: a check printed
+    "shellcheck missing" and exited, and the repair loop tried to fix the code)."""
     known = {b for e in catalog.values() for b in (e.get("binaries") or [])}
     names = {g for m in _MISSING_RE.finditer(text or "") for g in m.groups() if g}
+    body = text or ""
+    for binary in known - names:
+        word = re.escape(binary)
+        said = re.search(rf"(?<![\w.+-]){word}(?![\w.+-])\W{{1,3}}(?:is\s+|was\s+)?{_SAID_MISSING}\b", body, re.IGNORECASE) or \
+            re.search(rf"\b{_SAYS_REQUIRES}\W{{1,3}}(?:the\s+)?[`'\"]?{word}(?![\w.+-])", body, re.IGNORECASE)
+        if said and not available(binary):
+            names.add(binary)
     return sorted(n for n in names if n in known)
 
 
