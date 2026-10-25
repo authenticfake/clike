@@ -453,6 +453,32 @@ class RagStore:
             log.error("RAG search traceback: %s", full_traceback)
             return []
 
+    async def sources(self, max_points: int = 200_000) -> Dict[str, Any]:
+        """What the collection holds: every indexed path with its chunk count (the Memory panel lists)."""
+        await self.ensure()
+        counts: Dict[str, int] = {}
+        offset: Any = None
+        seen = 0
+        async with httpx.AsyncClient(timeout=30) as client:
+            while seen < max_points:
+                body: Dict[str, Any] = {"limit": 1000, "with_payload": {"include": ["path"]}, "with_vector": False}
+                if offset is not None:
+                    body["offset"] = offset
+                r = await _request_with_retry(client, "POST", f"{self.q}/collections/{self.c}/points/scroll", json_body=body, attempts=2)
+                r.raise_for_status()
+                result = (r.json() or {}).get("result") or {}
+                points = result.get("points") or []
+                for pt in points:
+                    path = str((pt.get("payload") or {}).get("path") or "")
+                    if path:
+                        counts[path] = counts.get(path, 0) + 1
+                seen += len(points)
+                offset = result.get("next_page_offset")
+                if offset is None or not points:
+                    break
+        items = [{"path": p, "chunks": n} for p, n in sorted(counts.items())]
+        return {"sources": items, "total_chunks": sum(counts.values())}
+
     async def purge(self, path_prefix: Optional[str]=None) -> Dict[str,Any]:
         await self.ensure()
         # delete by filter

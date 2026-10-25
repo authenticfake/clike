@@ -176,6 +176,9 @@ Searches indexed RAG materials.
 #### `POST /v1/rag/purge`
 Purges RAG documents by project and path prefix.
 
+#### `POST /v1/rag/sources`
+Lists every indexed path of a project with its chunk count (`{ project_id }` → `{ ok, sources: [{ path, chunks }], total_chunks }`); an unreachable store returns `ok: false`.
+
 ### Eval / gate API
 
 #### `POST /v1/eval/run`

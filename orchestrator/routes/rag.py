@@ -239,6 +239,19 @@ async def rag_search(req: RagSearchRequest):
     hits = await store.search(req.query, top_k=req.top_k)
     return {"hits": hits}
 
+class RagSourcesRequest(BaseModel):
+    project_id: str
+
+
+@router.post("/v1/rag/sources")
+async def rag_sources(req: RagSourcesRequest):
+    """Indexed paths with their chunk counts (Memory panel); an unreachable store is reported, not raised."""
+    try:
+        return {"ok": True, **(await RagStore(project_id=req.project_id).sources())}
+    except Exception as e:
+        log.warning("RAG sources failed project=%s error=%s", req.project_id, str(e)[:300])
+        return {"ok": False, "sources": [], "total_chunks": 0, "error": str(e)[:300]}
+
 @router.post("/v1/rag/purge")
 async def rag_purge(req: RagPurgeRequest):
     store = RagStore(project_id=req.project_id)

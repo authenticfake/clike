@@ -17,7 +17,8 @@
     "test": "node --test test/*.test.js",
     "lint": "eslint .",
     "check": "npm run lint && npm test",
-    "package": "vsce package"
+    "package": "vsce package",
+    "vscode:prepublish": "node scripts/bundle-guide.js"
   },
   "activationEvents": [
     "onStartupFinished"
@@ -46,6 +47,10 @@
       {
         "command": "clike.openChat",
         "title": "CLike: Chat (Q&A / Harper / Coding)"
+      },
+      {
+        "command": "clike.openMemory",
+        "title": "CLike: Memory (project RAG and CLike guide)"
       },
       {
         "command": "clike.harper.init",

@@ -349,6 +349,9 @@ The extension currently supports a **base KIT run by default**, plus optional ex
 - **`/ragSearch <query>`**
   - searches the RAG directly and returns top results
 
+- **CLike: Memory** (🧠 Memory in the chat)
+  - a separate panel to query the project memory and the CLike guide in natural language, in any language, and list what each holds ([docs/rag.md](../../docs/rag.md#memory-panel))
+
 ---
 
 ## Current Harper behavior

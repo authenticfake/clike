@@ -20,6 +20,8 @@ const { projectUseCaseCoverage, useCaseCoverageMessage } = require('./use-case-c
 const planReadiness = require('./plan-readiness');
 const { saveRejectedTestFix, rejectedTestFixMessage, applyLatestTestFix, revertAppliedTestFix } = require('./rejected-test-fix');
 const { createFreshnessCheck } = require('./extension-freshness');
+const { openMemoryPanel } = require('./memory-panel');
+const { ensureGuideIndexed } = require('./memory-guide');
 // the code this window loaded; a reinstall changes the files, not the running code
 const extensionFreshness = createFreshnessCheck(__filename);
 const { collectExistingSourceEvidence } = require('./existing-source-evidence');
@@ -3733,11 +3735,56 @@ function activate(context) {
     .then(() => startExtensionOperationalMcpServer(context))
     .catch((err) => out.appendLine(`[CLike][mcp-extension] start failed: ${err?.message || err}`));
   // an /autopilot interrupted by a closed window or a crash goes on by itself
+  // the Memory panel: CLike's guide is indexed at start, again only when it changed
+  reg('clike.openMemory', openMemory);
+  serviceAuthReady.then(() => refreshGuideMemory());
   serviceAuthReady.then(() => setTimeout(() => {
     resumeInterruptedAutopilot().catch((err) => out.appendLine(`[autopilot] resume: ${err?.message || err}`));
   }, 20000));
 
   vscode.window.setStatusBarMessage('Clike: orchestrator+gateway integration ready', 2000);
+}
+
+// The CLike guide in the Memory panel (memory-guide.js): its indexing state, shown by the panel.
+let guideMemory = { status: 'idle' };
+function refreshGuideMemory() {
+  if (!clikeExtensionContext) return Promise.resolve(guideMemory);
+  guideMemory = { status: 'indexing' };
+  return ensureGuideIndexed({
+    extensionRoot: clikeExtensionContext.extensionPath,
+    state: clikeExtensionContext.globalState,
+    post: postJson,
+    orchestratorUrl: cfg().orchestratorUrl,
+  }).then((r) => {
+    guideMemory = r;
+    out.appendLine(`[memory] CLike guide: ${r.status} (${r.files} files)${r.error ? ` ${r.error}` : ''}`);
+    return r;
+  }).catch((e) => {
+    guideMemory = { status: 'failed', error: String(e?.message || e) };
+    out.appendLine(`[memory] CLike guide indexing failed: ${guideMemory.error}`);
+    return guideMemory;
+  });
+}
+
+// The chat and the Memory panel are separate: each one only opens (or reveals) the other.
+function revealOrOpenChat() {
+  try {
+    if (clikeChatPanel) { clikeChatPanel.reveal(); return; }
+  } catch { /* disposed */ }
+  vscode.commands.executeCommand('clike.openChat');
+}
+
+function openMemory() {
+  return openMemoryPanel({
+    context: clikeExtensionContext,
+    extensionRoot: clikeExtensionContext.extensionPath,
+    post: postJson,
+    orchestratorUrl: () => cfg().orchestratorUrl,
+    projectId: getProjectId,
+    workspaceRoot: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '',
+    openChat: revealOrOpenChat,
+    guide: { status: () => guideMemory, refresh: refreshGuideMemory },
+  });
 }
 
 function isTextFile(filePath) {
@@ -4052,6 +4099,7 @@ function createCockpitFeed(panel, context, runs = null) {
       return refresh(0);
     }
     if (msg.type === 'copyText') return vscode.env.clipboard.writeText(String(msg.text || ''));
+    if (msg.type === 'openMemory') return vscode.commands.executeCommand('clike.openMemory');
     if (msg.type === 'cockpitPrefs') {
       const next = { methodology: msg.methodology === 'bmad' ? 'bmad' : '', roles: msg.roles && typeof msg.roles === 'object' ? msg.roles : {} };
       await context.workspaceState.update(COCKPIT_PREFS_KEY, next);
@@ -4086,7 +4134,7 @@ function createCockpitFeed(panel, context, runs = null) {
   panel.onDidDispose(() => { if (timer) clearTimeout(timer); disposables.forEach((d) => d.dispose()); });
 
   return {
-    handles: (type) => ['cockpitRefresh', 'cockpitPrefs', 'setTheme', 'copyText', 'cancelAfterStep', 'cancelAfterReq', 'cancelUndoStop', 'showChanges',
+    handles: (type) => ['cockpitRefresh', 'cockpitPrefs', 'setTheme', 'copyText', 'openMemory', 'cancelAfterStep', 'cancelAfterReq', 'cancelUndoStop', 'showChanges',
       'historyNew', 'historyOpen', 'historyDelete'].includes(type),
     handle,
     refresh,
