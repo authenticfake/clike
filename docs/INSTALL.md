@@ -63,7 +63,7 @@ Services listen on `127.0.0.1` only. After an update: `cd docker && ./rebuild.sh
 Install the packaged extension (or build it from source):
 
 ```bash
-code --install-extension extensions/vscode/clike-1.6.1.vsix
+code --install-extension extensions/vscode/clike-1.6.2.vsix
 # from source: cd extensions/vscode && npm ci && npm run check && npm run package
 ```
 

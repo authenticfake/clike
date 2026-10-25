@@ -2,7 +2,7 @@
   "name": "clike",
   "displayName": "Clike",
   "description": "From intent to impact. CLike keeps developers in flow, augments delivery with agentic workflows, and bakes in governance, eval‑driven quality, and a safe paved road for enterprises w/ an AI native pipeline.",
-  "version": "1.6.1",
+  "version": "1.6.2",
   "license": "Apache-2.0",
   "publisher": "authenticfake",
   "icon": "images/clike_64x64.png",
@@ -155,6 +155,10 @@
       {
         "command": "clike.copyExtensionMcpToken",
         "title": "CLike: Copy Extension MCP Token"
+      },
+      {
+        "command": "clike.publishRelease",
+        "title": "CLike: Publish release (tag vN and GitHub Release of the last /finalize)"
       }
     ],
     "configuration": {
@@ -219,6 +223,28 @@
           "minimum": 1,
           "maximum": 5,
           "description": "Repair cycles of the /finalize verification (plus clike.autoEval.extraCyclesOnProgress while the failures decrease)."
+        },
+        "clike.finalize.localCheck": {
+          "type": "string",
+          "enum": [
+            "ask",
+            "always",
+            "off"
+          ],
+          "default": "ask",
+          "enumDescriptions": [
+            "Ask after the sandbox verification passes (it builds and starts the solution on this machine, then stops it)",
+            "Always run it",
+            "Never run it"
+          ],
+          "description": "After the /finalize verification passes in the CLike sandbox, run scripts/check_solution_local on this machine: the default local start the developer uses (containers when a runtime is installed). A failure starts a repair cycle with its output."
+        },
+        "clike.finalize.localCheckTimeoutMinutes": {
+          "type": "number",
+          "default": 30,
+          "minimum": 5,
+          "maximum": 120,
+          "description": "Time limit of the /finalize local check (scripts/check_solution_local)."
         },
         "clike.autoEval.agentEvalChecks": {
           "type": "number",

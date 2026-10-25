@@ -450,6 +450,15 @@ def normalize_local_agent_result(payload: Dict[str, Any]) -> Dict[str, Any]:
                 ]
             )
             if "CLIKE_ALLOW_CLOUD_MUTATION" not in apply_script:
+                # the wrappers may delegate to one implementation (test project: both run
+                # scripts/cloud_local.py apply, which fails closed): the guard counts there
+                known = {**_existing_source_by_path(payload), **content_by_path}
+                apply_script += "\n" + "\n".join(
+                    text for path, text in known.items()
+                    if path not in {"scripts/provision_cloud_apply.sh", "scripts/provision_cloud_apply.ps1"}
+                    and path.rsplit("/", 1)[-1] in apply_script
+                )
+            if "CLIKE_ALLOW_CLOUD_MUTATION" not in apply_script:
                 ok = False
                 errors.append("finalize_cloud_apply_guard_missing")
                 warnings.append(

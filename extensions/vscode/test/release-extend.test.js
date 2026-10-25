@@ -91,6 +91,25 @@ test('the target release comes from the release folders, the plan or the command
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+test('an empty release folder made in advance does not become the target release', () => {
+  // test project: docs/inputs/v3/ with the requirements, docs/reference/v4/ created empty for later;
+  // the cascade targeted v4 with no input and the cockpit asked for docs/inputs/v4/
+  const { root, put } = project();
+  const plan = JSON.parse(planV2());
+  plan.reqs.forEach((r2, i) => { if (i > 1) r2.release = 'v2'; });
+  put('docs/harper/plan.json', JSON.stringify(plan));
+  put('docs/inputs/v3/IDEA_EXTEND_R3.md', '# v3');
+  fs.mkdirSync(path.join(root, 'docs', 'reference', 'v4'), { recursive: true });
+  const r = re.detectRelease(root);
+  assert.equal(r.release, 'v3');
+  assert.deepEqual(r.inputs, ['docs/inputs/v3/IDEA_EXTEND_R3.md']);
+  assert.equal(r.folders.includes('v4'), false);
+  // once it holds the v4 documents it is the next release
+  put('docs/reference/v4/apollo.md', '# api');
+  assert.equal(re.detectRelease(root).release, 'v4');
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
 test('the release needs files in docs/inputs/<release>/ or an attachment', () => {
   const { root } = project();
   const rel = re.detectRelease(root);

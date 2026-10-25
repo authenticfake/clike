@@ -473,7 +473,8 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
   if (phase === 'spec' && !files.includes('docs/harper/SPEC.md')) {
     messages.spec = `docs(spec): update ${files.map((f) => path.basename(f)).slice(0, 4).join(', ')}${files.length > 4 ? ', …' : ''}\n\n${base}`;
   }
-  const message = conventional === false ? base : (messages[phase] || base);
+  // the caller names the commit (the finalize names its release and REQs: release-publish.js)
+  const message = opts?.commitMessage || (conventional === false ? base : (messages[phase] || base));
   try {
     await gitRunVerbose(['add', '--', ...files], gitCtx, 'git', out);
     await gitRunVerbose(['commit', '-m', message, '--', ...files], gitCtx, 'git', out);

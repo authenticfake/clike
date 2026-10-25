@@ -92,3 +92,15 @@ def test_agent_finalize_package_serves_eval_checks_of_the_solution_profile():
     assert agent["eval_check"] == {"profile": "ci/SOLUTION_LTC.json", "max_runs": 5}
     assert "ci/SOLUTION_LTC.json" in agent["allowed_write_roots"]
     assert "SOLUTION VERIFICATION" in agent["prompt_content"] and "at most 5 runs" in agent["prompt_content"]
+
+
+def test_rules_cover_the_listening_address_expiring_values_and_the_local_check():
+    # test project: the console bridge refused every request in containers (0.0.0.0) while the
+    # sandbox smoke passed on loopback; generated fixture sessions expired after a week
+    rules = " ".join(finalize_verify.solution_verify_rules(""))
+    assert "0.0.0.0" in rules and "Host/Origin" in rules
+    assert "listen on every interface" in rules
+    assert "renews them when they have expired" in rules
+    assert "local::check_solution_local" in rules
+    agent = "\n".join(finalize_verify.agent_finalize_lines({}, "", 0))
+    assert "0.0.0.0" in agent and "CLike runs the check on the developer's machine" in agent

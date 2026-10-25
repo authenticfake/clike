@@ -368,6 +368,27 @@ ends; changes you had in the working tree before `/finalize` and that it did not
 out of its commits (recorded by content in `runs/finalize/DIRTY_BEFORE.json` until a finalize
 commit succeeds, so the work of an earlier run that ended before its commit is still committed).
 
+**The local check.** The sandbox runs the solution natively on loopback; your default start
+usually runs it in containers. When the verification passes, CLike runs
+`scripts/check_solution_local` on your machine (`clike.finalize.localCheck`: `ask` by default,
+`always`, `off`; it builds, starts, runs the smoke and stops the local stack). Its output is in
+`runs/finalize/LOCAL_CHECK.md`; a failure is sent to the next repair cycle as the check
+`local::check_solution_local`, and when the cycles are over `/finalize` is marked failed.
+
+**The release.** The finalize commit names the release and its REQs
+(`chore(release): finalize v2 — <project>`, one line per REQ with its change type). When the
+verification passes, CLike tags that commit with the annotated tag `vN` (the highest release in
+`plan.json`) and writes the release notes to `runs/finalize/RELEASE_vN.md`, built from the
+documents, not by the agent: the scope, the REQs delivered with their gate merge commits,
+`RELEASE_NOTES.md`, how to start, missing information, verification, limitations, links to the
+report and the evidence, and the full changelog since the previous release tag. Publishing the
+release on the repository host is asked first (it is public): **Publish release** pushes the tag and
+creates the release (or updates it, assets replaced) with title, notes, *latest*, *pre-release*
+when the verification passed with warnings, and the three documents attached. From MCP or
+unattended runs it is never published; **CLike: Publish release** (Command Palette) does it later,
+for the last passing `/finalize`. An existing `vN` on another commit is never moved. The next
+`/idea --extend` takes `vN` as its baseline.
+
 Deployment target from `TECH_CONSTRAINTS.yaml`: **on-premises/local** — the local run is the
 target and must work on the developer's machine; **cloud** — guarded deploy scripts too (mutating
 only with `CLIKE_ALLOW_CLOUD_MUTATION=1`), checked non-mutating (validate/plan); the deploy itself
