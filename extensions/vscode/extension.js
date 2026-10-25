@@ -18,7 +18,7 @@ const extensionMcp = require('./extension-mcp');
 const autopilot = require('./autopilot');
 const { projectUseCaseCoverage, useCaseCoverageMessage } = require('./use-case-coverage');
 const planReadiness = require('./plan-readiness');
-const { saveRejectedTestFix, rejectedTestFixMessage } = require('./rejected-test-fix');
+const { saveRejectedTestFix, rejectedTestFixMessage, applyLatestTestFix, revertAppliedTestFix } = require('./rejected-test-fix');
 const { collectExistingSourceEvidence } = require('./existing-source-evidence');
 const { writeFinalizeOutcome } = require('./finalize-outcome');
 
@@ -302,11 +302,24 @@ async function acceptAcceptanceEdit(wsRoot, reqId, givenReason) {
         .execFileSync('git', ['config', 'user.name'], { cwd: wsRoot.fsPath, stdio: ['ignore', 'pipe', 'ignore'] })
         .toString().trim();
     } catch {}
+    // a test change the repair proposed and the lock restored: --accept applies it first
+    let proposal = null;
+    try {
+      proposal = applyLatestTestFix(wsRoot.fsPath, reqId);
+      if (proposal?.applied) echo(`${reqId}: applied the test change the repair proposed (${proposal.applied}).`);
+      else if (proposal?.stale) echo(`${reqId}: the latest proposed test change (${proposal.stale}) no longer applies (already applied, or the test changed): accepting the tests as they are.`);
+    } catch (e) {
+      echo(`✖ ${reqId}: the proposed test change could not be applied (${String(e?.message || e).split('\n')[0]}); nothing accepted.`);
+      return;
+    }
     const res = await postAcceptanceAccept(wsRoot, reqId, reason, author || require('os').userInfo().username);
     const rejected = Object.entries(res?.rejected || {}).map(([file, why]) => `${file} (${[].concat(why).join('; ')})`);
     if (res?.accepted?.length) echo(`✔ ${reqId}: accepted ${res.accepted.join(', ')} (audit ${res.audit_id}). Run the eval again.`);
     else if (!rejected.length) echo(`${reqId}: the tests and ci/ match the lock, nothing to accept.`);
     if (rejected.length) echo(`✖ ${reqId}: not accepted, they remove or weaken checks — restore them or re-run /kit ${reqId}: ${rejected.join(', ')}`);
+    if (rejected.length && proposal?.applied && !res?.accepted?.length) {
+      echo(`${reqId}: the proposed test change was undone (${revertAppliedTestFix(wsRoot.fsPath, proposal.applied)}).`);
+    }
   } catch (e) {
     echo(`✖ ${reqId}: acceptance failed (${String(e?.message || e).split('\n')[0]})`);
   } finally {
