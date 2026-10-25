@@ -222,3 +222,35 @@ test('a REQ the plan declares not ready for its KIT: decisions first, the KIT on
   assert.equal(kitBlockers({ readiness: { kit_ready: true } }), null);
   assert.equal(kitBlockers({}), null);
 });
+
+test('a FINALIZE_REPORT older than the last gate promotion is the earlier release: /finalize is the next action', () => {
+  // test project: v1 finalized, the v2 REQs promoted after it, the cockpit showed FINALIZE done and
+  // "Delivered" while the autopilot said /finalize
+  const done = { reqs: plan.reqs.map((r) => ({ ...r, status: 'done' })) };
+  const root = project({
+    'docs/harper/IDEA.md': '#', 'docs/harper/SPEC.md': '#', 'docs/harper/plan.json': done,
+    'docs/harper/FINALIZE_REPORT.md': '#',
+  });
+  const report = path.join(root, 'docs', 'harper', 'FINALIZE_REPORT.md');
+  const finalizedAt = Date.now() - 86400000;
+  fs.utimesSync(report, finalizedAt / 1000, finalizedAt / 1000);
+  const gate = (ts, status) => {
+    const dir = path.join(root, 'runs', 'gate', 'REQ-004');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, `report_REQ-004_${ts}.json`), JSON.stringify({ status }));
+  };
+  gate(finalizedAt - 3600000, 'PASS');                // promoted before the finalize
+  assert.equal(buildCockpitState(root).next.command, '');
+  gate(finalizedAt + 3600000, 'FAIL');                // a failed gate promotes nothing
+  assert.equal(buildCockpitState(root).next.command, '');
+  gate(finalizedAt + 7200000, 'PASS');                // promoted after it
+  let state = buildCockpitState(root);
+  assert.equal(state.next.command, '/finalize');
+  assert.equal(state.phases[4].state, 'active');
+  assert.equal(state.progress_pct, 99);
+  // the new /finalize passes: delivered again
+  require('../finalize-outcome').writeFinalizeOutcome(root, 'ok', 'eval PASS');
+  state = buildCockpitState(root);
+  assert.equal(state.next.command, '');
+  assert.equal(state.progress_pct, 100);
+});

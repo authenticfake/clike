@@ -16,12 +16,17 @@ const CHANGE_TYPES = new Set(['ADDED', 'MODIFIED', 'REMOVED']);
 const releaseNumber = (name) => Number((String(name || '').trim().match(RELEASE_RE) || [])[1] || 0);
 const read = (root, rel) => { try { return fs.readFileSync(path.join(root, ...rel.split('/')), 'utf8'); } catch { return null; } };
 
+/** The docs/inputs|reference/vN releases that hold files (an empty folder made in advance is no release). */
 function releaseFolders(root) {
   const found = new Set();
   for (const base of ['inputs', 'reference']) {
     let entries = [];
     try { entries = fs.readdirSync(path.join(root, 'docs', base), { withFileTypes: true }); } catch { continue; }
-    for (const e of entries) if (e.isDirectory() && RELEASE_RE.test(e.name)) found.add(releaseNumber(e.name));
+    for (const e of entries) {
+      if (e.isDirectory() && RELEASE_RE.test(e.name) && filesUnder(path.join(root, 'docs', base, e.name)).length) {
+        found.add(releaseNumber(e.name));
+      }
+    }
   }
   return [...found].sort((a, b) => a - b);
 }
