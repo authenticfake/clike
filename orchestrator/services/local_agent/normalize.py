@@ -41,7 +41,7 @@ _DATABASE_ENV_TOKENS = frozenset(
         "ORACLE", "MONGO", "MONGODB",
     }
 )
-_ENV_ASSIGNMENT = re.compile(r"^[ \t]*(?:#[ \t]*)?(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*=", re.M)
+_ENV_ASSIGNMENT = re.compile(r"^[ \t]*(?:#[ \t]*)?(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*=", re.MULTILINE)
 
 
 def _env_template_declares_database(env_text: str, engines: List[str]) -> bool:
