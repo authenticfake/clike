@@ -55,10 +55,11 @@ while (Date.now() < deadline) {
     if (r.error) console.log(\`\${r.status}: \${r.error}\`);
     if (r.warning) console.log(\`WARNING: \${r.warning}\`);
     for (const c of r.checks || []) {
-      console.log(\`\${c.passed ? 'PASS' : c.blocked ? 'BLOCKED' : 'FAIL'} \${c.name}\${c.passed ? '' : \` (exit \${c.code})\`}\`);
+      console.log(\`\${c.passed ? 'PASS' : c.blocked ? 'BLOCKED' : c.blocking === false ? 'WARN' : 'FAIL'} \${c.name}\${c.passed ? '' : \` (exit \${c.code})\`}\${c.note ? \` — \${c.note}\` : ''}\`);
       if (!c.passed && c.errors) console.log(c.errors.replace(/^/gm, '    '));
     }
     console.log(\`Result: \${r.status}\`);
+    if (r.done) console.log(\`DONE: \${r.done}\`);
     process.exit(r.status === 'PASS' ? 0 : 1);
   }
   if (!alive()) { console.error('CLike stopped serving eval checks.'); process.exit(2); }
@@ -68,8 +69,13 @@ console.error('No result from CLike within 40 minutes.');
 process.exit(2);
 `;
 
-/** The result the helper prints: the requested checks and the failed setup steps, with errors. */
-function compactResult(report) {
+/**
+ * The result the helper prints: the requested checks and the failed setup steps, with errors. A
+ * failure the eval marks non-blocking (already failing without the candidate, unstable, a warning)
+ * is shown as such and does not make the result FAIL; when every check the repair was given
+ * (targets) passed, the result says to finish.
+ */
+function compactResult(report, targets = []) {
   const cases = Array.isArray(report?.cases) ? report.cases : [];
   const checks = cases
     .filter((c) => c && (!/^(regression::[^:]+::)?env::/.test(String(c.name || '')) || !c.passed))
@@ -78,6 +84,7 @@ function compactResult(report) {
       passed: !!c.passed,
       blocked: !!c.blocked,
       code: c.code,
+      ...(!c.passed && c.blocking === false ? { blocking: false, note: 'non-blocking: does not decide the eval; not yours to fix' } : {}),
       ...(c.passed ? {} : {
         errors: String(c.excerpt || `${String(c.stderr || '').slice(0, 1500)}\n${String(c.stdout || '').slice(-2500)}`)
           .slice(0, ERRORS_PER_CHECK),
@@ -91,8 +98,14 @@ function compactResult(report) {
       checks,
     };
   }
-  const failed = checks.some((c) => !c.passed && !String(c.name).startsWith('structure::'));
-  return { status: failed || !checks.length ? 'FAIL' : 'PASS', checks };
+  const failed = checks.some((c) => !c.passed && c.blocking !== false && !String(c.name).startsWith('structure::'));
+  const out = { status: failed || !checks.length ? 'FAIL' : 'PASS', checks };
+  const byName = new Map(checks.map((c) => [String(c.name), c]));
+  const wanted = (targets || []).map(String).filter(Boolean);
+  if (wanted.length && wanted.every((t) => byName.has(t) && byName.get(t).passed)) {
+    out.done = `the ${wanted.length} check(s) this repair was given pass: finish now (CLike runs the full eval next).`;
+  }
+  return out;
 }
 
 // Test files that existed when the repair started: changing one is governed after the run (the
@@ -135,7 +148,7 @@ function writeAtomic(file, text) {
  * Serve eval-check requests of a local agent until stop().
  * runChecks(checks: string[]) → eval report (the orchestrator /v1/eval/run payload).
  */
-function startEvalCheckBridge({ workspaceRoot, runChecks, maxRuns = 8, pollMs = 1000, log = () => {}, testRoot = '' }) {
+function startEvalCheckBridge({ workspaceRoot, runChecks, maxRuns = 8, pollMs = 1000, log = () => {}, testRoot = '', targets = [] }) {
   const testsBefore = snapshotTests(testRoot ? path.join(workspaceRoot, testRoot) : '');
   const dir = path.join(workspaceRoot, CHANNEL_DIR);
   const helper = path.join(workspaceRoot, HELPER_PATH);
@@ -173,7 +186,7 @@ function startEvalCheckBridge({ workspaceRoot, runChecks, maxRuns = 8, pollMs = 
         runs += 1;
         log(`[evalCheck] run ${runs}/${maxRuns}: ${checks.join(' ') || 'all checks'}`);
         try {
-          result = compactResult(await runChecks(checks));
+          result = compactResult(await runChecks(checks), targets);
           const touched = changedTests(testsBefore, workspaceRoot);
           if (touched.length) result.warning = LOCKED_TESTS_WARNING.replace('%s', touched.join(', '));
         } catch (e) {

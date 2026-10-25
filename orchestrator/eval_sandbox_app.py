@@ -17,7 +17,7 @@ import logging
 import os
 import threading
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
@@ -48,6 +48,8 @@ class SandboxRunRequest(BaseModel):
     regression: bool = False
     checks: Optional[List[str]] = None
     regression_reqs: Optional[List[str]] = None
+    # results of a run on the same inputs, taken instead of running those checks again
+    reuse_cases: Optional[List[Dict[str, Any]]] = None
 
 
 @app.get("/health")
@@ -115,6 +117,7 @@ async def run(req: SandboxRunRequest, request: Request):
         runner.run_profile,
         profile=str(profile_path), ltc=ltc, mode=req.mode or "auto", verdict=req.verdict, req_id=req.req_id,
         regression=req.regression, checks=req.checks, regression_reqs=req.regression_reqs,
+        reuse_cases=req.reuse_cases,
     ))
     # An eval whose caller went away is stopped (its processes killed) instead of running on.
     while not task.done():

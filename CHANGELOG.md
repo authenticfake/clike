@@ -15,6 +15,19 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   same state. Cloud model or local agent (read-only, no session), as the chat is set. Only the words
   that tell results apart are highlighted, matched as whole words.
 
+### Performance
+
+- **A repair stops when its checks pass**: an agent's eval-check result no longer reads `FAIL` for
+  failures the eval marks non-blocking (already failing without the candidate, unstable, warnings);
+  they are shown as `WARN … not yours to fix`, and when every check given to the repair passes the
+  result says to finish. On a real project the two checks of a repair passed at its second run and
+  the agent went on for 25 minutes (about 14M tokens, mostly cached context re-read at every turn)
+  chasing non-blocking coverage. The prompt names a promoted REQ's regression as `regression::<REQ>`.
+- **The full eval that confirms a targeted re-eval no longer runs again what just passed**: on the
+  same inputs (same files, plan and CLike version) it takes the REQ's checks and the regression of the
+  promoted REQs from the targeted run (marked *Reused*) and runs the rest — about a quarter of the
+  confirmation on a real project.
+
 ## [1.6.1] — 2026-10-25 — A memory you can ask, repairs that write the test fix, eval loops that stop
 
 ### Added

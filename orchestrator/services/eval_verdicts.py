@@ -107,6 +107,42 @@ def record(project_root: Path, req_id: str, regression: bool, report: Dict[str, 
     }), encoding="utf-8")
 
 
+def _targeted_path(project_root: Path, req_id: str) -> Path:
+    return state_dir() / "eval_verdicts" / _project_key(Path(project_root)) / f"{req_id}.targeted.json"
+
+
+def record_targeted(project_root: Path, req_id: str, report: Dict[str, Any]) -> None:
+    """A targeted re-eval (every check of the REQ, the regression of some promoted REQs): its
+    results serve the full eval that confirms it, while the inputs stay the same."""
+    path = _targeted_path(project_root, req_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({
+        "req_id": req_id, "at": time.time(), "digest": inputs_digest(project_root, req_id, True), "report": report,
+    }), encoding="utf-8")
+
+
+def reusable_targeted(project_root: Path, req_id: str) -> Optional[Dict[str, Any]]:
+    """The cases of the last targeted re-eval when it passed on the same inputs, else None. Only
+    checks that ran are taken (CLike's own steps — env::, structure:: — run again)."""
+    try:
+        data = json.loads(_targeted_path(project_root, req_id).read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    report = data.get("report") or {}
+    if time.time() - float(data.get("at") or 0) > MAX_AGE_S or str(report.get("status")) not in {"PASS", "PASS_WITH_WARNINGS"}:
+        return None
+    if data.get("digest") != inputs_digest(project_root, req_id, True):
+        return None
+    own_steps = ("env::", "structure::", "ltc::", "eval::")
+    cases = [
+        c for c in report.get("cases") or []
+        if isinstance(c, dict) and c.get("name")
+        and not str(c["name"]).startswith(own_steps)
+        and not any(part.startswith(own_steps) for part in str(c["name"]).split("::", 2)[2:3])
+    ]
+    return {"cases": cases, "at": data.get("at")} if cases else None
+
+
 def reusable(project_root: Path, req_id: str, regression: bool) -> Optional[Dict[str, Any]]:
     """The recorded passing report when its inputs are still the same, else None."""
     try:
