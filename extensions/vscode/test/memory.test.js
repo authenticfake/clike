@@ -33,23 +33,48 @@ test('the guide is indexed once, again only when it changed; removed files leave
   const ext = fs.mkdtempSync(path.join(os.tmpdir(), 'clike-ext-'));
   write(ext, 'guide/commands.md', '# Commands\n--accept applies the proposal');
   write(ext, 'guide/old.md', '# Old');
+  // a fake store: what was indexed is held, until it is emptied
+  let held = new Set();
   const calls = [];
-  const post = async (url, body) => { calls.push({ url, body }); return { ok: true }; };
+  const post = async (url, body) => {
+    calls.push({ url, body });
+    if (url.endsWith('/index')) body.items.forEach((i) => held.add(i.path));
+    if (url.endsWith('/purge')) held.delete(body.path_prefix);
+    if (url.endsWith('/sources')) return { ok: true, sources: [...held].map((p) => ({ path: p, chunks: 1 })) };
+    return { ok: true };
+  };
   const state = memento();
   const args = { extensionRoot: ext, state, post, orchestratorUrl: 'http://o' };
+  const urls = () => calls.splice(0).map((c) => c.url.replace('http://o/v1/rag/', ''));
 
   assert.deepEqual(await ensureGuideIndexed(args), { status: 'indexed', files: 2 });
-  assert.equal(calls[0].url, 'http://o/v1/rag/index');
   assert.equal(calls[0].body.project_id, GUIDE_PROJECT_ID);
   assert.deepEqual(calls[0].body.items.map((i) => i.path), ['commands.md', 'old.md']);
+  assert.deepEqual(urls(), ['index']);
+  // already there: checked, nothing sent
   assert.deepEqual(await ensureGuideIndexed(args), { status: 'current', files: 2 });
-  assert.equal(calls.length, 1);
-
+  assert.deepEqual(urls(), ['sources']);
+  // the store was emptied (new volume): the guide goes back
+  held = new Set();
+  assert.deepEqual(await ensureGuideIndexed(args), { status: 'indexed', files: 2 });
+  assert.deepEqual(urls(), ['sources', 'index']);
+  // a file removed from the guide leaves the collection
   fs.rmSync(path.join(ext, 'guide/old.md'));
   assert.deepEqual(await ensureGuideIndexed(args), { status: 'indexed', files: 1 });
-  assert.deepEqual(calls.slice(1).map((c) => c.url), ['http://o/v1/rag/index', 'http://o/v1/rag/purge']);
-  assert.equal(calls[2].body.path_prefix, 'old.md');
+  assert.deepEqual(urls(), ['index', 'purge']);
   assert.deepEqual(state.get(GUIDE_STATE_KEY).paths, ['commands.md']);
+});
+
+test('a store that cannot say what it holds is not sent the guide again', async () => {
+  const ext = fs.mkdtempSync(path.join(os.tmpdir(), 'clike-ext-'));
+  write(ext, 'guide/commands.md', '# Commands');
+  const state = memento();
+  let indexed = 0;
+  const ok = async (url) => { if (url.endsWith('/index')) indexed += 1; return { ok: true, sources: [{ path: 'commands.md' }] }; };
+  await ensureGuideIndexed({ extensionRoot: ext, state, post: ok, orchestratorUrl: 'http://o' });
+  const down = async (url) => { if (url.endsWith('/sources')) throw new Error('unreachable'); indexed += 1; return { ok: true }; };
+  assert.equal((await ensureGuideIndexed({ extensionRoot: ext, state, post: down, orchestratorUrl: 'http://o' })).status, 'current');
+  assert.equal(indexed, 1);
 });
 
 test('a failed indexing is retried at the next start (nothing recorded)', async () => {
