@@ -4,6 +4,17 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+### Added
+
+- **Ask in the Memory panel**: the panel answers instead of listing files. The model writes a short
+  answer only from the numbered passages it gets (project, CLike guide or both), in the language of
+  the question: sources cited, steps with the exact CLike command to copy, confidence and why, next
+  questions, "not in the memory" when the sources do not answer. The project as it is now (next
+  action, last run and its blocking failures, a test patch to review) and the date of each source
+  come with it, so an outdated note does not win over the state. **NOW** questions come from the
+  same state. Cloud model or local agent (read-only, no session), as the chat is set. Only the words
+  that tell results apart are highlighted, matched as whole words.
+
 ## [1.6.1] — 2026-10-25 — A memory you can ask, repairs that write the test fix, eval loops that stop
 
 ### Added

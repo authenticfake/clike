@@ -118,7 +118,7 @@ test('recent searches: newest first, no duplicates, bounded', () => {
 test('the panel is in English and opens the chat with its own button only', () => {
   const html = memoryHtml();
   assert.match(html, /💬 Chat/);
-  assert.match(html, /Ask in any language/);
+  assert.match(html, /Ask anything, in any language/);
   assert.doesNotMatch(html, /type: 'attach'|insertIntoChat/);
 });
 
@@ -160,4 +160,14 @@ test('files no longer in a REQ\'s KIT leave the memory; other REQs and files are
   // the temporary copies of any REQ go at the next indexing of whichever REQ
   assert.deepEqual(staleKitPaths(sources, 'REQ-032', []), ['runs/kit/REQ-012/ci/.tmp/manual-1/src/a.py']);
   assert.deepEqual(staleKitPaths([{ path: 'runs/kit/REQ-012/src/a.py' }], '', []), []);
+});
+
+test('only the words that tell results apart are highlighted, in any language', () => {
+  const { distinctiveTerms } = require('../memory-panel');
+  const hits = [
+    { text: 'the repair loop and the eval' }, { text: 'the gate checks the --accept reason' },
+    { text: 'the autopilot runs the next REQ' }, { text: 'what the sandbox needs' },
+  ];
+  assert.deepEqual(distinctiveTerms(hits, 'what does the --accept flag do?'), ['what', '--accept']);
+  assert.deepEqual(distinctiveTerms(hits, 'che cosa fa il gate?'), ['gate']);
 });

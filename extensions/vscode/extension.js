@@ -3805,7 +3805,54 @@ function openMemory() {
     workspaceRoot: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '',
     openChat: revealOrOpenChat,
     guide: { status: () => guideMemory, refresh: refreshGuideMemory },
+    projectState: () => {
+      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      return root ? buildCockpitState(root, { methodology: (clikeExtensionContext.workspaceState.get(COCKPIT_PREFS_KEY) || {}).methodology }) : null;
+    },
+    ask: memoryAsk,
+    copy: (text) => vscode.env.clipboard.writeText(text),
   });
+}
+
+// Ask (Memory panel): one free-mode turn, read-only, with the chat's execution choice — the cloud
+// model through the orchestrator, or the local agent the chat uses. No session, no chat history.
+async function memoryAsk(prompt) {
+  const cur = clikeExtensionContext.workspaceState.get('clike.uiState') || {};
+  const settings = cfg();
+  const pref = normalizeExecutionPreference(cur.executionPreference || getDefaultExecutionPreference());
+  let effectivePref = pref;
+  let executor = null;
+  if (executionPreferenceRequestsLocalAgent(pref)) {
+    executor = resolveSelectedLocalAgentExecutor(settings, cur.localAgentExecutor || 'auto', 'free');
+    if (!executor) {
+      if (pref === 'local_agent_only') throw new Error('no local agent is available and Execution is "agent only"');
+      effectivePref = 'cloud_only';
+    }
+  }
+  const model = cur.model || 'auto';
+  const provider = explicitProviderForModel(model) || '';
+  const res = await postJson(`${settings.orchestratorUrl}/v1/chat`, {
+    mode: 'free',
+    project_id: getProjectId(),
+    model,
+    ...(provider ? { provider } : {}),
+    messages: [{ role: 'user', content: prompt }],
+    inline_files: [],
+    rag_files: [],
+    attachments: [],
+    max_tokens: 1500,
+    gen: { api: 'responses' },
+    profileHint: computeProfileHint('free', model),
+    executionPreference: effectivePref,
+    localAgentExecutor: executor || normalizeLocalAgentExecutor(cur.localAgentExecutor || 'auto'),
+    mode_contract: buildModeContract('free'),
+  });
+  if (res && res.ok === false && res.text) throw new Error(res.text);
+  if (res && res.local_execution) {
+    const answer = await runLocalChatAgent({ pkg: res, executorId: executor, settings, wsrootUri: getWorkspaceRoot(), out, session: null });
+    return { text: answer.answer || answer.synthesis || '', by: answer.model ? `${answer.badge} · ${answer.model}` : answer.badge };
+  }
+  return { text: String(res?.text || res?.content || ''), by: `☁ ${res?.model || model}` };
 }
 
 function isTextFile(filePath) {
