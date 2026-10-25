@@ -25,6 +25,12 @@ def _text(key: str) -> list:
     return list(phase_text("finalize")[key])
 
 
+_CODE_SUFFIXES = (
+    ".sh", ".bash", ".ps1", ".psm1", ".bat", ".cmd", ".py", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx",
+    ".go", ".java", ".kt", ".cs", ".rb", ".rs", ".php", ".tf", ".bicep", ".md",
+)
+
+
 def _is_safe_finalize_root(value: Any) -> bool:
     """Return true when a declared finalize root is safe enough to expose to agents."""
     path = _normalize_relative_path(value)
@@ -60,7 +66,15 @@ def _is_safe_finalize_root(value: Any) -> bool:
         "secret",
     )
     lowered = path.lower()
-    return not any(fragment in lowered for fragment in forbidden_fragments)
+    if not any(fragment in lowered for fragment in forbidden_fragments):
+        return True
+    # A script or source file named after what it manages (test project: deploy/aws/04_secrets.sh
+    # creates secret references, it holds no value) is code, not a secret store; key material and
+    # data files with such names (.pem, .json, .env, .txt, no extension) stay forbidden.
+    name = lowered.rsplit("/", 1)[-1]
+    if any(key in name for key in ("private_key", "id_rsa", "id_ed25519")):
+        return False
+    return name.endswith(_CODE_SUFFIXES) or name.endswith((".example", ".sample", ".template"))
 
 
 def _collect_declared_finalize_roots_from_node(node: Any) -> List[str]:
