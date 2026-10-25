@@ -19,6 +19,7 @@ const autopilot = require('./autopilot');
 const { projectUseCaseCoverage, useCaseCoverageMessage } = require('./use-case-coverage');
 const planReadiness = require('./plan-readiness');
 const { saveRejectedTestFix, rejectedTestFixMessage } = require('./rejected-test-fix');
+const { collectExistingSourceEvidence } = require('./existing-source-evidence');
 const { getEvalProgress, getEvalTools, postEvalToolsUpdate, postAcceptanceAccept, postAcceptanceAmend, postAcceptanceLock, postEvalChecks, postEvalToolsCheck, postEvalToolsInstall, postGateOverride } = require('./api');
 const evalToolsLib = require('./eval-tools');
 const { approveForProject, ensureEvalTools, questionText } = evalToolsLib;
@@ -1350,6 +1351,11 @@ async function executeLocalAgentPackage({
     stdout: agentResult.stdout || '',
     stderr: agentResult.stderr || '',
     files: completeArtifacts.files,
+    // Finalize reuses the promoted code: the unchanged sources are the evidence of an existing
+    // database/auth boundary the agent did not need to return.
+    existing_source_files: phaseForAgent === 'finalize'
+      ? collectExistingSourceEvidence(toFsPath(wsroot), (completeArtifacts.files || []).map((f) => f.path))
+      : undefined,
     project_id: getProjectId(),
     project_name: getProjectNameFromWorkspace() || null,
     telemetry: agentRun.telemetry,

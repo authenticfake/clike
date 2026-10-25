@@ -6,6 +6,7 @@ Split out of services/local_agent_package.py (WP8.5); behaviour unchanged.
 
 from __future__ import annotations
 import json
+import re
 from typing import Any, Dict, List
 from services.capabilities import (
     build_capability_coverage,
@@ -28,6 +29,43 @@ from services.local_agent.finalize_profiles import (
     _build_finalize_write_policy,
     _is_safe_finalize_root,
 )
+
+
+# Name tokens of a database setting in an env template (`SHORTLINK_DB_PATH`,
+# `ORDERS_DATABASE_URL`, `APP_SQLITE_FILE`...): the variable name is the
+# project's own, so the check looks at its tokens, not at a fixed list.
+_DATABASE_ENV_TOKENS = frozenset(
+    {
+        "DB", "DATABASE", "DSN", "JDBC", "DATASOURCE", "SQLITE", "SQLITE3",
+        "POSTGRES", "POSTGRESQL", "PG", "MYSQL", "MARIADB", "MSSQL", "SQLSERVER",
+        "ORACLE", "MONGO", "MONGODB",
+    }
+)
+_ENV_ASSIGNMENT = re.compile(r"^[ \t]*(?:#[ \t]*)?(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*=", re.MULTILINE)
+
+
+def _env_template_declares_database(env_text: str, engines: List[str]) -> bool:
+    tokens = _DATABASE_ENV_TOKENS | {str(e or "").upper() for e in engines if e}
+    for name in _ENV_ASSIGNMENT.findall(env_text or ""):
+        if tokens & set(name.upper().split("_")):
+            return True
+    return False
+
+
+def _existing_source_by_path(payload: Dict[str, Any]) -> Dict[str, str]:
+    """Unchanged repository sources the extension sent as boundary evidence.
+
+    Finalize reuses the promoted code: a database or auth boundary that already
+    exists is not returned again, so it is checked here instead.
+    """
+    out: Dict[str, str] = {}
+    for item in payload.get("existing_source_files") or []:
+        if not isinstance(item, dict):
+            continue
+        path = _normalize_relative_path(item.get("path"))
+        if path:
+            out[path] = str(item.get("content") or "")
+    return out
 
 
 def normalize_local_agent_result(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -281,6 +319,11 @@ def normalize_local_agent_result(payload: Dict[str, Any]) -> Dict[str, Any]:
 
         env_example = content_by_path.get(".env.example", "")
         env_upper = env_example.upper()
+        # Boundary evidence: returned files win over the unchanged sources.
+        source_evidence_by_path = {**_existing_source_by_path(payload), **content_by_path}
+        database_engines = [
+            str(e) for e in ((service_details.get("database") or {}).get("engines") or [])
+        ]
 
         if database_detected:
             database_env_markers = (
@@ -298,7 +341,9 @@ def normalize_local_agent_result(payload: Dict[str, Any]) -> Dict[str, Any]:
                 "POSTGRES_CONNECTION_REF",
                 "POSTGRES_CONNECTION_SECRET_REF",
             )
-            if not any(marker in env_upper for marker in database_env_markers):
+            if not any(marker in env_upper for marker in database_env_markers) and not (
+                _env_template_declares_database(env_example, database_engines)
+            ):
                 ok = False
                 errors.append("finalize_database_env_placeholders_missing")
                 warnings.append(
@@ -359,7 +404,7 @@ def normalize_local_agent_result(payload: Dict[str, Any]) -> Dict[str, Any]:
                         "local-disabled",
                     )
                 )
-                for path, content in content_by_path.items()
+                for path, content in source_evidence_by_path.items()
             )
 
             todo_text = content_by_path.get("docs/harper/TODO_NEXT.md", "").lower()
@@ -435,9 +480,10 @@ def normalize_local_agent_result(payload: Dict[str, Any]) -> Dict[str, Any]:
                         "createpostgresprovider",
                         "database provider",
                         "db provider",
+                        *(engine.lower() for engine in database_engines),
                     )
                 )
-                for path, content in content_by_path.items()
+                for path, content in source_evidence_by_path.items()
             )
             if not source_db_evidence:
                 todo_text = content_by_path.get("docs/harper/TODO_NEXT.md", "").lower()
