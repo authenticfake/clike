@@ -26,7 +26,7 @@ The other layouts (`classic`, `pro`, `studio`, `paper`) have the same features.
 |---|---|---|
 | **Mode & settings** | mode (Free · Coding · Harper), execution (cloud / agent), cloud model, local agent and its model, history scope | change any of them; the agent models listed are the ones the CLI accepts |
 | **Methodology** | Harper native or BMAD, with the role per phase where BMAD allows more than one | choose it; it is added to the commands the cockpit proposes |
-| **Project** | release, REQs done / in progress / open, phases IDEA → FINALIZE | — |
+| **Project** | release, REQs done / in progress / open, phases IDEA → FINALIZE; 100% only when every REQ is done and the last `/finalize` passed (a failed one stays the next action, with its reason) | — |
 | **Next action** | the next command by the autopilot's rules (phase order, dependencies, last eval), with alternatives | **Run** it, or **▶ Autopilot** for every REQ unattended |
 | **REQ** | each REQ with what it waits for: a dependency, its next step, `gate PASS`, or **blocked** when the plan says it waits for your answers (`kit_ready: false`, the questions in the tooltip) | click a REQ to put its next command in the prompt |
 | **Last run & agent** | the last eval or gate (status, failed checks, warnings) and who writes (cloud model or agent) | — |

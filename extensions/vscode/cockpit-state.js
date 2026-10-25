@@ -10,6 +10,7 @@ const { resumeStep } = require('./autopilot');
 const { inputsFingerprint } = require('./auto-eval');
 const { detectRelease } = require('./release-extend');
 const { reqBlockers } = require('./plan-readiness');
+const { finalizeDone, readFinalizeOutcome } = require('./finalize-outcome');
 
 const PHASES = ['idea', 'spec', 'plan', 'kit', 'finalize'];
 // what /init writes: a Harper document equal to its template (placeholders aside) is not done yet
@@ -156,7 +157,7 @@ function phaseStates(root, reqs, templatesDir = INIT_TEMPLATES) {
     plan: total > 0,
     kit: total > 0 && done === total,
     // a FINALIZE_REPORT of an earlier release does not finalize the REQs added since
-    finalize: total > 0 && done === total && exists(root, 'docs/harper/FINALIZE_REPORT.md'),
+    finalize: total > 0 && done === total && finalizeDone(root),
   };
   let activeSet = false;
   return PHASES.map((id) => {
@@ -250,9 +251,12 @@ function buildCockpitState(root, opts = {}) {
     } else if (action.action === 'finalize_only') {
       // every REQ is done: /finalize, then the next release when its inputs are there (the same
       // detection /idea --extend runs: a docs/inputs/vN above the plan's release, with files)
-      const finalized = exists(root, 'docs/harper/FINALIZE_REPORT.md');
+      const finalized = finalizeDone(root);
       const rel = nextRelease(root);
-      if (!finalized) next = { command: '/finalize', message: action.message };
+      const lastFinalize = readFinalizeOutcome(root);
+      if (!finalized) next = { command: '/finalize', message: lastFinalize?.status === 'failed'
+        ? `The last /finalize failed${lastFinalize.reason ? ` (${lastFinalize.reason})` : ''}: /finalize runs again and repairs from the current state.`
+        : action.message };
       else if (rel) next = { command: '/idea --extend', message: rel.message };
       else {
         const target = detectRelease(root).release;
@@ -296,7 +300,10 @@ function buildCockpitState(root, opts = {}) {
     release: currentRelease(root),
     releases: releases(root),
     counts,
-    progress_pct: counts.total ? Math.round((counts.done / counts.total) * 100) : 0,
+    // 100% is the release delivered: every REQ done and /finalize passed
+    progress_pct: counts.total
+      ? Math.min(Math.round((counts.done / counts.total) * 100), phases.some((ph) => ph.id === 'finalize' && ph.state === 'done') ? 100 : 99)
+      : 0,
     phases,
     reqs: rows,
     next,

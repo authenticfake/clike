@@ -131,6 +131,28 @@ test('all REQs done: FINALIZE is the active phase, then everything is done', () 
   assert.ok(state.phases.every((p) => p.state === 'done'));
 });
 
+test('a failed /finalize stays the next action even when the agent already wrote its report', () => {
+  // test project: the local agent wrote FINALIZE_REPORT.md, CLike rejected the result, the cockpit
+  // showed FINALIZE done and proposed nothing
+  const { writeFinalizeOutcome } = require('../finalize-outcome');
+  const done = { reqs: plan.reqs.map((r) => ({ ...r, status: 'done' })) };
+  const root = project({
+    'docs/harper/IDEA.md': '#', 'docs/harper/SPEC.md': '#', 'docs/harper/plan.json': done,
+    'docs/harper/FINALIZE_REPORT.md': '#',
+  });
+  writeFinalizeOutcome(root, 'failed', 'Orchestrator rejected local-agent result: finalize_database_env_placeholders_missing');
+  let state = buildCockpitState(root);
+  assert.equal(state.next.command, '/finalize');
+  assert.match(state.next.message, /last \/finalize failed \(Orchestrator rejected/);
+  assert.equal(state.phases[4].state, 'active');
+  assert.equal(state.progress_pct, 99);
+  writeFinalizeOutcome(root, 'ok', 'eval PASS');
+  state = buildCockpitState(root);
+  assert.equal(state.next.command, '');
+  assert.equal(state.progress_pct, 100);
+  assert.ok(state.phases.every((p) => p.state === 'done'));
+});
+
 test('/idea --extend becomes the next action when the next release has its inputs', () => {
   const done = { reqs: plan.reqs.map((r) => ({ ...r, status: 'done' })) };
   const root = project({ 'docs/harper/IDEA.md': '#', 'docs/harper/SPEC.md': '#', 'docs/harper/plan.json': done, 'docs/inputs/v1/req.docx': 'x' });
