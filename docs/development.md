@@ -121,6 +121,10 @@ code .               # F5 launches an Extension Development Host
 ./build_ext_vs.sh    # package (.vsix) and install; CLIKE_INSTALL_VSIX=0 to skip installing
 ```
 
+An installed extension is loaded when a window opens: after `./build_ext_vs.sh`, reload every open
+window ("Developer: Reload Window"). A window that still runs the previous version says so at its
+next run, with a Reload Window button.
+
 ## Tests
 
 | Suite | Command |

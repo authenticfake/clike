@@ -186,6 +186,9 @@ Install the packaged extension:
 ./build_ext_vs.sh        # npm ci, lint, tests, vsce package, install
 ```
 
+Open windows keep the version they loaded: reload them ("Developer: Reload Window"). A window still
+running the previous version says so at its next run, with a Reload Window button.
+
 or develop it:
 
 ```bash
