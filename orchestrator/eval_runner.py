@@ -4572,7 +4572,15 @@ class EvalRunner:
                         continue
                     owner = next((a for a in amends if (kits / self._safe_req_id(a) / rel).is_file()), None)
                     if owner:
-                        ref = f"{owner}#{rel}::{re.sub(r'\[[^\]]*\]$', '', name)}"
+                        test_name = re.sub(r'\[[^\]]*\]$', '', name)
+                        last = re.split(r"::| > ", test_name)[-1].strip()
+                        try:
+                            body = (kits / self._safe_req_id(owner) / rel).read_text(encoding="utf-8", errors="ignore")
+                        except OSError:
+                            body = ""
+                        if not last or not re.search(rf"(?<![\w-]){re.escape(last)}(?![\w-])", body):
+                            break  # a name cut in the output, or not a test of that file: no command to give
+                        ref = f"{owner}#{rel}::{test_name}"
                         if ref not in refs:
                             refs.append(ref)
                         break
