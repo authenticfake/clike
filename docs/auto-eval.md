@@ -481,7 +481,9 @@ CLike finds what an eval needs **before** running it:
   when that program is indeed absent from the sandbox: it is environment-blocked (`missing_tools`
   in the report), never sent to a repair.
 
-What is missing is installed after the developer's confirmation (VS Code: *Install*, *Always for
+The script linters `shellcheck` and `powershell` (`pwsh`) are default tools: the eval-tools service
+installs them at its start, for every project, without asking (`CLIKE_EVAL_TOOLS_DEFAULTS=0` turns
+this off). What else is missing is installed after the developer's confirmation (VS Code: *Install*, *Always for
 this project*, *No*; `clike.evalTools.install`: `ask` | `always` | `never`); tools listed in
 `.clike/eval-tools.yaml` (`tools:`) install without asking, so a team shares the same tools. A
 check that stopped on a missing tool runs again once it is installed; without an answer within 5

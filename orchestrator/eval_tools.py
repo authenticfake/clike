@@ -75,6 +75,11 @@ def approved_tools(project_root: Optional[Path]) -> List[str]:
     return [str(t) for t in (project_config(project_root).get("tools") or []) if _TOOL_NAME.match(str(t))]
 
 
+def auto_tools(catalog: Dict[str, Dict[str, Any]]) -> set:
+    """Catalog tools every project installs without asking (``auto: true``)."""
+    return {name for name, entry in catalog.items() if entry.get("auto") is True}
+
+
 def tool_for_binary(catalog: Dict[str, Dict[str, Any]], binary: str) -> Optional[str]:
     for name, entry in catalog.items():
         if binary in (entry.get("binaries") or []):
@@ -312,6 +317,10 @@ def check(project_root: Path, req_id: Optional[str], profile: Optional[str] = No
     catalog = load_catalog(project_root)
     items = needs(project_root, ltc if isinstance(ltc, dict) else {}, kit_root, catalog)
     approved = set(approved_tools(project_root))
+    auto = auto_tools(catalog)
     for item in items:
-        item["approved"] = item["tool"] in approved or item["tool"].split("@", 1)[0] in approved
-    return {"missing": items, "approved": sorted(approved)}
+        base = item["tool"].split("@", 1)[0]
+        item["approved"] = item["tool"] in approved or base in approved or base in auto
+    # the programs of the auto tools too: a report names the program that was missing ("pwsh")
+    auto_install = sorted(auto | {b for t in auto for b in (catalog.get(t, {}).get("binaries") or [])})
+    return {"missing": items, "approved": sorted(approved), "auto_install": auto_install}

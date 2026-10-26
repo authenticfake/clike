@@ -6,10 +6,11 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
-- **PowerShell in the eval sandbox**: `powershell` (`pwsh`) is in the tools catalog, so a check of
-  `.ps1` scripts gets it like any other tool (asked once, or listed in `.clike/eval-tools.yaml`), and
-  a check that runs `pwsh -NoProfile …` is found before the eval. Before, `pwsh: not found` was
-  outside the catalog and `--fix` sent it to the repair agent twice.
+- **PowerShell and shellcheck are in the eval sandbox by default**: `powershell` (`pwsh`) joins the
+  tools catalog, and both script linters are default tools, installed by the eval-tools service at
+  its start for every project, with no `/tools add` and no question; a check that runs
+  `pwsh -NoProfile …` is found before the eval. Before, `pwsh: not found` was outside the catalog
+  and `--fix` sent it to the repair agent twice.
 - **`--fix` does not repair a missing program**: when every failing check stopped because its own
   command is not in the sandbox (exit 127), the loop stops and says how to add it; other
   environment blocks still go to a repair.

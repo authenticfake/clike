@@ -157,7 +157,8 @@ async function ensureEvalTools({ check, install, ask, approve, policy = 'ask', e
   const missing = (result?.missing || []).filter((m) => m && m.tool);
   for (const name of extra) {
     if (!missing.some((m) => m.tool === name || (m.binaries || []).includes(name))) {
-      missing.push({ tool: name, about: '', source: 'failed', in_catalog: true, approved: false });
+      const auto = Array.isArray(result?.auto_install) && result.auto_install.includes(name);
+      missing.push({ tool: name, about: '', source: 'failed', in_catalog: true, approved: auto });
     }
   }
   out.unavailable = missing.filter((m) => !m.in_catalog).map((m) => m.tool);

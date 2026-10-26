@@ -98,6 +98,24 @@ class DetectionTests(unittest.TestCase):
         self.assertEqual(tools["jdk@17"]["source"], "declared")
         self.assertTrue(all(m["in_catalog"] for m in result["missing"]))
 
+    def test_script_linters_install_for_every_project_without_asking(self):
+        # B2B: shellcheck (REQ-033) and pwsh (REQ-037) needed /tools add in each project
+        catalog = eval_tools.load_catalog()
+        self.assertEqual(eval_tools.auto_tools(catalog), {"shellcheck", "powershell"})
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            kit = root / "runs" / "kit" / "REQ-001"
+            (kit / "ci").mkdir(parents=True)
+            (kit / "ci" / "LTC.json").write_text(json.dumps({"environment": {"tools": ["kcat"]}, "checks": [
+                {"id": "powershell", "command": "pwsh -NoProfile -File ci/check.ps1"},
+                {"id": "shell", "command": "shellcheck -x scripts/run.sh"},
+            ]}))
+            with patch.object(eval_tools, "available", lambda b: False):
+                result = eval_tools.check(root, "REQ-001")
+        approved = {m["tool"]: m["approved"] for m in result["missing"]}
+        self.assertEqual(approved, {"powershell": True, "shellcheck": True, "kafkacat": False})
+        self.assertIn("pwsh", result["auto_install"])
+
 
 class RunnerTests(unittest.TestCase):
     def test_a_missing_catalog_program_is_reported_not_repaired(self):
@@ -232,6 +250,13 @@ elif args[:1] == ["create"]:
         lock = self.client.get("/lock").json()
         self.assertIn("@EXPLICIT", lock["kafkacat"]["lock"]["explicit"])
         self.assertNotIn("lock", self.client.get("/installed").json()["tools"]["kafkacat"])
+
+    def test_the_default_tools_are_there_from_the_start(self):
+        # shellcheck and PowerShell: no /tools add in each project (B2B REQ-033, REQ-037)
+        self.assertEqual(self.app.install_defaults(), ["powershell", "shellcheck"])
+        installed = self.client.get("/installed").json()["tools"]
+        self.assertEqual(set(installed), {"powershell", "shellcheck"})
+        self.assertEqual(self.app.install_defaults(), [])  # once
 
     def test_update_reports_the_changes_and_a_failed_rebuild_keeps_the_old_one(self):
         self._install({"name": "kafkacat", "packages": ["kafkacat"], "binaries": ["kcat"]})

@@ -12,6 +12,8 @@
 #     download: {linux-64: {url: https://…, sha256: …, version: …}, linux-aarch64: {…}}
 #               a vendor archive (tar/zip or a single binary), verified before it is unpacked
 #     pin: the package that <name>@<version> pins (default: the first conda, else pip, package)
+#     auto: true — installed when a check needs it, for every project, without asking (offline
+#           linters of the project's own scripts: no network, no credentials, nothing to decide)
 #   <name>@<version> (e.g. jdk@17) pins that version. Each tool has its own environment.
 tools:
   postgresql-client:
@@ -125,11 +127,13 @@ tools:
     packages: ["shellcheck"]
     binaries: [shellcheck]
     about: "Shell script linter"
+    auto: true
   powershell:
     group: quality
     packages: ["powershell"]
     binaries: [pwsh]
     about: "PowerShell 7, for the checks of .ps1 scripts"
+    auto: true
   jdk:
     group: runtimes
     packages: ["openjdk"]
