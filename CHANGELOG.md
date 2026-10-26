@@ -4,6 +4,8 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.6.4] — 2026-10-26 — Script checks with nothing to install
+
 ### Fixed
 
 - **PowerShell and shellcheck are in the eval sandbox by default**: `powershell` (`pwsh`) joins the
