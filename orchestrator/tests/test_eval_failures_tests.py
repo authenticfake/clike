@@ -193,6 +193,15 @@ class AcceptanceCoverageTests(unittest.TestCase):
             self.assertFalse(case.passed)
             self.assertIn("SELF_REVIEW.md says otherwise", case.stderr)
 
+    def test_the_field_names_agents_use_are_understood(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            case = self._case(self._project(tmp, acceptance=[
+                {"id": "REQ-038-A01", "status": "done", "blocking_checks": ["unit"], "evidence": "x"},
+                {"id": "REQ-038-A06", "status": "done", "verified_by": ["unit"]},
+                {"id": "REQ-038-A07", "status": "developer-evidence", "evidence": "real research on the developer machine"}]))
+            self.assertTrue(case.passed, case.stderr)
+
     def test_nothing_declared_keeps_the_previous_behaviour(self):
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:

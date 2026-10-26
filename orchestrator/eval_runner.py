@@ -4126,9 +4126,13 @@ class EvalRunner:
             if entry is None:
                 problems.append(f"{cid}: not in ACCEPTANCE.json — {short}")
                 continue
-            status = str(entry.get("status") or "").strip().lower()
-            note = str(entry.get("note") or "").strip()
-            checks = [str(c) for c in entry.get("checks") or [] if str(c).strip()]
+            status = str(entry.get("status") or "").strip().lower().replace("-", "_").replace(" ", "_")
+            # the names agents use for the same fields (B2B REQ-038: blocking_checks, evidence)
+            note = next((str(entry[k]).strip() for k in ("note", "evidence", "reason", "notes", "details")
+                         if str(entry.get(k) or "").strip()), "")
+            raw_checks = next((entry[k] for k in ("checks", "blocking_checks", "verified_by", "check_ids")
+                               if isinstance(entry.get(k), list) and entry.get(k)), [])
+            checks = [str(c) for c in raw_checks if str(c).strip()]
             if status == "done":
                 valid = [c for c in checks if c in blocking_checks]
                 if not valid:
