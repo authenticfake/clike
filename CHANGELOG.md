@@ -4,6 +4,16 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+### Added
+
+- **Use cases from the release to the finalize**: `/idea --extend` writes every journey the release
+  adds or changes as a SPEC use case, as `/spec` does (`UC-nn` with steps, errors and prerequisites;
+  the section is created when the SPEC has none), and its new REQs cover the steps. The report's
+  CLike verification counts the use cases and warns when the release adds REQs without one.
+  `/finalize`, cloud or local agent, follows the use cases: one check per journey that can run, and
+  a `## Use cases` table in FINALIZE_REPORT.md with the status of each (verified in the sandbox, on
+  the developer machine, needs the developer, not covered).
+
 ### Fixed
 
 - **Root deliverables reach the repository**: a KIT's `root/` now also delivers the example of each

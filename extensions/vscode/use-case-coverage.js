@@ -107,4 +107,4 @@ function useCaseCoverageMessage(coverage) {
     (notes.length ? ` Also: ${notes.join('; ')}.` : '');
 }
 
-module.exports = { specUseCases, useCaseCoverage, projectUseCaseCoverage, useCaseCoverageMessage };
+module.exports = { useCasesSection, specUseCases, useCaseCoverage, projectUseCaseCoverage, useCaseCoverageMessage };

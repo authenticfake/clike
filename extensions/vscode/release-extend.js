@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { execFileSync } = require('child_process');
+const useCases = require('./use-case-coverage');
 
 const RELEASE_RE = /^v(\d+)$/i;
 const DOC_FILES = { idea: 'docs/harper/IDEA.md', spec: 'docs/harper/SPEC.md', tech: 'docs/harper/TECH_CONSTRAINTS.yaml' };
@@ -373,6 +374,7 @@ function verificationMarkdown({ release, baseline, inputs = [], references = [],
     `- Release inputs: ${[...attachments.map((a) => `${a} (attachment)`), ...inputs, ...references].join(', ') || 'none'}`,
     docLine('IDEA.md', docs.idea),
     docLine('SPEC.md', docs.spec),
+    docs.useCases ? `- Use cases: ${docs.useCases.total}${docs.useCases.added.length ? ` (new: ${docs.useCases.added.join(', ')})` : ' (none new)'}` : '- Use cases: none in SPEC.md',
     docs.tech ? (docs.tech.missing?.length ? `- TECH_CONSTRAINTS.yaml: **restored** (lines removed: ${docs.tech.missing.length})` : '- TECH_CONSTRAINTS.yaml: extended') : '- TECH_CONSTRAINTS.yaml: unchanged',
     restored.length ? `- Existing REQs restored (read-only): ${restored.join('; ')}` : '- Existing REQs: unchanged',
     '',
@@ -526,6 +528,20 @@ function reconcileExtend({ root, before, files, isAgent, mode = 'plan', cascade 
       put(rel, before[key]);
       warnings.push(`${rel} dropped sections of the earlier release (${docs[key].missing.join('; ')}): restored — merge, never rewrite`);
     }
+  }
+  // the journeys of the release are use cases of the SPEC, as /spec writes them
+  const ucBefore = useCases.specUseCases(before.spec);
+  const specAfter = current(DOC_FILES.spec) ?? before.spec;
+  const ucAfter = useCases.specUseCases(specAfter);
+  const ucSection = (text) => String(useCases.useCasesSection(text) || '').trim();
+  if (delta.delta.length && !ucAfter) {
+    warnings.push(`SPEC.md has no ## Use Cases: the journeys of ${cascade.release || 'the release'} are not written as UC-nn with steps (as /spec does) — the plan's use-case coverage and the finalize have nothing to follow`);
+  } else if (delta.delta.length && ucSection(before.spec) === ucSection(specAfter)) {
+    warnings.push(`SPEC.md ## Use Cases unchanged: no use case of ${cascade.release || 'the release'} added or updated for its ${delta.delta.length} new REQ(s)`);
+  }
+  if (ucAfter) {
+    const added = Object.keys(ucAfter).filter((id) => !(ucBefore && ucBefore[id]));
+    docs.useCases = { total: Object.keys(ucAfter).length, added };
   }
   if (current(DOC_FILES.tech) !== before.tech) {
     docs.tech = tech;

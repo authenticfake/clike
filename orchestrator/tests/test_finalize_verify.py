@@ -104,3 +104,14 @@ def test_rules_cover_the_listening_address_expiring_values_and_the_local_check()
     assert "local::check_solution_local" in rules
     agent = "\n".join(finalize_verify.agent_finalize_lines({}, "", 0))
     assert "0.0.0.0" in agent and "CLike runs the check on the developer's machine" in agent
+
+
+def test_finalize_follows_the_use_cases_of_the_spec_on_both_paths():
+    # the journeys to verify are the SPEC use cases; the report has a status per use case
+    import services.finalize_verify as fv
+
+    cloud = fv.cloud_finalize_section({}, "")
+    local = "\n".join(fv.agent_finalize_lines({}, ""))
+    for text in (cloud, local):
+        assert "`## Use Cases` of docs/harper/SPEC.md" in text
+        assert "FINALIZE_REPORT.md has a `## Use cases` table" in text
