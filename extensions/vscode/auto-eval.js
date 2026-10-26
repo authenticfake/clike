@@ -179,7 +179,26 @@ function ownFailureCount(failures) {
   return (failures || []).filter((f) => !String(f?.name || '').startsWith('regression::')).length;
 }
 
+// A failing delivered test of a REQ the candidate amends: the runner's note carries the exact
+// `/eval REQ --supersede …` command; when the loop stops, the developer sees it (a repair may not
+// change the plan).
+const DECLARE_NOTE = '[CLike EvalRunner] A delivered test of an amended REQ';
+
+function declareHint(failures) {
+  const commands = [...new Set((failures || []).flatMap((f) => String(f.output || '').includes(DECLARE_NOTE)
+    ? String(f.output).split('\n').filter((l) => /^\s*\/eval \S+ --supersede /.test(l)).map((l) => l.trim())
+    : []))];
+  return commands.length
+    ? `. If the REQ changes these delivered tests on purpose, declare it (your decision, audited):\n${commands.join('\n')}`
+    : '';
+}
+
 function nextAutoEvalStep(state, report) {
+  const step = nextAutoEvalStepRaw(state, report);
+  return step.action === 'stop' && step.failures ? { ...step, reason: `${step.reason}${declareHint(step.failures)}` } : step;
+}
+
+function nextAutoEvalStepRaw(state, report) {
   if (evalPassed(report)) return { action: 'pass', reason: `eval PASS after ${state.cycle} repair cycle(s)` };
   if (sandboxExhausted(report)) return { action: 'stop', reason: SANDBOX_EXHAUSTED_STOP };
   const tools = missingTools(report);

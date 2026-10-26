@@ -363,3 +363,43 @@ test('the chat (webview) copy of the slash parser runs: every constant it uses i
   assert.equal(kit.cmd, '/kit');
   assert.equal(chat, null);
 });
+
+test('/eval REQ --supersede declares a delivered test the open REQ changes, audited', () => {
+  // B2B REQ-037: a REQ-015 test pinned the exact session fields; the cascade had not named it
+  const { root, put } = project();
+  const plan = JSON.parse(planV2());
+  plan.reqs[3].status = 'in_progress';
+  plan.reqs[3].change = 'ADDED';
+  delete plan.reqs[3].amends;
+  delete plan.reqs[3].supersedes;
+  put('docs/harper/plan.json', JSON.stringify(plan, null, 2));
+  put('runs/kit/REQ-001/test/leadintel/test_session.py', 'def test_session_fields():\n    assert fields == {"actor"}\n');
+  const ref = 'REQ-001#test/leadintel/test_session.py::test_session_fields';
+  const ok = re.declareSupersede(root, 'REQ-004', ref, 'the session view adds subject and groups', { author: 'dev' });
+  assert.equal(ok.ok, true, ok.message);
+  assert.match(ok.message, /amends REQ-001.*ADDED → MODIFIED/);
+  const after = JSON.parse(fs.readFileSync(path.join(root, 'docs/harper/plan.json'), 'utf8')).reqs[3];
+  assert.deepEqual(after.supersedes, [{ check: ref, reason: 'the session view adds subject and groups' }]);
+  assert.deepEqual(after.amends, ['REQ-001']);
+  assert.equal(after.change, 'MODIFIED');
+  assert.match(fs.readFileSync(path.join(root, 'runs/extend/declared-supersedes.jsonl'), 'utf8'), /"author":"dev"/);
+  assert.equal(re.declareSupersede(root, 'REQ-004', ref, 'the session view adds subject and groups').changed, false);
+  // typed over two lines with its quotes (B2B): stored as one clean line
+  re.declareSupersede(root, 'REQ-004', 'REQ-002#tests', '"v3:\nthe session view adds subject"');
+  const last = JSON.parse(fs.readFileSync(path.join(root, 'docs/harper/plan.json'), 'utf8')).reqs[3].supersedes.pop();
+  assert.equal(last.reason, 'v3: the session view adds subject');
+  // refused: no reason, unknown test, a delivered REQ declaring, a check not in the LTC
+  assert.match(re.declareSupersede(root, 'REQ-004', ref, 'x').message, /at least 10/);
+  assert.match(re.declareSupersede(root, 'REQ-004', 'REQ-001#test/leadintel/test_session.py::test_other', 'a good long reason').message, /has no test "test_other"/);
+  assert.match(re.declareSupersede(root, 'REQ-002', ref, 'a good long reason').message, /is delivered/);
+  assert.match(re.declareSupersede(root, 'REQ-004', 'REQ-002#lint', 'a good long reason').message, /LTC has no check "lint"/);
+  assert.equal(re.declareSupersede(root, 'REQ-004', 'REQ-002#e2e', 'a good long reason').ok, true);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('/eval --supersede is parsed with its reference and reason; other flags still apply', () => {
+  const p = parseSlash('/eval REQ-037 --supersede REQ-015#test/x.py::test_a "the release adds fields" --fix');
+  assert.deepEqual(p.args.supersede, { ref: 'REQ-015#test/x.py::test_a', reason: 'the release adds fields' });
+  assert.equal(p.args.fix, true);
+  assert.deepEqual(p.args.targets, ['REQ-037']);
+});

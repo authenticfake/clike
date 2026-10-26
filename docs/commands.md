@@ -38,6 +38,7 @@ The current webview parser supports the following slash commands.
 - `/eval <REQ-ID> --fix ["hint"]` — auto-eval: repair from the real failures and re-evaluate (see `auto-eval.md`)
 - `/gate <REQ-ID>`
 - `/eval <REQ-ID> --accept "reason"` — accept a deliberate edit of the REQ's locked tests / `ci/` (audited)
+- `/eval <REQ-ID> --supersede REQ-x#<check | path::test> "reason"` — declare a check or test of a delivered REQ this open REQ changes on purpose (audited), then eval
 - `/gate <REQ-ID> --fix ["hint"]` — auto-gate: on a failing gate, the same repair as `/eval --fix`, then a full gate again (see `auto-eval.md`)
 - `/gate <REQ-ID> manual pass` — developer override **without executing checks**: asks for a reason
   (≥ 10 characters), is recorded by the orchestrator in an audit log with a digest of the REQ
@@ -237,6 +238,18 @@ When a repair proposed a change to a locked test (the loop stopped with
 `runs/eval/<REQ-ID>/proposed_test_fix_<ts>.patch`), `--accept` first applies the latest proposal
 that still applies, then records it as above: review the patch, then one command. A proposal the
 lock still refuses is undone.
+
+### `/eval <REQ-ID> --supersede REQ-x#<check | path::test> "reason"`
+A release can change on purpose what a delivered REQ verifies, and `/idea --extend` names those
+checks and tests in the new REQ's `supersedes`. When the eval shows one it did not name — typically
+a delivered test that pins a complete list or the latest item the release extends (the exact fields
+of a response, the set of routes, the last migration) — the regression note says so and gives this
+command, and a stopped `--fix` loop repeats it: a repair never changes the plan, the decision is
+yours. CLike checks that the REQ is open, the target REQ is delivered and the check is in its LTC
+(or the test file is in its KIT or the project and names the test), adds the entry to `supersedes`
+(and the REQ to `amends`; an ADDED REQ becomes MODIFIED), records it with your `git config
+user.name` in `runs/extend/declared-supersedes.jsonl`, then runs the eval (`--fix` and the other
+flags still apply). The superseded test is recognised in whichever promoted REQ's check runs it.
 
 ### `/gate <REQ-ID>`
 Runs gate checks for the target REQ using eval output and gate policy. Warnings (failed

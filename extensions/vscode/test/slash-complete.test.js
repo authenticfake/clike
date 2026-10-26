@@ -53,11 +53,11 @@ test('REQs are ranked for the command, with a warning when they cannot run', () 
 });
 
 test('flags: not repeated, exclusive ones hidden, --agent only after --methodology', () => {
-  assert.deepEqual(labels(complete('/eval REQ-002 --')), ['--fix', '--accept', '--methodology']);
-  assert.deepEqual(labels(complete('/eval REQ-002 --fix --')), ['--methodology']);
-  assert.deepEqual(labels(complete('/eval REQ-002 --methodology bmad --')), ['--fix', '--accept', '--agent']);
+  assert.deepEqual(labels(complete('/eval REQ-002 --')), ['--fix', '--accept', '--supersede', '--methodology']);
+  assert.deepEqual(labels(complete('/eval REQ-002 --fix --')), ['--supersede', '--methodology']);
+  assert.deepEqual(labels(complete('/eval REQ-002 --methodology bmad --')), ['--fix', '--accept', '--supersede', '--agent']);
   assert.deepEqual(labels(complete('/gate REQ-002 --ask --')), ['--fix']);
-  assert.deepEqual(labels(complete('/eval REQ-002 ')), ['--fix', '--accept', '--methodology']);
+  assert.deepEqual(labels(complete('/eval REQ-002 ')), ['--fix', '--accept', '--supersede', '--methodology']);
 });
 
 test('values: methodology, BMAD roles of the phase, executor, release, phases, tools, models', () => {

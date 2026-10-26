@@ -5865,6 +5865,18 @@ async function cmdOpenChat(context) {
           panel.webview.postMessage({ type: 'busy', on: false });
           return;
         }
+        if (phase === 'eval' && msg.supersede) {
+          // /eval REQ --supersede: the developer declares a change of the release, then the eval runs
+          let author = '';
+          try { author = require('child_process').execFileSync('git', ['config', 'user.name'], { cwd: ws_root.fsPath, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); } catch { /* none */ }
+          const declared = releaseExtend.declareSupersede(ws_root.fsPath, targets, msg.supersede.ref, msg.supersede.reason, { author });
+          panel.webview.postMessage({ type: 'echo', message: `${declared.ok ? '✔' : '✖'} /eval ${targets} --supersede: ${declared.message}` });
+          await appendSessionJSONL(activeMode, { ts: Date.now(), role: 'system', content: `${declared.ok ? '✔' : '✖'} SUPERSEDE ${targets}: ${declared.message}`, model: state.model || 'auto', attachments: [] });
+          if (!declared.ok) {
+            panel.webview.postMessage({ type: 'busy', on: false, force: true });
+            return;
+          }
+        }
         if (phase === 'eval' && msg.accept) {
           // /eval REQ --accept: the developer accepts a deliberate edit of the locked tests / ci
           await acceptAcceptanceEdit(ws_root, targets, String(msg.accept.reason || ''));

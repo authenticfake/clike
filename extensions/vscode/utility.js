@@ -1067,8 +1067,9 @@ async function saveKitCommand(projectRootUri, plan, targetReqId, out) {
 
   log(`[saveKitCommand] target=${targetReqId}`);
 
-  // 1) Load plan if missing
-  let effectivePlan = plan;
+  // 1) The plan as it is now on disk: the copy read when the run started is stale after a long
+  // KIT (B2B REQ-037: a supersedes entry added during the repair was overwritten at its end)
+  let effectivePlan = (await freshPlan(projectRootUri)) || plan;
   if (!effectivePlan || !Array.isArray(effectivePlan.reqs)) {
     effectivePlan = await readPlanJson(projectRootUri);
     if (!effectivePlan || !Array.isArray(effectivePlan.reqs)) {
@@ -1109,7 +1110,8 @@ async function saveKitCommand(projectRootUri, plan, targetReqId, out) {
 async function saveEvalCommand(projectRootUri, plan, targetReqId, report, out) {
   const log = (m) => (out?.appendLine ? out.appendLine(m) : console.log(m));
   log(`[saveEvalCommand] target=${targetReqId}`);
-  let effectivePlan = plan || await readPlanJson(projectRootUri);
+  // the plan on disk now, not the copy read when the run started (it may have changed meanwhile)
+  let effectivePlan = (await freshPlan(projectRootUri)) || plan;
   if (!effectivePlan || !Array.isArray(effectivePlan.reqs)) return;
   
 
@@ -1230,7 +1232,8 @@ async function saveGateCommand(projectRootUri, plan, targetReqId, report, out, o
   const log = (m) => (out?.appendLine ? out.appendLine(m) : console.log(m));
   log(`[saveGateCommand] target=${targetReqId}`);
 
-  let effectivePlan = plan || await readPlanJson(projectRootUri);
+  // the plan on disk now, not the copy read when the run started (it may have changed meanwhile)
+  let effectivePlan = (await freshPlan(projectRootUri)) || plan;
   if (!effectivePlan || !Array.isArray(effectivePlan.reqs)) return;
 
   const gateVerdict = String(report?.gate || '').trim().toLowerCase();
@@ -1570,6 +1573,14 @@ function updatePlanSnapshot(plan) {
   return plan.snapshot;
 }
 
+
+/** plan.json as it is on disk now (null when missing or invalid). */
+async function freshPlan(projectRootUri) {
+  try {
+    const plan = await readPlanJson(projectRootUri);
+    return plan && Array.isArray(plan.reqs) ? plan : null;
+  } catch { return null; }
+}
 
 async function writePlanJson(projectRootUri, obj) {
   const uri = vscode.Uri.joinPath(projectRootUri, 'docs', 'harper', 'plan.json');

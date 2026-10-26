@@ -37,6 +37,7 @@ function createSlashCompleter(bmadRoles) {
         { t: '[--phases=…]', key: 'flag:--phases=' }, { t: '[--methodology bmad', key: 'flag:--methodology' }, { t: '[--agent developer]]', key: 'flag:--agent' }] },
     '/eval': { group: 'Eval & gate', harper: true, phase: 'eval', desc: 'Acceptance checks of the REQ in the sandbox (+ regression)',
       sig: [{ t: '<REQ-ID>', key: 'req' }, { t: '[--fix ["hint"]]', key: 'flag:--fix' }, { t: '[--accept "reason"]', key: 'flag:--accept' },
+        { t: '[--supersede REQ-x#<check|path::test> "reason"]', key: 'flag:--supersede' },
         { t: '[--methodology bmad', key: 'flag:--methodology' }, { t: '[--agent qa|developer]]', key: 'flag:--agent' }] },
     '/gate': { group: 'Eval & gate', harper: true, phase: 'gate', desc: 'Promotion gate: PASS promotes the REQ',
       sig: [{ t: '<REQ-ID>', key: 'req' }, { t: '[--auto-merge|--ask|--no-promote]', key: 'flag:--auto-merge' }, { t: '[--fix ["hint"]]', key: 'flag:--fix' }] },
@@ -86,6 +87,7 @@ function createSlashCompleter(bmadRoles) {
     '/eval': {
       '--fix': { desc: 'repair from the real failures, then eval again', excludes: ['--accept'] },
       '--accept': { desc: 'audited acceptance of an edited test / ci/', value: 'quoted', excludes: ['--fix'] },
+      '--supersede': { desc: 'declare a check or test of a delivered REQ this release changes on purpose (audited), then eval', value: 'quoted' },
       '--methodology': { desc: 'BMAD QA advisory on the eval', value: 'methodology' },
       '--agent': { desc: 'BMAD role', value: 'agent', needs: '--methodology' },
     },

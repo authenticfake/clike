@@ -185,6 +185,9 @@ _NONDETERMINISTIC_NOTE = "[CLike EvalRunner] Nondeterministic"
 # a failure of a promoted REQ that does not depend on the candidate (it fails on the promoted tree alone)
 _PREEXISTING_NOTE = "[CLike EvalRunner] Already failing without this candidate"
 _NEW_ERRORS_NOTE = "[CLike EvalRunner] New errors from this candidate"
+_SUPERSEDED_TESTS_NOTE = "[CLike EvalRunner] Superseded tests"
+_CONTENTION_NOTE = "[CLike EvalRunner] Timeout under parallel load"
+_DECLARE_NOTE = "[CLike EvalRunner] A delivered test of an amended REQ"
 _SHARED_FILES_NOTE = "[CLike EvalRunner] Shared files changed"
 _SERVICE_BROKEN_NOTE = "[CLike EvalRunner] Service broken by the candidate"
 # A test file by name in Python, JS/TS, Java/Kotlin, Go, C# (test_x.py, x_test.go, x.test.ts, x.spec.js, XTest.java, XTests.cs).
@@ -3790,6 +3793,10 @@ class EvalRunner:
                 cases=out_cases,
             )
 
+        skip = getattr(self, "_skip_checks", None)
+        if skip:
+            # checks a MODIFIED REQ superseded, in whatever section the LTC declares them
+            norm_cases = [c for c in norm_cases if str(c.get("name") or "case") not in skip]
         only = getattr(self, "_only_checks", None)
         if only:
             unknown = sorted(only - {str(c.get("name") or "case") for c in norm_cases})
@@ -4080,6 +4087,12 @@ class EvalRunner:
                     out.setdefault(other, {})[check] = f"{r['id']}: {reason}".rstrip(": ")
         return out
 
+    def superseded_tests(self, req_id: Optional[str]) -> Dict[str, str]:
+        """{test reference "path::name": "REQ-y: reason"} — delivered tests a MODIFIED REQ declared it
+        replaces (``REQ-x#path::name``). Whichever promoted REQ's check runs that test (B2B: REQ-016's
+        test ran in REQ-014's unit check), its failure is the declared change, not a regression."""
+        return {check: by for checks in self.superseded_checks(req_id).values() for check, by in checks.items() if "::" in check}
+
     def regression_req_ids(self, req_id: Optional[str]) -> List[str]:
         """Promoted REQs (plan status done) whose acceptance checks must still pass with this
         candidate, in plan order, when they have an LTC profile. Dependencies that are not
@@ -4349,6 +4362,9 @@ class EvalRunner:
         source with the candidate's composed source overlaid last (the state after promotion).
         Cases are named ``regression::<REQ>::<case>`` and keep their blocking flag."""
         superseded = self.superseded_checks(req_id)
+        self._superseded_test_refs = self.superseded_tests(req_id)
+        candidate = next((r for r in self._plan_reqs() if str(r["id"]) == str(req_id)), {})
+        self._candidate_amends = [str(a) for a in (candidate.get("amends") or [])]
         others = self.regression_req_ids(req_id)
         only = getattr(self, "_regression_only", None)
         if only:
@@ -4379,11 +4395,136 @@ class EvalRunner:
         with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="clike-regression") as pool:
             futures = {other: pool.submit(self._regress_tracked, req_id, other, candidate_src, superseded) for other in others}
             try:
-                return in_plan_order({other: future.result() for other, future in futures.items()})
+                ran = in_plan_order({other: future.result() for other, future in futures.items()})
             except BaseException:
                 for future in futures.values():
                     future.cancel()
                 raise
+        self._rerun_timeouts_alone(req_id, candidate_src, ran, superseded)
+        return ran
+
+    def _regression_runner(self, req_id: Optional[str], other: str, candidate_src: Path) -> "EvalRunner":
+        """The runner of a promoted REQ's checks with the candidate overlaid (the state after promotion)."""
+        return EvalRunner(
+            self.project_root,
+            eval_key=f"{self._safe_req_id(req_id)}/regression/{self._safe_req_id(other)}",
+            extra_src_roots=[candidate_src],
+            extra_root_roots=[candidate_src.parent / KIT_ROOT_DIR],
+            extra_test_roots=[candidate_src.parent],
+            cancel_event=self.cancel_event,
+            regression=True,
+        )
+
+    def _mark_superseded_tests(self, other: str, report: EvalReport) -> None:
+        """A failing check of a promoted REQ whose failed tests are all tests a MODIFIED REQ superseded:
+        the declared change, not a regression (non-blocking, never repaired). When only some are, the
+        note names them, so the repair leaves them alone and fixes the others."""
+        refs = getattr(self, "_superseded_test_refs", None) or {}
+        if not refs:
+            return
+        for case in report.cases:
+            if case.passed or not case.blocking or case.blocked:
+                continue
+            failed = eval_failures.failed_tests(f"{case.stdout or ''}\n{case.stderr or ''}\n{case.excerpt or ''}")
+            if not failed:
+                continue
+            hits = {ref: by for ref, by in refs.items() if any(eval_failures.test_matches(f, ref) for f in failed)}
+            if not hits:
+                continue
+            covered = [f for f in failed if any(eval_failures.test_matches(f, ref) for ref in hits)]
+            listed = "\n".join(f"- {ref} (superseded by {by})" for ref, by in sorted(hits.items()))
+            # the runner's summary may count failures it does not name as tests (a collection error,
+            # an unhandled error, a crash): then the check does not hold
+            unseen = eval_failures.reported_failures(f"{case.stdout or ''}\n{case.stderr or ''}") > len(failed)
+            if len(covered) == len(failed) and not unseen:
+                note = (f"{_SUPERSEDED_TESTS_NOTE}: {case.name} of {other} fails only in tests a MODIFIED REQ declared it "
+                        f"replaces (/idea --extend):\n{listed}\nThe declared change, not a regression of this candidate.")
+                # every other test of the check passed: it holds, as a superseded check does
+                case.passed, case.blocking = True, False
+                log.info("regression %s::%s fails only in superseded tests", other, case.name)
+            else:
+                note = (f"{_SUPERSEDED_TESTS_NOTE}: some failures of {case.name} of {other} are tests a MODIFIED REQ "
+                        f"declared it replaces — leave them as they are:\n{listed}\nThe other failed tests are a regression.")
+            case.stderr = f"{case.stderr or ''}\n{note}"[-4000:]
+            case.excerpt = f"{note}\n\n{case.excerpt or ''}"
+
+    def _suggest_declared_change(self, req_id: Optional[str], other: str, report: EvalReport) -> None:
+        """A blocking failure in a test that a REQ the candidate amends delivered: if the candidate
+        changes it on purpose (B2B REQ-037 extends the session fields a REQ-015 test pins, and the
+        cascade had not named it), only the developer can declare it — a repair may not change the
+        plan. The note gives the exact command; otherwise the candidate keeps that test passing."""
+        amends = getattr(self, "_candidate_amends", None) or []
+        if not amends or not req_id:
+            return
+        kits = self.project_root / "runs" / "kit"
+        for case in report.cases:
+            if case.passed or not case.blocking or case.blocked:
+                continue
+            refs = []
+            for file, name in eval_failures.failed_tests(f"{case.stdout or ''}\n{case.stderr or ''}\n{case.excerpt or ''}"):
+                parts = file.replace("\\", "/").split("/")
+                for i in range(len(parts)):
+                    rel = "/".join(parts[i:])
+                    if not rel.startswith(("test/", "tests/")):
+                        continue
+                    owner = next((a for a in amends if (kits / self._safe_req_id(a) / rel).is_file()), None)
+                    if owner:
+                        ref = f"{owner}#{rel}::{re.sub(r'\[[^\]]*\]$', '', name)}"
+                        if ref not in refs:
+                            refs.append(ref)
+                        break
+            if not refs:
+                continue
+            commands = "\n".join(f'  /eval {req_id} --supersede {ref} "<why the release changes it>"' for ref in refs)
+            note = (f"{_DECLARE_NOTE}: {case.name} of {other} fails in delivered tests of REQs {req_id} amends. If {req_id} "
+                    "changes them on purpose (it extends what they pin: a field set, a list, the last migration), the "
+                    f"developer declares it — a repair may not change the plan:\n{commands}\n"
+                    f"Otherwise {req_id} must keep them passing.")
+            case.stderr = f"{case.stderr or ''}\n{note}"[-4000:]
+            case.excerpt = f"{note}\n\n{case.excerpt or ''}"
+
+    def _rerun_timeouts_alone(
+        self, req_id: Optional[str], candidate_src: Path, cases: List[EvalCase], superseded: Dict[str, Dict[str, str]],
+    ) -> None:
+        """Blocking regression failures that ran out of time while several promoted REQs ran side by
+        side: each runs again alone, after the others. One that passes alone was slowed by the parallel
+        load (B2B REQ-037: a 30 s test, a database connection, a 300 s suite, a dev server start), not
+        broken by the candidate: a warning, never repaired. One that fails alone too stays blocking."""
+        slow: Dict[str, List[EvalCase]] = {}
+        for case in cases:
+            if case.passed or not case.blocking or case.blocked or not _is_regression_test_case(case):
+                continue
+            other, sep, check = case.name.partition("::")[2].partition("::")
+            if not sep or not eval_failures.timed_out(case.excerpt or f"{case.stdout or ''}\n{case.stderr or ''}"):
+                continue
+            slow.setdefault(other, []).append(case)
+        for other, failing in slow.items():
+            if self.cancel_event is not None and self.cancel_event.is_set():
+                return
+            profile = self.project_root / "runs" / "kit" / self._safe_req_id(other) / "ci" / "LTC.json"
+            try:
+                ltc = json.loads(profile.read_text(encoding="utf-8"))
+                names = [c.name.split("::", 2)[2] for c in failing]
+                runner = self._regression_runner(req_id, other, candidate_src)
+                runner._skip_checks = {k for k in (superseded.get(other) or {}) if "::" not in k} or None
+                rerun = runner.run_profile(profile=str(profile), ltc=ltc, req_id=other, checks=names)
+            except Exception as exc:  # the first verdict stands
+                log.warning("regression %s: re-run alone failed to run: %s", other, exc)
+                continue
+            alone = {c.name: c for c in rerun.cases}
+            for case in failing:
+                again = alone.get(case.name.split("::", 2)[2])
+                if again is not None and again.passed:
+                    note = (f"{_CONTENTION_NOTE}: {case.name} ran out of time while {regression_workers()} promoted REQs ran "
+                            "side by side, and passes when run alone: the sandbox load, not this candidate "
+                            "(fewer at a time: CLIKE_EVAL_REGRESSION_WORKERS).")
+                    case.blocking = False
+                    log.info("%s passes alone: parallel load", case.name)
+                else:
+                    note = (f"{_CONTENTION_NOTE}: {case.name} ran out of time, and again when run alone: the slowdown "
+                            "comes with the candidate (a slower path, a wait that never ends, a service that does not start).")
+                case.stderr = f"{case.stderr or ''}\n{note}"[-4000:]
+                case.excerpt = f"{note}\n\n{case.excerpt or ''}"
 
     def _regress_tracked(
         self, req_id: Optional[str], other: str, candidate_src: Path, superseded: Dict[str, Dict[str, str]]
@@ -4416,26 +4557,19 @@ class EvalRunner:
                 )
             )
             return cases
-        dropped = superseded.get(other) or {}
+        runner = self._regression_runner(req_id, other, candidate_src)
+        # declared, approved change: these checks of the amended REQ no longer hold (a test reference,
+        # path::name, is not a check: its failure is recognised where it runs, _mark_superseded_tests)
+        dropped = {check: by for check, by in (superseded.get(other) or {}).items() if "::" not in check}
         if dropped:
-            # declared, approved change: these checks of the amended REQ no longer hold
-            ltc = {**ltc, "checks": [c for c in ltc.get("checks") or [] if str(c.get("id") or "") not in dropped]}
+            runner._skip_checks = set(dropped)
             for check, by in sorted(dropped.items()):
                 note = f"superseded by {by} — not run (declared change of /idea --extend)"
                 cases.append(EvalCase(name=f"regression::{other}::{check}::superseded", passed=True, code=0,
                                       stdout=note, stderr="", blocking=False))
                 log.info("regression %s: check %s superseded by %s", other, check, by)
-            if not ltc["checks"]:
+            if not [c for c in self._normalize_cases(ltc) if str(c.get("name") or "case") not in dropped]:
                 return cases  # every check of the amended REQ is replaced: nothing left to regress
-        runner = EvalRunner(
-            self.project_root,
-            eval_key=f"{self._safe_req_id(req_id)}/regression/{self._safe_req_id(other)}",
-            extra_src_roots=[candidate_src],
-            extra_root_roots=[candidate_src.parent / KIT_ROOT_DIR],
-            extra_test_roots=[candidate_src.parent],
-            cancel_event=self.cancel_event,
-            regression=True,
-        )
         report = runner.run_profile(profile=str(profile), ltc=ltc, req_id=other)
         if runner.reconciled_tests:
             # visible, never silent: the candidate changes tests another REQ delivered
@@ -4452,6 +4586,8 @@ class EvalRunner:
         baseline = self._baseline_cache(req_id, other)
         self._retry_failed_regression_tests(runner, profile, ltc, other, report, known_failing=baseline.failing(), baseline=baseline)
         self._mark_preexisting_regression_failures(req_id, profile, ltc, other, report, baseline=baseline)
+        self._mark_superseded_tests(other, report)
+        self._suggest_declared_change(req_id, other, report)
         self._note_shared_file_changes(other, candidate_src.parent, report)
         for case in report.cases:
             if not _is_regression_test_case(case):

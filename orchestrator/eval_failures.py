@@ -142,3 +142,101 @@ def fingerprint(text: str) -> str:
     if not keys:
         return ""
     return hashlib.sha1("\n".join(keys).encode("utf-8")).hexdigest()[:12]
+
+
+# The failed tests a runner names, in the formats of the common test runners of any language:
+# pytest/unittest, vitest/jest, Playwright, Go, Rust, .NET, Maven/Gradle (JUnit), RSpec, PHPUnit.
+_FAILED_TEST_PATTERNS = (
+    re.compile(r"^\s*(?:FAILED|ERROR)\s+(?P<file>[^\s:]+\.\w+)::(?P<name>\S.*?)(?:\s+-\s.*)?$"),            # pytest
+    re.compile(r"^\s*(?:FAIL|×|✕|✗)\s+(?P<file>\S+\.\w+)\s+>\s+(?P<name>.+?)(?:\s+\d+(?:\.\d+)?\s*m?s)?$"),  # vitest/jest
+    re.compile(r"^\s*✘\s+\d+\s+(?:\[[^\]]+\]\s+›\s+)?(?P<file>\S+?\.\w+):\d+:\d+\s+›\s+(?P<name>.+?)(?:\s+\(\d.*\))?$"),  # Playwright
+    re.compile(r"^\s*●\s+(?P<name>.+?)\s*$"),                                                                # jest
+    re.compile(r"^\s*--- FAIL:\s+(?P<name>\S+)"),                                                           # go test
+    re.compile(r"^\s*test\s+(?P<name>\S+)\s+\.\.\.\s+FAILED\s*$"),                                          # cargo test
+    re.compile(r"^\s*Failed\s+(?P<name>[\w.<>`,\[\]]+)\s*\["),                                              # dotnet test
+    re.compile(r"^\s*(?P<name>\w+)\((?P<file>[\w.$]+)\)\s+Time elapsed:.*<<<\s+(?:FAILURE|ERROR)!"),         # Maven Surefire
+    re.compile(r"^\s*\[ERROR\]\s+(?P<file>[\w.$]+)\.(?P<name>\w+):\d+"),                                     # Maven summary
+    re.compile(r"^\s*rspec\s+(?P<file>\./\S+?):\d+\s+#\s+(?P<name>.+?)\s*$"),                                # RSpec
+    re.compile(r"^\s*\d+\)\s+(?P<file>[\w\\]+)::(?P<name>\w+)\s*$"),                                         # PHPUnit
+)
+
+
+def failed_tests(text: str) -> List[Tuple[str, str]]:
+    """``[(file, name)]`` of the tests a check's output reports failed (file '' when the runner
+    does not print it); empty when no known runner format is found."""
+    out: List[Tuple[str, str]] = []
+    for raw in strip_ansi(text or "").split("\n"):
+        for pattern in _FAILED_TEST_PATTERNS:
+            m = pattern.match(raw)
+            if m:
+                item = ((m.groupdict().get("file") or "").strip(), m.group("name").strip())
+                if item not in out:
+                    out.append(item)
+                break
+    return out
+
+
+# Summary lines of the runners: "1 failed, 28 passed", "Tests  1 failed | 138 passed", "5 errors",
+# "Tests run: 4, Failures: 1, Errors: 1", "FAILED (failures=1, errors=1)", "Failed: 2, Passed: 10".
+_SUMMARY_COUNTS = (
+    re.compile(r"\b(\d+)\s+(?:failed|failing|failures?|errors?|errored)\b", re.IGNORECASE),
+    re.compile(r"\b(?:Failures|Errors|Failed)\s*[:=]\s*(\d+)", re.IGNORECASE),
+)
+
+
+def reported_failures(text: str) -> int:
+    """The largest count of failed/errored tests a runner's summary lines report (0 when none):
+    a check whose summary reports more failures than the tests CLike recognised failed in a way
+    CLike cannot see (a collection error, an unhandled error, a crash)."""
+    best = 0
+    for line in strip_ansi(text or "").split("\n"):
+        if _PASS_LINE.search(line):
+            continue
+        total = 0
+        for pattern in _SUMMARY_COUNTS:
+            total += sum(int(n) for n in pattern.findall(line))
+        best = max(best, total)
+    return best
+
+
+def _segments(name: str) -> List[str]:
+    return [s.strip() for s in re.split(r"::| > | › |\.(?=[A-Za-z_]\w*$)", name or "") if s.strip()]
+
+
+def _same_file(a: str, b: str) -> bool:
+    a, b = a.replace("\\", "/").lstrip("./"), b.replace("\\", "/").lstrip("./")
+    if not a or not b:
+        return True  # the runner did not print the file: the name decides
+    a, b = re.sub(r"^(?:\.\./)+", "", a), re.sub(r"^(?:\.\./)+", "", b)
+    return a.endswith(b) or b.endswith(a)
+
+
+def test_matches(failed: Tuple[str, str], ref: str) -> bool:
+    """Does a failed test ``(file, name)`` name the test of a reference ``path::name``
+    (``path::Class::name``, ``path::describe > name``)? Same file (when printed) and same test name."""
+    path, sep, name = str(ref or "").partition("::")
+    if not sep:
+        return False
+    f_file, f_name = failed
+    ref_last = (_segments(name) or [name])[-1]
+    seg = _segments(f_name)
+    f_last = seg[-1] if seg else f_name
+    # parametrized ids (test_x[case-1]) belong to the test they parametrize
+    f_last = re.sub(r"\[[^\]]*\]$", "", f_last)
+    if f_last != ref_last and not (len(ref_last) >= 12 and ref_last in f_name):
+        return False
+    return _same_file(f_file, path) if f_file else True
+
+
+# Failure lines that say a check or a test ran out of time (any runner, any language).
+_TIMEOUT_RE = re.compile(
+    r"TimeoutError|TimeoutExpired|ConnectionTimeout|\btimed out\b|Timed out|deadline exceeded|ETIMEDOUT|"
+    r"exceeded \d+ ?(?:ms|s|sec|seconds|minutes)\b|timeout of \d+ ?ms exceeded|Test timeout of \d+",
+    re.IGNORECASE,
+)
+
+
+def timed_out(text: str) -> bool:
+    """The failure (an excerpt) says that something ran out of time."""
+    return any(_TIMEOUT_RE.search(line) for line in strip_ansi(text or "").split("\n")
+               if not _PASS_LINE.search(line) and "DeprecationWarning" not in line)
