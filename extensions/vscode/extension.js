@@ -4733,6 +4733,13 @@ async function cmdOpenChat(context) {
             try { finalizeVerify.ensureDirtyBaseline(getWorkspaceRoot().fsPath); } catch (e) { log(`[finalize] baseline: ${e?.message || e}`); }
           }
 
+          if (phase === 'finalize' && !msg.finalizeRepair && finalizeVerifyInFlight) {
+            // a second /finalize (or --verify) while the verification runs composed the same sandbox
+            // workspace at once (B2B: a false FAIL, then a full agent run nobody needed)
+            panel.webview.postMessage({ type: 'echo', message: 'ℹ /finalize: the solution verification is still running — wait for its outcome (or Stop it first).' });
+            panel.webview.postMessage({ type: 'busy', on: false });
+            return;
+          }
           if (phase === 'finalize' && msg.verifyOnly && !msg.finalizeRepair) {
             // /finalize --verify: what the last finalize wrote is verified again (sandbox, the local
             // check, the outcome, the release tag) without a new agent run — no tokens when it passes;
@@ -7285,7 +7292,19 @@ async function cmdOpenChat(context) {
   // eval passes, the cycles are exhausted or nothing improves. msg.fix carries the loop state.
   // /finalize verification (no flag): run the solution eval profile in the sandbox; while it fails
   // and cycles remain, /finalize runs again with its errors. msg.finalizeVerifyState: loop state.
+  // the solution verification of /finalize is running (sandbox eval, local check)
+  let finalizeVerifyInFlight = false;
+
   async function continueFinalizeVerify(msg) {
+    finalizeVerifyInFlight = true;
+    try {
+      return await continueFinalizeVerifyRun(msg);
+    } finally {
+      finalizeVerifyInFlight = false;
+    }
+  }
+
+  async function continueFinalizeVerifyRun(msg) {
     const settings = cfg();
     const ws = getWorkspaceRoot();
     const say = (text) => panel.webview.postMessage({ type: 'echo', message: text });

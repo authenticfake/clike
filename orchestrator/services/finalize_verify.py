@@ -82,6 +82,11 @@ def solution_verify_rules(deployment: str = "") -> List[str]:
         "the local step), status — verified in the sandbox | verified on the developer machine | needs the developer "
         "(real identity provider, real external service: which command and which values) | not covered (why). A SPEC "
         "without use cases: say so in that section and verify the main capabilities as above.",
+        "Repeatable checks: the developer's database already holds data (earlier runs, demo data, work done by "
+        "hand), and scripts/check_solution_local runs again and again on it. A smoke journey creates what it "
+        "needs under new names every run (a client, product or campaign of its own, unique per run) and never "
+        "assumes an empty database; it must pass the second time as the first (B2B v3: a 409 on a company the "
+        "demo data already held).",
         "Configuration: the solution runs with configuration only, never with code edits. Every variable the solution "
         "reads is in .env.example (or the ecosystem equivalent) with its purpose; in the profile it is provisioned "
         "(token, uuid, template, postgres_database, service) or `external` when only the developer can give it "

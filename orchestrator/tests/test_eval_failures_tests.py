@@ -208,5 +208,32 @@ class AcceptanceCoverageTests(unittest.TestCase):
             self.assertIsNone(self._case(self._project(tmp, review="All criteria implemented and verified.\n")))
 
 
+class WorkspaceLockTests(unittest.TestCase):
+    def test_two_runs_of_the_same_workspace_never_overlap(self):
+        # B2B: /finalize --verify sent twice composed the same SOLUTION workspace at once
+        import threading
+        import time
+        import tempfile
+        active, overlaps = [0], []
+
+        def slow(self, *args, **kwargs):
+            active[0] += 1
+            overlaps.append(active[0])
+            time.sleep(0.2)
+            active[0] -= 1
+            from eval_runner import EvalReport
+            return EvalReport(profile="p", req_id="SOLUTION", mode="auto", passed=0, failed=0, cases=[])
+
+        with tempfile.TemporaryDirectory() as tmp, patch.object(EvalRunner, "_run_profile", slow), \
+                patch("eval_runner.sandbox_resources.preflight", return_value=None):
+            runners = [EvalRunner(Path(tmp), eval_key="SOLUTION") for _ in range(2)]
+            threads = [threading.Thread(target=r.run_profile, kwargs={"profile": "p", "ltc": {}, "req_id": "SOLUTION"}) for r in runners]
+            for th in threads:
+                th.start()
+            for th in threads:
+                th.join()
+        self.assertEqual(max(overlaps), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
