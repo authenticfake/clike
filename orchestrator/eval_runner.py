@@ -189,6 +189,16 @@ _SUPERSEDED_TESTS_NOTE = "[CLike EvalRunner] Superseded tests"
 _CONTENTION_NOTE = "[CLike EvalRunner] Timeout under parallel load"
 _DECLARE_NOTE = "[CLike EvalRunner] A delivered test of an amended REQ"
 _ACCEPTANCE_NOTE = "[CLike EvalRunner] Acceptance coverage"
+# A failure where the new value extends the old one (pytest, jest/vitest, JUnit/AssertJ, Go/testify…)
+_ADDITIVE_DIFF_RE = re.compile(
+    r"Extra items in the (?:left|right) (?:set|list|dict)|(?:Left|Right) contains \d+ more items?|"
+    r"Unexpected (?:key|element|item)s?|but has extra (?:key|element|item)s?|"
+    r"expected .{0,40}to have (?:length|size) \d+ but got \d+|"
+    r"unexpected (?:element|item)s? in|Extra elements:|elements not expected:",
+    re.IGNORECASE,
+)
+# acceptance saying the delivered tests keep holding ("existing … tests still hold", "unchanged")
+_KEEPS_TESTS_RE = re.compile(r"(?:existing|delivered|earlier)[^.;]{0,80}tests? (?:still|continue to) (?:hold|pass)", re.IGNORECASE)
 # A KIT's self review saying it is not complete (the agent's own words, any phrasing seen so far)
 _SELF_INCOMPLETE_RE = re.compile(
     r"not (?:be )?(?:treated as )?(?:complete|promotable)|must not be promoted|"
@@ -4468,6 +4478,8 @@ class EvalRunner:
         self._superseded_test_refs = self.superseded_tests(req_id)
         candidate = next((r for r in self._plan_reqs() if str(r["id"]) == str(req_id)), {})
         self._candidate_amends = [str(a) for a in (candidate.get("amends") or [])]
+        # the REQ promises the amended REQs' tests keep passing: no supersede to suggest
+        self._candidate_keeps = bool(_KEEPS_TESTS_RE.search(" ".join(str(a) for a in candidate.get("acceptance") or [])))
         others = self.regression_req_ids(req_id)
         only = getattr(self, "_regression_only", None)
         if only:
@@ -4586,11 +4598,20 @@ class EvalRunner:
                         break
             if not refs:
                 continue
-            commands = "\n".join(f'  /eval {req_id} --supersede {ref} "<why the release changes it>"' for ref in refs)
-            note = (f"{_DECLARE_NOTE}: {case.name} of {other} fails in delivered tests of REQs {req_id} amends. If {req_id} "
-                    "changes them on purpose (it extends what they pin: a field set, a list, the last migration), the "
-                    f"developer declares it — a repair may not change the plan:\n{commands}\n"
-                    f"Otherwise {req_id} must keep them passing.")
+            text = f"{case.stdout or ''}\n{case.stderr or ''}"
+            if not getattr(self, "_candidate_keeps", False) and _ADDITIVE_DIFF_RE.search(text):
+                commands = "\n".join(f'  /eval {req_id} --supersede {ref} "<why the release changes it>"' for ref in refs)
+                note = (f"{_DECLARE_NOTE}: {case.name} of {other} fails in delivered tests of REQs {req_id} amends, and the "
+                        "failure shows the new value extends the old one (more items in a set, list or mapping). If "
+                        f"{req_id} extends what they pin on purpose, the developer declares it — a repair may not change "
+                        f"the plan:\n{commands}\nOtherwise {req_id} must keep them passing.")
+            else:
+                # a refusal that no longer happens, another error, a missing route: a guarantee broken, not a
+                # list extended (B2B REQ-038: its own A01 says the REQ-035 refusal tests "still hold")
+                listed = "\n".join(f"  {ref.split('#', 1)[1]}" for ref in refs)
+                note = (f"{_DECLARE_NOTE}: {case.name} of {other} fails in delivered tests of REQs {req_id} amends, and "
+                        f"the failure is not an extension of what they pin: a regression {req_id} must fix (keep "
+                        f"these tests passing):\n{listed}")
             case.stderr = f"{case.stderr or ''}\n{note}"[-4000:]
             case.excerpt = f"{note}\n\n{case.excerpt or ''}"
 
