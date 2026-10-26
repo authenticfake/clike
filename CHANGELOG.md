@@ -4,6 +4,8 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.6.6] — 2026-10-26 — Promoted when delivered
+
 ### Added
 
 - **Use cases from the release to the finalize**: `/idea --extend` writes every journey the release
