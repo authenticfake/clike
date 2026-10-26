@@ -50,6 +50,14 @@ def cascade_rules(opts: Dict[str, Any]) -> List[str]:
         f"SPEC.md: new capabilities, interfaces, data, integrations, non-functional requirements and "
         f"acceptance of {release} merged into the relevant sections (no appended 'Extension Scope'); the "
         "acceptance of delivered REQs is unchanged.",
+        f"SPEC.md `## Use Cases` (as /spec writes them): every journey {release} adds or changes is a use case "
+        "`### UC-nn — <name>` with numbered steps `UC-nn.1`, `UC-nn.2`… (actor action → system response, "
+        "interface, data read/written; sign-in, expiry, denials, empty states, retries included), alternate and "
+        "error flows, the data path, postconditions and Prerequisites. A changed journey updates its use case "
+        f"(steps marked `({release})`, replaced steps `superseded in {release}`); a new one continues the UC "
+        "numbering. A SPEC without the section gets it, with at least the journeys this release touches. "
+        f"Every step of a {release} use case is covered by a {release} REQ (`covers: [\"UC-nn.n\" | \"UC-nn\"]` "
+        "in plan.json) or by a delivered REQ that already does it.",
         "plan.json: existing REQs are read-only (CLike restores any change). New REQs continue the ID "
         f"sequence, status `open`, and carry `release: \"{release}\"`, `change` (ADDED | MODIFIED | "
         f"REMOVED) and `origin: \"extend:<report file name>\"`. Prefer ADDED REQs that extend an existing "

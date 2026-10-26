@@ -101,7 +101,7 @@ function createSlashCompleter(bmadRoles) {
       '--executor': { desc: 'who writes the KITs in this run', value: 'executor' },
       '--methodology': { desc: 'KIT as BMAD developer, eval with QA advisory', value: 'methodology' },
     },
-    '/finalize': { '--methodology': { desc: 'BMAD documentation guidance', value: 'methodology' }, '--agent': { desc: 'BMAD role', value: 'agent', needs: '--methodology' } },
+    '/finalize': { '--verify': { desc: 'verify again (sandbox, local check, release tag) without a new agent run', excludes: ['--methodology'] }, '--methodology': { desc: 'BMAD documentation guidance', value: 'methodology' }, '--agent': { desc: 'BMAD role', value: 'agent', needs: '--methodology' } },
   };
   const SUBS = {
     '/autopilot': [['stop', 'stop after the current step'], ['status', 'where it is, promoted and parked REQs']],

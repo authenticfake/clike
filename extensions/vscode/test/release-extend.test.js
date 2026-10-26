@@ -403,3 +403,36 @@ test('/eval --supersede is parsed with its reference and reason; other flags sti
   assert.equal(p.args.fix, true);
   assert.deepEqual(p.args.targets, ['REQ-037']);
 });
+
+test('extend: the journeys of the release are use cases of the SPEC, as /spec writes them', () => {
+  const UC = '## Use Cases\n\n### UC-01 — Search\n- UC-01.1 the operator searches\n';
+  const run = (specBefore, specAfter) => {
+    const { root, put } = project();
+    put('docs/harper/SPEC.md', specBefore);
+    const before = re.snapshotDocs(root);
+    put('docs/harper/SPEC.md', specAfter);
+    put('docs/harper/plan.json', planV2());
+    const out = re.reconcileExtend({ root, before, files: [], isAgent: true, mode: 'cascade', validateExtendPlan,
+      cascade: { release: 'v2', baseline: 'v1' } });
+    const report = out.report ? fs.readFileSync(path.join(root, out.report), 'utf8') : '';
+    fs.rmSync(root, { recursive: true, force: true });
+    return { out, report };
+  };
+  // B2B: a SPEC without the section, an extend that did not add it
+  const none = run(SPEC_V1, `${SPEC_V1}\n## Release v2\nOIDC.\n`);
+  assert.equal(none.out.ok, true, none.out.errors.join('; '));
+  assert.ok(none.out.warnings.some((w) => /SPEC\.md has no ## Use Cases/.test(w)));
+  assert.match(none.report, /- Use cases: none in SPEC\.md/);
+  // the section is there but the release did not touch it
+  const same = run(`${SPEC_V1}\n${UC}`, `${SPEC_V1}\n${UC}\n## Release v2\nOIDC.\n`);
+  assert.ok(same.out.warnings.some((w) => /## Use Cases unchanged/.test(w)));
+  // the release adds its journey: no warning, the report names it
+  const added = run(`${SPEC_V1}\n${UC}`, `${SPEC_V1}\n${UC}\n### UC-02 — Sign in (v2)\n- UC-02.1 the operator signs in\n\n## Release v2\nOIDC.\n`);
+  assert.ok(!added.out.warnings.some((w) => /Use Cases/.test(w)), added.out.warnings.join('; '));
+  assert.match(added.report, /- Use cases: 2 \(new: UC-02\)/);
+});
+
+test('/finalize --verify verifies again without a new agent run; plain /finalize is unchanged', () => {
+  assert.deepEqual(parseSlash('/finalize --verify').args, { verifyOnly: true });
+  assert.equal(parseSlash('/finalize').args.verifyOnly, undefined);
+});

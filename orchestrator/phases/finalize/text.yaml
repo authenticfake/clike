@@ -87,6 +87,7 @@ text:
   - '## Known Limitations'
   - '## Next Steps'
   package.hard_rules:
+  - 'staged_root_deliverables (when present): repository-root files that delivered REQs left in a KIT staging folder and the gate never promoted (scripts, .env.<name>.example, .gitignore lines, ci/SOLUTION_LTC.json, docs runbooks). Bring each to its repository_path: missing = copy it; differs = merge it with what is there (keep both behaviours; the later REQ wins where they truly conflict) and say so in the report. Never copy a real .env or a secret.'
   - Do not run git commands.
   - Before final output, normalize every created or modified text file by stripping trailing whitespace and ensuring a final newline.
   - Do not commit, branch, push, tag, or open pull requests.

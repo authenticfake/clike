@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional
 import eval_environment
 import eval_failures
 from services.gate_integrity import _DEFINES_TESTS_RE
-from services.root_files import KIT_ROOT_DIR, root_policy
+from services.root_files import KIT_ROOT_DIR, extra_root_files, is_allowed_root_path, root_policy
 import eval_tools
 import sandbox_resources
 from utils.safe_paths import validate_req_id
@@ -188,6 +188,24 @@ _NEW_ERRORS_NOTE = "[CLike EvalRunner] New errors from this candidate"
 _SUPERSEDED_TESTS_NOTE = "[CLike EvalRunner] Superseded tests"
 _CONTENTION_NOTE = "[CLike EvalRunner] Timeout under parallel load"
 _DECLARE_NOTE = "[CLike EvalRunner] A delivered test of an amended REQ"
+_ACCEPTANCE_NOTE = "[CLike EvalRunner] Acceptance coverage"
+# A failure where the new value extends the old one (pytest, jest/vitest, JUnit/AssertJ, Go/testify…)
+_ADDITIVE_DIFF_RE = re.compile(
+    r"Extra items in the (?:left|right) (?:set|list|dict)|(?:Left|Right) contains \d+ more items?|"
+    r"Unexpected (?:key|element|item)s?|but has extra (?:key|element|item)s?|"
+    r"expected .{0,40}to have (?:length|size) \d+ but got \d+|"
+    r"unexpected (?:element|item)s? in|Extra elements:|elements not expected:",
+    re.IGNORECASE,
+)
+# acceptance saying the delivered tests keep holding ("existing … tests still hold", "unchanged")
+_KEEPS_TESTS_RE = re.compile(r"(?:existing|delivered|earlier)[^.;]{0,80}tests? (?:still|continue to) (?:hold|pass)", re.IGNORECASE)
+# A KIT's self review saying it is not complete (the agent's own words, any phrasing seen so far)
+_SELF_INCOMPLETE_RE = re.compile(
+    r"not (?:be )?(?:treated as )?(?:complete|promotable)|must not be promoted|"
+    r"remains? (?:unimplemented|not implemented|absent|incomplete|missing)|"
+    r"(?:is|are) not (?:yet )?(?:implemented|wired)|implementation gaps? remain",
+    re.IGNORECASE,
+)
 _SHARED_FILES_NOTE = "[CLike EvalRunner] Shared files changed"
 _SERVICE_BROKEN_NOTE = "[CLike EvalRunner] Service broken by the candidate"
 # A test file by name in Python, JS/TS, Java/Kotlin, Go, C# (test_x.py, x_test.go, x.test.ts, x.spec.js, XTest.java, XTests.cs).
@@ -1619,6 +1637,13 @@ class EvalRunner:
                     )
                 ):
                     shutil.copy2(layer / name, work_kit_root / name)
+            # env examples, ignore files, the solution eval profile, project docs (not the project
+            # tree itself: it has them already where they are)
+            if layer != self.project_root:
+                for rel in extra_root_files(layer, policy):
+                    target = work_kit_root / rel
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(layer / rel, target)
 
     def _copy_tree_overlay(
         self,
@@ -3704,7 +3729,16 @@ class EvalRunner:
         }
 
         package_json = None
-        if runtime_name in node_runtime_names or (active_profile_path.parent / "package.json").exists():
+        # a manifest the LTC names (package_json / manifest) or a Node version it requires installs
+        # the dependencies whatever its main runtime (B2B REQ-038: a Python LTC with a web frontend
+        # declared src/web/package.json, and the frontend checks ran without node_modules)
+        env_decl = ltc.get("environment") if isinstance(ltc.get("environment"), dict) else {}
+        declared_manifest = any(
+            src.get(key) for src in (runtime, ltc) for key in ("package_json", "package-json", "manifest", "manifest_file")
+            if isinstance(src, dict) and str(src.get(key) or "").endswith("package.json")
+        )
+        if (runtime_name in node_runtime_names or (active_profile_path.parent / "package.json").exists()
+                or declared_manifest or env_decl.get("node")):
             package_json = self._resolve_node_manifest(
                 runtime=runtime,
                 ltc=ltc,
@@ -3799,7 +3833,8 @@ class EvalRunner:
             norm_cases = [c for c in norm_cases if str(c.get("name") or "case") not in skip]
         only = getattr(self, "_only_checks", None)
         if only:
-            unknown = sorted(only - {str(c.get("name") or "case") for c in norm_cases})
+            unknown = sorted(n for n in only - {str(c.get("name") or "case") for c in norm_cases}
+                             if not n.startswith("acceptance::"))  # CLike's own check, not in the LTC
             if unknown:
                 out_cases.append(EvalCase(
                     name="ltc::unknown-checks", passed=False, code=4, stdout="",
@@ -4039,6 +4074,10 @@ class EvalRunner:
             out_cases.extend(self._shared_conftest_cases(eff_req))
             out_cases.extend(self._shared_test_support_cases(eff_req))
             out_cases.extend(self._test_layout_cases(eff_req))
+            out_cases.extend(self._staged_root_cases(eff_req))
+            only_names = getattr(self, "_only_checks", None)
+            if not only_names or "acceptance::coverage" in only_names:
+                out_cases.extend(self._acceptance_coverage_cases(eff_req, ltc))
         own_failed = any(not c.passed and c.blocking for c in out_cases)
         own = out_cases[loop_from:]
         self._progress(**({} if cancelled else {"checks_done": len(norm_cases)}), current=None,
@@ -4056,6 +4095,120 @@ class EvalRunner:
             mode="auto",
             cases=out_cases,
         )
+
+    def _staged_root_cases(self, req_id: str) -> List[EvalCase]:
+        """``structure::root-deliverables``: repository-root deliverables a KIT keeps outside root/
+        (a ci/<staging>/scripts/, ci/<staging>/.env.x.example, a staging map of its own) are never
+        promoted. B2B REQ-032…038 staged scripts, env examples, the solution eval profile and runbooks
+        under ci/shared/ with a STAGING_MAP.json: every check passed, the gate promoted src/ and test/,
+        and the solution had no --oidc / --live."""
+        kit = self.project_root / "runs" / "kit" / self._safe_req_id(req_id)
+        ci = kit / "ci"
+        policy = root_policy(self.project_root)
+        staged: List[str] = []
+        maps: List[str] = []
+        for path in sorted(kit.rglob("*")) if kit.is_dir() else []:
+            if not path.is_file() or any(part in {"node_modules", ".venv", "__pycache__", "reports", "local-eval-workspaces"}
+                                         for part in path.relative_to(kit).parts):
+                continue
+            if re.fullmatch(r"STAGING_MAP\.json|staging[_-]?map\.json", path.name, re.IGNORECASE):
+                maps.append(path.relative_to(kit).as_posix())
+                continue
+            if ci in path.parents:
+                parts = path.relative_to(ci).parts
+                if len(parts) >= 2 and is_allowed_root_path("/".join(parts[1:]), policy):
+                    staged.append(f"{path.relative_to(kit).as_posix()} → root/{'/'.join(parts[1:])}")
+        if not staged and not maps:
+            return []
+        shown = "\n".join(f"  {s}" for s in staged[:20]) + (f"\n  … {len(staged) - 20} more" if len(staged) > 20 else "")
+        return [EvalCase(name="structure::root-deliverables", passed=False, code=1, blocking=True, stdout="", stderr=(
+            f"[CLike EvalRunner] Repository-root deliverables outside root/: only runs/kit/{req_id}/root/<repository path> "
+            "is promoted to the repository (scripts/, deploy/, .env.<name>.example, .gitignore, ci/SOLUTION_LTC.json, "
+            "docs/<runbook>.md); a staging folder or a staging map of the KIT never is. Move them:\n" + shown +
+            (f"\nRemove the staging map(s): {', '.join(maps)} — CLike promotes root/ as it is." if maps else "") +
+            "\nThe eval sees root/ at the workspace root: checks run them there (scripts/…, not ci/<staging>/scripts/…)."))]
+
+    def _acceptance_coverage_cases(self, req_id: str, ltc: Dict[str, Any]) -> List[EvalCase]:
+        """``acceptance::coverage``: the KIT's own account of its acceptance criteria
+        (runs/kit/<REQ>/docs/ACCEPTANCE.json), checked against the plan and the LTC. The checks can
+        all pass while criteria are not implemented (B2B REQ-038: no LTC check covered the live probes
+        or the browser journey, and the KIT's SELF_REVIEW said it was not promotable): a criterion
+        partial or missing, or one claimed done without a blocking check of the LTC, keeps the REQ
+        from promotion and goes to the repair. developer_evidence is listed, not blocking. Without
+        the file, a SELF_REVIEW that declares the KIT incomplete blocks the same way."""
+        req = next((r for r in self._plan_reqs() if str(r["id"]).upper() == str(req_id).upper()), None)
+        acceptance = [str(a) for a in (req or {}).get("acceptance") or [] if str(a).strip()]
+        if not acceptance:
+            return []
+        kit = self.project_root / "runs" / "kit" / self._safe_req_id(req_id)
+        ids = []
+        for index, text in enumerate(acceptance, start=1):
+            m = re.match(r"\s*(REQ-[\w-]+?-A\d+)\b", text) or re.match(r"\s*(A\d+)\b", text)
+            ids.append(m.group(1) if m else f"A{index:02d}")
+        review = ""
+        try:
+            review = (kit / "docs" / "SELF_REVIEW.md").read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            pass
+        incomplete = [line.strip() for line in review.split("\n") if _SELF_INCOMPLETE_RE.search(line)][:6]
+        path = kit / "docs" / "ACCEPTANCE.json"
+        name = "acceptance::coverage"
+        if not path.is_file():
+            if not incomplete:
+                return []  # nothing declared either way: the checks decide, as before
+            return [EvalCase(name=name, passed=False, code=1, blocking=True, stdout="", stderr=(
+                f"{_ACCEPTANCE_NOTE}: the KIT's SELF_REVIEW.md declares {req_id} incomplete and the KIT has no "
+                f"docs/ACCEPTANCE.json:\n" + "\n".join(f"  {line}" for line in incomplete) +
+                f"\nImplement what is left, then write runs/kit/{req_id}/docs/ACCEPTANCE.json with the status of each "
+                f"criterion ({', '.join(ids)}) and the blocking checks that verify it."))]
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            entries = {str(e.get("id") or "").strip(): e for e in (data.get("criteria") or []) if isinstance(e, dict)}
+        except Exception as exc:
+            return [EvalCase(name=name, passed=False, code=2, blocking=True, stdout="",
+                             stderr=f"{_ACCEPTANCE_NOTE}: docs/ACCEPTANCE.json is not valid JSON with a criteria list: {exc}")]
+        blocking_checks = {str(c.get("name") or "") for c in self._normalize_cases(ltc) if c.get("blocking", True)}
+        problems: List[str] = []
+        external: List[str] = []
+        for cid, text in zip(ids, acceptance):
+            entry = entries.get(cid)
+            short = text[:140]
+            if entry is None:
+                problems.append(f"{cid}: not in ACCEPTANCE.json — {short}")
+                continue
+            status = str(entry.get("status") or "").strip().lower().replace("-", "_").replace(" ", "_")
+            # the names agents use for the same fields (B2B REQ-038: blocking_checks, evidence)
+            note = next((str(entry[k]).strip() for k in ("note", "evidence", "reason", "notes", "details")
+                         if str(entry.get(k) or "").strip()), "")
+            raw_checks = next((entry[k] for k in ("checks", "blocking_checks", "verified_by", "check_ids")
+                               if isinstance(entry.get(k), list) and entry.get(k)), [])
+            checks = [str(c) for c in raw_checks if str(c).strip()]
+            if status == "done":
+                valid = [c for c in checks if c in blocking_checks]
+                if not valid:
+                    problems.append(f"{cid}: done, but names no blocking check of ci/LTC.json that verifies it "
+                                    f"(named: {', '.join(checks) or 'none'})")
+            elif status == "developer_evidence":
+                if not note:
+                    problems.append(f"{cid}: developer_evidence without a note saying how it is proved")
+                else:
+                    external.append(f"{cid}: {note[:200]}")
+            elif status in {"partial", "missing"}:
+                problems.append(f"{cid}: {status}{f' — {note[:240]}' if note else ''}")
+            else:
+                problems.append(f"{cid}: unknown status {status or '(none)'} (done | partial | missing | developer_evidence)")
+        if incomplete and not problems:
+            problems.append("ACCEPTANCE.json says every criterion is done, but SELF_REVIEW.md says otherwise:\n" +
+                            "\n".join(f"    {line}" for line in incomplete))
+        shown_external = ("\nProved on the developer machine or by a real service (reported, not blocking):\n" +
+                          "\n".join(f"  {line}" for line in external)) if external else ""
+        if problems:
+            return [EvalCase(name=name, passed=False, code=1, blocking=True, stdout=shown_external.strip(), stderr=(
+                f"{_ACCEPTANCE_NOTE}: {len(problems)} acceptance criterion/criteria of {req_id} not delivered — the checks "
+                "passing is not enough to promote it:\n" + "\n".join(f"  {p}" for p in problems) +
+                f"\nImplement them (with blocking checks in ci/LTC.json that verify them) and update docs/ACCEPTANCE.json."))]
+        return [EvalCase(name=name, passed=True, code=0, blocking=True, stderr="",
+                         stdout=f"{len(ids)} acceptance criteria of {req_id}: done with their checks.{shown_external}")]
 
     def _plan_reqs(self) -> List[Dict[str, Any]]:
         plan_path = self.project_root / "docs" / "harper" / "plan.json"
@@ -4365,6 +4518,8 @@ class EvalRunner:
         self._superseded_test_refs = self.superseded_tests(req_id)
         candidate = next((r for r in self._plan_reqs() if str(r["id"]) == str(req_id)), {})
         self._candidate_amends = [str(a) for a in (candidate.get("amends") or [])]
+        # the REQ promises the amended REQs' tests keep passing: no supersede to suggest
+        self._candidate_keeps = bool(_KEEPS_TESTS_RE.search(" ".join(str(a) for a in candidate.get("acceptance") or [])))
         others = self.regression_req_ids(req_id)
         only = getattr(self, "_regression_only", None)
         if only:
@@ -4469,17 +4624,34 @@ class EvalRunner:
                         continue
                     owner = next((a for a in amends if (kits / self._safe_req_id(a) / rel).is_file()), None)
                     if owner:
-                        ref = f"{owner}#{rel}::{re.sub(r'\[[^\]]*\]$', '', name)}"
+                        test_name = re.sub(r'\[[^\]]*\]$', '', name)
+                        last = re.split(r"::| > ", test_name)[-1].strip()
+                        try:
+                            body = (kits / self._safe_req_id(owner) / rel).read_text(encoding="utf-8", errors="ignore")
+                        except OSError:
+                            body = ""
+                        if not last or not re.search(rf"(?<![\w-]){re.escape(last)}(?![\w-])", body):
+                            break  # a name cut in the output, or not a test of that file: no command to give
+                        ref = f"{owner}#{rel}::{test_name}"
                         if ref not in refs:
                             refs.append(ref)
                         break
             if not refs:
                 continue
-            commands = "\n".join(f'  /eval {req_id} --supersede {ref} "<why the release changes it>"' for ref in refs)
-            note = (f"{_DECLARE_NOTE}: {case.name} of {other} fails in delivered tests of REQs {req_id} amends. If {req_id} "
-                    "changes them on purpose (it extends what they pin: a field set, a list, the last migration), the "
-                    f"developer declares it — a repair may not change the plan:\n{commands}\n"
-                    f"Otherwise {req_id} must keep them passing.")
+            text = f"{case.stdout or ''}\n{case.stderr or ''}"
+            if not getattr(self, "_candidate_keeps", False) and _ADDITIVE_DIFF_RE.search(text):
+                commands = "\n".join(f'  /eval {req_id} --supersede {ref} "<why the release changes it>"' for ref in refs)
+                note = (f"{_DECLARE_NOTE}: {case.name} of {other} fails in delivered tests of REQs {req_id} amends, and the "
+                        "failure shows the new value extends the old one (more items in a set, list or mapping). If "
+                        f"{req_id} extends what they pin on purpose, the developer declares it — a repair may not change "
+                        f"the plan:\n{commands}\nOtherwise {req_id} must keep them passing.")
+            else:
+                # a refusal that no longer happens, another error, a missing route: a guarantee broken, not a
+                # list extended (B2B REQ-038: its own A01 says the REQ-035 refusal tests "still hold")
+                listed = "\n".join(f"  {ref.split('#', 1)[1]}" for ref in refs)
+                note = (f"{_DECLARE_NOTE}: {case.name} of {other} fails in delivered tests of REQs {req_id} amends, and "
+                        f"the failure is not an extension of what they pin: a regression {req_id} must fix (keep "
+                        f"these tests passing):\n{listed}")
             case.stderr = f"{case.stderr or ''}\n{note}"[-4000:]
             case.excerpt = f"{note}\n\n{case.excerpt or ''}"
 

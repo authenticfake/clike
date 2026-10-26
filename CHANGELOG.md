@@ -4,6 +4,44 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.6.6] — 2026-10-26 — Promoted when delivered
+
+### Added
+
+- **`/finalize --verify`**: the solution verification again — the sandbox profile, the local check on
+  the developer's machine, the outcome, the release tag — without a new agent run. No tokens when it
+  passes; the repair agent runs only on a failure, as in a full `/finalize`. For a finalize stopped
+  before its end, or a fix made by hand (a busy port, a configuration value).
+
+- **Use cases from the release to the finalize**: `/idea --extend` writes every journey the release
+  adds or changes as a SPEC use case, as `/spec` does (`UC-nn` with steps, errors and prerequisites;
+  the section is created when the SPEC has none), and its new REQs cover the steps. The report's
+  CLike verification counts the use cases and warns when the release adds REQs without one.
+  `/finalize`, cloud or local agent, follows the use cases: one check per journey that can run, and
+  a `## Use cases` table in FINALIZE_REPORT.md with the status of each (verified in the sandbox, on
+  the developer machine, needs the developer, not covered).
+
+### Fixed
+
+- **Root deliverables reach the repository**: a KIT's `root/` now also delivers the example of each
+  private env file (`.env.<name>.example`), `.gitignore` / `.dockerignore`, `ci/SOLUTION_LTC.json`
+  and project docs (`docs/<runbook>.md`, never `docs/harper/`, `docs/inputs/`, `docs/reference/`).
+  The eval blocks root deliverables left in a staging folder (`ci/shared/…`) or a staging map of the
+  KIT, saying where each belongs, and `/finalize` receives those that delivered REQs left there, to
+  bring them to the root. Before, these files had no legal place: the KITs staged scripts, env
+  examples, the solution profile and runbooks under `ci/shared/`, the gate promoted `src/` and
+  `test/` only, and the solution lacked `--oidc` / `--live`.
+
+- **A REQ is promoted only when its acceptance criteria are delivered**: every KIT writes
+  `docs/ACCEPTANCE.json` (each criterion `done` with the blocking checks that verify it, `partial`,
+  `missing`, or `developer_evidence`), and the eval's blocking check `acceptance::coverage` sends a
+  criterion not delivered to the repair. A self review that declares the KIT incomplete blocks too.
+  Before, every check could pass while criteria were not implemented: the KIT's own SELF_REVIEW said
+  "not promotable", and CLike read only the checks.
+- **The dependencies of a declared `package_json` are installed whatever the LTC's main runtime**:
+  a Python LTC with a web frontend that names `src/web/package.json` (or requires a Node version)
+  gets `npm install` before its frontend checks. Before, they ran without `node_modules`.
+
 ## [1.6.5] — 2026-10-26 — Declared changes that hold
 
 ### Added

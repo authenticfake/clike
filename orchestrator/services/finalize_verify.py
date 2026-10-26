@@ -75,6 +75,13 @@ def solution_verify_rules(deployment: str = "") -> List[str]:
         "`checks`: smoke checks against the running solution, as small scripts under ci/solution/ — health of each "
         "service, one real request per main capability of the SPEC through the public API, and every main UI page "
         "answering with its content. A smoke check asserts what the user would see, it is not a test suite.",
+        "Use cases: the journeys to verify are the `## Use Cases` of docs/harper/SPEC.md (`UC-nn`, steps "
+        "`UC-nn.n`). The smoke checks of the profile and scripts/check_solution_local follow the use cases that can "
+        "run (one check per use case, named after it, e.g. `uc-03-sign-in`), the modes too (`--oidc`, `--live` when "
+        "the solution has them). FINALIZE_REPORT.md has a `## Use cases` table: UC, name, verified by (the check or "
+        "the local step), status — verified in the sandbox | verified on the developer machine | needs the developer "
+        "(real identity provider, real external service: which command and which values) | not covered (why). A SPEC "
+        "without use cases: say so in that section and verify the main capabilities as above.",
         "Configuration: the solution runs with configuration only, never with code edits. Every variable the solution "
         "reads is in .env.example (or the ecosystem equivalent) with its purpose; in the profile it is provisioned "
         "(token, uuid, template, postgres_database, service) or `external` when only the developer can give it "

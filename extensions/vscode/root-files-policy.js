@@ -22,6 +22,13 @@ const DENIED_FIRST_SEGMENTS = new Set([
   '__pycache__', '.cache', '.next', 'dist', 'build', 'coverage',
 ]);
 const DENIED_NAME_RE = /^\.env(\..+)?$|\.(pem|key|p12|pfx)$|^id_(rsa|ed25519)/i;
+// Also deliverable (B2B REQ-037/038 had no legal place for them and staged them under ci/shared/,
+// which is never promoted): the example of each private env file (.env.oidc.example), the ignore
+// files, the solution eval profile, and project documentation outside the Harper/input folders.
+const ENV_EXAMPLE_RE = /^\.env(\.[\w-]+)?\.example$/;
+const EXTRA_ROOT_FILES = ['.gitignore', '.dockerignore'];
+const SOLUTION_FILES = ['ci/SOLUTION_LTC.json'];
+const DOCS_DENIED = new Set(['harper', 'inputs', 'reference']);
 
 function rootPolicy(workspaceRoot) {
   let meta = {};
@@ -39,9 +46,11 @@ function isAllowedRootPath(rel, policy) {
   const parts = p.split('/');
   if (parts.some((s) => !s || s === '.' || s === '..')) return false;
   const name = parts[parts.length - 1];
+  if (DENIED_NAME_RE.test(name) && !ENV_EXAMPLE_RE.test(name)) return false;
+  if (SOLUTION_FILES.includes(p)) return true;
+  if (parts[0] === 'docs') return parts.length > 2 ? !DOCS_DENIED.has(parts[1]) : parts.length === 2;
   if (DENIED_FIRST_SEGMENTS.has(parts[0])) return false;
-  if (DENIED_NAME_RE.test(name) && name !== '.env.example') return false;
-  if (parts.length === 1) return policy.files.includes(name);
+  if (parts.length === 1) return policy.files.includes(name) || ENV_EXAMPLE_RE.test(name) || EXTRA_ROOT_FILES.includes(name);
   return policy.folders.includes(parts[0]);
 }
 

@@ -96,5 +96,117 @@ class TimeoutAloneTests(unittest.TestCase):
         self.assertTrue(wrong.blocking)
 
 
+class NodeManifestTests(unittest.TestCase):
+    def test_a_declared_package_json_installs_whatever_the_main_runtime(self):
+        # B2B REQ-038: a Python LTC with a web frontend named src/web/package.json; no install ran
+        import json
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            kit = root / "runs" / "kit" / "REQ-001"
+            (kit / "ci").mkdir(parents=True)
+            (kit / "src" / "web").mkdir(parents=True)
+            (kit / "src" / "web" / "package.json").write_text('{"name": "web"}')
+            ltc = {"req_id": "REQ-001", "package_json": "runs/kit/REQ-001/src/web/package.json",
+                   "environment": {"python": "3.12", "node": ">=22"},
+                   "checks": [{"id": "unit", "command": f"{sys.executable} -c 'print(1)'"}]}
+            (kit / "ci" / "LTC.json").write_text(json.dumps(ltc))
+            seen = []
+
+            def fake(self, *, req_id, package_json, env, cwd):
+                seen.append(Path(package_json).name)
+                return env, [EvalCase(name="env::npm-install", passed=True, code=0, stdout="", stderr="")]
+
+            with patch.object(EvalRunner, "_ensure_node_dependencies", fake):
+                report = EvalRunner(root).run_profile(profile=str(kit / "ci" / "LTC.json"), ltc=ltc, req_id="REQ-001")
+            self.assertEqual(seen, ["package.json"])
+            self.assertIn("env::npm-install", [c.name for c in report.cases])
+
+
+class AcceptanceCoverageTests(unittest.TestCase):
+    """B2B REQ-038: every LTC check could pass while the live probes and the browser journey were not
+    implemented; the KIT's SELF_REVIEW said it was not promotable and CLike did not read it."""
+
+    def _project(self, tmp, acceptance=None, review=None):
+        import json
+        root = Path(tmp)
+        (root / "docs" / "harper").mkdir(parents=True)
+        (root / "docs" / "harper" / "plan.json").write_text(json.dumps({"reqs": [{"id": "REQ-038", "status": "in_progress",
+            "acceptance": ["REQ-038-A01: preflight refuses fixtures", "REQ-038-A06: one probe per adapter",
+                           "REQ-038-A07: real research observed by the developer"]}]}))
+        docs = root / "runs" / "kit" / "REQ-038" / "docs"
+        docs.mkdir(parents=True)
+        if acceptance is not None:
+            (docs / "ACCEPTANCE.json").write_text(json.dumps({"criteria": acceptance}))
+        if review is not None:
+            (docs / "SELF_REVIEW.md").write_text(review)
+        return root
+
+    LTC = {"checks": [{"id": "unit", "command": "true"}, {"id": "lint", "command": "true", "blocking": False}]}
+
+    def _case(self, root):
+        cases = EvalRunner(root)._acceptance_coverage_cases("REQ-038", self.LTC)
+        return cases[0] if cases else None
+
+    def test_a_partial_or_missing_criterion_blocks(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            case = self._case(self._project(tmp, acceptance=[
+                {"id": "REQ-038-A01", "status": "done", "checks": ["unit"]},
+                {"id": "REQ-038-A06", "status": "missing", "note": "probes not implemented"},
+                {"id": "REQ-038-A07", "status": "developer_evidence", "note": "real IT+GB research on the developer machine"}]))
+            self.assertFalse(case.passed)
+            self.assertTrue(case.blocking)
+            self.assertIn("REQ-038-A06: missing — probes not implemented", case.stderr)
+            self.assertIn("real IT+GB research", case.stdout)
+
+    def test_done_needs_a_blocking_check_and_every_criterion_is_listed(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            case = self._case(self._project(tmp, acceptance=[
+                {"id": "REQ-038-A01", "status": "done", "checks": ["lint"]},
+                {"id": "REQ-038-A06", "status": "done", "checks": ["unit"]}]))
+            self.assertFalse(case.passed)
+            self.assertIn("REQ-038-A01: done, but names no blocking check", case.stderr)
+            self.assertIn("REQ-038-A07: not in ACCEPTANCE.json", case.stderr)
+
+    def test_all_done_passes_and_developer_evidence_is_reported(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            case = self._case(self._project(tmp, acceptance=[
+                {"id": "REQ-038-A01", "status": "done", "checks": ["unit"]},
+                {"id": "REQ-038-A06", "status": "done", "checks": ["unit"]},
+                {"id": "REQ-038-A07", "status": "developer_evidence", "note": "observed on the developer machine"}]))
+            self.assertTrue(case.passed)
+            self.assertIn("observed on the developer machine", case.stdout)
+
+    def test_a_self_review_that_says_incomplete_blocks_without_the_file_and_contradicts_it(self):
+        import tempfile
+        review = "The candidate must not be treated as complete or independently promotable until the gaps are resolved.\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            case = self._case(self._project(tmp, review=review))
+            self.assertFalse(case.passed)
+            self.assertIn("declares REQ-038 incomplete", case.stderr)
+        with tempfile.TemporaryDirectory() as tmp:
+            done = [{"id": f"REQ-038-A0{n}", "status": "done", "checks": ["unit"]} for n in (1, 6, 7)]
+            case = self._case(self._project(tmp, acceptance=done, review=review))
+            self.assertFalse(case.passed)
+            self.assertIn("SELF_REVIEW.md says otherwise", case.stderr)
+
+    def test_the_field_names_agents_use_are_understood(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            case = self._case(self._project(tmp, acceptance=[
+                {"id": "REQ-038-A01", "status": "done", "blocking_checks": ["unit"], "evidence": "x"},
+                {"id": "REQ-038-A06", "status": "done", "verified_by": ["unit"]},
+                {"id": "REQ-038-A07", "status": "developer-evidence", "evidence": "real research on the developer machine"}]))
+            self.assertTrue(case.passed, case.stderr)
+
+    def test_nothing_declared_keeps_the_previous_behaviour(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(self._case(self._project(tmp, review="All criteria implemented and verified.\n")))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1679,6 +1679,8 @@ function handleSlash(slash) {
       msg.rawInput = slash.args.rawInput || '';
     } else if (slash.cmd === '/idea') {
       msg.name = slash.args.name || '';
+    } else if (slash.cmd === '/finalize' && slash.args?.verifyOnly) {
+      msg.verifyOnly = true;
     } 
 
     console.log('[CLike][chat-ui][harperRun] cmd =', JSON.stringify(slash.cmd));

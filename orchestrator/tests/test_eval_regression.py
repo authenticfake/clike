@@ -562,18 +562,35 @@ class DeclaredChangeRegressionTests(_RegressionProject):
         self.assertIn("Superseded tests", case["stderr"])
         self.assertIn("superseded by REQ-002: price list v2", case["stderr"])
 
-    def test_a_failing_test_of_an_amended_req_says_how_to_declare_it(self):
-        # B2B REQ-037: a REQ-015 test pinned the session fields the release extends; nobody had declared it
-        self._reporting_test(["test_price[eur]"])
+    def _amended_failure(self, extra, acceptance=None):
+        """REQ-001's test fails the way a runner prints it; REQ-002 amends REQ-001, declares nothing."""
+        (self.proj / "runs" / "kit" / "REQ-001" / "test" / "test_pricing.py").write_text(
+            "import sys\nfrom pricing import price\n\ndef test_price():\n    pass\n\nif price() != 10:\n"
+            "    print('FAILED test/test_pricing.py::test_price[eur] - AssertionError: assert {1, 2} == {1}')\n"
+            f"    print('{extra}')\n    sys.exit(1)\n")
         kit = self.proj / "runs" / "kit" / "REQ-002"
         (kit / "src" / "pricing.py").write_text("def price():\n    return 12\n")
         (kit / "test" / "test_checkout.py").write_text("from checkout import total\nassert total(2) == 24\n")
-        self._declare(change="MODIFIED", amends=["REQ-001"], supersedes=[])
+        self._declare(change="MODIFIED", amends=["REQ-001"], supersedes=[], **({"acceptance": acceptance} if acceptance else {}))
         evaluated = self._post("/v1/eval/run", "REQ-002", regression=True).json()
         self.assertEqual(evaluated["status"], "FAIL")
-        case = next(c for c in evaluated["cases"] if c["name"] == "regression::REQ-001::unit")
+        return next(c for c in evaluated["cases"] if c["name"] == "regression::REQ-001::unit")
+
+    def test_a_pinned_list_the_req_extends_gets_the_declaration(self):
+        # B2B REQ-037: a REQ-015 test pinned the exact session fields the release extends
+        case = self._amended_failure("Extra items in the left set:")
         self.assertTrue(case["blocking"])
         self.assertIn('/eval REQ-002 --supersede REQ-001#test/test_pricing.py::test_price "', case["stderr"])
+
+    def test_a_broken_guarantee_of_an_amended_req_is_a_regression_not_a_declaration(self):
+        # B2B REQ-038: a fixture relabel no longer refused ("DID NOT RAISE") was offered as a supersede
+        case = self._amended_failure("Failed: DID NOT RAISE ValidationError")
+        self.assertIn("not an extension of what they pin: a regression REQ-002 must fix", case["stderr"])
+        self.assertNotIn("--supersede", case["stderr"])
+
+    def test_a_req_that_promises_the_tests_still_hold_gets_no_declaration(self):
+        case = self._amended_failure("Extra items in the left set:", acceptance=["REQ-002-A01: existing refusal tests still hold"])
+        self.assertNotIn("--supersede", case["stderr"])
 
     def test_a_check_whose_summary_counts_more_failures_still_fails(self):
         # only the superseded test is named, but the runner reports an error it does not name as a test

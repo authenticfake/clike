@@ -573,6 +573,7 @@ def build_kit_local_agent_package(
             "required": [
                 f"runs/kit/{req_id}/ci/LTC.json",
                 f"runs/kit/{req_id}/ci/HOWTO.md",
+                f"runs/kit/{req_id}/docs/ACCEPTANCE.json",
                 f"runs/kit/{req_id}/ci/<ecosystem-native-eval-manifest>",
                 f"runs/kit/{req_id}/src/<execution-area>/<ecosystem-native-runtime-manifest> when the REQ creates or updates a runnable execution area",
             ],

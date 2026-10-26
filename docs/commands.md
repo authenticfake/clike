@@ -128,6 +128,11 @@ IDEA → SPEC → PLAN in continuity with what exists:
   release is added inside the sections it belongs to, plus a `## Release vN` section.
   TECH_CONSTRAINTS.yaml changes only by addition. A document that drops a section of the earlier
   release is restored and the run says so.
+- **Use cases, as `/spec` writes them.** Every journey the release adds or changes is a use case of
+  SPEC.md `## Use Cases` (`### UC-nn — <name>`, steps `UC-nn.n`, errors, prerequisites); a SPEC
+  without the section gets it, with at least the journeys of the release. The new REQs cover their
+  steps (`covers` in plan.json). The CLike verification of the report counts them and warns when the
+  release adds REQs without a use case; `/finalize` then verifies the solution journey by journey.
 - **PLAN delta.** Delivered REQs are read-only (CLike restores any change). New REQs continue the
   sequence with `release`, `origin` and `change`:
   - `ADDED` — a new capability (prefer extending an existing seam);
@@ -326,6 +331,13 @@ an optional version (`jdk@17`), installs it and approves it for the project in
 `old → new` (a failed rebuild keeps the previous version); `remove` withdraws the approval (the
 installed files stay in the shared tools volume). `/tools` shows the installed versions and reminds
 you after 30 days. Libraries of a language belong to the project manifest. See `auto-eval.md`.
+
+### `/finalize --verify`
+The verification of the last `/finalize` again, **without a new agent run**: the solution eval in
+the sandbox, the local check on your machine, the outcome, the release tag and its notes. It costs
+no tokens when it passes; on a failure the repair agent runs as in a full `/finalize`. Use it after
+a finalize stopped before its end, or after a fix you made yourself (a busy port, a configuration
+value).
 
 ### `/finalize`
 Brings the promoted solution to **running and configured**: it wires what is missing, writes the

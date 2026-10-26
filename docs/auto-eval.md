@@ -257,6 +257,38 @@ Follow-up KIT stages (`/kit REQ --integrity|--hardener|--promotion-eval`) work o
 candidate: they do not start a new KIT generation, and once the tests are locked (first eval)
 their changes to `test/` and `ci/` go through the same governance as a repair.
 
+## Promotability: the acceptance criteria are delivered
+
+Passing checks are not enough: a check can only fail for what it tests. Every KIT writes
+`runs/kit/<REQ>/docs/ACCEPTANCE.json`, one entry per acceptance criterion of the plan:
+
+```json
+{"criteria": [
+  {"id": "REQ-038-A01", "status": "done", "checks": ["tests", "unit"]},
+  {"id": "REQ-038-A06", "status": "missing", "note": "the adapter probes are not implemented"},
+  {"id": "REQ-038-A07", "status": "developer_evidence", "note": "a real IT+GB research on the developer machine"}
+]}
+```
+
+The eval adds a blocking check `acceptance::coverage`. It fails when a criterion is `partial` or
+`missing`, is not in the file, or is `done` without a blocking check of `ci/LTC.json` that verifies
+it; the repair receives the list and implements what is left. `developer_evidence` (only for what
+the criterion itself says is proved on the developer machine or by a real external service) is
+reported, not blocking. Without the file, a `SELF_REVIEW.md` that declares the KIT incomplete
+("not complete or promotable", "remains unimplemented") blocks the same way, and so does a file
+that says everything is done while the self review says otherwise. Nothing declared either way
+(KITs written before this rule): the checks decide, as before.
+
+## Repository-root deliverables
+
+Only `runs/kit/<REQ>/root/<repository path>` reaches the repository root: `scripts/`, `deploy/` and
+the other root folders, `.env.<name>.example`, `.gitignore`, `ci/SOLUTION_LTC.json`, project docs
+`docs/<runbook>.md` (never `docs/harper/`, `docs/inputs/`, `docs/reference/`, a real `.env` or a
+secret). The eval sees `root/` at the workspace root. A KIT that keeps such files in a staging
+folder of `ci/` (`ci/shared/scripts/…`) or writes a staging map of its own fails the blocking check
+`structure::root-deliverables`, with the move to make; `/finalize` gets the list of those that
+delivered REQs left there (`staged_root_deliverables`) and brings them to the root.
+
 ## Promotability: regression of promoted REQs (L2)
 
 With `clike.eval.regression` (default on), `/eval` and `/gate` also run the acceptance checks of
