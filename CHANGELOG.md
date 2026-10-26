@@ -17,6 +17,9 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   of time while promoted REQs ran side by side runs again alone; passing alone, it is a warning,
   never repaired. Before, a 30 s test, a database connection and a 300 s suite slowed by the load
   were diagnosed as shared-file changes, and the repair changed correct code.
+- **The end of `/kit`, `/eval` and `/gate` keeps what changed in the plan meanwhile**: the status is
+  written on `plan.json` as it is on disk, not on the copy read when the run started. Before, a
+  `supersedes` entry added during a 25-minute repair was erased when the repair ended.
 - **A change the cascade did not name is declared in one command**: `/eval <REQ> --supersede
   REQ-x#<check | path::test> "<why>"` checks the reference, writes it to the plan (`supersedes`,
   `amends`), records it with the author in `runs/extend/declared-supersedes.jsonl` and runs the eval.
