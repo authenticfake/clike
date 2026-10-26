@@ -14,6 +14,7 @@ NATIVE_CLOUD_REQUIRED_OUTPUTS: Dict[str, List[str]] = {
         "runs/kit/<REQ-ID>/docs/KIT_<REQ-ID>.md",
         "runs/kit/<REQ-ID>/ci/LTC.json",
         "runs/kit/<REQ-ID>/ci/HOWTO.md",
+        "runs/kit/<REQ-ID>/docs/ACCEPTANCE.json",
     ],
     # Acceptance-first KIT, stage 1: tests and eval profile only (locked before any code).
     "acceptance": [

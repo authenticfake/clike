@@ -4,6 +4,18 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+### Fixed
+
+- **A REQ is promoted only when its acceptance criteria are delivered**: every KIT writes
+  `docs/ACCEPTANCE.json` (each criterion `done` with the blocking checks that verify it, `partial`,
+  `missing`, or `developer_evidence`), and the eval's blocking check `acceptance::coverage` sends a
+  criterion not delivered to the repair. A self review that declares the KIT incomplete blocks too.
+  Before, every check could pass while criteria were not implemented: the KIT's own SELF_REVIEW said
+  "not promotable", and CLike read only the checks.
+- **The dependencies of a declared `package_json` are installed whatever the LTC's main runtime**:
+  a Python LTC with a web frontend that names `src/web/package.json` (or requires a Node version)
+  gets `npm install` before its frontend checks. Before, they ran without `node_modules`.
+
 ## [1.6.5] — 2026-10-26 — Declared changes that hold
 
 ### Added

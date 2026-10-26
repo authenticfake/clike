@@ -188,6 +188,14 @@ _NEW_ERRORS_NOTE = "[CLike EvalRunner] New errors from this candidate"
 _SUPERSEDED_TESTS_NOTE = "[CLike EvalRunner] Superseded tests"
 _CONTENTION_NOTE = "[CLike EvalRunner] Timeout under parallel load"
 _DECLARE_NOTE = "[CLike EvalRunner] A delivered test of an amended REQ"
+_ACCEPTANCE_NOTE = "[CLike EvalRunner] Acceptance coverage"
+# A KIT's self review saying it is not complete (the agent's own words, any phrasing seen so far)
+_SELF_INCOMPLETE_RE = re.compile(
+    r"not (?:be )?(?:treated as )?(?:complete|promotable)|must not be promoted|"
+    r"remains? (?:unimplemented|not implemented|absent|incomplete|missing)|"
+    r"(?:is|are) not (?:yet )?(?:implemented|wired)|implementation gaps? remain",
+    re.IGNORECASE,
+)
 _SHARED_FILES_NOTE = "[CLike EvalRunner] Shared files changed"
 _SERVICE_BROKEN_NOTE = "[CLike EvalRunner] Service broken by the candidate"
 # A test file by name in Python, JS/TS, Java/Kotlin, Go, C# (test_x.py, x_test.go, x.test.ts, x.spec.js, XTest.java, XTests.cs).
@@ -3704,7 +3712,16 @@ class EvalRunner:
         }
 
         package_json = None
-        if runtime_name in node_runtime_names or (active_profile_path.parent / "package.json").exists():
+        # a manifest the LTC names (package_json / manifest) or a Node version it requires installs
+        # the dependencies whatever its main runtime (B2B REQ-038: a Python LTC with a web frontend
+        # declared src/web/package.json, and the frontend checks ran without node_modules)
+        env_decl = ltc.get("environment") if isinstance(ltc.get("environment"), dict) else {}
+        declared_manifest = any(
+            src.get(key) for src in (runtime, ltc) for key in ("package_json", "package-json", "manifest", "manifest_file")
+            if isinstance(src, dict) and str(src.get(key) or "").endswith("package.json")
+        )
+        if (runtime_name in node_runtime_names or (active_profile_path.parent / "package.json").exists()
+                or declared_manifest or env_decl.get("node")):
             package_json = self._resolve_node_manifest(
                 runtime=runtime,
                 ltc=ltc,
@@ -3799,7 +3816,8 @@ class EvalRunner:
             norm_cases = [c for c in norm_cases if str(c.get("name") or "case") not in skip]
         only = getattr(self, "_only_checks", None)
         if only:
-            unknown = sorted(only - {str(c.get("name") or "case") for c in norm_cases})
+            unknown = sorted(n for n in only - {str(c.get("name") or "case") for c in norm_cases}
+                             if not n.startswith("acceptance::"))  # CLike's own check, not in the LTC
             if unknown:
                 out_cases.append(EvalCase(
                     name="ltc::unknown-checks", passed=False, code=4, stdout="",
@@ -4039,6 +4057,9 @@ class EvalRunner:
             out_cases.extend(self._shared_conftest_cases(eff_req))
             out_cases.extend(self._shared_test_support_cases(eff_req))
             out_cases.extend(self._test_layout_cases(eff_req))
+            only_names = getattr(self, "_only_checks", None)
+            if not only_names or "acceptance::coverage" in only_names:
+                out_cases.extend(self._acceptance_coverage_cases(eff_req, ltc))
         own_failed = any(not c.passed and c.blocking for c in out_cases)
         own = out_cases[loop_from:]
         self._progress(**({} if cancelled else {"checks_done": len(norm_cases)}), current=None,
@@ -4056,6 +4077,84 @@ class EvalRunner:
             mode="auto",
             cases=out_cases,
         )
+
+    def _acceptance_coverage_cases(self, req_id: str, ltc: Dict[str, Any]) -> List[EvalCase]:
+        """``acceptance::coverage``: the KIT's own account of its acceptance criteria
+        (runs/kit/<REQ>/docs/ACCEPTANCE.json), checked against the plan and the LTC. The checks can
+        all pass while criteria are not implemented (B2B REQ-038: no LTC check covered the live probes
+        or the browser journey, and the KIT's SELF_REVIEW said it was not promotable): a criterion
+        partial or missing, or one claimed done without a blocking check of the LTC, keeps the REQ
+        from promotion and goes to the repair. developer_evidence is listed, not blocking. Without
+        the file, a SELF_REVIEW that declares the KIT incomplete blocks the same way."""
+        req = next((r for r in self._plan_reqs() if str(r["id"]).upper() == str(req_id).upper()), None)
+        acceptance = [str(a) for a in (req or {}).get("acceptance") or [] if str(a).strip()]
+        if not acceptance:
+            return []
+        kit = self.project_root / "runs" / "kit" / self._safe_req_id(req_id)
+        ids = []
+        for index, text in enumerate(acceptance, start=1):
+            m = re.match(r"\s*(REQ-[\w-]+?-A\d+)\b", text) or re.match(r"\s*(A\d+)\b", text)
+            ids.append(m.group(1) if m else f"A{index:02d}")
+        review = ""
+        try:
+            review = (kit / "docs" / "SELF_REVIEW.md").read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            pass
+        incomplete = [line.strip() for line in review.split("\n") if _SELF_INCOMPLETE_RE.search(line)][:6]
+        path = kit / "docs" / "ACCEPTANCE.json"
+        name = "acceptance::coverage"
+        if not path.is_file():
+            if not incomplete:
+                return []  # nothing declared either way: the checks decide, as before
+            return [EvalCase(name=name, passed=False, code=1, blocking=True, stdout="", stderr=(
+                f"{_ACCEPTANCE_NOTE}: the KIT's SELF_REVIEW.md declares {req_id} incomplete and the KIT has no "
+                f"docs/ACCEPTANCE.json:\n" + "\n".join(f"  {line}" for line in incomplete) +
+                f"\nImplement what is left, then write runs/kit/{req_id}/docs/ACCEPTANCE.json with the status of each "
+                f"criterion ({', '.join(ids)}) and the blocking checks that verify it."))]
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            entries = {str(e.get("id") or "").strip(): e for e in (data.get("criteria") or []) if isinstance(e, dict)}
+        except Exception as exc:
+            return [EvalCase(name=name, passed=False, code=2, blocking=True, stdout="",
+                             stderr=f"{_ACCEPTANCE_NOTE}: docs/ACCEPTANCE.json is not valid JSON with a criteria list: {exc}")]
+        blocking_checks = {str(c.get("name") or "") for c in self._normalize_cases(ltc) if c.get("blocking", True)}
+        problems: List[str] = []
+        external: List[str] = []
+        for cid, text in zip(ids, acceptance):
+            entry = entries.get(cid)
+            short = text[:140]
+            if entry is None:
+                problems.append(f"{cid}: not in ACCEPTANCE.json — {short}")
+                continue
+            status = str(entry.get("status") or "").strip().lower()
+            note = str(entry.get("note") or "").strip()
+            checks = [str(c) for c in entry.get("checks") or [] if str(c).strip()]
+            if status == "done":
+                valid = [c for c in checks if c in blocking_checks]
+                if not valid:
+                    problems.append(f"{cid}: done, but names no blocking check of ci/LTC.json that verifies it "
+                                    f"(named: {', '.join(checks) or 'none'})")
+            elif status == "developer_evidence":
+                if not note:
+                    problems.append(f"{cid}: developer_evidence without a note saying how it is proved")
+                else:
+                    external.append(f"{cid}: {note[:200]}")
+            elif status in {"partial", "missing"}:
+                problems.append(f"{cid}: {status}{f' — {note[:240]}' if note else ''}")
+            else:
+                problems.append(f"{cid}: unknown status {status or '(none)'} (done | partial | missing | developer_evidence)")
+        if incomplete and not problems:
+            problems.append("ACCEPTANCE.json says every criterion is done, but SELF_REVIEW.md says otherwise:\n" +
+                            "\n".join(f"    {line}" for line in incomplete))
+        shown_external = ("\nProved on the developer machine or by a real service (reported, not blocking):\n" +
+                          "\n".join(f"  {line}" for line in external)) if external else ""
+        if problems:
+            return [EvalCase(name=name, passed=False, code=1, blocking=True, stdout=shown_external.strip(), stderr=(
+                f"{_ACCEPTANCE_NOTE}: {len(problems)} acceptance criterion/criteria of {req_id} not delivered — the checks "
+                "passing is not enough to promote it:\n" + "\n".join(f"  {p}" for p in problems) +
+                f"\nImplement them (with blocking checks in ci/LTC.json that verify them) and update docs/ACCEPTANCE.json."))]
+        return [EvalCase(name=name, passed=True, code=0, blocking=True, stderr="",
+                         stdout=f"{len(ids)} acceptance criteria of {req_id}: done with their checks.{shown_external}")]
 
     def _plan_reqs(self) -> List[Dict[str, Any]]:
         plan_path = self.project_root / "docs" / "harper" / "plan.json"

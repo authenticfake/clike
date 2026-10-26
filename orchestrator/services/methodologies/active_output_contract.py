@@ -16,6 +16,7 @@ NATIVE_LOCAL_REQUIRED_OUTPUTS: Dict[str, List[str]] = {
         "runs/kit/<REQ-ID>/docs/KIT_<REQ-ID>.md",
         "runs/kit/<REQ-ID>/ci/LTC.json",
         "runs/kit/<REQ-ID>/ci/HOWTO.md",
+        "runs/kit/<REQ-ID>/docs/ACCEPTANCE.json",
         "runs/kit/<REQ-ID>/src/**",
         "runs/kit/<REQ-ID>/test/**",
         "runs/kit/<REQ-ID>/ci/**",

@@ -31,6 +31,8 @@ EXPECTED_OLD_PATHS = {
 
 # TARGET_CONTRACT.json / FILE_REQUIREMENTS.json are no longer expected from the model (written by CLike).
 EXPECTED_MISSING = [
+    # recorded before every KIT wrote its acceptance coverage
+    "runs/kit/REQ-001/docs/ACCEPTANCE.json",
     "runs/kit/REQ-001/docs/BMAD_DEV_STORY.md",
     "runs/kit/REQ-001/docs/IMPLEMENTATION_NOTES.md",
     "runs/kit/REQ-001/docs/SELF_REVIEW.md",
