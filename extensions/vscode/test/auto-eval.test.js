@@ -389,3 +389,14 @@ test('a check whose program the sandbox lacks is not sent to a repair', () => {
   report.cases.push({ name: 'lint', passed: false, code: 1, stderr: 'E501' });
   assert.equal(nextAutoEvalStep({ cycle: 0, maxCycles: 3 }, report).action, 'repair');
 });
+
+test('a loop that stops on a delivered test of an amended REQ says how to declare it', () => {
+  const note = '[CLike EvalRunner] A delivered test of an amended REQ: unit of REQ-001 fails …\n' +
+    '  /eval REQ-002 --supersede REQ-001#test/test_pricing.py::test_price "<why the release changes it>"\nOtherwise …';
+  const report = { status: 'FAIL', passed: false, cases: [{ name: 'regression::REQ-001::unit', passed: false, code: 1, excerpt: note, fingerprint: 'a' }] };
+  const first = nextAutoEvalStep({ cycle: 0, maxCycles: 3 }, report);
+  assert.equal(first.action, 'repair');
+  const again = nextAutoEvalStep({ cycle: 1, maxCycles: 3, lastSignature: first.signature }, report);
+  assert.equal(again.action, 'stop');
+  assert.match(again.reason, /no progress.*declare it[\s\S]*\/eval REQ-002 --supersede REQ-001#test\/test_pricing\.py::test_price/);
+});

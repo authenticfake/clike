@@ -562,6 +562,19 @@ class DeclaredChangeRegressionTests(_RegressionProject):
         self.assertIn("Superseded tests", case["stderr"])
         self.assertIn("superseded by REQ-002: price list v2", case["stderr"])
 
+    def test_a_failing_test_of_an_amended_req_says_how_to_declare_it(self):
+        # B2B REQ-037: a REQ-015 test pinned the session fields the release extends; nobody had declared it
+        self._reporting_test(["test_price[eur]"])
+        kit = self.proj / "runs" / "kit" / "REQ-002"
+        (kit / "src" / "pricing.py").write_text("def price():\n    return 12\n")
+        (kit / "test" / "test_checkout.py").write_text("from checkout import total\nassert total(2) == 24\n")
+        self._declare(change="MODIFIED", amends=["REQ-001"], supersedes=[])
+        evaluated = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        self.assertEqual(evaluated["status"], "FAIL")
+        case = next(c for c in evaluated["cases"] if c["name"] == "regression::REQ-001::unit")
+        self.assertTrue(case["blocking"])
+        self.assertIn('/eval REQ-002 --supersede REQ-001#test/test_pricing.py::test_price "', case["stderr"])
+
     def test_a_check_whose_summary_counts_more_failures_still_fails(self):
         # only the superseded test is named, but the runner reports an error it does not name as a test
         test = self.proj / "runs" / "kit" / "REQ-001" / "test" / "test_pricing.py"

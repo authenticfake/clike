@@ -282,6 +282,65 @@ function cascadeCommitMessage({ release, baseline, delta = [] }, runId) {
   return `docs(harper): release ${release} from ${baseline}${ids ? ` — ${ids}` : ''}\n\n[harper:extend] runId=${runId}`;
 }
 
+/**
+ * `/eval REQ --supersede "REQ-x#<check id | path::test>" "<why>"`: the developer declares, during the
+ * release, a check or test of a delivered REQ that the open REQ changes on purpose (B2B REQ-037: a
+ * REQ-015 test pinned the exact session fields the release extends; the cascade had not named it,
+ * and a repair may not touch plan.json). The REQ must be open or in progress; the target REQ is
+ * delivered; the check is in its LTC, or the test file is in its KIT (or the project) and names the
+ * test. The amended REQ joins `amends` (an ADDED REQ becomes MODIFIED). Recorded in
+ * runs/extend/declared-supersedes.jsonl. Returns { ok, message, changed }.
+ */
+function declareSupersede(root, reqId, ref, reason, { author = '', now = new Date() } = {}) {
+  const fail = (message) => ({ ok: false, message, changed: false });
+  const id = String(reqId || '').toUpperCase();
+  const text = String(ref || '').trim();
+  const why = String(reason || '').trim();
+  const m = /^(REQ-[A-Za-z0-9_-]+)#(.+)$/i.exec(text);
+  if (!m) return fail(`"${text}" is not REQ-x#<check id> or REQ-x#<path>::<test>`);
+  if (why.length < 10) return fail('say why the release changes it (at least 10 characters)');
+  const target = m[1].toUpperCase();
+  const what = m[2].trim();
+  const planPath = path.join(root, 'docs', 'harper', 'plan.json');
+  let plan;
+  try { plan = JSON.parse(fs.readFileSync(planPath, 'utf8')); } catch { return fail('docs/harper/plan.json cannot be read'); }
+  const reqs = Array.isArray(plan.reqs) ? plan.reqs : [];
+  const req = reqs.find((r) => String(r.id).toUpperCase() === id);
+  const other = reqs.find((r) => String(r.id).toUpperCase() === target);
+  if (!req) return fail(`${id} is not in the plan`);
+  if (String(req.status || '').toLowerCase() === 'done') return fail(`${id} is delivered: a declared change belongs to an open REQ`);
+  if (!other || String(other.status || '').toLowerCase() !== 'done') return fail(`${target} is not a delivered REQ`);
+  if (target === id) return fail(`${id} cannot supersede its own checks`);
+  if (what.includes('::')) {
+    const [file, ...names] = what.split('::');
+    const rel = file.replace(/^\.?\//, '');
+    const found = [path.join(root, 'runs', 'kit', target, ...rel.split('/')), path.join(root, ...rel.split('/'))].find((p) => fs.existsSync(p));
+    if (!found) return fail(`${rel} is neither in runs/kit/${target}/ nor in the project`);
+    const last = names.join('::').split(/::| > /).pop().trim();
+    if (last && !fs.readFileSync(found, 'utf8').includes(last)) return fail(`${rel} has no test "${last}"`);
+  } else {
+    const checks = ltcCheckIds(root, target);
+    if (!checks || !checks.includes(what)) return fail(`${target}'s LTC has no check "${what}" (checks: ${(checks || []).join(', ') || 'none'})`);
+  }
+  req.supersedes = Array.isArray(req.supersedes) ? req.supersedes : [];
+  const ref2 = `${target}#${what}`;
+  if (req.supersedes.some((s) => String(s && typeof s === 'object' ? s.check : s) === ref2)) {
+    return { ok: true, message: `${id} already supersedes ${ref2}`, changed: false };
+  }
+  const notes = [];
+  req.amends = Array.isArray(req.amends) ? req.amends : [];
+  if (!req.amends.map((a) => String(a).toUpperCase()).includes(target)) { req.amends.push(target); notes.push(`amends ${target}`); }
+  if (String(req.change || '').toUpperCase() !== 'MODIFIED') { notes.push(`change ${req.change || '—'} → MODIFIED`); req.change = 'MODIFIED'; }
+  req.supersedes.push({ check: ref2, reason: why });
+  fs.writeFileSync(planPath, `${JSON.stringify(plan, null, 2)}\n`, 'utf8');
+  try {
+    const log = path.join(root, 'runs', 'extend', 'declared-supersedes.jsonl');
+    fs.mkdirSync(path.dirname(log), { recursive: true });
+    fs.appendFileSync(log, `${JSON.stringify({ at: now.toISOString(), req: id, supersedes: ref2, reason: why, author, also: notes })}\n`);
+  } catch { /* the plan holds the declaration */ }
+  return { ok: true, changed: true, message: `${id} now supersedes ${ref2}${notes.length ? ` (${notes.join(', ')})` : ''}: recorded in runs/extend/declared-supersedes.jsonl` };
+}
+
 /** Keeps a rejected cascade's documents under runs/extend/rejected/<ts>/ (nothing is lost); '' on failure. */
 function keepRejected(root, files, now = new Date()) {
   try {
@@ -541,6 +600,7 @@ module.exports = {
   cascadeInputCheck,
   snapshotDocs,
   cascadeCommitFiles,
+  declareSupersede,
   cascadeCommitMessage,
   compareMarkdown,
   compareAdditive,

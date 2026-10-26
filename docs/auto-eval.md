@@ -319,7 +319,10 @@ the output of any check that runs it, whichever promoted REQ the check belongs t
 failed tests are all superseded holds (`[CLike EvalRunner] Superseded tests: …`); one with other
 failed tests still fails, and the note names the superseded ones so the repair leaves them alone.
 The failed tests are read in the formats of the common runners (pytest, vitest/jest, Playwright, Go,
-Rust, .NET, Maven/Gradle, RSpec, PHPUnit).
+Rust, .NET, Maven/Gradle, RSpec, PHPUnit), and the runner's summary must not count more failures
+than those. A failing delivered test of a REQ the candidate amends, not declared, gets a note with
+the exact `/eval <REQ> --supersede REQ-x#path::name "<why>"` to run if the change is on purpose
+(see [commands.md](commands.md)): a repair may not change the plan.
 
 A REQ that passes its own tests but breaks a promoted REQ fails the eval; the gate reports
 `GATE_BLOCKED_REGRESSION` with the list in `regression_failures`. In an auto-eval loop the

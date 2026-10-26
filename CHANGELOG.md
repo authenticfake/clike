@@ -17,6 +17,12 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   of time while promoted REQs ran side by side runs again alone; passing alone, it is a warning,
   never repaired. Before, a 30 s test, a database connection and a 300 s suite slowed by the load
   were diagnosed as shared-file changes, and the repair changed correct code.
+- **A change the cascade did not name is declared in one command**: `/eval <REQ> --supersede
+  REQ-x#<check | path::test> "<why>"` checks the reference, writes it to the plan (`supersedes`,
+  `amends`), records it with the author in `runs/extend/declared-supersedes.jsonl` and runs the eval.
+  A failing delivered test of a REQ the candidate amends gets a note with that exact command, and a
+  stopped `--fix` loop repeats it: a repair may not change the plan. Before, the only way was to edit
+  `plan.json` by hand while the repair kept failing on a test it could not change.
 - **`/idea --extend` names the delivered tests that pin a list the release extends** (the last
   migration or schema version, the set of routes, services or files): they are superseded, and the
   REQ that extends them is MODIFIED.

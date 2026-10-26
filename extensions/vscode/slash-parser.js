@@ -246,6 +246,19 @@ function parseSlash(input) {
         return !mode;
       });
     }
+    // /eval REQ --supersede REQ-x#<check | path::test> "reason": a declared change of the release
+    let supersede;
+    if (cmd === '/eval') {
+      const at = rest.findIndex((t) => String(t).toLowerCase() === '--supersede');
+      if (at >= 0) {
+        // the reference and the reason, up to the next flag (--fix, --methodology… still apply)
+        let end = rest.findIndex((t, i) => i > at && /^--/.test(String(t)));
+        if (end < 0) end = rest.length;
+        const parts = rest.slice(at + 1, end).map((t) => String(t).replace(/^(["'])(.*)\1$/, '$2'));
+        supersede = { ref: parts[0] || '', reason: parts.slice(1).join(' ').trim() };
+        rest = [...rest.slice(0, at), ...rest.slice(end)];
+      }
+    }
     // /eval REQ --accept ["reason"]: the developer accepts a deliberate edit of the locked tests / ci
     let accept;
     if (cmd === '/eval') {
@@ -270,7 +283,7 @@ function parseSlash(input) {
     }
 
     const fix = fixArgs.fix ? { fix: true, hint: fixArgs.hint } : {};
-    return finish({ targets, testMode, modeContent, ...fix, ...(promote ? { promote } : {}), ...(accept !== undefined ? { accept } : {}) });
+    return finish({ targets, testMode, modeContent, ...fix, ...(promote ? { promote } : {}), ...(accept !== undefined ? { accept } : {}), ...(supersede ? { supersede } : {}) });
   }
 
   if (cmd === '/extend' || cmd === '/add-req') {

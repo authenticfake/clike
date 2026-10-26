@@ -187,6 +187,7 @@ _PREEXISTING_NOTE = "[CLike EvalRunner] Already failing without this candidate"
 _NEW_ERRORS_NOTE = "[CLike EvalRunner] New errors from this candidate"
 _SUPERSEDED_TESTS_NOTE = "[CLike EvalRunner] Superseded tests"
 _CONTENTION_NOTE = "[CLike EvalRunner] Timeout under parallel load"
+_DECLARE_NOTE = "[CLike EvalRunner] A delivered test of an amended REQ"
 _SHARED_FILES_NOTE = "[CLike EvalRunner] Shared files changed"
 _SERVICE_BROKEN_NOTE = "[CLike EvalRunner] Service broken by the candidate"
 # A test file by name in Python, JS/TS, Java/Kotlin, Go, C# (test_x.py, x_test.go, x.test.ts, x.spec.js, XTest.java, XTests.cs).
@@ -4362,6 +4363,8 @@ class EvalRunner:
         Cases are named ``regression::<REQ>::<case>`` and keep their blocking flag."""
         superseded = self.superseded_checks(req_id)
         self._superseded_test_refs = self.superseded_tests(req_id)
+        candidate = next((r for r in self._plan_reqs() if str(r["id"]) == str(req_id)), {})
+        self._candidate_amends = [str(a) for a in (candidate.get("amends") or [])]
         others = self.regression_req_ids(req_id)
         only = getattr(self, "_regression_only", None)
         if only:
@@ -4442,6 +4445,41 @@ class EvalRunner:
             else:
                 note = (f"{_SUPERSEDED_TESTS_NOTE}: some failures of {case.name} of {other} are tests a MODIFIED REQ "
                         f"declared it replaces — leave them as they are:\n{listed}\nThe other failed tests are a regression.")
+            case.stderr = f"{case.stderr or ''}\n{note}"[-4000:]
+            case.excerpt = f"{note}\n\n{case.excerpt or ''}"
+
+    def _suggest_declared_change(self, req_id: Optional[str], other: str, report: EvalReport) -> None:
+        """A blocking failure in a test that a REQ the candidate amends delivered: if the candidate
+        changes it on purpose (B2B REQ-037 extends the session fields a REQ-015 test pins, and the
+        cascade had not named it), only the developer can declare it — a repair may not change the
+        plan. The note gives the exact command; otherwise the candidate keeps that test passing."""
+        amends = getattr(self, "_candidate_amends", None) or []
+        if not amends or not req_id:
+            return
+        kits = self.project_root / "runs" / "kit"
+        for case in report.cases:
+            if case.passed or not case.blocking or case.blocked:
+                continue
+            refs = []
+            for file, name in eval_failures.failed_tests(f"{case.stdout or ''}\n{case.stderr or ''}\n{case.excerpt or ''}"):
+                parts = file.replace("\\", "/").split("/")
+                for i in range(len(parts)):
+                    rel = "/".join(parts[i:])
+                    if not rel.startswith(("test/", "tests/")):
+                        continue
+                    owner = next((a for a in amends if (kits / self._safe_req_id(a) / rel).is_file()), None)
+                    if owner:
+                        ref = f"{owner}#{rel}::{re.sub(r'\[[^\]]*\]$', '', name)}"
+                        if ref not in refs:
+                            refs.append(ref)
+                        break
+            if not refs:
+                continue
+            commands = "\n".join(f'  /eval {req_id} --supersede {ref} "<why the release changes it>"' for ref in refs)
+            note = (f"{_DECLARE_NOTE}: {case.name} of {other} fails in delivered tests of REQs {req_id} amends. If {req_id} "
+                    "changes them on purpose (it extends what they pin: a field set, a list, the last migration), the "
+                    f"developer declares it — a repair may not change the plan:\n{commands}\n"
+                    f"Otherwise {req_id} must keep them passing.")
             case.stderr = f"{case.stderr or ''}\n{note}"[-4000:]
             case.excerpt = f"{note}\n\n{case.excerpt or ''}"
 
@@ -4549,6 +4587,7 @@ class EvalRunner:
         self._retry_failed_regression_tests(runner, profile, ltc, other, report, known_failing=baseline.failing(), baseline=baseline)
         self._mark_preexisting_regression_failures(req_id, profile, ltc, other, report, baseline=baseline)
         self._mark_superseded_tests(other, report)
+        self._suggest_declared_change(req_id, other, report)
         self._note_shared_file_changes(other, candidate_src.parent, report)
         for case in report.cases:
             if not _is_regression_test_case(case):
