@@ -176,6 +176,29 @@ def failed_tests(text: str) -> List[Tuple[str, str]]:
     return out
 
 
+# Summary lines of the runners: "1 failed, 28 passed", "Tests  1 failed | 138 passed", "5 errors",
+# "Tests run: 4, Failures: 1, Errors: 1", "FAILED (failures=1, errors=1)", "Failed: 2, Passed: 10".
+_SUMMARY_COUNTS = (
+    re.compile(r"\b(\d+)\s+(?:failed|failing|failures?|errors?|errored)\b", re.IGNORECASE),
+    re.compile(r"\b(?:Failures|Errors|Failed)\s*[:=]\s*(\d+)", re.IGNORECASE),
+)
+
+
+def reported_failures(text: str) -> int:
+    """The largest count of failed/errored tests a runner's summary lines report (0 when none):
+    a check whose summary reports more failures than the tests CLike recognised failed in a way
+    CLike cannot see (a collection error, an unhandled error, a crash)."""
+    best = 0
+    for line in strip_ansi(text or "").split("\n"):
+        if _PASS_LINE.search(line):
+            continue
+        total = 0
+        for pattern in _SUMMARY_COUNTS:
+            total += sum(int(n) for n in pattern.findall(line))
+        best = max(best, total)
+    return best
+
+
 def _segments(name: str) -> List[str]:
     return [s.strip() for s in re.split(r"::| > | › |\.(?=[A-Za-z_]\w*$)", name or "") if s.strip()]
 

@@ -4430,7 +4430,10 @@ class EvalRunner:
                 continue
             covered = [f for f in failed if any(eval_failures.test_matches(f, ref) for ref in hits)]
             listed = "\n".join(f"- {ref} (superseded by {by})" for ref, by in sorted(hits.items()))
-            if len(covered) == len(failed):
+            # the runner's summary may count failures it does not name as tests (a collection error,
+            # an unhandled error, a crash): then the check does not hold
+            unseen = eval_failures.reported_failures(f"{case.stdout or ''}\n{case.stderr or ''}") > len(failed)
+            if len(covered) == len(failed) and not unseen:
                 note = (f"{_SUPERSEDED_TESTS_NOTE}: {case.name} of {other} fails only in tests a MODIFIED REQ declared it "
                         f"replaces (/idea --extend):\n{listed}\nThe declared change, not a regression of this candidate.")
                 # every other test of the check passed: it holds, as a superseded check does

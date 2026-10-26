@@ -562,6 +562,23 @@ class DeclaredChangeRegressionTests(_RegressionProject):
         self.assertIn("Superseded tests", case["stderr"])
         self.assertIn("superseded by REQ-002: price list v2", case["stderr"])
 
+    def test_a_check_whose_summary_counts_more_failures_still_fails(self):
+        # only the superseded test is named, but the runner reports an error it does not name as a test
+        test = self.proj / "runs" / "kit" / "REQ-001" / "test" / "test_pricing.py"
+        test.write_text("import sys\nfrom pricing import price\nif price() != 10:\n"
+                        "    print('FAILED test/test_pricing.py::test_price - AssertionError')\n"
+                        "    print('ERROR collecting test/test_tax.py')\n"
+                        "    print('==== 1 failed, 3 passed, 1 error in 0.2s ====')\n    sys.exit(1)\n")
+        kit = self.proj / "runs" / "kit" / "REQ-002"
+        (kit / "src" / "pricing.py").write_text("def price():\n    return 12\n")
+        (kit / "test" / "test_checkout.py").write_text("from checkout import total\nassert total(2) == 24\n")
+        self._declare(change="MODIFIED", amends=["REQ-001"],
+                      supersedes=[{"check": "REQ-001#test/test_pricing.py::test_price", "reason": "v2"}])
+        evaluated = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        self.assertEqual(evaluated["status"], "FAIL")
+        case = next(c for c in evaluated["cases"] if c["name"] == "regression::REQ-001::unit")
+        self.assertTrue(case["blocking"])
+
     def test_a_check_with_other_failed_tests_still_fails_and_names_the_superseded_ones(self):
         self._reporting_test(["test_price", "test_rounding"])
         kit = self.proj / "runs" / "kit" / "REQ-002"

@@ -59,6 +59,15 @@ class FailedTestsTests(unittest.TestCase):
             "DeprecationWarning: You should not use the 'timeout' argument with the TestClient\nAssertionError: 1 != 2"))
 
 
+class ReportedFailuresTests(unittest.TestCase):
+    def test_summary_counts(self):
+        self.assertEqual(eval_failures.reported_failures("=========== 1 failed, 28 passed, 1 warning in 0.58s ==========="), 1)
+        self.assertEqual(eval_failures.reported_failures("====== 11 passed, 1 warning, 5 errors in 38.76s ======"), 5)
+        self.assertEqual(eval_failures.reported_failures("      Tests  1 failed | 138 passed (139)"), 1)
+        self.assertEqual(eval_failures.reported_failures("Tests run: 4, Failures: 1, Errors: 1, Skipped: 0"), 2)
+        self.assertEqual(eval_failures.reported_failures("test/x.py::test_failed_login PASSED [ 50%]\n2 passed"), 0)
+
+
 class TimeoutAloneTests(unittest.TestCase):
     def _case(self, name, text, passed=False):
         return EvalCase(name=name, passed=passed, code=0 if passed else 1, stdout="", stderr=text, excerpt=text, blocking=True)
