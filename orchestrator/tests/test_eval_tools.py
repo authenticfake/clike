@@ -65,7 +65,9 @@ class DetectionTests(unittest.TestCase):
             (src / "deploy.sh").write_text("#!/bin/sh\naws s3 ls\n  terraform validate\n")
             (src / "notes.py").write_text('MESSAGE = "go to the page, then jq it"\nlabel = "helm chart"\n')
             (src / "Client.java").write_text('new ProcessBuilder("mysqldump", "--all-databases");\n')
-            self.assertEqual(eval_tools.used([src], catalog), ["aws", "kcat", "mysqldump", "pg_dump", "terraform"])
+            (src / "LTC.json").write_text('{"command": "pwsh -NoProfile -File ci/check-powershell.ps1"}')
+            (src / "README.md").write_text('Run "pwsh" later.\n')
+            self.assertEqual(eval_tools.used([src], catalog), ["aws", "kcat", "mysqldump", "pg_dump", "pwsh", "terraform"])
 
     def test_missing_programs_in_failures(self):
         catalog = eval_tools.load_catalog()
@@ -74,6 +76,8 @@ class DetectionTests(unittest.TestCase):
             ("Error: spawn mysqldump ENOENT", ["mysqldump"]),
             ("FileNotFoundError: [Errno 2] No such file or directory: 'pg_dump'", ["pg_dump"]),
             ('java.io.IOException: Cannot run program "mvn": error=2', ["mvn"]),
+            # B2B REQ-037: the .ps1 check had no PowerShell and was sent to a repair
+            ("/bin/sh: 1: pwsh: not found", ["pwsh"]),
             ("sh: 1: frobnicate: not found", []),  # not in the catalog
         ):
             self.assertEqual(eval_tools.missing_from_failure(text, catalog), expected, text)

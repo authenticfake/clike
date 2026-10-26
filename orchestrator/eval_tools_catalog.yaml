@@ -125,6 +125,11 @@ tools:
     packages: ["shellcheck"]
     binaries: [shellcheck]
     about: "Shell script linter"
+  powershell:
+    group: quality
+    packages: ["powershell"]
+    binaries: [pwsh]
+    about: "PowerShell 7, for the checks of .ps1 scripts"
   jdk:
     group: runtimes
     packages: ["openjdk"]

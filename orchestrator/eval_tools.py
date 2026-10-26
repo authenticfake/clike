@@ -44,6 +44,8 @@ _SCANNED_SUFFIXES = {
 _SKIPPED_DIRS = {"node_modules", ".venv", "venv", "__pycache__", ".git", "dist", "build", ".next", "coverage", "reports"}
 _MAX_SCANNED = 1500
 _COMMON_WORDS = {"go", "jar", "bq", "az", "jq", "yq", "sql", "isql", "helm", "tofu", "cargo", "gradle", "dotnet"}
+# short names that are no word: a quoted command with an option counts ("pwsh -NoProfile -File …")
+_DISTINCT_SHORT = {"pwsh"}
 _MAX_FILE_BYTES = 256 * 1024
 
 
@@ -152,7 +154,7 @@ def used(roots: Iterable[Path], catalog: Dict[str, Dict[str, Any]]) -> List[str]
     alternation = "|".join(re.escape(b) for b in binaries)
     # an exact quoted token ("pg_dump", ['kcat', …]) or a quoted command with an option ("aws --version");
     # short names that are also words (go, jq, az…) only as an exact token or a command line
-    long_names = "|".join(re.escape(b) for b in binaries if len(b) >= 5 and b not in _COMMON_WORDS) or "(?!)"
+    long_names = "|".join(re.escape(b) for b in binaries if (len(b) >= 5 or b in _DISTINCT_SHORT) and b not in _COMMON_WORDS) or "(?!)"
     quoted = re.compile(rf"""["'`]({alternation})["'`]|["'`]({long_names})\s+-""")
     command = re.compile(rf"^\s*(?:[-*]\s+|RUN\s+|\$\s+|run:\s*|exec\s+)?({alternation})\s", re.MULTILINE)
     found = set()
