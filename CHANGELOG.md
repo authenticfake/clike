@@ -13,7 +13,9 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   and `--fix` sent it to the repair agent twice.
 - **`--fix` does not repair a missing program**: when every failing check stopped because its own
   command is not in the sandbox (exit 127), the loop stops and says how to add it; other
-  environment blocks still go to a repair.
+  environment blocks still go to a repair. The eval's advice says the same instead of
+  `/kit --repair`: `/tools add <tool>` for a catalog tool, `/tools search <program>` (or `custom:` in
+  `.clike/eval-tools.yaml`) for a program outside the catalog.
 - **`/autopilot` retries a parked REQ when the environment changed**: a REQ parked by an earlier
   run is released when CLike's version or the sandbox tools changed, not only when its own files
   did. Before, a REQ parked on a missing program stayed parked after the program was installed, and
