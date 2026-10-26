@@ -57,7 +57,8 @@ def cascade_rules(opts: Dict[str, Any]) -> List[str]:
         "MODIFIED (changes behavior a delivered REQ verifies): `amends: [\"REQ-x\"]`; acceptance restates in "
         "full every criterion it changes; `supersedes: [{\"check\": \"REQ-x#<check id from "
         "runs/kit/REQ-x/ci/LTC.json, or test id>\", \"reason\": \"...\"}]` names exactly the checks that stop "
-        "holding; `unchanged: [...]` names what REQ-x keeps doing. REMOVED (retires a capability): "
+        "holding — always with the REQ prefix, a test too (e.g. `REQ-016#test/v2/login.test.tsx::restores the "
+        "workspace`); `unchanged: [...]` names what REQ-x keeps doing. REMOVED (retires a capability): "
         "`retires: [\"REQ-x\"]` with acceptance proving the removal. A REQ that is `in_progress` is never amended.",
         f"PLAN.md: keep every existing REQ section; add a `## Release {release}` section with the new REQs in "
         "the same per-REQ format. The sections that index every REQ (REQ-IDs table, dependency graph, test "

@@ -4,6 +4,14 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+### Fixed
+
+- **`/idea --extend` no longer discards a cascade for a reference it can complete**: every check
+  section of a delivered REQ's eval profile counts (`commands` and `external_checks` too: a valid
+  `REQ-032#keycloak` was refused as unknown); a superseded test named without its REQ gets the
+  amended REQ that owns it (its number in the path, its KIT tests, or the only one amended); a
+  rejected cascade keeps its documents under `runs/extend/rejected/<time>/` instead of losing them.
+
 ## [1.6.2] — 2026-10-25 — Releases from /finalize, the local start verified, a memory that answers
 
 ### Added

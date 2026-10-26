@@ -217,6 +217,45 @@ test('cloud: dry run keeps only the report; a broken delta is rejected and nothi
   assert.equal(rejected.ok, false);
   assert.ok(rejected.errors.some((e) => /amends REQ-009/.test(e)));
   assert.deepEqual(files2, []);
+  // the rejected run's documents are kept, nothing is lost
+  assert.match(rejected.kept, /^runs\/extend\/rejected\//);
+  assert.equal(fs.readFileSync(path.join(root, rejected.kept, 'docs', 'harper', 'SPEC.md'), 'utf8'), 'x');
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('supersedes: every check section of an LTC counts, a test id without its REQ is completed', () => {
+  // test project: REQ-032 declares commands and external_checks (keycloak was refused as unknown);
+  // the agent named tests without REQ-x# and the whole cascade was discarded
+  const { root, put } = project();
+  put('runs/kit/REQ-001/ci/LTC.json', JSON.stringify({ commands: [{ id: 'tests' }], external_checks: [{ id: 'keycloak' }] }));
+  put('runs/kit/REQ-002/test/v2/test_setup.py', 'x');
+  assert.deepEqual(re.ltcCheckIds(root, 'REQ-001'), ['tests', 'keycloak']);
+  const plan = JSON.parse(planV2());
+  const r = plan.reqs[3];
+  r.change = 'MODIFIED';
+  r.amends = ['REQ-001', 'REQ-002'];
+  r.supersedes = [
+    { check: 'REQ-001#keycloak', reason: 'container Keycloak' },
+    { check: 'test/v2/req-001.states.test.tsx::restores the workspace', reason: 'by number' },
+    { check: 'test/v2/test_setup.py::SetupTests::test_cli', reason: 'by KIT tests' },
+    { check: 'test/v2/other.spec.ts::unknown owner', reason: 'ambiguous' },
+  ];
+  const out = re.validateDelta({
+    beforeText: JSON.stringify(PLAN_V1), planText: JSON.stringify(plan), release: 'v2',
+    ltcChecks: (id) => re.ltcCheckIds(root, id), testOwner: (ref, amends) => re.kitTestOwner(root, ref, amends),
+  });
+  assert.ok(!out.errors.some((e) => /keycloak/.test(e)), out.errors.join('\n'));
+  const fixed = JSON.parse(out.planText).reqs[3].supersedes.map((x) => x.check);
+  assert.equal(fixed[1], 'REQ-001#test/v2/req-001.states.test.tsx::restores the workspace');
+  assert.equal(fixed[2], 'REQ-002#test/v2/test_setup.py::SetupTests::test_cli');
+  assert.ok(out.warnings.some((w) => /completed as REQ-001#/.test(w)));
+  assert.deepEqual(out.errors, ['REQ-004: supersedes "test/v2/other.spec.ts::unknown owner" is not REQ-x#<check or test id> and its REQ is not clear among REQ-001, REQ-002']);
+  // with a single amended REQ the prefix is that REQ
+  r.amends = ['REQ-002'];
+  r.supersedes = [{ check: 'test/v2/other.spec.ts::unknown owner', reason: 'single' }];
+  const single = re.validateDelta({ beforeText: JSON.stringify(PLAN_V1), planText: JSON.stringify(plan), release: 'v2' });
+  assert.deepEqual(single.errors, []);
+  assert.equal(JSON.parse(single.planText).reqs[3].supersedes[0].check, 'REQ-002#test/v2/other.spec.ts::unknown owner');
   fs.rmSync(root, { recursive: true, force: true });
 });
 

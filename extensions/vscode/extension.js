@@ -5541,8 +5541,9 @@ async function cmdOpenChat(context) {
             }
             for (const w of verdict.warnings) panel.webview.postMessage({ type: 'echo', message: `⚠ ${commandLabel}: ${w}` });
             if (!verdict.ok) {
-              const message = `✖ ${commandLabel} rejected — the plan breaks the extend rules, nothing kept:\n` +
-                verdict.errors.map((e) => `- ${e}`).join('\n');
+              const message = `✖ ${commandLabel} rejected — the plan breaks the extend rules; the documents are restored:\n` +
+                verdict.errors.map((e) => `- ${e}`).join('\n') +
+                (verdict.kept ? `\nThe documents of this run are kept in ${verdict.kept}/ (compare them, or run the command again).` : '');
               panel.webview.postMessage({ type: 'echo', message });
               await appendSessionJSONL(activeMode, { ts: Date.now(), role: 'system', content: message, model: state.model || 'auto', attachments: [] });
               clikeHarperBlockingRun = false;
