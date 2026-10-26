@@ -5,7 +5,7 @@
 [![Made with Python](https://img.shields.io/badge/Made%20with-Python%203.12-3776AB?logo=python)](https://www.python.org/)
 [![VS Code Extension](https://img.shields.io/badge/VS%20Code-Extension-007ACC?logo=visualstudiocode)](extensions/vscode)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.6.3-informational)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.6.4-informational)](CHANGELOG.md)
 
 > **From intent to impact.** CLike turns an idea into reviewed, tested and promotable software
 > through a governed lifecycle in which cloud models and local coding agents execute, while
@@ -60,11 +60,11 @@ Models and agents execute.  Eval and Gate decide.
 
 | Version | Date | Milestone |
 |---|---|---|
-| 1.5.0 | 2026-10 | Evolve a delivered project release by release: `/idea --extend` merges the new release (`docs/inputs/vN/`, `docs/reference/vN/`, attachments) into IDEA, SPEC and TECH_CONSTRAINTS and adds REQs typed ADDED / MODIFIED / REMOVED, with regression honoring superseded checks; KITs deliver repository-root files (`runs/kit/<REQ>/root/`); faster eval and gate (the gate reuses an unchanged eval verdict, regression runs only behavioural checks, shared node_modules, per-check durations); cloud phases get the context a local agent reads (REQ slice of the plan, dependency code, locked tests, explicit budget). See [CHANGELOG](CHANGELOG.md). |
-| 1.5.1 | 2026-10 | CLike from Claude Code and Codex: MCP hardened (confined run ids, no OAuth confusion, streamable HTTP, `cancel_run`, confirmations, attachments and `/idea --extend` over MCP, next REQ by dependencies) with a [HOWTO](docs/howto-mcp-project.md); eval repairs that converge (shared conftest check, removable support files, durations in reports); [CLike at a glance](docs/clike-at-a-glance.md). See [CHANGELOG](CHANGELOG.md). |
+| 1.6.0 | 2026-10 | Hardened on a real 36-REQ project: an eval that converges (memory of unstable checks, new errors vs the promoted baseline, targeted re-eval, layout-only diffs ignored, sandbox memory pressure detected, agent re-runs of the regression); `/autopilot` unattended; the chat cockpit (project, next action, REQs, run card with live eval progress, history, Stop) — see [the chat UI](docs/chat-ui.md); SPEC with Use Cases that decides ordinary choices, PLAN with use-case coverage and KIT readiness; KIT roles for every lane. See [CHANGELOG](CHANGELOG.md). |
 | 1.6.1 | 2026-10 | A memory you can ask: the **Memory** panel next to the chat answers, in any language, what the project holds and how CLike works (its guide is there from the start), with the lines that answer; repairs sure a locked test is wrong write the correction and `--accept` applies it; repair loops without progress stop even when failures print random values; `/finalize` reuses existing boundaries, a failed one stays the next action, a successful one opens the README; a window running an outdated CLike says so. See [CHANGELOG](CHANGELOG.md). |
 | 1.6.2 | 2026-10 | A delivered release you can publish: a passing `/finalize` names the release and its REQs in its commit, tags it `vN` and builds the release notes from the documents (REQs with their gate merges, how to start, missing information, verification, limitations), published on the repository host only on confirmation (**CLike: Publish release**); the local start you use (containers) is checked on your machine after the sandbox; the cockpit proposes `/finalize` again after a new release; the Memory panel answers with sources and next steps; repairs stop as soon as their checks pass. See [CHANGELOG](CHANGELOG.md). |
-| **1.6.3** | 2026-10 | An `/idea --extend` that keeps its work: every check of a delivered REQ's eval profile can be superseded, a superseded test named without its REQ is completed with the REQ that owns it, a rejected cascade keeps its documents under `runs/extend/rejected/` and leaves nothing behind; the extend commit holds the whole release: documents, lane guides and the release's inputs. See [CHANGELOG](CHANGELOG.md). |
+| 1.6.3 | 2026-10 | An `/idea --extend` that keeps its work: every check of a delivered REQ's eval profile can be superseded, a superseded test named without its REQ is completed with the REQ that owns it, a rejected cascade keeps its documents under `runs/extend/rejected/` and leaves nothing behind; the extend commit holds the whole release: documents, lane guides and the release's inputs. See [CHANGELOG](CHANGELOG.md). |
+| **1.6.4** | 2026-10 | Script checks with nothing to install: shellcheck and PowerShell are in the eval sandbox by default; a check whose program the sandbox lacks is never sent to a repair, and the advice says how to add it (`/tools add`, `/tools search`); `/autopilot` retries a parked REQ once CLike or the sandbox tools changed. See [CHANGELOG](CHANGELOG.md). |
 
 The last five versions; every version and change is in the [CHANGELOG](CHANGELOG.md).
 
@@ -178,7 +178,7 @@ VM with at least 4 GB, provider API keys for cloud models, optionally the Claude
 cp .env.example .env                      # provider keys + CLIKE_API_TOKEN=$(openssl rand -hex 32)
 cp docker/.env.example docker/.env        # CLIKE_PROJECTS_DIR = host folder containing your projects
 cd docker && podman-compose up -d --build # services on 127.0.0.1, wait until (healthy)
-code --install-extension ../extensions/vscode/clike-1.6.3.vsix
+code --install-extension ../extensions/vscode/clike-1.6.4.vsix
 ```
 
 In VS Code: **CLike: Set Service Token** (the `CLIKE_API_TOKEN` value). Full guide, local agents

@@ -202,6 +202,17 @@ function nextAutoEvalStep(state, report) {
   }
   const failures = collectRepairFailures(report);
   if (!failures.length) return { action: 'stop', reason: 'eval failed without failing checks to repair (see the eval report)' };
+  // Every failing check stopped because its own command is not in the sandbox (exit 127, a program
+  // outside the tools catalog): a repair cannot add it (B2B REQ-037: `pwsh: not found`, two repairs).
+  // Other environment blocks (a dependency, a network call) may be the code's: they still repair.
+  if (failures.every((f) => f.blocked && Number(f.code) === 127)) {
+    return {
+      action: 'stop',
+      reason: `the eval sandbox lacks the program of ${failures.map((f) => f.name).join(', ')} (command not found): the code is not at fault, nothing to repair. ` +
+        'Add the program the check runs (`/tools search <name>`, or `custom:` in .clike/eval-tools.yaml) and run again.',
+      failures,
+    };
+  }
   const signature = failureSignature(failures);
   if (state.cycle >= state.maxCycles) {
     // Still improving: extra cycles, bounded. Fewer failing checks than before the last repair, or

@@ -7507,7 +7507,11 @@ async function cmdOpenChat(context) {
     const methodology = String(opts.methodology || '').trim().toLowerCase();
     const fingerprintOf = (reqId) => { try { return inputsFingerprint(ws.fsPath, reqId); } catch { return ''; } };
     // REQs parked by an earlier run stay parked until their inputs change (the developer fixed them)
-    const { kept, released } = autopilot.keptParked(saved && saved.parked, fingerprintOf);
+    // the environment the REQs were parked in: a newer CLike or other sandbox tools retry them
+    let installedTools = '';
+    try { installedTools = Object.keys((await getEvalTools(ws))?.installed || {}).sort().join(','); } catch { /* unknown: inputs only */ }
+    const parkEnv = installedTools ? `${context.extension?.packageJSON?.version || ''}|${installedTools}` : '';
+    const { kept, released } = autopilot.keptParked(saved && saved.parked, fingerprintOf, parkEnv);
     const run = autopilotRun = { stop: null, current: '', startedAt: Date.now(), reqs: [], waits: [],
       parked: new Set(Object.keys(kept)), parkedInfo: { ...kept }, released, resumed: interrupted,
       executor: String(opts.executor || '').trim().toLowerCase() || '', methodology,
@@ -7640,7 +7644,7 @@ async function cmdOpenChat(context) {
             entry.reason = res.outcome.reason;
             entry.messages = res.transcript.filter((t) => /✖|stopped|blocked|failed|cannot|missing|required/i.test(t)).slice(-3);
             run.parked.add(reqId);
-            run.parkedInfo[reqId] = { step, reason: entry.reason, fingerprint: fingerprintOf(reqId), at: new Date().toISOString() };
+            run.parkedInfo[reqId] = { step, reason: entry.reason, fingerprint: fingerprintOf(reqId), env: parkEnv, at: new Date().toISOString() };
             say(`⏸ AUTOPILOT ${reqId} parked at ${step}: ${res.outcome.reason}. Going on with the REQs that do not depend on it.`);
             break;
           }

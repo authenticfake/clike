@@ -44,6 +44,8 @@ _SCANNED_SUFFIXES = {
 _SKIPPED_DIRS = {"node_modules", ".venv", "venv", "__pycache__", ".git", "dist", "build", ".next", "coverage", "reports"}
 _MAX_SCANNED = 1500
 _COMMON_WORDS = {"go", "jar", "bq", "az", "jq", "yq", "sql", "isql", "helm", "tofu", "cargo", "gradle", "dotnet"}
+# short names that are no word: a quoted command with an option counts ("pwsh -NoProfile -File …")
+_DISTINCT_SHORT = {"pwsh"}
 _MAX_FILE_BYTES = 256 * 1024
 
 
@@ -71,6 +73,11 @@ def project_config(project_root: Optional[Path]) -> Dict[str, Any]:
 def approved_tools(project_root: Optional[Path]) -> List[str]:
     """Tools the project installs without asking (``tools`` in .clike/eval-tools.yaml)."""
     return [str(t) for t in (project_config(project_root).get("tools") or []) if _TOOL_NAME.match(str(t))]
+
+
+def auto_tools(catalog: Dict[str, Dict[str, Any]]) -> set:
+    """Catalog tools every project installs without asking (``auto: true``)."""
+    return {name for name, entry in catalog.items() if entry.get("auto") is True}
 
 
 def tool_for_binary(catalog: Dict[str, Dict[str, Any]], binary: str) -> Optional[str]:
@@ -152,7 +159,7 @@ def used(roots: Iterable[Path], catalog: Dict[str, Dict[str, Any]]) -> List[str]
     alternation = "|".join(re.escape(b) for b in binaries)
     # an exact quoted token ("pg_dump", ['kcat', …]) or a quoted command with an option ("aws --version");
     # short names that are also words (go, jq, az…) only as an exact token or a command line
-    long_names = "|".join(re.escape(b) for b in binaries if len(b) >= 5 and b not in _COMMON_WORDS) or "(?!)"
+    long_names = "|".join(re.escape(b) for b in binaries if (len(b) >= 5 or b in _DISTINCT_SHORT) and b not in _COMMON_WORDS) or "(?!)"
     quoted = re.compile(rf"""["'`]({alternation})["'`]|["'`]({long_names})\s+-""")
     command = re.compile(rf"^\s*(?:[-*]\s+|RUN\s+|\$\s+|run:\s*|exec\s+)?({alternation})\s", re.MULTILINE)
     found = set()
@@ -310,6 +317,10 @@ def check(project_root: Path, req_id: Optional[str], profile: Optional[str] = No
     catalog = load_catalog(project_root)
     items = needs(project_root, ltc if isinstance(ltc, dict) else {}, kit_root, catalog)
     approved = set(approved_tools(project_root))
+    auto = auto_tools(catalog)
     for item in items:
-        item["approved"] = item["tool"] in approved or item["tool"].split("@", 1)[0] in approved
-    return {"missing": items, "approved": sorted(approved)}
+        base = item["tool"].split("@", 1)[0]
+        item["approved"] = item["tool"] in approved or base in approved or base in auto
+    # the programs of the auto tools too: a report names the program that was missing ("pwsh")
+    auto_install = sorted(auto | {b for t in auto for b in (catalog.get(t, {}).get("binaries") or [])})
+    return {"missing": items, "approved": sorted(approved), "auto_install": auto_install}

@@ -224,3 +224,19 @@ test('a check stopped on a missing program advises installing it, not repairing 
   assert.deepEqual(advisory.checks_to_rerun, ['shellcheck']);
   assert.deepEqual(advisory.contract_gaps, []);
 });
+
+test('a check whose program is outside the tools catalog advises looking for it, not repairing', () => {
+  // B2B REQ-037: `pwsh: not found` (PowerShell was not a tool yet) got "/kit REQ-037 --repair"
+  const advisory = buildBmadEvalAdvisory({
+    req_id: 'REQ-037', status: 'FAIL', passed: false, failed: 1, blocked_count: 1,
+    cases: [
+      { name: 'unit', passed: true },
+      { name: 'powershell', passed: false, blocked: true, blocking: true, code: 127, cmd: 'pwsh -NoProfile -File ci/check-powershell.ps1',
+        stderr: '/bin/sh: 1: pwsh: not found\n\n[CLike EvalRunner] Classified as environment-blocked: missing tool' },
+    ],
+  }, 'REQ-037', { methodology: 'bmad', phase: 'eval', agent: 'qa' });
+  assert.equal(advisory.suggested_next_command, '/tools search pwsh');
+  assert.deepEqual(advisory.diagnostic_classifications, ['environment_missing_tool']);
+  assert.match(advisory.root_cause_hypothesis, /lacks pwsh \(needed by powershell\).*nothing to repair/);
+  assert.deepEqual(advisory.checks_to_rerun, ['powershell']);
+});

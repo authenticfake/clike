@@ -4,6 +4,25 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.6.4] — 2026-10-26 — Script checks with nothing to install
+
+### Fixed
+
+- **PowerShell and shellcheck are in the eval sandbox by default**: `powershell` (`pwsh`) joins the
+  tools catalog, and both script linters are default tools, installed by the eval-tools service at
+  its start for every project, with no `/tools add` and no question; a check that runs
+  `pwsh -NoProfile …` is found before the eval. Before, `pwsh: not found` was outside the catalog
+  and `--fix` sent it to the repair agent twice.
+- **`--fix` does not repair a missing program**: when every failing check stopped because its own
+  command is not in the sandbox (exit 127), the loop stops and says how to add it; other
+  environment blocks still go to a repair. The eval's advice says the same instead of
+  `/kit --repair`: `/tools add <tool>` for a catalog tool, `/tools search <program>` (or `custom:` in
+  `.clike/eval-tools.yaml`) for a program outside the catalog.
+- **`/autopilot` retries a parked REQ when the environment changed**: a REQ parked by an earlier
+  run is released when CLike's version or the sandbox tools changed, not only when its own files
+  did. Before, a REQ parked on a missing program stayed parked after the program was installed, and
+  `/autopilot` ended at once with "no REQ can go on".
+
 ## [1.6.3] — 2026-10-26 — An extend that keeps its work
 
 ### Fixed

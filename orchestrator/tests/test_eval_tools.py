@@ -65,7 +65,9 @@ class DetectionTests(unittest.TestCase):
             (src / "deploy.sh").write_text("#!/bin/sh\naws s3 ls\n  terraform validate\n")
             (src / "notes.py").write_text('MESSAGE = "go to the page, then jq it"\nlabel = "helm chart"\n')
             (src / "Client.java").write_text('new ProcessBuilder("mysqldump", "--all-databases");\n')
-            self.assertEqual(eval_tools.used([src], catalog), ["aws", "kcat", "mysqldump", "pg_dump", "terraform"])
+            (src / "LTC.json").write_text('{"command": "pwsh -NoProfile -File ci/check-powershell.ps1"}')
+            (src / "README.md").write_text('Run "pwsh" later.\n')
+            self.assertEqual(eval_tools.used([src], catalog), ["aws", "kcat", "mysqldump", "pg_dump", "pwsh", "terraform"])
 
     def test_missing_programs_in_failures(self):
         catalog = eval_tools.load_catalog()
@@ -74,6 +76,8 @@ class DetectionTests(unittest.TestCase):
             ("Error: spawn mysqldump ENOENT", ["mysqldump"]),
             ("FileNotFoundError: [Errno 2] No such file or directory: 'pg_dump'", ["pg_dump"]),
             ('java.io.IOException: Cannot run program "mvn": error=2', ["mvn"]),
+            # B2B REQ-037: the .ps1 check had no PowerShell and was sent to a repair
+            ("/bin/sh: 1: pwsh: not found", ["pwsh"]),
             ("sh: 1: frobnicate: not found", []),  # not in the catalog
         ):
             self.assertEqual(eval_tools.missing_from_failure(text, catalog), expected, text)
@@ -93,6 +97,24 @@ class DetectionTests(unittest.TestCase):
         self.assertEqual(tools["kafkacat"]["source"], "used")
         self.assertEqual(tools["jdk@17"]["source"], "declared")
         self.assertTrue(all(m["in_catalog"] for m in result["missing"]))
+
+    def test_script_linters_install_for_every_project_without_asking(self):
+        # B2B: shellcheck (REQ-033) and pwsh (REQ-037) needed /tools add in each project
+        catalog = eval_tools.load_catalog()
+        self.assertEqual(eval_tools.auto_tools(catalog), {"shellcheck", "powershell"})
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            kit = root / "runs" / "kit" / "REQ-001"
+            (kit / "ci").mkdir(parents=True)
+            (kit / "ci" / "LTC.json").write_text(json.dumps({"environment": {"tools": ["kcat"]}, "checks": [
+                {"id": "powershell", "command": "pwsh -NoProfile -File ci/check.ps1"},
+                {"id": "shell", "command": "shellcheck -x scripts/run.sh"},
+            ]}))
+            with patch.object(eval_tools, "available", lambda b: False):
+                result = eval_tools.check(root, "REQ-001")
+        approved = {m["tool"]: m["approved"] for m in result["missing"]}
+        self.assertEqual(approved, {"powershell": True, "shellcheck": True, "kafkacat": False})
+        self.assertIn("pwsh", result["auto_install"])
 
 
 class RunnerTests(unittest.TestCase):
@@ -228,6 +250,13 @@ elif args[:1] == ["create"]:
         lock = self.client.get("/lock").json()
         self.assertIn("@EXPLICIT", lock["kafkacat"]["lock"]["explicit"])
         self.assertNotIn("lock", self.client.get("/installed").json()["tools"]["kafkacat"])
+
+    def test_the_default_tools_are_there_from_the_start(self):
+        # shellcheck and PowerShell: no /tools add in each project (B2B REQ-033, REQ-037)
+        self.assertEqual(self.app.install_defaults(), ["powershell", "shellcheck"])
+        installed = self.client.get("/installed").json()["tools"]
+        self.assertEqual(set(installed), {"powershell", "shellcheck"})
+        self.assertEqual(self.app.install_defaults(), [])  # once
 
     def test_update_reports_the_changes_and_a_failed_rebuild_keeps_the_old_one(self):
         self._install({"name": "kafkacat", "packages": ["kafkacat"], "binaries": ["kcat"]})

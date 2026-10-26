@@ -369,3 +369,23 @@ test('a saved eval report keeps the error excerpt of each failed check (stdout k
   assert.match(utility, /excerpt: c\.excerpt \|\| undefined,/);
   assert.match(utility, /fingerprint: c\.fingerprint \|\| undefined,/);
 });
+
+test('a check whose program the sandbox lacks is not sent to a repair', () => {
+  // B2B REQ-037: `pwsh: not found` (not in the tools catalog then) got two repairs
+  const report = {
+    status: 'FAIL', passed: false,
+    cases: [
+      { name: 'unit', passed: true },
+      { name: 'powershell', passed: false, blocked: true, code: 127, cmd: 'pwsh -NoProfile -File ci/check-powershell.ps1', stderr: '/bin/sh: 1: pwsh: not found' },
+    ],
+  };
+  const step = nextAutoEvalStep({ cycle: 0, maxCycles: 3 }, report);
+  assert.equal(step.action, 'stop');
+  assert.match(step.reason, /lacks the program of powershell/);
+  // another environment block (a dependency the code may have wrong) still goes to a repair
+  report.cases[1] = { name: 'e2e', passed: false, blocked: true, code: 1, stderr: 'native binary mismatch' };
+  assert.equal(nextAutoEvalStep({ cycle: 0, maxCycles: 3 }, report).action, 'repair');
+  report.cases[1].code = 127;
+  report.cases.push({ name: 'lint', passed: false, code: 1, stderr: 'E501' });
+  assert.equal(nextAutoEvalStep({ cycle: 0, maxCycles: 3 }, report).action, 'repair');
+});

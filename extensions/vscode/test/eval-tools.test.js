@@ -122,3 +122,19 @@ test('/tools shows versions and reminds an update; /tools update shows what chan
   assert.match(updateSummary({ updated: [], changes: {}, failed: { az: 'solver failed' } }), /✖ az not updated \(the previous version stays\)/);
   assert.equal(parseSlash('/tools update jq').args.action, 'update');
 });
+
+test('a program a report names missing installs without asking when its tool is a default one', async () => {
+  const asked = [];
+  let installed = [];
+  const out = await ensureEvalTools({
+    check: async () => ({ missing: [], installable: true, auto_install: ['powershell', 'pwsh'] }),
+    install: async (names) => { installed = names; return { versions: {} }; },
+    ask: async (items) => { asked.push(items); return 'no'; },
+    approve: () => {},
+    extra: ['pwsh', 'kcat'],
+  });
+  assert.deepEqual(installed, ['pwsh']);
+  assert.equal(asked.length, 1);
+  assert.deepEqual(asked[0].map((m) => m.tool), ['kcat']);
+  assert.deepEqual(out.declined, ['kcat']);
+});

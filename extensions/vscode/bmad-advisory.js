@@ -73,6 +73,7 @@ function _collectFailedCases(report) {
       cmd: item.cmd || item.run || null,
       blocked: !!item.blocked,
       blocking: item.blocking !== false,
+      code: item.code ?? null,
       status: item.status || null,
       passed: item.passed,
       stdout: item.stdout ? String(item.stdout).slice(0, 800) : '',
@@ -259,6 +260,28 @@ function buildBmadEvalAdvisory(report, reqId, methodologyContext) {
       ],
       suggested_next_command: `/tools add ${missingTools.join(' ')}`,
       checks_to_rerun: blocked,
+    });
+  }
+
+  // a check whose own program is not in the sandbox and not in the catalog (exit 127): nothing to
+  // repair either (B2B REQ-037: `pwsh: not found` got "/kit --repair" before PowerShell was a tool)
+  const notFound = failedCases.filter((c) => c.blocked && Number(c.code) === 127);
+  if (!tampered.suggested_next_command && !missingTools.length && notFound.length && notFound.length === failedCases.length) {
+    const programs = [...new Set(notFound.map((c) => {
+      const m = /(?:^|[\s:/])([\w.+-]+): (?:command )?not found/m.exec(`${c.stderr}\n${c.stdout}`);
+      return m ? m[1] : String(c.cmd || '').trim().split(/\s+/)[0];
+    }).filter(Boolean))];
+    Object.assign(tampered, {
+      root_cause_hypothesis: `The eval sandbox lacks ${programs.join(', ') || 'the program of the check'} (needed by ${notFound.map((c) => c.name).join(', ')}), ` +
+        'and it is not in the CLike tools catalog: the code is not at fault, nothing to repair.',
+      diagnostic_classifications: ['environment_missing_tool'],
+      missing_tests: [],
+      contract_gaps: [],
+      recommended_repair_strategy: [
+        `Look for it in the catalog: /tools search ${programs[0] || '<program>'}; if it is not there, add its conda-forge package under custom: in .clike/eval-tools.yaml, then /eval ${target}.`,
+      ],
+      suggested_next_command: `/tools search ${programs[0] || '<program>'}`,
+      checks_to_rerun: notFound.map((c) => c.name),
     });
   }
 

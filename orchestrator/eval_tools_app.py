@@ -297,6 +297,33 @@ def _drop_legacy_env() -> None:
     log.info("removed the legacy shared tools environment")
 
 
+def install_defaults() -> List[str]:
+    """The catalog's default tools (``auto: true``: shellcheck, PowerShell) are in the sandbox from
+    the start, like the image's own programs: installed once, in the background, when missing. A
+    failure (no network) is logged; the eval still installs them when a check needs them."""
+    catalog = eval_tools.load_catalog()
+    with _lock:
+        state = _state()
+        wanted = sorted(n for n in eval_tools.auto_tools(catalog) if n not in state["tools"])
+        done = []
+        for spec in eval_tools.resolve(wanted, catalog)["tools"]:
+            try:
+                state["tools"][spec["name"]] = _install_one(ToolSpec(**spec))
+                _save(state)
+                done.append(spec["name"])
+            except Exception as exc:  # noqa: BLE001 - one failed default never stops the service
+                log.warning("default tool %s not installed: %s", spec["name"], exc)
+    if done:
+        log.info("default tools installed: %s", ", ".join(done))
+    return done
+
+
+@app.on_event("startup")
+def _defaults_at_start() -> None:
+    if os.getenv("CLIKE_EVAL_TOOLS_DEFAULTS", "1") != "0":
+        threading.Thread(target=install_defaults, name="eval-tools-defaults", daemon=True).start()
+
+
 # --- API -------------------------------------------------------------------------------------
 
 @app.get("/health")
