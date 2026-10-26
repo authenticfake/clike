@@ -217,6 +217,90 @@ test('cloud: dry run keeps only the report; a broken delta is rejected and nothi
   assert.equal(rejected.ok, false);
   assert.ok(rejected.errors.some((e) => /amends REQ-009/.test(e)));
   assert.deepEqual(files2, []);
+  // the rejected run's documents are kept, nothing is lost
+  assert.match(rejected.kept, /^runs\/extend\/rejected\//);
+  assert.equal(fs.readFileSync(path.join(root, rejected.kept, 'docs', 'harper', 'SPEC.md'), 'utf8'), 'x');
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('local agent: a rejected cascade leaves no lane guide or report of its own behind', () => {
+  // test project: the rejected run's v3 lane guidance and EXTEND report stayed in the workspace
+  const { root, put } = project();
+  put('docs/harper/lane-guides/python.md', '# python\n');
+  put('docs/harper/EXTEND_2026-10-18_REQ-003_REQ-004.md', '# EXTEND v2\n');
+  const before = re.snapshotDocs(root);
+  const broken = JSON.parse(planV2());
+  broken.reqs[3].amends = ['REQ-009'];
+  put('docs/harper/plan.json', JSON.stringify(broken));
+  put('docs/harper/lane-guides/python.md', '# python\n\n## Release v3\n');
+  put('docs/harper/lane-guides/go.md', '# go\n');
+  put('docs/harper/EXTEND_2026-10-25_REQ-005_REQ-006.md', '# EXTEND v3\n');
+  const out = re.reconcileExtend({ root, before, files: [], isAgent: true, mode: 'cascade', validateExtendPlan, cascade: { release: 'v3', baseline: 'v2' } });
+  assert.equal(out.ok, false);
+  const at = (rel) => path.join(root, ...rel.split('/'));
+  assert.equal(fs.readFileSync(at('docs/harper/lane-guides/python.md'), 'utf8'), '# python\n');
+  assert.equal(fs.existsSync(at('docs/harper/lane-guides/go.md')), false);
+  assert.equal(fs.existsSync(at('docs/harper/EXTEND_2026-10-25_REQ-005_REQ-006.md')), false);
+  assert.equal(fs.readFileSync(at('docs/harper/EXTEND_2026-10-18_REQ-003_REQ-004.md'), 'utf8'), '# EXTEND v2\n');
+  assert.equal(fs.readFileSync(at('docs/harper/plan.json'), 'utf8'), JSON.stringify(PLAN_V1, null, 2));
+  // all of it is kept for comparison
+  for (const rel of ['docs/harper/lane-guides/python.md', 'docs/harper/lane-guides/go.md', 'docs/harper/EXTEND_2026-10-25_REQ-005_REQ-006.md']) {
+    assert.ok(fs.existsSync(path.join(root, out.kept, ...rel.split('/'))), rel);
+  }
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('the commit of a cascade holds the lane guides and the release inputs, and names the release', () => {
+  // test project: the v3 lane guides and docs/inputs/v3/ stayed out of the extend commit
+  const { root, put } = project();
+  put('docs/harper/lane-guides/python.md', '# python\n');
+  put('docs/inputs/v3/IDEA_EXTEND_R3.md', '# Release 3\n');
+  put('docs/inputs/v3/.DS_Store', 'x');
+  put('docs/reference/v3/api/catalog.md', '# catalog\n');
+  assert.deepEqual(re.cascadeCommitFiles(root, 'v3').sort(), [
+    'docs/harper/lane-guides/python.md', 'docs/inputs/v3/IDEA_EXTEND_R3.md', 'docs/reference/v3/api/catalog.md',
+  ]);
+  assert.deepEqual(re.cascadeCommitFiles(root, '../x'), ['docs/harper/lane-guides/python.md']);
+  assert.equal(
+    re.cascadeCommitMessage({ release: 'v3', baseline: 'v2', delta: [{ id: 'REQ-037', change: 'MODIFIED' }, { id: 'REQ-038', change: 'ADDED' }] }, 'abc'),
+    'docs(harper): release v3 from v2 — REQ-037 MODIFIED, REQ-038 ADDED\n\n[harper:extend] runId=abc',
+  );
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('supersedes: every check section of an LTC counts, a test id without its REQ is completed', () => {
+  // test project: REQ-032 declares commands and external_checks (keycloak was refused as unknown);
+  // the agent named tests without REQ-x# and the whole cascade was discarded
+  const { root, put } = project();
+  put('runs/kit/REQ-001/ci/LTC.json', JSON.stringify({ commands: [{ id: 'tests' }], external_checks: [{ id: 'keycloak' }] }));
+  put('runs/kit/REQ-002/test/v2/test_setup.py', 'x');
+  assert.deepEqual(re.ltcCheckIds(root, 'REQ-001'), ['tests', 'keycloak']);
+  const plan = JSON.parse(planV2());
+  const r = plan.reqs[3];
+  r.change = 'MODIFIED';
+  r.amends = ['REQ-001', 'REQ-002'];
+  r.supersedes = [
+    { check: 'REQ-001#keycloak', reason: 'container Keycloak' },
+    { check: 'test/v2/req-001.states.test.tsx::restores the workspace', reason: 'by number' },
+    { check: 'test/v2/test_setup.py::SetupTests::test_cli', reason: 'by KIT tests' },
+    { check: 'test/v2/other.spec.ts::unknown owner', reason: 'ambiguous' },
+  ];
+  const out = re.validateDelta({
+    beforeText: JSON.stringify(PLAN_V1), planText: JSON.stringify(plan), release: 'v2',
+    ltcChecks: (id) => re.ltcCheckIds(root, id), testOwner: (ref, amends) => re.kitTestOwner(root, ref, amends),
+  });
+  assert.ok(!out.errors.some((e) => /keycloak/.test(e)), out.errors.join('\n'));
+  const fixed = JSON.parse(out.planText).reqs[3].supersedes.map((x) => x.check);
+  assert.equal(fixed[1], 'REQ-001#test/v2/req-001.states.test.tsx::restores the workspace');
+  assert.equal(fixed[2], 'REQ-002#test/v2/test_setup.py::SetupTests::test_cli');
+  assert.ok(out.warnings.some((w) => /completed as REQ-001#/.test(w)));
+  assert.deepEqual(out.errors, ['REQ-004: supersedes "test/v2/other.spec.ts::unknown owner" is not REQ-x#<check or test id> and its REQ is not clear among REQ-001, REQ-002']);
+  // with a single amended REQ the prefix is that REQ
+  r.amends = ['REQ-002'];
+  r.supersedes = [{ check: 'test/v2/other.spec.ts::unknown owner', reason: 'single' }];
+  const single = re.validateDelta({ beforeText: JSON.stringify(PLAN_V1), planText: JSON.stringify(plan), release: 'v2' });
+  assert.deepEqual(single.errors, []);
+  assert.equal(JSON.parse(single.planText).reqs[3].supersedes[0].check, 'REQ-002#test/v2/other.spec.ts::unknown owner');
   fs.rmSync(root, { recursive: true, force: true });
 });
 

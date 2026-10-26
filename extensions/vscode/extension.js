@@ -5541,8 +5541,9 @@ async function cmdOpenChat(context) {
             }
             for (const w of verdict.warnings) panel.webview.postMessage({ type: 'echo', message: `⚠ ${commandLabel}: ${w}` });
             if (!verdict.ok) {
-              const message = `✖ ${commandLabel} rejected — the plan breaks the extend rules, nothing kept:\n` +
-                verdict.errors.map((e) => `- ${e}`).join('\n');
+              const message = `✖ ${commandLabel} rejected — the plan breaks the extend rules; the documents are restored:\n` +
+                verdict.errors.map((e) => `- ${e}`).join('\n') +
+                (verdict.kept ? `\nThe documents of this run are kept in ${verdict.kept}/ (compare them, or run the command again).` : '');
               panel.webview.postMessage({ type: 'echo', message });
               await appendSessionJSONL(activeMode, { ts: Date.now(), role: 'system', content: message, model: state.model || 'auto', attachments: [] });
               clikeHarperBlockingRun = false;
@@ -5552,6 +5553,12 @@ async function cmdOpenChat(context) {
             if (msg.__cascade) {
               // the delivered baseline gets its tag before the release changes the documents
               const tag = msg.__cascade.dryRun ? '' : releaseExtend.tagBaseline(root, msg.__cascade.baseline);
+              if (!msg.__cascade.dryRun) {
+                msg.__extendCommit = {
+                  files: releaseExtend.cascadeCommitFiles(root, msg.__cascade.release),
+                  message: releaseExtend.cascadeCommitMessage({ ...msg.__cascade, delta: verdict.delta }, runId),
+                };
+              }
               const ids = verdict.delta.map((r) => `${r.id} ${r.change}`).join(', ');
               const message = `✔ /idea --extend ${msg.__cascade.baseline} → ${msg.__cascade.release}${msg.__cascade.dryRun ? ' (dry run)' : ''}: ` +
                 `${verdict.delta.length} new REQ(s) — ${ids}. Review ${verdict.report}${tag ? `; baseline tagged ${tag}` : ''}.` +
@@ -5662,9 +5669,9 @@ async function cmdOpenChat(context) {
                 phase,
                 runId,
                 targetReqId,
-                _out.files.map(f => f.path),
+                [..._out.files.map(f => f.path), ...(msg.__extendCommit?.files || [])],
                 { workspaceRoot: toFsPath(wsroot), finalizeOpenPr: (phase === 'finalize'),
-                  commitMessage: phase === 'finalize' ? finalizeCommitMessage(toFsPath(wsroot), runId) : '' },
+                  commitMessage: phase === 'finalize' ? finalizeCommitMessage(toFsPath(wsroot), runId) : (msg.__extendCommit?.message || '') },
                 settings,
                 out
               );

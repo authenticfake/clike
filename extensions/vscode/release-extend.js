@@ -97,9 +97,18 @@ function baselineStatus(root) {
   return { hasPlan: reqs.length > 0, total: reqs.length, notDone, solution };
 }
 
-/** The documents the cascade may change, as they are before the run. */
+const LANE_DIR = 'docs/harper/lane-guides';
+const listDir = (root, rel, re) => { try { return fs.readdirSync(path.join(root, ...rel.split('/'))).filter((n) => re.test(n)); } catch { return []; } };
+
+/**
+ * The documents the cascade may change, as they are before the run; with the lane guides and the
+ * names of the EXTEND reports already there (a rejected run must not leave its own behind).
+ */
 function snapshotDocs(root) {
-  return Object.fromEntries(Object.entries({ ...DOC_FILES, ...PLAN_FILES }).map(([k, rel]) => [k, read(root, rel)]));
+  const docs = Object.fromEntries(Object.entries({ ...DOC_FILES, ...PLAN_FILES }).map(([k, rel]) => [k, read(root, rel)]));
+  docs.laneGuides = Object.fromEntries(listDir(root, LANE_DIR, /\.md$/i).map((n) => [`${LANE_DIR}/${n}`, read(root, `${LANE_DIR}/${n}`)]));
+  docs.reports = listDir(root, 'docs/harper', /^EXTEND_.+\.md$/);
+  return docs;
 }
 
 function sections(markdown) {
@@ -144,7 +153,7 @@ function compareAdditive(before, after) {
  * `ltcChecks(reqId)` returns the check ids of runs/kit/<REQ>/ci/LTC.json (or null when unknown).
  * Missing `release` is filled in (returned in `planText`); the rest are errors or warnings.
  */
-function validateDelta({ beforeText, planText, release, ltcChecks = () => null }) {
+function validateDelta({ beforeText, planText, release, ltcChecks = () => null, testOwner = () => '' }) {
   const errors = [];
   const warnings = [];
   let plan;
@@ -174,10 +183,30 @@ function validateDelta({ beforeText, planText, release, ltcChecks = () => null }
     if (change === 'MODIFIED' && !targets('amends').length) errors.push(`${id}: MODIFIED needs amends: ["REQ-x"]`);
     if (change === 'REMOVED' && !targets('retires').length) errors.push(`${id}: REMOVED needs retires: ["REQ-x"]`);
     if (change === 'ADDED' && (targets('amends').length || targets('retires').length)) warnings.push(`${id}: ADDED with amends/retires — should it be MODIFIED or REMOVED?`);
-    for (const s of Array.isArray(r.supersedes) ? r.supersedes : []) {
-      const ref = String((s && s.check) || s || '');
-      const m = ref.match(/^(REQ-\d+)#(.+)$/);
-      if (!m) { errors.push(`${id}: supersedes "${ref}" is not REQ-x#<check or test id>`); continue; }
+    const list = Array.isArray(r.supersedes) ? r.supersedes : [];
+    for (let i = 0; i < list.length; i += 1) {
+      const s = list[i];
+      let ref = String((s && s.check) || s || '');
+      let m = ref.match(/^(REQ-\d+)#(.+)$/);
+      if (!m && ref) {
+        // a test id without its REQ (test project: "test/v2/req-016.states.test.tsx::…"): the
+        // amended REQ that owns it is the prefix — its number in the path, its KIT tests, or the
+        // only REQ amended; the work of the run is not lost for a format CLike can complete
+        const owner = supersedesOwner(ref, targets('amends'), testOwner);
+        if (owner) {
+          const fixed = `${owner}#${ref}`;
+          list[i] = s && typeof s === 'object' ? { ...s, check: fixed } : fixed;
+          warnings.push(`${id}: supersedes "${ref}" completed as ${fixed}`);
+          ref = fixed;
+          m = ref.match(/^(REQ-\d+)#(.+)$/);
+          filled = true;
+        }
+      }
+      if (!m) {
+        errors.push(`${id}: supersedes "${ref}" is not REQ-x#<check or test id>` +
+          (targets('amends').length ? ` and its REQ is not clear among ${targets('amends').join(', ')}` : ' (no amends)'));
+        continue;
+      }
       if (!targets('amends').includes(m[1])) errors.push(`${id}: supersedes a check of ${m[1]}, which it does not amend`);
       const known = ltcChecks(m[1]);
       if (Array.isArray(known) && !known.includes(m[2]) && !/[/:.]/.test(m[2])) {
@@ -193,12 +222,78 @@ function validateDelta({ beforeText, planText, release, ltcChecks = () => null }
   return { ok: errors.length === 0, errors, warnings, delta, planText: filled ? `${JSON.stringify(plan, null, 2)}\n` : planText };
 }
 
-/** Check ids of a REQ's eval profile (runs/kit/<REQ>/ci/LTC.json), or null when there is none. */
+/** The amended REQ a test id without prefix belongs to: its number in the path, its KIT tests, the only one. */
+function supersedesOwner(ref, amends, testOwner = () => '') {
+  if (!amends.length) return '';
+  const nums = [...String(ref).matchAll(/req[-_]?0*(\d+)/gi)].map((x) => Number(x[1]));
+  const byNumber = amends.filter((a) => nums.includes(Number(a.replace(/\D/g, ''))));
+  if (byNumber.length === 1) return byNumber[0];
+  const owned = testOwner(ref, amends);
+  if (owned && amends.includes(owned)) return owned;
+  return amends.length === 1 ? amends[0] : '';
+}
+
+/**
+ * Check ids of a REQ's eval profile (runs/kit/<REQ>/ci/LTC.json), or null when there is none: every
+ * section that names checks (test project: REQ-032 declares `commands` and `external_checks`, its
+ * `keycloak` check was refused as unknown).
+ */
 function ltcCheckIds(root, reqId) {
   try {
     const ltc = JSON.parse(fs.readFileSync(path.join(root, 'runs', 'kit', reqId, 'ci', 'LTC.json'), 'utf8'));
-    return [...(ltc.setup || []), ...(ltc.checks || [])].map((c) => String(c.id || '')).filter(Boolean);
+    return ['setup', 'checks', 'commands', 'external_checks']
+      .flatMap((k) => (Array.isArray(ltc[k]) ? ltc[k] : []))
+      .map((c) => String((c && c.id) || '')).filter(Boolean);
   } catch { return null; }
+}
+
+/** The amended REQ whose KIT holds the test file of `ref` (runs/kit/<REQ>/test/…), or ''. */
+function kitTestOwner(root, ref, amends) {
+  const file = String(ref).split('::')[0].replace(/^\.?\//, '');
+  const rest = file.replace(/^tests?\//, '');
+  const hits = amends.filter((a) => ['test', 'tests'].some((t) => fs.existsSync(path.join(root, 'runs', 'kit', a, t, ...rest.split('/')))));
+  return hits.length === 1 ? hits[0] : '';
+}
+
+/**
+ * What the commit of a passing cascade holds besides the files the run returned: the lane guides
+ * (a run may leave them as they are, already up to date) and the release's own inputs and
+ * references, so the release is in git with what it was made from. Ignored paths are dropped by
+ * the commit itself.
+ */
+function cascadeCommitFiles(root, release) {
+  const out = listDir(root, LANE_DIR, /\.md$/i).map((n) => `${LANE_DIR}/${n}`);
+  const walk = (rel) => {
+    let entries = [];
+    try { entries = fs.readdirSync(path.join(root, ...rel.split('/')), { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (e.name.startsWith('.')) continue;
+      if (e.isDirectory()) walk(`${rel}/${e.name}`);
+      else if (e.isFile()) out.push(`${rel}/${e.name}`);
+    }
+  };
+  if (/^v\d+$/.test(String(release || ''))) for (const dir of ['docs/inputs', 'docs/reference']) walk(`${dir}/${release}`);
+  return out;
+}
+
+/** The commit message of a passing cascade: the release and its new REQs. */
+function cascadeCommitMessage({ release, baseline, delta = [] }, runId) {
+  const ids = delta.map((r) => `${r.id} ${r.change}`).join(', ');
+  return `docs(harper): release ${release} from ${baseline}${ids ? ` — ${ids}` : ''}\n\n[harper:extend] runId=${runId}`;
+}
+
+/** Keeps a rejected cascade's documents under runs/extend/rejected/<ts>/ (nothing is lost); '' on failure. */
+function keepRejected(root, files, now = new Date()) {
+  try {
+    const dir = `runs/extend/rejected/${now.toISOString().replace(/[:.]/g, '-')}`;
+    for (const [rel, text] of files) {
+      if (typeof text !== 'string') continue;
+      const out = path.join(root, ...dir.split('/'), ...rel.split('/'));
+      fs.mkdirSync(path.dirname(out), { recursive: true });
+      fs.writeFileSync(out, text, 'utf8');
+    }
+    return dir;
+  } catch { return ''; }
 }
 
 /** The section CLike appends to the EXTEND report: facts it checked itself. */
@@ -340,11 +435,25 @@ function reconcileExtend({ root, before, files, isAgent, mode = 'plan', cascade 
 
   const verdict = validateExtendPlan({ beforeText: before.plan, afterText: current(PLAN_FILES.plan) });
   const delta = verdict.ok
-    ? validateDelta({ beforeText: before.plan, planText: verdict.planText, release: cascade.release, ltcChecks: (id) => ltcCheckIds(root, id) })
+    ? validateDelta({ beforeText: before.plan, planText: verdict.planText, release: cascade.release, ltcChecks: (id) => ltcCheckIds(root, id),
+      testOwner: (ref, amends) => kitTestOwner(root, ref, amends) })
     : { ok: false, errors: [], warnings: [], delta: [], planText: null };
   const errors = [...verdict.errors, ...delta.errors];
   warnings.push(...verdict.warnings, ...delta.warnings);
-  if (errors.length) { restoreAll(); return { ok: false, errors, warnings, delta: [], restored: verdict.restored, docs: {}, report: null }; }
+  if (errors.length) {
+    // local agent: lane guides it changed and the EXTEND report it wrote are on disk too
+    const lanes = isAgent && before.laneGuides
+      ? [...new Set([...Object.keys(before.laneGuides), ...listDir(root, LANE_DIR, /\.md$/i).map((n) => `${LANE_DIR}/${n}`)])]
+        .filter((rel) => read(root, rel) !== (before.laneGuides[rel] ?? null))
+      : [];
+    const reports = isAgent && Array.isArray(before.reports)
+      ? listDir(root, 'docs/harper', /^EXTEND_.+\.md$/).filter((n) => !before.reports.includes(n)).map((n) => `docs/harper/${n}`)
+      : [];
+    const kept = keepRejected(root, [...Object.values({ ...DOC_FILES, ...PLAN_FILES }), ...lanes, ...reports].map((rel) => [rel, current(rel)]));
+    restoreAll();
+    for (const rel of [...lanes, ...reports]) put(rel, rel in (before.laneGuides || {}) ? before.laneGuides[rel] : null);
+    return { ok: false, errors, warnings, delta: [], restored: verdict.restored, docs: {}, report: null, kept };
+  }
   if (delta.planText !== current(PLAN_FILES.plan)) put(PLAN_FILES.plan, delta.planText);
 
   const docs = {};
@@ -423,6 +532,7 @@ module.exports = {
   reconcileExtend,
   syncPlanMd,
   tagBaseline,
+  kitTestOwner,
   DOC_FILES,
   PLAN_FILES,
   releaseNumber,
@@ -430,6 +540,8 @@ module.exports = {
   baselineStatus,
   cascadeInputCheck,
   snapshotDocs,
+  cascadeCommitFiles,
+  cascadeCommitMessage,
   compareMarkdown,
   compareAdditive,
   validateDelta,

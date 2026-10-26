@@ -121,8 +121,8 @@ IDEA → SPEC → PLAN in continuity with what exists:
   new requirements. The folders of the targeted release are read even when `.clike/context.yaml`
   does not declare them.
 - **Baseline.** CLike checks that the REQs of the current release are delivered (it asks before
-  going on when some are not) and tags the delivered state `harper/v<N-1>` before changing the
-  documents.
+  going on when some are not) and tags the delivered state before changing the documents: the
+  release tag `v<N-1>` of its `/finalize` when there is one, else `harper/v<N-1>`.
 - **Merge, never regenerate.** IDEA.md and SPEC.md keep every section of earlier releases; the new
   release is added inside the sections it belongs to, plus a `## Release vN` section.
   TECH_CONSTRAINTS.yaml changes only by addition. A document that drops a section of the earlier
@@ -134,8 +134,10 @@ IDEA → SPEC → PLAN in continuity with what exists:
     criteria restated in full, `supersedes: [{"check": "REQ-x#<LTC check id>", "reason": …}]`,
     `unchanged: [...]`;
   - `REMOVED` — retires a capability: `retires: ["REQ-x"]`.
-  Targets must exist and be delivered; a superseded check must exist in the REQ's LTC. A plan that
-  breaks these rules is rejected and nothing is kept.
+  Targets must exist and be delivered; a superseded check must exist in the REQ's LTC (any of its
+  check sections); a superseded test named without its REQ gets the amended REQ that owns it. A plan
+  that breaks these rules is rejected: the documents and lane guides are restored, and what the run
+  wrote is kept under `runs/extend/rejected/<time>/` for comparison.
   The PLAN.md sections that index every REQ (REQ-IDs table, dependency graph, test strategy, KIT
   readiness) list the new REQs too: CLike adds any the agent left out.
 - **BMAD.** `--methodology bmad --agent analyst|pm|architect|ux` works on the cascade (default role
