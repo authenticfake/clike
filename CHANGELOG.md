@@ -6,6 +6,15 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **Root deliverables reach the repository**: a KIT's `root/` now also delivers the example of each
+  private env file (`.env.<name>.example`), `.gitignore` / `.dockerignore`, `ci/SOLUTION_LTC.json`
+  and project docs (`docs/<runbook>.md`, never `docs/harper/`, `docs/inputs/`, `docs/reference/`).
+  The eval blocks root deliverables left in a staging folder (`ci/shared/…`) or a staging map of the
+  KIT, saying where each belongs, and `/finalize` receives those that delivered REQs left there, to
+  bring them to the root. Before, these files had no legal place: the KITs staged scripts, env
+  examples, the solution profile and runbooks under `ci/shared/`, the gate promoted `src/` and
+  `test/` only, and the solution lacked `--oidc` / `--live`.
+
 - **A REQ is promoted only when its acceptance criteria are delivered**: every KIT writes
   `docs/ACCEPTANCE.json` (each criterion `done` with the blocking checks that verify it, `partial`,
   `missing`, or `developer_evidence`), and the eval's blocking check `acceptance::coverage` sends a

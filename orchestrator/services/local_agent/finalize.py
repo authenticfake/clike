@@ -38,6 +38,21 @@ def _text(key: str) -> list:
     return list(phase_text("finalize")[key])
 
 
+def _staged_root(payload: Dict[str, Any]) -> list:
+    """Root deliverables promoted REQs left in a KIT staging folder (services/root_files.py)."""
+    from pathlib import Path
+
+    from services.root_files import staged_root_deliverables
+
+    repo = payload.get("repository_context") if isinstance(payload.get("repository_context"), dict) else {}
+    raw = repo.get("repo_root") or repo.get("workspace_folder") or repo.get("root") or payload.get("workspaceRoot") or payload.get("workspace_root")
+    try:
+        root = Path(str(raw)).expanduser().resolve() if raw else None
+    except Exception:
+        root = None
+    return staged_root_deliverables(root) if root is not None and root.is_dir() else []
+
+
 def build_finalize_local_agent_package(
     *,
     payload: Dict[str, Any],
@@ -416,7 +431,8 @@ def build_finalize_local_agent_package(
         "solution_write_policy": finalize_write_policy,
         "allowed_write_roots": allowed_write_roots,
         "forbidden_paths": forbidden_paths,
-        "hard_rules": _text("package.hard_rules"), 
+        "hard_rules": _text("package.hard_rules"),
+        **({"staged_root_deliverables": staged} if (staged := _staged_root(payload)) else {}),
     }
 
     context_json = json.dumps(context, indent=2, ensure_ascii=False)

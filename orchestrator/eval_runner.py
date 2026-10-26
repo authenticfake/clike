@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional
 import eval_environment
 import eval_failures
 from services.gate_integrity import _DEFINES_TESTS_RE
-from services.root_files import KIT_ROOT_DIR, root_policy
+from services.root_files import KIT_ROOT_DIR, extra_root_files, is_allowed_root_path, root_policy
 import eval_tools
 import sandbox_resources
 from utils.safe_paths import validate_req_id
@@ -1637,6 +1637,13 @@ class EvalRunner:
                     )
                 ):
                     shutil.copy2(layer / name, work_kit_root / name)
+            # env examples, ignore files, the solution eval profile, project docs (not the project
+            # tree itself: it has them already where they are)
+            if layer != self.project_root:
+                for rel in extra_root_files(layer, policy):
+                    target = work_kit_root / rel
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(layer / rel, target)
 
     def _copy_tree_overlay(
         self,
@@ -4067,6 +4074,7 @@ class EvalRunner:
             out_cases.extend(self._shared_conftest_cases(eff_req))
             out_cases.extend(self._shared_test_support_cases(eff_req))
             out_cases.extend(self._test_layout_cases(eff_req))
+            out_cases.extend(self._staged_root_cases(eff_req))
             only_names = getattr(self, "_only_checks", None)
             if not only_names or "acceptance::coverage" in only_names:
                 out_cases.extend(self._acceptance_coverage_cases(eff_req, ltc))
@@ -4087,6 +4095,38 @@ class EvalRunner:
             mode="auto",
             cases=out_cases,
         )
+
+    def _staged_root_cases(self, req_id: str) -> List[EvalCase]:
+        """``structure::root-deliverables``: repository-root deliverables a KIT keeps outside root/
+        (a ci/<staging>/scripts/, ci/<staging>/.env.x.example, a staging map of its own) are never
+        promoted. B2B REQ-032…038 staged scripts, env examples, the solution eval profile and runbooks
+        under ci/shared/ with a STAGING_MAP.json: every check passed, the gate promoted src/ and test/,
+        and the solution had no --oidc / --live."""
+        kit = self.project_root / "runs" / "kit" / self._safe_req_id(req_id)
+        ci = kit / "ci"
+        policy = root_policy(self.project_root)
+        staged: List[str] = []
+        maps: List[str] = []
+        for path in sorted(kit.rglob("*")) if kit.is_dir() else []:
+            if not path.is_file() or any(part in {"node_modules", ".venv", "__pycache__", "reports", "local-eval-workspaces"}
+                                         for part in path.relative_to(kit).parts):
+                continue
+            if re.fullmatch(r"STAGING_MAP\.json|staging[_-]?map\.json", path.name, re.IGNORECASE):
+                maps.append(path.relative_to(kit).as_posix())
+                continue
+            if ci in path.parents:
+                parts = path.relative_to(ci).parts
+                if len(parts) >= 2 and is_allowed_root_path("/".join(parts[1:]), policy):
+                    staged.append(f"{path.relative_to(kit).as_posix()} → root/{'/'.join(parts[1:])}")
+        if not staged and not maps:
+            return []
+        shown = "\n".join(f"  {s}" for s in staged[:20]) + (f"\n  … {len(staged) - 20} more" if len(staged) > 20 else "")
+        return [EvalCase(name="structure::root-deliverables", passed=False, code=1, blocking=True, stdout="", stderr=(
+            f"[CLike EvalRunner] Repository-root deliverables outside root/: only runs/kit/{req_id}/root/<repository path> "
+            "is promoted to the repository (scripts/, deploy/, .env.<name>.example, .gitignore, ci/SOLUTION_LTC.json, "
+            "docs/<runbook>.md); a staging folder or a staging map of the KIT never is. Move them:\n" + shown +
+            (f"\nRemove the staging map(s): {', '.join(maps)} — CLike promotes root/ as it is." if maps else "") +
+            "\nThe eval sees root/ at the workspace root: checks run them there (scripts/…, not ci/<staging>/scripts/…)."))]
 
     def _acceptance_coverage_cases(self, req_id: str, ltc: Dict[str, Any]) -> List[EvalCase]:
         """``acceptance::coverage``: the KIT's own account of its acceptance criteria

@@ -279,6 +279,16 @@ reported, not blocking. Without the file, a `SELF_REVIEW.md` that declares the K
 that says everything is done while the self review says otherwise. Nothing declared either way
 (KITs written before this rule): the checks decide, as before.
 
+## Repository-root deliverables
+
+Only `runs/kit/<REQ>/root/<repository path>` reaches the repository root: `scripts/`, `deploy/` and
+the other root folders, `.env.<name>.example`, `.gitignore`, `ci/SOLUTION_LTC.json`, project docs
+`docs/<runbook>.md` (never `docs/harper/`, `docs/inputs/`, `docs/reference/`, a real `.env` or a
+secret). The eval sees `root/` at the workspace root. A KIT that keeps such files in a staging
+folder of `ci/` (`ci/shared/scripts/…`) or writes a staging map of its own fails the blocking check
+`structure::root-deliverables`, with the move to make; `/finalize` gets the list of those that
+delivered REQs left there (`staged_root_deliverables`) and brings them to the root.
+
 ## Promotability: regression of promoted REQs (L2)
 
 With `clike.eval.regression` (default on), `/eval` and `/gate` also run the acceptance checks of
