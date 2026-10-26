@@ -1,6 +1,6 @@
 [project]
 name = "clike-gateway"
-version = "1.6.4"
+version = "1.6.5"
 description = "CLike model Gateway: provider abstraction, Harper prompt composition, telemetry"
 requires-python = ">=3.12,<3.13"
 license = "Apache-2.0"
