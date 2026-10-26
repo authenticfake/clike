@@ -312,8 +312,14 @@ passed has nothing to regress from.
 
 Declared changes of a release (`/idea --extend`) narrow the regression, when the REQ that declares
 them is promoted or is the candidate: the checks a MODIFIED REQ `supersedes` (`REQ-x#check`) are
-not run in the amended REQ's regression (reported as `regression::<REQ>::<check>::superseded`, its
-other checks still run), and a REQ a REMOVED REQ `retires` leaves the regression set.
+not run in the amended REQ's regression, in whatever section of its LTC they are declared (reported
+as `regression::<REQ>::<check>::superseded`, its other checks still run), and a REQ a REMOVED REQ
+`retires` leaves the regression set. A superseded **test** (`REQ-x#path::name`) is recognised in
+the output of any check that runs it, whichever promoted REQ the check belongs to: a check whose
+failed tests are all superseded holds (`[CLike EvalRunner] Superseded tests: …`); one with other
+failed tests still fails, and the note names the superseded ones so the repair leaves them alone.
+The failed tests are read in the formats of the common runners (pytest, vitest/jest, Playwright, Go,
+Rust, .NET, Maven/Gradle, RSpec, PHPUnit).
 
 A REQ that passes its own tests but breaks a promoted REQ fails the eval; the gate reports
 `GATE_BLOCKED_REGRESSION` with the list in `regression_failures`. In an auto-eval loop the
@@ -328,6 +334,13 @@ check that failed and then passed on a re-run, with its error lines; failing twi
 candidate while it passes on the promoted tree alone, and showing only errors seen in those runs (a
 timeout, a missing UI element), it is a warning (`… a known unstable check`). A failure with an
 error it never showed, or with no error line to compare, is a regression.
+
+Promoted REQs are regressed side by side (`CLIKE_EVAL_REGRESSION_WORKERS`, default 2). A blocking
+failure that **ran out of time** (a test over its limit, a database connection, a suite over the
+check's own timeout, a dev server that did not start in time) runs again **alone** once the others
+are done: passing alone, it was the parallel load, a non-blocking warning (`[CLike EvalRunner]
+Timeout under parallel load: …`) never sent to a repair; failing alone too, it stays blocking and
+the note says the slowdown comes with the candidate.
 
 A blocking failure of a promoted REQ that remains (a test, a service it starts, a value it
 provisions) is then run on the promoted tree **without the candidate**. If it fails there too, the

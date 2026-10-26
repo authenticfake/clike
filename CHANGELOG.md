@@ -4,6 +4,23 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+### Fixed
+
+- **Superseded checks and tests hold in the regression**: a superseded check is dropped in whatever
+  section of the delivered REQ's LTC declares it (`commands`, `steps`, not only `checks`), and a
+  superseded test (`REQ-x#path::name`) is recognised in the output of any check that runs it,
+  whichever promoted REQ owns the check: when all its failed tests are superseded the check holds,
+  otherwise the note names them so the repair leaves them alone. Failed tests are read in the formats
+  of the common runners of any language. Before, test references were never applied: a test the
+  release replaced on purpose failed the regression and went to a repair.
+- **A timeout under parallel load is not a regression**: a blocking regression failure that ran out
+  of time while promoted REQs ran side by side runs again alone; passing alone, it is a warning,
+  never repaired. Before, a 30 s test, a database connection and a 300 s suite slowed by the load
+  were diagnosed as shared-file changes, and the repair changed correct code.
+- **`/idea --extend` names the delivered tests that pin a list the release extends** (the last
+  migration or schema version, the set of routes, services or files): they are superseded, and the
+  REQ that extends them is MODIFIED.
+
 ## [1.6.4] — 2026-10-26 — Script checks with nothing to install
 
 ### Fixed
