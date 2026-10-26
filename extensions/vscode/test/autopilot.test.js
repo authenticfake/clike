@@ -36,6 +36,15 @@ test('a REQ parked by an earlier run stays parked until its files change', () =>
   assert.deepEqual(keptParked(undefined, () => ''), { kept: {}, released: [] });
 });
 
+test('a parked REQ is retried when the environment changed (CLike version, sandbox tools)', () => {
+  // B2B REQ-037: parked on `pwsh: not found`; PowerShell installed, its files unchanged
+  const previous = { 'REQ-037': { step: 'eval', fingerprint: 'f1', env: '1.6.3|shellcheck' }, 'REQ-040': { step: 'eval', fingerprint: 'f2' } };
+  const same = (id) => ({ 'REQ-037': 'f1', 'REQ-040': 'f2' }[id]);
+  assert.deepEqual(keptParked(previous, same, '1.6.3|shellcheck').released, ['REQ-040']);  // parked before env was recorded
+  assert.deepEqual(keptParked(previous, same, '1.6.3|powershell,shellcheck').released, ['REQ-037', 'REQ-040']);
+  assert.deepEqual(Object.keys(keptParked(previous, same, '').kept), ['REQ-037', 'REQ-040']);  // tools unknown: inputs only
+});
+
 test('a parked REQ is skipped and its dependants wait; the independent ones go on', () => {
   assert.deepEqual(nextAutopilotReq(plan, new Set(['REQ-002'])), { action: 'run', req_id: 'REQ-004', step: 'kit' });
   const blocked = nextAutopilotReq(plan, new Set(['REQ-002', 'REQ-004']));

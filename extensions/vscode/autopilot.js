@@ -72,13 +72,15 @@ function transientFailure(text) {
 
 /**
  * Parked REQs of an earlier run that stay parked: those whose inputs did not change since (nobody
- * fixed them yet). A REQ the developer changed is released and retried.
+ * fixed them yet). A REQ the developer changed is released and retried; so is every REQ when the
+ * environment changed (`env`: CLike's version and the sandbox tools; B2B REQ-037 was parked on
+ * `pwsh: not found`, PowerShell was installed, and /autopilot ended at once on "no REQ can go on").
  */
-function keptParked(previous, fingerprintOf) {
+function keptParked(previous, fingerprintOf, env = '') {
   const kept = {};
   const released = [];
   for (const [reqId, info] of Object.entries(previous || {})) {
-    if (info && info.fingerprint && info.fingerprint === fingerprintOf(reqId)) kept[reqId] = info;
+    if (info && info.fingerprint && info.fingerprint === fingerprintOf(reqId) && (!env || info.env === env)) kept[reqId] = info;
     else released.push(reqId);
   }
   return { kept, released };
