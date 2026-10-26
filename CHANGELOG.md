@@ -8,6 +8,11 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Added
 
+- **`/finalize --verify`**: the solution verification again — the sandbox profile, the local check on
+  the developer's machine, the outcome, the release tag — without a new agent run. No tokens when it
+  passes; the repair agent runs only on a failure, as in a full `/finalize`. For a finalize stopped
+  before its end, or a fix made by hand (a busy port, a configuration value).
+
 - **Use cases from the release to the finalize**: `/idea --extend` writes every journey the release
   adds or changes as a SPEC use case, as `/spec` does (`UC-nn` with steps, errors and prerequisites;
   the section is created when the SPEC has none), and its new REQs cover the steps. The report's

@@ -4733,6 +4733,20 @@ async function cmdOpenChat(context) {
             try { finalizeVerify.ensureDirtyBaseline(getWorkspaceRoot().fsPath); } catch (e) { log(`[finalize] baseline: ${e?.message || e}`); }
           }
 
+          if (phase === 'finalize' && msg.verifyOnly && !msg.finalizeRepair) {
+            // /finalize --verify: what the last finalize wrote is verified again (sandbox, the local
+            // check, the outcome, the release tag) without a new agent run — no tokens when it passes;
+            // the repair agent runs only on a failure, as in a full /finalize
+            await appendSessionJSONL(activeMode, { ts: Date.now(), role: 'user', content: '▶ FINALIZE --verify (no agent run)', model: 'auto', attachments: [] });
+            panel.webview.postMessage({ type: 'echo', message: '▶ /finalize --verify: the solution verification again, no new agent run.' });
+            msg.__result = 'ok';
+            clikeHarperBlockingRun = false;
+            panel.webview.postMessage({ type: 'busy', on: false });
+            if (cfg().finalizeVerify) await continueFinalizeVerify(msg);
+            else recordFinalizeOutcome('ok', 'solution verification off (clike.finalize.verify)');
+            return;
+          }
+
           const project_id = getProjectId();
           const { cmd, attachments = [] } = msg;
           const state = context.workspaceState.get('clike.uiState') || {

@@ -424,6 +424,11 @@ function parseSlash(input) {
     return finish({ extend: true, fromAttachment, dryRun, release, rawInput: text.join(' ').trim() });
   }
 
+  // /finalize --verify: the verification again (sandbox, local check, outcome, tag), no new agent run
+  if (cmd === '/finalize' && rest.some((t) => String(t).toLowerCase() === '--verify')) {
+    return finish({ verifyOnly: true });
+  }
+
   if (cmd === '/agent-default') {
     return finish({ value: String(rest[0] || '').trim().toLowerCase() });
   }

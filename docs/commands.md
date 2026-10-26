@@ -332,6 +332,13 @@ an optional version (`jdk@17`), installs it and approves it for the project in
 installed files stay in the shared tools volume). `/tools` shows the installed versions and reminds
 you after 30 days. Libraries of a language belong to the project manifest. See `auto-eval.md`.
 
+### `/finalize --verify`
+The verification of the last `/finalize` again, **without a new agent run**: the solution eval in
+the sandbox, the local check on your machine, the outcome, the release tag and its notes. It costs
+no tokens when it passes; on a failure the repair agent runs as in a full `/finalize`. Use it after
+a finalize stopped before its end, or after a fix you made yourself (a busy port, a configuration
+value).
+
 ### `/finalize`
 Brings the promoted solution to **running and configured**: it wires what is missing, writes the
 run docs and scripts and `ci/SOLUTION_LTC.json`, the eval profile of the **whole solution

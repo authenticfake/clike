@@ -431,3 +431,8 @@ test('extend: the journeys of the release are use cases of the SPEC, as /spec wr
   assert.ok(!added.out.warnings.some((w) => /Use Cases/.test(w)), added.out.warnings.join('; '));
   assert.match(added.report, /- Use cases: 2 \(new: UC-02\)/);
 });
+
+test('/finalize --verify verifies again without a new agent run; plain /finalize is unchanged', () => {
+  assert.deepEqual(parseSlash('/finalize --verify').args, { verifyOnly: true });
+  assert.equal(parseSlash('/finalize').args.verifyOnly, undefined);
+});
