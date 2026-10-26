@@ -295,7 +295,8 @@ function declareSupersede(root, reqId, ref, reason, { author = '', now = new Dat
   const fail = (message) => ({ ok: false, message, changed: false });
   const id = String(reqId || '').toUpperCase();
   const text = String(ref || '').trim();
-  const why = String(reason || '').trim();
+  // a reason typed over two lines, or with its quotes still on (chat input): one clean line
+  const why = String(reason || '').replace(/\s+/g, ' ').trim().replace(/^(["'])([\s\S]*)\1$/, '$2').replace(/^["']|["']$/g, '').trim();
   const m = /^(REQ-[A-Za-z0-9_-]+)#(.+)$/i.exec(text);
   if (!m) return fail(`"${text}" is not REQ-x#<check id> or REQ-x#<path>::<test>`);
   if (why.length < 10) return fail('say why the release changes it (at least 10 characters)');

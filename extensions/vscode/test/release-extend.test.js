@@ -384,6 +384,10 @@ test('/eval REQ --supersede declares a delivered test the open REQ changes, audi
   assert.equal(after.change, 'MODIFIED');
   assert.match(fs.readFileSync(path.join(root, 'runs/extend/declared-supersedes.jsonl'), 'utf8'), /"author":"dev"/);
   assert.equal(re.declareSupersede(root, 'REQ-004', ref, 'the session view adds subject and groups').changed, false);
+  // typed over two lines with its quotes (B2B): stored as one clean line
+  re.declareSupersede(root, 'REQ-004', 'REQ-002#tests', '"v3:\nthe session view adds subject"');
+  const last = JSON.parse(fs.readFileSync(path.join(root, 'docs/harper/plan.json'), 'utf8')).reqs[3].supersedes.pop();
+  assert.equal(last.reason, 'v3: the session view adds subject');
   // refused: no reason, unknown test, a delivered REQ declaring, a check not in the LTC
   assert.match(re.declareSupersede(root, 'REQ-004', ref, 'x').message, /at least 10/);
   assert.match(re.declareSupersede(root, 'REQ-004', 'REQ-001#test/leadintel/test_session.py::test_other', 'a good long reason').message, /has no test "test_other"/);
