@@ -250,6 +250,24 @@ test('local agent: a rejected cascade leaves no lane guide or report of its own 
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+test('the commit of a cascade holds the lane guides and the release inputs, and names the release', () => {
+  // test project: the v3 lane guides and docs/inputs/v3/ stayed out of the extend commit
+  const { root, put } = project();
+  put('docs/harper/lane-guides/python.md', '# python\n');
+  put('docs/inputs/v3/IDEA_EXTEND_R3.md', '# Release 3\n');
+  put('docs/inputs/v3/.DS_Store', 'x');
+  put('docs/reference/v3/api/catalog.md', '# catalog\n');
+  assert.deepEqual(re.cascadeCommitFiles(root, 'v3').sort(), [
+    'docs/harper/lane-guides/python.md', 'docs/inputs/v3/IDEA_EXTEND_R3.md', 'docs/reference/v3/api/catalog.md',
+  ]);
+  assert.deepEqual(re.cascadeCommitFiles(root, '../x'), ['docs/harper/lane-guides/python.md']);
+  assert.equal(
+    re.cascadeCommitMessage({ release: 'v3', baseline: 'v2', delta: [{ id: 'REQ-037', change: 'MODIFIED' }, { id: 'REQ-038', change: 'ADDED' }] }, 'abc'),
+    'docs(harper): release v3 from v2 — REQ-037 MODIFIED, REQ-038 ADDED\n\n[harper:extend] runId=abc',
+  );
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
 test('supersedes: every check section of an LTC counts, a test id without its REQ is completed', () => {
   // test project: REQ-032 declares commands and external_checks (keycloak was refused as unknown);
   // the agent named tests without REQ-x# and the whole cascade was discarded

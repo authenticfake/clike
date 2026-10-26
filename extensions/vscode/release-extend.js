@@ -255,6 +255,33 @@ function kitTestOwner(root, ref, amends) {
   return hits.length === 1 ? hits[0] : '';
 }
 
+/**
+ * What the commit of a passing cascade holds besides the files the run returned: the lane guides
+ * (a run may leave them as they are, already up to date) and the release's own inputs and
+ * references, so the release is in git with what it was made from. Ignored paths are dropped by
+ * the commit itself.
+ */
+function cascadeCommitFiles(root, release) {
+  const out = listDir(root, LANE_DIR, /\.md$/i).map((n) => `${LANE_DIR}/${n}`);
+  const walk = (rel) => {
+    let entries = [];
+    try { entries = fs.readdirSync(path.join(root, ...rel.split('/')), { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (e.name.startsWith('.')) continue;
+      if (e.isDirectory()) walk(`${rel}/${e.name}`);
+      else if (e.isFile()) out.push(`${rel}/${e.name}`);
+    }
+  };
+  if (/^v\d+$/.test(String(release || ''))) for (const dir of ['docs/inputs', 'docs/reference']) walk(`${dir}/${release}`);
+  return out;
+}
+
+/** The commit message of a passing cascade: the release and its new REQs. */
+function cascadeCommitMessage({ release, baseline, delta = [] }, runId) {
+  const ids = delta.map((r) => `${r.id} ${r.change}`).join(', ');
+  return `docs(harper): release ${release} from ${baseline}${ids ? ` — ${ids}` : ''}\n\n[harper:extend] runId=${runId}`;
+}
+
 /** Keeps a rejected cascade's documents under runs/extend/rejected/<ts>/ (nothing is lost); '' on failure. */
 function keepRejected(root, files, now = new Date()) {
   try {
@@ -513,6 +540,8 @@ module.exports = {
   baselineStatus,
   cascadeInputCheck,
   snapshotDocs,
+  cascadeCommitFiles,
+  cascadeCommitMessage,
   compareMarkdown,
   compareAdditive,
   validateDelta,

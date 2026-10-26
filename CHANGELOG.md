@@ -17,6 +17,11 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   lane guides it changed are restored and the EXTEND report it wrote is removed (both kept under
   `runs/extend/rejected/<time>/`); before, they stayed and a later run took them as the release's
   own, so they were never committed.
+- **The commit of `/idea --extend` holds the whole release**: the lane guides and the release's own
+  inputs and references (`docs/inputs/vN/`, `docs/reference/vN/`) are committed with the documents,
+  under a message that names the release and its new REQs
+  (`docs(harper): release v3 from v2 — REQ-037 MODIFIED, …`). Before, only the files the run
+  returned were committed: up-to-date lane guides and the inputs stayed out of git.
 
 ## [1.6.2] — 2026-10-25 — Releases from /finalize, the local start verified, a memory that answers
 
