@@ -223,6 +223,33 @@ test('cloud: dry run keeps only the report; a broken delta is rejected and nothi
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+test('local agent: a rejected cascade leaves no lane guide or report of its own behind', () => {
+  // test project: the rejected run's v3 lane guidance and EXTEND report stayed in the workspace
+  const { root, put } = project();
+  put('docs/harper/lane-guides/python.md', '# python\n');
+  put('docs/harper/EXTEND_2026-10-18_REQ-003_REQ-004.md', '# EXTEND v2\n');
+  const before = re.snapshotDocs(root);
+  const broken = JSON.parse(planV2());
+  broken.reqs[3].amends = ['REQ-009'];
+  put('docs/harper/plan.json', JSON.stringify(broken));
+  put('docs/harper/lane-guides/python.md', '# python\n\n## Release v3\n');
+  put('docs/harper/lane-guides/go.md', '# go\n');
+  put('docs/harper/EXTEND_2026-10-25_REQ-005_REQ-006.md', '# EXTEND v3\n');
+  const out = re.reconcileExtend({ root, before, files: [], isAgent: true, mode: 'cascade', validateExtendPlan, cascade: { release: 'v3', baseline: 'v2' } });
+  assert.equal(out.ok, false);
+  const at = (rel) => path.join(root, ...rel.split('/'));
+  assert.equal(fs.readFileSync(at('docs/harper/lane-guides/python.md'), 'utf8'), '# python\n');
+  assert.equal(fs.existsSync(at('docs/harper/lane-guides/go.md')), false);
+  assert.equal(fs.existsSync(at('docs/harper/EXTEND_2026-10-25_REQ-005_REQ-006.md')), false);
+  assert.equal(fs.readFileSync(at('docs/harper/EXTEND_2026-10-18_REQ-003_REQ-004.md'), 'utf8'), '# EXTEND v2\n');
+  assert.equal(fs.readFileSync(at('docs/harper/plan.json'), 'utf8'), JSON.stringify(PLAN_V1, null, 2));
+  // all of it is kept for comparison
+  for (const rel of ['docs/harper/lane-guides/python.md', 'docs/harper/lane-guides/go.md', 'docs/harper/EXTEND_2026-10-25_REQ-005_REQ-006.md']) {
+    assert.ok(fs.existsSync(path.join(root, out.kept, ...rel.split('/'))), rel);
+  }
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
 test('supersedes: every check section of an LTC counts, a test id without its REQ is completed', () => {
   // test project: REQ-032 declares commands and external_checks (keycloak was refused as unknown);
   // the agent named tests without REQ-x# and the whole cascade was discarded

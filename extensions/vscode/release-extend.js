@@ -97,9 +97,18 @@ function baselineStatus(root) {
   return { hasPlan: reqs.length > 0, total: reqs.length, notDone, solution };
 }
 
-/** The documents the cascade may change, as they are before the run. */
+const LANE_DIR = 'docs/harper/lane-guides';
+const listDir = (root, rel, re) => { try { return fs.readdirSync(path.join(root, ...rel.split('/'))).filter((n) => re.test(n)); } catch { return []; } };
+
+/**
+ * The documents the cascade may change, as they are before the run; with the lane guides and the
+ * names of the EXTEND reports already there (a rejected run must not leave its own behind).
+ */
 function snapshotDocs(root) {
-  return Object.fromEntries(Object.entries({ ...DOC_FILES, ...PLAN_FILES }).map(([k, rel]) => [k, read(root, rel)]));
+  const docs = Object.fromEntries(Object.entries({ ...DOC_FILES, ...PLAN_FILES }).map(([k, rel]) => [k, read(root, rel)]));
+  docs.laneGuides = Object.fromEntries(listDir(root, LANE_DIR, /\.md$/i).map((n) => [`${LANE_DIR}/${n}`, read(root, `${LANE_DIR}/${n}`)]));
+  docs.reports = listDir(root, 'docs/harper', /^EXTEND_.+\.md$/);
+  return docs;
 }
 
 function sections(markdown) {
@@ -405,8 +414,17 @@ function reconcileExtend({ root, before, files, isAgent, mode = 'plan', cascade 
   const errors = [...verdict.errors, ...delta.errors];
   warnings.push(...verdict.warnings, ...delta.warnings);
   if (errors.length) {
-    const kept = keepRejected(root, Object.values({ ...DOC_FILES, ...PLAN_FILES }).map((rel) => [rel, current(rel)]));
+    // local agent: lane guides it changed and the EXTEND report it wrote are on disk too
+    const lanes = isAgent && before.laneGuides
+      ? [...new Set([...Object.keys(before.laneGuides), ...listDir(root, LANE_DIR, /\.md$/i).map((n) => `${LANE_DIR}/${n}`)])]
+        .filter((rel) => read(root, rel) !== (before.laneGuides[rel] ?? null))
+      : [];
+    const reports = isAgent && Array.isArray(before.reports)
+      ? listDir(root, 'docs/harper', /^EXTEND_.+\.md$/).filter((n) => !before.reports.includes(n)).map((n) => `docs/harper/${n}`)
+      : [];
+    const kept = keepRejected(root, [...Object.values({ ...DOC_FILES, ...PLAN_FILES }), ...lanes, ...reports].map((rel) => [rel, current(rel)]));
     restoreAll();
+    for (const rel of [...lanes, ...reports]) put(rel, rel in (before.laneGuides || {}) ? before.laneGuides[rel] : null);
     return { ok: false, errors, warnings, delta: [], restored: verdict.restored, docs: {}, report: null, kept };
   }
   if (delta.planText !== current(PLAN_FILES.plan)) put(PLAN_FILES.plan, delta.planText);

@@ -13,6 +13,10 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   `REQ-032#keycloak` was refused as unknown); a superseded test named without its REQ gets the
   amended REQ that owns it (its number in the path, its KIT tests, or the only one amended); a
   rejected cascade keeps its documents under `runs/extend/rejected/<time>/` instead of losing them.
+- **A rejected `/idea --extend` leaves nothing of its own in the workspace**: with a local agent, the
+  lane guides it changed are restored and the EXTEND report it wrote is removed (both kept under
+  `runs/extend/rejected/<time>/`); before, they stayed and a later run took them as the release's
+  own, so they were never committed.
 
 ## [1.6.2] — 2026-10-25 — Releases from /finalize, the local start verified, a memory that answers
 
