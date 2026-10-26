@@ -59,7 +59,7 @@ Details: [harper-workflow.md](harper-workflow.md), [auto-eval.md](auto-eval.md),
 `/idea --extend` evolves a delivered project: the new release (`docs/inputs/vN/`) is merged into
 IDEA, SPEC and TECH_CONSTRAINTS, and the PLAN receives new REQs typed **ADDED**, **MODIFIED**
 (naming the checks of a delivered REQ it supersedes) or **REMOVED**. Delivered REQs stay
-read-only, the baseline is tagged `harper/v<N-1>`, and an EXTEND report carries CLike's own
+read-only, the baseline is tagged `v<N-1>`, and an EXTEND report carries CLike's own
 verification. Then the same loop runs on the new REQs.
 
 Details: [commands.md](commands.md) (`/idea --extend`), [architecture/ADOPT_AND_IDEA_EXTEND.md](architecture/ADOPT_AND_IDEA_EXTEND.md).

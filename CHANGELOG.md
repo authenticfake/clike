@@ -4,6 +4,8 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.6.3] — 2026-10-26 — An extend that keeps its work
+
 ### Fixed
 
 - **`/idea --extend` no longer discards a cascade for a reference it can complete**: every check
