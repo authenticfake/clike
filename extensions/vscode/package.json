@@ -647,5 +647,8 @@
     "@vscode/vsce": "4.0.0",
     "eslint": "9.39.5",
     "globals": "15.15.0"
+  },
+  "overrides": {
+    "@azure/msal-node": "^7.1.2"
   }
 }

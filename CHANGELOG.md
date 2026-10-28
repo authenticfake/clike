@@ -4,6 +4,13 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+### Security
+
+- **Extension build tools without known vulnerabilities**: `@azure/msal-node` 7.1.2 (an override
+  under the packaging tool, GHSA-xcx6-jx8p-x3h5) and `qs` 6.17.0 (GHSA-6pq8-jhm2-2vcw); both were
+  build-time dependencies of `.vsix` packaging, not of the extension that runs in VS Code.
+  `npm audit`: 0 vulnerabilities; packaging verified.
+
 ### Added
 
 - **Language runtimes newer than the sandbox image**: an LTC that declares `"environment":
