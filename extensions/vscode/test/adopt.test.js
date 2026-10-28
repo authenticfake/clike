@@ -96,3 +96,64 @@ test('/adopt is parsed with its area and dry run', () => {
   assert.deepEqual(parseSlash('/adopt --area aigateway').args, { area: 'aigateway', dryRun: false });
   assert.deepEqual(parseSlash('/adopt --dry-run').args, { area: '', dryRun: true });
 });
+
+// ---- the analysis (G3b): baseline REQs, the check of the model's plan, area by area
+
+const { validateExtendPlan } = require('../extend-guard');
+const gw = { name: 'gateway', root: 'gateway', stack: 'python', runtime: { python: '>=3.14' }, commands: { setup: 'uv sync', check: 'make check' } };
+const portal = { name: 'portal', root: 'portal', stack: 'node', runtime: {}, commands: { setup: 'npm ci', test: 'npm test' } };
+
+test('baselineReqs: one done REQ per area, its LTC runs the team checks; a failing check is non-blocking', () => {
+  const base = a.baselineReqs([gw, portal], { cases: [{ name: 'gateway::check', passed: true }, { name: 'portal::test', passed: false }] });
+  assert.deepEqual(base.reqs.map((r) => [r.id, r.area, r.status, r.origin]), [['REQ-001', 'gateway', 'done', 'adopted'], ['REQ-002', 'portal', 'done', 'adopted']]);
+  assert.equal(base.ltcs['REQ-001'].checks[0].blocking, true);
+  assert.deepEqual(base.ltcs['REQ-001'].environment, { python: '>=3.14' });
+  assert.equal(base.ltcs['REQ-001'].checks[0].cwd, 'gateway');
+  assert.equal(base.ltcs['REQ-002'].checks[0].blocking, false);
+  assert.deepEqual(base.reqs[1].failing_at_adoption, ['portal::test']);
+  // area by area: numbering continues after the REQs already adopted
+  assert.equal(a.baselineReqs([portal], null, base.reqs.slice(0, 1).concat([{ id: 'REQ-004' }])).reqs[0].id, 'REQ-005');
+});
+
+test('checkAdoptedPlan: baseline kept, done only when covered, open otherwise, area and acceptance required', () => {
+  const base = a.baselineReqs([gw], null);
+  const beforeText = JSON.stringify({ reqs: base.reqs });
+  const after = (extra) => JSON.stringify({ reqs: [...base.reqs, ...extra] });
+  const ok = a.checkAdoptedPlan({ beforeText, afterText: after([
+    { id: 'REQ-002', title: 'routing', area: 'gateway', status: 'done', acceptance: ['(observed) routes'] },
+    { id: 'REQ-003', title: 'quota', area: 'gateway', status: 'planned', acceptance: ['(declared) quota'] },
+  ]), areas: [gw], baselineIds: ['REQ-001'], validateExtendPlan });
+  assert.equal(ok.ok, true, ok.errors.join('; '));
+  const plan = JSON.parse(ok.planText);
+  assert.equal(plan.reqs.find((r) => r.id === 'REQ-002').covered_by, 'REQ-001');
+  assert.equal(plan.reqs.find((r) => r.id === 'REQ-003').status, 'open');
+  assert.deepEqual(ok.summary.map((s) => s.id), ['REQ-002', 'REQ-003']);
+  const bad = a.checkAdoptedPlan({ beforeText, afterText: after([{ id: 'REQ-002', title: 'x', status: 'done' }]),
+    areas: [gw], baselineIds: ['REQ-001'], validateExtendPlan });
+  assert.equal(bad.ok, false);
+  assert.ok(bad.errors.some((e) => /no acceptance/.test(e)) && bad.errors.some((e) => /no area/.test(e)));
+  // a REQ of an area adopted before is not this run's
+  const second = a.checkAdoptedPlan({ beforeText: after([{ id: 'REQ-002', title: 'r', area: 'gateway', status: 'done', acceptance: ['a'] }]),
+    afterText: after([{ id: 'REQ-002', title: 'r', area: 'gateway', status: 'done', acceptance: ['a'] }]),
+    areas: [portal], baselineIds: ['REQ-003'], validateExtendPlan });
+  assert.deepEqual(second.summary, []);
+});
+
+test('adoptablePlan: a new plan, or adopted area by area without the same area twice', () => {
+  const base = a.baselineReqs([gw], null);
+  assert.equal(a.adoptablePlan({}, [gw]), '');
+  assert.equal(a.adoptablePlan({ reqs: base.reqs }, [portal]), '');
+  assert.match(a.adoptablePlan({ reqs: base.reqs }, [gw]), /already adopted: gateway/);
+  assert.match(a.adoptablePlan({ reqs: [{ id: 'REQ-001', origin: 'harper' }] }, [gw]), /did not adopt/);
+});
+
+test('contextDocuments: the survey report, the agent context files and the READMEs, cut', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'clike-adopt-docs-'));
+  fs.mkdirSync(path.join(root, 'gateway'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'README.md'), 'r'.repeat(100));
+  fs.writeFileSync(path.join(root, 'gateway', 'README.md'), '# gw');
+  fs.writeFileSync(path.join(root, 'gateway', 'AGENTS.md'), '# rules');
+  const docs = a.contextDocuments(root, { agentContext: [] }, [{ ...gw, agentContext: ['gateway/AGENTS.md'] }], 'docs/harper/ADOPT_x.md', 50);
+  assert.deepEqual(docs.map((d) => d.path), ['README.md', 'gateway/AGENTS.md', 'gateway/README.md']);
+  assert.match(docs[0].text, /cut: the rest is in the project memory/);
+});

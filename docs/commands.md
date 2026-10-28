@@ -22,6 +22,7 @@ The current webview parser supports the following slash commands.
 ### Project / workspace commands
 - `/help`
 - `/init` — with no parameters, initializes the folder open in VS Code, in place (as `/init <name> <parent folder> --force`); an existing project keeps every file, see [Bringing an existing project into CLike](adopt.md)
+- `/adopt [--area <name>] [--dry-run]` — brings an existing project into CLike: survey, baseline, project memory, then the analysis into Harper documents and adopted REQs; see [Bringing an existing project into CLike](adopt.md)
 - `/init <name> [<parent folder>] [--force]` — `--force` adds CLike to a folder that already has files: only missing template files are created, existing ones are kept, `.gitignore` gets only the CLike rules it lacks. A repository that already has its own review / PR / CI process (a CI workflow, a code-owners file or a PR template) keeps it: CLike's `.github/CODEOWNERS`, PR template and workflow go to `.clike/proposals/.github/`
 - `/status`
 - `/where`

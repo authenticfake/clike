@@ -20,9 +20,54 @@ def extend_options(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def cascade_options(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """The cascade options of an extend payload, or None for the plan-only /extend."""
+    """The cascade options of an extend payload (a release cascade, or the adoption of an existing project:
+    both write IDEA, SPEC, PLAN and TECH_CONSTRAINTS in one run), or None for the plan-only /extend."""
     opts = extend_options(payload)
-    return opts if str(opts.get("mode") or "").lower() == "cascade" else None
+    return opts if str(opts.get("mode") or "").lower() in ("cascade", "adopt") else None
+
+
+def cascade_title(opts: Dict[str, Any]) -> str:
+    return "Adoption of an existing project (/adopt)" if str(opts.get("mode") or "").lower() == "adopt" else "Release cascade (/idea --extend)"
+
+
+def adopt_rules(opts: Dict[str, Any]) -> List[str]:
+    """/adopt: the Harper documents of a project CLike did not create, as it is (docs/adopt.md)."""
+    areas = opts.get("areas") if isinstance(opts.get("areas"), list) else []
+    shown = "; ".join(
+        f"{a.get('name')} (root {a.get('root')}, baseline {a.get('baseline_req')})" for a in areas if isinstance(a, dict)
+    ) or "the repository root"
+    survey = str(opts.get("survey_report") or "docs/harper/ADOPT_<date>.md")
+    return [
+        "Adoption: write the Harper documents of this project AS IT IS — nothing is designed, nothing is invented. "
+        "The truth of what exists is the code, its tests and git; documents (README, docs/, ADRs, howtos, tutorials, "
+        "the API/event/tool contracts, CHANGELOGs, AGENTS.md / CLAUDE.md, backlogs and decision records in docs/inputs/) "
+        "are declarations to reconcile with the code.",
+        f"Areas (from .clike/project.json): {shown}. The survey and the baseline (the tests each area already runs, "
+        f"and their result in the eval sandbox) are in {survey}: read it first. The project documentation is in the "
+        "project memory too.",
+        "Label every statement you derive: (observed) found in code or tests, (declared) written in a document and not "
+        "verified in code, (open) unknown or undecided — a question for the owner. Never turn an open point into a default.",
+        "IDEA.md: vision, users, outcomes and scope as the documents state them; decisions already taken (decision "
+        "records) under Decisions; what nobody wrote stays open.",
+        "SPEC.md: the canonical SPEC sections with what exists — capabilities per area, interfaces (the contracts between "
+        "areas), data, security, operations, non-functional requirements — and ## Use Cases: the end-to-end journeys "
+        "the howtos, tutorials and tests show (UC-nn with numbered steps UC-nn.n, errors, prerequisites), across areas "
+        "when they cross them.",
+        "TECH_CONSTRAINTS.yaml: the stacks, runtime versions, frameworks, infrastructure and conventions observed per area.",
+        "plan.json and PLAN.md: the baseline REQs exist already (one per area, status done, origin adopted: its LTC runs "
+        "the area's own checks) — keep them unchanged. Add one REQ per capability per area (not per file, no history): "
+        "\"area\": the area name, \"origin\": \"adopted\", acceptance in (observed) terms; status \"done\" with "
+        "\"covered_by\": the area's baseline REQ when the capability is in the code and the area's tests cover it, "
+        "status \"open\" when it is documented or planned but not found, or found without tests. Work still to do in "
+        "a backlog becomes open REQs with \"origin\": \"import:backlog:<id>\", its acceptance and its blockers as "
+        "readiness questions. A journey across areas is a REQ with the areas it touches.",
+        "Lane guides: one docs/harper/lane-guides/<area>.md per area from its AGENTS.md / CLAUDE.md and its observed "
+        "conventions (layout, commands, tests, style), so every KIT follows them.",
+        "Report: the EXTEND report file is the adoption analysis — the capability → files → tests map per area, the "
+        "reconciliation (declared and found; declared and not found; found and not declared), the open questions, the "
+        "risks. CLike appends its own verification.",
+        "Write only docs/harper/ (the files above). Never change the project's code, tests, scripts, CI, README or docs/.",
+    ]
 
 
 def context_phases(payload: Dict[str, Any], phase: str) -> List[str]:
@@ -31,6 +76,8 @@ def context_phases(payload: Dict[str, Any], phase: str) -> List[str]:
 
 
 def cascade_rules(opts: Dict[str, Any]) -> List[str]:
+    if str(opts.get("mode") or "").lower() == "adopt":
+        return adopt_rules(opts)
     release = str(opts.get("release") or "the next release")
     baseline = str(opts.get("baseline") or "the current release")
     report = "docs/harper/EXTEND_<YYYY-MM-DD>_<FIRST_REQ>_<LAST_REQ>.md"
@@ -102,7 +149,25 @@ def cloud_extend_section(payload: Dict[str, Any]) -> str:
     if opts.get("fromAttachment"):
         lines.append("- source: the attachments of this run")
     if cascade:
-        lines += ["", "### Release cascade (/idea --extend)", *[f"- {rule}" for rule in cascade_rules(cascade)]]
+        lines += ["", f"### {cascade_title(cascade)}", *[f"- {rule}" for rule in cascade_rules(cascade)]]
         lines += ["- Return the complete files: docs/harper/IDEA.md, docs/harper/SPEC.md, docs/harper/PLAN.md, "
                   "docs/harper/plan.json, the EXTEND report, and docs/harper/TECH_CONSTRAINTS.yaml when it changes."]
+        lines += adopt_documents(cascade)
     return "\n".join(lines)
+
+
+def adopt_documents(opts: Dict[str, Any], limit: int = 60000) -> List[str]:
+    """/adopt on cloud: the survey report, the agent context files and the READMEs the extension read (a local
+    agent reads the repository itself); the rest of the documentation is in the project memory."""
+    if str(opts.get("mode") or "").lower() != "adopt":
+        return []
+    docs = [d for d in (opts.get("documents") or []) if isinstance(d, dict) and str(d.get("text") or "").strip()]
+    out: List[str] = []
+    used = 0
+    for d in docs:
+        text = str(d.get("text"))
+        if used + len(text) > limit:
+            break
+        used += len(text)
+        out += ["", f"### Project document: {str(d.get('path') or '').strip()}", "", text.rstrip()]
+    return (["", "### Project documents (read-only: describe them, never rewrite them)"] + out) if out else []

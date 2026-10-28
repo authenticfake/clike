@@ -32,7 +32,7 @@ class ExtendRouteTests(unittest.TestCase):
     def tearDownClass(cls):
         cls._env.stop()
 
-    def _run(self, extend):
+    def _run(self, extend, model="openai:gpt-5.4-mini"):
         sent = {}
 
         async def capture(path, payload):
@@ -43,7 +43,7 @@ class ExtendRouteTests(unittest.TestCase):
             return {}
 
         policy = {"requested": "cloud_only", "selected": "cloud", "reason": "test", "phase_supported": True}
-        body = {"cmd": "extend", "phase": "extend", "project_id": "p", "model": "openai:gpt-5.4-mini",
+        body = {"cmd": "extend", "phase": "extend", "project_id": "p", "model": model,
                 "messages": [{"role": "user", "content": "/idea --extend"}], "executionPreference": "cloud_only",
                 "runId": "r", "extend": extend}
         with patch.object(self.harper, "_post_json", side_effect=capture), patch.object(
@@ -57,6 +57,19 @@ class ExtendRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertIn("Release cascade (/idea --extend)", prompt)
         self.assertIn("target release: v2", prompt)
+
+    def test_adopt_rules_and_documents_reach_the_cloud_prompt_on_every_provider(self):
+        extend = {"mode": "adopt", "survey_report": "docs/harper/ADOPT_2026-10-28.md",
+                  "areas": [{"name": "aigateway", "root": "aigateway", "baseline_req": "REQ-001"}],
+                  "documents": [{"path": "aigateway/README.md", "text": "# AI Gateway\n\nRoutes model calls."}]}
+        for model in ("openai:gpt-5.4-mini", "anthropic:claude-sonnet-5-5"):
+            response, prompt = self._run(extend, model=model)
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertIn("Adoption of an existing project (/adopt)", prompt)
+            self.assertIn("aigateway (root aigateway, baseline REQ-001)", prompt)
+            self.assertIn("Project document: aigateway/README.md", prompt)
+            self.assertIn("Routes model calls.", prompt)
+            self.assertNotIn("Release cascade", prompt)
 
     def test_plan_mode_request_reaches_the_cloud_prompt(self):
         response, prompt = self._run({"anchorReq": "REQ-006", "rawInput": "loyalty points"})

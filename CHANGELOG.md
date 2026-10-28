@@ -6,15 +6,23 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Added
 
-- **`/adopt` — an existing project brought into CLike, first part** (no model: the same for cloud
+- **`/adopt` — an existing project brought into CLike**. First, with no model (the same for cloud
   and local agents): it surveys the areas (the services of a monorepo), their stack, source and test
   roots, the commands the team runs (Makefile, scripts, CI setup), the runtime versions they require,
   the documentation, the agent context files and git; writes the areas to `.clike/project.json`
   (corrections kept); runs the **baseline** — each area's own setup and check, on a copy of the
   project in the eval sandbox, on its runtime — indexes the documentation into the **project
   memory**; writes `docs/harper/ADOPT_<date>.md`. `--area <name>` adopts one area first,
-  `--dry-run` writes only the report. Help, completion and the cockpit propose it after `/init` on an
-  existing project. Nothing of the project is changed.
+  `--dry-run` writes only the report. Then the **analysis**, by the model the chat uses (a local agent
+  reads the repository, a cloud model gets the survey, the READMEs, the agent context files and the
+  project memory): IDEA, SPEC with use cases, TECH_CONSTRAINTS and lane guides of the project as it
+  is, every statement marked observed, declared or open; one **baseline REQ** per area (done, its
+  LTC runs the area's own checks, locked; a check already failing is reported, not blocking) and the
+  **capability REQs** — done only when the area's baseline covers them, open otherwise, the backlog
+  as open REQs. CLike checks the plan, appends its verification to the report and commits the Harper
+  documents; a rejected analysis restores them. Areas can be adopted one at a time. Help, completion
+  and the cockpit propose it after `/init` on an existing project. Nothing of the project's own files
+  is changed.
 
 ### Security
 

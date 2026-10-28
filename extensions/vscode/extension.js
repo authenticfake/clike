@@ -4525,10 +4525,43 @@ async function cmdOpenChat(context) {
             }
           }
           writeReport({ baseline, indexed });
-          const message = `✔ /adopt: areas in .clike/project.json, ${indexed} document(s) in the project memory, ` +
-            `baseline ${baseline ? String(baseline.status || (baseline.passed ? 'PASS' : 'FAIL')) : 'not run'}. Review ${reportRel}.`;
+          const message = `✔ /adopt survey: areas in .clike/project.json, ${indexed} document(s) in the project memory, ` +
+            `baseline ${baseline ? String(baseline.status || (baseline.passed ? 'PASS' : 'FAIL')) : 'not run'}. Report ${reportRel}.`;
           say(message);
           await appendSessionJSONL('harper', { ts: Date.now(), role: 'system', content: message, model: 'auto', attachments: [] });
+          // the analysis: the Harper documents as the project is, the capability REQs — by the model the chat
+          // uses (cloud or local agent), through the same cascade as /idea --extend
+          const planPath = path.join(root, 'docs', 'harper', 'plan.json');
+          let plan = {};
+          try { plan = JSON.parse(fsSync.readFileSync(planPath, 'utf8')); } catch { /* the /init template or none */ }
+          const notAdoptable = adoptLib.adoptablePlan(plan, picked);
+          if (notAdoptable) {
+            say(`ℹ /adopt: no analysis — ${notAdoptable}.`);
+            return done();
+          }
+          if (!picked.length) {
+            say('ℹ /adopt: no area to analyse (the repository root is one project): declare it as an area in .clike/project.json, then run /adopt again.');
+            return done();
+          }
+          const kept = Array.isArray(plan.reqs) ? plan.reqs : [];
+          const base = adoptLib.baselineReqs(picked, baseline, kept);
+          fsSync.mkdirSync(path.dirname(planPath), { recursive: true });
+          fsSync.writeFileSync(planPath, `${JSON.stringify({ ...plan, snapshot: { total: kept.length + base.reqs.length }, reqs: [...kept, ...base.reqs] }, null, 2)}\n`);
+          for (const [id, ltc] of Object.entries(base.ltcs)) {
+            const p = path.join(root, 'runs', 'kit', id, 'ci', 'LTC.json');
+            fsSync.mkdirSync(path.dirname(p), { recursive: true });
+            fsSync.writeFileSync(p, `${JSON.stringify(ltc, null, 2)}\n`);
+          }
+          say(`▶ /adopt: analysis of ${picked.map((a) => a.name).join(', ')} — IDEA, SPEC (with use cases), PLAN with the capability REQs, lane guides (baseline REQs ${base.reqs.map((r) => r.id).join(', ')} already written)…`);
+          done();
+          await clikeRunChatMessage({
+            type: 'harperEDD', cmd: 'extend', extendMode: 'adopt', attachments: [],
+            __adopt: {
+              areas: picked, baselineIds: base.reqs.map((r) => r.id), surveyReport: reportRel, baseline,
+              documents: adoptLib.contextDocuments(root, found, picked, reportRel),
+            },
+          });
+          return;
         } catch (e) {
           say(`✖ /adopt failed: ${String(e?.message || e)}`);
         }
@@ -5390,7 +5423,20 @@ async function cmdOpenChat(context) {
                 baseline: msg.__cascade.baseline,
                 dryRun: !!msg.__cascade.dryRun,
               } : {}),
+              // /adopt: the same cascade, describing the project as it is (adopt.js; rules in extend_cascade.py)
+              ...(msg.__adopt ? {
+                mode: 'adopt',
+                areas: msg.__adopt.areas.map((a, i) => ({ name: a.name, root: a.root, baseline_req: msg.__adopt.baselineIds[i] })),
+                survey_report: msg.__adopt.surveyReport,
+                documents: msg.__adopt.documents,
+              } : {}),
             };
+            if (msg.__adopt) {
+              // a cloud model reads what CLike gives it: the project memory too, with room for it
+              body.rag_strategy = 'auto';
+              body.rag_top_k = 40;
+              body.context_hard_limit = Math.max(Number(body.context_hard_limit || 0), 40000);
+            }
 
             body.gen = {
               ...(body.gen || {}),
@@ -5611,13 +5657,42 @@ async function cmdOpenChat(context) {
 
           panel.webview.postMessage({ type: 'busy', on: false });
           if (extendBefore) {
-            const commandLabel = msg.__cascade ? '/IDEA --EXTEND' : String(cmd || '').toUpperCase();
+            const commandLabel = msg.__adopt ? '/ADOPT' : msg.__cascade ? '/IDEA --EXTEND' : String(cmd || '').toUpperCase();
             const root = toFsPath(wsroot);
             const isAgent = String(_out?.execution?.selected || '').trim() === 'local_agent';
             if (!Array.isArray(_out.files)) _out.files = [];
             const returnedPlan = _out.files.find((f) => String(f?.path || '').replace(/^\.?\//, '') === 'docs/harper/plan.json');
             let verdict;
-            if (msg.__cascade) {
+            if (msg.__adopt) {
+              const current = (rel) => {
+                const f = _out.files.find((x) => String(x?.path || '').replace(/^\.?\//, '') === rel);
+                if (f && typeof f.content === 'string') return f.content;
+                return isAgent ? (fsSync.existsSync(path.join(root, ...rel.split('/'))) ? fsSync.readFileSync(path.join(root, ...rel.split('/')), 'utf8') : null) : null;
+              };
+              const checked = adoptLib.checkAdoptedPlan({ beforeText: extendBefore.plan, afterText: current('docs/harper/plan.json'),
+                areas: msg.__adopt.areas, baselineIds: msg.__adopt.baselineIds, validateExtendPlan });
+              verdict = { ok: checked.ok, errors: checked.errors, warnings: checked.warnings, delta: checked.summary };
+              if (checked.ok) {
+                const planFile = _out.files.find((x) => String(x?.path || '').replace(/^\.?\//, '') === 'docs/harper/plan.json');
+                if (planFile) planFile.content = checked.planText;
+                if (isAgent) fsSync.writeFileSync(path.join(root, 'docs', 'harper', 'plan.json'), checked.planText, 'utf8');
+                // CLike's verification at the end of the analysis report (the EXTEND report of this run)
+                const reportFile = _out.files.find((x) => /^docs\/harper\/EXTEND_[^/]+\.md$/.test(String(x?.path || '').replace(/^\.?\//, '')));
+                const section = adoptLib.adoptVerificationMarkdown({ areas: msg.__adopt.areas, baselineIds: msg.__adopt.baselineIds,
+                  summary: checked.summary, baseline: msg.__adopt.baseline, warnings: checked.warnings });
+                const lastReport = fsSync.readdirSync(path.join(root, 'docs', 'harper')).filter((n) => /^EXTEND_.+\.md$/.test(n)).sort().pop();
+                const reportRel = reportFile ? String(reportFile.path).replace(/^\.?\//, '') : (lastReport ? `docs/harper/${lastReport}` : '');
+                if (reportFile && typeof reportFile.content === 'string') reportFile.content += section;
+                else if (reportRel && isAgent) fsSync.appendFileSync(path.join(root, ...reportRel.split('/')), section);
+                verdict.report = reportRel;
+              } else if (isAgent) {
+                // nothing of a rejected analysis is kept in the documents (kept aside for comparison)
+                verdict.kept = releaseExtend.keepRejected(root, ['docs/harper/IDEA.md', 'docs/harper/SPEC.md', 'docs/harper/PLAN.md', 'docs/harper/plan.json', 'docs/harper/TECH_CONSTRAINTS.yaml'].map((rel) => [rel, current(rel)]));
+                for (const [rel, text] of [['IDEA.md', extendBefore.idea], ['SPEC.md', extendBefore.spec], ['PLAN.md', extendBefore.planMd], ['plan.json', extendBefore.plan], ['TECH_CONSTRAINTS.yaml', extendBefore.tech]]) {
+                  if (text != null) fsSync.writeFileSync(path.join(root, 'docs', 'harper', rel), text, 'utf8');
+                }
+              }
+            } else if (msg.__cascade) {
               verdict = releaseExtend.reconcileExtend({
                 root, before: extendBefore, files: _out.files, isAgent, mode: 'cascade',
                 cascade: msg.__cascade, validateExtendPlan, startedAt: extendStartedAt,
@@ -5656,7 +5731,24 @@ async function cmdOpenChat(context) {
               panel.webview.postMessage({ type: 'busy', on: false, force: true });
               return;
             }
-            if (msg.__cascade) {
+            if (msg.__adopt) {
+              const ids = msg.__adopt.baselineIds;
+              msg.__extendCommit = {
+                files: [...releaseExtend.cascadeCommitFiles(root, 'v1'), '.clike/project.json', msg.__adopt.surveyReport,
+                  ...ids.map((id) => `runs/kit/${id}/ci/LTC.json`)],
+                message: `docs(harper): adopt ${path.basename(root)} — ${msg.__adopt.areas.length} area(s), ${verdict.delta.length + ids.length} REQ(s)\n\n[harper:adopt] runId=${runId}`,
+              };
+              // the baseline is the oracle from now on: locked like any acceptance surface
+              for (const id of ids) {
+                try { await postAcceptanceLock(wsroot, id); } catch (e) { log(`[adopt] lock ${id}: ${e?.message || e}`); }
+              }
+              const done = verdict.delta.filter((r) => r.status === 'done').length;
+              const message = `✔ /adopt: ${msg.__adopt.areas.length} area(s) adopted — ${ids.length} baseline REQ(s) (${ids.join(', ')}), ` +
+                `${done} capability REQ(s) done, ${verdict.delta.length - done} open. Review ${verdict.report || 'the EXTEND report'} and ${msg.__adopt.surveyReport}. ` +
+                'Next: /idea --extend for the next release.';
+              panel.webview.postMessage({ type: 'echo', message });
+              await appendSessionJSONL(activeMode, { ts: Date.now(), role: 'system', content: message, model: state.model || 'auto', attachments: [] });
+            } else if (msg.__cascade) {
               // the delivered baseline gets its tag before the release changes the documents
               const tag = msg.__cascade.dryRun ? '' : releaseExtend.tagBaseline(root, msg.__cascade.baseline);
               if (!msg.__cascade.dryRun) {

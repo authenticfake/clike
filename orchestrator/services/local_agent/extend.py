@@ -24,7 +24,7 @@ from services.local_agent.document import (
     _render_canonical_parity_block,
 )
 from services.phase_definitions import phase_text
-from services.extend_cascade import CASCADE_EXTRA_WRITE_ROOTS, cascade_options, cascade_rules
+from services.extend_cascade import CASCADE_EXTRA_WRITE_ROOTS, cascade_options, cascade_rules, cascade_title
 
 
 def _text(key: str) -> list:
@@ -106,7 +106,7 @@ def build_extend_local_agent_package(
     context = {
         "schema_version": extend_def["schema_version"],
         "phase": "extend",
-        "mode": "cascade" if cascade else "plan",
+        "mode": str(cascade.get("mode") or "cascade").lower() if cascade else "plan",
         **({"release": cascade.get("release"), "baseline": cascade.get("baseline")} if cascade else {}),
         "run_id": run_id,
         "anchor_req": anchor_req,
@@ -166,9 +166,11 @@ def build_extend_local_agent_package(
             *attachment_prompt_lines,
             *_render_canonical_parity_block("extend", "EXTEND"),
             *_text("package.lines.3"),
-            *(["", "Release cascade (/idea --extend) — these rules replace the 'only when' conditions above for "
+            *(["", f"{cascade_title(cascade)} — these rules replace the 'only when' conditions above for "
                "IDEA.md and SPEC.md:", *[f"- {rule}" for rule in cascade_rules(cascade)],
-               "- You may read src/, test/ and runs/kit/*/ci/LTC.json to ground the delta; never write them."]
+               ("- Read the whole repository — each area's code, tests, docs and CI — and the survey report; write "
+                "only docs/harper/." if str(cascade.get("mode") or "").lower() == "adopt" else
+                "- You may read src/, test/ and runs/kit/*/ci/LTC.json to ground the delta; never write them.")]
               if cascade else []),
             f"- anchor_req: {anchor_req or '<auto-detect-last-req>'}",
             f"- explicit_req: {explicit_req or '<none>'}",

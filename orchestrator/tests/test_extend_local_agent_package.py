@@ -256,6 +256,31 @@ def test_cascade_mode_evolves_idea_spec_and_plan_for_the_release():
     assert "supersedes" in prompt and "never write them" in prompt
 
 
+def test_adopt_mode_describes_the_project_as_it_is():
+    package = _package({"runId": "adopt-run", "extend": {
+        "mode": "adopt", "survey_report": "docs/harper/ADOPT_2026-10-28.md",
+        "areas": [{"name": "aigateway", "root": "aigateway", "baseline_req": "REQ-001"}]}})
+    local = package["local_agent"]
+    context = _context_file(package)
+    assert context["mode"] == "adopt"
+    assert "docs/harper/IDEA.md" in context["output_contract"]["always"]
+    assert "docs/harper/TECH_CONSTRAINTS.yaml" in local["allowed_write_roots"]
+    prompt = local["prompt_content"]
+    assert "Adoption of an existing project (/adopt)" in prompt and "Release cascade" not in prompt
+    assert "aigateway (root aigateway, baseline REQ-001)" in prompt and "(observed)" in prompt
+    assert "Read the whole repository" in prompt and "write only docs/harper/" in prompt
+
+
+def test_cloud_adopt_section_carries_the_documents_within_a_budget():
+    from services.extend_cascade import adopt_documents, cloud_extend_section
+
+    docs = [{"path": "README.md", "text": "root readme"}, {"path": "a/README.md", "text": "x" * 50}]
+    section = cloud_extend_section({"extend": {"mode": "adopt", "documents": docs}})
+    assert "### Adoption of an existing project (/adopt)" in section and "### Project document: README.md" in section
+    assert [l for l in adopt_documents({"mode": "adopt", "documents": docs}, limit=20) if l.startswith("### Project document:")] == ["### Project document: README.md"]
+    assert adopt_documents({"mode": "cascade", "documents": docs}) == []
+
+
 def test_plan_mode_extend_is_unchanged():
     package = _package()
     context = _context_file(package)

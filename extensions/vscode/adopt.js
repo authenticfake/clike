@@ -270,7 +270,126 @@ function reportMarkdown(found, { baseline = null, indexed = 0, dryRun = false, a
   return lines.filter((l) => l !== null).join('\n');
 }
 
+// ---- the analysis (G3b): the baseline REQs CLike writes, the context the model gets, the check of its plan
+
+const reqId = (n) => `REQ-${String(n).padStart(3, '0')}`;
+
+/**
+ * One adopted baseline REQ per area (REQ-001…), status done: its LTC runs the area's own setup and
+ * check, as the team runs them; a check already failing at adoption is non-blocking (reported until
+ * a REQ fixes it). The model adds the capability REQs after them (covered_by: the baseline REQ).
+ * `existing`: the REQs of a plan already adopted for other areas (`/adopt --area`, one at a time).
+ */
+function baselineReqs(areas, baseline = null, existing = []) {
+  const last = Math.max(0, ...existing.map((r) => Number(String(r?.id || '').match(/^REQ-(\d+)$/)?.[1] || 0)));
+  const passedCase = (id) => (baseline?.cases || []).some((c) => c.name === id && c.passed);
+  const reqs = [];
+  const ltcs = {};
+  areas.forEach((a, i) => {
+    const id = reqId(last + i + 1);
+    const checkId = `${a.name}::${a.commands.check ? 'check' : 'test'}`;
+    const cmd = a.commands.check || a.commands.test;
+    const failingAtAdoption = Boolean(baseline) && Boolean(cmd) && !passedCase(checkId);
+    reqs.push({
+      id, title: `${a.name} — existing behaviour (adopted baseline)`, status: 'done', origin: 'adopted', release: 'v1',
+      area: a.name, lane: a.stack, dependsOn: [],
+      acceptance: [cmd
+        ? `${id}-A01: (observed) the checks the ${a.name} team runs pass: \`${cmd}\` in ${a.root}${failingAtAdoption ? ' (failing at adoption: reported, not blocking, until a REQ fixes it)' : ''}`
+        : `${id}-A01: (open) ${a.name} has no test command CLike could find: characterization tests to add`],
+      ...(failingAtAdoption ? { failing_at_adoption: [checkId] } : {}),
+    });
+    ltcs[id] = {
+      req_id: id, purpose: `adopted baseline of ${a.name}: the checks its team already runs`,
+      ...(Object.keys(a.runtime).length ? { environment: { ...a.runtime } } : {}),
+      setup: a.commands.setup ? [{ id: 'setup', command: a.commands.setup, cwd: a.root, timeout: 1200 }] : [],
+      checks: cmd ? [{ id: 'baseline', command: cmd, cwd: a.root, blocking: !failingAtAdoption, timeout: 1800 }] : [],
+    };
+  });
+  return { reqs, ltcs };
+}
+
+/** The context a cloud model gets (a local agent reads the repository itself): the survey report, the
+ * agent context files and the READMEs of the areas, each cut to `max` characters. */
+function contextDocuments(root, found, areas, surveyRel, max = 6000) {
+  const rels = [surveyRel, ...found.agentContext, 'README.md',
+    ...areas.flatMap((a) => [...a.agentContext, `${a.root}/README.md`])];
+  const out = [];
+  for (const rel of [...new Set(rels)]) {
+    const text = read(root, ...rel.split('/'));
+    if (text.trim()) out.push({ path: rel, text: text.length > max ? `${text.slice(0, max)}\n… (cut: the rest is in the project memory)` : text });
+  }
+  return out;
+}
+
+/**
+ * The plan the model returned, checked: the baseline REQs unchanged (validateExtendPlan restores them),
+ * every new REQ with an area and acceptance; done only with covered_by the area's baseline REQ (filled
+ * in when missing), else open; origin and release set. Returns { ok, errors, warnings, planText, summary }.
+ */
+function checkAdoptedPlan({ beforeText, afterText, areas, baselineIds, validateExtendPlan }) {
+  const verdict = validateExtendPlan({ beforeText, afterText });
+  const errors = [...verdict.errors];
+  const warnings = [...verdict.warnings];
+  if (!verdict.planText && !verdict.ok) return { ok: false, errors, warnings, planText: null, summary: [] };
+  const plan = JSON.parse(verdict.planText || afterText);
+  const reqs = Array.isArray(plan.reqs) ? plan.reqs : [];
+  const byArea = new Map(areas.map((a, i) => [a.name, baselineIds[i]]));
+  // the REQs of areas adopted before (validateExtendPlan keeps them): not this run's
+  let before = new Set();
+  try { before = new Set((JSON.parse(beforeText || '{}').reqs || []).map((r) => String(r.id))); } catch { /* none */ }
+  const summary = [];
+  for (const r of reqs) {
+    if (baselineIds.includes(String(r.id)) || before.has(String(r.id))) continue;
+    const areaNames = (Array.isArray(r.areas) ? r.areas : [r.area]).map((x) => String(x || '').trim()).filter(Boolean);
+    if (!Array.isArray(r.acceptance) || !r.acceptance.length) errors.push(`${r.id}: no acceptance`);
+    if (!areaNames.length) errors.push(`${r.id}: no area (one of ${areas.map((a) => a.name).join(', ')})`);
+    const unknown = areaNames.filter((x) => !byArea.has(x));
+    if (unknown.length) warnings.push(`${r.id}: area ${unknown.join(', ')} is not an area of .clike/project.json`);
+    r.origin = r.origin || 'adopted';
+    r.release = r.release || 'v1';
+    if (String(r.status || '').toLowerCase() === 'done') {
+      const covers = areaNames.map((x) => byArea.get(x)).filter(Boolean);
+      if (!covers.length) {
+        r.status = 'open';
+        warnings.push(`${r.id}: done without a baseline that covers it — open ("documented, not verified")`);
+      } else if (!r.covered_by) r.covered_by = covers.length === 1 ? covers[0] : covers;
+    } else r.status = 'open';
+    summary.push({ id: r.id, title: r.title || '', areas: areaNames, status: r.status, origin: r.origin });
+  }
+  return { ok: errors.length === 0, errors, warnings, planText: `${JSON.stringify(plan, null, 2)}\n`, summary };
+}
+
+/** CLike's own section of the adoption analysis report. */
+function adoptVerificationMarkdown({ areas, baselineIds, summary, baseline, warnings = [] }) {
+  const lines = ['', `## CLike verification (adoption, ${new Date().toISOString().slice(0, 10)})`, '',
+    '| Area | Baseline REQ | Baseline | Capability REQs done | open |', '|---|---|---|---|---|'];
+  areas.forEach((a, i) => {
+    const mine = summary.filter((s) => s.areas.includes(a.name));
+    const checkId = `${a.name}::${a.commands.check ? 'check' : 'test'}`;
+    const c = (baseline?.cases || []).find((x) => x.name === checkId);
+    lines.push(`| \`${cell(a.root)}\` | ${baselineIds[i]} | ${c ? (c.passed ? 'PASS' : 'FAIL (failing at adoption)') : 'not run'} | ` +
+      `${mine.filter((s) => s.status === 'done').length} | ${mine.filter((s) => s.status !== 'done').length} |`);
+  });
+  lines.push('', '| REQ | Title | Areas | Status | Origin |', '|---|---|---|---|---|');
+  for (const s of summary) lines.push(`| ${s.id} | ${cell(s.title)} | ${s.areas.join(', ')} | ${s.status} | ${cell(s.origin)} |`);
+  if (warnings.length) lines.push('', 'Warnings:', '', ...warnings.map((w) => `- ${w}`));
+  lines.push('', 'Next: `/idea --extend` for the next release (the work the plan keeps open), then `/kit` → `/eval --fix` → `/gate`.', '');
+  return lines.join('\n');
+}
+
+/** Whether /adopt may analyse `areas` on this plan: a plan without REQs, or one adopted area by area
+ * (every REQ origin "adopted") where none of `areas` has a baseline REQ yet. Returns '' or the reason. */
+function adoptablePlan(plan, areas) {
+  const reqs = Array.isArray(plan?.reqs) ? plan.reqs : [];
+  if (!reqs.length) return '';
+  if (reqs.some((r) => r?.origin !== 'adopted')) return 'the plan has REQs CLike did not adopt: an adopted project evolves with /idea --extend';
+  const have = new Set(reqs.filter((r) => /adopted baseline/.test(String(r?.title || ''))).map((r) => r.area));
+  const again = areas.filter((a) => have.has(a.name)).map((a) => a.name);
+  return again.length ? `already adopted: ${again.join(', ')} (pick another area with --area <name>)` : '';
+}
+
 module.exports = {
+  adoptablePlan, baselineReqs, contextDocuments, checkAdoptedPlan, adoptVerificationMarkdown,
   BASELINE_PROFILE, BASELINE_ID, survey, surveyAreas, surveyDocs, surveyCi, surveyGit, areaCommands, areaRuntime,
   makeTargets, mergeProjectAreas, baselineProfile, memoryItems, reportMarkdown,
 };

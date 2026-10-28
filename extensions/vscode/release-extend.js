@@ -606,6 +606,7 @@ function tagBaseline(root, baseline) {
 
 module.exports = {
   reconcileExtend,
+  keepRejected,
   syncPlanMd,
   tagBaseline,
   kitTestOwner,

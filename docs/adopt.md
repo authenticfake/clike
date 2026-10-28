@@ -5,9 +5,9 @@ several services — becomes a CLike project in place. From then on it evolves w
 and the usual KIT → EVAL → GATE loop, and its existing behaviour is protected by the regression
 from day one.
 
-> **Status.** `/init` in place (step 2) and the first part of `/adopt` (step 3: survey, areas,
-> baseline, project memory, report) are available. The analysis into Harper documents and adopted
-> REQs (the rest of step 3) and `--refresh` (step 5) are being built; each step says when.
+> **Status.** `/init` in place (step 2) and `/adopt` (step 3: survey, baseline, project memory,
+> analysis, adopted REQs) are available. The README integration at `/finalize` and `--refresh`
+> (step 5) are being built; each step says when.
 
 ## What does not change for the team
 
@@ -56,19 +56,21 @@ With no parameters, `/init` initializes the folder open in VS Code, in place. It
   workflow, a code-owners file or a PR template — keeps it, and CLike's files go to
   `.clike/proposals/.github/…` (copy them if you want them). A new folder gets them as before.
 
-### 3. `/adopt` — survey, baseline, memory and report available; analysis in development
+### 3. `/adopt` — available
 
 ```text
 /adopt [--area <name>] [--dry-run]
 ```
 
-Run it once. CLike reads the project and **proposes**; nothing of the proposal is kept until you apply
-it. Available today (no model, the same with any executor): the survey (1), the baseline and the git
-evidence (2), the project memory (3) and the report — the areas are written to `.clike/project.json`
-(CLike's own file; a root or command you correct there is kept by the next `/adopt`), the baseline
-profile to `runs/adopt/ci/LTC.json`. The baseline runs each area's own setup and check (from its
-Makefile, scripts or CI) on a copy of the project in the eval sandbox, on the runtime versions the
-area requires.
+Run it once per area (or once for all of them). Steps 1–3 run with no model, the same with any
+executor: the areas are written to `.clike/project.json` (CLike's own file; a root or command you
+correct there is kept by the next `/adopt`), the baseline profile to `runs/adopt/ci/LTC.json`. The
+baseline runs each area's own setup and check (from its Makefile, scripts or CI) on a copy of the
+project in the eval sandbox, on the runtime versions the area requires. Steps 4–5 run with the model
+the chat uses: a local agent reads the repository itself; a cloud model gets the survey report, the
+READMEs and agent context files of the areas, and the project memory. CLike checks the plan it
+returns (step 6) before anything is committed; a rejected analysis restores the documents and keeps
+the run's output aside in `runs/extend/rejected/`.
 
 1. **Survey** (no model): stacks and versions, package managers, source and test roots per area,
    entry points, the CI's commands, existing documentation and agent context files, git state.
@@ -91,7 +93,16 @@ area requires.
    documents and the code disagree (documented and not found; found and not documented), the open
    questions. Review it, then apply it: the tests of the adopted areas become the locked baseline.
 
-`--area <name>` adopts one area of a monorepo first; the others follow with the same command.
+`--area <name>` adopts one area of a monorepo first; the others follow with the same command (their
+REQs are numbered after the ones already adopted; an area is adopted once). The analysis runs on a
+plan without REQs or one adopted this way; a project already planned with CLike evolves with
+`/idea --extend`.
+
+What `/adopt` writes in the plan: one **baseline REQ** per area (`REQ-001`…, status `done`,
+`origin: adopted`) whose LTC (`runs/kit/<REQ>/ci/LTC.json`) runs the area's own setup and check, and
+is locked as its acceptance; then the capability REQs with their `area`, `done` with `covered_by`
+the baseline REQ, or `open`. The commit `docs(harper): adopt …` holds the Harper documents,
+`.clike/project.json`, the reports and the baseline LTCs.
 `--dry-run` writes only the report.
 
 | An adopted capability… | becomes |
