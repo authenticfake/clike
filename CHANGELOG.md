@@ -4,6 +4,8 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.6.8] — 2026-10-28 — An existing project, kept as it is
+
 ### Added
 
 - **`/init` with no parameters initializes the folder open in VS Code**, in place, as
