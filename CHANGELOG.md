@@ -6,6 +6,12 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Added
 
+- **Language runtimes newer than the sandbox image**: an LTC that declares `"environment":
+  {"python": "3.14"}` or `{"node": ">=24"}` gets that runtime (`python3.13`, `python3.14`,
+  `nodejs24` in the tools catalog) without a question and for its own checks only — the venv and
+  `uv` on the declared Python, the declared Node first on the PATH. A version the image satisfies
+  installs nothing.
+
 - **Projects of areas** (a monorepo of services): `.clike/project.json` `"areas"` declares each area
   with its roots and commands. The area roots are repository folders a KIT delivers through
   `runs/kit/<REQ>/root/<repository path>`; a check with `cwd` an area runs in its composed copy in
@@ -16,6 +22,9 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **`uv` projects run in the sandbox**: every REQ gets a writable `uv` project environment of its
+  own. Before, the image's `UV_PROJECT_ENVIRONMENT` pointed at CLike's own read-only environment, so
+  a project's `uv sync` / `uv run` failed.
 - **The cloud KIT has the same root rules as the local agents**: env examples, `.gitignore`, the
   solution profile and runbooks under `root/`, never a staging folder.
 

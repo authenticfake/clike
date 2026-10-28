@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional
 
 import eval_environment
 import eval_failures
+import eval_runtimes
 from services.gate_integrity import _DEFINES_TESTS_RE
 from services.root_files import KIT_ROOT_DIR, extra_root_files, is_allowed_root_path, root_policy
 import eval_tools
@@ -2051,9 +2052,12 @@ class EvalRunner:
     def _venv_dir(self, req_id: Optional[str]) -> Path:
         """
         Runtime eval virtualenvs must not be created under .clike or any path
-        that may be read-only in a containerized runner.
+        that may be read-only in a containerized runner. A REQ on another Python (a declared runtime)
+        has its own venv, never the one of the image's Python.
         """
-        return self._eval_base_dir() / ".venvs" / self._safe_req_id(req_id)
+        runtime = getattr(self, "_runtime_python", None)
+        suffix = f"-{Path(runtime).name}" if runtime else ""
+        return self._eval_base_dir() / ".venvs" / f"{self._safe_req_id(req_id)}{suffix}"
 
     def _venv_python(self, venv_dir: Path) -> Path:
         if os.name == "nt":
@@ -2138,7 +2142,7 @@ class EvalRunner:
                 )
                 return env, [case]
 
-            create_cmd = f"{shlex.quote(sys.executable)} -m venv {shlex.quote(str(venv_dir))}"        
+            create_cmd = f"{shlex.quote(getattr(self, '_runtime_python', None) or sys.executable)} -m venv {shlex.quote(str(venv_dir))}"        
             create_case = self._run(
                 name="env::venv-create",
                 cmd=create_cmd,
@@ -3237,6 +3241,7 @@ class EvalRunner:
         ``reuse_cases``: results of a run on the same inputs (the targeted re-eval that just passed):
         the REQ's checks and the promoted REQs' regressions found there are taken, not run again."""
         self._services: List[eval_environment.RunningService] = []
+        self._runtime_python = None  # a declared runtime of this run (eval_runtimes), set with the environment
         self._reuse = {str(c.get("name")): c for c in (reuse_cases or []) if isinstance(c, dict) and c.get("name")}
         self._reuse_reqs = {n.split("::")[1].upper() for n in self._reuse if n.startswith("regression::") and n.count("::") >= 2}
         self._only_checks = {str(c) for c in (checks or []) if str(c).strip()} or None
@@ -3739,6 +3744,10 @@ class EvalRunner:
                     "PYTHONPATH": python_path_value,
                     "MYPYPATH": python_path_value,
                 }
+
+        # the runtimes the LTC declares beyond the image (Python 3.14, Node 24) and uv's own environment
+        eval_env, self._runtime_python = eval_runtimes.runtime_env(
+            eval_env, ltc or {}, self._venv_dir(eff_req).with_name(f"{self._safe_req_id(eff_req)}-uv"))
 
         if requirements_file:
             eval_env, setup_cases = self._ensure_eval_venv(
