@@ -4,7 +4,20 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+### Added
+
+- **Projects of areas** (a monorepo of services): `.clike/project.json` `"areas"` declares each area
+  with its roots and commands. The area roots are repository folders a KIT delivers through
+  `runs/kit/<REQ>/root/<repository path>`; a check with `cwd` an area runs in its composed copy in
+  the eval workspace (never in the project's own folder) with the area's own `src/` / `tests/`
+  paths; the area tests are locked like `test/`; promotion and regression are unchanged. Local
+  agents and cloud models get the same areas (`repository.areas`, *Repository areas*). A project
+  without areas is unchanged.
+
 ### Fixed
+
+- **The cloud KIT has the same root rules as the local agents**: env examples, `.gitignore`, the
+  solution profile and runbooks under `root/`, never a staging folder.
 
 - **The finalize commit closes the release**: the Harper documents left out of earlier commits
   (`docs/inputs/`, `docs/reference/`, `docs/harper/`, lane guides included) go with it; other files

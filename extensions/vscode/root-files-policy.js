@@ -34,9 +34,38 @@ function rootPolicy(workspaceRoot) {
   let meta = {};
   try { meta = JSON.parse(fs.readFileSync(path.join(workspaceRoot, '.clike', 'project.json'), 'utf8')) || {}; } catch { /* defaults */ }
   const list = (v) => (Array.isArray(v) ? v.map((x) => String(x || '').trim().replace(/^\.?\/+|\/+$/g, '')).filter(Boolean) : []);
-  const folders = [...new Set([...DEFAULT_ROOT_FOLDERS, ...list(meta.root_folders)])].filter((f) => !f.includes('/') && !DENIED_FIRST_SEGMENTS.has(f));
+  const areas = projectAreas(meta);
+  // the areas of a project (a monorepo of services): their roots are repository folders a KIT delivers
+  // through root/<area root>/…, as scripts/ or deploy/ (promotion, eval overlay, regression unchanged)
+  const areaFolders = areas.map((a) => a.root.split('/')[0]);
+  const folders = [...new Set([...DEFAULT_ROOT_FOLDERS, ...list(meta.root_folders), ...areaFolders])].filter((f) => !f.includes('/') && !DENIED_FIRST_SEGMENTS.has(f));
   const files = [...new Set([...DEFAULT_ROOT_FILES, ...list(meta.root_files)])].filter((f) => !f.includes('/'));
-  return { folders, files };
+  return { folders, files, areas };
+}
+
+/** The areas `.clike/project.json` declares: [{ name, root, source, tests, commands }] (mirror of root_files.py). */
+function projectAreas(meta) {
+  const clean = (v) => String(v || '').trim().replace(/^\.?\/+|\/+$/g, '');
+  const out = [];
+  for (const raw of Array.isArray(meta?.areas) ? meta.areas : []) {
+    if (!raw || typeof raw !== 'object') continue;
+    const root = clean(raw.root);
+    if (!root || root.startsWith('/') || root.split('/').includes('..') || DENIED_FIRST_SEGMENTS.has(root.split('/')[0])) continue;
+    const paths = (key) => (Array.isArray(raw[key]) ? raw[key] : (raw[key] ? [raw[key]] : [])).map(clean).filter(Boolean);
+    out.push({
+      name: String(raw.name || root.split('/').pop()),
+      root,
+      source: paths('source').length ? paths('source') : [root],
+      tests: paths('tests'),
+      commands: raw.commands && typeof raw.commands === 'object' ? raw.commands : {},
+    });
+  }
+  return out;
+}
+
+/** Repository-relative test roots of the areas (their files are acceptance, locked like test/). */
+function areaTestRoots(workspaceRoot) {
+  return rootPolicy(workspaceRoot).areas.flatMap((a) => a.tests);
 }
 
 /** True when `rel` (repository-relative) may be delivered by a KIT root/ directory. */
@@ -54,4 +83,4 @@ function isAllowedRootPath(rel, policy) {
   return policy.folders.includes(parts[0]);
 }
 
-module.exports = { KIT_ROOT_DIR, DEFAULT_ROOT_FOLDERS, DEFAULT_ROOT_FILES, rootPolicy, isAllowedRootPath };
+module.exports = { KIT_ROOT_DIR, DEFAULT_ROOT_FOLDERS, DEFAULT_ROOT_FILES, rootPolicy, isAllowedRootPath, projectAreas, areaTestRoots };

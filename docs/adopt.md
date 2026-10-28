@@ -132,7 +132,11 @@ crosses them). Each area keeps its own roots and commands:
 }
 ```
 
-`/adopt` proposes this file from the survey; you correct it in the report if needed.
+`/adopt` proposes this file from the survey; you correct it in the report if needed. Areas work
+today (KIT → EVAL → GATE): a KIT writes an area's code and tests at their repository paths
+(`runs/kit/<REQ>/root/gateway/src/…`, `…/root/gateway/tests/…`), its checks run inside the area with
+its own commands, and the area's tests are locked like any acceptance test
+([Git and promotion](git-and-promotion.md)).
 
 ## See also
 

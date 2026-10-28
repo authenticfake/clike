@@ -672,6 +672,67 @@ class RootFilesEvalTests(_RegressionProject):
         return [c["name"] for c in body["cases"]]
 
 
+class AreaLayoutEvalTests(_RegressionProject):
+    """A project of areas (a monorepo of services, .clike/project.json `areas`): a KIT delivers its code
+    and tests at their repository paths through root/<area>/…, checks run inside the area, the regression
+    protects the delivered area code, and the area tests are locked like test/ (foundation, pilot area)."""
+
+    def _area_project(self):
+        (self.proj / ".clike").mkdir(exist_ok=True)
+        (self.proj / ".clike" / "project.json").write_text(json.dumps({"areas": [
+            {"name": "gateway", "root": "gateway", "source": ["gateway/src"], "tests": ["gateway/tests"]}]}))
+        put = lambda rel, text: ((self.proj / rel).parent.mkdir(parents=True, exist_ok=True), (self.proj / rel).write_text(text))
+        # REQ-001, promoted: its code and test are in the repository, where the team keeps them
+        put("gateway/src/pricing.py", "def price():\n    return 10\n")
+        put("gateway/tests/test_pricing.py", "import sys\nsys.path.insert(0, 'src')\nfrom pricing import price\nassert price() == 10\n")
+        kit1 = self.proj / "runs" / "kit" / "REQ-001"
+        put("runs/kit/REQ-001/root/gateway/src/pricing.py", "def price():\n    return 10\n")
+        put("runs/kit/REQ-001/root/gateway/tests/test_pricing.py", (self.proj / "gateway/tests/test_pricing.py").read_text())
+        (kit1 / "ci" / "LTC.json").write_text(json.dumps({"req_id": "REQ-001", "checks": [
+            {"id": "unit", "cwd": "gateway", "command": "python3 tests/test_pricing.py", "blocking": True}]}))
+        # REQ-002, the candidate: a new module of the same area, at its repository path
+        put("runs/kit/REQ-002/root/gateway/src/checkout.py", "from pricing import price\n\ndef total(n):\n    return n * price()\n")
+        put("runs/kit/REQ-002/root/gateway/tests/test_checkout.py", "import sys\nsys.path.insert(0, 'src')\nfrom checkout import total\nassert total(2) == 20\n")
+        (self.proj / "runs" / "kit" / "REQ-002" / "ci" / "LTC.json").write_text(json.dumps({"req_id": "REQ-002", "checks": [
+            {"id": "unit", "cwd": "gateway", "command": "python3 tests/test_checkout.py", "blocking": True}]}))
+
+    def test_a_kit_of_an_area_is_evaluated_in_the_area_and_regressed_against_it(self):
+        self._area_project()
+        body = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        self.assertEqual(body["status"], "PASS", body)
+        names = [c["name"] for c in body["cases"]]
+        self.assertIn("unit", names)
+        self.assertIn("regression::REQ-001::unit", names)
+        # the checks ran in the eval workspace, never in the project's own area folder
+        self.assertNotIn(str(self.proj / "gateway"), next(c for c in body["cases"] if c["name"] == "unit")["cwd"])
+
+    def test_a_candidate_that_changes_the_delivered_area_code_is_blocked_by_the_regression(self):
+        self._area_project()
+        (self.proj / "runs/kit/REQ-002/root/gateway/src/pricing.py").write_text("def price():\n    return 12\n")
+        (self.proj / "runs/kit/REQ-002/root/gateway/tests/test_checkout.py").write_text(
+            "import sys\nsys.path.insert(0, 'src')\nfrom checkout import total\nassert total(2) == 24\n")
+        body = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        self.assertEqual(body["status"], "FAIL", body)
+        self.assertIn("regression::REQ-001::unit", body["blocking_failures"])
+
+    def test_an_edited_area_test_after_the_lock_is_refused(self):
+        self._area_project()
+        self.assertEqual(self._post("/v1/eval/run", "REQ-002").json()["status"], "PASS")
+        (self.proj / "runs/kit/REQ-002/root/gateway/tests/test_checkout.py").write_text("assert True\n")
+        body = self._post("/v1/eval/run", "REQ-002").json()
+        self.assertEqual(body["status"], "FAIL")
+        self.assertIn("acceptance::integrity", [c["name"] for c in body["cases"]])
+
+    def test_the_tests_of_an_area_are_locked_like_test(self):
+        from services.gate_integrity import surface_manifest
+
+        self._area_project()
+        surface = surface_manifest(self.proj, "REQ-002")
+        self.assertIn("root/gateway/tests/test_checkout.py", surface)
+        self.assertNotIn("root/gateway/src/checkout.py", surface)
+        self.assertIn("ci/LTC.json", surface)
+
+
 class ReconciledJsImportsTests(unittest.TestCase):
     def test_a_reconciled_js_test_gets_the_candidate_modules_it_imports(self):
         # B2B REQ-024: the candidate's test/fixtures.ts (shared with REQ-002/005/008/012) imports

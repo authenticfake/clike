@@ -2790,7 +2790,7 @@ class EvalRunner:
 
         return pattern.sub(replace, value)
 
-    def _rewrite_command_for_eval_workspace(self, command: str, path_map: Dict[str, str]) -> str:
+    def _rewrite_command_for_eval_workspace(self, command: str, path_map: Dict[str, str], logical_roots: bool = True) -> str:
         """
         Rewrite filesystem paths inside shell commands without rewriting script names.
 
@@ -2818,8 +2818,10 @@ class EvalRunner:
                 continue
 
             # Bare logical roots are not shell-command paths unless followed by a slash.
-            # This avoids corrupting commands like `npm run test`.
+            # This avoids corrupting commands like `npm run test`. Inside an area they are its own paths.
             if source in {"src", "test", "tests"}:
+                if not logical_roots:
+                    continue
                 rewritten = re.sub(
                     rf"(?<![\w./:-]){re.escape(source)}/",
                     f"{target}/",
@@ -2910,7 +2912,25 @@ class EvalRunner:
 
         rewritten = self._rewrite_for_eval_workspace(raw_cwd, path_map)
         path = Path(str(rewritten))
+        if not path.is_absolute():
+            # a relative cwd in an area or another repository-root folder is its composed copy in the
+            # eval workspace, never the project's own folder (B2B pilot: `cwd: gateway` ran in the repo)
+            workspace = path_map.get("CLIKE_EVAL_OVERLAY_WORKSPACE")
+            first = path.parts[0] if path.parts else ""
+            if workspace and first in set(root_policy(self.project_root)["folders"]) and (Path(workspace) / first).exists():
+                return (Path(workspace) / path).resolve()
         return path if path.is_absolute() else (self.project_root / path).resolve()
+
+    def _in_area(self, workdir: Path, path_map: Dict[str, str]) -> bool:
+        """The check runs inside an area of the project (.clike/project.json `areas`), composed in the eval workspace."""
+        workspace = path_map.get("CLIKE_EVAL_OVERLAY_WORKSPACE")
+        if not workspace:
+            return False
+        for area in root_policy(self.project_root).get("areas") or []:
+            base = (Path(workspace) / area["root"]).resolve()
+            if workdir == base or base in workdir.parents:
+                return True
+        return False
 
     def _resolve_node_manifest(
         self,
@@ -3920,9 +3940,12 @@ class EvalRunner:
             self._progress(checks_done=case_index, current=str(case.get("name") or "case"),
                            passed=sum(1 for c in own if c.passed), failed=sum(1 for c in own if not c.passed and c.blocking))
             raw_cmd = case.get("run")
-            cmd = self._rewrite_command_for_eval_workspace(raw_cmd, path_map)
-            setup = self._rewrite_for_eval_workspace(case.get("setup"), path_map)
             workdir = self._resolve_workdir(case.get("cwd"), path_map) if case.get("cwd") else default_cwd
+            # a check inside an area of the project (a service of a monorepo) uses that area's own paths:
+            # its src/ and tests/ are not the KIT's logical roots
+            in_area = self._in_area(workdir, path_map)
+            cmd = self._rewrite_command_for_eval_workspace(raw_cmd, path_map, logical_roots=not in_area)
+            setup = self._rewrite_for_eval_workspace(case.get("setup"), path_map)
             case_env = self._merge_env(eval_env, case.get("env") or {})
             blocking = bool(case.get("blocking", True))
             environment_requirements = list(case.get("environment_requirements") or [])
