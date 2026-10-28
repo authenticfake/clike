@@ -5699,7 +5699,9 @@ async function cmdOpenChat(context) {
                 phase,
                 runId,
                 targetReqId,
-                [..._out.files.map(f => f.path), ...(msg.__extendCommit?.files || [])],
+                [..._out.files.map(f => f.path), ...(msg.__extendCommit?.files || []),
+                  // the finalize closes a release: the Harper documents left out of earlier commits go with it
+                  ...(phase === 'finalize' ? finalizeVerify.uncommittedHarperDocs(toFsPath(wsroot)) : [])],
                 { workspaceRoot: toFsPath(wsroot), finalizeOpenPr: (phase === 'finalize'),
                   commitMessage: phase === 'finalize' ? finalizeCommitMessage(toFsPath(wsroot), runId) : (msg.__extendCommit?.message || '') },
                 settings,
@@ -7449,10 +7451,12 @@ async function cmdOpenChat(context) {
       }
     }
     say(`▶ LOCAL CHECK ${script.rel} on this machine (build, start, smoke, stop — a few minutes; output in the CLike log)…`);
-    const result = await finalizeLocalCheck.runLocalCheck(ws.fsPath, script, {
+    const before = finalizeLocalCheck.visibleUntracked(ws.fsPath);
+    const ran = await finalizeLocalCheck.runLocalCheck(ws.fsPath, script, {
       timeoutMs: Math.max(5, Number(settings.finalizeLocalCheckTimeoutMinutes || 30)) * 60000,
       onData: (text) => out.append(text),
     });
+    const result = finalizeLocalCheck.withLeftovers(ran, before, finalizeLocalCheck.visibleUntracked(ws.fsPath));
     let report = '';
     try { report = finalizeLocalCheck.writeLocalCheckReport(ws.fsPath, result); } catch (e) { log(`[finalize] local check report: ${e?.message || e}`); }
     say(result.ok

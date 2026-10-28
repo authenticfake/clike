@@ -38,6 +38,26 @@ function fileSha1(absPath) {
   try { return require('crypto').createHash('sha1').update(fs.readFileSync(absPath)).digest('hex'); } catch { return 'missing'; }
 }
 
+// The Harper documents of the project: the inputs and references of each release, the canonical
+// documents and the lane guides. The finalize closes a release, so those left out of earlier commits
+// go with it (B2B v3: docs/inputs/v3/ and the v3 lane guides stayed uncommitted after the release).
+const HARPER_DOC_ROOTS = ['docs/inputs/', 'docs/reference/', 'docs/harper/'];
+
+/** Harper documents modified or new in the working tree (git status), never other files of the developer. */
+function uncommittedHarperDocs(workspaceRoot) {
+  let raw = '';
+  try {
+    raw = require('child_process').execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], {
+      cwd: workspaceRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    });
+  } catch {
+    return [];
+  }
+  return raw.split(/\r?\n/).filter((l) => l.trim() && !l.startsWith(' D') && !l.startsWith('D '))
+    .map((l) => { const p = l.slice(3).trim(); return (p.includes(' -> ') ? p.split(' -> ').pop() : p).replace(/^"(.*)"$/, '$1'); })
+    .filter((rel) => HARPER_DOC_ROOTS.some((r) => rel.startsWith(r)) && !/(^|\/)\.DS_Store$|(^|\/)Thumbs\.db$/.test(rel));
+}
+
 function ensureDirtyBaseline(workspaceRoot) {
   const full = path.join(workspaceRoot, ...BASELINE_PATH.split('/'));
   if (fs.existsSync(full)) return readDirtyBaseline(workspaceRoot);
@@ -279,6 +299,7 @@ module.exports = {
   gateEvidence,
   pendingReqs,
   ensureDirtyBaseline,
+  uncommittedHarperDocs,
   readDirtyBaseline,
   clearDirtyBaseline,
   unmergedReqBranches,

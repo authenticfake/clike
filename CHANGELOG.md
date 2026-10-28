@@ -4,6 +4,19 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+### Fixed
+
+- **The finalize commit closes the release**: the Harper documents left out of earlier commits
+  (`docs/inputs/`, `docs/reference/`, `docs/harper/`, lane guides included) go with it; other files
+  of the developer never do. Before, a release input and its lane guides stayed uncommitted.
+- **The local check fails when the run leaves files git does not ignore** (local configuration,
+  generated secrets, an identity provider's import, caches): the repair adds them to `.gitignore`.
+  Before, a realm import with the local passwords could end up in a commit.
+- **Configuration examples are usable**: the finalize writes a minimal valid example for every
+  structured variable (JSON, YAML), one example file per mode, and the verification loads them with
+  the solution's own loader; private files are ignored for every start option. Before, ten JSON
+  settings of a live mode had only their names.
+
 ## [1.6.8] — 2026-10-28 — An existing project, kept as it is
 
 ### Added

@@ -60,3 +60,36 @@ test('a check that runs too long is stopped and fails', async () => {
   assert.equal(result.code, 124);
   assert.match(lc.localCheckFailure(result).output, /timed out/);
 });
+
+test('local check: files the run leaves visible to git fail it, so the repair ignores them', () => {
+  const { withLeftovers } = require('../finalize-local-check');
+  const ok = { ok: true, code: 0, output: 'smoke passed', rel: 'scripts/check_solution_local.sh' };
+  const before = new Set(['notes.md']);
+  // B2B: setup --oidc wrote the private realm import with the local passwords under .runtime/
+  const after = new Set(['notes.md', '.runtime/oidc/leadintel-realm.json', '.env.oidc']);
+  const r = withLeftovers(ok, before, after);
+  assert.equal(r.ok, false);
+  assert.equal(r.code, 3);
+  assert.deepEqual(r.leftovers, ['.env.oidc', '.runtime/oidc/leadintel-realm.json']);
+  assert.match(r.output, /git does not ignore[\s\S]*\.runtime\/oidc\/leadintel-realm\.json/);
+  assert.equal(withLeftovers(ok, before, new Set(['notes.md'])), ok);
+  assert.equal(withLeftovers(ok, null, after), ok);  // no git: nothing to compare
+});
+
+test('finalize: the Harper documents left uncommitted go with the release, nothing else of the developer', () => {
+  const { uncommittedHarperDocs } = require('../finalize-verify');
+  const { execFileSync } = require('child_process');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'clike-fin-'));
+  const put = (rel, text) => { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); };
+  execFileSync('git', ['init', '-q'], { cwd: root });
+  put('docs/harper/lane-guides/python.md', '# v2\n');
+  execFileSync('git', ['add', '.'], { cwd: root });
+  execFileSync('git', ['-c', 'user.email=a@b', '-c', 'user.name=t', 'commit', '-qm', 'init'], { cwd: root });
+  put('docs/harper/lane-guides/python.md', '# v3\n');
+  put('docs/inputs/v3/IDEA_EXTEND_R3.md', '# R3\n');
+  put('docs/inputs/v3/.DS_Store', 'x');
+  put('.mcp.json', '{}');
+  put('HOWTO_CONSOLE.md', '# mine\n');
+  assert.deepEqual(uncommittedHarperDocs(root).sort(), ['docs/harper/lane-guides/python.md', 'docs/inputs/v3/IDEA_EXTEND_R3.md']);
+  fs.rmSync(root, { recursive: true, force: true });
+});
