@@ -459,9 +459,12 @@ const norm = (p) => String(p || '').replace(/\\/g, '/').replace(/^\.?\//, '');
  * mode 'plan' (/extend): only TECH_CONSTRAINTS is protected (not an /extend output).
  * mode 'cascade' (/idea --extend): plan rules (validateExtendPlan + validateDelta), merged IDEA/SPEC,
  * additive TECH_CONSTRAINTS, dry run, and CLike's verification section in the EXTEND report.
+ * mode 'adopt' (/adopt): the documents of the project as it is, written over the /init templates —
+ * `adopt.check(beforeText, afterText)` checks the plan ({ ok, errors, warnings, planText, summary }),
+ * `adopt.section(summary, warnings)` is CLike's verification; rejection and restore as the cascade.
  * Returns { ok, errors, warnings, delta, restored, docs, report } and updates `files` / the disk.
  */
-function reconcileExtend({ root, before, files, isAgent, mode = 'plan', cascade = {}, validateExtendPlan, startedAt = 0 }) {
+function reconcileExtend({ root, before, files, isAgent, mode = 'plan', cascade = {}, adopt = null, validateExtendPlan, startedAt = 0 }) {
   const find = (rel) => files.find((f) => norm(f && f.path) === rel);
   const keyOf = Object.fromEntries(Object.entries({ ...DOC_FILES, ...PLAN_FILES }).map(([k, rel]) => [rel, k]));
   // what the run leaves for `rel`: the returned file, else the disk (local agent) or the unchanged original (cloud)
@@ -487,7 +490,7 @@ function reconcileExtend({ root, before, files, isAgent, mode = 'plan', cascade 
   };
   const warnings = [];
   const tech = compareAdditive(before.tech, current(DOC_FILES.tech) ?? before.tech);
-  if (mode !== 'cascade') {
+  if (mode !== 'cascade' && mode !== 'adopt') {
     if (current(DOC_FILES.tech) !== before.tech) {
       put(DOC_FILES.tech, before.tech);
       warnings.push('TECH_CONSTRAINTS.yaml is not an /extend output: restored (use /idea --extend for a new release)');
@@ -495,8 +498,12 @@ function reconcileExtend({ root, before, files, isAgent, mode = 'plan', cascade 
     return { ok: true, errors: [], warnings, delta: [], restored: [], docs: {}, report: null };
   }
 
-  const verdict = validateExtendPlan({ beforeText: before.plan, afterText: current(PLAN_FILES.plan) });
-  const delta = verdict.ok
+  const adopting = mode === 'adopt';
+  const checked = adopting ? adopt.check(before.plan, current(PLAN_FILES.plan)) : null;
+  const verdict = adopting
+    ? { ok: checked.ok, errors: checked.errors, warnings: checked.warnings, planText: checked.planText, restored: [] }
+    : validateExtendPlan({ beforeText: before.plan, afterText: current(PLAN_FILES.plan) });
+  const delta = adopting ? { ok: checked.ok, errors: [], warnings: [], delta: checked.summary, planText: checked.planText } : verdict.ok
     ? validateDelta({ beforeText: before.plan, planText: verdict.planText, release: cascade.release, ltcChecks: (id) => ltcCheckIds(root, id),
       testOwner: (ref, amends) => kitTestOwner(root, ref, amends) })
     : { ok: false, errors: [], warnings: [], delta: [], planText: null };
@@ -519,7 +526,8 @@ function reconcileExtend({ root, before, files, isAgent, mode = 'plan', cascade 
   if (delta.planText !== current(PLAN_FILES.plan)) put(PLAN_FILES.plan, delta.planText);
 
   const docs = {};
-  for (const key of ['idea', 'spec']) {
+  // adopt writes IDEA, SPEC and TECH_CONSTRAINTS over the templates: nothing earlier to merge into
+  for (const key of adopting ? [] : ['idea', 'spec']) {
     const rel = DOC_FILES[key];
     const after = current(rel);
     if (after == null || after === before[key]) continue;
@@ -543,7 +551,7 @@ function reconcileExtend({ root, before, files, isAgent, mode = 'plan', cascade 
     const added = Object.keys(ucAfter).filter((id) => !(ucBefore && ucBefore[id]));
     docs.useCases = { total: Object.keys(ucAfter).length, added };
   }
-  if (current(DOC_FILES.tech) !== before.tech) {
+  if (!adopting && current(DOC_FILES.tech) !== before.tech) {
     docs.tech = tech;
     if (!tech.ok) {
       put(DOC_FILES.tech, before.tech);
@@ -575,7 +583,8 @@ function reconcileExtend({ root, before, files, isAgent, mode = 'plan', cascade 
     files.push({ path: report, content: `# EXTEND ${cascade.release}\n\nThe run returned no report; CLike wrote its verification.\n` });
     warnings.push('the run returned no EXTEND report: CLike wrote one with its verification only');
   }
-  const section = verificationMarkdown({ ...cascade, docs, delta: delta.delta, restored: verdict.restored, warnings });
+  const section = adopting ? adopt.section(delta.delta, warnings)
+    : verificationMarkdown({ ...cascade, docs, delta: delta.delta, restored: verdict.restored, warnings });
   const text = current(report) ?? (find(report) || {}).content ?? '';
   const merged = `${String(text).replace(/\s+$/, '')}\n${section}`;
   if (find(report)) find(report).content = merged; else files.push({ path: report, content: merged });
