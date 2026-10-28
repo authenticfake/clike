@@ -5,7 +5,7 @@
 [![Made with Python](https://img.shields.io/badge/Made%20with-Python%203.12-3776AB?logo=python)](https://www.python.org/)
 [![VS Code Extension](https://img.shields.io/badge/VS%20Code-Extension-007ACC?logo=visualstudiocode)](extensions/vscode)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.6.7-informational)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.6.8-informational)](CHANGELOG.md)
 
 > **From intent to impact.** CLike turns an idea into reviewed, tested and promotable software
 > through a governed lifecycle in which cloud models and local coding agents execute, while
@@ -60,11 +60,11 @@ Models and agents execute.  Eval and Gate decide.
 
 | Version | Date | Milestone |
 |---|---|---|
-| 1.6.3 | 2026-10 | An `/idea --extend` that keeps its work: every check of a delivered REQ's eval profile can be superseded, a superseded test named without its REQ is completed with the REQ that owns it, a rejected cascade keeps its documents under `runs/extend/rejected/` and leaves nothing behind; the extend commit holds the whole release: documents, lane guides and the release's inputs. See [CHANGELOG](CHANGELOG.md). |
 | 1.6.4 | 2026-10 | Script checks with nothing to install: shellcheck and PowerShell are in the eval sandbox by default; a check whose program the sandbox lacks is never sent to a repair, and the advice says how to add it (`/tools add`, `/tools search`); `/autopilot` retries a parked REQ once CLike or the sandbox tools changed. See [CHANGELOG](CHANGELOG.md). |
 | 1.6.5 | 2026-10 | Declared changes that hold: a test a release replaces on purpose is recognised in whichever delivered REQ's check runs it, in the output of the common test runners of any language; one the cascade did not name is declared with `/eval <REQ> --supersede` (checked, audited), and the report gives the exact command; a timeout under the parallel load of the regression runs again alone instead of going to a repair; `/kit`, `/eval` and `/gate` no longer overwrite what changed in the plan during their run. See [CHANGELOG](CHANGELOG.md). |
 | 1.6.6 | 2026-10 | Promoted when delivered: a REQ is promoted only when its acceptance criteria are delivered (`docs/ACCEPTANCE.json`, the blocking `acceptance::coverage` check, a self review declaring the KIT incomplete blocks too); repository-root deliverables (env examples, `.gitignore`, `ci/SOLUTION_LTC.json`, runbooks) reach the root through `root/`, a staging folder is blocked and `/finalize` brings what was left there; the release's journeys are SPEC use cases and the finalize verifies them one by one; `--supersede` is offered only for a pinned list the REQ extends; a declared `package_json` is installed whatever the LTC's runtime. See [CHANGELOG](CHANGELOG.md). |
-| **1.6.7** | 2026-10 | A finalize that runs once: a `/finalize` or `/finalize --verify` sent while the solution verification runs is refused, and the eval sandbox runs one request at a time per eval workspace (no false FAIL from two runs composing the same directory); the finalize asks for a local smoke check that is repeatable on a database that already holds data. See [CHANGELOG](CHANGELOG.md). |
+| 1.6.7 | 2026-10 | A finalize that runs once: a `/finalize` or `/finalize --verify` sent while the solution verification runs is refused, and the eval sandbox runs one request at a time per eval workspace (no false FAIL from two runs composing the same directory); the finalize asks for a local smoke check that is repeatable on a database that already holds data. See [CHANGELOG](CHANGELOG.md). |
+| **1.6.8** | 2026-10 | An existing project, kept as it is: `/init` with no parameters initializes the folder open in VS Code in place, and a repository with its own review / PR / CI process keeps it (CLike's files become proposals in `.clike/proposals/`); the cockpit recognises a project not built with CLike; a guide to bringing an existing project into CLike ([docs/adopt.md](docs/adopt.md)). See [CHANGELOG](CHANGELOG.md). |
 
 The last five versions; every version and change is in the [CHANGELOG](CHANGELOG.md).
 
@@ -178,7 +178,7 @@ VM with at least 4 GB, provider API keys for cloud models, optionally the Claude
 cp .env.example .env                      # provider keys + CLIKE_API_TOKEN=$(openssl rand -hex 32)
 cp docker/.env.example docker/.env        # CLIKE_PROJECTS_DIR = host folder containing your projects
 cd docker && podman-compose up -d --build # services on 127.0.0.1, wait until (healthy)
-code --install-extension ../extensions/vscode/clike-1.6.7.vsix
+code --install-extension ../extensions/vscode/clike-1.6.8.vsix
 ```
 
 In VS Code: **CLike: Set Service Token** (the `CLIKE_API_TOKEN` value). Full guide, local agents
@@ -192,7 +192,12 @@ Open a project under `CLIKE_PROJECTS_DIR`, run **CLike: Chat (Q&A / Harper / Cod
 /init → /idea → /spec → /plan → ( /kit REQ-xxx → /eval REQ-xxx --fix → /gate REQ-xxx )* → /finalize
 
 next release:  /idea --extend → ( /kit → /eval --fix → /gate )* for the new REQs → /finalize
+
+existing project (not built with CLike):  /init → /adopt → /idea --extend → …
 ```
+
+**[Bringing an existing project into CLike →](docs/adopt.md)** — every step, from `/init` in place
+to `/adopt` and the first `/idea --extend`; the team keeps its layout, commands and process.
 
 `/autopilot` runs the `( /kit → /eval --fix → /gate )*` part unattended — from the chat, MCP or
 `scripts/clike-autopilot.sh` — parks a REQ that needs you and resumes where it was after an
@@ -274,7 +279,7 @@ Open research questions the project works on:
 |---|---|
 | Overview and reading order | [CLike at a glance](docs/clike-at-a-glance.md), [docs/README.md](docs/README.md) |
 | The chat UI (cockpit, run card) | [docs/chat-ui.md](docs/chat-ui.md) |
-| Getting operational | [HOWTO](docs/HOWTO.md), [Harper run walkthrough](docs/Clike%20HARPER%20RUN.md), [project via MCP](docs/howto-mcp-project.md), [/init → /finalize with BMAD from Claude Code](docs/howto-mcp-bmad-claude.md) |
+| Getting operational | [Bringing an existing project into CLike](docs/adopt.md), [HOWTO](docs/HOWTO.md), [Harper run walkthrough](docs/Clike%20HARPER%20RUN.md), [project via MCP](docs/howto-mcp-project.md), [/init → /finalize with BMAD from Claude Code](docs/howto-mcp-bmad-claude.md) |
 | Concepts | [architecture](docs/architecture.md), [Harper workflow](docs/harper-workflow.md), [agent operating model](docs/agent-operating-model.md), [artifacts](docs/artifacts.md) |
 | Reference | [commands](docs/commands.md), [API](docs/api-reference.md), [MCP](docs/mcp.md), [capabilities](docs/CAPABILITIES.md) |
 | Operations | [setup and runtime](docs/setup-and-runtime.md), [Git and promotion](docs/git-and-promotion.md), [telemetry portal](docs/CLike_Harper_Telemetry_Portal.md) |

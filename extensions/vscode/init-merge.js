@@ -14,16 +14,23 @@ const BINARY_EXTENSIONS = new Set([
  * Copy the template tree into dest, file by file, without overwriting. Text files get the
  * template variables replaced. Returns { created, kept } (dest-relative, '/' separated).
  */
-function copyTemplateTree(src, dest, { vars = {}, isText = () => true } = {}) {
+function copyTemplateTree(src, dest, { vars = {}, isText = () => true, redirect = () => null } = {}) {
   const created = [];
   const kept = [];
+  const proposed = [];
   const walk = (from, to, rel) => {
     if (fs.statSync(from).isDirectory()) {
-      fs.mkdirSync(to, { recursive: true });
       for (const entry of fs.readdirSync(from).sort()) walk(path.join(from, entry), path.join(to, entry), rel ? `${rel}/${entry}` : entry);
       return;
     }
-    if (fs.existsSync(to)) { kept.push(rel); return; }
+    // a file the project should decide on goes to another place (the proposals), not to its own path
+    const elsewhere = redirect(rel);
+    if (elsewhere) {
+      to = path.join(dest, ...elsewhere.split('/'));
+      proposed.push(rel);
+    }
+    fs.mkdirSync(path.dirname(to), { recursive: true });
+    if (fs.existsSync(to)) { if (!elsewhere) kept.push(rel); return; }
     if (BINARY_EXTENSIONS.has(path.extname(from).toLowerCase()) || !isText(from)) {
       fs.copyFileSync(from, to);
     } else {
@@ -31,10 +38,34 @@ function copyTemplateTree(src, dest, { vars = {}, isText = () => true } = {}) {
       for (const [token, value] of Object.entries(vars)) content = content.split(token).join(String(value));
       fs.writeFileSync(to, content);
     }
-    created.push(rel);
+    if (!elsewhere) created.push(rel);
   };
   walk(src, dest, '');
-  return { created, kept };
+  return { created, kept, proposed };
+}
+
+// The team process files of the template: who reviews (CODEOWNERS), how a PR is described, which CI
+// runs. A repository that already has a process of its own gets them as proposals only, under
+// .clike/proposals/ (B2B/foundation: 6 workflows of its own; a new CODEOWNERS changes who must
+// approve, a new workflow runs jobs in the team's CI). A new folder gets them as before.
+const TEAM_PROCESS_FILES = ['.github/CODEOWNERS', '.github/pull_request_template.md', '.github/workflows/clike-ci.yaml'];
+const PROPOSALS_DIR = '.clike/proposals';
+
+/** The folder already has a review / PR / CI process of its own. */
+function hasTeamProcess(dir) {
+  const exists = (...parts) => fs.existsSync(path.join(dir, ...parts));
+  let workflows = [];
+  try { workflows = fs.readdirSync(path.join(dir, '.github', 'workflows')).filter((n) => /\.ya?ml$/i.test(n)); } catch { /* none */ }
+  return workflows.length > 0 ||
+    ['.github', '', 'docs'].some((d) => exists(...(d ? [d] : []), 'CODEOWNERS')) ||
+    ['.github', '', 'docs'].some((d) => exists(...(d ? [d] : []), 'pull_request_template.md') || exists(...(d ? [d] : []), 'PULL_REQUEST_TEMPLATE.md')) ||
+    exists('.github', 'PULL_REQUEST_TEMPLATE');
+}
+
+/** redirect() for copyTemplateTree: the team process files to the proposals when the folder has its own. */
+function teamProcessRedirect(dir) {
+  if (!hasTeamProcess(dir)) return () => null;
+  return (rel) => (TEAM_PROCESS_FILES.includes(rel) ? `${PROPOSALS_DIR}/${rel}` : null);
 }
 
 /**
@@ -51,4 +82,4 @@ function mergeGitignore(existingText, clikeLines) {
   return { text: `${base}${base ? '\n' : ''}# CLike\n${added.join('\n')}\n`, added };
 }
 
-module.exports = { copyTemplateTree, mergeGitignore };
+module.exports = { copyTemplateTree, mergeGitignore, hasTeamProcess, teamProcessRedirect, TEAM_PROCESS_FILES, PROPOSALS_DIR };
