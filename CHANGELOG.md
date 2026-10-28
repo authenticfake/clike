@@ -4,6 +4,8 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.6.7] — 2026-10-28 — A finalize that runs once
+
 ### Fixed
 
 - **A finalize sent twice does not run twice**: a `/finalize` or `/finalize --verify` while the
