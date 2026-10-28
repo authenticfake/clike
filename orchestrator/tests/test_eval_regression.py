@@ -733,6 +733,26 @@ class AreaLayoutEvalTests(_RegressionProject):
         self.assertIn("ci/LTC.json", surface)
 
 
+class AdoptBaselineEvalTests(_RegressionProject):
+    """/adopt baseline (runs/adopt/ci/LTC.json): the area's own setup and check, on a copy of the whole
+    project, inside the area — never in the project's own folder (the sandbox mounts it read-only)."""
+
+    def test_the_baseline_runs_each_area_on_a_copy_and_writes_nothing_in_the_project(self):
+        (self.proj / ".clike").mkdir(exist_ok=True)
+        (self.proj / ".clike" / "project.json").write_text(json.dumps({"areas": [{"name": "svc", "root": "svc", "tests": ["svc/tests"]}]}))
+        (self.proj / "svc" / "tests").mkdir(parents=True)
+        (self.proj / "svc" / "tests" / "test_ok.py").write_text("assert 1 + 1 == 2\n")
+        profile = self.proj / "runs" / "adopt" / "ci" / "LTC.json"
+        profile.parent.mkdir(parents=True)
+        profile.write_text(json.dumps({"req_id": "ADOPT",
+            "setup": [{"id": "svc::setup", "command": "touch built.flag", "cwd": "svc"}],
+            "checks": [{"id": "svc::test", "command": "test -f built.flag && python3 tests/test_ok.py && touch ran.flag", "cwd": "svc", "blocking": True}]}))
+        body = self.client.post("/v1/eval/run", json={"profile": "runs/adopt/ci/LTC.json", "project_root": str(self.proj), "req_id": "ADOPT"}, headers=AUTH).json()
+        self.assertEqual(body["status"], "PASS", body)
+        self.assertFalse((self.proj / "svc" / "built.flag").exists())
+        self.assertFalse((self.proj / "svc" / "ran.flag").exists())
+
+
 class ReconciledJsImportsTests(unittest.TestCase):
     def test_a_reconciled_js_test_gets_the_candidate_modules_it_imports(self):
         # B2B REQ-024: the candidate's test/fixtures.ts (shared with REQ-002/005/008/012) imports

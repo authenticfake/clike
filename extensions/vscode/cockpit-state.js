@@ -68,6 +68,16 @@ const exists = (root, rel) => fs.existsSync(path.join(root, ...rel.split('/')));
 
 // what a folder holds besides editor, VCS and OS files: an existing project, not an empty one
 const NOT_PROJECT = new Set(['.git', '.vscode', '.idea', '.DS_Store', '.clike', 'Thumbs.db']);
+/** Code of its own (an area with a manifest, or one at the root) and no adoption report yet. */
+function adoptable(root) {
+  try {
+    if (fs.readdirSync(path.join(root, 'docs', 'harper')).some((n) => /^ADOPT_.+\.md$/.test(n))) return false;
+  } catch { /* no docs/harper */ }
+  const { surveyAreas } = require('./adopt');
+  return surveyAreas(root).length > 0 ||
+    ['pyproject.toml', 'package.json', 'go.mod', 'pom.xml', 'Cargo.toml', 'build.gradle'].some((f) => exists(root, f));
+}
+
 function existingProject(root) {
   try { return fs.readdirSync(root).some((n) => !NOT_PROJECT.has(n)); } catch { return false; }
 }
@@ -277,6 +287,10 @@ function buildCockpitState(root, opts = {}) {
     next = existingProject(root)
       ? { command: '/init', message: 'An existing project, not built with CLike yet: /init adds CLike here, in place — every file, the layout and the team\'s review / PR / CI process are kept.' }
       : { command: '/init', message: 'No Harper project in this workspace: /init creates it in the folder open in VS Code.' };
+  } else if ((!phases[0] || phases[0].state !== 'done') && adoptable(root)) {
+    // /init on an existing project (code with manifests, no adoption yet): /adopt, not /idea
+    next = { command: '/adopt', message: 'An existing project: /adopt surveys its areas, runs the tests it already has in the sandbox, ' +
+      'indexes its documentation and writes the adoption report — nothing of the project is changed (--area <name> for one area first).' };
   } else if (!phases[0] || phases[0].state !== 'done') {
     next = { command: '/idea', message: 'IDEA.md is still the /init template: describe the product (put your documents in docs/inputs/ or attach them) and run /idea.' };
   } else if (phases[1].state !== 'done') {

@@ -2438,6 +2438,12 @@ class EvalRunner:
         except Exception:
             current = profile_path
 
+        # the whole project: the adoption baseline (runs/adopt/ci/LTC.json) and the solution profile
+        # (ci/SOLUTION_LTC.json) run on a copy of the project — also a project of areas, which has no
+        # src/ at its root (B2B/foundation pilot: the baseline ran in the read-only project folder)
+        root = self.project_root.resolve()
+        if current.parent == root / "runs" / "adopt" / "ci" or current.parent == root / "ci":
+            return root
         for parent in [current.parent, *current.parents]:
             if parent.name == "ci" and parent.parent.name:
                 candidate = parent.parent
@@ -3814,6 +3820,12 @@ class EvalRunner:
                 if not command:
                     continue
                 step_cwd = (default_cwd / str(item["cwd"])) if item.get("cwd") else default_cwd
+                if item.get("cwd"):
+                    # an area (or another repository-root folder): its copy in the eval workspace, as the checks
+                    resolved = self._resolve_workdir(str(item["cwd"]), path_map)
+                    workspace = path_map.get("CLIKE_EVAL_OVERLAY_WORKSPACE")
+                    if workspace and str(resolved).startswith(str(Path(workspace).resolve())):
+                        step_cwd = resolved
                 case = self._run(
                     name=f"setup::{item.get('id') or i}",
                     cmd=str(self._rewrite_for_eval_workspace(command, path_map)),

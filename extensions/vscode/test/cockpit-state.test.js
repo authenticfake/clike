@@ -255,3 +255,13 @@ test('a FINALIZE_REPORT older than the last gate promotion is the earlier releas
   assert.equal(state.next.command, '');
   assert.equal(state.progress_pct, 100);
 });
+
+test('after /init on an existing project the next action is /adopt; after the report it is /idea', () => {
+  const fsx = require('fs');
+  const tpl = (f) => fsx.readFileSync(path.join(__dirname, '..', 'templates', 'harper-init', 'docs', 'harper', f), 'utf8').split('${project.name}').join('Foundation');
+  const root = project({ 'docs/harper/IDEA.md': tpl('IDEA.md'), 'docs/harper/SPEC.md': tpl('SPEC.md'),
+    'aigateway/pyproject.toml': '[project]\nname = "aigateway"\n', 'aigateway/src/aigateway/__init__.py': '' });
+  assert.equal(buildCockpitState(root).next.command, '/adopt');
+  fsx.writeFileSync(path.join(root, 'docs', 'harper', 'ADOPT_2026-10-28.md'), '# Adoption report\n');
+  assert.equal(buildCockpitState(root).next.command, '/idea');
+});

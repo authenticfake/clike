@@ -228,6 +228,7 @@ const {
 } = require('./auto-eval');
 const { validateExtendPlan, readPlanText } = require('./extend-guard');
 const releaseExtend = require('./release-extend');
+const adoptLib = require('./adopt');
 const { copyTemplateTree, mergeGitignore, teamProcessRedirect, PROPOSALS_DIR } = require('./init-merge');
 const { buildAgentChatArgs, createAgentStreamParser, newSession, sessionKey } = require('./agent-chat');
 const { createApprovalGate, createCodexAppServerTurn, startClaudeApprovalServer } = require('./agent-approvals');
@@ -4458,6 +4459,81 @@ async function cmdOpenChat(context) {
       const cur = context.workspaceState.get('clike.uiState') || { mode: 'free', model: 'auto' };
       const activeMode  = msg.mode  || cur.mode  || 'free';
       const activeModel = msg.model || cur.model || 'auto';
+
+      if (msg.type === 'adopt') {
+        // /adopt: an existing project brought into CLike (adopt.js). Deterministic, no model: the same
+        // for cloud and local agents. Writes only CLike's files: .clike/project.json, runs/adopt/, the report.
+        const say = (text) => panel.webview.postMessage({ type: 'echo', message: text });
+        const done = () => panel.webview.postMessage({ type: 'busy', on: false, force: true });
+        const ws = getWorkspaceRoot();
+        try {
+          if (!ws) { say('✖ /adopt: open the project folder in VS Code first.'); return done(); }
+          const root = ws.fsPath;
+          const projectPath = path.join(root, '.clike', 'project.json');
+          if (!fsSync.existsSync(projectPath)) { say('ℹ /adopt: run /init first — it adds CLike to this folder, in place, keeping every file.'); return done(); }
+          await appendSessionJSONL('harper', { ts: Date.now(), role: 'user', content: `▶ ADOPT${msg.area ? ` --area ${msg.area}` : ''}${msg.dryRun ? ' --dry-run' : ''}`, model: 'auto', attachments: [] });
+          say('▶ /adopt: survey of the project (areas, stack, roots, commands, runtimes, CI, documentation, git)…');
+          const found = adoptLib.survey(root);
+          const area = String(msg.area || '').trim();
+          const picked = area ? found.areas.filter((a) => a.root === area || a.name === area) : found.areas;
+          if (area && !picked.length) {
+            say(`✖ /adopt: no area "${area}". Areas found: ${found.areas.map((a) => a.root).join(', ') || 'none'}.`);
+            return done();
+          }
+          say(`ℹ /adopt: ${found.areas.length} area(s) — ${found.areas.map((a) => `${a.root} (${a.stack})`).join(', ') || 'the repository root is one project'}; ` +
+            `${found.docs.length} document(s); ${found.ci.length} CI workflow(s); ${found.git ? `${found.git.commits} commit(s)` : 'no git'}.`);
+          const reportRel = `docs/harper/ADOPT_${new Date().toISOString().slice(0, 10)}.md`;
+          const writeReport = (opts) => {
+            fsSync.mkdirSync(path.join(root, 'docs', 'harper'), { recursive: true });
+            fsSync.writeFileSync(path.join(root, ...reportRel.split('/')), adoptLib.reportMarkdown(found, { area, ...opts }));
+          };
+          if (msg.dryRun) {
+            writeReport({ dryRun: true });
+            say(`✔ /adopt --dry-run: report ${reportRel} (nothing else written).`);
+            return done();
+          }
+          // the areas, in CLike's own settings (a root or command the developer corrected stays)
+          let meta = {};
+          try { meta = JSON.parse(fsSync.readFileSync(projectPath, 'utf8')); } catch { /* template */ }
+          fsSync.writeFileSync(projectPath, `${JSON.stringify(adoptLib.mergeProjectAreas(meta, found.areas), null, 2)}\n`);
+          // the baseline: the checks each (picked) area already has, as its team runs them, in the sandbox
+          let baseline = null;
+          const profile = adoptLib.baselineProfile(picked);
+          if (profile.checks.length) {
+            const full = path.join(root, ...adoptLib.BASELINE_PROFILE.split('/'));
+            fsSync.mkdirSync(path.dirname(full), { recursive: true });
+            fsSync.writeFileSync(full, `${JSON.stringify(profile, null, 2)}\n`);
+            say(`▶ /adopt: baseline in the CLike eval sandbox — ${profile.checks.map((c) => c.id).join(', ')} (installs and test suites: minutes)…`);
+            try {
+              await ensureToolsForEval(null, { profile: adoptLib.BASELINE_PROFILE });
+              baseline = await postEvalChecks(adoptLib.BASELINE_PROFILE, ws, adoptLib.BASELINE_ID, []);
+              say(`${baseline?.passed ? '✔' : 'ℹ'} /adopt baseline: ${(baseline?.cases || []).filter((c) => !String(c.name).startsWith('env::')).map((c) => `${c.name} ${c.passed ? 'PASS' : 'FAIL'}`).join(', ')}`);
+            } catch (e) {
+              say(`⚠ /adopt: the baseline could not run (${String(e?.message || e).slice(0, 300)}); the report says so.`);
+            }
+          }
+          // the documentation, into the project memory (every phase and the Memory panel cite it)
+          let indexed = 0;
+          const items = adoptLib.memoryItems(root, found.docs);
+          for (let i = 0; i < items.length; i += 40) {
+            try {
+              await postJson(`${cfg().orchestratorUrl}/v1/rag/index`, { project_id: getProjectId(), items: items.slice(i, i + 40) });
+              indexed += Math.min(40, items.length - i);
+            } catch (e) {
+              say(`⚠ /adopt: project memory indexing stopped at ${indexed}/${items.length} (${String(e?.message || e).slice(0, 200)}).`);
+              break;
+            }
+          }
+          writeReport({ baseline, indexed });
+          const message = `✔ /adopt: areas in .clike/project.json, ${indexed} document(s) in the project memory, ` +
+            `baseline ${baseline ? String(baseline.status || (baseline.passed ? 'PASS' : 'FAIL')) : 'not run'}. Review ${reportRel}.`;
+          say(message);
+          await appendSessionJSONL('harper', { ts: Date.now(), role: 'system', content: message, model: 'auto', attachments: [] });
+        } catch (e) {
+          say(`✖ /adopt failed: ${String(e?.message || e)}`);
+        }
+        return done();
+      }
 
       if (msg.type === 'harperInit') {
         try {

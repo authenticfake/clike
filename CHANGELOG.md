@@ -4,6 +4,18 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+### Added
+
+- **`/adopt` — an existing project brought into CLike, first part** (no model: the same for cloud
+  and local agents): it surveys the areas (the services of a monorepo), their stack, source and test
+  roots, the commands the team runs (Makefile, scripts, CI setup), the runtime versions they require,
+  the documentation, the agent context files and git; writes the areas to `.clike/project.json`
+  (corrections kept); runs the **baseline** — each area's own setup and check, on a copy of the
+  project in the eval sandbox, on its runtime — indexes the documentation into the **project
+  memory**; writes `docs/harper/ADOPT_<date>.md`. `--area <name>` adopts one area first,
+  `--dry-run` writes only the report. Help, completion and the cockpit propose it after `/init` on an
+  existing project. Nothing of the project is changed.
+
 ### Security
 
 - **Extension build tools without known vulnerabilities**: `@azure/msal-node` 7.1.2 (an override
@@ -29,6 +41,9 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **A profile of the whole project runs on a copy of it**: the adoption baseline and the solution
+  profile of a project without `src/` at its root (a project of areas) ran in the project folder,
+  which the sandbox mounts read-only; their setup steps in an area run in its copy too.
 - **`uv` projects run in the sandbox**: every REQ gets a writable `uv` project environment of its
   own. Before, the image's `UV_PROJECT_ENVIRONMENT` pointed at CLike's own read-only environment, so
   a project's `uv sync` / `uv run` failed.

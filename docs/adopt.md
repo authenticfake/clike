@@ -5,8 +5,9 @@ several services — becomes a CLike project in place. From then on it evolves w
 and the usual KIT → EVAL → GATE loop, and its existing behaviour is protected by the regression
 from day one.
 
-> **Status.** `/init` in place (step 2) is available. `/adopt` (steps 3–5) is being built: this page
-> describes how it works, so a team can prepare; each step says when it is available.
+> **Status.** `/init` in place (step 2) and the first part of `/adopt` (step 3: survey, areas,
+> baseline, project memory, report) are available. The analysis into Harper documents and adopted
+> REQs (the rest of step 3) and `--refresh` (step 5) are being built; each step says when.
 
 ## What does not change for the team
 
@@ -55,14 +56,19 @@ With no parameters, `/init` initializes the folder open in VS Code, in place. It
   workflow, a code-owners file or a PR template — keeps it, and CLike's files go to
   `.clike/proposals/.github/…` (copy them if you want them). A new folder gets them as before.
 
-### 3. `/adopt` — in development
+### 3. `/adopt` — survey, baseline, memory and report available; analysis in development
 
 ```text
 /adopt [--area <name>] [--dry-run]
 ```
 
 Run it once. CLike reads the project and **proposes**; nothing of the proposal is kept until you apply
-it.
+it. Available today (no model, the same with any executor): the survey (1), the baseline and the git
+evidence (2), the project memory (3) and the report — the areas are written to `.clike/project.json`
+(CLike's own file; a root or command you correct there is kept by the next `/adopt`), the baseline
+profile to `runs/adopt/ci/LTC.json`. The baseline runs each area's own setup and check (from its
+Makefile, scripts or CI) on a copy of the project in the eval sandbox, on the runtime versions the
+area requires.
 
 1. **Survey** (no model): stacks and versions, package managers, source and test roots per area,
    entry points, the CI's commands, existing documentation and agent context files, git state.

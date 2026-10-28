@@ -798,6 +798,7 @@ try {
 var HELP_COMMANDS = [
   {cmd:'/help', desc:'Shows this quick guide'},
   {cmd:'Docs', desc:'docs/INSTALL.md (install, agents, MCP for Claude Code / Codex) and docs/GET_STARTED.md (first project, agent chat, auto-eval)'},
+  {cmd:'/adopt [--area <name>] [--dry-run]', desc:'Brings an existing project (not built with CLike) into CLike, after /init: surveys its areas (the services of a monorepo), stack, roots, commands, runtime versions, CI, documentation and git; writes the areas to .clike/project.json; runs the tests each area already has in the eval sandbox (the baseline); indexes its documentation into the project memory; writes docs/harper/ADOPT_<date>.md. --area adopts one area first; --dry-run writes only the report. Nothing of the project is changed. See docs/adopt.md'},
   {cmd:'/init [<name> [<parent folder>] [--force]]', desc:'Initializes the Harper project. With no parameters: the folder open in VS Code, in place (existing files kept). With a name: <parent folder>/<name> (--force: into a non-empty folder, existing files kept). A repository that already has its own review / PR / CI process keeps it: the CLike CODEOWNERS, PR template and workflow go to .clike/proposals/'},
   {cmd:'/status', desc:'Shows the Harper project/context status'},
   {cmd:'/where', desc:'Shows the Harper workspace/doc-root path'},
@@ -1232,6 +1233,7 @@ function postAndLock(type, payload = {}) {
 function isHarperBlockingSlashCommand(cmd) {
   return new Set([
     '/init',
+    '/adopt',
     '/idea',
     '/spec',
     '/plan',
@@ -1297,7 +1299,7 @@ function helpStartsWith(c, prefixes) {
   return false;
 }
 var HELP_GROUPS = [
-  { title: 'Start & project', test: function (c) { return helpStartsWith(c, ['/help', 'Docs', '/init', '/status', '/where', '/switch']); } },
+  { title: 'Start & project', test: function (c) { return helpStartsWith(c, ['/help', 'Docs', '/init', '/adopt', '/status', '/where', '/switch']); } },
   { title: 'Agents', test: function (c) { return helpStartsWith(c, ['/agent-', 'Agent chat', 'Settings (agent']); } },
   { title: 'Eval & gate', test: function (c) { return helpStartsWith(c, ['/eval', '/gate', '/autopilot', '/tools', 'Settings (auto-eval', 'Settings (eval tools']); } },
   { title: 'Harper phases', test: function (c) { return helpStartsWith(c, ['/idea', '/spec', '/plan', '/extend', '/add-req', '/kit', '/finalize']); } },
@@ -1372,6 +1374,7 @@ function handleSlash(slash) {
   // executor and must be usable in Free (Q&A) and Coding too.
   const isHarperModeOnlyCommand = new Set([
     '/init',
+    '/adopt',
     '/status',
     '/where',
     '/switch',
@@ -1500,6 +1503,11 @@ function handleSlash(slash) {
     // help/fallback
     bubble('assistant', 'Usage: /rag <query> | /rag +N | /rag list | /rag clear', 'system');
     return true;
+  }
+
+  if (slashCmd === '/adopt') {
+    vscode.postMessage({ type: 'adopt', area: slash.args.area || '', dryRun: !!slash.args.dryRun });
+    return;
   }
 
   if (slashCmd === '/init') {
