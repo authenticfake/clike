@@ -15,8 +15,8 @@ function createSlashCompleter(bmadRoles) {
   // Signature parts: `key` names what the part completes (req, flag:--x, value:--x, sub, text).
   const SPECS = {
     '/help': { group: 'Start & project', desc: 'Quick guide of the commands', sig: [] },
-    '/init': { group: 'Start & project', harper: true, desc: 'Initialize the Harper project in the workspace',
-      sig: [{ t: '<name>', key: 'text' }, { t: '[--path <abs>]', key: 'flag:--path' }, { t: '[--force]', key: 'flag:--force' }] },
+    '/init': { group: 'Start & project', harper: true, desc: 'Initialize the Harper project (no parameters: the open folder, in place)',
+      sig: [{ t: '[<name>]', key: 'text' }, { t: '[--path <abs>]', key: 'flag:--path' }, { t: '[--force]', key: 'flag:--force' }] },
     '/status': { group: 'Start & project', harper: true, desc: 'Harper project / context status', sig: [] },
     '/where': { group: 'Start & project', harper: true, desc: 'Harper workspace / doc-root path', sig: [] },
     '/switch': { group: 'Start & project', harper: true, desc: 'Switch to another Harper project', sig: [{ t: '<name|path>', key: 'text' }] },

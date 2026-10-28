@@ -26,9 +26,10 @@ const plan = {
   ],
 };
 
-test('no Harper project: the next action is /init <name>', () => {
+test('no Harper project: the next action is /init, and an existing project is recognised', () => {
   const state = buildCockpitState(project({ 'README.md': '' }));
-  assert.equal(state.next.command, '/init <name>');
+  assert.equal(state.next.command, '/init');
+  assert.match(state.next.message, /An existing project, not built with CLike yet/);
 });
 
 test('right after /init the documents are its templates: the next action is /idea, not /plan', () => {

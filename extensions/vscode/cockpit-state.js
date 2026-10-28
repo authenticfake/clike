@@ -66,6 +66,12 @@ const upper = (v) => String(v || '').trim().toUpperCase();
 const status = (r) => String(r?.status || 'open').trim().toLowerCase();
 const exists = (root, rel) => fs.existsSync(path.join(root, ...rel.split('/')));
 
+// what a folder holds besides editor, VCS and OS files: an existing project, not an empty one
+const NOT_PROJECT = new Set(['.git', '.vscode', '.idea', '.DS_Store', '.clike', 'Thumbs.db']);
+function existingProject(root) {
+  try { return fs.readdirSync(root).some((n) => !NOT_PROJECT.has(n)); } catch { return false; }
+}
+
 function readJson(file) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
 }
@@ -268,7 +274,9 @@ function buildCockpitState(root, opts = {}) {
       next = { command: '', message: action.message };
     }
   } else if (!exists(root, 'docs/harper')) {
-    next = { command: '/init <name>', message: 'No Harper project in this workspace: /init <name> creates it (existing files are kept with --force).' };
+    next = existingProject(root)
+      ? { command: '/init', message: 'An existing project, not built with CLike yet: /init adds CLike here, in place — every file, the layout and the team\'s review / PR / CI process are kept.' }
+      : { command: '/init', message: 'No Harper project in this workspace: /init creates it in the folder open in VS Code.' };
   } else if (!phases[0] || phases[0].state !== 'done') {
     next = { command: '/idea', message: 'IDEA.md is still the /init template: describe the product (put your documents in docs/inputs/ or attach them) and run /idea.' };
   } else if (phases[1].state !== 'done') {

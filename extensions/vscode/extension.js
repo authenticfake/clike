@@ -228,7 +228,7 @@ const {
 } = require('./auto-eval');
 const { validateExtendPlan, readPlanText } = require('./extend-guard');
 const releaseExtend = require('./release-extend');
-const { copyTemplateTree, mergeGitignore } = require('./init-merge');
+const { copyTemplateTree, mergeGitignore, teamProcessRedirect, PROPOSALS_DIR } = require('./init-merge');
 const { buildAgentChatArgs, createAgentStreamParser, newSession, sessionKey } = require('./agent-chat');
 const { createApprovalGate, createCodexAppServerTurn, startClaudeApprovalServer } = require('./agent-approvals');
 const { agentModelListMessage, CLAUDE_ALIASES, readCodexModelSlugs, validateAgentModel } = require('./agent-model-validation');
@@ -4461,9 +4461,15 @@ async function cmdOpenChat(context) {
 
       if (msg.type === 'harperInit') {
         try {
-          const name = (msg.name || '').trim();
+          let name = (msg.name || '').trim();
           const passedPath = (msg.path || '').trim();   // optional positional
-          const force = !!msg.force;
+          let force = !!msg.force;
+          // /init with no parameters: the folder open in VS Code, in place (as /init <name> <parent> --force)
+          if (!name && getWorkspaceRoot()) {
+            name = path.basename(getWorkspaceRoot().fsPath);
+            msg.__inPlace = true;
+            force = true;
+          }
           out.appendLine(`[harperInit] recv name: ${name} path ${passedPath} force ${force}`);
 
           out.appendLine(`[harperInit] recv name: ${(!name)}`);
@@ -4517,11 +4523,11 @@ async function cmdOpenChat(context) {
             return;
           }
 
+          // a repository with its own review / PR / CI process keeps it: CLike's become proposals
+          const processRedirect = teamProcessRedirect(targetDir);
           // folder structure
           const docRoot = path.join(targetDir, 'docs', 'harper');
           await ensureDir(path.join(targetDir, '.clike'));
-          await ensureDir(path.join(targetDir, '.github'));
-          await ensureDir(path.join(targetDir, '.github/workflows'));
 
           await ensureDir(path.join(targetDir, 'runs'));
           await ensureDir(docRoot);
@@ -4532,7 +4538,10 @@ async function cmdOpenChat(context) {
           
           const templatesDir = path.join(extRoot, 'templates', 'harper-init');
           // Never overwrites: in a non-empty folder (--force) only the missing template files are added.
-          const copied = copyTemplateTree(templatesDir, targetDir, { vars: templateVars, isText: isTextFile });
+          const copied = copyTemplateTree(templatesDir, targetDir, { vars: templateVars, isText: isTextFile, redirect: processRedirect });
+          if (copied.proposed.length) {
+            panel.webview.postMessage({ type: 'echo', message: `ℹ /init: the repository already has its own review / PR / CI process, so CLike did not add ${copied.proposed.join(', ')} — they are proposals in ${PROPOSALS_DIR}/ (copy them if you want them).` });
+          }
           if (copied.kept.length) {
             out.appendLine(`[harperInit] kept ${copied.kept.length} existing file(s): ${copied.kept.join(', ')}`);
             panel.webview.postMessage({ type: 'echo', message: `ℹ /init kept ${copied.kept.length} existing file(s) unchanged (${copied.kept.slice(0, 8).join(', ')}${copied.kept.length > 8 ? ', …' : ''})` });

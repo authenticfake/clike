@@ -192,7 +192,12 @@ Open a project under `CLIKE_PROJECTS_DIR`, run **CLike: Chat (Q&A / Harper / Cod
 /init → /idea → /spec → /plan → ( /kit REQ-xxx → /eval REQ-xxx --fix → /gate REQ-xxx )* → /finalize
 
 next release:  /idea --extend → ( /kit → /eval --fix → /gate )* for the new REQs → /finalize
+
+existing project (not built with CLike):  /init → /adopt → /idea --extend → …
 ```
+
+**[Bringing an existing project into CLike →](docs/adopt.md)** — every step, from `/init` in place
+to `/adopt` and the first `/idea --extend`; the team keeps its layout, commands and process.
 
 `/autopilot` runs the `( /kit → /eval --fix → /gate )*` part unattended — from the chat, MCP or
 `scripts/clike-autopilot.sh` — parks a REQ that needs you and resumes where it was after an
@@ -274,7 +279,7 @@ Open research questions the project works on:
 |---|---|
 | Overview and reading order | [CLike at a glance](docs/clike-at-a-glance.md), [docs/README.md](docs/README.md) |
 | The chat UI (cockpit, run card) | [docs/chat-ui.md](docs/chat-ui.md) |
-| Getting operational | [HOWTO](docs/HOWTO.md), [Harper run walkthrough](docs/Clike%20HARPER%20RUN.md), [project via MCP](docs/howto-mcp-project.md), [/init → /finalize with BMAD from Claude Code](docs/howto-mcp-bmad-claude.md) |
+| Getting operational | [Bringing an existing project into CLike](docs/adopt.md), [HOWTO](docs/HOWTO.md), [Harper run walkthrough](docs/Clike%20HARPER%20RUN.md), [project via MCP](docs/howto-mcp-project.md), [/init → /finalize with BMAD from Claude Code](docs/howto-mcp-bmad-claude.md) |
 | Concepts | [architecture](docs/architecture.md), [Harper workflow](docs/harper-workflow.md), [agent operating model](docs/agent-operating-model.md), [artifacts](docs/artifacts.md) |
 | Reference | [commands](docs/commands.md), [API](docs/api-reference.md), [MCP](docs/mcp.md), [capabilities](docs/CAPABILITIES.md) |
 | Operations | [setup and runtime](docs/setup-and-runtime.md), [Git and promotion](docs/git-and-promotion.md), [telemetry portal](docs/CLike_Harper_Telemetry_Portal.md) |

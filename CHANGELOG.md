@@ -4,6 +4,19 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+### Added
+
+- **`/init` with no parameters initializes the folder open in VS Code**, in place, as
+  `/init <name> <parent folder> --force` (which works as before). The cockpit proposes it, and says
+  when the folder is an existing project not built with CLike.
+- **`/init` keeps a team's own process**: in a repository that already has a CI workflow, a
+  code-owners file or a PR template, CLike's `.github/CODEOWNERS`, PR template and workflow go to
+  `.clike/proposals/.github/` instead of the repository, and the chat says so. A new folder gets them
+  as before.
+- **Bringing an existing project into CLike** ([docs/adopt.md](docs/adopt.md)), linked from the
+  README: what does not change for the team, every step from `/init` in place to `/adopt` and
+  `/idea --extend`, monorepos as areas.
+
 ## [1.6.7] — 2026-10-28 — A finalize that runs once
 
 ### Fixed

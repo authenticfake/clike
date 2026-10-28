@@ -1,0 +1,141 @@
+# Bringing an existing project into CLike (`/adopt`)
+
+A project CLike did not create — hand-written, built with another tool or method, a monorepo of
+several services — becomes a CLike project in place. From then on it evolves with `/idea --extend`
+and the usual KIT → EVAL → GATE loop, and its existing behaviour is protected by the regression
+from day one.
+
+> **Status.** `/init` in place (step 2) is available. `/adopt` (steps 3–5) is being built: this page
+> describes how it works, so a team can prepare; each step says when it is available.
+
+## What does not change for the team
+
+- **The code stays where it is.** No folder is moved or renamed; CLike reads the project's own
+  layout (one service or several areas).
+- **The team's commands stay the commands.** CLike runs the project's own build and test commands
+  (the ones the CI runs) as its checks; nobody adopts a CLike layout or a new test runner.
+- **The team's process stays the process.** Review rules, PR templates and CI workflows the
+  repository already has are kept; CLike's own are offered as proposals only.
+- **Nothing existing is overwritten.** CLike adds its own folders; the only existing file it updates
+  is `README.md`, at `/finalize`, keeping every section it had.
+- **Work done outside CLike is fine.** A change committed without CLike is reconciled by
+  `/adopt --refresh`; it is never treated as an error.
+
+What CLike adds to the repository, and only this:
+
+| Path | What it holds |
+|---|---|
+| `.clike/` | project settings (`project.json`: areas, roots, commands), policies, skills |
+| `docs/harper/` | IDEA, SPEC (with use cases), PLAN and `plan.json`, TECH_CONSTRAINTS, lane guides, the adoption report |
+| `runs/` | KITs and evidence (mostly ignored by git) |
+| `ci/SOLUTION_LTC.json` | the verification of the whole solution, written by `/finalize` |
+| `README.md` | at `/finalize`: the existing README with CLike's sections added, nothing removed |
+
+## Steps
+
+### 1. Open the project
+
+Open the repository root in VS Code (for a monorepo, the root that holds all the services) and open
+**CLike: Chat** in Harper mode. Work on a branch or a clone the first time, if you prefer to look
+before keeping anything.
+
+### 2. `/init` — available
+
+```text
+/init
+```
+
+With no parameters, `/init` initializes the folder open in VS Code, in place. It is the same as
+`/init <name> <parent folder> --force`, which works as before.
+
+- It adds `.clike/` and the `docs/harper/` skeleton, `docs/inputs/` and `docs/reference/`, and only
+  the `.gitignore` rules that are missing. Every existing file is kept (the chat lists them).
+- **Review, PR template and CI files** (`.github/CODEOWNERS`, `.github/pull_request_template.md`,
+  `.github/workflows/clike-ci.yaml`): a repository that already has a process of its own — a CI
+  workflow, a code-owners file or a PR template — keeps it, and CLike's files go to
+  `.clike/proposals/.github/…` (copy them if you want them). A new folder gets them as before.
+
+### 3. `/adopt` — in development
+
+```text
+/adopt [--area <name>] [--dry-run]
+```
+
+Run it once. CLike reads the project and **proposes**; nothing of the proposal is kept until you apply
+it.
+
+1. **Survey** (no model): stacks and versions, package managers, source and test roots per area,
+   entry points, the CI's commands, existing documentation and agent context files, git state.
+2. **What exists is decided by the code and git.** CLike runs the project's own tests in the eval
+   sandbox (each one passing, failing or skipped) and reads the git history, tags and changelogs.
+   Without git, the code alone. A backlog or a plan written by hand is an input for future work and
+   decisions, never the proof that something is done.
+3. **Project memory.** The documentation CLike finds — `docs/` at the root and in each area, the
+   READMEs, the agent context files, the changelogs, the API and event contracts — is indexed into
+   the project's memory, so every phase and the **Memory** panel answer with the project's own
+   context and cite where it comes from.
+4. **Analysis, one area at a time.** Capabilities, interfaces, data, integrations and conventions,
+   each marked **observed** (found in code or tests), **declared** (written in a document) or
+   **open** (a question for you). Nothing unknown is invented.
+5. **Proposal**, in merge mode: `project.json` with the areas, IDEA / SPEC / PLAN "as is", the
+   **adopted REQs** (one per capability, each protected by the tests of its area), open REQs for the
+   documented work still to do, lane guides from the project's conventions, the decisions already
+   taken as constraints.
+6. **Report** `docs/harper/ADOPT_<date>.md`: what was found, which tests protect which REQ, where the
+   documents and the code disagree (documented and not found; found and not documented), the open
+   questions. Review it, then apply it: the tests of the adopted areas become the locked baseline.
+
+`--area <name>` adopts one area of a monorepo first; the others follow with the same command.
+`--dry-run` writes only the report.
+
+| An adopted capability… | becomes |
+|---|---|
+| found in the code and covered by passing tests | REQ `done`, its tests as baseline checks |
+| found, with tests that already fail | REQ `done`, those tests listed as *failing at adoption* (reported, not blocking until a REQ fixes them) |
+| found without tests | REQ `open`, or `done` after you approve characterization tests CLike proposes |
+| documented but not found in the code | REQ `open`, "documented, not found" |
+
+### 4. Evolve it — as any CLike project
+
+```text
+/idea --extend → ( /kit REQ-xxx → /eval REQ-xxx --fix → /gate REQ-xxx )* → /finalize
+```
+
+The regression runs the adopted baseline on every gate, so a change that breaks existing behaviour
+is blocked; a change made on purpose is declared (see `/idea --extend` and `/eval --supersede` in
+[commands](commands.md)). `/finalize` verifies the whole solution, journey by journey, and writes the
+README in CLike's style **integrating the existing one**: every section it had stays.
+
+### 5. When the code moves outside CLike
+
+```text
+/adopt --refresh
+```
+
+Reconciles the Harper documents and the baseline with the code as it is now, and records the changes
+made outside CLike as known.
+
+## A monorepo of several services
+
+One CLike project at the repository root, the services as **areas**: one plan, one release `vN`,
+one `/finalize` for the whole system, each REQ belonging to one area (or more, for a journey that
+crosses them). Each area keeps its own roots and commands:
+
+```json
+{
+  "areas": [
+    {"name": "gateway", "root": "gateway", "source": ["gateway/src"], "tests": ["gateway/tests"],
+     "commands": {"setup": "uv sync", "check": "make check"}},
+    {"name": "portal", "root": "portal", "source": ["portal/apps/portal", "portal/packages"],
+     "tests": ["portal/apps/portal", "portal/e2e"], "commands": {"setup": "npm ci", "check": "npm run check"}}
+  ]
+}
+```
+
+`/adopt` proposes this file from the survey; you correct it in the report if needed.
+
+## See also
+
+- [Commands](commands.md) — `/init`, `/idea --extend`, `/eval --supersede`, `/finalize`.
+- [Brownfield and evolution: the design](architecture/ADOPT_AND_IDEA_EXTEND.md).
+- [Context sources](context-sources.md) and [RAG](rag.md) — what the project memory holds.

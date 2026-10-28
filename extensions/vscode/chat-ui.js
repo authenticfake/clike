@@ -798,7 +798,7 @@ try {
 var HELP_COMMANDS = [
   {cmd:'/help', desc:'Shows this quick guide'},
   {cmd:'Docs', desc:'docs/INSTALL.md (install, agents, MCP for Claude Code / Codex) and docs/GET_STARTED.md (first project, agent chat, auto-eval)'},
-  {cmd:'/init <name> [--path <abs>] [--force]', desc:'Initializes the Harper project in the workspace (--force: into a non-empty folder, existing files kept)'},
+  {cmd:'/init [<name> [<parent folder>] [--force]]', desc:'Initializes the Harper project. With no parameters: the folder open in VS Code, in place (existing files kept). With a name: <parent folder>/<name> (--force: into a non-empty folder, existing files kept). A repository that already has its own review / PR / CI process keeps it: the CLike CODEOWNERS, PR template and workflow go to .clike/proposals/'},
   {cmd:'/status', desc:'Shows the Harper project/context status'},
   {cmd:'/where', desc:'Shows the Harper workspace/doc-root path'},
   {cmd:'/switch <name|path>', desc:'Switches to another Harper project'},
