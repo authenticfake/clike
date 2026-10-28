@@ -69,6 +69,8 @@ class ExtendRouteTests(unittest.TestCase):
             self.assertIn("aigateway (root aigateway, baseline REQ-001)", prompt)
             self.assertIn("Project document: aigateway/README.md", prompt)
             self.assertIn("Routes model calls.", prompt)
+            self.assertIn("docs/harper/HOWTO_RUN.md", prompt)
+            self.assertIn("every existing heading stays", prompt)
             self.assertNotIn("Release cascade", prompt)
 
     def test_plan_mode_request_reaches_the_cloud_prompt(self):

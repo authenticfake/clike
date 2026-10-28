@@ -443,6 +443,7 @@ test('/adopt reconcile: the documents over the templates are kept; a rejected an
   const mk = () => {
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'clike-adopt-rec-')));
     const put = (rel, text) => { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); };
+    put('README.md', '# Foundation\n\n## Setup\nmake setup\n');
     put('docs/harper/IDEA.md', '# IDEA\n\n(template)\n');
     put('docs/harper/TECH_CONSTRAINTS.yaml', 'tech_constraints: {}\n');
     put('docs/harper/plan.json', JSON.stringify({ reqs: adoptLib.baselineReqs([gw]).reqs }));
@@ -450,7 +451,7 @@ test('/adopt reconcile: the documents over the templates are kept; a rejected an
   };
   const adopt = {
     check: (b, a) => adoptLib.checkAdoptedPlan({ beforeText: b, afterText: a, areas: [gw], baselineIds: ['REQ-001'], validateExtendPlan }),
-    section: (summary, warnings) => adoptLib.adoptVerificationMarkdown({ areas: [gw], baselineIds: ['REQ-001'], summary, warnings }),
+    section: (summary, warnings, docs) => adoptLib.adoptVerificationMarkdown({ areas: [gw], baselineIds: ['REQ-001'], summary, warnings, docs }),
   };
   const plan = (extra) => JSON.stringify({ reqs: [...adoptLib.baselineReqs([gw]).reqs, extra] });
   const started = Date.now() - 1000;
@@ -461,22 +462,42 @@ test('/adopt reconcile: the documents over the templates are kept; a rejected an
   ok.put('docs/harper/TECH_CONSTRAINTS.yaml', 'tech_constraints:\n  gateway: python 3.14\n');     // template keys gone
   ok.put('docs/harper/plan.json', plan({ id: 'REQ-002', title: 'Routing', area: 'gateway', status: 'done', acceptance: ['(observed) routes'] }));
   ok.put('docs/harper/EXTEND_2026-10-28_ADOPT.md', '# Adoption analysis\n');
+  ok.put('README.md', '# Foundation\n\n![CLike](x)\n\n## Setup\nmake setup\n\n## Areas\n| aigateway |\n\n## Made with CLike\nAdopted.\n');
+  ok.put('docs/harper/HOWTO_RUN.md', '# How to run\n');
   const out = re.reconcileExtend({ root: ok.root, before, files: [], isAgent: true, mode: 'adopt', cascade: { release: 'v1' }, adopt, validateExtendPlan, startedAt: started });
   assert.equal(out.ok, true, out.errors.join('; '));
   assert.match(fs.readFileSync(path.join(ok.root, 'docs/harper/IDEA.md'), 'utf8'), /a gateway/);
   assert.match(fs.readFileSync(path.join(ok.root, 'docs/harper/TECH_CONSTRAINTS.yaml'), 'utf8'), /python 3\.14/);
   assert.equal(JSON.parse(fs.readFileSync(path.join(ok.root, 'docs/harper/plan.json'), 'utf8')).reqs[1].covered_by, 'REQ-001');
-  assert.match(fs.readFileSync(path.join(ok.root, out.report), 'utf8'), /## CLike verification \(adoption/);
+  const okReport = fs.readFileSync(path.join(ok.root, out.report), 'utf8');
+  assert.match(okReport, /## CLike verification \(adoption/);
+  assert.match(okReport, /README\.md: integrated — 2 section\(s\) added, 1 existing section\(s\) updated, none removed/);
+  assert.match(okReport, /HOWTO_RUN\.md: written/);
+  assert.match(fs.readFileSync(path.join(ok.root, 'README.md'), 'utf8'), /## Made with CLike/);
+
+  // a README that drops an existing section is put back; the rest of the analysis stays
+  const drop = mk();
+  const before3 = re.snapshotDocs(drop.root);
+  drop.put('docs/harper/plan.json', plan({ id: 'REQ-002', title: 'Routing', area: 'gateway', status: 'done', acceptance: ['(observed) routes'] }));
+  drop.put('README.md', '# Foundation\n\n## Made with CLike\nAdopted.\n');
+  const out3 = re.reconcileExtend({ root: drop.root, before: before3, files: [], isAgent: true, mode: 'adopt', cascade: { release: 'v1' }, adopt, validateExtendPlan, startedAt: started });
+  assert.equal(out3.ok, true);
+  assert.equal(fs.readFileSync(path.join(drop.root, 'README.md'), 'utf8'), '# Foundation\n\n## Setup\nmake setup\n');
+  assert.ok(out3.warnings.some((w) => /README\.md dropped existing sections \(.*Setup\)/.test(w)));
+  assert.ok(out3.warnings.some((w) => /HOWTO_RUN\.md was not written/.test(w)));
+  fs.rmSync(drop.root, { recursive: true, force: true });
 
   const bad = mk();
   const before2 = re.snapshotDocs(bad.root);
   bad.put('docs/harper/IDEA.md', '# IDEA\n\nrewritten\n');
   bad.put('docs/harper/lane-guides/python.md', '# python lane\n');
+  bad.put('README.md', '# replaced\n');
   bad.put('docs/harper/plan.json', plan({ id: 'REQ-002', title: 'Routing', status: 'done' }));   // no area, no acceptance
   const rej = re.reconcileExtend({ root: bad.root, before: before2, files: [], isAgent: true, mode: 'adopt', cascade: { release: 'v1' }, adopt, validateExtendPlan, startedAt: started });
   assert.equal(rej.ok, false);
   assert.equal(fs.readFileSync(path.join(bad.root, 'docs/harper/IDEA.md'), 'utf8'), '# IDEA\n\n(template)\n');
   assert.equal(fs.existsSync(path.join(bad.root, 'docs/harper/lane-guides/python.md')), false);
+  assert.equal(fs.readFileSync(path.join(bad.root, 'README.md'), 'utf8'), '# Foundation\n\n## Setup\nmake setup\n');
   assert.ok(rej.kept && fs.existsSync(path.join(bad.root, rej.kept, 'docs/harper/lane-guides/python.md')));
   for (const r of [ok.root, bad.root]) fs.rmSync(r, { recursive: true, force: true });
 });

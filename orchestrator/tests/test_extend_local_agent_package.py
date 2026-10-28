@@ -269,6 +269,13 @@ def test_adopt_mode_describes_the_project_as_it_is():
     assert "Adoption of an existing project (/adopt)" in prompt and "Release cascade" not in prompt
     assert "aigateway (root aigateway, baseline REQ-001)" in prompt and "(observed)" in prompt
     assert "Read the whole repository" in prompt and "write only docs/harper/" in prompt
+    # the run guide and the root README, integrated (every existing heading stays)
+    assert "README.md" in local["allowed_write_roots"] and "docs/harper/HOWTO_RUN.md" in local["allowed_write_roots"]
+    assert "docs/harper/HOWTO_RUN.md" in context["output_contract"]["always"]
+    assert "every existing heading stays" in prompt and "Made with CLike" in prompt
+    # a release cascade never writes the README
+    cascade = _package({"runId": "ext-run", "extend": {"mode": "cascade", "release": "v2", "baseline": "v1"}})
+    assert "README.md" not in cascade["local_agent"]["allowed_write_roots"]
 
 
 def test_cloud_adopt_section_carries_the_documents_within_a_budget():

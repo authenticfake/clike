@@ -24,7 +24,7 @@ from services.local_agent.document import (
     _render_canonical_parity_block,
 )
 from services.phase_definitions import phase_text
-from services.extend_cascade import CASCADE_EXTRA_WRITE_ROOTS, cascade_options, cascade_rules, cascade_title
+from services.extend_cascade import cascade_options, cascade_rules, cascade_title, extra_write_roots
 
 
 def _text(key: str) -> list:
@@ -89,7 +89,7 @@ def build_extend_local_agent_package(
     # Narrow, phase-owned write roots only. EXTEND files use a dynamic date/REQ
     # name, so the EXTEND_*.md glob is advertised; normalization is the real gate.
     cascade = cascade_options(payload)
-    allowed_write_roots = list(extend_def["allowed_write_roots"]) + (CASCADE_EXTRA_WRITE_ROOTS if cascade else [])
+    allowed_write_roots = list(extend_def["allowed_write_roots"]) + extra_write_roots(cascade)
     output_contract = extend_def["output_contract"]
     if cascade:
         # /idea --extend: IDEA, SPEC and the PLAN delta always, TECH_CONSTRAINTS when the release adds to it
@@ -100,6 +100,13 @@ def build_extend_local_agent_package(
                 "docs/harper/lane-guides/<concern>.md only when lane guidance is introduced or extended",
             ],
         }
+        if str(cascade.get("mode") or "").lower() == "adopt":
+            # /adopt: the project as it is — every Harper document, the run guide, the root README integrated
+            output_contract = {
+                "always": [*output_contract["always"], "docs/harper/TECH_CONSTRAINTS.yaml", "docs/harper/HOWTO_RUN.md",
+                           "docs/harper/lane-guides/<area>.md", "README.md (the existing one, integrated)"],
+                "conditional": [],
+            }
 
     forbidden_paths = list(_DOCUMENT_PHASE_FORBIDDEN_PATHS)
 

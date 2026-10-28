@@ -12,6 +12,15 @@ from typing import Any, Dict, List, Optional
 
 CHANGE_TYPES = ("ADDED", "MODIFIED", "REMOVED")
 CASCADE_EXTRA_WRITE_ROOTS = ["docs/harper/TECH_CONSTRAINTS.yaml"]
+# /adopt also writes the project's run guide and integrates the root README (every existing section kept)
+ADOPT_EXTRA_WRITE_ROOTS = ["README.md", "docs/harper/HOWTO_RUN.md"]
+
+
+def extra_write_roots(cascade: Optional[Dict[str, Any]]) -> List[str]:
+    if not cascade:
+        return []
+    adopt = str(cascade.get("mode") or "").lower() == "adopt"
+    return CASCADE_EXTRA_WRITE_ROOTS + (ADOPT_EXTRA_WRITE_ROOTS if adopt else [])
 
 
 def extend_options(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -66,7 +75,22 @@ def adopt_rules(opts: Dict[str, Any]) -> List[str]:
         "Report: the EXTEND report file is the adoption analysis — the capability → files → tests map per area, the "
         "reconciliation (declared and found; declared and not found; found and not declared), the open questions, the "
         "risks. CLike appends its own verification.",
-        "Write only docs/harper/ (the files above). Never change the project's code, tests, scripts, CI, README or docs/.",
+        "docs/harper/HOWTO_RUN.md: how to set up, run and test the project as it is, area by area — prerequisites and "
+        "runtime versions, the setup / run / test / lint commands from its Makefile, scripts, manifests and CI (each "
+        "with the area folder it runs in), configuration files and environment variables by name only, the local "
+        "services it needs. Only commands backed by a file of the repository; what cannot be run locally is said so.",
+        "README.md (repository root): integrate the existing README, never replace it — every existing heading stays, "
+        "with its content, in its order (fix only what the code contradicts, and say so in the report). Add CLike's "
+        "release-grade presentation as finalize does: a badge row after the H1 (status adopted, the CLike badge linked "
+        "to https://github.com/authenticfake/clike, the Harper badge \"adopt\" linked to "
+        f"{survey}), a short summary blockquote, and the sections it lacks — Project Overview, Areas (a table: area, "
+        "root, stack, runtime, commands), Architecture (the areas and the contracts between them), Requirements "
+        "Coverage (the baseline REQs and the capability REQs, done / open), How to Run and How to Test (pointing to "
+        "docs/harper/HOWTO_RUN.md), Known Limitations, Next Steps, and last Made with CLike (adopted with CLike, "
+        "evolving through the Harper process; links to docs/harper/ and the reports). No badge claims eval or gate "
+        "results the baseline did not produce. No README of an area is changed.",
+        "Write only docs/harper/ (the files above) and the root README.md. Never change the project's code, tests, "
+        "scripts, CI, the areas' README files or docs/.",
     ]
 
 
@@ -151,7 +175,9 @@ def cloud_extend_section(payload: Dict[str, Any]) -> str:
     if cascade:
         lines += ["", f"### {cascade_title(cascade)}", *[f"- {rule}" for rule in cascade_rules(cascade)]]
         lines += ["- Return the complete files: docs/harper/IDEA.md, docs/harper/SPEC.md, docs/harper/PLAN.md, "
-                  "docs/harper/plan.json, the EXTEND report, and docs/harper/TECH_CONSTRAINTS.yaml when it changes."]
+                  "docs/harper/plan.json, the EXTEND report, and docs/harper/TECH_CONSTRAINTS.yaml when it changes."
+                  + (" Also docs/harper/TECH_CONSTRAINTS.yaml, docs/harper/HOWTO_RUN.md, the lane guides and the root "
+                     "README.md (the existing one, integrated)." if str(cascade.get("mode") or "").lower() == "adopt" else "")]
         lines += adopt_documents(cascade)
     return "\n".join(lines)
 

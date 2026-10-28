@@ -16,7 +16,9 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   `--dry-run` writes only the report. Then the **analysis**, by the model the chat uses (a local agent
   reads the repository, a cloud model gets the survey, the READMEs, the agent context files and the
   project memory): IDEA, SPEC with use cases, TECH_CONSTRAINTS and lane guides of the project as it
-  is, every statement marked observed, declared or open; one **baseline REQ** per area (done, its
+  is, every statement marked observed, declared or open, `docs/harper/HOWTO_RUN.md` (each area's
+  setup, run and test commands) and the root **README.md integrated** in CLike's release style
+  (every existing section kept, else restored); one **baseline REQ** per area (done, its
   LTC runs the area's own checks, locked; a check already failing is reported, not blocking) and the
   **capability REQs** — done only when the area's baseline covers them, open otherwise, the backlog
   as open REQs. CLike checks the plan, appends its verification to the report and commits the Harper

@@ -6,8 +6,7 @@ and the usual KIT → EVAL → GATE loop, and its existing behaviour is protecte
 from day one.
 
 > **Status.** `/init` in place (step 2) and `/adopt` (step 3: survey, baseline, project memory,
-> analysis, adopted REQs) are available. The README integration at `/finalize` and `--refresh`
-> (step 5) are being built; each step says when.
+> analysis, adopted REQs, run guide, README) are available. `--refresh` (step 5) is being built.
 
 ## What does not change for the team
 
@@ -18,7 +17,8 @@ from day one.
 - **The team's process stays the process.** Review rules, PR templates and CI workflows the
   repository already has are kept; CLike's own are offered as proposals only.
 - **Nothing existing is overwritten.** CLike adds its own folders; the only existing file it updates
-  is `README.md`, at `/finalize`, keeping every section it had.
+  is the root `README.md` (at `/adopt`, then at each `/finalize`), keeping every section it had — a
+  run that drops one gets the README back as it was.
 - **Work done outside CLike is fine.** A change committed without CLike is reconciled by
   `/adopt --refresh`; it is never treated as an error.
 
@@ -27,10 +27,10 @@ What CLike adds to the repository, and only this:
 | Path | What it holds |
 |---|---|
 | `.clike/` | project settings (`project.json`: areas, roots, commands), policies, skills |
-| `docs/harper/` | IDEA, SPEC (with use cases), PLAN and `plan.json`, TECH_CONSTRAINTS, lane guides, the adoption report |
+| `docs/harper/` | IDEA, SPEC (with use cases), PLAN and `plan.json`, TECH_CONSTRAINTS, lane guides, `HOWTO_RUN.md`, the adoption reports |
 | `runs/` | KITs and evidence (mostly ignored by git) |
 | `ci/SOLUTION_LTC.json` | the verification of the whole solution, written by `/finalize` |
-| `README.md` | at `/finalize`: the existing README with CLike's sections added, nothing removed |
+| `README.md` | at `/adopt` and `/finalize`: the existing README with CLike's presentation and sections added, nothing removed |
 
 ## Steps
 
@@ -88,7 +88,10 @@ the run's output aside in `runs/extend/rejected/`.
 5. **Proposal**, in merge mode: `project.json` with the areas, IDEA / SPEC / PLAN "as is", the
    **adopted REQs** (one per capability, each protected by the tests of its area), open REQs for the
    documented work still to do, lane guides from the project's conventions, the decisions already
-   taken as constraints.
+   taken as constraints, `docs/harper/HOWTO_RUN.md` (setup, run and test of each area with its own
+   commands) and the root **README.md integrated**: CLike's badges, summary and sections (areas,
+   architecture, requirements coverage, how to run and test, made with CLike) added to the existing
+   README, every existing section kept.
 6. **Report** `docs/harper/ADOPT_<date>.md`: what was found, which tests protect which REQ, where the
    documents and the code disagree (documented and not found; found and not documented), the open
    questions. Review it, then apply it: the tests of the adopted areas become the locked baseline.
@@ -136,7 +139,10 @@ made outside CLike as known.
 
 One CLike project at the repository root, the services as **areas**: one plan, one release `vN`,
 one `/finalize` for the whole system, each REQ belonging to one area (or more, for a journey that
-crosses them). Each area keeps its own roots and commands:
+crosses them). The Harper documents are only at the repository root (`docs/harper/`, the root
+`README.md`); inside them each area has its SPEC section, its lane guide and the `area` of its REQs.
+The areas' folders, READMEs and `docs/` are read and indexed, never written. Each area keeps its own
+roots and commands:
 
 ```json
 {

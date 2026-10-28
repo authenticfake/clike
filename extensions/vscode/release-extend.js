@@ -99,6 +99,7 @@ function baselineStatus(root) {
 }
 
 const LANE_DIR = 'docs/harper/lane-guides';
+const ADOPT_FILES = { readme: 'README.md', howto: 'docs/harper/HOWTO_RUN.md' };
 const listDir = (root, rel, re) => { try { return fs.readdirSync(path.join(root, ...rel.split('/'))).filter((n) => re.test(n)); } catch { return []; } };
 
 /**
@@ -109,6 +110,8 @@ function snapshotDocs(root) {
   const docs = Object.fromEntries(Object.entries({ ...DOC_FILES, ...PLAN_FILES }).map(([k, rel]) => [k, read(root, rel)]));
   docs.laneGuides = Object.fromEntries(listDir(root, LANE_DIR, /\.md$/i).map((n) => [`${LANE_DIR}/${n}`, read(root, `${LANE_DIR}/${n}`)]));
   docs.reports = listDir(root, 'docs/harper', /^EXTEND_.+\.md$/);
+  // /adopt also integrates the root README and writes the run guide
+  for (const [k, rel] of Object.entries(ADOPT_FILES)) docs[k] = read(root, rel);
   return docs;
 }
 
@@ -518,14 +521,33 @@ function reconcileExtend({ root, before, files, isAgent, mode = 'plan', cascade 
     const reports = isAgent && Array.isArray(before.reports)
       ? listDir(root, 'docs/harper', /^EXTEND_.+\.md$/).filter((n) => !before.reports.includes(n)).map((n) => `docs/harper/${n}`)
       : [];
-    const kept = keepRejected(root, [...Object.values({ ...DOC_FILES, ...PLAN_FILES }), ...lanes, ...reports].map((rel) => [rel, current(rel)]));
+    const adoptExtra = adopting ? Object.values(ADOPT_FILES) : [];
+    const kept = keepRejected(root, [...Object.values({ ...DOC_FILES, ...PLAN_FILES }), ...lanes, ...reports, ...adoptExtra].map((rel) => [rel, current(rel)]));
     restoreAll();
     for (const rel of [...lanes, ...reports]) put(rel, rel in (before.laneGuides || {}) ? before.laneGuides[rel] : null);
+    for (const [k, rel] of adopting ? Object.entries(ADOPT_FILES) : []) if (current(rel) !== before[k]) put(rel, before[k]);
     return { ok: false, errors, warnings, delta: [], restored: verdict.restored, docs: {}, report: null, kept };
   }
   if (delta.planText !== current(PLAN_FILES.plan)) put(PLAN_FILES.plan, delta.planText);
 
   const docs = {};
+  if (adopting) {
+    // the root README is integrated, never replaced: every existing section stays (else it is put back)
+    const readme = current(ADOPT_FILES.readme);
+    if (readme == null || readme === before.readme) {
+      warnings.push('README.md was not integrated: run /adopt again, or /finalize integrates it');
+    } else {
+      docs.readme = compareMarkdown(before.readme, readme);
+      if (!docs.readme.ok) {
+        put(ADOPT_FILES.readme, before.readme);
+        warnings.push(`README.md dropped existing sections (${docs.readme.missing.join('; ')}): restored — integrate, never replace`);
+      } else if (!/made with clike/i.test(readme)) {
+        warnings.push('README.md has no "Made with CLike" section');
+      }
+    }
+    if (!current(ADOPT_FILES.howto)) warnings.push('docs/harper/HOWTO_RUN.md was not written: the run guide is missing');
+    else docs.howto = { ok: true };
+  }
   // adopt writes IDEA, SPEC and TECH_CONSTRAINTS over the templates: nothing earlier to merge into
   for (const key of adopting ? [] : ['idea', 'spec']) {
     const rel = DOC_FILES[key];
@@ -583,7 +605,7 @@ function reconcileExtend({ root, before, files, isAgent, mode = 'plan', cascade 
     files.push({ path: report, content: `# EXTEND ${cascade.release}\n\nThe run returned no report; CLike wrote its verification.\n` });
     warnings.push('the run returned no EXTEND report: CLike wrote one with its verification only');
   }
-  const section = adopting ? adopt.section(delta.delta, warnings)
+  const section = adopting ? adopt.section(delta.delta, warnings, docs)
     : verificationMarkdown({ ...cascade, docs, delta: delta.delta, restored: verdict.restored, warnings });
   const text = current(report) ?? (find(report) || {}).content ?? '';
   const merged = `${String(text).replace(/\s+$/, '')}\n${section}`;
@@ -614,6 +636,7 @@ function tagBaseline(root, baseline) {
 }
 
 module.exports = {
+  ADOPT_FILES,
   reconcileExtend,
   keepRejected,
   syncPlanMd,

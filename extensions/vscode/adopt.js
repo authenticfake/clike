@@ -360,7 +360,7 @@ function checkAdoptedPlan({ beforeText, afterText, areas, baselineIds, validateE
 }
 
 /** CLike's own section of the adoption analysis report. */
-function adoptVerificationMarkdown({ areas, baselineIds, summary, baseline, warnings = [] }) {
+function adoptVerificationMarkdown({ areas, baselineIds, summary, baseline, warnings = [], docs = {} }) {
   const lines = ['', `## CLike verification (adoption, ${new Date().toISOString().slice(0, 10)})`, '',
     '| Area | Baseline REQ | Baseline | Capability REQs done | open |', '|---|---|---|---|---|'];
   areas.forEach((a, i) => {
@@ -372,6 +372,10 @@ function adoptVerificationMarkdown({ areas, baselineIds, summary, baseline, warn
   });
   lines.push('', '| REQ | Title | Areas | Status | Origin |', '|---|---|---|---|---|');
   for (const s of summary) lines.push(`| ${s.id} | ${cell(s.title)} | ${s.areas.join(', ')} | ${s.status} | ${cell(s.origin)} |`);
+  const readme = !docs.readme ? 'not integrated'
+    : docs.readme.ok ? `integrated — ${docs.readme.added.length} section(s) added, ${docs.readme.changed.length} existing section(s) updated, none removed`
+      : 'restored (the run dropped existing sections)';
+  lines.push('', `- README.md: ${readme}`, `- docs/harper/HOWTO_RUN.md: ${docs.howto ? 'written' : 'missing'}`);
   if (warnings.length) lines.push('', 'Warnings:', '', ...warnings.map((w) => `- ${w}`));
   lines.push('', 'Next: `/idea --extend` for the next release (the work the plan keeps open), then `/kit` → `/eval --fix` → `/gate`.', '');
   return lines.join('\n');

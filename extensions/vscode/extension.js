@@ -4552,7 +4552,7 @@ async function cmdOpenChat(context) {
             fsSync.mkdirSync(path.dirname(p), { recursive: true });
             fsSync.writeFileSync(p, `${JSON.stringify(ltc, null, 2)}\n`);
           }
-          say(`▶ /adopt: analysis of ${picked.map((a) => a.name).join(', ')} — IDEA, SPEC (with use cases), PLAN with the capability REQs, lane guides (baseline REQs ${base.reqs.map((r) => r.id).join(', ')} already written)…`);
+          say(`▶ /adopt: analysis of ${picked.map((a) => a.name).join(', ')} — IDEA, SPEC (with use cases), PLAN with the capability REQs, TECH_CONSTRAINTS, lane guides, HOWTO_RUN and the root README integrated (baseline REQs ${base.reqs.map((r) => r.id).join(', ')} already written)…`);
           done();
           await clikeRunChatMessage({
             type: 'harperEDD', cmd: 'extend', extendMode: 'adopt', attachments: [],
@@ -5670,7 +5670,7 @@ async function cmdOpenChat(context) {
                 validateExtendPlan, startedAt: extendStartedAt,
                 adopt: {
                   check: (beforeText, afterText) => adoptLib.checkAdoptedPlan({ beforeText, afterText, areas: a.areas, baselineIds: a.baselineIds, validateExtendPlan }),
-                  section: (summary, warnings) => adoptLib.adoptVerificationMarkdown({ areas: a.areas, baselineIds: a.baselineIds, summary, baseline: a.baseline, warnings }),
+                  section: (summary, warnings, docs) => adoptLib.adoptVerificationMarkdown({ areas: a.areas, baselineIds: a.baselineIds, summary, baseline: a.baseline, warnings, docs }),
                 },
               });
             } else if (msg.__cascade) {
@@ -5715,7 +5715,7 @@ async function cmdOpenChat(context) {
             if (msg.__adopt) {
               const ids = msg.__adopt.baselineIds;
               msg.__extendCommit = {
-                files: [...releaseExtend.cascadeCommitFiles(root, 'v1'), '.clike/project.json', msg.__adopt.surveyReport,
+                files: [...releaseExtend.cascadeCommitFiles(root, 'v1'), ...Object.values(releaseExtend.ADOPT_FILES), '.clike/project.json', msg.__adopt.surveyReport,
                   ...ids.map((id) => `runs/kit/${id}/ci/LTC.json`)],
                 message: `docs(harper): adopt ${path.basename(root)} — ${msg.__adopt.areas.length} area(s), ${verdict.delta.length + ids.length} REQ(s)\n\n[harper:adopt] runId=${runId}`,
               };
