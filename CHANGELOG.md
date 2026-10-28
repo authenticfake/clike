@@ -4,6 +4,18 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.6.7] — 2026-10-28 — A finalize that runs once
+
+### Fixed
+
+- **A finalize sent twice does not run twice**: a `/finalize` or `/finalize --verify` while the
+  solution verification runs is refused with a message, and the eval sandbox runs one request at a
+  time per eval workspace. Before, a `--verify` sent twice composed the same workspace at once (a
+  FAIL with no check run), and a full agent run followed.
+- **The local smoke check is repeatable**: the finalize rules ask a smoke journey to create what it
+  needs under new names every run and never assume an empty database. Before, a journey that passed
+  on an empty database failed with a 409 on the developer's database holding demo data.
+
 ## [1.6.6] — 2026-10-26 — Promoted when delivered
 
 ### Added

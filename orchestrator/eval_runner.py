@@ -621,6 +621,17 @@ def eval_progress(project_root: Path, req_id: Optional[str]) -> Optional[Dict[st
     return out
 
 
+_WORKSPACE_LOCKS: Dict[str, threading.RLock] = {}
+_WORKSPACE_LOCKS_GUARD = threading.Lock()
+
+
+def _workspace_lock(project_root: Path, key: Any) -> threading.RLock:
+    """The lock of one eval workspace (project, eval key or REQ): concurrent runs of it wait."""
+    name = f"{Path(project_root).resolve()}::{key}"
+    with _WORKSPACE_LOCKS_GUARD:
+        return _WORKSPACE_LOCKS.setdefault(name, threading.RLock())
+
+
 def regression_workers() -> int:
     """Promoted REQs regressed at the same time (``CLIKE_EVAL_REGRESSION_WORKERS``, default 2,
     1 = one after the other). Each one runs its own installs, tests and services: more workers need
@@ -3217,9 +3228,12 @@ class EvalRunner:
                 exhausted = self._prepare_eval_disk(req_id or (ltc or {}).get("req_id"))
             if exhausted:
                 return self._sandbox_exhausted_report(profile, req_id or (ltc or {}).get("req_id"), exhausted)
-            report = self._run_profile(
-                profile, ltc, mode, verdict, req_id, regression and (not self._only_checks or bool(self._regression_only))
-            )
+            # one run at a time per eval workspace: two requests for the same REQ (a command sent twice)
+            # composed the same directory at once (B2B: "Directory not empty", a FAIL with no check run)
+            with _workspace_lock(self.project_root, self.eval_key or req_id or (ltc or {}).get("req_id") or profile):
+                report = self._run_profile(
+                    profile, ltc, mode, verdict, req_id, regression and (not self._only_checks or bool(self._regression_only))
+                )
             if any(_sandbox_exhausted_case(c) for c in report.cases):
                 report.reason_code = sandbox_resources.SANDBOX_EXHAUSTED_REASON
             missing = sorted({

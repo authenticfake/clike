@@ -1,6 +1,6 @@
 [project]
 name = "clike-orchestrator"
-version = "1.6.6"
+version = "1.6.7"
 description = "CLike Orchestrator: Harper workflow, execution packages, RAG, eval/gate, MCP"
 requires-python = ">=3.12,<3.13"
 license = "Apache-2.0"
