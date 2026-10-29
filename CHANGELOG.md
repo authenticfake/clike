@@ -26,8 +26,8 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   **capability REQs** — done only when the area's baseline covers them, open otherwise, the backlog
   as open REQs. CLike checks the plan, appends its verification to the report and commits the Harper
   documents; a rejected analysis restores them. Areas can be adopted one at a time. Help, completion
-  and the cockpit propose it after `/init` on an existing project. Nothing of the project's own files
-  is changed.
+  and the cockpit propose it after `/init` on an existing project. Of the project's own files only the
+  root README is updated, every existing section kept.
 
 ### Security
 

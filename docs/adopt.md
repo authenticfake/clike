@@ -97,9 +97,14 @@ the run's output aside in `runs/extend/rejected/`.
    commands) and the root **README.md integrated**: CLike's badges, summary and sections (areas,
    architecture, requirements coverage, how to run and test, made with CLike) added to the existing
    README, every existing section kept.
-6. **Report** `docs/harper/ADOPT_<date>.md`: what was found, which tests protect which REQ, where the
-   documents and the code disagree (documented and not found; found and not documented), the open
-   questions. Review it, then apply it: the tests of the adopted areas become the locked baseline.
+6. **Check, reports and commit.** CLike checks the plan the model returned (baseline REQs unchanged;
+   every new REQ with an area and acceptance; `done` only with the area's baseline covering it, else
+   `open`; the README with every existing section) and appends its verification to the analysis
+   report. Two reports: `docs/harper/ADOPT_<date>.md` (the survey: areas, baseline, git history, CI,
+   documentation) and `docs/harper/EXTEND_<…>.md` (the analysis: capability → files → tests per
+   area, where the documents and the code disagree, the open questions, CLike's verification). The
+   baseline LTCs are locked and the result is committed. Review the reports and the plan before the
+   first `/idea --extend`; a rejected analysis changes nothing (its output is kept aside).
 
 `--area <name>` adopts one area of a monorepo first; the others follow with the same command (their
 REQs are numbered after the ones already adopted; an area is adopted once). The analysis runs on a
@@ -109,16 +114,17 @@ plan without REQs or one adopted this way; a project already planned with CLike 
 What `/adopt` writes in the plan: one **baseline REQ** per area (`REQ-001`…, status `done`,
 `origin: adopted`) whose LTC (`runs/kit/<REQ>/ci/LTC.json`) runs the area's own setup and check, and
 is locked as its acceptance; then the capability REQs with their `area`, `done` with `covered_by`
-the baseline REQ, or `open`. The commit `docs(harper): adopt …` holds the Harper documents,
-`.clike/project.json`, the reports and the baseline LTCs.
+the baseline REQ, or `open`. The commit `docs(harper): adopt …` holds the Harper documents (with
+`CODEMAP.md`, `HOWTO_RUN.md` and the lane guides), the root `README.md`, `.clike/project.json`, the
+reports and the baseline LTCs.
 `--dry-run` writes only the report.
 
 | An adopted capability… | becomes |
 |---|---|
-| found in the code and covered by passing tests | REQ `done`, its tests as baseline checks |
-| found, with tests that already fail | REQ `done`, those tests listed as *failing at adoption* (reported, not blocking until a REQ fixes them) |
-| found without tests | REQ `open`, or `done` after you approve characterization tests CLike proposes |
-| documented but not found in the code | REQ `open`, "documented, not found" |
+| found in the code and covered by the area's tests | REQ `done`, `covered_by` the area's baseline REQ |
+| in an area whose checks already fail | the baseline REQ lists them as *failing at adoption* (reported, not blocking until a REQ fixes them) |
+| found without tests | REQ `open` (tests to add) |
+| documented or in the backlog, not found in the code | REQ `open` ("documented, not found"; backlog items as `import:backlog:<id>`) |
 
 ### 4. Evolve it — as any CLike project
 
