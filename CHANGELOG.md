@@ -54,6 +54,9 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **A project keeps its own default branch**: when the configured default branch does not exist in a
+  repository that already has history (`develop`, `master`, `trunk`), CLike commits on the
+  repository's own (`origin/HEAD`, then the current branch) instead of creating a new one.
 - **A profile of the whole project runs on a copy of it**: the adoption baseline and the solution
   profile of a project without `src/` at its root (a project of areas) ran in the project folder,
   which the sandbox mounts read-only; their setup steps in an area run in its copy too.

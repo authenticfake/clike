@@ -432,8 +432,20 @@ function adoptablePlan(plan, areas) {
   return again.length ? `already adopted: ${again.join(', ')} (pick another area with --area <name>)` : '';
 }
 
+/** CLike's own files of the adoption (what /init and /adopt added, not committed yet): they go with its commit.
+ * The developer's own changes elsewhere are never included. */
+function clikeOwnFiles(root) {
+  let out = '';
+  try {
+    out = execFileSync('git', ['status', '--porcelain', '-uall', '--', '.clike', 'docs/harper', 'docs/inputs', 'docs/reference', '.gitignore', BASELINE_PROFILE],
+      { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  } catch { return []; }
+  return out.split('\n').filter(Boolean).map((l) => l.slice(3).replace(/^"|"$/g, '').split(' -> ').pop())
+    .filter((rel) => !/^\.clike\/(sessions|telemetry|eval-check|bin)\//.test(rel));
+}
+
 module.exports = {
-  CODEMAP, codeMaps, sourceItems, adoptablePlan, baselineReqs, contextDocuments, checkAdoptedPlan, adoptVerificationMarkdown,
+  CODEMAP, clikeOwnFiles, codeMaps, sourceItems, adoptablePlan, baselineReqs, contextDocuments, checkAdoptedPlan, adoptVerificationMarkdown,
   BASELINE_PROFILE, BASELINE_ID, survey, surveyAreas, surveyDocs, surveyCi, surveyGit, areaCommands, areaRuntime,
   makeTargets, mergeProjectAreas, baselineProfile, memoryItems, reportMarkdown,
 };

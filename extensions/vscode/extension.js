@@ -5731,6 +5731,8 @@ async function cmdOpenChat(context) {
               const ids = msg.__adopt.baselineIds;
               msg.__extendCommit = {
                 files: [...releaseExtend.cascadeCommitFiles(root, 'v1'), ...Object.values(releaseExtend.ADOPT_FILES), adoptLib.CODEMAP, '.clike/project.json', msg.__adopt.surveyReport,
+                  // what /init added (CLike settings, policies, skills, templates, .gitignore rules) and the baseline profile
+                  ...adoptLib.clikeOwnFiles(root),
                   ...ids.map((id) => `runs/kit/${id}/ci/LTC.json`)],
                 message: `docs(harper): adopt ${path.basename(root)} — ${msg.__adopt.areas.length} area(s), ${verdict.delta.length + ids.length} REQ(s)\n\n[harper:adopt] runId=${runId}`,
               };

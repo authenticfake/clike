@@ -111,3 +111,16 @@ test('adopt: the code map of every area, the sources of the areas adopted, the c
   assert.equal(found.history.length, 2);
   assert.match(adopt.reportMarkdown(found, {}), /Tags: `v1`[\s\S]*### History per area[\s\S]*### gateway/);
 });
+
+test('clikeOwnFiles: what /init and /adopt added goes with the adoption commit; the developer changes do not', () => {
+  const root = repo();
+  const put = (rel, text) => { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); };
+  put('.clike/project.json', '{}');
+  put('.clike/sessions/harper.jsonl', 'x');
+  put('docs/harper/PLAYBOOK.md', '# p');
+  put('docs/inputs/.gitkeep', '');
+  put('.gitignore', '.env\n');
+  put(adopt.BASELINE_PROFILE, '{}');
+  fs.appendFileSync(path.join(root, 'gateway/src/gateway/app.py'), '# developer work\n');
+  assert.deepEqual(adopt.clikeOwnFiles(root).sort(), ['.clike/project.json', '.gitignore', 'docs/harper/PLAYBOOK.md', 'docs/inputs/.gitkeep', 'runs/adopt/ci/LTC.json']);
+});

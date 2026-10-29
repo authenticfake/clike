@@ -119,6 +119,16 @@ the baseline REQ, or `open`. The commit `docs(harper): adopt …` holds the Harp
 reports and the baseline LTCs.
 `--dry-run` writes only the report.
 
+**Git.** With CLike's auto-commit on, the adoption is one commit `docs(harper): adopt …` on the
+repository's default branch — the configured one when the repository has it, else the repository's
+own (`origin/HEAD`, then the current branch: a `develop` or `master` project keeps it; CLike never
+creates another default branch). It holds CLike's own files only: what `/init` added (`.clike/`,
+the `docs/` skeleton, the `.gitignore` rules), the Harper documents, `CODEMAP.md`, `HOWTO_RUN.md`, the
+root README, the reports, the baseline profile and LTCs. The developers' own changes are never in it.
+With auto-push on, it is pushed like any phase: on a team repository with a protected default
+branch, adopt on a branch of your own (or with auto-push off) and open a pull request. A rejected
+analysis commits nothing; the survey files stay in the working tree.
+
 | An adopted capability… | becomes |
 |---|---|
 | found in the code and covered by the area's tests | REQ `done`, `covered_by` the area's baseline REQ |
