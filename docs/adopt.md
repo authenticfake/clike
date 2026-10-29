@@ -67,21 +67,26 @@ executor: the areas are written to `.clike/project.json` (CLike's own file; a ro
 correct there is kept by the next `/adopt`), the baseline profile to `runs/adopt/ci/LTC.json`. The
 baseline runs each area's own setup and check (from its Makefile, scripts or CI) on a copy of the
 project in the eval sandbox, on the runtime versions the area requires. Steps 4–5 run with the model
-the chat uses: a local agent reads the repository itself; a cloud model gets the survey report, the
-READMEs and agent context files of the areas, and the project memory. CLike checks the plan it
+the chat uses: a local agent reads the repository itself; a cloud model gets the survey report with
+the history, the code map, the READMEs and agent context files, and the key source files of the
+areas analysed whole (entry points, routes, calls, contracts, configuration). Both start from the
+code map, then the code, then git, then the documents. CLike checks the plan it
 returns (step 6) before anything is committed; a rejected analysis restores the documents and keeps
 the run's output aside in `runs/extend/rejected/`.
 
 1. **Survey** (no model): stacks and versions, package managers, source and test roots per area,
    entry points, the CI's commands, existing documentation and agent context files, git state.
 2. **What exists is decided by the code and git.** CLike runs the project's own tests in the eval
-   sandbox (each one passing, failing or skipped) and reads the git history, tags and changelogs.
-   Without git, the code alone. A backlog or a plan written by hand is an input for future work and
-   decisions, never the proof that something is done.
+   sandbox (each one passing, failing or skipped), writes the **code map** `docs/harper/CODEMAP.md` —
+   per area: modules and their public symbols, entry points, routes, calls to the other areas
+   (client, method, path), references between areas, contracts, configuration, tests — and reads
+   the **git history per area** (features and fixes, with their day; tags). Without git, the code
+   and the documents; without documents, the code alone. A backlog or a plan written by hand is an
+   input for future work and decisions, never the proof that something is done.
 3. **Project memory.** The documentation CLike finds — `docs/` at the root and in each area, the
-   READMEs, the agent context files, the changelogs, the API and event contracts — is indexed into
-   the project's memory, so every phase and the **Memory** panel answer with the project's own
-   context and cite where it comes from.
+   READMEs, the agent context files, the changelogs, the API and event contracts — the code map and
+   the **source code of the areas adopted** are indexed into the project's memory, so every phase
+   and the **Memory** panel answer with the project's own context and cite where it comes from.
 4. **Analysis, one area at a time.** Capabilities, interfaces, data, integrations and conventions,
    each marked **observed** (found in code or tests), **declared** (written in a document) or
    **open** (a question for you). Nothing unknown is invented.

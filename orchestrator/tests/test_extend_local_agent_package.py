@@ -273,6 +273,9 @@ def test_adopt_mode_describes_the_project_as_it_is():
     assert "README.md" in local["allowed_write_roots"] and "docs/harper/HOWTO_RUN.md" in local["allowed_write_roots"]
     assert "docs/harper/HOWTO_RUN.md" in context["output_contract"]["always"]
     assert "every existing heading stays" in prompt and "Made with CLike" in prompt
+    # the code first (the code map CLike extracted), then git, then the documents; the interactions between areas
+    assert "docs/harper/CODEMAP.md" in prompt and "a capability it does not show is not in the code" in prompt
+    assert "who calls whom, on which protocol and interface" in prompt
     # a release cascade never writes the README
     cascade = _package({"runId": "ext-run", "extend": {"mode": "cascade", "release": "v2", "baseline": "v1"}})
     assert "README.md" not in cascade["local_agent"]["allowed_write_roots"]

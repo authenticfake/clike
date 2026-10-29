@@ -8,9 +8,11 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const code = require('./adopt-code');
 
 const BASELINE_PROFILE = 'runs/adopt/ci/LTC.json';
 const BASELINE_ID = 'ADOPT';
+const CODEMAP = 'docs/harper/CODEMAP.md';
 
 // a manifest marks a project (an area); the first found names its stack
 const MANIFESTS = [
@@ -182,6 +184,9 @@ function survey(root) {
     docs: surveyDocs(root, areas),
     ci,
     git: surveyGit(root),
+    // what git says each area did (null without git: the code alone)
+    history: areas.map((a) => code.history(root, a)).filter(Boolean),
+    tags: code.tagsWithDates(root),
     agentContext: ['AGENTS.md', 'CLAUDE.md'].filter((f) => exists(root, f)),
   };
 }
@@ -252,6 +257,12 @@ function reportMarkdown(found, { baseline = null, indexed = 0, dryRun = false, a
     lines.push(`- Git: ${found.git.commits} commit(s) on \`${cell(found.git.branch)}\`, last \`${cell(found.git.last)}\`` +
       `${found.git.tags.length ? `, tags ${found.git.tags.map((t) => `\`${t}\``).join(', ')}` : ''}${found.git.remote ? `, remote ${found.git.remote}` : ', no remote'}`);
   } else lines.push('- No git: what exists is read from the code alone.');
+  if ((found.tags || []).length) lines.push(`- Tags: ${found.tags.map((t) => `\`${cell(t.name)}\` ${t.day}`).join(', ')}`);
+  if ((found.history || []).length) {
+    lines.push('', '### History per area (git: what was built and fixed, and when)', '');
+    for (const h of found.history) lines.push(code.historyMarkdown(h));
+  }
+  lines.push(`- Code map (every module, entry point, route, call to another area, contract and test, per area): \`${CODEMAP}\``);
   if (baseline) {
     lines.push('', '### Baseline (the existing checks, run in the CLike eval sandbox)', '', '| Check | Result |', '|---|---|');
     for (const c of baseline.cases || []) lines.push(`| \`${cell(c.name)}\` | ${c.passed ? 'PASS' : c.blocking === false ? 'WARN' : 'FAIL'} |`);
@@ -266,7 +277,8 @@ function reportMarkdown(found, { baseline = null, indexed = 0, dryRun = false, a
   lines.push(`- Documents for the project memory: ${found.docs.length}${found.docs.length ? ` (e.g. ${found.docs.slice(0, 6).map((f) => `\`${f}\``).join(', ')}${found.docs.length > 6 ? ', …' : ''})` : ''}`);
   lines.push('', '## Next', '',
     '- Review the areas in `.clike/project.json` (correct a root or a command there: the next `/adopt` keeps it).',
-    '- The analysis area by area — capabilities as they are, adopted REQs protected by the tests above, IDEA / SPEC / PLAN — is the next step of `/adopt`.', '');
+    dryRun ? '- Run `/adopt` (without --dry-run) for the baseline, the project memory and the analysis.'
+      : '- The analysis follows: IDEA, SPEC, PLAN with the adopted REQs (protected by the tests above), TECH_CONSTRAINTS, lane guides, HOWTO_RUN and the README — its report is the EXTEND report of this run.', '');
   return lines.filter((l) => l !== null).join('\n');
 }
 
@@ -310,15 +322,43 @@ function baselineReqs(areas, baseline = null, existing = []) {
 
 /** The context a cloud model gets (a local agent reads the repository itself): the survey report, the
  * agent context files and the READMEs of the areas, each cut to `max` characters. */
-function contextDocuments(root, found, areas, surveyRel, max = 6000) {
-  const rels = [surveyRel, ...found.agentContext, 'README.md',
-    ...areas.flatMap((a) => [...a.agentContext, `${a.root}/README.md`])];
+function contextDocuments(root, found, areas, surveyRel, max = 6000, { maps = [], keyBudget = 160000 } = {}) {
+  const cut = (text, n) => (text.length > n ? `${text.slice(0, n)}\n… (cut: the rest is in the project memory)` : text);
   const out = [];
+  // the survey report, and the code map: whole for the areas analysed, the others without their module list
+  const report = read(root, ...surveyRel.split('/'));
+  if (report.trim()) out.push({ path: surveyRel, text: cut(report, 40000) });
+  if (maps.length) {
+    const mine = (m) => areas.some((a) => a.name === m.area);
+    out.push({ path: CODEMAP, text: maps.map((m) => code.codeMapMarkdown(m, mine(m) ? 40000 : 10000)).join('\n') });
+  }
+  const rels = [...found.agentContext, 'README.md', ...areas.flatMap((a) => [...a.agentContext, `${a.root}/README.md`])];
   for (const rel of [...new Set(rels)]) {
     const text = read(root, ...rel.split('/'));
-    if (text.trim()) out.push({ path: rel, text: text.length > max ? `${text.slice(0, max)}\n… (cut: the rest is in the project memory)` : text });
+    if (text.trim()) out.push({ path: rel, text: cut(text, max) });
   }
+  // the key source files of the areas analysed (entry points, routes, calls, contracts, settings), read whole
+  const mine = maps.filter((m) => areas.some((a) => a.name === m.area));
+  for (const m of mine) out.push(...code.keyFiles(root, m, Math.floor(keyBudget / Math.max(1, mine.length))));
   return out;
+}
+
+/** The code maps of every area (the whole system: the contracts between areas) and docs/harper/CODEMAP.md. */
+function codeMaps(root, areas) {
+  const maps = areas.map((a) => code.codeMap(root, a, code.sourceFiles(root, a), areas));
+  const markdown = ['# Code map', '',
+    'Written by `/adopt` from the code, with no model: every module with its public symbols, entry point, route, call to',
+    'another area, contract, configuration and test, per area. A capability this map does not show is not in the code.', '',
+    '| Area | Files | Modules | Routes | Calls out | Tests |', '|---|---|---|---|---|---|',
+    ...maps.map((m) => `| ${m.area} | ${m.files} | ${m.modules.length} | ${m.routes.length} | ${m.calls.length} | ${m.tests.cases} |`), '',
+    ...maps.map((m) => code.codeMapMarkdown(m))].join('\n');
+  return { maps, markdown };
+}
+
+/** The project memory: the documents, and the code of the areas adopted now (path-cited by every phase). */
+function sourceItems(root, areas) {
+  return areas.flatMap((a) => code.sourceFiles(root, a)).map((rel) => ({ path: rel, text: read(root, ...rel.split('/')) }))
+    .filter((it) => it.text.trim() && !it.text.includes('\u0000'));
 }
 
 /**
@@ -393,7 +433,7 @@ function adoptablePlan(plan, areas) {
 }
 
 module.exports = {
-  adoptablePlan, baselineReqs, contextDocuments, checkAdoptedPlan, adoptVerificationMarkdown,
+  CODEMAP, codeMaps, sourceItems, adoptablePlan, baselineReqs, contextDocuments, checkAdoptedPlan, adoptVerificationMarkdown,
   BASELINE_PROFILE, BASELINE_ID, survey, surveyAreas, surveyDocs, surveyCi, surveyGit, areaCommands, areaRuntime,
   makeTargets, mergeProjectAreas, baselineProfile, memoryItems, reportMarkdown,
 };

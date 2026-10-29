@@ -13,7 +13,10 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   (corrections kept); runs the **baseline** — each area's own setup and check, on a copy of the
   project in the eval sandbox, on its runtime — indexes the documentation into the **project
   memory**; writes `docs/harper/ADOPT_<date>.md`. `--area <name>` adopts one area first,
-  `--dry-run` writes only the report. Then the **analysis**, by the model the chat uses (a local agent
+  `--dry-run` writes only the report. It writes the **code map** `docs/harper/CODEMAP.md` (per area:
+  modules and public symbols, entry points, routes, calls to the other areas, contracts, tests),
+  the **git history per area** in the report, and indexes the source code of the areas adopted into
+  the project memory with the documentation. Then the **analysis**, by the model the chat uses (a local agent
   reads the repository, a cloud model gets the survey, the READMEs, the agent context files and the
   project memory): IDEA, SPEC with use cases, TECH_CONSTRAINTS and lane guides of the project as it
   is, every statement marked observed, declared or open, `docs/harper/HOWTO_RUN.md` (each area's

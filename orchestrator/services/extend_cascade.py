@@ -51,9 +51,17 @@ def adopt_rules(opts: Dict[str, Any]) -> List[str]:
         "The truth of what exists is the code, its tests and git; documents (README, docs/, ADRs, howtos, tutorials, "
         "the API/event/tool contracts, CHANGELOGs, AGENTS.md / CLAUDE.md, backlogs and decision records in docs/inputs/) "
         "are declarations to reconcile with the code.",
-        f"Areas (from .clike/project.json): {shown}. The survey and the baseline (the tests each area already runs, "
-        f"and their result in the eval sandbox) are in {survey}: read it first. The project documentation is in the "
-        "project memory too.",
+        f"Areas (from .clike/project.json): {shown}. The survey, the baseline (the tests each area already runs, "
+        f"and their result in the eval sandbox) and the git history per area are in {survey}: read it first.",
+        "Sources, in this order: (1) docs/harper/CODEMAP.md — the complete inventory CLike extracted from the code, "
+        "per area: modules and public symbols, entry points, routes, calls to other areas, contracts, configuration, "
+        "tests; a capability it does not show is not in the code; (2) the code itself — the key files given (or the "
+        "repository, for a local agent) and the project memory, which holds the code and the documentation by path; "
+        "(3) git — features and fixes per area: what was built and when, observed only when the code map or the tests "
+        "show it; (4) the documents. Without git, the code and the documents; without documents, the code alone.",
+        "Interactions: from the routes, the calls to other areas (client, method, path), the references between areas "
+        "and the contracts, write who calls whom, on which protocol and interface, and each area's role and "
+        "responsibilities — in SPEC (interfaces) and in the README (architecture).",
         "Label every statement you derive: (observed) found in code or tests, (declared) written in a document and not "
         "verified in code, (open) unknown or undecided — a question for the owner. Never turn an open point into a default.",
         "IDEA.md: vision, users, outcomes and scope as the documents state them; decisions already taken (decision "
@@ -182,7 +190,7 @@ def cloud_extend_section(payload: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def adopt_documents(opts: Dict[str, Any], limit: int = 60000) -> List[str]:
+def adopt_documents(opts: Dict[str, Any], limit: int = 400000) -> List[str]:
     """/adopt on cloud: the survey report, the agent context files and the READMEs the extension read (a local
     agent reads the repository itself); the rest of the documentation is in the project memory."""
     if str(opts.get("mode") or "").lower() != "adopt":

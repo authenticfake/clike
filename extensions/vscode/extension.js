@@ -4512,20 +4512,35 @@ async function cmdOpenChat(context) {
               say(`⚠ /adopt: the baseline could not run (${String(e?.message || e).slice(0, 300)}); the report says so.`);
             }
           }
-          // the documentation, into the project memory (every phase and the Memory panel cite it)
+          // the code map of every area (the contracts between them too): what exists, by the code
+          const mapped = adoptLib.codeMaps(root, found.areas);
+          fsSync.mkdirSync(path.join(root, 'docs', 'harper'), { recursive: true });
+          fsSync.writeFileSync(path.join(root, ...adoptLib.CODEMAP.split('/')), `${mapped.markdown}\n`);
+          // the project memory: the documentation, the code map and the code of the areas adopted now —
+          // a cloud model and every later phase cite them by path (a local agent reads the files too)
           let indexed = 0;
-          const items = adoptLib.memoryItems(root, found.docs);
-          for (let i = 0; i < items.length; i += 40) {
+          const docItems = adoptLib.memoryItems(root, [...found.docs, adoptLib.CODEMAP]);
+          const items = [...docItems, ...adoptLib.sourceItems(root, picked)];
+          say(`▶ /adopt: project memory — ${docItems.length} document(s) and ${items.length - docItems.length} source file(s)…`);
+          for (let i = 0; i < items.length;) {
+            // batches of at most 40 files and ~1.5M characters
+            const batch = [];
+            let chars = 0;
+            while (i < items.length && batch.length < 40 && (chars === 0 || chars + items[i].text.length <= 1500000)) { chars += items[i].text.length; batch.push(items[i]); i += 1; }
+            let res = null;
             try {
-              await postJson(`${cfg().orchestratorUrl}/v1/rag/index`, { project_id: getProjectId(), items: items.slice(i, i + 40) });
-              indexed += Math.min(40, items.length - i);
+              const r = await serviceRequest('POST', `${cfg().orchestratorUrl}/v1/rag/index`, { body: { project_id: getProjectId(), items: batch }, timeoutMs: 600000 });
+              if (!r.ok) throw new Error(`${r.status} ${String(r.text || '').slice(0, 200)}`);
+              res = r.json();
+              if (res && res.ok === false) throw new Error(res.error || res.error_type || 'the index was skipped');
             } catch (e) {
               say(`⚠ /adopt: project memory indexing stopped at ${indexed}/${items.length} (${String(e?.message || e).slice(0, 200)}).`);
               break;
             }
+            indexed += batch.length;
           }
           writeReport({ baseline, indexed });
-          const message = `✔ /adopt survey: areas in .clike/project.json, ${indexed} document(s) in the project memory, ` +
+          const message = `✔ /adopt survey: areas in .clike/project.json, code map ${adoptLib.CODEMAP}, ${indexed}/${items.length} file(s) in the project memory, ` +
             `baseline ${baseline ? String(baseline.status || (baseline.passed ? 'PASS' : 'FAIL')) : 'not run'}. Report ${reportRel}.`;
           say(message);
           await appendSessionJSONL('harper', { ts: Date.now(), role: 'system', content: message, model: 'auto', attachments: [] });
@@ -4558,7 +4573,7 @@ async function cmdOpenChat(context) {
             type: 'harperEDD', cmd: 'extend', extendMode: 'adopt', attachments: [],
             __adopt: {
               areas: picked, baselineIds: base.reqs.map((r) => r.id), surveyReport: reportRel, baseline,
-              documents: adoptLib.contextDocuments(root, found, picked, reportRel),
+              documents: adoptLib.contextDocuments(root, found, picked, reportRel, 6000, { maps: mapped.maps }),
             },
           });
           return;
@@ -5715,7 +5730,7 @@ async function cmdOpenChat(context) {
             if (msg.__adopt) {
               const ids = msg.__adopt.baselineIds;
               msg.__extendCommit = {
-                files: [...releaseExtend.cascadeCommitFiles(root, 'v1'), ...Object.values(releaseExtend.ADOPT_FILES), '.clike/project.json', msg.__adopt.surveyReport,
+                files: [...releaseExtend.cascadeCommitFiles(root, 'v1'), ...Object.values(releaseExtend.ADOPT_FILES), adoptLib.CODEMAP, '.clike/project.json', msg.__adopt.surveyReport,
                   ...ids.map((id) => `runs/kit/${id}/ci/LTC.json`)],
                 message: `docs(harper): adopt ${path.basename(root)} — ${msg.__adopt.areas.length} area(s), ${verdict.delta.length + ids.length} REQ(s)\n\n[harper:adopt] runId=${runId}`,
               };

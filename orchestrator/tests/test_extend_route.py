@@ -71,6 +71,7 @@ class ExtendRouteTests(unittest.TestCase):
             self.assertIn("Routes model calls.", prompt)
             self.assertIn("docs/harper/HOWTO_RUN.md", prompt)
             self.assertIn("every existing heading stays", prompt)
+            self.assertIn("docs/harper/CODEMAP.md", prompt)
             self.assertNotIn("Release cascade", prompt)
 
     def test_plan_mode_request_reaches_the_cloud_prompt(self):
