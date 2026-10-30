@@ -74,7 +74,8 @@ class ExtendRouteTests(unittest.TestCase):
     def test_adopt_rules_and_documents_reach_the_cloud_prompt_on_every_provider(self):
         extend = {"mode": "adopt", "survey_report": "docs/harper/ADOPT_2026-10-28.md",
                   "areas": [{"name": "aigateway", "root": "aigateway", "baseline_req": "REQ-001"}],
-                  "documents": [{"path": "aigateway/README.md", "text": "# AI Gateway\n\nRoutes model calls."}]}
+                  "documents": [{"path": "README.md", "text": "# Foundation\n\nThe whole README.", "integrate": True},
+                                {"path": "aigateway/README.md", "text": "# AI Gateway\n\nRoutes model calls."}]}
         for model in ("openai:gpt-5.4-mini", "anthropic:claude-sonnet-5-5"):
             response, prompt = self._run(extend, model=model)
             self.assertEqual(response.status_code, 200, response.text)
@@ -82,6 +83,8 @@ class ExtendRouteTests(unittest.TestCase):
             self.assertIn("aigateway (root aigateway, baseline REQ-001)", prompt)
             self.assertIn("Project document: aigateway/README.md", prompt)
             self.assertIn("Routes model calls.", prompt)
+            self.assertIn("Document to integrate: README.md", prompt)
+            self.assertIn("The whole README.", prompt)
             self.assertIn("docs/harper/HOWTO_RUN.md", prompt)
             self.assertIn("every existing heading stays", prompt)
             self.assertIn("docs/harper/CODEMAP.md", prompt)

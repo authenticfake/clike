@@ -295,6 +295,11 @@ def test_cloud_adopt_section_carries_the_documents_within_a_budget():
     assert "### Adoption of an existing project (/adopt)" in section and "### Project document: README.md" in section
     assert [l for l in adopt_documents({"mode": "adopt", "documents": docs}, limit=20) if l.startswith("### Project document:")] == ["### Project document: README.md"]
     assert adopt_documents({"mode": "cascade", "documents": docs}) == []
+    # the README and the run guide are returned integrated: whole, first, whatever the budget
+    whole = [{"path": "README.md", "text": "r" * 500, "integrate": True}, {"path": "a/README.md", "text": "x" * 50}]
+    lines = adopt_documents({"mode": "adopt", "documents": whole}, limit=20)
+    assert "### Document to integrate: README.md" in lines and "r" * 500 in lines
+    assert not any(l.startswith("### Project document:") for l in lines)
 
 
 def test_plan_mode_extend_is_unchanged():

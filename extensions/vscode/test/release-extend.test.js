@@ -532,13 +532,13 @@ test('/adopt of a second area: what the first wrote stays, the team README lines
   put('docs/harper/TECH_CONSTRAINTS.yaml', 'agent-platform: python 3.14\n');
   put('docs/harper/plan.json', JSON.stringify({ reqs: first }));
   assert.deepEqual(adoptLib.adoptedAreas({ reqs: first }), ['agent-platform']);
-  // the team's README, from git: the working copy already has CLike's sections
+  // the team's README, from git (no copy kept): the working copy already has CLike's sections
   const original = adoptLib.originalReadme(root);
   assert.equal(original, '# Foundation\n\n## Setup\nmake setup\n');
-  assert.equal(fs.readFileSync(path.join(root, adoptLib.ORIGINAL_README), 'utf8'), original);
-  put('README.md', '# changed later\n');
-  assert.equal(adoptLib.originalReadme(root), original);                          // saved once
-  put('README.md', '# Foundation\n\n## Setup\nmake setup\n\n## Areas\n| agent-platform |\n\n## Made with CLike\nAdopted.\n');
+  assert.equal(fs.existsSync(path.join(root, adoptLib.ORIGINAL_README)), false);
+  // the adoption committed: still the version before CLike, the latest one without its section
+  g('add', 'README.md'); g('commit', '-qm', 'docs(harper): adopt');
+  assert.equal(adoptLib.originalReadme(root), original);
 
   const base = adoptLib.baselineReqs([gw], null, first);
   assert.equal(base.reqs[0].id, 'REQ-003');
@@ -565,6 +565,9 @@ test('/adopt of a second area: what the first wrote stays, the team README lines
   assert.match(fs.readFileSync(path.join(root, 'README.md'), 'utf8'), /\| agent-platform \| aigateway \|/);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, 'docs/harper/plan.json'), 'utf8')).reqs.map((r) => r.id), ['REQ-001', 'REQ-002', 'REQ-003', 'REQ-004']);
 
+  // the team adds a line to its own section after the adoption: protected as well
+  assert.match(re.teamReadme(original, '# Foundation\n\n## Setup\nmake setup\nmake seed\n\n## Areas\n| x |\n'), /make seed/);
+  assert.doesNotMatch(re.teamReadme(original, '# Foundation\n\n## Setup\nmake setup\nmake seed\n\n## Areas\n| x |\n'), /\| x \|/);
   // rewritten from scratch: the sections of the first area, its lane guide and the TECH lines come back
   put('docs/harper/plan.json', JSON.stringify({ reqs: [...first, ...base.reqs] }));
   const before2 = re.snapshotDocs(root);
@@ -583,6 +586,20 @@ test('/adopt of a second area: what the first wrote stays, the team README lines
   assert.ok(out2.warnings.some((w) => /SPEC\.md dropped sections of the earlier adoption \(agent-platform: .*## agent-platform/.test(w)));
   assert.ok(out2.warnings.some((w) => /lane guide of an area adopted before/.test(w)));
   assert.ok(out2.warnings.some((w) => /README\.md changed or dropped 1 existing line\(s\) \(e\.g\. "make setup"\)/.test(w)));
+
+  // a local agent that deletes the README: put back (on cloud a README not returned is unchanged)
+  put('docs/harper/plan.json', JSON.stringify({ reqs: [...first, ...base.reqs] }));
+  const before3 = re.snapshotDocs(root);
+  put('docs/harper/plan.json', plan);
+  fs.rmSync(path.join(root, 'README.md'));
+  const out3 = re.reconcileExtend({ root, before: before3, files: [], isAgent: true, mode: 'adopt', cascade, adopt, validateExtendPlan, startedAt: started });
+  assert.equal(fs.readFileSync(path.join(root, 'README.md'), 'utf8'), before3.readme);
+  assert.ok(out3.warnings.some((w) => /README\.md was deleted by the run: restored/.test(w)));
+  put('docs/harper/plan.json', JSON.stringify({ reqs: [...first, ...base.reqs] }));
+  const before4 = re.snapshotDocs(root);
+  put('docs/harper/plan.json', plan);
+  const out4 = re.reconcileExtend({ root, before: before4, files: [{ path: 'docs/harper/plan.json', content: plan }], isAgent: false, mode: 'adopt', cascade, adopt, validateExtendPlan, startedAt: started });
+  assert.ok(!out4.warnings.some((w) => /deleted/.test(w)));
   fs.rmSync(root, { recursive: true, force: true });
 });
 

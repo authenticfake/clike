@@ -124,8 +124,19 @@ test('clikeOwnFiles: what /init and /adopt added goes with the adoption commit; 
   put('README_1st.md', '# first');
   put('images/clike/logo.png', 'x');
   put('foundation.code-workspace', '{}');
+  put('.clike/last_init_summary.done.json', JSON.stringify({ targetDir: root }));    // names this machine's folder
+  put('docs/inputs/v1/backlog.md', '# the developer backlog\n');                    // the developer's documents
+  put('docs/reference/notes.md', '# notes\n');
   fs.appendFileSync(path.join(root, 'gateway/src/gateway/app.py'), '# developer work\n');
   assert.deepEqual(adopt.clikeOwnFiles(root).sort(), ['.clike/project.json', '.gitignore', 'README_1st.md', 'docs/harper/PLAYBOOK.md', 'docs/inputs/.gitkeep', 'images/clike/logo.png', 'runs/adopt/ci/LTC.json']);
+  // a tracked .gitignore: only the "# CLike" block /init appends goes with the adoption
+  execFileSync('git', ['add', '.gitignore'], { cwd: root }); execFileSync('git', ['commit', '-qm', 'ignore'], { cwd: root });
+  fs.appendFileSync(path.join(root, '.gitignore'), '\n# CLike\n.clike/sessions/\n');
+  assert.ok(adopt.clikeOwnFiles(root).includes('.gitignore'));
+  fs.writeFileSync(path.join(root, '.gitignore'), 'node_modules/\n\n# CLike\n.clike/sessions/\n');   // a rule the developer removed
+  assert.ok(!adopt.clikeOwnFiles(root).includes('.gitignore'));
+  // a file naming this machine stays out of the commit
+  assert.deepEqual(adopt.machinePathFiles(root, ['.clike/last_init_summary.done.json', '.clike/project.json', 'missing.md']), ['.clike/last_init_summary.done.json']);
 });
 
 test('the adopt guard: the project files changed while the run went are reported, never written; CLike files and the README pass', () => {

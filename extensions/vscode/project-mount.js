@@ -9,7 +9,11 @@ const path = require('path');
 const SCRIPT = 'mount-project.sh';
 
 function isWithin(p, roots) {
-  const norm = (x) => path.resolve(String(x || '')).replace(/[\\/]+$/, '');
+  // symlinks resolved, as mount-project.sh stores them (pwd -P)
+  const norm = (x) => {
+    const abs = path.resolve(String(x || ''));
+    try { return fs.realpathSync(abs).replace(/[\\/]+$/, ''); } catch { return abs.replace(/[\\/]+$/, ''); }
+  };
   const target = norm(p);
   return (roots || []).filter(Boolean).some((r) => {
     const root = norm(r);

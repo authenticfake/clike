@@ -219,6 +219,26 @@ function mergeProjectAreas(meta, areas) {
   return { ...(meta || {}), areas: merged };
 }
 
+/**
+ * The areas /adopt works on: those of .clike/project.json after the merge (a root, command or name the
+ * developer corrected, an area declared by hand), with what the survey found for each (stack, agent
+ * context files, runtimes). An area declared by hand that the survey did not find comes as declared.
+ */
+function effectiveAreas(surveyed, merged) {
+  const by = new Map((surveyed || []).map((a) => [a.root, a]));
+  return (merged || []).filter((m) => m && m.root).map((m) => {
+    const s = by.get(m.root) || { stack: 'unknown', source: [m.root], tests: [], commands: {}, runtime: {}, agentContext: [] };
+    return {
+      ...s, name: m.name || s.name || areaName(m.root), root: m.root,
+      source: Array.isArray(m.source) && m.source.length ? m.source : s.source,
+      tests: Array.isArray(m.tests) ? m.tests : s.tests,
+      commands: { ...(s.commands || {}), ...(m.commands || {}) },
+      runtime: { ...(s.runtime || {}), ...(m.runtime || {}) },
+      stack: m.stack || s.stack, agentContext: s.agentContext || [],
+    };
+  });
+}
+
 const highest = (values) => values.filter(Boolean).sort((a, b) => {
   const n = (v) => (String(v).match(/\d+(\.\d+)?/) || ['0'])[0].split('.').map(Number);
   const [x, y] = [n(a), n(b)];
@@ -342,6 +362,12 @@ function baselineReqs(areas, baseline = null, existing = []) {
 function contextDocuments(root, found, areas, surveyRel, max = 6000, { maps = [], keyBudget = 160000 } = {}) {
   const cut = (text, n) => (text.length > n ? `${text.slice(0, n)}\n… (cut: the rest is in the project memory)` : text);
   const out = [];
+  // what the run returns integrated: whole, first (a cut README would lose its tail and be put back) —
+  // the root README, and the run guide an earlier area wrote
+  for (const rel of ['README.md', 'docs/harper/HOWTO_RUN.md']) {
+    const text = read(root, ...rel.split('/'));
+    if (text.trim()) out.push({ path: rel, text, integrate: true });
+  }
   // the survey report, and the code map: whole for the areas analysed, the others without their module list
   const report = read(root, ...surveyRel.split('/'));
   if (report.trim()) out.push({ path: surveyRel, text: cut(report, 40000) });
@@ -349,7 +375,7 @@ function contextDocuments(root, found, areas, surveyRel, max = 6000, { maps = []
     const mine = (m) => areas.some((a) => a.name === m.area);
     out.push({ path: CODEMAP, text: maps.map((m) => code.codeMapMarkdown(m, mine(m) ? 40000 : 10000)).join('\n') });
   }
-  const rels = [...found.agentContext, 'README.md', ...areas.flatMap((a) => [...a.agentContext, `${a.root}/README.md`])];
+  const rels = [...found.agentContext, ...areas.flatMap((a) => [...a.agentContext, `${a.root}/README.md`])];
   for (const rel of [...new Set(rels)]) {
     const text = read(root, ...rel.split('/'));
     if (text.trim()) out.push({ path: rel, text: cut(text, max) });
@@ -444,42 +470,49 @@ function adoptVerificationMarkdown({ areas, baselineIds, summary, baseline, warn
 function adoptablePlan(plan, areas) {
   const reqs = Array.isArray(plan?.reqs) ? plan.reqs : [];
   if (!reqs.length) return '';
-  if (reqs.some((r) => r?.origin !== 'adopted')) return 'the plan has REQs CLike did not adopt: an adopted project evolves with /idea --extend';
+  if (reqs.some((r) => !isAdoptedOrigin(r?.origin))) return 'the plan has REQs CLike did not adopt: an adopted project evolves with /idea --extend';
   // adopted = its baseline REQ and the REQs of its analysis; a baseline alone (the analysis never ended) runs again
   const isBase = (r) => /adopted baseline/.test(String(r?.title || ''));
-  const have = new Set(reqs.filter(isBase).map((r) => r.area).filter((area) => reqs.some((r) => !isBase(r) && r.area === area)));
+  const have = new Set(reqs.filter(isBase).map((r) => r.area).filter((area) => reqs.some((r) => !isBase(r) && reqAreas(r).includes(area))));
   const again = areas.filter((a) => have.has(a.name)).map((a) => a.name);
   return again.length ? `already adopted: ${again.join(', ')} (pick another area with --area <name>)` : '';
 }
+
+// What /adopt writes: its own REQs, and the backlog items it imports (docs/inputs)
+const isAdoptedOrigin = (o) => /^(adopted$|import:)/.test(String(o || ''));
+const reqAreas = (r) => (Array.isArray(r?.areas) ? r.areas : [r?.area]).map((x) => String(x || '').trim()).filter(Boolean);
 
 /** The areas adopted by an earlier /adopt (a baseline REQ and the REQs of its analysis): the next one adds to them. */
 function adoptedAreas(plan) {
   const reqs = Array.isArray(plan?.reqs) ? plan.reqs : [];
   const isBase = (r) => /adopted baseline/.test(String(r?.title || ''));
-  return [...new Set(reqs.filter(isBase).map((r) => r.area))].filter((area) => area && reqs.some((r) => !isBase(r) && r.area === area));
+  return [...new Set(reqs.filter(isBase).map((r) => r.area))].filter((area) => area && reqs.some((r) => !isBase(r) && reqAreas(r).includes(area)));
 }
 
+// Written by an earlier CLike (a copy of the README): still read, never written again
 const ORIGINAL_README = '.clike/adopt/README.original.md';
+const hasClikeSection = (text) => /^#{1,3}\s+made with clike/im.test(String(text || ''));
 
 /**
- * The project's own README, as it was before CLike integrated it: saved once, at the first adoption
- * (from git when the working copy already carries CLike's sections), so that every later /adopt keeps
- * each of its lines while CLike's own sections are updated for the new area. null without a README.
+ * The project's own README, as it was before CLike integrated it — no copy kept: the working copy when
+ * CLike has not integrated it yet, else the latest version in git without CLike's "Made with CLike"
+ * section (an earlier copy in .clike/adopt/ is still read). Every later /adopt keeps each of its lines
+ * while CLike's own sections are updated for the new area. null when it cannot be found (no README,
+ * or integrated without git): the README of the run's start is then the reference.
  */
 function originalReadme(root) {
-  const saved = path.join(root, ...ORIGINAL_README.split('/'));
-  if (fs.existsSync(saved)) return read(saved);
-  let text = exists(root, 'README.md') ? read(root, 'README.md') : null;
-  if (text != null && /^#{1,3}\s+made with clike/im.test(text)) {
-    try {
-      const head = execFileSync('git', ['show', 'HEAD:README.md'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-      if (!/^#{1,3}\s+made with clike/im.test(head)) text = head;
-    } catch { /* not in git */ }
-  }
-  if (text == null) return null;
-  fs.mkdirSync(path.dirname(saved), { recursive: true });
-  fs.writeFileSync(saved, text);
-  return text;
+  const current = exists(root, 'README.md') ? read(root, 'README.md') : null;
+  if (current != null && !hasClikeSection(current)) return current;
+  const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 16 * 1024 * 1024 });
+  try {
+    for (const sha of git('log', '--format=%H', '--', 'README.md').split('\n').filter(Boolean).slice(0, 200)) {
+      let text;
+      try { text = git('show', `${sha}:README.md`); } catch { continue; }   // deleted at that commit
+      if (!hasClikeSection(text)) return text;
+    }
+  } catch { /* not a git repository */ }
+  if (exists(root, ...ORIGINAL_README.split('/'))) return read(root, ...ORIGINAL_README.split('/'));
+  return null;
 }
 
 /** The REQs kept when `areas` are adopted (again): every REQ but the baseline of those areas, written anew. */
@@ -496,8 +529,45 @@ function clikeOwnFiles(root) {
     out = execFileSync('git', ['status', '--porcelain', '-uall', '--', '.clike', 'docs/harper', 'docs/inputs', 'docs/reference', '.gitignore', 'README_1st.md', 'images/clike', BASELINE_PROFILE],
       { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
   } catch { return []; }
-  return out.split('\n').filter(Boolean).map((l) => l.slice(3).replace(/^"|"$/g, '').split(' -> ').pop())
-    .filter((rel) => !/^\.clike\/(sessions|telemetry|eval-check|bin|adopt-guard)\//.test(rel));
+  const entries = out.split('\n').filter(Boolean).map((l) => ({ code: l.slice(0, 2), rel: l.slice(3).replace(/^"|"$/g, '').split(' -> ').pop() }));
+  return entries.filter(({ code, rel }) => {
+    // CLike's local state (sessions, telemetry, the /init hand-off naming this machine's folder)
+    if (/^\.clike\/(sessions|telemetry|eval-check|bin|adopt-guard|adopt)\//.test(rel) || /^\.clike\/last_init_summary[^/]*\.json$/.test(rel)) return false;
+    // docs/inputs and docs/reference hold the developer's documents (/init adds empty folders only)
+    if (/^docs\/(inputs|reference)\//.test(rel)) return code === '??' && /(^|\/)\.gitkeep$/.test(rel);
+    // .gitignore: only when /init created it, or its change is the "# CLike" block it appended
+    if (rel === '.gitignore') return code === '??' || gitignoreChangeIsClike(root);
+    return true;
+  }).map(({ rel }) => rel);
+}
+
+/** The .gitignore change is only the "# CLike" block /init appends (init-merge.js): no line removed, every added line in it. */
+function gitignoreChangeIsClike(root) {
+  let diff = '';
+  try { diff = execFileSync('git', ['diff', '-U0', 'HEAD', '--', '.gitignore'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); } catch { return false; }
+  const lines = diff.split('\n').filter((l) => /^[+-]/.test(l) && !/^(\+\+\+|---) /.test(l));
+  if (lines.some((l) => l.startsWith('-'))) return false;
+  const text = read(root, '.gitignore').split(/\r?\n/);
+  const marker = text.lastIndexOf('# CLike');
+  if (marker < 0) return false;
+  const block = new Set(text.slice(marker).map((l) => l.trim()));
+  return lines.every((l) => !l.slice(1).trim() || block.has(l.slice(1).trim()));
+}
+
+/**
+ * The files of a commit that name this machine: the project's absolute path or the home folder
+ * (a customer name, a user name) — they stay out of the commit. Binary or unreadable files are skipped.
+ */
+function machinePathFiles(root, rels) {
+  const needles = [root, require('os').homedir()].map((p) => String(p || '').replace(/[\\/]+$/, '')).filter((p) => p.length > 3);
+  return (rels || []).filter((rel) => {
+    const full = path.join(root, ...String(rel).split('/'));
+    try {
+      if (!fs.statSync(full).isFile() || fs.statSync(full).size > 8 * 1024 * 1024) return false;
+      const text = fs.readFileSync(full, 'utf8');
+      return needles.some((n) => text.includes(n));
+    } catch { return false; }
+  });
 }
 
 // What /adopt may change in the project: CLike's own files and the root README (integrated, never replaced).
@@ -505,7 +575,12 @@ const adoptWritable = (rel) => rel === 'README.md' || /^(docs\/harper|\.clike|ru
 
 /** The files a run returned, split into what /adopt may write and what it never writes. */
 function writableFiles(files) {
-  const rel = (f) => String(f?.path || '').replace(/^\.?\//, '');
+  // normalized as they are written (safe-workspace.js): `docs/harper/../src/x.py` is `src/x.py`, not writable
+  const rel = (f) => {
+    const raw = String(f?.path || '').replace(/\\/g, '/');
+    const norm = path.posix.normalize(raw.replace(/^(\.\/)+/, ''));
+    return raw.startsWith('/') ? raw : norm;   // absolute, or ../ outside the project: never writable
+  };
   // the survey report and the code map are CLike's own, written before the analysis
   const ok = (f) => adoptWritable(rel(f)) && !/^docs\/harper\/(ADOPT_[^/]+\.md|CODEMAP\.md)$/.test(rel(f));
   return { kept: (files || []).filter(ok), dropped: (files || []).filter((f) => !ok(f)).map(rel) };
@@ -566,7 +641,7 @@ function guardChanges(root, snap) {
 }
 
 module.exports = {
-  CODEMAP, ORIGINAL_README, keptReqs, adoptedAreas, originalReadme, clikeOwnFiles, writableFiles, guardSnapshot, guardChanges, codeMaps, sourceItems, adoptablePlan, baselineReqs, contextDocuments, checkAdoptedPlan, adoptVerificationMarkdown,
+  CODEMAP, ORIGINAL_README, isAdoptedOrigin, machinePathFiles, keptReqs, adoptedAreas, originalReadme, clikeOwnFiles, writableFiles, guardSnapshot, guardChanges, codeMaps, sourceItems, adoptablePlan, baselineReqs, contextDocuments, checkAdoptedPlan, adoptVerificationMarkdown,
   BASELINE_PROFILE, BASELINE_ID, survey, surveyAreas, surveyDocs, surveyCi, surveyGit, areaCommands, areaRuntime,
-  makeTargets, mergeProjectAreas, baselineProfile, memoryItems, reportMarkdown,
+  makeTargets, mergeProjectAreas, effectiveAreas, baselineProfile, memoryItems, reportMarkdown,
 };

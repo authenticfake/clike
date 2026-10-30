@@ -4524,10 +4524,15 @@ async function cmdOpenChat(context) {
           await appendSessionJSONL('harper', { ts: Date.now(), role: 'user', content: `▶ ADOPT${msg.area ? ` --area ${msg.area}` : ''}${msg.dryRun ? ' --dry-run' : ''}`, model: (context.workspaceState.get('clike.uiState') || {}).model || 'auto', attachments: [] });
           say('▶ /adopt: survey of the project (areas, stack, roots, commands, runtimes, CI, documentation, git)…');
           const found = adoptLib.survey(root);
+          // the areas as .clike/project.json has them (what the developer corrected or declared stays and is used)
+          let meta = {};
+          try { meta = JSON.parse(fsSync.readFileSync(projectPath, 'utf8')); } catch { /* template */ }
+          const mergedMeta = adoptLib.mergeProjectAreas(meta, found.areas);
+          found.areas = adoptLib.effectiveAreas(found.areas, mergedMeta.areas);
           const area = String(msg.area || '').trim();
           const picked = area ? found.areas.filter((a) => a.root === area || a.name === area) : found.areas;
           if (area && !picked.length) {
-            say(`✖ /adopt: no area "${area}". Areas found: ${found.areas.map((a) => a.root).join(', ') || 'none'}.`);
+            say(`✖ /adopt: no area "${area}". Areas: ${found.areas.map((a) => `${a.name} (${a.root})`).join(', ') || 'none'}.`);
             return done();
           }
           say(`ℹ /adopt: ${found.areas.length} area(s) — ${found.areas.map((a) => `${a.root} (${a.stack})`).join(', ') || 'the repository root is one project'}; ` +
@@ -4544,9 +4549,7 @@ async function cmdOpenChat(context) {
             return done();
           }
           // the areas, in CLike's own settings (a root or command the developer corrected stays)
-          let meta = {};
-          try { meta = JSON.parse(fsSync.readFileSync(projectPath, 'utf8')); } catch { /* template */ }
-          fsSync.writeFileSync(projectPath, `${JSON.stringify(adoptLib.mergeProjectAreas(meta, found.areas), null, 2)}\n`);
+          fsSync.writeFileSync(projectPath, `${JSON.stringify(mergedMeta, null, 2)}\n`);
           // the baseline: the checks each (picked) area already has, as its team runs them, in the sandbox
           let baseline = null;
           const profile = adoptLib.baselineProfile(picked);
@@ -4760,6 +4763,8 @@ async function cmdOpenChat(context) {
             // eval checks served to a local agent during a repair (removed when it ends)
             '.clike/eval-check/',
             '.clike/bin/',
+            // the /init hand-off (it names the folder of this machine): local, never in the repository
+            '.clike/last_init_summary*.json',
           ];
           const existingIgnore = fsSync.existsSync(gitignorePath) ? fsSync.readFileSync(gitignorePath, 'utf8') : null;
           await writeFileUtf8(gitignorePath, mergeGitignore(existingIgnore, clikeIgnoreRules).text);
@@ -5816,7 +5821,13 @@ async function cmdOpenChat(context) {
               const done = verdict.delta.filter((r) => r.status === 'done').length;
               const message = `✔ /adopt: ${msg.__adopt.areas.length} area(s) adopted — ${ids.length} baseline REQ(s) (${ids.join(', ')}), ` +
                 `${done} capability REQ(s) done, ${verdict.delta.length - done} open. Review ${verdict.report || 'the EXTEND report'} and ${msg.__adopt.surveyReport}. ` +
-                'Next: /idea --extend for the next release.';
+                (() => {
+                  const adoptedNow = new Set([...(msg.__adopt.adoptedBefore || []), ...msg.__adopt.areas.map((x) => x.name)]);
+                  const left = releaseExtend.projectAreas(toFsPath(wsroot)).map((x) => x.name).filter((n) => n && !adoptedNow.has(n));
+                  return left.length
+                    ? `Next: /adopt --area ${left[0]} (still to adopt: ${left.join(', ')}), or /kit an open REQ.`
+                    : 'Next: /idea --extend for the next release, or /kit an open REQ.';
+                })();
               panel.webview.postMessage({ type: 'echo', message });
               await appendSessionJSONL(activeMode, { ts: Date.now(), role: 'system', content: message, model: state.model || 'auto', attachments: [] });
             } else if (msg.__cascade) {
@@ -5936,6 +5947,15 @@ async function cmdOpenChat(context) {
               msg.__acceptanceGoverned = true;
             }
             const settings = cfg();
+            // /adopt: a file naming this machine (the project's absolute path, the home folder) stays out of the commit
+            let machineFiles = [];
+            if (msg.__adopt && msg.__extendCommit) {
+              machineFiles = adoptLib.machinePathFiles(toFsPath(wsroot), [...new Set([..._out.files.map((f) => f.path), ...msg.__extendCommit.files])].map((p) => String(p).replace(/^\.?\//, '')));
+              if (machineFiles.length) {
+                panel.webview.postMessage({ type: 'echo', message: `⚠ /adopt: ${machineFiles.length} file(s) name a folder of this machine and stay out of the commit (remove the path, then commit them): ${machineFiles.slice(0, 10).join(', ')}` });
+              }
+            }
+            const notMachine = (p) => !machineFiles.includes(String(p).replace(/^\.?\//, ''));
             if (settings.gitAutoCommit) {
                try {
                 const synced = await clikeGitSync(
@@ -5944,7 +5964,7 @@ async function cmdOpenChat(context) {
                 targetReqId,
                 [..._out.files.map(f => f.path), ...(msg.__extendCommit?.files || []),
                   // the finalize closes a release: the Harper documents left out of earlier commits go with it
-                  ...(phase === 'finalize' ? finalizeVerify.uncommittedHarperDocs(toFsPath(wsroot)) : [])],
+                  ...(phase === 'finalize' ? finalizeVerify.uncommittedHarperDocs(toFsPath(wsroot)) : [])].filter(notMachine),
                 { workspaceRoot: toFsPath(wsroot), finalizeOpenPr: (phase === 'finalize'),
                   commitMessage: phase === 'finalize' ? finalizeCommitMessage(toFsPath(wsroot), runId) : (msg.__extendCommit?.message || '') },
                 settings,
@@ -7450,7 +7470,13 @@ async function cmdOpenChat(context) {
   activeRunFeed = runs;
   runObserver = runs.observe;
   panel.onDidDispose(() => { if (activeRunFeed === runs) activeRunFeed = null; });
-  const handleWebviewMessage = (msg) => runs.around(msg, () => handleWebviewMessageCore(msg));
+  // runs nobody watches (MCP, autopilot): never a modal question
+  let unattendedRuns = 0;
+  const handleWebviewMessage = (msg) => {
+    if (!(msg && (msg.__fromMcp || msg.__unattended))) return runs.around(msg, () => handleWebviewMessageCore(msg));
+    unattendedRuns += 1;
+    return Promise.resolve(runs.around(msg, () => handleWebviewMessageCore(msg))).finally(() => { unattendedRuns -= 1; });
+  };
 
   // Cockpit (side panel of the cockpit layout, autocompletion in every layout): its messages never
   // touch the busy state, a run in progress stays as it is.
@@ -7475,7 +7501,7 @@ async function cmdOpenChat(context) {
     const out = await ensureProjectMounted({
       root,
       getRoots: () => getEvalRoots(),
-      unattended: Boolean(autopilotRun),
+      unattended: Boolean(autopilotRun) || unattendedRuns > 0,
       declined: declinedMounts,
       stackDir: String(vscode.workspace.getConfiguration('clike').get('stackDir', '') || ''),
       ask: async (dir) => (await vscode.window.showWarningMessage(

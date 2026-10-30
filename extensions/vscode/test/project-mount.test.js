@@ -18,6 +18,11 @@ test('isWithin: the folder or below it, never a sibling with the same prefix', (
   assert.equal(isWithin('/u/dev/authenticfake', ['/u/dev/authenticfake/']), true);
   assert.equal(isWithin('/u/dev/authenticfake2/x', ['/u/dev/authenticfake']), false);
   assert.equal(isWithin('/u/dev/comau/core/foundation', ['/u/dev/authenticfake']), false);
+  // a project opened through a symlink: compared as mount-project.sh stores it (pwd -P)
+  const real = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'clike-real-')));
+  const link = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'clike-link-')), 'proj');
+  fs.symlinkSync(real, link);
+  assert.equal(isWithin(link, [real]), true);
 });
 
 test('ensureProjectMounted: readable → nothing; outside → asked, the script mounts that folder, the stack lists it', async () => {

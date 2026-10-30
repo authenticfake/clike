@@ -165,15 +165,35 @@ test('adoptablePlan: a new plan, or adopted area by area without the same area t
   assert.match(a.adoptablePlan({ reqs: [{ id: 'REQ-001', origin: 'harper' }] }, [gw]), /did not adopt/);
 });
 
-test('contextDocuments: the survey report, the agent context files and the READMEs, cut', () => {
+test('contextDocuments: the README and the run guide whole (they are returned integrated), the other documents cut', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'clike-adopt-docs-'));
   fs.mkdirSync(path.join(root, 'gateway'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'docs', 'harper'), { recursive: true });
   fs.writeFileSync(path.join(root, 'README.md'), 'r'.repeat(100));
-  fs.writeFileSync(path.join(root, 'gateway', 'README.md'), '# gw');
+  fs.writeFileSync(path.join(root, 'docs', 'harper', 'HOWTO_RUN.md'), 'h'.repeat(100));
+  fs.writeFileSync(path.join(root, 'gateway', 'README.md'), 'g'.repeat(100));
   fs.writeFileSync(path.join(root, 'gateway', 'AGENTS.md'), '# rules');
   const docs = a.contextDocuments(root, { agentContext: [] }, [{ ...gw, agentContext: ['gateway/AGENTS.md'] }], 'docs/harper/ADOPT_x.md', 50);
-  assert.deepEqual(docs.map((d) => d.path), ['README.md', 'gateway/AGENTS.md', 'gateway/README.md']);
-  assert.match(docs[0].text, /cut: the rest is in the project memory/);
+  assert.deepEqual(docs.map((d) => d.path), ['README.md', 'docs/harper/HOWTO_RUN.md', 'gateway/AGENTS.md', 'gateway/README.md']);
+  assert.deepEqual(docs.filter((d) => d.integrate).map((d) => d.text.length), [100, 100]);
+  assert.match(docs[3].text, /cut: the rest is in the project memory/);
+});
+
+test('adopt: what a model may write is checked as it is written (normalized), origins of the import count as adopted, areas as declared', () => {
+  const w = a.writableFiles([{ path: 'docs/harper/../../src/app.py' }, { path: 'runs/../setup.py' }, { path: 'docs/harper/../x.md' },
+    { path: './docs/harper/SPEC.md' }, { path: '/etc/x' }, { path: 'docs/harper/../../../x' }, { path: 'README.md' }]);
+  assert.deepEqual(w.kept.map((f) => f.path), ['./docs/harper/SPEC.md', 'README.md']);
+  assert.deepEqual(w.dropped, ['src/app.py', 'setup.py', 'docs/x.md', '/etc/x', '../x']);
+  const x = { name: 'x', root: 'x', stack: 'python', runtime: {}, commands: { check: 'make check' } };
+  const reqs = [...a.baselineReqs([x]).reqs, { id: 'REQ-002', areas: ['x', 'y'], origin: 'import:backlog:W-1', title: 'W-1' }];
+  assert.equal(a.adoptablePlan({ reqs }, [{ name: 'y' }]), '');                    // a backlog item does not block the next area
+  assert.deepEqual(a.adoptedAreas({ reqs }), ['x']);                                 // its REQ names the area in areas[]
+  assert.match(a.adoptablePlan({ reqs: [...reqs, { id: 'REQ-003', origin: 'harper' }] }, [{ name: 'y' }]), /did not adopt/);
+  // the areas of .clike/project.json: a corrected command is used, an area declared by hand can be adopted
+  const eff = a.effectiveAreas([{ ...x, agentContext: ['x/AGENTS.md'] }], [{ name: 'x', root: 'x', commands: { check: 'make test-all' } }, { name: 'root', root: '.' }]);
+  assert.equal(eff[0].commands.check, 'make test-all');
+  assert.deepEqual(eff[0].agentContext, ['x/AGENTS.md']);
+  assert.deepEqual([eff[1].name, eff[1].root, eff[1].stack], ['root', '.', 'unknown']);
 });
 
 test('adopt: a nested area is named by its path; an adoption that stopped before its analysis runs again', () => {

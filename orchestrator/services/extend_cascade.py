@@ -253,12 +253,20 @@ def adopt_documents(opts: Dict[str, Any], limit: int = 400000) -> List[str]:
     if str(opts.get("mode") or "").lower() != "adopt":
         return []
     docs = [d for d in (opts.get("documents") or []) if isinstance(d, dict) and str(d.get("text") or "").strip()]
+    # the README and the run guide are returned integrated: given whole, before the budget counts the rest
+    whole = [d for d in docs if d.get("integrate")]
+    head: List[str] = []
+    for d in whole:
+        head += ["", f"### Document to integrate: {str(d.get('path') or '').strip()}", "", str(d.get("text")).rstrip()]
+    if head:
+        head = ["", "### Documents to integrate (return each whole: every existing line kept, CLike's sections added "
+                "or updated)"] + head
     out: List[str] = []
     used = 0
-    for d in docs:
+    for d in [d for d in docs if not d.get("integrate")]:
         text = str(d.get("text"))
         if used + len(text) > limit:
             break
         used += len(text)
         out += ["", f"### Project document: {str(d.get('path') or '').strip()}", "", text.rstrip()]
-    return (["", "### Project documents (read-only: describe them, never rewrite them)"] + out) if out else []
+    return head + ((["", "### Project documents (read-only: describe them, never rewrite them)"] + out) if out else [])

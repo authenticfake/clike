@@ -69,7 +69,7 @@ With no parameters, `/init` initializes the folder open in VS Code, in place. It
 
 Run it once per area (or once for all of them). Steps 1–3 run with no model, the same with any
 executor: the areas are written to `.clike/project.json` (CLike's own file; a root or command you
-correct there is kept by the next `/adopt`), the baseline profile to `runs/adopt/ci/LTC.json`. The
+correct there, or an area you declare there by hand, is kept and used by the next `/adopt`), the baseline profile to `runs/adopt/ci/LTC.json`. The
 baseline runs each area's own setup and check (from its Makefile, scripts or CI) on a copy of the
 project in the eval sandbox, on the runtime versions the area requires. Steps 4–5 run with the model
 the chat uses: a local agent reads the repository itself; a cloud model gets the survey report with
@@ -121,7 +121,8 @@ replaces only a project-wide statement the new area changes (the areas, the arch
 between areas, the coverage counts) or an open point the new code answers, and lists each replacement in
 its report under *Changes to the earlier adoption*. A document that loses a section of an earlier area
 is put back. In the README, CLike's own sections are updated for the new area, while every line of the
-team's README (saved at the first adoption in `.clike/adopt/README.original.md`) stays. The analysis runs on a
+team's README stays: its version before CLike, found in git (the latest without "Made with CLike"; no
+copy is kept), and every line the team added later to its own sections. The analysis runs on a
 plan without REQs or one adopted this way; a project already planned with CLike evolves with
 `/idea --extend`.
 
@@ -130,7 +131,10 @@ What `/adopt` writes in the plan: one **baseline REQ** per area (`REQ-001`…, s
 is locked as its acceptance; then the capability REQs with their `area`, `done` with `covered_by`
 the baseline REQ, or `open`. The commit `docs(harper): adopt …` holds the Harper documents (with
 `CODEMAP.md`, `HOWTO_RUN.md` and the lane guides), the root `README.md`, `.clike/project.json`, the
-reports and the baseline LTCs.
+reports and the baseline LTCs. CLike's local state stays out of it (the `/init` hand-off
+`.clike/last_init_summary*.json`, which names this machine's folder, is git-ignored), the documents
+you keep in `docs/inputs/` and `docs/reference/` too (commit them yourself), and a file naming a folder of this
+machine (the project's absolute path, the home folder) is left out and named in the chat.
 `--dry-run` writes only the report.
 
 **Git.** With CLike's auto-commit on, the adoption is one commit `docs(harper): adopt …` on the

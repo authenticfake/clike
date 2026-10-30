@@ -147,7 +147,25 @@ function compareMarkdown(before, after) {
 function missingLines(before, after) {
   const norm = (l) => l.trim().replace(/\s+/g, ' ');
   const kept = new Set(String(after || '').split(/\r?\n/).map(norm));
-  return String(before || '').split(/\r?\n/).map(norm).filter((l) => l && !kept.has(l));
+  return [...new Set(String(before || '').split(/\r?\n/).map(norm).filter((l) => l && !kept.has(l)))];
+}
+
+/**
+ * The README lines an /adopt must keep: every line of the team's README before CLike (`original`), and
+ * every line the README has now in the team's own sections (a heading the original has) — what the
+ * team added after the adoption too. CLike's own sections (the headings it added) may be updated.
+ */
+function teamReadme(original, current) {
+  if (original == null) return current;
+  const own = new Set([...sections(original).keys()]);
+  const kept = [];
+  let heading = '(preamble)';
+  for (const line of String(current || '').split(/\r?\n/)) {
+    const m = line.match(/^(#{1,3})\s+(.+?)\s*$/);
+    if (m) heading = `${m[1]} ${m[2]}`;
+    if (own.has(heading) && heading !== '(preamble)') kept.push(line);
+  }
+  return `${original}\n${kept.join('\n')}`;
 }
 
 /** TECH_CONSTRAINTS changes only by addition: every earlier non-empty line is still there. */
@@ -605,12 +623,15 @@ function reconcileExtend({ root, before, files, isAgent, mode = 'plan', cascade 
   if (adopting) {
     // the root README is integrated, never replaced: every existing section stays (else it is put back)
     const readme = current(ADOPT_FILES.readme);
-    if (readme == null || readme === before.readme) {
+    if (readme == null && before.readme != null && isAgent) {   // cloud: a README not returned is unchanged
+      put(ADOPT_FILES.readme, before.readme);
+      warnings.push('README.md was deleted by the run: restored — integrate, never replace');
+    } else if (readme == null || readme === before.readme) {
       warnings.push('README.md was not integrated: run /adopt again, or /finalize integrates it');
     } else {
       // and every existing line, word for word: the team's content is never rewritten or lost
       // the team's lines: of the README before CLike's first adoption (CLike's own sections are updated for a new area)
-      const original = cascade.originalReadme != null ? cascade.originalReadme : before.readme;
+      const original = cascade.originalReadme != null ? teamReadme(cascade.originalReadme, before.readme) : before.readme;
       docs.readme = { ...compareMarkdown(before.readme, readme), lost: missingLines(original, readme) };
       if (docs.readme.lost.length) docs.readme.ok = false;
       if (!docs.readme.ok) {
@@ -729,6 +750,7 @@ function tagBaseline(root, baseline) {
 module.exports = {
   ADOPT_FILES,
   missingLines,
+  teamReadme,
   checkAreas,
   projectAreas,
   registerAreas,

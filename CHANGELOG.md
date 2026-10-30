@@ -65,6 +65,22 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **`/adopt`, reviewed**:
+  - **Write filter:** a returned path is checked as it is written, so `docs/harper/../src/x` is never
+    written.
+  - **Backlog:** a backlog item the first area imported no longer blocks the next area.
+  - **Cloud model:** it gets the root README and the run guide whole, so their integration no longer
+    loses their tail.
+  - **README:** a README a local agent deletes is put back. The team's README is found in git, with no
+    copy in `.clike/`, and the lines the team adds later to its own sections are kept.
+  - **Areas:** the areas of `.clike/project.json` are used as you corrected or declared them.
+  - **Mount:** a project opened through a symlink is recognised, and an MCP run is never asked to mount.
+  - **The adoption commit leaves out:** CLike's local state, your documents in `docs/inputs/` and
+    `docs/reference/`, a `.gitignore` change that is not CLike's, and any file naming a folder of this
+    machine.
+  - **Next step:** the cockpit and the outcome no longer propose `/finalize` in a project only adopted.
+    They propose the next area, the analysis to run again, or the next release.
+
 - **`/adopt` checks**: a journey across areas may name areas of the project not adopted yet, without a
   warning. Every adopted REQ lists the SPEC use-case steps it realizes (`covers`), so the coverage check
   no longer reports every step as uncovered.

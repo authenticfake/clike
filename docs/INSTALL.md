@@ -64,6 +64,7 @@ curl -s http://127.0.0.1:8080/health && curl -s http://127.0.0.1:8000/health
 ```
 
 Services listen on `127.0.0.1` only. After an update: `cd docker && ./rebuild.sh` (cached build, recreated containers, health and image check; the eval tools are restored from their lock). `./rebuild.sh --update-tools` also updates the eval tools to their latest versions and prints what changed.
+With projects mounted by `mount-project.sh`, restart the stack with `./rebuild.sh` (or `./rebuild.sh --no-build`): a plain `podman-compose up` does not read `compose.projects.yml` unless given `-f docker-compose.yml -f compose.projects.yml`.
 
 ## 4. VS Code extension
 

@@ -2,7 +2,9 @@
 #
 #   cp docker/.env.example docker/.env   # set CLIKE_PROJECTS_DIR once
 #   ./mount-project.sh add <folder>      # one more project, outside it, read-only (or: the extension asks)
-#   cd docker && podman-compose up -d --build
+#   cd docker && ./rebuild.sh            # build and start (keeps the projects mount-project.sh added)
+#   cd docker && podman-compose up -d --build   # the same without them: with mounted projects add
+#                                        #   -f docker-compose.yml -f compose.projects.yml
 #   cd docker && podman-compose --profile ollama up -d   # optional local models
 #
 # Ports are published on loopback only (localhost deployment, decision D2).
