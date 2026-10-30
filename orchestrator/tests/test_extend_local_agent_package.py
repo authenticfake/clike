@@ -327,3 +327,11 @@ def test_cascade_reads_the_release_folder_and_the_attachments_together(tmp_path)
     assert "docs/inputs/v2/IDEA_EXTEND_R2.md — role: requirements — release v2" in prompt
     assert "runs/extend/attachments/pricing.md" in prompt
     assert any(f["path"] == "runs/extend/attachments/pricing.md" for f in _materialized(package))
+
+
+def test_cascade_with_areas_names_the_area_of_every_new_req():
+    areas = [{"name": "aigateway", "root": "aigateway"}, {"name": "portal", "root": "portal"}]
+    prompt = _package({"runId": "ext-run", "extend": {"mode": "cascade", "release": "v2", "baseline": "v1", "areas": areas}})["local_agent"]["prompt_content"]
+    assert "aigateway (root aigateway); portal (root portal)" in prompt and "new_area" in prompt
+    plain = _package({"runId": "ext-run", "extend": {"mode": "cascade", "release": "v2", "baseline": "v1"}})["local_agent"]["prompt_content"]
+    assert "Areas of the project" not in plain and "new_area" not in plain

@@ -164,7 +164,7 @@ function compareAdditive(before, after) {
  * `ltcChecks(reqId)` returns the check ids of runs/kit/<REQ>/ci/LTC.json (or null when unknown).
  * Missing `release` is filled in (returned in `planText`); the rest are errors or warnings.
  */
-function validateDelta({ beforeText, planText, release, ltcChecks = () => null, testOwner = () => '' }) {
+function validateDelta({ beforeText, planText, release, ltcChecks = () => null, testOwner = () => '', areas = [] }) {
   const errors = [];
   const warnings = [];
   let plan;
@@ -230,7 +230,71 @@ function validateDelta({ beforeText, planText, release, ltcChecks = () => null, 
     }
   }
   if (!delta.length) errors.push('the cascade added no REQ');
-  return { ok: errors.length === 0, errors, warnings, delta, planText: filled ? `${JSON.stringify(plan, null, 2)}\n` : planText };
+  const newAreas = checkAreas(delta, areas, errors, warnings);
+  return { ok: errors.length === 0, errors, warnings, delta, newAreas, planText: filled ? `${JSON.stringify(plan, null, 2)}\n` : planText };
+}
+
+/**
+ * A project of areas (.clike/project.json "areas"): every new REQ names the area it changes — `area`, or
+ * `areas` for a journey across them — an existing one or a new module declared once with `new_area`
+ * ({ root, source, tests, commands, runtime }). Returns the new areas (to register); without areas, nothing.
+ */
+function checkAreas(delta, areas, errors, warnings) {
+  const known = (Array.isArray(areas) ? areas : []).filter((a) => a && a.name);
+  if (!known.length) return [];
+  const names = new Set(known.map((a) => String(a.name)));
+  const roots = new Set(known.map((a) => String(a.root || '').replace(/\/+$/, '')));
+  const added = new Map();
+  for (const r of delta) {
+    const decl = r.new_area && typeof r.new_area === 'object' ? r.new_area : null;
+    if (!decl) continue;
+    const name = String(decl.name || r.area || '').trim();
+    const root = String(decl.root || '').trim().replace(/^\.?\//, '').replace(/\/+$/, '');
+    if (!name) { errors.push(`${r.id}: new_area without a name (set "area" or new_area.name)`); continue; }
+    if (names.has(name)) { errors.push(`${r.id}: new_area ${name} is an existing area: name it in "area" only`); continue; }
+    if (!root || root.startsWith('/') || root.split('/').includes('..')) { errors.push(`${r.id}: new_area ${name} needs a repository folder as root (e.g. "${name}")`); continue; }
+    if (roots.has(root) || [...roots].some((x) => x && (root.startsWith(`${x}/`) || x.startsWith(`${root}/`)))) {
+      errors.push(`${r.id}: new_area ${name} root ${root} overlaps an existing area`); continue;
+    }
+    const commands = decl.commands && typeof decl.commands === 'object' ? decl.commands : {};
+    if (!commands.check && !commands.test) warnings.push(`${r.id}: new area ${name} has no check or test command — its checks will not run until .clike/project.json has one`);
+    added.set(name, {
+      name, root,
+      source: Array.isArray(decl.source) && decl.source.length ? decl.source.map(String) : [root],
+      tests: Array.isArray(decl.tests) ? decl.tests.map(String) : [],
+      commands,
+      ...(decl.runtime && typeof decl.runtime === 'object' && Object.keys(decl.runtime).length ? { runtime: decl.runtime } : {}),
+    });
+  }
+  const list = [...names].join(', ');
+  for (const r of delta) {
+    const own = (Array.isArray(r.areas) ? r.areas : [r.area]).map((x) => String(x || '').trim()).filter(Boolean);
+    if (!own.length) { errors.push(`${r.id}: no area — this project has areas (${list}): "area": "<name>", "areas" for a journey across them, or a new module with "new_area"`); continue; }
+    for (const a of own) if (!names.has(a) && !added.has(a)) errors.push(`${r.id}: area ${a} is not an area of the project (${list}) and no new REQ declares it with new_area`);
+  }
+  return [...added.values()];
+}
+
+/** The areas of .clike/project.json ([] for a project without areas). */
+function projectAreas(root) {
+  try {
+    const meta = JSON.parse(fs.readFileSync(path.join(root, '.clike', 'project.json'), 'utf8'));
+    return Array.isArray(meta.areas) ? meta.areas : [];
+  } catch { return []; }
+}
+
+/** The new modules of a release added to .clike/project.json (an area already there stays as it is). */
+function registerAreas(root, newAreas) {
+  if (!newAreas || !newAreas.length) return false;
+  const file = path.join(root, '.clike', 'project.json');
+  let meta = {};
+  try { meta = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* none */ }
+  const areas = Array.isArray(meta.areas) ? meta.areas : [];
+  const fresh = newAreas.filter((a) => !areas.some((x) => x.name === a.name || x.root === a.root));
+  if (!fresh.length) return false;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `${JSON.stringify({ ...meta, areas: [...areas, ...fresh] }, null, 2)}\n`);
+  return true;
 }
 
 /** The amended REQ a test id without prefix belongs to: its number in the path, its KIT tests, the only one. */
@@ -515,7 +579,7 @@ function reconcileExtend({ root, before, files, isAgent, mode = 'plan', cascade 
     : validateExtendPlan({ beforeText: before.plan, afterText: current(PLAN_FILES.plan) });
   const delta = adopting ? { ok: checked.ok, errors: [], warnings: [], delta: checked.summary, planText: checked.planText } : verdict.ok
     ? validateDelta({ beforeText: before.plan, planText: verdict.planText, release: cascade.release, ltcChecks: (id) => ltcCheckIds(root, id),
-      testOwner: (ref, amends) => kitTestOwner(root, ref, amends) })
+      testOwner: (ref, amends) => kitTestOwner(root, ref, amends), areas: cascade.areas || [] })
     : { ok: false, errors: [], warnings: [], delta: [], planText: null };
   const errors = [...verdict.errors, ...delta.errors];
   warnings.push(...verdict.warnings, ...delta.warnings);
@@ -622,7 +686,7 @@ function reconcileExtend({ root, before, files, isAgent, mode = 'plan', cascade 
   const merged = `${String(text).replace(/\s+$/, '')}\n${section}`;
   if (find(report)) find(report).content = merged; else files.push({ path: report, content: merged });
   if (isAgent) fs.writeFileSync(path.join(root, ...report.split('/')), merged, 'utf8');
-  return { ok: true, errors: [], warnings, delta: delta.delta, restored: verdict.restored, docs, report };
+  return { ok: true, errors: [], warnings, delta: delta.delta, newAreas: delta.newAreas || [], restored: verdict.restored, docs, report };
 }
 
 /**
@@ -649,6 +713,9 @@ function tagBaseline(root, baseline) {
 module.exports = {
   ADOPT_FILES,
   missingLines,
+  checkAreas,
+  projectAreas,
+  registerAreas,
   reconcileExtend,
   keepRejected,
   syncPlanMd,

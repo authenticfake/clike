@@ -155,6 +155,53 @@ is blocked; a change made on purpose is declared (see `/idea --extend` and `/eva
 [commands](commands.md)). `/finalize` verifies the whole solution, journey by journey, and writes the
 README in CLike's style **integrating the existing one**: every section it had stays.
 
+**Releases, one folder each.** The adoption is `v1`; the needs of the next release go in
+`docs/inputs/v2/` (background in `docs/reference/v2/`), the one after in `docs/inputs/v3/`, and so
+on. `/idea --extend` reads the folder of the release it targets as its requirements and the earlier
+ones as history. One file per need reads best: what it is for, what changes, the acceptance criteria,
+what is out of scope.
+
+**Extending an existing module.** Name the area in the input (`Area: aigateway`) and say what changes
+in what it already does. Every new REQ gets its `area` (or `areas`, for a journey across modules); a
+change to behaviour a delivered REQ verifies becomes a `MODIFIED` REQ that amends it and declares the
+checks it supersedes, the rest are `ADDED` REQs through the module's existing seams.
+
+```markdown
+# aigateway — token budget per tenant
+Area: aigateway
+## What changes
+Today a call over the rate limit is slowed down; from this release, over the monthly budget it is refused (429).
+## Acceptance
+- GET /v1/tenants/{id}/usage returns the month's usage and budget.
+- A call over the budget answers 429 without calling the provider.
+## Out of scope
+Billing.
+```
+
+**A new module.** Say it is a new area, its folder at the repository root, its stack, who it calls and
+who calls it, and that it has a check command like the others. The first REQ of the new area declares
+it (`new_area`: folder, source, tests, commands); its scaffold — manifest, check command, tests — is
+part of that REQ's acceptance. When the release is accepted CLike adds the area to
+`.clike/project.json` (in the release commit), so `/kit`, `/eval` and `/gate` run it as any other
+area.
+
+```markdown
+# New module: notifications
+New area: notifications (folder notifications/, Python, the stack of aigateway)
+## Role
+Listens to the foundation events and notifies users on Teams and by e-mail.
+## Interfaces
+- Consumes tenant.budget.warning (from aigateway).
+- Exposes GET/PUT /v1/users/{id}/preferences (called by the portal).
+## Acceptance
+- A tenant.budget.warning event notifies the tenant admins.
+- It has its own tests and a `make check`, as the other areas.
+```
+
+CLike checks the plan: in a project of areas a new REQ without an area, an area that does not exist
+and no REQ declares, or a new area inside an existing one rejects the release (the documents are
+restored). A project without areas works as before: no area is asked.
+
 ### 5. When the code moves outside CLike
 
 ```text

@@ -58,6 +58,19 @@ class ExtendRouteTests(unittest.TestCase):
         self.assertIn("Release cascade (/idea --extend)", prompt)
         self.assertIn("target release: v2", prompt)
 
+    def test_cascade_areas_reach_the_cloud_prompt_on_every_provider(self):
+        extend = {"mode": "cascade", "release": "v2", "baseline": "v1",
+                  "areas": [{"name": "aigateway", "root": "aigateway", "commands": {"check": "make check"}}]}
+        for model in ("openai:gpt-5.4-mini", "anthropic:claude-sonnet-5-5"):
+            response, prompt = self._run(extend, model=model)
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertIn("Areas of the project (.clike/project.json): aigateway (root aigateway)", prompt)
+            self.assertIn("new_area", prompt)
+        # a project without areas: the cascade as before
+        response, prompt = self._run({"mode": "cascade", "release": "v2", "baseline": "v1"})
+        self.assertNotIn("Areas of the project", prompt)
+        self.assertNotIn("new_area", prompt)
+
     def test_adopt_rules_and_documents_reach_the_cloud_prompt_on_every_provider(self):
         extend = {"mode": "adopt", "survey_report": "docs/harper/ADOPT_2026-10-28.md",
                   "areas": [{"name": "aigateway", "root": "aigateway", "baseline_req": "REQ-001"}],

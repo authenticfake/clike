@@ -512,3 +512,56 @@ test('/adopt reconcile: the documents over the templates are kept; a rejected an
   assert.ok(rej.kept && fs.existsSync(path.join(bad.root, rej.kept, 'docs/harper/lane-guides/python.md')));
   for (const r of [ok.root, bad.root]) fs.rmSync(r, { recursive: true, force: true });
 });
+
+test('a project of areas: every new REQ names its area; a new module is declared once and registered; no areas, as before', () => {
+  const areas = [{ name: 'aigateway', root: 'aigateway' }, { name: 'portal', root: 'portal' }];
+  const errors = [];
+  const warnings = [];
+  const added = re.checkAreas([
+    { id: 'REQ-020', area: 'aigateway' },
+    { id: 'REQ-021', areas: ['aigateway', 'notifications'] },
+    { id: 'REQ-022', area: 'notifications', new_area: { root: 'notifications', commands: { check: 'make check' } } },
+  ], areas, errors, warnings);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(added, [{ name: 'notifications', root: 'notifications', source: ['notifications'], tests: [], commands: { check: 'make check' } }]);
+
+  const bad = [];
+  re.checkAreas([
+    { id: 'REQ-030' },
+    { id: 'REQ-031', area: 'billing' },
+    { id: 'REQ-032', area: 'x', new_area: { root: 'portal/x' } },
+    { id: 'REQ-033', area: 'portal', new_area: { root: 'p2' } },
+  ], areas, bad, []);
+  assert.match(bad[0], /REQ-032: new_area x root portal\/x overlaps an existing area/);
+  assert.match(bad[1], /REQ-033: new_area portal is an existing area/);
+  assert.match(bad[2], /REQ-030: no area — this project has areas \(aigateway, portal\)/);
+  assert.match(bad[3], /REQ-031: area billing is not an area of the project/);
+  assert.ok(bad.some((e) => /REQ-032: area x is not an area/.test(e)));
+
+  // without areas nothing is required
+  const none = [];
+  assert.deepEqual(re.checkAreas([{ id: 'REQ-040' }], [], none, []), []);
+  assert.deepEqual(none, []);
+
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'clike-areas-')));
+  fs.mkdirSync(path.join(root, '.clike'));
+  fs.writeFileSync(path.join(root, '.clike', 'project.json'), JSON.stringify({ name: 'f', areas }));
+  assert.equal(re.registerAreas(root, added), true);
+  assert.equal(re.registerAreas(root, added), false);   // once
+  const meta = JSON.parse(fs.readFileSync(path.join(root, '.clike', 'project.json'), 'utf8'));
+  assert.deepEqual(meta.areas.map((a) => a.name), ['aigateway', 'portal', 'notifications']);
+  assert.equal(meta.name, 'f');
+  assert.deepEqual(re.projectAreas(root).length, 3);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('validateDelta: with areas a REQ without one is an error, a new module comes back to register', () => {
+  const before = JSON.stringify({ reqs: [{ id: 'REQ-001', status: 'done', area: 'aigateway' }] });
+  const plan = (r) => JSON.stringify({ reqs: [{ id: 'REQ-001', status: 'done', area: 'aigateway' }, { id: 'REQ-002', status: 'open', change: 'ADDED', ...r }] });
+  const areas = [{ name: 'aigateway', root: 'aigateway' }];
+  assert.match(re.validateDelta({ beforeText: before, planText: plan({}), release: 'v2', areas }).errors.join(), /REQ-002: no area/);
+  const ok = re.validateDelta({ beforeText: before, planText: plan({ area: 'notifications', new_area: { root: 'notifications', commands: { test: 'pytest' } } }), release: 'v2', areas });
+  assert.equal(ok.ok, true, ok.errors.join('; '));
+  assert.equal(ok.newAreas[0].root, 'notifications');
+  assert.equal(re.validateDelta({ beforeText: before, planText: plan({}), release: 'v2' }).ok, true);   // no areas: as before
+});

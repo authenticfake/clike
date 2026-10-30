@@ -4884,7 +4884,9 @@ async function cmdOpenChat(context) {
                 `${baselineInfo.notDone.slice(0, 8).join(', ')}. The new release builds on what is delivered.`, go);
               if (!ok) return stop(`REQs not delivered: ${baselineInfo.notDone.join(', ')}${msg.__fromMcp ? ' (MCP: pass confirm=true to extend anyway)' : ''}`);
             }
-            msg.__cascade = { ...rel, baselineInfo, dryRun: !!msg.dryRun, attachments: (msg.attachments || []).map((a) => a?.name || a?.path).filter(Boolean) };
+            msg.__cascade = { ...rel, baselineInfo, dryRun: !!msg.dryRun, attachments: (msg.attachments || []).map((a) => a?.name || a?.path).filter(Boolean),
+              // a project of areas: every new REQ names its area, a new module is declared and registered
+              areas: releaseExtend.projectAreas(root) };
             panel.webview.postMessage({ type: 'echo', message: `▶ /idea --extend: ${rel.baseline} → ${rel.release}` +
               ` (inputs: ${[...msg.__cascade.attachments, ...rel.inputs, ...rel.references].join(', ')})${msg.dryRun ? ' — dry run' : ''}` });
           }
@@ -5465,6 +5467,9 @@ async function cmdOpenChat(context) {
                 release: msg.__cascade.release,
                 baseline: msg.__cascade.baseline,
                 dryRun: !!msg.__cascade.dryRun,
+                ...(msg.__cascade.areas && msg.__cascade.areas.length ? {
+                  areas: msg.__cascade.areas.map((a) => ({ name: a.name, root: a.root, commands: a.commands || {} })),
+                } : {}),
               } : {}),
               // /adopt: the same cascade, describing the project as it is (adopt.js; rules in extend_cascade.py)
               ...(msg.__adopt ? {
@@ -5785,9 +5790,13 @@ async function cmdOpenChat(context) {
             } else if (msg.__cascade) {
               // the delivered baseline gets its tag before the release changes the documents
               const tag = msg.__cascade.dryRun ? '' : releaseExtend.tagBaseline(root, msg.__cascade.baseline);
+              const registered = !msg.__cascade.dryRun && releaseExtend.registerAreas(root, verdict.newAreas);
+              if (registered) {
+                panel.webview.postMessage({ type: 'echo', message: `✔ /idea --extend: new area(s) in .clike/project.json — ${verdict.newAreas.map((a) => `${a.name} (${a.root})`).join(', ')}` });
+              }
               if (!msg.__cascade.dryRun) {
                 msg.__extendCommit = {
-                  files: releaseExtend.cascadeCommitFiles(root, msg.__cascade.release),
+                  files: [...releaseExtend.cascadeCommitFiles(root, msg.__cascade.release), ...(registered ? ['.clike/project.json'] : [])],
                   message: releaseExtend.cascadeCommitMessage({ ...msg.__cascade, delta: verdict.delta }, runId),
                 };
               }

@@ -34,6 +34,12 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   repository any other file the run changes, creates or deletes is put back as it was (the
   developers' uncommitted changes included), what the run left kept aside in `.clike/adopt-guard/`.
 
+- **`/idea --extend` in a project of areas**: the model gets the areas of `.clike/project.json`; every
+  new REQ names its `area` (or `areas` for a journey across modules), a new module is declared once
+  with `new_area` (folder, source, tests, commands) and registered in `.clike/project.json` with the
+  release commit. A REQ without an area, an unknown area or a new area inside an existing one rejects
+  the plan. A project without areas works as before. The same rules on cloud and local agents.
+
 ### Security
 
 - **Extension build tools without known vulnerabilities**: `@azure/msal-node` 7.1.2 (an override

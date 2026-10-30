@@ -148,6 +148,12 @@ IDEA → SPEC → PLAN in continuity with what exists:
   wrote is kept under `runs/extend/rejected/<time>/` for comparison.
   The PLAN.md sections that index every REQ (REQ-IDs table, dependency graph, test strategy, KIT
   readiness) list the new REQs too: CLike adds any the agent left out.
+- **Areas (a monorepo of modules).** When `.clike/project.json` declares `areas`, every new REQ
+  names its `area` (`areas` for a journey across modules). A new module is a new area: its first REQ
+  declares it with `new_area` (`root`, `source`, `tests`, `commands`) and CLike adds it to
+  `.clike/project.json` when the release is accepted. A REQ without an area, an unknown area or a new
+  area inside an existing one rejects the plan. Without `areas` nothing changes. Examples:
+  [Bringing an existing project into CLike](adopt.md#4-evolve-it--as-any-clike-project).
 - **BMAD.** `--methodology bmad --agent analyst|pm|architect|ux` works on the cascade (default role
   `pm`): the role leads the angle, CLike's rules and checks stay in charge (see
   `integrations/bmad/COMMANDS.md`).

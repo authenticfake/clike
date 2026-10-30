@@ -165,6 +165,31 @@ def cascade_rules(opts: Dict[str, Any]) -> List[str]:
         "changes (sections added or changed, and why); the delta table (REQ, change, title, amends / retires "
         "/ supersedes, dependsOn); impact on delivered REQs (areas and files touched); behaviors that stay "
         "unchanged; open questions; risks. CLike appends its own verification section.",
+        *area_rules(opts),
+    ]
+
+
+def area_rules(opts: Dict[str, Any]) -> List[str]:
+    """A project of areas (.clike/project.json): every new REQ names its area; a new module is declared once.
+    A project without areas gets no rule (the cascade is as before)."""
+    areas = [a for a in (opts.get("areas") or []) if isinstance(a, dict) and a.get("name")]
+    if not areas:
+        return []
+    shown = "; ".join(f"{a.get('name')} (root {a.get('root')})" for a in areas)
+    return [
+        f"Areas of the project (.clike/project.json): {shown}. Every new REQ names the area it changes: "
+        "`\"area\": \"<name>\"`, or `\"areas\": [\"<a>\", \"<b>\"]` for a journey across areas. An input that extends "
+        "an existing module works in its area, through its existing seams and contracts; the interfaces between "
+        "areas it changes are in SPEC (interfaces) and in the REQs of both areas.",
+        "A new module is a new area: its folder at the repository root (a sibling of the others, never inside "
+        "one), the stack and conventions of the closest existing area unless the input says otherwise. The first "
+        "REQ of the new area declares it once: `\"area\": \"<name>\"`, `\"new_area\": {\"root\": \"<folder>\", "
+        "\"source\": [\"<folder>/src\"], \"tests\": [\"<folder>/tests\"], \"commands\": {\"setup\": \"...\", "
+        "\"check\": \"...\", \"test\": \"...\"}}` (the commands the area's own Makefile or manifest will run, as the "
+        "other areas do); its scaffold — manifest, check command, tests, CI workflow when the others have one — is "
+        "part of that REQ's acceptance. CLike registers the new area in .clike/project.json.",
+        "SPEC and the lane guides: a new area gets its section in SPEC (capabilities, interfaces with the other "
+        "areas) and, when its conventions differ, docs/harper/lane-guides/<area>.md.",
     ]
 
 
