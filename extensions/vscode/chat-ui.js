@@ -1506,6 +1506,7 @@ function handleSlash(slash) {
   }
 
   if (slashCmd === '/adopt') {
+    try { bubble('user', '/adopt' + (slash.args.area ? ' --area ' + slash.args.area : '') + (slash.args.dryRun ? ' --dry-run' : ''), 'system'); } catch (e) {}
     vscode.postMessage({ type: 'adopt', area: slash.args.area || '', dryRun: !!slash.args.dryRun });
     return;
   }

@@ -4463,8 +4463,20 @@ async function cmdOpenChat(context) {
       if (msg.type === 'adopt') {
         // /adopt: an existing project brought into CLike (adopt.js). Deterministic, no model: the same
         // for cloud and local agents. Writes only CLike's files: .clike/project.json, runs/adopt/, the report.
-        const say = (text) => panel.webview.postMessage({ type: 'echo', message: text });
+        // every line of /adopt in the chat and in its history (one write at a time): a reload keeps the outcome
+        let saved = Promise.resolve();
+        const say = (text) => {
+          panel.webview.postMessage({ type: 'echo', message: text });
+          // the chat shows the history of the model it uses: the lines are saved under it
+          const model = (context.workspaceState.get('clike.uiState') || {}).model || 'auto';
+          saved = saved.then(() => appendSessionJSONL('harper', { ts: Date.now(), role: 'system', content: text, model, attachments: [] })).catch(() => {});
+        };
         const done = () => panel.webview.postMessage({ type: 'busy', on: false, force: true });
+        // what /adopt wrote, in the Files tab (the report opened in the editor)
+        const showFiles = (root, rels, open = '') => {
+          panel.webview.postMessage({ type: 'files', data: rels.filter((r) => fsSync.existsSync(path.join(root, ...r.split('/')))).map((r) => ({ path: r })), activate: true });
+          if (open) vscode.window.showTextDocument(vscode.Uri.file(path.join(root, ...open.split('/'))), { preview: true, preserveFocus: true }).then(() => {}, () => {});
+        };
         const ws = getWorkspaceRoot();
         let guard = null;
         // the project as it is: whatever the run changes outside CLike's own files and the root README goes back
@@ -4485,7 +4497,7 @@ async function cmdOpenChat(context) {
           if (!fsSync.existsSync(projectPath)) { say('ℹ /adopt: run /init first — it adds CLike to this folder, in place, keeping every file.'); return done(); }
           guard = adoptLib.guardSnapshot(root);
           if (!guard) say('ℹ /adopt: no git here — the project files are protected by the write rules only (CLike writes docs/harper/, .clike/, runs/ and the root README).');
-          await appendSessionJSONL('harper', { ts: Date.now(), role: 'user', content: `▶ ADOPT${msg.area ? ` --area ${msg.area}` : ''}${msg.dryRun ? ' --dry-run' : ''}`, model: 'auto', attachments: [] });
+          await appendSessionJSONL('harper', { ts: Date.now(), role: 'user', content: `▶ ADOPT${msg.area ? ` --area ${msg.area}` : ''}${msg.dryRun ? ' --dry-run' : ''}`, model: (context.workspaceState.get('clike.uiState') || {}).model || 'auto', attachments: [] });
           say('▶ /adopt: survey of the project (areas, stack, roots, commands, runtimes, CI, documentation, git)…');
           const found = adoptLib.survey(root);
           const area = String(msg.area || '').trim();
@@ -4504,6 +4516,7 @@ async function cmdOpenChat(context) {
           if (msg.dryRun) {
             writeReport({ dryRun: true });
             say(`✔ /adopt --dry-run: report ${reportRel} (nothing else written).`);
+            showFiles(root, [reportRel], reportRel);
             return done();
           }
           // the areas, in CLike's own settings (a root or command the developer corrected stays)
@@ -4557,7 +4570,7 @@ async function cmdOpenChat(context) {
           const message = `✔ /adopt survey: areas in .clike/project.json, code map ${adoptLib.CODEMAP}, ${indexed}/${items.length} file(s) in the project memory, ` +
             `baseline ${baseline ? String(baseline.status || (baseline.passed ? 'PASS' : 'FAIL')) : 'not run'}. Report ${reportRel}.`;
           say(message);
-          await appendSessionJSONL('harper', { ts: Date.now(), role: 'system', content: message, model: 'auto', attachments: [] });
+          showFiles(root, [reportRel, adoptLib.CODEMAP, '.clike/project.json', adoptLib.BASELINE_PROFILE], reportRel);
           // the analysis: the Harper documents as the project is, the capability REQs — by the model the chat
           // uses (cloud or local agent), through the same cascade as /idea --extend
           const planPath = path.join(root, 'docs', 'harper', 'plan.json');
