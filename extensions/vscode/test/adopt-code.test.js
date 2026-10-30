@@ -128,15 +128,15 @@ test('clikeOwnFiles: what /init and /adopt added goes with the adoption commit; 
   assert.deepEqual(adopt.clikeOwnFiles(root).sort(), ['.clike/project.json', '.gitignore', 'README_1st.md', 'docs/harper/PLAYBOOK.md', 'docs/inputs/.gitkeep', 'images/clike/logo.png', 'runs/adopt/ci/LTC.json']);
 });
 
-test('the adopt guard: the project files a run changed, created or deleted go back; the developer changes stay; CLike files and the README pass', () => {
+test('the adopt guard: the project files changed while the run went are reported, never written; CLike files and the README pass', () => {
   const root = repo();
   const put = (rel, text) => { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); };
   const app = path.join(root, 'gateway/src/gateway/app.py');
-  const original = fs.readFileSync(app, 'utf8');
   put('gateway/src/gateway/wip.py', 'developer work\n');                       // untracked, before the run
   fs.appendFileSync(path.join(root, 'gateway/tests/test_models.py'), '# wip\n');   // uncommitted, before the run
   const snap = adopt.guardSnapshot(root);
-  // the run
+  assert.deepEqual(adopt.guardChanges(root, snap), []);                          // what was there before is not a change
+  // while the run goes (the developer's agent, or the run)
   fs.writeFileSync(app, 'rewritten\n');
   fs.writeFileSync(path.join(root, 'gateway/tests/test_models.py'), 'gone\n');
   fs.rmSync(path.join(root, 'gateway/src/gateway/wip.py'));
@@ -144,16 +144,12 @@ test('the adopt guard: the project files a run changed, created or deleted go ba
   put('docs/harper/IDEA.md', '# IDEA\n');
   put('README.md', '# integrated\n');
   put('.clike/project.json', '{}');
-  const restored = adopt.guardRestore(root, snap, '.clike/adopt-guard/t');
-  assert.deepEqual(restored.sort(), ['gateway/new.py', 'gateway/src/gateway/app.py', 'gateway/src/gateway/wip.py', 'gateway/tests/test_models.py']);
-  assert.equal(fs.readFileSync(app, 'utf8'), original);
-  assert.equal(fs.readFileSync(path.join(root, 'gateway/src/gateway/wip.py'), 'utf8'), 'developer work\n');
-  assert.match(fs.readFileSync(path.join(root, 'gateway/tests/test_models.py'), 'utf8'), /# wip\n$/);
-  assert.equal(fs.existsSync(path.join(root, 'gateway/new.py')), false);
-  assert.equal(fs.readFileSync(path.join(root, '.clike/adopt-guard/t/gateway/src/gateway/app.py'), 'utf8'), 'rewritten\n');
-  assert.equal(fs.readFileSync(path.join(root, 'README.md'), 'utf8'), '# integrated\n');
-  assert.ok(fs.existsSync(path.join(root, 'docs/harper/IDEA.md')));
-  assert.deepEqual(adopt.guardRestore(root, snap), []);
+  assert.deepEqual(adopt.guardChanges(root, snap).sort(), ['gateway/new.py', 'gateway/src/gateway/app.py', 'gateway/src/gateway/wip.py', 'gateway/tests/test_models.py']);
+  // left exactly as they are
+  assert.equal(fs.readFileSync(app, 'utf8'), 'rewritten\n');
+  assert.equal(fs.readFileSync(path.join(root, 'gateway/new.py'), 'utf8'), 'new\n');
+  assert.equal(fs.existsSync(path.join(root, 'gateway/src/gateway/wip.py')), false);
+  assert.equal(adopt.guardRestore, undefined);
   const files = adopt.writableFiles([{ path: 'README.md' }, { path: './docs/harper/SPEC.md' }, { path: 'gateway/src/x.py' }, { path: 'docs/harper/ADOPT_2026-10-30.md' }, { path: 'docs/harper/CODEMAP.md' }]);
   assert.deepEqual(files.kept.map((f) => f.path), ['README.md', './docs/harper/SPEC.md']);
   assert.deepEqual(files.dropped, ['gateway/src/x.py', 'docs/harper/ADOPT_2026-10-30.md', 'docs/harper/CODEMAP.md']);

@@ -30,9 +30,9 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   root README is updated, every existing section and line kept word for word (else restored). The
   project memory gets every document of the repository (Markdown, text, reStructuredText, AsciiDoc,
   OpenAPI/AsyncAPI — module READMEs, examples and prompts included), not only `docs/` and the main
-  READMEs. A file the model returns outside `docs/harper/` and the root README is ignored; in a git
-  repository any other file the run changes, creates or deletes is put back as it was (the
-  developers' uncommitted changes included), what the run left kept aside in `.clike/adopt-guard/`.
+  READMEs. A file the model returns outside `docs/harper/` and the root README is ignored, and CLike
+  never writes a project file: in a git repository the files that changed while the run went (an
+  editor, another agent at work in the project) are named in the chat and left as they are.
 
 - **`/idea --extend` in a project of areas**: the model gets the areas of `.clike/project.json`; every
   new REQ names its `area` (or `areas` for a journey across modules), a new module is declared once

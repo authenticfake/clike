@@ -20,10 +20,10 @@ from day one.
   is the root `README.md` (at `/adopt`, then at each `/finalize`), keeping every section and every
   line it had, word for word — a run that drops or rewrites one gets the README back as it was.
   During `/adopt` CLike writes only `docs/harper/`, `.clike/`, `runs/` and the root README: a file
-  the model returns elsewhere is ignored, and (in a git repository) any other file the run changes,
-  creates or deletes — the code, the tests, the areas' READMEs and `docs/` — is put back as it was,
-  the developers' uncommitted changes included; what the run left there is kept aside in
-  `.clike/adopt-guard/<time>/` and named in the chat.
+  the model returns elsewhere is ignored, and CLike never writes a project file — the code, the
+  tests, the areas' READMEs and `docs/`. You (or another agent) can keep working in the project
+  while `/adopt` runs: in a git repository, the files that changed meanwhile are named in the chat
+  and left exactly as they are.
 - **Work done outside CLike is fine.** A change committed without CLike is reconciled by
   `/adopt --refresh`; it is never treated as an error.
 

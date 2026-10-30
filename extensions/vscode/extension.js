@@ -4491,23 +4491,28 @@ async function cmdOpenChat(context) {
         const ws = getWorkspaceRoot();
         let guard = null;
         const ownFiles = {};
-        // the project as it is: whatever the run changes outside CLike's own files and the root README goes back
+        // CLike never changes a project file: what changed outside its own files and the root README while
+        // /adopt ran (an editor, another agent working in the project, or the run) is reported, left as it is
+        const reported = new Set();
         const restoreProject = () => {
-          if (!guard) return;
-          const keepDir = `.clike/adopt-guard/${new Date().toISOString().replace(/[:.]/g, '-')}`;
-          let restored = [];
-          try { restored = adoptLib.guardRestore(ws.fsPath, guard, keepDir); } catch (e) { say(`⚠ /adopt: the project files could not be checked (${String(e?.message || e).slice(0, 200)}).`); }
-          // the survey report and the code map are CLike's: a run that changed them gets them back
+          let changed = [];
+          if (guard) {
+            try { changed = adoptLib.guardChanges(ws.fsPath, guard).filter((rel) => !reported.has(rel)); } catch (e) { say(`⚠ /adopt: the project files could not be checked (${String(e?.message || e).slice(0, 200)}).`); }
+          }
+          for (const rel of changed) reported.add(rel);
+          if (changed.length) {
+            say(`ℹ /adopt: ${changed.length} project file(s) changed while the adoption ran — left as they are (CLike never changes them; ` +
+              `if one is not yours, the adoption's agent wrote it: git diff shows it): ${changed.slice(0, 10).join(', ')}${changed.length > 10 ? ', …' : ''}.`);
+          }
+          // the survey report and the code map are CLike's own documents: a run that changed them gets them back
+          const own = [];
           for (const [rel, text] of Object.entries(ownFiles)) {
             const abs = path.join(ws.fsPath, ...rel.split('/'));
             let now = null;
             try { now = fsSync.readFileSync(abs, 'utf8'); } catch { /* deleted */ }
-            if (now !== text) { fsSync.mkdirSync(path.dirname(abs), { recursive: true }); fsSync.writeFileSync(abs, text); restored.push(rel); }
+            if (now !== text) { fsSync.mkdirSync(path.dirname(abs), { recursive: true }); fsSync.writeFileSync(abs, text); own.push(rel); }
           }
-          if (restored.length) {
-            say(`⚠ /adopt: ${restored.length} project file(s) changed during the run, put back as they were (what the run left is in ${keepDir}/): ` +
-              `${restored.slice(0, 10).join(', ')}${restored.length > 10 ? ', …' : ''}.`);
-          }
+          if (own.length) say(`ℹ /adopt: CLike's ${own.join(' and ')} put back as CLike wrote them.`);
         };
         try {
           if (!ws) { say('✖ /adopt: open the project folder in VS Code first.'); return done(); }
@@ -4515,7 +4520,7 @@ async function cmdOpenChat(context) {
           const projectPath = path.join(root, '.clike', 'project.json');
           if (!fsSync.existsSync(projectPath)) { say('ℹ /adopt: run /init first — it adds CLike to this folder, in place, keeping every file.'); return done(); }
           guard = adoptLib.guardSnapshot(root);
-          if (!guard) say('ℹ /adopt: no git here — the project files are protected by the write rules only (CLike writes docs/harper/, .clike/, runs/ and the root README).');
+          if (!guard) say('ℹ /adopt: no git here — CLike writes only docs/harper/, .clike/, runs/ and the root README; a change elsewhere cannot be reported.');
           await appendSessionJSONL('harper', { ts: Date.now(), role: 'user', content: `▶ ADOPT${msg.area ? ` --area ${msg.area}` : ''}${msg.dryRun ? ' --dry-run' : ''}`, model: (context.workspaceState.get('clike.uiState') || {}).model || 'auto', attachments: [] });
           say('▶ /adopt: survey of the project (areas, stack, roots, commands, runtimes, CI, documentation, git)…');
           const found = adoptLib.survey(root);

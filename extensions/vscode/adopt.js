@@ -545,39 +545,27 @@ function guardSnapshot(root) {
  * Every file outside CLike's own the run changed, created or deleted is put back as it was (the developer's
  * uncommitted changes included); what the run left there is kept aside in `keepDir`. Returns the paths restored.
  */
-function guardRestore(root, snap, keepDir = '') {
+/**
+ * The project files that changed while /adopt ran (outside CLike's own files and the root README):
+ * changed, created or deleted. Only reported, never written: they may be the developer's own work
+ * (an editor, another agent working in the project) — CLike never changes a project file.
+ */
+function guardChanges(root, snap) {
   if (!snap) return [];
   let now;
   try { now = statusOutside(root); } catch { return []; }
-  const restored = [];
-  const keep = (rel, full) => {
-    if (!keepDir || !fs.existsSync(full) || !fs.statSync(full).isFile()) return;
-    const dest = path.join(root, ...keepDir.split('/'), ...rel.split('/'));
-    fs.mkdirSync(path.dirname(dest), { recursive: true });
-    fs.copyFileSync(full, dest);
-  };
+  const changed = [];
   for (const rel of new Set([...now.keys(), ...Object.keys(snap.saved)])) {
     const full = path.join(root, ...rel.split('/'));
     const current = fs.existsSync(full) && fs.statSync(full).isFile() ? fs.readFileSync(full).toString('base64') : null;
-    if (rel in snap.saved) {
-      if (current === snap.saved[rel]) continue;
-      keep(rel, full);
-      if (snap.saved[rel] == null) fs.rmSync(full, { force: true });
-      else { fs.mkdirSync(path.dirname(full), { recursive: true }); fs.writeFileSync(full, Buffer.from(snap.saved[rel], 'base64')); }
-    } else {
-      keep(rel, full);
-      let tracked = true;
-      try { execFileSync('git', ['cat-file', '-e', `HEAD:${rel}`], { cwd: root, stdio: 'ignore' }); } catch { tracked = false; }
-      if (tracked) execFileSync('git', ['checkout', 'HEAD', '--', rel], { cwd: root, stdio: 'ignore' });
-      else fs.rmSync(full, { force: true });
-    }
-    restored.push(rel);
+    if (rel in snap.saved && current === snap.saved[rel]) continue;
+    changed.push(rel);
   }
-  return restored;
+  return changed;
 }
 
 module.exports = {
-  CODEMAP, ORIGINAL_README, keptReqs, adoptedAreas, originalReadme, clikeOwnFiles, writableFiles, guardSnapshot, guardRestore, codeMaps, sourceItems, adoptablePlan, baselineReqs, contextDocuments, checkAdoptedPlan, adoptVerificationMarkdown,
+  CODEMAP, ORIGINAL_README, keptReqs, adoptedAreas, originalReadme, clikeOwnFiles, writableFiles, guardSnapshot, guardChanges, codeMaps, sourceItems, adoptablePlan, baselineReqs, contextDocuments, checkAdoptedPlan, adoptVerificationMarkdown,
   BASELINE_PROFILE, BASELINE_ID, survey, surveyAreas, surveyDocs, surveyCi, surveyGit, areaCommands, areaRuntime,
   makeTargets, mergeProjectAreas, baselineProfile, memoryItems, reportMarkdown,
 };
