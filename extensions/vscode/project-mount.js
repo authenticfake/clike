@@ -18,6 +18,8 @@ function isWithin(p, roots) {
 }
 
 const hasScript = (dir) => Boolean(dir) && fs.existsSync(path.join(dir, SCRIPT));
+/** The folder with mount-project.sh: the one given, or its docker/ (the CLike repository); '' when neither. */
+const stackFolder = (dir) => [dir, dir && path.join(dir, 'docker')].find(hasScript) || '';
 
 /**
  * Inputs are injected (testable without VS Code):
@@ -36,9 +38,9 @@ async function ensureProjectMounted({ root, getRoots, ask, stackDir = '', pickSt
   if (unattended) return { mounted: false, reason: 'outside the stack folders (unattended run: not asked)' };
   if (declined.has(root)) return { mounted: false, reason: 'declined' };
   if (!(await ask(root))) { declined.add(root); return { mounted: false, reason: 'declined' }; }
-  let dir = [stackDir, info?.stack_dir].find(hasScript) || '';
-  if (!dir) dir = await pickStackDir();
-  if (!hasScript(dir)) return { mounted: false, reason: `no ${SCRIPT} in the folder of the stack` };
+  let dir = stackFolder(stackDir) || stackFolder(info?.stack_dir);
+  if (!dir) dir = stackFolder(await pickStackDir());
+  if (!dir) return { mounted: false, reason: `no ${SCRIPT} in the folder of the stack` };
   say(`▶ mounting ${root} read-only in the CLike stack (the containers are recreated, about a minute)…`);
   const out = await run(path.join(dir, SCRIPT), ['add', root], dir);
   if (!out.ok) return { mounted: false, reason: `${SCRIPT} failed: ${String(out.output || '').trim().split('\n').slice(-3).join(' ')}`, stackDir: dir };
@@ -48,4 +50,4 @@ async function ensureProjectMounted({ root, getRoots, ask, stackDir = '', pickSt
   return { mounted: ok, reason: ok ? 'mounted' : 'the stack still does not list it', stackDir: dir };
 }
 
-module.exports = { ensureProjectMounted, isWithin, SCRIPT };
+module.exports = { ensureProjectMounted, isWithin, stackFolder, SCRIPT };

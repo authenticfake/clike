@@ -20,7 +20,7 @@ cd "$(dirname "$0")"
 
 PROJECT="$(basename "$PWD")"
 # the projects mounted outside CLIKE_PROJECTS_DIR (mount-project.sh), and where the stack runs from
-export CLIKE_STACK_DIR="$PWD"
+# (the compose file reads the stack folder from PWD: this one)
 compose_files=(-f docker-compose.yml)
 [ -f compose.projects.yml ] && compose_files+=(-f compose.projects.yml)
 compose() { podman-compose "${compose_files[@]}" "$@"; }

@@ -72,9 +72,9 @@ services:
       - RAG_EMBED_MODEL=openai:text-embedding-3-small
       - RAG_SCORE_THRESHOLD=0.30
       - CLIKE_MCP_SERVER_ENABLED=true
-      # Where the stack runs from (rebuild.sh / mount-project.sh set it): the extension finds
+      # Where the stack runs from (the folder podman-compose runs in): the extension finds
       # mount-project.sh here to offer a project opened outside CLIKE_PROJECTS_DIR.
-      - CLIKE_STACK_DIR=${CLIKE_STACK_DIR:-}
+      - CLIKE_STACK_DIR=${PWD}
     env_file:
       - path: ../.env
     # Minimal mounts (WP4): the CLike repo (including .git) is read-only, so eval

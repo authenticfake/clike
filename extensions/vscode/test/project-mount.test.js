@@ -53,6 +53,13 @@ test('ensureProjectMounted: declined once, not asked again; unattended, never as
   assert.equal(picked.mounted, false);
   assert.match(picked.reason, /not a CLike project/);
   assert.equal(picked.stackDir, dir);
+  // the CLike repository picked (or a stale setting, /Users/x/dev): its docker/ folder, else asked again
+  const repo = path.dirname(dir);
+  fs.renameSync(dir, path.join(repo, 'docker-tmp'));
+  const clike = fs.mkdtempSync(path.join(os.tmpdir(), 'clike-repo-'));
+  fs.renameSync(path.join(repo, 'docker-tmp'), path.join(clike, 'docker'));
+  const viaRepo = await ensureProjectMounted({ ...base, stackDir: '/Users/x/dev', ask: async () => true, pickStackDir: async () => clike, run: async () => ({ ok: false, output: 'x' }) });
+  assert.equal(viaRepo.stackDir, path.join(clike, 'docker'));
   const none = await ensureProjectMounted({ ...base, ask: async () => true, pickStackDir: async () => '/nowhere' });
   assert.match(none.reason, /no mount-project\.sh/);
 });

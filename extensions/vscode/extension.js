@@ -248,7 +248,7 @@ const {
   isFreshLocalAgentArtifact,
   isClikeOwnHarperFile,
 } = require('./local-agent-write-policy');
-const { ensureProjectMounted } = require('./project-mount');
+const { ensureProjectMounted, stackFolder } = require('./project-mount');
 
 // Harper phases that can run through the orchestrator-owned local-agent package
 // path. Early document phases (idea/spec/plan) and the existing
@@ -4479,7 +4479,14 @@ async function cmdOpenChat(context) {
         // what /adopt wrote, in the Files tab (the report opened in the editor)
         const showFiles = (root, rels, open = '') => {
           panel.webview.postMessage({ type: 'files', data: rels.filter((r) => fsSync.existsSync(path.join(root, ...r.split('/')))).map((r) => ({ path: r })), activate: true });
-          if (open) vscode.window.showTextDocument(vscode.Uri.file(path.join(root, ...open.split('/'))), { preview: true, preserveFocus: true }).then(() => {}, () => {});
+          // a report to read, not to edit: the Markdown preview (read-only), beside the chat
+          if (open) {
+            const uri = vscode.Uri.file(path.join(root, ...open.split('/')));
+            const show = /\.md$/i.test(open)
+              ? vscode.commands.executeCommand('markdown.showPreview', uri)
+              : vscode.window.showTextDocument(uri, { preview: true, preserveFocus: true });
+            Promise.resolve(show).then(() => {}, () => {});
+          }
         };
         const ws = getWorkspaceRoot();
         let guard = null;
@@ -7471,8 +7478,12 @@ async function cmdOpenChat(context) {
         'Mount this folder alone, read-only? The stack containers are recreated (about a minute): an eval running in another window stops.',
         { modal: true }, 'Mount read-only')) === 'Mount read-only',
       pickStackDir: async () => {
-        const picked = await vscode.window.showOpenDialog({ canSelectFolders: true, canSelectFiles: false, openLabel: 'The docker folder of the CLike stack' });
-        const dir = picked && picked[0] ? picked[0].fsPath : '';
+        const picked = await vscode.window.showOpenDialog({
+          canSelectFolders: true, canSelectFiles: false, openLabel: 'Use this folder',
+          title: 'The CLike repository (or its docker folder, with mount-project.sh)',
+        });
+        const dir = stackFolder(picked && picked[0] ? picked[0].fsPath : '');
+        // saved only when it is the stack folder: a wrong pick is asked again next time
         if (dir) await vscode.workspace.getConfiguration('clike').update('stackDir', dir, vscode.ConfigurationTarget.Global);
         return dir;
       },
