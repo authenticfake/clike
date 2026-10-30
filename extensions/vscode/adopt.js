@@ -449,7 +449,7 @@ function adoptablePlan(plan, areas) {
 function clikeOwnFiles(root) {
   let out = '';
   try {
-    out = execFileSync('git', ['status', '--porcelain', '-uall', '--', '.clike', 'docs/harper', 'docs/inputs', 'docs/reference', '.gitignore', BASELINE_PROFILE],
+    out = execFileSync('git', ['status', '--porcelain', '-uall', '--', '.clike', 'docs/harper', 'docs/inputs', 'docs/reference', '.gitignore', 'README_1st.md', 'images/clike', BASELINE_PROFILE],
       { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
   } catch { return []; }
   return out.split('\n').filter(Boolean).map((l) => l.slice(3).replace(/^"|"$/g, '').split(' -> ').pop())

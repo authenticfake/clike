@@ -121,8 +121,11 @@ test('clikeOwnFiles: what /init and /adopt added goes with the adoption commit; 
   put('docs/inputs/.gitkeep', '');
   put('.gitignore', '.env\n');
   put(adopt.BASELINE_PROFILE, '{}');
+  put('README_1st.md', '# first');
+  put('images/clike/logo.png', 'x');
+  put('foundation.code-workspace', '{}');
   fs.appendFileSync(path.join(root, 'gateway/src/gateway/app.py'), '# developer work\n');
-  assert.deepEqual(adopt.clikeOwnFiles(root).sort(), ['.clike/project.json', '.gitignore', 'docs/harper/PLAYBOOK.md', 'docs/inputs/.gitkeep', 'runs/adopt/ci/LTC.json']);
+  assert.deepEqual(adopt.clikeOwnFiles(root).sort(), ['.clike/project.json', '.gitignore', 'README_1st.md', 'docs/harper/PLAYBOOK.md', 'docs/inputs/.gitkeep', 'images/clike/logo.png', 'runs/adopt/ci/LTC.json']);
 });
 
 test('the adopt guard: the project files a run changed, created or deleted go back; the developer changes stay; CLike files and the README pass', () => {
