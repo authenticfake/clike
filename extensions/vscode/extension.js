@@ -4585,7 +4585,8 @@ async function cmdOpenChat(context) {
             say('ℹ /adopt: no area to analyse (the repository root is one project): declare it as an area in .clike/project.json, then run /adopt again.');
             return done();
           }
-          const kept = Array.isArray(plan.reqs) ? plan.reqs : [];
+          // a run that stopped before its analysis left the baseline REQ of the area: written anew
+          const kept = adoptLib.keptReqs(plan, picked);
           const base = adoptLib.baselineReqs(picked, baseline, kept);
           fsSync.mkdirSync(path.dirname(planPath), { recursive: true });
           fsSync.writeFileSync(planPath, `${JSON.stringify({ ...plan, snapshot: { total: kept.length + base.reqs.length }, reqs: [...kept, ...base.reqs] }, null, 2)}\n`);
@@ -4597,7 +4598,7 @@ async function cmdOpenChat(context) {
           say(`▶ /adopt: analysis of ${picked.map((a) => a.name).join(', ')} — IDEA, SPEC (with use cases), PLAN with the capability REQs, TECH_CONSTRAINTS, lane guides, HOWTO_RUN and the root README integrated (baseline REQs ${base.reqs.map((r) => r.id).join(', ')} already written)…`);
           done();
           await clikeRunChatMessage({
-            type: 'harperEDD', cmd: 'extend', extendMode: 'adopt', attachments: [],
+            type: 'harperRun', cmd: 'extend', extendMode: 'adopt', attachments: [],
             __adopt: {
               areas: picked, baselineIds: base.reqs.map((r) => r.id), surveyReport: reportRel, baseline, restoreProject,
               documents: adoptLib.contextDocuments(root, found, picked, reportRel, 6000, { maps: mapped.maps }),

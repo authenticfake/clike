@@ -148,7 +148,8 @@ test('adoptablePlan: a new plan, or adopted area by area without the same area t
   const base = a.baselineReqs([gw], null);
   assert.equal(a.adoptablePlan({}, [gw]), '');
   assert.equal(a.adoptablePlan({ reqs: base.reqs }, [portal]), '');
-  assert.match(a.adoptablePlan({ reqs: base.reqs }, [gw]), /already adopted: gateway/);
+  const analysed = [...base.reqs, { id: 'REQ-002', area: 'gateway', origin: 'adopted', title: 'Routing' }];
+  assert.match(a.adoptablePlan({ reqs: analysed }, [gw]), /already adopted: gateway/);
   assert.match(a.adoptablePlan({ reqs: [{ id: 'REQ-001', origin: 'harper' }] }, [gw]), /did not adopt/);
 });
 
@@ -161,4 +162,27 @@ test('contextDocuments: the survey report, the agent context files and the READM
   const docs = a.contextDocuments(root, { agentContext: [] }, [{ ...gw, agentContext: ['gateway/AGENTS.md'] }], 'docs/harper/ADOPT_x.md', 50);
   assert.deepEqual(docs.map((d) => d.path), ['README.md', 'gateway/AGENTS.md', 'gateway/README.md']);
   assert.match(docs[0].text, /cut: the rest is in the project memory/);
+});
+
+test('adopt: a nested area is named by its path; an adoption that stopped before its analysis runs again', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'clike-adopt-nested-'));
+  fs.mkdirSync(path.join(root, 'events', 'python'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'events', 'python', 'pyproject.toml'), '[project]\nname = "events"\n');
+  const [ev] = a.surveyAreas(root);
+  assert.equal(ev.name, 'events-python');
+  const merged = a.mergeProjectAreas({ areas: [{ name: 'python', root: 'events/python', commands: { test: 'pytest -q' } }] }, [ev]);
+  assert.equal(merged.areas[0].name, 'events-python');
+  assert.deepEqual(merged.areas[0].commands, { test: 'pytest -q' });   // the rest the developer set stays
+  const gw = { name: 'gateway', root: 'gateway', stack: 'python', runtime: {}, commands: { check: 'make check' } };
+  const base = a.baselineReqs([gw]);
+  assert.equal(a.adoptablePlan({ reqs: base.reqs }, [gw]), '');                 // baseline only: again
+  assert.deepEqual(a.keptReqs({ reqs: base.reqs }, [gw]), []);
+  assert.match(a.adoptablePlan({ reqs: [...base.reqs, { id: 'REQ-002', area: 'gateway', origin: 'adopted', title: 'Routing' }] }, [gw]), /already adopted: gateway/);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('/adopt starts its analysis as a Harper phase run (harperRun), never through the /eval and /gate handler', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const line = src.split('\n').find((l) => l.includes("extendMode: 'adopt'"));
+  assert.match(line, /type: 'harperRun', cmd: 'extend'/);
 });

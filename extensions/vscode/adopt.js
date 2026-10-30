@@ -84,13 +84,16 @@ function areaRuntime(dir) {
   return runtime;
 }
 
+const areaName = (rel) => rel.split('/').join('-');
+
 function areaOf(root, rel, stack) {
   const dir = path.join(root, ...rel.split('/'));
   const source = ['src', 'app', 'lib'].filter((d) => exists(dir, d)).map((d) => `${rel}/${d}`);
   for (const group of ['apps', 'packages', 'services']) for (const sub of dirs(path.join(dir, group))) source.push(`${rel}/${group}/${sub}`);
   const tests = ['tests', 'test', 'e2e', '__tests__', 'spec'].filter((d) => exists(dir, d)).map((d) => `${rel}/${d}`);
   return {
-    name: rel.split('/').pop(), root: rel, stack: stack.stack, manifest: stack.file,
+    // a nested area is named by its path (events/python → events-python): its folder alone says too little
+    name: areaName(rel), root: rel, stack: stack.stack, manifest: stack.file,
     source: source.length ? source : [rel], tests,
     commands: areaCommands(dir, stack.stack), runtime: areaRuntime(dir),
     agentContext: ['AGENTS.md', 'CLAUDE.md'].filter((f) => exists(dir, f)).map((f) => `${rel}/${f}`),
@@ -206,6 +209,8 @@ function survey(root) {
 /** .clike/project.json with the areas of the survey (merged: what the developer corrected stays). */
 function mergeProjectAreas(meta, areas) {
   const keep = new Map((Array.isArray(meta?.areas) ? meta.areas : []).map((a) => [String(a.root || ''), a]));
+  // the name an earlier survey gave a nested area (its last folder) becomes its path name; a name the developer chose stays
+  for (const [root, a] of keep) if (root.includes('/') && a.name === root.split('/').pop()) keep.set(root, { ...a, name: areaName(root) });
   const merged = areas.map((a) => keep.get(a.root) || {
     name: a.name, root: a.root, source: a.source, tests: a.tests, commands: a.commands,
     ...(Object.keys(a.runtime).length ? { runtime: a.runtime } : {}),
@@ -439,9 +444,17 @@ function adoptablePlan(plan, areas) {
   const reqs = Array.isArray(plan?.reqs) ? plan.reqs : [];
   if (!reqs.length) return '';
   if (reqs.some((r) => r?.origin !== 'adopted')) return 'the plan has REQs CLike did not adopt: an adopted project evolves with /idea --extend';
-  const have = new Set(reqs.filter((r) => /adopted baseline/.test(String(r?.title || ''))).map((r) => r.area));
+  // adopted = its baseline REQ and the REQs of its analysis; a baseline alone (the analysis never ended) runs again
+  const isBase = (r) => /adopted baseline/.test(String(r?.title || ''));
+  const have = new Set(reqs.filter(isBase).map((r) => r.area).filter((area) => reqs.some((r) => !isBase(r) && r.area === area)));
   const again = areas.filter((a) => have.has(a.name)).map((a) => a.name);
   return again.length ? `already adopted: ${again.join(', ')} (pick another area with --area <name>)` : '';
+}
+
+/** The REQs kept when `areas` are adopted (again): every REQ but the baseline of those areas, written anew. */
+function keptReqs(plan, areas) {
+  const reqs = Array.isArray(plan?.reqs) ? plan.reqs : [];
+  return reqs.filter((r) => !(/adopted baseline/.test(String(r?.title || '')) && areas.some((a) => a.name === r.area)));
 }
 
 /** CLike's own files of the adoption (what /init and /adopt added, not committed yet): they go with its commit.
@@ -532,7 +545,7 @@ function guardRestore(root, snap, keepDir = '') {
 }
 
 module.exports = {
-  CODEMAP, clikeOwnFiles, writableFiles, guardSnapshot, guardRestore, codeMaps, sourceItems, adoptablePlan, baselineReqs, contextDocuments, checkAdoptedPlan, adoptVerificationMarkdown,
+  CODEMAP, keptReqs, clikeOwnFiles, writableFiles, guardSnapshot, guardRestore, codeMaps, sourceItems, adoptablePlan, baselineReqs, contextDocuments, checkAdoptedPlan, adoptVerificationMarkdown,
   BASELINE_PROFILE, BASELINE_ID, survey, surveyAreas, surveyDocs, surveyCi, surveyGit, areaCommands, areaRuntime,
   makeTargets, mergeProjectAreas, baselineProfile, memoryItems, reportMarkdown,
 };

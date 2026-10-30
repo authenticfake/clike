@@ -65,6 +65,10 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **`/adopt` runs its analysis**: it was sent to the `/eval` and `/gate` handler and stopped after the
+  survey, leaving the `/init` templates. An adoption that stopped before its analysis runs again for
+  the same area (its baseline REQ written anew). A nested area is named by its path
+  (`events/python` → `events-python`).
 - **A project keeps its own default branch**: when the configured default branch does not exist in a
   repository that already has history (`develop`, `master`, `trunk`), CLike commits on the
   repository's own (`origin/HEAD`, then the current branch) instead of creating a new one.
