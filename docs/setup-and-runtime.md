@@ -89,7 +89,9 @@ Runs as the vector store backing RAG persistence.
 
 ### Compose (`docker/.env`)
 - `CLIKE_PROJECTS_DIR` — host folder containing your projects; mounted read-only at the same path
-  and exposed to the services as `DEV_FOLDER`. Eval/gate only operate on projects under it.
+  and exposed to the services as `DEV_FOLDER`. Eval/gate only operate on projects under it, or on a
+  project mounted by `docker/mount-project.sh` (read-only, that folder only; `CLIKE_EVAL_ALLOWED_ROOTS`
+  in the git-ignored `docker/compose.projects.yml`). The extension offers it on confirmation.
 
 ### Eval / gate (orchestrator)
 - `DEV_FOLDER` — allowed root for eval/gate project roots (set from `CLIKE_PROJECTS_DIR`).
@@ -278,6 +280,6 @@ image check, eval tools restored from their lock).
 
 ## Operational cautions
 
-- Projects must live under `CLIKE_PROJECTS_DIR`: eval/gate refuse other project roots (`403`).
+- Projects live under `CLIKE_PROJECTS_DIR` or are mounted by `docker/mount-project.sh`: eval/gate refuse other project roots (`403`).
 - Candidate artifacts are stored under `runs/kit/<REQ-ID>/...`; do not confuse them with promoted canonical roots.
 - MCP is optional and mounted only when orchestrator-side enablement is active.

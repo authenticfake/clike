@@ -224,7 +224,13 @@ async function getEvalTools(workspaceRoot) {
   return requestJson('GET', orchestratorUrl(`/v1/eval/tools?${qs.toString()}`), { timeoutMs: 30 * 1000 });
 }
 
+/** The folders eval and gate can read (each mounted read-only) and where the stack runs from. */
+async function getEvalRoots() {
+  return requestJson('GET', orchestratorUrl('/v1/eval/roots'), { timeoutMs: 5000 });
+}
+
 module.exports = {
+  getEvalRoots,
   getEvalProgress,
   getEvalTools,
   postEvalToolsUpdate,

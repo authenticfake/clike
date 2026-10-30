@@ -138,7 +138,7 @@ function openReadingMode(uri) {
   vscode.commands.executeCommand('markdown.showPreview', uri).then(undefined, () =>
     vscode.window.showTextDocument(uri, { preview: true }));
 }
-const { getEvalProgress, getEvalTools, postEvalToolsUpdate, postAcceptanceAccept, postAcceptanceAmend, postAcceptanceLock, postEvalChecks, postEvalToolsCheck, postEvalToolsInstall, postGateOverride } = require('./api');
+const { getEvalRoots, getEvalProgress, getEvalTools, postEvalToolsUpdate, postAcceptanceAccept, postAcceptanceAmend, postAcceptanceLock, postEvalChecks, postEvalToolsCheck, postEvalToolsInstall, postGateOverride } = require('./api');
 const evalToolsLib = require('./eval-tools');
 const { approveForProject, ensureEvalTools, questionText } = evalToolsLib;
 const { agentArgsForEvalCheck, agentTimeoutMinutes, startEvalCheckBridge } = require('./eval-check-bridge');
@@ -248,6 +248,7 @@ const {
   isFreshLocalAgentArtifact,
   isClikeOwnHarperFile,
 } = require('./local-agent-write-policy');
+const { ensureProjectMounted } = require('./project-mount');
 
 // Harper phases that can run through the orchestrator-owned local-agent package
 // path. Early document phases (idea/spec/plan) and the existing
@@ -7454,8 +7455,45 @@ async function cmdOpenChat(context) {
   // Native tools of the eval sandbox (eval-tools.js): what the REQ declares or runs and the
   // sandbox lacks is installed from CLike's catalog, on the developer's confirmation, before the
   // eval. Never blocks the eval: a failed check or install is reported and the eval runs.
+  // A project outside the folders the stack reads (eval answers 403): mounted read-only, on confirmation.
+  const declinedMounts = new Set();
+  async function ensureProjectReadable(ws) {
+    const root = ws && ws.fsPath;
+    if (!root) return;
+    const out = await ensureProjectMounted({
+      root,
+      getRoots: () => getEvalRoots(),
+      unattended: Boolean(autopilotRun),
+      declined: declinedMounts,
+      stackDir: String(vscode.workspace.getConfiguration('clike').get('stackDir', '') || ''),
+      ask: async (dir) => (await vscode.window.showWarningMessage(
+        `${dir} is outside the folders the CLike stack can read, so eval, gate and the /adopt baseline cannot run its tests. ` +
+        'Mount this folder alone, read-only? The stack containers are recreated (about a minute): an eval running in another window stops.',
+        { modal: true }, 'Mount read-only')) === 'Mount read-only',
+      pickStackDir: async () => {
+        const picked = await vscode.window.showOpenDialog({ canSelectFolders: true, canSelectFiles: false, openLabel: 'The docker folder of the CLike stack' });
+        const dir = picked && picked[0] ? picked[0].fsPath : '';
+        if (dir) await vscode.workspace.getConfiguration('clike').update('stackDir', dir, vscode.ConfigurationTarget.Global);
+        return dir;
+      },
+      run: (script, args, cwd) => new Promise((resolve) => {
+        execFile('bash', [script, ...args], { cwd, timeout: 6 * 60 * 1000, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
+          log(`[mount] ${stdout}${stderr}`);
+          resolve({ ok: !err, output: `${stdout}${stderr}${err && !stderr ? err.message : ''}` });
+        });
+      }),
+      say: (text) => panel.webview.postMessage({ type: 'echo', message: text }),
+    });
+    log(`[mount] ${root}: ${out.reason}`);
+    if (out.mounted) panel.webview.postMessage({ type: 'echo', message: `✔ ${root} mounted read-only in the CLike stack: eval and gate can run its tests.` });
+    else if (!['readable', 'declined'].includes(out.reason) && !/did not answer/.test(out.reason)) {
+      panel.webview.postMessage({ type: 'echo', message: `⚠ ${root} is not readable by the CLike stack (${out.reason}): run docker/mount-project.sh add "${root}" in the CLike repo.` });
+    }
+  }
+
   async function ensureToolsForEval(reqId, { profile = null, extra = [] } = {}) {
     const ws = getWorkspaceRoot();
+    try { await ensureProjectReadable(ws); } catch (e) { log(`[mount] ${e?.message || e}`); }
     let result;
     try {
       result = await ensureEvalTools({

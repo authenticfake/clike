@@ -65,6 +65,12 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **A project outside `CLIKE_PROJECTS_DIR` gets its tests run**: when eval, gate or the `/adopt`
+  baseline start on such a project, CLike asks to mount it. On confirmation, `docker/mount-project.sh`
+  mounts that folder only, read-only (a CLike project, never a parent), and recreates the containers.
+  `GET /v1/eval/roots` lists the folders eval reads, and the new setting `clike.stackDir` gives the
+  stack folder.
+
 - **`/adopt` with a local agent finishes**: the run guide (`docs/harper/HOWTO_RUN.md`) is accepted as
   an output, and the survey report and code map CLike writes just before the analysis are no longer
   taken for the agent's output. The run is no longer stopped before its check and commit. If the run

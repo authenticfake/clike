@@ -5,6 +5,7 @@
 #   ./rebuild.sh gateway         # build only the gateway
 #   ./rebuild.sh orchestrator    # build only the orchestrator image
 #   ./rebuild.sh --update-tools  # also update the eval tools to their latest versions (prints the changes)
+#   ./rebuild.sh --no-build      # only recreate the containers (mount-project.sh: a project mounted)
 # The three services are always recreated (seconds): the orchestrator depends on the gateway,
 # so recreating one alone fails with "has dependent containers".
 #
@@ -18,15 +19,25 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 PROJECT="$(basename "$PWD")"
+# the projects mounted outside CLIKE_PROJECTS_DIR (mount-project.sh), and where the stack runs from
+export CLIKE_STACK_DIR="$PWD"
+compose_files=(-f docker-compose.yml)
+[ -f compose.projects.yml ] && compose_files+=(-f compose.projects.yml)
+compose() { podman-compose "${compose_files[@]}" "$@"; }
 TIMEOUT_S="${CLIKE_REBUILD_TIMEOUT_S:-180}"
 
 # --update-tools: also update the eval tools (PostgreSQL client of the image, every tool installed
 # in the eval-tools volume) and print what changed. Without it the versions stay as they are, so
 # gates stay reproducible; the rebuild reminds you when they are more than 30 days old.
 UPDATE_TOOLS=false
+BUILD=true
 args=()
 for a in "$@"; do
-  if [ "$a" = "--update-tools" ]; then UPDATE_TOOLS=true; else args+=("$a"); fi
+  case "$a" in
+    --update-tools) UPDATE_TOOLS=true ;;
+    --no-build) BUILD=false ;;
+    *) args+=("$a") ;;
+  esac
 done
 set -- "${args[@]+"${args[@]}"}"
 
@@ -45,18 +56,20 @@ image_of() {
   esac
 }
 
-echo "==> pruning dangling layers"
-podman image prune -f >/dev/null
+if $BUILD; then
+  echo "==> pruning dangling layers"
+  podman image prune -f >/dev/null
 
-echo "==> building: ${build[*]}"
-if $UPDATE_TOOLS; then
-  podman-compose build --build-arg "CLIKE_TOOLS_REFRESH=$(date +%s)" "${build[@]}"
-else
-  podman-compose build "${build[@]}"
+  echo "==> building: ${build[*]}"
+  if $UPDATE_TOOLS; then
+    compose build --build-arg "CLIKE_TOOLS_REFRESH=$(date +%s)" "${build[@]}"
+  else
+    compose build "${build[@]}"
+  fi
 fi
 
 echo "==> recreating: ${run[*]}"
-podman-compose up -d --force-recreate "${run[@]}"
+compose up -d --force-recreate "${run[@]}"
 
 echo "==> waiting for (healthy), max ${TIMEOUT_S}s"
 deadline=$((SECONDS + TIMEOUT_S))
