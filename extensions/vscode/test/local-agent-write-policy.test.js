@@ -6,6 +6,7 @@ const {
   buildCodexArgsForLocalAgent,
   extractCodexSandboxModeFromArgs,
   isForbiddenCandidatePath,
+  isClikeOwnHarperFile,
   resolveCodexSandboxMode,
   validateLocalAgentRequiredOutputs,
 } = require('../local-agent-write-policy');
@@ -247,6 +248,25 @@ test('/extend allows IDEA/SPEC/PLAN/plan.json/lane-guides/EXTEND audit', () => {
     }),
     { ok: true, missing_required_roots: [] }
   );
+});
+
+test('/adopt (extend): the run guide is an output; the survey report and the code map are CLike\'s, never collected', () => {
+  // the run of 2026-10-30: HOWTO_RUN.md and the survey report CLike wrote seconds before the run were rejected
+  assert.deepStrictEqual(
+    validateLocalAgentRequiredOutputs({
+      phase: 'extend',
+      artifacts: [
+        { path: 'docs/harper/PLAN.md', content: '# PLAN' },
+        { path: 'docs/harper/plan.json', content: '{}' },
+        { path: 'docs/harper/HOWTO_RUN.md', content: '# How to run' },
+        { path: 'docs/harper/EXTEND_2026-10-30_REQ-002_REQ-046.md', content: '# audit' },
+      ],
+    }),
+    { ok: true, missing_required_roots: [] }
+  );
+  assert.strictEqual(isClikeOwnHarperFile('docs/harper/ADOPT_2026-10-30.md'), true);
+  assert.strictEqual(isClikeOwnHarperFile('./docs/harper/CODEMAP.md'), true);
+  assert.strictEqual(isClikeOwnHarperFile('docs/harper/EXTEND_2026-10-30_REQ-002_REQ-046.md'), false);
 });
 
 test('/extend rejects AGENT_EXTEND_* and arbitrary docs/harper files', () => {

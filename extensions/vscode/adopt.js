@@ -451,6 +451,36 @@ function adoptablePlan(plan, areas) {
   return again.length ? `already adopted: ${again.join(', ')} (pick another area with --area <name>)` : '';
 }
 
+/** The areas adopted by an earlier /adopt (a baseline REQ and the REQs of its analysis): the next one adds to them. */
+function adoptedAreas(plan) {
+  const reqs = Array.isArray(plan?.reqs) ? plan.reqs : [];
+  const isBase = (r) => /adopted baseline/.test(String(r?.title || ''));
+  return [...new Set(reqs.filter(isBase).map((r) => r.area))].filter((area) => area && reqs.some((r) => !isBase(r) && r.area === area));
+}
+
+const ORIGINAL_README = '.clike/adopt/README.original.md';
+
+/**
+ * The project's own README, as it was before CLike integrated it: saved once, at the first adoption
+ * (from git when the working copy already carries CLike's sections), so that every later /adopt keeps
+ * each of its lines while CLike's own sections are updated for the new area. null without a README.
+ */
+function originalReadme(root) {
+  const saved = path.join(root, ...ORIGINAL_README.split('/'));
+  if (fs.existsSync(saved)) return read(saved);
+  let text = exists(root, 'README.md') ? read(root, 'README.md') : null;
+  if (text != null && /^#{1,3}\s+made with clike/im.test(text)) {
+    try {
+      const head = execFileSync('git', ['show', 'HEAD:README.md'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+      if (!/^#{1,3}\s+made with clike/im.test(head)) text = head;
+    } catch { /* not in git */ }
+  }
+  if (text == null) return null;
+  fs.mkdirSync(path.dirname(saved), { recursive: true });
+  fs.writeFileSync(saved, text);
+  return text;
+}
+
 /** The REQs kept when `areas` are adopted (again): every REQ but the baseline of those areas, written anew. */
 function keptReqs(plan, areas) {
   const reqs = Array.isArray(plan?.reqs) ? plan.reqs : [];
@@ -475,7 +505,9 @@ const adoptWritable = (rel) => rel === 'README.md' || /^(docs\/harper|\.clike|ru
 /** The files a run returned, split into what /adopt may write and what it never writes. */
 function writableFiles(files) {
   const rel = (f) => String(f?.path || '').replace(/^\.?\//, '');
-  return { kept: (files || []).filter((f) => adoptWritable(rel(f))), dropped: (files || []).filter((f) => !adoptWritable(rel(f))).map(rel) };
+  // the survey report and the code map are CLike's own, written before the analysis
+  const ok = (f) => adoptWritable(rel(f)) && !/^docs\/harper\/(ADOPT_[^/]+\.md|CODEMAP\.md)$/.test(rel(f));
+  return { kept: (files || []).filter(ok), dropped: (files || []).filter((f) => !ok(f)).map(rel) };
 }
 
 /** git status of the project outside what /adopt may write: path -> status. */
@@ -545,7 +577,7 @@ function guardRestore(root, snap, keepDir = '') {
 }
 
 module.exports = {
-  CODEMAP, keptReqs, clikeOwnFiles, writableFiles, guardSnapshot, guardRestore, codeMaps, sourceItems, adoptablePlan, baselineReqs, contextDocuments, checkAdoptedPlan, adoptVerificationMarkdown,
+  CODEMAP, ORIGINAL_README, keptReqs, adoptedAreas, originalReadme, clikeOwnFiles, writableFiles, guardSnapshot, guardRestore, codeMaps, sourceItems, adoptablePlan, baselineReqs, contextDocuments, checkAdoptedPlan, adoptVerificationMarkdown,
   BASELINE_PROFILE, BASELINE_ID, survey, surveyAreas, surveyDocs, surveyCi, surveyGit, areaCommands, areaRuntime,
   makeTargets, mergeProjectAreas, baselineProfile, memoryItems, reportMarkdown,
 };

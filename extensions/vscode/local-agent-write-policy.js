@@ -217,13 +217,18 @@ function isLaneGuideFile(rel) {
 // report. Everything else under docs/harper/ (including AGENT_* internals) and
 // all src/test/runs roots remain forbidden.
 // TECH_CONSTRAINTS: /idea --extend extends it by addition; /extend gets it restored (release-extend.js).
+// HOWTO_RUN.md: the run guide /adopt writes (accepted by the orchestrator too: phases/extend/phase.yaml)
 const EXTEND_ALLOWED_EXACT = [
   'docs/harper/IDEA.md',
   'docs/harper/SPEC.md',
   'docs/harper/PLAN.md',
   'docs/harper/plan.json',
   'docs/harper/TECH_CONSTRAINTS.yaml',
+  'docs/harper/HOWTO_RUN.md',
 ];
+// What CLike itself writes before an /adopt analysis (the survey report, the code map): never an agent output
+const CLIKE_OWN_HARPER_FILES = /^docs\/harper\/(ADOPT_[^/]+\.md|CODEMAP\.md)$/;
+const isClikeOwnHarperFile = (candidatePath) => CLIKE_OWN_HARPER_FILES.test(normalizeArtifactPath(candidatePath).replace(/^\.\//, ''));
 const EXTEND_ALLOWED_PREFIXES = ['docs/harper/lane-guides/'];
 
 function isExtendPhase(phase) {
@@ -636,6 +641,7 @@ module.exports = {
   extractCodexSandboxModeFromArgs,
   isCodexSandboxWriteCapable,
   isForbiddenCandidatePath,
+  isClikeOwnHarperFile,
   isDocumentPhase,
   isDocumentPhaseAllowedOutput,
   isDocumentPhaseCompanionOutput,

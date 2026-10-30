@@ -65,6 +65,15 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **`/adopt` with a local agent finishes**: the run guide (`docs/harper/HOWTO_RUN.md`) is accepted as
+  an output, and the survey report and code map CLike writes just before the analysis are no longer
+  taken for the agent's output. The run is no longer stopped before its check and commit. If the run
+  changes them, CLike puts them back.
+- **`/adopt --area` of a second area adds to the first**: the earlier areas' sections, REQs, lane guides
+  and run guide stay, and TECH_CONSTRAINTS only grows. Replacements are listed in the report, and a lost
+  section is put back. The README keeps every line of the team's README as it was before CLike, while
+  CLike's own sections are updated (cloud and local agents).
+
 - **`/adopt` runs its analysis**: it was sent to the `/eval` and `/gate` handler and stopped after the
   survey, leaving the `/init` templates. An adoption that stopped before its analysis runs again for
   the same area (its baseline REQ written anew). A nested area is named by its path

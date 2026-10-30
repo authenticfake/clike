@@ -154,8 +154,8 @@ test('the adopt guard: the project files a run changed, created or deleted go ba
   assert.equal(fs.readFileSync(path.join(root, 'README.md'), 'utf8'), '# integrated\n');
   assert.ok(fs.existsSync(path.join(root, 'docs/harper/IDEA.md')));
   assert.deepEqual(adopt.guardRestore(root, snap), []);
-  const files = adopt.writableFiles([{ path: 'README.md' }, { path: './docs/harper/SPEC.md' }, { path: 'gateway/src/x.py' }]);
+  const files = adopt.writableFiles([{ path: 'README.md' }, { path: './docs/harper/SPEC.md' }, { path: 'gateway/src/x.py' }, { path: 'docs/harper/ADOPT_2026-10-30.md' }, { path: 'docs/harper/CODEMAP.md' }]);
   assert.deepEqual(files.kept.map((f) => f.path), ['README.md', './docs/harper/SPEC.md']);
-  assert.deepEqual(files.dropped, ['gateway/src/x.py']);
+  assert.deepEqual(files.dropped, ['gateway/src/x.py', 'docs/harper/ADOPT_2026-10-30.md', 'docs/harper/CODEMAP.md']);
   assert.equal(adopt.guardSnapshot(repo({ withGit: false })), null);
 });

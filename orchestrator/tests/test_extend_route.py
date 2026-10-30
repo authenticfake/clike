@@ -86,6 +86,18 @@ class ExtendRouteTests(unittest.TestCase):
             self.assertIn("every existing heading stays", prompt)
             self.assertIn("docs/harper/CODEMAP.md", prompt)
             self.assertNotIn("Release cascade", prompt)
+            self.assertNotIn("Areas adopted before", prompt)
+
+    def test_a_second_adopted_area_adds_to_the_first_on_every_provider(self):
+        extend = {"mode": "adopt", "survey_report": "docs/harper/ADOPT_2026-10-30.md",
+                  "areas": [{"name": "aigateway", "root": "aigateway", "baseline_req": "REQ-047"}],
+                  "adopted_before": ["agent-platform"]}
+        for model in ("openai:gpt-5.4-mini", "anthropic:claude-sonnet-5-5"):
+            response, prompt = self._run(extend, model=model)
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertIn("Areas adopted before: agent-platform.", prompt)
+            self.assertIn("never rewrites them from scratch", prompt)
+            self.assertIn("Changes to the earlier adoption", prompt)
 
     def test_plan_mode_request_reaches_the_cloud_prompt(self):
         response, prompt = self._run({"anchorReq": "REQ-006", "rawInput": "loyalty points"})

@@ -46,6 +46,35 @@ def adopt_rules(opts: Dict[str, Any]) -> List[str]:
         f"{a.get('name')} (root {a.get('root')}, baseline {a.get('baseline_req')})" for a in areas if isinstance(a, dict)
     ) or "the repository root"
     survey = str(opts.get("survey_report") or "docs/harper/ADOPT_<date>.md")
+    return [*_adopt_core_rules(shown, survey), *adopted_before_rules(opts)]
+
+
+def adopted_before_rules(opts: Dict[str, Any]) -> List[str]:
+    """/adopt --area of a second area: the documents already describe the areas adopted before."""
+    earlier = [str(a) for a in (opts.get("adopted_before") or []) if str(a or "").strip()]
+    if not earlier:
+        return []
+    names = ", ".join(earlier)
+    return [
+        f"Areas adopted before: {names}. docs/harper/ already describes them (IDEA, SPEC with its use cases, "
+        "TECH_CONSTRAINTS, PLAN and plan.json with their REQs, their lane guides, HOWTO_RUN) and the README already "
+        "carries CLike's sections: this run ADDS the new area to them — it never rewrites them from scratch.",
+        f"Keep: every heading, every REQ and every statement about {names} stays as it is, with its label. "
+        "Add: the new area's capabilities, interfaces, use cases, stack, REQs, lane guide and HOWTO_RUN section, "
+        "next to the earlier ones. Replace only (a) a project-wide statement the new area makes wrong or "
+        "incomplete (the areas, the architecture, the contracts between areas, a cross-area journey, the counts of "
+        "the coverage tables) and (b) an (open) or (declared) point the new area's code now answers — relabel it "
+        "(observed) with the file that shows it. Never drop an earlier statement: when the new code contradicts one, "
+        "keep it and add a note. TECH_CONSTRAINTS changes only by addition.",
+        "README: CLike's own sections (badges, summary, Areas, Architecture, Requirements Coverage, Known Limitations, "
+        "Next Steps, Made with CLike) are updated in place for the new area; every line of the team's own README "
+        "stays word for word.",
+        "Report: in the EXTEND report add a section 'Changes to the earlier adoption' listing each statement replaced "
+        "or relabelled (file, before → after, why) — empty when nothing was replaced.",
+    ]
+
+
+def _adopt_core_rules(shown: str, survey: str) -> List[str]:
     return [
         "Adoption: write the Harper documents of this project AS IT IS — nothing is designed, nothing is invented. "
         "The truth of what exists is the code, its tests and git; documents (README, docs/, ADRs, howtos, tutorials, "

@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { execFileSync } = require('child_process');
 
 const re = require('../release-extend');
 const { validateExtendPlan } = require('../extend-guard');
@@ -511,6 +512,78 @@ test('/adopt reconcile: the documents over the templates are kept; a rejected an
   assert.equal(fs.readFileSync(path.join(bad.root, 'README.md'), 'utf8'), '# Foundation\n\n## Setup\nmake setup\n');
   assert.ok(rej.kept && fs.existsSync(path.join(bad.root, rej.kept, 'docs/harper/lane-guides/python.md')));
   for (const r of [ok.root, bad.root]) fs.rmSync(r, { recursive: true, force: true });
+});
+
+test('/adopt of a second area: what the first wrote stays, the team README lines stay, CLike sections are updated', () => {
+  const adoptLib = require('../adopt');
+  const ap = { name: 'agent-platform', root: 'agent-platform', stack: 'python', runtime: {}, commands: { check: 'make check' } };
+  const gw = { name: 'aigateway', root: 'aigateway', stack: 'python', runtime: {}, commands: { check: 'make check' } };
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'clike-adopt-2nd-')));
+  const put = (rel, text) => { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); };
+  const g = (...args) => execFileSync('git', args, { cwd: root, stdio: 'ignore' });
+  put('README.md', '# Foundation\n\n## Setup\nmake setup\n');
+  g('init', '-q'); g('config', 'user.email', 't@t'); g('config', 'user.name', 't'); g('add', '-A'); g('commit', '-qm', 'init');
+  // the first adoption (not committed yet): agent-platform
+  const first = [...adoptLib.baselineReqs([ap]).reqs, { id: 'REQ-002', title: 'Agents', area: 'agent-platform', status: 'done', origin: 'adopted', acceptance: ['(observed) agents'], covered_by: 'REQ-001' }];
+  put('README.md', '# Foundation\n\n## Setup\nmake setup\n\n## Areas\n| agent-platform |\n\n## Made with CLike\nAdopted.\n');
+  put('docs/harper/SPEC.md', '# SPEC\n\n## agent-platform\n(observed) agents\n\n## Use Cases\n### UC-01 Run an agent\n1. UC-01.1 start\n');
+  put('docs/harper/HOWTO_RUN.md', '# How to run\n\n## agent-platform\nmake check\n');
+  put('docs/harper/lane-guides/agent-platform.md', '# agent-platform\n\n## Commands\nmake check\n');
+  put('docs/harper/TECH_CONSTRAINTS.yaml', 'agent-platform: python 3.14\n');
+  put('docs/harper/plan.json', JSON.stringify({ reqs: first }));
+  assert.deepEqual(adoptLib.adoptedAreas({ reqs: first }), ['agent-platform']);
+  // the team's README, from git: the working copy already has CLike's sections
+  const original = adoptLib.originalReadme(root);
+  assert.equal(original, '# Foundation\n\n## Setup\nmake setup\n');
+  assert.equal(fs.readFileSync(path.join(root, adoptLib.ORIGINAL_README), 'utf8'), original);
+  put('README.md', '# changed later\n');
+  assert.equal(adoptLib.originalReadme(root), original);                          // saved once
+  put('README.md', '# Foundation\n\n## Setup\nmake setup\n\n## Areas\n| agent-platform |\n\n## Made with CLike\nAdopted.\n');
+
+  const base = adoptLib.baselineReqs([gw], null, first);
+  assert.equal(base.reqs[0].id, 'REQ-003');
+  const adopt = {
+    check: (b, a) => adoptLib.checkAdoptedPlan({ beforeText: b, afterText: a, areas: [gw], baselineIds: ['REQ-003'], validateExtendPlan }),
+    section: (summary, warnings, docs) => adoptLib.adoptVerificationMarkdown({ areas: [gw], baselineIds: ['REQ-003'], summary, warnings, docs }),
+  };
+  const cascade = { release: 'v1', adoptedBefore: ['agent-platform'], originalReadme: original };
+  put('docs/harper/plan.json', JSON.stringify({ reqs: [...first, ...base.reqs] }));
+  const plan = JSON.stringify({ reqs: [...first, ...base.reqs, { id: 'REQ-004', title: 'Routing', area: 'aigateway', status: 'done', acceptance: ['(observed) routes'] }] });
+  const started = Date.now() - 1000;
+
+  // added to: the CLike Areas row updated, the team's lines and every earlier section kept
+  const before = re.snapshotDocs(root);
+  put('docs/harper/plan.json', plan);
+  put('README.md', '# Foundation\n\n## Setup\nmake setup\n\n## Areas\n| agent-platform | aigateway |\n\n## Made with CLike\nAdopted, two areas.\n');
+  put('docs/harper/SPEC.md', '# SPEC\n\n## agent-platform\n(observed) agents\n\n## aigateway\n(observed) routes\n\n## Use Cases\n### UC-01 Run an agent\n1. UC-01.1 start\n### UC-02 Route\n1. UC-02.1 call\n');
+  put('docs/harper/HOWTO_RUN.md', '# How to run\n\n## agent-platform\nmake check\n\n## aigateway\nmake check\n');
+  put('docs/harper/TECH_CONSTRAINTS.yaml', 'agent-platform: python 3.14\naigateway: python 3.14\n');
+  put('docs/harper/EXTEND_2026-10-30_REQ-004_REQ-004.md', '# Adoption of aigateway\n');
+  const out = re.reconcileExtend({ root, before, files: [], isAgent: true, mode: 'adopt', cascade, adopt, validateExtendPlan, startedAt: started });
+  assert.equal(out.ok, true, out.errors.join('; '));
+  assert.deepEqual(out.warnings, []);
+  assert.match(fs.readFileSync(path.join(root, 'README.md'), 'utf8'), /\| agent-platform \| aigateway \|/);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, 'docs/harper/plan.json'), 'utf8')).reqs.map((r) => r.id), ['REQ-001', 'REQ-002', 'REQ-003', 'REQ-004']);
+
+  // rewritten from scratch: the sections of the first area, its lane guide and the TECH lines come back
+  put('docs/harper/plan.json', JSON.stringify({ reqs: [...first, ...base.reqs] }));
+  const before2 = re.snapshotDocs(root);
+  put('docs/harper/plan.json', plan);
+  put('docs/harper/SPEC.md', '# SPEC\n\n## aigateway\n(observed) routes\n\n## Use Cases\n### UC-02 Route\n1. UC-02.1 call\n');
+  put('docs/harper/HOWTO_RUN.md', '# How to run\n\n## aigateway\nmake check\n');
+  put('docs/harper/lane-guides/agent-platform.md', '# agent-platform\n');
+  put('docs/harper/TECH_CONSTRAINTS.yaml', 'aigateway: python 3.14\n');
+  put('README.md', '# Foundation\n\n## Setup\nuv sync\n\n## Areas\n| aigateway |\n\n## Made with CLike\nAdopted.\n');
+  const out2 = re.reconcileExtend({ root, before: before2, files: [], isAgent: true, mode: 'adopt', cascade, adopt, validateExtendPlan, startedAt: started });
+  assert.equal(out2.ok, true, out2.errors.join('; '));
+  for (const [rel, re2] of [['docs/harper/SPEC.md', /## agent-platform/], ['docs/harper/HOWTO_RUN.md', /## agent-platform/],
+    ['docs/harper/lane-guides/agent-platform.md', /## Commands/], ['docs/harper/TECH_CONSTRAINTS.yaml', /agent-platform: python/], ['README.md', /make setup/]]) {
+    assert.match(fs.readFileSync(path.join(root, rel), 'utf8'), re2, rel);
+  }
+  assert.ok(out2.warnings.some((w) => /SPEC\.md dropped sections of the earlier adoption \(agent-platform: .*## agent-platform/.test(w)));
+  assert.ok(out2.warnings.some((w) => /lane guide of an area adopted before/.test(w)));
+  assert.ok(out2.warnings.some((w) => /README\.md changed or dropped 1 existing line\(s\) \(e\.g\. "make setup"\)/.test(w)));
+  fs.rmSync(root, { recursive: true, force: true });
 });
 
 test('a project of areas: every new REQ names its area; a new module is declared once and registered; no areas, as before', () => {

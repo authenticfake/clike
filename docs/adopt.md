@@ -114,7 +114,14 @@ the run's output aside in `runs/extend/rejected/`.
    first `/idea --extend`; a rejected analysis changes nothing (its output is kept aside).
 
 `--area <name>` adopts one area of a monorepo first; the others follow with the same command (their
-REQs are numbered after the ones already adopted; an area is adopted once). The analysis runs on a
+REQs are numbered after the ones already adopted; an area is adopted once). The next area **adds to**
+what the earlier ones wrote, it never rewrites it: every section and REQ of an area adopted before
+stays (IDEA, SPEC with its use cases, HOWTO_RUN, its lane guide; TECH_CONSTRAINTS only grows). The run
+replaces only a project-wide statement the new area changes (the areas, the architecture, the contracts
+between areas, the coverage counts) or an open point the new code answers, and lists each replacement in
+its report under *Changes to the earlier adoption*. A document that loses a section of an earlier area
+is put back. In the README, CLike's own sections are updated for the new area, while every line of the
+team's README (saved at the first adoption in `.clike/adopt/README.original.md`) stays. The analysis runs on a
 plan without REQs or one adopted this way; a project already planned with CLike evolves with
 `/idea --extend`.
 

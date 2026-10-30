@@ -246,6 +246,7 @@ const {
   shouldFallbackToCloud,
   documentPhaseCompanionTargets,
   isFreshLocalAgentArtifact,
+  isClikeOwnHarperFile,
 } = require('./local-agent-write-policy');
 
 // Harper phases that can run through the orchestrator-owned local-agent package
@@ -974,6 +975,8 @@ async function collectExtendCandidateFileArtifacts(workspaceRootUri, runStartedA
       }
 
       if (type !== vscode.FileType.File) continue;
+      // the survey report and the code map /adopt wrote just before the run are CLike's, not the agent's
+      if (isClikeOwnHarperFile(`docs/harper/${relPath}`)) continue;
 
       let data;
       try {
@@ -4479,12 +4482,20 @@ async function cmdOpenChat(context) {
         };
         const ws = getWorkspaceRoot();
         let guard = null;
+        const ownFiles = {};
         // the project as it is: whatever the run changes outside CLike's own files and the root README goes back
         const restoreProject = () => {
           if (!guard) return;
           const keepDir = `.clike/adopt-guard/${new Date().toISOString().replace(/[:.]/g, '-')}`;
           let restored = [];
           try { restored = adoptLib.guardRestore(ws.fsPath, guard, keepDir); } catch (e) { say(`⚠ /adopt: the project files could not be checked (${String(e?.message || e).slice(0, 200)}).`); }
+          // the survey report and the code map are CLike's: a run that changed them gets them back
+          for (const [rel, text] of Object.entries(ownFiles)) {
+            const abs = path.join(ws.fsPath, ...rel.split('/'));
+            let now = null;
+            try { now = fsSync.readFileSync(abs, 'utf8'); } catch { /* deleted */ }
+            if (now !== text) { fsSync.mkdirSync(path.dirname(abs), { recursive: true }); fsSync.writeFileSync(abs, text); restored.push(rel); }
+          }
           if (restored.length) {
             say(`⚠ /adopt: ${restored.length} project file(s) changed during the run, put back as they were (what the run left is in ${keepDir}/): ` +
               `${restored.slice(0, 10).join(', ')}${restored.length > 10 ? ', …' : ''}.`);
@@ -4595,12 +4606,17 @@ async function cmdOpenChat(context) {
             fsSync.mkdirSync(path.dirname(p), { recursive: true });
             fsSync.writeFileSync(p, `${JSON.stringify(ltc, null, 2)}\n`);
           }
+          for (const rel of [reportRel, adoptLib.CODEMAP]) {
+            try { ownFiles[rel] = fsSync.readFileSync(path.join(root, ...rel.split('/')), 'utf8'); } catch { /* not written */ }
+          }
           say(`▶ /adopt: analysis of ${picked.map((a) => a.name).join(', ')} — IDEA, SPEC (with use cases), PLAN with the capability REQs, TECH_CONSTRAINTS, lane guides, HOWTO_RUN and the root README integrated (baseline REQs ${base.reqs.map((r) => r.id).join(', ')} already written)…`);
           done();
           await clikeRunChatMessage({
             type: 'harperRun', cmd: 'extend', extendMode: 'adopt', attachments: [],
             __adopt: {
               areas: picked, baselineIds: base.reqs.map((r) => r.id), surveyReport: reportRel, baseline, restoreProject,
+              // a second area adds to the documents of the first: what they say stays, the team's README lines too
+              adoptedBefore: adoptLib.adoptedAreas({ reqs: kept }), originalReadme: adoptLib.originalReadme(root),
               documents: adoptLib.contextDocuments(root, found, picked, reportRel, 6000, { maps: mapped.maps }),
             },
           });
@@ -5478,6 +5494,7 @@ async function cmdOpenChat(context) {
                 areas: msg.__adopt.areas.map((a, i) => ({ name: a.name, root: a.root, baseline_req: msg.__adopt.baselineIds[i] })),
                 survey_report: msg.__adopt.surveyReport,
                 documents: msg.__adopt.documents,
+                ...(msg.__adopt.adoptedBefore.length ? { adopted_before: msg.__adopt.adoptedBefore } : {}),
               } : {}),
             };
             if (msg.__adopt) {
@@ -5719,11 +5736,12 @@ async function cmdOpenChat(context) {
               const writable = adoptLib.writableFiles(_out.files);
               _out.files = writable.kept;
               if (writable.dropped.length) {
-                panel.webview.postMessage({ type: 'echo', message: `⚠ /ADOPT: ${writable.dropped.length} file(s) outside docs/harper/ and the root README ignored: ${writable.dropped.slice(0, 10).join(', ')}` });
+                panel.webview.postMessage({ type: 'echo', message: `⚠ /ADOPT: ${writable.dropped.length} file(s) the analysis may not write ignored (it writes docs/harper/ and the root README; the survey report and the code map are CLike's): ${writable.dropped.slice(0, 10).join(', ')}` });
               }
               a.restoreProject();
               verdict = releaseExtend.reconcileExtend({
-                root, before: extendBefore, files: _out.files, isAgent, mode: 'adopt', cascade: { release: 'v1' },
+                root, before: extendBefore, files: _out.files, isAgent, mode: 'adopt',
+                cascade: { release: 'v1', adoptedBefore: a.adoptedBefore, originalReadme: a.originalReadme },
                 validateExtendPlan, startedAt: extendStartedAt,
                 adopt: {
                   check: (beforeText, afterText) => adoptLib.checkAdoptedPlan({ beforeText, afterText, areas: a.areas, baselineIds: a.baselineIds, validateExtendPlan }),

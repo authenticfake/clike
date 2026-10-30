@@ -276,6 +276,12 @@ def test_adopt_mode_describes_the_project_as_it_is():
     # the code first (the code map CLike extracted), then git, then the documents; the interactions between areas
     assert "docs/harper/CODEMAP.md" in prompt and "a capability it does not show is not in the code" in prompt
     assert "who calls whom, on which protocol and interface" in prompt
+    assert "Areas adopted before" not in prompt
+    # a second area: the documents of the first are added to, never rewritten
+    second = _package({"runId": "adopt-run-2", "extend": {
+        "mode": "adopt", "areas": [{"name": "aigateway", "root": "aigateway", "baseline_req": "REQ-047"}],
+        "adopted_before": ["agent-platform"]}})["local_agent"]["prompt_content"]
+    assert "Areas adopted before: agent-platform." in second and "Changes to the earlier adoption" in second
     # a release cascade never writes the README
     cascade = _package({"runId": "ext-run", "extend": {"mode": "cascade", "release": "v2", "baseline": "v1"}})
     assert "README.md" not in cascade["local_agent"]["allowed_write_roots"]

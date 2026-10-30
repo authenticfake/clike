@@ -609,7 +609,9 @@ function reconcileExtend({ root, before, files, isAgent, mode = 'plan', cascade 
       warnings.push('README.md was not integrated: run /adopt again, or /finalize integrates it');
     } else {
       // and every existing line, word for word: the team's content is never rewritten or lost
-      docs.readme = { ...compareMarkdown(before.readme, readme), lost: missingLines(before.readme, readme) };
+      // the team's lines: of the README before CLike's first adoption (CLike's own sections are updated for a new area)
+      const original = cascade.originalReadme != null ? cascade.originalReadme : before.readme;
+      docs.readme = { ...compareMarkdown(before.readme, readme), lost: missingLines(original, readme) };
       if (docs.readme.lost.length) docs.readme.ok = false;
       if (!docs.readme.ok) {
         put(ADOPT_FILES.readme, before.readme);
@@ -623,15 +625,29 @@ function reconcileExtend({ root, before, files, isAgent, mode = 'plan', cascade 
     if (!current(ADOPT_FILES.howto)) warnings.push('docs/harper/HOWTO_RUN.md was not written: the run guide is missing');
     else docs.howto = { ok: true };
   }
-  // adopt writes IDEA, SPEC and TECH_CONSTRAINTS over the templates: nothing earlier to merge into
-  for (const key of adopting ? [] : ['idea', 'spec']) {
-    const rel = DOC_FILES[key];
+  // adopt writes IDEA, SPEC and TECH_CONSTRAINTS over the templates; a later area adds to what the earlier ones wrote
+  const addsToEarlier = adopting && Array.isArray(cascade.adoptedBefore) && cascade.adoptedBefore.length > 0;
+  const mergedDocs = adopting ? (addsToEarlier ? { idea: DOC_FILES.idea, spec: DOC_FILES.spec, howto: ADOPT_FILES.howto } : {})
+    : { idea: DOC_FILES.idea, spec: DOC_FILES.spec };
+  for (const [key, rel] of Object.entries(mergedDocs)) {
     const after = current(rel);
     if (after == null || after === before[key]) continue;
     docs[key] = compareMarkdown(before[key], after);
     if (!docs[key].ok) {
       put(rel, before[key]);
-      warnings.push(`${rel} dropped sections of the earlier release (${docs[key].missing.join('; ')}): restored — merge, never rewrite`);
+      warnings.push(addsToEarlier
+        ? `${rel} dropped sections of the earlier adoption (${cascade.adoptedBefore.join(', ')}: ${docs[key].missing.join('; ')}): restored — add the new area, never rewrite`
+        : `${rel} dropped sections of the earlier release (${docs[key].missing.join('; ')}): restored — merge, never rewrite`);
+    }
+  }
+  // the lane guide of an area adopted before keeps its sections
+  for (const [rel, text] of addsToEarlier ? Object.entries(before.laneGuides || {}) : []) {
+    const after = current(rel);
+    if ((after == null && !isAgent) || after === text) continue;   // cloud: a guide not returned is unchanged
+    const cmp = compareMarkdown(text, after);
+    if (!cmp.ok) {
+      put(rel, text);
+      warnings.push(`${rel} dropped sections (${cmp.missing.join('; ')}): restored — the lane guide of an area adopted before is extended, never rewritten`);
     }
   }
   // the journeys of the release are use cases of the SPEC, as /spec writes them
@@ -648,7 +664,7 @@ function reconcileExtend({ root, before, files, isAgent, mode = 'plan', cascade 
     const added = Object.keys(ucAfter).filter((id) => !(ucBefore && ucBefore[id]));
     docs.useCases = { total: Object.keys(ucAfter).length, added };
   }
-  if (!adopting && current(DOC_FILES.tech) !== before.tech) {
+  if ((!adopting || addsToEarlier) && current(DOC_FILES.tech) !== before.tech) {
     docs.tech = tech;
     if (!tech.ok) {
       put(DOC_FILES.tech, before.tech);
