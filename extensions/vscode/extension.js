@@ -5757,7 +5757,7 @@ async function cmdOpenChat(context) {
                 cascade: { release: 'v1', adoptedBefore: a.adoptedBefore, originalReadme: a.originalReadme },
                 validateExtendPlan, startedAt: extendStartedAt,
                 adopt: {
-                  check: (beforeText, afterText) => adoptLib.checkAdoptedPlan({ beforeText, afterText, areas: a.areas, baselineIds: a.baselineIds, validateExtendPlan }),
+                  check: (beforeText, afterText) => adoptLib.checkAdoptedPlan({ beforeText, afterText, areas: a.areas, baselineIds: a.baselineIds, validateExtendPlan, projectAreas: releaseExtend.projectAreas(root) }),
                   section: (summary, warnings, docs) => adoptLib.adoptVerificationMarkdown({ areas: a.areas, baselineIds: a.baselineIds, summary, baseline: a.baseline, warnings, docs }),
                 },
               });

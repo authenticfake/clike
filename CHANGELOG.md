@@ -65,6 +65,10 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- **`/adopt` checks**: a journey across areas may name areas of the project not adopted yet, without a
+  warning. Every adopted REQ lists the SPEC use-case steps it realizes (`covers`), so the coverage check
+  no longer reports every step as uncovered.
+
 - **A project outside `CLIKE_PROJECTS_DIR` gets its tests run**: when eval, gate or the `/adopt`
   baseline start on such a project, CLike asks to mount it. On confirmation, `docker/mount-project.sh`
   mounts that folder only, read-only (a CLike project, never a parent), and recreates the containers.

@@ -106,7 +106,8 @@ def _adopt_core_rules(shown: str, survey: str) -> List[str]:
         "\"covered_by\": the area's baseline REQ when the capability is in the code and the area's tests cover it, "
         "status \"open\" when it is documented or planned but not found, or found without tests. Work still to do in "
         "a backlog becomes open REQs with \"origin\": \"import:backlog:<id>\", its acceptance and its blockers as "
-        "readiness questions. A journey across areas is a REQ with the areas it touches.",
+        "readiness questions. A journey across areas is a REQ with the areas it touches. Every REQ lists in "
+        "\"covers\" the use-case steps of the SPEC it realizes (UC-nn.n), so that every step is in a REQ.",
         "Lane guides: one docs/harper/lane-guides/<area>.md per area from its AGENTS.md / CLAUDE.md and its observed "
         "conventions (layout, commands, tests, style), so every KIT follows them.",
         "Report: the EXTEND report file is the adoption analysis — the capability → files → tests map per area, the "

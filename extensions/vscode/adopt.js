@@ -383,7 +383,7 @@ function sourceItems(root, areas) {
  * every new REQ with an area and acceptance; done only with covered_by the area's baseline REQ (filled
  * in when missing), else open; origin and release set. Returns { ok, errors, warnings, planText, summary }.
  */
-function checkAdoptedPlan({ beforeText, afterText, areas, baselineIds, validateExtendPlan }) {
+function checkAdoptedPlan({ beforeText, afterText, areas, baselineIds, validateExtendPlan, projectAreas = [] }) {
   const verdict = validateExtendPlan({ beforeText, afterText });
   const errors = [...verdict.errors];
   const warnings = [...verdict.warnings];
@@ -400,7 +400,8 @@ function checkAdoptedPlan({ beforeText, afterText, areas, baselineIds, validateE
     const areaNames = (Array.isArray(r.areas) ? r.areas : [r.area]).map((x) => String(x || '').trim()).filter(Boolean);
     if (!Array.isArray(r.acceptance) || !r.acceptance.length) errors.push(`${r.id}: no acceptance`);
     if (!areaNames.length) errors.push(`${r.id}: no area (one of ${areas.map((a) => a.name).join(', ')})`);
-    const unknown = areaNames.filter((x) => !byArea.has(x));
+    // a journey across areas names the other areas of the project too (adopted later)
+    const unknown = areaNames.filter((x) => !byArea.has(x) && !projectAreas.some((a) => a.name === x));
     if (unknown.length) warnings.push(`${r.id}: area ${unknown.join(', ')} is not an area of .clike/project.json`);
     r.origin = r.origin || 'adopted';
     r.release = r.release || 'v1';

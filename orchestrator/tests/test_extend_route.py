@@ -85,6 +85,7 @@ class ExtendRouteTests(unittest.TestCase):
             self.assertIn("docs/harper/HOWTO_RUN.md", prompt)
             self.assertIn("every existing heading stays", prompt)
             self.assertIn("docs/harper/CODEMAP.md", prompt)
+            self.assertIn("the use-case steps of the SPEC it realizes", prompt)
             self.assertNotIn("Release cascade", prompt)
             self.assertNotIn("Areas adopted before", prompt)
 

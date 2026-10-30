@@ -144,6 +144,18 @@ test('checkAdoptedPlan: baseline kept, done only when covered, open otherwise, a
   assert.deepEqual(second.summary, []);
 });
 
+test('checkAdoptedPlan: a journey across areas may name the areas of the project not adopted yet', () => {
+  const gw = { name: 'agent-platform', root: 'agent-platform', stack: 'python', runtime: {}, commands: { check: 'make check' } };
+  const base = a.baselineReqs([gw]).reqs;
+  const plan = JSON.stringify({ reqs: [...base, { id: 'REQ-002', title: 'Portal to MCP', areas: ['agent-platform', 'portal'], status: 'open', acceptance: ['(declared) x'] },
+    { id: 'REQ-003', title: 'Elsewhere', area: 'nowhere', status: 'open', acceptance: ['(declared) y'] }] });
+  const { validateExtendPlan } = require('../extend-guard');
+  const out = a.checkAdoptedPlan({ beforeText: JSON.stringify({ reqs: base }), afterText: plan, areas: [gw], baselineIds: ['REQ-001'], validateExtendPlan,
+    projectAreas: [{ name: 'agent-platform' }, { name: 'portal' }] });
+  assert.equal(out.ok, true, out.errors.join('; '));
+  assert.deepEqual(out.warnings.filter((w) => /is not an area/.test(w)), ['REQ-003: area nowhere is not an area of .clike/project.json']);
+});
+
 test('adoptablePlan: a new plan, or adopted area by area without the same area twice', () => {
   const base = a.baselineReqs([gw], null);
   assert.equal(a.adoptablePlan({}, [gw]), '');
