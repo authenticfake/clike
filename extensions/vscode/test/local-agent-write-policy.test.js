@@ -261,8 +261,23 @@ test('/adopt (extend): the run guide is an output; the survey report and the cod
         { path: 'docs/harper/HOWTO_RUN.md', content: '# How to run' },
         { path: 'docs/harper/EXTEND_2026-10-30_REQ-002_REQ-046.md', content: '# audit' },
       ],
+      allowedWriteRoots: ['docs/harper/plan.json', 'README.md', 'docs/harper/HOWTO_RUN.md'],
     }),
     { ok: true, missing_required_roots: [] }
+  );
+  // /idea --extend (its package has no run guide): as before, never written
+  assert.throws(
+    () => validateLocalAgentRequiredOutputs({
+      phase: 'extend',
+      artifacts: [
+        { path: 'docs/harper/PLAN.md', content: '# PLAN' },
+        { path: 'docs/harper/plan.json', content: '{}' },
+        { path: 'docs/harper/HOWTO_RUN.md', content: '# How to run' },
+        { path: 'docs/harper/EXTEND_2026-10-30_REQ-002_REQ-046.md', content: '# audit' },
+      ],
+      allowedWriteRoots: ['docs/harper/plan.json', 'docs/harper/TECH_CONSTRAINTS.yaml'],
+    }),
+    (error) => error.code === 'LOCAL_AGENT_FORBIDDEN_OUTPUT_PATH'
   );
   assert.strictEqual(isClikeOwnHarperFile('docs/harper/ADOPT_2026-10-30.md'), true);
   assert.strictEqual(isClikeOwnHarperFile('./docs/harper/CODEMAP.md'), true);

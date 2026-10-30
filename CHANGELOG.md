@@ -71,7 +71,7 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   `GET /v1/eval/roots` lists the folders eval reads, and the new setting `clike.stackDir` gives the
   stack folder.
 
-- **`/adopt` with a local agent finishes**: the run guide (`docs/harper/HOWTO_RUN.md`) is accepted as
+- **`/adopt` with a local agent finishes**: the run guide (`docs/harper/HOWTO_RUN.md`) is accepted (only in the adoption: `/idea --extend` never writes it) as
   an output, and the survey report and code map CLike writes just before the analysis are no longer
   taken for the agent's output. The run is no longer stopped before its check and commit. If the run
   changes them, CLike puts them back.

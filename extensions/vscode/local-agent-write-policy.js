@@ -217,15 +217,15 @@ function isLaneGuideFile(rel) {
 // report. Everything else under docs/harper/ (including AGENT_* internals) and
 // all src/test/runs roots remain forbidden.
 // TECH_CONSTRAINTS: /idea --extend extends it by addition; /extend gets it restored (release-extend.js).
-// HOWTO_RUN.md: the run guide /adopt writes (accepted by the orchestrator too: phases/extend/phase.yaml)
 const EXTEND_ALLOWED_EXACT = [
   'docs/harper/IDEA.md',
   'docs/harper/SPEC.md',
   'docs/harper/PLAN.md',
   'docs/harper/plan.json',
   'docs/harper/TECH_CONSTRAINTS.yaml',
-  'docs/harper/HOWTO_RUN.md',
 ];
+// The run guide only /adopt writes: accepted when its package lists it in allowed_write_roots
+const EXTEND_PACKAGE_ONLY = ['docs/harper/HOWTO_RUN.md'];
 // What CLike itself writes before an /adopt analysis (the survey report, the code map): never an agent output
 const CLIKE_OWN_HARPER_FILES = /^docs\/harper\/(ADOPT_[^/]+\.md|CODEMAP\.md)$/;
 const isClikeOwnHarperFile = (candidatePath) => CLIKE_OWN_HARPER_FILES.test(normalizeArtifactPath(candidatePath).replace(/^\.\//, ''));
@@ -340,7 +340,8 @@ function validateLocalAgentRequiredOutputs({
       ? isFinalizeForbiddenPath(rel, { allowedWriteRoots, forbiddenPaths })
       : isForbiddenCandidatePath(rel) &&
         !(documentPhase && isDocumentPhaseContractOutput(normalizedPhase, outputContract, rel)) &&
-        !(extendPhase && isExtendAllowedOutput(rel))));
+        !(extendPhase && (isExtendAllowedOutput(rel) ||
+          (EXTEND_PACKAGE_ONLY.includes(rel) && (Array.isArray(allowedWriteRoots) ? allowedWriteRoots : []).includes(rel))))));
 
   if (forbidden.length) {
     throw makePolicyError(
