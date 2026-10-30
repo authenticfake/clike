@@ -143,6 +143,13 @@ function compareMarkdown(before, after) {
   return { ok: missing.length === 0, missing, added, changed };
 }
 
+/** The lines of `before` no longer in `after` (blank lines aside; spaces normalized): an integration loses none. */
+function missingLines(before, after) {
+  const norm = (l) => l.trim().replace(/\s+/g, ' ');
+  const kept = new Set(String(after || '').split(/\r?\n/).map(norm));
+  return String(before || '').split(/\r?\n/).map(norm).filter((l) => l && !kept.has(l));
+}
+
 /** TECH_CONSTRAINTS changes only by addition: every earlier non-empty line is still there. */
 function compareAdditive(before, after) {
   if (before == null) return { ok: true, missing: [] };
@@ -537,10 +544,14 @@ function reconcileExtend({ root, before, files, isAgent, mode = 'plan', cascade 
     if (readme == null || readme === before.readme) {
       warnings.push('README.md was not integrated: run /adopt again, or /finalize integrates it');
     } else {
-      docs.readme = compareMarkdown(before.readme, readme);
+      // and every existing line, word for word: the team's content is never rewritten or lost
+      docs.readme = { ...compareMarkdown(before.readme, readme), lost: missingLines(before.readme, readme) };
+      if (docs.readme.lost.length) docs.readme.ok = false;
       if (!docs.readme.ok) {
         put(ADOPT_FILES.readme, before.readme);
-        warnings.push(`README.md dropped existing sections (${docs.readme.missing.join('; ')}): restored — integrate, never replace`);
+        warnings.push(docs.readme.missing.length
+          ? `README.md dropped existing sections (${docs.readme.missing.join('; ')}): restored — integrate, never replace`
+          : `README.md changed or dropped ${docs.readme.lost.length} existing line(s) (e.g. "${docs.readme.lost[0].slice(0, 120)}"): restored — integrate, never replace`);
       } else if (!/made with clike/i.test(readme)) {
         warnings.push('README.md has no "Made with CLike" section');
       }
@@ -637,6 +648,7 @@ function tagBaseline(root, baseline) {
 
 module.exports = {
   ADOPT_FILES,
+  missingLines,
   reconcileExtend,
   keepRejected,
   syncPlanMd,

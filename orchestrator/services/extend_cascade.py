@@ -88,7 +88,9 @@ def adopt_rules(opts: Dict[str, Any]) -> List[str]:
         "with the area folder it runs in), configuration files and environment variables by name only, the local "
         "services it needs. Only commands backed by a file of the repository; what cannot be run locally is said so.",
         "README.md (repository root): integrate the existing README, never replace it — every existing heading stays, "
-        "with its content, in its order (fix only what the code contradicts, and say so in the report). Add CLike's "
+        "with its content, in its order, and every existing line stays word for word (where the code contradicts a "
+        "line, keep it and add a note right after it, and say so in the report; a README that loses a line is put "
+        "back). Add CLike's "
         "release-grade presentation as finalize does: a badge row after the H1 (status adopted, the CLike badge linked "
         "to https://github.com/authenticfake/clike, the Harper badge \"adopt\" linked to "
         f"{survey}), a short summary blockquote, and the sections it lacks — Project Overview, Areas (a table: area, "

@@ -4466,11 +4466,25 @@ async function cmdOpenChat(context) {
         const say = (text) => panel.webview.postMessage({ type: 'echo', message: text });
         const done = () => panel.webview.postMessage({ type: 'busy', on: false, force: true });
         const ws = getWorkspaceRoot();
+        let guard = null;
+        // the project as it is: whatever the run changes outside CLike's own files and the root README goes back
+        const restoreProject = () => {
+          if (!guard) return;
+          const keepDir = `.clike/adopt-guard/${new Date().toISOString().replace(/[:.]/g, '-')}`;
+          let restored = [];
+          try { restored = adoptLib.guardRestore(ws.fsPath, guard, keepDir); } catch (e) { say(`⚠ /adopt: the project files could not be checked (${String(e?.message || e).slice(0, 200)}).`); }
+          if (restored.length) {
+            say(`⚠ /adopt: ${restored.length} project file(s) changed during the run, put back as they were (what the run left is in ${keepDir}/): ` +
+              `${restored.slice(0, 10).join(', ')}${restored.length > 10 ? ', …' : ''}.`);
+          }
+        };
         try {
           if (!ws) { say('✖ /adopt: open the project folder in VS Code first.'); return done(); }
           const root = ws.fsPath;
           const projectPath = path.join(root, '.clike', 'project.json');
           if (!fsSync.existsSync(projectPath)) { say('ℹ /adopt: run /init first — it adds CLike to this folder, in place, keeping every file.'); return done(); }
+          guard = adoptLib.guardSnapshot(root);
+          if (!guard) say('ℹ /adopt: no git here — the project files are protected by the write rules only (CLike writes docs/harper/, .clike/, runs/ and the root README).');
           await appendSessionJSONL('harper', { ts: Date.now(), role: 'user', content: `▶ ADOPT${msg.area ? ` --area ${msg.area}` : ''}${msg.dryRun ? ' --dry-run' : ''}`, model: 'auto', attachments: [] });
           say('▶ /adopt: survey of the project (areas, stack, roots, commands, runtimes, CI, documentation, git)…');
           const found = adoptLib.survey(root);
@@ -4572,14 +4586,16 @@ async function cmdOpenChat(context) {
           await clikeRunChatMessage({
             type: 'harperEDD', cmd: 'extend', extendMode: 'adopt', attachments: [],
             __adopt: {
-              areas: picked, baselineIds: base.reqs.map((r) => r.id), surveyReport: reportRel, baseline,
+              areas: picked, baselineIds: base.reqs.map((r) => r.id), surveyReport: reportRel, baseline, restoreProject,
               documents: adoptLib.contextDocuments(root, found, picked, reportRel, 6000, { maps: mapped.maps }),
             },
           });
+          restoreProject();
           return;
         } catch (e) {
           say(`✖ /adopt failed: ${String(e?.message || e)}`);
         }
+        restoreProject();
         return done();
       }
 
@@ -5680,6 +5696,13 @@ async function cmdOpenChat(context) {
             if (msg.__adopt) {
               // the same reconcile as the cascade (restore and keep a rejected run aside); adopt.js checks the plan
               const a = msg.__adopt;
+              // never a project file: only docs/harper/, CLike's own files and the root README are written and committed
+              const writable = adoptLib.writableFiles(_out.files);
+              _out.files = writable.kept;
+              if (writable.dropped.length) {
+                panel.webview.postMessage({ type: 'echo', message: `⚠ /ADOPT: ${writable.dropped.length} file(s) outside docs/harper/ and the root README ignored: ${writable.dropped.slice(0, 10).join(', ')}` });
+              }
+              a.restoreProject();
               verdict = releaseExtend.reconcileExtend({
                 root, before: extendBefore, files: _out.files, isAgent, mode: 'adopt', cascade: { release: 'v1' },
                 validateExtendPlan, startedAt: extendStartedAt,

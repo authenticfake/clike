@@ -471,7 +471,7 @@ test('/adopt reconcile: the documents over the templates are kept; a rejected an
   assert.equal(JSON.parse(fs.readFileSync(path.join(ok.root, 'docs/harper/plan.json'), 'utf8')).reqs[1].covered_by, 'REQ-001');
   const okReport = fs.readFileSync(path.join(ok.root, out.report), 'utf8');
   assert.match(okReport, /## CLike verification \(adoption/);
-  assert.match(okReport, /README\.md: integrated — 2 section\(s\) added, 1 existing section\(s\) updated, none removed/);
+  assert.match(okReport, /README\.md: integrated — 2 section\(s\) added, 1 existing section\(s\) extended, no existing line changed or removed/);
   assert.match(okReport, /HOWTO_RUN\.md: written/);
   assert.match(fs.readFileSync(path.join(ok.root, 'README.md'), 'utf8'), /## Made with CLike/);
 
@@ -486,6 +486,17 @@ test('/adopt reconcile: the documents over the templates are kept; a rejected an
   assert.ok(out3.warnings.some((w) => /README\.md dropped existing sections \(.*Setup\)/.test(w)));
   assert.ok(out3.warnings.some((w) => /HOWTO_RUN\.md was not written/.test(w)));
   fs.rmSync(drop.root, { recursive: true, force: true });
+
+  // every section kept but an existing line rewritten: the README is put back too
+  const edit = mk();
+  const before4 = re.snapshotDocs(edit.root);
+  edit.put('docs/harper/plan.json', plan({ id: 'REQ-002', title: 'Routing', area: 'gateway', status: 'done', acceptance: ['(observed) routes'] }));
+  edit.put('README.md', '# Foundation\n\n## Setup\nuv sync\n\n## Made with CLike\nAdopted.\n');
+  const out4 = re.reconcileExtend({ root: edit.root, before: before4, files: [], isAgent: true, mode: 'adopt', cascade: { release: 'v1' }, adopt, validateExtendPlan, startedAt: started });
+  assert.equal(fs.readFileSync(path.join(edit.root, 'README.md'), 'utf8'), '# Foundation\n\n## Setup\nmake setup\n');
+  assert.ok(out4.warnings.some((w) => /README\.md changed or dropped 1 existing line\(s\) \(e\.g\. "make setup"\)/.test(w)));
+  assert.match(fs.readFileSync(path.join(edit.root, out4.report), 'utf8'), /README\.md: restored \(the run changed or dropped 1 existing line\(s\)\)/);
+  fs.rmSync(edit.root, { recursive: true, force: true });
 
   const bad = mk();
   const before2 = re.snapshotDocs(bad.root);

@@ -27,7 +27,12 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   as open REQs. CLike checks the plan, appends its verification to the report and commits the Harper
   documents; a rejected analysis restores them. Areas can be adopted one at a time. Help, completion
   and the cockpit propose it after `/init` on an existing project. Of the project's own files only the
-  root README is updated, every existing section kept.
+  root README is updated, every existing section and line kept word for word (else restored). The
+  project memory gets every document of the repository (Markdown, text, reStructuredText, AsciiDoc,
+  OpenAPI/AsyncAPI — module READMEs, examples and prompts included), not only `docs/` and the main
+  READMEs. A file the model returns outside `docs/harper/` and the root README is ignored; in a git
+  repository any other file the run changes, creates or deletes is put back as it was (the
+  developers' uncommitted changes included), what the run left kept aside in `.clike/adopt-guard/`.
 
 ### Security
 

@@ -112,30 +112,42 @@ function surveyAreas(root) {
   return areas;
 }
 
-/** Documents for the project memory: docs/ and the READMEs, agent context files and changelogs of root and areas. */
+/** Documents for the project memory: every document of the repository (Markdown, text, reStructuredText,
+ * AsciiDoc, OpenAPI/AsyncAPI) — the READMEs, agent context files and changelogs of root and areas first.
+ * Tracked and untracked files the project does not ignore (a folder without git: walked); never
+ * docs/harper/ (CLike writes it), .clike/, runs/ or dependency and build folders. */
 function surveyDocs(root, areas) {
   const out = [];
+  const isDoc = (name) => DOC_SUFFIXES.has(path.extname(name).toLowerCase()) || /^(openapi|asyncapi)[\w.-]*\.(json|ya?ml)$/i.test(name);
   const add = (rel) => {
+    if (out.includes(rel) || rel.startsWith('docs/harper/') || rel.split('/').slice(0, -1).some((p) => SKIP.has(p))) return;
     const full = path.join(root, ...rel.split('/'));
-    try { if (fs.statSync(full).size <= MAX_DOC_BYTES && !out.includes(rel)) out.push(rel); } catch { /* gone */ }
-  };
-  const walk = (rel) => {
-    let entries = [];
-    try { entries = fs.readdirSync(path.join(root, ...rel.split('/')), { withFileTypes: true }); } catch { return; }
-    for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-      const child = `${rel}/${e.name}`;
-      if (e.isDirectory()) {
-        if (!SKIP.has(e.name) && !(rel === 'docs' && e.name === 'harper')) walk(child);
-      } else if (DOC_SUFFIXES.has(path.extname(e.name).toLowerCase()) || /^(openapi|asyncapi)[\w.-]*\.(json|ya?ml)$/i.test(e.name)) add(child);
-    }
+    try { const st = fs.statSync(full); if (st.isFile() && st.size <= MAX_DOC_BYTES) out.push(rel); } catch { /* gone */ }
   };
   for (const base of ['', ...areas.map((a) => a.root)]) {
     const prefix = base ? `${base}/` : '';
     for (const name of ['README.md', 'AGENTS.md', 'CLAUDE.md', 'CHANGELOG.md', 'ARCHITECTURE.md', 'CONTRIBUTING.md', 'SECURITY.md']) {
       if (exists(root, ...`${prefix}${name}`.split('/'))) add(`${prefix}${name}`);
     }
-    walk(`${prefix}docs`);
   }
+  let files = null;
+  try {
+    files = execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'],
+      { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 * 1024 * 1024 }).split('\0').filter(Boolean);
+  } catch { files = null; }
+  if (!files) {
+    files = [];
+    const walk = (rel) => {
+      let entries = [];
+      try { entries = fs.readdirSync(rel ? path.join(root, ...rel.split('/')) : root, { withFileTypes: true }); } catch { return; }
+      for (const e of entries) {
+        const child = rel ? `${rel}/${e.name}` : e.name;
+        if (e.isDirectory()) { if (!SKIP.has(e.name)) walk(child); } else files.push(child);
+      }
+    };
+    walk('');
+  }
+  for (const rel of files.filter((f) => isDoc(path.basename(f))).sort((a, b) => a.localeCompare(b))) add(rel);
   return out;
 }
 
@@ -413,8 +425,8 @@ function adoptVerificationMarkdown({ areas, baselineIds, summary, baseline, warn
   lines.push('', '| REQ | Title | Areas | Status | Origin |', '|---|---|---|---|---|');
   for (const s of summary) lines.push(`| ${s.id} | ${cell(s.title)} | ${s.areas.join(', ')} | ${s.status} | ${cell(s.origin)} |`);
   const readme = !docs.readme ? 'not integrated'
-    : docs.readme.ok ? `integrated — ${docs.readme.added.length} section(s) added, ${docs.readme.changed.length} existing section(s) updated, none removed`
-      : 'restored (the run dropped existing sections)';
+    : docs.readme.ok ? `integrated — ${docs.readme.added.length} section(s) added, ${docs.readme.changed.length} existing section(s) extended, no existing line changed or removed`
+      : `restored (the run ${docs.readme.missing?.length ? 'dropped existing sections' : `changed or dropped ${docs.readme.lost?.length || 0} existing line(s)`})`;
   lines.push('', `- README.md: ${readme}`, `- docs/harper/HOWTO_RUN.md: ${docs.howto ? 'written' : 'missing'}`);
   if (warnings.length) lines.push('', 'Warnings:', '', ...warnings.map((w) => `- ${w}`));
   lines.push('', 'Next: `/idea --extend` for the next release (the work the plan keeps open), then `/kit` → `/eval --fix` → `/gate`.', '');
@@ -441,11 +453,86 @@ function clikeOwnFiles(root) {
       { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
   } catch { return []; }
   return out.split('\n').filter(Boolean).map((l) => l.slice(3).replace(/^"|"$/g, '').split(' -> ').pop())
-    .filter((rel) => !/^\.clike\/(sessions|telemetry|eval-check|bin)\//.test(rel));
+    .filter((rel) => !/^\.clike\/(sessions|telemetry|eval-check|bin|adopt-guard)\//.test(rel));
+}
+
+// What /adopt may change in the project: CLike's own files and the root README (integrated, never replaced).
+const adoptWritable = (rel) => rel === 'README.md' || /^(docs\/harper|\.clike|runs)\//.test(rel);
+
+/** The files a run returned, split into what /adopt may write and what it never writes. */
+function writableFiles(files) {
+  const rel = (f) => String(f?.path || '').replace(/^\.?\//, '');
+  return { kept: (files || []).filter((f) => adoptWritable(rel(f))), dropped: (files || []).filter((f) => !adoptWritable(rel(f))).map(rel) };
+}
+
+/** git status of the project outside what /adopt may write: path -> status. */
+function statusOutside(root) {
+  const out = execFileSync('git', ['status', '--porcelain', '-z', '-uall'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 * 1024 * 1024 });
+  const parts = out.split('\0');
+  const map = new Map();
+  for (let i = 0; i < parts.length; i += 1) {
+    const entry = parts[i];
+    if (!entry) continue;
+    const xy = entry.slice(0, 2);
+    const rel = entry.slice(3);
+    if (/[RC]/.test(xy)) i += 1;   // the original path of a rename or copy follows
+    if (!adoptWritable(rel)) map.set(rel, xy);
+  }
+  return map;
+}
+
+/**
+ * The guard of /adopt: the project as it is before the run (git: what is changed or new outside CLike's
+ * files, with its content). null without git — then only the returned files are filtered.
+ */
+function guardSnapshot(root) {
+  try {
+    const saved = {};
+    for (const rel of statusOutside(root).keys()) {
+      const full = path.join(root, ...rel.split('/'));
+      saved[rel] = fs.existsSync(full) && fs.statSync(full).isFile() ? fs.readFileSync(full).toString('base64') : null;
+    }
+    return { saved };
+  } catch { return null; }
+}
+
+/**
+ * Every file outside CLike's own the run changed, created or deleted is put back as it was (the developer's
+ * uncommitted changes included); what the run left there is kept aside in `keepDir`. Returns the paths restored.
+ */
+function guardRestore(root, snap, keepDir = '') {
+  if (!snap) return [];
+  let now;
+  try { now = statusOutside(root); } catch { return []; }
+  const restored = [];
+  const keep = (rel, full) => {
+    if (!keepDir || !fs.existsSync(full) || !fs.statSync(full).isFile()) return;
+    const dest = path.join(root, ...keepDir.split('/'), ...rel.split('/'));
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.copyFileSync(full, dest);
+  };
+  for (const rel of new Set([...now.keys(), ...Object.keys(snap.saved)])) {
+    const full = path.join(root, ...rel.split('/'));
+    const current = fs.existsSync(full) && fs.statSync(full).isFile() ? fs.readFileSync(full).toString('base64') : null;
+    if (rel in snap.saved) {
+      if (current === snap.saved[rel]) continue;
+      keep(rel, full);
+      if (snap.saved[rel] == null) fs.rmSync(full, { force: true });
+      else { fs.mkdirSync(path.dirname(full), { recursive: true }); fs.writeFileSync(full, Buffer.from(snap.saved[rel], 'base64')); }
+    } else {
+      keep(rel, full);
+      let tracked = true;
+      try { execFileSync('git', ['cat-file', '-e', `HEAD:${rel}`], { cwd: root, stdio: 'ignore' }); } catch { tracked = false; }
+      if (tracked) execFileSync('git', ['checkout', 'HEAD', '--', rel], { cwd: root, stdio: 'ignore' });
+      else fs.rmSync(full, { force: true });
+    }
+    restored.push(rel);
+  }
+  return restored;
 }
 
 module.exports = {
-  CODEMAP, clikeOwnFiles, codeMaps, sourceItems, adoptablePlan, baselineReqs, contextDocuments, checkAdoptedPlan, adoptVerificationMarkdown,
+  CODEMAP, clikeOwnFiles, writableFiles, guardSnapshot, guardRestore, codeMaps, sourceItems, adoptablePlan, baselineReqs, contextDocuments, checkAdoptedPlan, adoptVerificationMarkdown,
   BASELINE_PROFILE, BASELINE_ID, survey, surveyAreas, surveyDocs, surveyCi, surveyGit, areaCommands, areaRuntime,
   makeTargets, mergeProjectAreas, baselineProfile, memoryItems, reportMarkdown,
 };

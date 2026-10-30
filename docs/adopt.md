@@ -17,8 +17,13 @@ from day one.
 - **The team's process stays the process.** Review rules, PR templates and CI workflows the
   repository already has are kept; CLike's own are offered as proposals only.
 - **Nothing existing is overwritten.** CLike adds its own folders; the only existing file it updates
-  is the root `README.md` (at `/adopt`, then at each `/finalize`), keeping every section it had — a
-  run that drops one gets the README back as it was.
+  is the root `README.md` (at `/adopt`, then at each `/finalize`), keeping every section and every
+  line it had, word for word — a run that drops or rewrites one gets the README back as it was.
+  During `/adopt` CLike writes only `docs/harper/`, `.clike/`, `runs/` and the root README: a file
+  the model returns elsewhere is ignored, and (in a git repository) any other file the run changes,
+  creates or deletes — the code, the tests, the areas' READMEs and `docs/` — is put back as it was,
+  the developers' uncommitted changes included; what the run left there is kept aside in
+  `.clike/adopt-guard/<time>/` and named in the chat.
 - **Work done outside CLike is fine.** A change committed without CLike is reconciled by
   `/adopt --refresh`; it is never treated as an error.
 
@@ -83,8 +88,10 @@ the run's output aside in `runs/extend/rejected/`.
    the **git history per area** (features and fixes, with their day; tags). Without git, the code
    and the documents; without documents, the code alone. A backlog or a plan written by hand is an
    input for future work and decisions, never the proof that something is done.
-3. **Project memory.** The documentation CLike finds — `docs/` at the root and in each area, the
-   READMEs, the agent context files, the changelogs, the API and event contracts — the code map and
+3. **Project memory.** Every document of the repository — Markdown, text, reStructuredText and
+   AsciiDoc files wherever they are (`docs/`, the READMEs of areas and modules, the agent context
+   files, the changelogs, examples and prompts), the OpenAPI and AsyncAPI contracts; tracked or new,
+   not ignored by git — the code map and
    the **source code of the areas adopted** are indexed into the project's memory, so every phase
    and the **Memory** panel answer with the project's own context and cite where it comes from.
 4. **Analysis, one area at a time.** Capabilities, interfaces, data, integrations and conventions,
@@ -99,7 +106,7 @@ the run's output aside in `runs/extend/rejected/`.
    README, every existing section kept.
 6. **Check, reports and commit.** CLike checks the plan the model returned (baseline REQs unchanged;
    every new REQ with an area and acceptance; `done` only with the area's baseline covering it, else
-   `open`; the README with every existing section) and appends its verification to the analysis
+   `open`; the README with every existing section and line) and appends its verification to the analysis
    report. Two reports: `docs/harper/ADOPT_<date>.md` (the survey: areas, baseline, git history, CI,
    documentation) and `docs/harper/EXTEND_<…>.md` (the analysis: capability → files → tests per
    area, where the documents and the code disagree, the open questions, CLike's verification). The

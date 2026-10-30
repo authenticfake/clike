@@ -24,6 +24,9 @@ function repo() {
   put('gateway/docs/adr/0001.md', '# ADR\n');
   put('gateway/docs/reference/openapi.json', '{}');
   put('gateway/.venv/lib/x.py', '');
+  put('gateway/.venv/lib/README.md', '# a dependency\n');
+  put('gateway/examples/agents/helper/prompt.md', '# prompt\n');
+  put('deploy/README.md', '# deploy\n');
   put('portal/package.json', JSON.stringify({ scripts: { test: 'vitest', lint: 'eslint', typecheck: 'tsc' }, engines: { node: '>=24' } }));
   put('portal/package-lock.json', '{}');
   put('portal/apps/portal/page.tsx', '');
@@ -56,10 +59,12 @@ test('adopt: areas, stacks, roots, commands from make / scripts / CI, runtimes, 
   assert.equal(portal.commands.test, 'npm run test');
   assert.equal(portal.commands.setup, 'npm ci');
   assert.deepEqual(portal.runtime, { node: '>=24' });
-  for (const doc of ['README.md', 'docs/README.md', 'gateway/AGENTS.md', 'gateway/docs/adr/0001.md', 'gateway/docs/reference/openapi.json']) {
+  for (const doc of ['README.md', 'docs/README.md', 'gateway/AGENTS.md', 'gateway/docs/adr/0001.md', 'gateway/docs/reference/openapi.json',
+    'gateway/examples/agents/helper/prompt.md', 'deploy/README.md']) {
     assert.ok(s.docs.includes(doc), doc);
   }
   assert.ok(!s.docs.some((d) => d.startsWith('docs/harper/')), 'the Harper documents are not re-indexed');
+  assert.ok(!s.docs.some((d) => d.includes('.venv/')), 'dependency folders are not documents');
   assert.equal(s.git.commits, 1);
   assert.equal(s.ci[0].file, '.github/workflows/gateway-ci.yml');
   fs.rmSync(root, { recursive: true, force: true });
