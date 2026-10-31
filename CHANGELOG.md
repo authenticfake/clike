@@ -4,6 +4,8 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.6.9] — 2026-10-31 — An existing project adopted, area by area
+
 ### Added
 
 - **`/adopt` — an existing project brought into CLike**. First, with no model (the same for cloud
@@ -39,15 +41,6 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   with `new_area` (folder, source, tests, commands) and registered in `.clike/project.json` with the
   release commit. A REQ without an area, an unknown area or a new area inside an existing one rejects
   the plan. A project without areas works as before. The same rules on cloud and local agents.
-
-### Security
-
-- **Extension build tools without known vulnerabilities**: `@azure/msal-node` 7.1.2 (an override
-  under the packaging tool, GHSA-xcx6-jx8p-x3h5) and `qs` 6.17.0 (GHSA-6pq8-jhm2-2vcw); both were
-  build-time dependencies of `.vsix` packaging, not of the extension that runs in VS Code.
-  `npm audit`: 0 vulnerabilities; packaging verified.
-
-### Added
 
 - **Language runtimes newer than the sandbox image**: an LTC that declares `"environment":
   {"python": "3.14"}` or `{"node": ">=24"}` gets that runtime (`python3.13`, `python3.14`,
@@ -126,6 +119,13 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   structured variable (JSON, YAML), one example file per mode, and the verification loads them with
   the solution's own loader; private files are ignored for every start option. Before, ten JSON
   settings of a live mode had only their names.
+
+### Security
+
+- **Extension build tools without known vulnerabilities**: `@azure/msal-node` 7.1.2 (an override
+  under the packaging tool, GHSA-xcx6-jx8p-x3h5) and `qs` 6.17.0 (GHSA-6pq8-jhm2-2vcw); both were
+  build-time dependencies of `.vsix` packaging, not of the extension that runs in VS Code.
+  `npm audit`: 0 vulnerabilities; packaging verified.
 
 ## [1.6.8] — 2026-10-28 — An existing project, kept as it is
 
