@@ -559,7 +559,10 @@ function gitignoreChangeIsClike(root) {
  * (a customer name, a user name) — they stay out of the commit. Binary or unreadable files are skipped.
  */
 function machinePathFiles(root, rels) {
-  const needles = [root, require('os').homedir()].map((p) => String(p || '').replace(/[\\/]+$/, '')).filter((p) => p.length > 3);
+  // as written, JSON-escaped (C:\\Users) and with forward slashes (C:/Users): a Windows path in any form
+  const needles = [...new Set([root, require('os').homedir()]
+    .map((p) => String(p || '').replace(/[\\/]+$/, '')).filter((p) => p.length > 3)
+    .flatMap((p) => [p, p.replace(/\\/g, '\\\\'), p.replace(/\\/g, '/')]))];
   return (rels || []).filter((rel) => {
     const full = path.join(root, ...String(rel).split('/'));
     try {
