@@ -85,6 +85,9 @@ benchmark/results/
 
 # Eval sandbox variables (local, may point to local databases)
 docker/eval.env
+# projects mounted by docker/mount-project.sh (paths of this machine)
+docker/projects.list
+docker/compose.projects.yml
 
 # CLike guide copied into the extension at packaging time (scripts/bundle-guide.js)
 extensions/vscode/guide/

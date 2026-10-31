@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional
 
 import eval_environment
 import eval_failures
+import eval_runtimes
 from services.gate_integrity import _DEFINES_TESTS_RE
 from services.root_files import KIT_ROOT_DIR, extra_root_files, is_allowed_root_path, root_policy
 import eval_tools
@@ -2051,9 +2052,12 @@ class EvalRunner:
     def _venv_dir(self, req_id: Optional[str]) -> Path:
         """
         Runtime eval virtualenvs must not be created under .clike or any path
-        that may be read-only in a containerized runner.
+        that may be read-only in a containerized runner. A REQ on another Python (a declared runtime)
+        has its own venv, never the one of the image's Python.
         """
-        return self._eval_base_dir() / ".venvs" / self._safe_req_id(req_id)
+        runtime = getattr(self, "_runtime_python", None)
+        suffix = f"-{Path(runtime).name}" if runtime else ""
+        return self._eval_base_dir() / ".venvs" / f"{self._safe_req_id(req_id)}{suffix}"
 
     def _venv_python(self, venv_dir: Path) -> Path:
         if os.name == "nt":
@@ -2138,7 +2142,7 @@ class EvalRunner:
                 )
                 return env, [case]
 
-            create_cmd = f"{shlex.quote(sys.executable)} -m venv {shlex.quote(str(venv_dir))}"        
+            create_cmd = f"{shlex.quote(getattr(self, '_runtime_python', None) or sys.executable)} -m venv {shlex.quote(str(venv_dir))}"        
             create_case = self._run(
                 name="env::venv-create",
                 cmd=create_cmd,
@@ -2434,6 +2438,12 @@ class EvalRunner:
         except Exception:
             current = profile_path
 
+        # the whole project: the adoption baseline (runs/adopt/ci/LTC.json) and the solution profile
+        # (ci/SOLUTION_LTC.json) run on a copy of the project — also a project of areas, which has no
+        # src/ at its root (B2B/foundation pilot: the baseline ran in the read-only project folder)
+        root = self.project_root.resolve()
+        if current.parent == root / "runs" / "adopt" / "ci" or current.parent == root / "ci":
+            return root
         for parent in [current.parent, *current.parents]:
             if parent.name == "ci" and parent.parent.name:
                 candidate = parent.parent
@@ -2790,7 +2800,7 @@ class EvalRunner:
 
         return pattern.sub(replace, value)
 
-    def _rewrite_command_for_eval_workspace(self, command: str, path_map: Dict[str, str]) -> str:
+    def _rewrite_command_for_eval_workspace(self, command: str, path_map: Dict[str, str], logical_roots: bool = True) -> str:
         """
         Rewrite filesystem paths inside shell commands without rewriting script names.
 
@@ -2818,8 +2828,10 @@ class EvalRunner:
                 continue
 
             # Bare logical roots are not shell-command paths unless followed by a slash.
-            # This avoids corrupting commands like `npm run test`.
+            # This avoids corrupting commands like `npm run test`. Inside an area they are its own paths.
             if source in {"src", "test", "tests"}:
+                if not logical_roots:
+                    continue
                 rewritten = re.sub(
                     rf"(?<![\w./:-]){re.escape(source)}/",
                     f"{target}/",
@@ -2910,7 +2922,25 @@ class EvalRunner:
 
         rewritten = self._rewrite_for_eval_workspace(raw_cwd, path_map)
         path = Path(str(rewritten))
+        if not path.is_absolute():
+            # a relative cwd in an area or another repository-root folder is its composed copy in the
+            # eval workspace, never the project's own folder (B2B pilot: `cwd: gateway` ran in the repo)
+            workspace = path_map.get("CLIKE_EVAL_OVERLAY_WORKSPACE")
+            first = path.parts[0] if path.parts else ""
+            if workspace and first in set(root_policy(self.project_root)["folders"]) and (Path(workspace) / first).exists():
+                return (Path(workspace) / path).resolve()
         return path if path.is_absolute() else (self.project_root / path).resolve()
+
+    def _in_area(self, workdir: Path, path_map: Dict[str, str]) -> bool:
+        """The check runs inside an area of the project (.clike/project.json `areas`), composed in the eval workspace."""
+        workspace = path_map.get("CLIKE_EVAL_OVERLAY_WORKSPACE")
+        if not workspace:
+            return False
+        for area in root_policy(self.project_root).get("areas") or []:
+            base = (Path(workspace) / area["root"]).resolve()
+            if workdir == base or base in workdir.parents:
+                return True
+        return False
 
     def _resolve_node_manifest(
         self,
@@ -3217,6 +3247,7 @@ class EvalRunner:
         ``reuse_cases``: results of a run on the same inputs (the targeted re-eval that just passed):
         the REQ's checks and the promoted REQs' regressions found there are taken, not run again."""
         self._services: List[eval_environment.RunningService] = []
+        self._runtime_python = None  # a declared runtime of this run (eval_runtimes), set with the environment
         self._reuse = {str(c.get("name")): c for c in (reuse_cases or []) if isinstance(c, dict) and c.get("name")}
         self._reuse_reqs = {n.split("::")[1].upper() for n in self._reuse if n.startswith("regression::") and n.count("::") >= 2}
         self._only_checks = {str(c) for c in (checks or []) if str(c).strip()} or None
@@ -3720,6 +3751,10 @@ class EvalRunner:
                     "MYPYPATH": python_path_value,
                 }
 
+        # the runtimes the LTC declares beyond the image (Python 3.14, Node 24) and uv's own environment
+        eval_env, self._runtime_python = eval_runtimes.runtime_env(
+            eval_env, ltc or {}, self._venv_dir(eff_req).with_name(f"{self._safe_req_id(eff_req)}-uv"))
+
         if requirements_file:
             eval_env, setup_cases = self._ensure_eval_venv(
                 req_id=eff_req,
@@ -3785,6 +3820,12 @@ class EvalRunner:
                 if not command:
                     continue
                 step_cwd = (default_cwd / str(item["cwd"])) if item.get("cwd") else default_cwd
+                if item.get("cwd"):
+                    # an area (or another repository-root folder): its copy in the eval workspace, as the checks
+                    resolved = self._resolve_workdir(str(item["cwd"]), path_map)
+                    workspace = path_map.get("CLIKE_EVAL_OVERLAY_WORKSPACE")
+                    if workspace and str(resolved).startswith(str(Path(workspace).resolve())):
+                        step_cwd = resolved
                 case = self._run(
                     name=f"setup::{item.get('id') or i}",
                     cmd=str(self._rewrite_for_eval_workspace(command, path_map)),
@@ -3920,9 +3961,12 @@ class EvalRunner:
             self._progress(checks_done=case_index, current=str(case.get("name") or "case"),
                            passed=sum(1 for c in own if c.passed), failed=sum(1 for c in own if not c.passed and c.blocking))
             raw_cmd = case.get("run")
-            cmd = self._rewrite_command_for_eval_workspace(raw_cmd, path_map)
-            setup = self._rewrite_for_eval_workspace(case.get("setup"), path_map)
             workdir = self._resolve_workdir(case.get("cwd"), path_map) if case.get("cwd") else default_cwd
+            # a check inside an area of the project (a service of a monorepo) uses that area's own paths:
+            # its src/ and tests/ are not the KIT's logical roots
+            in_area = self._in_area(workdir, path_map)
+            cmd = self._rewrite_command_for_eval_workspace(raw_cmd, path_map, logical_roots=not in_area)
+            setup = self._rewrite_for_eval_workspace(case.get("setup"), path_map)
             case_env = self._merge_env(eval_env, case.get("env") or {})
             blocking = bool(case.get("blocking", True))
             environment_requirements = list(case.get("environment_requirements") or [])

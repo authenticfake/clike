@@ -37,7 +37,14 @@ cp docker/.env.example docker/.env   # where your projects live, sandbox memory 
 | `docker/.env` | `CLIKE_EVAL_SANDBOX_MEM_LIMIT` | below the VM memory: `3g` with a 6 GB VM, `1g` with 2 GB |
 | `docker/.env` | `CLIKE_EVAL_REGRESSION_WORKERS` | promoted REQs regressed at the same time: `2` (default), `1` with a small VM or sandbox |
 
-Your projects must live under `CLIKE_PROJECTS_DIR`: the eval sandbox reads them from there.
+Your projects live under `CLIKE_PROJECTS_DIR`: the eval sandbox reads them from there.
+A project elsewhere (another client folder, a repository you cannot move) is mounted on its own,
+read-only: when eval, gate or the `/adopt` baseline start on a project outside these folders, CLike
+asks *Mount read-only*. On confirmation it runs `docker/mount-project.sh add <folder>`, which mounts
+that folder only (never a parent; it must be a CLike project, with `.clike/project.json`) and recreates
+the containers in about a minute. From a terminal: `./mount-project.sh add|remove <folder>`, `list`. The
+list (`docker/projects.list`) and the compose override it generates (`docker/compose.projects.yml`) are
+git-ignored, and `./rebuild.sh` keeps them.
 
 Optional, for projects whose tests need a real database: `cp docker/eval.env.example docker/eval.env`
 (git-ignored, read only by the eval sandbox) and set `CLIKE_EVAL_POSTGRES_URL` to a local PostgreSQL
@@ -57,13 +64,14 @@ curl -s http://127.0.0.1:8080/health && curl -s http://127.0.0.1:8000/health
 ```
 
 Services listen on `127.0.0.1` only. After an update: `cd docker && ./rebuild.sh` (cached build, recreated containers, health and image check; the eval tools are restored from their lock). `./rebuild.sh --update-tools` also updates the eval tools to their latest versions and prints what changed.
+With projects mounted by `mount-project.sh`, restart the stack with `./rebuild.sh` (or `./rebuild.sh --no-build`): a plain `podman-compose up` does not read `compose.projects.yml` unless given `-f docker-compose.yml -f compose.projects.yml`.
 
 ## 4. VS Code extension
 
 Install the packaged extension (or build it from source):
 
 ```bash
-code --install-extension extensions/vscode/clike-1.6.8.vsix
+code --install-extension extensions/vscode/clike-1.6.9.vsix
 # from source: cd extensions/vscode && npm ci && npm run check && npm run package
 ```
 

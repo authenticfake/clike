@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { execFileSync } = require('child_process');
 
 const re = require('../release-extend');
 const { validateExtendPlan } = require('../extend-guard');
@@ -435,4 +436,222 @@ test('extend: the journeys of the release are use cases of the SPEC, as /spec wr
 test('/finalize --verify verifies again without a new agent run; plain /finalize is unchanged', () => {
   assert.deepEqual(parseSlash('/finalize --verify').args, { verifyOnly: true });
   assert.equal(parseSlash('/finalize').args.verifyOnly, undefined);
+});
+
+test('/adopt reconcile: the documents over the templates are kept; a rejected analysis restores them and the lane guides', () => {
+  const adoptLib = require('../adopt');
+  const gw = { name: 'gateway', root: 'gateway', stack: 'python', runtime: {}, commands: { check: 'make check' } };
+  const mk = () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'clike-adopt-rec-')));
+    const put = (rel, text) => { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); };
+    put('README.md', '# Foundation\n\n## Setup\nmake setup\n');
+    put('docs/harper/IDEA.md', '# IDEA\n\n(template)\n');
+    put('docs/harper/TECH_CONSTRAINTS.yaml', 'tech_constraints: {}\n');
+    put('docs/harper/plan.json', JSON.stringify({ reqs: adoptLib.baselineReqs([gw]).reqs }));
+    return { root, put };
+  };
+  const adopt = {
+    check: (b, a) => adoptLib.checkAdoptedPlan({ beforeText: b, afterText: a, areas: [gw], baselineIds: ['REQ-001'], validateExtendPlan }),
+    section: (summary, warnings, docs) => adoptLib.adoptVerificationMarkdown({ areas: [gw], baselineIds: ['REQ-001'], summary, warnings, docs }),
+  };
+  const plan = (extra) => JSON.stringify({ reqs: [...adoptLib.baselineReqs([gw]).reqs, extra] });
+  const started = Date.now() - 1000;
+
+  const ok = mk();
+  const before = re.snapshotDocs(ok.root);
+  ok.put('docs/harper/IDEA.md', '# IDEA\n\n## Vision\n(declared) a gateway.\n');                  // over the template
+  ok.put('docs/harper/TECH_CONSTRAINTS.yaml', 'tech_constraints:\n  gateway: python 3.14\n');     // template keys gone
+  ok.put('docs/harper/plan.json', plan({ id: 'REQ-002', title: 'Routing', area: 'gateway', status: 'done', acceptance: ['(observed) routes'] }));
+  ok.put('docs/harper/EXTEND_2026-10-28_ADOPT.md', '# Adoption analysis\n');
+  ok.put('README.md', '# Foundation\n\n![CLike](x)\n\n## Setup\nmake setup\n\n## Areas\n| aigateway |\n\n## Made with CLike\nAdopted.\n');
+  ok.put('docs/harper/HOWTO_RUN.md', '# How to run\n');
+  const out = re.reconcileExtend({ root: ok.root, before, files: [], isAgent: true, mode: 'adopt', cascade: { release: 'v1' }, adopt, validateExtendPlan, startedAt: started });
+  assert.equal(out.ok, true, out.errors.join('; '));
+  assert.match(fs.readFileSync(path.join(ok.root, 'docs/harper/IDEA.md'), 'utf8'), /a gateway/);
+  assert.match(fs.readFileSync(path.join(ok.root, 'docs/harper/TECH_CONSTRAINTS.yaml'), 'utf8'), /python 3\.14/);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(ok.root, 'docs/harper/plan.json'), 'utf8')).reqs[1].covered_by, 'REQ-001');
+  const okReport = fs.readFileSync(path.join(ok.root, out.report), 'utf8');
+  assert.match(okReport, /## CLike verification \(adoption/);
+  assert.match(okReport, /README\.md: integrated — 2 section\(s\) added, 1 existing section\(s\) extended, no existing line changed or removed/);
+  assert.match(okReport, /HOWTO_RUN\.md: written/);
+  assert.match(fs.readFileSync(path.join(ok.root, 'README.md'), 'utf8'), /## Made with CLike/);
+
+  // a README that drops an existing section is put back; the rest of the analysis stays
+  const drop = mk();
+  const before3 = re.snapshotDocs(drop.root);
+  drop.put('docs/harper/plan.json', plan({ id: 'REQ-002', title: 'Routing', area: 'gateway', status: 'done', acceptance: ['(observed) routes'] }));
+  drop.put('README.md', '# Foundation\n\n## Made with CLike\nAdopted.\n');
+  const out3 = re.reconcileExtend({ root: drop.root, before: before3, files: [], isAgent: true, mode: 'adopt', cascade: { release: 'v1' }, adopt, validateExtendPlan, startedAt: started });
+  assert.equal(out3.ok, true);
+  assert.equal(fs.readFileSync(path.join(drop.root, 'README.md'), 'utf8'), '# Foundation\n\n## Setup\nmake setup\n');
+  assert.ok(out3.warnings.some((w) => /README\.md dropped existing sections \(.*Setup\)/.test(w)));
+  assert.ok(out3.warnings.some((w) => /HOWTO_RUN\.md was not written/.test(w)));
+  fs.rmSync(drop.root, { recursive: true, force: true });
+
+  // every section kept but an existing line rewritten: the README is put back too
+  const edit = mk();
+  const before4 = re.snapshotDocs(edit.root);
+  edit.put('docs/harper/plan.json', plan({ id: 'REQ-002', title: 'Routing', area: 'gateway', status: 'done', acceptance: ['(observed) routes'] }));
+  edit.put('README.md', '# Foundation\n\n## Setup\nuv sync\n\n## Made with CLike\nAdopted.\n');
+  const out4 = re.reconcileExtend({ root: edit.root, before: before4, files: [], isAgent: true, mode: 'adopt', cascade: { release: 'v1' }, adopt, validateExtendPlan, startedAt: started });
+  assert.equal(fs.readFileSync(path.join(edit.root, 'README.md'), 'utf8'), '# Foundation\n\n## Setup\nmake setup\n');
+  assert.ok(out4.warnings.some((w) => /README\.md changed or dropped 1 existing line\(s\) \(e\.g\. "make setup"\)/.test(w)));
+  assert.match(fs.readFileSync(path.join(edit.root, out4.report), 'utf8'), /README\.md: restored \(the run changed or dropped 1 existing line\(s\)\)/);
+  fs.rmSync(edit.root, { recursive: true, force: true });
+
+  const bad = mk();
+  const before2 = re.snapshotDocs(bad.root);
+  bad.put('docs/harper/IDEA.md', '# IDEA\n\nrewritten\n');
+  bad.put('docs/harper/lane-guides/python.md', '# python lane\n');
+  bad.put('README.md', '# replaced\n');
+  bad.put('docs/harper/plan.json', plan({ id: 'REQ-002', title: 'Routing', status: 'done' }));   // no area, no acceptance
+  const rej = re.reconcileExtend({ root: bad.root, before: before2, files: [], isAgent: true, mode: 'adopt', cascade: { release: 'v1' }, adopt, validateExtendPlan, startedAt: started });
+  assert.equal(rej.ok, false);
+  assert.equal(fs.readFileSync(path.join(bad.root, 'docs/harper/IDEA.md'), 'utf8'), '# IDEA\n\n(template)\n');
+  assert.equal(fs.existsSync(path.join(bad.root, 'docs/harper/lane-guides/python.md')), false);
+  assert.equal(fs.readFileSync(path.join(bad.root, 'README.md'), 'utf8'), '# Foundation\n\n## Setup\nmake setup\n');
+  assert.ok(rej.kept && fs.existsSync(path.join(bad.root, rej.kept, 'docs/harper/lane-guides/python.md')));
+  for (const r of [ok.root, bad.root]) fs.rmSync(r, { recursive: true, force: true });
+});
+
+test('/adopt of a second area: what the first wrote stays, the team README lines stay, CLike sections are updated', () => {
+  const adoptLib = require('../adopt');
+  const ap = { name: 'agent-platform', root: 'agent-platform', stack: 'python', runtime: {}, commands: { check: 'make check' } };
+  const gw = { name: 'aigateway', root: 'aigateway', stack: 'python', runtime: {}, commands: { check: 'make check' } };
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'clike-adopt-2nd-')));
+  const put = (rel, text) => { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); };
+  const g = (...args) => execFileSync('git', args, { cwd: root, stdio: 'ignore' });
+  put('README.md', '# Foundation\n\n## Setup\nmake setup\n');
+  g('init', '-q'); g('config', 'user.email', 't@t'); g('config', 'user.name', 't'); g('add', '-A'); g('commit', '-qm', 'init');
+  // the first adoption (not committed yet): agent-platform
+  const first = [...adoptLib.baselineReqs([ap]).reqs, { id: 'REQ-002', title: 'Agents', area: 'agent-platform', status: 'done', origin: 'adopted', acceptance: ['(observed) agents'], covered_by: 'REQ-001' }];
+  put('README.md', '# Foundation\n\n## Setup\nmake setup\n\n## Areas\n| agent-platform |\n\n## Made with CLike\nAdopted.\n');
+  put('docs/harper/SPEC.md', '# SPEC\n\n## agent-platform\n(observed) agents\n\n## Use Cases\n### UC-01 Run an agent\n1. UC-01.1 start\n');
+  put('docs/harper/HOWTO_RUN.md', '# How to run\n\n## agent-platform\nmake check\n');
+  put('docs/harper/lane-guides/agent-platform.md', '# agent-platform\n\n## Commands\nmake check\n');
+  put('docs/harper/TECH_CONSTRAINTS.yaml', 'agent-platform: python 3.14\n');
+  put('docs/harper/plan.json', JSON.stringify({ reqs: first }));
+  assert.deepEqual(adoptLib.adoptedAreas({ reqs: first }), ['agent-platform']);
+  // the team's README, from git (no copy kept): the working copy already has CLike's sections
+  const original = adoptLib.originalReadme(root);
+  assert.equal(original, '# Foundation\n\n## Setup\nmake setup\n');
+  assert.equal(fs.existsSync(path.join(root, adoptLib.ORIGINAL_README)), false);
+  // the adoption committed: still the version before CLike, the latest one without its section
+  g('add', 'README.md'); g('commit', '-qm', 'docs(harper): adopt');
+  assert.equal(adoptLib.originalReadme(root), original);
+
+  const base = adoptLib.baselineReqs([gw], null, first);
+  assert.equal(base.reqs[0].id, 'REQ-003');
+  const adopt = {
+    check: (b, a) => adoptLib.checkAdoptedPlan({ beforeText: b, afterText: a, areas: [gw], baselineIds: ['REQ-003'], validateExtendPlan }),
+    section: (summary, warnings, docs) => adoptLib.adoptVerificationMarkdown({ areas: [gw], baselineIds: ['REQ-003'], summary, warnings, docs }),
+  };
+  const cascade = { release: 'v1', adoptedBefore: ['agent-platform'], originalReadme: original };
+  put('docs/harper/plan.json', JSON.stringify({ reqs: [...first, ...base.reqs] }));
+  const plan = JSON.stringify({ reqs: [...first, ...base.reqs, { id: 'REQ-004', title: 'Routing', area: 'aigateway', status: 'done', acceptance: ['(observed) routes'] }] });
+  const started = Date.now() - 1000;
+
+  // added to: the CLike Areas row updated, the team's lines and every earlier section kept
+  const before = re.snapshotDocs(root);
+  put('docs/harper/plan.json', plan);
+  put('README.md', '# Foundation\n\n## Setup\nmake setup\n\n## Areas\n| agent-platform | aigateway |\n\n## Made with CLike\nAdopted, two areas.\n');
+  put('docs/harper/SPEC.md', '# SPEC\n\n## agent-platform\n(observed) agents\n\n## aigateway\n(observed) routes\n\n## Use Cases\n### UC-01 Run an agent\n1. UC-01.1 start\n### UC-02 Route\n1. UC-02.1 call\n');
+  put('docs/harper/HOWTO_RUN.md', '# How to run\n\n## agent-platform\nmake check\n\n## aigateway\nmake check\n');
+  put('docs/harper/TECH_CONSTRAINTS.yaml', 'agent-platform: python 3.14\naigateway: python 3.14\n');
+  put('docs/harper/EXTEND_2026-10-30_REQ-004_REQ-004.md', '# Adoption of aigateway\n');
+  const out = re.reconcileExtend({ root, before, files: [], isAgent: true, mode: 'adopt', cascade, adopt, validateExtendPlan, startedAt: started });
+  assert.equal(out.ok, true, out.errors.join('; '));
+  assert.deepEqual(out.warnings, []);
+  assert.match(fs.readFileSync(path.join(root, 'README.md'), 'utf8'), /\| agent-platform \| aigateway \|/);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, 'docs/harper/plan.json'), 'utf8')).reqs.map((r) => r.id), ['REQ-001', 'REQ-002', 'REQ-003', 'REQ-004']);
+
+  // the team adds a line to its own section after the adoption: protected as well
+  assert.match(re.teamReadme(original, '# Foundation\n\n## Setup\nmake setup\nmake seed\n\n## Areas\n| x |\n'), /make seed/);
+  assert.doesNotMatch(re.teamReadme(original, '# Foundation\n\n## Setup\nmake setup\nmake seed\n\n## Areas\n| x |\n'), /\| x \|/);
+  // rewritten from scratch: the sections of the first area, its lane guide and the TECH lines come back
+  put('docs/harper/plan.json', JSON.stringify({ reqs: [...first, ...base.reqs] }));
+  const before2 = re.snapshotDocs(root);
+  put('docs/harper/plan.json', plan);
+  put('docs/harper/SPEC.md', '# SPEC\n\n## aigateway\n(observed) routes\n\n## Use Cases\n### UC-02 Route\n1. UC-02.1 call\n');
+  put('docs/harper/HOWTO_RUN.md', '# How to run\n\n## aigateway\nmake check\n');
+  put('docs/harper/lane-guides/agent-platform.md', '# agent-platform\n');
+  put('docs/harper/TECH_CONSTRAINTS.yaml', 'aigateway: python 3.14\n');
+  put('README.md', '# Foundation\n\n## Setup\nuv sync\n\n## Areas\n| aigateway |\n\n## Made with CLike\nAdopted.\n');
+  const out2 = re.reconcileExtend({ root, before: before2, files: [], isAgent: true, mode: 'adopt', cascade, adopt, validateExtendPlan, startedAt: started });
+  assert.equal(out2.ok, true, out2.errors.join('; '));
+  for (const [rel, re2] of [['docs/harper/SPEC.md', /## agent-platform/], ['docs/harper/HOWTO_RUN.md', /## agent-platform/],
+    ['docs/harper/lane-guides/agent-platform.md', /## Commands/], ['docs/harper/TECH_CONSTRAINTS.yaml', /agent-platform: python/], ['README.md', /make setup/]]) {
+    assert.match(fs.readFileSync(path.join(root, rel), 'utf8'), re2, rel);
+  }
+  assert.ok(out2.warnings.some((w) => /SPEC\.md dropped sections of the earlier adoption \(agent-platform: .*## agent-platform/.test(w)));
+  assert.ok(out2.warnings.some((w) => /lane guide of an area adopted before/.test(w)));
+  assert.ok(out2.warnings.some((w) => /README\.md changed or dropped 1 existing line\(s\) \(e\.g\. "make setup"\)/.test(w)));
+
+  // a local agent that deletes the README: put back (on cloud a README not returned is unchanged)
+  put('docs/harper/plan.json', JSON.stringify({ reqs: [...first, ...base.reqs] }));
+  const before3 = re.snapshotDocs(root);
+  put('docs/harper/plan.json', plan);
+  fs.rmSync(path.join(root, 'README.md'));
+  const out3 = re.reconcileExtend({ root, before: before3, files: [], isAgent: true, mode: 'adopt', cascade, adopt, validateExtendPlan, startedAt: started });
+  assert.equal(fs.readFileSync(path.join(root, 'README.md'), 'utf8'), before3.readme);
+  assert.ok(out3.warnings.some((w) => /README\.md was deleted by the run: restored/.test(w)));
+  put('docs/harper/plan.json', JSON.stringify({ reqs: [...first, ...base.reqs] }));
+  const before4 = re.snapshotDocs(root);
+  put('docs/harper/plan.json', plan);
+  const out4 = re.reconcileExtend({ root, before: before4, files: [{ path: 'docs/harper/plan.json', content: plan }], isAgent: false, mode: 'adopt', cascade, adopt, validateExtendPlan, startedAt: started });
+  assert.ok(!out4.warnings.some((w) => /deleted/.test(w)));
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('a project of areas: every new REQ names its area; a new module is declared once and registered; no areas, as before', () => {
+  const areas = [{ name: 'aigateway', root: 'aigateway' }, { name: 'portal', root: 'portal' }];
+  const errors = [];
+  const warnings = [];
+  const added = re.checkAreas([
+    { id: 'REQ-020', area: 'aigateway' },
+    { id: 'REQ-021', areas: ['aigateway', 'notifications'] },
+    { id: 'REQ-022', area: 'notifications', new_area: { root: 'notifications', commands: { check: 'make check' } } },
+  ], areas, errors, warnings);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(added, [{ name: 'notifications', root: 'notifications', source: ['notifications'], tests: [], commands: { check: 'make check' } }]);
+
+  const bad = [];
+  re.checkAreas([
+    { id: 'REQ-030' },
+    { id: 'REQ-031', area: 'billing' },
+    { id: 'REQ-032', area: 'x', new_area: { root: 'portal/x' } },
+    { id: 'REQ-033', area: 'portal', new_area: { root: 'p2' } },
+  ], areas, bad, []);
+  assert.match(bad[0], /REQ-032: new_area x root portal\/x overlaps an existing area/);
+  assert.match(bad[1], /REQ-033: new_area portal is an existing area/);
+  assert.match(bad[2], /REQ-030: no area — this project has areas \(aigateway, portal\)/);
+  assert.match(bad[3], /REQ-031: area billing is not an area of the project/);
+  assert.ok(bad.some((e) => /REQ-032: area x is not an area/.test(e)));
+
+  // without areas nothing is required
+  const none = [];
+  assert.deepEqual(re.checkAreas([{ id: 'REQ-040' }], [], none, []), []);
+  assert.deepEqual(none, []);
+
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'clike-areas-')));
+  fs.mkdirSync(path.join(root, '.clike'));
+  fs.writeFileSync(path.join(root, '.clike', 'project.json'), JSON.stringify({ name: 'f', areas }));
+  assert.equal(re.registerAreas(root, added), true);
+  assert.equal(re.registerAreas(root, added), false);   // once
+  const meta = JSON.parse(fs.readFileSync(path.join(root, '.clike', 'project.json'), 'utf8'));
+  assert.deepEqual(meta.areas.map((a) => a.name), ['aigateway', 'portal', 'notifications']);
+  assert.equal(meta.name, 'f');
+  assert.deepEqual(re.projectAreas(root).length, 3);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('validateDelta: with areas a REQ without one is an error, a new module comes back to register', () => {
+  const before = JSON.stringify({ reqs: [{ id: 'REQ-001', status: 'done', area: 'aigateway' }] });
+  const plan = (r) => JSON.stringify({ reqs: [{ id: 'REQ-001', status: 'done', area: 'aigateway' }, { id: 'REQ-002', status: 'open', change: 'ADDED', ...r }] });
+  const areas = [{ name: 'aigateway', root: 'aigateway' }];
+  assert.match(re.validateDelta({ beforeText: before, planText: plan({}), release: 'v2', areas }).errors.join(), /REQ-002: no area/);
+  const ok = re.validateDelta({ beforeText: before, planText: plan({ area: 'notifications', new_area: { root: 'notifications', commands: { test: 'pytest' } } }), release: 'v2', areas });
+  assert.equal(ok.ok, true, ok.errors.join('; '));
+  assert.equal(ok.newAreas[0].root, 'notifications');
+  assert.equal(re.validateDelta({ beforeText: before, planText: plan({}), release: 'v2' }).ok, true);   // no areas: as before
 });

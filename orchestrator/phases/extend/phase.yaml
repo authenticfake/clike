@@ -86,3 +86,4 @@ accepted_result_paths:
 - docs/harper/lane-guides/*.md
 - docs/harper/EXTEND_*.md
 - docs/harper/TECH_CONSTRAINTS.yaml
+- docs/harper/HOWTO_RUN.md

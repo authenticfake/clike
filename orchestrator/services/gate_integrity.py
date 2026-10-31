@@ -127,7 +127,10 @@ def surface_manifest(project_root: Path, req_id: str) -> Dict[str, str]:
     """sha256 of every regular file of the acceptance surface (relative POSIX path -> digest)."""
     root = kit_root(project_root, req_id)
     files: Dict[str, str] = {}
-    for sub in _SURFACE_DIRS:
+    # the tests of a project's areas are delivered through root/<area tests>/…: acceptance like test/
+    from services.root_files import area_test_roots
+
+    for sub in (*_SURFACE_DIRS, *(f"root/{t}" for t in area_test_roots(project_root))):
         base = root / sub
         if not base.is_dir():
             continue

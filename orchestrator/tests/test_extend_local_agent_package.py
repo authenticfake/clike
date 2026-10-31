@@ -256,6 +256,52 @@ def test_cascade_mode_evolves_idea_spec_and_plan_for_the_release():
     assert "supersedes" in prompt and "never write them" in prompt
 
 
+def test_adopt_mode_describes_the_project_as_it_is():
+    package = _package({"runId": "adopt-run", "extend": {
+        "mode": "adopt", "survey_report": "docs/harper/ADOPT_2026-10-28.md",
+        "areas": [{"name": "aigateway", "root": "aigateway", "baseline_req": "REQ-001"}]}})
+    local = package["local_agent"]
+    context = _context_file(package)
+    assert context["mode"] == "adopt"
+    assert "docs/harper/IDEA.md" in context["output_contract"]["always"]
+    assert "docs/harper/TECH_CONSTRAINTS.yaml" in local["allowed_write_roots"]
+    prompt = local["prompt_content"]
+    assert "Adoption of an existing project (/adopt)" in prompt and "Release cascade" not in prompt
+    assert "aigateway (root aigateway, baseline REQ-001)" in prompt and "(observed)" in prompt
+    assert "Read the whole repository" in prompt and "write only docs/harper/" in prompt
+    # the run guide and the root README, integrated (every existing heading stays)
+    assert "README.md" in local["allowed_write_roots"] and "docs/harper/HOWTO_RUN.md" in local["allowed_write_roots"]
+    assert "docs/harper/HOWTO_RUN.md" in context["output_contract"]["always"]
+    assert "every existing heading stays" in prompt and "Made with CLike" in prompt
+    # the code first (the code map CLike extracted), then git, then the documents; the interactions between areas
+    assert "docs/harper/CODEMAP.md" in prompt and "a capability it does not show is not in the code" in prompt
+    assert "who calls whom, on which protocol and interface" in prompt
+    assert "Areas adopted before" not in prompt
+    # a second area: the documents of the first are added to, never rewritten
+    second = _package({"runId": "adopt-run-2", "extend": {
+        "mode": "adopt", "areas": [{"name": "aigateway", "root": "aigateway", "baseline_req": "REQ-047"}],
+        "adopted_before": ["agent-platform"]}})["local_agent"]["prompt_content"]
+    assert "Areas adopted before: agent-platform." in second and "Changes to the earlier adoption" in second
+    # a release cascade never writes the README
+    cascade = _package({"runId": "ext-run", "extend": {"mode": "cascade", "release": "v2", "baseline": "v1"}})
+    assert "README.md" not in cascade["local_agent"]["allowed_write_roots"]
+
+
+def test_cloud_adopt_section_carries_the_documents_within_a_budget():
+    from services.extend_cascade import adopt_documents, cloud_extend_section
+
+    docs = [{"path": "README.md", "text": "root readme"}, {"path": "a/README.md", "text": "x" * 50}]
+    section = cloud_extend_section({"extend": {"mode": "adopt", "documents": docs}})
+    assert "### Adoption of an existing project (/adopt)" in section and "### Project document: README.md" in section
+    assert [l for l in adopt_documents({"mode": "adopt", "documents": docs}, limit=20) if l.startswith("### Project document:")] == ["### Project document: README.md"]
+    assert adopt_documents({"mode": "cascade", "documents": docs}) == []
+    # the README and the run guide are returned integrated: whole, first, whatever the budget
+    whole = [{"path": "README.md", "text": "r" * 500, "integrate": True}, {"path": "a/README.md", "text": "x" * 50}]
+    lines = adopt_documents({"mode": "adopt", "documents": whole}, limit=20)
+    assert "### Document to integrate: README.md" in lines and "r" * 500 in lines
+    assert not any(l.startswith("### Project document:") for l in lines)
+
+
 def test_plan_mode_extend_is_unchanged():
     package = _package()
     context = _context_file(package)
@@ -292,3 +338,11 @@ def test_cascade_reads_the_release_folder_and_the_attachments_together(tmp_path)
     assert "docs/inputs/v2/IDEA_EXTEND_R2.md — role: requirements — release v2" in prompt
     assert "runs/extend/attachments/pricing.md" in prompt
     assert any(f["path"] == "runs/extend/attachments/pricing.md" for f in _materialized(package))
+
+
+def test_cascade_with_areas_names_the_area_of_every_new_req():
+    areas = [{"name": "aigateway", "root": "aigateway"}, {"name": "portal", "root": "portal"}]
+    prompt = _package({"runId": "ext-run", "extend": {"mode": "cascade", "release": "v2", "baseline": "v1", "areas": areas}})["local_agent"]["prompt_content"]
+    assert "aigateway (root aigateway); portal (root portal)" in prompt and "new_area" in prompt
+    plain = _package({"runId": "ext-run", "extend": {"mode": "cascade", "release": "v2", "baseline": "v1"}})["local_agent"]["prompt_content"]
+    assert "Areas of the project" not in plain and "new_area" not in plain

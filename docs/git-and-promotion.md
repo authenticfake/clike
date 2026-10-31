@@ -182,10 +182,17 @@ infrastructure, root manifests. The KIT writes them under `runs/kit/<REQ>/root/<
 
 - Allowed by default: the folders `scripts/`, `deploy/`, `infra/`, `ops/`, `config/`, `configs/`,
   `migrations/`, `db/` and the files `.env.example`, `compose.yml|yaml`, `docker-compose.yml|yaml`,
-  `Dockerfile`, `Makefile`, `Procfile`. A project adds more in `.clike/project.json`:
-  `"root_folders": ["tools"], "root_files": ["Procfile.dev"]`.
-- Never: `.git`, `.clike`, `runs`, `docs`, `src`, `test`, `tests`, `ci`, `.env` and other private
-  files (keys, certificates), generated folders. A file outside the policy is listed as `rejected`
+  `Dockerfile`, `Makefile`, `Procfile`; also the example of each private env file
+  (`.env.<name>.example`), `.gitignore` / `.dockerignore`, `ci/SOLUTION_LTC.json` and project
+  documentation `docs/<runbook>.md` (not `docs/harper/`, `docs/inputs/`, `docs/reference/`). A
+  project adds more in `.clike/project.json`: `"root_folders": ["tools"], "root_files": ["Procfile.dev"]`.
+- **Areas** (a monorepo of services, `.clike/project.json` `"areas"`): each area root is a root
+  folder. A KIT writes an area's code and tests at their repository paths
+  (`runs/kit/<REQ>/root/gateway/src/…`, `…/root/gateway/tests/…`); its checks run with `cwd` the
+  area, in the eval workspace, with the area's own commands; the tests of an area are locked like
+  `test/`; promotion and regression are the same as above. A project without areas is unchanged.
+- Never: `.git`, `.clike`, `runs`, `src`, `test`, `tests`, other `ci/` files, the Harper and input
+  folders of `docs/`, `.env` and other private files (keys, certificates), generated folders. A file outside the policy is listed as `rejected`
   in the report and never written; the rest of the promotion goes on.
 - The eval sees them where they will be: the workspace root of the eval holds the canonical
   root deliverables, those of dependency KITs not promoted yet, then the candidate's

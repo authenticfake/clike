@@ -1414,6 +1414,12 @@ async function buildHarperBody(phase, payload, projectRootUri, out) {
     const repositoryContext = await detectRepositoryContext(projectRootUri);
     repositoryContext.local_snapshot_verified = true;
     repositoryContext.github_verified = false;
+    // the areas of a project (a monorepo of services, .clike/project.json): same for cloud and agents
+    try {
+      const meta = JSON.parse(require('fs').readFileSync(require('path').join(projectRootUri.fsPath, '.clike', 'project.json'), 'utf8'));
+      const areas = require('./root-files-policy').projectAreas(meta);
+      if (areas.length) repositoryContext.areas = areas;
+    } catch { /* no project.json, or no areas */ }
     payload["repository_context"] = repositoryContext;
     
     // Keep backward compatibility with the existing repoUrl field.
@@ -2130,6 +2136,7 @@ function buildAgentExecutionContext({
     .map(dep => String(dep || '').trim().toUpperCase())
     .filter(dep => dep.startsWith('REQ-'))
     .map(dep => `runs/kit/${dep}`);
+  const areas = require('./root-files-policy').projectAreas(projectMeta);
 
   const base = {
     schema_version: 'v1',
@@ -2163,11 +2170,14 @@ function buildAgentExecutionContext({
       working_directory: '.',
       source_folder: String(projectMeta.source_folder || 'src').trim(),
       test_folder: String(projectMeta.test_folder || 'test').trim(),
+      // a project of areas (a monorepo of services): each area keeps its own roots and commands;
+      // a KIT writes an area's files under runs/kit/<REQ>/root/<repository path> (KIT rules)
+      ...(areas.length ? { areas } : {}),
     },
     workspace_inspection_policy: {
       purpose: 'Inspect promoted source/test roots and dependency KIT roots before writing or repairing candidate files.',
-      canonical_promoted_source_roots: ['src'],
-      canonical_promoted_test_roots: ['test', 'tests'],
+      canonical_promoted_source_roots: areas.length ? ['src', ...areas.flatMap((a) => a.source)] : ['src'],
+      canonical_promoted_test_roots: areas.length ? ['test', 'tests', ...areas.flatMap((a) => a.tests)] : ['test', 'tests'],
       dependency_req_ids: dependsOn,
       dependency_kit_roots: dependencyKitRoots,
       target_candidate_root: `runs/kit/${String(reqId || '').trim().toUpperCase()}`,

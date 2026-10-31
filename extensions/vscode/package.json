@@ -2,7 +2,7 @@
   "name": "clike",
   "displayName": "Clike",
   "description": "From intent to impact. CLike keeps developers in flow, augments delivery with agentic workflows, and bakes in governance, eval‑driven quality, and a safe paved road for enterprises w/ an AI native pipeline.",
-  "version": "1.6.8",
+  "version": "1.6.9",
   "license": "Apache-2.0",
   "publisher": "authenticfake",
   "icon": "images/clike_64x64.png",
@@ -252,6 +252,11 @@
           "minimum": 0,
           "maximum": 20,
           "description": "Local agent repairs (Codex, Claude Code): how many times the agent may re-run failed checks in the real CLike eval sandbox during one repair (node .clike/bin/eval-check.mjs), to iterate until they pass (0 = off)."
+        },
+        "clike.stackDir": {
+          "type": "string",
+          "default": "",
+          "description": "The docker folder of the CLike stack (with mount-project.sh). Empty: the stack says where it runs from, else CLike asks once. Used to mount a project opened outside CLIKE_PROJECTS_DIR, read-only, on your confirmation."
         },
         "clike.evalTools.install": {
           "type": "string",
@@ -647,5 +652,8 @@
     "@vscode/vsce": "4.0.0",
     "eslint": "9.39.5",
     "globals": "15.15.0"
+  },
+  "overrides": {
+    "@azure/msal-node": "^7.1.2"
   }
 }

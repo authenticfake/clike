@@ -6,7 +6,7 @@
 // console bridge refused every request in containers while the sandbox smoke passed).
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, execFileSync } = require('child_process');
 
 const REPORT_PATH = 'runs/finalize/LOCAL_CHECK.md';
 const CHECK_ID = 'local::check_solution_local';
@@ -75,6 +75,36 @@ function runLocalCheck(root, script, { timeoutMs = 30 * 60000, onData = () => {}
   });
 }
 
+/**
+ * Paths git would see (untracked, not ignored) — CLike's own runs/ aside. Taken before and after the
+ * local check: what the solution's setup / start wrote and git does not ignore would end up in a
+ * commit (B2B: the private realm import with the local passwords under .runtime/). null without git.
+ */
+function visibleUntracked(root) {
+  try {
+    const out = execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: root, stdio: ['ignore', 'pipe', 'ignore'] }).toString();
+    return new Set(out.split('\n').filter((l) => l.startsWith('?? ')).map((l) => l.slice(3).replace(/^"|"$/g, ''))
+      .filter((p) => !p.startsWith('runs/')));
+  } catch { return null; }
+}
+
+/** The local check fails when the run left files git does not ignore; the repair gets them. */
+function withLeftovers(result, before, after) {
+  if (!before || !after) return result;
+  const left = [...after].filter((p) => !before.has(p)).sort();
+  if (!left.length) return result;
+  const shown = left.slice(0, 20).map((p) => `  ${p}`).join('\n') + (left.length > 20 ? `\n  … ${left.length - 20} more` : '');
+  return {
+    ...result,
+    ok: false,
+    code: result.ok ? 3 : result.code,
+    leftovers: left,
+    output: `${result.output || ''}\n\n[CLike local check] The local run wrote files git does not ignore — they would end up in a ` +
+      `commit (local configuration, generated secrets, private imports, caches). Add them to .gitignore (a folder rule ` +
+      `for a private folder), or have stop remove them:\n${shown}`,
+  };
+}
+
 function writeLocalCheckReport(root, result) {
   const file = path.join(root, ...REPORT_PATH.split('/'));
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -82,4 +112,4 @@ function writeLocalCheckReport(root, result) {
   return REPORT_PATH;
 }
 
-module.exports = { REPORT_PATH, CHECK_ID, localCheckScript, localCheckFailure, localCheckMarkdown, runLocalCheck, writeLocalCheckReport };
+module.exports = { REPORT_PATH, CHECK_ID, localCheckScript, localCheckFailure, localCheckMarkdown, runLocalCheck, writeLocalCheckReport, visibleUntracked, withLeftovers };

@@ -234,6 +234,16 @@ def needs(
 
     for name in declared(ltc):
         want(name, "declared")
+    # the runtimes the LTC declares and the image does not satisfy (python3.14, nodejs24…): a versioned
+    # environment of their own, so "installed" is that environment, not a program of the same name
+    import eval_runtimes
+
+    envs = eval_runtimes.tools_envs_dir()
+    for name in eval_runtimes.runtime_tools(ltc):
+        if name in catalog and name not in wanted and not (envs and (envs / name).is_dir()):
+            entry = catalog[name]
+            wanted[name] = {"tool": name, "binaries": list(entry.get("binaries") or []), "source": "declared",
+                            "about": entry.get("about", ""), "in_catalog": True}
     roots = [kit_root / sub for sub in ("src", "test", "tests", "ci", "scripts")] if kit_root else []
     for binary in used(roots, catalog):
         want(binary, "used")
@@ -320,7 +330,8 @@ def check(project_root: Path, req_id: Optional[str], profile: Optional[str] = No
     auto = auto_tools(catalog)
     for item in items:
         base = item["tool"].split("@", 1)[0]
-        item["approved"] = item["tool"] in approved or base in approved or base in auto
+        item["approved"] = item["tool"] in approved or base in approved or base in auto or (
+            item.get("source") == "declared" and catalog.get(base, {}).get("declared_auto") is True)
     # the programs of the auto tools too: a report names the program that was missing ("pwsh")
     auto_install = sorted(auto | {b for t in auto for b in (catalog.get(t, {}).get("binaries") or [])})
     return {"missing": items, "approved": sorted(approved), "auto_install": auto_install}

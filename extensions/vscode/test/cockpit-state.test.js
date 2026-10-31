@@ -255,3 +255,38 @@ test('a FINALIZE_REPORT older than the last gate promotion is the earlier releas
   assert.equal(state.next.command, '');
   assert.equal(state.progress_pct, 100);
 });
+
+test('after /init on an existing project the next action is /adopt; after the report it is /idea', () => {
+  const fsx = require('fs');
+  const tpl = (f) => fsx.readFileSync(path.join(__dirname, '..', 'templates', 'harper-init', 'docs', 'harper', f), 'utf8').split('${project.name}').join('Foundation');
+  const root = project({ 'docs/harper/IDEA.md': tpl('IDEA.md'), 'docs/harper/SPEC.md': tpl('SPEC.md'),
+    'aigateway/pyproject.toml': '[project]\nname = "aigateway"\n', 'aigateway/src/aigateway/__init__.py': '' });
+  assert.equal(buildCockpitState(root).next.command, '/adopt');
+  fsx.writeFileSync(path.join(root, 'docs', 'harper', 'ADOPT_2026-10-28.md'), '# Adoption report\n');
+  assert.equal(buildCockpitState(root).next.command, '/idea');
+});
+
+test('an adopted project CLike built nothing in: never /finalize — the stopped analysis, the next area, then the next release', () => {
+  const base = (area, id) => ({ id, title: `${area} — existing behaviour (adopted baseline)`, status: 'done', origin: 'adopted', area });
+  const areas = { areas: [{ name: 'agent-platform', root: 'agent-platform' }, { name: 'aigateway', root: 'aigateway' }] };
+  // the analysis stopped: only the baseline REQ
+  let state = buildCockpitState(project({ 'docs/harper/plan.json': { reqs: [base('agent-platform', 'REQ-001')] }, '.clike/project.json': areas }));
+  assert.equal(state.next.command, '/adopt --area agent-platform');
+  // adopted, every capability done: the next area
+  const ap = [base('agent-platform', 'REQ-001'), { id: 'REQ-002', title: 'Agents', status: 'done', origin: 'adopted', area: 'agent-platform' }];
+  state = buildCockpitState(project({ 'docs/harper/plan.json': { reqs: ap }, '.clike/project.json': areas }));
+  assert.equal(state.next.command, '/adopt --area aigateway');
+  // an open REQ: its KIT, the next area next to it
+  state = buildCockpitState(project({ 'docs/harper/plan.json': { reqs: [...ap, { id: 'REQ-003', title: 'A2A push', status: 'open', origin: 'adopted', area: 'agent-platform' }] }, '.clike/project.json': areas }));
+  assert.equal(state.next.command, '/kit REQ-003');
+  // every area adopted: the next release
+  const all = [...ap, base('aigateway', 'REQ-003'), { id: 'REQ-004', title: 'Routing', status: 'done', origin: 'adopted', area: 'aigateway' }];
+  state = buildCockpitState(project({ 'docs/harper/plan.json': { reqs: all }, '.clike/project.json': areas }));
+  assert.equal(state.next.command, '/idea --extend');
+  // a backlog item the adoption imported is still the adoption's
+  state = buildCockpitState(project({ 'docs/harper/plan.json': { reqs: [...all, { id: 'REQ-005', title: 'W-1', status: 'done', origin: 'import:backlog:W-1', area: 'aigateway' }] }, '.clike/project.json': areas }));
+  assert.equal(state.next.command, '/idea --extend');
+  // a REQ CLike built: /finalize as before
+  state = buildCockpitState(project({ 'docs/harper/plan.json': { reqs: [...all, { id: 'REQ-005', title: 'New', status: 'done', origin: 'harper' }] }, '.clike/project.json': areas }));
+  assert.equal(state.next.command, '/finalize');
+});

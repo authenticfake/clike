@@ -9,7 +9,7 @@ to report a vulnerability.
 CLike is designed for a **single developer on localhost**. The services are not meant to be exposed
 on a network or shared between users.
 
-## Security model (1.6.8)
+## Security model (1.6.9)
 
 | Area | Control |
 |---|---|

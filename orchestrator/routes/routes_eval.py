@@ -1166,6 +1166,16 @@ async def eval_tools_restore():
     return {**result, "lock": True}
 
 
+@router.get("/v1/eval/roots")
+async def eval_roots():
+    """The folders eval and gate can read (each mounted read-only), and where the stack runs from: the
+    extension offers to mount a project opened outside them (docker/mount-project.sh)."""
+    return {
+        "roots": [str(r) for r in allowed_eval_roots()],
+        "stack_dir": os.getenv("CLIKE_STACK_DIR", "").strip(),
+    }
+
+
 STALE_TOOLS_DAYS = int(os.getenv("CLIKE_EVAL_TOOLS_STALE_DAYS", "30") or 30)
 
 

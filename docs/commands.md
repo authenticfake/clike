@@ -22,6 +22,7 @@ The current webview parser supports the following slash commands.
 ### Project / workspace commands
 - `/help`
 - `/init` — with no parameters, initializes the folder open in VS Code, in place (as `/init <name> <parent folder> --force`); an existing project keeps every file, see [Bringing an existing project into CLike](adopt.md)
+- `/adopt [--area <name>] [--dry-run]` — brings an existing project into CLike: survey, baseline, project memory, then the analysis into Harper documents and adopted REQs; see [Bringing an existing project into CLike](adopt.md)
 - `/init <name> [<parent folder>] [--force]` — `--force` adds CLike to a folder that already has files: only missing template files are created, existing ones are kept, `.gitignore` gets only the CLike rules it lacks. A repository that already has its own review / PR / CI process (a CI workflow, a code-owners file or a PR template) keeps it: CLike's `.github/CODEOWNERS`, PR template and workflow go to `.clike/proposals/.github/`
 - `/status`
 - `/where`
@@ -147,6 +148,12 @@ IDEA → SPEC → PLAN in continuity with what exists:
   wrote is kept under `runs/extend/rejected/<time>/` for comparison.
   The PLAN.md sections that index every REQ (REQ-IDs table, dependency graph, test strategy, KIT
   readiness) list the new REQs too: CLike adds any the agent left out.
+- **Areas (a monorepo of modules).** When `.clike/project.json` declares `areas`, every new REQ
+  names its `area` (`areas` for a journey across modules). A new module is a new area: its first REQ
+  declares it with `new_area` (`root`, `source`, `tests`, `commands`) and CLike adds it to
+  `.clike/project.json` when the release is accepted. A REQ without an area, an unknown area or a new
+  area inside an existing one rejects the plan. Without `areas` nothing changes. Examples:
+  [Bringing an existing project into CLike](adopt.md#4-evolve-it--as-any-clike-project).
 - **BMAD.** `--methodology bmad --agent analyst|pm|architect|ux` works on the cascade (default role
   `pm`): the role leads the angle, CLike's rules and checks stay in charge (see
   `integrations/bmad/COMMANDS.md`).

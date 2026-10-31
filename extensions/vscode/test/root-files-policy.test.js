@@ -20,3 +20,27 @@ test('root/ never delivers secrets, Harper documents, inputs, code roots or othe
     assert.equal(isAllowedRootPath(p, policy), false, p);
   }
 });
+
+test('areas of .clike/project.json are repository folders a KIT delivers through root/', () => {
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+  const { rootPolicy, areaTestRoots } = require('../root-files-policy');
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'clike-areas-'));
+  fs.mkdirSync(path.join(ws, '.clike'));
+  fs.writeFileSync(path.join(ws, '.clike', 'project.json'), JSON.stringify({ areas: [
+    { name: 'gateway', root: 'aigateway', source: ['aigateway/src'], tests: ['aigateway/tests'] },
+    { name: 'portal', root: 'portal', source: ['portal/apps/portal', 'portal/packages'], tests: ['portal/e2e'] },
+    { root: '../outside' }, { root: 'docs' }, { root: 'src' },
+  ] }));
+  const p = rootPolicy(ws);
+  assert.deepEqual(p.areas.map((a) => a.root), ['aigateway', 'portal']);
+  for (const rel of ['aigateway/src/aigateway/routes.py', 'aigateway/tests/test_routes.py', 'portal/apps/portal/page.tsx']) {
+    assert.equal(isAllowedRootPath(rel, p), true, rel);
+  }
+  assert.equal(isAllowedRootPath('aigateway/.env', p), false);
+  assert.deepEqual(areaTestRoots(ws), ['aigateway/tests', 'portal/e2e']);
+  // a project without areas: the policy is as before
+  assert.deepEqual(rootPolicy(fs.mkdtempSync(path.join(os.tmpdir(), 'clike-plain-'))).areas, []);
+  fs.rmSync(ws, { recursive: true, force: true });
+});

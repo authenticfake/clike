@@ -24,7 +24,7 @@ from services.local_agent.document import (
     _render_canonical_parity_block,
 )
 from services.phase_definitions import phase_text
-from services.extend_cascade import CASCADE_EXTRA_WRITE_ROOTS, cascade_options, cascade_rules
+from services.extend_cascade import cascade_options, cascade_rules, cascade_title, extra_write_roots
 
 
 def _text(key: str) -> list:
@@ -89,7 +89,7 @@ def build_extend_local_agent_package(
     # Narrow, phase-owned write roots only. EXTEND files use a dynamic date/REQ
     # name, so the EXTEND_*.md glob is advertised; normalization is the real gate.
     cascade = cascade_options(payload)
-    allowed_write_roots = list(extend_def["allowed_write_roots"]) + (CASCADE_EXTRA_WRITE_ROOTS if cascade else [])
+    allowed_write_roots = list(extend_def["allowed_write_roots"]) + extra_write_roots(cascade)
     output_contract = extend_def["output_contract"]
     if cascade:
         # /idea --extend: IDEA, SPEC and the PLAN delta always, TECH_CONSTRAINTS when the release adds to it
@@ -100,13 +100,20 @@ def build_extend_local_agent_package(
                 "docs/harper/lane-guides/<concern>.md only when lane guidance is introduced or extended",
             ],
         }
+        if str(cascade.get("mode") or "").lower() == "adopt":
+            # /adopt: the project as it is — every Harper document, the run guide, the root README integrated
+            output_contract = {
+                "always": [*output_contract["always"], "docs/harper/TECH_CONSTRAINTS.yaml", "docs/harper/HOWTO_RUN.md",
+                           "docs/harper/lane-guides/<area>.md", "README.md (the existing one, integrated)"],
+                "conditional": [],
+            }
 
     forbidden_paths = list(_DOCUMENT_PHASE_FORBIDDEN_PATHS)
 
     context = {
         "schema_version": extend_def["schema_version"],
         "phase": "extend",
-        "mode": "cascade" if cascade else "plan",
+        "mode": str(cascade.get("mode") or "cascade").lower() if cascade else "plan",
         **({"release": cascade.get("release"), "baseline": cascade.get("baseline")} if cascade else {}),
         "run_id": run_id,
         "anchor_req": anchor_req,
@@ -166,9 +173,11 @@ def build_extend_local_agent_package(
             *attachment_prompt_lines,
             *_render_canonical_parity_block("extend", "EXTEND"),
             *_text("package.lines.3"),
-            *(["", "Release cascade (/idea --extend) — these rules replace the 'only when' conditions above for "
+            *(["", f"{cascade_title(cascade)} — these rules replace the 'only when' conditions above for "
                "IDEA.md and SPEC.md:", *[f"- {rule}" for rule in cascade_rules(cascade)],
-               "- You may read src/, test/ and runs/kit/*/ci/LTC.json to ground the delta; never write them."]
+               ("- Read the whole repository — each area's code, tests, docs and CI — and the survey report; write "
+                "only docs/harper/." if str(cascade.get("mode") or "").lower() == "adopt" else
+                "- You may read src/, test/ and runs/kit/*/ci/LTC.json to ground the delta; never write them.")]
               if cascade else []),
             f"- anchor_req: {anchor_req or '<auto-detect-last-req>'}",
             f"- explicit_req: {explicit_req or '<none>'}",

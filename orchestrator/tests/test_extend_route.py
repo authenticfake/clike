@@ -32,7 +32,7 @@ class ExtendRouteTests(unittest.TestCase):
     def tearDownClass(cls):
         cls._env.stop()
 
-    def _run(self, extend):
+    def _run(self, extend, model="openai:gpt-5.4-mini"):
         sent = {}
 
         async def capture(path, payload):
@@ -43,7 +43,7 @@ class ExtendRouteTests(unittest.TestCase):
             return {}
 
         policy = {"requested": "cloud_only", "selected": "cloud", "reason": "test", "phase_supported": True}
-        body = {"cmd": "extend", "phase": "extend", "project_id": "p", "model": "openai:gpt-5.4-mini",
+        body = {"cmd": "extend", "phase": "extend", "project_id": "p", "model": model,
                 "messages": [{"role": "user", "content": "/idea --extend"}], "executionPreference": "cloud_only",
                 "runId": "r", "extend": extend}
         with patch.object(self.harper, "_post_json", side_effect=capture), patch.object(
@@ -57,6 +57,51 @@ class ExtendRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertIn("Release cascade (/idea --extend)", prompt)
         self.assertIn("target release: v2", prompt)
+
+    def test_cascade_areas_reach_the_cloud_prompt_on_every_provider(self):
+        extend = {"mode": "cascade", "release": "v2", "baseline": "v1",
+                  "areas": [{"name": "aigateway", "root": "aigateway", "commands": {"check": "make check"}}]}
+        for model in ("openai:gpt-5.4-mini", "anthropic:claude-sonnet-5-5"):
+            response, prompt = self._run(extend, model=model)
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertIn("Areas of the project (.clike/project.json): aigateway (root aigateway)", prompt)
+            self.assertIn("new_area", prompt)
+        # a project without areas: the cascade as before
+        response, prompt = self._run({"mode": "cascade", "release": "v2", "baseline": "v1"})
+        self.assertNotIn("Areas of the project", prompt)
+        self.assertNotIn("new_area", prompt)
+
+    def test_adopt_rules_and_documents_reach_the_cloud_prompt_on_every_provider(self):
+        extend = {"mode": "adopt", "survey_report": "docs/harper/ADOPT_2026-10-28.md",
+                  "areas": [{"name": "aigateway", "root": "aigateway", "baseline_req": "REQ-001"}],
+                  "documents": [{"path": "README.md", "text": "# Foundation\n\nThe whole README.", "integrate": True},
+                                {"path": "aigateway/README.md", "text": "# AI Gateway\n\nRoutes model calls."}]}
+        for model in ("openai:gpt-5.4-mini", "anthropic:claude-sonnet-5-5"):
+            response, prompt = self._run(extend, model=model)
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertIn("Adoption of an existing project (/adopt)", prompt)
+            self.assertIn("aigateway (root aigateway, baseline REQ-001)", prompt)
+            self.assertIn("Project document: aigateway/README.md", prompt)
+            self.assertIn("Routes model calls.", prompt)
+            self.assertIn("Document to integrate: README.md", prompt)
+            self.assertIn("The whole README.", prompt)
+            self.assertIn("docs/harper/HOWTO_RUN.md", prompt)
+            self.assertIn("every existing heading stays", prompt)
+            self.assertIn("docs/harper/CODEMAP.md", prompt)
+            self.assertIn("the use-case steps of the SPEC it realizes", prompt)
+            self.assertNotIn("Release cascade", prompt)
+            self.assertNotIn("Areas adopted before", prompt)
+
+    def test_a_second_adopted_area_adds_to_the_first_on_every_provider(self):
+        extend = {"mode": "adopt", "survey_report": "docs/harper/ADOPT_2026-10-30.md",
+                  "areas": [{"name": "aigateway", "root": "aigateway", "baseline_req": "REQ-047"}],
+                  "adopted_before": ["agent-platform"]}
+        for model in ("openai:gpt-5.4-mini", "anthropic:claude-sonnet-5-5"):
+            response, prompt = self._run(extend, model=model)
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertIn("Areas adopted before: agent-platform.", prompt)
+            self.assertIn("never rewrites them from scratch", prompt)
+            self.assertIn("Changes to the earlier adoption", prompt)
 
     def test_plan_mode_request_reaches_the_cloud_prompt(self):
         response, prompt = self._run({"anchorReq": "REQ-006", "rawInput": "loyalty points"})

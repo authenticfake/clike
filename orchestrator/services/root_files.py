@@ -42,10 +42,45 @@ def root_policy(project_root: Optional[Path]) -> Dict[str, List[str]]:
     def _list(value) -> List[str]:
         return [str(v or "").strip().strip("/").removeprefix("./") for v in value] if isinstance(value, list) else []
 
-    folders = [f for f in dict.fromkeys(DEFAULT_ROOT_FOLDERS + _list(meta.get("root_folders")))
+    areas = project_areas(meta)
+    # the areas of a project (a monorepo of services): their roots are repository folders a KIT delivers
+    # through root/<area root>/…, as scripts/ or deploy/ (promotion, eval overlay, regression unchanged)
+    area_folders = [a["root"].split("/", 1)[0] for a in areas]
+    folders = [f for f in dict.fromkeys(DEFAULT_ROOT_FOLDERS + _list(meta.get("root_folders")) + area_folders)
                if f and "/" not in f and f not in DENIED_FIRST_SEGMENTS]
     files = [f for f in dict.fromkeys(DEFAULT_ROOT_FILES + _list(meta.get("root_files"))) if f and "/" not in f]
-    return {"folders": folders, "files": files}
+    return {"folders": folders, "files": files, "areas": areas}
+
+
+def project_areas(meta: dict) -> List[Dict[str, object]]:
+    """The areas `.clike/project.json` declares: ``[{name, root, source: [...], tests: [...], commands: {...}}]``,
+    roots repository-relative, never inside CLike's or the Harper folders."""
+    out: List[Dict[str, object]] = []
+    for raw in meta.get("areas") or [] if isinstance(meta, dict) else []:
+        if not isinstance(raw, dict):
+            continue
+        root = str(raw.get("root") or "").strip().strip("/").removeprefix("./")
+        if not root or root.startswith("/") or ".." in root.split("/") or root.split("/", 1)[0] in DENIED_FIRST_SEGMENTS:
+            continue
+
+        def paths(key: str) -> List[str]:
+            vals = raw.get(key) or []
+            vals = [vals] if isinstance(vals, str) else vals
+            return [str(v).strip().strip("/").removeprefix("./") for v in vals if str(v or "").strip()]
+
+        out.append({
+            "name": str(raw.get("name") or root.split("/")[-1]),
+            "root": root,
+            "source": paths("source") or [root],
+            "tests": paths("tests"),
+            "commands": raw.get("commands") if isinstance(raw.get("commands"), dict) else {},
+        })
+    return out
+
+
+def area_test_roots(project_root: Optional[Path]) -> List[str]:
+    """Repository-relative test roots of the areas (their files are acceptance, locked like test/)."""
+    return [t for a in root_policy(project_root).get("areas") or [] for t in a["tests"]]
 
 
 def is_allowed_root_path(rel: str, policy: Dict[str, List[str]]) -> bool:

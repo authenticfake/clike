@@ -88,6 +88,14 @@ The chat and the Memory panel do not exchange anything: **💬 Chat** in the pan
 the chat only open the other panel, or bring it to the front. Files reach the memory from the chat
 (📎 Attach); the panel lists them.
 
+### `/adopt` fills it
+
+On a project brought into CLike, `/adopt` indexes the documentation it finds (`docs/` of the root
+and of each area, READMEs, agent context files, changelogs, API and event contracts), the code map
+`docs/harper/CODEMAP.md` and the source code of the areas adopted (code, tests, contracts,
+configuration; never a real `.env` or a lock file). Unchanged files are not embedded again. See
+[Bringing an existing project into CLike](adopt.md).
+
 ### The project memory follows the KITs
 
 The KIT of a REQ is indexed after `/kit` and after `/eval`, without hidden folders (`ci/.tmp`

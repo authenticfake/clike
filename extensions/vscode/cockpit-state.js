@@ -68,6 +68,36 @@ const exists = (root, rel) => fs.existsSync(path.join(root, ...rel.split('/')));
 
 // what a folder holds besides editor, VCS and OS files: an existing project, not an empty one
 const NOT_PROJECT = new Set(['.git', '.vscode', '.idea', '.DS_Store', '.clike', 'Thumbs.db']);
+/** Code of its own (an area with a manifest, or one at the root) and no adoption report yet. */
+function adoptable(root) {
+  try {
+    if (fs.readdirSync(path.join(root, 'docs', 'harper')).some((n) => /^ADOPT_.+\.md$/.test(n))) return false;
+  } catch { /* no docs/harper */ }
+  const { surveyAreas } = require('./adopt');
+  return surveyAreas(root).length > 0 ||
+    ['pyproject.toml', 'package.json', 'go.mod', 'pom.xml', 'Cargo.toml', 'build.gradle'].some((f) => exists(root, f));
+}
+
+/**
+ * An adopted project CLike has not built anything in yet (every REQ origin "adopted"): the next step is
+ * the next area, an analysis to run again, or the next release — never /finalize, which closes a
+ * release CLike delivered. null otherwise.
+ */
+function adoptedNext(root, reqs) {
+  const { adoptedAreas, isAdoptedOrigin } = require('./adopt');
+  if (!reqs.length || reqs.some((r) => !isAdoptedOrigin(r.origin))) return null;
+  const { projectAreas } = require('./release-extend');
+  const adopted = adoptedAreas({ reqs });
+  const isBase = (r) => /adopted baseline/.test(String(r.title || ''));
+  const stopped = [...new Set(reqs.filter(isBase).map((r) => r.area))].filter((a) => a && !adopted.includes(a));
+  if (stopped.length) {
+    return { command: `/adopt --area ${stopped[0]}`, message: `The analysis of ${stopped.join(', ')} did not finish (only its baseline REQ is in the plan): /adopt --area ${stopped[0]} runs it again.` };
+  }
+  const left = projectAreas(root).map((a) => a.name).filter((n) => n && !adopted.includes(n));
+  if (left.length) return { command: `/adopt --area ${left[0]}`, message: `Adopted: ${adopted.join(', ')}. The next area: ${left.join(', ')} — each adds to what the earlier ones wrote.` };
+  return { command: '/idea --extend', message: 'The project is adopted: put the next release in docs/inputs/<release>/ and run /idea --extend (or /kit an open REQ).' };
+}
+
 function existingProject(root) {
   try { return fs.readdirSync(root).some((n) => !NOT_PROJECT.has(n)); } catch { return false; }
 }
@@ -254,6 +284,9 @@ function buildCockpitState(root, opts = {}) {
         next.message += ` Note: the plan still leaves ${row.open_decisions.join(', ')} open — the agent may not implement until they are decided.`;
         extendAlternative = { command: '/spec <your decisions>', message: `Decide ${row.open_decisions.join(', ')} (then /plan)` };
       }
+    } else if (action.action === 'finalize_only' && adoptedNext(root, reqs)) {
+      // adopted, nothing built with CLike yet: no release to close
+      next = adoptedNext(root, reqs);
     } else if (action.action === 'finalize_only') {
       // every REQ is done: /finalize, then the next release when its inputs are there (the same
       // detection /idea --extend runs: a docs/inputs/vN above the plan's release, with files)
@@ -273,10 +306,19 @@ function buildCockpitState(root, opts = {}) {
     } else {
       next = { command: '', message: action.message };
     }
+    // an adopted project with areas still to adopt: that next to the KIT of an open REQ
+    if (!extendAlternative && action.action === 'run_req') {
+      const more = adoptedNext(root, reqs);
+      if (more && more.command.startsWith('/adopt')) extendAlternative = more;
+    }
   } else if (!exists(root, 'docs/harper')) {
     next = existingProject(root)
       ? { command: '/init', message: 'An existing project, not built with CLike yet: /init adds CLike here, in place — every file, the layout and the team\'s review / PR / CI process are kept.' }
       : { command: '/init', message: 'No Harper project in this workspace: /init creates it in the folder open in VS Code.' };
+  } else if ((!phases[0] || phases[0].state !== 'done') && adoptable(root)) {
+    // /init on an existing project (code with manifests, no adoption yet): /adopt, not /idea
+    next = { command: '/adopt', message: 'An existing project: /adopt surveys its areas, runs the tests it already has in the sandbox, ' +
+      'indexes its documentation and writes the adoption report — nothing of the project is changed (--area <name> for one area first).' };
   } else if (!phases[0] || phases[0].state !== 'done') {
     next = { command: '/idea', message: 'IDEA.md is still the /init template: describe the product (put your documents in docs/inputs/ or attach them) and run /idea.' };
   } else if (phases[1].state !== 'done') {

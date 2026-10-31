@@ -5,7 +5,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { KIT_ROOT_DIR, rootPolicy } = require('./root-files-policy');
+const { KIT_ROOT_DIR, rootPolicy, areaTestRoots } = require('./root-files-policy');
 
 const MAX_FILE_BYTES = 200 * 1024;
 const SKIPPED_DIRS = new Set([
@@ -93,10 +93,12 @@ function collectRepairFiles(workspaceRoot, reqId) {
 /** Text content of the REQ's acceptance surface (runs/kit/<REQ>/{test,ci}/**), KIT-relative. */
 function snapshotAcceptanceSurface(workspaceRoot, reqId) {
   const snapshot = {};
+  // the tests of a project's areas are delivered through root/<area tests>/…: acceptance like test/
+  const surface = ['test/', 'ci/', ...areaTestRoots(workspaceRoot).map((t) => `${KIT_ROOT_DIR}/${t}/`)];
   for (const file of collectRepairFiles(workspaceRoot, reqId)) {
     const rel = file.path.slice(`runs/kit/${reqId}/`.length);
     // Markdown (ci/HOWTO.md) documents how to run the checks: not acceptance, freely editable.
-    if ((rel.startsWith('test/') || rel.startsWith('ci/')) && !rel.toLowerCase().endsWith('.md')) snapshot[rel] = file.content;
+    if (surface.some((s) => rel.startsWith(s)) && !rel.toLowerCase().endsWith('.md')) snapshot[rel] = file.content;
   }
   return snapshot;
 }

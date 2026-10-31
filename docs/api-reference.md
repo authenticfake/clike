@@ -196,7 +196,8 @@ Current request fields accepted by the request model and query merge logic inclu
 Confinement rules (also for `/v1/gate/check`):
 - `project_root` must lie under `DEV_FOLDER` (the host projects dir, `CLIKE_PROJECTS_DIR` in compose)
   or under one of `CLIKE_EVAL_ALLOWED_ROOTS` (path-separator list); otherwise `403`.
-  With neither configured, eval/gate are disabled.
+  With neither configured, eval/gate are disabled. `GET /v1/eval/roots` → `{roots, stack_dir}`: the
+  folders eval reads and where the stack runs from (the extension offers `docker/mount-project.sh`).
 - The LTC is read from the `profile` file under the project root, which is authoritative.
   An inline `ltc` is accepted only if identical to that file (`409` otherwise). An inline-only
   LTC (no file) is refused (`403`) unless `CLIKE_ALLOW_INLINE_LTC=1`.

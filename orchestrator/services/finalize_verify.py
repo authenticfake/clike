@@ -87,6 +87,17 @@ def solution_verify_rules(deployment: str = "") -> List[str]:
         "needs under new names every run (a client, product or campaign of its own, unique per run) and never "
         "assumes an empty database; it must pass the second time as the first (B2B v3: a 409 on a company the "
         "demo data already held).",
+        "Configuration examples are usable as they are: a structured variable (a JSON or YAML value, a list) gets a "
+        "minimal valid example value in its example file, with obvious placeholders for secrets and identifiers, "
+        "never only a name or a sentence; every mode the solution has (default, an identity provider, live, …) has "
+        "its example file. The profile has a check that loads every example with the solution's own configuration "
+        "loader, so an example that does not parse fails the verification (B2B v3: ten JSON settings of the live "
+        "mode had no example value).",
+        "Private files stay private in every mode: every file or folder the scripts write that holds local values "
+        "(the local configuration, generated secrets, an identity provider's import, caches) is in .gitignore, for "
+        "every start option, not only the default one; the report lists them (B2B v3: the realm import with the "
+        "local passwords under .runtime/ was not ignored). CLike's local check fails when the run leaves files git "
+        "does not ignore.",
         "Configuration: the solution runs with configuration only, never with code edits. Every variable the solution "
         "reads is in .env.example (or the ecosystem equivalent) with its purpose; in the profile it is provisioned "
         "(token, uuid, template, postgres_database, service) or `external` when only the developer can give it "

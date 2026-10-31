@@ -134,6 +134,27 @@ tools:
     binaries: [pwsh]
     about: "PowerShell 7, for the checks of .ps1 scripts"
     auto: true
+  # Language runtimes newer than the image's (Python 3.12, Node 22), by version: an LTC that declares
+  # "environment": {"python": "3.14"} or {"node": ">=24"} gets them without a question
+  # (declared_auto) and only for its own checks (eval_runtimes.py)
+  python3.13:
+    group: runtimes
+    packages: ["python=3.13"]
+    binaries: [python3.13]
+    about: "Python 3.13 (the image has 3.12), for an LTC that declares it"
+    declared_auto: true
+  python3.14:
+    group: runtimes
+    packages: ["python=3.14"]
+    binaries: [python3.14]
+    about: "Python 3.14 (the image has 3.12), for an LTC that declares it"
+    declared_auto: true
+  nodejs24:
+    group: runtimes
+    packages: ["nodejs=24"]
+    binaries: [node, npm, npx]
+    about: "Node.js 24 with npm (the image has 22), first on the PATH of the REQ that declares it"
+    declared_auto: true
   jdk:
     group: runtimes
     packages: ["openjdk"]

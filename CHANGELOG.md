@@ -4,6 +4,129 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.6.9] — 2026-10-31 — An existing project adopted, area by area
+
+### Added
+
+- **`/adopt` — an existing project brought into CLike**. First, with no model (the same for cloud
+  and local agents): it surveys the areas (the services of a monorepo), their stack, source and test
+  roots, the commands the team runs (Makefile, scripts, CI setup), the runtime versions they require,
+  the documentation, the agent context files and git; writes the areas to `.clike/project.json`
+  (corrections kept); runs the **baseline** — each area's own setup and check, on a copy of the
+  project in the eval sandbox, on its runtime — indexes the documentation into the **project
+  memory**; writes `docs/harper/ADOPT_<date>.md`. `--area <name>` adopts one area first,
+  `--dry-run` writes only the report. It writes the **code map** `docs/harper/CODEMAP.md` (per area:
+  modules and public symbols, entry points, routes, calls to the other areas, contracts, tests),
+  the **git history per area** in the report, and indexes the source code of the areas adopted into
+  the project memory with the documentation. Then the **analysis**, by the model the chat uses (a local agent
+  reads the repository, a cloud model gets the survey, the READMEs, the agent context files and the
+  project memory): IDEA, SPEC with use cases, TECH_CONSTRAINTS and lane guides of the project as it
+  is, every statement marked observed, declared or open, `docs/harper/HOWTO_RUN.md` (each area's
+  setup, run and test commands) and the root **README.md integrated** in CLike's release style
+  (every existing section kept, else restored); one **baseline REQ** per area (done, its
+  LTC runs the area's own checks, locked; a check already failing is reported, not blocking) and the
+  **capability REQs** — done only when the area's baseline covers them, open otherwise, the backlog
+  as open REQs. CLike checks the plan, appends its verification to the report and commits the Harper
+  documents; a rejected analysis restores them. Areas can be adopted one at a time. Help, completion
+  and the cockpit propose it after `/init` on an existing project. Of the project's own files only the
+  root README is updated, every existing section and line kept word for word (else restored). The
+  project memory gets every document of the repository (Markdown, text, reStructuredText, AsciiDoc,
+  OpenAPI/AsyncAPI — module READMEs, examples and prompts included), not only `docs/` and the main
+  READMEs. A file the model returns outside `docs/harper/` and the root README is ignored, and CLike
+  never writes a project file: in a git repository the files that changed while the run went (an
+  editor, another agent at work in the project) are named in the chat and left as they are.
+
+- **`/idea --extend` in a project of areas**: the model gets the areas of `.clike/project.json`; every
+  new REQ names its `area` (or `areas` for a journey across modules), a new module is declared once
+  with `new_area` (folder, source, tests, commands) and registered in `.clike/project.json` with the
+  release commit. A REQ without an area, an unknown area or a new area inside an existing one rejects
+  the plan. A project without areas works as before. The same rules on cloud and local agents.
+
+- **Language runtimes newer than the sandbox image**: an LTC that declares `"environment":
+  {"python": "3.14"}` or `{"node": ">=24"}` gets that runtime (`python3.13`, `python3.14`,
+  `nodejs24` in the tools catalog) without a question and for its own checks only — the venv and
+  `uv` on the declared Python, the declared Node first on the PATH. A version the image satisfies
+  installs nothing.
+
+- **Projects of areas** (a monorepo of services): `.clike/project.json` `"areas"` declares each area
+  with its roots and commands. The area roots are repository folders a KIT delivers through
+  `runs/kit/<REQ>/root/<repository path>`; a check with `cwd` an area runs in its composed copy in
+  the eval workspace (never in the project's own folder) with the area's own `src/` / `tests/`
+  paths; the area tests are locked like `test/`; promotion and regression are unchanged. Local
+  agents and cloud models get the same areas (`repository.areas`, *Repository areas*). A project
+  without areas is unchanged.
+
+### Fixed
+
+- **`/adopt`, reviewed**:
+  - **Write filter:** a returned path is checked as it is written, so `docs/harper/../src/x` is never
+    written.
+  - **Backlog:** a backlog item the first area imported no longer blocks the next area.
+  - **Cloud model:** it gets the root README and the run guide whole, so their integration no longer
+    loses their tail.
+  - **README:** a README a local agent deletes is put back. The team's README is found in git, with no
+    copy in `.clike/`, and the lines the team adds later to its own sections are kept.
+  - **Areas:** the areas of `.clike/project.json` are used as you corrected or declared them.
+  - **Mount:** a project opened through a symlink is recognised, and an MCP run is never asked to mount.
+  - **The adoption commit leaves out:** CLike's local state, your documents in `docs/inputs/` and
+    `docs/reference/`, a `.gitignore` change that is not CLike's, and any file naming a folder of this
+    machine.
+  - **Next step:** the cockpit and the outcome no longer propose `/finalize` in a project only adopted.
+    They propose the next area, the analysis to run again, or the next release.
+
+- **`/adopt` checks**: a journey across areas may name areas of the project not adopted yet, without a
+  warning. Every adopted REQ lists the SPEC use-case steps it realizes (`covers`), so the coverage check
+  no longer reports every step as uncovered.
+
+- **A project outside `CLIKE_PROJECTS_DIR` gets its tests run**: when eval, gate or the `/adopt`
+  baseline start on such a project, CLike asks to mount it. On confirmation, `docker/mount-project.sh`
+  mounts that folder only, read-only (a CLike project, never a parent), and recreates the containers.
+  `GET /v1/eval/roots` lists the folders eval reads, and the new setting `clike.stackDir` gives the
+  stack folder.
+
+- **`/adopt` with a local agent finishes**: the run guide (`docs/harper/HOWTO_RUN.md`) is accepted (only in the adoption: `/idea --extend` never writes it) as
+  an output, and the survey report and code map CLike writes just before the analysis are no longer
+  taken for the agent's output. The run is no longer stopped before its check and commit. If the run
+  changes them, CLike puts them back.
+- **`/adopt --area` of a second area adds to the first**: the earlier areas' sections, REQs, lane guides
+  and run guide stay, and TECH_CONSTRAINTS only grows. Replacements are listed in the report, and a lost
+  section is put back. The README keeps every line of the team's README as it was before CLike, while
+  CLike's own sections are updated (cloud and local agents).
+
+- **`/adopt` runs its analysis**: it was sent to the `/eval` and `/gate` handler and stopped after the
+  survey, leaving the `/init` templates. An adoption that stopped before its analysis runs again for
+  the same area (its baseline REQ written anew). A nested area is named by its path
+  (`events/python` → `events-python`).
+- **A project keeps its own default branch**: when the configured default branch does not exist in a
+  repository that already has history (`develop`, `master`, `trunk`), CLike commits on the
+  repository's own (`origin/HEAD`, then the current branch) instead of creating a new one.
+- **A profile of the whole project runs on a copy of it**: the adoption baseline and the solution
+  profile of a project without `src/` at its root (a project of areas) ran in the project folder,
+  which the sandbox mounts read-only; their setup steps in an area run in its copy too.
+- **`uv` projects run in the sandbox**: every REQ gets a writable `uv` project environment of its
+  own. Before, the image's `UV_PROJECT_ENVIRONMENT` pointed at CLike's own read-only environment, so
+  a project's `uv sync` / `uv run` failed.
+- **The cloud KIT has the same root rules as the local agents**: env examples, `.gitignore`, the
+  solution profile and runbooks under `root/`, never a staging folder.
+
+- **The finalize commit closes the release**: the Harper documents left out of earlier commits
+  (`docs/inputs/`, `docs/reference/`, `docs/harper/`, lane guides included) go with it; other files
+  of the developer never do. Before, a release input and its lane guides stayed uncommitted.
+- **The local check fails when the run leaves files git does not ignore** (local configuration,
+  generated secrets, an identity provider's import, caches): the repair adds them to `.gitignore`.
+  Before, a realm import with the local passwords could end up in a commit.
+- **Configuration examples are usable**: the finalize writes a minimal valid example for every
+  structured variable (JSON, YAML), one example file per mode, and the verification loads them with
+  the solution's own loader; private files are ignored for every start option. Before, ten JSON
+  settings of a live mode had only their names.
+
+### Security
+
+- **Extension build tools without known vulnerabilities**: `@azure/msal-node` 7.1.2 (an override
+  under the packaging tool, GHSA-xcx6-jx8p-x3h5) and `qs` 6.17.0 (GHSA-6pq8-jhm2-2vcw); both were
+  build-time dependencies of `.vsix` packaging, not of the extension that runs in VS Code.
+  `npm audit`: 0 vulnerabilities; packaging verified.
+
 ## [1.6.8] — 2026-10-28 — An existing project, kept as it is
 
 ### Added

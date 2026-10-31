@@ -1009,6 +1009,17 @@ def compose_phase_messages(payload: dict) -> list[dict]:
         targets,
         methodology_context,
     )
+    areas = (payload.get("repository_context") or {}).get("areas") if isinstance(payload.get("repository_context"), dict) else None
+    if phase.lower() == "kit" and areas:
+        # the same areas the local agents get (repository.areas), with their roots and commands
+        lines = ["### Repository areas", "",
+                 "The project is made of areas: write an area's files at their repository paths under "
+                 "runs/kit/<REQ-ID>/root/ (KIT rules) and run its checks with cwd the area root.", ""]
+        for a in areas:
+            cmds = ", ".join(f"{k}: `{v}`" for k, v in (a.get("commands") or {}).items())
+            lines.append(f"- **{a.get('name')}** — root `{a.get('root')}`; source {', '.join(f'`{s}`' for s in a.get('source') or [])}; "
+                         f"tests {', '.join(f'`{s}`' for s in a.get('tests') or []) or '—'}" + (f"; commands {cmds}" if cmds else ""))
+        messages[-1] = {**messages[-1], "content": messages[-1]["content"] + "\n\n" + "\n".join(lines)}
     repair = (kit or {}).get("repair") if isinstance(kit, dict) else None
     if phase.lower() == "kit" and isinstance(repair, dict) and repair and targets:
         messages[-1] = {**messages[-1], "content": messages[-1]["content"] + "\n\n" + _kit_repair_section(repair, str(targets[0]))}

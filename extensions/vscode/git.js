@@ -321,6 +321,18 @@ async function switchCarryingPhaseFiles(targetBranch, reqId, changedFiles, switc
 //  - only the files declared by the phase are staged and committed
 //    (`git commit -- <paths>`), unrelated user changes stay untouched;
 //  - push happens only with clike.git.autoPush (or an explicitly enabled PR flow).
+/** The configured default branch when it exists; else the repository's own (origin/HEAD, then the current branch). */
+async function repositoryDefaultBranch(gitCtx, configured, out) {
+  const ok = (args) => gitRunVerbose(args, gitCtx, 'diag', out).then(() => true, () => false);
+  if (await ok(['show-ref', '--verify', '--quiet', `refs/heads/${configured}`])) return configured;
+  if (!(await ok(['rev-parse', '--verify', '--quiet', 'HEAD']))) return configured;   // no commit yet: CLike's bootstrap
+  const remoteHead = await gitRunVerbose(['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'], gitCtx, 'diag', out).catch(() => '');
+  const fromRemote = String(remoteHead || '').trim().replace(/^origin\//, '');
+  if (fromRemote && await ok(['show-ref', '--verify', '--quiet', `refs/heads/${fromRemote}`])) return fromRemote;
+  const current = String(await gitRunVerbose(['rev-parse', '--abbrev-ref', 'HEAD'], gitCtx, 'diag', out).catch(() => '')).trim();
+  return current && current !== 'HEAD' ? current : configured;
+}
+
 async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, out) {
   const log = mkLog(out);
   const cwdFsPath = toFsPath(opts?.workspaceRoot);
@@ -330,7 +342,7 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
 
   const s = settings;
   const gitCtx = resolveGitContext(cwdFsPath, s.gitDefaultBranch);
-  const defaultBranch = s.gitDefaultBranch || 'main';
+  let defaultBranch = s.gitDefaultBranch || 'main';
   const autoPush = s.gitAutoPush === true;
   const conventional = s.gitConventionalCommits ?? s.gitConventional;
   const prPerReqDraft = s.gitPrPerReqDraftEnabled ?? s.prPerReqDraft;
@@ -342,6 +354,9 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
 
   // 1) Repo ready
   await ensureGitRepo(gitCtx, defaultBranch, out);
+  // a repository that already has history and no branch by the configured name (a project not built
+  // with CLike: develop, master, trunk) keeps its own default branch — CLike never creates another one
+  defaultBranch = await repositoryDefaultBranch(gitCtx, defaultBranch, out);
 
   // 2) Remote (optional)
   const hasRemote = await ensureRemote(gitCtx, s.gitRemote, s.gitRemoteUrl || '', out);
@@ -640,6 +655,7 @@ async function popLocalSessionNoise(gitCtx, log) {
 
 module.exports = {
     porcelainPaths,
+    repositoryDefaultBranch,
     clikeGitSync,
     toFsPath,
     mapKitSrcToWorkspaceTarget

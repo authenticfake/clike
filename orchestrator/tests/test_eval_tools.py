@@ -402,3 +402,12 @@ def test_a_check_that_says_a_catalog_program_is_missing_is_a_missing_tool(monkey
     }
     for text, expected in said.items():
         assert eval_tools.missing_from_failure(text, catalog) == expected, text
+
+
+class EvalRootsTests(_RegressionProject):
+    def test_the_roots_eval_reads_and_the_stack_folder(self):
+        extra = str(self.tmp / "elsewhere")
+        with patch.dict(os.environ, {"CLIKE_EVAL_ALLOWED_ROOTS": extra, "CLIKE_STACK_DIR": "/opt/clike/docker"}):
+            body = self.client.get("/v1/eval/roots", headers=AUTH).json()
+        self.assertEqual(body["roots"], [str(self.projects), extra])
+        self.assertEqual(body["stack_dir"], "/opt/clike/docker")

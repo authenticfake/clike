@@ -17,6 +17,8 @@ function createSlashCompleter(bmadRoles) {
     '/help': { group: 'Start & project', desc: 'Quick guide of the commands', sig: [] },
     '/init': { group: 'Start & project', harper: true, desc: 'Initialize the Harper project (no parameters: the open folder, in place)',
       sig: [{ t: '[<name>]', key: 'text' }, { t: '[--path <abs>]', key: 'flag:--path' }, { t: '[--force]', key: 'flag:--force' }] },
+    '/adopt': { group: 'Start & project', harper: true, desc: 'Bring an existing project into CLike (survey, baseline, memory, report)',
+      sig: [{ t: '[--area <name>]', key: 'flag:--area' }, { t: '[--dry-run]', key: 'flag:--dry-run' }] },
     '/status': { group: 'Start & project', harper: true, desc: 'Harper project / context status', sig: [] },
     '/where': { group: 'Start & project', harper: true, desc: 'Harper workspace / doc-root path', sig: [] },
     '/switch': { group: 'Start & project', harper: true, desc: 'Switch to another Harper project', sig: [{ t: '<name|path>', key: 'text' }] },
@@ -96,6 +98,10 @@ function createSlashCompleter(bmadRoles) {
       '--ask': { desc: 'choose the promotion strategy', excludes: ['--auto-merge', '--no-promote'] },
       '--no-promote': { desc: 'gate only, no promotion', excludes: ['--auto-merge', '--ask'] },
       '--fix': { desc: 'on failure: KIT repair, then gate again' },
+    },
+    '/adopt': {
+      '--area': { desc: 'adopt one area (a service of the monorepo) first', value: 'quoted' },
+      '--dry-run': { desc: 'survey only: write the report, nothing else' },
     },
     '/autopilot': {
       '--executor': { desc: 'who writes the KITs in this run', value: 'executor' },

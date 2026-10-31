@@ -343,3 +343,20 @@ test('a document phase run from a REQ branch carries its handoff files onto main
   assert.equal(fs.readFileSync(path.join(dir, 'docs/harper/FINALIZE_REPORT.md'), 'utf8').replace(/\r\n/g, '\n'), 'v2\n');
   assert.equal(fs.readFileSync(path.join(dir, 'user.txt'), 'utf8'), 'user\n');
 });
+
+test('a project with its own default branch keeps it: CLike never creates the configured one', async () => {
+  const dir = makeRepo();
+  git(dir, 'branch', '-m', 'main', 'develop');
+  write(dir, 'docs/harper/IDEA.md', '# IDEA\n');
+  await sync(dir, 'extend', '', ['docs/harper/IDEA.md']);
+  assert.equal(git(dir, 'rev-parse', '--abbrev-ref', 'HEAD'), 'develop');
+  assert.equal(git(dir, 'branch', '--list', 'main'), '');
+  assert.match(git(dir, 'log', '-1', '--name-only', '--format='), /docs\/harper\/IDEA\.md/);
+  // the configured branch, when it exists, is used as before (committed there, back on the work branch)
+  const plain = makeRepo();
+  git(plain, 'switch', '-q', '-c', 'feature/x');
+  write(plain, 'docs/harper/IDEA.md', '# IDEA\n');
+  await sync(plain, 'extend', '', ['docs/harper/IDEA.md']);
+  assert.match(git(plain, 'log', 'main', '-1', '--name-only', '--format='), /docs\/harper\/IDEA\.md/);
+  assert.equal(git(plain, 'rev-parse', '--abbrev-ref', 'HEAD'), 'feature/x');
+});

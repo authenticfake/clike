@@ -93,3 +93,16 @@ def test_kit_receives_technology_constraints_spec_and_target_req():
     assert "### SPEC.md (verbatim)" in context and "### IDEA.md (verbatim)" in context
     assert '"id": "REQ-001"' in context
     assert '"id": "REQ-002"' not in context  # only the target REQ and its dependencies
+
+
+def test_a_project_of_areas_reaches_the_cloud_kit_as_the_local_agents_get_it():
+    # executor parity: the local package has repository.areas, the cloud KIT gets the same areas
+    payload, _ = _golden_user("kit__cloud__native")
+    from services.cloud_prompt.messages import compose_phase_messages
+
+    payload = {**payload, "repository_context": {"areas": [
+        {"name": "gateway", "root": "gateway", "source": ["gateway/src"], "tests": ["gateway/tests"],
+         "commands": {"check": "make check"}}]}}
+    content = compose_phase_messages(payload)[-1]["content"]
+    assert "### Repository areas" in content
+    assert "**gateway** — root `gateway`; source `gateway/src`; tests `gateway/tests`; commands check: `make check`" in content

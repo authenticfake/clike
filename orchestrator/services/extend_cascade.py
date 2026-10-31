@@ -12,6 +12,15 @@ from typing import Any, Dict, List, Optional
 
 CHANGE_TYPES = ("ADDED", "MODIFIED", "REMOVED")
 CASCADE_EXTRA_WRITE_ROOTS = ["docs/harper/TECH_CONSTRAINTS.yaml"]
+# /adopt also writes the project's run guide and integrates the root README (every existing section kept)
+ADOPT_EXTRA_WRITE_ROOTS = ["README.md", "docs/harper/HOWTO_RUN.md"]
+
+
+def extra_write_roots(cascade: Optional[Dict[str, Any]]) -> List[str]:
+    if not cascade:
+        return []
+    adopt = str(cascade.get("mode") or "").lower() == "adopt"
+    return CASCADE_EXTRA_WRITE_ROOTS + (ADOPT_EXTRA_WRITE_ROOTS if adopt else [])
 
 
 def extend_options(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -20,9 +29,109 @@ def extend_options(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def cascade_options(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """The cascade options of an extend payload, or None for the plan-only /extend."""
+    """The cascade options of an extend payload (a release cascade, or the adoption of an existing project:
+    both write IDEA, SPEC, PLAN and TECH_CONSTRAINTS in one run), or None for the plan-only /extend."""
     opts = extend_options(payload)
-    return opts if str(opts.get("mode") or "").lower() == "cascade" else None
+    return opts if str(opts.get("mode") or "").lower() in ("cascade", "adopt") else None
+
+
+def cascade_title(opts: Dict[str, Any]) -> str:
+    return "Adoption of an existing project (/adopt)" if str(opts.get("mode") or "").lower() == "adopt" else "Release cascade (/idea --extend)"
+
+
+def adopt_rules(opts: Dict[str, Any]) -> List[str]:
+    """/adopt: the Harper documents of a project CLike did not create, as it is (docs/adopt.md)."""
+    areas = opts.get("areas") if isinstance(opts.get("areas"), list) else []
+    shown = "; ".join(
+        f"{a.get('name')} (root {a.get('root')}, baseline {a.get('baseline_req')})" for a in areas if isinstance(a, dict)
+    ) or "the repository root"
+    survey = str(opts.get("survey_report") or "docs/harper/ADOPT_<date>.md")
+    return [*_adopt_core_rules(shown, survey), *adopted_before_rules(opts)]
+
+
+def adopted_before_rules(opts: Dict[str, Any]) -> List[str]:
+    """/adopt --area of a second area: the documents already describe the areas adopted before."""
+    earlier = [str(a) for a in (opts.get("adopted_before") or []) if str(a or "").strip()]
+    if not earlier:
+        return []
+    names = ", ".join(earlier)
+    return [
+        f"Areas adopted before: {names}. docs/harper/ already describes them (IDEA, SPEC with its use cases, "
+        "TECH_CONSTRAINTS, PLAN and plan.json with their REQs, their lane guides, HOWTO_RUN) and the README already "
+        "carries CLike's sections: this run ADDS the new area to them — it never rewrites them from scratch.",
+        f"Keep: every heading, every REQ and every statement about {names} stays as it is, with its label. "
+        "Add: the new area's capabilities, interfaces, use cases, stack, REQs, lane guide and HOWTO_RUN section, "
+        "next to the earlier ones. Replace only (a) a project-wide statement the new area makes wrong or "
+        "incomplete (the areas, the architecture, the contracts between areas, a cross-area journey, the counts of "
+        "the coverage tables) and (b) an (open) or (declared) point the new area's code now answers — relabel it "
+        "(observed) with the file that shows it. Never drop an earlier statement: when the new code contradicts one, "
+        "keep it and add a note. TECH_CONSTRAINTS changes only by addition.",
+        "README: CLike's own sections (badges, summary, Areas, Architecture, Requirements Coverage, Known Limitations, "
+        "Next Steps, Made with CLike) are updated in place for the new area; every line of the team's own README "
+        "stays word for word.",
+        "Report: in the EXTEND report add a section 'Changes to the earlier adoption' listing each statement replaced "
+        "or relabelled (file, before → after, why) — empty when nothing was replaced.",
+    ]
+
+
+def _adopt_core_rules(shown: str, survey: str) -> List[str]:
+    return [
+        "Adoption: write the Harper documents of this project AS IT IS — nothing is designed, nothing is invented. "
+        "The truth of what exists is the code, its tests and git; documents (README, docs/, ADRs, howtos, tutorials, "
+        "the API/event/tool contracts, CHANGELOGs, AGENTS.md / CLAUDE.md, backlogs and decision records in docs/inputs/) "
+        "are declarations to reconcile with the code.",
+        f"Areas (from .clike/project.json): {shown}. The survey, the baseline (the tests each area already runs, "
+        f"and their result in the eval sandbox) and the git history per area are in {survey}: read it first.",
+        "Sources, in this order: (1) docs/harper/CODEMAP.md — the complete inventory CLike extracted from the code, "
+        "per area: modules and public symbols, entry points, routes, calls to other areas, contracts, configuration, "
+        "tests; a capability it does not show is not in the code; (2) the code itself — the key files given (or the "
+        "repository, for a local agent) and the project memory, which holds the code and the documentation by path; "
+        "(3) git — features and fixes per area: what was built and when, observed only when the code map or the tests "
+        "show it; (4) the documents. Without git, the code and the documents; without documents, the code alone.",
+        "Interactions: from the routes, the calls to other areas (client, method, path), the references between areas "
+        "and the contracts, write who calls whom, on which protocol and interface, and each area's role and "
+        "responsibilities — in SPEC (interfaces) and in the README (architecture).",
+        "Label every statement you derive: (observed) found in code or tests, (declared) written in a document and not "
+        "verified in code, (open) unknown or undecided — a question for the owner. Never turn an open point into a default.",
+        "IDEA.md: vision, users, outcomes and scope as the documents state them; decisions already taken (decision "
+        "records) under Decisions; what nobody wrote stays open.",
+        "SPEC.md: the canonical SPEC sections with what exists — capabilities per area, interfaces (the contracts between "
+        "areas), data, security, operations, non-functional requirements — and ## Use Cases: the end-to-end journeys "
+        "the howtos, tutorials and tests show (UC-nn with numbered steps UC-nn.n, errors, prerequisites), across areas "
+        "when they cross them.",
+        "TECH_CONSTRAINTS.yaml: the stacks, runtime versions, frameworks, infrastructure and conventions observed per area.",
+        "plan.json and PLAN.md: the baseline REQs exist already (one per area, status done, origin adopted: its LTC runs "
+        "the area's own checks) — keep them unchanged. Add one REQ per capability per area (not per file, no history): "
+        "\"area\": the area name, \"origin\": \"adopted\", acceptance in (observed) terms; status \"done\" with "
+        "\"covered_by\": the area's baseline REQ when the capability is in the code and the area's tests cover it, "
+        "status \"open\" when it is documented or planned but not found, or found without tests. Work still to do in "
+        "a backlog becomes open REQs with \"origin\": \"import:backlog:<id>\", its acceptance and its blockers as "
+        "readiness questions. A journey across areas is a REQ with the areas it touches. Every REQ lists in "
+        "\"covers\" the use-case steps of the SPEC it realizes (UC-nn.n), so that every step is in a REQ.",
+        "Lane guides: one docs/harper/lane-guides/<area>.md per area from its AGENTS.md / CLAUDE.md and its observed "
+        "conventions (layout, commands, tests, style), so every KIT follows them.",
+        "Report: the EXTEND report file is the adoption analysis — the capability → files → tests map per area, the "
+        "reconciliation (declared and found; declared and not found; found and not declared), the open questions, the "
+        "risks. CLike appends its own verification.",
+        "docs/harper/HOWTO_RUN.md: how to set up, run and test the project as it is, area by area — prerequisites and "
+        "runtime versions, the setup / run / test / lint commands from its Makefile, scripts, manifests and CI (each "
+        "with the area folder it runs in), configuration files and environment variables by name only, the local "
+        "services it needs. Only commands backed by a file of the repository; what cannot be run locally is said so.",
+        "README.md (repository root): integrate the existing README, never replace it — every existing heading stays, "
+        "with its content, in its order, and every existing line stays word for word (where the code contradicts a "
+        "line, keep it and add a note right after it, and say so in the report; a README that loses a line is put "
+        "back). Add CLike's "
+        "release-grade presentation as finalize does: a badge row after the H1 (status adopted, the CLike badge linked "
+        "to https://github.com/authenticfake/clike, the Harper badge \"adopt\" linked to "
+        f"{survey}), a short summary blockquote, and the sections it lacks — Project Overview, Areas (a table: area, "
+        "root, stack, runtime, commands), Architecture (the areas and the contracts between them), Requirements "
+        "Coverage (the baseline REQs and the capability REQs, done / open), How to Run and How to Test (pointing to "
+        "docs/harper/HOWTO_RUN.md), Known Limitations, Next Steps, and last Made with CLike (adopted with CLike, "
+        "evolving through the Harper process; links to docs/harper/ and the reports). No badge claims eval or gate "
+        "results the baseline did not produce. No README of an area is changed.",
+        "Write only docs/harper/ (the files above) and the root README.md. Never change the project's code, tests, "
+        "scripts, CI, the areas' README files or docs/.",
+    ]
 
 
 def context_phases(payload: Dict[str, Any], phase: str) -> List[str]:
@@ -31,6 +140,8 @@ def context_phases(payload: Dict[str, Any], phase: str) -> List[str]:
 
 
 def cascade_rules(opts: Dict[str, Any]) -> List[str]:
+    if str(opts.get("mode") or "").lower() == "adopt":
+        return adopt_rules(opts)
     release = str(opts.get("release") or "the next release")
     baseline = str(opts.get("baseline") or "the current release")
     report = "docs/harper/EXTEND_<YYYY-MM-DD>_<FIRST_REQ>_<LAST_REQ>.md"
@@ -84,6 +195,31 @@ def cascade_rules(opts: Dict[str, Any]) -> List[str]:
         "changes (sections added or changed, and why); the delta table (REQ, change, title, amends / retires "
         "/ supersedes, dependsOn); impact on delivered REQs (areas and files touched); behaviors that stay "
         "unchanged; open questions; risks. CLike appends its own verification section.",
+        *area_rules(opts),
+    ]
+
+
+def area_rules(opts: Dict[str, Any]) -> List[str]:
+    """A project of areas (.clike/project.json): every new REQ names its area; a new module is declared once.
+    A project without areas gets no rule (the cascade is as before)."""
+    areas = [a for a in (opts.get("areas") or []) if isinstance(a, dict) and a.get("name")]
+    if not areas:
+        return []
+    shown = "; ".join(f"{a.get('name')} (root {a.get('root')})" for a in areas)
+    return [
+        f"Areas of the project (.clike/project.json): {shown}. Every new REQ names the area it changes: "
+        "`\"area\": \"<name>\"`, or `\"areas\": [\"<a>\", \"<b>\"]` for a journey across areas. An input that extends "
+        "an existing module works in its area, through its existing seams and contracts; the interfaces between "
+        "areas it changes are in SPEC (interfaces) and in the REQs of both areas.",
+        "A new module is a new area: its folder at the repository root (a sibling of the others, never inside "
+        "one), the stack and conventions of the closest existing area unless the input says otherwise. The first "
+        "REQ of the new area declares it once: `\"area\": \"<name>\"`, `\"new_area\": {\"root\": \"<folder>\", "
+        "\"source\": [\"<folder>/src\"], \"tests\": [\"<folder>/tests\"], \"commands\": {\"setup\": \"...\", "
+        "\"check\": \"...\", \"test\": \"...\"}}` (the commands the area's own Makefile or manifest will run, as the "
+        "other areas do); its scaffold — manifest, check command, tests, CI workflow when the others have one — is "
+        "part of that REQ's acceptance. CLike registers the new area in .clike/project.json.",
+        "SPEC and the lane guides: a new area gets its section in SPEC (capabilities, interfaces with the other "
+        "areas) and, when its conventions differ, docs/harper/lane-guides/<area>.md.",
     ]
 
 
@@ -102,7 +238,35 @@ def cloud_extend_section(payload: Dict[str, Any]) -> str:
     if opts.get("fromAttachment"):
         lines.append("- source: the attachments of this run")
     if cascade:
-        lines += ["", "### Release cascade (/idea --extend)", *[f"- {rule}" for rule in cascade_rules(cascade)]]
+        lines += ["", f"### {cascade_title(cascade)}", *[f"- {rule}" for rule in cascade_rules(cascade)]]
         lines += ["- Return the complete files: docs/harper/IDEA.md, docs/harper/SPEC.md, docs/harper/PLAN.md, "
-                  "docs/harper/plan.json, the EXTEND report, and docs/harper/TECH_CONSTRAINTS.yaml when it changes."]
+                  "docs/harper/plan.json, the EXTEND report, and docs/harper/TECH_CONSTRAINTS.yaml when it changes."
+                  + (" Also docs/harper/TECH_CONSTRAINTS.yaml, docs/harper/HOWTO_RUN.md, the lane guides and the root "
+                     "README.md (the existing one, integrated)." if str(cascade.get("mode") or "").lower() == "adopt" else "")]
+        lines += adopt_documents(cascade)
     return "\n".join(lines)
+
+
+def adopt_documents(opts: Dict[str, Any], limit: int = 400000) -> List[str]:
+    """/adopt on cloud: the survey report, the agent context files and the READMEs the extension read (a local
+    agent reads the repository itself); the rest of the documentation is in the project memory."""
+    if str(opts.get("mode") or "").lower() != "adopt":
+        return []
+    docs = [d for d in (opts.get("documents") or []) if isinstance(d, dict) and str(d.get("text") or "").strip()]
+    # the README and the run guide are returned integrated: given whole, before the budget counts the rest
+    whole = [d for d in docs if d.get("integrate")]
+    head: List[str] = []
+    for d in whole:
+        head += ["", f"### Document to integrate: {str(d.get('path') or '').strip()}", "", str(d.get("text")).rstrip()]
+    if head:
+        head = ["", "### Documents to integrate (return each whole: every existing line kept, CLike's sections added "
+                "or updated)"] + head
+    out: List[str] = []
+    used = 0
+    for d in [d for d in docs if not d.get("integrate")]:
+        text = str(d.get("text"))
+        if used + len(text) > limit:
+            break
+        used += len(text)
+        out += ["", f"### Project document: {str(d.get('path') or '').strip()}", "", text.rstrip()]
+    return head + ((["", "### Project documents (read-only: describe them, never rewrite them)"] + out) if out else [])

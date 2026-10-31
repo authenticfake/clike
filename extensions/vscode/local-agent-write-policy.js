@@ -224,6 +224,11 @@ const EXTEND_ALLOWED_EXACT = [
   'docs/harper/plan.json',
   'docs/harper/TECH_CONSTRAINTS.yaml',
 ];
+// The run guide only /adopt writes: accepted when its package lists it in allowed_write_roots
+const EXTEND_PACKAGE_ONLY = ['docs/harper/HOWTO_RUN.md'];
+// What CLike itself writes before an /adopt analysis (the survey report, the code map): never an agent output
+const CLIKE_OWN_HARPER_FILES = /^docs\/harper\/(ADOPT_[^/]+\.md|CODEMAP\.md)$/;
+const isClikeOwnHarperFile = (candidatePath) => CLIKE_OWN_HARPER_FILES.test(normalizeArtifactPath(candidatePath).replace(/^\.\//, ''));
 const EXTEND_ALLOWED_PREFIXES = ['docs/harper/lane-guides/'];
 
 function isExtendPhase(phase) {
@@ -335,7 +340,8 @@ function validateLocalAgentRequiredOutputs({
       ? isFinalizeForbiddenPath(rel, { allowedWriteRoots, forbiddenPaths })
       : isForbiddenCandidatePath(rel) &&
         !(documentPhase && isDocumentPhaseContractOutput(normalizedPhase, outputContract, rel)) &&
-        !(extendPhase && isExtendAllowedOutput(rel))));
+        !(extendPhase && (isExtendAllowedOutput(rel) ||
+          (EXTEND_PACKAGE_ONLY.includes(rel) && (Array.isArray(allowedWriteRoots) ? allowedWriteRoots : []).includes(rel))))));
 
   if (forbidden.length) {
     throw makePolicyError(
@@ -636,6 +642,7 @@ module.exports = {
   extractCodexSandboxModeFromArgs,
   isCodexSandboxWriteCapable,
   isForbiddenCandidatePath,
+  isClikeOwnHarperFile,
   isDocumentPhase,
   isDocumentPhaseAllowedOutput,
   isDocumentPhaseCompanionOutput,

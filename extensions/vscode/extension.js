@@ -138,7 +138,7 @@ function openReadingMode(uri) {
   vscode.commands.executeCommand('markdown.showPreview', uri).then(undefined, () =>
     vscode.window.showTextDocument(uri, { preview: true }));
 }
-const { getEvalProgress, getEvalTools, postEvalToolsUpdate, postAcceptanceAccept, postAcceptanceAmend, postAcceptanceLock, postEvalChecks, postEvalToolsCheck, postEvalToolsInstall, postGateOverride } = require('./api');
+const { getEvalRoots, getEvalProgress, getEvalTools, postEvalToolsUpdate, postAcceptanceAccept, postAcceptanceAmend, postAcceptanceLock, postEvalChecks, postEvalToolsCheck, postEvalToolsInstall, postGateOverride } = require('./api');
 const evalToolsLib = require('./eval-tools');
 const { approveForProject, ensureEvalTools, questionText } = evalToolsLib;
 const { agentArgsForEvalCheck, agentTimeoutMinutes, startEvalCheckBridge } = require('./eval-check-bridge');
@@ -228,6 +228,7 @@ const {
 } = require('./auto-eval');
 const { validateExtendPlan, readPlanText } = require('./extend-guard');
 const releaseExtend = require('./release-extend');
+const adoptLib = require('./adopt');
 const { copyTemplateTree, mergeGitignore, teamProcessRedirect, PROPOSALS_DIR } = require('./init-merge');
 const { buildAgentChatArgs, createAgentStreamParser, newSession, sessionKey } = require('./agent-chat');
 const { createApprovalGate, createCodexAppServerTurn, startClaudeApprovalServer } = require('./agent-approvals');
@@ -245,7 +246,9 @@ const {
   shouldFallbackToCloud,
   documentPhaseCompanionTargets,
   isFreshLocalAgentArtifact,
+  isClikeOwnHarperFile,
 } = require('./local-agent-write-policy');
+const { ensureProjectMounted, stackFolder } = require('./project-mount');
 
 // Harper phases that can run through the orchestrator-owned local-agent package
 // path. Early document phases (idea/spec/plan) and the existing
@@ -973,6 +976,8 @@ async function collectExtendCandidateFileArtifacts(workspaceRootUri, runStartedA
       }
 
       if (type !== vscode.FileType.File) continue;
+      // the survey report and the code map /adopt wrote just before the run are CLike's, not the agent's
+      if (isClikeOwnHarperFile(`docs/harper/${relPath}`)) continue;
 
       let data;
       try {
@@ -4459,6 +4464,187 @@ async function cmdOpenChat(context) {
       const activeMode  = msg.mode  || cur.mode  || 'free';
       const activeModel = msg.model || cur.model || 'auto';
 
+      if (msg.type === 'adopt') {
+        // /adopt: an existing project brought into CLike (adopt.js). Deterministic, no model: the same
+        // for cloud and local agents. Writes only CLike's files: .clike/project.json, runs/adopt/, the report.
+        // every line of /adopt in the chat and in its history (one write at a time): a reload keeps the outcome
+        let saved = Promise.resolve();
+        const say = (text) => {
+          panel.webview.postMessage({ type: 'echo', message: text });
+          // the chat shows the history of the model it uses: the lines are saved under it
+          const model = (context.workspaceState.get('clike.uiState') || {}).model || 'auto';
+          saved = saved.then(() => appendSessionJSONL('harper', { ts: Date.now(), role: 'system', content: text, model, attachments: [] })).catch(() => {});
+        };
+        const done = () => panel.webview.postMessage({ type: 'busy', on: false, force: true });
+        // what /adopt wrote, in the Files tab (the report opened in the editor)
+        const showFiles = (root, rels, open = '') => {
+          panel.webview.postMessage({ type: 'files', data: rels.filter((r) => fsSync.existsSync(path.join(root, ...r.split('/')))).map((r) => ({ path: r })), activate: true });
+          // a report to read, not to edit: the Markdown preview (read-only), beside the chat
+          if (open) {
+            const uri = vscode.Uri.file(path.join(root, ...open.split('/')));
+            const show = /\.md$/i.test(open)
+              ? vscode.commands.executeCommand('markdown.showPreview', uri)
+              : vscode.window.showTextDocument(uri, { preview: true, preserveFocus: true });
+            Promise.resolve(show).then(() => {}, () => {});
+          }
+        };
+        const ws = getWorkspaceRoot();
+        let guard = null;
+        const ownFiles = {};
+        // CLike never changes a project file: what changed outside its own files and the root README while
+        // /adopt ran (an editor, another agent working in the project, or the run) is reported, left as it is
+        const reported = new Set();
+        const restoreProject = () => {
+          let changed = [];
+          if (guard) {
+            try { changed = adoptLib.guardChanges(ws.fsPath, guard).filter((rel) => !reported.has(rel)); } catch (e) { say(`⚠ /adopt: the project files could not be checked (${String(e?.message || e).slice(0, 200)}).`); }
+          }
+          for (const rel of changed) reported.add(rel);
+          if (changed.length) {
+            say(`ℹ /adopt: ${changed.length} project file(s) changed while the adoption ran — left as they are (CLike never changes them; ` +
+              `if one is not yours, the adoption's agent wrote it: git diff shows it): ${changed.slice(0, 10).join(', ')}${changed.length > 10 ? ', …' : ''}.`);
+          }
+          // the survey report and the code map are CLike's own documents: a run that changed them gets them back
+          const own = [];
+          for (const [rel, text] of Object.entries(ownFiles)) {
+            const abs = path.join(ws.fsPath, ...rel.split('/'));
+            let now = null;
+            try { now = fsSync.readFileSync(abs, 'utf8'); } catch { /* deleted */ }
+            if (now !== text) { fsSync.mkdirSync(path.dirname(abs), { recursive: true }); fsSync.writeFileSync(abs, text); own.push(rel); }
+          }
+          if (own.length) say(`ℹ /adopt: CLike's ${own.join(' and ')} put back as CLike wrote them.`);
+        };
+        try {
+          if (!ws) { say('✖ /adopt: open the project folder in VS Code first.'); return done(); }
+          const root = ws.fsPath;
+          const projectPath = path.join(root, '.clike', 'project.json');
+          if (!fsSync.existsSync(projectPath)) { say('ℹ /adopt: run /init first — it adds CLike to this folder, in place, keeping every file.'); return done(); }
+          guard = adoptLib.guardSnapshot(root);
+          if (!guard) say('ℹ /adopt: no git here — CLike writes only docs/harper/, .clike/, runs/ and the root README; a change elsewhere cannot be reported.');
+          await appendSessionJSONL('harper', { ts: Date.now(), role: 'user', content: `▶ ADOPT${msg.area ? ` --area ${msg.area}` : ''}${msg.dryRun ? ' --dry-run' : ''}`, model: (context.workspaceState.get('clike.uiState') || {}).model || 'auto', attachments: [] });
+          say('▶ /adopt: survey of the project (areas, stack, roots, commands, runtimes, CI, documentation, git)…');
+          const found = adoptLib.survey(root);
+          // the areas as .clike/project.json has them (what the developer corrected or declared stays and is used)
+          let meta = {};
+          try { meta = JSON.parse(fsSync.readFileSync(projectPath, 'utf8')); } catch { /* template */ }
+          const mergedMeta = adoptLib.mergeProjectAreas(meta, found.areas);
+          found.areas = adoptLib.effectiveAreas(found.areas, mergedMeta.areas);
+          const area = String(msg.area || '').trim();
+          const picked = area ? found.areas.filter((a) => a.root === area || a.name === area) : found.areas;
+          if (area && !picked.length) {
+            say(`✖ /adopt: no area "${area}". Areas: ${found.areas.map((a) => `${a.name} (${a.root})`).join(', ') || 'none'}.`);
+            return done();
+          }
+          say(`ℹ /adopt: ${found.areas.length} area(s) — ${found.areas.map((a) => `${a.root} (${a.stack})`).join(', ') || 'the repository root is one project'}; ` +
+            `${found.docs.length} document(s); ${found.ci.length} CI workflow(s); ${found.git ? `${found.git.commits} commit(s)` : 'no git'}.`);
+          const reportRel = `docs/harper/ADOPT_${new Date().toISOString().slice(0, 10)}.md`;
+          const writeReport = (opts) => {
+            fsSync.mkdirSync(path.join(root, 'docs', 'harper'), { recursive: true });
+            fsSync.writeFileSync(path.join(root, ...reportRel.split('/')), adoptLib.reportMarkdown(found, { area, ...opts }));
+          };
+          if (msg.dryRun) {
+            writeReport({ dryRun: true });
+            say(`✔ /adopt --dry-run: report ${reportRel} (nothing else written).`);
+            showFiles(root, [reportRel], reportRel);
+            return done();
+          }
+          // the areas, in CLike's own settings (a root or command the developer corrected stays)
+          fsSync.writeFileSync(projectPath, `${JSON.stringify(mergedMeta, null, 2)}\n`);
+          // the baseline: the checks each (picked) area already has, as its team runs them, in the sandbox
+          let baseline = null;
+          const profile = adoptLib.baselineProfile(picked);
+          if (profile.checks.length) {
+            const full = path.join(root, ...adoptLib.BASELINE_PROFILE.split('/'));
+            fsSync.mkdirSync(path.dirname(full), { recursive: true });
+            fsSync.writeFileSync(full, `${JSON.stringify(profile, null, 2)}\n`);
+            say(`▶ /adopt: baseline in the CLike eval sandbox — ${profile.checks.map((c) => c.id).join(', ')} (installs and test suites: minutes)…`);
+            try {
+              await ensureToolsForEval(null, { profile: adoptLib.BASELINE_PROFILE });
+              baseline = await postEvalChecks(adoptLib.BASELINE_PROFILE, ws, adoptLib.BASELINE_ID, []);
+              say(`${baseline?.passed ? '✔' : 'ℹ'} /adopt baseline: ${(baseline?.cases || []).filter((c) => !String(c.name).startsWith('env::')).map((c) => `${c.name} ${c.passed ? 'PASS' : 'FAIL'}`).join(', ')}`);
+            } catch (e) {
+              say(`⚠ /adopt: the baseline could not run (${String(e?.message || e).slice(0, 300)}); the report says so.`);
+            }
+          }
+          // the code map of every area (the contracts between them too): what exists, by the code
+          const mapped = adoptLib.codeMaps(root, found.areas);
+          fsSync.mkdirSync(path.join(root, 'docs', 'harper'), { recursive: true });
+          fsSync.writeFileSync(path.join(root, ...adoptLib.CODEMAP.split('/')), `${mapped.markdown}\n`);
+          // the project memory: the documentation, the code map and the code of the areas adopted now —
+          // a cloud model and every later phase cite them by path (a local agent reads the files too)
+          let indexed = 0;
+          const docItems = adoptLib.memoryItems(root, [...found.docs, adoptLib.CODEMAP]);
+          const items = [...docItems, ...adoptLib.sourceItems(root, picked)];
+          say(`▶ /adopt: project memory — ${docItems.length} document(s) and ${items.length - docItems.length} source file(s)…`);
+          for (let i = 0; i < items.length;) {
+            // batches of at most 40 files and ~1.5M characters
+            const batch = [];
+            let chars = 0;
+            while (i < items.length && batch.length < 40 && (chars === 0 || chars + items[i].text.length <= 1500000)) { chars += items[i].text.length; batch.push(items[i]); i += 1; }
+            let res = null;
+            try {
+              const r = await serviceRequest('POST', `${cfg().orchestratorUrl}/v1/rag/index`, { body: { project_id: getProjectId(), items: batch }, timeoutMs: 600000 });
+              if (!r.ok) throw new Error(`${r.status} ${String(r.text || '').slice(0, 200)}`);
+              res = r.json();
+              if (res && res.ok === false) throw new Error(res.error || res.error_type || 'the index was skipped');
+            } catch (e) {
+              say(`⚠ /adopt: project memory indexing stopped at ${indexed}/${items.length} (${String(e?.message || e).slice(0, 200)}).`);
+              break;
+            }
+            indexed += batch.length;
+          }
+          writeReport({ baseline, indexed });
+          const message = `✔ /adopt survey: areas in .clike/project.json, code map ${adoptLib.CODEMAP}, ${indexed}/${items.length} file(s) in the project memory, ` +
+            `baseline ${baseline ? String(baseline.status || (baseline.passed ? 'PASS' : 'FAIL')) : 'not run'}. Report ${reportRel}.`;
+          say(message);
+          showFiles(root, [reportRel, adoptLib.CODEMAP, '.clike/project.json', adoptLib.BASELINE_PROFILE], reportRel);
+          // the analysis: the Harper documents as the project is, the capability REQs — by the model the chat
+          // uses (cloud or local agent), through the same cascade as /idea --extend
+          const planPath = path.join(root, 'docs', 'harper', 'plan.json');
+          let plan = {};
+          try { plan = JSON.parse(fsSync.readFileSync(planPath, 'utf8')); } catch { /* the /init template or none */ }
+          const notAdoptable = adoptLib.adoptablePlan(plan, picked);
+          if (notAdoptable) {
+            say(`ℹ /adopt: no analysis — ${notAdoptable}.`);
+            return done();
+          }
+          if (!picked.length) {
+            say('ℹ /adopt: no area to analyse (the repository root is one project): declare it as an area in .clike/project.json, then run /adopt again.');
+            return done();
+          }
+          // a run that stopped before its analysis left the baseline REQ of the area: written anew
+          const kept = adoptLib.keptReqs(plan, picked);
+          const base = adoptLib.baselineReqs(picked, baseline, kept);
+          fsSync.mkdirSync(path.dirname(planPath), { recursive: true });
+          fsSync.writeFileSync(planPath, `${JSON.stringify({ ...plan, snapshot: { total: kept.length + base.reqs.length }, reqs: [...kept, ...base.reqs] }, null, 2)}\n`);
+          for (const [id, ltc] of Object.entries(base.ltcs)) {
+            const p = path.join(root, 'runs', 'kit', id, 'ci', 'LTC.json');
+            fsSync.mkdirSync(path.dirname(p), { recursive: true });
+            fsSync.writeFileSync(p, `${JSON.stringify(ltc, null, 2)}\n`);
+          }
+          for (const rel of [reportRel, adoptLib.CODEMAP]) {
+            try { ownFiles[rel] = fsSync.readFileSync(path.join(root, ...rel.split('/')), 'utf8'); } catch { /* not written */ }
+          }
+          say(`▶ /adopt: analysis of ${picked.map((a) => a.name).join(', ')} — IDEA, SPEC (with use cases), PLAN with the capability REQs, TECH_CONSTRAINTS, lane guides, HOWTO_RUN and the root README integrated (baseline REQs ${base.reqs.map((r) => r.id).join(', ')} already written)…`);
+          done();
+          await clikeRunChatMessage({
+            type: 'harperRun', cmd: 'extend', extendMode: 'adopt', attachments: [],
+            __adopt: {
+              areas: picked, baselineIds: base.reqs.map((r) => r.id), surveyReport: reportRel, baseline, restoreProject,
+              // a second area adds to the documents of the first: what they say stays, the team's README lines too
+              adoptedBefore: adoptLib.adoptedAreas({ reqs: kept }), originalReadme: adoptLib.originalReadme(root),
+              documents: adoptLib.contextDocuments(root, found, picked, reportRel, 6000, { maps: mapped.maps }),
+            },
+          });
+          restoreProject();
+          return;
+        } catch (e) {
+          say(`✖ /adopt failed: ${String(e?.message || e)}`);
+        }
+        restoreProject();
+        return done();
+      }
+
       if (msg.type === 'harperInit') {
         try {
           let name = (msg.name || '').trim();
@@ -4577,6 +4763,8 @@ async function cmdOpenChat(context) {
             // eval checks served to a local agent during a repair (removed when it ends)
             '.clike/eval-check/',
             '.clike/bin/',
+            // the /init hand-off (it names the folder of this machine): local, never in the repository
+            '.clike/last_init_summary*.json',
           ];
           const existingIgnore = fsSync.existsSync(gitignorePath) ? fsSync.readFileSync(gitignorePath, 'utf8') : null;
           await writeFileUtf8(gitignorePath, mergeGitignore(existingIgnore, clikeIgnoreRules).text);
@@ -4719,8 +4907,7 @@ async function cmdOpenChat(context) {
             };
             if (!baselineInfo.hasPlan) {
               return stop('docs/harper/plan.json has no REQs to extend. For a new project run /idea; for a project ' +
-                'not built with CLike put its documentation in docs/reference/ and its new needs in docs/inputs/v2/ ' +
-                '(taking over an existing code base is the next step of /idea --extend, see docs/architecture/ADOPT_AND_IDEA_EXTEND.md).');
+                'not built with CLike run /adopt first (it writes the plan of the project as it is), then /idea --extend.');
             }
             const rel = releaseExtend.detectRelease(root, { release: msg.release });
             const inputCheck = releaseExtend.cascadeInputCheck(rel, Array.isArray(msg.attachments) ? msg.attachments.length : 0);
@@ -4732,7 +4919,9 @@ async function cmdOpenChat(context) {
                 `${baselineInfo.notDone.slice(0, 8).join(', ')}. The new release builds on what is delivered.`, go);
               if (!ok) return stop(`REQs not delivered: ${baselineInfo.notDone.join(', ')}${msg.__fromMcp ? ' (MCP: pass confirm=true to extend anyway)' : ''}`);
             }
-            msg.__cascade = { ...rel, baselineInfo, dryRun: !!msg.dryRun, attachments: (msg.attachments || []).map((a) => a?.name || a?.path).filter(Boolean) };
+            msg.__cascade = { ...rel, baselineInfo, dryRun: !!msg.dryRun, attachments: (msg.attachments || []).map((a) => a?.name || a?.path).filter(Boolean),
+              // a project of areas: every new REQ names its area, a new module is declared and registered
+              areas: releaseExtend.projectAreas(root) };
             panel.webview.postMessage({ type: 'echo', message: `▶ /idea --extend: ${rel.baseline} → ${rel.release}` +
               ` (inputs: ${[...msg.__cascade.attachments, ...rel.inputs, ...rel.references].join(', ')})${msg.dryRun ? ' — dry run' : ''}` });
           }
@@ -5039,7 +5228,7 @@ async function cmdOpenChat(context) {
           // Core docs per phase
           let core = defaultCoreForPhase(phase);
           // the cascade merges into IDEA too
-          if (msg.__cascade) core = ['IDEA.md', 'SPEC.md', 'PLAN.md', 'plan.json', 'TECH_CONSTRAINTS.yaml'];
+          if (msg.__cascade || msg.__adopt) core = ['IDEA.md', 'SPEC.md', 'PLAN.md', 'plan.json', 'TECH_CONSTRAINTS.yaml'];
           // Privacy flags (if already present elsewhere, reuse them)
           const flags = {
             neverSendSourceToCloud: !!cfgChat().neverSendSourceToCloud || false,
@@ -5066,7 +5255,7 @@ async function cmdOpenChat(context) {
           let msg_bubble='';
           const _gen={
             temperature: 0.2,
-            max_tokens: (msg.__cascade ? 64000 : phase === 'plan' ? 45000 : phase === 'spec' ? 10500 : 9999),
+            max_tokens: (msg.__cascade || msg.__adopt ? 64000 : phase === 'plan' ? 45000 : phase === 'spec' ? 10500 : 9999),
             top_p: 0.9,
             stop: ["```.:: END ::.```"],
             presence_penalty: 0.0,
@@ -5313,8 +5502,25 @@ async function cmdOpenChat(context) {
                 release: msg.__cascade.release,
                 baseline: msg.__cascade.baseline,
                 dryRun: !!msg.__cascade.dryRun,
+                ...(msg.__cascade.areas && msg.__cascade.areas.length ? {
+                  areas: msg.__cascade.areas.map((a) => ({ name: a.name, root: a.root, commands: a.commands || {} })),
+                } : {}),
+              } : {}),
+              // /adopt: the same cascade, describing the project as it is (adopt.js; rules in extend_cascade.py)
+              ...(msg.__adopt ? {
+                mode: 'adopt',
+                areas: msg.__adopt.areas.map((a, i) => ({ name: a.name, root: a.root, baseline_req: msg.__adopt.baselineIds[i] })),
+                survey_report: msg.__adopt.surveyReport,
+                documents: msg.__adopt.documents,
+                ...(msg.__adopt.adoptedBefore.length ? { adopted_before: msg.__adopt.adoptedBefore } : {}),
               } : {}),
             };
+            if (msg.__adopt) {
+              // a cloud model reads what CLike gives it: the project memory too, with room for it
+              body.rag_strategy = 'auto';
+              body.rag_top_k = 40;
+              body.context_hard_limit = Math.max(Number(body.context_hard_limit || 0), 40000);
+            }
 
             body.gen = {
               ...(body.gen || {}),
@@ -5535,13 +5741,32 @@ async function cmdOpenChat(context) {
 
           panel.webview.postMessage({ type: 'busy', on: false });
           if (extendBefore) {
-            const commandLabel = msg.__cascade ? '/IDEA --EXTEND' : String(cmd || '').toUpperCase();
+            const commandLabel = msg.__adopt ? '/ADOPT' : msg.__cascade ? '/IDEA --EXTEND' : String(cmd || '').toUpperCase();
             const root = toFsPath(wsroot);
             const isAgent = String(_out?.execution?.selected || '').trim() === 'local_agent';
             if (!Array.isArray(_out.files)) _out.files = [];
             const returnedPlan = _out.files.find((f) => String(f?.path || '').replace(/^\.?\//, '') === 'docs/harper/plan.json');
             let verdict;
-            if (msg.__cascade) {
+            if (msg.__adopt) {
+              // the same reconcile as the cascade (restore and keep a rejected run aside); adopt.js checks the plan
+              const a = msg.__adopt;
+              // never a project file: only docs/harper/, CLike's own files and the root README are written and committed
+              const writable = adoptLib.writableFiles(_out.files);
+              _out.files = writable.kept;
+              if (writable.dropped.length) {
+                panel.webview.postMessage({ type: 'echo', message: `⚠ /ADOPT: ${writable.dropped.length} file(s) the analysis may not write ignored (it writes docs/harper/ and the root README; the survey report and the code map are CLike's): ${writable.dropped.slice(0, 10).join(', ')}` });
+              }
+              a.restoreProject();
+              verdict = releaseExtend.reconcileExtend({
+                root, before: extendBefore, files: _out.files, isAgent, mode: 'adopt',
+                cascade: { release: 'v1', adoptedBefore: a.adoptedBefore, originalReadme: a.originalReadme },
+                validateExtendPlan, startedAt: extendStartedAt,
+                adopt: {
+                  check: (beforeText, afterText) => adoptLib.checkAdoptedPlan({ beforeText, afterText, areas: a.areas, baselineIds: a.baselineIds, validateExtendPlan, projectAreas: releaseExtend.projectAreas(root) }),
+                  section: (summary, warnings, docs) => adoptLib.adoptVerificationMarkdown({ areas: a.areas, baselineIds: a.baselineIds, summary, baseline: a.baseline, warnings, docs }),
+                },
+              });
+            } else if (msg.__cascade) {
               verdict = releaseExtend.reconcileExtend({
                 root, before: extendBefore, files: _out.files, isAgent, mode: 'cascade',
                 cascade: msg.__cascade, validateExtendPlan, startedAt: extendStartedAt,
@@ -5580,12 +5805,41 @@ async function cmdOpenChat(context) {
               panel.webview.postMessage({ type: 'busy', on: false, force: true });
               return;
             }
-            if (msg.__cascade) {
+            if (msg.__adopt) {
+              const ids = msg.__adopt.baselineIds;
+              msg.__extendCommit = {
+                files: [...releaseExtend.cascadeCommitFiles(root, 'v1'), ...Object.values(releaseExtend.ADOPT_FILES), adoptLib.CODEMAP, '.clike/project.json', msg.__adopt.surveyReport,
+                  // what /init added (CLike settings, policies, skills, templates, .gitignore rules) and the baseline profile
+                  ...adoptLib.clikeOwnFiles(root),
+                  ...ids.map((id) => `runs/kit/${id}/ci/LTC.json`)],
+                message: `docs(harper): adopt ${path.basename(root)} — ${msg.__adopt.areas.length} area(s), ${verdict.delta.length + ids.length} REQ(s)\n\n[harper:adopt] runId=${runId}`,
+              };
+              // the baseline is the oracle from now on: locked like any acceptance surface
+              for (const id of ids) {
+                try { await postAcceptanceLock(wsroot, id); } catch (e) { log(`[adopt] lock ${id}: ${e?.message || e}`); }
+              }
+              const done = verdict.delta.filter((r) => r.status === 'done').length;
+              const message = `✔ /adopt: ${msg.__adopt.areas.length} area(s) adopted — ${ids.length} baseline REQ(s) (${ids.join(', ')}), ` +
+                `${done} capability REQ(s) done, ${verdict.delta.length - done} open. Review ${verdict.report || 'the EXTEND report'} and ${msg.__adopt.surveyReport}. ` +
+                (() => {
+                  const adoptedNow = new Set([...(msg.__adopt.adoptedBefore || []), ...msg.__adopt.areas.map((x) => x.name)]);
+                  const left = releaseExtend.projectAreas(toFsPath(wsroot)).map((x) => x.name).filter((n) => n && !adoptedNow.has(n));
+                  return left.length
+                    ? `Next: /adopt --area ${left[0]} (still to adopt: ${left.join(', ')}), or /kit an open REQ.`
+                    : 'Next: /idea --extend for the next release, or /kit an open REQ.';
+                })();
+              panel.webview.postMessage({ type: 'echo', message });
+              await appendSessionJSONL(activeMode, { ts: Date.now(), role: 'system', content: message, model: state.model || 'auto', attachments: [] });
+            } else if (msg.__cascade) {
               // the delivered baseline gets its tag before the release changes the documents
               const tag = msg.__cascade.dryRun ? '' : releaseExtend.tagBaseline(root, msg.__cascade.baseline);
+              const registered = !msg.__cascade.dryRun && releaseExtend.registerAreas(root, verdict.newAreas);
+              if (registered) {
+                panel.webview.postMessage({ type: 'echo', message: `✔ /idea --extend: new area(s) in .clike/project.json — ${verdict.newAreas.map((a) => `${a.name} (${a.root})`).join(', ')}` });
+              }
               if (!msg.__cascade.dryRun) {
                 msg.__extendCommit = {
-                  files: releaseExtend.cascadeCommitFiles(root, msg.__cascade.release),
+                  files: [...releaseExtend.cascadeCommitFiles(root, msg.__cascade.release), ...(registered ? ['.clike/project.json'] : [])],
                   message: releaseExtend.cascadeCommitMessage({ ...msg.__cascade, delta: verdict.delta }, runId),
                 };
               }
@@ -5693,13 +5947,24 @@ async function cmdOpenChat(context) {
               msg.__acceptanceGoverned = true;
             }
             const settings = cfg();
+            // /adopt: a file naming this machine (the project's absolute path, the home folder) stays out of the commit
+            let machineFiles = [];
+            if (msg.__adopt && msg.__extendCommit) {
+              machineFiles = adoptLib.machinePathFiles(toFsPath(wsroot), [...new Set([..._out.files.map((f) => f.path), ...msg.__extendCommit.files])].map((p) => String(p).replace(/^\.?\//, '')));
+              if (machineFiles.length) {
+                panel.webview.postMessage({ type: 'echo', message: `⚠ /adopt: ${machineFiles.length} file(s) name a folder of this machine and stay out of the commit (remove the path, then commit them): ${machineFiles.slice(0, 10).join(', ')}` });
+              }
+            }
+            const notMachine = (p) => !machineFiles.includes(String(p).replace(/^\.?\//, ''));
             if (settings.gitAutoCommit) {
                try {
                 const synced = await clikeGitSync(
                 phase,
                 runId,
                 targetReqId,
-                [..._out.files.map(f => f.path), ...(msg.__extendCommit?.files || [])],
+                [..._out.files.map(f => f.path), ...(msg.__extendCommit?.files || []),
+                  // the finalize closes a release: the Harper documents left out of earlier commits go with it
+                  ...(phase === 'finalize' ? finalizeVerify.uncommittedHarperDocs(toFsPath(wsroot)) : [])].filter(notMachine),
                 { workspaceRoot: toFsPath(wsroot), finalizeOpenPr: (phase === 'finalize'),
                   commitMessage: phase === 'finalize' ? finalizeCommitMessage(toFsPath(wsroot), runId) : (msg.__extendCommit?.message || '') },
                 settings,
@@ -7205,7 +7470,13 @@ async function cmdOpenChat(context) {
   activeRunFeed = runs;
   runObserver = runs.observe;
   panel.onDidDispose(() => { if (activeRunFeed === runs) activeRunFeed = null; });
-  const handleWebviewMessage = (msg) => runs.around(msg, () => handleWebviewMessageCore(msg));
+  // runs nobody watches (MCP, autopilot): never a modal question
+  let unattendedRuns = 0;
+  const handleWebviewMessage = (msg) => {
+    if (!(msg && (msg.__fromMcp || msg.__unattended))) return runs.around(msg, () => handleWebviewMessageCore(msg));
+    unattendedRuns += 1;
+    return Promise.resolve(runs.around(msg, () => handleWebviewMessageCore(msg))).finally(() => { unattendedRuns -= 1; });
+  };
 
   // Cockpit (side panel of the cockpit layout, autocompletion in every layout): its messages never
   // touch the busy state, a run in progress stays as it is.
@@ -7222,8 +7493,49 @@ async function cmdOpenChat(context) {
   // Native tools of the eval sandbox (eval-tools.js): what the REQ declares or runs and the
   // sandbox lacks is installed from CLike's catalog, on the developer's confirmation, before the
   // eval. Never blocks the eval: a failed check or install is reported and the eval runs.
+  // A project outside the folders the stack reads (eval answers 403): mounted read-only, on confirmation.
+  const declinedMounts = new Set();
+  async function ensureProjectReadable(ws) {
+    const root = ws && ws.fsPath;
+    if (!root) return;
+    const out = await ensureProjectMounted({
+      root,
+      getRoots: () => getEvalRoots(),
+      unattended: Boolean(autopilotRun) || unattendedRuns > 0,
+      declined: declinedMounts,
+      stackDir: String(vscode.workspace.getConfiguration('clike').get('stackDir', '') || ''),
+      ask: async (dir) => (await vscode.window.showWarningMessage(
+        `${dir} is outside the folders the CLike stack can read, so eval, gate and the /adopt baseline cannot run its tests. ` +
+        'Mount this folder alone, read-only? The stack containers are recreated (about a minute): an eval running in another window stops.',
+        { modal: true }, 'Mount read-only')) === 'Mount read-only',
+      pickStackDir: async () => {
+        const picked = await vscode.window.showOpenDialog({
+          canSelectFolders: true, canSelectFiles: false, openLabel: 'Use this folder',
+          title: 'The CLike repository (or its docker folder, with mount-project.sh)',
+        });
+        const dir = stackFolder(picked && picked[0] ? picked[0].fsPath : '');
+        // saved only when it is the stack folder: a wrong pick is asked again next time
+        if (dir) await vscode.workspace.getConfiguration('clike').update('stackDir', dir, vscode.ConfigurationTarget.Global);
+        return dir;
+      },
+      run: (script, args, cwd) => new Promise((resolve) => {
+        execFile('bash', [script, ...args], { cwd, timeout: 6 * 60 * 1000, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
+          log(`[mount] ${stdout}${stderr}`);
+          resolve({ ok: !err, output: `${stdout}${stderr}${err && !stderr ? err.message : ''}` });
+        });
+      }),
+      say: (text) => panel.webview.postMessage({ type: 'echo', message: text }),
+    });
+    log(`[mount] ${root}: ${out.reason}`);
+    if (out.mounted) panel.webview.postMessage({ type: 'echo', message: `✔ ${root} mounted read-only in the CLike stack: eval and gate can run its tests.` });
+    else if (!['readable', 'declined'].includes(out.reason) && !/did not answer/.test(out.reason)) {
+      panel.webview.postMessage({ type: 'echo', message: `⚠ ${root} is not readable by the CLike stack (${out.reason}): run docker/mount-project.sh add "${root}" in the CLike repo.` });
+    }
+  }
+
   async function ensureToolsForEval(reqId, { profile = null, extra = [] } = {}) {
     const ws = getWorkspaceRoot();
+    try { await ensureProjectReadable(ws); } catch (e) { log(`[mount] ${e?.message || e}`); }
     let result;
     try {
       result = await ensureEvalTools({
@@ -7449,10 +7761,12 @@ async function cmdOpenChat(context) {
       }
     }
     say(`▶ LOCAL CHECK ${script.rel} on this machine (build, start, smoke, stop — a few minutes; output in the CLike log)…`);
-    const result = await finalizeLocalCheck.runLocalCheck(ws.fsPath, script, {
+    const before = finalizeLocalCheck.visibleUntracked(ws.fsPath);
+    const ran = await finalizeLocalCheck.runLocalCheck(ws.fsPath, script, {
       timeoutMs: Math.max(5, Number(settings.finalizeLocalCheckTimeoutMinutes || 30)) * 60000,
       onData: (text) => out.append(text),
     });
+    const result = finalizeLocalCheck.withLeftovers(ran, before, finalizeLocalCheck.visibleUntracked(ws.fsPath));
     let report = '';
     try { report = finalizeLocalCheck.writeLocalCheckReport(ws.fsPath, result); } catch (e) { log(`[finalize] local check report: ${e?.message || e}`); }
     say(result.ok

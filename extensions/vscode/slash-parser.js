@@ -201,6 +201,19 @@ function parseSlash(input) {
     return parsed;
   };
 
+  // /adopt [--area <name>] [--dry-run]: an existing project brought into CLike (adopt.js)
+  if (cmd === '/adopt') {
+    let area = '';
+    let dryRun = false;
+    for (let i = 0; i < rest.length; i += 1) {
+      const t = String(rest[i]);
+      if (t.toLowerCase() === '--dry-run') dryRun = true;
+      else if (t.toLowerCase() === '--area') { area = String(rest[i + 1] || ''); i += 1; }
+      else if (t.toLowerCase().startsWith('--area=')) area = t.slice(7);
+    }
+    return finish({ area, dryRun });
+  }
+
   if (cmd === '/init') {
     const name = rest[0];
     const tail = rest.slice(1);

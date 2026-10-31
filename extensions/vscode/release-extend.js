@@ -99,6 +99,7 @@ function baselineStatus(root) {
 }
 
 const LANE_DIR = 'docs/harper/lane-guides';
+const ADOPT_FILES = { readme: 'README.md', howto: 'docs/harper/HOWTO_RUN.md' };
 const listDir = (root, rel, re) => { try { return fs.readdirSync(path.join(root, ...rel.split('/'))).filter((n) => re.test(n)); } catch { return []; } };
 
 /**
@@ -109,6 +110,8 @@ function snapshotDocs(root) {
   const docs = Object.fromEntries(Object.entries({ ...DOC_FILES, ...PLAN_FILES }).map(([k, rel]) => [k, read(root, rel)]));
   docs.laneGuides = Object.fromEntries(listDir(root, LANE_DIR, /\.md$/i).map((n) => [`${LANE_DIR}/${n}`, read(root, `${LANE_DIR}/${n}`)]));
   docs.reports = listDir(root, 'docs/harper', /^EXTEND_.+\.md$/);
+  // /adopt also integrates the root README and writes the run guide
+  for (const [k, rel] of Object.entries(ADOPT_FILES)) docs[k] = read(root, rel);
   return docs;
 }
 
@@ -140,6 +143,31 @@ function compareMarkdown(before, after) {
   return { ok: missing.length === 0, missing, added, changed };
 }
 
+/** The lines of `before` no longer in `after` (blank lines aside; spaces normalized): an integration loses none. */
+function missingLines(before, after) {
+  const norm = (l) => l.trim().replace(/\s+/g, ' ');
+  const kept = new Set(String(after || '').split(/\r?\n/).map(norm));
+  return [...new Set(String(before || '').split(/\r?\n/).map(norm).filter((l) => l && !kept.has(l)))];
+}
+
+/**
+ * The README lines an /adopt must keep: every line of the team's README before CLike (`original`), and
+ * every line the README has now in the team's own sections (a heading the original has) — what the
+ * team added after the adoption too. CLike's own sections (the headings it added) may be updated.
+ */
+function teamReadme(original, current) {
+  if (original == null) return current;
+  const own = new Set([...sections(original).keys()]);
+  const kept = [];
+  let heading = '(preamble)';
+  for (const line of String(current || '').split(/\r?\n/)) {
+    const m = line.match(/^(#{1,3})\s+(.+?)\s*$/);
+    if (m) heading = `${m[1]} ${m[2]}`;
+    if (own.has(heading) && heading !== '(preamble)') kept.push(line);
+  }
+  return `${original}\n${kept.join('\n')}`;
+}
+
 /** TECH_CONSTRAINTS changes only by addition: every earlier non-empty line is still there. */
 function compareAdditive(before, after) {
   if (before == null) return { ok: true, missing: [] };
@@ -154,7 +182,7 @@ function compareAdditive(before, after) {
  * `ltcChecks(reqId)` returns the check ids of runs/kit/<REQ>/ci/LTC.json (or null when unknown).
  * Missing `release` is filled in (returned in `planText`); the rest are errors or warnings.
  */
-function validateDelta({ beforeText, planText, release, ltcChecks = () => null, testOwner = () => '' }) {
+function validateDelta({ beforeText, planText, release, ltcChecks = () => null, testOwner = () => '', areas = [] }) {
   const errors = [];
   const warnings = [];
   let plan;
@@ -220,7 +248,71 @@ function validateDelta({ beforeText, planText, release, ltcChecks = () => null, 
     }
   }
   if (!delta.length) errors.push('the cascade added no REQ');
-  return { ok: errors.length === 0, errors, warnings, delta, planText: filled ? `${JSON.stringify(plan, null, 2)}\n` : planText };
+  const newAreas = checkAreas(delta, areas, errors, warnings);
+  return { ok: errors.length === 0, errors, warnings, delta, newAreas, planText: filled ? `${JSON.stringify(plan, null, 2)}\n` : planText };
+}
+
+/**
+ * A project of areas (.clike/project.json "areas"): every new REQ names the area it changes — `area`, or
+ * `areas` for a journey across them — an existing one or a new module declared once with `new_area`
+ * ({ root, source, tests, commands, runtime }). Returns the new areas (to register); without areas, nothing.
+ */
+function checkAreas(delta, areas, errors, warnings) {
+  const known = (Array.isArray(areas) ? areas : []).filter((a) => a && a.name);
+  if (!known.length) return [];
+  const names = new Set(known.map((a) => String(a.name)));
+  const roots = new Set(known.map((a) => String(a.root || '').replace(/\/+$/, '')));
+  const added = new Map();
+  for (const r of delta) {
+    const decl = r.new_area && typeof r.new_area === 'object' ? r.new_area : null;
+    if (!decl) continue;
+    const name = String(decl.name || r.area || '').trim();
+    const root = String(decl.root || '').trim().replace(/^\.?\//, '').replace(/\/+$/, '');
+    if (!name) { errors.push(`${r.id}: new_area without a name (set "area" or new_area.name)`); continue; }
+    if (names.has(name)) { errors.push(`${r.id}: new_area ${name} is an existing area: name it in "area" only`); continue; }
+    if (!root || root.startsWith('/') || root.split('/').includes('..')) { errors.push(`${r.id}: new_area ${name} needs a repository folder as root (e.g. "${name}")`); continue; }
+    if (roots.has(root) || [...roots].some((x) => x && (root.startsWith(`${x}/`) || x.startsWith(`${root}/`)))) {
+      errors.push(`${r.id}: new_area ${name} root ${root} overlaps an existing area`); continue;
+    }
+    const commands = decl.commands && typeof decl.commands === 'object' ? decl.commands : {};
+    if (!commands.check && !commands.test) warnings.push(`${r.id}: new area ${name} has no check or test command — its checks will not run until .clike/project.json has one`);
+    added.set(name, {
+      name, root,
+      source: Array.isArray(decl.source) && decl.source.length ? decl.source.map(String) : [root],
+      tests: Array.isArray(decl.tests) ? decl.tests.map(String) : [],
+      commands,
+      ...(decl.runtime && typeof decl.runtime === 'object' && Object.keys(decl.runtime).length ? { runtime: decl.runtime } : {}),
+    });
+  }
+  const list = [...names].join(', ');
+  for (const r of delta) {
+    const own = (Array.isArray(r.areas) ? r.areas : [r.area]).map((x) => String(x || '').trim()).filter(Boolean);
+    if (!own.length) { errors.push(`${r.id}: no area — this project has areas (${list}): "area": "<name>", "areas" for a journey across them, or a new module with "new_area"`); continue; }
+    for (const a of own) if (!names.has(a) && !added.has(a)) errors.push(`${r.id}: area ${a} is not an area of the project (${list}) and no new REQ declares it with new_area`);
+  }
+  return [...added.values()];
+}
+
+/** The areas of .clike/project.json ([] for a project without areas). */
+function projectAreas(root) {
+  try {
+    const meta = JSON.parse(fs.readFileSync(path.join(root, '.clike', 'project.json'), 'utf8'));
+    return Array.isArray(meta.areas) ? meta.areas : [];
+  } catch { return []; }
+}
+
+/** The new modules of a release added to .clike/project.json (an area already there stays as it is). */
+function registerAreas(root, newAreas) {
+  if (!newAreas || !newAreas.length) return false;
+  const file = path.join(root, '.clike', 'project.json');
+  let meta = {};
+  try { meta = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* none */ }
+  const areas = Array.isArray(meta.areas) ? meta.areas : [];
+  const fresh = newAreas.filter((a) => !areas.some((x) => x.name === a.name || x.root === a.root));
+  if (!fresh.length) return false;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `${JSON.stringify({ ...meta, areas: [...areas, ...fresh] }, null, 2)}\n`);
+  return true;
 }
 
 /** The amended REQ a test id without prefix belongs to: its number in the path, its KIT tests, the only one. */
@@ -459,9 +551,12 @@ const norm = (p) => String(p || '').replace(/\\/g, '/').replace(/^\.?\//, '');
  * mode 'plan' (/extend): only TECH_CONSTRAINTS is protected (not an /extend output).
  * mode 'cascade' (/idea --extend): plan rules (validateExtendPlan + validateDelta), merged IDEA/SPEC,
  * additive TECH_CONSTRAINTS, dry run, and CLike's verification section in the EXTEND report.
+ * mode 'adopt' (/adopt): the documents of the project as it is, written over the /init templates —
+ * `adopt.check(beforeText, afterText)` checks the plan ({ ok, errors, warnings, planText, summary }),
+ * `adopt.section(summary, warnings)` is CLike's verification; rejection and restore as the cascade.
  * Returns { ok, errors, warnings, delta, restored, docs, report } and updates `files` / the disk.
  */
-function reconcileExtend({ root, before, files, isAgent, mode = 'plan', cascade = {}, validateExtendPlan, startedAt = 0 }) {
+function reconcileExtend({ root, before, files, isAgent, mode = 'plan', cascade = {}, adopt = null, validateExtendPlan, startedAt = 0 }) {
   const find = (rel) => files.find((f) => norm(f && f.path) === rel);
   const keyOf = Object.fromEntries(Object.entries({ ...DOC_FILES, ...PLAN_FILES }).map(([k, rel]) => [rel, k]));
   // what the run leaves for `rel`: the returned file, else the disk (local agent) or the unchanged original (cloud)
@@ -487,7 +582,7 @@ function reconcileExtend({ root, before, files, isAgent, mode = 'plan', cascade 
   };
   const warnings = [];
   const tech = compareAdditive(before.tech, current(DOC_FILES.tech) ?? before.tech);
-  if (mode !== 'cascade') {
+  if (mode !== 'cascade' && mode !== 'adopt') {
     if (current(DOC_FILES.tech) !== before.tech) {
       put(DOC_FILES.tech, before.tech);
       warnings.push('TECH_CONSTRAINTS.yaml is not an /extend output: restored (use /idea --extend for a new release)');
@@ -495,10 +590,14 @@ function reconcileExtend({ root, before, files, isAgent, mode = 'plan', cascade 
     return { ok: true, errors: [], warnings, delta: [], restored: [], docs: {}, report: null };
   }
 
-  const verdict = validateExtendPlan({ beforeText: before.plan, afterText: current(PLAN_FILES.plan) });
-  const delta = verdict.ok
+  const adopting = mode === 'adopt';
+  const checked = adopting ? adopt.check(before.plan, current(PLAN_FILES.plan)) : null;
+  const verdict = adopting
+    ? { ok: checked.ok, errors: checked.errors, warnings: checked.warnings, planText: checked.planText, restored: [] }
+    : validateExtendPlan({ beforeText: before.plan, afterText: current(PLAN_FILES.plan) });
+  const delta = adopting ? { ok: checked.ok, errors: [], warnings: [], delta: checked.summary, planText: checked.planText } : verdict.ok
     ? validateDelta({ beforeText: before.plan, planText: verdict.planText, release: cascade.release, ltcChecks: (id) => ltcCheckIds(root, id),
-      testOwner: (ref, amends) => kitTestOwner(root, ref, amends) })
+      testOwner: (ref, amends) => kitTestOwner(root, ref, amends), areas: cascade.areas || [] })
     : { ok: false, errors: [], warnings: [], delta: [], planText: null };
   const errors = [...verdict.errors, ...delta.errors];
   warnings.push(...verdict.warnings, ...delta.warnings);
@@ -511,22 +610,65 @@ function reconcileExtend({ root, before, files, isAgent, mode = 'plan', cascade 
     const reports = isAgent && Array.isArray(before.reports)
       ? listDir(root, 'docs/harper', /^EXTEND_.+\.md$/).filter((n) => !before.reports.includes(n)).map((n) => `docs/harper/${n}`)
       : [];
-    const kept = keepRejected(root, [...Object.values({ ...DOC_FILES, ...PLAN_FILES }), ...lanes, ...reports].map((rel) => [rel, current(rel)]));
+    const adoptExtra = adopting ? Object.values(ADOPT_FILES) : [];
+    const kept = keepRejected(root, [...Object.values({ ...DOC_FILES, ...PLAN_FILES }), ...lanes, ...reports, ...adoptExtra].map((rel) => [rel, current(rel)]));
     restoreAll();
     for (const rel of [...lanes, ...reports]) put(rel, rel in (before.laneGuides || {}) ? before.laneGuides[rel] : null);
+    for (const [k, rel] of adopting ? Object.entries(ADOPT_FILES) : []) if (current(rel) !== before[k]) put(rel, before[k]);
     return { ok: false, errors, warnings, delta: [], restored: verdict.restored, docs: {}, report: null, kept };
   }
   if (delta.planText !== current(PLAN_FILES.plan)) put(PLAN_FILES.plan, delta.planText);
 
   const docs = {};
-  for (const key of ['idea', 'spec']) {
-    const rel = DOC_FILES[key];
+  if (adopting) {
+    // the root README is integrated, never replaced: every existing section stays (else it is put back)
+    const readme = current(ADOPT_FILES.readme);
+    if (readme == null && before.readme != null && isAgent) {   // cloud: a README not returned is unchanged
+      put(ADOPT_FILES.readme, before.readme);
+      warnings.push('README.md was deleted by the run: restored — integrate, never replace');
+    } else if (readme == null || readme === before.readme) {
+      warnings.push('README.md was not integrated: run /adopt again, or /finalize integrates it');
+    } else {
+      // and every existing line, word for word: the team's content is never rewritten or lost
+      // the team's lines: of the README before CLike's first adoption (CLike's own sections are updated for a new area)
+      const original = cascade.originalReadme != null ? teamReadme(cascade.originalReadme, before.readme) : before.readme;
+      docs.readme = { ...compareMarkdown(before.readme, readme), lost: missingLines(original, readme) };
+      if (docs.readme.lost.length) docs.readme.ok = false;
+      if (!docs.readme.ok) {
+        put(ADOPT_FILES.readme, before.readme);
+        warnings.push(docs.readme.missing.length
+          ? `README.md dropped existing sections (${docs.readme.missing.join('; ')}): restored — integrate, never replace`
+          : `README.md changed or dropped ${docs.readme.lost.length} existing line(s) (e.g. "${docs.readme.lost[0].slice(0, 120)}"): restored — integrate, never replace`);
+      } else if (!/made with clike/i.test(readme)) {
+        warnings.push('README.md has no "Made with CLike" section');
+      }
+    }
+    if (!current(ADOPT_FILES.howto)) warnings.push('docs/harper/HOWTO_RUN.md was not written: the run guide is missing');
+    else docs.howto = { ok: true };
+  }
+  // adopt writes IDEA, SPEC and TECH_CONSTRAINTS over the templates; a later area adds to what the earlier ones wrote
+  const addsToEarlier = adopting && Array.isArray(cascade.adoptedBefore) && cascade.adoptedBefore.length > 0;
+  const mergedDocs = adopting ? (addsToEarlier ? { idea: DOC_FILES.idea, spec: DOC_FILES.spec, howto: ADOPT_FILES.howto } : {})
+    : { idea: DOC_FILES.idea, spec: DOC_FILES.spec };
+  for (const [key, rel] of Object.entries(mergedDocs)) {
     const after = current(rel);
     if (after == null || after === before[key]) continue;
     docs[key] = compareMarkdown(before[key], after);
     if (!docs[key].ok) {
       put(rel, before[key]);
-      warnings.push(`${rel} dropped sections of the earlier release (${docs[key].missing.join('; ')}): restored — merge, never rewrite`);
+      warnings.push(addsToEarlier
+        ? `${rel} dropped sections of the earlier adoption (${cascade.adoptedBefore.join(', ')}: ${docs[key].missing.join('; ')}): restored — add the new area, never rewrite`
+        : `${rel} dropped sections of the earlier release (${docs[key].missing.join('; ')}): restored — merge, never rewrite`);
+    }
+  }
+  // the lane guide of an area adopted before keeps its sections
+  for (const [rel, text] of addsToEarlier ? Object.entries(before.laneGuides || {}) : []) {
+    const after = current(rel);
+    if ((after == null && !isAgent) || after === text) continue;   // cloud: a guide not returned is unchanged
+    const cmp = compareMarkdown(text, after);
+    if (!cmp.ok) {
+      put(rel, text);
+      warnings.push(`${rel} dropped sections (${cmp.missing.join('; ')}): restored — the lane guide of an area adopted before is extended, never rewritten`);
     }
   }
   // the journeys of the release are use cases of the SPEC, as /spec writes them
@@ -543,7 +685,7 @@ function reconcileExtend({ root, before, files, isAgent, mode = 'plan', cascade 
     const added = Object.keys(ucAfter).filter((id) => !(ucBefore && ucBefore[id]));
     docs.useCases = { total: Object.keys(ucAfter).length, added };
   }
-  if (current(DOC_FILES.tech) !== before.tech) {
+  if ((!adopting || addsToEarlier) && current(DOC_FILES.tech) !== before.tech) {
     docs.tech = tech;
     if (!tech.ok) {
       put(DOC_FILES.tech, before.tech);
@@ -575,12 +717,13 @@ function reconcileExtend({ root, before, files, isAgent, mode = 'plan', cascade 
     files.push({ path: report, content: `# EXTEND ${cascade.release}\n\nThe run returned no report; CLike wrote its verification.\n` });
     warnings.push('the run returned no EXTEND report: CLike wrote one with its verification only');
   }
-  const section = verificationMarkdown({ ...cascade, docs, delta: delta.delta, restored: verdict.restored, warnings });
+  const section = adopting ? adopt.section(delta.delta, warnings, docs)
+    : verificationMarkdown({ ...cascade, docs, delta: delta.delta, restored: verdict.restored, warnings });
   const text = current(report) ?? (find(report) || {}).content ?? '';
   const merged = `${String(text).replace(/\s+$/, '')}\n${section}`;
   if (find(report)) find(report).content = merged; else files.push({ path: report, content: merged });
   if (isAgent) fs.writeFileSync(path.join(root, ...report.split('/')), merged, 'utf8');
-  return { ok: true, errors: [], warnings, delta: delta.delta, restored: verdict.restored, docs, report };
+  return { ok: true, errors: [], warnings, delta: delta.delta, newAreas: delta.newAreas || [], restored: verdict.restored, docs, report };
 }
 
 /**
@@ -605,7 +748,14 @@ function tagBaseline(root, baseline) {
 }
 
 module.exports = {
+  ADOPT_FILES,
+  missingLines,
+  teamReadme,
+  checkAreas,
+  projectAreas,
+  registerAreas,
   reconcileExtend,
+  keepRejected,
   syncPlanMd,
   tagBaseline,
   kitTestOwner,

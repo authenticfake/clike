@@ -509,6 +509,14 @@ says so. The download needs egress and memory (see `docs/development.md`).
 
 ## Native tools of the sandbox (`/tools`)
 
+**Language runtimes.** The sandbox image has Python 3.12 and Node 22. An LTC that declares a newer
+version in `"environment"` — `"python": "3.14"`, `"node": ">=24"` — gets it from the catalog
+(`python3.13`, `python3.14`, `nodejs24`) without a question, for that REQ's checks only: its venv is
+created with the declared Python, `uv` uses it (`UV_PYTHON`, nothing downloaded) in a project
+environment of the REQ, and the declared Node comes first on its PATH. A version the image already
+satisfies installs nothing. Every REQ gets a writable `uv` project environment of its own, whatever
+it declares (the image's default pointed at CLike's own environment, so a project's `uv sync` failed).
+
 The image has Python, Node, a Java runtime, Chromium's libraries and the PostgreSQL client tools.
 Any other native program a check runs — a database or messaging client (`mysqldump`, `mongodump`,
 `kcat`), a cloud or IaC CLI (`aws`, `az`, `gcloud`, `kubectl`, `helm`, `terraform`), a toolchain
