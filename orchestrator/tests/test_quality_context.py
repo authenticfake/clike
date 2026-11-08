@@ -93,6 +93,23 @@ class PhaseBlockTests(unittest.TestCase):
         self.assertIn("docs/ACCEPTANCE.json", q["text"])
         self.assertNotIn("one feature at a time", q["text"])
 
+    def test_kit_gets_the_test_idioms_of_its_lane_for_cloud_and_agents(self):
+        # the agents read references/ natively; the cloud gets the same lane sections in the KIT block
+        q = self._kit({"id": "REQ-002", "lane": "python", "scenarios": ["IAM-03", "UI-03", "DAT-04"]})
+        text = q["text"]
+        self.assertIn("How to prove them in this lane", text)
+        self.assertIn("#### journey-identity-access\n##### Python", text)
+        self.assertIn("#### journey-ui-states\n##### TypeScript / web", text)  # the UI journey in its web form
+        self.assertNotIn("##### Java", text)
+        self.assertNotIn("vitest + Testing Library; render the login form", text)  # web idioms only for the UI journey
+        # a role lane (backend) takes the language from the REQ's own text
+        q = self._kit({"id": "REQ-003", "lane": "backend", "technical_scope": "Spring Boot service, JUnit 5",
+                       "scenarios": ["API-13"]})
+        self.assertIn("##### Java", q["text"])
+        # a REQ in a language without idioms gets the scenarios, not foreign idioms
+        q = self._kit({"id": "REQ-004", "lane": "sql", "scenarios": ["DAT-02"]})
+        self.assertNotIn("How to prove them in this lane", q["text"])
+
     def test_kit_of_an_epic_runs_feature_by_feature(self):
         q = self._kit({"id": "REQ-004", "profile": "C3", "scenarios": []})
         self.assertIn("FEATURES.json", q["text"])

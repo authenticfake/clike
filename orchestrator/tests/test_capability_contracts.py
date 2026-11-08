@@ -13,8 +13,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE = REPO_ROOT / "extensions/vscode/templates/harper-init/.clike"
 
 REPRESENTATIVE = [
-    ("skill", TEMPLATE / "skills/secure-config-secrets/SKILL.md"),
-    ("skill", TEMPLATE / "skills/frontend-state-accessibility/SKILL.md"),
+    ("skill", TEMPLATE / "skills/journey-runtime-config/SKILL.md"),
+    ("skill", TEMPLATE / "skills/journey-ui-states/SKILL.md"),
     ("pack", TEMPLATE / "packs/enterprise-onprem/PACK.md"),
     ("design_profile", TEMPLATE / "design-profiles/enterprise-console/DESIGN.md"),
 ]
@@ -111,7 +111,7 @@ def test_pack_recommended_skills_now_discovered():
     text = (TEMPLATE / "packs/enterprise-onprem/PACK.md").read_text(encoding="utf-8")
     meta = _extract_frontmatter(text)
     assert isinstance(meta.get("recommended_skills"), list)
-    assert "secure-config-secrets" in meta["recommended_skills"]
+    assert "journey-runtime-config" in meta["recommended_skills"]
 
 
 # --- C/D. Selection/propagation + plan/kit readiness ---
@@ -351,25 +351,44 @@ def test_vendored_third_party_skills_are_indexed_under_their_agent_name():
     assert [s["name"] for s in blob_index["skills"]] == ["superpowers-test-driven-development"]
 
 
-def test_selected_skills_reach_the_kit_whole_and_the_shared_layer_once():
-    # 7 shipped skills end with the same enforcement layer: it made them exceed the preview cap and
-    # lose their own test sections; now the layer is said once and every skill is whole
+def test_selected_skills_reach_the_kit_whole_with_legacy_names_and_phase_scope():
+    # analysis 57: every shipped skill fits the preview whole (no shared layer copied into skills); a plan
+    # that still names a folded skill gets its successor; a gate-only skill is listed, not rendered, in the KIT
     import json as _json
-    from services.capabilities import (
-        MAX_ITEM_PREVIEW_CHARS, SHARED_LAYER_HEADING, build_capability_context, build_selected_capability_context,
-    )
+    from services.capabilities import MAX_ITEM_PREVIEW_CHARS, build_capability_context, build_selected_capability_context
 
     ctx = build_capability_context({"repo_root": str(TEMPLATE.parent)})
     index = _json.loads(ctx["CLIKE_CAPABILITY_INDEX.json"])
-    fsa = next(s for s in index["skills"] if s["name"] == "frontend-state-accessibility")
-    assert "[truncated]" not in fsa["preview"] and len(fsa["preview"]) < MAX_ITEM_PREVIEW_CHARS
-    assert "## Gate implications" in fsa["preview"] and SHARED_LAYER_HEADING not in fsa["preview"]
-    assert SHARED_LAYER_HEADING in index["shared_layers"]["promotable-kit-enforcement"]
-    assert all("_shared_layer_text" not in s for s in index["skills"])
+    for skill in index["skills"]:
+        assert "[truncated]" not in skill["preview"] and len(skill["preview"]) <= MAX_ITEM_PREVIEW_CHARS, skill["name"]
+    assert "shared_layers" not in index
     selected = build_selected_capability_context(
         core_blobs=ctx, target_req_id="REQ-001",
-        target_contract={"skills": ["frontend-state-accessibility", "backend-contract-boundary", "journey-ui-states"]},
+        target_contract={"skills": ["frontend-state-accessibility", "journey-ui-states", "gate-risk-reviewer", "secure-config-secrets"]},
     )["CLIKE_SELECTED_CAPABILITY_CONTEXT.md"]
-    assert selected.count(SHARED_LAYER_HEADING) == 1
-    assert "Shared enforcement layer of the selected skills (frontend-state-accessibility, backend-contract-boundary)" in selected
+    assert selected.count("### Skill: journey-ui-states") == 1  # legacy name and new name resolve once
+    assert "### Skill: journey-runtime-config" in selected
+    assert "Missing selected capabilities" not in selected
+    assert "Selected for other phases (not applied by the KIT): `gate-risk-reviewer`" in selected
+    assert "### Skill: gate-risk-reviewer" not in selected
     assert "UI-03" in selected
+
+
+def test_vendored_skills_reach_the_cloud_in_their_overlay_form():
+    import json as _json
+    from services.capabilities import build_capability_context, overlay_section
+
+    ctx = build_capability_context({"repo_root": str(TEMPLATE.parent)})
+    tdd = next(s for s in _json.loads(ctx["CLIKE_CAPABILITY_INDEX.json"])["skills"] if s["name"] == "superpowers-test-driven-development")
+    assert "Cloud — one generation call" in tdd["preview"] and "Coding agent" not in tdd["preview"]
+    assert "Watch it fail" not in tdd["preview"] and "[truncated]" not in tdd["preview"]
+    overlay = (TEMPLATE / "skills/vendor/superpowers/CLIKE_OVERLAY.md").read_text(encoding="utf-8")
+    agent = overlay_section(overlay, "test-driven-development", "agent")
+    assert "### Coding agent" in agent and "### Cloud" not in agent and "### All executors" in agent
+    blob_ctx = build_capability_context(None, {
+        ".clike/skills/vendor/superpowers/CLIKE_OVERLAY.md": overlay,
+        ".clike/skills/vendor/superpowers/verification-before-completion/SKILL.md":
+            (TEMPLATE / "skills/vendor/superpowers/verification-before-completion/SKILL.md").read_text(encoding="utf-8"),
+    })
+    blob_skill = _json.loads(next(v for k, v in blob_ctx.items() if k.endswith(".json")))["skills"][0]
+    assert "to be run by the eval" in blob_skill["preview"]

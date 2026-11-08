@@ -108,6 +108,90 @@ def _skill_texts(core_blobs: Dict[str, Any], workspace_root: Optional[Path]) -> 
     return texts
 
 
+def _idiom_texts(core_blobs: Dict[str, Any], workspace_root: Optional[Path]) -> Dict[str, str]:
+    """{journey skill: its references/test-idioms.md} from the request, else from the workspace."""
+    texts: Dict[str, str] = {}
+    for raw, content in (core_blobs or {}).items():
+        rel = str(raw or "").replace("\\", "/").lstrip("/")
+        m = re.match(r"^\.clike/skills/(journey-[a-z0-9-]+)/references/test-idioms\.md$", rel, re.IGNORECASE)
+        if m and str(content or "").strip():
+            texts[m.group(1)] = str(content)
+    if not texts and workspace_root is not None:
+        base = Path(workspace_root) / ".clike" / "skills"
+        for path in sorted(base.glob("journey-*/references/test-idioms.md")) if base.is_dir() else []:
+            try:
+                texts[path.parent.parent.name] = path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+    return texts
+
+
+# lane of plan.json -> the `## <heading>` sections of a test-idioms file that apply to it
+LANE_IDIOMS = {
+    "python": ["python"], "typescript": ["typescript"], "node": ["typescript"], "frontend": ["typescript"],
+    "javascript": ["typescript"], "react": ["typescript"], "nextjs": ["typescript"], "web": ["typescript"],
+    "java": ["java"], "kotlin": ["java"], "dotnet": [".net"], "csharp": [".net"], "go": ["go"], "rust": ["rust"],
+    "iac": ["iac"], "infra": ["iac"], "terraform": ["iac"], "mobile": ["mobile"], "mendix": ["java", "typescript"],
+    "industrial": ["plc", "industrial", "hmi", "protocol"], "plc-scada": ["plc", "industrial", "hmi", "protocol"],
+    "plc/scada": ["plc", "industrial", "hmi", "protocol"],
+}
+# lanes that name a role, not a language (backend, ai-native, data, sql, kafka…): the language comes from
+# the REQ's own text (technical scope, test strategy, module boundary)
+LANGUAGE_MARKERS = [
+    ("python", r"\b(python|pytest|fastapi|django|flask|pydantic)\b"),
+    ("typescript", r"\b(typescript|javascript|node(\.js)?|vitest|jest|react|next\.js|nestjs|express)\b"),
+    ("java", r"\b(java|spring|junit|kotlin|quarkus)\b"),
+    (".net", r"(\.net\b|\bc#|\bdotnet\b|\bxunit\b|\basp\.net\b)"),
+    ("go", r"\b(golang|go test|go\.mod)\b"),
+    ("rust", r"\b(rust|cargo|tokio|axum)\b"),
+    ("plc", r"\b(plc|scada|iec 61131|structured text)\b"),
+    ("iac", r"\b(terraform|bicep|cloudformation|helm)\b"),
+]
+IDIOM_SECTION_CHARS = 2000
+IDIOM_TOTAL_CHARS = 7000
+
+
+def _lane_keys(req: Optional[Dict[str, Any]]) -> List[str]:
+    lane = str((req or {}).get("lane") or "").strip().lower()
+    if lane in LANE_IDIOMS:
+        return list(LANE_IDIOMS[lane])
+    text = " ".join(str((req or {}).get(k) or "") for k in ("technical_scope", "test_strategy", "main_module_boundary", "title")).lower()
+    return [key for key, pattern in LANGUAGE_MARKERS if re.search(pattern, text)][:2]
+
+
+def lane_idioms(text: str, keys: List[str]) -> str:
+    """The `## …` sections of a test-idioms file whose heading names one of `keys`."""
+    out: List[str] = []
+    for block in re.split(r"(?=^## )", str(text or ""), flags=re.MULTILINE):
+        head = block.splitlines()[0].lower() if block.startswith("## ") else ""
+        if head and any(re.search(r"(?<![a-z])" + re.escape(k) + r"(?![a-z])", head) for k in keys):
+            body = block.strip()
+            out.append(body if len(body) <= IDIOM_SECTION_CHARS else body[:IDIOM_SECTION_CHARS].rsplit("\n", 1)[0])
+    return "\n\n".join(out)
+
+
+def _idiom_lines(catalog: List[Dict[str, Any]], idioms: Dict[str, str], req: Optional[Dict[str, Any]], owned: List[str]) -> List[str]:
+    """Test idioms of the owned journeys for the REQ's language (the UI journey also in its web form
+    when the REQ owns UI scenarios and its lane is not a web one)."""
+    index = scenario_index(catalog)
+    keys = _lane_keys(req)
+    journeys: List[str] = []
+    for sid in owned:
+        skill = (index.get(sid) or {}).get("skill")
+        if skill and skill not in journeys:
+            journeys.append(skill)
+    lines: List[str] = []
+    used = 0
+    for skill in journeys:
+        own = keys + (["typescript"] if skill == "journey-ui-states" and "typescript" not in keys and "mobile" not in keys else [])
+        section = lane_idioms(idioms.get(skill, ""), own) if own else ""
+        if not section or used + len(section) > IDIOM_TOTAL_CHARS:
+            continue
+        used += len(section)
+        lines += [f"#### {skill}", re.sub(r"^## ", "##### ", section, flags=re.MULTILINE), ""]
+    return (["### How to prove them in this lane (test idioms of the journeys)", ""] + lines) if lines else []
+
+
 def load_scenario_catalog(core_blobs: Optional[Dict[str, Any]] = None, workspace_root: Optional[Path] = None) -> List[Dict[str, Any]]:
     """[{skill, description, scenarios: [{id, level, title, ears}]}] in skill-name order."""
     catalog: List[Dict[str, Any]] = []
@@ -185,6 +269,7 @@ def _profile_lines(profile: str, payload: Optional[Dict[str, Any]] = None) -> Li
         " definition of done that fits the budget.",
         "- Never split one capability by technical layer (API in one REQ, its UI in another) when the budget"
         " holds both; merge REQs that only add bookkeeping; split a unit that exceeds the budget.",
+        "- The journey scenarios a REQ owns count toward its criteria budget (each needs its own tests).",
     ]
     if profile == "C3":
         lines += [
@@ -239,7 +324,8 @@ def _plan_block(catalog: List[Dict[str, Any]], profile: str, payload: Optional[D
     return "\n".join(lines).rstrip()
 
 
-def _kit_block(catalog: List[Dict[str, Any]], req: Optional[Dict[str, Any]], req_id: str) -> str:
+def _kit_block(catalog: List[Dict[str, Any]], req: Optional[Dict[str, Any]], req_id: str,
+               idioms: Optional[Dict[str, str]] = None) -> str:
     index = scenario_index(catalog)
     owned = req_scenarios(req)
     lines: List[str] = []
@@ -253,14 +339,18 @@ def _kit_block(catalog: List[Dict[str, Any]], req: Optional[Dict[str, Any]], req
             "- Prove the rule, not only the status: assert the message/state the user or the caller sees (the error"
             " text shown in the UI, the error body of the API, the safe state of the device).",
             "- Never happy-path only: each error, empty, denied, expired or limit case of the scenario has its own test.",
-            "- Tag the test that proves a scenario with its id (test name, docstring or comment, e.g."
-            " `test_iam_03_wrong_credentials_shows_generic_message`): the eval looks for the id in the KIT's tests.",
+            "- Put the scenario id in the name or title of the test that proves it, one or two ids per test (e.g."
+            " `test_iam_03_wrong_credentials_shows_generic_message`, `it(\"IAM-03: …\")`): the eval looks for it in"
+            " the KIT's tests, and a line listing many ids proves none of them.",
+            "- When two scenarios describe the same behaviour from two sides (e.g. the API conflict and the UI"
+            " message), one test may prove both: name both ids.",
             "",
         ]
         for sid in owned:
             s = index.get(sid)
             lines.append(f"- {sid} {s['title']} — {s['ears']}" if s else f"- {sid} (not in the catalog: prove it as the plan states it)")
         lines.append("")
+        lines += _idiom_lines(catalog, idioms or {}, req, owned)
     if str((req or {}).get("profile") or "").upper() == "C3":
         lines += [
             f"## CLIKE QUALITY CONTEXT — epic {req_id}, one feature at a time (C3)",
@@ -294,5 +384,5 @@ def build_quality_context(
     elif lphase in {"kit", "acceptance", "eval"} and req_id:
         req = _plan_req(core_blobs, workspace_root, req_id)
         scenarios = req_scenarios(req)
-        text = _kit_block(catalog, req, req_id)
+        text = _kit_block(catalog, req, req_id, _idiom_texts(core_blobs, workspace_root))
     return {"phase": lphase, "profile": profile, "scenarios": scenarios, "text": text}
