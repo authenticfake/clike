@@ -488,3 +488,29 @@ class RegressionCandidateDependenciesTests(unittest.TestCase):
                 runner.run_profile(profile=str(other / "LTC.json"), ltc=ltc, req_id="REQ-001")
             self.assertEqual(seen, ["fastapi==0.115.12", "openpyxl==3.1.5"])
             self.assertEqual(EvalRunner(root)._candidate_requirements(), [])  # the candidate's own eval: nothing extra
+
+
+class SharedSupportReadsKitTests(unittest.TestCase):
+    def test_a_regression_failing_on_a_file_the_shared_conftest_reads_from_the_kit_is_explained(self):
+        import json
+        import tempfile
+        from eval_runner import EvalCase
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "docs" / "harper").mkdir(parents=True)
+            (root / "docs" / "harper" / "plan.json").write_text(json.dumps({"reqs": [{"id": "REQ-009", "status": "open"}]}))
+            (root / "test").mkdir()
+            (root / "test" / "conftest.py").write_text("import pytest\n")
+            kit = root / "runs" / "kit" / "REQ-009" / "test"
+            (kit / "leadintel" / "review").mkdir(parents=True)
+            (kit / "conftest.py").write_text('CFG = (KIT_ROOT / "ci/fixtures/scoring.json")\n')
+            (kit / "leadintel" / "review" / "conftest.py").write_text('X = (KIT_ROOT / "ci/fixtures/review.json")\n')
+            runner = EvalRunner(root)
+            reads = runner._shared_support_kit_reads("REQ-009")
+            self.assertEqual(reads, {"test/conftest.py": ["ci/fixtures/scoring.json"]})  # own dir not shared
+            failing = EvalCase(name="regression::REQ-007::test:unit", passed=False, code=1, stdout="",
+                               stderr="FileNotFoundError: [Errno 2] No such file or directory: '/w/REQ-007/ci/fixtures/scoring.json'")
+            other = EvalCase(name="regression::REQ-003::test:unit", passed=False, code=1, stdout="", stderr="AssertionError")
+            runner._explain_kit_reads(reads, [failing, other])
+            self.assertIn("in this regression the KIT is REQ-007's KIT, which has no ci/fixtures/scoring.json", failing.stderr)
+            self.assertEqual(other.stderr, "AssertionError")

@@ -505,6 +505,8 @@ def scrubbed_process_env() -> Dict[str, str]:
 
 # plan.json status of a promoted REQ (set by the extension after a passing gate).
 PROMOTED_REQ_STATUSES = {"done"}
+# a read of a KIT-relative ci/ or docs/ file: KIT_ROOT / "ci/fixtures/x.json", "ci/fixtures/x.json"
+_KIT_FILE_READ_RE = re.compile(r"""(?:KIT_ROOT|KIT_DIR|kit_root)\s*/\s*["']((?:ci|docs)/[^"']+)["']""")
 
 
 _COVERAGE_THRESHOLD_RE = re.compile(r"Required test coverage of .* not reached", re.IGNORECASE)
@@ -1568,6 +1570,51 @@ class EvalRunner:
                 cases.append(EvalCase(name=f"structure::promoted-file-kept::{shown}", passed=False, code=1, stdout="",
                                       stderr=message, blocking=True, excerpt=message[:1500],
                                       fingerprint=f"promoted-file-kept-{shown}"))
+        return cases
+
+    def _shared_support_kit_reads(self, req_id: Optional[str]) -> Dict[str, List[str]]:
+        """{shared test-support file: KIT-relative ci/ or docs/ paths it reads} of the candidate: a
+        conftest/helper the promoted REQs share (it exists in the canonical test tree)."""
+        kit = self.project_root / "runs" / "kit" / self._safe_req_id(str(req_id or ""))
+        reads: Dict[str, List[str]] = {}
+        for top in ("test", "tests"):
+            base = kit / top
+            for path in sorted(base.rglob("*.py")) if base.is_dir() else []:
+                rel = path.relative_to(base).as_posix()
+                if path.name.startswith("test_") or not (self.project_root / top / rel).is_file():
+                    continue
+                try:
+                    hits = sorted(set(_KIT_FILE_READ_RE.findall(path.read_text(encoding="utf-8"))))
+                except (OSError, UnicodeDecodeError):
+                    continue
+                if hits:
+                    reads[f"{top}/{rel}"] = hits
+        return reads
+
+    @staticmethod
+    def _explain_kit_reads(reads: Dict[str, List[str]], cases: List[EvalCase]) -> List[EvalCase]:
+        """A promoted REQ's regression that fails on a missing file the candidate's shared conftest
+        reads from "the KIT" (there: that REQ's KIT) gets the cause and the cure in front of its error.
+        Codex pilot 2026-11-08: the root test/conftest.py read KIT_ROOT/ci/fixtures/scoring.json and the
+        regressions of REQ-003 and REQ-007 failed for four cycles."""
+        if not reads:
+            return cases
+        for case in cases:
+            if case.passed or not case.name.startswith("regression::"):
+                continue
+            text = f"{case.stderr or ''}\n{case.stdout or ''}"
+            if "No such file" not in text and "FileNotFoundError" not in text:
+                continue
+            for shared, paths in reads.items():
+                missing = [p for p in paths if p in text]
+                if missing:
+                    note = (f"[CLike EvalRunner] Cause: the candidate's {shared} is the shared {shared} of the promoted "
+                            f"REQs; in this regression the KIT is {case.name.split('::')[1]}'s KIT, which has no "
+                            f"{', '.join(missing)}. Keep the shared file as promoted and put this REQ's fixtures in a "
+                            "conftest/helper under this REQ's own test directory.\n")
+                    case.stderr = note + (case.stderr or "")
+                    case.excerpt = note + (case.excerpt or "")
+                    break
         return cases
 
     def _test_layout_cases(self, req_id: str) -> List[EvalCase]:
@@ -4748,7 +4795,12 @@ class EvalRunner:
         others_all = others
         others = [other for other in others if other not in reused]
 
+        kit_reads = self._shared_support_kit_reads(req_id)
+
         def in_plan_order(ran: Dict[str, List[EvalCase]]) -> List[EvalCase]:
+            return self._explain_kit_reads(kit_reads, _in_plan_order(ran))
+
+        def _in_plan_order(ran: Dict[str, List[EvalCase]]) -> List[EvalCase]:
             return [case for other in others_all for case in (reused.get(other) or ran.get(other) or [])]
 
         workers = min(regression_workers(), len(others))
