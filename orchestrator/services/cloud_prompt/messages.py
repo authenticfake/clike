@@ -219,6 +219,10 @@ def _selected_capability_names_from_context(selected: dict, key: str, legacy_key
     return [str(x).strip() for x in (selected.get(legacy_key) or []) if str(x or "").strip()]
 
 
+# Selected skills are binding: room for four whole skills and their shared layer (said once).
+SELECTED_CAPABILITY_MAX_CHARS = 32_000
+
+
 def _render_clike_selected_capability_context_for_cloud(core_blobs: dict | None) -> str:
     
     selected = _load_selected_capability_json_from_core(core_blobs)
@@ -248,7 +252,8 @@ def _render_clike_selected_capability_context_for_cloud(core_blobs: dict | None)
             [
                 "- selected capability markdown:",
                 "```markdown",
-                bounded_markdown[:20000].rstrip() + ("\n...[truncated]" if len(bounded_markdown) > 20000 else ""),
+                bounded_markdown[:SELECTED_CAPABILITY_MAX_CHARS].rstrip()
+                + ("\n...[truncated]" if len(bounded_markdown) > SELECTED_CAPABILITY_MAX_CHARS else ""),
                 "```",
             ]
         )
@@ -423,9 +428,9 @@ def _build_kit_user_message(
         parts.extend([f"  - {x}" for x in acceptance] or ["  - none"])
         parts.append("")
 
-    selected_capability_text = _render_clike_selected_capability_context_for_cloud(filtered_core)
-    if selected_capability_text:
-        parts.extend([selected_capability_text, ""])
+    # the selected capability context is in the system message (binding): not repeated here
+    if _render_clike_selected_capability_context_for_cloud(filtered_core):
+        parts.extend(["- Selected CLike capabilities: binding, in the system message (CLike Selected Capability Context).", ""])
 
     namespace_text = _render_namespace_materialization_for_cloud(file_requirements)
     if namespace_text:

@@ -75,3 +75,14 @@ test('a timeout names the setting of the executor that timed out', () => {
   assert.strictEqual(timeoutSettingKey('claude_code'), 'clike.claudeCode.timeoutMinutes');
   assert.strictEqual(timeoutSettingKey('auto'), 'clike.localAgent.timeoutMinutes');
 });
+
+test('Harper agent runs carry the reasoning effort: Codex high by default, Claude Code only when set', () => {
+  const { buildLocalAgentEffortArgs, getExecutorConfig } = require('../local-agent-executors');
+  const settings = { localAgentEnabled: true, codexEnabled: true, claudeCodeEnabled: true, codexReasoningEffort: 'high', claudeCodeEffort: '' };
+  assert.deepEqual(buildLocalAgentEffortArgs('gpt_codex', getExecutorConfig('gpt_codex', settings)), ['-c', 'model_reasoning_effort="high"']);
+  assert.deepEqual(buildLocalAgentEffortArgs('claude_code', getExecutorConfig('claude_code', settings)), []);
+  assert.deepEqual(buildLocalAgentEffortArgs('claude_code', { effort: 'xhigh' }), ['--effort', 'xhigh']);
+  assert.deepEqual(buildLocalAgentEffortArgs('gpt_codex', { effort: 'max' }), ['-c', 'model_reasoning_effort="xhigh"']);
+  assert.deepEqual(buildLocalAgentEffortArgs('gpt_codex', { effort: 'high' }, ['-c', 'model_reasoning_effort="low"']), []);
+  assert.deepEqual(buildLocalAgentEffortArgs('gpt_codex', { effort: 'bogus' }), []);
+});

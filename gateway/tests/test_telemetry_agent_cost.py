@@ -71,3 +71,18 @@ def test_portal_recomputes_old_cloud_rows_with_cache_tokens(monkeypatch):
     assert rows[1]["pricing"] == {"total_cost": 0.5}
     agg = telemetry_api._aggregate_rows(rows)
     assert agg["total_tokens_cached"] == 90_000
+
+
+def test_portal_sums_time_tokens_and_cost_per_req():
+    rows = [
+        {"phase": "kit", "req_id": "REQ-001", "pricing": {"total_cost": 0.4}, "duration_ms": 1000.0,
+         "usage": {"input_tokens": 10, "output_tokens": 5}},
+        {"phase": "kit", "req_id": "REQ-001", "pricing": {"total_cost": 0.1}, "duration_ms": 500,
+         "usage": {"input_tokens": 1, "output_tokens": 1}},
+        {"phase": "spec", "pricing": {"total_cost": 0.2}},
+    ]
+    agg = telemetry_api._aggregate_rows(rows)
+    req = agg["per_req"]["REQ-001"]
+    assert (req["runs"], round(req["cost_usd"], 6), req["tokens_in"], req["tokens_out"], req["duration_ms"]) == (2, 0.5, 11, 6, 1500)
+    assert req["per_phase"] == {"kit": 2}
+    assert list(agg["per_req"]) == ["REQ-001"]  # calls without a REQ (spec, plan) stay out

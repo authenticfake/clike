@@ -57,6 +57,10 @@
         "title": "CLike: Harper Init…"
       },
       {
+        "command": "clike.syncAgentSkills",
+        "title": "CLike: Sync agent skills"
+      },
+      {
         "command": "clike.chat.clearSession",
         "title": "CLike: Clear Chat Session (current model)"
       },
@@ -405,6 +409,28 @@
           "default": true,
           "description": "Restrict local agent usage to base /kit flows and disable local follow-up phases for now."
         },
+        "clike.agentSkills.autoSync": {
+          "type": "boolean",
+          "default": true,
+          "description": "Before a local agent runs a Harper phase, install the project's CLike skills (.clike/skills) as native skills of Claude Code (.claude/skills) and Codex (.agents/skills), keep the CLike block of CLAUDE.md and AGENTS.md current, and add the eval guard hook. Skills and files CLike does not manage are never touched."
+        },
+        "clike.localAgent.resumeRepairs": {
+          "type": "boolean",
+          "default": true,
+          "description": "An auto-eval repair of a REQ resumes (forked) the local agent session that wrote its KIT — Claude Code --resume/--fork-session, Codex exec resume — instead of starting cold: the agent already knows the code, the context and the prompt cache are warm. Sessions older than 24 hours, of another executor or REQ are not used."
+        },
+        "clike.plan.capacityProfile": {
+          "type": "string",
+          "enum": ["auto", "C1", "C2", "C3"],
+          "default": "auto",
+          "enumDescriptions": [
+            "From the executor of the run: C2 with a local agent, C1 in the cloud.",
+            "C1 — cloud, one generation call per REQ: REQs of one domain, 6–8 acceptance criteria.",
+            "C2 — coding agent: vertical slices (API, data, UI and tests of a capability in one REQ), 10–14 criteria.",
+            "C3 — epics with an internal feature list, kitted one feature at a time with progress kept on disk."
+          ],
+          "description": "Unit of work /plan sizes REQs on, by what the KIT executor can sustain. The same rules reach the cloud prompt and the local agents."
+        },
         "clike.localAgent.timeoutMinutes": {
           "type": "number",
           "default": 30,
@@ -470,6 +496,18 @@
           "type": "string",
           "default": "gpt-5.5",
           "description": "Model passed to Codex on every local run (--model). Codex exposes no model-list command, so set the exact model id your Codex login supports; an invalid id makes the run fail. Leave empty to use the Codex CLI default."
+        },
+        "clike.localAgent.codex.reasoningEffort": {
+          "type": "string",
+          "enum": ["", "low", "medium", "high", "xhigh"],
+          "default": "high",
+          "description": "Reasoning effort of Codex on Harper phases (-c model_reasoning_effort): high by default, since a KIT and its repairs must pass locked tests. Empty = the Codex CLI default."
+        },
+        "clike.claudeCode.effort": {
+          "type": "string",
+          "enum": ["", "low", "medium", "high", "xhigh", "max"],
+          "default": "",
+          "description": "Effort of Claude Code on Harper phases (--effort). Empty = the Claude Code default (already a deep effort for coding)."
         },
         "clike.localAgent.codex.sandboxMode": {
           "type": "string",

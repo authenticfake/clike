@@ -742,6 +742,16 @@ async function collectClikeCapabilityCoreBlobs(projectRootUri) {
 
   await readIfSmall(['.clike', 'capabilities.yaml']);
   await readImmediateCapabilityDirs(['.clike', 'skills'], ['SKILL.md']);
+  // vendored third-party skills (vendor/<vendor>/<skill>, pinned in VENDORED.json): indexed and
+  // selectable like the CLike skills, so the cloud prompt gets what the agents get (BMAD has its loader)
+  try {
+    const vendors = await vscode.workspace.fs.readDirectory(vscode.Uri.joinPath(projectRootUri, '.clike', 'skills', 'vendor'));
+    for (const [vendor, type] of vendors.sort(([a], [b]) => String(a).localeCompare(String(b)))) {
+      if (type === vscode.FileType.Directory && vendor !== 'bmad') {
+        await readImmediateCapabilityDirs(['.clike', 'skills', 'vendor', vendor], ['SKILL.md']);
+      }
+    }
+  } catch { /* no vendored skills */ }
   await readImmediateCapabilityDirs(['.clike', 'packs'], ['PACK.md', 'README.md']);
   await readImmediateCapabilityDirs(['.clike', 'design-profiles'], ['DESIGN.md']);
 
@@ -1436,6 +1446,13 @@ async function buildHarperBody(phase, payload, projectRootUri, out) {
   Object.assign(core_blobs, await collectBmadVendorSkillCoreBlobs(projectRootUri, payload));
   payload["idea_md"] = idea_md;
   payload["core_blobs"] = core_blobs;
+  // REQ capacity profile (C1 cloud single call, C2 agent vertical slice, C3 epic feature by
+  // feature): the plan sizes REQs on it, the KIT of an epic runs feature by feature. "auto" lets
+  // the orchestrator choose from the executor of the run.
+  try {
+    const profile = String(vscode.workspace.getConfiguration('clike').get('plan.capacityProfile', 'auto') || 'auto').toUpperCase();
+    if (['C1', 'C2', 'C3'].includes(profile)) payload["capacityProfile"] = profile;
+  } catch { /* settings unavailable: orchestrator default */ }
   // Cloud models see only the prompt: the code the phase builds on goes with it, chosen
   // deterministically from the promotion reports (a local agent reads the workspace instead).
   try {
@@ -2410,7 +2427,9 @@ async function runLocalAgentSync({
   onStdoutLine = null,
   onSpawn = null,
   onStdin = null,
+  extraEnv = null,
 }) {
+  // extraEnv: variables of this run (CLIKE_LOCKED_ROOTS during /eval, read by the CLike guard hook);
   // onStdoutLine(line): each complete stdout line as it arrives (streamed chat events);
   // onSpawn(child): the running process, e.g. so Cancel can terminate it;
   // onStdin(stdin): a two-way protocol owns stdin (codex app-server): no prompt is sent.
@@ -2479,7 +2498,7 @@ async function runLocalAgentSync({
       // Local agents authenticate via their own CLI login/session. Inherit the
       // standard shell env (PATH/HOME/etc.) but strip cloud provider keys by
       // default so local-agent execution never depends on gateway cloud keys.
-      env: buildLocalAgentEnv(process.env),
+      env: buildLocalAgentEnv(process.env, extraEnv && typeof extraEnv === 'object' ? extraEnv : {}),
     });
 
     let stdout = '';

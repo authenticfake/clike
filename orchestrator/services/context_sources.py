@@ -274,9 +274,18 @@ def render_context_sources_for_cloud(context: Optional[Dict[str, Any]]) -> str:
     return "\n".join(lines).rstrip()
 
 
+QUALITY_PACKAGE_FILE = "runs/context/{phase}/CLIKE_QUALITY.md"
+
+
+def _quality_text(context: Optional[Dict[str, Any]]) -> str:
+    quality = (context or {}).get("quality")
+    return str(quality.get("text") or "").strip() if isinstance(quality, dict) else ""
+
+
 def append_context_sources_to_messages(messages: List[Dict[str, Any]], context: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Cloud: the context sources block at the end of the last user message."""
-    block = render_context_sources_for_cloud(context)
+    """Cloud: the context sources block, then the quality context (capacity profile, journey
+    scenarios: services/quality_context.py), at the end of the last user message."""
+    block = "\n\n".join(b for b in (render_context_sources_for_cloud(context), _quality_text(context)) if b)
     if not block or not messages:
         return messages
     for index in range(len(messages) - 1, -1, -1):
@@ -293,7 +302,9 @@ def _converted_package_path(phase: str, rel: str) -> str:
 
 
 def attach_context_sources_to_local_package(result: Dict[str, Any], context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """Local agent: converted documents as package files, and read instructions in the prompt."""
+    """Local agent: converted documents as package files, and read instructions in the prompt; the
+    quality context as a package file and in the prompt, the same text the cloud prompt gets."""
+    result = _attach_quality_to_local_package(result, context)
     items = (context or {}).get("items") or []
     local = result.get("local_agent") if isinstance(result, dict) else None
     if not items or not isinstance(local, dict) or not local.get("prompt_content"):
@@ -331,4 +342,25 @@ def attach_context_sources_to_local_package(result: Dict[str, Any], context: Opt
     updated["context_sources"] = [
         {k: item.get(k) for k in ("path", "role", "kind", "chars", "truncated", "release")} for item in items
     ]
+    return {**result, "local_agent": updated}
+
+
+def _attach_quality_to_local_package(result: Dict[str, Any], context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    text = _quality_text(context)
+    local = result.get("local_agent") if isinstance(result, dict) else None
+    if not text or not isinstance(local, dict) or not local.get("prompt_content"):
+        return result
+    phase = str((context or {}).get("phase") or local.get("phase") or "phase")
+    target = QUALITY_PACKAGE_FILE.format(phase=phase)
+    updated = dict(local)
+    updated["prompt_content"] = (
+        str(local["prompt_content"]).rstrip()
+        + f"\n\n{text}\n\n(The same quality context is in {target}.)\n"
+    )
+    package_files = []
+    for entry in local.get("package_files") or []:
+        if isinstance(entry, dict) and entry.get("path") == local.get("prompt_path"):
+            entry = {**entry, "content": updated["prompt_content"]}
+        package_files.append(entry)
+    updated["package_files"] = [*package_files, {"path": target, "content": text + "\n", "mime": "text/markdown", "encoding": "utf-8"}]
     return {**result, "local_agent": updated}

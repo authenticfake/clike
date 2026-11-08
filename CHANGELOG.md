@@ -2,7 +2,54 @@
 
 All notable changes to CLike. Extension, orchestrator and gateway share one version.
 
-## [Unreleased]
+## [Unreleased] — Complete requirements, sized for the executor
+
+### Added
+
+- **Journey scenarios from SPEC to the gate.** Eight journey skills shipped by `/init` (identity and
+  access, data lifecycle, UI states, async jobs, integration, files and export, industrial control,
+  API contract): 85 scenarios with stable ids and EARS statements, test idioms per lane. SPEC
+  includes or excludes every scenario a use case implies (`## Scenarios`); PLAN gives each included
+  scenario to one REQ (`reqs[].scenarios`); the KIT proves each with a blocking check and a test that
+  names it; `acceptance::coverage` blocks the REQ otherwise. After `/plan` the chat reports included
+  scenarios no REQ owns and exclusions without a reason.
+- **REQ capacity profile** (`clike.plan.capacityProfile`): C1 cloud single call, C2 agent vertical
+  slice, C3 epic with an internal feature list; shared seams so later REQs add files instead of
+  rewriting composition files. The same quality context reaches the cloud prompt and the local
+  agents.
+- **Epics (C3)**: `FEATURES.json` and `PROGRESS.md`, one eval case per feature not delivered
+  (`acceptance::features::<id>`), the repair loop continues the epic feature by feature.
+- **Skills on every executor**: `.clike/skills` installed as native skills of the local agents (open
+  Agent Skills format), a CLike block of rules in the agent instruction files, a guard hook that
+  locks tests and CI during `/eval`; command **CLike: Sync agent skills**, `clike.agentSkills.autoSync`.
+- **Vendored skills, pinned and maintainable**: `vendor/<vendor>/<skill>` with `VENDORED.json`
+  (pinned commit, license, review date, digests) and `tools/skills_vendor.py` (`verify`,
+  `check-updates`, `update --apply` with diff and review findings). First: two open-source
+  engineering-discipline skills (test-driven development, verification before completion).
+- **web-e2e-harness** skill: deterministic frontend checks in the eval sandbox.
+- **Repairs in the KIT's session** (`clike.localAgent.resumeRepairs`): an auto-eval repair resumes,
+  forked, the local-agent session that wrote the REQ's KIT.
+- **Telemetry per REQ**: every Harper call records its REQ and duration; the portal sums calls,
+  cost, tokens and time per REQ.
+- **KITs sized on the model**: the cloud KIT asks the model's own output budget (within
+  `CLIKE_KIT_MAX_OUTPUT_TOKENS`, default 64000) at a deeper reasoning effort (`CLIKE_KIT_EFFORT`,
+  default high); the C1 profile names the KIT model, its budget and what fits one answer; local agents
+  run Harper phases at a set effort (`clike.localAgent.codex.reasoningEffort`, `clike.claudeCode.effort`).
+- **Epics delivered end to end and stronger eval guards from the pilots**: a KIT never replaces a
+  promoted shared file with a much shorter one or drops its dependencies; the regression of promoted
+  REQs runs with the candidate's dependencies; a shared test conftest reading the KIT's files is
+  diagnosed (and may be fixed by the repair); acceptance bookkeeping accepts done synonyms and lists
+  the checks a criterion can name.
+- **[Estimating with CLike](docs/estimation-example.md)**: a worked enterprise estimate, classic vs CLike.
+
+### Fixed
+
+- A disposable eval database is the project's own (a sandbox variable of another project no longer
+  stands in for it), with the driver its value named; the capacity profile chosen in the extension
+  reaches the orchestrator; extension.js loads again (a test now parses every module).
+- Selected skills reach the KIT whole: the enforcement layer several skills share is said once (it
+  pushed seven skills past the preview cap and cut their test sections); the cloud KIT no longer
+  repeats the selected capability context in the user message.
 
 ## [1.6.9] — 2026-10-31 — An existing project adopted, area by area
 

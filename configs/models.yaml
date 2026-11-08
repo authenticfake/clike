@@ -37,6 +37,8 @@ models:
     context_window: 8192
     tags: [embeddings, local]
 
+  # max_output_tokens / context_window of the Anthropic models: Claude API documentation (2026-10).
+  # The cloud KIT uses up to max_output_tokens per call (capped by CLIKE_KIT_MAX_OUTPUT_TOKENS).
   # Prices per 1k tokens, checked against the OpenAI and Anthropic price pages on 2026-10-11.
   # cached_input_per_1k = cache-read input (OpenAI "cached input", Anthropic "cache hits");
   # cache_write_per_1k / cache_write_1h_per_1k = Anthropic 5-minute / 1-hour cache writes.
@@ -315,7 +317,8 @@ models:
       cache_write_per_1k: 0.00375
       cache_write_1h_per_1k: 0.006
       output_per_1k: 0.015
-    context_window: 200000
+    context_window: 1000000
+    max_output_tokens: 128000
     privacy: low
     enabled: true
     tags: [quality]
@@ -337,6 +340,7 @@ models:
       cache_write_1h_per_1k: 0.01
       output_per_1k: 0.025
     context_window: 1000000
+    max_output_tokens: 128000
     privacy: low
     enabled: true
     tags: [quality, reasoning]
@@ -381,6 +385,7 @@ models:
       cache_write_1h_per_1k: 0.004
       output_per_1k: 0.010
     context_window: 1000000
+    max_output_tokens: 128000
     privacy: low
     enabled: true
     tags: [quality, coding]
@@ -402,6 +407,7 @@ models:
       cache_write_1h_per_1k: 0.008
       output_per_1k: 0.020
     context_window: 1000000
+    max_output_tokens: 128000
     privacy: low
     enabled: true
     tags: [quality, reasoning]
@@ -425,6 +431,7 @@ models:
       cache_write_1h_per_1k: 0.020
       output_per_1k: 0.050
     context_window: 1000000
+    max_output_tokens: 128000
     privacy: low
     enabled: true
     tags: [quality, reasoning]

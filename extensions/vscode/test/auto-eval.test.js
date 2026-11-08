@@ -400,3 +400,15 @@ test('a loop that stops on a delivered test of an amended REQ says how to declar
   assert.equal(again.action, 'stop');
   assert.match(again.reason, /no progress.*declare it[\s\S]*\/eval REQ-002 --supersede REQ-001#test\/test_pricing\.py::test_price/);
 });
+
+test('an epic (C3) gets one repair cycle per planned feature at least', () => {
+  const { epicMaxCycles } = require('../auto-eval');
+  const plan = { reqs: [
+    { id: 'REQ-004', profile: 'C3', features: [{ id: 'F01' }, { id: 'F02' }, { id: 'F03' }, { id: 'F04' }] },
+    { id: 'REQ-005', profile: 'C2' },
+  ] };
+  assert.equal(epicMaxCycles(plan, 'req-004', 2), 5);
+  assert.equal(epicMaxCycles(plan, 'REQ-004', 8), 8);
+  assert.equal(epicMaxCycles(plan, 'REQ-005', 2), 2);
+  assert.equal(epicMaxCycles(null, 'REQ-004', 2), 2);
+});

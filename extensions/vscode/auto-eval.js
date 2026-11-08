@@ -267,6 +267,19 @@ function nextAutoEvalStepRaw(state, report) {
   return { action: 'repair', reason: `${failures.length} failing check(s)`, failures, signature };
 }
 
+/**
+ * Repair cycles of an epic (plan.json "profile": "C3"): the KIT delivers it feature by feature and
+ * each eval reports the features left (acceptance::features::<id>), so the loop needs at least one
+ * cycle per planned feature (+1 for its own checks). Other REQs: the configured cycles.
+ */
+function epicMaxCycles(plan, reqId, configured) {
+  const id = String(reqId || '').toUpperCase();
+  const req = (plan && Array.isArray(plan.reqs) ? plan.reqs : []).find((r) => String(r?.id || '').toUpperCase() === id);
+  if (!req || String(req.profile || '').toUpperCase() !== 'C3') return configured;
+  const features = Array.isArray(req.features) ? req.features.length : 0;
+  return Math.max(configured, features + 1);
+}
+
 const _FAILED_TEST_RE = /^FAILED\s+(\S+?)(?:\s+-\s|\s*$)/gm;
 
 /** Test ids of a pytest-style output that failed ("FAILED path::test - ..."). */
@@ -500,6 +513,7 @@ function fixCycleMethodology(msg) {
 }
 
 module.exports = {
+  epicMaxCycles,
   fixCycleMethodology,
   targetedRegressionReqs,
   ownFailureCount,

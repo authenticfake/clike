@@ -23,6 +23,8 @@ import eval_failures
 import eval_runtimes
 from services.gate_integrity import _DEFINES_TESTS_RE
 from services.root_files import KIT_ROOT_DIR, extra_root_files, is_allowed_root_path, root_policy
+from services.quality_context import req_scenarios
+from services import promoted_files
 import eval_tools
 import sandbox_resources
 from utils.safe_paths import validate_req_id
@@ -190,6 +192,7 @@ _SUPERSEDED_TESTS_NOTE = "[CLike EvalRunner] Superseded tests"
 _CONTENTION_NOTE = "[CLike EvalRunner] Timeout under parallel load"
 _DECLARE_NOTE = "[CLike EvalRunner] A delivered test of an amended REQ"
 _ACCEPTANCE_NOTE = "[CLike EvalRunner] Acceptance coverage"
+_DONE_SYNONYMS = {"implemented", "complete", "completed", "passed", "pass", "verified", "satisfied", "met", "delivered", "covered"}
 # A failure where the new value extends the old one (pytest, jest/vitest, JUnit/AssertJ, Go/testify…)
 _ADDITIVE_DIFF_RE = re.compile(
     r"Extra items in the (?:left|right) (?:set|list|dict)|(?:Left|Right) contains \d+ more items?|"
@@ -502,6 +505,8 @@ def scrubbed_process_env() -> Dict[str, str]:
 
 # plan.json status of a promoted REQ (set by the extension after a passing gate).
 PROMOTED_REQ_STATUSES = {"done"}
+# a read of a KIT-relative ci/ or docs/ file: KIT_ROOT / "ci/fixtures/x.json", "ci/fixtures/x.json"
+_KIT_FILE_READ_RE = re.compile(r"""(?:KIT_ROOT|KIT_DIR|kit_root)\s*/\s*["']((?:ci|docs)/[^"']+)["']""")
 
 
 _COVERAGE_THRESHOLD_RE = re.compile(r"Required test coverage of .* not reached", re.IGNORECASE)
@@ -1528,6 +1533,88 @@ class EvalRunner:
                 cases.append(EvalCase(name=f"structure::shared-test-support::{top}/{rel}", passed=False, code=1, stdout="",
                                       stderr=message, blocking=True, excerpt=message,
                                       fingerprint=f"shared-test-support-{top}/{rel}"))
+        return cases
+
+    def _promoted_source_cases(self, req_id: str) -> List[EvalCase]:
+        """``structure::promoted-file-kept::<path>``: a KIT that ships a promoted shared file extends
+        it (services/promoted_files.py). A REQ that declares it amends others changes them on
+        purpose: not checked."""
+        req = next((r for r in self._plan_reqs() if str(r["id"]).upper() == str(req_id).upper()), {})
+        if req.get("amends"):
+            return []
+        kit = self.project_root / "runs" / "kit" / self._safe_req_id(req_id)
+        cases: List[EvalCase] = []
+        for top in ("src", KIT_ROOT_DIR):
+            base = kit / top
+            for path in sorted(base.rglob("*")) if base.is_dir() else []:
+                if not path.is_file() or any(p in promoted_files.SKIP_DIRS for p in path.relative_to(base).parts):
+                    continue
+                rel = path.relative_to(base).as_posix()
+                canonical = self.project_root / (rel if top == KIT_ROOT_DIR else f"src/{rel}")
+                if not canonical.is_file() or canonical.stat().st_size > 2_000_000 or path.stat().st_size > 2_000_000:
+                    continue
+                try:
+                    before, after = canonical.read_text(encoding="utf-8"), path.read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError):
+                    continue
+                problem = "" if before == after else promoted_files.loss(canonical.name, before, after)
+                if not problem:
+                    continue
+                shown = canonical.relative_to(self.project_root).as_posix()
+                message = (
+                    f"runs/kit/{req_id}/{top}/{rel} replaces the promoted {shown} and {problem}. A KIT extends a promoted "
+                    "shared file: start from its current content and add this REQ's part (a route, a dependency, a "
+                    "registration) next to what is there; never a shorter rewrite, the promoted REQs depend on it.\n"
+                    f"Current {shown} (promoted):\n" + before[:3500] + ("\n…" if len(before) > 3500 else "")
+                )
+                cases.append(EvalCase(name=f"structure::promoted-file-kept::{shown}", passed=False, code=1, stdout="",
+                                      stderr=message, blocking=True, excerpt=message[:1500],
+                                      fingerprint=f"promoted-file-kept-{shown}"))
+        return cases
+
+    def _shared_support_kit_reads(self, req_id: Optional[str]) -> Dict[str, List[str]]:
+        """{shared test-support file: KIT-relative ci/ or docs/ paths it reads} of the candidate: a
+        conftest/helper the promoted REQs share (it exists in the canonical test tree)."""
+        kit = self.project_root / "runs" / "kit" / self._safe_req_id(str(req_id or ""))
+        reads: Dict[str, List[str]] = {}
+        for top in ("test", "tests"):
+            base = kit / top
+            for path in sorted(base.rglob("*.py")) if base.is_dir() else []:
+                rel = path.relative_to(base).as_posix()
+                if path.name.startswith("test_") or not (self.project_root / top / rel).is_file():
+                    continue
+                try:
+                    hits = sorted(set(_KIT_FILE_READ_RE.findall(path.read_text(encoding="utf-8"))))
+                except (OSError, UnicodeDecodeError):
+                    continue
+                if hits:
+                    reads[f"{top}/{rel}"] = hits
+        return reads
+
+    @staticmethod
+    def _explain_kit_reads(reads: Dict[str, List[str]], cases: List[EvalCase]) -> List[EvalCase]:
+        """A promoted REQ's regression that fails on a missing file the candidate's shared conftest
+        reads from "the KIT" (there: that REQ's KIT) gets the cause and the cure in front of its error.
+        Codex pilot 2026-11-08: the root test/conftest.py read KIT_ROOT/ci/fixtures/scoring.json and the
+        regressions of REQ-003 and REQ-007 failed for four cycles."""
+        if not reads:
+            return cases
+        for case in cases:
+            if case.passed or not case.name.startswith("regression::"):
+                continue
+            text = f"{case.stderr or ''}\n{case.stdout or ''}"
+            if "No such file" not in text and "FileNotFoundError" not in text:
+                continue
+            for shared, paths in reads.items():
+                missing = [p for p in paths if p in text]
+                if missing:
+                    note = (f"[CLike EvalRunner] Cause: the candidate's {shared} is the shared {shared} of the promoted "
+                            f"REQs; in this regression the KIT is {case.name.split('::')[1]}'s KIT, which has no "
+                            f"{', '.join(missing)}. Keep the shared file as promoted and put this REQ's fixtures in a "
+                            "conftest/helper under this REQ's own test directory.\n")
+                    case.stderr = note + (case.stderr or "")
+                    case.excerpt = note + (case.excerpt or "")
+                    break
         return cases
 
     def _test_layout_cases(self, req_id: str) -> List[EvalCase]:
@@ -3199,6 +3286,11 @@ class EvalRunner:
             if not case.passed and not case.excerpt:
                 case.excerpt = eval_failures.excerpt(case.stdout or "", case.stderr or "")
                 case.fingerprint = eval_failures.fingerprint(case.excerpt) or None
+            if not case.passed and not case.fingerprint and case.name.startswith("acceptance::"):
+                # CLike's own acceptance checks print no test errors: their problem lines are the
+                # fingerprint, so a repair that fixes some of them counts as progress
+                lines = sorted({re.sub(r"\d+", "#", line.strip()) for line in (case.stderr or "").splitlines() if line.strip()})
+                case.fingerprint = hashlib.sha1("\n".join(lines).encode("utf-8")).hexdigest()[:12] if lines else None
         passed = sum(1 for case in cases if case.passed)
         blocked = sum(1 for case in cases if case.blocked)
         hard_failed = sum(
@@ -3341,8 +3433,12 @@ class EvalRunner:
         def note(name: str, message: str) -> None:
             cases.append(EvalCase(name=name, passed=True, code=0, stdout=message, stderr="", blocking=False))
 
-        pending = [s for s in specs if not str(env.get(s.name, "")).strip()]
         admin = str(env.get(eval_environment.ADMIN_URL_VAR, "")).strip()
+        # a disposable database is the project's own: a value of the same name in the sandbox
+        # environment (set for another project) never stands in for it while a database can be created
+        shadowed = [s.name for s in specs if s.effective_provision() == "postgres_database" and admin
+                    and str(env.get(s.name, "")).strip()]
+        pending = [s for s in specs if not str(env.get(s.name, "")).strip() or s.name in shadowed]
         # 1. generated values that need nothing else, then databases
         for spec in list(pending):
             kind = spec.effective_provision()
@@ -3350,16 +3446,24 @@ class EvalRunner:
                 if kind in {"token", "uuid", "timestamp"}:
                     value = eval_environment.generate(spec, values)
                 elif kind == "postgres_database" and admin:
+                    if spec.name in shadowed and not spec.options.get("scheme") and "://" in str(env.get(spec.name)):
+                        # the project's own database, reached with the driver the sandbox value names
+                        # (postgresql+psycopg): the code under test was configured for it
+                        spec.options["scheme"] = str(env.get(spec.name)).split("://", 1)[0]
                     value = eval_environment.provision_postgres(spec, admin, project_key, req)
                 else:
                     continue
             except Exception as exc:  # database server unreachable, bad URL...
-                fail(f"env::provision::{spec.name}", f"cannot provision {spec.name} ({kind}): {exc}")
                 pending.remove(spec)
+                if spec.name in shadowed:  # as before: the sandbox environment value
+                    note(f"env::provision::{spec.name}", f"database not created ({exc}); the sandbox environment value is used")
+                    continue
+                fail(f"env::provision::{spec.name}", f"cannot provision {spec.name} ({kind}): {exc}")
                 continue
             values[spec.name] = provided[spec.name] = value
             pending.remove(spec)
-            note(f"env::provision::{spec.name}", f"{kind} provisioned" + (f": database {value.rsplit('/', 1)[-1]}" if kind == "postgres_database" else ""))
+            note(f"env::provision::{spec.name}", f"{kind} provisioned" + (f": database {value.rsplit('/', 1)[-1]}" if kind == "postgres_database" else "")
+                 + (" (the sandbox environment value of this name is not used: it is not this project's database)" if spec.name in shadowed else ""))
 
         def resolve_templates() -> None:
             for spec in list(pending):
@@ -3763,6 +3867,17 @@ class EvalRunner:
                 cwd=default_cwd,
             )
             out_cases.extend(setup_cases)
+            # regression: the state after promotion — the candidate's dependencies too (pilot
+            # 2026-11-08: the candidate added openpyxl to the shared app, and the promoted REQ-001's
+            # environment, built from its own requirements only, failed on the import)
+            for candidate_requirements in self._candidate_requirements():
+                if str(candidate_requirements) == str(requirements_file):
+                    continue
+                eval_env, more = self._ensure_eval_venv(
+                    req_id=eff_req, requirements_file=str(candidate_requirements), env=eval_env, cwd=default_cwd)
+                for case in more:
+                    case.name = case.name.replace("env::", "env::candidate-", 1)
+                out_cases.extend(more)
 
         node_runtime_names = {
             "node",
@@ -4131,11 +4246,13 @@ class EvalRunner:
         if not self.regression and eff_req:
             out_cases.extend(self._shared_conftest_cases(eff_req))
             out_cases.extend(self._shared_test_support_cases(eff_req))
+            out_cases.extend(self._promoted_source_cases(eff_req))
             out_cases.extend(self._test_layout_cases(eff_req))
             out_cases.extend(self._staged_root_cases(eff_req))
             only_names = getattr(self, "_only_checks", None)
             if not only_names or "acceptance::coverage" in only_names:
                 out_cases.extend(self._acceptance_coverage_cases(eff_req, ltc))
+                out_cases.extend(self._epic_features_cases(eff_req, ltc))
         own_failed = any(not c.passed and c.blocking for c in out_cases)
         own = out_cases[loop_from:]
         self._progress(**({} if cancelled else {"checks_done": len(norm_cases)}), current=None,
@@ -4186,6 +4303,51 @@ class EvalRunner:
             (f"\nRemove the staging map(s): {', '.join(maps)} — CLike promotes root/ as it is." if maps else "") +
             "\nThe eval sees root/ at the workspace root: checks run them there (scripts/…, not ci/<staging>/scripts/…)."))]
 
+    def _epic_features_cases(self, req_id: str, ltc: Dict[str, Any]) -> List[EvalCase]:
+        """``acceptance::features``: an epic (plan.json ``"profile": "C3"``) is done when every feature
+        of runs/kit/<REQ>/docs/FEATURES.json is done with the blocking checks that prove it, and every
+        feature the plan lists is there (services/quality_context.py: one feature at a time)."""
+        req = next((r for r in self._plan_reqs() if str(r["id"]).upper() == str(req_id).upper()), None)
+        if str((req or {}).get("profile") or "").strip().upper() != "C3":
+            return []
+        name = "acceptance::features"
+        path = self.project_root / "runs" / "kit" / self._safe_req_id(req_id) / "docs" / "FEATURES.json"
+        planned = [str(f.get("id") if isinstance(f, dict) else f).strip() for f in (req or {}).get("features") or []]
+        planned = [f for f in planned if f]
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            features = [f for f in data.get("features") or [] if isinstance(f, dict) and str(f.get("id") or "").strip()]
+        except FileNotFoundError:
+            return [EvalCase(name=name, passed=False, code=1, blocking=True, stdout="", stderr=(
+                f"{_ACCEPTANCE_NOTE}: {req_id} is an epic (C3) and the KIT has no docs/FEATURES.json. Write it from the "
+                f"plan's features ({', '.join(planned) or 'none listed'}) and deliver them one at a time, each with its checks."))]
+        except Exception as exc:
+            return [EvalCase(name=name, passed=False, code=2, blocking=True, stdout="",
+                             stderr=f"{_ACCEPTANCE_NOTE}: docs/FEATURES.json is not valid JSON with a features list: {exc}")]
+        blocking_checks = {str(c.get("name") or "") for c in self._normalize_cases(ltc) if c.get("blocking", True)}
+        problems: Dict[str, str] = {}
+        ids = [str(f["id"]).strip() for f in features]
+        for fid in planned:
+            if fid not in ids:
+                problems[fid] = f"{fid}: planned, not in FEATURES.json"
+        for feature in features:
+            fid = str(feature["id"]).strip()
+            status = str(feature.get("status") or "").strip().lower()
+            checks = [str(c) for c in feature.get("checks") or [] if str(c).strip()]
+            if status != "done":
+                problems[fid] = f"{fid}: {status or 'no status'} — {str(feature.get('title') or '')[:120]}"
+            elif not [c for c in checks if c in blocking_checks]:
+                problems[fid] = f"{fid}: done, but names no blocking check of ci/LTC.json (named: {', '.join(checks) or 'none'})"
+        if problems:
+            # one case per feature not delivered: the repair loop sees the epic progress feature by feature
+            return [EvalCase(name=f"{name}::{fid}", passed=False, code=1, blocking=True, stdout="", stderr=(
+                f"{_ACCEPTANCE_NOTE}: feature of the epic {req_id} not delivered ({len(problems)} of "
+                f"{max(len(features), len(planned))} left): {text}\nContinue feature by feature "
+                f"(runs/kit/{req_id}/docs/PROGRESS.md says where you stopped)."))
+                for fid, text in problems.items()]
+        return [EvalCase(name=name, passed=True, code=0, blocking=True, stderr="",
+                         stdout=f"{len(features)} feature(s) of the epic {req_id}: done with their checks.")]
+
     def _acceptance_coverage_cases(self, req_id: str, ltc: Dict[str, Any]) -> List[EvalCase]:
         """``acceptance::coverage``: the KIT's own account of its acceptance criteria
         (runs/kit/<REQ>/docs/ACCEPTANCE.json), checked against the plan and the LTC. The checks can
@@ -4196,13 +4358,22 @@ class EvalRunner:
         the file, a SELF_REVIEW that declares the KIT incomplete blocks the same way."""
         req = next((r for r in self._plan_reqs() if str(r["id"]).upper() == str(req_id).upper()), None)
         acceptance = [str(a) for a in (req or {}).get("acceptance") or [] if str(a).strip()]
-        if not acceptance:
+        # journey scenarios the plan gives this REQ (services/quality_context.py): each one is a
+        # criterion of its own, proved by a blocking check like the acceptance bullets
+        scenarios = req_scenarios(req)
+        if not acceptance and not scenarios:
             return []
         kit = self.project_root / "runs" / "kit" / self._safe_req_id(req_id)
         ids = []
         for index, text in enumerate(acceptance, start=1):
             m = re.match(r"\s*(REQ-[\w-]+?-A\d+)\b", text) or re.match(r"\s*(A\d+)\b", text)
-            ids.append(m.group(1) if m else f"A{index:02d}")
+            # a bullet that states a journey scenario (`IAM-03: If …`) is that scenario, not one more A-number
+            sm = None if m else re.match(r"\s*(?!REQ-)([A-Z]{2,6}-\d{2,3})\s*:", text)
+            ids.append(m.group(1) if m else sm.group(1) if sm else f"A{index:02d}")
+        for sid in scenarios:
+            if sid not in ids:
+                ids.append(sid)
+                acceptance.append(f"{sid} (journey scenario of the plan)")
         review = ""
         try:
             review = (kit / "docs" / "SELF_REVIEW.md").read_text(encoding="utf-8", errors="ignore")
@@ -4212,8 +4383,13 @@ class EvalRunner:
         path = kit / "docs" / "ACCEPTANCE.json"
         name = "acceptance::coverage"
         if not path.is_file():
-            if not incomplete:
+            if not incomplete and not scenarios:
                 return []  # nothing declared either way: the checks decide, as before
+            if not incomplete:
+                return [EvalCase(name=name, passed=False, code=1, blocking=True, stdout="", stderr=(
+                    f"{_ACCEPTANCE_NOTE}: {req_id} owns journey scenarios ({', '.join(scenarios)}) and the KIT has no "
+                    f"docs/ACCEPTANCE.json proving them. Write runs/kit/{req_id}/docs/ACCEPTANCE.json with the status of "
+                    f"each criterion ({', '.join(ids)}) and the blocking checks that verify it."))]
             return [EvalCase(name=name, passed=False, code=1, blocking=True, stdout="", stderr=(
                 f"{_ACCEPTANCE_NOTE}: the KIT's SELF_REVIEW.md declares {req_id} incomplete and the KIT has no "
                 f"docs/ACCEPTANCE.json:\n" + "\n".join(f"  {line}" for line in incomplete) +
@@ -4222,6 +4398,10 @@ class EvalRunner:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
             entries = {str(e.get("id") or "").strip(): e for e in (data.get("criteria") or []) if isinstance(e, dict)}
+            for e in (data.get("criteria") or []):  # a criterion may prove scenarios: "scenarios": ["IAM-03"]
+                if isinstance(e, dict):
+                    for sid in req_scenarios({"scenarios": e.get("scenarios") or []}):
+                        entries.setdefault(sid, e)
         except Exception as exc:
             return [EvalCase(name=name, passed=False, code=2, blocking=True, stdout="",
                              stderr=f"{_ACCEPTANCE_NOTE}: docs/ACCEPTANCE.json is not valid JSON with a criteria list: {exc}")]
@@ -4235,6 +4415,8 @@ class EvalRunner:
                 problems.append(f"{cid}: not in ACCEPTANCE.json — {short}")
                 continue
             status = str(entry.get("status") or "").strip().lower().replace("-", "_").replace(" ", "_")
+            # the words models use for done; a blocking check proving it is still required
+            status = "done" if status in _DONE_SYNONYMS else status
             # the names agents use for the same fields (B2B REQ-038: blocking_checks, evidence)
             note = next((str(entry[k]).strip() for k in ("note", "evidence", "reason", "notes", "details")
                          if str(entry.get(k) or "").strip()), "")
@@ -4255,6 +4437,24 @@ class EvalRunner:
                 problems.append(f"{cid}: {status}{f' — {note[:240]}' if note else ''}")
             else:
                 problems.append(f"{cid}: unknown status {status or '(none)'} (done | partial | missing | developer_evidence)")
+        # a scenario is proved by a test that names it (test name, docstring or comment): the claim in
+        # ACCEPTANCE.json alone is not enough (language-agnostic: any file under the KIT's tests)
+        if scenarios:
+            texts = []
+            for folder in ("test", "tests"):
+                base = kit / folder
+                for test_file in (base.rglob("*") if base.is_dir() else []):
+                    if test_file.is_file() and test_file.stat().st_size <= 2_000_000:
+                        try:
+                            texts.append(test_file.read_text(encoding="utf-8", errors="ignore"))
+                        except OSError:
+                            continue
+            corpus = "\n".join(texts).upper()
+            variants = lambda sid: (sid, sid.replace("-", "_"), sid.replace("-", ""))  # noqa: E731
+            for sid in scenarios:
+                if not any(v in corpus for v in variants(sid)):
+                    problems.append(f"{sid}: no test of the KIT names it — tag the test that proves it with {sid} "
+                                    f"(test name, docstring or comment)")
         if incomplete and not problems:
             problems.append("ACCEPTANCE.json says every criterion is done, but SELF_REVIEW.md says otherwise:\n" +
                             "\n".join(f"    {line}" for line in incomplete))
@@ -4264,7 +4464,8 @@ class EvalRunner:
             return [EvalCase(name=name, passed=False, code=1, blocking=True, stdout=shown_external.strip(), stderr=(
                 f"{_ACCEPTANCE_NOTE}: {len(problems)} acceptance criterion/criteria of {req_id} not delivered — the checks "
                 "passing is not enough to promote it:\n" + "\n".join(f"  {p}" for p in problems) +
-                f"\nImplement them (with blocking checks in ci/LTC.json that verify them) and update docs/ACCEPTANCE.json."))]
+                f"\nImplement them (with blocking checks in ci/LTC.json that verify them) and update docs/ACCEPTANCE.json."
+                + (f"\nBlocking checks of ci/LTC.json a criterion can name: {', '.join(sorted(blocking_checks))}." if blocking_checks else "")))]
         return [EvalCase(name=name, passed=True, code=0, blocking=True, stderr="",
                          stdout=f"{len(ids)} acceptance criteria of {req_id}: done with their checks.{shown_external}")]
 
@@ -4594,7 +4795,12 @@ class EvalRunner:
         others_all = others
         others = [other for other in others if other not in reused]
 
+        kit_reads = self._shared_support_kit_reads(req_id)
+
         def in_plan_order(ran: Dict[str, List[EvalCase]]) -> List[EvalCase]:
+            return self._explain_kit_reads(kit_reads, _in_plan_order(ran))
+
+        def _in_plan_order(ran: Dict[str, List[EvalCase]]) -> List[EvalCase]:
             return [case for other in others_all for case in (reused.get(other) or ran.get(other) or [])]
 
         workers = min(regression_workers(), len(others))
@@ -4615,6 +4821,18 @@ class EvalRunner:
                 raise
         self._rerun_timeouts_alone(req_id, candidate_src, ran, superseded)
         return ran
+
+    def _candidate_requirements(self) -> List[Path]:
+        """The candidate's Python requirements, installed in a promoted REQ's regression environment
+        on top of its own (the dependencies the candidate adds are there after promotion)."""
+        if not getattr(self, "regression", False):
+            return []
+        out = []
+        for src in self.extra_src_roots:
+            req = Path(src).parent / "ci" / "requirements.txt"
+            if req.is_file():
+                out.append(req)
+        return out
 
     def _regression_runner(self, req_id: Optional[str], other: str, candidate_src: Path) -> "EvalRunner":
         """The runner of a promoted REQ's checks with the candidate overlaid (the state after promotion)."""

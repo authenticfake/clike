@@ -990,13 +990,40 @@ def approx_tokens_from_chars(text: str) -> int:
 
 
 def _resolve_ctx_caps(model_entry: dict | None) -> tuple[int, int]:
+    """(context window, output cap). An undeclared output cap does not cap: the phase's own
+    max_tokens decides (it used to be 4096, which only shrank the computed timeouts)."""
     DEFAULT_CONTEXT_WINDOW = 128000
-    DEFAULT_MAX_OUTPUT = 4096
+    NO_DECLARED_CAP = 1_000_000
     if not model_entry:
-        return DEFAULT_CONTEXT_WINDOW, DEFAULT_MAX_OUTPUT
+        return DEFAULT_CONTEXT_WINDOW, NO_DECLARED_CAP
     cw = int(model_entry.get("context_window") or DEFAULT_CONTEXT_WINDOW)
-    mo = int(model_entry.get("max_output_tokens") or DEFAULT_MAX_OUTPUT)
+    mo = int(model_entry.get("max_output_tokens") or NO_DECLARED_CAP)
     return cw, mo
+
+
+KIT_PHASES = {"kit", "acceptance"}
+KIT_DEFAULT_OUTPUT = 48000
+
+
+def kit_output_tokens(model_entry: dict | None) -> int:
+    """Output budget of one cloud KIT call: what the model declares (max_output_tokens), within
+    CLIKE_KIT_MAX_OUTPUT_TOKENS (default 64000); 48000 when the model declares nothing. The plan
+    sizes C1 REQs on the same number (orchestrator services/quality_context.py)."""
+    try:
+        ceiling = int(os.getenv("CLIKE_KIT_MAX_OUTPUT_TOKENS", "") or 64000)
+    except ValueError:
+        ceiling = 64000
+    declared = int((model_entry or {}).get("max_output_tokens") or 0)
+    if declared <= 0:
+        return KIT_DEFAULT_OUTPUT
+    return max(KIT_DEFAULT_OUTPUT, min(declared, ceiling)) if declared >= KIT_DEFAULT_OUTPUT else declared
+
+
+def kit_effort() -> str:
+    """Reasoning effort of the KIT and its repairs (CLIKE_KIT_EFFORT, default high): code that must
+    pass locked tests on the first eval is where depth pays."""
+    value = os.getenv("CLIKE_KIT_EFFORT", "").strip().lower() or "high"
+    return value if value in {"low", "medium", "high", "xhigh", "max"} else "high"
 
 def _gw_load_models() -> list[dict]:
     path = os.getenv("MODELS_CONFIG", "/workspace/configs/models.yaml")
@@ -1310,6 +1337,12 @@ def _telemetry_path(project_id: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
+def _telemetry_req_id(targets: Optional[List[str]] = None) -> Optional[str]:
+    """The REQ a Harper call works on (the /kit target, also for its repair cycles), so the
+    telemetry portal can sum time, tokens and cost per REQ."""
+    return str((targets or [None])[0] or "").strip() or None
+
+
 def _write_telemetry(project_id: str, record: dict) -> None:
     try:
         path = _telemetry_path(project_id)
@@ -1336,6 +1369,7 @@ class LocalAgentTelemetry(BaseModel):
     files_len: Optional[int] = None
     duration_ms: Optional[float] = None
     executor: Optional[str] = None
+    req_id: Optional[str] = None
 
 
 @router.post("/telemetry")
@@ -1352,6 +1386,7 @@ def record_local_agent_telemetry(item: LocalAgentTelemetry) -> Dict[str, Any]:
         "pricing": pricing,
         "files_len": item.files_len,
         "duration_ms": item.duration_ms,
+        "req_id": (item.req_id or "").strip() or None,
         "execution": "local_agent",
         "executor": item.executor or item.provider,
         "timestamp": time.time(),
@@ -1919,6 +1954,7 @@ async def run(req: HarperRunRequest,  request: Request):
     log.info("harper.run cmd=%s model=%s idea_md=%s core_blobs=%d",
              req.cmd, req.model, bool(req.idea_md), len(req.core_blobs or {}))
     phase = (req.phase or req.cmd or "").strip()
+    started = time.monotonic()
     default_params_reasoning =get_model_params(phase);
     resolved_entry = None
     if req.model:
@@ -2022,6 +2058,12 @@ async def run(req: HarperRunRequest,  request: Request):
 
     req.gen["temperature"] = default_params_reasoning.get("temperature") or req.gen.get("temperature", 0.2)
     req.gen["max_tokens"] = default_params_reasoning.get("max_tokens") or req.gen.get("max_tokens", 6500)
+    if phase.lower() in KIT_PHASES:
+        # the model's real output budget and a deeper reasoning effort for code generation
+        req.gen["max_tokens"] = kit_output_tokens(resolved_entry)
+        effort = kit_effort()
+        req.gen["reasoning_effort"] = "xhigh" if effort == "max" else effort  # OpenAI tops at xhigh
+        req.gen["output_config"] = {"effort": effort}
     # req.gen["top_p"] = default_params_reasoning.get("top_p") or req.gen.get("top_p")
     req.gen["stop"] = req.gen.get("stop") or "`PLAN_END`"
     # If gen["api"] == "responses" use /v1/responses, otherwise /v1/chat/completions.
@@ -2321,7 +2363,8 @@ async def run(req: HarperRunRequest,  request: Request):
     if phase in {"plan", "spec", "idea", "finalize"}:
         timeout_sec = max(timeout_sec, 1000.0)
     elif phase in {"kit", "acceptance"}:
-        timeout_sec = max(timeout_sec, 920.0)
+        # a larger output budget and a deeper effort take longer: up to 30 minutes
+        timeout_sec = min(1800.0, max(920.0, 180.0 + (eff_max / 1000.0) * 12.0))
     elif phase in {"promotion_hardener", "promotion_eval", "integrity_eval"}:
         timeout_sec = max(timeout_sec, 900.0)
 
@@ -2387,6 +2430,7 @@ async def run(req: HarperRunRequest,  request: Request):
                 tools=gen_tools,
                 tool_choice=gen_tool_choice,
                 response_format=gen_response_format,
+                output_config=(req.gen or {}).get("output_config"),
                 timeout=timeout_sec)
             # llm_text = load_anthropic_stub_from_file()
             # log.info(
@@ -2689,6 +2733,8 @@ async def run(req: HarperRunRequest,  request: Request):
             "project_name": project_id,
             "run_id": req.runId,
             "phase": phase,
+            "req_id": _telemetry_req_id(targets),
+            "duration_ms": round((time.monotonic() - started) * 1000),
             "error_code": "invalid_canonical_artifact",
             "rejected": rejected_canonical,
             "timestamp": telemetry["timestamp"],
@@ -2895,6 +2941,8 @@ async def run(req: HarperRunRequest,  request: Request):
         "project_name": project_id,
         "run_id": req.runId,
         "phase": phase,
+        "req_id": _telemetry_req_id(targets),
+        "duration_ms": round((time.monotonic() - started) * 1000),
         "model": model,
         "pricing": telemetry.get("pricing"),
         "files": telemetry.get("files"),

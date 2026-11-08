@@ -636,6 +636,10 @@ def build_kit_local_agent_package(
             "package_id": f"{run_id}:{req_id}:kit",
             "phase": "kit",
             "req_id": req_id,
+            # kit | acceptance | code_after_locked_acceptance | repair; a repair (auto-eval or asked)
+            # resumes the agent session that wrote the KIT
+            "kit_stage": kit_stage,
+            "repair": bool(kit_stage == "repair" or (isinstance(repair_context, dict) and repair_context.get("repair"))),
             "executor_hint": local_executor,
             "context_path": context_path,
             "prompt_path": prompt_path,

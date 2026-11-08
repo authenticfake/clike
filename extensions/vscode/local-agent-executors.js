@@ -132,6 +132,7 @@ function getExecutorConfig(executorId, settings) {
       label: 'Claude Code',
       command: settings.claudeCodeCommand,
       model: String(settings.claudeCodeModel || '').trim(),
+      effort: String(settings.claudeCodeEffort || '').trim(),
       argsBeforePrompt: [],
       printModeFlag: settings.claudeCodePrintModeFlag || '-p',
       permissionMode: settings.claudeCodePermissionMode || 'acceptEdits',
@@ -159,6 +160,7 @@ function getExecutorConfig(executorId, settings) {
       label: 'GPT Codex',
       command: settings.codexCommand || 'codex',
       model: String(settings.codexModel || '').trim(),
+      effort: String(settings.codexReasoningEffort || '').trim(),
       // Codex CLI non-interactive mode.
       argsBeforePrompt: ['exec'],
       printModeFlag: '',
@@ -511,6 +513,25 @@ function buildLocalAgentModelArgs(executorId, executorConfig) {
   return [];
 }
 
+// The reasoning-effort arguments of a Harper agent run: Codex `-c model_reasoning_effort="<level>"`,
+// Claude Code `--effort <level>`; none when unset (the CLI default) or already given.
+const EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
+function buildLocalAgentEffortArgs(executorId, executorConfig, existingArgs = []) {
+  const effort = String((executorConfig && executorConfig.effort) || '').trim().toLowerCase();
+  if (!EFFORT_LEVELS.has(effort)) return [];
+  const args = Array.isArray(existingArgs) ? existingArgs.map(String) : [];
+  const normalized = normalizeLocalAgentExecutor(executorId);
+  if (normalized === 'gpt_codex') {
+    if (args.some((a) => a.includes('model_reasoning_effort'))) return [];
+    return ['-c', `model_reasoning_effort="${effort === 'max' ? 'xhigh' : effort}"`];
+  }
+  if (normalized === 'claude_code') {
+    if (args.includes('--effort')) return [];
+    return ['--effort', effort];
+  }
+  return [];
+}
+
 // Parse the single-result JSON envelope emitted by `claude -p --output-format json`.
 // Returns the parsed object (which exposes `result`, `model`, `usage`, ...) or
 // null when stdout is not a JSON object, so callers can fall back to raw stdout.
@@ -710,6 +731,7 @@ module.exports = {
   withIsolatedMcp,
   buildLocalAgentDisplayLabel,
   buildLocalAgentEnv,
+  buildLocalAgentEffortArgs,
   localAgentSupportsPhase,
   detectLocalAgentAvailability,
   commandExists,

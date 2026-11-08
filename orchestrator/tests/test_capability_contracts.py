@@ -329,3 +329,47 @@ def test_cloud_and_local_use_same_enrichment_shape():
     local = json.loads(enrich_plan_json_text(json.dumps(plan_local), _metadata()))
     assert cloud["reqs"][0]["capabilities"] == local["reqs"][0]["capabilities"]
     assert cloud["schema_version"] == local["schema_version"] == "1.1.0"
+
+
+def test_vendored_third_party_skills_are_indexed_under_their_agent_name():
+    # vendor/<vendor>/<skill> (VENDORED.json) is selectable like a CLike skill, under the name the
+    # local agents get it (.claude/skills/<vendor>-<skill>); BMAD keeps its own loader
+    import json as _json
+    from services.capabilities import build_capability_context
+
+    ctx = build_capability_context({"repo_root": str(TEMPLATE.parent)})
+    index = _json.loads(next(v for k, v in ctx.items() if k.endswith(".json")))
+    names = [s["name"] for s in index["skills"]]
+    assert "superpowers-test-driven-development" in names
+    assert "superpowers-verification-before-completion" in names
+    assert not any(n.startswith("bmad") for n in names)
+    blob_ctx = build_capability_context(None, {
+        ".clike/skills/vendor/superpowers/test-driven-development/SKILL.md": "---\nname: test-driven-development\ndescription: d\n---\n# TDD\n",
+        ".clike/skills/vendor/bmad/epic-framing/SKILL.md": "---\nname: epic-framing\ndescription: d\n---\n",
+    })
+    blob_index = _json.loads(next(v for k, v in blob_ctx.items() if k.endswith(".json")))
+    assert [s["name"] for s in blob_index["skills"]] == ["superpowers-test-driven-development"]
+
+
+def test_selected_skills_reach_the_kit_whole_and_the_shared_layer_once():
+    # 7 shipped skills end with the same enforcement layer: it made them exceed the preview cap and
+    # lose their own test sections; now the layer is said once and every skill is whole
+    import json as _json
+    from services.capabilities import (
+        MAX_ITEM_PREVIEW_CHARS, SHARED_LAYER_HEADING, build_capability_context, build_selected_capability_context,
+    )
+
+    ctx = build_capability_context({"repo_root": str(TEMPLATE.parent)})
+    index = _json.loads(ctx["CLIKE_CAPABILITY_INDEX.json"])
+    fsa = next(s for s in index["skills"] if s["name"] == "frontend-state-accessibility")
+    assert "[truncated]" not in fsa["preview"] and len(fsa["preview"]) < MAX_ITEM_PREVIEW_CHARS
+    assert "## Gate implications" in fsa["preview"] and SHARED_LAYER_HEADING not in fsa["preview"]
+    assert SHARED_LAYER_HEADING in index["shared_layers"]["promotable-kit-enforcement"]
+    assert all("_shared_layer_text" not in s for s in index["skills"])
+    selected = build_selected_capability_context(
+        core_blobs=ctx, target_req_id="REQ-001",
+        target_contract={"skills": ["frontend-state-accessibility", "backend-contract-boundary", "journey-ui-states"]},
+    )["CLIKE_SELECTED_CAPABILITY_CONTEXT.md"]
+    assert selected.count(SHARED_LAYER_HEADING) == 1
+    assert "Shared enforcement layer of the selected skills (frontend-state-accessibility, backend-contract-boundary)" in selected
+    assert "UI-03" in selected

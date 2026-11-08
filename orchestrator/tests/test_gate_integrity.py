@@ -498,6 +498,12 @@ class GateIntegrityTests(unittest.TestCase):
         mypy = 'test/test_page.py:2: error: Unexpected keyword argument "exact" for "get_by_role"  [call-arg]'
         pytest_runtime = "E   TypeError: get_by_role() got an unexpected keyword argument 'exact'\n\ntest/test_page.py:2: TypeError"
         py_fixed = py.replace(" exact=True,", "")
+        strict_mode = (
+            "  ✘  1 test/a.test.tsx:2:1 › labels (3.9s)\n"
+            "    Error: strict mode violation: getByRole('button', { name: 'Annulla', exact: true }) resolved to 2 elements:\n"
+            "    at test/a.test.tsx:5:3\n"
+        )
+        strict_fixed = js.replace("getByRole('button', { name: 'Annulla', exact: true }))", "getByRole('button', { name: 'Annulla', exact: true }).first())")
         cases = {
             "unknown TS option removed": ("test/a.test.tsx", option_fixed, ts_error, None),
             "literal pattern passed as regex": ("test/a.test.tsx", regex_fixed, literal, None),
@@ -509,6 +515,10 @@ class GateIntegrityTests(unittest.TestCase):
             "mypy unknown keyword": ("test/test_page.py", py_fixed, mypy, None),
             "pytest unknown keyword": ("test/test_page.py", py_fixed, pytest_runtime, None),
             "other keyword dropped": ("test/test_page.py", py_fixed.replace(", level=1", ""), mypy, "assertion identical"),
+            # pilot 2026-11-08: Playwright reports an ambiguous locator in the test itself
+            "ambiguous locator narrowed with first()": ("test/a.test.tsx", strict_fixed, strict_mode, None),
+            "ambiguous locator replaced by another": ("test/a.test.tsx", js.replace("getByRole('button', { name: 'Annulla', exact: true })", "getByText('Annulla')"), strict_mode, "assertion identical"),
+            "first() without the strict-mode proof": ("test/a.test.tsx", strict_fixed, "FAIL test/a.test.tsx > labels\nexpected 'x' to be 'y'", "does not show an error"),
         }
         lock = gate_integrity.ensure_lock(self.proj, REQ)["files"]
         for label, (rel, content, evidence, issue) in cases.items():
@@ -586,3 +596,13 @@ class GateIntegrityTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SharedSupportDiagnosedTests(unittest.TestCase):
+    def test_the_diagnosed_shared_conftest_may_be_fixed_and_nothing_else(self):
+        from services.gate_integrity import _shared_support_diagnosed
+        evidence = ("[CLike EvalRunner] Cause: the candidate's test/conftest.py is the shared test/conftest.py of the "
+                    "promoted REQs; in this regression the KIT is REQ-007's KIT, which has no ci/fixtures/scoring.json.")
+        self.assertTrue(_shared_support_diagnosed(evidence, Path("/k/runs/kit/REQ-009/test/conftest.py")))
+        self.assertFalse(_shared_support_diagnosed(evidence, Path("/k/runs/kit/REQ-009/test/test_conftest.py")))
+        self.assertFalse(_shared_support_diagnosed("AssertionError", Path("/k/runs/kit/REQ-009/test/conftest.py")))

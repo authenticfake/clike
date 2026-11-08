@@ -58,3 +58,48 @@ test('a step no REQ covers is listed (B2B lesson: an authenticated API with no s
   // a SPEC planned before the section: nothing to check
   assert.equal(useCaseCoverage('# SPEC\n## Goals\n', plan), null);
 });
+
+// Journey scenarios: the SPEC includes or excludes each scenario, every included one has a REQ.
+const { specScenarios, scenarioCoverage, scenarioCoverageMessage } = require('../use-case-coverage');
+
+const SPEC_SCENARIOS = `# SPEC
+
+## Scenarios
+- IAM-02 — included — sign-in to the console
+- IAM-03 — included — one generic message on wrong credentials
+- IAM-05 — excluded — delegated to the identity provider (link on the login page)
+- **IAM-01**: excluded (registration is by invitation only)
+- UI-03 — included — every data page shows an actionable error
+- IAM-09 — excluded
+
+## Assumptions
+- IAM-99 not a scenario line of the section
+`;
+
+test('the SPEC scenarios section is read with included and excluded ids and reasons', () => {
+  const s = specScenarios(SPEC_SCENARIOS);
+  assert.deepEqual(s.included, ['IAM-02', 'IAM-03', 'UI-03']);
+  assert.deepEqual(s.excluded.map((e) => e.id), ['IAM-05', 'IAM-01', 'IAM-09']);
+  assert.match(s.excluded[0].reason, /identity provider/);
+  assert.match(s.excluded[1].reason, /invitation only/);
+  assert.equal(s.excluded[2].reason, '');
+  assert.equal(specScenarios('# SPEC\n## Use Cases\n'), null);
+});
+
+test('every included scenario must be owned by a REQ', () => {
+  const plan = { reqs: [
+    { id: 'REQ-001', scenarios: ['IAM-02', { id: 'UI-03' }] },
+    { id: 'REQ-002', scenarios: ['UI-03', 'API-01'] },
+  ] };
+  const c = scenarioCoverage(SPEC_SCENARIOS, plan);
+  assert.deepEqual(c.unassigned, ['IAM-03']);
+  assert.deepEqual(c.unexpected, ['API-01']);
+  assert.deepEqual(c.noReason, ['IAM-09']);
+  assert.deepEqual(c.shared, ['UI-03']);
+  const message = scenarioCoverageMessage(c);
+  assert.match(message, /^⚠ SCENARIOS: 1 included scenario\(s\) no REQ owns/);
+  assert.match(message, /excluded without a reason: IAM-09/);
+  const full = scenarioCoverage(SPEC_SCENARIOS, { reqs: [{ id: 'REQ-001', scenarios: ['IAM-02', 'IAM-03', 'UI-03'] }] });
+  assert.match(scenarioCoverageMessage(full), /^✔ SCENARIOS/);
+  assert.equal(scenarioCoverage('# SPEC', { reqs: [] }), null);
+});

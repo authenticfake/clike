@@ -208,6 +208,93 @@ class AcceptanceCoverageTests(unittest.TestCase):
             self.assertIsNone(self._case(self._project(tmp, review="All criteria implemented and verified.\n")))
 
 
+class ScenarioCoverageTests(unittest.TestCase):
+    """Journey scenarios the plan gives a REQ (reqs[].scenarios) are criteria of their own: the
+    login REQ is not done until wrong credentials, lockout, reset and expiry are proved."""
+
+    LTC = {"checks": [{"id": "unit", "command": "true"}, {"id": "e2e", "command": "true"},
+                      {"id": "lint", "command": "true", "blocking": False}]}
+
+    def _case(self, tmp, acceptance=None, scenarios=("IAM-03", "IAM-05"), tests="def test_iam_03(): ...\n# IAM-05 reset link expires\n"):
+        import json
+        root = Path(tmp)
+        (root / "docs" / "harper").mkdir(parents=True)
+        (root / "docs" / "harper" / "plan.json").write_text(json.dumps({"reqs": [{"id": "REQ-002", "status": "open",
+            "acceptance": ["A01: a verified user signs in"], "scenarios": list(scenarios)}]}))
+        docs = root / "runs" / "kit" / "REQ-002" / "docs"
+        docs.mkdir(parents=True)
+        if acceptance is not None:
+            (docs / "ACCEPTANCE.json").write_text(json.dumps({"criteria": acceptance}))
+        if tests:
+            (root / "runs" / "kit" / "REQ-002" / "test").mkdir(parents=True)
+            (root / "runs" / "kit" / "REQ-002" / "test" / "test_login.py").write_text(tests)
+        cases = EvalRunner(root)._acceptance_coverage_cases("REQ-002", self.LTC)
+        return cases[0] if cases else None
+
+    def test_an_unproven_scenario_blocks(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            case = self._case(tmp, acceptance=[
+                {"id": "A01", "status": "done", "checks": ["unit"]},
+                {"id": "IAM-03", "status": "done", "checks": ["lint"]}])
+            self.assertFalse(case.passed)
+            self.assertTrue(case.blocking)
+            self.assertIn("IAM-03: done, but names no blocking check", case.stderr)
+            self.assertIn("IAM-05: not in ACCEPTANCE.json", case.stderr)
+
+    def test_scenarios_proved_by_own_entries_or_listed_under_a_criterion_pass(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            case = self._case(tmp, acceptance=[
+                {"id": "A01", "status": "done", "checks": ["unit"], "scenarios": ["IAM-05"]},
+                {"id": "IAM-03", "status": "done", "checks": ["e2e"]}])
+            self.assertTrue(case.passed, case.stderr)
+            self.assertIn("3 acceptance criteria", case.stdout)
+
+    def test_a_scenario_no_test_names_blocks(self):
+        import tempfile
+        done = [{"id": "A01", "status": "done", "checks": ["unit"], "scenarios": ["IAM-05"]},
+                {"id": "IAM-03", "status": "done", "checks": ["e2e"]}]
+        with tempfile.TemporaryDirectory() as tmp:
+            case = self._case(tmp, acceptance=done, tests="def test_login(): ...\n")
+            self.assertFalse(case.passed)
+            self.assertIn("IAM-03: no test of the KIT names it", case.stderr)
+            self.assertIn("IAM-05: no test of the KIT names it", case.stderr)
+        with tempfile.TemporaryDirectory() as tmp:  # name, underscore or compact forms all count
+            case = self._case(tmp, acceptance=done, tests="it('IAM03 shows the generic message')\ndef test_iam_05(): ...\n")
+            self.assertTrue(case.passed, case.stderr)
+
+    def test_scenarios_without_acceptance_file_block(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            case = self._case(tmp)
+            self.assertFalse(case.passed)
+            self.assertIn("owns journey scenarios (IAM-03, IAM-05)", case.stderr)
+
+    def test_a_bullet_stating_a_scenario_is_that_scenario_not_a_new_criterion(self):
+        import json
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "docs" / "harper").mkdir(parents=True)
+            (root / "docs" / "harper" / "plan.json").write_text(json.dumps({"reqs": [{"id": "REQ-002", "status": "open",
+                "acceptance": ["A01: a verified user signs in", "IAM-03: If the password is wrong, then …"], "scenarios": ["IAM-03"]}]}))
+            kit = root / "runs" / "kit" / "REQ-002"
+            (kit / "docs").mkdir(parents=True)
+            (kit / "test").mkdir(parents=True)
+            (kit / "test" / "test_login.py").write_text("def test_iam_03(): ...\n")
+            (kit / "docs" / "ACCEPTANCE.json").write_text(json.dumps({"criteria": [
+                {"id": "A01", "status": "done", "checks": ["unit"]}, {"id": "IAM-03", "status": "done", "checks": ["e2e"]}]}))
+            case = EvalRunner(root)._acceptance_coverage_cases("REQ-002", self.LTC)[0]
+            self.assertTrue(case.passed, case.stderr)
+            self.assertIn("2 acceptance criteria", case.stdout)  # not A02 and IAM-03 twice
+
+    def test_a_req_without_scenarios_keeps_the_previous_behaviour(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(self._case(tmp, scenarios=()))
+
+
 class WorkspaceLockTests(unittest.TestCase):
     def test_two_runs_of_the_same_workspace_never_overlap(self):
         # B2B: /finalize --verify sent twice composed the same SOLUTION workspace at once
@@ -237,3 +324,193 @@ class WorkspaceLockTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EpicFeaturesTests(unittest.TestCase):
+    """C3: an epic is done when every feature of FEATURES.json is done with its blocking checks."""
+
+    LTC = {"checks": [{"id": "unit", "command": "true"}, {"id": "lint", "command": "true", "blocking": False}]}
+
+    def _case(self, tmp, features=None, profile="C3"):
+        import json
+        root = Path(tmp)
+        (root / "docs" / "harper").mkdir(parents=True)
+        (root / "docs" / "harper" / "plan.json").write_text(json.dumps({"reqs": [{"id": "REQ-004", "status": "open", "profile": profile,
+            "features": [{"id": "F01", "title": "sign in"}, {"id": "F02", "title": "reset"}]}]}))
+        docs = root / "runs" / "kit" / "REQ-004" / "docs"
+        docs.mkdir(parents=True)
+        if features is not None:
+            (docs / "FEATURES.json").write_text(json.dumps({"epic": "REQ-004", "features": features}))
+        cases = EvalRunner(root)._epic_features_cases("REQ-004", self.LTC)
+        if not cases:
+            return None
+        if len(cases) == 1:
+            return cases[0]
+        from eval_runner import EvalCase
+        return EvalCase(name="all", passed=all(c.passed for c in cases), code=1, blocking=True, stdout="",
+                        stderr="\n".join(f"{c.name} {c.stderr}" for c in cases))
+
+    def test_every_feature_done_with_a_blocking_check(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            case = self._case(tmp, [{"id": "F01", "status": "done", "checks": ["unit"]}, {"id": "F02", "status": "done", "checks": ["unit"]}])
+            self.assertTrue(case.passed, case.stderr)
+
+    def test_missing_todo_or_unproven_features_block(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            case = self._case(tmp, [{"id": "F01", "status": "done", "checks": ["lint"]}, {"id": "F03", "status": "todo", "title": "extra"}])
+            self.assertFalse(case.passed)
+            self.assertIn("F02: planned, not in FEATURES.json", case.stderr)
+            self.assertIn("F01: done, but names no blocking check", case.stderr)
+            self.assertIn("F03: todo", case.stderr)
+            self.assertIn("acceptance::features::F02", case.stderr)  # one case per feature left
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIn("has no docs/FEATURES.json", self._case(tmp).stderr)
+
+    def test_not_an_epic_is_not_checked(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(self._case(tmp, profile="C2"))
+
+
+class AcceptanceBookkeepingTests(unittest.TestCase):
+    """Cloud pilot: the model wrote status 'implemented' and named a check 'tests' the LTC calls
+    otherwise; the loop stopped as 'no progress' though the problems had changed."""
+
+    LTC = {"checks": [{"id": "unit-tests", "command": "true"}, {"id": "lint", "command": "true"}]}
+
+    def _case(self, tmp, criteria):
+        import json
+        root = Path(tmp)
+        (root / "docs" / "harper").mkdir(parents=True)
+        (root / "docs" / "harper" / "plan.json").write_text(json.dumps({"reqs": [{"id": "REQ-009", "status": "open",
+            "acceptance": ["A01: x", "A02: y"]}]}))
+        docs = root / "runs" / "kit" / "REQ-009" / "docs"
+        docs.mkdir(parents=True)
+        (docs / "ACCEPTANCE.json").write_text(json.dumps({"criteria": criteria}))
+        return EvalRunner(root)._acceptance_coverage_cases("REQ-009", self.LTC)[0]
+
+    def test_done_synonyms_count_but_still_need_a_blocking_check(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            case = self._case(tmp, [{"id": "A01", "status": "implemented", "checks": ["unit-tests"]},
+                                    {"id": "A02", "status": "Completed", "checks": ["lint"]}])
+            self.assertTrue(case.passed, case.stderr)
+        with tempfile.TemporaryDirectory() as tmp:
+            case = self._case(tmp, [{"id": "A01", "status": "implemented", "checks": ["tests"]},
+                                    {"id": "A02", "status": "passed", "checks": ["lint"]}])
+            self.assertFalse(case.passed)
+            self.assertIn("A01: done, but names no blocking check", case.stderr)
+            self.assertIn("Blocking checks of ci/LTC.json a criterion can name: lint, unit-tests", case.stderr)
+
+    def test_acceptance_failures_get_a_fingerprint_that_follows_their_problems(self):
+        import tempfile
+        from eval_runner import EvalCase
+        with tempfile.TemporaryDirectory() as tmp:
+            runner = EvalRunner(Path(tmp))
+            a = EvalCase(name="acceptance::coverage", passed=False, code=1, stdout="", stderr="A01: unknown status implemented")
+            b = EvalCase(name="acceptance::coverage", passed=False, code=1, stdout="", stderr="A01: done, but names no blocking check")
+            runner._report_from_cases(profile_path=Path(tmp) / "p", req_id="REQ-009", mode="auto", cases=[a])
+            runner._report_from_cases(profile_path=Path(tmp) / "p", req_id="REQ-009", mode="auto", cases=[b])
+            self.assertTrue(a.fingerprint and b.fingerprint and a.fingerprint != b.fingerprint)
+
+
+class PromotedFileKeptTests(unittest.TestCase):
+    """Cloud pilot: one generation rewrote the promoted app.py (196 -> 34 lines) and pyproject.toml
+    (no dependencies); every promoted REQ's regression failed."""
+
+    def _cases(self, tmp, files, amends=None):
+        import json
+        root = Path(tmp)
+        (root / "docs" / "harper").mkdir(parents=True)
+        req = {"id": "REQ-009", "status": "open", **({"amends": amends} if amends else {})}
+        (root / "docs" / "harper" / "plan.json").write_text(json.dumps({"reqs": [req]}))
+        app = "\n".join(f"app.include_router(router_{i})" for i in range(40)) + "\n"
+        (root / "src" / "pkg").mkdir(parents=True)
+        (root / "src" / "pkg" / "app.py").write_text(app)
+        (root / "src" / "pyproject.toml").write_text('[project]\nname="x"\ndependencies=["fastapi==1", "SQLAlchemy==2"]\n')
+        kit = root / "runs" / "kit" / "REQ-009" / "src"
+        for rel, text in files.items():
+            (kit / rel).parent.mkdir(parents=True, exist_ok=True)
+            (kit / rel).write_text(text(app) if callable(text) else text)
+        return {c.name: c for c in EvalRunner(root)._promoted_source_cases("REQ-009")}
+
+    def test_a_shorter_rewrite_or_lost_dependencies_block(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            cases = self._cases(tmp, {"pkg/app.py": "app = make()\napp.include_router(review)\n",
+                                      "pyproject.toml": '[project]\nname="x"\ndependencies=["fastapi==1"]\n'})
+            app = cases["structure::promoted-file-kept::src/pkg/app.py"]
+            self.assertTrue(app.blocking and not app.passed)
+            self.assertIn("keeps 0 of its 40 lines", app.stderr)
+            self.assertIn("Current src/pkg/app.py (promoted)", app.stderr)
+            deps = cases["structure::promoted-file-kept::src/pyproject.toml"]
+            self.assertIn("drops promoted dependencies: sqlalchemy", deps.stderr)
+
+    def test_extending_a_promoted_file_passes_and_an_amending_req_is_not_checked(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            cases = self._cases(tmp, {"pkg/app.py": lambda app: app + "app.include_router(review)\n",
+                                      "pyproject.toml": '[project]\nname="x"\ndependencies=["fastapi==1", "SQLAlchemy==2", "openpyxl==3"]\n'})
+            self.assertEqual(cases, {})
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(self._cases(tmp, {"pkg/app.py": "app = make()\n"}, amends=["REQ-003"]), {})
+
+
+class RegressionCandidateDependenciesTests(unittest.TestCase):
+    """Epic pilot: the candidate added openpyxl to the shared app; a promoted REQ's regression
+    environment, built from its own requirements only, failed on the import."""
+
+    def test_a_regression_environment_gets_the_candidates_requirements_too(self):
+        import json
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cand = root / "runs" / "kit" / "REQ-009"
+            (cand / "src").mkdir(parents=True)
+            (cand / "ci").mkdir(parents=True)
+            (cand / "ci" / "requirements.txt").write_text("openpyxl==3.1.5\n")
+            other = root / "runs" / "kit" / "REQ-001" / "ci"
+            other.mkdir(parents=True)
+            (other / "requirements.txt").write_text("fastapi==0.115.12\n")
+            ltc = {"req_id": "REQ-001", "runtime": {"name": "python"}, "checks": [{"id": "t", "command": "true"}]}
+            (other / "LTC.json").write_text(json.dumps(ltc))
+            runner = EvalRunner(root)._regression_runner("REQ-009", "REQ-001", cand / "src")
+            self.assertEqual(runner._candidate_requirements(), [cand / "ci" / "requirements.txt"])
+            seen = []
+
+            def fake(self, *, req_id, requirements_file, env, cwd):
+                seen.append(Path(requirements_file).read_text().strip())
+                return env, []
+
+            with patch.object(EvalRunner, "_ensure_eval_venv", fake):
+                runner.run_profile(profile=str(other / "LTC.json"), ltc=ltc, req_id="REQ-001")
+            self.assertEqual(seen, ["fastapi==0.115.12", "openpyxl==3.1.5"])
+            self.assertEqual(EvalRunner(root)._candidate_requirements(), [])  # the candidate's own eval: nothing extra
+
+
+class SharedSupportReadsKitTests(unittest.TestCase):
+    def test_a_regression_failing_on_a_file_the_shared_conftest_reads_from_the_kit_is_explained(self):
+        import json
+        import tempfile
+        from eval_runner import EvalCase
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "docs" / "harper").mkdir(parents=True)
+            (root / "docs" / "harper" / "plan.json").write_text(json.dumps({"reqs": [{"id": "REQ-009", "status": "open"}]}))
+            (root / "test").mkdir()
+            (root / "test" / "conftest.py").write_text("import pytest\n")
+            kit = root / "runs" / "kit" / "REQ-009" / "test"
+            (kit / "leadintel" / "review").mkdir(parents=True)
+            (kit / "conftest.py").write_text('CFG = (KIT_ROOT / "ci/fixtures/scoring.json")\n')
+            (kit / "leadintel" / "review" / "conftest.py").write_text('X = (KIT_ROOT / "ci/fixtures/review.json")\n')
+            runner = EvalRunner(root)
+            reads = runner._shared_support_kit_reads("REQ-009")
+            self.assertEqual(reads, {"test/conftest.py": ["ci/fixtures/scoring.json"]})  # own dir not shared
+            failing = EvalCase(name="regression::REQ-007::test:unit", passed=False, code=1, stdout="",
+                               stderr="FileNotFoundError: [Errno 2] No such file or directory: '/w/REQ-007/ci/fixtures/scoring.json'")
+            other = EvalCase(name="regression::REQ-003::test:unit", passed=False, code=1, stdout="", stderr="AssertionError")
+            runner._explain_kit_reads(reads, [failing, other])
+            self.assertIn("in this regression the KIT is REQ-007's KIT, which has no ci/fixtures/scoring.json", failing.stderr)
+            self.assertEqual(other.stderr, "AssertionError")

@@ -309,6 +309,7 @@ def _aggregate_rows(rows: List[dict]) -> dict:
     per_phase: Dict[str, dict] = {}
     per_provider: Dict[str, dict] = {}
     per_model: Dict[str, dict] = {}
+    per_req: Dict[str, dict] = {}
     by_day: Dict[str, dict] = {}
 
     for r in rows:
@@ -331,6 +332,13 @@ def _aggregate_rows(rows: List[dict]) -> dict:
         pm = per_model.setdefault(model, {"runs":0,"cost_usd":0.0})
         pm["runs"]+=1; pm["cost_usd"]+=cost
 
+        req_id = str(r.get("req_id") or "").strip()
+        if req_id:  # time, tokens and cost of one requirement across KIT, repairs and evals
+            pr = per_req.setdefault(req_id, {"runs":0,"cost_usd":0.0,"tokens_in":0,"tokens_out":0,"duration_ms":0,"per_phase":{}})
+            pr["runs"]+=1; pr["cost_usd"]+=cost; pr["tokens_in"]+=tin; pr["tokens_out"]+=tout
+            pr["duration_ms"]+=_int(r.get("duration_ms"))
+            pr["per_phase"][phase] = pr["per_phase"].get(phase, 0) + 1
+
         day = datetime.utcfromtimestamp(_num(r.get("timestamp"),0)).strftime("%Y-%m-%d")
         bd = by_day.setdefault(day, {"runs":0,"cost_usd":0.0,"tokens_in":0,"tokens_out":0,"tokens_cached":0})
         bd["runs"]+=1; bd["cost_usd"]+=cost; bd["tokens_in"]+=tin; bd["tokens_out"]+=tout; bd["tokens_cached"]+=tcache
@@ -342,6 +350,7 @@ def _aggregate_rows(rows: List[dict]) -> dict:
         "per_phase": per_phase,
         "per_provider": per_provider,
         "per_model": per_model,
+        "per_req": per_req,
         "by_day": by_day,
     }
 
