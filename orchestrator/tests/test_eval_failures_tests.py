@@ -372,3 +372,45 @@ class EpicFeaturesTests(unittest.TestCase):
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
             self.assertIsNone(self._case(tmp, profile="C2"))
+
+
+class AcceptanceBookkeepingTests(unittest.TestCase):
+    """Cloud pilot: the model wrote status 'implemented' and named a check 'tests' the LTC calls
+    otherwise; the loop stopped as 'no progress' though the problems had changed."""
+
+    LTC = {"checks": [{"id": "unit-tests", "command": "true"}, {"id": "lint", "command": "true"}]}
+
+    def _case(self, tmp, criteria):
+        import json
+        root = Path(tmp)
+        (root / "docs" / "harper").mkdir(parents=True)
+        (root / "docs" / "harper" / "plan.json").write_text(json.dumps({"reqs": [{"id": "REQ-009", "status": "open",
+            "acceptance": ["A01: x", "A02: y"]}]}))
+        docs = root / "runs" / "kit" / "REQ-009" / "docs"
+        docs.mkdir(parents=True)
+        (docs / "ACCEPTANCE.json").write_text(json.dumps({"criteria": criteria}))
+        return EvalRunner(root)._acceptance_coverage_cases("REQ-009", self.LTC)[0]
+
+    def test_done_synonyms_count_but_still_need_a_blocking_check(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            case = self._case(tmp, [{"id": "A01", "status": "implemented", "checks": ["unit-tests"]},
+                                    {"id": "A02", "status": "Completed", "checks": ["lint"]}])
+            self.assertTrue(case.passed, case.stderr)
+        with tempfile.TemporaryDirectory() as tmp:
+            case = self._case(tmp, [{"id": "A01", "status": "implemented", "checks": ["tests"]},
+                                    {"id": "A02", "status": "passed", "checks": ["lint"]}])
+            self.assertFalse(case.passed)
+            self.assertIn("A01: done, but names no blocking check", case.stderr)
+            self.assertIn("Blocking checks of ci/LTC.json a criterion can name: lint, unit-tests", case.stderr)
+
+    def test_acceptance_failures_get_a_fingerprint_that_follows_their_problems(self):
+        import tempfile
+        from eval_runner import EvalCase
+        with tempfile.TemporaryDirectory() as tmp:
+            runner = EvalRunner(Path(tmp))
+            a = EvalCase(name="acceptance::coverage", passed=False, code=1, stdout="", stderr="A01: unknown status implemented")
+            b = EvalCase(name="acceptance::coverage", passed=False, code=1, stdout="", stderr="A01: done, but names no blocking check")
+            runner._report_from_cases(profile_path=Path(tmp) / "p", req_id="REQ-009", mode="auto", cases=[a])
+            runner._report_from_cases(profile_path=Path(tmp) / "p", req_id="REQ-009", mode="auto", cases=[b])
+            self.assertTrue(a.fingerprint and b.fingerprint and a.fingerprint != b.fingerprint)

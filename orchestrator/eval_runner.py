@@ -191,6 +191,7 @@ _SUPERSEDED_TESTS_NOTE = "[CLike EvalRunner] Superseded tests"
 _CONTENTION_NOTE = "[CLike EvalRunner] Timeout under parallel load"
 _DECLARE_NOTE = "[CLike EvalRunner] A delivered test of an amended REQ"
 _ACCEPTANCE_NOTE = "[CLike EvalRunner] Acceptance coverage"
+_DONE_SYNONYMS = {"implemented", "complete", "completed", "passed", "pass", "verified", "satisfied", "met", "delivered", "covered"}
 # A failure where the new value extends the old one (pytest, jest/vitest, JUnit/AssertJ, Go/testify…)
 _ADDITIVE_DIFF_RE = re.compile(
     r"Extra items in the (?:left|right) (?:set|list|dict)|(?:Left|Right) contains \d+ more items?|"
@@ -3200,6 +3201,11 @@ class EvalRunner:
             if not case.passed and not case.excerpt:
                 case.excerpt = eval_failures.excerpt(case.stdout or "", case.stderr or "")
                 case.fingerprint = eval_failures.fingerprint(case.excerpt) or None
+            if not case.passed and not case.fingerprint and case.name.startswith("acceptance::"):
+                # CLike's own acceptance checks print no test errors: their problem lines are the
+                # fingerprint, so a repair that fixes some of them counts as progress
+                lines = sorted({re.sub(r"\d+", "#", line.strip()) for line in (case.stderr or "").splitlines() if line.strip()})
+                case.fingerprint = hashlib.sha1("\n".join(lines).encode("utf-8")).hexdigest()[:12] if lines else None
         passed = sum(1 for case in cases if case.passed)
         blocked = sum(1 for case in cases if case.blocked)
         hard_failed = sum(
@@ -4312,6 +4318,8 @@ class EvalRunner:
                 problems.append(f"{cid}: not in ACCEPTANCE.json — {short}")
                 continue
             status = str(entry.get("status") or "").strip().lower().replace("-", "_").replace(" ", "_")
+            # the words models use for done; a blocking check proving it is still required
+            status = "done" if status in _DONE_SYNONYMS else status
             # the names agents use for the same fields (B2B REQ-038: blocking_checks, evidence)
             note = next((str(entry[k]).strip() for k in ("note", "evidence", "reason", "notes", "details")
                          if str(entry.get(k) or "").strip()), "")
@@ -4359,7 +4367,8 @@ class EvalRunner:
             return [EvalCase(name=name, passed=False, code=1, blocking=True, stdout=shown_external.strip(), stderr=(
                 f"{_ACCEPTANCE_NOTE}: {len(problems)} acceptance criterion/criteria of {req_id} not delivered — the checks "
                 "passing is not enough to promote it:\n" + "\n".join(f"  {p}" for p in problems) +
-                f"\nImplement them (with blocking checks in ci/LTC.json that verify them) and update docs/ACCEPTANCE.json."))]
+                f"\nImplement them (with blocking checks in ci/LTC.json that verify them) and update docs/ACCEPTANCE.json."
+                + (f"\nBlocking checks of ci/LTC.json a criterion can name: {', '.join(sorted(blocking_checks))}." if blocking_checks else "")))]
         return [EvalCase(name=name, passed=True, code=0, blocking=True, stderr="",
                          stdout=f"{len(ids)} acceptance criteria of {req_id}: done with their checks.{shown_external}")]
 
