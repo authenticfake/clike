@@ -596,3 +596,13 @@ class GateIntegrityTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SharedSupportDiagnosedTests(unittest.TestCase):
+    def test_the_diagnosed_shared_conftest_may_be_fixed_and_nothing_else(self):
+        from services.gate_integrity import _shared_support_diagnosed
+        evidence = ("[CLike EvalRunner] Cause: the candidate's test/conftest.py is the shared test/conftest.py of the "
+                    "promoted REQs; in this regression the KIT is REQ-007's KIT, which has no ci/fixtures/scoring.json.")
+        self.assertTrue(_shared_support_diagnosed(evidence, Path("/k/runs/kit/REQ-009/test/conftest.py")))
+        self.assertFalse(_shared_support_diagnosed(evidence, Path("/k/runs/kit/REQ-009/test/test_conftest.py")))
+        self.assertFalse(_shared_support_diagnosed("AssertionError", Path("/k/runs/kit/REQ-009/test/conftest.py")))

@@ -604,6 +604,16 @@ def _js_test_change_issue(path: Path, before: str, content: str, evidence: str) 
     return None
 
 
+def _shared_support_diagnosed(evidence: str, path: Path) -> bool:
+    """CLike diagnosed this test-support file (a conftest/helper, not a test module) as the shared
+    file the promoted REQs' regressions load and that reads this KIT's files (eval_runner
+    _explain_kit_reads): moving the KIT-specific fixtures out of it is the cure. Codex pilot
+    2026-11-08: the agent fixed the shared conftest twice and the lock restored it twice."""
+    if path.name.startswith("test_") or path.suffix != ".py":
+        return False
+    return bool(re.search(rf"Cause: the candidate's \S*{re.escape(path.name)} is the shared", evidence or ""))
+
+
 def _test_change_issue(
     path: Path, locked_digest: Optional[str], content: str, evidence: str = "", previous: Optional[str] = None
 ) -> Optional[str]:
@@ -628,7 +638,7 @@ def _test_change_issue(
         return _LOCKED_TEST_ISSUE
     if new_body == old_body and new_imports <= old_imports:
         return None
-    if not _harness_error_in(evidence, path):
+    if not _harness_error_in(evidence, path) and not _shared_support_diagnosed(evidence, path):
         return _LOCKED_TEST_ISSUE + " (the eval does not show an error in the test itself)"
     if _test_contract(content) != _test_contract(before) and _test_contract(content) != _test_contract(
         before, _unknown_options(evidence, path)
