@@ -1280,8 +1280,8 @@ async function executeLocalAgentPackage({
   }
 
   // an auto-eval repair resumes the agent session of the REQ's KIT (forked): warm context and cache
-  const kitStage = String(localAgentPackage.kit_stage || '');
-  if (phaseForAgent === 'kit' && (kitStage === 'repair' || localAgentPackage.repair === true) && vscode.workspace.getConfiguration('clike').get('localAgent.resumeRepairs', true)) {
+  const packageKitStage = String(localAgentPackage.kit_stage || '');
+  if (phaseForAgent === 'kit' && (packageKitStage === 'repair' || localAgentPackage.repair === true) && vscode.workspace.getConfiguration('clike').get('localAgent.resumeRepairs', true)) {
     const sessionId = sessionToResume(clikeExtensionContext?.workspaceState.get(KIT_SESSIONS_KEY) || {}, reqForAgent, selectedExecutor);
     if (sessionId) {
       launcherArgs = resumeArgs(selectedExecutor, launcherArgs, sessionId);
