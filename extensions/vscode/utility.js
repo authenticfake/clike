@@ -1436,6 +1436,13 @@ async function buildHarperBody(phase, payload, projectRootUri, out) {
   Object.assign(core_blobs, await collectBmadVendorSkillCoreBlobs(projectRootUri, payload));
   payload["idea_md"] = idea_md;
   payload["core_blobs"] = core_blobs;
+  // REQ capacity profile (C1 cloud single call, C2 agent vertical slice, C3 epic feature by
+  // feature): the plan sizes REQs on it, the KIT of an epic runs feature by feature. "auto" lets
+  // the orchestrator choose from the executor of the run.
+  try {
+    const profile = String(vscode.workspace.getConfiguration('clike').get('plan.capacityProfile', 'auto') || 'auto').toUpperCase();
+    if (['C1', 'C2', 'C3'].includes(profile)) payload["capacityProfile"] = profile;
+  } catch { /* settings unavailable: orchestrator default */ }
   // Cloud models see only the prompt: the code the phase builds on goes with it, chosen
   // deterministically from the promotion reports (a local agent reads the workspace instead).
   try {

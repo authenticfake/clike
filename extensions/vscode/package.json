@@ -405,6 +405,18 @@
           "default": true,
           "description": "Restrict local agent usage to base /kit flows and disable local follow-up phases for now."
         },
+        "clike.plan.capacityProfile": {
+          "type": "string",
+          "enum": ["auto", "C1", "C2", "C3"],
+          "default": "auto",
+          "enumDescriptions": [
+            "From the executor of the run: C2 with a local agent, C1 in the cloud.",
+            "C1 — cloud, one generation call per REQ: REQs of one domain, 6–8 acceptance criteria.",
+            "C2 — coding agent: vertical slices (API, data, UI and tests of a capability in one REQ), 10–14 criteria.",
+            "C3 — epics with an internal feature list, kitted one feature at a time with progress kept on disk."
+          ],
+          "description": "Unit of work /plan sizes REQs on, by what the KIT executor can sustain. The same rules reach the cloud prompt and the local agents."
+        },
         "clike.localAgent.timeoutMinutes": {
           "type": "number",
           "default": 30,

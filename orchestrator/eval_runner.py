@@ -23,6 +23,7 @@ import eval_failures
 import eval_runtimes
 from services.gate_integrity import _DEFINES_TESTS_RE
 from services.root_files import KIT_ROOT_DIR, extra_root_files, is_allowed_root_path, root_policy
+from services.quality_context import req_scenarios
 import eval_tools
 import sandbox_resources
 from utils.safe_paths import validate_req_id
@@ -4196,13 +4197,20 @@ class EvalRunner:
         the file, a SELF_REVIEW that declares the KIT incomplete blocks the same way."""
         req = next((r for r in self._plan_reqs() if str(r["id"]).upper() == str(req_id).upper()), None)
         acceptance = [str(a) for a in (req or {}).get("acceptance") or [] if str(a).strip()]
-        if not acceptance:
+        # journey scenarios the plan gives this REQ (services/quality_context.py): each one is a
+        # criterion of its own, proved by a blocking check like the acceptance bullets
+        scenarios = req_scenarios(req)
+        if not acceptance and not scenarios:
             return []
         kit = self.project_root / "runs" / "kit" / self._safe_req_id(req_id)
         ids = []
         for index, text in enumerate(acceptance, start=1):
             m = re.match(r"\s*(REQ-[\w-]+?-A\d+)\b", text) or re.match(r"\s*(A\d+)\b", text)
             ids.append(m.group(1) if m else f"A{index:02d}")
+        for sid in scenarios:
+            if sid not in ids:
+                ids.append(sid)
+                acceptance.append(f"{sid} (journey scenario of the plan)")
         review = ""
         try:
             review = (kit / "docs" / "SELF_REVIEW.md").read_text(encoding="utf-8", errors="ignore")
@@ -4212,8 +4220,13 @@ class EvalRunner:
         path = kit / "docs" / "ACCEPTANCE.json"
         name = "acceptance::coverage"
         if not path.is_file():
-            if not incomplete:
+            if not incomplete and not scenarios:
                 return []  # nothing declared either way: the checks decide, as before
+            if not incomplete:
+                return [EvalCase(name=name, passed=False, code=1, blocking=True, stdout="", stderr=(
+                    f"{_ACCEPTANCE_NOTE}: {req_id} owns journey scenarios ({', '.join(scenarios)}) and the KIT has no "
+                    f"docs/ACCEPTANCE.json proving them. Write runs/kit/{req_id}/docs/ACCEPTANCE.json with the status of "
+                    f"each criterion ({', '.join(ids)}) and the blocking checks that verify it."))]
             return [EvalCase(name=name, passed=False, code=1, blocking=True, stdout="", stderr=(
                 f"{_ACCEPTANCE_NOTE}: the KIT's SELF_REVIEW.md declares {req_id} incomplete and the KIT has no "
                 f"docs/ACCEPTANCE.json:\n" + "\n".join(f"  {line}" for line in incomplete) +
@@ -4222,6 +4235,10 @@ class EvalRunner:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
             entries = {str(e.get("id") or "").strip(): e for e in (data.get("criteria") or []) if isinstance(e, dict)}
+            for e in (data.get("criteria") or []):  # a criterion may prove scenarios: "scenarios": ["IAM-03"]
+                if isinstance(e, dict):
+                    for sid in req_scenarios({"scenarios": e.get("scenarios") or []}):
+                        entries.setdefault(sid, e)
         except Exception as exc:
             return [EvalCase(name=name, passed=False, code=2, blocking=True, stdout="",
                              stderr=f"{_ACCEPTANCE_NOTE}: docs/ACCEPTANCE.json is not valid JSON with a criteria list: {exc}")]

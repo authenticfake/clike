@@ -16,7 +16,7 @@ const {
 const { validateLocalMcpRequest } = require('./mcp-request-guard');
 const extensionMcp = require('./extension-mcp');
 const autopilot = require('./autopilot');
-const { projectUseCaseCoverage, useCaseCoverageMessage } = require('./use-case-coverage');
+const { projectUseCaseCoverage, useCaseCoverageMessage, projectScenarioCoverage, scenarioCoverageMessage } = require('./use-case-coverage');
 const planReadiness = require('./plan-readiness');
 const { saveRejectedTestFix, rejectedTestFixMessage, applyLatestTestFix, revertAppliedTestFix } = require('./rejected-test-fix');
 const { createFreshnessCheck } = require('./extension-freshness');
@@ -5990,6 +5990,16 @@ async function cmdOpenChat(context) {
               }
             } catch (e) {
               log(`[useCases] coverage not computed: ${e?.message || e}`);
+            }
+            // every journey scenario the SPEC includes is owned by a REQ (proved at eval)
+            try {
+              const scenarios = projectScenarioCoverage(toFsPath(wsroot));
+              if (scenarios) {
+                panel.webview.postMessage({ type: 'echo', message: scenarioCoverageMessage(scenarios) });
+                log(`[scenarios] ${JSON.stringify(scenarios)}`);
+              }
+            } catch (e) {
+              log(`[scenarios] coverage not computed: ${e?.message || e}`);
             }
             // REQs the plan marks not KIT-ready: the owner's open questions, before any /kit
             try {

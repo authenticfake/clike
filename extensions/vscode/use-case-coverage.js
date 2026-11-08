@@ -107,4 +107,104 @@ function useCaseCoverageMessage(coverage) {
     (notes.length ? ` Also: ${notes.join('; ')}.` : '');
 }
 
-module.exports = { useCasesSection, specUseCases, useCaseCoverage, projectUseCaseCoverage, useCaseCoverageMessage };
+// Journey scenarios (the journey skills of .clike/skills, orchestrator/services/quality_context.py):
+// the SPEC `## Scenarios` section includes or excludes each scenario a use case implies
+// (`- IAM-03 — included — …`, `- IAM-03 — excluded — <reason>`), and every included scenario is
+// owned by a REQ (`reqs[].scenarios`). The eval then blocks a REQ whose scenario has no proof.
+const SCENARIO_ID = /\b([A-Z]{2,6}-\d{2,3})\b/;
+
+function scenariosSection(specText) {
+  const text = String(specText || '');
+  const start = text.search(/^##\s+Scenarios\s*$/m);
+  if (start < 0) return null;
+  const rest = text.slice(start).split('\n').slice(1).join('\n');
+  const end = rest.search(/^##\s+\S/m);
+  return end < 0 ? rest : rest.slice(0, end);
+}
+
+/** { included: [ids], excluded: [{ id, reason }] } of the SPEC, or null without the section. */
+function specScenarios(specText) {
+  const section = scenariosSection(specText);
+  if (section === null) return null;
+  const included = [];
+  const excluded = [];
+  for (const line of section.split('\n')) {
+    const m = SCENARIO_ID.exec(line.toUpperCase());
+    if (!m || /^\s*#/.test(line)) continue;
+    const id = m[1];
+    const tail = line.slice(line.toUpperCase().indexOf(id) + id.length);
+    const parts = tail.split(/\s+[—–|-]\s+|\s*[—–|]\s*/).map((p) => p.trim()).filter(Boolean);
+    const first = (parts[0] || '').replace(/^[\s:*`(]+/, '');
+    const decision = /^(excluded|out of scope|not applicable)\b/i.exec(first);
+    if (decision) {
+      const inline = first.slice(decision[0].length).replace(/^[\s:)*`,(]+/, '').replace(/[)*`]+$/, '').trim();
+      const reason = [inline, ...parts.slice(1)].filter(Boolean).join(' — ');
+      if (!excluded.some((e) => e.id === id)) excluded.push({ id, reason });
+    } else if (!included.includes(id)) {
+      included.push(id);
+    }
+  }
+  return { included, excluded };
+}
+
+/** Map scenario id -> [REQ ids] from plan.json `reqs[].scenarios` (ids or { id }). */
+function planScenarios(plan) {
+  const owned = new Map();
+  for (const req of (plan && Array.isArray(plan.reqs) ? plan.reqs : [])) {
+    const list = Array.isArray(req?.scenarios) ? req.scenarios : [];
+    for (const raw of list) {
+      const m = SCENARIO_ID.exec(String(raw && typeof raw === 'object' ? raw.id : raw || '').toUpperCase());
+      if (m) owned.set(m[1], [...(owned.get(m[1]) || []), String(req.id || '?')]);
+    }
+  }
+  return owned;
+}
+
+/**
+ * Scenario coverage: null when the SPEC has no `## Scenarios` section; otherwise { included,
+ * excluded, unassigned: [included ids no REQ owns], unexpected: [ids a REQ owns the SPEC does not
+ * include], noReason: [excluded ids without a reason], shared: [ids owned by more than one REQ] }.
+ */
+function scenarioCoverage(specText, plan) {
+  const spec = specScenarios(specText);
+  if (spec === null) return null;
+  const owned = planScenarios(plan);
+  return {
+    included: spec.included.length,
+    excluded: spec.excluded.length,
+    unassigned: spec.included.filter((id) => !owned.has(id)),
+    unexpected: [...owned.keys()].filter((id) => !spec.included.includes(id)).sort(),
+    noReason: spec.excluded.filter((e) => !e.reason).map((e) => e.id),
+    shared: [...owned.entries()].filter(([, reqs]) => reqs.length > 1).map(([id]) => id).sort(),
+  };
+}
+
+function projectScenarioCoverage(workspaceRoot) {
+  const harper = path.join(workspaceRoot, 'docs', 'harper');
+  let spec = '';
+  let plan = null;
+  try { spec = fs.readFileSync(path.join(harper, 'SPEC.md'), 'utf8'); } catch { return null; }
+  try { plan = JSON.parse(fs.readFileSync(path.join(harper, 'plan.json'), 'utf8')); } catch { return null; }
+  return scenarioCoverage(spec, plan);
+}
+
+function scenarioCoverageMessage(coverage) {
+  if (!coverage) return '';
+  const head = `${coverage.included} included, ${coverage.excluded} excluded`;
+  const notes = [];
+  if (coverage.unexpected.length) notes.push(`REQs own scenarios the SPEC does not include: ${coverage.unexpected.slice(0, 10).join(', ')}`);
+  if (coverage.noReason.length) notes.push(`excluded without a reason: ${coverage.noReason.slice(0, 10).join(', ')}`);
+  if (coverage.shared.length) notes.push(`owned by more than one REQ: ${coverage.shared.slice(0, 10).join(', ')}`);
+  if (!coverage.unassigned.length) {
+    return `✔ SCENARIOS: every included journey scenario is owned by a REQ (${head}).` + (notes.length ? ` Note: ${notes.join('; ')}.` : '');
+  }
+  const listed = coverage.unassigned.slice(0, 20).join(', ') + (coverage.unassigned.length > 20 ? ` … (+${coverage.unassigned.length - 20})` : '');
+  return `⚠ SCENARIOS: ${coverage.unassigned.length} included scenario(s) no REQ owns (${head}): ${listed}. ` +
+    'Their corner cases would never be built or proved: run /plan again so that each is in a REQ\'s scenarios.' +
+    (notes.length ? ` Also: ${notes.join('; ')}.` : '');
+}
+
+module.exports = {
+  useCasesSection, specUseCases, useCaseCoverage, projectUseCaseCoverage, useCaseCoverageMessage,
+  specScenarios, scenarioCoverage, projectScenarioCoverage, scenarioCoverageMessage,
+};

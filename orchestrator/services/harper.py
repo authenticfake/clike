@@ -39,6 +39,7 @@ from services.execution_policy import (
     normalize_execution_preference,
     resolve_execution_policy,
 )
+from services.quality_context import build_quality_context
 from services.context_sources import (
     append_context_sources_to_messages,
     attach_context_sources_to_local_package,
@@ -2689,6 +2690,11 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
     merged["context_sources"] = resolve_context_sources(
         _workspace_root_from_payload(merged), phase,
         release=(extend_options(merged).get("release") or None), phases=context_phases(merged, phase),
+    )
+    # Capacity profile and journey scenarios of this phase, the same text for both runners.
+    merged["context_sources"]["quality"] = build_quality_context(
+        phase=phase, payload=merged, execution_mode=str(execution_policy.get("selected") or "cloud"),
+        req_id=target_req_id, workspace_root=_workspace_root_from_payload(merged),
     )
 
     # Orchestrator-owned local agent package.

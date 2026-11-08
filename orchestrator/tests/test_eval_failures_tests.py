@@ -208,6 +208,59 @@ class AcceptanceCoverageTests(unittest.TestCase):
             self.assertIsNone(self._case(self._project(tmp, review="All criteria implemented and verified.\n")))
 
 
+class ScenarioCoverageTests(unittest.TestCase):
+    """Journey scenarios the plan gives a REQ (reqs[].scenarios) are criteria of their own: the
+    login REQ is not done until wrong credentials, lockout, reset and expiry are proved."""
+
+    LTC = {"checks": [{"id": "unit", "command": "true"}, {"id": "e2e", "command": "true"},
+                      {"id": "lint", "command": "true", "blocking": False}]}
+
+    def _case(self, tmp, acceptance=None, scenarios=("IAM-03", "IAM-05")):
+        import json
+        root = Path(tmp)
+        (root / "docs" / "harper").mkdir(parents=True)
+        (root / "docs" / "harper" / "plan.json").write_text(json.dumps({"reqs": [{"id": "REQ-002", "status": "open",
+            "acceptance": ["A01: a verified user signs in"], "scenarios": list(scenarios)}]}))
+        docs = root / "runs" / "kit" / "REQ-002" / "docs"
+        docs.mkdir(parents=True)
+        if acceptance is not None:
+            (docs / "ACCEPTANCE.json").write_text(json.dumps({"criteria": acceptance}))
+        cases = EvalRunner(root)._acceptance_coverage_cases("REQ-002", self.LTC)
+        return cases[0] if cases else None
+
+    def test_an_unproven_scenario_blocks(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            case = self._case(tmp, acceptance=[
+                {"id": "A01", "status": "done", "checks": ["unit"]},
+                {"id": "IAM-03", "status": "done", "checks": ["lint"]}])
+            self.assertFalse(case.passed)
+            self.assertTrue(case.blocking)
+            self.assertIn("IAM-03: done, but names no blocking check", case.stderr)
+            self.assertIn("IAM-05: not in ACCEPTANCE.json", case.stderr)
+
+    def test_scenarios_proved_by_own_entries_or_listed_under_a_criterion_pass(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            case = self._case(tmp, acceptance=[
+                {"id": "A01", "status": "done", "checks": ["unit"], "scenarios": ["IAM-05"]},
+                {"id": "IAM-03", "status": "done", "checks": ["e2e"]}])
+            self.assertTrue(case.passed, case.stderr)
+            self.assertIn("3 acceptance criteria", case.stdout)
+
+    def test_scenarios_without_acceptance_file_block(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            case = self._case(tmp)
+            self.assertFalse(case.passed)
+            self.assertIn("owns journey scenarios (IAM-03, IAM-05)", case.stderr)
+
+    def test_a_req_without_scenarios_keeps_the_previous_behaviour(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(self._case(tmp, scenarios=()))
+
+
 class WorkspaceLockTests(unittest.TestCase):
     def test_two_runs_of_the_same_workspace_never_overlap(self):
         # B2B: /finalize --verify sent twice composed the same SOLUTION workspace at once
