@@ -414,3 +414,45 @@ class AcceptanceBookkeepingTests(unittest.TestCase):
             runner._report_from_cases(profile_path=Path(tmp) / "p", req_id="REQ-009", mode="auto", cases=[a])
             runner._report_from_cases(profile_path=Path(tmp) / "p", req_id="REQ-009", mode="auto", cases=[b])
             self.assertTrue(a.fingerprint and b.fingerprint and a.fingerprint != b.fingerprint)
+
+
+class PromotedFileKeptTests(unittest.TestCase):
+    """Cloud pilot: one generation rewrote the promoted app.py (196 -> 34 lines) and pyproject.toml
+    (no dependencies); every promoted REQ's regression failed."""
+
+    def _cases(self, tmp, files, amends=None):
+        import json
+        root = Path(tmp)
+        (root / "docs" / "harper").mkdir(parents=True)
+        req = {"id": "REQ-009", "status": "open", **({"amends": amends} if amends else {})}
+        (root / "docs" / "harper" / "plan.json").write_text(json.dumps({"reqs": [req]}))
+        app = "\n".join(f"app.include_router(router_{i})" for i in range(40)) + "\n"
+        (root / "src" / "pkg").mkdir(parents=True)
+        (root / "src" / "pkg" / "app.py").write_text(app)
+        (root / "src" / "pyproject.toml").write_text('[project]\nname="x"\ndependencies=["fastapi==1", "SQLAlchemy==2"]\n')
+        kit = root / "runs" / "kit" / "REQ-009" / "src"
+        for rel, text in files.items():
+            (kit / rel).parent.mkdir(parents=True, exist_ok=True)
+            (kit / rel).write_text(text(app) if callable(text) else text)
+        return {c.name: c for c in EvalRunner(root)._promoted_source_cases("REQ-009")}
+
+    def test_a_shorter_rewrite_or_lost_dependencies_block(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            cases = self._cases(tmp, {"pkg/app.py": "app = make()\napp.include_router(review)\n",
+                                      "pyproject.toml": '[project]\nname="x"\ndependencies=["fastapi==1"]\n'})
+            app = cases["structure::promoted-file-kept::src/pkg/app.py"]
+            self.assertTrue(app.blocking and not app.passed)
+            self.assertIn("keeps 0 of its 40 lines", app.stderr)
+            self.assertIn("Current src/pkg/app.py (promoted)", app.stderr)
+            deps = cases["structure::promoted-file-kept::src/pyproject.toml"]
+            self.assertIn("drops promoted dependencies: sqlalchemy", deps.stderr)
+
+    def test_extending_a_promoted_file_passes_and_an_amending_req_is_not_checked(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            cases = self._cases(tmp, {"pkg/app.py": lambda app: app + "app.include_router(review)\n",
+                                      "pyproject.toml": '[project]\nname="x"\ndependencies=["fastapi==1", "SQLAlchemy==2", "openpyxl==3"]\n'})
+            self.assertEqual(cases, {})
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(self._cases(tmp, {"pkg/app.py": "app = make()\n"}, amends=["REQ-003"]), {})

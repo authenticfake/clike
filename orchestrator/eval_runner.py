@@ -24,6 +24,7 @@ import eval_runtimes
 from services.gate_integrity import _DEFINES_TESTS_RE
 from services.root_files import KIT_ROOT_DIR, extra_root_files, is_allowed_root_path, root_policy
 from services.quality_context import req_scenarios
+from services import promoted_files
 import eval_tools
 import sandbox_resources
 from utils.safe_paths import validate_req_id
@@ -1530,6 +1531,43 @@ class EvalRunner:
                 cases.append(EvalCase(name=f"structure::shared-test-support::{top}/{rel}", passed=False, code=1, stdout="",
                                       stderr=message, blocking=True, excerpt=message,
                                       fingerprint=f"shared-test-support-{top}/{rel}"))
+        return cases
+
+    def _promoted_source_cases(self, req_id: str) -> List[EvalCase]:
+        """``structure::promoted-file-kept::<path>``: a KIT that ships a promoted shared file extends
+        it (services/promoted_files.py). A REQ that declares it amends others changes them on
+        purpose: not checked."""
+        req = next((r for r in self._plan_reqs() if str(r["id"]).upper() == str(req_id).upper()), {})
+        if req.get("amends"):
+            return []
+        kit = self.project_root / "runs" / "kit" / self._safe_req_id(req_id)
+        cases: List[EvalCase] = []
+        for top in ("src", KIT_ROOT_DIR):
+            base = kit / top
+            for path in sorted(base.rglob("*")) if base.is_dir() else []:
+                if not path.is_file() or any(p in promoted_files.SKIP_DIRS for p in path.relative_to(base).parts):
+                    continue
+                rel = path.relative_to(base).as_posix()
+                canonical = self.project_root / (rel if top == KIT_ROOT_DIR else f"src/{rel}")
+                if not canonical.is_file() or canonical.stat().st_size > 2_000_000 or path.stat().st_size > 2_000_000:
+                    continue
+                try:
+                    before, after = canonical.read_text(encoding="utf-8"), path.read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError):
+                    continue
+                problem = "" if before == after else promoted_files.loss(canonical.name, before, after)
+                if not problem:
+                    continue
+                shown = canonical.relative_to(self.project_root).as_posix()
+                message = (
+                    f"runs/kit/{req_id}/{top}/{rel} replaces the promoted {shown} and {problem}. A KIT extends a promoted "
+                    "shared file: start from its current content and add this REQ's part (a route, a dependency, a "
+                    "registration) next to what is there; never a shorter rewrite, the promoted REQs depend on it.\n"
+                    f"Current {shown} (promoted):\n" + before[:3500] + ("\n…" if len(before) > 3500 else "")
+                )
+                cases.append(EvalCase(name=f"structure::promoted-file-kept::{shown}", passed=False, code=1, stdout="",
+                                      stderr=message, blocking=True, excerpt=message[:1500],
+                                      fingerprint=f"promoted-file-kept-{shown}"))
         return cases
 
     def _test_layout_cases(self, req_id: str) -> List[EvalCase]:
@@ -4150,6 +4188,7 @@ class EvalRunner:
         if not self.regression and eff_req:
             out_cases.extend(self._shared_conftest_cases(eff_req))
             out_cases.extend(self._shared_test_support_cases(eff_req))
+            out_cases.extend(self._promoted_source_cases(eff_req))
             out_cases.extend(self._test_layout_cases(eff_req))
             out_cases.extend(self._staged_root_cases(eff_req))
             only_names = getattr(self, "_only_checks", None)
