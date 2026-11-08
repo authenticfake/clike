@@ -83,12 +83,25 @@ excluded with a reason, owned by a unit and blocking at eval until a test that n
 
 ### 3.4 Projection
 
-| Item | Duration |
-|---|---|
-| Agent work and evals: 7 units × 1.5–2.5 h | 12–18 h, about 2 days |
-| Human work: SPEC and plan (topic contracts, data ownership, delivery semantics), pull request reviews, decisions | 1.5–2 days |
-| Environment and integration with the real broker | ~1 day |
-| **Calendar** | **4–5 days, one product engineer leading** |
+Two availability models: people work 5 days × 8 hours (40 hours a week), the coding agent works
+around the clock, 7 days a week (168 hours), driven by `/autopilot`. Agent hours therefore run at
+night and over the weekend; the critical path is made of the human gates — SPEC and plan approval,
+pull request reviews, decisions — not of the generation.
+
+| Item | Effort | When |
+|---|---|---|
+| Agent work and evals: 7 units × 1.5–2.5 h | 12–18 machine hours | overnight, outside working hours |
+| Human work: SPEC and plan (topic contracts, data ownership, delivery semantics), reviews, decisions | 1.5–2 person-days | working hours |
+| Environment and integration with the real broker | ~1 person-day | working hours |
+
+A realistic timeline:
+
+| Day | People (working hours) | Agent (around the clock) |
+|---|---|---|
+| Day 1 | SPEC with the journey scenarios, plan with the seven units, approval | night: foundation and the five service slices |
+| Day 2 | review of the six units, real broker and database wired in the eval environment | night: the end-to-end epic, repairs from the review |
+| Day 3 | review of the epic, integration on the target environment, sign-off | — |
+| **Calendar** | **~3 working days, one product engineer leading** | |
 
 Staffing with CLike:
 
@@ -97,7 +110,7 @@ Staffing with CLike:
 | Product engineer / tech lead driving CLike — SPEC, plan, decisions, reviews | 1 | 4–5 |
 | DevOps / platform (part-time) — real broker and database, deployment | 1 | ~2 |
 | Architect or security reviewer | on call | ~1 |
-| **Total** | **2–3 people** | **7–8 person-days, 1–1.5 calendar weeks** |
+| **Total** | **2–3 people** | **6–8 person-days, ~3 working days of calendar** |
 
 QA and test automation are largely absorbed: CLike writes the tests, proves every journey scenario
 and blocks a unit until they pass; the review stays human.
@@ -106,15 +119,20 @@ and blocks a unit until they pass; the review stays human.
 
 | | Classic | With CLike | Factor |
 |---|---|---|---|
-| Total effort | 50–70 person-days | 7–8 person-days | **~7–9×** |
+| Total effort (people) | 50–70 person-days | 6–8 person-days | **~7–9×** |
 | People involved | 6–8 | 2–3 | ~3× |
-| Calendar | 5–7 weeks | 1–1.5 weeks | ~4–5× |
-| Building and verifying well-specified requirements | 3–5 person-days per slice | ~½ day per slice | up to ~10× |
+| Calendar (working days of 8 hours) | 25–35 (5–7 weeks) | ~3 | **~8–12×** |
+| Building and verifying well-specified requirements | 3–5 person-days per slice | ~½ day of review per slice (generation runs unattended) | up to ~10× |
+
+The agent's 12–18 machine hours are not person effort: they run while people are off. The
+calendar gain comes from that and from the smaller number of human gates; the effort gain from the
+work CLike absorbs (coding, tests, error scenarios, repair).
 
 How to state it without overselling: *on building and verifying well-specified requirements CLike
 turns up to ten person-days into one, with every error scenario proved by a test; across the whole
 scenario — analysis, decisions, integration and operations included — the factor is about seven to
-nine on effort and four to five on calendar.*
+nine on effort and eight to twelve on calendar, because the agent works around the clock while
+people keep their working hours.*
 
 ## 5. What can stretch the estimate
 
