@@ -43,6 +43,30 @@ def _read_text(path: Path, max_chars: int = MAX_ITEM_PREVIEW_CHARS) -> str:
     return text[:max_chars].rstrip() + "\n...[truncated]"
 
 
+# The enforcement layer several shipped skills end with, word for word: kept out of each skill's
+# preview (it made 7 skills exceed the preview cap and lose their own test sections) and rendered
+# once in the selected capability context.
+SHARED_LAYER_HEADING = "# CLike Promotable KIT Enforcement Layer"
+SHARED_LAYER_ID = "promotable-kit-enforcement"
+MAX_SKILL_SOURCE_CHARS = 32_000
+
+
+def _split_shared_layer(text: str) -> tuple:
+    """(skill text without the shared layer, the layer or '')."""
+    raw = str(text or "")
+    match = re.search(r"^" + re.escape(SHARED_LAYER_HEADING) + r"\s*$", raw, flags=re.MULTILINE)
+    if not match:
+        return raw, ""
+    body = re.sub(r"\n-{3,}\s*$", "", raw[: match.start()].rstrip()).rstrip() + "\n"
+    return body, raw[match.start():].strip() + "\n"
+
+
+def _skill_item_text(text: str) -> tuple:
+    body, layer = _split_shared_layer(text)
+    preview = body if len(body) <= MAX_ITEM_PREVIEW_CHARS else body[:MAX_ITEM_PREVIEW_CHARS].rstrip() + "\n...[truncated]"
+    return preview, layer
+
+
 def _extract_frontmatter(text: str) -> Dict[str, Any]:
     """
     Minimal YAML-frontmatter reader.
@@ -117,8 +141,9 @@ def _discover_skill_dirs(repo_root: Path) -> List[Dict[str, Any]]:
     vendored = [p for p in sorted(base.glob("vendor/*/*/SKILL.md")) if p.parent.parent.name != "bmad"]
     for skill_md in [*sorted(base.glob("*/SKILL.md")), *vendored]:
         rel = skill_md.relative_to(repo_root).as_posix()
-        text = _read_text(skill_md)
+        text = _read_text(skill_md, MAX_SKILL_SOURCE_CHARS)
         meta = _extract_frontmatter(text)
+        preview, layer = _skill_item_text(text)
 
         name = (f"{skill_md.parent.parent.name}-{skill_md.parent.name}" if skill_md in vendored
                 else _safe_str(meta.get("name")) or skill_md.parent.name)
@@ -131,7 +156,8 @@ def _discover_skill_dirs(repo_root: Path) -> List[Dict[str, Any]]:
                 "description": description,
                 "path": rel,
                 "metadata": meta,
-                "preview": text,
+                "preview": preview,
+                **({"shared_layer": SHARED_LAYER_ID, "_shared_layer_text": layer} if layer else {}),
             }
         )
 
@@ -251,6 +277,7 @@ def _capability_blob_items(core_blobs: Optional[Dict[str, Any]], *, kind: str) -
             vendored_name = f"{parts[3]}-{parts[4]}" if lower.startswith(".clike/skills/vendor/") and len(parts) == 6 else ""
             if lower.startswith(".clike/skills/vendor/") and not vendored_name:
                 continue
+            preview, layer = _skill_item_text(text)
             items.append(
                 {
                     "kind": "skill",
@@ -258,7 +285,8 @@ def _capability_blob_items(core_blobs: Optional[Dict[str, Any]], *, kind: str) -
                     "description": _safe_str(meta.get("description")),
                     "path": rel,
                     "metadata": meta,
-                    "preview": text[:MAX_ITEM_PREVIEW_CHARS],
+                    "preview": preview,
+                    **({"shared_layer": SHARED_LAYER_ID, "_shared_layer_text": layer} if layer else {}),
                 }
             )
 
@@ -312,11 +340,23 @@ def build_capability_context_from_core_blobs(core_blobs: Optional[Dict[str, Any]
     }
     if not (index["skills"] or index["packs"] or index["design_profiles"]):
         return {}
+    _hoist_shared_layers(index)
 
     return {
         "CLIKE_CAPABILITY_MANIFEST.md": _build_manifest(index),
         "CLIKE_CAPABILITY_INDEX.json": json.dumps(index, ensure_ascii=False, indent=2),
     }
+
+
+def _hoist_shared_layers(index: Dict[str, Any]) -> None:
+    """The shared enforcement layer once in the index (`shared_layers`), not in every skill."""
+    layers: Dict[str, str] = {}
+    for item in index.get("skills") or []:
+        text = item.pop("_shared_layer_text", "")
+        if text and item.get("shared_layer"):
+            layers.setdefault(item["shared_layer"], text)
+    if layers:
+        index["shared_layers"] = layers
 
 
 def _build_manifest(index: Dict[str, Any]) -> str:
@@ -510,7 +550,7 @@ def _lookup_selected_items(index: Dict[str, Any], kind: str, selected_names: Lis
     }
 
 
-def _render_selected_capability_context(*, req_id: str, selected: Dict[str, Any]) -> str:
+def _render_selected_capability_context(*, req_id: str, selected: Dict[str, Any], shared_layers: Optional[Dict[str, Any]] = None) -> str:
     """Render selected capability guidance for KIT/cloud and local agents."""
     lines: List[str] = [
         "# CLike Selected Capability Context",
@@ -570,6 +610,16 @@ def _render_selected_capability_context(*, req_id: str, selected: Dict[str, Any]
             if preview:
                 lines.extend(["", "```markdown", preview, "```"])
             lines.append("")
+
+    # the enforcement layer the selected skills share, once
+    sharing: Dict[str, List[str]] = {}
+    for item in (selected.get("skills") or {}).get("resolved") or []:
+        if isinstance(item, dict) and item.get("shared_layer"):
+            sharing.setdefault(str(item["shared_layer"]), []).append(_safe_str(item.get("name")))
+    for layer_id, names in sharing.items():
+        text = _safe_str((shared_layers or {}).get(layer_id))
+        if text:
+            lines.extend([f"## Shared enforcement layer of the selected skills ({', '.join(names)})", "", "```markdown", text, "```", ""])
 
     lines.extend(
         [
@@ -634,6 +684,7 @@ def build_selected_capability_context(
         "CLIKE_SELECTED_CAPABILITY_CONTEXT.md": _render_selected_capability_context(
             req_id=target_req_id,
             selected=selected,
+            shared_layers=index.get("shared_layers") if isinstance(index, dict) else None,
         ),
         "CLIKE_SELECTED_CAPABILITY_CONTEXT.json": json.dumps(selected, ensure_ascii=False, indent=2),
     }
@@ -659,6 +710,7 @@ def build_capability_context(
         "packs": _discover_pack_dirs(repo_root),
         "design_profiles": _discover_design_profiles(repo_root),
     }
+    _hoist_shared_layers(index)
 
     manifest = _build_manifest(index)
 
