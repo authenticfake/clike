@@ -138,3 +138,12 @@ class ParityTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RequestModelTests(unittest.TestCase):
+    def test_the_capacity_profile_of_the_extension_reaches_the_orchestrator(self):
+        from schemas.harper import HarperPhaseRequest
+
+        payload = HarperPhaseRequest(cmd="plan", phase="plan", capacityProfile="C3").model_dump()
+        self.assertEqual(payload["capacityProfile"], "C3")
+        self.assertEqual(resolve_capacity_profile(payload, "local_agent"), "C3")

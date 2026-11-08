@@ -73,6 +73,8 @@ class HarperPhaseRequest(BaseModel):
     localAgentCapabilities: Optional[Dict[str, Any]] = None
     localAgentTimeoutSeconds: Optional[int] = None
     localRuntime: Optional[Dict[str, Any]] = None
+    # REQ capacity profile chosen in the extension (clike.plan.capacityProfile): C1 | C2 | C3
+    capacityProfile: Optional[str] = None
 
     idea_md: Optional[str] = None
     spec_md: Optional[str] = None
