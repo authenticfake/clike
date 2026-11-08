@@ -57,6 +57,10 @@
         "title": "CLike: Harper Init…"
       },
       {
+        "command": "clike.syncAgentSkills",
+        "title": "CLike: Sync agent skills"
+      },
+      {
         "command": "clike.chat.clearSession",
         "title": "CLike: Clear Chat Session (current model)"
       },
@@ -404,6 +408,11 @@
           "type": "boolean",
           "default": true,
           "description": "Restrict local agent usage to base /kit flows and disable local follow-up phases for now."
+        },
+        "clike.agentSkills.autoSync": {
+          "type": "boolean",
+          "default": true,
+          "description": "Before a local agent runs a Harper phase, install the project's CLike skills (.clike/skills) as native skills of Claude Code (.claude/skills) and Codex (.agents/skills), keep the CLike block of CLAUDE.md and AGENTS.md current, and add the eval guard hook. Skills and files CLike does not manage are never touched."
         },
         "clike.plan.capacityProfile": {
           "type": "string",

@@ -16,6 +16,7 @@ const {
 const { validateLocalMcpRequest } = require('./mcp-request-guard');
 const extensionMcp = require('./extension-mcp');
 const autopilot = require('./autopilot');
+const { syncAgentSkills, lockedRootsEnv } = require('./agent-skills');
 const { projectUseCaseCoverage, useCaseCoverageMessage, projectScenarioCoverage, scenarioCoverageMessage } = require('./use-case-coverage');
 const planReadiness = require('./plan-readiness');
 const { saveRejectedTestFix, rejectedTestFixMessage, applyLatestTestFix, revertAppliedTestFix } = require('./rejected-test-fix');
@@ -1275,6 +1276,15 @@ async function executeLocalAgentPackage({
     });
   }
 
+  // the project's CLike skills stay installed and current as native skills of the agent
+  if (vscode.workspace.getConfiguration('clike').get('agentSkills.autoSync', true)) {
+    try {
+      const synced = syncAgentSkills(toFsPath(wsroot));
+      if (synced.written.length) out.appendLine(`[agentSkills] synced ${synced.written.join(', ')}`);
+    } catch (e) {
+      out.appendLine(`[agentSkills] sync failed: ${e?.message || e}`);
+    }
+  }
   const agentStartedAt = Date.now();
   let agentResult;
   let timedOut = null;
@@ -1288,6 +1298,8 @@ async function executeLocalAgentPackage({
       workspaceRootUri: wsroot,
       prompt: promptContent,
       executorId: selectedExecutor,
+      // during /eval the CLike guard hook refuses writes to the REQ's tests and CI
+      extraEnv: lockedRootsEnv(phaseForAgent, reqForAgent),
       command: executorConfig.command,
       // clike.claudeCode.model / clike.localAgent.codex.model apply to Harper phases too
       argsBeforePrompt: withIsolatedMcp(selectedExecutor, withMachineReadableOutput(selectedExecutor, [
@@ -3774,6 +3786,19 @@ async function cmdCopyExtensionMcpToken(context) {
  * CLike: Publish release — the release of the last passing /finalize (tag vN, notes, GitHub Release
  * on confirmation), for a finalize run before this existed or a publication declined at the time.
  */
+// CLike: Sync agent skills — .clike/skills installed as native skills of Claude Code and Codex.
+async function cmdSyncAgentSkills() {
+  const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!root) { vscode.window.showWarningMessage('CLike: open the project folder first.'); return; }
+  try {
+    const r = syncAgentSkills(root);
+    const skipped = r.skipped.length ? ` ${r.skipped.length} skipped (a skill with the same name not managed by CLike).` : '';
+    vscode.window.showInformationMessage(`CLike: ${r.skills.length} skills for the local agents; ${r.written.length} file(s) updated, ${r.removed.length} removed.${skipped}`);
+  } catch (e) {
+    vscode.window.showErrorMessage(`CLike: agent skills not synced — ${e?.message || e}`);
+  }
+}
+
 async function cmdPublishRelease() {
   const ws = getWorkspaceRoot();
   const say = (text) => {
@@ -3805,6 +3830,7 @@ function activate(context) {
     if (clikeChatPanel) clikeChatPanel.reveal(); else vscode.commands.executeCommand('clike.openChat');
   }));
   reg('clike.publishRelease', cmdPublishRelease);
+  reg('clike.syncAgentSkills', cmdSyncAgentSkills);
   reg('clike.setServiceToken', cmdSetServiceToken);
   reg('clike.clearServiceToken', cmdClearServiceToken);
   reg('clike.copyExtensionMcpToken', cmdCopyExtensionMcpToken);
@@ -4727,6 +4753,17 @@ async function cmdOpenChat(context) {
           const copied = copyTemplateTree(templatesDir, targetDir, { vars: templateVars, isText: isTextFile, redirect: processRedirect });
           if (copied.proposed.length) {
             panel.webview.postMessage({ type: 'echo', message: `ℹ /init: the repository already has its own review / PR / CI process, so CLike did not add ${copied.proposed.join(', ')} — they are proposals in ${PROPOSALS_DIR}/ (copy them if you want them).` });
+          }
+          // the CLike skills as native skills of the local agents, the CLike rules in CLAUDE.md /
+          // AGENTS.md and the eval guard hook (same skills as the cloud prompt)
+          try {
+            const synced = syncAgentSkills(targetDir);
+            if (synced.skills.length) {
+              panel.webview.postMessage({ type: 'echo', message: `🧩 /init: ${synced.skills.length} CLike skills installed for the local agents (.claude/skills, .agents/skills), CLike rules in CLAUDE.md and AGENTS.md, eval guard hook in .claude/settings.json.` });
+            }
+            if (synced.skipped.length) out.appendLine(`[agentSkills] skipped ${JSON.stringify(synced.skipped)}`);
+          } catch (e) {
+            out.appendLine(`[agentSkills] not installed: ${e?.message || e}`);
           }
           if (copied.kept.length) {
             out.appendLine(`[harperInit] kept ${copied.kept.length} existing file(s): ${copied.kept.join(', ')}`);

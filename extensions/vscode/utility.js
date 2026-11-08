@@ -2417,7 +2417,9 @@ async function runLocalAgentSync({
   onStdoutLine = null,
   onSpawn = null,
   onStdin = null,
+  extraEnv = null,
 }) {
+  // extraEnv: variables of this run (CLIKE_LOCKED_ROOTS during /eval, read by the CLike guard hook);
   // onStdoutLine(line): each complete stdout line as it arrives (streamed chat events);
   // onSpawn(child): the running process, e.g. so Cancel can terminate it;
   // onStdin(stdin): a two-way protocol owns stdin (codex app-server): no prompt is sent.
@@ -2486,7 +2488,7 @@ async function runLocalAgentSync({
       // Local agents authenticate via their own CLI login/session. Inherit the
       // standard shell env (PATH/HOME/etc.) but strip cloud provider keys by
       // default so local-agent execution never depends on gateway cloud keys.
-      env: buildLocalAgentEnv(process.env),
+      env: buildLocalAgentEnv(process.env, extraEnv && typeof extraEnv === 'object' ? extraEnv : {}),
     });
 
     let stdout = '';
