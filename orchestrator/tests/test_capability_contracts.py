@@ -329,3 +329,23 @@ def test_cloud_and_local_use_same_enrichment_shape():
     local = json.loads(enrich_plan_json_text(json.dumps(plan_local), _metadata()))
     assert cloud["reqs"][0]["capabilities"] == local["reqs"][0]["capabilities"]
     assert cloud["schema_version"] == local["schema_version"] == "1.1.0"
+
+
+def test_vendored_third_party_skills_are_indexed_under_their_agent_name():
+    # vendor/<vendor>/<skill> (VENDORED.json) is selectable like a CLike skill, under the name the
+    # local agents get it (.claude/skills/<vendor>-<skill>); BMAD keeps its own loader
+    import json as _json
+    from services.capabilities import build_capability_context
+
+    ctx = build_capability_context({"repo_root": str(TEMPLATE.parent)})
+    index = _json.loads(next(v for k, v in ctx.items() if k.endswith(".json")))
+    names = [s["name"] for s in index["skills"]]
+    assert "superpowers-test-driven-development" in names
+    assert "superpowers-verification-before-completion" in names
+    assert not any(n.startswith("bmad") for n in names)
+    blob_ctx = build_capability_context(None, {
+        ".clike/skills/vendor/superpowers/test-driven-development/SKILL.md": "---\nname: test-driven-development\ndescription: d\n---\n# TDD\n",
+        ".clike/skills/vendor/bmad/epic-framing/SKILL.md": "---\nname: epic-framing\ndescription: d\n---\n",
+    })
+    blob_index = _json.loads(next(v for k, v in blob_ctx.items() if k.endswith(".json")))
+    assert [s["name"] for s in blob_index["skills"]] == ["superpowers-test-driven-development"]

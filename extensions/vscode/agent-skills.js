@@ -48,18 +48,20 @@ function parseSkill(text) {
 const yamlString = (value) => JSON.stringify(String(value)); // a JSON string is a valid YAML scalar
 
 /** The SKILL.md of a native skill: standard frontmatter, CLike fields as string metadata. */
-function toNativeSkill(name, text, source) {
+function toNativeSkill(name, text, source, license = '') {
   const { meta, body } = parseSkill(text);
   const description = String(meta.description || `CLike skill ${name}`).replace(/\s+/g, ' ').trim().slice(0, 1024);
   const metadata = { 'clike-source': source };
   for (const [key, value] of Object.entries(meta)) {
-    if (['name', 'description', 'scenarios'].includes(key)) continue;
+    if (['name', 'description', 'scenarios', 'license'].includes(key)) continue;
     metadata[`clike-${key}`] = Array.isArray(value) ? value.join(', ') : String(value);
   }
   if (Array.isArray(meta.scenarios) && meta.scenarios.length) {
     metadata['clike-scenarios'] = meta.scenarios.map((s) => String(s).split('|')[0].trim()).join(', ');
   }
-  const lines = ['---', `name: ${name}`, `description: ${yamlString(description)}`, 'metadata:'];
+  const lines = ['---', `name: ${name}`, `description: ${yamlString(description)}`];
+  if (license || meta.license) lines.push(`license: ${yamlString(license || meta.license)}`);
+  lines.push('metadata:');
   for (const [key, value] of Object.entries(metadata)) lines.push(`  ${key}: ${yamlString(value)}`);
   lines.push('---', '');
   // scenario statements stay readable for the agent: the body lists them when the frontmatter had them
@@ -111,11 +113,24 @@ function listFiles(dir, rel = '') {
 /** { path: content } of one native skill folder. */
 function nativeSkillFiles(skill) {
   const files = {};
+  // a vendored skill carries its vendor's license (vendor/<vendor>/LICENSE, VENDORED.json)
+  const vendorDir = path.dirname(skill.dir);
+  const vendored = path.basename(path.dirname(vendorDir)) === 'vendor';
+  const license = vendored ? vendorLicense(vendorDir) : '';
   for (const rel of listFiles(skill.dir)) {
     const content = fs.readFileSync(path.join(skill.dir, rel), 'utf8');
-    files[rel] = rel === 'SKILL.md' ? toNativeSkill(skill.name, content, skill.source) : content;
+    files[rel] = rel === 'SKILL.md' ? toNativeSkill(skill.name, content, skill.source, license) : content;
+  }
+  if (vendored && fs.existsSync(path.join(vendorDir, 'LICENSE')) && !files.LICENSE) {
+    files.LICENSE = fs.readFileSync(path.join(vendorDir, 'LICENSE'), 'utf8');
   }
   return files;
+}
+
+function vendorLicense(vendorDir) {
+  const manifest = readJson(path.join(path.dirname(vendorDir), 'VENDORED.json'), {});
+  const entry = (manifest.vendors || []).find((v) => v && v.id === path.basename(vendorDir));
+  return entry && entry.license ? `${entry.license} (see LICENSE)` : '';
 }
 
 const digest = (files) => crypto.createHash('sha256').update(JSON.stringify(files)).digest('hex').slice(0, 16);

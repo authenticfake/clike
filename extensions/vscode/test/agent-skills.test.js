@@ -64,6 +64,10 @@ test('every shipped skill becomes a standard native skill for both agents, and a
   assert.match(native, /## Scenario catalog/);
   assert.match(native, /\*\*IAM-05\*\* \(required\) Password reset/);
   assert.match(native, /clike-scenarios: "IAM-01, IAM-02/);
+  // a vendored third-party skill keeps its license with every installed copy
+  const tdd = path.join(root, '.agents/skills/superpowers-test-driven-development');
+  assert.match(fs.readFileSync(path.join(tdd, 'LICENSE'), 'utf8'), /MIT License/);
+  assert.match(fs.readFileSync(path.join(tdd, 'SKILL.md'), 'utf8'), /^license: "MIT \(see LICENSE\)"$/m);
   assert.deepEqual(syncAgentSkills(root).written, []);
 });
 

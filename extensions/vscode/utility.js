@@ -742,6 +742,16 @@ async function collectClikeCapabilityCoreBlobs(projectRootUri) {
 
   await readIfSmall(['.clike', 'capabilities.yaml']);
   await readImmediateCapabilityDirs(['.clike', 'skills'], ['SKILL.md']);
+  // vendored third-party skills (vendor/<vendor>/<skill>, pinned in VENDORED.json): indexed and
+  // selectable like the CLike skills, so the cloud prompt gets what the agents get (BMAD has its loader)
+  try {
+    const vendors = await vscode.workspace.fs.readDirectory(vscode.Uri.joinPath(projectRootUri, '.clike', 'skills', 'vendor'));
+    for (const [vendor, type] of vendors.sort(([a], [b]) => String(a).localeCompare(String(b)))) {
+      if (type === vscode.FileType.Directory && vendor !== 'bmad') {
+        await readImmediateCapabilityDirs(['.clike', 'skills', 'vendor', vendor], ['SKILL.md']);
+      }
+    }
+  } catch { /* no vendored skills */ }
   await readImmediateCapabilityDirs(['.clike', 'packs'], ['PACK.md', 'README.md']);
   await readImmediateCapabilityDirs(['.clike', 'design-profiles'], ['DESIGN.md']);
 

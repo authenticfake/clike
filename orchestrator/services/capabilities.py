@@ -112,12 +112,16 @@ def _discover_skill_dirs(repo_root: Path) -> List[Dict[str, Any]]:
 
     items: List[Dict[str, Any]] = []
 
-    for skill_md in sorted(base.glob("*/SKILL.md")):
+    # CLike skills, and the vendored third-party ones (vendor/<vendor>/<skill>, VENDORED.json) as
+    # <vendor>-<skill> — the name the local agents get them under (BMAD has its own loader)
+    vendored = [p for p in sorted(base.glob("vendor/*/*/SKILL.md")) if p.parent.parent.name != "bmad"]
+    for skill_md in [*sorted(base.glob("*/SKILL.md")), *vendored]:
         rel = skill_md.relative_to(repo_root).as_posix()
         text = _read_text(skill_md)
         meta = _extract_frontmatter(text)
 
-        name = _safe_str(meta.get("name")) or skill_md.parent.name
+        name = (f"{skill_md.parent.parent.name}-{skill_md.parent.name}" if skill_md in vendored
+                else _safe_str(meta.get("name")) or skill_md.parent.name)
         description = _safe_str(meta.get("description"))
 
         items.append(
@@ -243,10 +247,14 @@ def _capability_blob_items(core_blobs: Optional[Dict[str, Any]], *, kind: str) -
                 continue
             fallback = _path_parent_name(rel, "skills")
             meta = _extract_frontmatter(text)
+            parts = rel.split("/")
+            vendored_name = f"{parts[3]}-{parts[4]}" if lower.startswith(".clike/skills/vendor/") and len(parts) == 6 else ""
+            if lower.startswith(".clike/skills/vendor/") and not vendored_name:
+                continue
             items.append(
                 {
                     "kind": "skill",
-                    "name": _safe_str(meta.get("name")) or fallback,
+                    "name": vendored_name or _safe_str(meta.get("name")) or fallback,
                     "description": _safe_str(meta.get("description")),
                     "path": rel,
                     "metadata": meta,
