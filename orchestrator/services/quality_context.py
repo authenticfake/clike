@@ -109,7 +109,9 @@ def req_scenarios(req: Optional[Dict[str, Any]]) -> List[str]:
 def _plan_req(core_blobs: Dict[str, Any], workspace_root: Optional[Path], req_id: Optional[str]) -> Optional[Dict[str, Any]]:
     if not req_id:
         return None
-    text = next((str(v) for k, v in (core_blobs or {}).items() if str(k).replace("\\", "/").endswith("docs/harper/plan.json")), "")
+    # the extension sends core docs by file name (plan.json), other callers by path
+    text = next((str(v) for k, v in (core_blobs or {}).items()
+                 if str(k).replace("\\", "/").rsplit("/", 1)[-1] == "plan.json" and "companion" not in str(k).lower()), "")
     if not text and workspace_root is not None:
         try:
             text = (Path(workspace_root) / "docs" / "harper" / "plan.json").read_text(encoding="utf-8")

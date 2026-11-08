@@ -98,6 +98,15 @@ class PhaseBlockTests(unittest.TestCase):
         self.assertIn("FEATURES.json", q["text"])
         self.assertIn("PROGRESS.md", q["text"])
 
+    def test_kit_reads_plan_json_sent_by_file_name(self):
+        plan = json.dumps({"reqs": [{"id": "REQ-007", "scenarios": ["UI-03"]}]})
+        with tempfile.TemporaryDirectory() as tmp:  # no plan on disk: only the core blob
+            q = build_quality_context(phase="kit", payload={"core_blobs": {"plan.json": plan, **{
+                f".clike/skills/{p.parent.name}/SKILL.md": p.read_text() for p in (TEMPLATE / ".clike" / "skills").glob("journey-*/SKILL.md")}}},
+                execution_mode="local_agent", req_id="REQ-007", workspace_root=Path(tmp))
+        self.assertEqual(q["scenarios"], ["UI-03"])
+        self.assertIn("UI-03", q["text"])
+
     def test_kit_without_scenarios_or_epic_adds_nothing(self):
         self.assertEqual(self._kit({"id": "REQ-009"})["text"], "")
 
