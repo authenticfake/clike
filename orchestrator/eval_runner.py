@@ -3820,6 +3820,17 @@ class EvalRunner:
                 cwd=default_cwd,
             )
             out_cases.extend(setup_cases)
+            # regression: the state after promotion — the candidate's dependencies too (pilot
+            # 2026-11-08: the candidate added openpyxl to the shared app, and the promoted REQ-001's
+            # environment, built from its own requirements only, failed on the import)
+            for candidate_requirements in self._candidate_requirements():
+                if str(candidate_requirements) == str(requirements_file):
+                    continue
+                eval_env, more = self._ensure_eval_venv(
+                    req_id=eff_req, requirements_file=str(candidate_requirements), env=eval_env, cwd=default_cwd)
+                for case in more:
+                    case.name = case.name.replace("env::", "env::candidate-", 1)
+                out_cases.extend(more)
 
         node_runtime_names = {
             "node",
@@ -4758,6 +4769,18 @@ class EvalRunner:
                 raise
         self._rerun_timeouts_alone(req_id, candidate_src, ran, superseded)
         return ran
+
+    def _candidate_requirements(self) -> List[Path]:
+        """The candidate's Python requirements, installed in a promoted REQ's regression environment
+        on top of its own (the dependencies the candidate adds are there after promotion)."""
+        if not getattr(self, "regression", False):
+            return []
+        out = []
+        for src in self.extra_src_roots:
+            req = Path(src).parent / "ci" / "requirements.txt"
+            if req.is_file():
+                out.append(req)
+        return out
 
     def _regression_runner(self, req_id: Optional[str], other: str, candidate_src: Path) -> "EvalRunner":
         """The runner of a promoted REQ's checks with the candidate overlaid (the state after promotion)."""

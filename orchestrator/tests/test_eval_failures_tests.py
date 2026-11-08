@@ -456,3 +456,35 @@ class PromotedFileKeptTests(unittest.TestCase):
             self.assertEqual(cases, {})
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(self._cases(tmp, {"pkg/app.py": "app = make()\n"}, amends=["REQ-003"]), {})
+
+
+class RegressionCandidateDependenciesTests(unittest.TestCase):
+    """Epic pilot: the candidate added openpyxl to the shared app; a promoted REQ's regression
+    environment, built from its own requirements only, failed on the import."""
+
+    def test_a_regression_environment_gets_the_candidates_requirements_too(self):
+        import json
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cand = root / "runs" / "kit" / "REQ-009"
+            (cand / "src").mkdir(parents=True)
+            (cand / "ci").mkdir(parents=True)
+            (cand / "ci" / "requirements.txt").write_text("openpyxl==3.1.5\n")
+            other = root / "runs" / "kit" / "REQ-001" / "ci"
+            other.mkdir(parents=True)
+            (other / "requirements.txt").write_text("fastapi==0.115.12\n")
+            ltc = {"req_id": "REQ-001", "runtime": {"name": "python"}, "checks": [{"id": "t", "command": "true"}]}
+            (other / "LTC.json").write_text(json.dumps(ltc))
+            runner = EvalRunner(root)._regression_runner("REQ-009", "REQ-001", cand / "src")
+            self.assertEqual(runner._candidate_requirements(), [cand / "ci" / "requirements.txt"])
+            seen = []
+
+            def fake(self, *, req_id, requirements_file, env, cwd):
+                seen.append(Path(requirements_file).read_text().strip())
+                return env, []
+
+            with patch.object(EvalRunner, "_ensure_eval_venv", fake):
+                runner.run_profile(profile=str(other / "LTC.json"), ltc=ltc, req_id="REQ-001")
+            self.assertEqual(seen, ["fastapi==0.115.12", "openpyxl==3.1.5"])
+            self.assertEqual(EvalRunner(root)._candidate_requirements(), [])  # the candidate's own eval: nothing extra
