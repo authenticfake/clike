@@ -210,16 +210,17 @@ Selection rules:
 
 Recommended mappings:
 
-- Startup/product/SaaS/MVP UI -> pack startup-solution, skill frontend-state-accessibility, design profile startup-product-app.
-- Enterprise/internal/admin/governed platform -> pack enterprise-solution, skills backend-contract-boundary, local-cloud-parity, gate-risk-reviewer, design profile enterprise-console when UI is involved.
-- Industrial/manufacturing/shop-floor/SCADA/MES/PLC/edge -> pack industrial-solution, skill industrial-safety-simulator, design profile industrial-control-room or mobile-operator-app when UI is involved.
-- Mobile/PWA/tablet/field workflow -> pack mobile-app, skill mobile-offline-parity, design profile mobile-operator-app when UI is involved.
+- Startup/product/SaaS UI -> pack startup-solution, skill journey-ui-states, design profile startup-product-app.
+- Enterprise/internal/admin/governed platform -> pack enterprise-solution, skills backend-contract-boundary, journey-runtime-config, design profile enterprise-console when UI is involved.
+- Industrial/manufacturing/shop-floor/SCADA/MES/PLC/edge -> pack industrial-solution, skill journey-industrial-control, design profile industrial-control-room or mobile-operator-app when UI is involved.
+- Mobile/PWA/tablet/field workflow -> pack mobile-app, skill journey-mobile-offline, design profile mobile-operator-app when UI is involved.
 - Mendix/low-code platform extension -> pack mendix-solution, skill mendix-extension-boundary.
-- AI-native/RAG/LLM/model-router/agent/tool workflow -> pack ai-native-agent-platform, skill ai-rag-eval-guardrails, design profile developer-tooling-console when UI is involved.
+- AI-native/RAG/LLM/model-router/agent/tool workflow -> pack ai-native-agent-platform, skill journey-ai-guardrails, design profile developer-tooling-console when UI is involved.
 - Backend/API/worker/integration/persistence -> skill backend-contract-boundary.
-- ML/training/dataset/model metric workflow -> skill ml-experiment-reproducibility.
+- ML/training/dataset/model metric workflow -> skill journey-ml-reproducibility.
+- User or service flow (API, page, workflow) -> skill e2e-slice-runnability.
 - Any runnable KIT output -> skill eval-contract-writer.
-- Any promotion-sensitive REQ -> skill gate-risk-reviewer.
+- Journey skills (`journey-*`): select the ones whose scenarios the REQ owns (`reqs[].scenarios`).
 
 ### Agnostic planning rule
 

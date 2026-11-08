@@ -85,9 +85,12 @@ This workspace includes a project-local capability system under `.clike/`.
 ```text
 .clike/
   skills/
-    local-cloud-parity/
-    eval-contract-writer/
-    gate-risk-reviewer/
+    eval-contract-writer/        proof contract of every KIT
+    journey-*/                   scenario catalogs (identity, data, UI, jobs, integration, files,
+                                 industrial, API, runtime config, tenancy, AI, mobile, ML,
+                                 notifications, payments)
+    e2e-slice-runnability/  backend-contract-boundary/  web-e2e-harness/  …
+    vendor/                      pinned third-party skills (VENDORED.json) and BMAD
   packs/
     enterprise-onprem/
     industrial-manufacturing/

@@ -159,18 +159,20 @@
       "Criteria avoid vague terms such as fast, secure, or robust without measurable detail.",
       "Failure modes and denied behavior are included when relevant.",
       "Each criterion can be tested or inspected.",
+      "Every included journey scenario has an acceptance criterion that starts with its id (e.g. `IAM-03: …`).",
       "Acceptance does not assume unselected frameworks or providers."
     ],
     "required_outputs": [
       "Canonical IDEA or SPEC content appropriate to the active phase.",
       "Clear goals, non-goals, users, assumptions, constraints, and testable acceptance direction.",
       "No BMAD-only sections inside canonical Harper artifacts.",
-      "Implementation-sized REQs or story map entries with stable dependencies.",
+      "Implementation-sized REQs or story map entries with stable dependencies, sized on the plan's capacity profile (C1 one domain per REQ, C2 vertical slices, C3 epics with features) and never split by technical layer.",
       "Explicit in-scope and out-of-scope behavior for each slice.",
       "Handoff notes that later KIT runs can use without inventing behavior.",
       "Acceptance criteria that are observable, testable, and tied to requirements.",
       "Negative-path and boundary expectations where risk is material.",
-      "Evidence expectations suitable for EvalRunner and Gate."
+      "Evidence expectations suitable for EvalRunner and Gate.",
+      "The SPEC `## Scenarios` section: every journey scenario the use cases touch (journey catalog), included with how it applies or excluded with a valid reason."
     ],
     "snippets": [
       {
@@ -182,13 +184,13 @@
       {
         "id": "epic-framing",
         "path": ".clike/skills/vendor/bmad/epic-framing/SKILL.md",
-        "snippet": "# BMAD Skill Mapping: Epic Framing\n\n## Intent\nOrganize broad product behavior into coherent epics, slices, dependencies, and downstream planning units that remain implementation-legible.\n\n## BMAD source/reference concept\nInspired by BMAD epic and story decomposition practices: group work by meaningful outcomes, dependencies, readiness, and handoff clarity.\n\n## CLike adaptation\nUse this mapping to improve SPEC companion epics and PLAN REQ structure. CLike still owns canonical REQ IDs, dependency modeling, `PLAN.md`, and `plan.json`.\n\n## Applies when\nApplies to `spec/pm` and `plan/pm` BMAD runs.\n\n## Required inputs\n- Valid IDEA and SPEC context.\n- Existing `PLAN.md` and `plan.json` when present.\n- TECH_CONSTRAINTS and repository evidence.\n- Prior companion PRD, epics, and story map artifacts.\n\n## Required outputs\n- Implementation-sized REQs or story map entries with stable dependencies.\n- Explicit in-scope and out-of-scope behavior for each slice.\n- Handoff notes that later KIT runs can use without inventing behavior.\n\n## Companion outputs\n- `docs/harper/bmad/spec/EPICS.md`\n- `docs/harper/bmad/plan/STORY_MAP.md`\n- `docs/harper/bmad/plan/STORIES.md`\n\n## Downstream consumers\nPLAN, KIT, EVAL, and FINALIZE consume the epic framing to understand sequencing and story intent.\n\n## Quality checks\n- Each epic or story maps to a user/system outcome.\n- Dependencies are explicit and acyclic w\n\n...[truncated]",
+        "snippet": "# BMAD Skill Mapping: Epic Framing\n\n## Intent\nOrganize broad product behavior into coherent epics, slices, dependencies, and downstream planning units that remain implementation-legible.\n\n## BMAD source/reference concept\nInspired by BMAD epic and story decomposition practices: group work by meaningful outcomes, dependencies, readiness, and handoff clarity.\n\n## CLike adaptation\nUse this mapping to improve SPEC companion epics and PLAN REQ structure. CLike still owns canonical REQ IDs, dependency modeling, `PLAN.md`, and `plan.json`.\n\n## Applies when\nApplies to `spec/pm` and `plan/pm` BMAD runs.\n\n## Required inputs\n- Valid IDEA and SPEC context.\n- Existing `PLAN.md` and `plan.json` when present.\n- TECH_CONSTRAINTS and repository evidence.\n- Prior companion PRD, epics, and story map artifacts.\n\n## Required outputs\n- Implementation-sized REQs or story map entries with stable dependencies, sized on the plan's capacity profile (C1 one domain per REQ, C2 vertical slices, C3 epics with features) and never split by technical layer.\n- Explicit in-scope and out-of-scope behavior for each slice.\n- Handoff notes that later KIT runs can use without inventing behavior.\n\n## Companion outputs\n- `docs/harper/bmad/spec/EPICS.md`\n- `docs/harper/bmad/plan/STORY_MAP.md`\n- `docs/harper/bmad/plan/STORIES.md`\n\n## Downstream consumers\nPLAN, KIT, EVAL, and FINALIZE consume the epic framing to understand\n\n...[truncated]",
         "truncated": true
       },
       {
         "id": "acceptance-modeling",
         "path": ".clike/skills/vendor/bmad/acceptance-modeling/SKILL.md",
-        "snippet": "# BMAD Skill Mapping: Acceptance Modeling\n\n## Intent\nTurn requirements into verifiable acceptance criteria, test obligations, and evidence expectations that support KIT, EVAL, and Gate.\n\n## BMAD source/reference concept\nInspired by BMAD acceptance and validation practices: make requirements concrete enough for downstream implementation and review.\n\n## CLike adaptation\nUse this mapping to strengthen SPEC acceptance criteria, PLAN test strategy, lane guides, and companion acceptance models without changing validator authority.\n\n## Applies when\nApplies to `spec/pm`.\n\n## Required inputs\n- IDEA/SPEC product behavior.\n- TECH_CONSTRAINTS and known runtime constraints.\n- Existing tests, repository conventions, or capability manifest when present.\n\n## Required outputs\n- Acceptance criteria that are observable, testable, and tied to requirements.\n- Negative-path and boundary expectations where risk is material.\n- Evidence expectations suitable for EvalRunner and Gate.\n\n## Companion outputs\n- `docs/harper/bmad/spec/ACCEPTANCE_MODEL.md`\n- `docs/harper/bmad/spec/SCOPE_DECISIONS.md`\n\n## Downstream consumers\nPLAN derives REQ acceptance and test strategy; KIT uses it for candidate tests; EVAL and Gate use it for evidence review.\n\n## Quality checks\n- Criteria avoid vague terms such as fast, secure, or robust without measurable detail.\n- Failure modes and denied behavior are included when releva\n\n...[truncated]",
+        "snippet": "# BMAD Skill Mapping: Acceptance Modeling\n\n## Intent\nTurn requirements into verifiable acceptance criteria, test obligations, and evidence expectations that support KIT, EVAL, and Gate.\n\n## BMAD source/reference concept\nInspired by BMAD acceptance and validation practices: make requirements concrete enough for downstream implementation and review.\n\n## CLike adaptation\nUse this mapping to strengthen SPEC acceptance criteria, PLAN test strategy, lane guides, and companion acceptance models without changing validator authority.\n\n## Applies when\nApplies to `spec/pm`.\n\n## Required inputs\n- IDEA/SPEC product behavior.\n- TECH_CONSTRAINTS and known runtime constraints.\n- Existing tests, repository conventions, or capability manifest when present.\n\n## Required outputs\n- Acceptance criteria that are observable, testable, and tied to requirements.\n- Negative-path and boundary expectations where risk is material.\n- Evidence expectations suitable for EvalRunner and Gate.\n- The SPEC `## Scenarios` section: every journey scenario the use cases touch (journey catalog), included with how it applies or excluded with a valid reason.\n\n## Companion outputs\n- `docs/harper/bmad/spec/ACCEPTANCE_MODEL.md`\n- `docs/harper/bmad/spec/SCOPE_DECISIONS.md`\n\n## Downstream consumers\nPLAN derives REQ acceptance and test strategy; KIT uses it for candidate tests; EVAL and Gate use it for evidence review.\n\n## Qual\n\n...[truncated]",
         "truncated": true
       }
     ],
@@ -204,14 +206,14 @@
       "source_transport": "template"
     },
     {
-      "bytes": 2500,
+      "bytes": 2641,
       "id": "epic-framing",
       "path": ".clike/skills/vendor/bmad/epic-framing/SKILL.md",
       "source_root": ".clike/skills/vendor/bmad",
       "source_transport": "template"
     },
     {
-      "bytes": 2435,
+      "bytes": 2702,
       "id": "acceptance-modeling",
       "path": ".clike/skills/vendor/bmad/acceptance-modeling/SKILL.md",
       "source_root": ".clike/skills/vendor/bmad",

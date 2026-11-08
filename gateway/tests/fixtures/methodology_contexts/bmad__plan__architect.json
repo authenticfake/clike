@@ -194,7 +194,8 @@
       "Implementation-ready REQs with clear module boundaries, dependencies, constraints, test strategy, and gate expectations.",
       "Architecture companion artifacts describing decisions, boundaries, and risks.",
       "Stories or REQs with clear functional scope, technical scope, acceptance, dependencies, and expected files/tests.",
-      "Implementation readiness notes that identify blockers before KIT."
+      "Implementation readiness notes that identify blockers before KIT.",
+      "Each story names the journey scenarios it owns (`reqs[].scenarios`) and the shared seam it extends; owned scenarios count toward its size."
     ],
     "snippets": [
       {
@@ -206,7 +207,7 @@
       {
         "id": "story-readiness",
         "path": ".clike/skills/vendor/bmad/story-readiness/SKILL.md",
-        "snippet": "# BMAD Skill Mapping: Story Readiness\n\n## Intent\nEnsure each planned story or REQ is ready for implementation with scope, dependencies, acceptance, files, tests, and risks clearly stated.\n\n## BMAD source/reference concept\nInspired by BMAD story readiness and backlog refinement practices: stories should be actionable, bounded, and testable.\n\n## CLike adaptation\nUse this mapping to improve PLAN REQs, plan companion story maps, and KIT handoff notes while preserving CLike REQ identity and candidate boundaries.\n\n## Applies when\nApplies to `plan/architect`, `plan/pm`, and `kit/developer`.\n\n## Required inputs\n- PLAN and `plan.json`.\n- Target REQ and dependencies.\n- Lane guides, TECH_CONSTRAINTS, and architecture or PM companion docs.\n\n## Required outputs\n- Stories or REQs with clear functional scope, technical scope, acceptance, dependencies, and expected files/tests.\n- Implementation readiness notes that identify blockers before KIT.\n\n## Companion outputs\n- `docs/harper/bmad/plan/STORIES.md`\n- `docs/harper/bmad/plan/STORY_MAP.md`\n- `docs/harper/bmad/plan/IMPLEMENTATION_READINESS.md`\n- `runs/kit/<REQ-ID>/docs/BMAD_DEV_STORY.md`\n\n## Downstream consumers\nKIT, EVAL, and FINALIZE use story readiness to avoid guessing and to report traceable implementation evidence.\n\n## Quality checks\n- The target slice is coherent and not a thin technical fragment.\n- Dependencies and downstream assumptio\n\n...[truncated]",
+        "snippet": "# BMAD Skill Mapping: Story Readiness\n\n## Intent\nEnsure each planned story or REQ is ready for implementation with scope, dependencies, acceptance, files, tests, and risks clearly stated.\n\n## BMAD source/reference concept\nInspired by BMAD story readiness and backlog refinement practices: stories should be actionable, bounded, and testable.\n\n## CLike adaptation\nUse this mapping to improve PLAN REQs, plan companion story maps, and KIT handoff notes while preserving CLike REQ identity and candidate boundaries.\n\n## Applies when\nApplies to `plan/architect`, `plan/pm`, and `kit/developer`.\n\n## Required inputs\n- PLAN and `plan.json`.\n- Target REQ and dependencies.\n- Lane guides, TECH_CONSTRAINTS, and architecture or PM companion docs.\n\n## Required outputs\n- Stories or REQs with clear functional scope, technical scope, acceptance, dependencies, and expected files/tests.\n- Implementation readiness notes that identify blockers before KIT.\n- Each story names the journey scenarios it owns (`reqs[].scenarios`) and the shared seam it extends; owned scenarios count toward its size.\n\n## Companion outputs\n- `docs/harper/bmad/plan/STORIES.md`\n- `docs/harper/bmad/plan/STORY_MAP.md`\n- `docs/harper/bmad/plan/IMPLEMENTATION_READINESS.md`\n- `runs/kit/<REQ-ID>/docs/BMAD_DEV_STORY.md`\n\n## Downstream consumers\nKIT, EVAL, and FINALIZE use story readiness to avoid guessing and to report traceable implemen\n\n...[truncated]",
         "truncated": true
       }
     ],
@@ -222,7 +223,7 @@
       "source_transport": "template"
     },
     {
-      "bytes": 2417,
+      "bytes": 2558,
       "id": "story-readiness",
       "path": ".clike/skills/vendor/bmad/story-readiness/SKILL.md",
       "source_root": ".clike/skills/vendor/bmad",
