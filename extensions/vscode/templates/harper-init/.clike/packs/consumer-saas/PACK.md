@@ -3,7 +3,7 @@ name: consumer-saas
 description: Use for consumer, startup, product-led SaaS, onboarding, dashboards, subscription, and customer-facing scenarios.
 domains: ["consumer", "startup"]
 default_runtime_profiles: ["local", "cloud", "local-cloud"]
-recommended_skills: ["local-cloud-parity", "eval-contract-writer", "gate-risk-reviewer"]
+recommended_skills: ["journey-ui-states", "journey-identity-access", "journey-tenancy", "journey-runtime-config", "eval-contract-writer"]
 gate_required: true
 obligations:
   - Provide onboarding and account/project boundaries
@@ -52,64 +52,6 @@ This pack guides CLike when generating product-led software for consumer, startu
 - runtime_profile_adherence
 - skill_adherence
 - documentation completeness
----
-
-# CLike Promotable KIT Pack Overlay
-
-## Purpose
-
-This pack is a scenario-level orchestrator for CLike `/kit`.
-
-It should help the model choose the right constraints, not generate decorative architecture.
-
-## Default Promotable Skills
-
-For code-producing REQs, prefer selecting relevant skills from:
-
-- `promotable-code-boundary` when available;
-- `backend-contract-boundary` for backend/API/service work;
-- `frontend-state-accessibility` for UI work;
-- `local-cloud-parity` for runtime or external dependencies;
-- `eval-contract-writer` for executable validation;
-- `gate-risk-reviewer` for promotion safety;
-- `secure-config-secrets` when available for credentials/config/runtime;
-- `observability-diagnostics` when available for supportability;
-- scenario-specific skills already listed by this pack.
-
-Do not select every skill automatically. Select only those justified by the REQ, lane, runtime profile, and acceptance criteria.
-
-## KIT Behavior
-
-When this pack is selected, KIT generation must:
-
-- keep the implementation slice narrow and promotable;
-- obey repository conventions before adding new layers;
-- generate executable evidence;
-- separate local deterministic validation from optional external validation;
-- document runtime assumptions;
-- preserve future compatibility for dependent REQs;
-- avoid fake completeness and broad speculative architecture.
-
-## Required Evidence
-
-The KIT should provide:
-
-- source mapped to the REQ;
-- tests mapped to acceptance criteria;
-- `ci/LTC.json`;
-- `ci/HOWTO.md`;
-- capability adherence notes in KIT documentation;
-- external infrastructure assumptions when relevant.
-
-## Gate Bias
-
-This pack biases GATE toward safe promotion.
-
-Promotion should require full `PASS`.
-
-`PASS_WITH_WARNINGS` must not promote.
-
-Warnings are acceptable only when the missing evidence is explicitly non-blocking, external, and documented with a deterministic local fallback.
 
 ## Use when
 
@@ -118,3 +60,21 @@ Use for consumer or B2B SaaS products with onboarding, multi-tenant account/proj
 ## Do not use when
 
 Do not use for on-prem/air-gapped enterprise platforms or backend-only services with no user-facing surface.
+
+---
+
+# CLike Pack Overlay
+
+## Skills
+
+Select only the skills the REQ, lane, runtime profile and acceptance justify: the journeys whose
+scenarios the REQ owns (`journey-*`), `eval-contract-writer` for every REQ that ships code,
+`backend-contract-boundary` for backend contracts, `e2e-slice-runnability` for user or service
+flows, plus the scenario-specific skills listed by this pack.
+
+## Gate
+
+The gate promotes on PASS and on PASS_WITH_WARNINGS (non-blocking checks failed or
+environment-blocked, reported and tracked), unless the project enables strict warnings. A check
+belongs in the blocking set when it proves an acceptance criterion or scenario in the sandbox; it is
+non-blocking only when it needs infrastructure the sandbox does not have, with the reason stated.

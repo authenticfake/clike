@@ -9,12 +9,13 @@ Force each state through the data boundary and assert visible text and roles.
   - Empty / error: fake client or MSW handlers returning `[]` or a 500; `await screen.findByRole("alert")` and assert the product-language text and the retry button.
   - Double submit: `user.dblClick(submit)`; assert the fake was called once and `toBeDisabled()` while pending.
   - Validation: submit empty form, assert per-field messages (`toHaveAccessibleDescription`) and focus on the summary or first invalid field (`toHaveFocus()`).
-- Accessibility: `jest-axe` / `vitest-axe` or `@axe-core/playwright` for automated checks; plus explicit `getByRole(name)` queries.
+- Accessibility: `jest-axe` / `vitest-axe` for roles and names (jsdom cannot compute colour contrast: check contrast with `@axe-core/playwright` in a browser test); plus explicit `getByRole(name)` queries.
+- Success (UI-12): assert the confirmation text in a `status` region after the fake resolves. Unsaved changes (UI-13): edit a field, navigate away, assert the confirm dialog and that cancelling keeps the input.
 - Journeys: Playwright.
   - Offline: `context.setOffline(true)`, assert the offline message, restore, retry.
   - Timeout / errors: `page.route()` to delay or fail requests.
   - Keyboard: `page.keyboard.press("Tab")` sequences and `expect(locator).toBeFocused()`.
-  - Language: launch with `locale` and assert translated text.
+  - Language: set the language the way the app reads it (the `locale` option sets the browser locale and the Accept-Language header; when the app reads a cookie, a user setting or a route segment, set that) and assert translated text.
   - Responsive: `page.setViewportSize({ width: 360, height: 740 })`, assert actions visible and no horizontal overflow.
 
 ## Java

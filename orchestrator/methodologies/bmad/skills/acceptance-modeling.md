@@ -21,6 +21,7 @@ Applies to `spec/pm`.
 - Acceptance criteria that are observable, testable, and tied to requirements.
 - Negative-path and boundary expectations where risk is material.
 - Evidence expectations suitable for EvalRunner and Gate.
+- The SPEC `## Scenarios` section: every journey scenario the use cases touch (journey catalog), included with how it applies or excluded with a valid reason.
 
 ## Companion outputs
 - `docs/harper/bmad/spec/ACCEPTANCE_MODEL.md`
@@ -33,6 +34,7 @@ PLAN derives REQ acceptance and test strategy; KIT uses it for candidate tests; 
 - Criteria avoid vague terms such as fast, secure, or robust without measurable detail.
 - Failure modes and denied behavior are included when relevant.
 - Each criterion can be tested or inspected.
+- Every included journey scenario has an acceptance criterion that starts with its id (e.g. `IAM-03: …`).
 - Acceptance does not assume unselected frameworks or providers.
 
 ## Eval/Gate evidence expectations

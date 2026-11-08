@@ -88,7 +88,8 @@ function sourceSkills(root) {
   for (const e of entries) {
     if (!e.isDirectory()) continue;
     if (e.name === 'vendor') {
-      for (const vendor of fs.readdirSync(path.join(base, 'vendor'), { withFileTypes: true }).filter((v) => v.isDirectory())) {
+      // BMAD reaches cloud and agents through its methodology loader, only when the run selects it
+      for (const vendor of fs.readdirSync(path.join(base, 'vendor'), { withFileTypes: true }).filter((v) => v.isDirectory() && v.name !== 'bmad')) {
         for (const skill of fs.readdirSync(path.join(base, 'vendor', vendor.name), { withFileTypes: true }).filter((v) => v.isDirectory())) {
           add(path.join(base, 'vendor', vendor.name, skill.name), `${vendor.name}-${skill.name}`);
         }
@@ -117,14 +118,36 @@ function nativeSkillFiles(skill) {
   const vendorDir = path.dirname(skill.dir);
   const vendored = path.basename(path.dirname(vendorDir)) === 'vendor';
   const license = vendored ? vendorLicense(vendorDir) : '';
+  // CLike's overlay of a vendored skill (vendor/<vendor>/CLIKE_OVERLAY.md) comes before the upstream body
+  const overlay = vendored ? overlaySection(readText(path.join(vendorDir, 'CLIKE_OVERLAY.md')), path.basename(skill.dir), 'agent') : '';
   for (const rel of listFiles(skill.dir)) {
     const content = fs.readFileSync(path.join(skill.dir, rel), 'utf8');
-    files[rel] = rel === 'SKILL.md' ? toNativeSkill(skill.name, content, skill.source, license) : content;
+    if (rel !== 'SKILL.md') { files[rel] = content; continue; }
+    const native = toNativeSkill(skill.name, content, skill.source, license);
+    files[rel] = overlay ? native.replace(/\n---\n/, () => `\n---\n\n# How this skill applies in CLike (overrides the text below where they differ)\n\n${overlay}\n\n`) : native;
   }
   if (vendored && fs.existsSync(path.join(vendorDir, 'LICENSE')) && !files.LICENSE) {
     files.LICENSE = fs.readFileSync(path.join(vendorDir, 'LICENSE'), 'utf8');
   }
   return files;
+}
+
+function readText(file) {
+  try { return fs.readFileSync(file, 'utf8'); } catch { return ''; }
+}
+
+/** The overlay of one vendored skill for 'cloud' | 'agent': `## <skill>`, its `### All executors` and own section. */
+function overlaySection(overlay, skill, executor) {
+  const text = String(overlay || '');
+  const start = text.search(new RegExp(`^## ${skill.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`, 'm'));
+  if (start < 0) return '';
+  const rest = text.slice(start).split('\n').slice(1).join('\n');
+  const end = rest.search(/^## /m);
+  const section = (end < 0 ? rest : rest.slice(0, end)).trim();
+  return section.split(/(?=^### )/m).filter((block) => {
+    const head = (block.split('\n')[0] || '').toLowerCase();
+    return !head.startsWith('### ') || head.includes('all executors') || head.includes(executor);
+  }).map((b) => b.trim()).filter(Boolean).join('\n\n');
 }
 
 function vendorLicense(vendorDir) {
@@ -282,6 +305,6 @@ function lockedRootsEnv(phase, reqId) {
 }
 
 module.exports = {
-  parseSkill, toNativeSkill, sourceSkills, syncAgentSkills, instructionsBlock, upsertBlock,
+  parseSkill, toNativeSkill, sourceSkills, overlaySection, syncAgentSkills, instructionsBlock, upsertBlock,
   ensureGuardHook, lockedRootsEnv, GUARD_SCRIPT, BLOCK_BEGIN, BLOCK_END, TARGETS,
 };

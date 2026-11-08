@@ -13,11 +13,18 @@ scenarios:
   - API-03 | required | Unauthenticated | If a request has no credentials or invalid credentials, then the system shall return 401 (or the protocol equivalent) without executing the operation or leaking data.
   - API-04 | required | Unauthorized | If an authenticated client requests an operation or resource outside its permissions, then the system shall return 403 (or the protocol equivalent) and leave state unchanged.
   - API-05 | required | Not found | If a request targets a resource that does not exist, then the system shall return 404 (or the protocol equivalent) with the standard error body.
-  - API-06 | required | Conflict | If a request conflicts with current state (duplicate, stale version, invalid transition), then the system shall return 409 (or the protocol equivalent) with a message explaining the conflict.
+  - API-06 | required | Conflict | If a request conflicts with current state (duplicate, stale version, invalid transition), then the system shall return 409 (or the protocol equivalent) with a message explaining the conflict; precondition headers are API-15.
   - API-07 | required | Consistent error schema | When any error is returned, the system shall use one documented error schema (code, message, details, correlation id) and never expose stack traces or internal identifiers.
   - API-08 | required | Versioning and backward compatibility | When the contract changes, the system shall keep existing clients working (additive changes or a new version) and the published schema shall match the implementation.
-  - API-09 | required | Limits and pagination | When a client requests a collection or exceeds a size or rate limit, the system shall paginate with documented parameters and reject excess with a readable limit error (for example 413 or 429).
+  - API-09 | required | Pagination | When a client requests a collection, the system shall return pages with documented parameters, a stable order and a capped page size.
   - API-10 | conditional | [Unsafe operations may be retried] Idempotency keys | If a client retries an unsafe request with the same idempotency key, then the system shall return the original result and not repeat the side effect.
+  - API-11 | required | Request size and media type | If a request body exceeds the size limit or has an unsupported media type, then the system shall reject it before processing with 413 or 415 (or the protocol equivalent) and a readable message stating the limit or the accepted types.
+  - API-12 | conditional | [Public, partner or shared API] Rate limit | If a client exceeds its rate limit, then the system shall answer 429 (or the protocol equivalent) with Retry-After and execute nothing.
+  - API-13 | required | Object-level authorization | If an authenticated client requests an object it does not own or may not see, by guessing or changing its identifier, then the system shall answer as not found or forbidden and return no data of that object.
+  - API-14 | required | Server-owned fields protected | If a request body sets fields the server owns (identifier, owner, role, status, timestamps, prices), then the system shall reject or ignore them and never apply them.
+  - API-15 | conditional | [Clients cache or edit concurrently] Entity tags | When a client sends If-None-Match with the current tag, the system shall answer 304; when it sends If-Match with a stale tag, the system shall answer 412 and change nothing.
+  - API-16 | conditional | [Browser clients on other origins] Cross-origin policy | If a browser request comes from an origin not in the configured list, then the system shall not grant it cross-origin access.
+  - API-17 | conditional | [Endpoints are being retired] Deprecation signalled | When a client calls a deprecated endpoint, the system shall still answer and signal the deprecation and its sunset date in the response headers and the published schema.
 obligations:
   - Enumerate every API scenario in SPEC and include it or exclude it with a written reason
   - Map each included scenario ID to a REQ in plan.json and to an acceptance item prefixed with the ID

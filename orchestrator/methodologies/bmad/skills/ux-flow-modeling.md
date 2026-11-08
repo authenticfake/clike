@@ -7,7 +7,7 @@ Capture user journeys, interaction states, accessibility expectations, and UX ri
 Inspired by BMAD UX flow and front-end specification practices: make journeys, states, and user-facing constraints explicit before implementation.
 
 ## CLike adaptation
-Use this mapping only for BMAD UX companion outputs. In MVP, `spec/ux` is companion-only and must not emit `docs/harper/SPEC.md`.
+Use this mapping only for BMAD UX companion outputs. In this release, `spec/ux` is companion-only and must not emit `docs/harper/SPEC.md`.
 
 ## Applies when
 Applies to `spec/ux`.
@@ -20,6 +20,7 @@ Applies to `spec/ux`.
 ## Required outputs
 - UX companion artifacts describing journeys, screens, states, content, accessibility, and handoff notes.
 - Clear separation between UX advice and canonical SPEC authority.
+- INTERACTION_STATES keyed to the UI journey scenario ids (UI-01 loading … UI-13 unsaved changes) per surface, so PLAN and KIT can trace each state.
 
 ## Companion outputs
 - `docs/harper/ux/DESIGN.md`

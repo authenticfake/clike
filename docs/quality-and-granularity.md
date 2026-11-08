@@ -33,19 +33,31 @@ features, each repair the next ones; a local agent may deliver several per run.
 
 ## 2. Journey scenarios — from SPEC to the gate
 
-`/init` installs eight **journey skills** in `.clike/skills/`, each a catalog of the scenarios a
-capability implies, with stable ids and an EARS statement:
+`/init` installs fifteen **journey skills** in `.clike/skills/`, each a catalog of the scenarios a
+capability implies, with stable ids and an EARS statement (`required`, or `conditional` with the
+condition in brackets):
 
 | Journey | Examples |
 |---|---|
-| `journey-identity-access` (IAM) | registration, login, wrong credentials, lockout, password reset, session expiry, logout, permission deny |
-| `journey-data-lifecycle` (DAT) | per-field validation, duplicates, concurrent edit, delete with confirmation, empty list, not found |
-| `journey-ui-states` (UI) | loading, empty, visible actionable error, denied, offline/timeout, pending submit, keyboard and focus, product language |
-| `journey-async-jobs` (JOB) | queued, progress, retry, timeout, cancel, idempotent resubmit, resume after restart |
-| `journey-integration` (INT) | provider down, timeout, rate limited, malformed response, expired credentials |
-| `journey-files-export` (FIL) | empty or oversized file, wrong format, unsafe names, denied download |
-| `journey-industrial-control` (IND) | interlock, fault and alarm, emergency stop, communication loss, out-of-range sensor, safe start |
-| `journey-api-contract` (API) | 4xx with readable error body, 401, 403, 409, 404, versioning, pagination |
+| `journey-identity-access` (IAM) | registration, login, wrong credentials, lockout, reset, session expiry, logout, permission deny, no account enumeration, CSRF, session fixation, refresh-token reuse, password policy, federated sign-in checks |
+| `journey-data-lifecycle` (DAT) | validation, duplicates, concurrent edit, delete, empty list, not found, boundary values, delete with dependents, data-preserving migrations, time zones, no partial write |
+| `journey-ui-states` (UI) | loading, empty, visible actionable error, denied, offline/timeout, pending submit, keyboard and focus, product language, success confirmed, unsaved changes |
+| `journey-async-jobs` (JOB) | queued, progress, retry, timeout, cancel, idempotent resubmit, resume after restart, transactional outbox, ordering per key, leases, backpressure |
+| `journey-integration` (INT) | provider down, timeout, rate limited, malformed response (tolerant reader), expired credentials, outbound webhooks, reconciliation, pinned contract |
+| `journey-files-export` (FIL) | empty or oversized file, wrong format, unsafe names, denied download, archive limits, malware scan, spreadsheet formula injection, expiring links |
+| `journey-industrial-control` (IND) | interlock, alarms, emergency stop, communication loss, bad sensor, safe start, commands safe by default, command/feedback discrepancy, watchdog, alarm flood, single point of control |
+| `journey-api-contract` (API) | readable 4xx, 401, 403, 404, 409/412, versioning, pagination, size and media type, rate limit, object-level authorization, server-owned fields, entity tags, CORS |
+| `journey-runtime-config` (CFG) | starts on local defaults, fails fast on missing config, no secrets in files or logs, documented configuration, production adapters only on selection, route parity, readiness, egress allowlist |
+| `journey-tenancy` (TEN) | tenant from the identity, cross-tenant access refused, filtered collections and exports, tenant kept by jobs and caches, offboarding |
+| `journey-ai-guardrails` (AIR) | output validated before use, model failure fallback, injected instructions ignored, deterministic eval set, grounded answers or abstain, scoped retrieval, tool allowlist |
+| `journey-mobile-offline` (MOB) | offline work persists, sync exactly once, conflicts surfaced, sync failures visible, permission denied, interrupted flow resumes |
+| `journey-ml-reproducibility` (MLR) | reproducible run, metric threshold gates, pinned and validated dataset, validated inference input, training/serving parity, drift |
+| `journey-notifications` (NTF) | notified once, recipient language and safe content, retries and failed state, preferences and unsubscribe, expiring links |
+| `journey-payments` (PAY) | charge once, decline handled, verified idempotent webhooks, exact amounts, extra authentication, refunds, reconciliation |
+
+Each journey has `references/test-idioms.md` with one section per language (Python, TypeScript/web,
+Java, .NET, Go, Rust, mobile, infrastructure as code, PLC/SCADA): the KIT prompt carries the sections
+of the REQ's lane for the journeys it owns, to the cloud and to the agents alike.
 
 The thread, the same for every executor:
 
@@ -54,11 +66,12 @@ The thread, the same for every executor:
 2. **PLAN** — every included scenario is owned by one REQ (`reqs[].scenarios`) and appears as an
    acceptance bullet starting with its id. After `/plan` the chat reports the included scenarios no
    REQ owns and the exclusions without a reason.
-3. **KIT** — the KIT gets the statements of its scenarios; each is proved by a blocking check listed
-   in `docs/ACCEPTANCE.json`, by a test that carries the scenario id, asserting what the user or the
-   caller sees (the error text in the UI, the API error body, the safe state of the device).
+3. **KIT** — the KIT gets the statements of its scenarios and the test idioms of its lane; each is
+   proved by a blocking check listed in `docs/ACCEPTANCE.json`, by a test whose name or title carries
+   the scenario id (one or two ids per test), asserting what the user or the caller sees (the error
+   text in the UI, the API error body, the safe state of the device).
 4. **EVAL / GATE** — `acceptance::coverage` blocks the REQ while a scenario has no blocking check or
-   no test names it.
+   no test names it; a line that lists many ids (a comment, a table) proves none of them.
 
 ## 3. Skills on every executor
 
@@ -69,17 +82,25 @@ One source, `.clike/skills/`:
   (`.claude/skills/`, `.agents/skills/`) in the open Agent Skills format, keep a CLike block of rules
   in `CLAUDE.md` and `AGENTS.md`, and add a guard hook that refuses writes to the REQ's tests and CI
   during `/eval`. Skills and files CLike does not manage are never touched.
-- **Cloud** — the skills `/plan` selects for a REQ go into the prompt (the shared enforcement layer
-  of several skills said once, every skill whole).
+- **Cloud** — the skills `/plan` selects for a REQ go into the prompt, every skill whole and its
+  frontmatter once; a skill for other phases (a gate review) is listed, not rendered, in the KIT; a
+  plan that names a skill folded into another gets its successor.
 - **Vendored skills** — third-party skills live in `.clike/skills/vendor/<vendor>/<skill>/` with
   `VENDORED.json` (repository, pinned commit, license, review date, digest of every file). They are
   installed for the agents as `<vendor>-<skill>` with their license and selectable for the cloud like
   any skill. Maintenance with `tools/skills_vendor.py`: `verify` (run by the tests), `check-updates`,
   `update <vendor> [--ref R] [--apply]` (diff, license check and review findings before re-pinning).
-  Nothing is fetched at run time.
-- **web-e2e-harness** — deterministic frontend checks in the eval sandbox: lockfile installs, the app
-  started by the test runner on loopback, cookies that work over the HTTP loopback origin, stable
-  selectors, condition waits.
+  Nothing is fetched at run time. A CLike overlay (`vendor/<vendor>/CLIKE_OVERLAY.md`) says how each
+  vendored skill applies per executor: the cloud gets its static form (tests before source, the
+  defect each test catches, no claimed runs), the agents get red-green in the KIT and the failing eval
+  check as the red in a repair; the pinned upstream files stay untouched.
+- **Methodology skills** (BMAD) reach cloud and agents through the methodology loader, only in runs
+  that select the methodology; they are not installed as native agent skills.
+- **web-e2e-harness** — deterministic frontend checks in the eval sandbox: lockfile installs, a
+  production server started by the test runner on loopback (never a reused one), no retries,
+  browsers installed by the case, cookies that work over the HTTP loopback origin, stable selectors,
+  condition waits; component tests for the states of a surface, browser tests for what needs a real
+  browser.
 
 ## 4. Repairs in the KIT's session
 

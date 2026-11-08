@@ -1,14 +1,13 @@
 ---
 name: enterprise-solution
-description: Use for enterprise-grade applications requiring governance, auditability, integration safety, runtime configurability, security posture, MVP promotability, and release evidence.
+description: Use for enterprise-grade applications requiring governance, auditability, integration safety, runtime configurability, security posture, promotable slices and release evidence.
 domains: ["enterprise", "developer-tooling", "ai-native"]
 default_runtime_profiles: ["local", "cloud", "local-cloud", "on-prem", "hybrid", "air-gapped"]
 recommended_skills:
   - enterprise-solution-architecture
-  - mvp-e2e-promotability
+  - e2e-slice-runnability
   - backend-contract-boundary
-  - local-cloud-parity
-  - secure-config-secrets
+  - journey-runtime-config
   - eval-contract-writer
   - gate-risk-reviewer
 recommended_design_profiles:
@@ -69,13 +68,12 @@ Use this pack when the requirement mentions:
 Recommended skills:
 
 - `enterprise-solution-architecture` for coherent enterprise slicing and integration;
-- `mvp-e2e-promotability` for runnable MVP slices;
+- `e2e-slice-runnability` for runnable slices;
 - `backend-contract-boundary` for backend/API/service work;
-- `frontend-state-accessibility` when UI/UX is involved;
+- `journey-ui-states` when UI/UX is involved;
 - `backoffice-workflow-ux` when operator/backoffice workflows are involved;
-- `local-cloud-parity` for runtime or external dependencies;
-- `secure-config-secrets` for configuration, secrets, auth, providers, or deployment;
-- `ai-rag-eval-guardrails` when AI/LLM/RAG is involved;
+- `journey-runtime-config` for runtime or external dependencies;
+- `journey-ai-guardrails` when AI/LLM/RAG is involved;
 - `eval-contract-writer` for executable validation;
 - `gate-risk-reviewer` for promotion safety.
 
@@ -90,7 +88,7 @@ Do not select every skill automatically. Select only those justified by the REQ,
 
 When this pack is selected, SPEC and PLAN should avoid vague enterprise mega-REQs.
 
-Prefer dependency-aware MVP slices such as:
+Prefer dependency-aware promotable slices such as:
 
 1. canonical contracts and persistence;
 2. runtime profile/adapters;
@@ -189,13 +187,12 @@ Gate should block promotion when:
 - local run path is missing for runnable code;
 - frontend/backend route parity is broken;
 - FINALIZE claims runnability without executable scripts/checks;
-- `PASS_WITH_WARNINGS` is the final status.
 
 Gate may allow non-blocking warnings when:
 
 - enterprise-only external runners are unavailable locally;
 - full security/compliance tooling is documented but outside the current local environment;
-- production hardening is explicitly deferred and local MVP evidence is complete.
+- production hardening is explicitly deferred and local evidence is complete.
 
 ## Use when
 

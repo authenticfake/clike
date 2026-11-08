@@ -61,10 +61,56 @@ def _split_shared_layer(text: str) -> tuple:
     return body, raw[match.start():].strip() + "\n"
 
 
+_FRONTMATTER = re.compile(r"\A---\s*\n.*?\n---\s*\n?", re.DOTALL)
+
+
 def _skill_item_text(text: str) -> tuple:
-    body, layer = _split_shared_layer(text)
+    # the frontmatter goes to the context once, as the item's metadata: the preview is the body
+    body, layer = _split_shared_layer(_FRONTMATTER.sub("", str(text or ""), count=1).lstrip())
     preview = body if len(body) <= MAX_ITEM_PREVIEW_CHARS else body[:MAX_ITEM_PREVIEW_CHARS].rstrip() + "\n...[truncated]"
     return preview, layer
+
+
+# Vendored skills (vendor/<vendor>/<skill>) are pinned as upstream wrote them; CLike's overlay
+# (vendor/<vendor>/CLIKE_OVERLAY.md, `## <skill>` with `### All executors`, `### Cloud …`,
+# `### Coding agent`) says how they apply in CLike. The cloud prompt gets the overlay's cloud form in
+# place of the upstream body (it cannot run tests); the agents get the overlay before the body.
+OVERLAY_FILE = "CLIKE_OVERLAY.md"
+
+
+def overlay_section(overlay: str, skill: str, executor: str) -> str:
+    """The overlay of one vendored skill for `executor` ("cloud" | "agent"), '' when none."""
+    match = re.search(r"^## " + re.escape(skill) + r"\s*$(.*?)(?=^## |\Z)", str(overlay or ""), flags=re.MULTILINE | re.DOTALL)
+    if not match:
+        return ""
+    keep = []
+    for block in re.split(r"(?=^### )", match.group(1).strip(), flags=re.MULTILINE):
+        head = block.splitlines()[0].lower() if block.strip() else ""
+        if not head.startswith("### ") or "all executors" in head or (executor == "cloud" and "cloud" in head) or (executor == "agent" and "agent" in head):
+            keep.append(block.strip())
+    return "\n\n".join(k for k in keep if k)
+
+
+def _vendored_cloud_preview(text: str, overlay: str, skill: str) -> str:
+    section = overlay_section(overlay, skill, "cloud")
+    if not section:
+        return _skill_item_text(text)[0]
+    meta = _extract_frontmatter(text)
+    return (f"# {skill} (vendored, applied the CLike way)\n\n{_safe_str(meta.get('description'))}\n\n{section}\n\n"
+            "(The full upstream skill is installed for the coding agents.)\n")
+
+
+# Skills folded into others (analysis 57): a plan that still names one gets its successor.
+LEGACY_SKILL_ALIASES = {
+    "frontend-state-accessibility": "journey-ui-states",
+    "industrial-safety-simulator": "journey-industrial-control",
+    "mvp-e2e-promotability": "e2e-slice-runnability",
+    "ai-rag-eval-guardrails": "journey-ai-guardrails",
+    "mobile-offline-parity": "journey-mobile-offline",
+    "ml-experiment-reproducibility": "journey-ml-reproducibility",
+    "secure-config-secrets": "journey-runtime-config",
+    "local-cloud-parity": "journey-runtime-config",
+}
 
 
 def _extract_frontmatter(text: str) -> Dict[str, Any]:
@@ -144,6 +190,9 @@ def _discover_skill_dirs(repo_root: Path) -> List[Dict[str, Any]]:
         text = _read_text(skill_md, MAX_SKILL_SOURCE_CHARS)
         meta = _extract_frontmatter(text)
         preview, layer = _skill_item_text(text)
+        if skill_md in vendored:
+            overlay = _read_text(skill_md.parent.parent / OVERLAY_FILE, MAX_SKILL_SOURCE_CHARS)
+            preview = _vendored_cloud_preview(text, overlay, skill_md.parent.name) if overlay else preview
 
         name = (f"{skill_md.parent.parent.name}-{skill_md.parent.name}" if skill_md in vendored
                 else _safe_str(meta.get("name")) or skill_md.parent.name)
@@ -278,6 +327,9 @@ def _capability_blob_items(core_blobs: Optional[Dict[str, Any]], *, kind: str) -
             if lower.startswith(".clike/skills/vendor/") and not vendored_name:
                 continue
             preview, layer = _skill_item_text(text)
+            if vendored_name:
+                overlay = _safe_str(blobs.get(f"{'/'.join(parts[:4])}/{OVERLAY_FILE}"))
+                preview = _vendored_cloud_preview(text, overlay, parts[4]) if overlay else preview
             items.append(
                 {
                     "kind": "skill",
@@ -538,9 +590,11 @@ def _lookup_selected_items(index: Dict[str, Any], kind: str, selected_names: Lis
 
     for name in selected_names:
         item = by_name.get(name.lower())
+        if item is None and kind == "skills":
+            item = by_name.get(LEGACY_SKILL_ALIASES.get(name.lower(), ""))
         if item is None:
             missing.append(name)
-        else:
+        elif item not in resolved:
             resolved.append(item)
 
     return {
@@ -548,6 +602,12 @@ def _lookup_selected_items(index: Dict[str, Any], kind: str, selected_names: Lis
         "resolved": resolved,
         "missing": missing,
     }
+
+
+def _not_for_kit(item: Dict[str, Any]) -> bool:
+    """A skill whose declared phases include neither kit nor eval (e.g. a gate or finalize guide)."""
+    phases = [p.lower() for p in _as_list((item.get("metadata") or {}).get("phases"))]
+    return bool(phases) and not ({"kit", "eval"} & set(phases))
 
 
 def _render_selected_capability_context(*, req_id: str, selected: Dict[str, Any], shared_layers: Optional[Dict[str, Any]] = None) -> str:
@@ -590,8 +650,13 @@ def _render_selected_capability_context(*, req_id: str, selected: Dict[str, Any]
             lines.append("")
             continue
 
+        other_phase = [i for i in resolved if isinstance(i, dict) and key == "skills" and _not_for_kit(i)]
+        if other_phase:
+            lines.append("- Selected for other phases (not applied by the KIT): " +
+                         ", ".join(f"`{_safe_str(i.get('name'))}`" for i in other_phase))
+            lines.append("")
         for item in resolved:
-            if not isinstance(item, dict):
+            if not isinstance(item, dict) or item in other_phase:
                 continue
 
             name = _safe_str(item.get("name"))
@@ -605,8 +670,10 @@ def _render_selected_capability_context(*, req_id: str, selected: Dict[str, Any]
                 lines.append(f"- Path: `{path}`")
             if description:
                 lines.append(f"- Description: {description}")
-            if isinstance(metadata, dict) and metadata:
-                lines.append(f"- Metadata: `{json.dumps(metadata, ensure_ascii=False, sort_keys=True)}`")
+            # a journey's scenarios reach the KIT through the quality context (the ones the REQ owns)
+            shown = {k: v for k, v in metadata.items() if k not in {"name", "description", "scenarios"}} if isinstance(metadata, dict) else {}
+            if shown:
+                lines.append(f"- Metadata: `{json.dumps(shown, ensure_ascii=False, sort_keys=True)}`")
             if preview:
                 lines.extend(["", "```markdown", preview, "```"])
             lines.append("")

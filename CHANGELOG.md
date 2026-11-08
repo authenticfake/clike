@@ -2,7 +2,9 @@
 
 All notable changes to CLike. Extension, orchestrator and gateway share one version.
 
-## [Unreleased] — Complete requirements, sized for the executor
+## [Unreleased]
+
+## [1.7.0] — 2026-11-08 — Complete requirements, sized for the executor
 
 ### Added
 
@@ -27,6 +29,17 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   `check-updates`, `update --apply` with diff and review findings). First: two open-source
   engineering-discipline skills (test-driven development, verification before completion).
 - **web-e2e-harness** skill: deterministic frontend checks in the eval sandbox.
+- **Skill catalog reviewed (quality and size)**: fifteen journeys and 175 scenarios — new journeys for
+  runtime configuration and secrets, tenancy, AI guardrails, mobile offline, ML reproducibility,
+  notifications and payments; security and correctness scenarios the models tend to skip (account
+  enumeration, CSRF, session fixation, refresh-token reuse, object-level authorization, server-owned
+  fields, spreadsheet formula injection, boundary values, transactional outbox, watchdog, alarm
+  flood). Test idioms corrected and extended (Rust, PLC sandbox fallback, test naming per runner)
+  and sent with the KIT prompt for the REQ's lane, so the cloud gets what the agents read.
+  `eval-contract-writer` is now the proof contract (the exact `ci/LTC.json` fields the eval reads,
+  ACCEPTANCE.json, scenario ids in test names); skills folded into journeys keep working through
+  aliases; gate-only skills stay out of the KIT; vendored skills come with a CLike overlay per
+  executor. The KIT's skill context is 55–65% smaller with no skill truncated.
 - **Repairs in the KIT's session** (`clike.localAgent.resumeRepairs`): an auto-eval repair resumes,
   forked, the local-agent session that wrote the REQ's KIT.
 - **Telemetry per REQ**: every Harper call records its REQ and duration; the portal sums calls,
@@ -41,6 +54,15 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   diagnosed (and may be fixed by the repair); acceptance bookkeeping accepts done synonyms and lists
   the checks a criterion can name.
 - **[Estimating with CLike](docs/estimation-example.md)**: a worked enterprise estimate, classic vs CLike.
+
+### Changed
+
+- `acceptance::coverage`: a scenario is proved by a test whose name or title carries its id; a line
+  that lists many ids (a comment, a table) proves none of them.
+- `PASS_WITH_WARNINGS` promotes (unless strict warnings are on): skills and packs now say what the
+  gate does.
+- BMAD skills are not installed as native agent skills; they reach the agents and the cloud through
+  the methodology loader when a run selects BMAD.
 
 ### Fixed
 

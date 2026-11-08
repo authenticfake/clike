@@ -259,7 +259,7 @@ test('utility includes BMAD vendor skill blobs only for BMAD methodology request
   assert.match(source, /collectClikeCapabilityCoreBlobs\(projectRootUri\)/);
   assert.match(source, /Object\.assign\(core_blobs, await collectClikeCapabilityCoreBlobs\(projectRootUri\)\)/);
   assert.match(source, /'\.clike', 'capabilities\.yaml'/);
-  assert.match(source, /\['\.clike', 'skills'\], \['SKILL\.md'\]/);
+  assert.match(source, /\['\.clike', 'skills'\], \['SKILL\.md', 'references\/test-idioms\.md'\]/);
   assert.match(source, /rootParts\.join\('\/'\) === '\.clike\/skills' && name === 'vendor'/);
   assert.match(source, /const BMAD_VENDOR_SKILL_ROOT = '\.clike\/skills\/vendor\/bmad'/);
   assert.match(source, /function payloadRequestsBmadMethodology\(payload\)/);

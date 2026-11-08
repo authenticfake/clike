@@ -156,22 +156,39 @@ Each skill should use this structure:
 
 | Skill | Purpose |
 |---|---|
-| `local-cloud-parity` | Ensures infrastructure-facing REQs support local and production-like runtime boundaries |
-| `eval-contract-writer` | Ensures runnable REQs produce LTC/HOWTO evidence and executable validation commands |
-| `gate-risk-reviewer` | Ensures promotion is based on evidence and policy, not model confidence |
-| `frontend-state-accessibility` | Ensures UI work includes state handling, accessibility, and user-flow evidence |
-| `backend-contract-boundary` | Ensures backend work preserves explicit API, event, adapter, and persistence boundaries |
-| `ai-rag-eval-guardrails` | Ensures LLM/RAG/agent behavior is grounded, evaluated, and safely bounded |
-| `ml-experiment-reproducibility` | Ensures ML/data science work is reproducible and metric-driven |
-| `mobile-offline-parity` | Ensures mobile and PWA work handles offline, reconnect, device, and sync states |
-| `mendix-extension-boundary` | Ensures Mendix-related code respects platform boundaries and manual validation requirements |
-| `industrial-safety-simulator` | Ensures industrial/edge/PLC/SCADA work is simulator-first and safety-bounded |
-| `mvp-e2e-promotability` | Convert requirements into narrow but end-to-end promotable MVP slices instead of shallow demos or decorative code. |
-| `backoffice-workflow-ux` | Generate enterprise backoffice workflows with route-based capability pages, scalable lists, task flows, filters, actions, and role-aware UX. |
-| `enterprise-solution-architecture` | Keep enterprise solutions coherent across requirements, runtime profiles, integration boundaries, observability, audit, and release readiness. |
-| `figma-fidelity` | Generate frontend UI that reflects a Figma design when one is provided, default styling otherwise |
-| `design-tokens-sync` | Use named design tokens instead of magic values (advisory) |
-| `secure-config-secrets` | Enforce safe configuration, secret handling, auth boundaries, restricted egress, and security evidence for promotable software. |
+| `eval-contract-writer` | The proof contract of every KIT: `ci/LTC.json` cases the eval runs, `docs/ACCEPTANCE.json`, tests named after the scenario they prove |
+| `journey-identity-access` | Registration, login, wrong credentials, lockout, reset, sessions, logout, permissions, enumeration, CSRF, token rotation, federated sign-in |
+| `journey-data-lifecycle` | Create, validation, duplicates, concurrency, delete, empty, pagination, not found, boundary values, migrations, time zones, partial writes |
+| `journey-ui-states` | Loading, empty, error, denied, offline, pending submit, validation, keyboard, screen reader, language, success, unsaved changes |
+| `journey-async-jobs` | Queued, progress, retry, timeout, cancel, idempotency, restart, dead letter, outbox, ordering, leases, backpressure |
+| `journey-integration` | Provider down, timeout, rate limit, malformed response, credentials, partial data, retries, circuit breaker, webhooks, reconciliation |
+| `journey-files-export` | Upload and export: empty, oversized, wrong type, unsafe names, encoding, invalid rows, archives, malware scan, formula injection, expiring links |
+| `journey-api-contract` | Status codes and error schema, versioning, pagination, size and rate limits, object-level authorization, server-owned fields, entity tags, CORS |
+| `journey-industrial-control` | Interlocks, alarms, emergency stop, communication loss, bad sensors, modes, safe restart, commands safe by default, watchdog, alarm flood |
+| `journey-runtime-config` | Starts on local defaults, fails fast on missing config, no secrets in files or logs, documented configuration, route parity, readiness, egress |
+| `journey-tenancy` | Tenant from the identity, cross-tenant access refused, filtered collections, background work and caches, per-tenant uniqueness, offboarding |
+| `journey-ai-guardrails` | Model output validated, model failure fallback, injected instructions ignored, deterministic eval set, grounded answers, scoped retrieval, tools |
+| `journey-mobile-offline` | Offline work persists, sync exactly once, conflicts surfaced, sync failures, denied permissions, interrupted flows |
+| `journey-ml-reproducibility` | Reproducible runs, metric thresholds, pinned and validated datasets, validated inference input, training/serving parity, drift |
+| `journey-notifications` | Notified once, language and safe content, delivery retries, preferences and unsubscribe, expiring links, rate limits |
+| `journey-payments` | Charge once, declines, verified idempotent webhooks, exact amounts, extra authentication, refunds, reconciliation |
+| `e2e-slice-runnability` | A REQ's flow wired end to end and reachable from a real entrypoint; FINALIZE composes the slices into one runnable solution |
+| `backend-contract-boundary` | Explicit, validated, typed backend contracts; transport and providers kept out of the domain |
+| `web-e2e-harness` | Frontend build, component and browser tests that run in the eval sandbox: lockfile installs, started app, loopback auth, stable selectors |
+| `backoffice-workflow-ux` | Admin and operator consoles: one route per capability, server-side lists, task flows, confirmed destructive actions |
+| `enterprise-solution-architecture` | SPEC/PLAN/FINALIZE coherence: module and contract ownership, runtime profiles as adapters, audit and diagnosability |
+| `mendix-extension-boundary` | Low-code platform extensions only through supported extension points, with checks that run without the platform runtime |
+| `figma-fidelity` | Frontend UI faithful to a design source when one is provided, default styling otherwise |
+| `design-tokens-sync` | Named design tokens instead of literal visual values (advisory) |
+| `gate-risk-reviewer` | GATE and FINALIZE reviews on the evidence the gate uses; PASS_WITH_WARNINGS promotes with its warnings tracked |
+
+Journey skills carry scenario catalogs (`ID | required|conditional | title | EARS statement`): the
+SPEC includes or excludes each scenario a use case touches, the PLAN gives each included one to a
+REQ, the KIT proves it with a blocking check and a test that names it, and the eval blocks the REQ
+until it is proved. Each journey has `references/test-idioms.md` per language; the KIT prompt carries
+the section of the REQ's lane to every executor. Vendored third-party skills live under
+`skills/vendor/<vendor>/`, pinned in `VENDORED.json`, with a CLike overlay (`CLIKE_OVERLAY.md`) that
+says how they apply on each executor.
 
 
 ### Example: Backend REQ
@@ -198,7 +215,7 @@ An AI/RAG REQ may select:
 
 ```text
 skills:
-  - ai-rag-eval-guardrails
+  - journey-ai-guardrails
   - backend-contract-boundary
   - eval-contract-writer
   - gate-risk-reviewer
@@ -256,7 +273,7 @@ Each pack should use this structure:
 | `industrial-manufacturing` | Manufacturing, shop-floor, MES, PLC, SCADA, HMI, and edge scenarios |
 | `consumer-saas` | Consumer/product-led SaaS flows |
 | `enterprise-solution` | General enterprise-grade applications requiring governance, contracts, auditability, and runtime configurability |
-| `startup-solution` | MVP/startup/product-led delivery with lean but verifiable implementation |
+| `startup-solution` | Startup and product-led delivery with lean but verifiable implementation |
 | `industrial-solution` | Industrial systems with simulator-first validation and safety boundaries |
 | `mendix-solution` | Mendix and low-code platform scenarios with safe extension boundaries |
 | `mobile-app` | Mobile, tablet, PWA, field app, and offline/sync scenarios |
@@ -285,9 +302,9 @@ packs:
   - mobile-app
 
 skills:
-  - industrial-safety-simulator
-  - mobile-offline-parity
-  - frontend-state-accessibility
+  - journey-industrial-control
+  - journey-mobile-offline
+  - journey-ui-states
   - eval-contract-writer
   - gate-risk-reviewer
 
@@ -346,7 +363,7 @@ Each design profile should use this structure:
 |---|---|
 | `enterprise-console` | Enterprise dashboards, admin panels, back-office tools, and governed internal consoles |
 | `industrial-control-room` | Control-room dashboards, operator UIs, alarm/status views, and industrial monitoring |
-| `startup-product-app` | SaaS, MVP, product-led, onboarding, and user-facing product flows |
+| `startup-product-app` | SaaS, first-release, product-led, onboarding, and user-facing product flows |
 | `mobile-operator-app` | Mobile/tablet/field-operator workflows with offline and constrained-use support |
 | `developer-tooling-console` | Developer tools, eval dashboards, Harper pipeline views, logs, traces, and tool/configuration consoles |
 
@@ -372,8 +389,8 @@ packs:
   - ai-native-agent-platform
 
 skills:
-  - frontend-state-accessibility
-  - ai-rag-eval-guardrails
+  - journey-ui-states
+  - journey-ai-guardrails
   - gate-risk-reviewer
 
 design_profiles:
@@ -421,7 +438,7 @@ For each REQ, PLAN should decide:
   "packs": ["enterprise-solution"],
   "skills": [
     "backend-contract-boundary",
-    "local-cloud-parity",
+    "journey-runtime-config",
     "eval-contract-writer",
     "gate-risk-reviewer"
   ],
@@ -469,9 +486,9 @@ EVAL uses capability requirements as evidence expectations.
 Examples:
 
 - `eval-contract-writer` expects runnable LTC/HOWTO.
-- `ai-rag-eval-guardrails` expects deterministic AI/RAG eval cases.
-- `industrial-safety-simulator` expects simulator/fake-device evidence.
-- `frontend-state-accessibility` expects UI state/accessibility evidence.
+- `journey-ai-guardrails` expects deterministic AI/RAG eval cases.
+- `journey-industrial-control` expects simulator/fake-device evidence.
+- `journey-ui-states` expects UI state/accessibility evidence.
 - `backend-contract-boundary` expects API/adapter/contract tests.
 
 EVAL produces evidence. It does not promote.
@@ -585,15 +602,15 @@ A bad capability only adds style preferences, vague architecture opinions, or ge
 
 | Scenario | Packs | Skills | Design Profiles |
 |---|---|---|---|
-| Startup SaaS UI | `startup-solution` | `frontend-state-accessibility`, `eval-contract-writer`, `gate-risk-reviewer` | `startup-product-app` |
-| Enterprise backend API | `enterprise-solution` | `backend-contract-boundary`, `local-cloud-parity`, `eval-contract-writer`, `gate-risk-reviewer` | none |
-| Enterprise admin console | `enterprise-solution` | `frontend-state-accessibility`, `backend-contract-boundary`, `gate-risk-reviewer` | `enterprise-console` |
-| AI/RAG service | `ai-native-agent-platform` | `ai-rag-eval-guardrails`, `backend-contract-boundary`, `eval-contract-writer`, `gate-risk-reviewer` | optional |
-| AI developer tooling UI | `ai-native-agent-platform` | `frontend-state-accessibility`, `ai-rag-eval-guardrails`, `gate-risk-reviewer` | `developer-tooling-console` |
-| Industrial monitoring | `industrial-solution` | `industrial-safety-simulator`, `backend-contract-boundary`, `eval-contract-writer`, `gate-risk-reviewer` | `industrial-control-room` |
-| Industrial mobile field app | `industrial-solution`, `mobile-app` | `industrial-safety-simulator`, `mobile-offline-parity`, `frontend-state-accessibility` | `mobile-operator-app` |
+| Startup SaaS UI | `startup-solution` | `journey-ui-states`, `eval-contract-writer`, `gate-risk-reviewer` | `startup-product-app` |
+| Enterprise backend API | `enterprise-solution` | `backend-contract-boundary`, `journey-runtime-config`, `eval-contract-writer`, `gate-risk-reviewer` | none |
+| Enterprise admin console | `enterprise-solution` | `journey-ui-states`, `backend-contract-boundary`, `gate-risk-reviewer` | `enterprise-console` |
+| AI/RAG service | `ai-native-agent-platform` | `journey-ai-guardrails`, `backend-contract-boundary`, `eval-contract-writer`, `gate-risk-reviewer` | optional |
+| AI developer tooling UI | `ai-native-agent-platform` | `journey-ui-states`, `journey-ai-guardrails`, `gate-risk-reviewer` | `developer-tooling-console` |
+| Industrial monitoring | `industrial-solution` | `journey-industrial-control`, `backend-contract-boundary`, `eval-contract-writer`, `gate-risk-reviewer` | `industrial-control-room` |
+| Industrial mobile field app | `industrial-solution`, `mobile-app` | `journey-industrial-control`, `journey-mobile-offline`, `journey-ui-states` | `mobile-operator-app` |
 | Mendix extension | `mendix-solution` | `mendix-extension-boundary`, `backend-contract-boundary`, `eval-contract-writer` | optional |
-| ML evaluation pipeline | optional domain pack | `ml-experiment-reproducibility`, `eval-contract-writer`, `gate-risk-reviewer` | none |
+| ML evaluation pipeline | optional domain pack | `journey-ml-reproducibility`, `eval-contract-writer`, `gate-risk-reviewer` | none |
 
 ---
 

@@ -137,13 +137,14 @@
     ],
     "required_outputs": [
       "UX companion artifacts describing journeys, screens, states, content, accessibility, and handoff notes.",
-      "Clear separation between UX advice and canonical SPEC authority."
+      "Clear separation between UX advice and canonical SPEC authority.",
+      "INTERACTION_STATES keyed to the UI journey scenario ids (UI-01 loading … UI-13 unsaved changes) per surface, so PLAN and KIT can trace each state."
     ],
     "snippets": [
       {
         "id": "ux-flow-modeling",
         "path": ".clike/skills/vendor/bmad/ux-flow-modeling/SKILL.md",
-        "snippet": "# BMAD Skill Mapping: UX Flow Modeling\n\n## Intent\nCapture user journeys, interaction states, accessibility expectations, and UX risks as companion context without taking ownership of canonical SPEC.\n\n## BMAD source/reference concept\nInspired by BMAD UX flow and front-end specification practices: make journeys, states, and user-facing constraints explicit before implementation.\n\n## CLike adaptation\nUse this mapping only for BMAD UX companion outputs. In MVP, `spec/ux` is companion-only and must not emit `docs/harper/SPEC.md`.\n\n## Applies when\nApplies to `spec/ux`.\n\n## Required inputs\n- IDEA and current SPEC context.\n- User personas or workflow descriptions.\n- TECH_CONSTRAINTS and design profile evidence when present.\n\n## Required outputs\n- UX companion artifacts describing journeys, screens, states, content, accessibility, and handoff notes.\n- Clear separation between UX advice and canonical SPEC authority.\n\n## Companion outputs\n- `docs/harper/ux/DESIGN.md`\n- `docs/harper/ux/EXPERIENCE.md`\n- `docs/harper/ux/USER_JOURNEYS.md`\n- `docs/harper/ux/INTERACTION_STATES.md`\n- `docs/harper/ux/SPEC_UX_APPENDIX.md`\n\n## Downstream consumers\nSPEC PM, PLAN, KIT, EVAL, and FINALIZE may use UX companion artifacts as bounded context.\n\n## Quality checks\n- Primary flows, empty states, error states, loading states, and accessibility expectations are explicit.\n- UX guidance matches the selected domai\n\n...[truncated]",
+        "snippet": "# BMAD Skill Mapping: UX Flow Modeling\n\n## Intent\nCapture user journeys, interaction states, accessibility expectations, and UX risks as companion context without taking ownership of canonical SPEC.\n\n## BMAD source/reference concept\nInspired by BMAD UX flow and front-end specification practices: make journeys, states, and user-facing constraints explicit before implementation.\n\n## CLike adaptation\nUse this mapping only for BMAD UX companion outputs. In this release, `spec/ux` is companion-only and must not emit `docs/harper/SPEC.md`.\n\n## Applies when\nApplies to `spec/ux`.\n\n## Required inputs\n- IDEA and current SPEC context.\n- User personas or workflow descriptions.\n- TECH_CONSTRAINTS and design profile evidence when present.\n\n## Required outputs\n- UX companion artifacts describing journeys, screens, states, content, accessibility, and handoff notes.\n- Clear separation between UX advice and canonical SPEC authority.\n- INTERACTION_STATES keyed to the UI journey scenario ids (UI-01 loading … UI-13 unsaved changes) per surface, so PLAN and KIT can trace each state.\n\n## Companion outputs\n- `docs/harper/ux/DESIGN.md`\n- `docs/harper/ux/EXPERIENCE.md`\n- `docs/harper/ux/USER_JOURNEYS.md`\n- `docs/harper/ux/INTERACTION_STATES.md`\n- `docs/harper/ux/SPEC_UX_APPENDIX.md`\n\n## Downstream consumers\nSPEC PM, PLAN, KIT, EVAL, and FINALIZE may use UX companion artifacts as bounded context.\n\n## Qua\n\n...[truncated]",
         "truncated": true
       }
     ],
@@ -152,7 +153,7 @@
   },
   "selected_skill_references": [
     {
-      "bytes": 2346,
+      "bytes": 2506,
       "id": "ux-flow-modeling",
       "path": ".clike/skills/vendor/bmad/ux-flow-modeling/SKILL.md",
       "source_root": ".clike/skills/vendor/bmad",

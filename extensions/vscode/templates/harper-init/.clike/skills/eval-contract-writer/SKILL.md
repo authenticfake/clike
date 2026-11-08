@@ -1,278 +1,116 @@
 ---
 name: eval-contract-writer
-description: Require every runnable KIT to emit deterministic validation artifacts for EVAL and GATE.
-phases: ["kit", "eval", "gate"]
-lanes: ["python", "typescript", "java", "dotnet", "go", "rust", "iac", "frontend", "backend", "industrial", "ai-native"]
+description: Use for every KIT that ships code, tests or CI, to emit the proof contract CLike's eval runs — ci/LTC.json cases, docs/ACCEPTANCE.json and tests named after the scenario they prove — so that a failing check means a product defect, not a broken harness.
+phases: ["kit", "eval"]
+lanes: ["python", "typescript", "node", "java", "dotnet", "go", "rust", "iac", "frontend", "backend", "industrial", "plc-scada", "ai-native", "sql", "data"]
 domains: ["consumer", "startup", "enterprise", "industrial", "manufacturing", "ai-native", "developer-tooling"]
 runtime_profiles: ["local", "cloud", "local-cloud", "on-prem", "edge", "hybrid", "air-gapped"]
 gate_required: true
 obligations:
-  - Emit deterministic validation commands
-  - Write LTC with explicit pass/fail criteria
-  - Never claim tests passed without evidence
+  - Every acceptance criterion and every owned scenario is proved by a blocking case of ci/LTC.json
+  - The test that proves a scenario carries the scenario id in its name or title
+  - ci/LTC.json uses only the fields CLike's eval reads (cases[] with name, run, cwd, expect)
+  - Never claim a check passed without having run it
 eval_checks:
-  - deterministic-validation-commands-present
-  - ltc-pass-fail-criteria-defined
-  - no-fake-test-claims
+  - ltc-cases-runnable
+  - acceptance-coverage
 gate_implications:
-  - block-if-non-deterministic-eval
-  - block-if-fake-test-evidence
+  - block-if-a-criterion-or-scenario-has-no-blocking-proof
 evidence_required:
   - runs/kit/<REQ-ID>/ci/LTC.json
-  - HOWTO run section
+  - runs/kit/<REQ-ID>/ci/HOWTO.md
+  - runs/kit/<REQ-ID>/docs/ACCEPTANCE.json
 ---
 
-# Eval Contract Writer Skill
+# Eval Contract Writer — the proof contract
 
 ## Intent
 
-Every runnable KIT must produce enough executable validation evidence for CLike EVAL and GATE to judge the REQ deterministically.
-
-This skill prevents vague HOWTOs, non-runnable LTC files, shallow tests, fake pass claims, and generated code that cannot be evaluated.
+The eval does not read prose. It runs `cases[]` of `ci/LTC.json` in a sandbox without credentials,
+then blocks the REQ (`acceptance::coverage`) unless every acceptance criterion and every journey
+scenario the plan gives the REQ is proved by a blocking case and by a test that names it. Write the
+contract so it runs the first time.
 
 ## Use when
 
-Use this skill for every KIT that generates or modifies source code, tests, CI artifacts, adapters, infrastructure code, frontend components, backend services, model/RAG behavior, MCP/tooling behavior, or runtime integration behavior.
+Every KIT that ships source, tests, CI, infrastructure code or scripts, and every eval repair.
 
 ## Do not use when
 
-Do not use this skill for pure prose-only documentation changes with no executable validation path.
+Documentation-only REQs with nothing to execute.
 
-## Signals
+## The proof chain (one per criterion and per scenario)
 
-Apply this skill when the REQ, PLAN, TARGET_CONTRACT, FILE_REQUIREMENTS, or selected capabilities mention tests, lint, type checks, build checks, smoke checks, security checks, model quality checks, external runners, LTC, HOWTO, evaluation evidence, or gate expectations.
+criterion or scenario → test that asserts the visible outcome → blocking case of `ci/LTC.json` that
+runs it → entry in `docs/ACCEPTANCE.json` naming that case.
 
-## KIT Generation Rules
+- `docs/ACCEPTANCE.json`: `{"criteria": [{"id": "REQ-001-A01", "status": "done", "checks": ["unit-tests"], "scenarios": ["IAM-03"]}]}` —
+  status `done | partial | missing | developer_evidence`; `done` only when the named blocking cases
+  verify it. Be truthful: a partial criterion sends the REQ back, a false `done` fails at eval.
+- Scenario id in the **test name or title**, one or two ids per test:
+  pytest `def test_iam_03_wrong_password_shows_generic_message`, vitest/Playwright
+  `it("IAM-03: wrong password shows a generic message", …)`, JUnit `@DisplayName("IAM-03 …")`,
+  xUnit method `Iam03_WrongPassword…`, Go `t.Run("IAM_03_wrong_password", …)`, Rust
+  `fn iam_03_wrong_password…`, Structured Text `METHOD IAM_03_WrongPassword`. A comment that lists
+  many ids proves none.
+- Where tests live: under the KIT's `test/` (or the area's tests root), or as the language puts them —
+  Go `*_test.go` next to the code, Rust `#[test]` modules, `*.test.ts` / `*.spec.ts`; the eval finds
+  them there and nowhere else (never in `docs/` or `ci/`).
+- One test proves one behaviour; an error, empty, denied or limit case has its own test and asserts
+  the message or state the user or caller sees, not only a status code.
 
-The KIT must generate validation artifacts as part of the candidate output.
-
-Required candidate paths:
-
-```text
-runs/kit/<REQ-ID>/ci/LTC.json
-runs/kit/<REQ-ID>/ci/HOWTO.md
-```
-
-When dependencies are needed only for the generated candidate, prefer:
-
-```text
-runs/kit/<REQ-ID>/ci/requirements.txt
-```
-
-or the project-native equivalent, if already established.
-
-## Required LTC Behavior
-
-`ci/LTC.json` must be machine-readable and should include:
-
-- `req_id`;
-- `lane`;
-- `runtime_profile`;
-- `commands[]` or `cases[]`;
-- blocking local checks;
-- optional external checks;
-- expected report paths when available;
-- gate-relevant thresholds;
-- notes for environment-blocked checks;
-- enough detail for EvalRunner or an agent to execute and diagnose.
-
-A blocking command must not require unavailable cloud credentials, internet access, private runners, or production infrastructure unless the REQ explicitly requires that environment and the infrastructure is available.
-
-## Required HOWTO Behavior
-
-`ci/HOWTO.md` must be human-readable and copy-paste runnable.
-
-It must include:
-
-- workspace/root assumption;
-- prerequisites;
-- local validation commands;
-- expected results;
-- troubleshooting;
-- external validation steps if any;
-- configuration variables;
-- known limitations;
-- what evidence EVAL/GATE should inspect.
-
-## Test Generation Rules
-
-For each acceptance criterion, the KIT should produce one of:
-
-- a unit test;
-- an integration-style test using local fake infrastructure;
-- a smoke check;
-- a static validation;
-- a documented external check when local execution is impossible.
-
-The KIT must not silently skip acceptance criteria.
-
-## Forbidden Behavior
-
-- Do not write “run the tests” without exact commands.
-- Do not claim checks passed unless logs or execution evidence exists.
-- Do not put production-only checks into blocking local validation.
-- Do not omit dependency instructions when generated tests require dependencies.
-- Do not generate placeholder tests that only assert `true`.
-- Do not rely only on import tests when behavior is required.
-- Do not point LTC/HOWTO to unrelated canonical files unless the REQ explicitly requires it.
-- Do not make EVAL infer critical commands from prose.
-
-## Required Evidence
-
-The KIT satisfies this skill only when:
-
-- `ci/LTC.json` exists;
-- `ci/HOWTO.md` exists;
-- local commands are concrete;
-- tests/checks map to acceptance criteria;
-- external checks are clearly marked as blocking or non-blocking;
-- missing infrastructure is documented honestly;
-- reproduction steps are clear enough for a local agent or developer.
-
-## Preferred LTC Shape
-
-Use the project schema if one exists. Otherwise prefer a compact structure like:
+## ci/LTC.json — the fields the eval reads
 
 ```json
 {
+  "version": "1.0",
   "req_id": "REQ-001",
   "lane": "python",
-  "runtime_profile": "local-cloud",
-  "commands": [
-    {
-      "id": "unit-tests",
-      "description": "Run local deterministic tests for REQ-001.",
-      "cmd": "PYTHONPATH=runs/kit/REQ-001/src pytest -q runs/kit/REQ-001/test",
-      "blocking": true,
-      "requires_external_infra": false
-    }
+  "cases": [
+    {"name": "unit-tests", "run": "pytest -q test", "cwd": "runs/kit/REQ-001", "expect": 0,
+     "blocking": true, "env": {"PYTHONPATH": "src"}},
+    {"name": "broker-integration", "run": "pytest -q -m integration test", "cwd": "runs/kit/REQ-001",
+     "expect": 0, "blocking": false, "environment_requirements": ["kafka"]}
   ],
-  "reports": [],
-  "gate_policy": {
-    "requires": ["unit-tests"],
-    "promote_on_pass_only": true
-  }
+  "environment": {"required_variables": [
+    {"name": "APP_DATABASE_URL", "purpose": "disposable test database", "provision": "postgres_database"}
+  ]}
 }
 ```
 
-Adapt command syntax to the repository language and tooling.
+- `cases[]` is the only executable section; every case has `name`, `run`, `cwd` (relative to the
+  project root), `expect`. Optional: `timeout`, `env`, `blocking`, `environment_requirements`.
+- Blocking cases run in the sandbox as it is: no internet, no containers, no developer credentials.
+  What needs real infrastructure is `blocking: false` with `environment_requirements`, or is
+  provided by CLike through `environment.required_variables` (`token`, `uuid`, `timestamp`,
+  `template`, `postgres_database`, `service`; `external` only for values only the developer has).
+- Do not invent fields (`commands[].cmd`, `requires_external_infra`, `gate_policy`): the eval
+  ignores them and the check you meant never runs.
+- Declare the runtime versions the project requires in `environment` (`"python": "3.12"`,
+  `"node": ">=22"`) and the dependency file the cases need (lockfile install for Node:
+  `npm ci`; Python: `requirements_file` or the project manifest).
+- Variable names never contain TOKEN, SECRET, PASSWORD, API_KEY or CREDENTIAL (the sandbox refuses
+  them); tests never hardcode values.
 
-## Repair Guidance
+## ci/HOWTO.md
 
-If LTC is malformed:
+Copy-paste runnable: prerequisites, the exact commands of the cases, expected results, and the
+section `## Run with CLike /eval` (what CLike provisions, the `external` values and their
+`docker/eval.env` lines, `/eval <REQ-ID>` and `/eval <REQ-ID> --fix`).
 
-- repair LTC first before changing source;
-- keep JSON valid;
-- reduce schema complexity rather than inventing unsupported fields.
+## Forbidden
 
-If HOWTO is vague:
+- Copying tests or test helpers of other REQs into this KIT, or a case that re-runs them: CLike's
+  regression already re-runs every promoted REQ's checks with this candidate overlaid.
+- Placeholder tests (`assert True`), import-only tests where behaviour is required, skipped or
+  `xfail` tests for an acceptance criterion.
+- A blocking case that needs production infrastructure, the network or a server started by hand.
+- Claiming results you did not run: in a single generation write "to be run by the eval".
+- Disabling type checks, lint rules or coverage thresholds globally to get green.
 
-- rewrite the command section;
-- add root path assumption;
-- add expected output;
-- add troubleshooting.
+## When the eval fails (repair)
 
-If tests are shallow:
-
-- add behavior tests;
-- add failure-path tests;
-- add contract tests around boundaries.
-
-If tests assert exception/error semantics:
-
-- preserve assertions on retryability, classification, status/statusCode, provider codes, system codes, cause, and domain failure categories;
-- use the active language's safe narrowing, casting, matching, downcast, typed-exception, or adapter mechanism before reading custom exception/error metadata;
-- do not remove failure-path assertions merely to satisfy static analysis;
-- do not disable type checking, linting, compiler checks, or static-analysis rules globally;
-- keep the repair local to the candidate source, test, or CI utility file.
-
-If promoted or dependency tests become stale because the current REQ intentionally extends behavior:
-
-- do not modify canonical `test/` or `tests/` roots during KIT;
-- add an updated same-relative-path test under `runs/kit/<REQ-ID>/test/` so the official eval overlay shadows stale expectations;
-- preserve the original regression intent while updating expected additive behavior;
-- prefer scoped queries and unique accessible names over positional selectors;
-- do not delete meaningful assertions to hide regressions.
-
-If external services are unavailable:
-
-- split local deterministic checks from opt-in external checks;
-- keep local checks blocking;
-- mark external checks as non-blocking or environment-blocked.
-
-## MVP and Solution Runnability Evidence
-
-When `mvp-e2e-promotability`, `enterprise-solution-architecture`, `backoffice-workflow-ux`, or an enterprise pack is selected, validation artifacts must include evidence appropriate to the selected scope.
-
-For backend/API work, prefer:
-
-- app import or boot check;
-- route/API smoke check;
-- service behavior tests;
-- failure-path tests;
-- local fake/in-memory adapter checks when external infrastructure is unavailable.
-
-For frontend/UI work, prefer:
-
-- route/page smoke checks;
-- component state tests;
-- build/type/lint checks;
-- API client boundary checks;
-- accessibility-oriented assertions where tooling exists.
-
-For Node/TypeScript frontend work:
-
-- install dependencies through the runnable package manifest used by the execution area;
-- keep Vitest/Jest/ESLint/TypeScript config files inside the same runnable package root when they import package dependencies;
-- when tests live outside the package root, make all external test imports explicitly resolvable through runner aliases or equivalent package-root resolution;
-- declare every imported test dependency in devDependencies, including @testing-library/react, @testing-library/user-event, @testing-library/jest-dom, jest-axe, jsdom, vitest, and framework-specific test helpers;
-- do not remove meaningful tests to hide dependency-resolution failures.
-
-For Node/TypeScript frontend work:
-
-- install dependencies through the runnable package manifest used by the execution area;
-- keep Vitest/Jest/ESLint/TypeScript config files inside the same runnable package root when they import package dependencies;
-- when tests live outside the package root, make all external test imports explicitly resolvable through runner aliases or equivalent package-root resolution;
-- declare every imported test dependency in devDependencies, including @testing-library/react, @testing-library/user-event, @testing-library/jest-dom, jest-axe, jsdom, vitest, and framework-specific test helpers;
-- do not remove meaningful tests to hide dependency-resolution failures.
-
-For full-stack work, prefer:
-
-- local backend run/check command;
-- local frontend run/build command;
-- route parity check when frontend calls backend APIs;
-- `.env.example` validation;
-- HOWTO commands aligned with actual scripts.
-
-For FINALIZE, validation artifacts should verify:
-
-- manifest parse;
-- script presence;
-- backend/frontend boot or build;
-- route/API parity when applicable;
-- junk artifact cleanup;
-- docs truthfulness against actual commands.
-
-Do not claim MVP or solution runnability without executable evidence.
-
-## Gate Impact
-
-Gate must BLOCK promotion when:
-
-- runnable source has no LTC;
-- runnable source has no HOWTO;
-- blocking validation cannot execute locally and no valid external runner evidence exists;
-- acceptance-critical behavior has no test/check/evidence;
-- LTC/HOWTO claims success without evidence;
-- validation commands point to missing paths.
-
-Gate may WARN when:
-
-- external integration checks are documented but not executed;
-- local checks pass and external validation is clearly non-blocking;
-- coverage is partial but acceptance-critical behavior is covered.
-
-## Success Definition
-
-This skill is satisfied when a developer, local agent, cloud worker, or EvalRunner can understand and execute the validation path without guessing.
-
+The failing case is the specification. Read its output, fix the source; tests and `ci/` are locked
+during `/eval` (only `ci/HOWTO.md` may be corrected). A test that is wrong is corrected without
+weakening its assertions. Keep assertions on error classification, status, codes and messages;
+narrow types instead of removing them.

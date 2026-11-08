@@ -54,7 +54,9 @@ test('every shipped skill becomes a standard native skill for both agents, and a
   const root = project();
   const first = syncAgentSkills(root);
   assert.ok(first.skills.includes('journey-identity-access'));
-  assert.ok(first.skills.includes('bmad-acceptance-modeling'), 'vendored skills are installed with their vendor prefix');
+  assert.ok(first.skills.includes('superpowers-test-driven-development'), 'vendored skills are installed with their vendor prefix');
+  // BMAD reaches cloud and agents through its methodology loader, only in runs that select it
+  assert.ok(!first.skills.some((n) => n.startsWith('bmad-')), 'BMAD is not installed as native skills');
   for (const target of ['.claude/skills', '.agents/skills']) {
     for (const name of first.skills) assertSpecCompliant(path.join(root, target, name));
     const refs = path.join(root, target, 'journey-identity-access', 'references', 'test-idioms.md');
@@ -68,6 +70,10 @@ test('every shipped skill becomes a standard native skill for both agents, and a
   const tdd = path.join(root, '.agents/skills/superpowers-test-driven-development');
   assert.match(fs.readFileSync(path.join(tdd, 'LICENSE'), 'utf8'), /MIT License/);
   assert.match(fs.readFileSync(path.join(tdd, 'SKILL.md'), 'utf8'), /^license: "MIT \(see LICENSE\)"$/m);
+  // CLike's overlay comes first, in its agent form (red-green in the KIT, the eval check is the red in a repair)
+  const tddText = fs.readFileSync(path.join(tdd, 'SKILL.md'), 'utf8');
+  assert.match(tddText, /# How this skill applies in CLike[\s\S]*### Coding agent[\s\S]*# Test-Driven Development/);
+  assert.doesNotMatch(tddText, /### Cloud — one generation call/);
   assert.deepEqual(syncAgentSkills(root).written, []);
 });
 
@@ -78,7 +84,7 @@ test('CLAUDE.md and AGENTS.md get the CLike block, and the rest of the file is k
   const agents = fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8');
   assert.match(agents, /^# Team rules\n\nUse tabs\.\n\n<!-- CLIKE:BEGIN/);
   assert.match(agents, /Never stop at the happy path/);
-  assert.match(agents, /Journey catalogs \(skills\): journey-api-contract/);
+  assert.match(agents, /Journey catalogs \(skills\): journey-ai-guardrails, journey-api-contract/);
   assert.match(fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8'), /During \/eval the acceptance surface is locked/);
   // the block is replaced in place, never duplicated
   const file = path.join(root, 'AGENTS.md');

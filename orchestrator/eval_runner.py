@@ -36,6 +36,41 @@ log = logging.getLogger("eval_runner")
 _REUSED_NOTE = "[CLike EvalRunner] Reused: same inputs as the targeted re-eval that just ran; not run again."
 
 
+_TEST_DIRS = {"test", "tests", "e2e", "__tests__", "spec", "specs", "integration_tests"}
+_SKIP_DIRS = {"docs", "ci", "node_modules", ".venv", "venv", "target", "dist", "build", "__pycache__", ".git", "reports"}
+_TEST_FILE = re.compile(r"(^test_.*\.py$|_test\.(py|go)$|\.(test|spec)\.[cm]?[jt]sx?$|Tests?\.(java|kt|cs)$|_spec\.rb$)")
+
+
+def _kit_test_texts(kit: Path):
+    """Texts of the KIT's test files (see the coverage rule in _acceptance_coverage_cases)."""
+    if not kit.is_dir():
+        return
+    for path in kit.rglob("*"):
+        if not path.is_file() or path.stat().st_size > 2_000_000:
+            continue
+        parts = path.relative_to(kit).parts
+        if parts and parts[0] in _SKIP_DIRS or any(p in _SKIP_DIRS - {"docs", "ci"} for p in parts[:-1]):
+            continue
+        in_test_dir = any(p in _TEST_DIRS for p in parts[:-1])
+        try:
+            if in_test_dir or _TEST_FILE.search(path.name):
+                yield path.read_text(encoding="utf-8", errors="ignore")
+            elif path.suffix == ".rs":
+                text = path.read_text(encoding="utf-8", errors="ignore")
+                if "#[test]" in text or "#[tokio::test" in text:
+                    yield text
+        except OSError:
+            continue
+
+
+def _scenario_id_pattern(sid: str) -> "re.Pattern[str]":
+    prefix, _, number = sid.partition("-")
+    cap = prefix[:1] + prefix[1:].lower()
+    return re.compile(
+        rf"(?:(?<![A-Za-z0-9])(?:{prefix}|{cap}|{prefix.lower()})|(?<=[a-z0-9])(?:{prefix}|{cap}))[-_]?{number}(?![0-9])"
+    )
+
+
 @dataclass
 class EvalCase:
     name: str
@@ -4437,24 +4472,27 @@ class EvalRunner:
                 problems.append(f"{cid}: {status}{f' — {note[:240]}' if note else ''}")
             else:
                 problems.append(f"{cid}: unknown status {status or '(none)'} (done | partial | missing | developer_evidence)")
-        # a scenario is proved by a test that names it (test name, docstring or comment): the claim in
-        # ACCEPTANCE.json alone is not enough (language-agnostic: any file under the KIT's tests)
+        # a scenario is proved by a test that names it (test name or title): the claim in ACCEPTANCE.json
+        # alone is not enough. Language-agnostic: the KIT's test folders, test files by name anywhere in the
+        # KIT (Go `*_test.go`, `*.test.ts`, `*.spec.ts`, `test_*.py`, `*Test.java`, `*Tests.cs`) and Rust
+        # sources with `#[test]` — never docs/, ci/ or dependency folders
         if scenarios:
-            texts = []
-            for folder in ("test", "tests"):
-                base = kit / folder
-                for test_file in (base.rglob("*") if base.is_dir() else []):
-                    if test_file.is_file() and test_file.stat().st_size <= 2_000_000:
-                        try:
-                            texts.append(test_file.read_text(encoding="utf-8", errors="ignore"))
-                        except OSError:
-                            continue
-            corpus = "\n".join(texts).upper()
-            variants = lambda sid: (sid, sid.replace("-", "_"), sid.replace("-", ""))  # noqa: E731
+            texts = [t for t in _kit_test_texts(kit)]
+            # one regex per id, case-aware boundaries: test_iam_03, Iam03_, testIam03, TestIAM03, "IAM-03:" match;
+            # find_01 / kind_01 / print_01 do not
+            patterns = {sid: _scenario_id_pattern(sid) for sid in scenarios}
+            # a line naming one or two scenarios tags a test; a line listing more (a comment or a table of
+            # ids) proves none of them — the id belongs to the test that proves it
+            named: set = set()
+            listed: set = set()
+            for line in "\n".join(texts).splitlines():
+                hits = {sid for sid, pat in patterns.items() if pat.search(line)}
+                (named if len(hits) <= 2 else listed).update(hits)
             for sid in scenarios:
-                if not any(v in corpus for v in variants(sid)):
-                    problems.append(f"{sid}: no test of the KIT names it — tag the test that proves it with {sid} "
-                                    f"(test name, docstring or comment)")
+                if sid not in named:
+                    hint = " (it appears only in a line that lists many ids)" if sid in listed else ""
+                    problems.append(f"{sid}: no test of the KIT names it{hint} — put {sid} in the name or title of the "
+                                    f"test that proves it (one or two ids per test)")
         if incomplete and not problems:
             problems.append("ACCEPTANCE.json says every criterion is done, but SELF_REVIEW.md says otherwise:\n" +
                             "\n".join(f"    {line}" for line in incomplete))

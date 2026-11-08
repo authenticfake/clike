@@ -20,7 +20,7 @@ gate_implications:
 
 ## Intent
 
-Guide UI/UX generation for startup, SaaS, MVP, product-led, and consumer-facing application flows.
+Guide UI/UX generation for startup, SaaS, first-release, product-led, and consumer-facing application flows.
 
 This profile favors clear value communication, fast comprehension, low-friction workflows, accessible interactions, and practical product polish without decorative complexity.
 
@@ -38,7 +38,7 @@ Use this profile when a REQ touches:
 - product-led growth flows
 - lightweight analytics screens
 - consumer or prosumer web apps
-- MVP validation interfaces
+- First-release validation interfaces
 
 ## Do not use when
 
@@ -147,16 +147,9 @@ It must guide `/kit` toward UI code that is usable, testable, accessible, and pr
 
 ## Mandatory UI States
 
-For interactive UI, generated code must consider:
-
-- loading state;
-- empty state;
-- success/ready state;
-- error state;
-- disabled/submitting state;
-- permission or unavailable state when relevant.
-
-If a state is not applicable, document why.
+The UI states are the scenarios of `journey-ui-states` (loading, empty, error, denied, offline,
+pending submit, validation, keyboard, screen reader, language, success): this profile adds only how
+they look in this kind of product.
 
 ## Interaction Rules
 

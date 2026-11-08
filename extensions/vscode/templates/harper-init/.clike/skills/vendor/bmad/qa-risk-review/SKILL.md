@@ -20,6 +20,7 @@ Applies to `eval/qa`.
 ## Required outputs
 - Focused repair notes and QA advisory companion outputs under the target KIT root.
 - Exact commands rerun and remaining blockers when repair is incomplete.
+- MISSING_TESTS lists the criteria and scenario ids that `acceptance::coverage` reported unproved, with the test each one needs.
 
 ## Companion outputs
 - `runs/kit/<REQ-ID>/docs/BMAD_QA_ADVISORY.md`

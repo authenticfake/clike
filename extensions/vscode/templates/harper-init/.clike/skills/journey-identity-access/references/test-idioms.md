@@ -9,18 +9,21 @@ Prove each IAM scenario through the real entry point, with a controlled clock an
 - Assert `response.status_code` and `response.json()["detail"]` (or the error body field) together.
 - Logout / revocation: keep the cookie or bearer token, call logout, replay, expect 401.
 - Parametrize the role matrix: `@pytest.mark.parametrize("role,expected", [...])` for IAM-08.
+- Enumeration (IAM-13): compare the responses for an existing and a missing account (status, body, message) — they must be equal.
+- Session fixation (IAM-15): read the session cookie before and after login, assert it changed and the old one is rejected.
+- Refresh reuse (IAM-16): use a refresh token twice; the second use fails and the newest token of the family is revoked too.
 
 ## TypeScript / web
 
 - Unit and component: vitest + Testing Library; render the login form, submit wrong credentials, `expect(await screen.findByRole("alert")).toHaveTextContent(/invalid email or password/i)`.
 - Timers: `vi.useFakeTimers()` for session expiry prompts.
 - API: supertest or the framework test client against the real handlers.
-- Journeys: Playwright; `page.getByLabel("Password").fill(...)`, `await expect(page.getByRole("alert")).toHaveText(...)`; use `context.clearCookies()` / stored state to test expiry and logout replay; `page.clock` for time.
+- Journeys: Playwright; `page.getByLabel("Password").fill(...)`, `await expect(page.getByRole("alert")).toHaveText(...)`; logout replay: save the storage state, log out, restore it and expect the login page; expiry: control the server's clock (an injected clock or a short configured lifetime) — `page.clock` moves only the browser's, and `clearCookies()` tests a missing session, not an expired one.
 - Permission deny: log in as a restricted user and assert the deny page text and that the action control is absent or disabled.
 
 ## Java
 
-- JUnit 5 + Spring `MockMvc` (`with(user("u").roles("VIEWER"))`) or RestAssured against a started app.
+- JUnit 5 + Spring `MockMvc` or RestAssured against a started app; `with(user("u").roles("VIEWER"))` only for the role matrix (IAM-08), never for the tests that prove authentication itself (IAM-02/03/04).
 - Assert `status().isForbidden()` and `jsonPath("$.message")`.
 - Clock: inject `java.time.Clock`, use `Clock.fixed` / offset in tests.
 - Journeys: Playwright for Java with the same visible-text assertions.
@@ -52,3 +55,9 @@ Prove each IAM scenario through the real entry point, with a controlled clock an
 
 - Operator login and role levels on the HMI or SCADA layer tested against a simulator; critical commands rejected for insufficient level, with the alarm or message text asserted.
 - Session timeout on the operator station returns to the read-only level.
+
+## Rust
+
+- Drive the real router: axum `Router` with `tower::ServiceExt::oneshot` (or actix-web `test::init_service` / `call_service`).
+- Expiry and lockout windows: inject a clock trait; assert status and the decoded JSON error message (`serde_json::Value`).
+- Logout replay: keep the cookie or bearer token, call logout, replay, expect 401.

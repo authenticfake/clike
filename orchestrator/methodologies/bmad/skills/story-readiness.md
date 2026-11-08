@@ -20,6 +20,7 @@ Applies to `plan/architect`, `plan/pm`, and `kit/developer`.
 ## Required outputs
 - Stories or REQs with clear functional scope, technical scope, acceptance, dependencies, and expected files/tests.
 - Implementation readiness notes that identify blockers before KIT.
+- Each story names the journey scenarios it owns (`reqs[].scenarios`) and the shared seam it extends; owned scenarios count toward its size.
 
 ## Companion outputs
 - `docs/harper/bmad/plan/STORIES.md`

@@ -264,6 +264,38 @@ class ScenarioCoverageTests(unittest.TestCase):
             case = self._case(tmp, acceptance=done, tests="it('IAM03 shows the generic message')\ndef test_iam_05(): ...\n")
             self.assertTrue(case.passed, case.stderr)
 
+    def test_a_line_listing_many_ids_proves_none(self):
+        import tempfile
+        ids = ("IAM-03", "IAM-05", "IAM-06")
+        done = [{"id": "A01", "status": "done", "checks": ["unit"], "scenarios": list(ids)}]
+        with tempfile.TemporaryDirectory() as tmp:  # one comment naming every scenario is not a proof
+            case = self._case(tmp, acceptance=done, scenarios=ids, tests="# covers IAM-03, IAM-05, IAM-06\ndef test_login(): ...\n")
+            self.assertFalse(case.passed)
+            self.assertIn("IAM-06: no test of the KIT names it (it appears only in a line that lists many ids)", case.stderr)
+        with tempfile.TemporaryDirectory() as tmp:  # one test may prove two sides of the same behaviour
+            case = self._case(tmp, acceptance=done, scenarios=ids,
+                              tests="def test_iam_03_iam_05_generic_message(): ...\nit('IAM-06: expired session', () => {})\n")
+            self.assertTrue(case.passed, case.stderr)
+
+    def test_ids_match_on_boundaries_and_tests_are_found_by_file_name(self):
+        import json
+        import tempfile
+        done = [{"id": "A01", "status": "done", "checks": ["unit"], "scenarios": ["IAM-03", "IAM-05"]}]
+        with tempfile.TemporaryDirectory() as tmp:  # an identifier that only contains the letters is not a tag
+            case = self._case(tmp, acceptance=done, tests="def test_diam_03(): ...\ndef claim05(): ...\n")
+            self.assertFalse(case.passed)
+            self.assertIn("IAM-03: no test of the KIT names it", case.stderr)
+        with tempfile.TemporaryDirectory() as tmp:  # Go white-box tests next to the code, Rust #[test] modules
+            case = self._case(tmp, acceptance=done, tests=None)
+            kit = Path(tmp) / "runs" / "kit" / "REQ-002"
+            (kit / "src" / "auth").mkdir(parents=True)
+            (kit / "src" / "auth" / "login_test.go").write_text('func TestIAM03WrongPassword(t *testing.T) {}\n')
+            (kit / "src" / "reset.rs").write_text("#[cfg(test)]\nmod t {\n#[test]\nfn iam_05_link_expires() {}\n}\n")
+            (kit / "src" / "errors.py").write_text("CODES = ['IAM-03', 'IAM-05']  # not a test\n")
+            case = EvalRunner(Path(tmp))._acceptance_coverage_cases("REQ-002", self.LTC)[0]
+            self.assertTrue(case.passed, case.stderr)
+        _ = json
+
     def test_scenarios_without_acceptance_file_block(self):
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:

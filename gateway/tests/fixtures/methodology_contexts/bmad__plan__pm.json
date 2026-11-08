@@ -187,23 +187,24 @@
       "Open questions are blockers or assumptions, not hidden implementation choices."
     ],
     "required_outputs": [
-      "Implementation-sized REQs or story map entries with stable dependencies.",
+      "Implementation-sized REQs or story map entries with stable dependencies, sized on the plan's capacity profile (C1 one domain per REQ, C2 vertical slices, C3 epics with features) and never split by technical layer.",
       "Explicit in-scope and out-of-scope behavior for each slice.",
       "Handoff notes that later KIT runs can use without inventing behavior.",
       "Stories or REQs with clear functional scope, technical scope, acceptance, dependencies, and expected files/tests.",
-      "Implementation readiness notes that identify blockers before KIT."
+      "Implementation readiness notes that identify blockers before KIT.",
+      "Each story names the journey scenarios it owns (`reqs[].scenarios`) and the shared seam it extends; owned scenarios count toward its size."
     ],
     "snippets": [
       {
         "id": "epic-framing",
         "path": ".clike/skills/vendor/bmad/epic-framing/SKILL.md",
-        "snippet": "# BMAD Skill Mapping: Epic Framing\n\n## Intent\nOrganize broad product behavior into coherent epics, slices, dependencies, and downstream planning units that remain implementation-legible.\n\n## BMAD source/reference concept\nInspired by BMAD epic and story decomposition practices: group work by meaningful outcomes, dependencies, readiness, and handoff clarity.\n\n## CLike adaptation\nUse this mapping to improve SPEC companion epics and PLAN REQ structure. CLike still owns canonical REQ IDs, dependency modeling, `PLAN.md`, and `plan.json`.\n\n## Applies when\nApplies to `spec/pm` and `plan/pm` BMAD runs.\n\n## Required inputs\n- Valid IDEA and SPEC context.\n- Existing `PLAN.md` and `plan.json` when present.\n- TECH_CONSTRAINTS and repository evidence.\n- Prior companion PRD, epics, and story map artifacts.\n\n## Required outputs\n- Implementation-sized REQs or story map entries with stable dependencies.\n- Explicit in-scope and out-of-scope behavior for each slice.\n- Handoff notes that later KIT runs can use without inventing behavior.\n\n## Companion outputs\n- `docs/harper/bmad/spec/EPICS.md`\n- `docs/harper/bmad/plan/STORY_MAP.md`\n- `docs/harper/bmad/plan/STORIES.md`\n\n## Downstream consumers\nPLAN, KIT, EVAL, and FINALIZE consume the epic framing to understand sequencing and story intent.\n\n## Quality checks\n- Each epic or story maps to a user/system outcome.\n- Dependencies are explicit and acyclic w\n\n...[truncated]",
+        "snippet": "# BMAD Skill Mapping: Epic Framing\n\n## Intent\nOrganize broad product behavior into coherent epics, slices, dependencies, and downstream planning units that remain implementation-legible.\n\n## BMAD source/reference concept\nInspired by BMAD epic and story decomposition practices: group work by meaningful outcomes, dependencies, readiness, and handoff clarity.\n\n## CLike adaptation\nUse this mapping to improve SPEC companion epics and PLAN REQ structure. CLike still owns canonical REQ IDs, dependency modeling, `PLAN.md`, and `plan.json`.\n\n## Applies when\nApplies to `spec/pm` and `plan/pm` BMAD runs.\n\n## Required inputs\n- Valid IDEA and SPEC context.\n- Existing `PLAN.md` and `plan.json` when present.\n- TECH_CONSTRAINTS and repository evidence.\n- Prior companion PRD, epics, and story map artifacts.\n\n## Required outputs\n- Implementation-sized REQs or story map entries with stable dependencies, sized on the plan's capacity profile (C1 one domain per REQ, C2 vertical slices, C3 epics with features) and never split by technical layer.\n- Explicit in-scope and out-of-scope behavior for each slice.\n- Handoff notes that later KIT runs can use without inventing behavior.\n\n## Companion outputs\n- `docs/harper/bmad/spec/EPICS.md`\n- `docs/harper/bmad/plan/STORY_MAP.md`\n- `docs/harper/bmad/plan/STORIES.md`\n\n## Downstream consumers\nPLAN, KIT, EVAL, and FINALIZE consume the epic framing to understand\n\n...[truncated]",
         "truncated": true
       },
       {
         "id": "story-readiness",
         "path": ".clike/skills/vendor/bmad/story-readiness/SKILL.md",
-        "snippet": "# BMAD Skill Mapping: Story Readiness\n\n## Intent\nEnsure each planned story or REQ is ready for implementation with scope, dependencies, acceptance, files, tests, and risks clearly stated.\n\n## BMAD source/reference concept\nInspired by BMAD story readiness and backlog refinement practices: stories should be actionable, bounded, and testable.\n\n## CLike adaptation\nUse this mapping to improve PLAN REQs, plan companion story maps, and KIT handoff notes while preserving CLike REQ identity and candidate boundaries.\n\n## Applies when\nApplies to `plan/architect`, `plan/pm`, and `kit/developer`.\n\n## Required inputs\n- PLAN and `plan.json`.\n- Target REQ and dependencies.\n- Lane guides, TECH_CONSTRAINTS, and architecture or PM companion docs.\n\n## Required outputs\n- Stories or REQs with clear functional scope, technical scope, acceptance, dependencies, and expected files/tests.\n- Implementation readiness notes that identify blockers before KIT.\n\n## Companion outputs\n- `docs/harper/bmad/plan/STORIES.md`\n- `docs/harper/bmad/plan/STORY_MAP.md`\n- `docs/harper/bmad/plan/IMPLEMENTATION_READINESS.md`\n- `runs/kit/<REQ-ID>/docs/BMAD_DEV_STORY.md`\n\n## Downstream consumers\nKIT, EVAL, and FINALIZE use story readiness to avoid guessing and to report traceable implementation evidence.\n\n## Quality checks\n- The target slice is coherent and not a thin technical fragment.\n- Dependencies and downstream assumptio\n\n...[truncated]",
+        "snippet": "# BMAD Skill Mapping: Story Readiness\n\n## Intent\nEnsure each planned story or REQ is ready for implementation with scope, dependencies, acceptance, files, tests, and risks clearly stated.\n\n## BMAD source/reference concept\nInspired by BMAD story readiness and backlog refinement practices: stories should be actionable, bounded, and testable.\n\n## CLike adaptation\nUse this mapping to improve PLAN REQs, plan companion story maps, and KIT handoff notes while preserving CLike REQ identity and candidate boundaries.\n\n## Applies when\nApplies to `plan/architect`, `plan/pm`, and `kit/developer`.\n\n## Required inputs\n- PLAN and `plan.json`.\n- Target REQ and dependencies.\n- Lane guides, TECH_CONSTRAINTS, and architecture or PM companion docs.\n\n## Required outputs\n- Stories or REQs with clear functional scope, technical scope, acceptance, dependencies, and expected files/tests.\n- Implementation readiness notes that identify blockers before KIT.\n- Each story names the journey scenarios it owns (`reqs[].scenarios`) and the shared seam it extends; owned scenarios count toward its size.\n\n## Companion outputs\n- `docs/harper/bmad/plan/STORIES.md`\n- `docs/harper/bmad/plan/STORY_MAP.md`\n- `docs/harper/bmad/plan/IMPLEMENTATION_READINESS.md`\n- `runs/kit/<REQ-ID>/docs/BMAD_DEV_STORY.md`\n\n## Downstream consumers\nKIT, EVAL, and FINALIZE use story readiness to avoid guessing and to report traceable implemen\n\n...[truncated]",
         "truncated": true
       }
     ],
@@ -212,14 +213,14 @@
   },
   "selected_skill_references": [
     {
-      "bytes": 2500,
+      "bytes": 2641,
       "id": "epic-framing",
       "path": ".clike/skills/vendor/bmad/epic-framing/SKILL.md",
       "source_root": ".clike/skills/vendor/bmad",
       "source_transport": "template"
     },
     {
-      "bytes": 2417,
+      "bytes": 2558,
       "id": "story-readiness",
       "path": ".clike/skills/vendor/bmad/story-readiness/SKILL.md",
       "source_root": ".clike/skills/vendor/bmad",

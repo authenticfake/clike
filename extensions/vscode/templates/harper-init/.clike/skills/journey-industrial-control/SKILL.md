@@ -16,9 +16,15 @@ scenarios:
   - IND-06 | required | Manual override and return to auto | When an authorized operator switches to manual and back to automatic, the system shall perform a bumpless transfer, show the active mode clearly and log both transitions.
   - IND-07 | required | Safe start after power loss | When power or the controller is restored after a loss, the system shall start in a defined safe state and not resume motion or dosing without an explicit operator start.
   - IND-08 | required | Operator authorization for critical commands | If a user without the required authorization level issues a critical command (setpoint change, start, override, bypass), then the system shall reject it and log the attempt with the user identity.
-  - IND-09 | required | Simulator-based verification | When control logic is verified, the system shall be exercised against a simulator or simulated I/O covering these scenarios, with no connection to a real plant in automated tests.
+  - IND-09 | required | Commands safe by default | While no safe target is declared (automated tests, simulator, first start), the system shall send no write or control command to real equipment: commands go to the simulator or run in dry-run, and the active target is shown to the operator.
   - IND-10 | conditional | [Interlock bypass allowed] Bypass with authorization and expiry | When an authorized user bypasses an interlock, the system shall require a reason, show the bypass prominently, log it and remove it automatically at expiry.
   - IND-11 | conditional | [Setpoints or recipes editable] Setpoint limits | If an entered setpoint or recipe value is outside engineering limits, then the system shall reject it with the allowed range and keep the active value.
+  - IND-12 | required | Command and feedback discrepancy | If a commanded output does not reach its feedback state within its stated time, then the system shall raise a discrepancy alarm and stop further commands to that equipment.
+  - IND-13 | required | Heartbeat or watchdog loss | If the heartbeat between the supervisory software and the controller stops for longer than its timeout, then each side shall go to its defined safe behaviour and raise an alarm.
+  - IND-14 | conditional | [Operator screens show live values] Telemetry age visible | If a shown value is older than its freshness limit, then the system shall show its age, mark it stale and disable commands that depend on it.
+  - IND-15 | conditional | [Many alarms can fire together] Alarm flood handling | When alarms exceed the flood threshold of the alarm philosophy, the system shall suppress consequential alarms, keep the first-out cause visible and allow audited shelving.
+  - IND-16 | conditional | [More than one station can command] Single point of control | When control is requested from a second station, the system shall grant it only through an explicit handover, so that one station commands at a time.
+  - IND-17 | conditional | [Data sent to a historian or the cloud] Store and forward | If the link to the historian is lost, then the system shall buffer readings locally with their timestamps and forward them in order when the link returns.
 obligations:
   - Enumerate every IND scenario in SPEC and include it or exclude it with a written reason
   - Map each included scenario ID to a REQ in plan.json and to an acceptance item prefixed with the ID
@@ -42,7 +48,7 @@ evidence_required:
 
 ## Intent
 
-Control software is judged by what happens when things go wrong: a blocked interlock, a lost link, a frozen sensor, a power cut, an unauthorized command. This skill makes each of these an explicit scenario with a defined safe state and simulator proof. It complements industrial-safety-simulator with traceable scenario IDs.
+Control software is judged by what happens when things go wrong: a blocked interlock, a lost link, a frozen sensor, a power cut, an unauthorized command. This skill makes each of these an explicit scenario with a defined safe state and simulator proof, with traceable scenario IDs.
 
 ## Use when
 
@@ -62,7 +68,7 @@ The REQ commands or monitors no physical process, device or field bus (office so
 
 ## Valid exclusions
 
-- Read-only monitoring with no write path to equipment: IND-01, IND-03, IND-06, IND-07 excluded; IND-02, IND-04, IND-05 remain.
+- Read-only monitoring with no write path to equipment: IND-01, IND-03, IND-06, IND-07, IND-08, IND-09, IND-12 excluded; IND-02, IND-04, IND-05, IND-14 remain.
 - Emergency stop wholly in a certified hardwired safety system: IND-03 reduced to "software detects and displays the stop and blocks its own commands", still tested.
 - No manual mode exists: IND-06 excluded with that reason.
 - Not a valid reason: "tested on site during commissioning" as the only evidence.
@@ -83,6 +89,9 @@ The REQ commands or monitors no physical process, device or field bus (office so
 - Undefined or implicit safe states.
 - Claiming safety certification from software tests.
 - Alarms that clear without acknowledgement when the philosophy requires it.
+- Hardcoded controller endpoints, station ids or credentials; real equipment reached other than through an adapter with a simulator implementation.
+- Hiding stale, missing or degraded values (a dashboard that stays green when telemetry stops).
+- Claiming plant readiness from simulator evidence: real-plant validation is a separate, non-blocking check with its own evidence.
 
 ## References
 

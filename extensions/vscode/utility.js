@@ -741,13 +741,15 @@ async function collectClikeCapabilityCoreBlobs(projectRootUri) {
   }
 
   await readIfSmall(['.clike', 'capabilities.yaml']);
-  await readImmediateCapabilityDirs(['.clike', 'skills'], ['SKILL.md']);
+  // the journeys' test idioms too: the KIT quality block gives the cloud the lane's section the agents read
+  await readImmediateCapabilityDirs(['.clike', 'skills'], ['SKILL.md', 'references/test-idioms.md']);
   // vendored third-party skills (vendor/<vendor>/<skill>, pinned in VENDORED.json): indexed and
   // selectable like the CLike skills, so the cloud prompt gets what the agents get (BMAD has its loader)
   try {
     const vendors = await vscode.workspace.fs.readDirectory(vscode.Uri.joinPath(projectRootUri, '.clike', 'skills', 'vendor'));
     for (const [vendor, type] of vendors.sort(([a], [b]) => String(a).localeCompare(String(b)))) {
       if (type === vscode.FileType.Directory && vendor !== 'bmad') {
+        await readIfSmall(['.clike', 'skills', 'vendor', vendor, 'CLIKE_OVERLAY.md']);
         await readImmediateCapabilityDirs(['.clike', 'skills', 'vendor', vendor], ['SKILL.md']);
       }
     }

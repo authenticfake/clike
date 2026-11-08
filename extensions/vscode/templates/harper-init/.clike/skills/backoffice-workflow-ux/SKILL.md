@@ -1,7 +1,7 @@
 ---
 name: backoffice-workflow-ux
-description: Generate enterprise backoffice workflows with route-based capability pages, scalable lists, task flows, filters, actions, and role-aware UX.
-phases: ["spec", "plan", "kit", "eval", "gate", "finalize"]
+description: Use when a REQ builds an admin, operator or backoffice console, to deliver one route per capability with server-side lists, task flows, filters, confirmed destructive actions and role-aware UX, instead of a single decorative dashboard.
+phases: ["spec", "plan", "kit", "eval"]
 lanes: ["frontend", "typescript", "python", "backend", "ai-native"]
 domains: ["enterprise", "developer-tooling", "ai-native"]
 runtime_profiles: ["local", "cloud", "local-cloud", "on-prem", "hybrid"]
@@ -65,20 +65,11 @@ When this skill is selected, generated frontend should prefer:
 - audit/provenance visibility where relevant;
 - API client boundaries instead of hidden fetches inside presentation components.
 
-## Capability page expectations
+## Capability pages
 
-For a backoffice MVP, prefer explicit pages such as:
-
-- `/ingest`;
-- `/validation`;
-- `/archive`;
-- `/export`;
-- `/qa`;
-- `/settings`;
-- `/extraction-profiles`;
-- equivalent routes for the selected framework.
-
-Do not hardcode these exact paths unless the SPEC/PLAN supports them. Use idiomatic routing for the detected stack.
+Derive one route per major capability from the SPEC's use cases (an inbox, an archive, a validation
+queue, an export page, a settings page…), with the framework's idiomatic routing. Do not invent
+pages the SPEC does not name.
 
 ## Large-data behavior
 
@@ -144,17 +135,17 @@ A REQ using this skill should provide:
 - build/type/lint/test checks when available;
 - manual smoke path when automation is unavailable.
 
-## Regression Test Reconciliation
+## Tests of a changing console
 
-When a backoffice REQ adds a new capability page, navigation item, route, visible section, action, filter, or configuration workflow, candidate tests must reconcile existing operator-console regression tests included by CLike EvalRunner.
-
-Do not leave older tests expecting the previous navigation or section list unchanged when the new behavior is intentionally additive.
-
-Do not use brittle positional selectors for repeated labels or buttons. Prefer route-scoped rendering, `within(...)`, unique accessible labels, or test-specific component roots.
+When a REQ adds a page, navigation item or action, its own tests prove the new behaviour; CLike's
+regression re-runs the promoted REQs' tests with the candidate overlaid. If a promoted test breaks
+because the change is intentionally additive, say so in `docs/KIT_<REQ-ID>.md` — never copy or
+shadow other REQs' tests. Write selectors that survive additions: route-scoped rendering,
+`within(...)`, unique accessible names, never positional selectors on repeated labels.
 
 ## Gate implications
 
-Gate must BLOCK promotion when:
+Gate blocks promotion when:
 
 - a multi-capability backoffice REQ is implemented as a single decorative dashboard only;
 - required capability pages/routes are missing;
@@ -163,7 +154,7 @@ Gate must BLOCK promotion when:
 - backend-source-of-truth rules are duplicated or contradicted;
 - selected enterprise-console design profile is ignored.
 
-Gate may WARN when:
+Gate may warn when:
 
 - a route exists but advanced filtering is deferred and documented;
 - accessibility automation is unavailable but semantic controls are present;

@@ -6,9 +6,9 @@ lanes: ["frontend", "typescript", "nextjs", "react", "web"]
 inspired_by: ["IBM Carbon", "HashiCorp", "Linear", "Cohere"]
 strictness: "high"
 recommended_skills:
-  - frontend-state-accessibility
+  - journey-ui-states
   - backoffice-workflow-ux
-  - mvp-e2e-promotability
+  - e2e-slice-runnability
 ui_obligations:
   - route-based-information-architecture
   - list-detail-task-patterns
@@ -101,16 +101,9 @@ Generated UI should:
 
 ## Mandatory UI States
 
-For interactive UI, generated code must consider:
-
-- loading state;
-- empty state;
-- success/ready state;
-- error state;
-- disabled/submitting state;
-- permission or unavailable state when relevant.
-
-If a state is not applicable, document why.
+The UI states are the scenarios of `journey-ui-states` (loading, empty, error, denied, offline,
+pending submit, validation, keyboard, screen reader, language, success): this profile adds only how
+they look in this kind of product.
 
 ## Backoffice Patterns
 

@@ -249,14 +249,15 @@ Capabilities are shipped by `/init` from the template under
 - skill **`figma-fidelity`** — fidelity to the Figma source by mode (mcp | attachment
   | none); governs design fidelity only.
 - skill **`design-tokens-sync`** — Figma Variables → project tokens (advisory).
-- skill **`frontend-state-accessibility`** — explicit loading/empty/error/success
+- skill **`journey-ui-states`** — explicit loading/empty/error/success
   states and accessibility (reused, not duplicated).
 - a UI **design profile** appropriate to the product (e.g. `startup-product-app`,
   `enterprise-console`, `developer-tooling-console`, `mobile-operator-app`).
 
 Figma source modes (work with both the Claude and Codex executors):
 - **mcp** — remote Figma MCP at `https://mcp.figma.com/mcp`: highest fidelity
-  (node tree, Auto Layout, components, Variables). Configure it per executor.
+  (node tree, Auto Layout, components, Variables). Configure it per local agent; a
+  cloud KIT (one generation call) cannot query it and uses the attachment mode.
 - **attachment** — a Figma export attached to the request and materialized under
   `runs/<phase>/attachments/` (HTML > PDF > image fidelity).
 - **none** — no Figma source: CLike still generates a coherent, accessible
@@ -269,11 +270,11 @@ Fallback / gating policy (from `figma-fidelity`):
   frame mapping or omits its frame's primary components.
 - Stack/quality checks come from the declared stack and reused FE skills: the declared
   build/typecheck/lint must pass and every SPEC page REQ must have a page/view plus a
-  functional test (see `frontend-state-accessibility`).
+  functional test (see `journey-ui-states`).
 
 Typical flow: declare the stack in `TECH_CONSTRAINTS.yaml` → reference the Figma
 (MCP link or export) in `/idea` → declare page functionalities in `/spec` → bind a UI
-design profile + `figma-fidelity` + `frontend-state-accessibility` (+ `design-tokens-sync`)
+design profile + `figma-fidelity` + `journey-ui-states` (+ `design-tokens-sync`)
 per FE REQ in `/plan` → generate sources in `/kit` → verify in `/eval` and `/gate`.
 
 ### KIT

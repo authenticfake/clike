@@ -12,12 +12,15 @@ scenarios:
   - INT-02 | required | Provider down | If the external system is unreachable or returns a server error, then the system shall fail the dependent operation with a readable message and keep the rest of the product working.
   - INT-03 | required | Timeout | If the external system does not answer within the configured timeout, then the system shall abort the call, report a timeout and never wait indefinitely.
   - INT-04 | required | Rate limited | If the external system answers with a rate-limit response (for example 429 with retry-after), then the system shall back off as instructed and tell the caller the operation is delayed or must be retried.
-  - INT-05 | required | Malformed or unexpected response | If the response does not match the expected schema, then the system shall reject it at the boundary, log the mismatch and not store or show corrupted data.
+  - INT-05 | required | Malformed or unexpected response | If a response lacks required fields or has invalid values, then the system shall reject it at the boundary, log the mismatch and not store or show corrupted data; unknown extra fields shall be ignored.
   - INT-06 | required | Expired or invalid credentials | If the external system rejects the credentials, then the system shall refresh them when possible, otherwise stop retrying and alert an operator with a clear reason.
   - INT-07 | required | Partial data | If the external system returns incomplete data (missing fields, truncated pages), then the system shall handle the gaps explicitly and show which data is missing instead of presenting it as complete.
   - INT-08 | required | Retries without duplicate side effects | If a call with side effects is retried after an ambiguous failure, then the system shall not create the side effect twice on either side.
   - INT-09 | conditional | [Repeated failures possible] Circuit breaker and degraded mode | If failures exceed the configured threshold, then the system shall stop calling the provider for a cool-down period and run in a stated degraded mode visible to users.
   - INT-10 | conditional | [Inbound webhooks exist] Webhook signature and replay | If an inbound webhook has an invalid signature, an old timestamp or a repeated event identifier, then the system shall reject it without side effects.
+  - INT-11 | conditional | [The system sends webhooks or events to subscribers] Outbound delivery | When the system delivers an event to a subscriber, it shall sign it, retry failures with backoff, and move events still undelivered after the retry limit to a dead-letter state visible to an operator.
+  - INT-12 | conditional | [Calls with side effects can fail ambiguously] Reconciliation | If the outcome of a call with side effects is unknown (timeout after sending), then the system shall query the provider for the real outcome before retrying or reporting it.
+  - INT-13 | conditional | [The provider publishes a schema or contract] Contract pinned | When the provider contract changes, a consumer contract test pinned to the provider version shall fail before the change reaches production.
 obligations:
   - Enumerate every INT scenario in SPEC and include it or exclude it with a written reason
   - Map each included scenario ID to a REQ in plan.json and to an acceptance item prefixed with the ID

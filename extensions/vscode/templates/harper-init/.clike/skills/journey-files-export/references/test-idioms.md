@@ -20,13 +20,13 @@ Generate hostile and edge-case fixtures inside the test; assert messages and unc
 ## Java
 
 - JUnit 5 + MockMvc `multipart()` with `MockMultipartFile`; `@TempDir` as the storage root.
-- Assert `spring.servlet.multipart.max-file-size` maps to a readable message, not a raw exception.
+- Size limits: `MockMvc multipart()` bypasses the container's `max-file-size`; prove it with `@SpringBootTest(webEnvironment = RANDOM_PORT)` and RestAssured or `TestRestTemplate`, asserting the readable message, not a raw exception.
 - Streaming: `StreamingResponseBody` asserted with RestAssured.
 
 ## .NET
 
 - xUnit + `WebApplicationFactory` with `MultipartFormDataContent`; temp directory as storage root.
-- Assert request size limits map to ProblemDetails with the limit in the message.
+- Size limits: `TestServer` does not enforce Kestrel's `MaxRequestBodySize`; assert the app's own limit (`FormOptions.MultipartBodyLengthLimit`, a size check in the endpoint) maps to ProblemDetails with the limit in the message, or run against a real Kestrel host.
 - `Path.GetFileName` / server-generated names asserted against traversal inputs.
 
 ## Go
@@ -45,3 +45,9 @@ Generate hostile and edge-case fixtures inside the test; assert messages and unc
 ## PLC / SCADA / industrial
 
 - Recipe or configuration file import to a controller tested against a simulator: malformed or out-of-range files rejected with an alarm text, active configuration unchanged.
+
+## Rust
+
+- Upload through the real router (axum `oneshot` with a multipart body); storage in a `tempfile::TempDir`; assert nothing was written outside it for unsafe names.
+- Encoding: round-trip with the `csv` crate including a BOM, quotes and delimiters inside values.
+- Limits: assert the body-size limit layer (`DefaultBodyLimit`) maps to a readable message.
