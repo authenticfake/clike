@@ -2,7 +2,9 @@
 
 All notable changes to CLike. Extension, orchestrator and gateway share one version.
 
-## [Unreleased] — Complete requirements, sized for the executor
+## [Unreleased]
+
+## [1.7.0] — 2026-11-08 — Complete requirements, sized for the executor
 
 ### Added
 
