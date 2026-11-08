@@ -44,3 +44,9 @@ Exercise the full request pipeline and validate every response against the publi
 ## PLC / SCADA / industrial
 
 - OPC UA information model or MQTT topic/payload contracts validated against the published model; invalid writes return a defined status code and are logged.
+
+## Rust
+
+- axum `oneshot` / actix-web `test::call_service` against the real router; decode bodies with `serde_json` and assert the error schema fields.
+- Schema parity: validate responses against the published OpenAPI document (generated with utoipa or checked with the `jsonschema` crate).
+- Invalid input at scale: `proptest` strategies for out-of-range and malformed fields, asserting a 4xx with the field named.

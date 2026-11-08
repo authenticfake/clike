@@ -19,6 +19,11 @@ scenarios:
   - DAT-09 | conditional | [Soft delete or undo offered] Soft delete and restore | When a user undoes or restores a deleted record within the allowed window, the system shall restore it intact and exclude it again from active lists when deleted.
   - DAT-10 | conditional | [Bulk operations exist] Bulk partial failure | If some items of a bulk operation fail, then the system shall report which items succeeded and which failed with the reason, and never report full success.
   - DAT-11 | conditional | [Audit required] Audit trail | When a record is created, changed or deleted, the system shall record who, when and what changed in an audit trail that ordinary users cannot alter.
+  - DAT-12 | required | Boundary values | If a value is at, just inside or just outside its documented limit (length, range, zero, negative, empty), then the system shall accept exactly the values inside the limit and reject the others with the per-field message.
+  - DAT-13 | conditional | [Records have dependent records] Delete with dependents | If a user deletes a record that other records depend on, then the system shall block the deletion with a message naming the dependents, or cascade exactly as the SPEC states.
+  - DAT-14 | conditional | [Schema changes on tables that already hold data] Data-preserving migration | When a migration runs on a database that already holds data, the system shall preserve and convert the existing records, and running the migration again shall change nothing.
+  - DAT-15 | conditional | [Dates and times are shown or entered] Time zones | When dates and times are stored, the system shall store them in UTC; when they are shown or entered, it shall use the user's time zone and state it where ambiguity matters.
+  - DAT-16 | conditional | [One operation writes several records or stores] No partial write | If a step of a multi-record write fails, then the system shall leave none of the operation's changes in place and report the failure.
 obligations:
   - Enumerate every DAT scenario in SPEC and include it or exclude it with a written reason
   - Map each included scenario ID to a REQ in plan.json and to an acceptance item prefixed with the ID

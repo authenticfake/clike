@@ -37,6 +37,11 @@ onto the project's existing token system (Code Connect code-syntax when present)
 This skill is **advisory** (`gate_required: false`): it surfaces findings and does not
 block promotion on token adherence unless a pack or design profile elevates it.
 
+A **magic value** is a literal colour (hex, rgb, hsl), spacing, font size, line height, radius or
+shadow written in component code or styles outside the token definitions. A non-blocking check may
+list them (a grep or lint rule over the component sources). Variables from a design MCP server are
+available to coding agents only; the cloud path uses the attached export or the existing tokens.
+
 ## Use when
 
 Use this skill for frontend REQs that produce themed UI, especially when a design system

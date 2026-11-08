@@ -49,3 +49,9 @@ Prove each DAT scenario against a store with the real constraints and assert bot
 
 - Recipe or setpoint storage: unit tests (for example TcUnit) that out-of-range values are rejected with an alarm text and the active recipe is unchanged.
 - Recipe changes recorded in the audit or event log with operator identity, verified against a simulator.
+
+## Rust
+
+- `#[sqlx::test]` (sqlx `migrate` feature; `migrations = "…"` when they are not in `./migrations`) creates a database per test on the server named by `DATABASE_URL` — declare `{"name": "DATABASE_URL", "provision": "postgres_database"}` in `environment.required_variables`; assert that a rejected write left no row.
+- Concurrency: version column; two updates with the same version, the second returns the conflict.
+- Boundary values (DAT-12): table-driven cases or `proptest` at, inside and outside each limit.

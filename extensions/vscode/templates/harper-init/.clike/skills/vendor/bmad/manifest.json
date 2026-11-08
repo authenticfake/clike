@@ -56,6 +56,15 @@
         "pm"
       ]
     },
+    "extend": {
+      "default_agent": "pm",
+      "allowed_agents": [
+        "pm",
+        "analyst",
+        "architect",
+        "ux"
+      ]
+    },
     "kit": {
       "default_agent": "developer",
       "allowed_agents": [
@@ -166,18 +175,18 @@
     },
     {
       "relative_path": "epic-framing/SKILL.md",
-      "bytes": 2500,
-      "sha256": "e120a8aeae94608dc072d22684a33ce07c35b032a742458ad792b2a4a3bf7dfc"
+      "bytes": 2641,
+      "sha256": "9ef82117dfe324f6ec16b7e4a9f0566dcc71e9b848ac8cd002bd28c96d287b2e"
     },
     {
       "relative_path": "acceptance-modeling/SKILL.md",
-      "bytes": 2435,
-      "sha256": "4837f133da4974fac0f6dba11c3541269b38df4b91fba0fef6ec5d61d9db45c1"
+      "bytes": 2702,
+      "sha256": "08c3ad3f820b845a28d5a2680610bb524c2af7c156f0dfa01f845a45c9be8773"
     },
     {
       "relative_path": "ux-flow-modeling/SKILL.md",
-      "bytes": 2346,
-      "sha256": "ee30a2848f3e581a2e737ed4942234bfaaae76f5c701824dad4c0ac5a83694ab"
+      "bytes": 2506,
+      "sha256": "5e7b8730a02dcffa536143cbf4d8b7d085669eac7daf1ecdd6b1ecd4ee7c8ad3"
     },
     {
       "relative_path": "architecture-readiness/SKILL.md",
@@ -186,18 +195,18 @@
     },
     {
       "relative_path": "story-readiness/SKILL.md",
-      "bytes": 2417,
-      "sha256": "c648c8ae006d5f28f75c283ce0288f862c14bb770ffe629c29a4e11f7d146570"
+      "bytes": 2558,
+      "sha256": "a2d0237db7901d43e1ca8dd8254c89b9b8489ac6fa547133c213b265e72a9081"
     },
     {
       "relative_path": "dev-story-execution/SKILL.md",
-      "bytes": 2657,
-      "sha256": "06635ee371a3aa4608f3c2eb3d3e577095128051d5e13231fbea3b059b889de8"
+      "bytes": 2804,
+      "sha256": "c24e9ea3a44a2237d86ca7c0d32859203b631acd69a10b5d276a98f4e83f9b4a"
     },
     {
       "relative_path": "qa-risk-review/SKILL.md",
-      "bytes": 2324,
-      "sha256": "cb5ad92ff302a94373aab41f42cd3a04bf4f9da915d4cb092c477f65ddf83363"
+      "bytes": 2453,
+      "sha256": "3f5554010a95822b19b11ed305a7c9b3c1f5c1e00ee4a0e0df693244de9ff42f"
     },
     {
       "relative_path": "release-narrative/SKILL.md",

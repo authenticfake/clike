@@ -4,6 +4,8 @@ Every check runs against simulated I/O or a protocol simulator, with scripted fa
 
 ## PLC / SCADA (IEC 61131-3)
 
+- The eval sandbox has no vendor runtime: the blocking check runs the logic on a portable Structured Text runner or a simulator model of the function blocks (or the supervisory code against a protocol simulator); the IDE test (TcUnit, CODESYS Test Manager) is a non-blocking case with `environment_requirements` naming the runtime.
+- Test names carry the scenario id with underscores (`IND_04_CommLossSafeState`): hyphens are not valid in IEC 61131-3 identifiers.
 - Unit tests in the controller environment: TcUnit (TwinCAT), CODESYS Test Manager or equivalent; one test suite per function block.
 - Simulated I/O: map inputs to test variables; force interlock inputs, frozen values, out-of-range analogs; step cycles and assert outputs.
 - Alarms: assert alarm raised, priority, text, acknowledge, clear-after-normal according to the alarm philosophy (for example ISA-18.2 states).

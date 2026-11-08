@@ -41,12 +41,12 @@ Do not use this pack for generic enterprise CRUD applications with no industrial
 
 Recommended skills:
 
-- industrial-safety-simulator
-- local-cloud-parity
+- journey-industrial-control
+- journey-runtime-config
 - backend-contract-boundary
 - eval-contract-writer
 - gate-risk-reviewer
-- frontend-state-accessibility when operator UI is involved
+- journey-ui-states when operator UI is involved
 
 Recommended design profiles:
 
@@ -94,67 +94,27 @@ Gate should block promotion when:
 - Simulator evidence is missing.
 - Stale/degraded telemetry is hidden.
 - Real plant readiness is claimed without external evidence.
-- Required checks fail or status is PASS_WITH_WARNINGS.
+- Required checks fail.
 
 Gate may allow non-blocking warnings when:
 
 - Real plant validation is unavailable but simulator checks pass.
 - Latency/performance checks require dedicated industrial infrastructure.
+
 ---
 
-# CLike Promotable KIT Pack Overlay
+# CLike Pack Overlay
 
-## Purpose
+## Skills
 
-This pack is a scenario-level orchestrator for CLike `/kit`.
+Select only the skills the REQ, lane, runtime profile and acceptance justify: the journeys whose
+scenarios the REQ owns (`journey-*`), `eval-contract-writer` for every REQ that ships code,
+`backend-contract-boundary` for backend contracts, `e2e-slice-runnability` for user or service
+flows, plus the scenario-specific skills listed by this pack.
 
-It should help the model choose the right constraints, not generate decorative architecture.
+## Gate
 
-## Default Promotable Skills
-
-For code-producing REQs, prefer selecting relevant skills from:
-
-- `promotable-code-boundary` when available;
-- `backend-contract-boundary` for backend/API/service work;
-- `frontend-state-accessibility` for UI work;
-- `local-cloud-parity` for runtime or external dependencies;
-- `eval-contract-writer` for executable validation;
-- `gate-risk-reviewer` for promotion safety;
-- `secure-config-secrets` when available for credentials/config/runtime;
-- `observability-diagnostics` when available for supportability;
-- scenario-specific skills already listed by this pack.
-
-Do not select every skill automatically. Select only those justified by the REQ, lane, runtime profile, and acceptance criteria.
-
-## KIT Behavior
-
-When this pack is selected, KIT generation must:
-
-- keep the implementation slice narrow and promotable;
-- obey repository conventions before adding new layers;
-- generate executable evidence;
-- separate local deterministic validation from optional external validation;
-- document runtime assumptions;
-- preserve future compatibility for dependent REQs;
-- avoid fake completeness and broad speculative architecture.
-
-## Required Evidence
-
-The KIT should provide:
-
-- source mapped to the REQ;
-- tests mapped to acceptance criteria;
-- `ci/LTC.json`;
-- `ci/HOWTO.md`;
-- capability adherence notes in KIT documentation;
-- external infrastructure assumptions when relevant.
-
-## Gate Bias
-
-This pack biases GATE toward safe promotion.
-
-Promotion should require full `PASS`.
-
-`PASS_WITH_WARNINGS` must not promote.
-
-Warnings are acceptable only when the missing evidence is explicitly non-blocking, external, and documented with a deterministic local fallback.
+The gate promotes on PASS and on PASS_WITH_WARNINGS (non-blocking checks failed or
+environment-blocked, reported and tracked), unless the project enables strict warnings. A check
+belongs in the blocking set when it proves an acceptance criterion or scenario in the sandbox; it is
+non-blocking only when it needs infrastructure the sandbox does not have, with the reason stated.

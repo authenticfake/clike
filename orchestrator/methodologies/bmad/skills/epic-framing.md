@@ -19,7 +19,7 @@ Applies to `spec/pm` and `plan/pm` BMAD runs.
 - Prior companion PRD, epics, and story map artifacts.
 
 ## Required outputs
-- Implementation-sized REQs or story map entries with stable dependencies.
+- Implementation-sized REQs or story map entries with stable dependencies, sized on the plan's capacity profile (C1 one domain per REQ, C2 vertical slices, C3 epics with features) and never split by technical layer.
 - Explicit in-scope and out-of-scope behavior for each slice.
 - Handoff notes that later KIT runs can use without inventing behavior.
 

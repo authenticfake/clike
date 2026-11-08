@@ -21,7 +21,7 @@ Step the worker deterministically, inject failures, assert state transitions and
 ## Java
 
 - JUnit 5 + Awaitility for bounded waits; Testcontainers for the broker.
-- Spring Retry / Resilience4j: assert attempts and backoff with a fake clock.
+- Spring Retry / Resilience4j: assert attempts and backoff by injecting a no-op or recording `Sleeper` / interval function (they sleep through it, not through `Clock`).
 - Assert dead-letter queue content and the operator API.
 
 ## .NET
@@ -32,7 +32,7 @@ Step the worker deterministically, inject failures, assert state transitions and
 ## Go
 
 - `testing` with context deadlines; inject a clock; run the worker loop for a fixed number of iterations.
-- Assert idempotency with a fake store counting writes; use `-race` for concurrency limits.
+- Assert idempotency with a fake store counting writes; concurrency limits with a gate (channel or `sync.WaitGroup`) that holds N jobs and asserts the N+1th waits; run with `-race` to catch data races (it does not check limits).
 
 ## Mobile
 
@@ -45,3 +45,9 @@ Step the worker deterministically, inject failures, assert state transitions and
 ## PLC / SCADA / industrial
 
 - Batch or sequence steps tested (for example TcUnit) with simulated I/O: step timeout raises an alarm, abort returns to a safe idle, power-loss restart resumes per the defined recovery mode.
+
+## Rust
+
+- `#[tokio::test(start_paused = true)]` (tokio `test-util` feature, current-thread runtime) with `tokio::time::advance` for backoff, timeouts and schedules — no real sleeping.
+- Idempotent resubmit: a fake store counting side effects; submit twice, assert one effect.
+- Restart: drop the worker mid-job, start a new one on the same store, assert the job resumes or re-runs safely.

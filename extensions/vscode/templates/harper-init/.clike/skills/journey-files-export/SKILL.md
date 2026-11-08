@@ -18,6 +18,11 @@ scenarios:
   - FIL-08 | required | Download permission deny | If a user requests a file they are not allowed to access, then the system shall deny it with 403 (or the lane equivalent) and not reveal whether the file exists, including via guessable links.
   - FIL-09 | required | Generation in progress or failed | When a file is being generated, the system shall show that it is in progress, and if generation fails, then it shall show a readable failure with a retry.
   - FIL-10 | conditional | [Large exports possible] Large export streaming | When an export exceeds the in-memory threshold, the system shall stream or chunk it with bounded memory and deliver a complete, valid file.
+  - FIL-11 | conditional | [Archives are accepted] Archive extraction limits | If an archive contains entries that escape the target folder or expand beyond the size or ratio limit, then the system shall stop the extraction, write nothing outside the target and report the reason.
+  - FIL-12 | conditional | [Uploaded files are shared with other users] Malware scan | When a user uploads a file that others can download, the system shall keep it in quarantine until a scan passes and never serve a file that failed the scan.
+  - FIL-13 | conditional | [Spreadsheet export: CSV or XLSX] Formula injection | When an exported cell value starts with =, +, -, @, tab or carriage return, the system shall neutralize it so that a spreadsheet does not execute it.
+  - FIL-14 | conditional | [Uploaded images are shown to others] Metadata stripped | When an uploaded image is stored for others to see, the system shall remove its location and device metadata.
+  - FIL-15 | conditional | [Download links are shared] Expiring links | If a download link is used after its expiry or by a user it was not issued for, then the system shall refuse the download.
 obligations:
   - Enumerate every FIL scenario in SPEC and include it or exclude it with a written reason
   - Map each included scenario ID to a REQ in plan.json and to an acceptance item prefixed with the ID

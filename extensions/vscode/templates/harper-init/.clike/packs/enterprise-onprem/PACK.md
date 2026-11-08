@@ -5,9 +5,8 @@ domains: ["enterprise"]
 default_runtime_profiles: ["local", "on-prem", "hybrid", "air-gapped", "local-cloud"]
 recommended_skills:
   - enterprise-solution-architecture
-  - mvp-e2e-promotability
-  - local-cloud-parity
-  - secure-config-secrets
+  - e2e-slice-runnability
+  - journey-runtime-config
   - eval-contract-writer
   - gate-risk-reviewer
 gate_required: true
@@ -57,7 +56,7 @@ Do not use this pack for cloud-only consumer prototypes with no on-prem, regulat
 - Document runtime assumptions clearly.
 - Keep generated implementation promotable and reviewable.
 - Preserve business API and lifecycle parity across runtime profiles.
-- Split broad enterprise requirements into dependency-aware MVP slices.
+- Split broad enterprise requirements into dependency-aware promotable slices.
 
 ## KIT Constraints
 
@@ -104,7 +103,7 @@ For code projects, FINALIZE should create or validate:
 
 ## Security Expectations
 
-- Use `secure-config-secrets` when configuration, secrets, auth, provider SDKs, DB, storage, queues, AI, or deployment are touched.
+- Use `journey-runtime-config` when configuration, secrets, auth, provider SDKs, DB, storage, queues, AI, or deployment are touched.
 - Local-dev credentials must be sample-only and documented.
 - Production config must fail fast when required values are missing.
 - Logs and audit payloads must redact secrets and sensitive content.
@@ -133,7 +132,6 @@ Gate should BLOCK promotion when:
 - runtime profile assumptions are implicit;
 - local run commands are missing for runnable code;
 - selected capabilities are ignored;
-- `PASS_WITH_WARNINGS` is final status.
 
 Gate may WARN when:
 

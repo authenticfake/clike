@@ -1,14 +1,14 @@
 ---
 name: startup-solution
-description: Startup solution scenario: narrow promotable MVP slice with simple, evolvable architecture.
+description: Startup solution scenario: narrow promotable slice with simple, evolvable architecture.
 obligations:
-  - Deliver a narrow promotable MVP slice
+  - Deliver a narrow promotable slice
   - Keep architecture simple and evolvable
 eval_checks:
-  - mvp-e2e-slice-present
+  - e2e-slice-present
   - local-smoke-path-present
 gate_implications:
-  - block-if-decorative-only-mvp
+  - block-if-decorative-only-slice
 evidence_required:
   - E2E/smoke evidence
 ---
@@ -23,13 +23,13 @@ This pack optimizes for lean implementation, clear user value, fast feedback, an
 
 ## Scenario signals
 
-- MVP, SaaS, product-led, startup, beta, customer feedback, onboarding, billing, dashboard, analytics, landing-to-product flow, or growth loop.
+- first release, SaaS, product-led, startup, beta, customer feedback, onboarding, billing, dashboard, analytics, landing-to-product flow, or growth loop.
 - Requirements emphasizing speed, user validation, experimentation, feature slicing, or quick iteration.
 - Consumer or small-team product contexts where scope must stay lean.
 
 ## Use when
 
-Use this pack when building product increments for early-stage products, MVPs, SaaS applications, internal startup-style tools, or fast validation loops.
+Use this pack when building product increments for early-stage products, first releases, SaaS applications, internal startup-style tools, or fast validation loops.
 
 ## Do not use when
 
@@ -39,12 +39,12 @@ Do not use this pack for regulated enterprise systems, industrial safety systems
 
 Recommended skills:
 
-- frontend-state-accessibility when UI/UX is involved
+- journey-ui-states when UI/UX is involved
 - backend-contract-boundary when APIs/services are involved
 - eval-contract-writer
 - gate-risk-reviewer
-- ai-rag-eval-guardrails when AI/LLM/RAG is involved
-- local-cloud-parity when infrastructure or third-party services are involved
+- journey-ai-guardrails when AI/LLM/RAG is involved
+- journey-runtime-config when infrastructure or third-party services are involved
 
 Recommended design profiles:
 
@@ -72,7 +72,7 @@ Recommended design profiles:
 - Do not build generic frameworks unless the REQ clearly needs them.
 - Keep the main user flow complete before adding optional abstractions.
 - Keep APIs and state boundaries stable enough for frontend/backend iteration.
-- Avoid fake completeness: partial MVP behavior must be declared honestly.
+- Avoid fake completeness: partial behavior must be declared honestly.
 
 ## Eval expectations
 
@@ -80,7 +80,7 @@ Recommended design profiles:
 - At least one failure/empty/error path should be covered for UI/API flows.
 - Build/lint/type checks should run when project tooling exists.
 - HOWTO must be short, practical, and copy-pasteable.
-- Known MVP limits should be documented.
+- Known limits of the release should be documented.
 
 ## Gate implications
 
@@ -96,61 +96,21 @@ Gate may allow non-blocking warnings when:
 
 - Advanced scalability, observability, or compliance checks are intentionally future scope.
 - Optional third-party integrations are documented but not locally runnable.
+
 ---
 
-# CLike Promotable KIT Pack Overlay
+# CLike Pack Overlay
 
-## Purpose
+## Skills
 
-This pack is a scenario-level orchestrator for CLike `/kit`.
+Select only the skills the REQ, lane, runtime profile and acceptance justify: the journeys whose
+scenarios the REQ owns (`journey-*`), `eval-contract-writer` for every REQ that ships code,
+`backend-contract-boundary` for backend contracts, `e2e-slice-runnability` for user or service
+flows, plus the scenario-specific skills listed by this pack.
 
-It should help the model choose the right constraints, not generate decorative architecture.
+## Gate
 
-## Default Promotable Skills
-
-For code-producing REQs, prefer selecting relevant skills from:
-
-- `promotable-code-boundary` when available;
-- `backend-contract-boundary` for backend/API/service work;
-- `frontend-state-accessibility` for UI work;
-- `local-cloud-parity` for runtime or external dependencies;
-- `eval-contract-writer` for executable validation;
-- `gate-risk-reviewer` for promotion safety;
-- `secure-config-secrets` when available for credentials/config/runtime;
-- `observability-diagnostics` when available for supportability;
-- scenario-specific skills already listed by this pack.
-
-Do not select every skill automatically. Select only those justified by the REQ, lane, runtime profile, and acceptance criteria.
-
-## KIT Behavior
-
-When this pack is selected, KIT generation must:
-
-- keep the implementation slice narrow and promotable;
-- obey repository conventions before adding new layers;
-- generate executable evidence;
-- separate local deterministic validation from optional external validation;
-- document runtime assumptions;
-- preserve future compatibility for dependent REQs;
-- avoid fake completeness and broad speculative architecture.
-
-## Required Evidence
-
-The KIT should provide:
-
-- source mapped to the REQ;
-- tests mapped to acceptance criteria;
-- `ci/LTC.json`;
-- `ci/HOWTO.md`;
-- capability adherence notes in KIT documentation;
-- external infrastructure assumptions when relevant.
-
-## Gate Bias
-
-This pack biases GATE toward safe promotion.
-
-Promotion should require full `PASS`.
-
-`PASS_WITH_WARNINGS` must not promote.
-
-Warnings are acceptable only when the missing evidence is explicitly non-blocking, external, and documented with a deterministic local fallback.
+The gate promotes on PASS and on PASS_WITH_WARNINGS (non-blocking checks failed or
+environment-blocked, reported and tracked), unless the project enables strict warnings. A check
+belongs in the blocking set when it proves an acceptance criterion or scenario in the sandbox; it is
+non-blocking only when it needs infrastructure the sandbox does not have, with the reason stated.

@@ -21,6 +21,7 @@ Applies to `kit/developer`.
 ## Required outputs
 - Candidate source, tests, CI, docs, LTC, HOWTO, and required BMAD developer companion notes under the target KIT root.
 - Summary of files changed, commands run, evidence, and unresolved gaps.
+- `docs/ACCEPTANCE.json` truthful per criterion and owned scenario, each proved by a blocking check and a test whose name carries the scenario id.
 
 ## Companion outputs
 - `runs/kit/<REQ-ID>/docs/BMAD_DEV_STORY.md`

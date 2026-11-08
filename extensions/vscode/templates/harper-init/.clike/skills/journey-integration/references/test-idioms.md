@@ -13,7 +13,7 @@ Fake the external system at the network or protocol boundary and make it misbeha
 ## TypeScript / web
 
 - vitest + MSW (`http.get(..., () => HttpResponse.json(..., { status: 429, headers: { "Retry-After": "30" } }))`) or nock.
-- Timeouts: fake timers plus a never-resolving handler; assert abort via `AbortController`.
+- Timeouts: inject the timeout into the client and use a never-answering handler (MSW `delay('infinite')`); `AbortSignal.timeout()` and fetch's internal timers do not follow `vi.useFakeTimers()` — use a short real timeout in the test or an injected timer.
 - Schema checks (for example zod) asserted on malformed payloads.
 - UI: Testing Library asserts the degraded or waiting message; Playwright `page.route()` simulates provider outages end to end.
 
@@ -44,3 +44,9 @@ Fake the external system at the network or protocol boundary and make it misbeha
 ## PLC / SCADA / industrial
 
 - OPC UA / Modbus / MQTT simulator to drop connections, return bad quality codes or stale timestamps; assert alarm raise and safe handling (see journey-industrial-control for safety scenarios).
+
+## Rust
+
+- `wiremock` `MockServer` per test: 500, `set_delay` beyond the client timeout, 429 with Retry-After, malformed JSON, 401.
+- Configure the client timeout explicitly (`reqwest::ClientBuilder::timeout`) and assert the mapped domain error, not the transport error.
+- Duplicate side effects: assert the mock received the idempotency key and the side effect happened once (`expect(1)`).

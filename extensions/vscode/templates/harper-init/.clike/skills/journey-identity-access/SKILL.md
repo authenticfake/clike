@@ -13,13 +13,20 @@ scenarios:
   - IAM-03 | required | Wrong credentials | If a user submits a wrong identifier or password, then the system shall reject the login with one generic message that does not reveal which field was wrong.
   - IAM-04 | required | Lockout and rate limit | If repeated failed logins exceed the configured threshold, then the system shall throttle or lock the account and tell the user when and how to retry.
   - IAM-05 | required | Password reset and recovery | When a user requests a password reset, the system shall send a single-use, time-limited link or code and reject it once used or expired.
-  - IAM-06 | required | Session expiry and refresh | If a session or token has expired, then the system shall refresh it when allowed or require re-authentication without losing the user's place silently.
+  - IAM-06 | required | Session expiry and refresh | If a session or token has expired, then the system shall refresh it when allowed, otherwise require re-authentication and return the user to the page they were on.
   - IAM-07 | required | Logout | When a user logs out, the system shall invalidate the session server-side so that a replayed token or cookie is rejected.
   - IAM-08 | required | Permission deny | If an authenticated user requests an action outside their role, then the system shall deny it with 403 (or the lane equivalent) and the UI shall show a permission-denied state instead of the action.
   - IAM-09 | conditional | [MFA required] Second factor | When MFA is enabled for an account, the system shall require a valid second factor before granting the session and reject wrong or reused codes.
   - IAM-10 | conditional | [User administration exists] User and role administration | When an administrator creates, disables or changes the role of a user, the system shall apply the change on the user's next request and record who made it.
   - IAM-11 | conditional | [Personal data stored] Account deletion and data export | When a user requests deletion or export of their account data, the system shall confirm the request, complete it within the stated policy and prevent further login after deletion.
   - IAM-12 | conditional | [Multiple sessions allowed] Concurrent sessions and revocation | When a user or administrator revokes sessions (including logout everywhere), the system shall reject every revoked session on its next request.
+  - IAM-13 | required | No account enumeration | If registration, login or password reset names an account that does or does not exist, then the system shall give the same response and message, so that the reply does not reveal whether the account exists.
+  - IAM-14 | conditional | [Cookie-based sessions] Cross-site request forgery | If a state-changing request lacks a valid anti-forgery token or comes from a foreign origin, then the system shall reject it without side effects.
+  - IAM-15 | conditional | [Server-side sessions or session cookies] New session at login | When a user authenticates, the system shall issue a new session identifier and invalidate the one used before login.
+  - IAM-16 | conditional | [Refresh tokens issued] Refresh token rotation and reuse | If a refresh token that was already exchanged is presented again, then the system shall reject it and revoke every token issued from the same login (each exchange issues a new refresh token and retires the used one).
+  - IAM-17 | conditional | [Local passwords] Password policy | If a new password is shorter than the policy or is a known breached or common password, then the system shall reject it with a message naming the rule.
+  - IAM-18 | conditional | [Local passwords or editable email] Credential change | When a user changes the password, the system shall end the user's other sessions; when a user changes the email, the system shall verify the new address before using it.
+  - IAM-19 | conditional | [Single sign-on] Federated sign-in checks | If the state, nonce or PKCE verifier of a federated sign-in is missing or does not match, then the system shall abort the sign-in without creating a session.
 obligations:
   - Enumerate every IAM scenario in SPEC and include it or exclude it with a written reason
   - Map each included scenario ID to a REQ in plan.json and to an acceptance item prefixed with the ID

@@ -9,7 +9,7 @@ gate_required: true
 scenario_prefix: JOB
 scenarios:
   - JOB-01 | required | Accepted and queued | When a user or system submits long-running work, the system shall accept it immediately, return a job identifier and record the job as queued.
-  - JOB-02 | required | Progress and status visible | When a job is running, the system shall expose its status and progress so that the user or caller can see queued, running, succeeded or failed without guessing.
+  - JOB-02 | required | Progress and status visible | When a job is running, the system shall expose its status and progress so that the user or caller can see queued, running, succeeded or failed, with the time of the last update.
   - JOB-03 | required | Retry with backoff | If a job step fails with a transient error, then the system shall retry it with bounded backoff and record each attempt.
   - JOB-04 | required | Timeout | If a job exceeds its time limit, then the system shall stop it, mark it as timed out with a readable reason and release its resources.
   - JOB-05 | required | Cancel | When a user cancels a queued or running job, the system shall stop it at a safe point, mark it cancelled and leave no partial result presented as complete.
@@ -18,6 +18,10 @@ scenarios:
   - JOB-08 | required | Failed job surfaced to operator | If a job fails permanently or a message is poison, then the system shall move it to a failed or dead-letter state, keep the error detail and make it visible to an operator with a way to retry or discard.
   - JOB-09 | conditional | [Concurrency or quota limits apply] Concurrency limits | When the number of running jobs reaches the configured limit, the system shall queue further jobs and show that they are waiting instead of failing or overloading.
   - JOB-10 | conditional | [Scheduled jobs exist] Schedule and missed runs | When a scheduled run time is reached or was missed during downtime, the system shall run it once according to the stated catch-up policy and never run it twice concurrently.
+  - JOB-11 | conditional | [A job writes data and publishes a message] Transactional outbox | When a job commits a change that others must hear about, the system shall publish the message only if the change is committed and never lose it when the publish fails (outbox or equivalent).
+  - JOB-12 | conditional | [Order matters per key] Ordering per key | When several messages share a key, the system shall process them in the order they were produced and never apply an older one after a newer one.
+  - JOB-13 | conditional | [Workers lease jobs] Lease expiry | If a worker holding a job stops renewing its lease, then the system shall hand the job to another worker, so that its business effect happens exactly once.
+  - JOB-14 | conditional | [Producers can outpace workers] Backpressure | When the queue depth exceeds its limit, the system shall slow or reject new submissions with a visible reason instead of growing without bound.
 obligations:
   - Enumerate every JOB scenario in SPEC and include it or exclude it with a written reason
   - Map each included scenario ID to a REQ in plan.json and to an acceptance item prefixed with the ID

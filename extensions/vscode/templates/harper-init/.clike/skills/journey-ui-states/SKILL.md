@@ -19,6 +19,8 @@ scenarios:
   - UI-09 | required | Screen-reader labels | When the surface is used with a screen reader, the system shall expose accessible names, roles and states for every control, and announce errors and status changes.
   - UI-10 | required | Product language of all messages | When any message is shown (labels, errors, empty states, confirmations), the system shall show it in the product language from the message catalog, with no untranslated or developer text.
   - UI-11 | conditional | [Narrow or mobile viewports supported] Responsive layout | When the surface is shown on a narrow viewport, the system shall keep all actions usable without horizontal scrolling or overlapping content.
+  - UI-12 | required | Success confirmed | When an action succeeds, the system shall confirm it visibly in product language and announce it to assistive technology.
+  - UI-13 | conditional | [Forms whose input the user would lose] Unsaved changes | If the user leaves a form with unsaved changes, then the system shall ask before discarding them.
 obligations:
   - Enumerate every UI scenario in SPEC and include it or exclude it with a written reason
   - Map each included scenario ID to a REQ in plan.json and to an acceptance item prefixed with the ID
@@ -41,7 +43,7 @@ evidence_required:
 
 ## Intent
 
-A screen that renders the populated state is a picture, not a feature. Users meet the loading, empty, failed, denied, offline and invalid states constantly. This skill makes each state an explicit, tested scenario on every data surface and form, and it complements frontend-state-accessibility with traceable scenario IDs.
+A screen that renders the populated state is a picture, not a feature. Users meet the loading, empty, failed, denied, offline and invalid states constantly. This skill makes each state an explicit, tested scenario on every data surface and form, with traceable scenario IDs.
 
 ## Use when
 
@@ -57,7 +59,8 @@ The REQ has no user interface (backend, batch, infrastructure, PLC logic without
 
 - **SPEC**: list every scenario in `## Scenarios`; include each `required` one or exclude it with a reason; state which surfaces and forms each applies to.
 - **PLAN**: assign each included scenario ID to the REQ that owns the surface in plan.json `scenarios`; add acceptance items prefixed with the ID (for example `UI-03: when the orders request fails the table shows "We could not load orders. Retry"`).
-- **KIT**: one blocking check per included scenario recorded in docs/ACCEPTANCE.json with the scenario ID; component tests for states, journey tests for keyboard and offline.
+- **KIT**: one blocking check per included scenario recorded in docs/ACCEPTANCE.json with the scenario ID; component tests for the states of one surface (fast), browser tests for keyboard, offline and journeys across pages.
+- **Same behaviour, two sides**: UI-02/UI-04/UI-07 are the visible side of DAT-06/IAM-08/DAT-02 — one test that drives the UI against the real handler may prove both ids (name both).
 - **EVAL / GATE**: an included scenario without a passing blocking check blocks promotion.
 
 ## Valid exclusions
@@ -81,7 +84,8 @@ The REQ has no user interface (backend, batch, infrastructure, PLC logic without
 - Testing only the populated state.
 - Asserting element presence without the message text.
 - Raw exceptions, stack traces, HTTP codes or internal keys shown to users.
-- Clickable non-semantic elements without role and keyboard handling.
+- Clickable non-semantic elements (a `div` with a click handler) instead of `button`/`a`, or without role and keyboard handling.
+- A new UI framework or component library the REQ does not need.
 - Real network calls or sleeps in component tests.
 - Snapshot tests as the only proof of a state.
 

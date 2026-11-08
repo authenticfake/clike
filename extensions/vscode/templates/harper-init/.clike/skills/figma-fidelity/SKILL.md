@@ -42,14 +42,14 @@ available, while staying honest about gaps, and degrade gracefully to a coherent
 default style when no Figma source is provided.
 
 This skill governs **fidelity to the design source**. It composes with
-`frontend-state-accessibility` (UI states, accessibility) and the selected design
+`journey-ui-states` (UI states, accessibility) and the selected design
 profile; it does not replace them. The concrete framework, routing, styling, and
 component library come from `docs/harper/TECH_CONSTRAINTS.yaml`.
 
 ## Use when
 
 Use this skill when a frontend REQ should reproduce a specific Figma design provided
-either through the remote Figma MCP (`https://mcp.figma.com/mcp`) or as an attached
+either through a design MCP server configured for the coding agent, or as an attached
 export (image / PDF / HTML), or when the IDEA/SPEC references Figma frames as the
 visual source of truth.
 
@@ -60,7 +60,8 @@ or frontend work that has no design source and no design intent to preserve.
 
 ## Source modes
 
-- `mcp` — remote Figma MCP configured for the active executor (Claude or Codex).
+- `mcp` — a design MCP server configured for the coding agent (agents only: a single cloud
+  generation call cannot query it, so the cloud path uses `attachment`).
   Highest fidelity: node tree, Auto Layout, component names, and Variables are the
   visual source of truth; prefer real node/component/variable names over guesses.
 - `attachment` — a Figma export attached to the request and materialized under
