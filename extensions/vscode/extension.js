@@ -214,6 +214,7 @@ const {
 const {
   acceptanceChanges,
   collectRepairFiles,
+  epicMaxCycles,
   evalPassed,
   fixCycleMethodology,
   ownFailureCount,
@@ -8145,6 +8146,8 @@ async function cmdOpenChat(context) {
       lastSignature: msg.fix.lastSignature || '',
       lastKitOk: msg.fix.lastKitOk,
     };
+    // an epic (C3) is delivered feature by feature: one repair cycle per planned feature at least
+    try { state.maxCycles = epicMaxCycles(await readPlanJson(getWorkspaceRoot()), reqId, state.maxCycles); } catch { /* plan unreadable */ }
     const say = (text) => panel.webview.postMessage({ type: 'echo', message: text });
     // A targeted re-eval (this REQ's checks, the regression of the REQs that failed) that passes
     // is confirmed by the full eval, in the same cycle: only a full eval is the REQ's verdict.

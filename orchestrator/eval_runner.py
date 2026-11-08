@@ -4137,6 +4137,7 @@ class EvalRunner:
             only_names = getattr(self, "_only_checks", None)
             if not only_names or "acceptance::coverage" in only_names:
                 out_cases.extend(self._acceptance_coverage_cases(eff_req, ltc))
+                out_cases.extend(self._epic_features_cases(eff_req, ltc))
         own_failed = any(not c.passed and c.blocking for c in out_cases)
         own = out_cases[loop_from:]
         self._progress(**({} if cancelled else {"checks_done": len(norm_cases)}), current=None,
@@ -4186,6 +4187,51 @@ class EvalRunner:
             "docs/<runbook>.md); a staging folder or a staging map of the KIT never is. Move them:\n" + shown +
             (f"\nRemove the staging map(s): {', '.join(maps)} — CLike promotes root/ as it is." if maps else "") +
             "\nThe eval sees root/ at the workspace root: checks run them there (scripts/…, not ci/<staging>/scripts/…)."))]
+
+    def _epic_features_cases(self, req_id: str, ltc: Dict[str, Any]) -> List[EvalCase]:
+        """``acceptance::features``: an epic (plan.json ``"profile": "C3"``) is done when every feature
+        of runs/kit/<REQ>/docs/FEATURES.json is done with the blocking checks that prove it, and every
+        feature the plan lists is there (services/quality_context.py: one feature at a time)."""
+        req = next((r for r in self._plan_reqs() if str(r["id"]).upper() == str(req_id).upper()), None)
+        if str((req or {}).get("profile") or "").strip().upper() != "C3":
+            return []
+        name = "acceptance::features"
+        path = self.project_root / "runs" / "kit" / self._safe_req_id(req_id) / "docs" / "FEATURES.json"
+        planned = [str(f.get("id") if isinstance(f, dict) else f).strip() for f in (req or {}).get("features") or []]
+        planned = [f for f in planned if f]
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            features = [f for f in data.get("features") or [] if isinstance(f, dict) and str(f.get("id") or "").strip()]
+        except FileNotFoundError:
+            return [EvalCase(name=name, passed=False, code=1, blocking=True, stdout="", stderr=(
+                f"{_ACCEPTANCE_NOTE}: {req_id} is an epic (C3) and the KIT has no docs/FEATURES.json. Write it from the "
+                f"plan's features ({', '.join(planned) or 'none listed'}) and deliver them one at a time, each with its checks."))]
+        except Exception as exc:
+            return [EvalCase(name=name, passed=False, code=2, blocking=True, stdout="",
+                             stderr=f"{_ACCEPTANCE_NOTE}: docs/FEATURES.json is not valid JSON with a features list: {exc}")]
+        blocking_checks = {str(c.get("name") or "") for c in self._normalize_cases(ltc) if c.get("blocking", True)}
+        problems: Dict[str, str] = {}
+        ids = [str(f["id"]).strip() for f in features]
+        for fid in planned:
+            if fid not in ids:
+                problems[fid] = f"{fid}: planned, not in FEATURES.json"
+        for feature in features:
+            fid = str(feature["id"]).strip()
+            status = str(feature.get("status") or "").strip().lower()
+            checks = [str(c) for c in feature.get("checks") or [] if str(c).strip()]
+            if status != "done":
+                problems[fid] = f"{fid}: {status or 'no status'} — {str(feature.get('title') or '')[:120]}"
+            elif not [c for c in checks if c in blocking_checks]:
+                problems[fid] = f"{fid}: done, but names no blocking check of ci/LTC.json (named: {', '.join(checks) or 'none'})"
+        if problems:
+            # one case per feature not delivered: the repair loop sees the epic progress feature by feature
+            return [EvalCase(name=f"{name}::{fid}", passed=False, code=1, blocking=True, stdout="", stderr=(
+                f"{_ACCEPTANCE_NOTE}: feature of the epic {req_id} not delivered ({len(problems)} of "
+                f"{max(len(features), len(planned))} left): {text}\nContinue feature by feature "
+                f"(runs/kit/{req_id}/docs/PROGRESS.md says where you stopped)."))
+                for fid, text in problems.items()]
+        return [EvalCase(name=name, passed=True, code=0, blocking=True, stderr="",
+                         stdout=f"{len(features)} feature(s) of the epic {req_id}: done with their checks.")]
 
     def _acceptance_coverage_cases(self, req_id: str, ltc: Dict[str, Any]) -> List[EvalCase]:
         """``acceptance::coverage``: the KIT's own account of its acceptance criteria

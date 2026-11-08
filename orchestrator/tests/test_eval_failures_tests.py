@@ -290,3 +290,51 @@ class WorkspaceLockTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EpicFeaturesTests(unittest.TestCase):
+    """C3: an epic is done when every feature of FEATURES.json is done with its blocking checks."""
+
+    LTC = {"checks": [{"id": "unit", "command": "true"}, {"id": "lint", "command": "true", "blocking": False}]}
+
+    def _case(self, tmp, features=None, profile="C3"):
+        import json
+        root = Path(tmp)
+        (root / "docs" / "harper").mkdir(parents=True)
+        (root / "docs" / "harper" / "plan.json").write_text(json.dumps({"reqs": [{"id": "REQ-004", "status": "open", "profile": profile,
+            "features": [{"id": "F01", "title": "sign in"}, {"id": "F02", "title": "reset"}]}]}))
+        docs = root / "runs" / "kit" / "REQ-004" / "docs"
+        docs.mkdir(parents=True)
+        if features is not None:
+            (docs / "FEATURES.json").write_text(json.dumps({"epic": "REQ-004", "features": features}))
+        cases = EvalRunner(root)._epic_features_cases("REQ-004", self.LTC)
+        if not cases:
+            return None
+        if len(cases) == 1:
+            return cases[0]
+        from eval_runner import EvalCase
+        return EvalCase(name="all", passed=all(c.passed for c in cases), code=1, blocking=True, stdout="",
+                        stderr="\n".join(f"{c.name} {c.stderr}" for c in cases))
+
+    def test_every_feature_done_with_a_blocking_check(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            case = self._case(tmp, [{"id": "F01", "status": "done", "checks": ["unit"]}, {"id": "F02", "status": "done", "checks": ["unit"]}])
+            self.assertTrue(case.passed, case.stderr)
+
+    def test_missing_todo_or_unproven_features_block(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            case = self._case(tmp, [{"id": "F01", "status": "done", "checks": ["lint"]}, {"id": "F03", "status": "todo", "title": "extra"}])
+            self.assertFalse(case.passed)
+            self.assertIn("F02: planned, not in FEATURES.json", case.stderr)
+            self.assertIn("F01: done, but names no blocking check", case.stderr)
+            self.assertIn("F03: todo", case.stderr)
+            self.assertIn("acceptance::features::F02", case.stderr)  # one case per feature left
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIn("has no docs/FEATURES.json", self._case(tmp).stderr)
+
+    def test_not_an_epic_is_not_checked(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(self._case(tmp, profile="C2"))
