@@ -3342,8 +3342,12 @@ class EvalRunner:
         def note(name: str, message: str) -> None:
             cases.append(EvalCase(name=name, passed=True, code=0, stdout=message, stderr="", blocking=False))
 
-        pending = [s for s in specs if not str(env.get(s.name, "")).strip()]
         admin = str(env.get(eval_environment.ADMIN_URL_VAR, "")).strip()
+        # a disposable database is the project's own: a value of the same name in the sandbox
+        # environment (set for another project) never stands in for it while a database can be created
+        shadowed = [s.name for s in specs if s.effective_provision() == "postgres_database" and admin
+                    and str(env.get(s.name, "")).strip()]
+        pending = [s for s in specs if not str(env.get(s.name, "")).strip() or s.name in shadowed]
         # 1. generated values that need nothing else, then databases
         for spec in list(pending):
             kind = spec.effective_provision()
@@ -3355,12 +3359,16 @@ class EvalRunner:
                 else:
                     continue
             except Exception as exc:  # database server unreachable, bad URL...
-                fail(f"env::provision::{spec.name}", f"cannot provision {spec.name} ({kind}): {exc}")
                 pending.remove(spec)
+                if spec.name in shadowed:  # as before: the sandbox environment value
+                    note(f"env::provision::{spec.name}", f"database not created ({exc}); the sandbox environment value is used")
+                    continue
+                fail(f"env::provision::{spec.name}", f"cannot provision {spec.name} ({kind}): {exc}")
                 continue
             values[spec.name] = provided[spec.name] = value
             pending.remove(spec)
-            note(f"env::provision::{spec.name}", f"{kind} provisioned" + (f": database {value.rsplit('/', 1)[-1]}" if kind == "postgres_database" else ""))
+            note(f"env::provision::{spec.name}", f"{kind} provisioned" + (f": database {value.rsplit('/', 1)[-1]}" if kind == "postgres_database" else "")
+                 + (" (the sandbox environment value of this name is not used: it is not this project's database)" if spec.name in shadowed else ""))
 
         def resolve_templates() -> None:
             for spec in list(pending):
