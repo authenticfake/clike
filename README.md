@@ -280,7 +280,7 @@ Open research questions the project works on:
 | Overview and reading order | [CLike at a glance](docs/clike-at-a-glance.md), [docs/README.md](docs/README.md) |
 | The chat UI (cockpit, run card) | [docs/chat-ui.md](docs/chat-ui.md) |
 | Getting operational | [Bringing an existing project into CLike](docs/adopt.md), [HOWTO](docs/HOWTO.md), [Harper run walkthrough](docs/Clike%20HARPER%20RUN.md), [project via MCP](docs/howto-mcp-project.md), [/init → /finalize with BMAD from Claude Code](docs/howto-mcp-bmad-claude.md) |
-| Concepts | [architecture](docs/architecture.md), [Harper workflow](docs/harper-workflow.md), [agent operating model](docs/agent-operating-model.md), [artifacts](docs/artifacts.md), [quality and granularity](docs/quality-and-granularity.md) |
+| Concepts | [architecture](docs/architecture.md), [Harper workflow](docs/harper-workflow.md), [agent operating model](docs/agent-operating-model.md), [artifacts](docs/artifacts.md), [quality and granularity](docs/quality-and-granularity.md), [estimating with CLike](docs/estimation-example.md) |
 | Reference | [commands](docs/commands.md), [API](docs/api-reference.md), [MCP](docs/mcp.md), [capabilities](docs/CAPABILITIES.md) |
 | Operations | [setup and runtime](docs/setup-and-runtime.md), [Git and promotion](docs/git-and-promotion.md), [telemetry portal](docs/CLike_Harper_Telemetry_Portal.md) |
 | Development | [developer guide](docs/development.md), [CHANGELOG](CHANGELOG.md), [SECURITY](SECURITY.md) |

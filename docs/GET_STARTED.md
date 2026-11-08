@@ -144,7 +144,7 @@ are small IDEAs to start with.
 | **CLike: Sync agent skills**, `clike.agentSkills.autoSync` (on) | the project's skills as native skills of the local agents, CLike rules in the agent instruction files, eval guard hook |
 | `clike.localAgent.resumeRepairs` (on) | an auto-eval repair resumes the agent session that wrote the KIT |
 
-Details: [auto-eval](auto-eval.md) · [commands](commands.md) · [local agents](local-agents.md) · [quality and granularity](quality-and-granularity.md).
+Details: [auto-eval](auto-eval.md) · [commands](commands.md) · [local agents](local-agents.md) · [quality and granularity](quality-and-granularity.md) · [estimating with CLike](estimation-example.md).
 
 ## 5. CLike from Claude Code or Codex
 

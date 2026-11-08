@@ -92,6 +92,11 @@ already knows the code it wrote and its context is warm.
 Every Harper call records its REQ and duration; the telemetry portal (`/harper/aggregate`) returns
 `per_req` with calls, cost, tokens, time and phases.
 
+## 6. Estimating
+
+A worked enterprise example — classic work breakdown and staffing against the same scenario planned
+with CLike, on measured pilots — is in [estimating with CLike](estimation-example.md).
+
 ## Settings
 
 | Setting / command | Default | Effect |
