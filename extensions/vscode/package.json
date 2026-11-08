@@ -414,6 +414,11 @@
           "default": true,
           "description": "Before a local agent runs a Harper phase, install the project's CLike skills (.clike/skills) as native skills of Claude Code (.claude/skills) and Codex (.agents/skills), keep the CLike block of CLAUDE.md and AGENTS.md current, and add the eval guard hook. Skills and files CLike does not manage are never touched."
         },
+        "clike.localAgent.resumeRepairs": {
+          "type": "boolean",
+          "default": true,
+          "description": "An auto-eval repair of a REQ resumes (forked) the local agent session that wrote its KIT — Claude Code --resume/--fork-session, Codex exec resume — instead of starting cold: the agent already knows the code, the context and the prompt cache are warm. Sessions older than 24 hours, of another executor or REQ are not used."
+        },
         "clike.plan.capacityProfile": {
           "type": "string",
           "enum": ["auto", "C1", "C2", "C3"],

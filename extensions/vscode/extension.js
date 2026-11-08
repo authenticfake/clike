@@ -17,6 +17,8 @@ const { validateLocalMcpRequest } = require('./mcp-request-guard');
 const extensionMcp = require('./extension-mcp');
 const autopilot = require('./autopilot');
 const { syncAgentSkills, lockedRootsEnv } = require('./agent-skills');
+const { extractSessionId, sessionToResume, rememberSession, resumeArgs } = require('./agent-sessions');
+const KIT_SESSIONS_KEY = 'clike.kitAgentSessions';
 const { projectUseCaseCoverage, useCaseCoverageMessage, projectScenarioCoverage, scenarioCoverageMessage } = require('./use-case-coverage');
 const planReadiness = require('./plan-readiness');
 const { saveRejectedTestFix, rejectedTestFixMessage, applyLatestTestFix, revertAppliedTestFix } = require('./rejected-test-fix');
@@ -1276,6 +1278,16 @@ async function executeLocalAgentPackage({
     });
   }
 
+  // an auto-eval repair resumes the agent session of the REQ's KIT (forked): warm context and cache
+  const kitStage = String(localAgentPackage.kit_stage || '');
+  if (phaseForAgent === 'kit' && (kitStage === 'repair' || localAgentPackage.repair === true) && vscode.workspace.getConfiguration('clike').get('localAgent.resumeRepairs', true)) {
+    const sessionId = sessionToResume(clikeExtensionContext?.workspaceState.get(KIT_SESSIONS_KEY) || {}, reqForAgent, selectedExecutor);
+    if (sessionId) {
+      launcherArgs = resumeArgs(selectedExecutor, launcherArgs, sessionId);
+      log(`[harperRun][agent] repair of ${reqForAgent} resumes the KIT session ${sessionId}`);
+      panel.webview.postMessage({ type: 'echo', message: `♻ ${executorLabel} repairs ${reqForAgent} in the session that wrote its KIT (it already knows the code).` });
+    }
+  }
   // the project's CLike skills stay installed and current as native skills of the agent
   if (vscode.workspace.getConfiguration('clike').get('agentSkills.autoSync', true)) {
     try {
@@ -1339,6 +1351,18 @@ async function executeLocalAgentPackage({
     if (evalCheckBridge) {
       log(`[evalCheck] agent used ${evalCheckBridge.runs} eval-check run(s)`);
       evalCheckBridge.stop();
+    }
+  }
+  // the KIT session of this REQ, for the repairs that follow (generate, acceptance and repair runs)
+  if (phaseForAgent === 'kit' && reqForAgent && clikeExtensionContext) {
+    try {
+      const sessionId = extractSessionId(selectedExecutor, agentResult.stdout);
+      if (sessionId) {
+        const store = rememberSession(clikeExtensionContext.workspaceState.get(KIT_SESSIONS_KEY) || {}, reqForAgent, selectedExecutor, sessionId);
+        await clikeExtensionContext.workspaceState.update(KIT_SESSIONS_KEY, store);
+      }
+    } catch (e) {
+      log(`[harperRun][agent] KIT session not recorded: ${e?.message || e}`);
     }
   }
   // a stream-json run: from here on its stdout is the result envelope, as before the stream
