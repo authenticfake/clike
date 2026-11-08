@@ -473,13 +473,31 @@ def _drop_option(line: str, option: str) -> str:
     return re.sub(r",\s*\{\s*\}\s*\)", ")", line)
 
 
+# Playwright: an ambiguous locator ("strict mode violation: getByText('X') resolved to 2 elements")
+# in this test file: the correction the eval proves is `.first()` on that locator, nothing else.
+_STRICT_MODE_RE = re.compile(r"strict mode violation: (?P<locator>(?:page\.)?getBy\w+\((?:[^()]|\([^()]*\))*\)) resolved to \d+ elements")
+
+
+def _strict_mode_locators(evidence: str, path: Path) -> set:
+    if path.name not in (evidence or ""):
+        return set()
+    return {m.group("locator").replace("page.", "", 1) for m in _STRICT_MODE_RE.finditer(evidence)}
+
+
 def _js_corrected(before: str, evidence: str, path: Path) -> Optional[str]:
     """The locked JS/TS test with the API corrections the eval proves (unknown options removed from
-    the reported lines, literal patterns passed as regex literals), or None when there are none."""
+    the reported lines, literal patterns passed as regex literals, `.first()` on a locator Playwright
+    reports ambiguous), or None when there are none."""
     options = _unknown_options(evidence, path)
     patterns = _literal_patterns(evidence, path)
-    if not options and not patterns:
+    strict = _strict_mode_locators(evidence, path)
+    if not options and not patterns and not strict:
         return None
+    if strict and not options and not patterns:
+        text = before
+        for locator in strict:
+            text = re.sub(re.escape(locator) + r"(?!\.first\(\))", locator + ".first()", text)
+        return text if text != before else None
     literal = re.compile(rf"\.({_PATTERN_MATCHERS})\(\s*(['\"])((?:\\.|(?!\2).)*)\2\s*\)")
 
     def as_regex(match):

@@ -4,6 +4,10 @@
       "gen": {
         "api": "responses",
         "max_tokens": 48000,
+        "output_config": {
+          "effort": "high"
+        },
+        "reasoning_effort": "high",
         "stop": "`PLAN_END`",
         "temperature": 0.1
       },
