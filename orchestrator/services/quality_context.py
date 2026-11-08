@@ -49,6 +49,38 @@ CAPACITY_PROFILES: Dict[str, Dict[str, str]] = {
 }
 
 
+KIT_DEFAULT_OUTPUT = 48000
+
+
+def kit_model_budget(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """The cloud KIT model and its output budget per call, as the gateway computes it (routing `kit`
+    of configs/models.yaml unless the run names a model; up to the model's max_output_tokens within
+    CLIKE_KIT_MAX_OUTPUT_TOKENS, default 64000; 48000 when undeclared)."""
+    import os
+
+    try:
+        from services.llm_contracts import _load_yaml_catalog
+
+        catalog = _load_yaml_catalog()
+    except Exception:
+        catalog = {}
+    models = {str(m.get("id")): m for m in catalog.get("models") or [] if isinstance(m, dict)}
+    chosen = str(payload.get("kitModel") or "").strip()
+    if not chosen:
+        route = (catalog.get("routing") or {}).get("kit")
+        chosen = str(((catalog.get("profiles") or {}).get(route) or {}).get("model") or route or "")
+    entry = models.get(chosen) or next((m for m in models.values() if chosen and chosen in {m.get("name"), m.get("remote_name")}), {})
+    try:
+        ceiling = int(os.getenv("CLIKE_KIT_MAX_OUTPUT_TOKENS", "") or 64000)
+    except ValueError:
+        ceiling = 64000
+    declared = int(entry.get("max_output_tokens") or 0) if isinstance(entry, dict) else 0
+    tokens = KIT_DEFAULT_OUTPUT if declared <= 0 else (max(KIT_DEFAULT_OUTPUT, min(declared, ceiling)) if declared >= KIT_DEFAULT_OUTPUT else declared)
+    lines = max(1000, int(round(tokens / 16 / 500.0)) * 500)  # source + tests + KIT docs in one answer
+    criteria = "6–8" if tokens <= 48000 else "8–10" if tokens <= 64000 else "10–14"
+    return {"model": chosen or "the cloud KIT model", "tokens": tokens, "lines": lines, "criteria": criteria}
+
+
 def resolve_capacity_profile(payload: Dict[str, Any], execution_mode: str) -> str:
     """The explicit profile of the run (`capacityProfile`: C1|C2|C3), else C2 for a local agent and
     C1 for the cloud."""
@@ -135,8 +167,16 @@ def _catalog_lines(catalog: List[Dict[str, Any]], with_ears: bool) -> List[str]:
     return lines
 
 
-def _profile_lines(profile: str) -> List[str]:
-    p = CAPACITY_PROFILES[profile]
+def _profile_lines(profile: str, payload: Optional[Dict[str, Any]] = None) -> List[str]:
+    p = dict(CAPACITY_PROFILES[profile])
+    if profile == "C1":
+        budget = kit_model_budget(payload or {})
+        p["executor"] = (f"cloud, one generation call per REQ to {budget['model']} "
+                         f"(up to {budget['tokens']} output tokens, deep reasoning)")
+        p["criteria"] = f"{budget['criteria']} acceptance criteria"
+        p["size"] = f"about {budget['lines']} lines of source and tests (the whole KIT fits one answer)"
+    elif payload and str(payload.get("localAgentExecutor") or "") not in {"", "auto"}:
+        p["executor"] = f"coding agent ({payload['localAgentExecutor']}: multi-turn, runs its own checks)"
     lines = [
         f"### REQ capacity profile: {profile} — {p['executor']}",
         f"- Unit of work: {p['unit']}.",
@@ -184,8 +224,8 @@ def _spec_block(catalog: List[Dict[str, Any]]) -> str:
     return "\n".join(lines).rstrip()
 
 
-def _plan_block(catalog: List[Dict[str, Any]], profile: str) -> str:
-    lines = ["## CLIKE QUALITY CONTEXT — capacity profile, seams and scenarios", "", *_profile_lines(profile), "", *SEAM_RULES, ""]
+def _plan_block(catalog: List[Dict[str, Any]], profile: str, payload: Optional[Dict[str, Any]] = None) -> str:
+    lines = ["## CLIKE QUALITY CONTEXT — capacity profile, seams and scenarios", "", *_profile_lines(profile, payload), "", *SEAM_RULES, ""]
     if catalog:
         lines += [
             "### Scenarios",
@@ -250,7 +290,7 @@ def build_quality_context(
     if lphase == "spec" and catalog:
         text = _spec_block(catalog)
     elif lphase in {"plan", "extend"}:
-        text = _plan_block(catalog, profile)
+        text = _plan_block(catalog, profile, payload)
     elif lphase in {"kit", "acceptance", "eval"} and req_id:
         req = _plan_req(core_blobs, workspace_root, req_id)
         scenarios = req_scenarios(req)

@@ -240,6 +240,8 @@ def _normalize_model_id_for_anthropic(model: str, base_url: str = "", api_key: s
 # Models that reject non-default sampling parameters (temperature/top_p/top_k -> 400):
 # Opus 4.7/4.8/5.x, Sonnet 5.x, Fable, Mythos.
 _NO_SAMPLING_RE = re.compile(r"^claude-(opus-(4-[78]|5)|sonnet-5|fable|mythos)")
+# Models that take output_config.effort (Opus/Sonnet 4.6 and later, Fable, Mythos, Haiku 5.5).
+_EFFORT_RE = re.compile(r"^claude-(opus-(4-[678]|5)|sonnet-(4-6|5)|fable|mythos|haiku-5)")
 # Models that reject forced tool use (tool_choice any/tool -> 400).
 _NO_FORCED_TOOL_RE = re.compile(r"^claude-(opus-5-5|sonnet-5-5|fable-5-1|mythos-5-1)")
 # Long system prompts are marked cacheable (shorter prefixes are simply not cached).
@@ -249,7 +251,7 @@ _CACHE_SYSTEM_MIN_CHARS = 4000
 _MESSAGES_ALLOWED = {
     "model","messages","system","metadata","stop_sequences",
     "max_tokens","max_output_tokens","temperature","top_p","top_k",
-    "stream","tools","tool_choice","attachments",
+    "stream","tools","tool_choice","attachments","output_config",
     "thinking","betas","cache_control",
 }
 
@@ -357,6 +359,9 @@ def _build_messages_payload(
         out["tool_choice"] = choice
     if isinstance(gen.get("thinking"), dict):
         out["thinking"] = gen["thinking"]
+    # effort (thinking depth, GA): models from Opus/Sonnet 4.6 on; the older ones reject it
+    if isinstance(gen.get("output_config"), dict) and _EFFORT_RE.match(model or ""):
+        out["output_config"] = gen["output_config"]
     if gen.get("attachments"):
         out["attachments"] = gen["attachments"]
     if gen.get("cache_control"):
@@ -698,6 +703,7 @@ async def chat(
         "attachments": kwargs.get("attachments"),
         "cache_control": kwargs.get("cache_control"),
         "betas": kwargs.get("betas"),
+        "output_config": kwargs.get("output_config"),
     }
     gen = {k: v for k, v in gen.items() if v is not None}
 

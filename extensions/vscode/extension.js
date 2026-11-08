@@ -163,6 +163,7 @@ const {
   resolveLocalAgentTimeoutMinutes,
   timeoutSettingKey,
   buildLocalAgentModelArgs,
+  buildLocalAgentEffortArgs,
   parseLocalAgentRun,
   normalizeAgentStdout,
   withMachineReadableOutput,
@@ -1318,6 +1319,8 @@ async function executeLocalAgentPackage({
       argsBeforePrompt: withIsolatedMcp(selectedExecutor, withMachineReadableOutput(selectedExecutor, [
         ...launcherArgs,
         ...(launcherArgs.includes('--model') ? [] : buildLocalAgentModelArgs(selectedExecutor, executorConfig)),
+        // the reasoning depth of a Harper phase (Codex high by default; Claude Code its own default)
+        ...buildLocalAgentEffortArgs(selectedExecutor, executorConfig, launcherArgs),
       ])),
       promptTransport,
       // the time spent waiting for eval checks in the sandbox does not eat the agent's own budget
@@ -2247,6 +2250,7 @@ function cfg() {
     claudeCodeEnableEval: c.get('claudeCode.enableEval', false),
     claudeCodeCommand: c.get('claudeCode.command', 'claude'),
     claudeCodeModel: c.get('claudeCode.model', 'opus'),
+    claudeCodeEffort: c.get('claudeCode.effort', ''),
     claudeCodePermissionMode: c.get('claudeCode.permissionMode', 'acceptEdits'),
     claudeCodePrintModeFlag: c.get('claudeCode.printModeFlag', '-p'),
     // executor-specific timeouts apply only when set; otherwise localAgent.timeoutMinutes
@@ -2255,6 +2259,7 @@ function cfg() {
     codexEnabled: c.get('localAgent.codex.enabled', true),
     codexCommand: c.get('localAgent.codex.command', 'codex'),
     codexModel: c.get('localAgent.codex.model', 'gpt-5.5'),
+    codexReasoningEffort: c.get('localAgent.codex.reasoningEffort', 'high'),
     codexSandboxMode: c.get('localAgent.codex.sandboxMode', 'auto'),
     codexTimeoutMinutes: explicitSetting(c, 'localAgent.codex.timeoutMinutes'),
 

@@ -497,6 +497,18 @@
           "default": "gpt-5.5",
           "description": "Model passed to Codex on every local run (--model). Codex exposes no model-list command, so set the exact model id your Codex login supports; an invalid id makes the run fail. Leave empty to use the Codex CLI default."
         },
+        "clike.localAgent.codex.reasoningEffort": {
+          "type": "string",
+          "enum": ["", "low", "medium", "high", "xhigh"],
+          "default": "high",
+          "description": "Reasoning effort of Codex on Harper phases (-c model_reasoning_effort): high by default, since a KIT and its repairs must pass locked tests. Empty = the Codex CLI default."
+        },
+        "clike.claudeCode.effort": {
+          "type": "string",
+          "enum": ["", "low", "medium", "high", "xhigh", "max"],
+          "default": "",
+          "description": "Effort of Claude Code on Harper phases (--effort). Empty = the Claude Code default (already a deep effort for coding)."
+        },
         "clike.localAgent.codex.sandboxMode": {
           "type": "string",
           "default": "auto",
