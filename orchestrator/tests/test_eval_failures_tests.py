@@ -215,7 +215,7 @@ class ScenarioCoverageTests(unittest.TestCase):
     LTC = {"checks": [{"id": "unit", "command": "true"}, {"id": "e2e", "command": "true"},
                       {"id": "lint", "command": "true", "blocking": False}]}
 
-    def _case(self, tmp, acceptance=None, scenarios=("IAM-03", "IAM-05")):
+    def _case(self, tmp, acceptance=None, scenarios=("IAM-03", "IAM-05"), tests="def test_iam_03(): ...\n# IAM-05 reset link expires\n"):
         import json
         root = Path(tmp)
         (root / "docs" / "harper").mkdir(parents=True)
@@ -225,6 +225,9 @@ class ScenarioCoverageTests(unittest.TestCase):
         docs.mkdir(parents=True)
         if acceptance is not None:
             (docs / "ACCEPTANCE.json").write_text(json.dumps({"criteria": acceptance}))
+        if tests:
+            (root / "runs" / "kit" / "REQ-002" / "test").mkdir(parents=True)
+            (root / "runs" / "kit" / "REQ-002" / "test" / "test_login.py").write_text(tests)
         cases = EvalRunner(root)._acceptance_coverage_cases("REQ-002", self.LTC)
         return cases[0] if cases else None
 
@@ -247,6 +250,19 @@ class ScenarioCoverageTests(unittest.TestCase):
                 {"id": "IAM-03", "status": "done", "checks": ["e2e"]}])
             self.assertTrue(case.passed, case.stderr)
             self.assertIn("3 acceptance criteria", case.stdout)
+
+    def test_a_scenario_no_test_names_blocks(self):
+        import tempfile
+        done = [{"id": "A01", "status": "done", "checks": ["unit"], "scenarios": ["IAM-05"]},
+                {"id": "IAM-03", "status": "done", "checks": ["e2e"]}]
+        with tempfile.TemporaryDirectory() as tmp:
+            case = self._case(tmp, acceptance=done, tests="def test_login(): ...\n")
+            self.assertFalse(case.passed)
+            self.assertIn("IAM-03: no test of the KIT names it", case.stderr)
+            self.assertIn("IAM-05: no test of the KIT names it", case.stderr)
+        with tempfile.TemporaryDirectory() as tmp:  # name, underscore or compact forms all count
+            case = self._case(tmp, acceptance=done, tests="it('IAM03 shows the generic message')\ndef test_iam_05(): ...\n")
+            self.assertTrue(case.passed, case.stderr)
 
     def test_scenarios_without_acceptance_file_block(self):
         import tempfile

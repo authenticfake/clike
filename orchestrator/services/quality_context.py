@@ -211,6 +211,8 @@ def _kit_block(catalog: List[Dict[str, Any]], req: Optional[Dict[str, Any]], req
             "- Prove the rule, not only the status: assert the message/state the user or the caller sees (the error"
             " text shown in the UI, the error body of the API, the safe state of the device).",
             "- Never happy-path only: each error, empty, denied, expired or limit case of the scenario has its own test.",
+            "- Tag the test that proves a scenario with its id (test name, docstring or comment, e.g."
+            " `test_iam_03_wrong_credentials_shows_generic_message`): the eval looks for the id in the KIT's tests.",
             "",
         ]
         for sid in owned:

@@ -4318,6 +4318,24 @@ class EvalRunner:
                 problems.append(f"{cid}: {status}{f' — {note[:240]}' if note else ''}")
             else:
                 problems.append(f"{cid}: unknown status {status or '(none)'} (done | partial | missing | developer_evidence)")
+        # a scenario is proved by a test that names it (test name, docstring or comment): the claim in
+        # ACCEPTANCE.json alone is not enough (language-agnostic: any file under the KIT's tests)
+        if scenarios:
+            texts = []
+            for folder in ("test", "tests"):
+                base = kit / folder
+                for test_file in (base.rglob("*") if base.is_dir() else []):
+                    if test_file.is_file() and test_file.stat().st_size <= 2_000_000:
+                        try:
+                            texts.append(test_file.read_text(encoding="utf-8", errors="ignore"))
+                        except OSError:
+                            continue
+            corpus = "\n".join(texts).upper()
+            variants = lambda sid: (sid, sid.replace("-", "_"), sid.replace("-", ""))  # noqa: E731
+            for sid in scenarios:
+                if not any(v in corpus for v in variants(sid)):
+                    problems.append(f"{sid}: no test of the KIT names it — tag the test that proves it with {sid} "
+                                    f"(test name, docstring or comment)")
         if incomplete and not problems:
             problems.append("ACCEPTANCE.json says every criterion is done, but SELF_REVIEW.md says otherwise:\n" +
                             "\n".join(f"    {line}" for line in incomplete))

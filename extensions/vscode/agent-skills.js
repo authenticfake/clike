@@ -157,7 +157,7 @@ function instructionsBlock(skills) {
     '',
     '- Work inside the paths the phase allows; canonical `src/` and `test/` change only through promotion.',
     '- During /eval the acceptance surface is locked: never edit `runs/kit/<REQ>/test/` or `runs/kit/<REQ>/ci/` (only `ci/HOWTO.md` may be corrected); repair the source.',
-    '- Never stop at the happy path: every journey scenario the plan gives a REQ (`reqs[].scenarios`) is implemented and proved by a blocking check listed in `docs/ACCEPTANCE.json`.',
+    '- Never stop at the happy path: every journey scenario the plan gives a REQ (`reqs[].scenarios`) is implemented and proved by a blocking check listed in `docs/ACCEPTANCE.json`, and the test that proves it carries the scenario id (e.g. `test_iam_03_…`).',
     '- Assert what the user or the caller sees: the error message shown in the UI, the API error body, the safe state of the device — not only a status code.',
     '- Done means checked: run the checks you touched and report the commands and their results before saying a REQ, a feature or a fix is done.',
     '- Keep shared composition files (entrypoint, router wiring, migration heads) stable: add files and register them through the project seams.',
