@@ -4252,7 +4252,9 @@ class EvalRunner:
         ids = []
         for index, text in enumerate(acceptance, start=1):
             m = re.match(r"\s*(REQ-[\w-]+?-A\d+)\b", text) or re.match(r"\s*(A\d+)\b", text)
-            ids.append(m.group(1) if m else f"A{index:02d}")
+            # a bullet that states a journey scenario (`IAM-03: If …`) is that scenario, not one more A-number
+            sm = None if m else re.match(r"\s*(?!REQ-)([A-Z]{2,6}-\d{2,3})\s*:", text)
+            ids.append(m.group(1) if m else sm.group(1) if sm else f"A{index:02d}")
         for sid in scenarios:
             if sid not in ids:
                 ids.append(sid)

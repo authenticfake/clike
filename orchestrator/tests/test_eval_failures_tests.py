@@ -271,6 +271,24 @@ class ScenarioCoverageTests(unittest.TestCase):
             self.assertFalse(case.passed)
             self.assertIn("owns journey scenarios (IAM-03, IAM-05)", case.stderr)
 
+    def test_a_bullet_stating_a_scenario_is_that_scenario_not_a_new_criterion(self):
+        import json
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "docs" / "harper").mkdir(parents=True)
+            (root / "docs" / "harper" / "plan.json").write_text(json.dumps({"reqs": [{"id": "REQ-002", "status": "open",
+                "acceptance": ["A01: a verified user signs in", "IAM-03: If the password is wrong, then …"], "scenarios": ["IAM-03"]}]}))
+            kit = root / "runs" / "kit" / "REQ-002"
+            (kit / "docs").mkdir(parents=True)
+            (kit / "test").mkdir(parents=True)
+            (kit / "test" / "test_login.py").write_text("def test_iam_03(): ...\n")
+            (kit / "docs" / "ACCEPTANCE.json").write_text(json.dumps({"criteria": [
+                {"id": "A01", "status": "done", "checks": ["unit"]}, {"id": "IAM-03", "status": "done", "checks": ["e2e"]}]}))
+            case = EvalRunner(root)._acceptance_coverage_cases("REQ-002", self.LTC)[0]
+            self.assertTrue(case.passed, case.stderr)
+            self.assertIn("2 acceptance criteria", case.stdout)  # not A02 and IAM-03 twice
+
     def test_a_req_without_scenarios_keeps_the_previous_behaviour(self):
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
