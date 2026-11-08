@@ -31,9 +31,22 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   forked, the local-agent session that wrote the REQ's KIT.
 - **Telemetry per REQ**: every Harper call records its REQ and duration; the portal sums calls,
   cost, tokens and time per REQ.
+- **KITs sized on the model**: the cloud KIT asks the model's own output budget (within
+  `CLIKE_KIT_MAX_OUTPUT_TOKENS`, default 64000) at a deeper reasoning effort (`CLIKE_KIT_EFFORT`,
+  default high); the C1 profile names the KIT model, its budget and what fits one answer; local agents
+  run Harper phases at a set effort (`clike.localAgent.codex.reasoningEffort`, `clike.claudeCode.effort`).
+- **Epics delivered end to end and stronger eval guards from the pilots**: a KIT never replaces a
+  promoted shared file with a much shorter one or drops its dependencies; the regression of promoted
+  REQs runs with the candidate's dependencies; a shared test conftest reading the KIT's files is
+  diagnosed (and may be fixed by the repair); acceptance bookkeeping accepts done synonyms and lists
+  the checks a criterion can name.
+- **[Estimating with CLike](docs/estimation-example.md)**: a worked enterprise estimate, classic vs CLike.
 
 ### Fixed
 
+- A disposable eval database is the project's own (a sandbox variable of another project no longer
+  stands in for it), with the driver its value named; the capacity profile chosen in the extension
+  reaches the orchestrator; extension.js loads again (a test now parses every module).
 - Selected skills reach the KIT whole: the enforcement layer several skills share is said once (it
   pushed seven skills past the preview cap and cut their test sections); the cloud KIT no longer
   repeats the selected capability context in the user message.

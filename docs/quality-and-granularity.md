@@ -105,3 +105,6 @@ with CLike, on measured pilots — is in [estimating with CLike](estimation-exam
 | `clike.agentSkills.autoSync` | on | skills, rules and guard hook kept current before each local-agent run |
 | **CLike: Sync agent skills** | — | install the skills for the local agents now |
 | `clike.localAgent.resumeRepairs` | on | a repair resumes the KIT's agent session |
+| `clike.localAgent.codex.reasoningEffort` | `high` | reasoning effort of one local agent on Harper phases |
+| `clike.claudeCode.effort` | CLI default | effort of the other local agent on Harper phases (`low`, `medium`, `high`, `xhigh`, `max`) |
+| `CLIKE_KIT_EFFORT` / `CLIKE_KIT_MAX_OUTPUT_TOKENS` (stack `.env`) | `high` / 64000 | reasoning effort and output budget of the cloud KIT and its repairs |

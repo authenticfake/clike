@@ -143,6 +143,7 @@ are small IDEAs to start with.
 | `clike.plan.capacityProfile` (`auto`) | REQ size by executor: C1 cloud single call, C2 agent vertical slice, C3 epic feature by feature |
 | **CLike: Sync agent skills**, `clike.agentSkills.autoSync` (on) | the project's skills as native skills of the local agents, CLike rules in the agent instruction files, eval guard hook |
 | `clike.localAgent.resumeRepairs` (on) | an auto-eval repair resumes the agent session that wrote the KIT |
+| `clike.localAgent.codex.reasoningEffort` (`high`), `clike.claudeCode.effort` (CLI default) | reasoning depth of the local agents on every Harper phase (`low` … `xhigh`, `max` for the second); empty = the agent CLI's default |
 
 Details: [auto-eval](auto-eval.md) · [commands](commands.md) · [local agents](local-agents.md) · [quality and granularity](quality-and-granularity.md) · [estimating with CLike](estimation-example.md).
 
