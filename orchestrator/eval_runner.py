@@ -3355,6 +3355,10 @@ class EvalRunner:
                 if kind in {"token", "uuid", "timestamp"}:
                     value = eval_environment.generate(spec, values)
                 elif kind == "postgres_database" and admin:
+                    if spec.name in shadowed and not spec.options.get("scheme") and "://" in str(env.get(spec.name)):
+                        # the project's own database, reached with the driver the sandbox value names
+                        # (postgresql+psycopg): the code under test was configured for it
+                        spec.options["scheme"] = str(env.get(spec.name)).split("://", 1)[0]
                     value = eval_environment.provision_postgres(spec, admin, project_key, req)
                 else:
                     continue

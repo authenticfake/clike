@@ -168,12 +168,13 @@ def test_a_disposable_database_is_the_projects_own_even_if_the_sandbox_has_one_o
     # (its database at a later migration): a project declaring the same disposable database got it
     monkeypatch.setenv("CLIKE_EVAL_BASE_DIR", str(tmp_path / "eval"))
     monkeypatch.setenv("CLIKE_EVAL_POSTGRES_URL", "postgresql://u@db:5432/postgres")
-    monkeypatch.setenv("APP_TEST_DATABASE_URL", "postgresql://u@db:5432/other_project_db")
+    monkeypatch.setenv("APP_TEST_DATABASE_URL", "postgresql+psycopg://u@db:5432/other_project_db")
     real = ee.provision_postgres
     monkeypatch.setattr(ee, "provision_postgres", lambda spec, admin, key, req, create=None: real(spec, admin, key, req, create=lambda a, d: None))
     project = tmp_path / "p"
     (project / "runs/kit/REQ-009/ci").mkdir(parents=True)
-    check = "import os; u = os.environ['APP_TEST_DATABASE_URL']; assert 'other_project_db' not in u and '/clike_p_req_009_' in u, u"
+    # the project's own database, with the driver the sandbox value named (pilot: psycopg2 is not installed)
+    check = "import os; u = os.environ['APP_TEST_DATABASE_URL']; assert 'other_project_db' not in u and '/clike_p_req_009_' in u and u.startswith('postgresql+psycopg://'), u"
     ltc = {
         "req_id": "REQ-009",
         "environment": {"required_variables": [{"name": "APP_TEST_DATABASE_URL", "provision": "postgres_database"}]},
