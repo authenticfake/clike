@@ -140,8 +140,11 @@ are small IDEAs to start with.
 | `clike.gate.autoPromote` (`merge`) | how `/gate` promotes: `merge` auto-merge + report, `ask` strategy list, `off`; `/gate REQ --auto-merge`, `--ask`, `--no-promote` for one run |
 | `clike.git.autoCommit` | commit every phase on `feature/req-<n>` — **User settings only** (CLike warns if it is in the project) |
 | `/agent-default`, `/agent-model`, `/agent-session` | choose the agent, its model, its session |
+| `clike.plan.capacityProfile` (`auto`) | REQ size by executor: C1 cloud single call, C2 agent vertical slice, C3 epic feature by feature |
+| **CLike: Sync agent skills**, `clike.agentSkills.autoSync` (on) | the project's skills as native skills of the local agents, CLike rules in the agent instruction files, eval guard hook |
+| `clike.localAgent.resumeRepairs` (on) | an auto-eval repair resumes the agent session that wrote the KIT |
 
-Details: [auto-eval](auto-eval.md) · [commands](commands.md) · [local agents](local-agents.md).
+Details: [auto-eval](auto-eval.md) · [commands](commands.md) · [local agents](local-agents.md) · [quality and granularity](quality-and-granularity.md).
 
 ## 5. CLike from Claude Code or Codex
 
