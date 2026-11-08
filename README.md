@@ -54,6 +54,8 @@ Models and agents execute.  Eval and Gate decide.
 
 **[CLike at a glance →](docs/clike-at-a-glance.md)** — the picture of the whole, area by area.
 
+**[Estimating with CLike →](docs/estimation-example.md)** — a worked enterprise estimate (five services on an event broker): classic work breakdown and staffing against the same scenario with CLike, on measured pilots — about 7–9× on effort and 8–12× on calendar, up to 10× on building and verifying well-specified requirements.
+
 **[The chat (UI) →](docs/chat-ui.md)** — what you see in VS Code: the chat, the cockpit (project, next action, REQs, methodology, last run), the run card and Stop.
 
 ## Status
