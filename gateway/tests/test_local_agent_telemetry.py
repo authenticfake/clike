@@ -40,7 +40,7 @@ class LocalAgentTelemetryTests(unittest.TestCase):
             "project_id": "pingboard", "run_id": "r1", "phase": "kit", "provider": "claude_code",
             "model": "claude-opus-5-5", "usage": {"input_tokens": 3, "output_tokens": 40, "note": "x"},
             "pricing": {"total_cost": 0.05, "unit": "usd_api_equivalent"}, "files_len": 7, "duration_ms": 1200,
-            "executor": "claude_code",
+            "executor": "claude_code", "req_id": "REQ-007",
         }
         self.assertEqual(self.client.post("/v1/harper/telemetry", json=body, headers=AUTH).json(), {"ok": True})
         rows = [json.loads(line) for line in (Path(self.tmp.name) / "pingboard.json").read_text().splitlines()]
@@ -48,6 +48,7 @@ class LocalAgentTelemetryTests(unittest.TestCase):
         row = rows[0]
         self.assertEqual((row["provider"], row["model"], row["execution"], row["phase"]), ("claude_code", "claude-opus-5-5", "local_agent", "kit"))
         self.assertEqual(row["usage"], {"input_tokens": 3, "output_tokens": 40})  # non-numeric dropped
+        self.assertEqual((row["req_id"], row["duration_ms"]), ("REQ-007", 1200))  # summed per REQ in the portal
         self.assertIsInstance(row["timestamp"], float)
 
         from routes.telemetry_api import _cost_from_row

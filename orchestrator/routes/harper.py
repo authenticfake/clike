@@ -634,6 +634,7 @@ async def _record_local_agent_telemetry(payload: dict, normalized: dict) -> None
         "files_len": len(normalized.get("files") or []),
         "duration_ms": telemetry.get("duration_ms"),
         "executor": telemetry.get("executor") or payload.get("localAgentExecutor"),
+        "req_id": str(payload.get("req_id") or "").strip() or None,
     }
     try:
         from services.harper import _post_json

@@ -1310,6 +1310,12 @@ def _telemetry_path(project_id: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
+def _telemetry_req_id(targets: Optional[List[str]] = None) -> Optional[str]:
+    """The REQ a Harper call works on (the /kit target, also for its repair cycles), so the
+    telemetry portal can sum time, tokens and cost per REQ."""
+    return str((targets or [None])[0] or "").strip() or None
+
+
 def _write_telemetry(project_id: str, record: dict) -> None:
     try:
         path = _telemetry_path(project_id)
@@ -1336,6 +1342,7 @@ class LocalAgentTelemetry(BaseModel):
     files_len: Optional[int] = None
     duration_ms: Optional[float] = None
     executor: Optional[str] = None
+    req_id: Optional[str] = None
 
 
 @router.post("/telemetry")
@@ -1352,6 +1359,7 @@ def record_local_agent_telemetry(item: LocalAgentTelemetry) -> Dict[str, Any]:
         "pricing": pricing,
         "files_len": item.files_len,
         "duration_ms": item.duration_ms,
+        "req_id": (item.req_id or "").strip() or None,
         "execution": "local_agent",
         "executor": item.executor or item.provider,
         "timestamp": time.time(),
@@ -1919,6 +1927,7 @@ async def run(req: HarperRunRequest,  request: Request):
     log.info("harper.run cmd=%s model=%s idea_md=%s core_blobs=%d",
              req.cmd, req.model, bool(req.idea_md), len(req.core_blobs or {}))
     phase = (req.phase or req.cmd or "").strip()
+    started = time.monotonic()
     default_params_reasoning =get_model_params(phase);
     resolved_entry = None
     if req.model:
@@ -2689,6 +2698,8 @@ async def run(req: HarperRunRequest,  request: Request):
             "project_name": project_id,
             "run_id": req.runId,
             "phase": phase,
+            "req_id": _telemetry_req_id(targets),
+            "duration_ms": round((time.monotonic() - started) * 1000),
             "error_code": "invalid_canonical_artifact",
             "rejected": rejected_canonical,
             "timestamp": telemetry["timestamp"],
@@ -2895,6 +2906,8 @@ async def run(req: HarperRunRequest,  request: Request):
         "project_name": project_id,
         "run_id": req.runId,
         "phase": phase,
+        "req_id": _telemetry_req_id(targets),
+        "duration_ms": round((time.monotonic() - started) * 1000),
         "model": model,
         "pricing": telemetry.get("pricing"),
         "files": telemetry.get("files"),

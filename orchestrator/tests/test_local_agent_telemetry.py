@@ -23,10 +23,11 @@ class LocalAgentTelemetryTests(unittest.TestCase):
 
     def test_forwarded_and_echoed(self):
         normalized = {"ok": True, "files": [{"path": "a"}, {"path": "b"}]}
-        post = self._record({"phase": "kit", "runId": "r1", "project_id": "pingboard", "telemetry": TELEMETRY}, normalized)
+        post = self._record({"phase": "kit", "runId": "r1", "project_id": "pingboard", "req_id": "REQ-003", "telemetry": TELEMETRY}, normalized)
         path, record = post.await_args.args
         self.assertEqual(path, "/v1/harper/telemetry")
         self.assertEqual((record["project_id"], record["phase"], record["provider"], record["files_len"]), ("pingboard", "kit", "claude_code", 2))
+        self.assertEqual(record["req_id"], "REQ-003")
         self.assertEqual(normalized["telemetry"], TELEMETRY)
         self.assertEqual(normalized["usage"], TELEMETRY["usage"])
 
