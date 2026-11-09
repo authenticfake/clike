@@ -4,6 +4,21 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.7.1] — 2026-11-09 — Proof that holds on the first repairs
+
+### Fixed
+
+- `acceptance::coverage`: a criterion id written short (`A01`) or with its REQ (`REQ-009-A01`) is
+  the same criterion — the plan numbers bullets one way and the KIT instructions showed the other,
+  so declared criteria were reported missing; another REQ's id never counts. The KIT text and
+  `eval-contract-writer` now show the id as the plan numbers it.
+- `eval-contract-writer` says what the eval reads: `cases[]`, or a project's `commands[]` /
+  `checks[]` read the same way; only fields outside them (`requires_external_infra`, `gate_policy`,
+  `pass_criteria`) are ignored.
+- The repair may fix a test-support file (a conftest, no test in it) that the regression lists among
+  the shared files a promoted REQ also delivers, as the eval's diagnosis asks; tests and assertions
+  stay identical. Before, the lock restored the fix and the regression came back.
+
 ## [1.7.0] — 2026-11-08 — Complete requirements, sized for the executor
 
 ### Added
