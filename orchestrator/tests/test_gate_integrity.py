@@ -606,3 +606,13 @@ class SharedSupportDiagnosedTests(unittest.TestCase):
         self.assertTrue(_shared_support_diagnosed(evidence, Path("/k/runs/kit/REQ-009/test/conftest.py")))
         self.assertFalse(_shared_support_diagnosed(evidence, Path("/k/runs/kit/REQ-009/test/test_conftest.py")))
         self.assertFalse(_shared_support_diagnosed("AssertionError", Path("/k/runs/kit/REQ-009/test/conftest.py")))
+
+    def test_a_shared_file_the_regression_lists_may_be_fixed(self):
+        """Pilot 1.7.0: REQ-003 delivers test/conftest.py too; the eval said keep its part, the repair
+        did, and the lock restored the candidate's version."""
+        from services.gate_integrity import _shared_support_diagnosed
+        evidence = ("regression::REQ-003::test:integration\n[CLike EvalRunner] Shared files changed: this candidate "
+                    "replaces files that REQ-003 also delivers.\n- src/pyproject.toml\n    @@ -25 +25 @@\n- test/conftest.py\n")
+        self.assertTrue(_shared_support_diagnosed(evidence, Path("/k/runs/kit/REQ-009/test/conftest.py")))
+        self.assertFalse(_shared_support_diagnosed(evidence, Path("/k/runs/kit/REQ-009/test/leadintel/conftest.py")))
+        self.assertFalse(_shared_support_diagnosed("- test/conftest.py\n", Path("/k/runs/kit/REQ-009/test/conftest.py")))
