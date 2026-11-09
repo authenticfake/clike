@@ -4437,6 +4437,15 @@ class EvalRunner:
                 if isinstance(e, dict):
                     for sid in req_scenarios({"scenarios": e.get("scenarios") or []}):
                         entries.setdefault(sid, e)
+            # `A01` and `REQ-009-A01` name the same criterion: the plan numbers bullets one way, the KIT
+            # instructions show the other (pilot 1.7.0: 15 criteria declared, all "not in ACCEPTANCE.json")
+            prefix = f"{str(req_id).upper()}-"
+            for key, e in list(entries.items()):
+                short = key.upper()[len(prefix):] if key.upper().startswith(prefix) else ""
+                if re.fullmatch(r"A\d+", short):
+                    entries.setdefault(short, e)
+                elif re.fullmatch(r"A\d+", key.upper()):
+                    entries.setdefault(prefix + key.upper(), e)
         except Exception as exc:
             return [EvalCase(name=name, passed=False, code=2, blocking=True, stdout="",
                              stderr=f"{_ACCEPTANCE_NOTE}: docs/ACCEPTANCE.json is not valid JSON with a criteria list: {exc}")]

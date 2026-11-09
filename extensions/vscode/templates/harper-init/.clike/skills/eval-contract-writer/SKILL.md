@@ -44,7 +44,7 @@ Documentation-only REQs with nothing to execute.
 criterion or scenario → test that asserts the visible outcome → blocking case of `ci/LTC.json` that
 runs it → entry in `docs/ACCEPTANCE.json` naming that case.
 
-- `docs/ACCEPTANCE.json`: `{"criteria": [{"id": "REQ-001-A01", "status": "done", "checks": ["unit-tests"], "scenarios": ["IAM-03"]}]}` —
+- `docs/ACCEPTANCE.json`: `{"criteria": [{"id": "A01", "status": "done", "checks": ["unit-tests"], "scenarios": ["IAM-03"]}]}` —
   status `done | partial | missing | developer_evidence`; `done` only when the named blocking cases
   verify it. Be truthful: a partial criterion sends the REQ back, a false `done` fails at eval.
 - Scenario id in the **test name or title**, one or two ids per test:
