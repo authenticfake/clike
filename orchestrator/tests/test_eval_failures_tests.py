@@ -148,6 +148,26 @@ class AcceptanceCoverageTests(unittest.TestCase):
         cases = EvalRunner(root)._acceptance_coverage_cases("REQ-038", self.LTC)
         return cases[0] if cases else None
 
+    def test_short_and_prefixed_criterion_ids_are_the_same_criterion(self):
+        """Pilot 1.7.0: the plan numbers bullets `A01: …`, the KIT wrote `REQ-009-A01` — and the reverse."""
+        import json, tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._project(tmp, acceptance=[
+                {"id": "A01", "status": "done", "checks": ["unit"]},
+                {"id": "a06", "status": "done", "checks": ["unit"]},
+                {"id": "REQ-038-A07", "status": "done", "checks": ["unit"]}])
+            self.assertTrue(self._case(root).passed, self._case(root).stderr)
+            plan = root / "docs" / "harper" / "plan.json"
+            plan.write_text(json.dumps({"reqs": [{"id": "REQ-038", "status": "in_progress",
+                                                  "acceptance": ["A01: preflight refuses fixtures", "A02: one probe per adapter"]}]}))
+            (root / "runs" / "kit" / "REQ-038" / "docs" / "ACCEPTANCE.json").write_text(json.dumps({"criteria": [
+                {"id": "REQ-038-A01", "status": "done", "checks": ["unit"]},
+                {"id": "REQ-038-A02", "status": "done", "checks": ["unit"]}]}))
+            self.assertTrue(self._case(root).passed, self._case(root).stderr)
+            (root / "runs" / "kit" / "REQ-038" / "docs" / "ACCEPTANCE.json").write_text(json.dumps({"criteria": [
+                {"id": "REQ-037-A01", "status": "done", "checks": ["unit"]}]}))  # another REQ's criterion is not this one
+            self.assertIn("A01: not in ACCEPTANCE.json", self._case(root).stderr)
+
     def test_a_partial_or_missing_criterion_blocks(self):
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:

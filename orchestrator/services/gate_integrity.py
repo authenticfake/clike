@@ -611,7 +611,13 @@ def _shared_support_diagnosed(evidence: str, path: Path) -> bool:
     2026-11-08: the agent fixed the shared conftest twice and the lock restored it twice."""
     if path.name.startswith("test_") or path.suffix != ".py":
         return False
-    return bool(re.search(rf"Cause: the candidate's \S*{re.escape(path.name)} is the shared", evidence or ""))
+    if re.search(rf"Cause: the candidate's \S*{re.escape(path.name)} is the shared", evidence or ""):
+        return True
+    # the regression's "Shared files changed" lists it: a promoted REQ delivers the same file and the
+    # cure is to keep what that REQ put there (pilot 1.7.0: the repair did it, the lock restored it)
+    shared = (evidence or "").split("[CLike EvalRunner] Shared files changed", 1)
+    tail = f"{path.parent.name}/{path.name}"
+    return len(shared) == 2 and bool(re.search(rf"^- (?:\S*/)?{re.escape(tail)}\b", shared[1], re.M))
 
 
 def _test_change_issue(
