@@ -9,7 +9,7 @@ gate_required: true
 obligations:
   - Every acceptance criterion and every owned scenario is proved by a blocking case of ci/LTC.json
   - The test that proves a scenario carries the scenario id in its name or title
-  - ci/LTC.json uses only the fields CLike's eval reads (cases[] with name, run, cwd, expect)
+  - ci/LTC.json uses only the fields CLike's eval reads (cases[] with name, run, cwd, expect; or the project's commands[] / checks[])
   - Never claim a check passed without having run it
 eval_checks:
   - ltc-cases-runnable
@@ -78,14 +78,17 @@ runs it → entry in `docs/ACCEPTANCE.json` naming that case.
 }
 ```
 
-- `cases[]` is the only executable section; every case has `name`, `run`, `cwd` (relative to the
-  project root), `expect`. Optional: `timeout`, `env`, `blocking`, `environment_requirements`.
+- `cases[]` is the executable section; every case has `name`, `run`, `cwd` (relative to the
+  project root), `expect`. Optional: `timeout`, `env`, `blocking`, `environment_requirements`. A
+  project whose promoted KITs use `commands[]` or `checks[]` (`id`, `cmd`) keeps that shape: the
+  eval reads it the same way.
 - Blocking cases run in the sandbox as it is: no internet, no containers, no developer credentials.
   What needs real infrastructure is `blocking: false` with `environment_requirements`, or is
   provided by CLike through `environment.required_variables` (`token`, `uuid`, `timestamp`,
   `template`, `postgres_database`, `service`; `external` only for values only the developer has).
-- Do not invent fields (`commands[].cmd`, `requires_external_infra`, `gate_policy`): the eval
-  ignores them and the check you meant never runs.
+- Fields outside these are not read (`requires_external_infra`, `gate_policy`, `pass_criteria`):
+  what needs infrastructure is said with `blocking: false` and `environment_requirements`, or the
+  check you meant never runs as you meant it.
 - Declare the runtime versions the project requires in `environment` (`"python": "3.12"`,
   `"node": ">=22"`) and the dependency file the cases need (lockfile install for Node:
   `npm ci`; Python: `requirements_file` or the project manifest).
