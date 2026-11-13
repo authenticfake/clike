@@ -308,6 +308,7 @@ const {
   rejectedHarperArtifactPath,
   formatHarperError,
 } = require('./harper-canonical-validation');
+const { harperRagTargets, isRagIndexable } = require('./harper-rag-targets');
 
 let clikeChatPanel = null;
 // the chat's message handler, so MCP tools can run phases through the same governed flow and await them
@@ -664,89 +665,52 @@ async function collectFinalizeRagItems(workspaceRootUri, maxFiles = 400, maxByte
   }
   return targets;
 }
-// --- : collect lane-guides for RAG after /plan ------------------------
-async function collectLaneGuidesRagItems(workspaceRoot, opts = {}) {
-  if (!workspaceRoot) {
-    return [];
-  }
-
-  const maxFiles = opts.maxFiles ?? 200;
-  const maxBytes = opts.maxBytes ?? 256 * 1024;
-
+// --- the Harper artifacts of a phase, for the project RAG (harper-rag-targets.js) -------------
+async function collectHarperDocsRagItems(workspaceRoot, phase, opts = {}) {
+  if (!workspaceRoot) return [];
+  const maxFiles = opts.maxFiles ?? 400;
+  const maxBytes = opts.maxBytes ?? 512 * 1024;
   const rootFsPath = workspaceRoot.fsPath;
-  const laneRootDir = path.join(rootFsPath, 'docs', 'harper', 'lane-guides');
-  const laneRootUri = vscode.Uri.file(laneRootDir);
-
-  let stat;
-  try {
-    stat = await vscode.workspace.fs.stat(laneRootUri);
-  } catch {
-    // Folder does not exist yet → nothing to index
-    return [];
-  }
-
-  if (!stat || stat.type !== vscode.FileType.Directory) {
-    return [];
-  }
-
+  const { files, dirs } = harperRagTargets(phase);
   const items = [];
+  const seen = new Set();
 
-  async function walk(dirUri, relBase) {
-    const entries = await vscode.workspace.fs.readDirectory(dirUri);
+  async function add(relPath) {
+    if (items.length >= maxFiles || seen.has(relPath) || !isRagIndexable(path.posix.basename(relPath))) return;
+    seen.add(relPath);
+    let data;
+    try {
+      data = await vscode.workspace.fs.readFile(vscode.Uri.file(path.join(rootFsPath, relPath)));
+    } catch {
+      return; // not written by this project (yet)
+    }
+    if (!data || !data.byteLength) return;
+    if (data.byteLength > maxBytes) {
+      log(`[harperRAG] skip ${relPath}: ${data.byteLength} bytes over ${maxBytes}`);
+      return;
+    }
+    items.push({ path: relPath, bytes_b64: Buffer.from(data).toString('base64') });
+  }
 
+  async function walk(relDir) {
+    let entries;
+    try {
+      entries = await vscode.workspace.fs.readDirectory(vscode.Uri.file(path.join(rootFsPath, relDir)));
+    } catch {
+      return; // folder absent
+    }
     for (const [name, type] of entries) {
-      const childUri = vscode.Uri.joinPath(dirUri, name);
-      const relPath = relBase ? path.posix.join(relBase, name) : name;
-
-      if (type === vscode.FileType.Directory) {
-        await walk(childUri, relPath);
-        if (items.length >= maxFiles) {
-          return;
-        }
-        continue;
-      }
-
-      if (type !== vscode.FileType.File) {
-        continue;
-      }
-
-      const ext = (name.split('.').pop() || '').toLowerCase();
-      const ALLOWED = ['md', 'markdown', 'txt'];
-
-      if (!ALLOWED.includes(ext)) {
-        continue;
-      }
-
-      let data;
-      try {
-        data = await vscode.workspace.fs.readFile(childUri);
-      } catch (err) {
-        log(`[harperRAG] skip lane-guide (read error): ${childUri.fsPath} -> ${err}`);
-        continue;
-      }
-
-      if (!data || !data.byteLength) {
-        continue;
-      }
-
-      const slice = data.byteLength > maxBytes ? data.slice(0, maxBytes) : data;
-      const b64 = Buffer.from(slice).toString('base64');
-      const relFromRoot = path.posix.join('docs', 'harper', 'lane-guides', relPath);
-
-      items.push({
-        path: relFromRoot,
-        bytes_b64: b64,
-      });
-
-      if (items.length >= maxFiles) {
-        log(`[harperRAG] lane-guide RAG items truncated at ${maxFiles} files`);
-        return;
-      }
+      if (items.length >= maxFiles) return;
+      const rel = path.posix.join(relDir, name);
+      if (type === vscode.FileType.Directory) await walk(rel);
+      else if (type === vscode.FileType.File) await add(rel);
     }
   }
 
-  await walk(laneRootUri, '');
-  log(`[harperRAG] collected ${items.length} lane-guide RAG items`);
+  for (const f of files) await add(f);
+  for (const d of dirs) await walk(d);
+  if (items.length >= maxFiles) log(`[harperRAG] /${phase} RAG items truncated at ${maxFiles} files`);
+  log(`[harperRAG] collected ${items.length} RAG items after /${phase}`);
   return items;
 }
 
@@ -6090,21 +6054,17 @@ async function cmdOpenChat(context) {
               log(`[kitReadiness] not computed: ${e?.message || e}`);
             }
           }
-          // /extend and /idea --extend change lane guides too: the index follows them
-          if (phase === 'plan' || phase === 'extend') {
+          // The Harper artifacts of the phase (IDEA, SPEC, PLAN, inputs, UX/BMAD companions, lane
+          // guides, finalize documents) go to the project RAG; unchanged files are not re-embedded.
+          if (['idea', 'spec', 'plan', 'extend', 'finalize'].includes(phase)) {
             try {
-              const laneItems = await collectLaneGuidesRagItems(wsroot, {
-                maxFiles: 200,
-                maxBytes: 512 * 1024,
-              });
-              const count = (laneItems && laneItems.length) || 0;
-              log(`[harperRAG] lane-guides collection after /${phase}: ${count} items`);
-              if (count > 0) {
-                await preIndexRag(project_id, laneItems, urlRag, out);
-                log(`[harperRAG] indexed ${count} lane-guide items for project ${project_id}`);
+              const docItems = await collectHarperDocsRagItems(wsroot, phase);
+              if (docItems.length > 0) {
+                const res = await preIndexRag(project_id, docItems, urlRag, out, { timeoutMs: 180000 });
+                log(`[harperRAG] /${phase}: ${docItems.length} artifacts sent to the RAG of ${project_id} -> ${JSON.stringify(res)}`);
               }
             } catch (e) {
-              log(`[harperRAG] lane-guides indexing failed: ${e?.message || e}`);
+              log(`[harperRAG] /${phase} artifacts not indexed: ${e?.message || e}`);
             }
           }
           if (phase==="kit") {

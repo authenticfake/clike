@@ -13,6 +13,10 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 - Mandatory BMAD companion outputs are called mandatory in the instructions too (they said "when
   useful", and the spec pm skipped them). Companion-only roles no longer receive the plan-sizing and
   scenario block meant for the canonical documents.
+- The project RAG gets every Harper artifact a phase writes or reads: IDEA, TECH_CONSTRAINTS and the
+  inputs after /idea; SPEC, UX and BMAD spec companions after /spec; PLAN, lane guides and BMAD
+  architecture/plan companions after /plan; all of them after /extend; the finalize documents after
+  /finalize. Before, only the lane guides were indexed. Unchanged files are not re-embedded.
 
 ## [1.7.1] — 2026-11-09 — Proof that holds on the first repairs
 
