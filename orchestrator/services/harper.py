@@ -2691,10 +2691,12 @@ async def run_phase(phase: str, req_payload: Dict[str, Any]) -> Dict[str, Any]:
         _workspace_root_from_payload(merged), phase,
         release=(extend_options(merged).get("release") or None), phases=context_phases(merged, phase),
     )
-    # Capacity profile and journey scenarios of this phase, the same text for both runners.
+    # Capacity profile and journey scenarios of this phase, the same text for both runners (none
+    # for a companion-only BMAD role, which writes no canonical document).
     merged["context_sources"]["quality"] = build_quality_context(
         phase=phase, payload=merged, execution_mode=str(execution_policy.get("selected") or "cloud"),
         req_id=target_req_id, workspace_root=_workspace_root_from_payload(merged),
+        methodology_context=methodology_context,
     )
 
     # Orchestrator-owned local agent package.

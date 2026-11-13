@@ -216,10 +216,12 @@ def build_document_phase_local_agent_package(
         methodology_context=methodology_context,
     )
 
-    # A BMAD agent never writes its forbidden canonical docs (spec/ux: no SPEC.md).
+    # A BMAD agent never writes its forbidden canonical docs (spec/ux: no SPEC.md; plan/pm: no
+    # PLAN.md, plan.json, lane guides). A root is forbidden as a file or as a folder (`dir/**`).
     allowed_write_roots = [
         root for root in spec["allowed_write_roots"]
         if not _glob_matches(root, active_output_contract.get("forbidden_output_globs"))
+        and not _glob_matches(f"{str(root).rstrip('/')}/*", active_output_contract.get("forbidden_output_globs"))
     ]
     # BMAD companion roots of the agent (docs/harper/bmad/<phase>/, docs/harper/ux/).
     for glob in active_output_contract.get("allowed_optional_output_globs") or []:
@@ -228,7 +230,7 @@ def build_document_phase_local_agent_package(
             allowed_write_roots.append(root)
     forbidden_paths = list(_DOCUMENT_PHASE_FORBIDDEN_PATHS)
     title = spec["title"]
-    # Companion-only role (BMAD spec/ux): the canonical document is input, not output — the
+    # Companion-only role (BMAD spec/ux, plan/pm): the canonical document is input, not output — the
     # regenerative mission of the phase ("regenerate SPEC.md, do not read it") does not apply.
     companion_only = bool(active_output_contract.get("forbidden_output_globs")) and all(
         _glob_matches(out, active_output_contract.get("forbidden_output_globs"))
@@ -266,7 +268,7 @@ def build_document_phase_local_agent_package(
     if companion_only:
         # the canonical documents are this role's input
         required_reads = required_reads + [
-            f"docs/harper/{name} (canonical, read-only)" for name in ("IDEA.md", "SPEC.md", "PLAN.md")
+            f"docs/harper/{name} (canonical, read-only)" for name in ("IDEA.md", "SPEC.md", "PLAN.md", "plan.json")
             if f"docs/harper/{name}" not in " ".join(required_reads)
         ]
 

@@ -9,13 +9,9 @@
     "allowed_companion_root_globs": [
       "docs/harper/bmad/plan/**"
     ],
-    "authority": "canonical-harper-artifact-with-companion-context",
-    "canonical_outputs": [
-      "docs/harper/PLAN.md",
-      "docs/harper/plan.json",
-      "docs/harper/lane-guides/**"
-    ],
-    "companion_only": false,
+    "authority": "companion-context-only",
+    "canonical_outputs": [],
+    "companion_only": true,
     "conflict_resolution": "canonical-wins",
     "downstream_consumers": [
       "kit/developer",
@@ -23,6 +19,9 @@
       "finalize/tech-writer"
     ],
     "forbidden_outputs": [
+      "docs/harper/PLAN.md",
+      "docs/harper/plan.json",
+      "docs/harper/lane-guides/**",
       "docs/harper/IDEA.md",
       "docs/harper/SPEC.md",
       "src/**",

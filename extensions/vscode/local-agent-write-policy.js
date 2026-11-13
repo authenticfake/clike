@@ -431,6 +431,10 @@ function evaluateDocumentPhaseInputPreflight({
   attachmentCount,
   ideaPresent,
   specPresent,
+  methodology,
+  agent,
+  planPresent,
+  planOlderThanSpec,
 } = {}) {
   const p = normalizePhase(phase);
 
@@ -467,6 +471,26 @@ function evaluateDocumentPhaseInputPreflight({
         code: 'PLAN_REQUIRES_SPEC',
         message:
           'Cannot run /plan because docs/harper/SPEC.md is missing. Run /spec first.',
+      };
+    }
+    // BMAD: the architect writes the plan; the pm only adds stories to it (companion-only role).
+    const bmadPm = String(methodology || '').toLowerCase() === 'bmad' && String(agent || '').toLowerCase() === 'pm';
+    if (bmadPm && !planPresent) {
+      return {
+        ok: false,
+        code: 'PLAN_PM_REQUIRES_ARCHITECT_PLAN',
+        message:
+          'Cannot run /plan --methodology bmad --agent pm because docs/harper/plan.json is missing. ' +
+          'The architect writes the plan: run /plan --methodology bmad (architect) first; the pm then adds stories to it.',
+      };
+    }
+    if (bmadPm && planOlderThanSpec) {
+      return {
+        ok: false,
+        code: 'PLAN_PM_REQUIRES_CURRENT_PLAN',
+        message:
+          'Cannot run /plan --methodology bmad --agent pm because docs/harper/plan.json is older than SPEC.md. ' +
+          'Run /plan --methodology bmad (architect) again on the current SPEC first; the pm then adds stories to it.',
       };
     }
     return { ok: true };

@@ -52,7 +52,7 @@ text:
   - '- Use selected skills to improve implementation readiness, acceptance coverage, repair quality, and documentation.'
   - '- Use BMAD and UX companion docs to guide implementation and repair decisions when they clarify product intent, UX expectations, architecture, risks, or handoff notes.'
   - '- Do not treat companion docs as canonical when they conflict with SPEC.md, PLAN.md, plan.json, TARGET_CONTRACT.json, FILE_REQUIREMENTS.json, EvalRunner evidence, or CLike write boundaries.'
-  - '- Produce BMAD expected outputs from AGENT_*_CONTEXT.json when useful for downstream phases; if a BMAD output would not be useful, explain why.'
+  - '- Produce every mandatory BMAD companion output listed in AGENT_*_CONTEXT.json; other BMAD outputs only when useful for downstream phases.'
   - '- BMAD companion artifacts are additive and non-authoritative.'
   render_compact_local_agent_prompt.contract_lines:
   - ''

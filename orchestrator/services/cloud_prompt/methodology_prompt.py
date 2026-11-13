@@ -388,6 +388,25 @@ def render_methodology_context_for_cloud_prompt(
             ]
         )
 
+    if (
+        methodology_context.get("methodology") == "bmad"
+        and methodology_context.get("phase") == "plan"
+        and methodology_context.get("agent") == "pm"
+        and bool(artifact_policy.get("companion_only"))
+    ):
+        allowed_roots = artifact_policy.get("allowed_companion_root_globs") or ["docs/harper/bmad/plan/**"]
+        lines.extend(
+            [
+                "PLAN PM artifact policy:",
+                "- companion-only: true",
+                "- Architect-owned canonical PLAN.md and plan.json remain authoritative: read them, never write them.",
+                "- PM derives stories, story map and implementation readiness from the REQs of plan.json.",
+                "- allowed_outputs: " + _render_list(allowed_roots, limit=4),
+                "- forbidden_output: docs/harper/PLAN.md, docs/harper/plan.json, docs/harper/lane-guides/**",
+                "",
+            ]
+        )
+
     if methodology_context.get("methodology") == "bmad":
         if methodology_context.get("phase") == "idea":
             lines.extend(

@@ -4,6 +4,16 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+### Fixed
+
+- BMAD `/plan`: the architect (default role) writes the plan; the pm is now a companion-only role
+  that reads `PLAN.md` and `plan.json` and writes stories, story map and implementation readiness.
+  Before, both roles regenerated the plan and the second run discarded the first. `/plan --agent pm`
+  stops before any run when the plan is missing or older than the SPEC. Native `/plan` is unchanged.
+- Mandatory BMAD companion outputs are called mandatory in the instructions too (they said "when
+  useful", and the spec pm skipped them). Companion-only roles no longer receive the plan-sizing and
+  scenario block meant for the canonical documents.
+
 ## [1.7.1] — 2026-11-09 — Proof that holds on the first repairs
 
 ### Fixed

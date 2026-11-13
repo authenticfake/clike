@@ -517,3 +517,30 @@ def test_bmad_ux_on_spec_is_companion_only_and_reads_the_canonical_spec():
     assert "Do NOT read docs/harper/SPEC.md" not in prompt
     assert "docs/harper/SPEC.md (canonical, read-only)" in prompt
     assert "docs/harper/SPEC.md" not in local["allowed_write_roots"]
+
+
+def test_bmad_pm_on_plan_is_companion_only_and_reads_the_architect_plan():
+    from services.local_agent_package import build_document_phase_local_agent_package as build
+
+    policy = {"requested": "local_agent_only", "selected": "local_agent", "reason": "test", "phase_supported": True}
+    result = build(phase="plan", payload={"runId": "r", "methodology": "bmad", "agent": "pm",
+                                          "idea_md": "# IDEA — X\n", "core_blobs": _bmad_vendor_core_blobs()}, execution_policy=policy)
+    local = result["local_agent"]
+    prompt = local["prompt_content"]
+    assert "companion-only role" in prompt
+    assert "docs/harper/PLAN.md (canonical, read-only)" in prompt
+    assert "docs/harper/plan.json (canonical, read-only)" in prompt
+    for canonical in ("docs/harper/PLAN.md", "docs/harper/plan.json", "docs/harper/lane-guides"):
+        assert canonical not in local["allowed_write_roots"]
+
+
+def test_bmad_architect_on_plan_still_writes_the_canonical_plan():
+    from services.local_agent_package import build_document_phase_local_agent_package as build
+
+    policy = {"requested": "local_agent_only", "selected": "local_agent", "reason": "test", "phase_supported": True}
+    result = build(phase="plan", payload={"runId": "r", "methodology": "bmad", "agent": "architect",
+                                          "idea_md": "# IDEA — X\n", "core_blobs": _bmad_vendor_core_blobs()}, execution_policy=policy)
+    prompt = result["local_agent"]["prompt_content"]
+    assert "companion-only role" not in prompt
+    assert "docs/harper/plan.json" in prompt
+

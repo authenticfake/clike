@@ -5239,6 +5239,8 @@ async function cmdOpenChat(context) {
             const wsrootPre = getWorkspaceRoot();
             let ideaPresent = false;
             let specPresent = false;
+            let planPresent = false;
+            let planOlderThanSpec = false;
             if (wsrootPre) {
               if (phase === 'spec') {
                 try {
@@ -5246,9 +5248,15 @@ async function cmdOpenChat(context) {
                   ideaPresent = true;
                 } catch { /* missing */ }
               } else if (phase === 'plan') {
+                let specMtime = 0;
                 try {
-                  await vscode.workspace.fs.stat(vscode.Uri.joinPath(wsrootPre, 'docs', 'harper', 'SPEC.md'));
+                  specMtime = (await vscode.workspace.fs.stat(vscode.Uri.joinPath(wsrootPre, 'docs', 'harper', 'SPEC.md'))).mtime;
                   specPresent = true;
+                } catch { /* missing */ }
+                try {
+                  const planMtime = (await vscode.workspace.fs.stat(vscode.Uri.joinPath(wsrootPre, 'docs', 'harper', 'plan.json'))).mtime;
+                  planPresent = true;
+                  planOlderThanSpec = specPresent && planMtime < specMtime;
                 } catch { /* missing */ }
               }
             }
@@ -5257,6 +5265,10 @@ async function cmdOpenChat(context) {
               attachmentCount: Array.isArray(attachments) ? attachments.length : 0,
               ideaPresent,
               specPresent,
+              methodology: msg.methodology,
+              agent: msg.agent,
+              planPresent,
+              planOlderThanSpec,
             });
             if (!preflight.ok) {
               log(`[harperRun] document-phase preflight blocked phase=${phase} code=${preflight.code}`);

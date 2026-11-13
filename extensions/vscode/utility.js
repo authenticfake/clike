@@ -1441,6 +1441,15 @@ async function buildHarperBody(phase, payload, projectRootUri, out) {
   } catch (err) {
     log('[CLike] saveTechConstraintsYaml failed:', err);
   }
+  // A companion-only /plan role (BMAD pm) derives its documents from the approved plan: the cloud
+  // model sees only the prompt, so the plan goes with it.
+  if (phase === 'plan' && String(payload.methodology || '').toLowerCase() === 'bmad' && String(payload.agent || '').toLowerCase() === 'pm') {
+    const core = Array.isArray(payload["core"]) ? payload["core"] : [];
+    for (const name of ['PLAN.md', 'plan.json']) {
+      if (!core.some((n) => String(n).toLowerCase() === name.toLowerCase())) core.push(name);
+    }
+    payload["core"] = core;
+  }
   //4) core blobs
   const core_blobs = await attachCoreBlobs(_docRoot, payload["core"] || []);
   Object.assign(core_blobs, await collectHarperCompanionCoreBlobs(_docRoot, phase));

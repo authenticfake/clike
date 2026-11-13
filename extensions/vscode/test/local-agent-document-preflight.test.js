@@ -69,6 +69,37 @@ test('/plan is allowed when docs/harper/SPEC.md exists', () => {
   assert.strictEqual(result.ok, true);
 });
 
+test('BMAD pm on /plan is blocked until the architect has written the plan', () => {
+  const result = evaluateDocumentPhaseInputPreflight({
+    phase: 'plan', specPresent: true, methodology: 'bmad', agent: 'pm', planPresent: false,
+  });
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.code, 'PLAN_PM_REQUIRES_ARCHITECT_PLAN');
+  assert.match(result.message, /architect/);
+});
+
+test('BMAD pm on /plan is blocked when the plan is older than the SPEC', () => {
+  const result = evaluateDocumentPhaseInputPreflight({
+    phase: 'plan', specPresent: true, methodology: 'bmad', agent: 'pm', planPresent: true, planOlderThanSpec: true,
+  });
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.code, 'PLAN_PM_REQUIRES_CURRENT_PLAN');
+});
+
+test('BMAD pm on /plan runs on a current architect plan', () => {
+  const result = evaluateDocumentPhaseInputPreflight({
+    phase: 'plan', specPresent: true, methodology: 'bmad', agent: 'pm', planPresent: true, planOlderThanSpec: false,
+  });
+  assert.strictEqual(result.ok, true);
+});
+
+test('the architect and native /plan need no existing plan', () => {
+  for (const args of [{ methodology: 'bmad', agent: 'architect' }, { methodology: 'bmad' }, {}]) {
+    const result = evaluateDocumentPhaseInputPreflight({ phase: 'plan', specPresent: true, planPresent: false, ...args });
+    assert.strictEqual(result.ok, true, JSON.stringify(args));
+  }
+});
+
 test('non-document phases are never blocked by this preflight', () => {
   for (const phase of ['kit', 'eval', 'finalize', 'extend']) {
     assert.strictEqual(
