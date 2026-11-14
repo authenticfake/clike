@@ -199,7 +199,7 @@ def _kit_eval_check(kit_options: Dict[str, Any], repair_context: Dict[str, Any])
         return None
     if [str(p).strip().lower() for p in (kit_options.get("phases") or [])] == ["acceptance"]:
         return None  # tests only: they are meant to fail until the code exists
-    return {"command": _EVAL_CHECK_COMMAND, "max_runs": int(kit_options.get("eval_check_max_runs") or 4), "targets": [], "stage": "kit"}
+    return {"command": _EVAL_CHECK_COMMAND, "max_runs": int(kit_options.get("eval_check_max_runs") or 6), "targets": [], "stage": "kit"}
 
 
 def kit_eval_check_rules(eval_check: Dict[str, Any]) -> List[str]:

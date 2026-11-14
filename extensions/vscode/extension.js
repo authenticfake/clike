@@ -2224,7 +2224,7 @@ function cfg() {
     autoEvalMaxCycles: c.get('autoEval.maxCycles', 2),
     autoEvalExtraCyclesOnProgress: c.get('autoEval.extraCyclesOnProgress', 3),
     autoEvalAgentEvalChecks: c.get('autoEval.agentEvalChecks', 8),
-    kitAgentEvalChecks: c.get('kit.agentEvalChecks', 4),
+    kitAgentEvalChecks: c.get('kit.agentEvalChecks', 6),
     evalToolsInstall: c.get('evalTools.install', 'ask'),
     finalizeVerify: c.get('finalize.verify', true),
     finalizeVerifyMaxCycles: c.get('finalize.verifyMaxCycles', 3),
@@ -5488,8 +5488,8 @@ async function cmdOpenChat(context) {
               ...(msg.acceptanceFirst ? { acceptance_first: true } : {}),
               // a local agent writing the KIT runs its checks in the real eval sandbox before it
               // finishes (a repair asks with its failures instead); the cloud ignores it
-              ...(!msg.autoEvalRepair && !msg.repair && Number(cfg().kitAgentEvalChecks ?? 4) > 0
-                ? { eval_check: true, eval_check_max_runs: Number(cfg().kitAgentEvalChecks ?? 4) }
+              ...(!msg.autoEvalRepair && !msg.repair && Number(cfg().kitAgentEvalChecks ?? 6) > 0
+                ? { eval_check: true, eval_check_max_runs: Number(cfg().kitAgentEvalChecks ?? 6) }
                 : {})
             };
           }

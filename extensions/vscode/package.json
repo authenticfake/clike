@@ -259,7 +259,7 @@
         },
         "clike.kit.agentEvalChecks": {
           "type": "number",
-          "default": 4,
+          "default": 6,
           "minimum": 0,
           "maximum": 12,
           "description": "Local agent KIT (Codex, Claude Code): how many times the agent may run its REQ's checks in the real CLike eval sandbox before it finishes (node .clike/bin/eval-check.mjs), so the first eval passes instead of starting a repair (0 = off: only repairs use the eval sandbox)."
