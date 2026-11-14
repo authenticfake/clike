@@ -13,6 +13,7 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, fields
 from pathlib import Path, PurePosixPath
@@ -197,12 +198,41 @@ class EvalCancelled(RuntimeError):
     """The caller went away (client disconnected): the running check was stopped."""
 
 
-def _stop_group(proc: subprocess.Popen) -> None:
+_CHECK_TAG_VAR = "CLIKE_CHECK_RUN"
+
+
+def _kill_tagged(tag: str, proc_root: Path = Path("/proc")) -> int:
+    """Kill every process that carries this check's tag in its environment: what the check started
+    and detached into a group or session of its own (a test server launched `detached`, a browser
+    suite's webServer) survives the group kill and held its port for the next check (lead-generation
+    REQ-006: 127.0.0.1:3000 and the worker's health port). The tag is inherited through setsid and
+    is unique per check, so the checks of other REQs running side by side are never touched.
+    Linux only (/proc); returns how many were killed."""
+    if not tag or not proc_root.is_dir():
+        return 0
+    needle = f"{_CHECK_TAG_VAR}={tag}".encode() + b"\0"
+    killed = 0
+    own = os.getpid()
+    for entry in proc_root.iterdir():
+        if not entry.name.isdigit() or int(entry.name) == own:
+            continue
+        try:
+            if needle in (entry / "environ").read_bytes():
+                os.kill(int(entry.name), signal.SIGKILL)
+                killed += 1
+        except OSError:
+            continue  # gone meanwhile, or not ours
+    return killed
+
+
+def _stop_group(proc: subprocess.Popen, tag: str = "") -> None:
     if os.name != "nt":
         try:
             os.killpg(proc.pid, signal.SIGKILL)
         except OSError:
             pass
+        if tag:
+            _kill_tagged(tag)
     elif proc.poll() is None:
         proc.kill()
 
@@ -216,12 +246,14 @@ def _run_process_group(
     cancel: Optional[threading.Event] = None,
 ) -> subprocess.CompletedProcess:
     """subprocess.run(shell=True) that stops the whole process group on timeout or cancellation
-    (the shell's children, e.g. pytest or a server, would otherwise keep running in the sandbox)."""
+    (the shell's children, e.g. pytest or a server, would otherwise keep running in the sandbox),
+    and every process the check started and detached (tagged in its environment: _kill_tagged)."""
+    tag = uuid.uuid4().hex
     proc = subprocess.Popen(
         cmd,
         shell=True,
         cwd=str(cwd),
-        env=env,
+        env={**env, _CHECK_TAG_VAR: tag},
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -235,15 +267,15 @@ def _run_process_group(
             stdout, stderr = proc.communicate(timeout=step)
             # What the check left running in its group (a server, a browser) is stopped too: an
             # orphan per check exhausted the sandbox's process limit within a day of evals.
-            _stop_group(proc)
+            _stop_group(proc, tag)
             return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
         except subprocess.TimeoutExpired:
             if cancel is not None and cancel.is_set():
-                _stop_group(proc)
+                _stop_group(proc, tag)
                 proc.communicate()
                 raise EvalCancelled(cmd)
             if deadline is not None and time.monotonic() >= deadline:
-                _stop_group(proc)
+                _stop_group(proc, tag)
                 stdout, stderr = proc.communicate()
                 raise subprocess.TimeoutExpired(cmd, timeout, output=stdout, stderr=stderr)
 
@@ -276,6 +308,21 @@ _SELF_INCOMPLETE_RE = re.compile(
     r"(?:is|are) not (?:yet )?(?:implemented|wired)|implementation gaps? remain",
     re.IGNORECASE,
 )
+# a negation earlier in the same clause turns the phrase around ("no implementation gap remains")
+_NEGATION_RE = re.compile(r"\b(?:no|none|nothing|without|never|zero)\b", re.IGNORECASE)
+
+
+def _declares_incomplete(line: str) -> bool:
+    """True when a SELF_REVIEW line says the KIT is not complete, not when it denies it
+    (lead-generation REQ-002: "All twelve criteria are done; no mandatory implementation gap remains"
+    blocked a complete KIT and cost a repair)."""
+    for match in _SELF_INCOMPLETE_RE.finditer(line):
+        clause = re.split(r"[.;:!?]", line[: match.start()])[-1]
+        if not _NEGATION_RE.search(clause):
+            return True
+    return False
+
+
 _SHARED_FILES_NOTE = "[CLike EvalRunner] Shared files changed"
 _SERVICE_BROKEN_NOTE = "[CLike EvalRunner] Service broken by the candidate"
 # A test file by name in Python, JS/TS, Java/Kotlin, Go, C# (test_x.py, x_test.go, x.test.ts, x.spec.js, XTest.java, XTests.cs).
@@ -4550,7 +4597,7 @@ class EvalRunner:
             review = (kit / "docs" / "SELF_REVIEW.md").read_text(encoding="utf-8", errors="ignore")
         except OSError:
             pass
-        incomplete = [line.strip() for line in review.split("\n") if _SELF_INCOMPLETE_RE.search(line)][:6]
+        incomplete = [line.strip() for line in review.split("\n") if _declares_incomplete(line)][:6]
         path = kit / "docs" / "ACCEPTANCE.json"
         name = "acceptance::coverage"
         if not path.is_file():
@@ -5118,16 +5165,23 @@ class EvalRunner:
     def _rerun_timeouts_alone(
         self, req_id: Optional[str], candidate_src: Path, cases: List[EvalCase], superseded: Dict[str, Dict[str, str]],
     ) -> None:
-        """Blocking regression failures that ran out of time while several promoted REQs ran side by
-        side: each runs again alone, after the others. One that passes alone was slowed by the parallel
-        load (B2B REQ-037: a 30 s test, a database connection, a 300 s suite, a dev server start), not
-        broken by the candidate: a warning, never repaired. One that fails alone too stays blocking."""
+        """Blocking regression failures caused by the promoted REQs running side by side: one that ran out
+        of time (B2B REQ-037: a 30 s test, a database connection, a 300 s suite, a dev server start) or
+        found its port taken by another REQ's server (lead-generation REQ-005: two browser suites on
+        127.0.0.1:8001) runs again alone, after the others. One that passes alone was the parallel run,
+        not the candidate: a warning, never repaired. One that fails alone too stays blocking."""
         slow: Dict[str, List[EvalCase]] = {}
+        ports: set = set()
         for case in cases:
             if case.passed or not case.blocking or case.blocked or not _is_regression_test_case(case):
                 continue
             other, sep, check = case.name.partition("::")[2].partition("::")
-            if not sep or not eval_failures.timed_out(case.excerpt or f"{case.stdout or ''}\n{case.stderr or ''}"):
+            text = case.excerpt or f"{case.stdout or ''}\n{case.stderr or ''}"
+            if not sep:
+                continue
+            if eval_failures.port_in_use(text):
+                ports.add(case.name)
+            elif not eval_failures.timed_out(text):
                 continue
             slow.setdefault(other, []).append(case)
         for other, failing in slow.items():
@@ -5147,11 +5201,16 @@ class EvalRunner:
             for case in failing:
                 again = alone.get(case.name.split("::", 2)[2])
                 if again is not None and again.passed:
-                    note = (f"{_CONTENTION_NOTE}: {case.name} ran out of time while {regression_workers()} promoted REQs ran "
-                            "side by side, and passes when run alone: the sandbox load, not this candidate "
+                    what = ("found its port taken by another promoted REQ's server" if case.name in ports
+                            else "ran out of time")
+                    note = (f"{_CONTENTION_NOTE}: {case.name} {what} while {regression_workers()} promoted REQs ran "
+                            "side by side, and passes when run alone: the parallel run, not this candidate "
                             "(fewer at a time: CLIKE_EVAL_REGRESSION_WORKERS).")
                     case.blocking = False
-                    log.info("%s passes alone: parallel load", case.name)
+                    log.info("%s passes alone: parallel run", case.name)
+                elif case.name in ports:
+                    note = (f"{_CONTENTION_NOTE}: {case.name} found its port taken, and again when run alone: the "
+                            "candidate keeps a server on that port (a process left running, a fixed port it now uses).")
                 else:
                     note = (f"{_CONTENTION_NOTE}: {case.name} ran out of time, and again when run alone: the slowdown "
                             "comes with the candidate (a slower path, a wait that never ends, a service that does not start).")

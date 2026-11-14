@@ -17,14 +17,16 @@ const ERRORS_PER_CHECK = 6000;
 
 const HELPER_SOURCE = `#!/usr/bin/env node
 // CLike eval check — re-runs checks of this REQ's canonical eval in the CLike eval sandbox.
-// Usage: node .clike/bin/eval-check.mjs [<check>...]   (no check: all of them; exit 0: all passed)\n// regression::<REQ-ID> re-runs that promoted REQ's checks with this candidate overlaid.
+// Usage: node .clike/bin/eval-check.mjs [<check>...]   (no check: all of them; exit 0: all passed)\n// regression::<REQ-ID> re-runs that promoted REQ's checks with this candidate overlaid.\n// node .clike/bin/eval-check.mjs --lock <runs/kit/<REQ-ID>/.../pyproject.toml|package.json> writes its lockfile\n// (uv.lock, package-lock.json) resolved by CLike with registry access; it does not count as a run.
 // Served by the CLike extension only while it runs a KIT or a repair; written and removed by CLike.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const dir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'eval-check');
-const checks = process.argv.slice(2);
+const lockIndex = process.argv.indexOf('--lock');
+const lock = lockIndex >= 0 ? String(process.argv[lockIndex + 1] || '') : '';
+const checks = lock ? [] : process.argv.slice(2);
 const beat = path.join(dir, '${HEARTBEAT}');
 const alive = () => { try { return Date.now() - fs.statSync(beat).mtimeMs < 15000; } catch { return false; } };
 if (!alive()) {
@@ -32,16 +34,16 @@ if (!alive()) {
   process.exit(2);
 }
 // A run stopped by the agent's command timeout is resumed: the same checks wait for the same run.
-const pending = path.join(dir, \`\${(checks.join('_') || 'all').replace(/[^\\w.-]+/g, '_').slice(0, 80)}.pending\`);
+const pending = path.join(dir, \`\${(lock ? \`lock_\${lock}\` : checks.join('_') || 'all').replace(/[^\\w.-]+/g, '_').slice(0, 80)}.pending\`);
 let id = '';
 try { id = fs.readFileSync(pending, 'utf8').trim(); } catch { id = ''; }
 if (!/^[\\w-]{1,64}$/.test(id)) {
   id = \`\${Date.now()}-\${process.pid}\`;
   const tmp = path.join(dir, \`\${id}.tmp\`);
-  fs.writeFileSync(tmp, JSON.stringify({ checks }));
+  fs.writeFileSync(tmp, JSON.stringify(lock ? { lock } : { checks }));
   fs.renameSync(tmp, path.join(dir, \`\${id}.request.json\`));
   fs.writeFileSync(pending, id);
-  console.log(\`CLike eval sandbox: running \${checks.join(' ') || 'all the checks'} (a few minutes)...\`);
+  console.log(lock ? \`CLike: resolving the lockfile of \${lock} with registry access...\` : \`CLike eval sandbox: running \${checks.join(' ') || 'all the checks'} (a few minutes)...\`);
 } else {
   console.log(\`CLike eval sandbox: still running \${checks.join(' ') || 'all the checks'}, waiting for it...\`);
 }
@@ -52,6 +54,12 @@ while (Date.now() < deadline) {
     const r = JSON.parse(fs.readFileSync(result, 'utf8'));
     fs.rmSync(result, { force: true });
     fs.rmSync(pending, { force: true });
+    if (r.lockfile !== undefined) {
+      if (r.status === 'PASS') console.log(\`Wrote \${r.lockfile}\`);
+      else console.log(\`\${r.status}: \${r.error || ''}\${r.log ? \`\\n\${r.log.replace(/^/gm, '    ')}\` : ''}\`);
+      console.log(\`Result: \${r.status}\`);
+      process.exit(r.status === 'PASS' ? 0 : 1);
+    }
     if (r.error) console.log(\`\${r.status}: \${r.error}\`);
     if (r.warning) console.log(\`WARNING: \${r.warning}\`);
     for (const c of r.checks || []) {
@@ -165,7 +173,26 @@ function mergeResults(own, regression, note) {
  * for runs with it (cdl-pipeline REQ-010: the agent spent its 6 runs on its own checks, never ran the
  * regression, and the eval found a promoted REQ broken by a new dependency: a repair).
  */
-function startEvalCheckBridge({ workspaceRoot, runChecks, maxRuns = 8, pollMs = 1000, log = () => {}, testRoot = '', targets = [], regression = [] }) {
+// Lockfiles an agent may ask CLike to resolve per KIT or repair (they do not count as eval-check runs).
+const MAX_LOCKS = 10;
+const LOCK_NAMES = { 'pyproject.toml': 'uv.lock', 'package.json': 'package-lock.json' };
+
+/** A lock request is a manifest of this REQ's KIT, inside the workspace: else the reason it is refused. */
+function lockRequestError(workspaceRoot, manifest, reqId) {
+  const rel = String(manifest || '').replace(/\\/g, '/').replace(/^\.\//, '');
+  const name = rel.split('/').pop();
+  if (!LOCK_NAMES[name]) return `--lock takes a pyproject.toml or package.json, not ${name || '(nothing)'}`;
+  if (!reqId || !rel.startsWith(`runs/kit/${reqId}/`) || rel.split('/').includes('..')) {
+    return `--lock takes a manifest of this KIT (runs/kit/${reqId || '<REQ-ID>'}/...)`;
+  }
+  const abs = path.resolve(workspaceRoot, rel);
+  if (!abs.startsWith(path.resolve(workspaceRoot, 'runs', 'kit', reqId) + path.sep)) return 'the manifest is outside this KIT';
+  if (!fs.existsSync(abs)) return `${rel} does not exist`;
+  return '';
+}
+
+function startEvalCheckBridge({ workspaceRoot, runChecks, maxRuns = 8, pollMs = 1000, log = () => {}, testRoot = '', targets = [], regression = [], reqId = '', runLock = null }) {
+  let locks = 0;
   const regressionChecks = (Array.isArray(regression) ? regression : []).map((r) => `regression::${r}`).filter((c) => CHECK_NAME.test(c));
   let regressionRan = false;
   let extraRuns = 0;
@@ -198,10 +225,36 @@ function startEvalCheckBridge({ workspaceRoot, runChecks, maxRuns = 8, pollMs = 
       if (!/^[\w-]{1,64}$/.test(id)) return;
       let result;
       const checks = (Array.isArray(request?.checks) ? request.checks : []).map(String).filter((c) => CHECK_NAME.test(c)).slice(0, 60);  // a KIT's last run names every promoted REQ
-      if (!request) {
+      if (request && typeof request.lock === 'string') {
+        // a lockfile resolved with registry access; written into the KIT, never counted as a run
+        const manifest = request.lock.replace(/\\/g, '/').replace(/^\.\//, '');
+        const refused = !runLock ? 'CLike cannot resolve lockfiles in this run' : lockRequestError(workspaceRoot, manifest, reqId);
+        if (refused) {
+          result = { status: 'ERROR', lockfile: '', error: refused };
+        } else if (locks >= MAX_LOCKS) {
+          result = { status: 'LIMIT', lockfile: '', error: `lockfile limit reached (${MAX_LOCKS})` };
+        } else {
+          locks += 1;
+          log(`[evalCheck] lock ${locks}/${MAX_LOCKS}: ${manifest}`);
+          try {
+            const out = await runLock(manifest);
+            const lockRel = String(out?.lockfile || '');
+            const expected = `${manifest.slice(0, manifest.lastIndexOf('/'))}/${LOCK_NAMES[manifest.split('/').pop()]}`;
+            if (out?.status === 'OK' && lockRel === expected && typeof out.content === 'string') {
+              writeAtomic(path.join(workspaceRoot, ...lockRel.split('/')), out.content);
+              result = { status: 'PASS', lockfile: lockRel };
+            } else {
+              result = { status: 'FAIL', lockfile: lockRel, error: String(out?.error || 'the lockfile could not be resolved'), log: String(out?.log || '').slice(-4000) };
+            }
+          } catch (e) {
+            result = { status: 'ERROR', lockfile: '', error: String(e?.message || e).slice(0, 2000) };
+          }
+          log(`[evalCheck] lock result ${result.status}`);
+        }
+      } else if (!request) {
         result = { status: 'ERROR', error: 'invalid request' };
       } else if (runs >= maxRuns && !(regressionChecks.length && extraRuns < REGRESSION_EXTRA_RUNS)) {
-        result = { status: 'LIMIT', error: `eval-check run limit reached (${maxRuns}); finish with what you have, CLike runs the full eval next` };
+        result = { status: 'LIMIT', error: `eval-check run limit reached (${maxRuns}); finish with what you have, CLike runs the full eval next. A criterion you fixed and checked locally is done in docs/ACCEPTANCE.json: the eval verifies it` };
       } else {
         // beyond the limit: only runs with the regression, which is added when the request lacks it
         const extra = runs >= maxRuns;

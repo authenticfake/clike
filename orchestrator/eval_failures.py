@@ -236,6 +236,19 @@ _TIMEOUT_RE = re.compile(
 )
 
 
+# A port another process holds: Node/Python/Go bind errors, dev servers, Playwright's webServer.
+_PORT_IN_USE_RE = re.compile(
+    r"EADDRINUSE|address already in use|\[Errno (?:48|98)\]|is already used, make sure that nothing is running on the port|"
+    r"port \d+ is (?:already )?(?:in use|taken|busy)|bind\(\) to .* failed|only one usage of each socket address",
+    re.IGNORECASE,
+)
+
+
+def port_in_use(text: str) -> bool:
+    """The failure (an excerpt) says that a port it needed was already taken."""
+    return any(_PORT_IN_USE_RE.search(line) for line in strip_ansi(text or "").split("\n"))
+
+
 def timed_out(text: str) -> bool:
     """The failure (an excerpt) says that something ran out of time."""
     return any(_TIMEOUT_RE.search(line) for line in strip_ansi(text or "").split("\n")

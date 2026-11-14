@@ -96,6 +96,33 @@ class TimeoutAloneTests(unittest.TestCase):
         self.assertTrue(wrong.blocking)
 
 
+    def test_a_port_taken_by_another_promoted_reqs_server_is_run_again_alone(self):
+        # lead-generation REQ-005: REQ-003's browser suite found 127.0.0.1:8001 held by another REQ's suite
+        runner = EvalRunner(Path("/nonexistent"))
+        clash = self._case("regression::REQ-003::browser-e2e",
+                           "Error: http://127.0.0.1:8001/health/live is already used, make sure that nothing is running "
+                           "on the port/url or set reuseExistingServer:true in config.webServer.")
+        held = self._case("regression::REQ-004::api", "OSError: [Errno 98] Address already in use")
+        outcomes = {"REQ-003": True, "REQ-004": False}
+
+        def fake_runner(req_id, other, candidate_src):
+            def run_profile(profile, ltc, req_id, checks):
+                return SimpleNamespace(cases=[SimpleNamespace(name=c, passed=outcomes[other]) for c in checks])
+            return SimpleNamespace(run_profile=run_profile)
+
+        with patch.object(runner, "_regression_runner", side_effect=fake_runner), \
+                patch("eval_runner.json.loads", return_value={}), patch.object(Path, "read_text", return_value="{}"):
+            runner._rerun_timeouts_alone("REQ-005", Path("/c/src"), [clash, held], {})
+        self.assertFalse(clash.blocking)
+        self.assertIn("found its port taken by another promoted REQ's server", clash.stderr)
+        self.assertTrue(held.blocking)
+        self.assertIn("keeps a server on that port", held.stderr)
+        for text in ("listen EADDRINUSE: address already in use :::3000", "Port 5173 is already in use",
+                     "OSError: [Errno 48] Address already in use"):
+            self.assertTrue(eval_failures.port_in_use(text), text)
+        self.assertFalse(eval_failures.port_in_use("AssertionError: port 8001 expected"))
+
+
 class NodeManifestTests(unittest.TestCase):
     def test_a_declared_package_json_installs_whatever_the_main_runtime(self):
         # B2B REQ-038: a Python LTC with a web frontend named src/web/package.json; no install ran
@@ -212,6 +239,24 @@ class AcceptanceCoverageTests(unittest.TestCase):
             case = self._case(self._project(tmp, acceptance=done, review=review))
             self.assertFalse(case.passed)
             self.assertIn("SELF_REVIEW.md says otherwise", case.stderr)
+
+    def test_a_self_review_denying_gaps_is_not_read_as_incomplete(self):
+        # lead-generation REQ-002: a complete KIT blocked by "no mandatory implementation gap remains"
+        import tempfile
+        import eval_runner
+
+        review = ("Final verification: the sandbox command passed all 13 LTC cases.\n"
+                  "All twelve criteria are done; no mandatory implementation gap remains.\n"
+                  "Nothing remains unimplemented. There are no features that are not implemented.\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            done = [{"id": f"REQ-038-A0{n}", "status": "done", "checks": ["unit"]} for n in (1, 6, 7)]
+            case = self._case(self._project(tmp, acceptance=done, review=review))
+            self.assertTrue(case.passed, case.stderr)
+        # a real admission still counts, also next to a denial in another clause
+        self.assertTrue(eval_runner._declares_incomplete("No blockers found; the export screen remains unimplemented."))
+        self.assertTrue(eval_runner._declares_incomplete("Implementation gaps remain in the report module."))
+        self.assertFalse(eval_runner._declares_incomplete("No implementation gaps remain."))
+        self.assertFalse(eval_runner._declares_incomplete("The KIT is complete without parts that are not implemented."))
 
     def test_the_field_names_agents_use_are_understood(self):
         import tempfile
@@ -566,3 +611,45 @@ class SharedSupportReadsKitTests(unittest.TestCase):
             runner._explain_kit_reads(reads, [failing, other])
             self.assertIn("in this regression the KIT is REQ-007's KIT, which has no ci/fixtures/scoring.json", failing.stderr)
             self.assertEqual(other.stderr, "AssertionError")
+
+
+class DetachedProcessesTests(unittest.TestCase):
+    def test_processes_a_check_detached_are_killed_by_its_tag_only(self):
+        # lead-generation REQ-006: a browser suite's servers, detached from the check's group, held
+        # 127.0.0.1:3000 for the next check; another REQ's check running beside it must survive
+        import os
+        import signal
+        import tempfile
+        import eval_runner
+
+        with tempfile.TemporaryDirectory() as tmp:
+            proc = Path(tmp)
+            for pid, env in ((101, b"PATH=/bin\0CLIKE_CHECK_RUN=abc\0"), (102, b"CLIKE_CHECK_RUN=other\0"),
+                             (103, b"HOME=/tmp\0"), (104, b"CLIKE_CHECK_RUN=abcdef\0")):
+                (proc / str(pid)).mkdir()
+                (proc / str(pid) / "environ").write_bytes(env)
+            (proc / "self").mkdir()
+            killed = []
+            with patch.object(eval_runner.os, "kill", side_effect=lambda pid, sig: killed.append((pid, sig))):
+                self.assertEqual(eval_runner._kill_tagged("abc", proc), 1)
+                self.assertEqual(eval_runner._kill_tagged("", proc), 0)
+                self.assertEqual(eval_runner._kill_tagged("abc", proc / "missing"), 0)
+            self.assertEqual(killed, [(101, signal.SIGKILL)])  # not 'other', not untagged, not the longer 'abcdef'
+
+    def test_a_check_runs_with_its_own_tag(self):
+        import eval_runner
+
+        seen = {}
+        real = eval_runner.subprocess.Popen
+
+        def popen(cmd, **kw):
+            seen.update(kw["env"])
+            return real("true", shell=True, stdout=eval_runner.subprocess.PIPE, stderr=eval_runner.subprocess.PIPE,
+                        text=True, start_new_session=True)
+
+        with patch.object(eval_runner.subprocess, "Popen", side_effect=popen), \
+                patch.object(eval_runner, "_kill_tagged") as kill:
+            eval_runner._run_process_group("true", cwd=Path("."), env={"A": "1"}, timeout=10)
+        tag = seen.get("CLIKE_CHECK_RUN")
+        self.assertTrue(tag and len(tag) == 32)
+        kill.assert_called_once_with(tag)

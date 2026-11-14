@@ -24,6 +24,7 @@ from pydantic import BaseModel
 
 import eval_tools
 import sandbox_resources
+from services import lockfiles
 from eval_runner import _SECRET_ENV_NAME_RE, EvalRunner, eval_progress, report_to_dict
 from services.gate_integrity import allowed_eval_roots
 from utils.safe_paths import UnsafePathError, is_within_any, resolve_within
@@ -126,3 +127,20 @@ async def run(req: SandboxRunRequest, request: Request):
             log.warning("run cancelled: client disconnected project=%s req=%s", prj.name, req.req_id)
             cancel.set()
     return report_to_dict(await task)
+
+
+class LockRequest(BaseModel):
+    project_root: str
+    manifest: str
+
+
+@app.post("/lock")
+def lock(req: LockRequest):
+    """The lockfile of a KIT manifest, resolved here (registry egress) for an agent that has none.
+    Only the manifest path comes from the request; the command is fixed by its type."""
+    roots = allowed_eval_roots()
+    prj = Path(req.project_root).resolve()
+    if not roots or not is_within_any(prj, roots) or not prj.is_dir():
+        raise HTTPException(status_code=403, detail="project_root is outside the allowed eval roots")
+    log.info("lock project=%s manifest=%s", prj.name, req.manifest)
+    return lockfiles.resolve_lock(prj, req.manifest)

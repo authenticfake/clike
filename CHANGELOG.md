@@ -4,6 +4,27 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.8.2] — 2026-11-14 — Clean runs, fewer repairs
+
+### Fixed
+
+- Processes a check starts and detaches into a group or session of their own (a test launcher's servers, a
+  browser suite's webServer) are stopped with the check: they carry a per-check tag CLike kills by. Before,
+  they kept their ports and the next check failed with "address already in use"; other REQs' checks running
+  side by side are never touched.
+- A local agent with no registry access gets its lockfiles from CLike: `eval-check.mjs --lock <KIT manifest>`
+  resolves `uv.lock` or `package-lock.json` in the eval sandbox and writes it beside the manifest, without
+  counting as an eval-check run (an agent spent four of six runs smuggling a lockfile out of a check). When the
+  runs are used up after a locally checked fix, the criterion is done: partial only means work left in the code.
+- A self review that denies gaps ("no implementation gap remains") is no longer read as an incomplete KIT.
+- A regression check that finds its port taken by another promoted REQ's server runs again alone, like a timeout
+  under load, and is a warning when it passes; KIT instructions: servers the tests start use a free port.
+- A full Podman disk no longer builds up silently: before an eval CLike also removes, caches included, the
+  eval directories of projects not evaluated for 7 days (`CLIKE_EVAL_PROJECT_RETENTION_DAYS`) and, when
+  the volume is short, other projects whole after their REQ directories; `docker/rebuild.sh` warns when
+  the disk is more than 80% full and prints what can be freed. Before, caches of projects evaluated days
+  earlier and old images filled 98 of 100 GB and the autopilot stopped (`EVAL_SANDBOX_EXHAUSTED`).
+
 ## [1.8.1] — 2026-11-14 — A plan with its stack
 
 ### Changed

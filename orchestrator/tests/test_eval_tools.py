@@ -153,6 +153,33 @@ class DiskTests(unittest.TestCase):
             with patch.dict(os.environ, {"CLIKE_EVAL_BASE_DIR": ""}):
                 self.assertEqual(sandbox_resources.prune_eval_dirs(project, None, keep=0, remove=lambda p: removed.append(p)), [])
 
+    def test_projects_not_evaluated_for_days_are_removed_whole_and_more_when_the_disk_is_short(self):
+        # cdl-pipeline/lead-generation: caches of projects evaluated days before (45 GB) filled the disk
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp) / "eval"
+            old = time.time() - 10 * 86400
+            for name, when in (("current", time.time()), ("week-old", old), ("yesterday", time.time() - 86400),
+                               ("hour-old", time.time() - 3600), (".cache", old)):
+                d = base / name
+                (d / ".venvs").mkdir(parents=True)
+                os.utime(d / ".venvs", (when, when))
+                os.utime(d, (when, when))
+            removed = []
+            with patch.dict(os.environ, {"CLIKE_EVAL_BASE_DIR": str(base)}), \
+                    patch.object(sandbox_resources, "PROJECT_RETENTION_DAYS", 7):
+                sandbox_resources.prune_eval_dirs(base / "current", None, keep=3, min_free_gb=0,
+                                                  remove=lambda p: removed.append(p.name))
+                self.assertEqual(removed, ["week-old"])  # shared caches and recent projects stay
+                # disk short: the least recently used other projects go too, never the current one
+                removed.clear()
+                free = iter([0, 0, 0, 0, 50 * 1024 ** 3])
+                with patch.object(sandbox_resources, "_free_bytes", side_effect=lambda _p: next(free, 50 * 1024 ** 3)):
+                    sandbox_resources.prune_eval_dirs(base / "current", None, keep=3, min_free_gb=10,
+                                                      remove=lambda p: removed.append(p.name))
+                self.assertIn("yesterday", removed)
+                self.assertNotIn("current", removed)
+                self.assertNotIn(".cache", removed)
+
     def test_a_full_volume_stops_the_eval(self):
         with patch.object(sandbox_resources, "_free_bytes", return_value=512 * 1024 ** 2):
             self.assertIn("0.5 GB free", sandbox_resources.disk_preflight(Path("/")))

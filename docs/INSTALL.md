@@ -22,6 +22,11 @@ podman machine inspect | grep -i memory
 podman machine stop && podman machine set --memory 6144 && podman machine start
 ```
 
+The same VM disk holds the container images and the eval caches: give it room (100 GB or more for
+several projects) and watch it with `podman system df`. `docker/rebuild.sh` warns above 80%; when an
+eval stops with `EVAL_SANDBOX_EXHAUSTED` ("only N GB free"), free it with `podman image prune -a` or
+enlarge it (`podman machine set --disk-size <GB>`), see [Eval disk](auto-eval.md#eval-disk).
+
 ## 2. Configuration
 
 ```bash
@@ -71,7 +76,7 @@ With projects mounted by `mount-project.sh`, restart the stack with `./rebuild.s
 Install the packaged extension (or build it from source):
 
 ```bash
-code --install-extension extensions/vscode/clike-1.8.1.vsix
+code --install-extension extensions/vscode/clike-1.8.2.vsix
 # from source: cd extensions/vscode && npm ci && npm run check && npm run package
 ```
 
