@@ -255,7 +255,7 @@ def validateProjectInputsMarkdown(content: str, *, path: str) -> Dict[str, Any]:
     text = str(content or "")
     if len(text.strip()) < 200:
         failures.append("inputs_missing_or_empty")
-    elif not path.endswith("/COVERAGE.md") and not _INPUT_ID_RE.search(text):
+    elif not path.endswith(("/COVERAGE.md", "/DECISIONS.md")) and not _INPUT_ID_RE.search(text):
         failures.append("inputs_without_ids")
     return _result(path, failures, "Project input failed Harper structure validation (content and IDs).")
 

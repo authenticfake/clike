@@ -204,3 +204,16 @@ def test_every_phase_text_rule_is_text_not_an_accidental_yaml_mapping():
 
     for path in sorted((ORCHESTRATOR_ROOT / "phases").glob("*/text.yaml")):
         walk(yaml.safe_load(path.read_text(encoding="utf-8")), path.parent.name)
+
+
+
+def test_the_orchestrator_waits_for_the_gateway_at_least_as_long_as_the_phase_runs(monkeypatch):
+    # TIMEOUT=720 in docker-compose cut a long /idea or KIT while the gateway kept running and billing
+    from services.harper import gateway_timeout_s
+
+    monkeypatch.setenv("TIMEOUT", "720")
+    assert gateway_timeout_s("idea") == 1860.0 and gateway_timeout_s("kit") == 1860.0
+    assert gateway_timeout_s("spec") == 1060.0
+    assert gateway_timeout_s("eval") == 720.0
+    monkeypatch.setenv("TIMEOUT", "3000")
+    assert gateway_timeout_s("idea") == 3000.0

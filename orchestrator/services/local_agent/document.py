@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from services.capabilities import (
     build_capability_metadata_map,
 )
-from services.idea_inputs import INPUT_PATHS, idea_inputs_section
+from services.idea_inputs import INPUT_PATHS, REQUIRE_IDS, idea_inputs_section
 from services.phase_definitions import phase_definition, shared_definitions
 from services.methodologies.active_output_contract import build_active_output_contract
 from services.methodologies.resolver import bmad_artifact_policy
@@ -487,7 +487,7 @@ def _validate_document_phase_completeness(
             if len(text.strip()) < 200:
                 incomplete = True
                 warnings.append(f"idea:inputs_missing_or_empty:{name}")
-            elif name != "COVERAGE.md" and not re.search(r"\b(?:FR|NFR|EC|E2E|TS|D)-(?:[A-Z]{2,4}-)?\d+\b", text):
+            elif path in REQUIRE_IDS and not re.search(r"\b(?:FR|NFR|EC|E2E|TS|D)-(?:[A-Z]{2,4}-)?\d+\b", text):
                 incomplete = True
                 warnings.append(f"idea:inputs_without_ids:{name}")
 

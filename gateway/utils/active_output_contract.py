@@ -41,6 +41,8 @@ NATIVE_CLOUD_REQUIRED_OUTPUTS: Dict[str, List[str]] = {
 }
 
 NATIVE_CLOUD_OPTIONAL_OUTPUTS: Dict[str, List[str]] = {
+    # further project inputs (a glossary, a catalogue split by area), as the local agents may write
+    "idea": ["docs/harper/inputs/**"],
     "plan": ["docs/harper/lane-guides/**"],
     # B20: any file inside the target REQ staging roots, like the local-agent contract; required
     # outputs stay required and everything outside runs/kit/<REQ-ID>/ stays disallowed.

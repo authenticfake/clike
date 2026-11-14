@@ -1897,10 +1897,20 @@ async function readWorkspaceFileBytes(pathInWs) {
 // of their raw bytes is skipped.
 const RAG_NON_TEXT_EXTENSIONS = new Set([
   'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg', 'tif', 'tiff', 'ico', 'heic', 'heif',
-  'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'odt', 'ods', 'odp', 'rtf',
+  'doc', 'ppt', 'odt', 'ods', 'odp', 'rtf',
   'zip', 'tar', 'gz', 'tgz', 'rar', '7z', 'exe', 'dll', 'so', 'dylib', 'bin', 'class', 'jar',
   'mp3', 'wav', 'flac', 'ogg', 'mp4', 'mov', 'avi', 'mkv', 'webm', 'psd', 'ai', 'sketch', 'fig',
 ]);
+
+// Documents the orchestrator converts to text when it indexes them (services/document_text.py):
+// their bytes go to the index, up to the size the context sources read.
+const RAG_CONVERTIBLE_EXTENSIONS = new Set(['pdf', 'docx', 'xlsx', 'xls', 'xlsb', 'pptx']);
+const RAG_CONVERTIBLE_MAX_BYTES = 10 * 1024 * 1024;
+
+function isRagConvertiblePath(p) {
+  const m = String(p || '').toLowerCase().match(/\.([a-z0-9]+)$/);
+  return !!(m && RAG_CONVERTIBLE_EXTENSIONS.has(m[1]));
+}
 
 function isRagIndexableTextPath(p) {
   const m = String(p || '').toLowerCase().match(/\.([a-z0-9]+)$/);
@@ -1929,6 +1939,14 @@ async function buildRagItemsForIndex(rag_files, out) {
     // the agent via attachment materialization / inline handling.
     if (!isRagIndexableTextPath(p)) {
       log(`[harperRAG] skip non-text attachment for RAG index: ${p}`);
+      continue;
+    }
+
+    // a document the orchestrator converts: its bytes, within the size limit
+    if (isRagConvertiblePath(p)) {
+      const bytes = typeof f.bytes_b64 === 'string' && f.bytes_b64 ? Buffer.from(f.bytes_b64, 'base64') : await readWorkspaceFileBytes(p);
+      if (bytes && bytes.length && bytes.length <= RAG_CONVERTIBLE_MAX_BYTES) items.push({ path: p, bytes_b64: bytes.toString('base64') });
+      else log(`[harperRAG] skip ${p}: ${bytes && bytes.length ? `larger than ${RAG_CONVERTIBLE_MAX_BYTES} bytes` : 'unreadable'}`);
       continue;
     }
 

@@ -22,6 +22,8 @@ INPUT_FILES: Tuple[Tuple[str, str], ...] = (
     (f"{INPUTS_DIR}/COVERAGE.md", "every source section mapped to the IDs that cover it"),
 )
 INPUT_PATHS: Tuple[str, ...] = tuple(path for path, _ in INPUT_FILES)
+# Inputs that must carry IDs (COVERAGE maps sections to IDs; DECISIONS may hold no open decision).
+REQUIRE_IDS: Tuple[str, ...] = tuple(p for p in INPUT_PATHS if not p.endswith(("/COVERAGE.md", "/DECISIONS.md")))
 # What /spec and /plan read as requirements (COVERAGE is traceability, read by /idea only).
 READ_BY_LATER_PHASES: Tuple[str, ...] = tuple(p for p in INPUT_PATHS if not p.endswith("/COVERAGE.md"))
 
@@ -55,7 +57,8 @@ def idea_inputs_rules() -> List[str]:
         "IDs: FR-<AREA>-nn and NFR-<AREA>-nn (AREA a 2–4 letter code per functional area), EC-<AREA>-nn, "
         "E2E-nn, TS-nn, D-nn. When previous inputs exist (docs/harper/inputs/ among the context sources), keep "
         "every ID with its meaning, add new IDs after the last number, mark removed ones `withdrawn` (never reuse "
-        "an ID), and start each file with `## Changes` against the previous version (`First version` otherwise).",
+        "an ID), and start each file with `## Changes` against the previous version (`First version` otherwise). "
+        "Write all six files on every run, also one that does not change (its `## Changes` says `No change`).",
         "REQUIREMENTS.md: one testable statement per requirement with its rule and values (limits, formats, states, "
         "messages), the source (file and section or page) and the EC IDs that test it.",
         "EDGE_CASES.md: tables `ID | Situation / input | Expected result | Requirements`, derived systematically "
@@ -67,7 +70,7 @@ def idea_inputs_rules() -> List[str]:
         "end-to-end and browser), which external systems are faked and how, the golden fixtures (name, content, "
         "purpose, the IDs they cover) and the time and size bounds of the tests.",
         "DECISIONS.md: open decisions D-nn, then the fixed constraints and the data sources and references the "
-        "sources name.",
+        "sources name, numbered on as D-nn too (with no open decision, say so and number the rest).",
         "COVERAGE.md: a table mapping every section of every source (file § heading or page) to the IDs that "
         "cover it, the statements deliberately not turned into requirements with the reason, and counts per file. "
         "A source section with no ID is a defect: cover it or explain it.",

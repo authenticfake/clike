@@ -135,6 +135,7 @@ def test_idea_without_the_project_inputs_or_their_ids_is_incomplete():
     assert no_ids["ok"] is False and "document_phase_output_incomplete" in no_ids["errors"]
     assert "idea:inputs_without_ids:REQUIREMENTS.md" in no_ids["warnings"]
     assert "idea:inputs_without_ids:COVERAGE.md" not in no_ids["warnings"]  # a mapping table, IDs optional
+    assert "idea:inputs_without_ids:DECISIONS.md" not in no_ids["warnings"]  # may hold no open decision
     # an input outside docs/harper/inputs/ is still refused
     stray = _normalize("idea", [_file("docs/harper/IDEA.md", VALID_IDEA), *_inputs(), _file("docs/harper/NOTES.md", "x")], req_id="SOLUTION")
     assert "local_agent_wrote_outside_allowed_roots" in stray["errors"]

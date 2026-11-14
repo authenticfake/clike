@@ -230,6 +230,7 @@ class GateIntegrityTests(unittest.TestCase):
             headers=AUTH,
         )
         self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual((r.json()["partial"], r.json()["promotable"]), (True, False))
         self.assertFalse(has_lock(self.proj, REQ))
         self.assertIsNone(eval_verdicts.reusable(self.proj, REQ, False))
         (self.kit / "test" / "test_app.py").write_text(TEST_PY + "\n\ndef test_more():\n    assert True\n")

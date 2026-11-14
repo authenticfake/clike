@@ -35,6 +35,16 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- Review of the release's changes, end to end on every executor: the launcher/manifest of the
+  promoted application is looked for only in the canonical `src/` and the project root (not in other
+  KITs, `node_modules` or venvs); cloud `/idea` accepts further files in `docs/harper/inputs/` like the
+  local agents; the project inputs never take the context budget of a release's requirements or of
+  `/idea`'s own sources, and `/idea` reads its previous inputs REQUIREMENTS first; the bridge warns
+  when an acceptance-first KIT relies on changes to its locked tests; the orchestrator and the
+  extension wait for the gateway as long as a `/idea` or a KIT may run; `DECISIONS.md` with no open
+  decision is valid; `/eval --accept` releases a REQ also from a running `/autopilot`; an
+  out-of-range `clike.kit.agentEvalChecks` no longer breaks `/kit`; an agent's eval-sandbox run is
+  marked partial; docx, pdf, xlsx and pptx project documents reach the RAG, indexed in the background.
 - A REQ that extends an application already promoted no longer needs a copy of its launcher and
   runtime manifest in the KIT: the canonical tree has them (repairs dropped the copy and a cycle went
   to putting it back).

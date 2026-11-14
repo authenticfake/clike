@@ -28,6 +28,8 @@ def test_project_inputs_need_content_and_ids_like_the_local_agent_check():
     prose = "Every order is checked before it is stored. " * 10
     assert validation.validate_canonical_harper_artifact("docs/harper/inputs/REQUIREMENTS.md", prose)["failed_checks"] == ["inputs_without_ids"]
     assert validation.validate_canonical_harper_artifact("docs/harper/inputs/COVERAGE.md", prose)["ok"] is True
+    # a project with no open decision: DECISIONS.md lists only constraints
+    assert validation.validate_canonical_harper_artifact("docs/harper/inputs/DECISIONS.md", prose)["ok"] is True
 
 
 def _load_gateway_module(name: str, relative_path: str):
@@ -624,3 +626,13 @@ def test_response_missing_required_bmad_companions_reports_missing_required_outp
     assert canonical["rejected"] == []
     assert active["ok"] is False
     assert "docs/harper/bmad/idea/BRIEF.md" in active["missing_required_outputs"]
+
+
+def test_an_idea_may_add_further_project_inputs_like_the_local_agents():
+    # a glossary or a catalogue split by area: the agents may write it, the cloud refused the whole run
+    contract = contracts.build_active_output_contract(phase="idea", runner="cloud")
+    files = [{"path": "docs/harper/IDEA.md", "content": NATIVE_IDEA}]
+    files += [{"path": p, "content": INPUT_BODY} for p in IDEA_INPUTS]
+    files += [{"path": "docs/harper/inputs/GLOSSARY.md", "content": INPUT_BODY}]
+    canonical = validation.validate_canonical_harper_files(files, evidence_text=NATIVE_IDEA)
+    assert contracts.validate_files_against_active_output_contract(canonical["accepted_files"], contract)["ok"] is True

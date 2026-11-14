@@ -102,6 +102,18 @@ class GatewayUpstreamError(RuntimeError):
         self.code = code
 
 
+# The gateway's own model-call timeout per phase (gateway routes/harper.py): the orchestrator waits a
+# little longer, never less (a /idea or a KIT stopped here kept running and billing there).
+_GATEWAY_PHASE_TIMEOUT_S = {"idea": 1800.0, "kit": 1800.0, "acceptance": 1800.0, "spec": 1000.0, "plan": 1000.0, "finalize": 1000.0}
+
+
+def gateway_timeout_s(phase: Any) -> float:
+    """Seconds the orchestrator waits for the gateway: TIMEOUT, at least the phase's own budget + 60 s."""
+    base = float(os.environ.get("TIMEOUT", 980.0))
+    own = _GATEWAY_PHASE_TIMEOUT_S.get(str(phase or "").strip().lower())
+    return max(base, own + 60.0) if own else base
+
+
 async def _post_json(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     base_url = str(GATEWAY_URL or "").rstrip("/")
     rel_path = "/" + str(path or "").lstrip("/")
@@ -120,7 +132,7 @@ async def _post_json(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         # WP8.4: the wire core_blobs are produced by the typed PhaseContext (identical bytes and
         # order); malformed blobs fail here instead of as a gateway 422.
         payload = {**payload, "core_blobs": PhaseContext.from_payload(payload).to_core_blobs()}
-    TIMEOUT = float(os.environ.get("TIMEOUT", 980.0))
+    TIMEOUT = gateway_timeout_s(payload.get("phase"))
     # Shared pooled client with connect retries (WP7.12).
     r = await gateway_http.post(url, json=payload, timeout=TIMEOUT)
     elapsed_time = time.time() - start_time

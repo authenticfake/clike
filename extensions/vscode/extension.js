@@ -427,6 +427,11 @@ async function acceptAcceptanceEdit(wsRoot, reqId, givenReason) {
       try {
         const statePath = path.join(wsRoot.fsPath, ...autopilot.STATE_REL.split('/'));
         const released = autopilot.releaseParked(JSON.parse(fsSync.readFileSync(statePath, 'utf8')), reqId);
+        // a running /autopilot rewrites the state from memory at its next step: release it there too
+        if (autopilotRun) {
+          autopilotRun.parked.delete(String(reqId).toUpperCase());
+          delete autopilotRun.parkedInfo[String(reqId).toUpperCase()];
+        }
         if (released) {
           fsSync.writeFileSync(statePath, JSON.stringify(released, null, 2));
           echo(`${reqId}: released from the autopilot's parked REQs — /autopilot retries it.`);
@@ -995,6 +1000,13 @@ const DOCUMENT_PHASE_CANDIDATE_DIRS = {
   plan: ['docs/harper/lane-guides'],
 };
 
+// clike.kit.agentEvalChecks as the orchestrator accepts it: a whole number 0..12 (a value edited by
+// hand out of range or with a fraction would make every /kit fail with 422)
+function kitEvalChecks(value) {
+  const n = Math.floor(Number(value ?? 6));
+  return Number.isFinite(n) ? Math.min(12, Math.max(0, n)) : 6;
+}
+
 // Files under docs/inputs and docs/reference (the sources /idea reads besides the attachments).
 function countProjectSourceFiles(root) {
   let count = 0;
@@ -1262,8 +1274,8 @@ async function executeLocalAgentPackage({
       log,
       targets: Array.isArray(evalCheck.targets) ? evalCheck.targets : [],
       // a repair's changes to existing (locked) tests are governed after the run: the agent is told
-      // (a KIT being written has no locked tests yet)
-      ...(phaseForAgent === 'kit' && reqForAgent && evalCheck.stage !== 'kit' ? { testRoot: `runs/kit/${reqForAgent}/test` } : {}),
+      // (a KIT being written has no locked tests yet, unless acceptance-first locked them)
+      ...(phaseForAgent === 'kit' && reqForAgent && (evalCheck.stage !== 'kit' || evalCheck.locked) ? { testRoot: `runs/kit/${reqForAgent}/test` } : {}),
     });
     launcherArgs = agentArgsForEvalCheck(selectedExecutor, launcherArgs);
     panel.webview.postMessage({
@@ -5488,8 +5500,8 @@ async function cmdOpenChat(context) {
               ...(msg.acceptanceFirst ? { acceptance_first: true } : {}),
               // a local agent writing the KIT runs its checks in the real eval sandbox before it
               // finishes (a repair asks with its failures instead); the cloud ignores it
-              ...(!msg.autoEvalRepair && !msg.repair && Number(cfg().kitAgentEvalChecks ?? 6) > 0
-                ? { eval_check: true, eval_check_max_runs: Number(cfg().kitAgentEvalChecks ?? 6) }
+              ...(!msg.autoEvalRepair && !msg.repair && kitEvalChecks(cfg().kitAgentEvalChecks) > 0
+                ? { eval_check: true, eval_check_max_runs: kitEvalChecks(cfg().kitAgentEvalChecks) }
                 : {})
             };
           }
@@ -5691,7 +5703,8 @@ async function cmdOpenChat(context) {
           }
           //log(`[harperRun] body (core_blobs):`,  JSON.stringify(body.core_blobs))
           if (activeProvider) _headers["X-CLike-Provider"] = activeProvider
-          const harperTimeout = cfg().harperTimeout;
+          // the gateway gives /idea and a KIT up to 30 minutes per model call: never give up before it
+          const harperTimeout = Math.max(Number(cfg().harperTimeout) || 25, ['idea', 'kit', 'acceptance'].includes(String(cmd)) ? 32 : 0);
           clikeHarperBlockingRun = true;
           panel.webview.postMessage({ type: 'busy', on: true });
           let outGateway = await callHarper(cmd, body, _headers, { timeoutMs: 1000 * 60 * harperTimeout, signal: harperSignal() });
@@ -6097,15 +6110,13 @@ async function cmdOpenChat(context) {
           // The Harper artifacts of the phase (IDEA, SPEC, PLAN, inputs, UX/BMAD companions, lane
           // guides, finalize documents) go to the project RAG; unchanged files are not re-embedded.
           if (['idea', 'spec', 'plan', 'extend', 'finalize'].includes(phase)) {
-            try {
-              const docItems = await collectHarperDocsRagItems(wsroot, phase);
-              if (docItems.length > 0) {
-                const res = await preIndexRag(project_id, docItems, urlRag, out, { timeoutMs: 180000 });
-                log(`[harperRAG] /${phase}: ${docItems.length} artifacts sent to the RAG of ${project_id} -> ${JSON.stringify(res)}`);
-              }
-            } catch (e) {
-              log(`[harperRAG] /${phase} artifacts not indexed: ${e?.message || e}`);
-            }
+            // in the background: the phase is done, indexing (up to minutes) does not hold the chat
+            collectHarperDocsRagItems(wsroot, phase)
+              .then((docItems) => docItems.length > 0
+                ? preIndexRag(project_id, docItems, urlRag, out, { timeoutMs: 180000 })
+                  .then((res) => log(`[harperRAG] /${phase}: ${docItems.length} artifacts sent to the RAG of ${project_id} -> ${JSON.stringify(res)}`))
+                : null)
+              .catch((e) => log(`[harperRAG] /${phase} artifacts not indexed: ${e?.message || e}`));
           }
           if (phase==="kit") {
             await saveKitCommand(wsroot,plan,targetReqId,out)

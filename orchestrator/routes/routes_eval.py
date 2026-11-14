@@ -379,6 +379,33 @@ def _load_file_requirements(project_root: Path, req_id: Optional[str]) -> Option
     return None
 
 
+# Installed dependencies and caches are never the application's own launcher or manifest.
+_NOT_APPLICATION_DIRS = frozenset({
+    "node_modules", ".venv", "venv", "site-packages", "__pycache__", ".next", "dist", "build",
+    ".mypy_cache", ".pytest_cache", ".ruff_cache", "local-eval-workspaces",
+})
+
+
+def _application_files(root: Path):
+    """Files under ``root``, outside installed dependencies, caches and build output."""
+    if not root.is_dir():
+        return
+    for path in root.rglob("*"):
+        if path.is_file() and not _NOT_APPLICATION_DIRS.intersection(path.relative_to(root).parts):
+            yield path
+
+
+def _canonical_has_runtime_manifest(project_root: Path) -> bool:
+    """The promoted application's manifest: in the canonical src/ or at the project root (never in
+    runs/, another REQ's KIT, nor in installed dependencies)."""
+    if any(p.name in _RUNTIME_MANIFEST_NAMES for p in project_root.iterdir() if p.is_file()) if project_root.is_dir() else False:
+        return True
+    return any(
+        p.name in _RUNTIME_MANIFEST_NAMES or p.suffix.lower() in {".csproj", ".fsproj", ".vbproj", ".sln", ".mpr"}
+        for p in _application_files(project_root / "src")
+    )
+
+
 def _has_runtime_manifest_under_candidate(req_root: Path) -> bool:
     search_roots = [req_root / "src"]
     # Some ecosystems keep the promotion-ready manifest at the candidate package root.
@@ -387,9 +414,7 @@ def _has_runtime_manifest_under_candidate(req_root: Path) -> bool:
     for root in search_roots:
         if not root.exists():
             continue
-        for path in root.rglob("*"):
-            if not path.is_file():
-                continue
+        for path in _application_files(root):
             if "ci" in path.relative_to(req_root).parts:
                 continue
             if path.name in _RUNTIME_MANIFEST_NAMES:
@@ -420,9 +445,7 @@ def _has_composition_root_under_candidate(req_root: Path) -> bool:
     if not src_root.exists():
         return False
 
-    for path in src_root.rglob("*"):
-        if not path.is_file():
-            continue
+    for path in _application_files(src_root):
         if path.name in _COMPOSITION_ROOT_NAMES:
             return True
         if path.name.endswith("Application.java"):
@@ -459,7 +482,7 @@ def _required_output_blockers(project_root: Path, req_id: Optional[str]) -> List
         # stays runnable without a copy in every KIT (cdl-pipeline REQ-005, REQ-006: a repair dropped
         # the copied __main__.py and a whole cycle went to putting it back).
         if role == "execution_area_runtime_manifest" and not (
-            _has_runtime_manifest_under_candidate(req_root) or _has_runtime_manifest_under_candidate(project_root)
+            _has_runtime_manifest_under_candidate(req_root) or _canonical_has_runtime_manifest(project_root)
         ):
             blockers.append({
                 "role": role,
@@ -745,6 +768,9 @@ async def eval_run(
     if reuse:
         payload["reused_targeted_at"] = reuse["at"]
     payload["regression"] = bool(args.regression) and (not args.checks or targeted)
+    if agent_check:
+        # an agent's run while it writes or repairs: never a verdict, whatever checks it ran
+        payload.update(agent_check=True, partial=True, promotable=False)
     if targeted:
         payload["regression_scope"] = args.regression_reqs
     if args.checks:

@@ -323,6 +323,16 @@ class EvalRegressionTests(_RegressionProject):
         (kit / "ci" / "FILE_REQUIREMENTS.json").write_text(json.dumps(requirements))
         self.assertEqual(sorted(b["role"] for b in _required_output_blockers(self.proj, "REQ-003")),
                          ["execution_area_runtime_manifest", "module_launcher"])
+        # never another REQ's KIT, installed dependencies or caches
+        (self.proj / "runs" / "kit" / "REQ-009" / "src").mkdir(parents=True)
+        (self.proj / "runs" / "kit" / "REQ-009" / "src" / "pyproject.toml").write_text("[project]\n")
+        (self.proj / "node_modules" / "x").mkdir(parents=True)
+        (self.proj / "node_modules" / "x" / "package.json").write_text("{}")
+        (self.proj / "src" / "frontend" / "node_modules" / "x").mkdir(parents=True)
+        (self.proj / "src" / "frontend" / "node_modules" / "x" / "index.js").write_text("module.exports = 1\n")
+        (self.proj / "src" / "frontend" / "node_modules" / "x" / "package.json").write_text("{}")
+        self.assertEqual(sorted(b["role"] for b in _required_output_blockers(self.proj, "REQ-003")),
+                         ["execution_area_runtime_manifest", "module_launcher"])
         (self.proj / "src" / "app").mkdir(parents=True, exist_ok=True)
         (self.proj / "src" / "app" / "__main__.py").write_text("print('run')\n")
         (self.proj / "src" / "pyproject.toml").write_text("[project]\nname = 'app'\n")

@@ -612,3 +612,17 @@ def test_the_kit_last_run_adds_the_regression_of_the_promoted_reqs():
     assert "regression::" not in "\n".join(_kit_stage("REQ-001", first, {})[2])
     assert _kit_eval_check({"eval_check": True}, {}, ["REQ-001"])["regression"] == ["REQ-001"]
     assert all("regression::" not in r for r in kit_eval_check_rules(_kit_eval_check({"eval_check": True}, {}, [])))
+
+
+
+def test_an_acceptance_first_kit_tells_the_bridge_its_tests_are_locked():
+    # the bridge then warns when a passing run relies on changes to locked tests (restored afterwards)
+    from services.local_agent.kit import _kit_eval_check
+
+    assert _kit_eval_check({"eval_check": True}, {}, [], locked=True)["locked"] is True
+    assert "locked" not in _kit_eval_check({"eval_check": True}, {}, [])
+    methodology_context = resolve_methodology_context(phase="kit", methodology="bmad", agent="developer")
+    payload = _payload(methodology_context)
+    payload["kit"] = {"targets": ["REQ-001"], "eval_check": True, "acceptance_first": True}
+    local = build_kit_local_agent_package(payload=payload, req_id="REQ-001", execution_policy=_execution_policy())["local_agent"]
+    assert local["kit_stage"] == "code_after_locked_acceptance" and local["eval_check"]["locked"] is True

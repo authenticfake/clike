@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 import yaml
 
 from services.document_text import CONVERTIBLE_EXTENSIONS, extract_document_text
-from services.idea_inputs import INPUTS_DIR, READ_BY_LATER_PHASES
+from services.idea_inputs import INPUT_PATHS, INPUTS_DIR, MAX_TOTAL_CHARS as MAX_INPUTS_TOTAL_CHARS, READ_BY_LATER_PHASES
 
 log = logging.getLogger(__name__)
 
@@ -191,9 +191,8 @@ def resolve_context_sources(
     # first by /spec, /plan and /extend (the budget goes to them before the raw documents), and by
     # /idea after its sources, as the previous version whose IDs stay stable.
     sources = (
-        [{"path": p, "role": "project_inputs", "phases": ["spec", "plan", "extend"], "note": ""} for p in READ_BY_LATER_PHASES]
+        [{"path": p, "role": "project_inputs", "phases": ["spec", "plan"], "note": ""} for p in READ_BY_LATER_PHASES]
         + sources
-        + [{"path": f"{INPUTS_DIR}/*.md", "role": "previous_inputs", "phases": ["idea"], "note": ""}]
     )
     if release_number(release):
         # the folders of the targeted release are its inputs, declared in context.yaml or not
@@ -202,6 +201,11 @@ def resolve_context_sources(
             {"path": f"docs/inputs/{rel_name}/**", "role": "requirements", "phases": [phase_name], "note": ""},
             {"path": f"docs/reference/{rel_name}/**", "role": "reference", "phases": [phase_name], "note": ""},
         ]
+    # /extend: after the release's own requirements (the delta comes first); /idea: the previous
+    # version of what it writes, in its own budget (its raw sources keep theirs), REQUIREMENTS first
+    sources += [{"path": p, "role": "project_inputs", "phases": ["extend"], "note": ""} for p in READ_BY_LATER_PHASES]
+    sources += [{"path": p, "role": "previous_inputs", "phases": ["idea"], "note": ""} for p in (*INPUT_PATHS, f"{INPUTS_DIR}/*.md")]
+    own_budget = {"previous_inputs": MAX_INPUTS_TOTAL_CHARS}
     for source in sources:
         if not wanted.intersection(source["phases"]):
             continue
@@ -231,13 +235,17 @@ def resolve_context_sources(
             except OSError as exc:
                 item.update(kind="skipped", reason=f"unreadable: {exc.__class__.__name__}")
             text = item["text"]
-            budget = max(0, limits["max_total_chars"] - total)
+            role = source["role"]
+            budget = max(0, own_budget[role] if role in own_budget else limits["max_total_chars"] - total)
             cap = min(limits["max_file_chars"], budget)
             if len(text) > cap:
                 item["text"] = text[:cap]
                 item["truncated"] = True
             item["chars"] = len(item["text"])
-            total += item["chars"]
+            if role in own_budget:
+                own_budget[role] -= item["chars"]
+            else:
+                total += item["chars"]
             items.append(item)
     current = apply_releases(items, release)
     if items:

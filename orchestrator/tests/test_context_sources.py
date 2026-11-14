@@ -327,6 +327,32 @@ def test_the_project_inputs_idea_writes_come_first_for_spec_and_plan_and_last_fo
 
     items = resolve_context_sources(tmp_path, "idea")["items"]
     assert items[0]["path"] == "docs/inputs/brief.md"
-    assert [i["path"] for i in items[1:]] == sorted(INPUT_PATHS)  # every file, COVERAGE included
+    assert [i["path"] for i in items[1:]] == list(INPUT_PATHS)  # REQUIREMENTS first, COVERAGE included
     assert {i["role"] for i in items[1:]} == {"previous_inputs"}
     assert resolve_context_sources(tmp_path, "kit")["items"] == []
+
+
+def test_the_project_inputs_never_take_the_budget_of_a_release_nor_of_the_idea_sources(tmp_path: Path):
+    from services.idea_inputs import INPUT_PATHS
+
+    (tmp_path / "docs" / "inputs" / "v2").mkdir(parents=True)
+    (tmp_path / "docs" / "inputs" / "brief.md").write_text("v1 requirements\n")
+    (tmp_path / "docs" / "inputs" / "v2" / "r2.md").write_text("release 2 requirement\n")
+    (tmp_path / "docs" / "reference").mkdir(parents=True)
+    (tmp_path / "docs" / "reference" / "big.md").write_text("r" * 149_000)
+    for path in INPUT_PATHS:
+        (tmp_path / path).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / path).write_text(f"| FR-AB-01 | {path} |\n" + "x" * 45_000)
+
+    # /idea --extend for v2: the release's own requirements come first and are read in full
+    ext = resolve_context_sources(tmp_path, "extend", release="v2")["items"]
+    r2 = next(i for i in ext if i["path"] == "docs/inputs/v2/r2.md")
+    assert r2["chars"] > 0 and not r2["truncated"]
+    assert [i["path"] for i in ext].index("docs/inputs/v2/r2.md") < [i["path"] for i in ext].index(INPUT_PATHS[0])
+
+    # /idea: the raw sources fill the shared budget; the previous inputs still arrive, REQUIREMENTS first
+    idea = resolve_context_sources(tmp_path, "idea")["items"]
+    previous = [i for i in idea if i["role"] == "previous_inputs"]
+    assert previous[0]["path"].endswith("REQUIREMENTS.md") and previous[0]["chars"] > 40_000
+    assert sum(i["chars"] for i in previous) <= 120_000
+

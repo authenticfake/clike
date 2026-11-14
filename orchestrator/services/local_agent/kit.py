@@ -202,17 +202,18 @@ def _promoted_req_ids(payload: Dict[str, Any], req_id: str) -> List[str]:
 
 
 def _kit_eval_check(
-    kit_options: Dict[str, Any], repair_context: Dict[str, Any], promoted: Optional[List[str]] = None
+    kit_options: Dict[str, Any], repair_context: Dict[str, Any], promoted: Optional[List[str]] = None, locked: bool = False
 ) -> Optional[Dict[str, Any]]:
     """The eval checks a local agent runs in the real eval sandbox before it finishes a KIT (the
     extension serves them, eval-check-bridge.js); a repair gets its own with the failed checks.
-    ``promoted``: the REQs whose regression the last run adds."""
+    ``promoted``: the REQs whose regression the last run adds. ``locked``: the tests are already
+    locked (acceptance-first code stage): the bridge warns when a run uses changes to them."""
     if not kit_options.get("eval_check") or (isinstance(repair_context, dict) and repair_context.get("repair")):
         return None
     if [str(p).strip().lower() for p in (kit_options.get("phases") or [])] == ["acceptance"]:
         return None  # tests only: they are meant to fail until the code exists
     return {"command": _EVAL_CHECK_COMMAND, "max_runs": int(kit_options.get("eval_check_max_runs") or 6), "targets": [],
-            "stage": "kit", "regression": list(promoted or [])}
+            "stage": "kit", "regression": list(promoted or []), **({"locked": True} if locked else {})}
 
 
 def kit_eval_check_rules(eval_check: Dict[str, Any]) -> List[str]:
@@ -245,7 +246,7 @@ def _kit_stage(req_id: str, payload: Dict[str, Any], repair_context: Dict[str, A
         return "acceptance", "ACCEPTANCE STAGE — tests first", acceptance_stage_rules(req_id)
     if kit_options.get("acceptance_first"):
         locked = [f"runs/kit/{req_id}/test/", f"runs/kit/{req_id}/ci/LTC.json"]
-        eval_check = _kit_eval_check(kit_options, repair_context, _promoted_req_ids(payload, req_id))
+        eval_check = _kit_eval_check(kit_options, repair_context, _promoted_req_ids(payload, req_id), locked=True)
         return "code_after_locked_acceptance", "ACCEPTANCE-FIRST — implement against the locked tests", [
             *acceptance_first_code_rules(req_id), f"Locked: {', '.join(locked)} (already in the workspace).",
             *(kit_eval_check_rules(eval_check) if eval_check else [])]
@@ -656,8 +657,10 @@ def build_kit_local_agent_package(
     )
 
     repair_eval_check = (repair_context.get("auto_eval") or {}).get("eval_check") if isinstance(repair_context.get("auto_eval"), dict) else None
+    package_kit_options = payload.get("kit") if isinstance(payload.get("kit"), dict) else {}
     package_eval_check = repair_eval_check or _kit_eval_check(
-        payload.get("kit") if isinstance(payload.get("kit"), dict) else {}, repair_context, _promoted_req_ids(payload, req_id)
+        package_kit_options, repair_context, _promoted_req_ids(payload, req_id),
+        locked=bool(package_kit_options.get("acceptance_first")),
     )
 
     context_path = f"runs/kit/{req_id}/docs/AGENT_EXECUTION_CONTEXT.json"
