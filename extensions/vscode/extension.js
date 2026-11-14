@@ -16,7 +16,7 @@ const {
 const { validateLocalMcpRequest } = require('./mcp-request-guard');
 const extensionMcp = require('./extension-mcp');
 const autopilot = require('./autopilot');
-const { safePanel, safePost } = require('./safe-panel');
+const { safePanel, panelPost } = require('./safe-panel');
 const { syncAgentSkills, lockedRootsEnv } = require('./agent-skills');
 const { extractSessionId, sessionToResume, rememberSession, resumeArgs } = require('./agent-sessions');
 const KIT_SESSIONS_KEY = 'clike.kitAgentSessions';
@@ -338,10 +338,15 @@ let lastAutopilotRun = null;
 // "Stop after this step" (the run card): the --fix loops and the after-KIT auto-eval end at the
 // next step boundary instead of going on; cleared when a new command starts.
 let harperStopAfterStep = false;
-// the run feed of the chat panel (run card, status bar): what the handlers and agents report to it
-let activeRunFeed = null;
-function runFeedLive(text) { try { if (activeRunFeed) activeRunFeed.live(text); } catch { /* the card is best effort */ } }
-function runFeedCost(telemetry) { try { if (activeRunFeed) activeRunFeed.cost(telemetry); } catch { /* idem */ } }
+// the run feed of the chat panel (run card, status bar): what the handlers and agents report to it.
+// A run started in a chat that was closed keeps its own feed until it ends (orphanRunFeed): the
+// chat reopened meanwhile shows that run.
+let chatRunFeed = null;
+let orphanRunFeed = null;
+function orphanRunActive() { return !!(orphanRunFeed && orphanRunFeed.active()); }
+function activeRunFeed() { return orphanRunFeed && orphanRunFeed.active() ? orphanRunFeed : chatRunFeed; }
+function runFeedLive(text) { try { const feed = activeRunFeed(); if (feed) feed.live(text); } catch { /* the card is best effort */ } }
+function runFeedCost(telemetry) { try { const feed = activeRunFeed(); if (feed) feed.cost(telemetry); } catch { /* idem */ } }
 /** The run card asked to stop after the current step: the loop says so and ends cleanly. */
 function stopAfterStepRequested(say, what) {
   if (!harperStopAfterStep) return false;
@@ -4150,6 +4155,11 @@ function createRunFeed(panel, context, post) {
       clearTimeout(hideTimer);
       hideTimer = setTimeout(() => status.hide(), 15000);
     }
+    if (closed) {
+      // the chat reopened meanwhile was kept busy by this run (orphanRunActive): free it
+      post({ type: 'busy', on: false, force: true });
+      setTimeout(dispose, 15000);
+    }
   }
 
   /** Around every chat handler call (nested ones included): the run's steps. */
@@ -4171,11 +4181,16 @@ function createRunFeed(panel, context, post) {
     }
   }
 
-  panel.onDidDispose(() => { clearInterval(tick); clearInterval(poll); clearTimeout(hideTimer); status.dispose(); });
+  // a run outlives its chat: once the chat is closed the card goes on in the chat reopened after
+  // it (safe-panel.js relays the messages), the status bar stays; both end with the run
+  let closed = false;
+  const dispose = () => { clearInterval(tick); clearInterval(poll); clearTimeout(hideTimer); status.dispose(); };
+  panel.onDidDispose(() => { closed = true; if (!tracker.active()) dispose(); });
 
   return {
     around,
     render,
+    active: () => tracker.active(),
     // the echoes of the handlers: the run card's "now" line
     observe(message) {
       if (!message || !tracker.active()) return;
@@ -4403,27 +4418,29 @@ function createCockpitFeed(panel, context, runs = null) {
 
 async function cmdOpenChat(context) {
   out.appendLine(`cmdOpenChat ${context}`);
-  // safe once closed: a run nobody watches any more goes on (safe-panel.js)
+  // safe once closed: a run nobody watches any more goes on, its messages in the chat reopened
+  // after it (safe-panel.js)
   const panel = safePanel(vscode.window.createWebviewPanel(
     'clikeChat',
     'CLike Chat',
     vscode.ViewColumn.Beside,
     { enableScripts: true, retainContextWhenHidden: true }
-  ));
+  ), { successor: () => clikeChatPanel });
 
   clikeChatPanel = panel;
 
-  const originalPostMessage = safePost(panel.webview.postMessage.bind(panel.webview));
+  const originalPostMessage = panelPost(panel);
   // the run card's "now" line: what the handlers say while a command runs
-  let runObserver = null;
+  let feedReady = false;
   panel.webview.postMessage = (message, ...args) => {
-    try { if (runObserver) runObserver(message); } catch { /* best effort */ }
+    // the run's card follows its echoes, also those of a run started in a chat closed since
+    try { const feed = feedReady && activeRunFeed(); if (feed) feed.observe(message); } catch { /* best effort */ }
     try {
       if (
         message &&
         message.type === 'busy' &&
         message.on === false &&
-        clikeHarperBlockingRun &&
+        (clikeHarperBlockingRun || orphanRunActive()) &&
         message.force !== true
       ) {
         out.appendLine('[CLike][busy] suppressed premature busy=false during Harper blocking run');
@@ -6925,6 +6942,14 @@ async function cmdOpenChat(context) {
             out.appendLine('[CLike] models fetch failed: ' + (e?.message || String(e)));
             panel.webview.postMessage({ type: 'models', models: ['auto'] });
           }
+          // 5) A run started in a chat closed since (an /autopilot, an --fix loop) goes on: this chat
+          // follows it live (its messages and card come here) and stays busy until it ends
+          if (orphanRunActive()) {
+            const what = autopilotRun ? `/autopilot (now: ${autopilotRun.current || 'between steps'})` : 'a CLike run';
+            panel.webview.postMessage({ type: 'echo', message: `▶ ${what} started in the chat closed earlier is still running: its messages follow here. Stop it from the run card.` });
+            panel.webview.postMessage({ type: 'busy', on: true });
+            orphanRunFeed.render();
+          }
         } catch (e) {
           out.appendLine('[CLike] webview_ready handler crashed: ' + (e?.message || String(e)));
           // Minimal fallback so the webview is not left "empty"
@@ -7569,9 +7594,12 @@ async function cmdOpenChat(context) {
   // Every handler call, the nested ones of the --fix loops and the autopilot included, goes
   // through the run feed: the run card and the status bar follow the real steps.
   const runs = createRunFeed(panel, context, (m) => originalPostMessage(m));
-  activeRunFeed = runs;
-  runObserver = runs.observe;
-  panel.onDidDispose(() => { if (activeRunFeed === runs) activeRunFeed = null; });
+  chatRunFeed = runs;
+  feedReady = true;
+  panel.onDidDispose(() => {
+    if (chatRunFeed === runs) chatRunFeed = null;
+    if (runs.active()) orphanRunFeed = runs;
+  });
   // runs nobody watches (MCP, autopilot): never a modal question
   let unattendedRuns = 0;
   const handleWebviewMessage = (msg) => {
@@ -7582,7 +7610,7 @@ async function cmdOpenChat(context) {
 
   // Cockpit (side panel of the cockpit layout, autocompletion in every layout): its messages never
   // touch the busy state, a run in progress stays as it is.
-  const cockpit = createCockpitFeed(panel, context, runs);
+  const cockpit = createCockpitFeed(panel, context, { render: () => (activeRunFeed() || runs).render() });
   panel.webview.onDidReceiveMessage((msg) => {
     if (msg && cockpit.handles(msg.type)) return cockpit.handle(msg);
     const done = cockpit.track(msg && msg.type, handleWebviewMessage(msg));
