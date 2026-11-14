@@ -97,7 +97,9 @@ Runs as the vector store backing RAG persistence.
 - `DEV_FOLDER` — allowed root for eval/gate project roots (set from `CLIKE_PROJECTS_DIR`).
 - `CLIKE_EVAL_SANDBOX_URL` — eval sandbox endpoint (compose: `http://eval-sandbox:8090`; unset = in-process).
 - `CLIKE_EVAL_TOOLS_URL` — eval tools service (compose: `http://eval-tools:8091`; unset = tools cannot be installed).
-- `CLIKE_EVAL_KEEP_REQS` (3), `CLIKE_EVAL_MIN_FREE_GB` (10) — eval disk pruning in the sandbox volume.
+- `CLIKE_EVAL_KEEP_REQS` (3), `CLIKE_EVAL_MIN_FREE_GB` (10), `CLIKE_EVAL_PROJECT_RETENTION_DAYS` (7) — eval
+  disk pruning in the sandbox volume (see [auto-eval, Eval disk](auto-eval.md#eval-disk)).
+- `CLIKE_DISK_WARN_PERCENT` (80) — `docker/rebuild.sh` warns when the Podman machine disk is fuller.
 - `CLIKE_EVAL_TOOLS_STALE_DAYS` (30) — after how many days `/tools` and `rebuild.sh` remind you to update the eval tools; `CLIKE_EVAL_TOOLS_MAX_DOWNLOAD_MB` (1500) — size limit of a vendor archive.
 - `CLIKE_STATE_DIR` — gate integrity state (compose: `/app/runs/state`).
 - `CLIKE_EVAL_ALLOWED_ROOTS` — additional allowed roots (path-separator list).

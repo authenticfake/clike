@@ -582,11 +582,27 @@ except `kafkacat` on `linux-aarch64` (not published there).
 
 ## Eval disk
 
-Eval directories (composed workspaces, `node_modules`, venvs) are caches on the sandbox volume.
-Before an eval CLike keeps the directories of the 3 REQs of the project used last
-(`CLIKE_EVAL_KEEP_REQS`) and, when the volume has less than 10 GB free (`CLIKE_EVAL_MIN_FREE_GB`),
-removes the least recently used ones of any project; below 2 GB free the eval does not start
-(`EVAL_SANDBOX_EXHAUSTED`, with how to free the Podman disk). The npm cache is one per project,
+Eval directories (composed workspaces, `node_modules`, venvs, npm store) are caches on the sandbox
+volume: CLike rebuilds them when needed. Before an eval CLike:
+
+1. keeps the directories of the 3 REQs of the project used last (`CLIKE_EVAL_KEEP_REQS`);
+2. removes whole, caches included, the projects not evaluated for 7 days
+   (`CLIKE_EVAL_PROJECT_RETENTION_DAYS`, 0 keeps them);
+3. when the volume has less than 10 GB free (`CLIKE_EVAL_MIN_FREE_GB`), removes the least recently
+   used REQ directories of the other projects, then the other projects whole; the current project
+   always stays.
+
+Below 2 GB free the eval does not start (`EVAL_SANDBOX_EXHAUSTED`): the REQ is parked with the reason,
+no repair runs. The volume shares the Podman machine disk with the container images, which CLike does
+not remove: `docker/rebuild.sh` warns when that disk is more than 80% full
+(`CLIKE_DISK_WARN_PERCENT`) and prints what can be freed. To recover:
+
+```bash
+podman system df                 # images, containers, volumes and what is reclaimable
+podman image prune -a            # unused images (old builds, stopped projects)
+podman machine stop && podman machine set --disk-size 200 && podman machine start   # or enlarge it
+```
+then `/eval REQ-NNN --fix` on the parked REQ and `/autopilot`. The npm cache is one per project,
 shared by the REQ, its regression and its services.
 
 ## Gate warnings policy

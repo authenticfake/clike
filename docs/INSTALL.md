@@ -22,6 +22,11 @@ podman machine inspect | grep -i memory
 podman machine stop && podman machine set --memory 6144 && podman machine start
 ```
 
+The same VM disk holds the container images and the eval caches: give it room (100 GB or more for
+several projects) and watch it with `podman system df`. `docker/rebuild.sh` warns above 80%; when an
+eval stops with `EVAL_SANDBOX_EXHAUSTED` ("only N GB free"), free it with `podman image prune -a` or
+enlarge it (`podman machine set --disk-size <GB>`), see [Eval disk](auto-eval.md#eval-disk).
+
 ## 2. Configuration
 
 ```bash

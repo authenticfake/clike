@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -218,6 +219,11 @@ def preflight(cgroup_root: Path = Path("/sys/fs/cgroup"), proc_root: Path = Path
 _REQ_DIR = re.compile(r"^REQ-[\w-]+$")
 KEEP_REQ_DIRS = int(os.getenv("CLIKE_EVAL_KEEP_REQS", "3") or 3)
 MIN_FREE_GB = float(os.getenv("CLIKE_EVAL_MIN_FREE_GB", "10") or 10)
+# a project whose eval directory was not used for this many days is removed whole (its REQ
+# directories and its caches: venvs, npm store); 0 keeps them
+PROJECT_RETENTION_DAYS = float(os.getenv("CLIKE_EVAL_PROJECT_RETENTION_DAYS", "7") or 0)
+# volume-wide entries that are not a project (shared tool caches, scratch)
+_SHARED_ENTRIES = frozenset({".cache", ".stale", ".regression-baseline", "runs"})
 
 
 def _free_bytes(path: Path) -> int:
@@ -249,6 +255,10 @@ def prune_eval_dirs(
     of the REQs (48 GB for 13 REQs). They are rebuilt when needed, so CLike keeps the ``keep`` REQ
     directories of this project used last (and the current one), and when the volume has less
     than ``min_free_gb`` free, removes the least recently used ones of any project.
+    Projects not evaluated for ``CLIKE_EVAL_PROJECT_RETENTION_DAYS`` (7) are removed whole, caches
+    included, and so are the least recently used other projects when removing REQ directories did not
+    free enough (cdl-pipeline/lead-generation: 45 GB of caches of projects evaluated days before filled
+    the Podman disk and stopped the autopilot). The current project always stays.
     Only under CLIKE_EVAL_BASE_DIR (the sandbox volume), never a project's runs/.
     """
     import shutil
@@ -270,20 +280,40 @@ def prune_eval_dirs(
             return []
         return sorted(dirs, key=_last_used, reverse=True)  # most recent first
 
+    def other_projects() -> list:
+        try:
+            dirs = [p for p in root.iterdir() if p.is_dir() and p != project_dir and p.name not in _SHARED_ENTRIES]
+        except OSError:
+            return []
+        return sorted(dirs, key=_last_used)  # least recent first
+
     removed = []
     for stale in req_dirs(project_dir)[max(0, keep - (1 if current_req else 0)):]:
         remove(stale)
         removed.append(str(stale))
+    if PROJECT_RETENTION_DAYS > 0:
+        horizon = time.time() - PROJECT_RETENTION_DAYS * 86400
+        for project in other_projects():
+            if _last_used(project) < horizon:
+                remove(project)
+                removed.append(str(project))
     min_free = int(min_free_gb * 1024 ** 3)
     if 0 <= _free_bytes(root) < min_free:
         others = []
-        for project in (p for p in root.iterdir() if p.is_dir()):
+        for project in other_projects():
             others += req_dirs(project)
         for stale in sorted(others, key=_last_used):  # least recent first
             if _free_bytes(root) >= min_free:
                 break
             remove(stale)
             removed.append(str(stale))
+        # still short: whole other projects (their caches too), least recently used first
+        for project in other_projects():
+            if _free_bytes(root) >= min_free:
+                break
+            if project.exists():
+                remove(project)
+                removed.append(str(project))
     return removed
 
 
@@ -294,6 +324,7 @@ def disk_preflight(path: Path, min_free_gb: float = 2.0) -> Optional[str]:
         return None
     return (
         f"The eval volume has only {free / 1024 ** 3:.1f} GB free: installs and builds would fail with ENOSPC. "
-        "This is not a defect of the REQ. Free the Podman machine disk (`podman image prune -a`, `podman system df`) "
-        "and run again."
+        "This is not a defect of the REQ, and CLike already removed the eval caches it could (other projects, older "
+        "REQs). The rest of the disk is container images and volumes: see `podman system df`, remove unused images "
+        "with `podman image prune -a` (or enlarge the Podman machine disk), then run again."
     )

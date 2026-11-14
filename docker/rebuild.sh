@@ -104,4 +104,14 @@ podman exec "$orch" python -m eval_tools_cli status || true
 
 podman image prune -f >/dev/null
 podman system df | sed -n '1,2p'
+# The Podman machine disk holds the images and the eval volume: a full disk stops every eval
+# (EVAL_SANDBOX_EXHAUSTED). Warn early, with what can be freed.
+used=$(podman exec "${PROJECT}_eval-sandbox_1" df -P /var/clike-eval 2>/dev/null | awk 'NR==2 {gsub("%","",$5); print $5}')
+if [ -n "${used:-}" ] && [ "$used" -ge "${CLIKE_DISK_WARN_PERCENT:-80}" ]; then
+  echo "!!  the Podman machine disk is ${used}% full: evals stop below 2 GB free"
+  podman system df
+  echo "    free it: podman image prune -a   (unused images, incl. other projects' stopped ones)"
+  echo "             podman volume prune     (volumes no container uses)"
+  echo "    or enlarge it: podman machine stop && podman machine set --disk-size <GB> && podman machine start"
+fi
 echo "==> done"
