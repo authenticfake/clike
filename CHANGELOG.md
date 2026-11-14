@@ -35,6 +35,8 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- Closing the CLike chat no longer stops a running `/autopilot` or `--fix` loop: the run goes on and
+  its chat messages are dropped (before, "Webview is disposed" parked the REQ right after its KIT).
 - A promoted REQ's check that failed on the promoted tree before is called unstable only when it
   now fails with the same errors: a new error is the candidate's regression and blocks. Before, a
   REQ-002 test broken by a later REQ's name collision passed as "nondeterministic" and stayed broken in

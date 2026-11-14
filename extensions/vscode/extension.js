@@ -16,6 +16,7 @@ const {
 const { validateLocalMcpRequest } = require('./mcp-request-guard');
 const extensionMcp = require('./extension-mcp');
 const autopilot = require('./autopilot');
+const { safePanel, safePost } = require('./safe-panel');
 const { syncAgentSkills, lockedRootsEnv } = require('./agent-skills');
 const { extractSessionId, sessionToResume, rememberSession, resumeArgs } = require('./agent-sessions');
 const KIT_SESSIONS_KEY = 'clike.kitAgentSessions';
@@ -4402,16 +4403,17 @@ function createCockpitFeed(panel, context, runs = null) {
 
 async function cmdOpenChat(context) {
   out.appendLine(`cmdOpenChat ${context}`);
-  const panel = vscode.window.createWebviewPanel(
+  // safe once closed: a run nobody watches any more goes on (safe-panel.js)
+  const panel = safePanel(vscode.window.createWebviewPanel(
     'clikeChat',
     'CLike Chat',
     vscode.ViewColumn.Beside,
     { enableScripts: true, retainContextWhenHidden: true }
-  );
+  ));
 
   clikeChatPanel = panel;
 
-  const originalPostMessage = panel.webview.postMessage.bind(panel.webview);
+  const originalPostMessage = safePost(panel.webview.postMessage.bind(panel.webview));
   // the run card's "now" line: what the handlers say while a command runs
   let runObserver = null;
   panel.webview.postMessage = (message, ...args) => {
