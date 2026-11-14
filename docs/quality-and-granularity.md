@@ -7,7 +7,7 @@ cloud models and the local agents.
 
 ## 1. The REQ capacity profile
 
-`/plan` sizes the REQs on a profile (`clike.plan.capacityProfile`, default `auto`):
+`/plan` sizes the REQs on a profile (`clike.plan.capacityProfile`, default `C2`):
 
 | Profile | Executor | Unit of work | Budget |
 |---|---|---|---|
@@ -15,7 +15,8 @@ cloud models and the local agents.
 | **C2** | local coding agent (multi-turn, runs its own checks) | a vertical slice: API, data, UI and tests of the same capability in one REQ | 10–14 criteria, about 3–6k lines, up to 3 domains |
 | **C3** | long-running agent, or a cloud loop driven by CLike | an epic with an internal feature list | 5–15 features, each within the C2 size |
 
-`auto` chooses C2 with a local agent and C1 in the cloud. The plan never splits a capability by
+The default C2 fits KITs written by a coding agent, whatever runs `/plan`; choose C1 when the KITs
+run in the cloud. `auto` follows the executor of the `/plan` run: C2 with a local agent, C1 in the cloud. The plan never splits a capability by
 technical layer when the budget holds both layers, merges REQs that only add bookkeeping, and splits
 a unit above the budget. Every REQ of `plan.json` carries its `profile`.
 
@@ -122,7 +123,7 @@ with CLike, on measured pilots — is in [estimating with CLike](estimation-exam
 
 | Setting / command | Default | Effect |
 |---|---|---|
-| `clike.plan.capacityProfile` | `auto` | C1, C2 or C3 sizing of the plan |
+| `clike.plan.capacityProfile` | `C2` | C1, C2 or C3 sizing of the plan |
 | `clike.agentSkills.autoSync` | on | skills, rules and guard hook kept current before each local-agent run |
 | **CLike: Sync agent skills** | — | install the skills for the local agents now |
 | `clike.localAgent.resumeRepairs` | on | a repair resumes the KIT's agent session |

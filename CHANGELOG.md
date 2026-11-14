@@ -4,6 +4,20 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+### Changed
+
+- `clike.plan.capacityProfile` defaults to `C2` (REQs sized as vertical slices for a coding agent),
+  whatever executor runs `/plan`: `auto` followed the `/plan` executor, so a plan made in the cloud
+  sized REQs for one cloud call although the KITs ran on an agent. Choose `C1` when the KITs run in the cloud.
+
+### Fixed
+
+- `/idea` always writes the Technology Constraints rooted at `tech_constraints:` (validated on every
+  executor) and treats a stack the sources decide as a decision; the `TECH_CONSTRAINTS.yaml` that `/init`
+  writes is a plain placeholder; `/spec` stops with a clear message when no technology decision exists.
+  Before, the agent took the `/init` stub as an approved "no stack", `/spec` wrote nothing and `/plan`
+  produced REQs with no lane and no lane guides.
+
 ## [1.8.0] — 2026-11-14 — Verified before the eval
 
 ### Changed

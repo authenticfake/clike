@@ -1480,7 +1480,7 @@ async function buildHarperBody(phase, payload, projectRootUri, out) {
   // feature): the plan sizes REQs on it, the KIT of an epic runs feature by feature. "auto" lets
   // the orchestrator choose from the executor of the run.
   try {
-    const profile = String(vscode.workspace.getConfiguration('clike').get('plan.capacityProfile', 'auto') || 'auto').toUpperCase();
+    const profile = String(vscode.workspace.getConfiguration('clike').get('plan.capacityProfile', 'C2') || 'C2').toUpperCase();
     if (['C1', 'C2', 'C3'].includes(profile)) payload["capacityProfile"] = profile;
   } catch { /* settings unavailable: orchestrator default */ }
   // Cloud models see only the prompt: the code the phase builds on goes with it, chosen
