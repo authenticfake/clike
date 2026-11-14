@@ -760,6 +760,8 @@ class _BaselineCache:
         self.results: Dict[str, bool] = {}
         # check name -> when it last failed without any candidate, on any recent promoted state
         self.history: Dict[str, float] = {}
+        # check name -> the error lines of those failures (an unstable check fails the same way)
+        self.history_errors: Dict[str, List[str]] = {}
         # check name -> its normalized error lines on the promoted tree (eval_failures.error_keys)
         self.errors: Dict[str, List[str]] = {}
         # check name -> {"at", "errors"}: it failed with a candidate, then passed on a re-run of the
@@ -781,14 +783,29 @@ class _BaselineCache:
         history = {str(k): float(v) for k, v in (data.get("history") or {}).items()}
         history.update({str(k): at for k, v in (data.get("results") or {}).items() if v})
         self.history = {k: v for k, v in history.items() if time.time() - v <= self.HISTORY_AGE_S}
+        history_errors = {str(k): list(v) for k, v in (data.get("history_errors") or {}).items()}
+        history_errors.update({str(k): list(v) for k, v in (data.get("errors") or {}).items() if (data.get("results") or {}).get(k)})
+        self.history_errors = {k: v for k, v in history_errors.items() if k in self.history}
         if data.get("digest") == digest and time.time() - at <= self.MAX_AGE_S:
             self.results = {str(k): bool(v) for k, v in (data.get("results") or {}).items()}
             self.errors = {str(k): list(v) for k, v in (data.get("errors") or {}).items()}
             self.at = at or self.at  # the age counts from the first result
 
-    def failed_before(self, check: str) -> Optional[float]:
-        """When ``check`` last failed without a candidate on an earlier promoted state (recent)."""
-        return self.history.get(check)
+    def failed_before(self, check: str, excerpt: Optional[str] = None) -> Optional[float]:
+        """When ``check`` last failed without a candidate on an earlier promoted state (recent), if
+        this failure shows only errors it showed then; None otherwise. cdl-pipeline REQ-006: a REQ-002
+        test failed there for a stale migration pin, then the candidate broke it with a name collision,
+        and "it failed before" made the new breakage a warning that stayed in the product."""
+        at = self.history.get(check)
+        if at is None or excerpt is None:
+            return at
+        known, keys = set(self.history_errors.get(check) or []), eval_failures.error_keys(excerpt or "")
+        if not keys:
+            # nothing to compare now: unstable only if it showed no error line then either
+            return None if known else at
+        if any(key not in known for key in keys):
+            return None  # an error it did not show on the promoted tree: the candidate's
+        return at
 
     def result(self, check: str) -> Optional[bool]:
         """True: it fails without the candidate; False: it passes; None: not known yet."""
@@ -832,9 +849,10 @@ class _BaselineCache:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_suffix(".tmp")
             history = {**self.history, **{k: self.at for k, v in self.results.items() if v}}
+            history_errors = {**self.history_errors, **{k: self.errors[k] for k, v in self.results.items() if v and k in self.errors}}
             tmp.write_text(
                 json.dumps({"digest": self.digest, "at": self.at, "results": self.results, "history": history,
-                            "errors": self.errors, "flaky": self.flaky}),
+                            "history_errors": history_errors, "errors": self.errors, "flaky": self.flaky}),
                 encoding="utf-8",
             )
             tmp.replace(self.path)
@@ -4763,7 +4781,7 @@ class EvalRunner:
                 case.excerpt = f"{note}\n\n{case.excerpt or ''}"
                 log.info("regression %s::%s known unstable (nondeterministic before)", other, case.name)
                 continue
-            failed_at = baseline.failed_before(case.name)
+            failed_at = baseline.failed_before(case.name, case.excerpt)
             if case.name not in failing_without and failed_at and not case.name.startswith("env::"):
                 # it passes on the promoted tree now, but it failed there without any candidate on a
                 # recent promoted state: the check is unstable, its result proves nothing about this

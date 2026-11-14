@@ -11,6 +11,7 @@ from unittest.mock import patch
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "orchestrator"))
 
+import eval_failures
 import eval_runner  # noqa: E402
 from eval_runner import EvalRunner  # noqa: E402
 
@@ -141,6 +142,25 @@ class BaselineCacheTests(_RegressionProject):
             self.assertIsNone(again.known_flaky("test:integration", "E   assert 409 == 404"))
             self.assertIsNone(again.known_flaky("other", "Error: Timeout 1ms exceeded"))
             self.assertIsNone(again.known_flaky("test:integration", "no recognizable error line"))
+
+    def test_a_check_that_failed_before_for_another_reason_is_a_regression_not_unstable(self):
+        # cdl-pipeline REQ-006: a REQ-002 test had failed on the promoted tree for a stale migration
+        # pin; REQ-006 then broke it with a name collision, and "it failed before" made that a warning
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = eval_runner._BaselineCache(Path(tmp) / "REQ-002.json", "d1")
+            cache.store({"postgres-integration": True},
+                        {"postgres-integration": eval_failures.error_keys("E   AssertionError: assert 'req003_registry' == 'req002_runs'")})
+            later = eval_runner._BaselineCache(Path(tmp) / "REQ-002.json", "d2")  # a later promoted state
+            self.assertIsNotNone(later.failed_before("postgres-integration"))
+            # the same error again: unstable; a new one: the candidate's
+            self.assertIsNotNone(later.failed_before(
+                "postgres-integration", "E   AssertionError: assert 'req003_registry' == 'req002_runs'"))
+            self.assertIsNone(later.failed_before(
+                "postgres-integration", 'E   AssertionError: {"code": "registration_collision", "message": "Feature data_policies collision."}'))
+            self.assertIsNone(later.failed_before("postgres-integration", "no recognizable error line"))
+            # no error line then nor now (an exit code only): unstable, as before
+            cache.store({"unit": True}, {"unit": []})
+            self.assertIsNotNone(eval_runner._BaselineCache(Path(tmp) / "REQ-002.json", "d3").failed_before("unit", "exit 1"))
 
     def test_no_baseline_is_kept_inside_the_project(self):
         self._root.stop()

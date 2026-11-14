@@ -35,6 +35,10 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- A promoted REQ's check that failed on the promoted tree before is called unstable only when it
+  now fails with the same errors: a new error is the candidate's regression and blocks. Before, a
+  REQ-002 test broken by a later REQ's name collision passed as "nondeterministic" and stayed broken in
+  the product. KIT self-check: synthetic entries a test registers take names no real one will take.
 - Review of the release's changes, end to end on every executor: the launcher/manifest of the
   promoted application is looked for only in the canonical `src/` and the project root (not in other
   KITs, `node_modules` or venvs); cloud `/idea` accepts further files in `docs/harper/inputs/` like the
