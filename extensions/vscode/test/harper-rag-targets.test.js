@@ -7,6 +7,7 @@ test('every document phase indexes its canonical artifact and its inputs or comp
   assert.ok(harperRagTargets('idea').files.includes('docs/harper/IDEA.md'));
   assert.ok(harperRagTargets('idea').dirs.includes('docs/inputs'));
   assert.ok(harperRagTargets('idea').dirs.includes('docs/reference'));
+  assert.ok(harperRagTargets('idea').dirs.includes('docs/harper/inputs'));
   assert.ok(harperRagTargets('spec').files.includes('docs/harper/SPEC.md'));
   assert.ok(harperRagTargets('spec').dirs.includes('docs/harper/ux'));
   assert.ok(harperRagTargets('spec').dirs.includes('docs/harper/bmad/spec'));

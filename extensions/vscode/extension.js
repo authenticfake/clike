@@ -990,10 +990,26 @@ const DOCUMENT_PHASE_CANDIDATE_OUTPUTS = {
   plan: ['docs/harper/PLAN.md', 'docs/harper/plan.json'],
 };
 const DOCUMENT_PHASE_CANDIDATE_DIRS = {
-  idea: [],
+  idea: ['docs/harper/inputs'],
   spec: [],
   plan: ['docs/harper/lane-guides'],
 };
+
+// Files under docs/inputs and docs/reference (the sources /idea reads besides the attachments).
+function countProjectSourceFiles(root) {
+  let count = 0;
+  const walk = (dir, depth) => {
+    let entries = [];
+    try { entries = fsSync.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (e.name.startsWith('.')) continue;
+      if (e.isDirectory() && depth < 6) walk(path.join(dir, e.name), depth + 1);
+      else if (e.isFile()) count += 1;
+    }
+  };
+  for (const rel of ['docs/inputs', 'docs/reference']) walk(path.join(root, ...rel.split('/')), 0);
+  return count;
+}
 
 async function collectDocumentPhaseCandidateFileArtifacts(
   workspaceRootUri,
@@ -5220,8 +5236,11 @@ async function cmdOpenChat(context) {
             let specPresent = false;
             let planPresent = false;
             let planOlderThanSpec = false;
+            let sourceFileCount = 0;
             if (wsrootPre) {
-              if (phase === 'spec') {
+              if (phase === 'idea') {
+                sourceFileCount = countProjectSourceFiles(wsrootPre.fsPath);
+              } else if (phase === 'spec') {
                 try {
                   await vscode.workspace.fs.stat(vscode.Uri.joinPath(wsrootPre, 'docs', 'harper', 'IDEA.md'));
                   ideaPresent = true;
@@ -5242,6 +5261,7 @@ async function cmdOpenChat(context) {
             const preflight = evaluateDocumentPhaseInputPreflight({
               phase,
               attachmentCount: Array.isArray(attachments) ? attachments.length : 0,
+              sourceFileCount,
               ideaPresent,
               specPresent,
               methodology: msg.methodology,

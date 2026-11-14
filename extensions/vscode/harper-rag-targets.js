@@ -9,7 +9,7 @@ const LANE_GUIDES = ['docs/harper/lane-guides'];
 const TARGETS = {
   idea: {
     files: ['docs/harper/IDEA.md', 'docs/harper/TECH_CONSTRAINTS.yaml'],
-    dirs: [...INPUTS, 'docs/harper/bmad/idea'],
+    dirs: [...INPUTS, 'docs/harper/inputs', 'docs/harper/bmad/idea'],
   },
   spec: {
     files: ['docs/harper/SPEC.md', 'docs/harper/TECH_CONSTRAINTS.yaml'],

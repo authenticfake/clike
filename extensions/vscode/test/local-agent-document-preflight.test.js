@@ -13,7 +13,12 @@ test('/idea is blocked when there are no current-run attachments', () => {
   });
   assert.strictEqual(result.ok, false);
   assert.strictEqual(result.code, 'IDEA_REQUIRES_CURRENT_ATTACHMENT');
-  assert.match(result.message, /without at least one attached source file/i);
+  assert.match(result.message, /without a source/i);
+});
+
+test('/idea runs without attachments when the project has sources in docs/inputs or docs/reference', () => {
+  assert.strictEqual(evaluateDocumentPhaseInputPreflight({ phase: 'idea', attachmentCount: 0, sourceFileCount: 3 }).ok, true);
+  assert.strictEqual(evaluateDocumentPhaseInputPreflight({ phase: 'idea', attachmentCount: 0, sourceFileCount: 0 }).ok, false);
 });
 
 test('/idea is allowed with one current-run attachment', () => {

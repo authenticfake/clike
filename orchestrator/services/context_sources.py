@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 import yaml
 
 from services.document_text import CONVERTIBLE_EXTENSIONS, extract_document_text
+from services.idea_inputs import INPUTS_DIR, READ_BY_LATER_PHASES
 
 log = logging.getLogger(__name__)
 
@@ -47,6 +48,11 @@ ROLE_GUIDANCE: Dict[str, str] = {
     "domain_glossary": "domain terms and their meaning; use them consistently",
     "example_output": "examples of expected outputs or reports; match their structure",
     "reference": "background material; use where relevant",
+    "project_inputs": "the structured project inputs /idea derived from the requirements sources: "
+    "requirements, edge cases, journeys, test scenarios and decisions with stable IDs; build on them and "
+    "keep their IDs in what you write (the raw sources follow when the budget allows)",
+    "previous_inputs": "your previous project inputs: keep every ID with its meaning, add new IDs after "
+    "the last one, mark removed ones withdrawn",
     PREVIOUS_RELEASE_ROLE: "requirements or background of an earlier release, already delivered: "
     "explains what the project is, never a new requirement",
     "existing_code": "code that already exists (this project or one to integrate with): follow its "
@@ -181,6 +187,14 @@ def resolve_context_sources(
     total = 0
     root = workspace_root.resolve()
     sources = list(manifest["sources"])
+    # The project inputs /idea writes (docs/harper/inputs/), whatever context.yaml declares: read
+    # first by /spec, /plan and /extend (the budget goes to them before the raw documents), and by
+    # /idea after its sources, as the previous version whose IDs stay stable.
+    sources = (
+        [{"path": p, "role": "project_inputs", "phases": ["spec", "plan", "extend"], "note": ""} for p in READ_BY_LATER_PHASES]
+        + sources
+        + [{"path": f"{INPUTS_DIR}/*.md", "role": "previous_inputs", "phases": ["idea"], "note": ""}]
+    )
     if release_number(release):
         # the folders of the targeted release are its inputs, declared in context.yaml or not
         rel_name = f"v{release_number(release)}"

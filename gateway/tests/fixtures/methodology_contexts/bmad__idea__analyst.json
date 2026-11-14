@@ -10,7 +10,13 @@
     ],
     "authority": "canonical-harper-artifact-with-companion-context",
     "canonical_outputs": [
-      "docs/harper/IDEA.md"
+      "docs/harper/IDEA.md",
+      "docs/harper/inputs/REQUIREMENTS.md",
+      "docs/harper/inputs/EDGE_CASES.md",
+      "docs/harper/inputs/JOURNEYS.md",
+      "docs/harper/inputs/TEST_SCENARIOS.md",
+      "docs/harper/inputs/DECISIONS.md",
+      "docs/harper/inputs/COVERAGE.md"
     ],
     "companion_only": false,
     "conflict_resolution": "canonical-wins",

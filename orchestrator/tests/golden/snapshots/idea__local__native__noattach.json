@@ -4,7 +4,7 @@
     "diffs": [],
     "echo": "",
     "errors": [
-      "Cannot run /idea without at least one attached source file. Attach an IDEA/source document and retry."
+      "Cannot run /idea without a source: attach a document or put the requirements in docs/inputs/ (docs/reference/ for background) and retry."
     ],
     "execution": {
       "phase_supported": true,

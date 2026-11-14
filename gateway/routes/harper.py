@@ -96,7 +96,8 @@ _FINALIZE_FILE_HEADER_RE = re.compile(
 
 # --- Model parameters per phase (output budget & style) ----------------------
 PHASE_MODEL_PARAMS = {
-    "idea":                 {"max_tokens": 33500, "temperature": 0.2, "top_p": 1.0},
+    # IDEA.md and the six project inputs (docs/harper/inputs/): up to ~120k characters
+    "idea":                 {"max_tokens": 64000, "temperature": 0.2, "top_p": 1.0},
     "spec":                 {"max_tokens": 39500, "temperature": 0.2, "top_p": 1.0},
     "plan":                 {"max_tokens": 55000, "temperature": 0.2, "top_p": 0.8},  # raise to 6500 only if many lanes
     "kit":                  {"max_tokens": 48000, "temperature": 0.1, "top_p": 1.0},
@@ -714,7 +715,7 @@ def _methodology_file_header_allow_patterns(methodology_context: dict | None) ->
     }
     allowed_prefixes = allowed_prefixes_by_role.get((phase_name, agent_name), ())
     native_prefixes_by_phase = {
-        "idea": ("docs/harper/IDEA.md",),
+        "idea": ("docs/harper/IDEA.md", "docs/harper/inputs/"),
         "spec": ("docs/harper/SPEC.md",),
         "plan": ("docs/harper/PLAN.md", "docs/harper/plan.json", "docs/harper/lane-guides/"),
         "finalize": (
@@ -2363,8 +2364,11 @@ async def run(req: HarperRunRequest,  request: Request):
     timeout_sec = min(900.0, 180.0 + (eff_max / 1000.0) * 9.0)
 
     # Give /plan and /finalize extra headroom because they emit long structured artifacts.
-    if phase in {"plan", "spec", "idea", "finalize"}:
+    if phase in {"plan", "spec", "finalize"}:
         timeout_sec = max(timeout_sec, 1000.0)
+    elif phase == "idea":
+        # IDEA.md and the six project inputs: a long output
+        timeout_sec = min(1800.0, max(1200.0, 180.0 + (eff_max / 1000.0) * 15.0))
     elif phase in {"kit", "acceptance"}:
         # a larger output budget and a deeper effort take longer: up to 30 minutes
         timeout_sec = min(1800.0, max(920.0, 180.0 + (eff_max / 1000.0) * 12.0))

@@ -6,6 +6,11 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Changed
 
+- `/idea` writes the project inputs next to IDEA.md (`docs/harper/inputs/`: requirements with IDs and
+  sources, edge cases, journeys, test scenarios and fixtures, open decisions, a coverage map of every
+  source section), on every executor with the same rules and checks; `/spec`, `/plan` and `/extend`
+  read them before the raw documents, and a new `/idea` keeps their IDs. `/idea` also runs on the
+  documents in `docs/inputs/` without an attachment. The cloud output budget of `/idea` is 64k tokens.
 - Local agent KIT (Codex, Claude Code): the agent runs all the KIT's checks in the real eval sandbox
   before it finishes (databases, browsers, registry installs its own sandbox may lack) and writes the
   acceptance coverage from that run, so the first eval passes instead of starting a repair. Up to
@@ -28,6 +33,10 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- The regression of a promoted REQ runs the promoted version of its tests also in a project with no
+  commit yet: without commit history the modification times decide, so a test a later REQ
+  reconciled and promoted no longer loses to the stale copy in the REQ's KIT (every later candidate
+  had to reconcile it again).
 - `/eval REQ --accept` releases the REQ from the autopilot's parked REQs: its files do not change, so
   the next `/autopilot` kept it parked although the developer had resolved it.
 - The checks a local agent runs in the eval sandbox while it writes a KIT no longer take the

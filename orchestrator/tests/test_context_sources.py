@@ -300,3 +300,33 @@ def test_targeted_release_folders_are_read_even_when_not_declared(tmp_path):
     assert roles["docs/inputs/v2/IDEA_EXTEND_R2.md"] == "requirements"
     assert roles["docs/reference/v2/blueprint.md"] == "reference"
     assert "docs/inputs/v3/next.md" not in roles
+
+
+def test_the_project_inputs_idea_writes_come_first_for_spec_and_plan_and_last_for_idea(tmp_path: Path):
+    # /idea derives docs/harper/inputs/ from the sources: /spec and /plan read them before the raw
+    # documents (the budget goes to them first); /idea reads them after its sources, to keep the IDs
+    from services.idea_inputs import INPUT_PATHS
+
+    (tmp_path / ".clike").mkdir()
+    (tmp_path / ".clike" / "context.yaml").write_text(  # a project manifest that does not name them
+        "sources:\n  - path: docs/inputs/**\n    role: requirements\n    phases: [idea, spec, plan]\n"
+    )
+    (tmp_path / "docs" / "inputs").mkdir(parents=True)
+    (tmp_path / "docs" / "inputs" / "brief.md").write_text("raw requirements\n")
+    for path in INPUT_PATHS:
+        (tmp_path / path).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / path).write_text(f"# {path}\n| FR-A-01 | x |\n")
+
+    for phase in ("spec", "plan"):
+        items = resolve_context_sources(tmp_path, phase)["items"]
+        paths = [item["path"] for item in items]
+        assert paths[:5] == [p for p in INPUT_PATHS if not p.endswith("COVERAGE.md")], phase
+        assert "docs/harper/inputs/COVERAGE.md" not in paths
+        assert paths[-1] == "docs/inputs/brief.md"
+        assert {item["role"] for item in items[:5]} == {"project_inputs"}
+
+    items = resolve_context_sources(tmp_path, "idea")["items"]
+    assert items[0]["path"] == "docs/inputs/brief.md"
+    assert [i["path"] for i in items[1:]] == sorted(INPUT_PATHS)  # every file, COVERAGE included
+    assert {i["role"] for i in items[1:]} == {"previous_inputs"}
+    assert resolve_context_sources(tmp_path, "kit")["items"] == []

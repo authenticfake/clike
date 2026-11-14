@@ -245,6 +245,21 @@ def validateLaneGuideMarkdown(content: str, *, path: str = "docs/harper/lane-gui
     return _result(path, failures, "Lane guide failed canonical Harper structure validation.")
 
 
+# The project inputs /idea writes next to IDEA.md (orchestrator services/idea_inputs.py): the same
+# check the local-agent normalisation runs (services/local_agent/document.py), for the cloud path.
+_INPUT_ID_RE = re.compile(r"\b(?:FR|NFR|EC|E2E|TS|D)-(?:[A-Z]{2,4}-)?\d+\b")
+
+
+def validateProjectInputsMarkdown(content: str, *, path: str) -> Dict[str, Any]:
+    failures: List[str] = []
+    text = str(content or "")
+    if len(text.strip()) < 200:
+        failures.append("inputs_missing_or_empty")
+    elif not path.endswith("/COVERAGE.md") and not _INPUT_ID_RE.search(text):
+        failures.append("inputs_without_ids")
+    return _result(path, failures, "Project input failed Harper structure validation (content and IDs).")
+
+
 def validate_canonical_harper_artifact(path: str, content: str, *, evidence_text: str = "") -> Optional[Dict[str, Any]]:
     normalized = str(path or "").replace("\\", "/").lstrip("./").lstrip("/")
     bare_to_canonical = {
@@ -264,6 +279,8 @@ def validate_canonical_harper_artifact(path: str, content: str, *, evidence_text
         return validatePlanJson(content, path=normalized)
     if re.fullmatch(r"docs/harper/lane-guides/[^/]+\.md", normalized):
         return validateLaneGuideMarkdown(content, path=normalized)
+    if re.fullmatch(r"docs/harper/inputs/[^/]+\.md", normalized):
+        return validateProjectInputsMarkdown(content, path=normalized)
     return None
 
 

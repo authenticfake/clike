@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+from services.idea_inputs import INPUT_PATHS, idea_inputs_section  # noqa: E402
 from services.local_agent_package import build_document_phase_local_agent_package
 
 
@@ -82,8 +83,10 @@ def test_idea_package_shape_and_outputs():
     assert agent["phase"] == "idea"
     assert agent["req_id"] == "SOLUTION"
     assert agent["package_id"].endswith(":SOLUTION:idea")
-    assert agent["allowed_write_roots"] == ["docs/harper/IDEA.md"]
-    assert agent["expected_outputs"]["always"] == ["docs/harper/IDEA.md"]
+    assert agent["allowed_write_roots"] == ["docs/harper/IDEA.md", "docs/harper/inputs/"]
+    assert agent["expected_outputs"]["always"] == ["docs/harper/IDEA.md", *INPUT_PATHS]
+    # the project inputs: same rules as the cloud prompt
+    assert idea_inputs_section() in agent["prompt_content"]
     assert agent["context_path"] == "runs/idea/docs/AGENT_IDEA_CONTEXT.json"
     assert agent["prompt_path"] == "runs/idea/docs/AGENT_IDEA_PROMPT.md"
     assert agent["prompt_content"]
@@ -128,7 +131,7 @@ def test_plan_package_outputs_include_plan_json_and_lane_guides():
 def test_document_phases_block_unrelated_docs_harper_writes():
     # Allowed write roots are narrow: only the exact phase-owned outputs.
     for phase, allowed in (
-        ("idea", {"docs/harper/IDEA.md"}),
+        ("idea", {"docs/harper/IDEA.md", "docs/harper/inputs/"}),
         ("spec", {"docs/harper/SPEC.md"}),
     ):
         agent = _package(phase)["local_agent"]
@@ -217,7 +220,7 @@ def test_attachment_manifest_lists_multiple_attachments():
     assert "runs/idea/attachments/notes.txt" in prompt
     assert "Read every workspace_path" in prompt
     assert "Do NOT read original_path" in prompt
-    assert "ONLY source of truth for /idea" in prompt
+    assert "only sources of truth for /idea" in prompt
 
 
 def test_attachment_manifest_empty_when_no_attachments():
@@ -327,12 +330,32 @@ def test_idea_without_attachments_raises():
             payload={"runId": "doc-run"},
             execution_policy=_execution_policy(),
         )
-    assert "without at least one attached source file" in str(exc.value)
+    assert "Cannot run /idea without a source" in str(exc.value)
+
+
+def test_idea_reads_the_project_context_sources_when_nothing_is_attached():
+    # requirements in docs/inputs are a source like an attachment (the gateway already accepted them)
+    import pytest
+
+    package = build_document_phase_local_agent_package(
+        phase="idea",
+        payload={"runId": "doc-run", "context_sources": {"items": [
+            {"path": "docs/inputs/requirements.docx", "role": "requirements", "kind": "converted", "text": "x"},
+        ]}},
+        execution_policy=_execution_policy(),
+    )
+    assert package["local_agent"]["expected_outputs"]["always"][0] == "docs/harper/IDEA.md"
+    for skipped in ([], [{"path": "docs/inputs/a.bin", "kind": "skipped"}]):
+        with pytest.raises(ValueError):
+            build_document_phase_local_agent_package(
+                phase="idea", payload={"runId": "doc-run", "context_sources": {"items": skipped}},
+                execution_policy=_execution_policy(),
+            )
 
 
 def test_idea_prompt_forbids_stale_and_idea_variants():
     prompt = _package("idea")["local_agent"]["prompt_content"]
-    assert "ONLY source of truth for /idea" in prompt
+    assert "only sources of truth for /idea" in prompt
     assert "ORI.IDEA.md" in prompt
     assert "IDEA* variant" in prompt
     assert "overwrite target only" in prompt

@@ -80,11 +80,29 @@ Full BMAD command semantics are documented in `docs/integrations/bmad/COMMANDS.m
 ## Harper command semantics
 
 ### `/idea`
-Formalizes or updates `docs/harper/IDEA.md`.
+Formalizes or updates `docs/harper/IDEA.md` and writes the **project inputs** next to it, in
+`docs/harper/inputs/`:
 
-**Attachments are the source of truth.** `/idea` requires **at least one attached
-file** (use `📎 Attach → + Workspace files` or `+ External files`). You can attach
-**multiple files at once**.
+| File | Content |
+|---|---|
+| `REQUIREMENTS.md` | functional and non-functional requirements by area, IDs `FR-<AREA>-nn` / `NFR-<AREA>-nn`, with the source of each |
+| `EDGE_CASES.md` | edge cases `EC-<AREA>-nn`: situation, concrete expected result, requirements they test (derived with a checklist: files and encodings, identity and dedup, normalisation, dates and locales, states, concurrency and idempotency, authorisation and tenancy, external systems, limits, privacy and audit, recovery) |
+| `JOURNEYS.md` | end-to-end journeys `E2E-nn` across the requirements |
+| `TEST_SCENARIOS.md` | test strategy per layer, faked external systems, golden fixtures |
+| `DECISIONS.md` | open decisions `D-nn` with a proposed default (an assumption), constraints, data sources |
+| `COVERAGE.md` | every section of every source mapped to the IDs that cover it |
+
+The requirements arrive as the customer gives them (any format): `/idea` makes them complete and
+addressable, never invents facts (what the sources leave open becomes a decision) and never slices
+the work (that is `/plan`). `/spec`, `/plan` and `/idea --extend` read these inputs first, before the
+raw documents. Re-running `/idea` keeps every ID and lists the changes at the top of each file.
+Same files and checks with a local agent and in the cloud: each input must exist, have content and
+carry IDs.
+
+**Sources.** The attached files and the project context sources (`docs/inputs/`, `docs/reference/`,
+or what `.clike/context.yaml` declares). `/idea` needs at least one of them: an attachment (use
+`📎 Attach → + Workspace files` or `+ External files`, several at once) or a document in
+`docs/inputs/`.
 
 Attachment handling (via local agent):
 - Each file up to **10 MB** is inlined and **materialized** into

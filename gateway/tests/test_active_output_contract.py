@@ -78,11 +78,21 @@ def _kit_file_requirements(req_id: str = "REQ-001"):
     }
 
 
-def test_native_idea_cloud_contract_requires_only_idea():
+INPUTS = [
+    "docs/harper/inputs/REQUIREMENTS.md",
+    "docs/harper/inputs/EDGE_CASES.md",
+    "docs/harper/inputs/JOURNEYS.md",
+    "docs/harper/inputs/TEST_SCENARIOS.md",
+    "docs/harper/inputs/DECISIONS.md",
+    "docs/harper/inputs/COVERAGE.md",
+]
+
+
+def test_native_idea_cloud_contract_requires_idea_and_the_project_inputs():
     contract = build_active_output_contract(phase="idea", runner="cloud")
 
     assert contract["methodology"] == "native_clike"
-    assert contract["required_outputs"] == ["docs/harper/IDEA.md"]
+    assert contract["required_outputs"] == ["docs/harper/IDEA.md", *INPUTS]
     assert "docs/harper/bmad/idea/BRIEF.md" not in contract["required_outputs"]
 
 
