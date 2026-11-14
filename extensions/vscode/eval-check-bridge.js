@@ -1,5 +1,5 @@
 'use strict';
-// Eval checks for a local agent while it repairs a REQ: `node .clike/bin/eval-check.mjs <check>...`
+// Eval checks for a local agent while it writes or repairs a REQ's KIT: `node .clike/bin/eval-check.mjs [<check>...]`
 // re-runs those checks of the canonical eval in the real CLike sandbox (composed workspace,
 // provisioned variables, services of other REQs) and prints their errors, so the agent iterates
 // until they pass inside one session instead of one attempt per auto-eval cycle.
@@ -17,8 +17,8 @@ const ERRORS_PER_CHECK = 6000;
 
 const HELPER_SOURCE = `#!/usr/bin/env node
 // CLike eval check — re-runs checks of this REQ's canonical eval in the CLike eval sandbox.
-// Usage: node .clike/bin/eval-check.mjs <check> [<check>...]   (exit 0: all passed)\n// regression::<REQ-ID> re-runs that promoted REQ's checks with this candidate overlaid.
-// Served by the CLike extension only while it runs a repair; written and removed by CLike.
+// Usage: node .clike/bin/eval-check.mjs [<check>...]   (no check: all of them; exit 0: all passed)\n// regression::<REQ-ID> re-runs that promoted REQ's checks with this candidate overlaid.
+// Served by the CLike extension only while it runs a KIT or a repair; written and removed by CLike.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,7 +28,7 @@ const checks = process.argv.slice(2);
 const beat = path.join(dir, '${HEARTBEAT}');
 const alive = () => { try { return Date.now() - fs.statSync(beat).mtimeMs < 15000; } catch { return false; } };
 if (!alive()) {
-  console.error('CLike is not serving eval checks now (it does during a CLike repair run).');
+  console.error('CLike is not serving eval checks now (it does while it runs a KIT or a repair).');
   process.exit(2);
 }
 // A run stopped by the agent's command timeout is resumed: the same checks wait for the same run.

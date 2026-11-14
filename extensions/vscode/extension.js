@@ -1235,12 +1235,15 @@ async function executeLocalAgentPackage({
       log,
       targets: Array.isArray(evalCheck.targets) ? evalCheck.targets : [],
       // a repair's changes to existing (locked) tests are governed after the run: the agent is told
-      ...(phaseForAgent === 'kit' && reqForAgent ? { testRoot: `runs/kit/${reqForAgent}/test` } : {}),
+      // (a KIT being written has no locked tests yet)
+      ...(phaseForAgent === 'kit' && reqForAgent && evalCheck.stage !== 'kit' ? { testRoot: `runs/kit/${reqForAgent}/test` } : {}),
     });
     launcherArgs = agentArgsForEvalCheck(selectedExecutor, launcherArgs);
     panel.webview.postMessage({
       type: 'echo',
-      message: `🔁 ${executorLabel} can re-run the failed checks in the CLike eval sandbox during this repair (up to ${evalCheck.max_runs || 8} runs).`,
+      message: evalCheck.stage === 'kit'
+        ? `🔁 ${executorLabel} runs the KIT's checks in the CLike eval sandbox before finishing (up to ${evalCheck.max_runs} runs), so the first eval passes.`
+        : `🔁 ${executorLabel} can re-run the failed checks in the CLike eval sandbox during this repair (up to ${evalCheck.max_runs || 8} runs).`,
     });
   }
 
@@ -2194,6 +2197,7 @@ function cfg() {
     autoEvalMaxCycles: c.get('autoEval.maxCycles', 2),
     autoEvalExtraCyclesOnProgress: c.get('autoEval.extraCyclesOnProgress', 3),
     autoEvalAgentEvalChecks: c.get('autoEval.agentEvalChecks', 8),
+    kitAgentEvalChecks: c.get('kit.agentEvalChecks', 4),
     evalToolsInstall: c.get('evalTools.install', 'ask'),
     finalizeVerify: c.get('finalize.verify', true),
     finalizeVerifyMaxCycles: c.get('finalize.verifyMaxCycles', 3),
@@ -5450,7 +5454,12 @@ async function cmdOpenChat(context) {
               ...(requestedKitPhases ? { phases: requestedKitPhases } : {}),
               // a manual /kit --repair carries the latest failures like auto-eval (the cloud sees only the prompt)
               ...(msg.autoEvalRepair ? { repair: msg.autoEvalRepair } : (msg.repair ? { repair: manualRepairRequest(toFsPath(wsroot), targetReqId) || true } : {})),
-              ...(msg.acceptanceFirst ? { acceptance_first: true } : {})
+              ...(msg.acceptanceFirst ? { acceptance_first: true } : {}),
+              // a local agent writing the KIT runs its checks in the real eval sandbox before it
+              // finishes (a repair asks with its failures instead); the cloud ignores it
+              ...(!msg.autoEvalRepair && !msg.repair && Number(cfg().kitAgentEvalChecks ?? 4) > 0
+                ? { eval_check: true, eval_check_max_runs: Number(cfg().kitAgentEvalChecks ?? 4) }
+                : {})
             };
           }
           if (phase === 'finalize' && cfg().finalizeVerify) {

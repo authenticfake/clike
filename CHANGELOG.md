@@ -4,6 +4,16 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+### Changed
+
+- Local agent KIT (Codex, Claude Code): the agent runs all the KIT's checks in the real eval sandbox
+  before it finishes (databases, browsers, registry installs its own sandbox may lack) and writes the
+  acceptance coverage from that run, so the first eval passes instead of starting a repair. Up to
+  `clike.kit.agentEvalChecks` runs (default 4, 0 = off); the full eval still decides.
+- KIT instructions, all executors: a check the agent's own environment cannot run does not make a
+  criterion partial (the eval runs it), and install commands of the checks work on a clean machine
+  with registry access (no offline-only flags: the eval starts with empty package caches).
+
 ### Fixed
 
 - BMAD `/plan`: the architect (default role) writes the plan; the pm is now a companion-only role

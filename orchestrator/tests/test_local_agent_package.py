@@ -535,3 +535,52 @@ def test_manifest_declared_local_agent_pairs_are_propagated_to_contexts_and_prom
         for skill_id in expected:
             assert skill_id in package["local_agent"]["prompt_content"]
     assert "release-narrative" in package["local_agent"]["prompt_content"]
+
+
+def test_kit_local_agent_verifies_in_the_eval_sandbox_before_finishing():
+    # cdl-pipeline REQ-001: the agent's own sandbox had no database, browser or registry, so 5
+    # criteria stayed partial and the first eval started a repair; asked, the KIT runs its checks
+    # in the eval sandbox before it finishes.
+    methodology_context = resolve_methodology_context(phase="kit", methodology="bmad", agent="developer")
+    payload = _payload(methodology_context)
+    payload["kit"] = {"targets": ["REQ-001"], "eval_check": True, "eval_check_max_runs": 3}
+    package = build_kit_local_agent_package(payload=payload, req_id="REQ-001", execution_policy=_execution_policy())
+    local = package["local_agent"]
+    assert local["eval_check"] == {
+        "command": "node .clike/bin/eval-check.mjs", "max_runs": 3, "targets": [], "stage": "kit",
+        "profile": "runs/kit/REQ-001/ci/LTC.json",
+    }
+    assert local["kit_stage"] == "kit" and local["repair"] is False
+    prompt = local["prompt_content"]
+    assert "VERIFY IN THE EVAL SANDBOX:" in prompt
+    assert "`node .clike/bin/eval-check.mjs` (no arguments) runs every check" in prompt
+    assert "(at most 3 runs)" in prompt
+    assert "A check your own sandbox could not run is not a reason for partial" in prompt
+
+    # not asked (setting 0, cloud, older extension): the KIT is as before
+    payload["kit"] = {"targets": ["REQ-001"]}
+    package = build_kit_local_agent_package(payload=payload, req_id="REQ-001", execution_policy=_execution_policy())
+    assert "eval_check" not in package["local_agent"]
+    assert "eval-check.mjs" not in package["local_agent"]["prompt_content"]
+
+
+def test_kit_eval_check_is_not_offered_to_the_acceptance_stage_nor_doubled_in_a_repair():
+    from services.local_agent.common import _kit_repair_context
+    from services.local_agent.kit import _kit_eval_check, _kit_stage
+
+    tests_only = {"kit": {"phases": ["acceptance"], "eval_check": True}}
+    assert _kit_eval_check(tests_only["kit"], {}) is None
+    assert "eval-check" not in "\n".join(_kit_stage("REQ-001", tests_only, {})[2])
+
+    locked = {"kit": {"acceptance_first": True, "eval_check": True, "eval_check_max_runs": 2}}
+    stage, _title, rules = _kit_stage("REQ-001", locked, {})
+    assert stage == "code_after_locked_acceptance"
+    assert any("(at most 2 runs)" in rule for rule in rules)
+
+    repair = {"kit": {"eval_check": True, "repair": {"cycle": 1, "max_cycles": 2, "eval_check": True,
+                                                      "failures": [{"name": "unit", "code": 1}]}}}
+    context = _kit_repair_context("REQ-001", repair)
+    assert _kit_eval_check(repair["kit"], context) is None
+    stage, _title, rules = _kit_stage("REQ-001", repair, context)
+    assert stage == "repair"
+    assert sum("eval-check.mjs" in rule for rule in rules) == 1
