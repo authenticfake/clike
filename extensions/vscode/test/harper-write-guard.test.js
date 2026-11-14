@@ -188,3 +188,31 @@ test('extension declares Harper blocking state at module scope', () => {
 
   assert.match(source, /let\s+clikeHarperBlockingRun\s*=\s*false\s*;/);
 });
+
+test('canonical IDEA validator: the Technology Constraints YAML must be rooted at tech_constraints', () => {
+  // lead-generation: the stack written as a "proposal" under other keys; /spec wrote no TECH_CONSTRAINTS.yaml
+  const unrooted = GOOD_IDEA.replace(/```yaml[\s\S]*?```/, '```yaml\ncanonical_source: docs/harper/TECH_CONSTRAINTS.yaml\nsource_proposal:\n  status: proposed_not_activated\n```');
+  assert.notEqual(unrooted, GOOD_IDEA);
+  const result = validateIdeaMarkdown(unrooted);
+  assert.equal(result.ok, false);
+  assert.ok(result.failed_checks.includes('technology_constraints_yaml_without_tech_constraints_root'));
+});
+
+test('the /init TECH_CONSTRAINTS.yaml is a placeholder, never a technology decision', () => {
+  const Module = require('module');
+  const load = Module._load;
+  Module._load = function (request, ...rest) {
+    if (request === 'vscode') return { window: { createOutputChannel: () => ({ appendLine() {} }) }, workspace: { getConfiguration: () => ({ get: (_k, d) => d }) }, Uri: {} };
+    return load.call(this, request, ...rest);
+  };
+  try {
+    const { techConstraintsDecided } = require('../utility');
+    const placeholder = fs.readFileSync(path.join(__dirname, '..', 'templates', 'harper-init', 'docs', 'harper', 'TECH_CONSTRAINTS.yaml'), 'utf8');
+    assert.equal(techConstraintsDecided(placeholder), false);
+    assert.equal(techConstraintsDecided('version: 1.0.0\nprofiles: []\ncapabilities: []\n'), false);  // the old stub
+    assert.equal(techConstraintsDecided(''), false);
+    assert.equal(techConstraintsDecided('tech_constraints:\n  version: 1\n'), true);
+  } finally {
+    Module._load = load;
+  }
+});

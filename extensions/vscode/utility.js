@@ -435,6 +435,11 @@ function extractTechConstraintsYaml(ideaText) {
   return null;
 }
 
+/** True when the text holds a technology decision: a YAML document rooted at `tech_constraints:`. */
+function techConstraintsDecided(text) {
+  return /^tech_constraints\s*:/m.test(String(text || ''));
+}
+
 async function saveTechConstraintsYaml(docRootUri, yamlText) {
   if (!yamlText) return null;
   const uri = vscode.Uri.joinPath(docRootUri, 'TECH_CONSTRAINTS.yaml');
@@ -1442,6 +1447,18 @@ async function buildHarperBody(phase, payload, projectRootUri, out) {
     }
   } catch (err) {
     log('[CLike] saveTechConstraintsYaml failed:', err);
+  }
+  // /spec with no technology decision: IDEA.md has no block rooted at `tech_constraints:` and
+  // TECH_CONSTRAINTS.yaml is still the /init placeholder, so SPEC, PLAN and the KITs would have no
+  // stack (lead-generation: the plan's lanes came out `not_applicable`). A companion-only role keeps it.
+  const uxOnly = String(payload.methodology || '').toLowerCase() === 'bmad' && String(payload.agent || '').toLowerCase() === 'ux';
+  if (phase === 'spec' && !uxOnly) {
+    const tech = await loadMd(_docRoot, 'TECH_CONSTRAINTS.yaml').catch(() => null);
+    if (!techConstraintsDecided(tech)) {
+      throw new Error('/spec needs the Technology Constraints: docs/harper/IDEA.md has no YAML block rooted at ' +
+        '`tech_constraints:` under "## Technology Constraints" and docs/harper/TECH_CONSTRAINTS.yaml is still the /init ' +
+        'placeholder. Run /idea again (it writes the block), or add the block to IDEA.md, then run /spec.');
+    }
   }
   // A companion-only /plan role (BMAD pm) derives its documents from the approved plan: the cloud
   // model sees only the prompt, so the plan goes with it.
@@ -3059,6 +3076,7 @@ async function collectFinalizeCandidateFiles(projectRootUri, opts = {}) {
 
 module.exports = {
   buildHarperBody,
+  techConstraintsDecided,
   replacePlanStatusSections,
   extractUserMessages,
   defaultCoreForPhase,

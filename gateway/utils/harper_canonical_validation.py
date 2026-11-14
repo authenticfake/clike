@@ -90,6 +90,12 @@ def _looks_like_fenced_yaml(text: str) -> bool:
     return re.search(r"(?im)^```ya?ml\s*$", text) is not None
 
 
+def _has_tech_constraints_root(section: str) -> bool:
+    """The fenced YAML of `## Technology Constraints` is rooted at `tech_constraints:` (the key /spec reads)."""
+    match = re.search(r"(?ims)^```ya?ml\s*$(.*?)^```", section)
+    return bool(match and re.search(r"(?m)^tech_constraints\s*:", match.group(1)))
+
+
 def _section_after(text: str, heading: str) -> str:
     match = re.search(rf"(?im)^\s*{re.escape(heading)}\s*$", text)
     if not match:
@@ -145,6 +151,9 @@ def validateIdeaMarkdown(
     tech_section = _section_after(text, "## Technology Constraints") or _section_after(text, "## Technology Constraints (SPEC-ready)")
     if not _looks_like_fenced_yaml(tech_section):
         failures.append("missing_fenced_yaml_after_technology_constraints")
+    elif not _has_tech_constraints_root(tech_section):
+        # /spec writes this block to TECH_CONSTRAINTS.yaml: without the root key nothing is written
+        failures.append("technology_constraints_yaml_without_tech_constraints_root")
 
     if not re.search(r"(?im)^\s*##\s+.*success metrics", text):
         failures.append("missing_success_metrics_section")
