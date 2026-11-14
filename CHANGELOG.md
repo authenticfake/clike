@@ -4,6 +4,8 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.8.0] — 2026-11-14 — Verified before the eval
+
 ### Changed
 
 - `/idea` writes the project inputs next to IDEA.md (`docs/harper/inputs/`: requirements with IDs and
@@ -11,12 +13,24 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   source section), on every executor with the same rules and checks; `/spec`, `/plan` and `/extend`
   read them before the raw documents, and a new `/idea` keeps their IDs. `/idea` also runs on the
   documents in `docs/inputs/` without an attachment. The cloud output budget of `/idea` is 64k tokens.
-- Local agent KIT (Codex, Claude Code): the agent runs all the KIT's checks in the real eval sandbox
+- Local agent KIT: the agent runs all the KIT's checks in the real eval sandbox
   before it finishes (databases, browsers, registry installs its own sandbox may lack) and writes the
   acceptance coverage from that run, so the first eval passes instead of starting a repair. Up to
   `clike.kit.agentEvalChecks` runs (default 6, 0 = off); the full eval still decides.
-  Its last run adds the regression of the promoted REQs, so a change that breaks one of them (a
-  shared file, a contract, a migration) is fixed in the KIT, not in a repair after the eval.
+  Once its checks first pass, the regression of the promoted REQs runs in that same run, whatever
+  runs the agent has left, and two runs beyond the limit are kept for it: a change that breaks a
+  promoted REQ (a shared file, a contract, a migration, a new dependency's warnings) is fixed in the
+  KIT, not in a repair after the eval.
+- KIT instructions: a REQ's test helpers, fake servers and support modules go in its own test
+  directories, never in one that holds a promoted REQ's tests (a file there changes how those tests
+  are collected after promotion).
+- Telemetry: evals (full, targeted, check re-runs) and gates are recorded in `.clike/telemetry` and in
+  the telemetry portal with their duration, status, check counts and sandbox timings; the portal sums
+  their time per phase and per REQ, outside providers and models. An agent's own runs while it writes a
+  KIT stay part of the KIT's time.
+- A chat reopened while a run goes on (an `/autopilot`, an `--fix` loop started in a chat closed
+  since) follows it live: it says the run is going on, receives its messages and run card, stays busy
+  until it ends and can stop it from the card.
 - KIT instructions, all executors: a check the agent's own environment cannot run does not make a
   criterion partial (the eval runs it), and install commands of the checks work on a clean machine
   with registry access (no offline-only flags: the eval starts with empty package caches).
@@ -35,8 +49,12 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
-- Closing the CLike chat no longer stops a running `/autopilot` or `--fix` loop: the run goes on and
-  its chat messages are dropped (before, "Webview is disposed" parked the REQ right after its KIT).
+- Closing the CLike chat no longer stops a running `/autopilot` or `--fix` loop: the run goes on
+  (before, "Webview is disposed" parked the REQ right after its KIT).
+- An eval after a rebuild of the eval sandbox no longer blocks on a work tree the previous container
+  left: a file it built under its private security label could not be deleted by the new one
+  (`env::prepare-workspace`: Permission denied); what cannot be removed is moved aside. A regression
+  workspace CLike could not prepare now stops the `--fix` loop with no repair, like the REQ's own.
 - A promoted REQ's check that failed on the promoted tree before is called unstable only when it
   now fails with the same errors: a new error is the candidate's regression and blocks. Before, a
   REQ-002 test broken by a later REQ's name collision passed as "nondeterministic" and stayed broken in
