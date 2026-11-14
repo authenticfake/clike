@@ -454,13 +454,21 @@ def _required_output_blockers(project_root: Path, req_id: Optional[str]) -> List
 
         role = str(item.get("role") or "").strip()
 
-        if role == "execution_area_runtime_manifest" and not _has_runtime_manifest_under_candidate(req_root):
+        # A REQ that extends an application already promoted finds its launcher and manifest in the
+        # canonical tree: promotion adds the candidate's files and never removes them, so the solution
+        # stays runnable without a copy in every KIT (cdl-pipeline REQ-005, REQ-006: a repair dropped
+        # the copied __main__.py and a whole cycle went to putting it back).
+        if role == "execution_area_runtime_manifest" and not (
+            _has_runtime_manifest_under_candidate(req_root) or _has_runtime_manifest_under_candidate(project_root)
+        ):
             blockers.append({
                 "role": role,
                 "reason": "FILE_REQUIREMENTS requires a promotion-ready runtime manifest for a runnable execution area, but no ecosystem-native manifest was found outside ci/.",
             })
 
-        if role in {"solution_composition_root", "module_launcher"} and not _has_composition_root_under_candidate(req_root):
+        if role in {"solution_composition_root", "module_launcher"} and not (
+            _has_composition_root_under_candidate(req_root) or _has_composition_root_under_candidate(project_root)
+        ):
             blockers.append({
                 "role": role,
                 "reason": "FILE_REQUIREMENTS requires a runnable composition root/launcher, but no cross-language composition entry was found under candidate src/. " + _COMPOSITION_ROOT_HINT,

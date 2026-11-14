@@ -310,6 +310,24 @@ class EvalRegressionTests(_RegressionProject):
         (kit / "src" / "other_cli" / "__main__.py").write_text("print('run')\n")
         self.assertEqual(_required_output_blockers(self.proj, "REQ-003"), [])
 
+    def test_a_req_extending_a_promoted_application_needs_no_copy_of_its_launcher_or_manifest(self):
+        # cdl-pipeline REQ-005/006: the launcher and pyproject were in the canonical tree; the KIT had
+        # copies, a repair dropped them and a cycle went to putting them back
+        from routes.routes_eval import _required_output_blockers
+
+        kit = self.proj / "runs" / "kit" / "REQ-003"
+        requirements = {"required_outputs": [
+            {"role": "module_launcher", "required": True},
+            {"role": "execution_area_runtime_manifest", "required": True},
+        ]}
+        (kit / "ci" / "FILE_REQUIREMENTS.json").write_text(json.dumps(requirements))
+        self.assertEqual(sorted(b["role"] for b in _required_output_blockers(self.proj, "REQ-003")),
+                         ["execution_area_runtime_manifest", "module_launcher"])
+        (self.proj / "src" / "app").mkdir(parents=True, exist_ok=True)
+        (self.proj / "src" / "app" / "__main__.py").write_text("print('run')\n")
+        (self.proj / "src" / "pyproject.toml").write_text("[project]\nname = 'app'\n")
+        self.assertEqual(_required_output_blockers(self.proj, "REQ-003"), [])
+
     def test_application_factory_is_a_launcher_and_eval_reports_missing_ones(self):
         kit = self.proj / "runs" / "kit" / "REQ-003"
         requirements = {"required_outputs": [{"role": "module_launcher", "required": True}]}

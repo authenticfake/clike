@@ -33,6 +33,9 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- A REQ that extends an application already promoted no longer needs a copy of its launcher and
+  runtime manifest in the KIT: the canonical tree has them (repairs dropped the copy and a cycle went
+  to putting it back).
 - The regression of a promoted REQ runs the promoted version of its tests also in a project with no
   commit yet or when one first commit recorded both copies: the modification times decide then, so a test a later REQ
   reconciled and promoted no longer loses to the stale copy in the REQ's KIT (every later candidate
