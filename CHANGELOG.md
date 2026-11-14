@@ -4,6 +4,8 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.8.2] — 2026-11-14 — Clean runs, fewer repairs
+
 ### Fixed
 
 - Processes a check starts and detaches into a group or session of their own (a test launcher's servers, a
