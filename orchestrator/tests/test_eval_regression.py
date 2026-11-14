@@ -442,6 +442,30 @@ class PromotedKitCompositionTests(_RegressionProject):
         self.assertEqual((work / "conftest.py").read_text(), "REQ001 = 1\n")
         self.assertEqual((work / "test_pricing.py").read_text(), "from pricing import price\nassert price() == 12\n")
 
+    def test_without_commits_the_promoted_version_of_a_reconciled_test_wins_by_modification_time(self):
+        # cdl-pipeline: a project with no commit yet; REQ-003 reconciled REQ-001's migration test and
+        # promoted it, and every later regression still ran the copy in REQ-001's KIT
+        self._promoted("REQ-001", "REQ-004")
+        (self.proj / "src" / "pricing.py").write_text("def price():\n    return 12\n\ndef discount():\n    return 1\n")
+        (self.proj / "test").mkdir(exist_ok=True)
+        promoted = self.proj / "test" / "test_pricing.py"
+        promoted.write_text("from pricing import price\nassert price() == 12\n")
+        stale = self.proj / "runs" / "kit" / "REQ-001" / "test" / "test_pricing.py"
+        os.utime(stale, (1_700_000_000, 1_700_000_000))
+        os.utime(promoted, (1_700_100_000, 1_700_100_000))
+        kit = self.proj / "runs" / "kit" / "REQ-002"
+        (kit / "test" / "test_checkout.py").write_text("from checkout import total\nassert total(2) == 23\n")
+
+        body = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        self.assertIn("regression::REQ-001::unit", [c["name"] for c in body["cases"] if c["passed"]], body)
+        work = self.proj / "runs" / "eval" / "REQ-002" / "regression" / "REQ-001" / "work" / "REQ-001" / "test"
+        self.assertEqual((work / "test_pricing.py").read_text(), "from pricing import price\nassert price() == 12\n")
+
+        # the KIT copy modified after the promoted one stays the KIT's (the developer changed it)
+        os.utime(stale, (1_700_200_000, 1_700_200_000))
+        again = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        self.assertNotIn("regression::REQ-001::unit", [c["name"] for c in again["cases"] if c["passed"]])
+
     def test_the_promoted_version_of_a_test_gets_the_helpers_it_imports(self):
         # the reconciled test promotion delivered imports a helper that sits at the canonical test root
         self._promoted("REQ-001", "REQ-004")

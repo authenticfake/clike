@@ -1879,7 +1879,7 @@ class EvalRunner:
                 target.mkdir(parents=True, exist_ok=True)
                 continue
             if canonical is not None and rel.as_posix() not in kit_only and self._canonical_is_newer(
-                item, canonical / rel, history / rel if history is not None else None
+                item, canonical / rel, history / rel if history is not None else None, by_mtime=take_canonical
             ):
                 if take_canonical:
                     target.parent.mkdir(parents=True, exist_ok=True)
@@ -2064,16 +2064,30 @@ class EvalRunner:
                 cache[key] = None
         return cache[key]
 
-    def _canonical_is_newer(self, kit_file: Path, canonical_file: Path, history_file: Optional[Path] = None) -> bool:
+    def _canonical_is_newer(
+        self, kit_file: Path, canonical_file: Path, history_file: Optional[Path] = None, by_mtime: bool = False
+    ) -> bool:
         """True when ``canonical_file`` differs from the KIT copy and was committed after it
-        (``history_file``: the KIT file in the project, when ``kit_file`` is a copy of it)."""
+        (``history_file``: the KIT file in the project, when ``kit_file`` is a copy of it).
+        ``by_mtime``: without commit history, the modification times decide (the promoted tests of a
+        regression); otherwise the KIT stays the source of truth."""
         try:
             if not canonical_file.is_file() or canonical_file.read_bytes() == kit_file.read_bytes():
                 return False
         except OSError:
             return False
         canonical_time, kit_time = self._commit_time(canonical_file), self._commit_time(history_file or kit_file)
-        return canonical_time is not None and kit_time is not None and canonical_time > kit_time
+        if canonical_time is not None and kit_time is not None:
+            return canonical_time > kit_time
+        if not by_mtime:
+            return False
+        # no commit history for one of them (a repository with no commits yet, an untracked file):
+        # the files' own modification times (cdl-pipeline: no commit, so the test REQ-003 reconciled
+        # and promoted lost to REQ-001's stale KIT copy in every later regression)
+        try:
+            return canonical_file.stat().st_mtime > (history_file or kit_file).stat().st_mtime
+        except OSError:
+            return False
 
     def _prepare_eval_overlay_workspace(
         self,
