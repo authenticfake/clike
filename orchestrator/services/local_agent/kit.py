@@ -31,6 +31,7 @@ from services.local_agent.common import (
     _ensure_selected_capability_context,
     _extract_capability_manifest,
     _extract_plan_json,
+    _extract_plan_reqs,
     _extract_req_dependencies,
     _extract_req_from_plan,
     _kit_repair_context,
@@ -192,14 +193,26 @@ def _agent_context_view(
 _EVAL_CHECK_COMMAND = "node .clike/bin/eval-check.mjs"
 
 
-def _kit_eval_check(kit_options: Dict[str, Any], repair_context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def _promoted_req_ids(payload: Dict[str, Any], req_id: str) -> List[str]:
+    """The promoted REQs (plan status done) other than this one, in plan order: the regression set."""
+    return [
+        str(r.get("id")) for r in _extract_plan_reqs(_extract_plan_json(payload))
+        if r.get("id") and str(r.get("id")) != req_id and str(r.get("status") or "").strip().lower() == "done"
+    ]
+
+
+def _kit_eval_check(
+    kit_options: Dict[str, Any], repair_context: Dict[str, Any], promoted: Optional[List[str]] = None
+) -> Optional[Dict[str, Any]]:
     """The eval checks a local agent runs in the real eval sandbox before it finishes a KIT (the
-    extension serves them, eval-check-bridge.js); a repair gets its own with the failed checks."""
+    extension serves them, eval-check-bridge.js); a repair gets its own with the failed checks.
+    ``promoted``: the REQs whose regression the last run adds."""
     if not kit_options.get("eval_check") or (isinstance(repair_context, dict) and repair_context.get("repair")):
         return None
     if [str(p).strip().lower() for p in (kit_options.get("phases") or [])] == ["acceptance"]:
         return None  # tests only: they are meant to fail until the code exists
-    return {"command": _EVAL_CHECK_COMMAND, "max_runs": int(kit_options.get("eval_check_max_runs") or 6), "targets": [], "stage": "kit"}
+    return {"command": _EVAL_CHECK_COMMAND, "max_runs": int(kit_options.get("eval_check_max_runs") or 6), "targets": [],
+            "stage": "kit", "regression": list(promoted or [])}
 
 
 def kit_eval_check_rules(eval_check: Dict[str, Any]) -> List[str]:
@@ -213,6 +226,14 @@ def kit_eval_check_rules(eval_check: Dict[str, Any]) -> List[str]:
         "`... <check> <check>` re-runs only those checks." + EVAL_CHECK_TIMEOUT_NOTE),
         ("Write docs/ACCEPTANCE.json from that run: a criterion is done when its blocking checks passed in the eval sandbox. "
          "A check your own sandbox could not run is not a reason for partial; partial / missing means work left in the code."),
+        *([(
+            "Last, once your checks pass, run once `" + eval_check["command"] + " "
+            + " ".join(f"regression::{r}" for r in eval_check["regression"])
+            + "`: your checks plus the regression of the promoted REQs with your KIT overlaid, as the eval runs it "
+            "(a few minutes more). A failure there is a promoted REQ your change breaks (a shared file, a contract, a "
+            "migration): fix your code, or the shared file keeping what that REQ put there; never weaken their tests. "
+            "A failure the result marks non-blocking is not yours to fix."
+        )] if eval_check.get("regression") else []),
     ]
 
 
@@ -224,7 +245,7 @@ def _kit_stage(req_id: str, payload: Dict[str, Any], repair_context: Dict[str, A
         return "acceptance", "ACCEPTANCE STAGE — tests first", acceptance_stage_rules(req_id)
     if kit_options.get("acceptance_first"):
         locked = [f"runs/kit/{req_id}/test/", f"runs/kit/{req_id}/ci/LTC.json"]
-        eval_check = _kit_eval_check(kit_options, repair_context)
+        eval_check = _kit_eval_check(kit_options, repair_context, _promoted_req_ids(payload, req_id))
         return "code_after_locked_acceptance", "ACCEPTANCE-FIRST — implement against the locked tests", [
             *acceptance_first_code_rules(req_id), f"Locked: {', '.join(locked)} (already in the workspace).",
             *(kit_eval_check_rules(eval_check) if eval_check else [])]
@@ -271,7 +292,7 @@ def _kit_stage(req_id: str, payload: Dict[str, Any], repair_context: Dict[str, A
         ]
         cycle = f" — cycle {auto_eval.get('cycle')} of {auto_eval.get('max_cycles')}" if auto_eval.get("cycle") else ""
         return "repair", f"AUTO-EVAL REPAIR{cycle}", rules
-    eval_check = _kit_eval_check(kit_options, repair_context)
+    eval_check = _kit_eval_check(kit_options, repair_context, _promoted_req_ids(payload, req_id))
     return "kit", ("VERIFY IN THE EVAL SANDBOX" if eval_check else ""), (kit_eval_check_rules(eval_check) if eval_check else [])
 
 
@@ -635,7 +656,9 @@ def build_kit_local_agent_package(
     )
 
     repair_eval_check = (repair_context.get("auto_eval") or {}).get("eval_check") if isinstance(repair_context.get("auto_eval"), dict) else None
-    package_eval_check = repair_eval_check or _kit_eval_check(payload.get("kit") if isinstance(payload.get("kit"), dict) else {}, repair_context)
+    package_eval_check = repair_eval_check or _kit_eval_check(
+        payload.get("kit") if isinstance(payload.get("kit"), dict) else {}, repair_context, _promoted_req_ids(payload, req_id)
+    )
 
     context_path = f"runs/kit/{req_id}/docs/AGENT_EXECUTION_CONTEXT.json"
     prompt_path = f"runs/kit/{req_id}/docs/AGENT_PROMPT.md"

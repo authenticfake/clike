@@ -15,6 +15,8 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   before it finishes (databases, browsers, registry installs its own sandbox may lack) and writes the
   acceptance coverage from that run, so the first eval passes instead of starting a repair. Up to
   `clike.kit.agentEvalChecks` runs (default 6, 0 = off); the full eval still decides.
+  Its last run adds the regression of the promoted REQs, so a change that breaks one of them (a
+  shared file, a contract, a migration) is fixed in the KIT, not in a repair after the eval.
 - KIT instructions, all executors: a check the agent's own environment cannot run does not make a
   criterion partial (the eval runs it), and install commands of the checks work on a clean machine
   with registry access (no offline-only flags: the eval starts with empty package caches).

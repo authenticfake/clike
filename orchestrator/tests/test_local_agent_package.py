@@ -546,7 +546,7 @@ def test_kit_local_agent_verifies_in_the_eval_sandbox_before_finishing():
     payload["kit"] = {"targets": ["REQ-001"], "eval_check": True, "eval_check_max_runs": 3}
     package = build_kit_local_agent_package(payload=payload, req_id="REQ-001", execution_policy=_execution_policy())
     local = package["local_agent"]
-    assert local["eval_check"] == {
+    assert {k: v for k, v in local["eval_check"].items() if k != "regression"} == {
         "command": "node .clike/bin/eval-check.mjs", "max_runs": 3, "targets": [], "stage": "kit",
         "profile": "runs/kit/REQ-001/ci/LTC.json",
     }
@@ -591,3 +591,24 @@ def test_kit_options_schema_keeps_the_eval_check_request():
 
     kit = HarperKitOptions(targets=["REQ-002"], eval_check=True, eval_check_max_runs=4).model_dump(exclude_none=True)
     assert (kit["eval_check"], kit["eval_check_max_runs"]) == (True, 4)
+
+
+
+def test_the_kit_last_run_adds_the_regression_of_the_promoted_reqs():
+    # cdl-pipeline REQ-006: a shared file broke REQ-002 and only the eval found it (one repair)
+    from services.local_agent.kit import _kit_eval_check, kit_eval_check_rules, _kit_stage
+
+    plan = {"reqs": [
+        {"id": "REQ-001", "status": "done"}, {"id": "REQ-002", "status": "done"},
+        {"id": "REQ-003", "status": "in_progress"}, {"id": "REQ-004", "status": "open"},
+    ]}
+    payload = {"kit": {"eval_check": True}, "core_blobs": {"plan.json": json.dumps(plan)}}
+    _stage, _title, rules = _kit_stage("REQ-003", payload, {})
+    text = "\n".join(rules)
+    assert "`node .clike/bin/eval-check.mjs regression::REQ-001 regression::REQ-002`" in text
+    assert "never weaken their tests" in text
+    # the first REQ has no regression: no such rule
+    first = {"kit": {"eval_check": True}, "core_blobs": {"plan.json": json.dumps({"reqs": [{"id": "REQ-001", "status": "in_progress"}]})}}
+    assert "regression::" not in "\n".join(_kit_stage("REQ-001", first, {})[2])
+    assert _kit_eval_check({"eval_check": True}, {}, ["REQ-001"])["regression"] == ["REQ-001"]
+    assert all("regression::" not in r for r in kit_eval_check_rules(_kit_eval_check({"eval_check": True}, {}, [])))

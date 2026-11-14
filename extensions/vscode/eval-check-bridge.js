@@ -177,7 +177,7 @@ function startEvalCheckBridge({ workspaceRoot, runChecks, maxRuns = 8, pollMs = 
       fs.rmSync(requestPath, { force: true });
       if (!/^[\w-]{1,64}$/.test(id)) return;
       let result;
-      const checks = (Array.isArray(request?.checks) ? request.checks : []).map(String).filter((c) => CHECK_NAME.test(c)).slice(0, 20);
+      const checks = (Array.isArray(request?.checks) ? request.checks : []).map(String).filter((c) => CHECK_NAME.test(c)).slice(0, 60);  // a KIT's last run names every promoted REQ
       if (!request) {
         result = { status: 'ERROR', error: 'invalid request' };
       } else if (runs >= maxRuns) {
