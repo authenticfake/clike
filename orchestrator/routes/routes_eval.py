@@ -16,7 +16,7 @@ from pydantic import BaseModel
 import httpx
 
 from eval_runner import EvalCase, EvalReport, EvalRunner, eval_progress, report_from_dict, report_to_dict
-from services import eval_verdicts
+from services import eval_telemetry, eval_verdicts
 import eval_tools
 from sandbox_resources import SANDBOX_EXHAUSTED_REASON
 from utils.safe_paths import UnsafePathError, is_within_any, resolve_within, validate_req_id
@@ -674,6 +674,7 @@ async def eval_run(
     project_name: Optional[str] = Query(default=None),
     payload: Optional[EvalRunRequest] = Body(default=None),
 ):
+    started = time.monotonic()
     args = _merge_eval_args(
         profile_q=profile,
         project_root_q=project_root,
@@ -783,6 +784,9 @@ async def eval_run(
         payload["regression_scope"] = args.regression_reqs
         payload["partial"] = True
         payload["promotable"] = False
+    if not agent_check:  # an agent's own runs are part of its KIT's time
+        scope = "checks" if args.checks else "targeted" if targeted else "full"
+        eval_telemetry.record(prj, args.project_name, "eval", payload, started, scope)
     return payload
 
 
@@ -798,6 +802,7 @@ async def gate_check(
     project_name: Optional[str] = Query(default=None),
     payload: Optional[GateCheckRequest] = Body(default=None),
 ):
+    started = time.monotonic()
     args = _merge_gate_args(
         profile_q=profile,
         project_root_q=project_root,
@@ -920,7 +925,7 @@ async def gate_check(
     else:
         reason_code = f"GATE_BLOCKED_STATUS_{rep.status}"
 
-    return {
+    result = {
         "gate": hard_gate,
         "status": effective_status,
         "raw_eval_status": rep.status,
@@ -951,6 +956,8 @@ async def gate_check(
         "strict_warnings": strict,
         "cases": [_case_payload(c) for c in rep.cases],
     }
+    eval_telemetry.record(prj, args.project_name, "gate", result, started, "gate")
+    return result
 
 
 class AcceptanceLockRequest(BaseModel):

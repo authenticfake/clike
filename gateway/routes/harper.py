@@ -1359,9 +1359,13 @@ def _write_telemetry(project_id: str, record: dict) -> None:
     except Exception as e:
         log.warning("telemetry retention failed: %s", e)
 
+_TELEMETRY_EXECUTIONS = {"local_agent", "eval_sandbox"}
+
+
 class LocalAgentTelemetry(BaseModel):
-    """A Harper phase run by a local agent (Claude Code / Codex): no provider call went through the
-    gateway, so the orchestrator reports the run here for the telemetry portal."""
+    """A run no provider call of the gateway saw, reported by the orchestrator for the telemetry
+    portal: a Harper phase run by a local agent (Claude Code / Codex), or an eval / gate run in the
+    eval sandbox (execution `eval_sandbox`: no model, its time and outcome)."""
 
     project_id: str
     run_id: Optional[str] = None
@@ -1374,12 +1378,17 @@ class LocalAgentTelemetry(BaseModel):
     duration_ms: Optional[float] = None
     executor: Optional[str] = None
     req_id: Optional[str] = None
+    execution: Optional[str] = None
+    # an eval / gate run: status, scope, check counts, sandbox timings (scalars only)
+    outcome: Dict[str, Any] = Field(default_factory=dict)
 
 
 @router.post("/telemetry")
 def record_local_agent_telemetry(item: LocalAgentTelemetry) -> Dict[str, Any]:
     usage = {k: v for k, v in item.usage.items() if isinstance(v, (int, float)) and not isinstance(v, bool)}
     pricing = {k: v for k, v in item.pricing.items() if isinstance(v, (int, float, str)) and not isinstance(v, bool)}
+    outcome = {k: v for k, v in item.outcome.items() if isinstance(v, (int, float, str, bool)) or v is None}
+    execution = item.execution if item.execution in _TELEMETRY_EXECUTIONS else "local_agent"
     _write_telemetry(item.project_id, {
         "project_id": item.project_id,
         "run_id": item.run_id,
@@ -1391,8 +1400,9 @@ def record_local_agent_telemetry(item: LocalAgentTelemetry) -> Dict[str, Any]:
         "files_len": item.files_len,
         "duration_ms": item.duration_ms,
         "req_id": (item.req_id or "").strip() or None,
-        "execution": "local_agent",
+        "execution": execution,
         "executor": item.executor or item.provider,
+        **({"outcome": outcome} if outcome else {}),
         "timestamp": time.time(),
     })
     return {"ok": True}

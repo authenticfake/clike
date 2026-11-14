@@ -323,14 +323,17 @@ def _aggregate_rows(rows: List[dict]) -> dict:
         total_cost += cost
         total_cached += tcache
 
-        per = per_phase.setdefault(phase, {"runs":0,"cost_usd":0.0,"tokens_in":0,"tokens_out":0,"tokens_cached":0})
+        per = per_phase.setdefault(phase, {"runs":0,"cost_usd":0.0,"tokens_in":0,"tokens_out":0,"tokens_cached":0,"duration_ms":0})
         per["runs"]+=1; per["cost_usd"]+=cost; per["tokens_in"]+=tin; per["tokens_out"]+=tout; per["tokens_cached"]+=tcache
+        per["duration_ms"] = per.get("duration_ms", 0) + _int(r.get("duration_ms"))
 
-        pp = per_provider.setdefault(prov, {"runs":0,"cost_usd":0.0})
-        pp["runs"]+=1; pp["cost_usd"]+=cost
+        # an eval / gate run in the eval sandbox: no provider nor model, its time per phase and REQ
+        if r.get("execution") != "eval_sandbox":
+            pp = per_provider.setdefault(prov, {"runs":0,"cost_usd":0.0})
+            pp["runs"]+=1; pp["cost_usd"]+=cost
 
-        pm = per_model.setdefault(model, {"runs":0,"cost_usd":0.0})
-        pm["runs"]+=1; pm["cost_usd"]+=cost
+            pm = per_model.setdefault(model, {"runs":0,"cost_usd":0.0})
+            pm["runs"]+=1; pm["cost_usd"]+=cost
 
         req_id = str(r.get("req_id") or "").strip()
         if req_id:  # time, tokens and cost of one requirement across KIT, repairs and evals
