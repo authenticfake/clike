@@ -34,7 +34,7 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 ### Fixed
 
 - The regression of a promoted REQ runs the promoted version of its tests also in a project with no
-  commit yet: without commit history the modification times decide, so a test a later REQ
+  commit yet or when one first commit recorded both copies: the modification times decide then, so a test a later REQ
   reconciled and promoted no longer loses to the stale copy in the REQ's KIT (every later candidate
   had to reconcile it again).
 - `/eval REQ --accept` releases the REQ from the autopilot's parked REQs: its files do not change, so

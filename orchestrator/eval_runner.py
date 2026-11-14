@@ -2077,13 +2077,14 @@ class EvalRunner:
         except OSError:
             return False
         canonical_time, kit_time = self._commit_time(canonical_file), self._commit_time(history_file or kit_file)
-        if canonical_time is not None and kit_time is not None:
+        if canonical_time is not None and kit_time is not None and canonical_time != kit_time:
             return canonical_time > kit_time
         if not by_mtime:
-            return False
-        # no commit history for one of them (a repository with no commits yet, an untracked file):
-        # the files' own modification times (cdl-pipeline: no commit, so the test REQ-003 reconciled
-        # and promoted lost to REQ-001's stale KIT copy in every later regression)
+            return canonical_time is not None and kit_time is not None and canonical_time > kit_time
+        # the same commit for both (a first commit of a project that already had promoted REQs:
+        # cdl-pipeline) or no commit history: the files' own modification times
+        # (cdl-pipeline: the test REQ-003 reconciled and promoted lost to REQ-001's stale KIT copy in
+        # every later regression)
         try:
             return canonical_file.stat().st_mtime > (history_file or kit_file).stat().st_mtime
         except OSError:

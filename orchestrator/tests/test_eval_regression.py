@@ -461,6 +461,13 @@ class PromotedKitCompositionTests(_RegressionProject):
         work = self.proj / "runs" / "eval" / "REQ-002" / "regression" / "REQ-001" / "work" / "REQ-001" / "test"
         self.assertEqual((work / "test_pricing.py").read_text(), "from pricing import price\nassert price() == 12\n")
 
+        # a first commit of the project records both in the same commit: still the promoted version
+        self._git("init", "-q")
+        self._git("add", "-A")
+        self._git("commit", "-q", "-m", "initial", date="2026-11-14T08:37:00")
+        committed = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        self.assertIn("regression::REQ-001::unit", [c["name"] for c in committed["cases"] if c["passed"]], committed)
+
         # the KIT copy modified after the promoted one stays the KIT's (the developer changed it)
         os.utime(stale, (1_700_200_000, 1_700_200_000))
         again = self._post("/v1/eval/run", "REQ-002", regression=True).json()
