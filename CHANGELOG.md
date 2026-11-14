@@ -17,6 +17,11 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
   on purpose (the head migration by name, an exact total of routes, tables or registry entries); a
   repair reconciling such a promoted test makes it hold for the REQs that follow instead of pinning
   its own value, which failed the regression again at every REQ adding a migration.
+- Eval regression: `CLIKE_EVAL_REGRESSION_WORKERS` defaults to `auto`, the promoted REQs the
+  sandbox's memory and CPUs sustain side by side (about 2 GB and 2 CPUs each, at most 4): a 4 GB
+  sandbox keeps 2, a 10 GB / 7 CPU one runs 3. A number still sets it.
+- Eval and gate reports carry `timings`: setup, the REQ's checks, the regression and each promoted
+  REQ in it, with the workers used.
 
 ### Fixed
 

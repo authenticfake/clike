@@ -16,7 +16,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, fields
 from pathlib import Path, PurePosixPath
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import eval_environment
 import eval_failures
@@ -110,6 +110,9 @@ class EvalReport:
     missing_tools: Optional[List[str]] = None
     # versions of the tools installed in the sandbox's tools volume when the eval ran
     tools: Optional[Dict[str, Dict[str, str]]] = None
+    # where the eval spent its time (seconds): setup, the REQ's checks, the regression and each
+    # promoted REQ in it (wall time; workers run them side by side)
+    timings: Optional[Dict[str, Any]] = None
 
 
 def report_to_dict(rep: "EvalReport") -> Dict[str, Any]:
@@ -673,15 +676,60 @@ def _workspace_lock(project_root: Path, key: Any) -> threading.RLock:
         return _WORKSPACE_LOCKS.setdefault(name, threading.RLock())
 
 
-def regression_workers() -> int:
-    """Promoted REQs regressed at the same time (``CLIKE_EVAL_REGRESSION_WORKERS``, default 2,
-    1 = one after the other). Each one runs its own installs, tests and services: more workers need
-    more sandbox memory (``CLIKE_EVAL_SANDBOX_MEM_LIMIT``)."""
+_GB = 1024 ** 3
+# What one regression worker needs: its installs, a frontend build, a browser, test databases.
+_WORKER_MEMORY = 2 * _GB
+_WORKER_CPUS = 2
+_AUTO_WORKERS_MAX = 4
+
+
+def _sandbox_memory_limit() -> Optional[int]:
+    """The memory the sandbox may use (cgroup v2 or v1 limit, else the machine's), in bytes."""
+    for path in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+        try:
+            raw = Path(path).read_text().strip()
+        except OSError:
+            continue
+        if raw.isdigit() and int(raw) < 1 << 60:  # v1 reports "no limit" as a huge number
+            return int(raw)
     try:
-        value = int(os.getenv("CLIKE_EVAL_REGRESSION_WORKERS", "").strip() or 2)
-    except ValueError:
-        value = 2
-    return max(1, min(value, 8))
+        return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+    except (ValueError, OSError, AttributeError):
+        return None
+
+
+def _sandbox_cpus() -> int:
+    """CPUs the sandbox may use: the cgroup v2 quota when set, else the CPUs it can run on."""
+    try:
+        quota, period = Path("/sys/fs/cgroup/cpu.max").read_text().split()[:2]
+        if quota != "max":
+            return max(1, int(int(quota) / int(period)))
+    except (OSError, ValueError):
+        pass
+    try:
+        return len(os.sched_getaffinity(0))
+    except (AttributeError, OSError):
+        return os.cpu_count() or 1
+
+
+def auto_regression_workers(memory: Optional[int], cpus: int) -> int:
+    """Workers the sandbox's memory and CPUs sustain (about 2 GB and 2 CPUs each, at most 4):
+    a 4 GB sandbox keeps the 2 of before, a 10 GB / 7 CPU one runs 3."""
+    by_memory = (memory // _WORKER_MEMORY) if memory else 2
+    return max(1, min(_AUTO_WORKERS_MAX, by_memory, max(1, cpus // _WORKER_CPUS)))
+
+
+def regression_workers() -> int:
+    """Promoted REQs regressed at the same time (``CLIKE_EVAL_REGRESSION_WORKERS``: a number,
+    1 = one after the other, at most 8; ``auto`` or unset = what the sandbox's memory and CPUs
+    sustain). Each one runs its own installs, tests and services."""
+    raw = os.getenv("CLIKE_EVAL_REGRESSION_WORKERS", "").strip().lower()
+    if raw and raw != "auto":
+        try:
+            return max(1, min(int(raw), 8))
+        except ValueError:
+            pass
+    return auto_regression_workers(_sandbox_memory_limit(), _sandbox_cpus())
 
 
 # Installs shared by parallel regressions (a REQ's venv is also used by the services other REQs
@@ -3380,6 +3428,10 @@ class EvalRunner:
         self._only_checks = {str(c) for c in (checks or []) if str(c).strip()} or None
         self._regression_only = {str(r).strip().upper() for r in (regression_reqs or []) if str(r).strip()} or None
         self._progress_start(req_id or (ltc or {}).get("req_id"), partial=bool(self._only_checks or self._regression_only))
+        started_at = time.monotonic()
+        self._checks_started_at: Optional[float] = None
+        self._regression_span: Optional[Tuple[float, float]] = None
+        self._regression_timings: Dict[str, float] = {}
         try:
             exhausted = sandbox_resources.preflight()
             if not exhausted and not self.eval_key:  # the top-level run, not a nested regression or service
@@ -3402,6 +3454,7 @@ class EvalRunner:
                 report.missing_tools = missing
             if not self.eval_key:
                 report.tools = eval_tools.installed_versions() or None
+                report.timings = self._timings(started_at)
             return report
         finally:
             cancelled = self.cancel_event is not None and self.cancel_event.is_set()
@@ -3409,6 +3462,22 @@ class EvalRunner:
             for svc in reversed(self._services):
                 eval_environment.stop_process(svc.proc)
             self._services = []
+
+    def _timings(self, started_at: float) -> Dict[str, Any]:
+        """Seconds spent in setup, the REQ's checks and the regression (each promoted REQ's own)."""
+        ended = time.monotonic()
+        checks_from = self._checks_started_at or ended
+        span = self._regression_span
+        out: Dict[str, Any] = {
+            "total_s": round(ended - started_at, 1),
+            "setup_s": round(checks_from - started_at, 1),
+            "checks_s": round((span[0] if span else ended) - checks_from, 1),
+        }
+        if span:
+            out["regression_s"] = round(span[1] - span[0], 1)
+            out["regression_workers"] = getattr(self, "_regression_workers_used", None)
+            out["regression_by_req"] = dict(self._regression_timings)
+        return out
 
     def _tools_catalog(self) -> Dict[str, Dict[str, Any]]:
         if getattr(self, "_catalog", None) is None:
@@ -4101,6 +4170,7 @@ class EvalRunner:
                     done.duration_s = round(now - stamp_at, 2)
 
         loop_from = len(out_cases)
+        self._checks_started_at = time.monotonic()
         self._progress(phase="checks", checks_total=len(norm_cases), checks_done=0)
         for case_index, case in enumerate(norm_cases):
             _stamp()
@@ -4297,6 +4367,7 @@ class EvalRunner:
         elif regression and work_kit_root and not cancelled:
             started = time.monotonic()
             out_cases.extend(self.run_regression(eff_req, work_kit_root / "src"))
+            self._regression_span = (started, time.monotonic())
             log.info("regression req=%s took %.1fs", eff_req, time.monotonic() - started)
 
         return self._report_from_cases(
@@ -4851,6 +4922,7 @@ class EvalRunner:
             return [case for other in others_all for case in (reused.get(other) or ran.get(other) or [])]
 
         workers = min(regression_workers(), len(others))
+        self._regression_workers_used = workers
         self._promoted_state_digest(req_id)  # once, before the workers share it
         self._progress(phase="regression", regression_total=len(others), regression_done=0, regression_current=[], current=None)
         if workers <= 1:
@@ -5026,9 +5098,13 @@ class EvalRunner:
     ) -> List[EvalCase]:
         """_regress_one, with the promoted REQ in the live progress while it runs."""
         self._progress_regression(other, started=True)
+        started = time.monotonic()
         try:
             return self._regress_one(req_id, other, candidate_src, superseded)
         finally:
+            timings = getattr(self, "_regression_timings", None)
+            if timings is not None:
+                timings[other] = round(time.monotonic() - started, 1)
             self._progress_regression(other, started=False)
 
     def _regress_one(

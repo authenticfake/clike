@@ -39,7 +39,8 @@ runs the image just built. The orchestrator and the eval sandbox share one image
 contents, so it only slows the build and fills the VM disk (`podman system df`).
 
 The regression of promoted REQs runs `CLIKE_EVAL_REGRESSION_WORKERS` of them at a time (docker/.env,
-default `2`, `1` = one after the other, at most 8): each has its own work dir, venv, test databases and
+default `auto`: about 2 GB and 2 CPUs of the sandbox each, at most 4; or a number, `1` = one after the other,
+at most 8): each has its own work dir, venv, test databases and
 service ports, and the report keeps the plan order. More workers need more sandbox memory.
 
 The eval sandbox runs generated tests and is capped by `CLIKE_EVAL_SANDBOX_MEM_LIMIT` (docker/.env,

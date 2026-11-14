@@ -198,9 +198,33 @@ class ParallelRegressionTests(_RegressionProject):
         self.assertFalse(self._overlap(stamps))
 
     def test_the_workers_setting_is_bounded(self):
-        for raw, expected in (("", 2), ("0", 1), ("x", 2), ("3", 3), ("99", 8)):
-            with patch.dict("os.environ", {"CLIKE_EVAL_REGRESSION_WORKERS": raw}):
-                self.assertEqual(eval_runner.regression_workers(), expected, raw)
+        gb = 1024 ** 3
+        with patch.object(eval_runner, "_sandbox_memory_limit", return_value=4 * gb), \
+                patch.object(eval_runner, "_sandbox_cpus", return_value=7):
+            for raw, expected in (("", 2), ("auto", 2), ("0", 1), ("x", 2), ("3", 3), ("99", 8)):
+                with patch.dict("os.environ", {"CLIKE_EVAL_REGRESSION_WORKERS": raw}):
+                    self.assertEqual(eval_runner.regression_workers(), expected, raw)
+
+    def test_auto_workers_follow_the_sandbox_memory_and_cpus(self):
+        gb = 1024 ** 3
+        auto = eval_runner.auto_regression_workers
+        self.assertEqual(auto(4 * gb, 7), 2)    # the default 4 GB sandbox keeps the 2 of before
+        self.assertEqual(auto(10 * gb, 7), 3)   # cdl-pipeline: 10 GB, 7 CPUs
+        self.assertEqual(auto(64 * gb, 32), 4)  # never more than 4 on its own
+        self.assertEqual(auto(1 * gb, 7), 1)
+        self.assertEqual(auto(10 * gb, 1), 1)
+        self.assertEqual(auto(None, 8), 2)      # memory unknown: as before
+
+    def test_the_report_says_where_the_eval_spent_its_time(self):
+        self._timed_kits()
+        with patch.dict("os.environ", {"CLIKE_EVAL_REGRESSION_WORKERS": "2"}):
+            body = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        timings = body["timings"]
+        self.assertEqual(sorted(timings["regression_by_req"]), ["REQ-001", "REQ-003"])
+        self.assertEqual(timings["regression_workers"], 2)
+        for key in ("total_s", "setup_s", "checks_s", "regression_s"):
+            self.assertGreaterEqual(timings[key], 0, key)
+        self.assertGreaterEqual(timings["total_s"], timings["regression_s"])
 
     def test_service_ports_are_never_handed_out_twice(self):
         import eval_environment

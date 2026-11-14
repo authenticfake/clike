@@ -328,10 +328,12 @@ promoted version with the candidate overlaid. An eval without CLike's regression
 - **Installed `node_modules` are shared** by package.json + lockfile digest
   (`<eval base>/.npm-store/`): a fresh work copy of the REQ or of a regression REQ links them
   (hard links, no extra disk) instead of running npm again. Python venvs were already kept per REQ.
-- **Every check has its duration** (`duration_s` in the report cases), and the log has the
-  regression time: where an eval spends its time is measurable.
+- **Every check has its duration** (`duration_s` in the report cases), and the report's `timings`
+  say where the eval spent its time: setup, the REQ's checks, the regression and each promoted REQ
+  in it, with the workers used.
 - **Promoted REQs are regressed side by side**: `CLIKE_EVAL_REGRESSION_WORKERS` (docker/.env,
-  default 2, `1` = one after the other, at most 8) of them at a time, each in its own work dir with
+  default `auto`: about 2 GB and 2 CPUs of the sandbox per worker, at most 4, so a 4 GB sandbox
+  keeps 2 and a 10 GB / 7 CPU one runs 3; or a number, `1` = one after the other, at most 8) of them at a time, each in its own work dir with
   its own venv, test databases and service ports; installs they share (a REQ's venv that another
   REQ's service also uses, the npm install store) are created by one at a time, and the report
   lists the cases in plan order as before. Language-independent: it runs the LTC checks, whatever
@@ -370,7 +372,7 @@ candidate while it passes on the promoted tree alone, and showing only errors se
 timeout, a missing UI element), it is a warning (`… a known unstable check`). A failure with an
 error it never showed, or with no error line to compare, is a regression.
 
-Promoted REQs are regressed side by side (`CLIKE_EVAL_REGRESSION_WORKERS`, default 2). A blocking
+Promoted REQs are regressed side by side (`CLIKE_EVAL_REGRESSION_WORKERS`, default `auto`). A blocking
 failure that **ran out of time** (a test over its limit, a database connection, a suite over the
 check's own timeout, a dev server that did not start in time) runs again **alone** once the others
 are done: passing alone, it was the parallel load, a non-blocking warning (`[CLike EvalRunner]
