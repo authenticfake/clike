@@ -174,3 +174,15 @@ def test_a_repair_sure_a_locked_test_is_wrong_writes_the_correction_not_only_a_d
     assert "do not only describe the correction in a document" in rule
     assert "never in the tests of promoted REQs" in rule
     assert "saves your change as a patch" in rule
+
+
+def test_kit_and_repair_keep_promoted_tests_valid_for_the_reqs_that_follow():
+    # cdl-pipeline REQ-002: a REQ-001 test pinned the head migration to its own revision; the repair
+    # re-pinned it to REQ-002's, so every REQ adding a migration would fail the regression again.
+    from services.kit_repair import kit_self_check_rules
+
+    kit_rule = next(r for r in kit_self_check_rules("REQ-001") if "never a state the next REQs change" in r)
+    assert "the head the migration scripts declare (not a revision name)" in kit_rule
+    repair_rule = next(r for r in repair_rules("REQ-002") if "regression of a promoted REQ" in r)
+    assert "so it holds for the REQs that follow too" in repair_rule
+    assert "never pin this REQ's value in its place" in repair_rule

@@ -13,6 +13,10 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 - KIT instructions, all executors: a check the agent's own environment cannot run does not make a
   criterion partial (the eval runs it), and install commands of the checks work on a clean machine
   with registry access (no offline-only flags: the eval starts with empty package caches).
+- KIT and repair instructions: tests assert what their REQ delivers, never a state later REQs change
+  on purpose (the head migration by name, an exact total of routes, tables or registry entries); a
+  repair reconciling such a promoted test makes it hold for the REQs that follow instead of pinning
+  its own value, which failed the regression again at every REQ adding a migration.
 
 ### Fixed
 
