@@ -611,3 +611,45 @@ class SharedSupportReadsKitTests(unittest.TestCase):
             runner._explain_kit_reads(reads, [failing, other])
             self.assertIn("in this regression the KIT is REQ-007's KIT, which has no ci/fixtures/scoring.json", failing.stderr)
             self.assertEqual(other.stderr, "AssertionError")
+
+
+class DetachedProcessesTests(unittest.TestCase):
+    def test_processes_a_check_detached_are_killed_by_its_tag_only(self):
+        # lead-generation REQ-006: a browser suite's servers, detached from the check's group, held
+        # 127.0.0.1:3000 for the next check; another REQ's check running beside it must survive
+        import os
+        import signal
+        import tempfile
+        import eval_runner
+
+        with tempfile.TemporaryDirectory() as tmp:
+            proc = Path(tmp)
+            for pid, env in ((101, b"PATH=/bin\0CLIKE_CHECK_RUN=abc\0"), (102, b"CLIKE_CHECK_RUN=other\0"),
+                             (103, b"HOME=/tmp\0"), (104, b"CLIKE_CHECK_RUN=abcdef\0")):
+                (proc / str(pid)).mkdir()
+                (proc / str(pid) / "environ").write_bytes(env)
+            (proc / "self").mkdir()
+            killed = []
+            with patch.object(eval_runner.os, "kill", side_effect=lambda pid, sig: killed.append((pid, sig))):
+                self.assertEqual(eval_runner._kill_tagged("abc", proc), 1)
+                self.assertEqual(eval_runner._kill_tagged("", proc), 0)
+                self.assertEqual(eval_runner._kill_tagged("abc", proc / "missing"), 0)
+            self.assertEqual(killed, [(101, signal.SIGKILL)])  # not 'other', not untagged, not the longer 'abcdef'
+
+    def test_a_check_runs_with_its_own_tag(self):
+        import eval_runner
+
+        seen = {}
+        real = eval_runner.subprocess.Popen
+
+        def popen(cmd, **kw):
+            seen.update(kw["env"])
+            return real("true", shell=True, stdout=eval_runner.subprocess.PIPE, stderr=eval_runner.subprocess.PIPE,
+                        text=True, start_new_session=True)
+
+        with patch.object(eval_runner.subprocess, "Popen", side_effect=popen), \
+                patch.object(eval_runner, "_kill_tagged") as kill:
+            eval_runner._run_process_group("true", cwd=Path("."), env={"A": "1"}, timeout=10)
+        tag = seen.get("CLIKE_CHECK_RUN")
+        self.assertTrue(tag and len(tag) == 32)
+        kill.assert_called_once_with(tag)

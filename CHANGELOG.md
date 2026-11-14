@@ -6,6 +6,10 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- Processes a check starts and detaches into a group or session of their own (a test launcher's servers, a
+  browser suite's webServer) are stopped with the check: they carry a per-check tag CLike kills by. Before,
+  they kept their ports and the next check failed with "address already in use"; other REQs' checks running
+  side by side are never touched.
 - A local agent with no registry access gets its lockfiles from CLike: `eval-check.mjs --lock <KIT manifest>`
   resolves `uv.lock` or `package-lock.json` in the eval sandbox and writes it beside the manifest, without
   counting as an eval-check run (an agent spent four of six runs smuggling a lockfile out of a check). When the

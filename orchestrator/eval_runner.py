@@ -13,6 +13,7 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, fields
 from pathlib import Path, PurePosixPath
@@ -197,12 +198,41 @@ class EvalCancelled(RuntimeError):
     """The caller went away (client disconnected): the running check was stopped."""
 
 
-def _stop_group(proc: subprocess.Popen) -> None:
+_CHECK_TAG_VAR = "CLIKE_CHECK_RUN"
+
+
+def _kill_tagged(tag: str, proc_root: Path = Path("/proc")) -> int:
+    """Kill every process that carries this check's tag in its environment: what the check started
+    and detached into a group or session of its own (a test server launched `detached`, a browser
+    suite's webServer) survives the group kill and held its port for the next check (lead-generation
+    REQ-006: 127.0.0.1:3000 and the worker's health port). The tag is inherited through setsid and
+    is unique per check, so the checks of other REQs running side by side are never touched.
+    Linux only (/proc); returns how many were killed."""
+    if not tag or not proc_root.is_dir():
+        return 0
+    needle = f"{_CHECK_TAG_VAR}={tag}".encode() + b"\0"
+    killed = 0
+    own = os.getpid()
+    for entry in proc_root.iterdir():
+        if not entry.name.isdigit() or int(entry.name) == own:
+            continue
+        try:
+            if needle in (entry / "environ").read_bytes():
+                os.kill(int(entry.name), signal.SIGKILL)
+                killed += 1
+        except OSError:
+            continue  # gone meanwhile, or not ours
+    return killed
+
+
+def _stop_group(proc: subprocess.Popen, tag: str = "") -> None:
     if os.name != "nt":
         try:
             os.killpg(proc.pid, signal.SIGKILL)
         except OSError:
             pass
+        if tag:
+            _kill_tagged(tag)
     elif proc.poll() is None:
         proc.kill()
 
@@ -216,12 +246,14 @@ def _run_process_group(
     cancel: Optional[threading.Event] = None,
 ) -> subprocess.CompletedProcess:
     """subprocess.run(shell=True) that stops the whole process group on timeout or cancellation
-    (the shell's children, e.g. pytest or a server, would otherwise keep running in the sandbox)."""
+    (the shell's children, e.g. pytest or a server, would otherwise keep running in the sandbox),
+    and every process the check started and detached (tagged in its environment: _kill_tagged)."""
+    tag = uuid.uuid4().hex
     proc = subprocess.Popen(
         cmd,
         shell=True,
         cwd=str(cwd),
-        env=env,
+        env={**env, _CHECK_TAG_VAR: tag},
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -235,15 +267,15 @@ def _run_process_group(
             stdout, stderr = proc.communicate(timeout=step)
             # What the check left running in its group (a server, a browser) is stopped too: an
             # orphan per check exhausted the sandbox's process limit within a day of evals.
-            _stop_group(proc)
+            _stop_group(proc, tag)
             return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
         except subprocess.TimeoutExpired:
             if cancel is not None and cancel.is_set():
-                _stop_group(proc)
+                _stop_group(proc, tag)
                 proc.communicate()
                 raise EvalCancelled(cmd)
             if deadline is not None and time.monotonic() >= deadline:
-                _stop_group(proc)
+                _stop_group(proc, tag)
                 stdout, stderr = proc.communicate()
                 raise subprocess.TimeoutExpired(cmd, timeout, output=stdout, stderr=stderr)
 
