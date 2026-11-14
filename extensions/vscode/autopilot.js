@@ -86,6 +86,19 @@ function keptParked(previous, fingerprintOf, env = '') {
   return { kept, released };
 }
 
+/**
+ * The autopilot state without the parking of reqId: a decision of the developer that changes no
+ * input of the REQ (/eval --accept of its tests) releases it, so the next /autopilot retries it.
+ * Returns null when it was not parked (nothing to write).
+ */
+function releaseParked(state, reqId) {
+  const id = String(reqId || '').toUpperCase();
+  if (!state || !state.parked || !state.parked[id]) return null;
+  const parked = { ...state.parked };
+  delete parked[id];
+  return { ...state, parked };
+}
+
 /** Did the step succeed? msg is the chat message after the handler ran (its __result/__report). */
 function stepOutcome(step, msg) {
   const report = msg?.__report || {};
@@ -171,5 +184,5 @@ function autopilotReportMarkdown(run) {
 
 module.exports = {
   STEPS, STATE_REL, REPORT_REL, resumeStep, nextAutopilotReq, isQuotaFailure, transientFailure, keptParked, stepOutcome,
-  executorState, methodologyFields, autopilotReportMarkdown,
+  executorState, methodologyFields, autopilotReportMarkdown, releaseParked,
 };

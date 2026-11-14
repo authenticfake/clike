@@ -5,6 +5,7 @@ const {
   nextAutopilotReq, resumeStep, isQuotaFailure, transientFailure, keptParked, stepOutcome, executorState, methodologyFields,
   autopilotReportMarkdown,
 } = require('../autopilot');
+const autopilot = require('../autopilot');
 const { parseSlash } = require('../slash-parser');
 
 const plan = [
@@ -117,4 +118,15 @@ test('/autopilot parses N, executor, methodology, stop and status', () => {
   assert.deepEqual(parseSlash('/autopilot --executor=codex').args, { action: 'start', max: 0, executor: 'codex', methodology: '' });
   assert.deepEqual(parseSlash('/autopilot stop').args, { action: 'stop' });
   assert.deepEqual(parseSlash('/autopilot status').args, { action: 'status' });
+});
+
+test('an accepted test change releases the parked REQ: its files did not change, the next run retries it', () => {
+  // cdl-pipeline REQ-003: parked at eval on the acceptance lock; /eval --accept fixed it, but the
+  // fingerprint of its files was the same, so /autopilot kept it parked
+  const state = { running: false, parked: { 'REQ-003': { step: 'eval', fingerprint: 'f' }, 'REQ-009': { step: 'kit' } } };
+  const released = autopilot.releaseParked(state, 'req-003');
+  assert.deepStrictEqual(Object.keys(released.parked), ['REQ-009']);
+  assert.ok(state.parked['REQ-003'], 'the input state is not changed');
+  assert.strictEqual(autopilot.releaseParked(state, 'REQ-004'), null);
+  assert.strictEqual(autopilot.releaseParked({}, 'REQ-003'), null);
 });

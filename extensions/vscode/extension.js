@@ -421,7 +421,18 @@ async function acceptAcceptanceEdit(wsRoot, reqId, givenReason) {
     }
     const res = await postAcceptanceAccept(wsRoot, reqId, reason, author || require('os').userInfo().username);
     const rejected = Object.entries(res?.rejected || {}).map(([file, why]) => `${file} (${[].concat(why).join('; ')})`);
-    if (res?.accepted?.length) echo(`✔ ${reqId}: accepted ${res.accepted.join(', ')} (audit ${res.audit_id}). Run the eval again.`);
+    if (res?.accepted?.length) {
+      echo(`✔ ${reqId}: accepted ${res.accepted.join(', ')} (audit ${res.audit_id}). Run the eval again.`);
+      // an /autopilot that parked the REQ for this retries it next time (its files did not change)
+      try {
+        const statePath = path.join(wsRoot.fsPath, ...autopilot.STATE_REL.split('/'));
+        const released = autopilot.releaseParked(JSON.parse(fsSync.readFileSync(statePath, 'utf8')), reqId);
+        if (released) {
+          fsSync.writeFileSync(statePath, JSON.stringify(released, null, 2));
+          echo(`${reqId}: released from the autopilot's parked REQs — /autopilot retries it.`);
+        }
+      } catch { /* no autopilot state */ }
+    }
     else if (!rejected.length) echo(`${reqId}: the tests and ci/ match the lock, nothing to accept.`);
     if (rejected.length) echo(`✖ ${reqId}: not accepted, they remove or weaken checks — restore them or re-run /kit ${reqId}: ${rejected.join(', ')}`);
     if (rejected.length && proposal?.applied && !res?.accepted?.length) {

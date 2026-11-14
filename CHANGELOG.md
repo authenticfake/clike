@@ -28,6 +28,8 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- `/eval REQ --accept` releases the REQ from the autopilot's parked REQs: its files do not change, so
+  the next `/autopilot` kept it parked although the developer had resolved it.
 - The checks a local agent runs in the eval sandbox while it writes a KIT no longer take the
   acceptance lock nor count as a verdict: the first eval did, and stopped the REQ as "changed after
   the lock" when the agent improved its own tests afterwards. Only the bridge marks its runs; the
