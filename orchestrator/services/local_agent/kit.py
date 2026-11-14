@@ -226,7 +226,13 @@ def kit_eval_check_rules(eval_check: Dict[str, Any]) -> List[str]:
         f"this once the KIT is complete, fix what fails and run it again (at most {eval_check['max_runs']} runs). "
         "`... <check> <check>` re-runs only those checks." + EVAL_CHECK_TIMEOUT_NOTE),
         ("Write docs/ACCEPTANCE.json from that run: a criterion is done when its blocking checks passed in the eval sandbox. "
-         "A check your own sandbox could not run is not a reason for partial; partial / missing means work left in the code."),
+         "A check your own sandbox could not run is not a reason for partial; partial / missing means work left in the code. "
+         "When the runs are used up after a fix you made and checked locally, the criterion is done (CLike's eval verifies "
+         "it next): never write partial only because you could not re-run the eval sandbox."),
+        (f"Lockfiles: when your own sandbox cannot reach the package registry, `{eval_check['command']} --lock "
+         "runs/kit/<REQ-ID>/<path>/pyproject.toml` (or `package.json`) makes CLike resolve the lockfile with registry "
+         "access and writes `uv.lock` (or `package-lock.json`) beside it; it does not count as a run. Never generate a "
+         "lockfile through a check's output."),
         *([(
             "The first time your checks all pass, CLike also runs in that same run the regression of the promoted REQs "
             "with your KIT overlaid (`regression::` checks), as the eval runs it (a few minutes more); two runs beyond "
@@ -281,7 +287,9 @@ def _kit_stage(req_id: str, payload: Dict[str, Any], repair_context: Dict[str, A
                 f"pass (at most {eval_check.get('max_runs')} runs). The verdict is CLike's full eval after you finish. "
                 "Only these checks decide this repair: when they pass, finish. A failure the result marks non-blocking "
                 "(already failing without this candidate, unstable, a warning) is not yours to fix; re-running a whole "
-                "REQ's regression to chase it costs minutes and changes nothing in the verdict."
+                "REQ's regression to chase it costs minutes and changes nothing in the verdict. A lockfile your sandbox "
+                f"cannot resolve: `{eval_check.get('command')} --lock runs/kit/<REQ-ID>/<path>/pyproject.toml` (or "
+                "`package.json`) writes it beside the manifest, without counting as a run."
                 + EVAL_CHECK_TIMEOUT_NOTE
             )
         else:

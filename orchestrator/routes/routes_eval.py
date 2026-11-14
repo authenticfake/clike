@@ -16,7 +16,7 @@ from pydantic import BaseModel
 import httpx
 
 from eval_runner import EvalCase, EvalReport, EvalRunner, eval_progress, report_from_dict, report_to_dict
-from services import eval_telemetry, eval_verdicts
+from services import eval_telemetry, eval_verdicts, lockfiles
 import eval_tools
 from sandbox_resources import SANDBOX_EXHAUSTED_REASON
 from utils.safe_paths import UnsafePathError, is_within_any, resolve_within, validate_req_id
@@ -958,6 +958,31 @@ async def gate_check(
     }
     eval_telemetry.record(prj, args.project_name, "gate", result, started, "gate")
     return result
+
+
+class EvalLockRequest(BaseModel):
+    project_root: Optional[str] = None
+    project_name: Optional[str] = None
+    manifest: str
+
+
+@router.post("/v1/eval/lock")
+async def eval_lock(payload: EvalLockRequest):
+    """Resolve the lockfile of a KIT manifest (pyproject.toml, package.json) in the eval sandbox, which
+    reaches the package registries: a local agent with no network gets its uv.lock or package-lock.json
+    without spending eval-check runs (services/lockfiles.py)."""
+    prj = _confined_project_root(payload.project_root, payload.project_name)
+    sandbox = os.getenv("CLIKE_EVAL_SANDBOX_URL", "").strip().rstrip("/")
+    if sandbox:
+        try:
+            async with httpx.AsyncClient(timeout=lockfiles.TIMEOUT_S + 60) as client:
+                response = await client.post(f"{sandbox}/lock", json={"project_root": str(prj), "manifest": payload.manifest})
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=503, detail=f"eval sandbox unavailable: {type(exc).__name__}") from exc
+        if response.status_code != 200:
+            raise HTTPException(status_code=response.status_code, detail=f"eval sandbox: {response.text[:500]}")
+        return response.json()
+    return await asyncio.to_thread(lockfiles.resolve_lock, prj, payload.manifest)
 
 
 class AcceptanceLockRequest(BaseModel):

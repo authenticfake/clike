@@ -102,6 +102,19 @@ async function postEvalChecks(profile, workspaceRoot, reqId, checks, { agentChec
 }
 
 /**
+ * Resolves the lockfile of a KIT manifest (pyproject.toml, package.json) in the eval sandbox, which
+ * reaches the package registries: for a local agent with no network (eval-check-bridge.js --lock).
+ */
+async function postEvalLock(workspaceRoot, manifest) {
+  const projectName = getProjectNameFromWorkspace();
+  if (!projectName) throw new Error('Cannot resolve current project name');
+  return requestJson('POST', orchestratorUrl('/v1/eval/lock'), {
+    body: { project_root: asFsPath(workspaceRoot), project_name: projectName, manifest },
+    timeoutMs: 6 * 60 * 1000,
+  });
+}
+
+/**
  * Live progress of the REQ's eval or gate in flight (/v1/eval/progress): phase, checks done of
  * total, the promoted REQs of the regression; { state: 'unknown' } when none is known.
  */
@@ -261,6 +274,7 @@ module.exports = {
   postAcceptanceLock,
   postGateOverride,
   postEvalChecks,
+  postEvalLock,
   postEvalRun,
   postGateCheck,
 };

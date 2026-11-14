@@ -243,3 +243,57 @@ test('a non-blocking failure does not make the result FAIL, and the repair is to
   // a run that did not include every target does not say finish
   assert.equal(compactResult({ cases: [{ name: 'regression::REQ-008::test:unit', passed: true }] }, targets).done, undefined);
 });
+
+test('--lock: CLike resolves the KIT lockfile with registry access and writes it, not counted as a run', async () => {
+  // lead-generation REQ-001: four of six runs spent smuggling uv.lock out of a check's output
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'clike-evalcheck-'));
+  const src = path.join(root, 'runs', 'kit', 'REQ-001', 'src');
+  fs.mkdirSync(src, { recursive: true });
+  fs.writeFileSync(path.join(src, 'pyproject.toml'), '[project]\nname = "app"\n');
+  fs.writeFileSync(path.join(root, 'runs', 'kit', 'REQ-001', 'setup.py'), '');
+  const locked = [];
+  const bridge = startEvalCheckBridge({
+    workspaceRoot: root, pollMs: 20, maxRuns: 1, reqId: 'REQ-001',
+    runChecks: async () => ({ cases: [{ name: 'unit', passed: true }] }),
+    runLock: async (manifest) => {
+      locked.push(manifest);
+      return manifest.endsWith('pyproject.toml')
+        ? { status: 'OK', lockfile: 'runs/kit/REQ-001/src/uv.lock', content: 'version = 1\n' }
+        : { status: 'FAIL', lockfile: '', error: 'npm exited 1', log: 'E404 left-pad-x not found' };
+    },
+  });
+  try {
+    const ok = await runHelper(root, ['--lock', 'runs/kit/REQ-001/src/pyproject.toml']);
+    assert.equal(ok.code, 0, ok.stdout + ok.stderr);
+    assert.match(ok.stdout, /Wrote runs\/kit\/REQ-001\/src\/uv\.lock/);
+    assert.equal(fs.readFileSync(path.join(src, 'uv.lock'), 'utf8'), 'version = 1\n');
+    // refused before calling CLike: another REQ, a path escaping the KIT, an unsupported manifest
+    for (const bad of ['runs/kit/REQ-002/src/pyproject.toml', 'runs/kit/REQ-001/../REQ-002/pyproject.toml', 'runs/kit/REQ-001/setup.py']) {
+      const out = await runHelper(root, ['--lock', bad]);
+      assert.equal(out.code, 1, bad);
+      assert.match(out.stdout, /Result: ERROR/, bad);
+    }
+    fs.writeFileSync(path.join(src, 'package.json'), '{}');
+    const failed = await runHelper(root, ['--lock', 'runs/kit/REQ-001/src/package.json']);
+    assert.match(failed.stdout, /FAIL: npm exited 1[\s\S]*E404/);
+    assert.deepEqual(locked, ['runs/kit/REQ-001/src/pyproject.toml', 'runs/kit/REQ-001/src/package.json']);
+    // the eval-check run is still available
+    assert.match((await runHelper(root, [])).stdout, /Result: PASS/);
+    assert.equal(bridge.runs, 1);
+  } finally {
+    bridge.stop();
+  }
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('the run limit tells the agent that a fixed and locally checked criterion is done', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'clike-evalcheck-'));
+  const bridge = startEvalCheckBridge({ workspaceRoot: root, pollMs: 20, maxRuns: 1, runChecks: async () => ({ cases: [{ name: 'unit', passed: false, code: 1 }] }) });
+  try {
+    await runHelper(root, []);
+    assert.match((await runHelper(root, [])).stdout, /LIMIT: .*fixed and checked locally is done in docs\/ACCEPTANCE\.json/);
+  } finally {
+    bridge.stop();
+  }
+  fs.rmSync(root, { recursive: true, force: true });
+});

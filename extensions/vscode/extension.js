@@ -142,7 +142,7 @@ function openReadingMode(uri) {
   vscode.commands.executeCommand('markdown.showPreview', uri).then(undefined, () =>
     vscode.window.showTextDocument(uri, { preview: true }));
 }
-const { getEvalRoots, getEvalProgress, getEvalTools, postEvalToolsUpdate, postAcceptanceAccept, postAcceptanceAmend, postAcceptanceLock, postEvalChecks, postEvalToolsCheck, postEvalToolsInstall, postGateOverride } = require('./api');
+const { getEvalRoots, getEvalProgress, getEvalTools, postEvalToolsUpdate, postAcceptanceAccept, postAcceptanceAmend, postAcceptanceLock, postEvalChecks, postEvalLock, postEvalToolsCheck, postEvalToolsInstall, postGateOverride } = require('./api');
 const evalToolsLib = require('./eval-tools');
 const { approveForProject, ensureEvalTools, questionText } = evalToolsLib;
 const { agentArgsForEvalCheck, agentTimeoutMinutes, startEvalCheckBridge } = require('./eval-check-bridge');
@@ -1277,6 +1277,9 @@ async function executeLocalAgentPackage({
       workspaceRoot: toFsPath(wsroot),
       maxRuns: Number(evalCheck.max_runs || 8),
       runChecks: (checks) => postEvalChecks(evalCheck.profile, wsroot, reqForAgent, checks, { agentCheck: true }),
+      // lockfiles the agent cannot resolve without network (uv.lock, package-lock.json)
+      runLock: (manifest) => postEvalLock(wsroot, manifest),
+      reqId: reqForAgent,
       log,
       targets: Array.isArray(evalCheck.targets) ? evalCheck.targets : [],
       regression: Array.isArray(evalCheck.regression) ? evalCheck.regression : [],
